@@ -19,3 +19,9 @@ desktop.ini
 # Logs système (pas les .log.md des tâches)
 *.log
 !**/*.log.md
+
+# Environnement local (credentials, URLs)
+.env
+
+# Projets — repo git séparé, cloné dans ce dossier
+projects/

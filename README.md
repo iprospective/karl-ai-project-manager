@@ -3,6 +3,21 @@
 Système de gestion de projets et tâches conçu pour la collaboration entre humains et agents IA.
 Les tâches sont des fichiers Markdown structurés, Redmine est le tracker opérationnel, GitLab assure le versioning.
 
+## Installation
+
+```bash
+# 1. Cloner ce repo
+git clone git@gitlab.iprospective.fr:iprospective/ai-artificial-intelligence/ai-project-management.git
+cd ai-project-management
+
+# 2. Configurer l'environnement
+cp .env.example .env
+# Éditer .env avec les vraies valeurs (GitLab token, Redmine API key...)
+
+# 3. Cloner le repo des projets dans projects/
+git clone git@gitlab.iprospective.fr:iprospective/ai-projects.git projects/
+```
+
 ## Démarrage rapide
 
 ### Créer un projet

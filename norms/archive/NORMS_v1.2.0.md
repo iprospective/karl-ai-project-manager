@@ -1,27 +1,19 @@
 ---
-schema_version: "1.2.1"
+schema_version: "1.2.0"
 updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.2.1
+# Normes de gestion des tâches — v1.2.0
 
 ## Configuration globale
 
-Les valeurs sensibles (tokens, URLs d'instance) sont définies dans `.env` (gitignored).
-Copier `.env.example` en `.env` et renseigner les variables avant utilisation.
-
 ```yaml
 gitlab:
-  instance: ${GITLAB_URL}
-  ssh: ${GITLAB_SSH}
-  token: ${GITLAB_TOKEN}
+  instance: https://gitlab.iprospective.fr
+  ssh: gitlab@repos.iprospective.fr
 
 redmine:
-  instance: ${REDMINE_URL}     # global, peut être surchargé dans project.md
-  api_key: ${REDMINE_API_KEY}
-
-paths:
-  projects: ${PROJECTS_PATH}   # chemin absolu vers le repo projects/
+  instance: # défini par projet dans project.md
 ```
 
 ## Structure des dossiers

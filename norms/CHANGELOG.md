@@ -5,6 +5,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.1] - 2026-04-27
+
+### Modifié
+- Configuration globale : URLs et credentials remplacés par des références `${VAR}`
+  — les valeurs réelles vont dans `.env` (gitignored)
+- `archive/NORMS_v1.2.0.md` ajouté
+
+---
+
 ## [1.2.0] - 2026-04-27
 
 ### Ajouté

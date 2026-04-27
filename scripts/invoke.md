@@ -3,6 +3,10 @@
 Les agents sont déclenchés manuellement via Claude Code CLI depuis la racine de ce dépôt.
 
 ```bash
+# 1. Charger les variables d'environnement (credentials, URLs, chemins)
+source .env
+
+# 2. Lancer Claude Code — CLAUDE.md est chargé automatiquement
 cd /zfs/workspaces/ai/project-management
 claude
 ```

@@ -7,6 +7,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.3] - 2026-04-27
+
+### Ajouté
+- `.env.example` : variables d'environnement requises (GitLab, Redmine, chemins)
+- `projects/` gitignored : le dossier projects est désormais un repo git séparé,
+  cloné indépendamment — le repo PM est publiable sans données de projets
+
+### Modifié
+- `.gitignore` : ajout de `.env` et `projects/`
+- `norms/NORMS.md` v1.2.1 : config globale externalisée en variables d'environnement
+
+---
+
 ## [1.2.2] - 2026-04-27
 
 ### Ajouté

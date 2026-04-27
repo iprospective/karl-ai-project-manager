@@ -45,9 +45,13 @@ TANT QUE actif :
 
 ```
 1. Lire le champ type du ticket → sélectionner le worker adapté :
-   feature / bugfix / refactoring / infrastructure → worker-dev
-   audit / research / documentation / assistance   → worker-analyst
-   security / performance                          → worker-specialist (ou worker-dev)
+   feature / bugfix / refactoring                 → worker-dev
+   security / performance                         → worker-dev
+   audit / research / documentation               → worker-analyst
+   assistance / maintenance                       → worker-analyst
+   database                                       → worker-db
+   infrastructure                                 → worker-infra
+   design                                         → worker-design
 
 2. Appeler l'API Redmine : assigner le ticket au worker cible
    → succès   : continuer

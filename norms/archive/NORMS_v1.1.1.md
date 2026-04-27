@@ -1,9 +1,9 @@
 ---
-schema_version: "1.2.0"
+schema_version: "1.1.1"
 updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.2.0
+# Normes de gestion des tâches — v1.1.1
 
 ## Configuration globale
 
@@ -100,7 +100,7 @@ Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 ## Valeurs énumérées
 
 ### type
-`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
+`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `research` | `maintenance` | `assistance`
 
 ### status
 `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `a_faire` | `en_cours` | `a_tester_verifier` | `a_corriger` | `ferme`
@@ -160,13 +160,13 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 
 **Workers (agents spécialisés)**
 
-| Type de tâche | Agent |
+| Type de tâche | Agent recommandé |
 |---|---|
-| `feature` / `bugfix` / `refactoring` / `security` / `performance` | worker-dev |
-| `audit` / `research` / `documentation` / `assistance` / `maintenance` | worker-analyst |
-| `database` | worker-db |
-| `infrastructure` | worker-infra |
-| `design` | worker-design |
+| `feature` / `refactoring` | agent-dev |
+| `bugfix` | agent-debug |
+| `audit` / `research` | agent-analyst |
+| `documentation` | agent-writer |
+| `security` / `performance` | agent-specialist |
 
 - Propriétaire exclusif de leur fichier de tâche assignée
 - Lecture seule sur tous les autres fichiers MD

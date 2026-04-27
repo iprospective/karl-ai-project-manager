@@ -5,6 +5,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.0] - 2026-04-27
+
+### Ajouté
+- Types de tâches `database` et `design` dans l'énumération `type`
+- `agents/worker-db.md` : modélisation BDD, migrations avec UP/DOWN obligatoire, sécurité des données
+- `agents/worker-design.md` : wireframes, prototypes HTML, specs composants, cycle itératif avec feedback
+- `agents/worker-infra.md` : CI/CD, configuration serveur, déploiement, gestion des secrets
+- Table de routage type → agent mise à jour dans NORMS.md et orchestrateur.md
+- `archive/NORMS_v1.1.1.md` — snapshot de la version précédente
+
+---
+
 ## [1.1.1] - 2026-04-27
 
 ### Modifié

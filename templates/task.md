@@ -6,7 +6,7 @@ redmine_id:
 title: ""
 type: feature
 # audit | feature | bugfix | refactoring | documentation | security
-# performance | infrastructure | research | maintenance | assistance
+# performance | infrastructure | database | design | research | maintenance | assistance
 parent_task: null
 sub_tasks: []
 

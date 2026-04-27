@@ -5,6 +5,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.1.1] - 2026-04-27
+
+### Modifié
+- Règle de versionning : les versions **mineures** sont désormais archivées dans `archive/` (comme les majeures). Seuls les patches restent sans archive.
+- Description du dossier `archive/` mise à jour en conséquence
+
+### Ajouté
+- `archive/NORMS_v1.0.md` — snapshot de la version initiale
+- `archive/NORMS_v1.1.md` — snapshot de la v1.1
+
+---
+
 ## [1.1.0] - 2026-04-27
 
 ### Ajouté

@@ -1,9 +1,9 @@
 ---
-schema_version: "1.1.1"
+schema_version: "1.1"
 updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.1.1
+# Normes de gestion des tâches — v1.1
 
 ## Configuration globale
 
@@ -23,7 +23,7 @@ project-management/
   norms/
     NORMS.md                          # version courante (ce fichier)
     CHANGELOG.md                      # historique des évolutions
-    archive/                          # snapshots de toutes les versions (majeures et mineures)
+    archive/                          # snapshots des versions majeures
   projects/
     {nom-projet}/
       project.md
@@ -353,6 +353,6 @@ GitLab (source de vérité)
 
 | Type | Exemple | Règle |
 |---|---|---|
-| Majeur | `1.0 → 2.0` | Changement breaking — snapshot archivé dans `archive/` |
-| Mineur | `1.0 → 1.1` | Ajout rétrocompatible — snapshot archivé dans `archive/` |
-| Patch | `1.1 → 1.1.1` | Clarification — CHANGELOG suffit, pas d'archive |
+| Majeur | `1.0 → 2.0` | Changement breaking — snapshot archivé dans `archive/NORMS_v{M}.0.md` |
+| Mineur | `1.0 → 1.1` | Ajout rétrocompatible — CHANGELOG suffit |
+| Patch | `1.1 → 1.1.1` | Clarification — CHANGELOG suffit |

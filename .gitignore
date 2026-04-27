@@ -1,0 +1,21 @@
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Éditeurs
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+*.sublime-workspace
+
+# Temporaires
+*.tmp
+*.bak
+*.orig
+
+# Logs système (pas les .log.md des tâches)
+*.log
+!**/*.log.md

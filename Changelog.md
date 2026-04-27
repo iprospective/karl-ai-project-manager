@@ -7,6 +7,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.1] - 2026-04-27
+
+### Refactoring
+- Extraction des règles communes des workers dans `agents/worker-common.md`
+  (périmètre d'écriture, contexte, format journal, soumission, locking, blocage)
+- Workers réécrits en version compacte : chaque fichier ne contient plus que
+  ce qui est spécifique au rôle — taille réduite de ~50%
+
+---
+
 ## [1.1.0] - 2026-04-27
 
 ### Ajouté

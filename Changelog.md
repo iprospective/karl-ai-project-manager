@@ -7,6 +7,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.2] - 2026-04-27
+
+### Ajouté
+- `CLAUDE.md` : bootstrap automatique pour Claude Code — orientation, ordre de lecture, rappels critiques
+- `scripts/invoke.md` : guide d'invocation manuelle (workers, reviewer, orchestrateur, workflow complet)
+
+---
+
 ## [1.2.1] - 2026-04-27
 
 ### Refactoring

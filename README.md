@@ -44,6 +44,7 @@ git clone git@gitlab.iprospective.fr:iprospective/ai-projects.git projects/
 project-management/
   README.md                   # ce fichier
   CHANGELOG.md                # historique système
+  PISTES.md                   # pistes d'évolution (v3 et au-delà)
   .gitignore
   norms/
     NORMS.md                  # référence normative courante (v1.1)

@@ -7,6 +7,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.4] - 2026-04-27
+
+### Ajouté
+- `PISTES.md` : document de pistes d'évolution AI-natives pour une v3
+  (branch & merge, critiques continus, décomposition asymétrique,
+  pipeline Intent→Plan→Fan-out→Synthèse, exécution spéculative)
+- Nouveaux rôles d'agents proposés : intent-extractor, adversary, critic, synthesizer
+
+---
+
 ## [1.2.3] - 2026-04-27
 
 ### Ajouté

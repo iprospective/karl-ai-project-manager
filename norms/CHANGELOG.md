@@ -5,6 +5,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.3.0] - 2026-04-27
+
+### Ajouté
+- **Hiérarchie client → projet → tâche** : nouvelle structure
+  `clients/{C}/projects/{P}/tasks/RM*.md`
+- **Cascade et héritage** : règles de propagation des paramètres entre niveaux
+  (héritage par défaut, override possible)
+- **Fichiers auto-générés** au niveau client et projet :
+  `Changelog.md`, `Pistes.md`, `Remarques.md`
+- **Section "Structure / Fonctionnement"** dans `client.md` et `project.md`
+  (rédigée par l'agent summarizer)
+- **Section "Ordonnancement par ROI"** : formule de scoring documentée
+- Template `client.md` (nouveau)
+- `archive/NORMS_v1.2.1.md`
+
+### Modifié
+- Template `project.md` : ajout `client`, `defaults`, `stack` (incluant section tests),
+  section `## Structure / Fonctionnement`
+- Schema bumped 1.2.1 → 1.3.0
+
+---
+
 ## [1.2.1] - 2026-04-27
 
 ### Modifié

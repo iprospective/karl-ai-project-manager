@@ -11,16 +11,20 @@ Ce fichier est chargé par tous les agents workers en première position, avant 
 | Fichiers référencés dans `outputs[]` | Lecture + écriture |
 | Tous les autres fichiers MD | Lecture seule |
 
-## Contexte à charger à chaque tâche
+## Contexte à charger à chaque tâche (cascade)
+
+Lecture en cascade : système → client → projet → tâche. Chaque niveau complète
+ou surcharge le précédent (cf. NORMS.md § Cascade et héritage).
 
 1. `agents/worker-common.md` — ce fichier
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/NORMS.md` — schéma, machine d'états, protocoles
-4. `projects/{projet}/project.md` — stack, conventions, environnements
-5. `projects/{projet}/tasks/RM{id}_*.md` — la tâche assignée (frontmatter + corps complet)
-6. Fichiers dans `refs[]` — documents de référence liés à la tâche
-7. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
-8. Dernières 50 lignes de `RM{id}_*.log.md` — état courant
+4. `clients/{C}/client.md` + `clients/{C}/memory/*.md` — niveau client
+5. `clients/{C}/projects/{P}/project.md` + `memory/*.md` — niveau projet
+6. `clients/{C}/projects/{P}/tasks/RM{id}_*.md` — la tâche assignée
+7. Fichiers dans `refs[]` — documents de référence liés à la tâche
+8. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
+9. Dernières 50 lignes de `RM{id}_*.log.md` — état courant
 
 Respecter le `context_budget` du frontmatter.
 

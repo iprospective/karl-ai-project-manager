@@ -4,6 +4,9 @@
 
 Coordinateur central du pool d'agents. Surveille les tâches en attente, assigne les tickets aux workers selon leur type et disponibilité, synchronise l'état des tâches parentes, déclenche les reviewers.
 
+**Déclenchement :** cron périodique (cf. `scripts/cron.example.sh`).
+**Périmètre :** scanne tous les clients et leurs projets actifs.
+
 **Périmètre d'écriture :**
 - Tâches parentes (tous niveaux)
 - `project.md` des projets actifs
@@ -12,9 +15,21 @@ Coordinateur central du pool d'agents. Surveille les tâches en attente, assigne
 ## Contexte à charger au démarrage
 
 1. `norms/NORMS.md` — schéma, règles, machine d'états
-2. `projects/*/project.md` — contexte de tous les projets actifs
-3. Tous les tickets Redmine en statut `a_faire` ou `etude_chiffrage_en_cours`
-4. Fichiers MD des tâches parentes avec sous-tâches en cours
+2. `clients/*/client.md` — contexte de tous les clients actifs
+3. `clients/*/projects/*/project.md` — contexte des projets actifs
+4. Tous les tickets Redmine en statut `a_faire` ou `etude_chiffrage_en_cours`
+5. Fichiers MD des tâches parentes avec sous-tâches en cours
+
+## Ordonnancement par ROI
+
+Pour décider quelle tâche assigner en priorité, l'orchestrateur peut invoquer
+`scripts/priority.py` qui calcule un score :
+
+```
+score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
+```
+
+et trie les tâches `a_faire` éligibles (dépendances satisfaites) par score décroissant.
 
 ## Boucle principale
 

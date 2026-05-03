@@ -20,14 +20,18 @@ git clone git@gitlab.iprospective.fr:iprospective/ai-projects.git projects/
 
 ## Démarrage rapide
 
-### Créer un projet
-1. Copier `templates/project.md` dans `projects/{nom-projet}/project.md`
-2. Remplir les champs (nom, Redmine, GitLab, équipe)
-3. Créer le dossier `projects/{nom-projet}/tasks/`
+### Créer un client
+1. Copier `templates/client.md` dans `projects/clients/{client-slug}/client.md`
+2. Remplir les champs (slug, nom, contacts, defaults hérités)
+
+### Créer un projet (sous un client existant)
+1. Copier `templates/project.md` dans `projects/clients/{C}/projects/{P}/project.md`
+2. Remplir les champs (slug, client, stack, intégrations)
+3. Créer `projects/clients/{C}/projects/{P}/tasks/`
 
 ### Créer une tâche
 1. Ouvrir le ticket Redmine correspondant, noter l'ID
-2. Copier `templates/task.md` dans `projects/{nom-projet}/tasks/RM{id}_{titre-kebab}.md`
+2. Copier `templates/task.md` dans `projects/clients/{C}/projects/{P}/tasks/RM{id}_{titre-kebab}.md`
 3. Remplir le frontmatter (redmine_id, title, type, priority, due...)
 4. Rédiger les sections Contexte, Critères d'acceptation, Instructions
 5. Créer le fichier journal vide : `RM{id}_{titre-kebab}.log.md`

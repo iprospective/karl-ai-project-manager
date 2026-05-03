@@ -1,9 +1,9 @@
 ---
-schema_version: "1.3.0"
+schema_version: "1.2.1"
 updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.3.0
+# Normes de gestion des tâches — v1.2.1
 
 ## Configuration globale
 
@@ -26,103 +26,22 @@ paths:
 
 ## Structure des dossiers
 
-### Repo project-management (système, public)
-
 ```
 project-management/
   norms/
     NORMS.md                          # version courante (ce fichier)
     CHANGELOG.md                      # historique des évolutions
-    archive/                          # snapshots de toutes les versions
+    archive/                          # snapshots de toutes les versions (majeures et mineures)
+  projects/
+    {nom-projet}/
+      project.md
+      tasks/
+        RM{id}_{titre-kebab}.md       # tâche
+        RM{id}_{titre-kebab}.log.md   # journal append-only
   templates/
-    client.md                         # template client
-    project.md                        # template projet
-    task.md                           # template tâche (skeleton)
-    RM9999_*.md                       # exemple complet pour CI
-  agents/
-    worker-common.md                  # règles communes des workers
-    worker-{role}.md                  # rôles spécifiques
-    orchestrateur.md
-    reviewer.md
-    summarizer.md                     # génération auto des Changelog/Pistes/Remarques
-  scripts/
-    validate-task.py
-    priority.py                       # ordonnancement par ROI
-    invoke.md
-    cron.example.sh
+    task.md
+    project.md
 ```
-
-### Repo projets (privé, gitignored dans le repo PM)
-
-```
-projects/                             # ai-projects (repo séparé)
-  README.md
-  clients/
-    {client-slug}/
-      client.md                       # contexte, contacts, contraintes, structure
-      memory/                         # mémoire structurée (écrite par agents)
-        *.md
-      Changelog.md                    # AUTO — activité agrégée
-      Pistes.md                       # AUTO — idées non décidées
-      Remarques.md                    # AUTO — observations factuelles
-      projects/
-        {projet-slug}/
-          project.md                  # stack, objectifs, équipe, structure
-          memory/                     # mémoire spécifique projet
-            *.md
-          Changelog.md                # AUTO
-          Pistes.md                   # AUTO
-          Remarques.md                # AUTO
-          tasks/
-            RM{id}_{titre-kebab}.md
-            RM{id}_{titre-kebab}.log.md
-```
-
-## Cascade et héritage
-
-Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
-
-**Règles :**
-- Par défaut, les valeurs d'un niveau parent sont héritées par tous ses enfants
-- Un niveau enfant peut **surcharger** une valeur en la redéfinissant explicitement
-- Les sections de texte (Description, Structure...) ne se surchargent pas — elles s'additionnent
-
-**Champs candidats à l'héritage :**
-- `team`, `defaults.priority`, `gitlab.group`, `gitlab.default_branch`
-- `redmine.instance`, contraintes globales
-
-**Lecture du contexte par un agent (worker, summarizer, reviewer) :**
-```
-1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
-2. Client     : clients/{C}/client.md + memory/*.md
-3. Projet     : clients/{C}/projects/{P}/project.md + memory/*.md
-4. Tâche      : clients/{C}/projects/{P}/tasks/RM{id}_*.md + .log.md
-```
-
-Chaque niveau **complète** ou **surcharge** le précédent selon les règles ci-dessus.
-
-## Fichiers auto-générés (écrits par l'agent summarizer)
-
-| Fichier | Niveau | Contenu | Source |
-|---|---|---|---|
-| `Changelog.md` | client + projet | Activité datée (tâches fermées, étapes franchies) | Trigger événementiel sur `ferme` |
-| `Pistes.md` | client + projet | Idées non décidées capitalisées | Agrège les `pistes[]` des tâches |
-| `Remarques.md` | client + projet | Observations factuelles des agents (patterns, anomalies) | Extraits des `.log.md` |
-| `client.md ## Structure` | client | Comment ce client opère, ses processus | Agrège observations long terme |
-| `project.md ## Structure` | projet | Comment ce projet est architecturé, ses conventions | Agrège observations long terme |
-
-## Ordonnancement par ROI
-
-Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
-
-```
-score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
-```
-
-Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
-
-Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
-Sortie : top N tâches triées par score décroissant, par client/projet ou global.
 
 ## Nommage des fichiers
 

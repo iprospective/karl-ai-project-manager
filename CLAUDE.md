@@ -5,20 +5,21 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## Orientation rapide
 
-- **Normes et schéma :** `norms/NORMS.md` (v1.2.0)
+- **Normes et schéma :** `norms/NORMS.md` (v1.3.0)
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
-- **Tâche assignée :** `projects/{projet}/tasks/RM{id}_*.md`
-- **Journal :** `projects/{projet}/tasks/RM{id}_*.log.md`
+- **Hiérarchie :** `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
+- **Cascade :** client → projet → tâche (héritage avec override possible)
 
-## Quand tu reçois une invocation de type "traite la tâche RM{id}"
+## Quand tu reçois une invocation de type "traite la tâche RM{id} du client {C} projet {P}"
 
 1. Lire `agents/worker-common.md`
 2. Lire `agents/worker-{role}.md` (ton rôle précisé dans l'invocation)
 3. Lire `norms/NORMS.md`
-4. Lire `projects/{projet}/project.md`
-5. Lire `projects/{projet}/tasks/RM{id}_*.md` (ta tâche)
-6. Lire les dernières 50 lignes de `projects/{projet}/tasks/RM{id}_*.log.md`
-7. Travailler selon le protocole de ton rôle
+4. Lire `clients/{C}/client.md` + tout `clients/{C}/memory/*.md`
+5. Lire `clients/{C}/projects/{P}/project.md` + tout `memory/*.md`
+6. Lire `clients/{C}/projects/{P}/tasks/RM{id}_*.md` (ta tâche)
+7. Lire les dernières 50 lignes du `.log.md`
+8. Travailler selon le protocole de ton rôle, en respectant la cascade
 
 ## Quand tu reçois une invocation de type "review la tâche RM{id}"
 

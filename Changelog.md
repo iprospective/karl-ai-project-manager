@@ -7,6 +7,31 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.3.0] - 2026-04-27
+
+### Ajouté — Multi-client / multi-projet hiérarchique
+- Structure `clients/{C}/projects/{P}/tasks/` dans le repo projets
+- Cascade contextuelle : client → projet → tâche, héritage avec override
+- Fichiers auto-générés (Changelog, Pistes, Remarques) aux niveaux client et projet
+- Section "Structure / Fonctionnement" enrichie automatiquement
+- `agents/summarizer.md` : nouvel agent pour génération automatique
+- `scripts/priority.py` : ordonnancement par ROI avec filtre dépendances
+- `scripts/cron.example.sh` : exemple de configuration cron pour orchestrateur,
+  summarizer, ranking ROI hebdomadaire
+- `templates/client.md` : nouveau template client
+- `templates/project.md` enrichi : client, defaults, stack (avec section tests),
+  section Structure / Fonctionnement
+
+### Modifié
+- `agents/orchestrateur.md` : déclenchement par cron, scan multi-clients,
+  référence à scripts/priority.py
+- `agents/worker-common.md` : contexte chargé en cascade (4 niveaux)
+- `CLAUDE.md` : invocation mise à jour avec client + projet
+- `README.md` : workflow création client / projet / tâche
+- NORMS bumped v1.2.1 → v1.3.0 (archive v1.2.1 créée)
+
+---
+
 ## [1.2.5] - 2026-04-27
 
 ### Ajouté

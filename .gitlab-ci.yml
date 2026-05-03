@@ -1,0 +1,18 @@
+# CI : validation structurelle du système de gestion de tâches
+# Vérifie que le template task.md respecte le schéma documenté dans NORMS.md
+
+stages:
+  - validate
+
+validate-template:
+  stage: validate
+  image: python:3.12-slim
+  before_script:
+    - pip install --quiet pyyaml
+  script:
+    # Vérifie le YAML du template + valide l'exemple complet
+    - python scripts/validate-task.py templates/task.md
+    - python scripts/validate-task.py templates/RM9999_exemple-tache-complete.md
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "push"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"

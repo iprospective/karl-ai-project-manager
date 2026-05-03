@@ -41,6 +41,20 @@ POUR CHAQUE entrée dans outputs[] :
   - Vérifier qu'il est complet et conforme à ce qui était demandé
 ```
 
+### 3 bis. Exécution des tests (obligatoire)
+
+**Le reviewer doit exécuter les tests, pas seulement vérifier qu'ils existent.**
+
+```
+- Lancer la suite de tests du projet (commande définie dans project.md)
+- Vérifier que tous les tests passent
+- Vérifier qu'aucune régression n'est introduite (comparer à la baseline avant
+  modifications si possible)
+- Pour les bugfix : vérifier que le test ajouté reproduit bien le bug original
+  (rollback de la correction → test échoue, ré-applique → test passe)
+- Tout test échoué = rejet automatique vers a_corriger
+```
+
 ### 4. Décision
 
 **Approuver** si :

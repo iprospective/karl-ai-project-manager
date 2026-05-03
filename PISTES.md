@@ -104,6 +104,37 @@ L'erreur serait de tout repenser maintenant. Approche progressive :
 
 ---
 
+## Tests — évolutions reportées
+
+### Stack de tests dans `templates/project.md`
+
+Enrichir le template projet d'une section obligatoire "Stack de tests"
+(framework, commande de lancement, seuil de couverture minimum).
+**Reporté au premier vrai projet** — sera dimensionné selon ses besoins
+réels plutôt que théoriques.
+
+### Validation cross-fichiers
+
+Le validateur actuel (v1) vérifie chaque fichier indépendamment.
+Évolutions à prévoir :
+- `depends_on` et `parent_task` pointent vers des tâches existantes
+- `sub_tasks` du parent contient bien les enfants
+- Cohérence `completion_pct` du parent vs status des enfants
+
+### Génération de tests depuis les critères d'acceptation
+
+Un agent `test-stub-generator` qui transforme automatiquement les
+critères d'acceptation en stubs de tests (pytest, jest, etc.) selon
+le framework déclaré dans `project.md`.
+
+### Tests de workflow end-to-end
+
+Simulation du cycle de vie complet d'une tâche (création → assignation
+→ travail → review → fermeture) pour valider que le système global
+fonctionne.
+
+---
+
 ## Tradeoffs à garder en tête
 
 - **Coût** : N agents en parallèle = N × tokens. Vérifier que le bénéfice (qualité, vitesse) le justifie

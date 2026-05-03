@@ -22,10 +22,21 @@ Appender dans `.log.md` : "Prise en charge — approche retenue : {description}"
 ### 3. Vérifications pré-soumission
 ```
 - Tous les critères d'acceptation sont cochés
-- Le code compile / passe les tests existants
+- Tous les tests passent (exécution réelle, pas juste leur existence)
+- Aucune régression sur les tests existants
 - outputs[] renseigné (fichiers modifiés, cas de test, URL de démonstration...)
 - git.mr_url renseigné si une MR a été créée
 ```
+
+### Règle test-first
+
+**Pour les `bugfix`** : écrire le test qui reproduit le bug AVANT toute correction.
+Le test doit échouer avant la correction et passer après. Inclure le fichier de
+test dans `outputs[]`.
+
+**Pour les `feature`** : écrire les tests couvrant les critères d'acceptation
+AVANT le code (ou en parallèle, mais ils doivent exister). Un critère
+d'acceptation sans test associé n'est pas considéré comme cochable.
 
 ### 4. Note Redmine à la soumission
 Résumé de ce qui a été implémenté + liste des fichiers modifiés + lien MR si applicable.

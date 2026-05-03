@@ -7,6 +7,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.2.5] - 2026-04-27
+
+### Ajouté
+- `scripts/validate-task.py` : validateur structurel (champs obligatoires,
+  enums, transitions, cohérence status_history, conditional rules, completion_pct)
+- `.gitlab-ci.yml` : pipeline CI exécutant la validation sur chaque push
+- `templates/RM9999_exemple-tache-complete.md` : exemple complet et valide,
+  utilisé par le CI comme cas de test
+- Règle test-first dans `worker-dev.md` (test reproduisant le bug avant fix,
+  tests des critères d'acceptation avant code)
+- Obligation pour `reviewer.md` d'exécuter les tests (pas juste vérifier
+  leur existence) — tout échec = rejet automatique
+- `PISTES.md` : section "Tests — évolutions reportées" avec stack de tests
+  dans templates/project.md, validation cross-fichiers, génération automatique
+  de stubs depuis critères d'acceptation, tests workflow E2E
+
+---
+
 ## [1.2.4] - 2026-04-27
 
 ### Ajouté

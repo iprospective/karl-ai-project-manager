@@ -1,9 +1,9 @@
 ---
-schema_version: "1.4.0"
+schema_version: "1.3.0"
 updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.4.0
+# Normes de gestion des tâches — v1.3.0
 
 ## Configuration globale
 
@@ -59,26 +59,17 @@ projects/                             # ai-projects (repo séparé)
   README.md
   clients/
     {client-slug}/
-      client/                         # cahier des charges client (multi-fichiers)
-        overview.md                   # OBLIGATOIRE — frontmatter + sommaire
-        hosting.md                    # aspect — optionnel
-        contracts.md                  # aspect — optionnel
-        ...                           # tout aspect pertinent
+      client.md                       # contexte, contacts, contraintes, structure
       memory/                         # mémoire structurée (écrite par agents)
+        *.md
       Changelog.md                    # AUTO — activité agrégée
       Pistes.md                       # AUTO — idées non décidées
       Remarques.md                    # AUTO — observations factuelles
       projects/
         {projet-slug}/
-          project/                    # cahier des charges projet (multi-fichiers)
-            overview.md               # OBLIGATOIRE — frontmatter + sommaire
-            hosting.md                # aspect — optionnel
-            stack.md
-            data-model.md
-            workflows.md
-            audience.md               # exemples — uniquement les aspects pertinents
-            ...
+          project.md                  # stack, objectifs, équipe, structure
           memory/                     # mémoire spécifique projet
+            *.md
           Changelog.md                # AUTO
           Pistes.md                   # AUTO
           Remarques.md                # AUTO
@@ -86,27 +77,6 @@ projects/                             # ai-projects (repo séparé)
             RM{id}_{titre-kebab}.md
             RM{id}_{titre-kebab}.log.md
 ```
-
-### Aspects — cahier des charges dynamique
-
-Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
-(aspects) dans le dossier `client/` ou `project/`. Cette approche évite le fichier
-monolithique illisible et permet d'enrichir progressivement la connaissance du périmètre.
-
-**Règles :**
-- `overview.md` est **obligatoire** — il porte le frontmatter et un index des aspects
-- Tout autre fichier est **optionnel** — sa présence indique que l'aspect est documenté
-- L'agent qui charge le contexte lit **tous** les fichiers du dossier `project/` (et `client/`)
-- Les templates d'aspects sont dans `templates/aspects/{domaine}/{aspect}.md`
-
-**Cascade des aspects :**
-Un aspect peut exister au niveau client ET au niveau projet. L'agent lit les deux.
-Le projet précise/surcharge le client sur les points en contradiction.
-
-Exemple :
-- `clients/{C}/client/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
-- `clients/{C}/projects/{P}/project/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
-→ Pour ce projet, l'agent applique AWS (override).
 
 ## Cascade et héritage
 

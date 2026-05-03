@@ -72,14 +72,18 @@ Format :
 {Observation détaillée, factuelle, datée.}
 ```
 
-## Mise à jour de la section "Structure / Fonctionnement"
+## Mise à jour des aspects (cahier des charges dynamique)
 
-Section enrichie progressivement dans `client.md` et `project.md`.
-À chaque exécution, le summarizer :
-1. Lit la section actuelle
-2. Identifie les nouveaux éléments structurels observés (architecture, processus, patterns)
-3. Met à jour la section en conservant les éléments toujours pertinents
-4. Marque les changements dans le `.log.md` du summarizer (à créer si besoin)
+Les fichiers `client/{aspect}.md` et `project/{aspect}.md` constituent un cahier
+des charges vivant. Le summarizer enrichit progressivement les aspects pertinents :
+
+- Lire les `.log.md` récents pour identifier les éléments structurels mentionnés
+- Si un aspect existant est concerné → enrichir le fichier correspondant
+- Si un nouvel aspect émerge fréquemment → créer le fichier depuis `templates/aspects/{domaine}/{aspect}.md`
+- Mettre à jour `overview.md` (sommaire des aspects) si un nouveau fichier est créé
+
+**Règle :** ne créer un nouvel aspect que si plusieurs sources convergent.
+Une mention isolée va dans `Remarques.md`, pas dans un nouvel aspect.
 
 ## Mise à jour de memory/
 

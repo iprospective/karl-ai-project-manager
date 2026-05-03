@@ -7,6 +7,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.4.0] - 2026-04-27
+
+### Ajouté — Cahier des charges multi-fichiers
+- Structure `client/` et `project/` en dossiers (overview + aspects)
+- 40 templates d'aspects par domaine : common, website, ecommerce, api, saas,
+  mobile, data, legal
+- Cascade aspect par aspect entre niveaux client et projet
+
+### Modifié
+- Templates renommés en `*-overview.md`
+- Agents (worker-common, summarizer) mis à jour pour charger tout le dossier
+- NORMS bumped 1.3.0 → 1.4.0
+
+---
+
 ## [1.3.0] - 2026-04-27
 
 ### Ajouté — Multi-client / multi-projet hiérarchique

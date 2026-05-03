@@ -5,7 +5,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## Orientation rapide
 
-- **Normes et schéma :** `norms/NORMS.md` (v1.3.0)
+- **Normes et schéma :** `norms/NORMS.md` (v1.4.0)
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
 - **Hiérarchie :** `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
 - **Cascade :** client → projet → tâche (héritage avec override possible)
@@ -15,8 +15,8 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 1. Lire `agents/worker-common.md`
 2. Lire `agents/worker-{role}.md` (ton rôle précisé dans l'invocation)
 3. Lire `norms/NORMS.md`
-4. Lire `clients/{C}/client.md` + tout `clients/{C}/memory/*.md`
-5. Lire `clients/{C}/projects/{P}/project.md` + tout `memory/*.md`
+4. Lire `clients/{C}/client/*.md` (overview + aspects) + `clients/{C}/memory/*.md`
+5. Lire `clients/{C}/projects/{P}/project/*.md` (overview + aspects) + `memory/*.md`
 6. Lire `clients/{C}/projects/{P}/tasks/RM{id}_*.md` (ta tâche)
 7. Lire les dernières 50 lignes du `.log.md`
 8. Travailler selon le protocole de ton rôle, en respectant la cascade

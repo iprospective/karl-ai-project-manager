@@ -19,12 +19,16 @@ ou surcharge le précédent (cf. NORMS.md § Cascade et héritage).
 1. `agents/worker-common.md` — ce fichier
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/NORMS.md` — schéma, machine d'états, protocoles
-4. `clients/{C}/client.md` + `clients/{C}/memory/*.md` — niveau client
-5. `clients/{C}/projects/{P}/project.md` + `memory/*.md` — niveau projet
+4. `clients/{C}/client/*.md` (overview + tous les aspects) + `clients/{C}/memory/*.md`
+5. `clients/{C}/projects/{P}/project/*.md` (overview + aspects) + `memory/*.md`
 6. `clients/{C}/projects/{P}/tasks/RM{id}_*.md` — la tâche assignée
 7. Fichiers dans `refs[]` — documents de référence liés à la tâche
 8. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
 9. Dernières 50 lignes de `RM{id}_*.log.md` — état courant
+
+**Aspects cascade :** si un aspect (ex: `hosting.md`) existe à la fois au niveau client
+et au niveau projet, lire les deux. Le projet précise/surcharge le client en cas
+de contradiction.
 
 Respecter le `context_budget` du frontmatter.
 

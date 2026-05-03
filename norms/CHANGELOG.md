@@ -5,6 +5,36 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.4.0] - 2026-04-27
+
+### Ajouté — Cahier des charges dynamique
+- `client/` et `project/` deviennent des **dossiers** contenant des aspects
+- `overview.md` est obligatoire (porte le frontmatter et l'index des aspects)
+- Tout autre fichier dans le dossier est un aspect optionnel
+- Cascade aspect par aspect : `client/{aspect}.md` + `project/{aspect}.md` coexistent
+  (le projet précise/surcharge le client)
+- 40 templates d'aspects organisés par domaine dans `templates/aspects/` :
+  - `common/` (10) : hosting, stack, data-model, workflows, testing, deployment,
+    monitoring, security, conventions, roadmap
+  - `website/` (6) : audience, seo, pages, cms, design-system, i18n
+  - `ecommerce/` (6) : catalogue, payment, fulfillment, customer-journey, promotions, taxes
+  - `api/` (5) : endpoints, rate-limits, auth, webhooks, consumers
+  - `saas/` (4) : tenants, subscriptions, onboarding, support
+  - `mobile/` (4) : platforms, distribution, parity, permissions
+  - `data/` (4) : pipelines, warehouse, dashboards, compliance
+  - `legal/` (3) : contracts, sla, confidentiality
+- Templates `client-overview.md` et `project-overview.md` (séparés, gèrent le frontmatter)
+
+### Modifié
+- Renommage `templates/client.md` → `templates/client-overview.md`
+- Renommage `templates/project.md` → `templates/project-overview.md`
+- `worker-common.md` : charge tous les fichiers du dossier `client/` et `project/`
+- `summarizer.md` : peut créer de nouveaux aspects depuis les `templates/aspects/`
+- Schema bumped 1.3.0 → 1.4.0
+- `archive/NORMS_v1.3.0.md` créé
+
+---
+
 ## [1.3.0] - 2026-04-27
 
 ### Ajouté

@@ -112,7 +112,24 @@ def main():
             pass
         sys.exit(1)
 
-    print(f"✓ Note postée sur #{args.issue}" + (f" (statut → {args.status})" if args.status else ""))
+    # Vérification post-PUT : Redmine renvoie 204 même si certains attributs ont été
+    # silencieusement ignorés (permissions insuffisantes). On refetch pour confirmer.
+    print(f"✓ Note postée sur #{args.issue}")
+    if args.status:
+        try:
+            check = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}"
+            with request.urlopen(request.Request(check, headers={"Accept": "application/json"}), timeout=10) as r:
+                actual = json.loads(r.read())["issue"]["status"]["id"]
+            if actual == args.status:
+                print(f"✓ Statut changé → {args.status}")
+            else:
+                print(f"⚠ Statut PAS changé (toujours {actual}, demandé {args.status})", file=sys.stderr)
+                print("  Cause probable : permission 'Edit issues' manquante pour le compte API "
+                      "sur ce projet Redmine.", file=sys.stderr)
+                sys.exit(2)
+        except Exception as e:
+            print(f"⚠ Impossible de vérifier le statut post-PUT : {e}", file=sys.stderr)
+            sys.exit(2)
 
 
 if __name__ == "__main__":

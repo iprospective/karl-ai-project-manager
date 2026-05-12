@@ -16,6 +16,11 @@ desktop.ini
 *.bak
 *.orig
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
 # Logs système (pas les .log.md des tâches)
 *.log
 !**/*.log.md

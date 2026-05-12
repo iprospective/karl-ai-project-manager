@@ -231,6 +231,14 @@ L'agent (ou l'orchestrateur) qui modifie le `status` MD doit :
 3. Poster une note Redmine + changer le `status_id` correspondant
    (typiquement via `scripts/redmine-post-note.py --norms-status <statut>`)
 
+**Règle d'attribution Redmine** :
+- Passage en `a_tester_verifier` → ré-attribuer le ticket au **demandeur** (auteur Redmine)
+  pour qu'il puisse tester. `redmine-post-note.py --norms-status a_tester_verifier` le fait
+  automatiquement (équivaut à `--assign-to author`).
+- Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
+  l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
+- Passage en `ferme` → conserver l'attribution courante.
+
 **Mapping NORMS → Redmine (instance iprospective)** :
 
 | NORMS | Redmine | id |

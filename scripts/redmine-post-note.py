@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--status", type=int, help="ID Redmine du nouveau statut (optionnel)")
     ap.add_argument("--norms-status", help="Statut NORMS (a_etudier_chiffrer, en_cours, ...), "
                                             "ou 'ferme:<close_reason>'. Mappé automatiquement sur l'ID Redmine.")
+    ap.add_argument("--assign-to", help="Réattribuer à un user : <id> | 'author' (demandeur du ticket) | "
+                                         "'me' (compte API). Automatique sur --norms-status=a_tester_verifier (→ author).")
     ap.add_argument("--private", action="store_true", help="Note privée (non visible client)")
     args = ap.parse_args()
 
@@ -77,6 +79,10 @@ def main():
             print(f"ERREUR : statut NORMS '{args.norms_status}' inconnu", file=sys.stderr)
             sys.exit(1)
         args.status = sid
+        # Règle NORMS : un passage en a_tester_verifier réattribue automatiquement
+        # au demandeur (auteur du ticket) si aucun --assign-to explicite n'a été donné.
+        if args.norms_status == "a_tester_verifier" and not args.assign_to:
+            args.assign_to = "author"
 
     load_env()
     url = os.environ.get("REDMINE_URL")
@@ -97,6 +103,34 @@ def main():
     if args.status:
         issue_payload["status_id"] = args.status
 
+    # Résoudre --assign-to en assigned_to_id (entier)
+    if args.assign_to:
+        if args.assign_to == "author":
+            # Fetch l'issue pour récupérer l'auteur
+            try:
+                fetch_url = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}"
+                with request.urlopen(request.Request(fetch_url, headers={"Accept": "application/json"}), timeout=10) as r:
+                    author_id = json.loads(r.read())["issue"]["author"]["id"]
+                issue_payload["assigned_to_id"] = author_id
+            except Exception as e:
+                print(f"ERREUR : résolution author : {e}", file=sys.stderr)
+                sys.exit(1)
+        elif args.assign_to == "me":
+            try:
+                fetch_url = f"{url.rstrip('/')}/users/current.json?key={key}"
+                with request.urlopen(request.Request(fetch_url, headers={"Accept": "application/json"}), timeout=10) as r:
+                    me_id = json.loads(r.read())["user"]["id"]
+                issue_payload["assigned_to_id"] = me_id
+            except Exception as e:
+                print(f"ERREUR : résolution me : {e}", file=sys.stderr)
+                sys.exit(1)
+        else:
+            try:
+                issue_payload["assigned_to_id"] = int(args.assign_to)
+            except ValueError:
+                print(f"ERREUR : --assign-to attend un id entier, 'author' ou 'me' (reçu : {args.assign_to})", file=sys.stderr)
+                sys.exit(1)
+
     body = json.dumps({"issue": issue_payload}).encode("utf-8")
     full = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}"
     req = request.Request(full, data=body, method="PUT",
@@ -115,20 +149,34 @@ def main():
     # Vérification post-PUT : Redmine renvoie 204 même si certains attributs ont été
     # silencieusement ignorés (permissions insuffisantes). On refetch pour confirmer.
     print(f"✓ Note postée sur #{args.issue}")
-    if args.status:
+
+    if args.status or "assigned_to_id" in issue_payload:
         try:
             check = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}"
             with request.urlopen(request.Request(check, headers={"Accept": "application/json"}), timeout=10) as r:
-                actual = json.loads(r.read())["issue"]["status"]["id"]
-            if actual == args.status:
+                actual = json.loads(r.read())["issue"]
+        except Exception as e:
+            print(f"⚠ Impossible de vérifier l'état post-PUT : {e}", file=sys.stderr)
+            sys.exit(2)
+
+        warned = False
+        if args.status:
+            actual_sid = actual["status"]["id"]
+            if actual_sid == args.status:
                 print(f"✓ Statut changé → {args.status}")
             else:
-                print(f"⚠ Statut PAS changé (toujours {actual}, demandé {args.status})", file=sys.stderr)
-                print("  Cause probable : permission 'Edit issues' manquante pour le compte API "
-                      "sur ce projet Redmine.", file=sys.stderr)
-                sys.exit(2)
-        except Exception as e:
-            print(f"⚠ Impossible de vérifier le statut post-PUT : {e}", file=sys.stderr)
+                print(f"⚠ Statut PAS changé (toujours {actual_sid}, demandé {args.status})", file=sys.stderr)
+                warned = True
+        if "assigned_to_id" in issue_payload:
+            expected_aid = issue_payload["assigned_to_id"]
+            actual_aid = (actual.get("assigned_to") or {}).get("id")
+            if actual_aid == expected_aid:
+                print(f"✓ Assigné à user id={expected_aid}")
+            else:
+                print(f"⚠ Assigné PAS changé (actuel={actual_aid}, demandé={expected_aid})", file=sys.stderr)
+                warned = True
+        if warned:
+            print("  Cause probable : permission 'Edit issues' manquante pour le compte API.", file=sys.stderr)
             sys.exit(2)
 
 

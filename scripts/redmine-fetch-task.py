@@ -103,11 +103,36 @@ def now_iso(minutes=False):
     return datetime.now().strftime(fmt)
 
 
+FRENCH_STOPWORDS = {
+    "le", "la", "les", "un", "une", "des", "du", "de", "d", "l",
+    "à", "a", "au", "aux", "en", "dans", "par", "pour", "sur", "sous", "sans", "avec", "vers", "chez",
+    "et", "ou", "ni", "mais", "donc", "or", "car",
+    "ce", "cet", "cette", "ces", "ça", "cela",
+    "mon", "ma", "mes", "ton", "ta", "tes", "son", "sa", "ses", "notre", "votre", "leur", "leurs",
+    "que", "qui", "quoi", "dont", "où",
+    "est", "sont", "etre", "être",
+}
+MAX_SLUG_LEN = 40
+
+
 def slugify(s):
+    """Slug court : enlève les stop-words FR/EN, tronque à MAX_SLUG_LEN au mot le plus proche."""
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
-    s = re.sub(r"[^a-zA-Z0-9]+", "-", s).strip("-").lower()
-    return s[:60] or "untitled"
+    words = [w for w in re.split(r"[^a-zA-Z0-9]+", s.lower()) if w]
+    filtered = [w for w in words if w not in FRENCH_STOPWORDS] or words
+    slug = "-".join(filtered)
+    if len(slug) <= MAX_SLUG_LEN:
+        return slug or "untitled"
+    truncated = []
+    total = 0
+    for w in filtered:
+        add = len(w) + (1 if truncated else 0)
+        if total + add > MAX_SLUG_LEN:
+            break
+        truncated.append(w)
+        total += add
+    return "-".join(truncated) or filtered[0][:MAX_SLUG_LEN]
 
 
 def find_project_by_redmine_id(projects_root, redmine_project_id):
@@ -222,6 +247,7 @@ def main():
     ap.add_argument("--client", help="Slug client (sinon auto-détecté)")
     ap.add_argument("--project", help="Slug projet (sinon auto-détecté)")
     ap.add_argument("--overwrite", action="store_true", help="Écraser si fichier existe")
+    ap.add_argument("--slug", help="Slug à utiliser pour le nom de fichier (sinon généré depuis le titre)")
     ap.add_argument("--dry-run", action="store_true", help="Afficher sans écrire")
     args = ap.parse_args()
 
@@ -277,7 +303,7 @@ def main():
     author_login = fetch_user_login(url, key, author_info["id"]) if author_info.get("id") else None
 
     fm = build_frontmatter(issue, author_login)
-    slug = slugify(fm["title"])
+    slug = args.slug or slugify(fm["title"])
     filename = f"RM{fm['redmine_id']}_{slug}.md"
     target = project_dir / "tasks" / filename
     log_target = project_dir / "tasks" / f"RM{fm['redmine_id']}_{slug}.log.md"

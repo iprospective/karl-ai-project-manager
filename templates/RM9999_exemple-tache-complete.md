@@ -1,5 +1,5 @@
 ---
-schema_version: "1.2.1"
+schema_version: "1.5.0"
 
 # Identification
 redmine_id: 9999

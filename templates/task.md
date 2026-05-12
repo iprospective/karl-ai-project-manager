@@ -1,8 +1,8 @@
 ---
-schema_version: "1.0"
+schema_version: "1.5.0"
 
 # Identification
-redmine_id:
+redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
 title: ""
 type: feature
 # audit | feature | bugfix | refactoring | documentation | security

@@ -5,6 +5,31 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.0] - 2026-05-12
+
+### Ajouté
+- **Convention `.pm` symlink** : chaque workspace projet (`/zfs/workspaces/{P}`) peut
+  héberger un symlink `.pm` vers le dossier PM centralisé. Cohabite avec le code,
+  conserve la centralisation. Documentée dans NORMS § Workspace projet et symlink `.pm`
+- **Lien Redmine ↔ MD strict** (nouvelle section dans NORMS) :
+  - `redmine_id` obligatoire pour les tâches (déjà required, désormais documenté)
+  - Cohérence `RM{id}_*.md` ↔ `redmine_id` vérifiée par le validateur
+  - `redmine.project_id` obligatoire dans `project/overview.md`
+  - `redmine.subprojects[]` optionnel
+- **Flux de création de tâches** documentés : Redmine→MD (humain) et CLI→Redmine+MD (à implémenter)
+- `archive/NORMS_v1.4.0.md`
+
+### Modifié
+- Validator : nouvelle méthode `validate_redmine_coherence` (filename ↔ `redmine_id`)
+- Template `task.md` : `schema_version` 1.0 → 1.5.0, annotation "OBLIGATOIRE" sur `redmine_id`
+- Template `project-overview.md` : `redmine.project_id` marqué obligatoire, ajout `subprojects[]`
+- Template `client-overview.md` : `schema_version` bumped
+- `worker-common.md` : résolution de chemins via `$PROJECTS_PATH` (pas `.pm/../../`)
+- Tableau "Nommage des fichiers" : références `project.md` → `project/overview.md`
+- Schema bumped 1.4.0 → 1.5.0
+
+---
+
 ## [1.4.0] - 2026-04-27
 
 ### Ajouté — Cahier des charges dynamique

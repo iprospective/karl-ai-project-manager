@@ -1,0 +1,58 @@
+# TODO 003 — CLI projet `pm` (commandes depuis le workspace projet)
+
+| | |
+|---|---|
+| **Statut** | `pending` |
+| **Priorité** | `#priority:high` |
+| **Tags** | `#user-request` `#redmine` `#gitlab` `#agents` |
+| **Origine** | Demande user — 2026-05-12 |
+| **Créé** | 2026-05-12 |
+
+## Contexte
+
+La convention de stockage v1.5.0 met un symlink `.pm` dans chaque workspace projet,
+pointant vers le dossier PM centralisé. Un outil CLI `pm` exécuté depuis le workspace
+projet permet d'orchestrer les opérations courantes (création de ticket Redmine +
+fichier MD + commit) sans naviguer entre les arbres.
+
+## Commandes prévues
+
+### Création
+- [ ] `pm task create --type <T> --title "..."`
+  - Crée le ticket Redmine dans le projet configuré (`.pm/project/overview.md ::
+    redmine.project_id`)
+  - Récupère l'ID
+  - Génère `.pm/tasks/RM{id}_{slug}.md` depuis `templates/task.md`
+  - Commit + push dans le repo `ai-projects`
+- [ ] `pm project init <client-slug> <project-slug>`
+  - Crée le squelette PM centralisé dans `$PROJECTS_PATH/clients/{C}/projects/{P}/`
+  - Crée le symlink `.pm` dans le workspace courant
+  - Initialise `project/overview.md` depuis le template
+- [ ] `pm client init <client-slug>`
+  - Crée le squelette client centralisé
+
+### Lecture
+- [ ] `pm task list` — top ROI du projet courant (utilise `scripts/priority.py`)
+- [ ] `pm task show <RM{id}>` — affiche la tâche (frontmatter + body + 50 dernières lignes de log)
+- [ ] `pm status` — vue d'ensemble du projet courant (counts par statut)
+
+### Workflow
+- [ ] `pm task assign <RM{id}> <agent>` — assignation via API Redmine
+- [ ] `pm task close <RM{id}> --reason <resolu|...>` — passage en `ferme`
+
+## Implémentation
+
+- Python, packagé en single-file ou `setup.py` standard
+- Lit `$PROJECTS_PATH` et `$REDMINE_URL`/`$REDMINE_API_KEY` depuis `.env`
+- Résolution du contexte projet : `realpath .pm` → tree central
+- Validator appelé avant tout commit
+
+## Critères d'acceptation
+
+- Cycle complet utilisable : `pm project init` → `pm task create` → `pm task assign` → `pm task close`
+- Toute tâche créée passe `scripts/validate-task.py`
+- Un test E2E couvre le cycle de vie complet (peut être basé sur une instance Redmine de test)
+
+## Journal
+
+- **2026-05-12** : TODO créée. Workflow CLI → Redmine + MD acté en v1.5.0 (cf NORMS § Lien Redmine ↔ MD). Reste à implémenter.

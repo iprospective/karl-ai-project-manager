@@ -30,6 +30,11 @@ ou surcharge le précédent (cf. NORMS.md § Cascade et héritage).
 et au niveau projet, lire les deux. Le projet précise/surcharge le client en cas
 de contradiction.
 
+**Résolution de chemins (workspace projet) :** depuis un workspace `/zfs/workspaces/{P}`,
+`.pm/` est un symlink vers le dossier PM centralisé. Pour atteindre le client, utiliser
+`$PROJECTS_PATH/clients/{client-slug}/` (slug lu dans le frontmatter de `project/overview.md`),
+**pas** `.pm/../../client/` (la résolution logique des symlinks n'est pas fiable).
+
 Respecter le `context_budget` du frontmatter.
 
 ## Vérification initiale

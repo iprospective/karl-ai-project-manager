@@ -135,6 +135,26 @@ fonctionne.
 
 ---
 
+## Création de tickets Redmine depuis MD
+
+Sens **MD → Redmine** sans ticket préexistant.
+
+Cas d'usage : un agent rédige une tâche en MD (par auto-décomposition d'un parent ou
+par initiative), sans qu'un humain ait créé le ticket Redmine au préalable. Le
+système devrait alors créer le ticket Redmine côté serveur, récupérer l'ID,
+renommer le fichier et compléter le frontmatter.
+
+**Pas pour la v1.5** : ajoute un couplage outillage important (gestion d'erreur
+API Redmine, gestion de collisions sur les IDs, droits d'écriture côté Redmine
+de chaque agent). À réfléchir quand le besoin se manifestera.
+
+Actuellement v1.5 : deux flux supportés
+- **Redmine → MD** : humain crée le ticket dans Redmine, l'orchestrateur génère le MD
+- **CLI → Redmine + MD** : commande `pm task create` qui orchestre les deux côtés
+  depuis le workspace projet (à implémenter, voir [TODO.md](TODO.md))
+
+---
+
 ## Tradeoffs à garder en tête
 
 - **Coût** : N agents en parallèle = N × tokens. Vérifier que le bénéfice (qualité, vitesse) le justifie

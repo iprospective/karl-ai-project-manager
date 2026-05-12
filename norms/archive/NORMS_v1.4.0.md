@@ -1,9 +1,9 @@
 ---
-schema_version: "1.5.0"
-updated: 2026-05-12
+schema_version: "1.4.0"
+updated: 2026-04-27
 ---
 
-# Normes de gestion des tâches — v1.5.0
+# Normes de gestion des tâches — v1.4.0
 
 ## Configuration globale
 
@@ -87,41 +87,6 @@ projects/                             # ai-projects (repo séparé)
             RM{id}_{titre-kebab}.log.md
 ```
 
-### Workspace projet et symlink `.pm`
-
-Chaque projet a **deux emplacements** distincts mais liés :
-
-| Emplacement | Contenu | Repo git |
-|---|---|---|
-| `/zfs/workspaces/{P}/` | Code source du projet | repo de code (ex: `iprospective/dev/{P}`) |
-| `$PROJECTS_PATH/clients/{C}/projects/{P}/` | Cahier des charges, tâches, mémoire | `ai-projects` |
-
-Pour faciliter le travail conjoint code + tâches, un **symlink `.pm`** dans le workspace
-projet pointe vers le dossier PM centralisé :
-
-```
-/zfs/workspaces/{P}/.pm → $PROJECTS_PATH/clients/{C}/projects/{P}/
-```
-
-**Création :**
-```bash
-cd /zfs/workspaces/{P}
-ln -s "$PROJECTS_PATH/clients/{C}/projects/{P}" .pm
-```
-
-**Bénéfices :**
-- Un agent travaillant dans le workspace voit code ET tâches/docs (`.pm/project/`, `.pm/tasks/`)
-- Un seul dossier de travail pour l'agent — pas de saut entre arbres distants
-- La centralisation est préservée (l'orchestrateur scanne `$PROJECTS_PATH` directement)
-
-**Résolution de chemins cross-tree** (ex: cascade vers le client) :
-Ne pas utiliser `.pm/../../` (résolution logique non fiable des symlinks). Utiliser
-`$PROJECTS_PATH` + le champ `client:` du frontmatter de `project/overview.md` :
-
-```bash
-CLIENT_DIR="$PROJECTS_PATH/clients/${client_slug}"
-```
-
 ### Aspects — cahier des charges dynamique
 
 Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
@@ -195,44 +160,7 @@ Sortie : top N tâches triées par score décroissant, par client/projet ou glob
 |---|---|
 | Tâche | `RM{id}_{titre-en-kebab-case}.md` |
 | Journal | `RM{id}_{titre-en-kebab-case}.log.md` |
-| Overview projet | `project/overview.md` |
-| Overview client | `client/overview.md` |
-
-## Lien Redmine ↔ MD (obligatoire)
-
-Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
-Cette règle est vérifiée par le validateur.
-
-### Tâche
-
-- `redmine_id: <int>` est **obligatoire** dans le frontmatter
-- Le nom de fichier `RM{id}_{titre}.md` **doit correspondre** à `redmine_id`
-  (cohérence vérifiée par le validateur)
-- Pas de tâche MD sans ticket Redmine préexistant
-
-### Projet
-
-- `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
-- `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
-  Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
-
-### Flux de création de tâches (v1.5.0)
-
-Deux flux supportés :
-
-**a) Création depuis Redmine** (workflow humain ou agent)
-1. Un humain (ou un agent) crée le ticket dans Redmine et l'assigne à un agent IA
-2. L'orchestrateur détecte l'assignation, génère `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
-3. Le worker assigné prend la tâche en charge
-
-**b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
-1. Depuis `/zfs/workspaces/{P}`, l'utilisateur lance `pm task create --type ... --title "..."`
-2. Le script crée le ticket Redmine, récupère l'ID
-3. Génère le fichier MD dans `.pm/tasks/RM{id}_*.md`
-4. Commit + push automatique
-
-Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en
-v1.5 — voir [PISTES.md](../PISTES.md).
+| Projet | `project.md` à la racine du dossier projet |
 
 ## Schéma frontmatter — Tâche
 

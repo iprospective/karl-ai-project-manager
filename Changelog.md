@@ -7,6 +7,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.0] - 2026-05-12
+
+### Ajouté — Lien Redmine strict + symlink `.pm`
+- Convention `.pm` : symlink dans chaque workspace projet vers le dossier PM centralisé
+- Lien dur MD ↔ Redmine : `redmine_id` + cohérence filename, `redmine.project_id` obligatoire
+- Validator étendu (`validate_redmine_coherence`)
+- TODO 002 (interface de gestion + supervision) et TODO 003 (CLI `pm`) créés
+
+### Modifié
+- NORMS bumped 1.4.0 → 1.5.0
+- Templates `task.md`, `project-overview.md`, `client-overview.md` mis à jour
+- `worker-common.md` : résolution de chemins documentée
+- PISTES.md : ajout de la piste « Création MD → Redmine » (sens inverse)
+
+---
+
 ## [1.4.0] - 2026-04-27
 
 ### Ajouté — Cahier des charges multi-fichiers

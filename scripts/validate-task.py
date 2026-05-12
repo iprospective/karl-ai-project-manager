@@ -91,6 +91,24 @@ class Validator:
             self.err(file_path, f"Nom de fichier non conforme (attendu : RM{{id}}_{{kebab}}.md)")
         return True
 
+    def validate_redmine_coherence(self, file_path, fm):
+        """Le RM{id} du nom de fichier doit correspondre au redmine_id du frontmatter."""
+        name = os.path.basename(file_path)
+        m = re.match(r"^RM(\d+)_", name)
+        if not m:
+            return  # filename invalide déjà signalé par validate_filename
+        filename_id = int(m.group(1))
+        rid = fm.get("redmine_id")
+        try:
+            rid_int = int(rid) if rid is not None else None
+        except (TypeError, ValueError):
+            self.err(file_path, f"redmine_id doit être un entier (reçu : {rid!r})")
+            return
+        if rid_int is None:
+            return  # déjà signalé par validate_required
+        if rid_int != filename_id:
+            self.err(file_path, f"Incohérence : nom de fichier RM{filename_id}_ ≠ redmine_id du frontmatter ({rid_int})")
+
     def validate_required(self, file, fm):
         for field in REQUIRED_FIELDS:
             if field not in fm or fm[field] in (None, ""):
@@ -186,6 +204,7 @@ class Validator:
         self.validate_status_history(file_path, fm)
         self.validate_pistes(file_path, fm)
         self.validate_completion_pct(file_path, fm)
+        self.validate_redmine_coherence(file_path, fm)
 
 
 def main():

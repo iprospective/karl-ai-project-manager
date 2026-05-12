@@ -1,20 +1,21 @@
 ---
-schema_version: "1.4.0"
+schema_version: "1.5.0"
 slug: ""                       # identifiant kebab-case (= nom du dossier)
 name: ""
-client: ""                     # slug du client parent
+client: ""                     # OBLIGATOIRE — slug du client parent
 status: active                 # active | paused | archived
-created: 2026-04-27
+created: 2026-05-12
 
 # Override possibles des valeurs héritées du client
 defaults:
   priority: normal             # null → hérite du client
   team: []                     # vide → hérite du client
 
-# Intégrations (peuvent hériter du client)
+# Intégrations Redmine (project_id obligatoire — lien dur MD ↔ Redmine)
 redmine:
   instance:                    # null → hérite du client
-  project_id:
+  project_id:                  # OBLIGATOIRE — slug du projet Redmine
+  subprojects: []              # optionnel — sous-projets Redmine rattachés
 gitlab:
   repo: ""                     # repo de code (différent du repo PM)
   group:                       # null → hérite du client

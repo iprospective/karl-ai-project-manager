@@ -5,7 +5,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## Orientation rapide
 
-- **Normes et schéma :** `norms/NORMS.md` (v1.4.0)
+- **Normes et schéma :** `norms/NORMS.md` (v1.5.0)
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
 - **Hiérarchie :** `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
 - **Cascade :** client → projet → tâche (héritage avec override possible)

@@ -7,6 +7,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.2] - 2026-05-12
+
+### Ajouté
+- `scripts/pm-dashboard.py` — CLI dashboard du système (phase 0 de TODO 002)
+  - Vue d'ensemble : clients, projets, tâches
+  - Tableau des statuts par projet
+  - Top ROI (tâches `a_faire` avec dépendances satisfaites)
+  - Sections "En cours", "À tester", "À corriger" (affichées si non-vides)
+  - Activité récente (5 derniers `.log.md` modifiés)
+  - Utilise `rich` si disponible (rendu coloré), fallback ASCII sinon
+  - Filtres : `--client <slug>`, `--top N`, `--activity N`
+- TODO 002 phase 0 marquée comme réalisée
+
+---
+
 ## [1.5.1] - 2026-05-12
 
 ### Modifié

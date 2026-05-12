@@ -48,6 +48,7 @@ project-management/
   scripts/
     validate-task.py
     priority.py                       # ordonnancement par ROI
+    pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
     invoke.md
     cron.example.sh
 ```

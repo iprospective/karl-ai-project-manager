@@ -51,13 +51,13 @@ l'indexer se reconstruit en 30 s depuis les MD.
 
 ## Phasage proposé (ordre par ROI)
 
-| Phase | Effort estimé | Valeur immédiate |
-|---|---|---|
-| 0. CLI dashboard (terminal, lit MD, top ROI, statut global) | 2-3 h | 80 % de la valeur sans UI |
-| 1. Bootstrap Symfony + indexer + UI lecture web | 3-4 j | Browse, filtres, recherche |
-| 2. UI édition (formulaires Twig → génère MD via service) | 2-3 j | Création/édition sans MD brut |
-| 3. Supervision live (Mercure + tail `.log.md`) | 1-2 j | Vue temps réel des agents |
-| 4. Métriques historiques (tokens, cycle time, ROI réalisé vs estimé) | 1-2 j | Pilotage long terme |
+| Phase | Statut | Effort estimé | Valeur immédiate |
+|---|---|---|---|
+| 0. CLI dashboard (terminal, lit MD, top ROI, statut global) | ✅ livré 2026-05-12 | 2-3 h | `scripts/pm-dashboard.py` |
+| 1. Bootstrap Symfony + indexer + UI lecture web | à faire | 3-4 j | Browse, filtres, recherche |
+| 2. UI édition (formulaires Twig → génère MD via service) | à faire | 2-3 j | Création/édition sans MD brut |
+| 3. Supervision live (Mercure + tail `.log.md`) | à faire | 1-2 j | Vue temps réel des agents |
+| 4. Métriques historiques (tokens, cycle time, ROI réalisé vs estimé) | à faire | 1-2 j | Pilotage long terme |
 
 ### Bootstrap Symfony (phase 1) — détail technique
 
@@ -81,3 +81,4 @@ l'indexer se reconstruit en 30 s depuis les MD.
 
 - **2026-05-12** : TODO créée. Discussion architecture menée — Option C (MD source + DB index) retenue comme recommandation. Choix de stack/auth/localisation/supervision encore ouverts.
 - **2026-05-12** : Stack tranchée — Symfony + Twig + HTMX + SQLite, conteneur LXC `dev` existant, auth locale, supervision live phase 1 = tail `.log.md`, phase 2 = événements structurés. Choix métriques reporté à la phase 4.
+- **2026-05-12** : Phase 0 livrée — `scripts/pm-dashboard.py`. Affiche statuts par projet, top ROI, en cours, à tester, à corriger, activité récente. `rich` si dispo, fallback ASCII. Filtres `--client`, `--top`, `--activity`.

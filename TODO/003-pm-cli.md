@@ -10,7 +10,7 @@
 
 ## Contexte
 
-La convention de stockage v1.5.0 met un symlink `.pm` dans chaque workspace projet,
+La convention de stockage v1.5.0 met un symlink `mmi-pm` dans chaque workspace projet,
 pointant vers le dossier PM centralisé. Un outil CLI `pm` exécuté depuis le workspace
 projet permet d'orchestrer les opérations courantes (création de ticket Redmine +
 fichier MD + commit) sans naviguer entre les arbres.
@@ -19,14 +19,14 @@ fichier MD + commit) sans naviguer entre les arbres.
 
 ### Création
 - [ ] `pm task create --type <T> --title "..."`
-  - Crée le ticket Redmine dans le projet configuré (`.pm/project/overview.md ::
+  - Crée le ticket Redmine dans le projet configuré (`mmi-pm/project/overview.md ::
     redmine.project_id`)
   - Récupère l'ID
-  - Génère `.pm/tasks/RM{id}_{slug}.md` depuis `templates/task.md`
+  - Génère `mmi-pm/tasks/RM{id}_{slug}.md` depuis `templates/task.md`
   - Commit + push dans le repo `ai-projects`
 - [ ] `pm project init <client-slug> <project-slug>`
   - Crée le squelette PM centralisé dans `$PROJECTS_PATH/clients/{C}/projects/{P}/`
-  - Crée le symlink `.pm` dans le workspace courant
+  - Crée le symlink `mmi-pm` dans le workspace courant
   - Initialise `project/overview.md` depuis le template
 - [ ] `pm client init <client-slug>`
   - Crée le squelette client centralisé
@@ -44,7 +44,7 @@ fichier MD + commit) sans naviguer entre les arbres.
 
 - Python, packagé en single-file ou `setup.py` standard
 - Lit `$PROJECTS_PATH` et `$REDMINE_URL`/`$REDMINE_API_KEY` depuis `.env`
-- Résolution du contexte projet : `realpath .pm` → tree central
+- Résolution du contexte projet : `realpath mmi-pm` → tree central
 - Validator appelé avant tout commit
 
 ## Critères d'acceptation

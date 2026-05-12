@@ -49,4 +49,4 @@ _(aucun)_
 
 ## Réalisé
 
-- [x] `005` `#priority:normal` [#norms #user-request] Symlink `/zfs/workspaces/perso/mathematicians-db/.pm` créé — 2026-05-12 (workspace au chemin `/zfs/workspaces/perso/{slug}/` et non `/zfs/workspaces/{slug}/`)
+- [x] `005` `#priority:normal` [#norms #user-request] Symlink `/zfs/workspaces/perso/mathematicians-db/mmi-pm` créé — 2026-05-12 (workspace au chemin `/zfs/workspaces/perso/{slug}/` et non `/zfs/workspaces/{slug}/` ; nom de symlink renommé en v1.5.1 de `.pm` → `mmi-pm`)

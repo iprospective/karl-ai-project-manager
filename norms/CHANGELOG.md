@@ -5,6 +5,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.1] - 2026-05-12
+
+### Modifié
+- Renommage du symlink de cohabitation : `.pm` → `mmi-pm`
+  - Évite toute confusion avec l'extension de fichier Perl (`.pm`)
+  - Symlink visible dans `ls` standard (au lieu de masqué par le `.`)
+  - Préfixe `mmi-` cohérent avec d'autres conventions iprospective (skills `mmi-audit-*`, etc.)
+- NORMS, worker-common, TODO/003 mis à jour
+- Schema bumped 1.5.0 → 1.5.1 (patch — pas d'archive)
+
+---
+
 ## [1.5.0] - 2026-05-12
 
 ### Ajouté

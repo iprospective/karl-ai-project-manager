@@ -7,6 +7,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.1] - 2026-05-12
+
+### Modifié
+- Symlink de cohabitation renommé : `.pm` → `mmi-pm` (évite conflit avec extension Perl, visible dans `ls`, préfixe cohérent avec les skills `mmi-*`)
+- Symlink existant sur `mathematicians-db` renommé en place
+
+---
+
 ## [1.5.0] - 2026-05-12
 
 ### Ajouté — Lien Redmine strict + symlink `.pm`

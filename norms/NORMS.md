@@ -1,9 +1,9 @@
 ---
-schema_version: "1.5.0"
+schema_version: "1.5.1"
 updated: 2026-05-12
 ---
 
-# Normes de gestion des tâches — v1.5.0
+# Normes de gestion des tâches — v1.5.1
 
 ## Configuration globale
 
@@ -87,7 +87,7 @@ projects/                             # ai-projects (repo séparé)
             RM{id}_{titre-kebab}.log.md
 ```
 
-### Workspace projet et symlink `.pm`
+### Workspace projet et symlink `mmi-pm`
 
 Chaque projet a **deux emplacements** distincts mais liés :
 
@@ -96,26 +96,26 @@ Chaque projet a **deux emplacements** distincts mais liés :
 | `/zfs/workspaces/{P}/` | Code source du projet | repo de code (ex: `iprospective/dev/{P}`) |
 | `$PROJECTS_PATH/clients/{C}/projects/{P}/` | Cahier des charges, tâches, mémoire | `ai-projects` |
 
-Pour faciliter le travail conjoint code + tâches, un **symlink `.pm`** dans le workspace
+Pour faciliter le travail conjoint code + tâches, un **symlink `mmi-pm`** dans le workspace
 projet pointe vers le dossier PM centralisé :
 
 ```
-/zfs/workspaces/{P}/.pm → $PROJECTS_PATH/clients/{C}/projects/{P}/
+/zfs/workspaces/{P}/mmi-pm → $PROJECTS_PATH/clients/{C}/projects/{P}/
 ```
 
 **Création :**
 ```bash
 cd /zfs/workspaces/{P}
-ln -s "$PROJECTS_PATH/clients/{C}/projects/{P}" .pm
+ln -s "$PROJECTS_PATH/clients/{C}/projects/{P}" mmi-pm
 ```
 
 **Bénéfices :**
-- Un agent travaillant dans le workspace voit code ET tâches/docs (`.pm/project/`, `.pm/tasks/`)
+- Un agent travaillant dans le workspace voit code ET tâches/docs (`mmi-pm/project/`, `mmi-pm/tasks/`)
 - Un seul dossier de travail pour l'agent — pas de saut entre arbres distants
 - La centralisation est préservée (l'orchestrateur scanne `$PROJECTS_PATH` directement)
 
 **Résolution de chemins cross-tree** (ex: cascade vers le client) :
-Ne pas utiliser `.pm/../../` (résolution logique non fiable des symlinks). Utiliser
+Ne pas utiliser `mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser
 `$PROJECTS_PATH` + le champ `client:` du frontmatter de `project/overview.md` :
 
 ```bash
@@ -228,7 +228,7 @@ Deux flux supportés :
 **b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
 1. Depuis `/zfs/workspaces/{P}`, l'utilisateur lance `pm task create --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
-3. Génère le fichier MD dans `.pm/tasks/RM{id}_*.md`
+3. Génère le fichier MD dans `mmi-pm/tasks/RM{id}_*.md`
 4. Commit + push automatique
 
 Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en

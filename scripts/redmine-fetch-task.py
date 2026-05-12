@@ -166,6 +166,13 @@ def find_project_by_redmine_id(projects_root, redmine_project_id):
     return None, None
 
 
+def latest_journal_id(issue):
+    journals = issue.get("journals") or []
+    if not journals:
+        return 0
+    return max(j["id"] for j in journals)
+
+
 def build_frontmatter(issue, author_login):
     tracker_name = (issue.get("tracker") or {}).get("name", "").strip().lower()
     task_type = TRACKER_TO_TYPE.get(tracker_name, "feature")
@@ -179,8 +186,10 @@ def build_frontmatter(issue, author_login):
     sh_at = created_full.replace("Z", "")[:16] if "T" in created_full else now_iso(minutes=True)
 
     fm = {
-        "schema_version": "1.5.1",
+        "schema_version": "1.5.2",
         "redmine_id": int(issue["id"]),
+        "redmine_last_journal_id": latest_journal_id(issue),
+        "redmine_last_checked_at": now_iso(minutes=True),
         "title": (issue.get("subject") or "").strip() or f"Ticket Redmine #{issue['id']}",
         "type": task_type,
         "parent_task": None,
@@ -269,7 +278,12 @@ def main():
         sys.exit(1)
 
     try:
-        issue = fetch_issue(url, key, args.issue)
+        # On inclut les journaux pour pouvoir initialiser redmine_last_journal_id
+        # à la dernière entrée existante (évite de re-traiter le passé).
+        full = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}&include=description,journals"
+        req = request.Request(full, headers={"Accept": "application/json"})
+        with request.urlopen(req, timeout=10) as resp:
+            issue = json.loads(resp.read())["issue"]
     except error.HTTPError as e:
         print(f"ERREUR Redmine : HTTP {e.code} {e.reason}", file=sys.stderr)
         sys.exit(1)

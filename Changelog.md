@@ -7,6 +7,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.4] - 2026-05-13
+
+### Ajouté
+- `scripts/redmine-fetch-updates.py` — récupère les nouveaux journaux Redmine
+  depuis `redmine_last_journal_id`, affiche notes + changements d'attributs,
+  met à jour le frontmatter de la tâche
+- `scripts/redmine-post-note.py --assign-to <id|author|me>` — réattribution
+  manuelle ou automatique
+- Auto-réattribution au demandeur sur `--norms-status a_tester_verifier`
+- Vérification post-PUT étendue à `assigned_to_id` (warn + exit 2 si non appliqué)
+- Schema 1.5.2 : champs `redmine_last_journal_id`, `redmine_last_checked_at`
+- NORMS : section "Workflow multi-tour" + règle d'attribution Redmine
+
+### Acté
+- Workflow end-to-end testé sur RM1658 (création Redmine → fetch → traitement →
+  livrables → soumission → réattribution au demandeur)
+
+---
+
 ## [1.5.3] - 2026-05-12
 
 ### Ajouté — Intégration Redmine (premiers scripts)

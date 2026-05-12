@@ -1,9 +1,9 @@
 ---
-schema_version: "1.5.1"
-updated: 2026-05-12
+schema_version: "1.5.2"
+updated: 2026-05-13
 ---
 
-# Normes de gestion des tâches — v1.5.1
+# Normes de gestion des tâches — v1.5.2
 
 ## Configuration globale
 
@@ -51,7 +51,8 @@ project-management/
     pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
     redmine-test.py                   # test de connexion API Redmine
     redmine-fetch-task.py             # fetch ticket Redmine → génère le MD
-    redmine-post-note.py              # poste une note (+ statut) sur un ticket
+    redmine-fetch-updates.py          # récupère les nouveautés depuis le dernier check
+    redmine-post-note.py              # poste une note (+ statut + assignation) sur un ticket
     invoke.md
     cron.example.sh
 ```
@@ -219,6 +220,28 @@ Cette règle est vérifiée par le validateur.
 - `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
 - `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
   Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
+
+### Workflow multi-tour (reprise après notes du demandeur)
+
+Quand un ticket revient à un worker (réattribution, ou statut passe à `a_corriger`),
+le worker doit ne traiter que les **nouveautés** depuis sa dernière vue du ticket.
+
+Champs du frontmatter de la tâche :
+- `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
+- `redmine_last_checked_at: <str iso>` — timestamp du dernier check
+
+Protocole de reprise :
+1. `scripts/redmine-fetch-updates.py --issue <id>` → affiche tous les journaux
+   postérieurs à `redmine_last_journal_id`, et met à jour ce champ
+2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
+3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
+4. Appliquer le travail demandé selon le protocole worker standard
+5. Resoumettre via `redmine-post-note.py --norms-status a_tester_verifier` (qui
+   réattribue automatiquement au demandeur)
+
+Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
+**dernière entrée existante** au moment du fetch, pour que le worker ne traite que
+ce qui se passe **après** sa prise en charge.
 
 ### Synchronisation des statuts MD ↔ Redmine (obligatoire)
 

@@ -1,8 +1,10 @@
 ---
-schema_version: "1.5.0"
+schema_version: "1.5.2"
 
 # Identification
 redmine_id: 9999
+redmine_last_journal_id: 12345
+redmine_last_checked_at: 2026-04-27T10:00
 title: "Exemple de tâche complète et conforme au schéma"
 type: feature
 parent_task: null

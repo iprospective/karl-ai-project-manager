@@ -1,8 +1,10 @@
 ---
-schema_version: "1.5.0"
+schema_version: "1.5.2"
 
 # Identification
 redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
+redmine_last_journal_id: null # int — id du dernier journal Redmine consulté (rempli par redmine-fetch-task / fetch-updates)
+redmine_last_checked_at: null # str ISO — timestamp du dernier check Redmine
 title: ""
 type: feature
 # audit | feature | bugfix | refactoring | documentation | security

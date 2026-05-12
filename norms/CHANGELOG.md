@@ -5,6 +5,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.2] - 2026-05-13
+
+### Ajouté — Workflow multi-tour
+- 2 champs optionnels dans le frontmatter de tâche :
+  - `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
+  - `redmine_last_checked_at: <str iso>` — timestamp du dernier check
+- Section NORMS "Workflow multi-tour (reprise après notes du demandeur)" décrivant
+  le protocole de reprise quand un ticket revient au worker
+- Règle d'attribution Redmine étoffée :
+  - `a_tester_verifier` → demandeur (auto via script)
+  - `a_corriger` → worker précédent
+  - `ferme` → attribution courante conservée
+
+### Modifié
+- Templates `task.md` et `RM9999_*.md` : `schema_version` 1.5.0 → 1.5.2 + nouveaux champs
+- NORMS schema bumped 1.5.1 → 1.5.2 (patch — additif, pas d'archive)
+
+---
+
 ## [1.5.1] - 2026-05-12
 
 ### Modifié

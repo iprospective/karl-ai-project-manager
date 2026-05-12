@@ -9,8 +9,17 @@ Usage :
     ./scripts/redmine-post-note.py --issue 42 --note "Fait" --status 3   # 3 = Resolved
     ./scripts/redmine-post-note.py --issue 42 --note "Bloqué" --status 2 # 2 = In Progress
 
-Statuts Redmine standards (à vérifier sur ton instance) :
-    1 = New | 2 = In Progress | 3 = Resolved | 4 = Feedback | 5 = Closed | 6 = Rejected
+Statuts Redmine de l'instance iprospective :
+    8 = A étudier / Qualifier    (NORMS a_etudier_chiffrer)
+   14 = Etude en cours           (NORMS etude_chiffrage_en_cours)
+   12 = A Faire                  (NORMS a_faire)
+    2 = En cours                 (NORMS en_cours)
+    9 = A tester/vérifier        (NORMS a_tester_verifier)
+   11 = A corriger               (NORMS a_corriger)
+    5 = Résolu/Fermé             (NORMS ferme + close_reason: resolu)
+   10 = Abandonné                (NORMS ferme + close_reason: abandonne)
+    6 = Rejeté                   (NORMS ferme + close_reason: wont_fix|hors_perimetre)
+    7 = Pas un bug / Déjà existant (NORMS ferme + close_reason: invalide|doublon)
 """
 
 import argparse
@@ -19,6 +28,23 @@ import os
 import sys
 from pathlib import Path
 from urllib import error, request
+
+
+NORMS_TO_REDMINE_STATUS = {
+    "a_etudier_chiffrer": 8,
+    "etude_chiffrage_en_cours": 14,
+    "a_faire": 12,
+    "en_cours": 2,
+    "a_tester_verifier": 9,
+    "a_corriger": 11,
+    "ferme": 5,
+    "ferme:resolu": 5,
+    "ferme:abandonne": 10,
+    "ferme:wont_fix": 6,
+    "ferme:hors_perimetre": 6,
+    "ferme:invalide": 7,
+    "ferme:doublon": 7,
+}
 
 
 def load_env():
@@ -39,9 +65,18 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--issue", type=int, required=True, help="ID du ticket")
     ap.add_argument("--note", required=True, help="Texte de la note (ou '-' pour lire stdin)")
-    ap.add_argument("--status", type=int, help="ID du nouveau statut Redmine (optionnel)")
+    ap.add_argument("--status", type=int, help="ID Redmine du nouveau statut (optionnel)")
+    ap.add_argument("--norms-status", help="Statut NORMS (a_etudier_chiffrer, en_cours, ...), "
+                                            "ou 'ferme:<close_reason>'. Mappé automatiquement sur l'ID Redmine.")
     ap.add_argument("--private", action="store_true", help="Note privée (non visible client)")
     args = ap.parse_args()
+
+    if args.norms_status:
+        sid = NORMS_TO_REDMINE_STATUS.get(args.norms_status)
+        if sid is None:
+            print(f"ERREUR : statut NORMS '{args.norms_status}' inconnu", file=sys.stderr)
+            sys.exit(1)
+        args.status = sid
 
     load_env()
     url = os.environ.get("REDMINE_URL")

@@ -220,6 +220,32 @@ Cette règle est vérifiée par le validateur.
 - `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
   Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
 
+### Synchronisation des statuts MD ↔ Redmine (obligatoire)
+
+**Tout changement de `status` dans le frontmatter d'une tâche doit être répercuté
+sur le ticket Redmine correspondant**, dans le même cycle de travail.
+
+L'agent (ou l'orchestrateur) qui modifie le `status` MD doit :
+1. Mettre à jour le frontmatter (`status`, `status_history`, `updated`)
+2. Appender l'événement dans `.log.md`
+3. Poster une note Redmine + changer le `status_id` correspondant
+   (typiquement via `scripts/redmine-post-note.py --norms-status <statut>`)
+
+**Mapping NORMS → Redmine (instance iprospective)** :
+
+| NORMS | Redmine | id |
+|---|---|---|
+| `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
+| `etude_chiffrage_en_cours` | Etude en cours | 14 |
+| `a_faire` | A Faire | 12 |
+| `en_cours` | En cours | 2 |
+| `a_tester_verifier` | A tester/vérifier | 9 |
+| `a_corriger` | A corriger | 11 |
+| `ferme` (`close_reason: resolu`) | Résolu/Fermé | 5 |
+| `ferme` (`close_reason: abandonne`) | Abandonné | 10 |
+| `ferme` (`close_reason: wont_fix` / `hors_perimetre`) | Rejeté | 6 |
+| `ferme` (`close_reason: invalide` / `doublon`) | Pas un bug / Déjà existant | 7 |
+
 ### Flux de création de tâches (v1.5.0)
 
 Deux flux supportés :

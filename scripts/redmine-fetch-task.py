@@ -77,6 +77,32 @@ def fetch_issue(url, key, issue_id):
         return json.loads(resp.read())["issue"]
 
 
+def fetch_project_identifier(url, key, project_id):
+    """Récupère l'identifier (slug) d'un projet à partir de son id numérique.
+    L'API /issues/{id}.json ne renvoie que l'id+name du projet, pas l'identifier."""
+    full = f"{url.rstrip('/')}/projects/{project_id}.json?key={key}"
+    req = request.Request(full, headers={"Accept": "application/json"})
+    with request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read())["project"].get("identifier")
+
+
+def fetch_user_login(url, key, user_id):
+    """Récupère le login d'un user à partir de son ID (l'API issues ne renvoie que name)."""
+    try:
+        full = f"{url.rstrip('/')}/users/{user_id}.json?key={key}"
+        req = request.Request(full, headers={"Accept": "application/json"})
+        with request.urlopen(req, timeout=10) as resp:
+            return json.loads(resp.read())["user"].get("login")
+    except (error.HTTPError, error.URLError):
+        return None
+
+
+def now_iso(minutes=False):
+    """Timestamp local courant, format ISO."""
+    fmt = "%Y-%m-%dT%H:%M" if minutes else "%Y-%m-%d"
+    return datetime.now().strftime(fmt)
+
+
 def slugify(s):
     s = unicodedata.normalize("NFKD", s)
     s = "".join(c for c in s if not unicodedata.combining(c))
@@ -115,17 +141,17 @@ def find_project_by_redmine_id(projects_root, redmine_project_id):
     return None, None
 
 
-def build_frontmatter(issue):
+def build_frontmatter(issue, author_login):
     tracker_name = (issue.get("tracker") or {}).get("name", "").strip().lower()
     task_type = TRACKER_TO_TYPE.get(tracker_name, "feature")
 
     prio_name = (issue.get("priority") or {}).get("name", "").strip().lower()
     priority = PRIORITY_TO_NORMS.get(prio_name, "normal")
 
-    author = (issue.get("author") or {}).get("login") or "unknown"
+    author = author_login or (issue.get("author") or {}).get("login") or (issue.get("author") or {}).get("name") or "unknown"
     created_full = issue.get("created_on") or ""
-    created_date = created_full.split("T")[0] or datetime.utcnow().date().isoformat()
-    sh_at = created_full.replace("Z", "")[:16] if "T" in created_full else datetime.utcnow().strftime("%Y-%m-%dT%H:%M")
+    created_date = created_full.split("T")[0] or now_iso()
+    sh_at = created_full.replace("Z", "")[:16] if "T" in created_full else now_iso(minutes=True)
 
     fm = {
         "schema_version": "1.5.1",
@@ -155,7 +181,7 @@ def build_frontmatter(issue):
         "time_total_minutes": 0,
         "created": created_date,
         "due": None,
-        "updated": datetime.utcnow().date().isoformat(),
+        "updated": now_iso(),
         "status_history": [{
             "status": "a_etudier_chiffrer",
             "at": sh_at,
@@ -229,9 +255,16 @@ def main():
             print(f"ERREUR : {project_dir} introuvable", file=sys.stderr)
             sys.exit(1)
     else:
-        rm_project = (issue.get("project") or {}).get("identifier")
+        proj = issue.get("project") or {}
+        rm_project = proj.get("identifier")
+        if not rm_project and proj.get("id"):
+            try:
+                rm_project = fetch_project_identifier(url, key, proj["id"])
+            except error.HTTPError as e:
+                print(f"ERREUR : résolution projet (id={proj['id']}) : HTTP {e.code}", file=sys.stderr)
+                sys.exit(1)
         if not rm_project:
-            print("ERREUR : ticket sans identifier de projet Redmine", file=sys.stderr)
+            print("ERREUR : impossible de déterminer l'identifier du projet Redmine", file=sys.stderr)
             sys.exit(1)
         client_dir, project_dir = find_project_by_redmine_id(projects_root, rm_project)
         if project_dir is None:
@@ -239,7 +272,11 @@ def main():
             print("        Préciser --client <slug> --project <slug>", file=sys.stderr)
             sys.exit(1)
 
-    fm = build_frontmatter(issue)
+    # Résoudre le login de l'auteur (l'API issues ne renvoie que name)
+    author_info = issue.get("author") or {}
+    author_login = fetch_user_login(url, key, author_info["id"]) if author_info.get("id") else None
+
+    fm = build_frontmatter(issue, author_login)
     slug = slugify(fm["title"])
     filename = f"RM{fm['redmine_id']}_{slug}.md"
     target = project_dir / "tasks" / filename
@@ -270,7 +307,7 @@ def main():
     if not log_target.exists():
         log_target.write_text(
             f"# Journal RM{fm['redmine_id']}\n\n"
-            f"## {datetime.utcnow().strftime('%Y-%m-%dT%H:%M')} — redmine-fetch-task\n"
+            f"## {now_iso(minutes=True)} — redmine-fetch-task\n"
             "Tokens : 0 | Durée : 0 min\n\n"
             f"Tâche créée depuis Redmine #{fm['redmine_id']} ({url.rstrip('/')}/issues/{fm['redmine_id']}).\n",
             encoding="utf-8",

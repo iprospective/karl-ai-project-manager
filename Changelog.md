@@ -7,6 +7,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.3] - 2026-05-12
+
+### Ajouté — Intégration Redmine (premiers scripts)
+- `scripts/redmine-test.py` — vérifie connexion API (URL, clé, projets accessibles, ticket spécifique)
+- `scripts/redmine-fetch-task.py` — fetch un ticket Redmine, identifie le projet MD via `redmine.project_id`, génère le fichier de tâche conforme au schéma + journal initial, lance le validateur
+  - Mapping `tracker` → `type` (bug→bugfix, feature→feature, support→assistance, etc.)
+  - Mapping `priority` → `priority` (low/normal/high/urgent)
+- `scripts/redmine-post-note.py` — poste une note (avec changement de statut optionnel) sur un ticket ; utilisé par les agents pour répondre
+
+### Acté
+- Connexion vérifiée : compte API = `claude-chefproj-1` (orchestrateur), projets `ai-agents` + `mathematicians-db` accessibles
+
+---
+
 ## [1.5.2] - 2026-05-12
 
 ### Ajouté

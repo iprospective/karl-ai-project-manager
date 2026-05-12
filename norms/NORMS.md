@@ -49,6 +49,9 @@ project-management/
     validate-task.py
     priority.py                       # ordonnancement par ROI
     pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
+    redmine-test.py                   # test de connexion API Redmine
+    redmine-fetch-task.py             # fetch ticket Redmine → génère le MD
+    redmine-post-note.py              # poste une note (+ statut) sur un ticket
     invoke.md
     cron.example.sh
 ```

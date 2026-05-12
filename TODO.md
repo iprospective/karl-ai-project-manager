@@ -38,7 +38,6 @@ _(aucun)_
 
 - [ ] `001` `#priority:normal` [#constraint #redmine #user-request] [Critères de valeur Redmine à préserver dans toute évolution](TODO/001-redmine-value-criteria.md) — collaboration, base docs searchable, com client : contraintes à respecter
 - [ ] `004` `#priority:normal` [#norms #agents] Compléter `clients/lemathou/client/overview.md` — contacts, secteur, contexte
-- [ ] `005` `#priority:normal` [#norms #user-request] Créer le symlink `/zfs/workspaces/mathematicians-db/.pm` quand le workspace projet existera
 
 ### low
 
@@ -50,4 +49,4 @@ _(aucun)_
 
 ## Réalisé
 
-_(rien encore)_
+- [x] `005` `#priority:normal` [#norms #user-request] Symlink `/zfs/workspaces/perso/mathematicians-db/.pm` créé — 2026-05-12 (workspace au chemin `/zfs/workspaces/perso/{slug}/` et non `/zfs/workspaces/{slug}/`)

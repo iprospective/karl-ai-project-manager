@@ -18,41 +18,56 @@ Deux briques liées :
 1. **Interface de gestion** : browse + édition (alternative aux éditeurs MD bruts)
 2. **Supervision graphique** : ce que font les agents en temps réel, métriques
 
-## Architecture proposée (Option C — recommandée)
+## Architecture retenue (Option C — décidée 2026-05-12)
 
 **MD reste source de vérité**, une DB indexée (SQLite) sert de cache pour les requêtes :
 
 ```
-Browser (HTMX) ─→ FastAPI ─→ SQLite (index, read-only)
-                       └──→ MD files (writes)
-                              ▲
-                              │ watchdog
-                       Indexer (daemon)
-                              ▲
-                              │ lecture/écriture
-                       Agents (Claude)
+Browser (HTMX + Twig) ─→ Symfony ─→ SQLite (index, read-only)
+                              └──→ MD files (writes)
+                                     ▲
+                                     │ watchdog (Symfony Messenger ou daemon dédié)
+                              Indexer
+                                     ▲
+                                     │ lecture/écriture
+                              Agents (Claude)
+                                     │
+                                     ▼
+                            Mercure Hub ─→ Browser (SSE pour supervision live)
 ```
 
 **Pourquoi** : pas de sync bidirectionnel (le cauchemar), git reste source d'historique,
-l'indexer se reconstruit en 30s depuis les MD.
+l'indexer se reconstruit en 30 s depuis les MD.
 
-## Choix à trancher avant code
+## Choix actés (2026-05-12)
 
-- [ ] **Stack tech** : FastAPI + HTMX + Alpine + Tailwind (recommandé) vs autre (Node, PHP, Go)
-- [ ] **Localisation** : même serveur que les agents vs service séparé (impact accès filesystem)
-- [ ] **Auth** : public local / restriction IP / OAuth GitLab
-- [ ] **Granularité supervision live** : tail des `.log.md` suffit, ou les agents doivent émettre des événements dédiés (webhook, message queue) ?
-- [ ] **Métriques** : SQLite + Chart.js (simple, intégré) vs Prometheus + Grafana (robuste, externe)
+| Décision | Choix retenu | Note |
+|---|---|---|
+| **Stack tech** | Symfony + Twig + HTMX + Alpine + Tailwind | Auth Security bundle, Mercure pour SSE, Doctrine ORM pour la SQLite |
+| **Localisation** | Conteneur LXC `dev` existant, ZFS partagé | Accès direct aux MD via mount/bind, pas de sync réseau |
+| **Auth** | Locale (login/password) via Security bundle | Hash bcrypt, comptes en SQLite |
+| **Supervision live** | Phase 1 : tail des `.log.md` ; Phase 2 : événements structurés | Tail rapide à livrer, événements ajoutés quand le besoin émerge |
+| **Métriques** *(reportée)* | À trancher en phase 4 | SQLite + Chart.js vs Prometheus + Grafana |
 
 ## Phasage proposé (ordre par ROI)
 
 | Phase | Effort estimé | Valeur immédiate |
 |---|---|---|
 | 0. CLI dashboard (terminal, lit MD, top ROI, statut global) | 2-3 h | 80 % de la valeur sans UI |
-| 1. Indexer + UI lecture web | 2-3 j | Browse, filtres, recherche |
-| 2. UI édition (formulaires → génère MD) | 2-3 j | Création/édition sans MD brut |
-| 3. Supervision live (WebSocket + tail `.log.md`) | 1-2 j | Vue temps réel des agents |
+| 1. Bootstrap Symfony + indexer + UI lecture web | 3-4 j | Browse, filtres, recherche |
+| 2. UI édition (formulaires Twig → génère MD via service) | 2-3 j | Création/édition sans MD brut |
+| 3. Supervision live (Mercure + tail `.log.md`) | 1-2 j | Vue temps réel des agents |
 | 4. Métriques historiques (tokens, cycle time, ROI réalisé vs estimé) | 1-2 j | Pilotage long terme |
+
+### Bootstrap Symfony (phase 1) — détail technique
+
+- `composer create-project symfony/skeleton` + `webapp` recipe (Twig, Doctrine, Security, Mercure)
+- Doctrine configuré sur SQLite (`var/data.db`)
+- Entités initiales : `User`, `Client`, `Project`, `Task` (mappées sur les MD)
+- Service `MarkdownIndexer` (lit `$PROJECTS_PATH`, alimente Doctrine via watchdog ou commande `php bin/console pm:index`)
+- Service `MarkdownWriter` (écrit les MD depuis les formulaires, valide via `scripts/validate-task.py`)
+- Security : provider local en base, `make:user`, login/logout, role hiérarchique
+- HTMX + Alpine + Tailwind chargés via AssetMapper (pas de Node requis)
 
 ## Critères d'acceptation
 
@@ -65,3 +80,4 @@ l'indexer se reconstruit en 30s depuis les MD.
 ## Journal
 
 - **2026-05-12** : TODO créée. Discussion architecture menée — Option C (MD source + DB index) retenue comme recommandation. Choix de stack/auth/localisation/supervision encore ouverts.
+- **2026-05-12** : Stack tranchée — Symfony + Twig + HTMX + SQLite, conteneur LXC `dev` existant, auth locale, supervision live phase 1 = tail `.log.md`, phase 2 = événements structurés. Choix métriques reporté à la phase 4.

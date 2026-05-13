@@ -97,6 +97,40 @@ def fmt_journal(j):
     return "\n".join(lines)
 
 
+def fmt_journal_for_log(j):
+    """Format Markdown destiné au .log.md (entrée par journal)."""
+    when = (j.get("created_on") or "").replace("Z", "")[:16]
+    lines = [
+        f"## {when} — Redmine #{j['id']} — {j['user']['name']}",
+        "Source : Redmine (sync via redmine-fetch-updates)",
+        "",
+    ]
+    details = j.get("details") or []
+    if details:
+        lines.append("Changements :")
+        for d in details:
+            prop = d.get("property")
+            name = d.get("name", "?")
+            old = d.get("old_value")
+            new = d.get("new_value")
+            if prop == "attr":
+                lines.append(f"- `{name}` : `{old}` → `{new}`")
+            elif prop == "cf":
+                lines.append(f"- custom_field `{name}` : `{old}` → `{new}`")
+            elif prop == "attachment":
+                lines.append(f"- pièce jointe : {new}")
+            else:
+                lines.append(f"- `{prop}/{name}` : `{old}` → `{new}`")
+        lines.append("")
+    notes = (j.get("notes") or "").strip()
+    if notes:
+        lines.append("Note (verbatim) :")
+        for nl in notes.splitlines():
+            lines.append(f"> {nl}" if nl else ">")
+        lines.append("")
+    return "\n".join(lines)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -170,13 +204,24 @@ def main():
     print(f"Dernier journal lu : #{latest}")
 
     if args.dry_run:
-        print("(dry-run : MD non modifié)")
+        print("(dry-run : MD et log non modifiés)")
         return
 
     fm["redmine_last_journal_id"] = latest
     fm["redmine_last_checked_at"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
     write_frontmatter(md_path, fm, content[after:])
     print(f"→ MD mis à jour : {md_path.name}")
+
+    # Persister les journaux dans le .log.md (append-only, conforme NORMS).
+    # Permet au worker de retrouver l'historique Redmine sur ses prochaines reprises.
+    log_path = md_path.with_name(md_path.stem + ".log.md")
+    if not log_path.exists():
+        log_path.write_text(f"# Journal RM{args.issue}\n\n", encoding="utf-8")
+    with log_path.open("a", encoding="utf-8") as f:
+        for j in new:
+            f.write("\n")
+            f.write(fmt_journal_for_log(j))
+    print(f"→ Log appendé    : {log_path.name} ({len(new)} entrée(s) ajoutée(s))")
 
 
 if __name__ == "__main__":

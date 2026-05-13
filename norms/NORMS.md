@@ -243,6 +243,26 @@ Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` �
 **dernière entrée existante** au moment du fetch, pour que le worker ne traite que
 ce qui se passe **après** sa prise en charge.
 
+**Persistance dans le journal** : `redmine-fetch-updates.py` appende chaque nouveau
+journal Redmine récupéré au fichier `.log.md` de la tâche (append-only, conforme
+NORMS). Format d'entrée :
+
+```markdown
+## YYYY-MM-DDTHH:MM — Redmine #<journal_id> — <auteur Redmine>
+Source : Redmine (sync via redmine-fetch-updates)
+
+Changements :
+- `field` : `old` → `new`
+- ...
+
+Note (verbatim) :
+> ligne 1
+> ligne 2
+```
+
+Le worker peut ainsi retrouver l'historique complet des échanges (côté Redmine ET
+côté agent) en relisant simplement le `.log.md`, sans avoir à re-fetcher l'API.
+
 ### Synchronisation des statuts MD ↔ Redmine (obligatoire)
 
 **Tout changement de `status` dans le frontmatter d'une tâche doit être répercuté

@@ -7,6 +7,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.5.5] - 2026-05-13
+
+### Ajouté
+- `redmine-fetch-updates.py` : appende désormais chaque nouveau journal Redmine
+  dans le `.log.md` de la tâche (persistance, conforme append-only NORMS)
+- `redmine-post-note.py` : option `--attach <fichier>` (peut être répété) — upload
+  les fichiers via `/uploads.json`, récupère les tokens, les associe au PUT issue
+- NORMS § "Workflow multi-tour" : format de l'entrée log issue de Redmine documenté
+
+### Acté
+- Cycle multi-tour testé sur RM1658 :
+  - User a posté remarques + repassé en a_corriger + réassigné à l'agent
+  - Agent a détecté les nouveautés via fetch-updates, traité les 4 demandes,
+    enrichi les 3 livrables, soumis avec les fichiers en pièces jointes
+
+---
+
 ## [1.5.4] - 2026-05-13
 
 ### Ajouté

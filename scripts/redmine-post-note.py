@@ -24,6 +24,7 @@ Statuts Redmine de l'instance iprospective :
 
 import argparse
 import json
+import mimetypes
 import os
 import sys
 from pathlib import Path
@@ -70,6 +71,7 @@ def main():
                                             "ou 'ferme:<close_reason>'. Mappé automatiquement sur l'ID Redmine.")
     ap.add_argument("--assign-to", help="Réattribuer à un user : <id> | 'author' (demandeur du ticket) | "
                                          "'me' (compte API). Automatique sur --norms-status=a_tester_verifier (→ author).")
+    ap.add_argument("--attach", action="append", help="Chemin d'un fichier à joindre (peut être répété)")
     ap.add_argument("--private", action="store_true", help="Note privée (non visible client)")
     args = ap.parse_args()
 
@@ -102,6 +104,40 @@ def main():
         issue_payload["private_notes"] = True
     if args.status:
         issue_payload["status_id"] = args.status
+
+    # Uploads / pièces jointes
+    if args.attach:
+        uploads = []
+        for fpath in args.attach:
+            p = Path(fpath)
+            if not p.is_file():
+                print(f"ERREUR : fichier introuvable : {fpath}", file=sys.stderr)
+                sys.exit(1)
+            content_type = mimetypes.guess_type(p.name)[0] or "application/octet-stream"
+            # Force markdown to be served as text/markdown
+            if p.suffix == ".md":
+                content_type = "text/markdown"
+            try:
+                upload_url = f"{url.rstrip('/')}/uploads.json?key={key}"
+                up_req = request.Request(upload_url, data=p.read_bytes(), method="POST",
+                                         headers={"Content-Type": "application/octet-stream",
+                                                  "Accept": "application/json"})
+                with request.urlopen(up_req, timeout=30) as r:
+                    token = json.loads(r.read())["upload"]["token"]
+            except error.HTTPError as e:
+                print(f"ERREUR upload {p.name} : HTTP {e.code} {e.reason}", file=sys.stderr)
+                try:
+                    print(e.read().decode("utf-8", errors="replace"), file=sys.stderr)
+                except Exception:
+                    pass
+                sys.exit(1)
+            uploads.append({
+                "token": token,
+                "filename": p.name,
+                "content_type": content_type,
+            })
+            print(f"  · upload {p.name} ({content_type}) → token={token[:12]}…")
+        issue_payload["uploads"] = uploads
 
     # Résoudre --assign-to en assigned_to_id (entier)
     if args.assign_to:

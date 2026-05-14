@@ -5,6 +5,33 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.0] - 2026-05-14
+
+### Ajouté — Environnements et gestion des secrets
+- Section NORMS "Environnements (aspect `environments.md`)" :
+  - Énumération des noms standard : `local | dev | test | staging | preprod | prod | demo | qa | sandbox` + custom kebab-case
+  - Schéma `environments[]` (status, url, admin_url, host, user, app_path, branch, fpm_pool, logs.{app,fpm}, secrets_source, notes)
+  - Tableau `env_vars[]` (noms et descriptions des variables, sans les valeurs)
+  - Cascade client → projet
+- Section NORMS "Gestion des secrets — Vaultwarden" :
+  - Convention `vaultwarden://<org>/<collection>/<item>` pour référencer un item
+  - Architecture : organization iProspective + collections `<client>-agents` + user dédié `karl@iprospective.fr` (read-only)
+  - Daemon `vault-agentd.py` : session BW en mémoire uniquement, socket Unix `/run/user/$UID/vault-agentd.sock`
+  - Scripts associés : `unlock-vault.sh`, `resolve-secret.sh`, `lock-vault.sh`
+  - Politique d'expiration configurable : `VAULT_IDLE_TIMEOUT` (défaut 8h) + `VAULT_LOCK_AT_HOUR` (défaut 23h)
+  - Master password jamais stocké, tapé manuellement à chaque déverrouillage
+  - Règles strictes : agent ne prompt jamais le mdp, secrets jamais loggués
+- Schéma frontmatter tâche : nouveau champ `target_env`
+- Template `aspects/common/environments.md` créé
+- Template `aspects/common/hosting.md` resserré (centré sur provider/coûts/DNS, plus le mini-tableau env qui doublonnait)
+- Template `task.md` bumped 1.5.2 → 1.7.0 + `target_env`
+- `.env.example` étendu : `VAULT_URL`, `BW_CLIENTID`, `BW_CLIENTSECRET`, `VAULT_IDLE_TIMEOUT`, `VAULT_LOCK_AT_HOUR`
+
+### Modifié
+- NORMS schema bumped 1.6.0 → 1.7.0 (mineur — additif rétrocompatible)
+
+---
+
 ## [1.6.0] - 2026-05-14
 
 ### Ajouté — Types d'entités + partage cross-client

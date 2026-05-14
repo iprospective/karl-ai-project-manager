@@ -1,19 +1,16 @@
 # Hébergement
 
+Aspect dédié aux fournisseurs, ressources, DNS, backup et coûts.
+Pour la liste détaillée des environnements (dev/test/staging/prod…), voir
+[environments.md](environments.md).
+
 ## Hébergeur(s)
 <!-- Fournisseur(s) cloud / datacenter, comptes, contacts support -->
 
-## Environnements
-
-| Environnement | URL | Accès | Notes |
-|---|---|---|---|
-| dev | | | |
-| staging | | | |
-| prod | | | |
-
 ## Ressources
 
-<!-- VMs, conteneurs, services managés (BDD, queues, cache, CDN, etc.) -->
+<!-- VMs, conteneurs, services managés (BDD, queues, cache, CDN, etc.)
+     Indiquer les types/tailles, pas les credentials. -->
 
 ## DNS et certificats
 

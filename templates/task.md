@@ -1,5 +1,5 @@
 ---
-schema_version: "1.5.2"
+schema_version: "1.7.0"
 
 # Identification
 redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
@@ -62,7 +62,11 @@ refs: []
 #   label: ""
 
 # Environnement & déploiement
-test_url: null
+target_env: null          # null | dev | test | staging | preprod | prod | demo | qa | sandbox
+                          # → précise l'env visé (déploiement, debug, ajustement spécifique)
+                          # référence un `environments[].name` du project/environments.md
+test_url: null            # URL où QA peut tester ; si null et target_env set,
+                          # se déduit de environments.<target_env>.url
 git:
   repo: null              # ex: git@gitlab.iprospective.fr:org/repo.git
   branch: null            # ex: feature/RM1234-titre

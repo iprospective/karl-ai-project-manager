@@ -7,6 +7,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.0] - 2026-05-14
+
+### Ajouté — Environnements + gestion des secrets via Vaultwarden
+- NORMS v1.7.0 (cf [norms/CHANGELOG.md](norms/CHANGELOG.md)) :
+  - Aspect `environments.md` + énumération noms d'env standard
+  - Tableau `env_vars[]` (noms + description, sans valeurs)
+  - Convention `vaultwarden://<org>/<collection>/<item>` pour les secrets
+  - Architecture vault : org iProspective + collections `<client>-agents` + user `karl@iprospective.fr` (read-only)
+  - Task : nouveau champ `target_env`
+- Scripts (4 nouveaux) :
+  - `scripts/vault-agentd.py` — daemon local, session BW en mémoire, socket Unix
+  - `scripts/unlock-vault.sh` — déverrouillage manuel (master password prompt)
+  - `scripts/resolve-secret.sh` — résolution d'un secret par les agents
+  - `scripts/lock-vault.sh` — verrouillage explicite
+- Templates : `aspects/common/environments.md` créé ; `hosting.md` resserré
+- `.env.example` étendu (VAULT_URL, BW_CLIENTID/SECRET, options d'expiration)
+
+### Modifié
+- `templates/task.md` bumped 1.5.2 → 1.7.0 + `target_env`
+
+---
+
 ## [1.6.0] - 2026-05-14
 
 ### Ajouté — Types d'entités + partage cross-client + symlinks bidirectionnels + knowledge base

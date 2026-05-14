@@ -1,9 +1,9 @@
 ---
-schema_version: "1.6.0"
+schema_version: "1.7.0"
 updated: 2026-05-14
 ---
 
-# Normes de gestion des tâches — v1.6.0
+# Normes de gestion des tâches — v1.7.0
 
 ## Configuration globale
 
@@ -222,6 +222,102 @@ Exemple :
 - `clients/{C}/client/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
 - `clients/{C}/projects/{P}/project/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
+
+### Environnements (aspect `environments.md`)
+
+Aspect dédié à la déclaration des environnements d'exécution d'un projet (dev, test,
+staging, preprod, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
+
+**Format** : frontmatter avec liste `environments[]`, chaque entrée décrivant un env.
+Voir `templates/aspects/common/environments.md`.
+
+**Énumération des noms d'env standard :**
+`local | dev | test | staging | preprod | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
+
+Custom autorisé si le projet a une particularité (ex: `staging-eu`, `preprod-archive`,
+`prod-canary`).
+
+**Champs par environnement :**
+- `name` (obligatoire, enum ci-dessus)
+- `status` : `active | disabled | planned`
+- `url`, `admin_url` : URLs publiques/admin
+- `host`, `user`, `app_path`, `branch` : accès et déploiement
+- `fpm_pool`, `logs.app`, `logs.fpm` : observabilité
+- `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+- `notes` : libre
+
+**Cascade** : un `environments.md` peut exister au niveau client (conventions par défaut
+sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
+
+**Lien avec les tâches** : le frontmatter de tâche peut référencer un env via
+`target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
+(sauf si `test_url` est explicitement surchargé).
+
+**Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
+description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
+soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.
+
+### Gestion des secrets — Vaultwarden
+
+Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,
+ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans une instance
+Vaultwarden interne (https://vault.iprospective.fr), et sont **référencés** dans les
+documents PM via un URI dédié.
+
+**URI :**
+```
+vaultwarden://<organization>/<collection>/<item>
+```
+
+Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+
+**Architecture du vault** (chez iprospective) :
+
+```
+Organization iProspective
+├── <client>            ← collections existantes, accès Mathieu uniquement
+├── <client>-agents     ← sous-scope pour les items que les agents peuvent lire
+│   └── membre : karl@iprospective.fr (User, Read-only)
+└── iprospective-agents ← idem pour les secrets internes (Redmine bot, n8n, etc.)
+    └── membre : karl@iprospective.fr (User, Read-only)
+```
+
+- Un seul user d'agents : `karl@iprospective.fr` (alias technique unique)
+- Scope **read-only** sur les collections `*-agents` uniquement
+- Les credentials critiques (root SSH, BDD admin, master gitlab, etc.) restent en
+  dehors du scope agents
+
+**Cycle de vie des sessions :**
+
+| Action | Outil | Acteur |
+|---|---|---|
+| Déverrouillage | `scripts/unlock-vault.sh` (demande master password de karl, jamais stocké) | toi (humain) |
+| Résolution d'un secret | `scripts/resolve-secret.sh "vaultwarden://..."` | agent / script |
+| Verrouillage manuel | `scripts/lock-vault.sh` | toi |
+
+Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
+- garde la session BW **en mémoire** uniquement (pas de fichier, pas même tmpfs)
+- expose un socket Unix `/run/user/$UID/vault-agentd.sock` (chmod 600)
+- se verrouille automatiquement après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
+  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h)
+
+**Règles strictes :**
+1. Un agent ne demande **jamais** le master password ; si `resolve-secret.sh` renvoie
+   "session expirée", l'agent doit dire à l'humain "lance `unlock-vault.sh`" et attendre
+2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
+   inclus dans un commit ou un transcript
+3. La rotation du token API de `karl` est trimestrielle (ou immédiate en cas de doute)
+4. Les agents 24/7 (cron nocturne, n8n) ne peuvent fonctionner que dans la fenêtre
+   d'unlock manuel ou via un sous-scope dédié explicitement autorisé (cas particulier)
+
+**Variables d'env requises** (dans `.env` local) :
+- `VAULT_URL` (URL Vaultwarden)
+- `BW_CLIENTID` + `BW_CLIENTSECRET` (API key de karl, pas de master password)
+
+**Convention dans `environments.md` et autres aspects** : utiliser
+`secrets_source: vaultwarden://<org>/<coll>/<item>` comme pointeur, jamais la valeur
+brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
+référencés et leur rôle, pour audit humain.
 
 ## Cascade et héritage
 
@@ -472,6 +568,13 @@ Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 
 ### roi.immediate_benefit / roi.monthly_benefit
 `1` (négligeable) → `5` (critique)
+
+### target_env
+`null` | `local` | `dev` | `test` | `staging` | `preprod` | `prod` | `demo` | `qa` | `sandbox` | `<custom-kebab-case>`
+
+Doit correspondre à un `environments[].name` du `project/environments.md` (ou
+`client/environments.md` en cascade). Custom autorisé si le projet a un env spécifique
+(`staging-eu`, `prod-canary`…).
 
 ## Journal (fichier .log.md)
 

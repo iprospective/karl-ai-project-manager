@@ -1,10 +1,14 @@
 ---
-schema_version: "1.5.0"
+schema_version: "1.6.0"
 slug: ""                       # identifiant kebab-case (= nom du dossier)
 name: ""
-client: ""                     # OBLIGATOIRE — slug du client parent
+client: ""                     # OBLIGATOIRE — slug de l'entité parente (peut être type=client/product/self)
 status: active                 # active | paused | archived
 created: 2026-05-12
+
+# Partage cross-client — source de vérité du frontmatter
+used_by_clients: []            # entités qui consomment ce projet (typique pour les modules génériques)
+provided_by: null              # pointeur vers le projet fournisseur, ex: "dolibarr/mmi-productcheck"
 
 # Override possibles des valeurs héritées du client
 defaults:

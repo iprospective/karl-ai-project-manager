@@ -5,6 +5,42 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.6.0] - 2026-05-14
+
+### Ajouté — Types d'entités + partage cross-client
+- Section NORMS "Types d'entités (clients/)" : 3 types possibles
+  - `client` : entité commerciale tierce (défaut)
+  - `product` : écosystème produit (redmine, dolibarr, prestashop, symfony…)
+  - `self` : entité interne / perso (iprospective, lemathou…)
+- Règle d'arbitrage : suivre l'engagement de livraison / la responsabilité des données
+- Section NORMS "Partage cross-client (used_by_clients / provided_by)" :
+  - Champ `used_by_clients[]` côté projet fournisseur — liste des entités consommatrices
+  - Champ `provided_by` côté projet consommateur — pointeur vers le fournisseur
+  - Dossier `clients/<client>/projects_used/` (au même niveau que `projects/`)
+    pour navigation humaine ; symlinks **générés** par `pm sync-views`, pas édités à la main
+  - Cascade des aspects reste mono-client (héritage uniquement depuis `client:`)
+  - Source de vérité = frontmatter ; les chemins canoniques pointent vers `clients/<owner>/`
+- `client-overview.md` : champ `type` (`client` | `product` | `self`), défaut `client`
+- `project-overview.md` : champs `used_by_clients` (liste) et `provided_by` (string|null)
+
+### Ajouté — Symlink inverse `workspace` côté PM
+- Convention bidirectionnelle : en plus du `mmi-pm` côté workspace → PM,
+  ajout d'un symlink `workspace` côté PM → workspace, au même niveau que
+  `project/`, `tasks/`, `memory/`
+- Bénéfice : depuis le dossier PM d'un projet, accès direct au code source ;
+  point de repère résiduel si l'un des deux dossiers est déplacé
+- Symlinks en chemins **absolus** (workspace et PM ne sont pas systématiquement
+  co-localisés)
+- Scripts d'itération doivent ignorer ces symlinks (`find -P` ou `! -type l`)
+
+### Modifié
+- NORMS schema bumped 1.5.2 → 1.6.0 (mineur — additif rétrocompatible)
+- Templates `client-overview.md` et `project-overview.md` bumped `schema_version: 1.6.0`
+- Section NORMS "Workspace projet et symlink `mmi-pm`" renommée
+  "Workspace projet — symlinks bidirectionnels `mmi-pm` ↔ `workspace`"
+
+---
+
 ## [1.5.2] - 2026-05-13
 
 ### Ajouté — Workflow multi-tour

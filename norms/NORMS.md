@@ -1,9 +1,9 @@
 ---
-schema_version: "1.5.2"
-updated: 2026-05-13
+schema_version: "1.6.0"
+updated: 2026-05-14
 ---
 
-# Normes de gestion des tâches — v1.5.2
+# Normes de gestion des tâches — v1.6.0
 
 ## Configuration globale
 
@@ -23,6 +23,64 @@ redmine:
 paths:
   projects: ${PROJECTS_PATH}   # chemin absolu vers le repo projects/
 ```
+
+## Types d'entités (clients/)
+
+Le dossier `clients/` regroupe **3 types d'entités**, distingués par le champ `type` du
+frontmatter `client/overview.md` :
+
+| `type` | Sémantique | Exemples |
+|---|---|---|
+| `client` (défaut) | Entité commerciale tierce qui commande des prestations | `lemathou` (perso/freelance Mathieu), `pisceen`, `calicote` |
+| `product` | Écosystème produit dont iprospective développe des modules (génériques) ou maintient une instance interne | `redmine`, `dolibarr`, `prestashop`, `symfony` |
+| `self` | Entité où l'on est client de soi-même : outils internes, scripts propres, projets perso non commerciaux | `iprospective` (entreprise freelance), `lemathou` aussi (projets perso de Mathieu) |
+
+Cohérent avec l'arborescence workspace : `/zfs/workspaces/<entité>/` existe au même niveau
+pour chaque entité, qu'elle soit `client`, `product` ou `self`.
+
+**Règle d'arbitrage** lorsqu'un projet pourrait vivre sous plusieurs entités (ex: un
+module Dolibarr générique utilisé par plusieurs clients) :
+
+- Si **commandé/financé par un client** → sous ce client (`clients/<client>/projects/<projet>/`)
+- Si **générique** (marketplace, communauté, usage interne propre) → sous l'écosystème produit (`clients/<product>/projects/<projet>/`)
+- Si **outil interne** non rattaché à un produit tiers → sous `self` (`clients/iprospective/projects/<outil>/`)
+
+Suivre l'engagement de livraison et la responsabilité des données.
+
+## Partage cross-client (used_by_clients / provided_by)
+
+Un projet rangé sous une entité (`product` notamment) peut être **utilisé par plusieurs
+clients**. Plutôt que de dupliquer le projet ou de jouer avec des symlinks à la main,
+on utilise deux champs dans le frontmatter `project/overview.md` :
+
+| Champ | Sens | Côté |
+|---|---|---|
+| `used_by_clients: [<slug>, ...]` | Liste des entités qui consomment ce projet | déclaré côté **fournisseur** (ex: module Dolibarr générique liste `pisceen, calicote, calyclay`) |
+| `provided_by: <client>/<projet>` | Pointeur vers le projet fournisseur | déclaré côté **consommateur** (ex: un projet client qui s'appuie sur le module) |
+
+Ces deux champs sont **redondants par construction**, pour permettre la lecture dans les
+deux sens sans scan inverse coûteux. Un script `pm doctor` (à venir) valide la cohérence.
+
+**Source de vérité** : le frontmatter, pas l'arborescence filesystem. Le chemin
+canonique d'un projet est toujours `clients/<owner>/projects/<projet>/`.
+
+**Vue cross-client (navigation humaine uniquement)** : un dossier `clients/<client>/projects_used/`
+(au même niveau que `projects/`, **pas** un sous-dossier) peut contenir des symlinks
+relatifs vers les projets fournisseurs. Ces symlinks sont **générés** par un script
+(`pm sync-views`) à partir des `used_by_clients[]`, jamais édités à la main.
+
+**Règles cross-client :**
+- La cascade des aspects reste **mono-client** : un projet hérite uniquement de son
+  client `client:`, jamais des clients listés dans `used_by_clients[]`.
+- Tous les chemins dans le frontmatter (`outputs[]`, etc.) sont **canoniques**
+  (`clients/<owner>/...`), jamais via `projects_used/`.
+- Les scripts d'itération doivent utiliser `find -P` (ou `! -type l`) et **ne pas suivre
+  les symlinks** dans `projects_used/`. Sinon double-comptage.
+- L'édition se fait toujours via le chemin canonique. `projects_used/` est en lecture
+  pour les humains.
+- Suppression d'un usage : retirer le client de `used_by_clients[]` côté fournisseur ET
+  `provided_by` côté consommateur si présent. `pm sync-views` nettoie les symlinks
+  orphelins.
 
 ## Structure des dossiers
 
@@ -92,32 +150,49 @@ projects/                             # ai-projects (repo séparé)
             RM{id}_{titre-kebab}.log.md
 ```
 
-### Workspace projet et symlink `mmi-pm`
+### Workspace projet — symlinks bidirectionnels `mmi-pm` ↔ `workspace`
 
 Chaque projet a **deux emplacements** distincts mais liés :
 
 | Emplacement | Contenu | Repo git |
 |---|---|---|
-| `/zfs/workspaces/{P}/` | Code source du projet | repo de code (ex: `iprospective/dev/{P}`) |
-| `$PROJECTS_PATH/clients/{C}/projects/{P}/` | Cahier des charges, tâches, mémoire | `ai-projects` |
+| `/zfs/workspaces/<P>/` (chemin variable, parfois `/zfs/workspaces/<entity>/<P>/`) | Code source du projet | repo de code (ex: `iprospective/dev/<P>`) |
+| `$PROJECTS_PATH/clients/<C>/projects/<P>/` | Cahier des charges, tâches, mémoire | `ai-projects` |
 
-Pour faciliter le travail conjoint code + tâches, un **symlink `mmi-pm`** dans le workspace
-projet pointe vers le dossier PM centralisé :
+Les deux emplacements se référencent **mutuellement** par symlinks relatifs :
 
 ```
-/zfs/workspaces/{P}/mmi-pm → $PROJECTS_PATH/clients/{C}/projects/{P}/
+/zfs/workspaces/<P>/mmi-pm        → $PROJECTS_PATH/clients/<C>/projects/<P>/
+$PROJECTS_PATH/clients/<C>/projects/<P>/workspace → /zfs/workspaces/<P>/
 ```
 
-**Création :**
+**Création (les deux symlinks ensemble) :**
 ```bash
-cd /zfs/workspaces/{P}
-ln -s "$PROJECTS_PATH/clients/{C}/projects/{P}" mmi-pm
+WORKSPACE=/zfs/workspaces/<P>
+PMDIR=$PROJECTS_PATH/clients/<C>/projects/<P>
+
+ln -s "$PMDIR"      "$WORKSPACE/mmi-pm"
+ln -s "$WORKSPACE"  "$PMDIR/workspace"
 ```
 
 **Bénéfices :**
 - Un agent travaillant dans le workspace voit code ET tâches/docs (`mmi-pm/project/`, `mmi-pm/tasks/`)
-- Un seul dossier de travail pour l'agent — pas de saut entre arbres distants
-- La centralisation est préservée (l'orchestrateur scanne `$PROJECTS_PATH` directement)
+- Un agent travaillant côté PM (dans `clients/.../projects/<P>/`) accède directement au
+  code via `workspace/` — utile pour consulter une stack, un commit, un fichier en
+  cours de modification
+- Bidirectionnel : si le dossier d'un côté est déplacé, on a un point de repère côté
+  opposé pour rétablir le lien sans chercher
+- La centralisation est préservée (l'orchestrateur scanne `$PROJECTS_PATH` directement,
+  sans suivre `workspace/`)
+
+**Conventions :**
+- Le symlink `workspace` côté PM est **dans la racine du dossier projet PM** (au même niveau
+  que `project/`, `tasks/`, `memory/`)
+- Les scripts d'itération (validator, dashboard, summarizer) doivent **ignorer**
+  les symlinks `workspace` (utiliser `find -P` ou `! -type l`) pour ne pas se perdre
+  dans le code
+- Les deux symlinks pointent en chemins **absolus** (les paths workspace/PM ne sont
+  pas systématiquement co-localisés ; `realpath` doit fonctionner depuis n'importe où)
 
 **Résolution de chemins cross-tree** (ex: cascade vers le client) :
 Ne pas utiliser `mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser

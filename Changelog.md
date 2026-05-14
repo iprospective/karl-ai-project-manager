@@ -7,6 +7,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.6.0] - 2026-05-14
+
+### Ajouté — Types d'entités + partage cross-client + symlinks bidirectionnels + knowledge base
+- NORMS v1.6.0 (cf [norms/CHANGELOG.md](norms/CHANGELOG.md)) :
+  - `client.type` ∈ {`client`, `product`, `self`}
+  - `project.used_by_clients[]` + `project.provided_by` (cross-client)
+  - `clients/<c>/projects_used/` (symlinks générés, navigation humaine)
+  - Symlink inverse `workspace` côté PM (en plus du `mmi-pm` existant côté workspace)
+- `knowledge/` (knowledge base transverse, complémentaire à `security/knowledge/`) :
+  - `knowledge/INDEX.md`
+  - `knowledge/redmine/` : overview, api, gotchas, migration Textile→Markdown, script
+- Clients créés : `iprospective` (type self), `redmine` (type product)
+- Migration Textile → Markdown réussie sur l'instance Redmine interne `tasks.iprospective.fr` :
+  6974 modèles convertis, 0 échec, procédure capitalisée
+
+### Modifié
+- `clients/lemathou/client/overview.md` bumped `schema_version: 1.6.0` + `type: self`
+- `CLAUDE.md` : référence `knowledge/INDEX.md`, version 1.6.0
+
+---
+
 ## [1.5.5] - 2026-05-13
 
 ### Ajouté

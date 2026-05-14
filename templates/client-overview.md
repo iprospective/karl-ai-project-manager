@@ -1,7 +1,8 @@
 ---
-schema_version: "1.5.0"
+schema_version: "1.6.0"
 slug: ""                       # identifiant kebab-case (= nom du dossier)
 name: ""
+type: client                   # client (tiers commercial) | product (écosystème) | self (interne / perso)
 status: active                 # active | paused | archived
 created: 2026-04-27
 

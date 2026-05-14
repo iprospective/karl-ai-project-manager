@@ -9,6 +9,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
 - **Hiérarchie :** `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
 - **Cascade :** client → projet → tâche (héritage avec override possible)
+- **Knowledge transverse :** `knowledge/INDEX.md` — capitalisation technique/opérationnelle par produit, partagée entre clients (Redmine, …). Référence cette knowledge avant de chercher ailleurs quand tu rencontres un produit qu'elle couvre.
 
 ## Quand tu reçois une invocation de type "traite la tâche RM{id} du client {C} projet {P}"
 

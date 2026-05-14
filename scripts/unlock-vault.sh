@@ -16,7 +16,9 @@
 # Optional :
 #   VAULT_IDLE_TIMEOUT   — seconds of inactivity before auto-lock (default 28800 = 8h)
 #   VAULT_LOCK_AT_HOUR   — hour 0-23 for daily auto-lock (default 23 ; -1 to disable)
-set -euo pipefail
+set -uo pipefail
+# (no -e : on veut voir explicitement tout échec, pas mourir en silence)
+trap 'echo "✗ Script error at line $LINENO (exit $?)" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOCK="/run/user/$(id -u)/vault-agentd.sock"
@@ -35,19 +37,17 @@ if ! command -v bw >/dev/null 2>&1; then
   exit 1
 fi
 
-# Ensure CLI talks to your Vaultwarden instance
-bw config server "$VAULT_URL" >/dev/null
-
-# Log in with API key (idempotent — bw status reports if already logged in)
+# Log in with API key if needed (bw config server is only allowed when not logged in)
 status_json="$(bw status 2>/dev/null || echo '{"status":"unauthenticated"}')"
 status="$(printf '%s' "$status_json" | python3 -c 'import json,sys; print(json.load(sys.stdin)["status"])' 2>/dev/null || echo unauthenticated)"
 if [ "$status" = "unauthenticated" ]; then
+  bw config server "$VAULT_URL" >/dev/null
   echo "Logging in with API key…" >&2
   BW_CLIENTID="$BW_CLIENTID" BW_CLIENTSECRET="$BW_CLIENTSECRET" bw login --apikey >/dev/null
 fi
 
 # Start the daemon if not running
-if [ ! -S "$SOCK" ] || ! printf 'PING\n' | nc -q1 -U "$SOCK" 2>/dev/null | grep -q '^OK'; then
+if [ ! -S "$SOCK" ] || ! printf 'PING\n' | nc -N -U "$SOCK" 2>/dev/null | grep -q '^OK'; then
   echo "Starting vault-agentd…" >&2
   IDLE_OPT=()
   HOUR_OPT=()
@@ -67,24 +67,50 @@ read -r -s -p "Master password for karl@: " MASTER_PWD
 echo
 [ -z "$MASTER_PWD" ] && { echo "Empty password, aborting." >&2; exit 1; }
 
-# Unlock and obtain session
-SESSION="$(BW_SESSION='' bw unlock --raw "$MASTER_PWD" 2>/dev/null || true)"
-# Wipe master password from memory ASAP
-MASTER_PWD=""
-unset MASTER_PWD
+# Unlock via --passwordenv (le mdp passe par une env var temporaire, jamais en arg de `ps`)
+echo "» calling bw unlock…" >&2
+export _VAULT_PWD="$MASTER_PWD"
+MASTER_PWD=""; unset MASTER_PWD
 
-if [ -z "$SESSION" ]; then
-  echo "Unlock failed (wrong password ?)" >&2
+SESSION_AND_ERR="$(BW_SESSION='' bw unlock --raw --passwordenv _VAULT_PWD 2>&1)"
+RC=$?
+unset _VAULT_PWD
+
+echo "» bw unlock exit=$RC, output length=${#SESSION_AND_ERR}" >&2
+if [ $RC -ne 0 ] || [ -z "$SESSION_AND_ERR" ]; then
+  echo "✗ Unlock failed (exit $RC). bw output :" >&2
+  echo "$SESSION_AND_ERR" >&2
   exit 1
+fi
+
+# Heuristique : un BW_SESSION est une grosse base64 (>= 40 chars sans espace). Si c'est plus court ou contient un space, c'est probablement un message d'erreur, pas une session.
+if [ ${#SESSION_AND_ERR} -lt 40 ] || printf '%s' "$SESSION_AND_ERR" | grep -q ' '; then
+  echo "✗ bw output ne ressemble pas à un BW_SESSION token. Reçu :" >&2
+  echo "$SESSION_AND_ERR" >&2
+  exit 1
+fi
+
+SESSION="$SESSION_AND_ERR"
+SESSION_AND_ERR=""; unset SESSION_AND_ERR
+
+# Sync vault local cache (login API key ne sync pas automatiquement)
+echo "» syncing vault…" >&2
+SYNC_OUT="$(BW_SESSION="$SESSION" bw sync 2>&1)"
+SYNC_RC=$?
+if [ $SYNC_RC -ne 0 ]; then
+  echo "⚠ bw sync exit=$SYNC_RC : $SYNC_OUT" >&2
+  # not fatal, continue
 fi
 
 # Hand session to daemon
-RESP="$(printf 'SET-SESSION %s\n' "$SESSION" | nc -q1 -U "$SOCK")"
+echo "» sending SET-SESSION to daemon…" >&2
+RESP="$(printf 'SET-SESSION %s\n' "$SESSION" | nc -N -U "$SOCK")"
 SESSION=""; unset SESSION
+echo "» daemon response: $RESP" >&2
 if [ "$RESP" != "OK" ]; then
-  echo "Daemon did not accept session : $RESP" >&2
+  echo "✗ Daemon did not accept session : $RESP" >&2
   exit 1
 fi
 
-STATUS="$(printf 'STATUS\n' | nc -q1 -U "$SOCK")"
+STATUS="$(printf 'STATUS\n' | nc -N -U "$SOCK")"
 echo "✓ Vault unlocked. ${STATUS}"

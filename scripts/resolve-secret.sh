@@ -34,7 +34,7 @@ fi
 CMD="GET $URI"
 [ -n "$FIELD" ] && CMD="GET $URI $FIELD"
 
-RESP="$(printf '%s\n' "$CMD" | nc -q1 -U "$SOCK")"
+RESP="$(printf '%s\n' "$CMD" | nc -N -U "$SOCK")"
 case "$RESP" in
   "ERR locked"*)
     echo "ERR: vault locked. Lance unlock-vault.sh pour saisir le master password." >&2

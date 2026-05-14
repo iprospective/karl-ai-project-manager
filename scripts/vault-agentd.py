@@ -144,6 +144,43 @@ class VaultHandler(socketserver.StreamRequestHandler):
                 self.wfile.write(b"OK\n")
                 # graceful exit
                 threading.Thread(target=lambda: (time.sleep(0.1), os.kill(os.getpid(), signal.SIGTERM)), daemon=True).start()
+            elif cmd == "SYNC":
+                with _state_lock:
+                    session = _bw_session
+                if session is None:
+                    self.wfile.write(b"ERR locked\n"); return
+                p = subprocess.run(["bw", "sync", "--session", session],
+                                   capture_output=True, text=True, timeout=60)
+                _touch()
+                if p.returncode != 0:
+                    self.wfile.write(f"ERR bw sync: {p.stderr.strip()}\n".encode())
+                else:
+                    self.wfile.write(b"OK\n")
+            elif cmd == "LIST":
+                with _state_lock:
+                    session = _bw_session
+                if session is None:
+                    self.wfile.write(b"ERR locked\n"); return
+                # optional filter on collection name (substring match)
+                filt = parts[1] if len(parts) > 1 else None
+                p = subprocess.run(["bw", "list", "items", "--session", session],
+                                   capture_output=True, text=True, timeout=15)
+                if p.returncode != 0:
+                    self.wfile.write(f"ERR bw list: {p.stderr.strip()}\n".encode())
+                    return
+                _touch()
+                items = json.loads(p.stdout)
+                # build a brief summary, one item per line
+                out = []
+                for it in items:
+                    name = it.get("name", "")
+                    iid = it.get("id", "")
+                    coll_ids = it.get("collectionIds") or []
+                    org_id = it.get("organizationId") or "-"
+                    line = f"{iid}\t{org_id}\t{','.join(coll_ids) or '-'}\t{name}"
+                    if filt is None or filt.lower() in name.lower():
+                        out.append(line)
+                self.wfile.write(("\n".join(out) + "\n").encode())
             elif cmd == "GET":
                 if len(parts) < 2:
                     self.wfile.write(b"ERR GET expects a uri [field]\n"); return

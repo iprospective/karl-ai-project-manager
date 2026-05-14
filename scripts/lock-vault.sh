@@ -9,7 +9,7 @@ if [ ! -S "$SOCK" ]; then
   exit 0
 fi
 
-RESP="$(printf 'LOCK\n' | nc -q1 -U "$SOCK" 2>/dev/null || true)"
+RESP="$(printf 'LOCK\n' | nc -N -U "$SOCK" 2>/dev/null || true)"
 if [ "$RESP" = "OK" ]; then
   echo "✓ Vault locked."
 else

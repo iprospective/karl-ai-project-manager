@@ -1,9 +1,9 @@
 ---
-schema_version: "1.7.0"
-updated: 2026-05-14
+schema_version: "1.7.1"
+updated: 2026-05-15
 ---
 
-# Normes de gestion des tâches — v1.7.0
+# Normes de gestion des tâches — v1.7.1
 
 ## Configuration globale
 
@@ -391,6 +391,75 @@ Cette règle est vérifiée par le validateur.
 - `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
 - `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
   Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
+
+### Création d'un projet PM ↔ Redmine
+
+À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
+projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
+
+1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
+2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
+3. **Vérifier l'unicité** d'usage côté PM : faire un `grep -r 'redmine.project_id:' clients/`
+   pour s'assurer qu'aucun autre projet PM ne référence déjà cet identifier
+4. **Trois cas** :
+   - Identifier candidat dispo côté Redmine ET non utilisé côté PM → proposer de
+     **créer** le projet Redmine (`POST /projects.json`)
+   - Identifier existant côté Redmine ET non utilisé côté PM → proposer de **réutiliser**
+   - Identifier existant côté Redmine ET déjà utilisé côté PM → bloquer + indiquer le
+     projet PM qui l'utilise déjà, demander un autre slug
+
+Le mapping inverse (Redmine identifier → projet PM) doit toujours être unique. Si un
+même projet Redmine doit servir plusieurs projets MD, c'est probablement une erreur de
+modélisation côté PM (probablement deux projets distincts à créer).
+
+### Tâches de bootstrap (`templates/bootstrap-tasks/`)
+
+À la création d'un projet PM, certaines tâches **récurrentes de setup** doivent être
+créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,
+stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
+
+**Templates standards** (présents dans `templates/bootstrap-tasks/`) :
+
+| ID | Titre | Coché par défaut |
+|---|---|---|
+| `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
+| `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
+| `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
+| `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |
+| `005-deployment` | Rédiger `project/deployment.md` (CI/CD, rollback) | ☐ |
+| `006-testing` | Rédiger `project/testing.md` (stratégie de tests) | ☐ |
+| `007-monitoring` | Rédiger `project/monitoring.md` (logs, métriques, alertes) | ☐ |
+
+**Flow d'instanciation** (via `scripts/pm-project-bootstrap.py`) :
+
+1. Détecter les templates **applicables** au projet (état du frontmatter overview,
+   présence des aspects, etc.)
+2. **Proposer** la liste à l'humain (interactif) — les 3 premiers cochés par défaut,
+   les autres non
+3. L'humain peut **décocher** ou **cocher** des templates supplémentaires
+4. L'humain peut **bypasser** complètement (option `--yes`) ou skip un template
+   spécifique (champ frontmatter `bootstrap.skip[]`)
+5. Pour chaque template retenu :
+   - Créer un ticket Redmine dans `redmine.project_id` du projet
+   - Instancier `tasks/RM<id>_<slug>.md` depuis le template (frontmatter rempli)
+   - Initialiser le `.log.md`
+
+**Frontmatter `project/overview.md` enrichi pour suivre le bootstrap :**
+
+```yaml
+bootstrap:
+  skip: []          # IDs de templates explicitement skippés (jamais proposés)
+  done: []          # IDs de templates déjà appliqués (= tâche créée)
+```
+
+Si un template est dans `done[]`, il n'est plus reproposé (même si le critère de
+détection le rend applicable). Si dans `skip[]`, idem. Le flow d'instanciation
+remplit `done[]` automatiquement.
+
+**Convention `default_checked` dans les templates :**
+
+Chaque template porte un champ frontmatter `default_checked: true|false` qui
+détermine s'il est coché par défaut dans le picker interactif.
 
 ### Workflow multi-tour (reprise après notes du demandeur)
 

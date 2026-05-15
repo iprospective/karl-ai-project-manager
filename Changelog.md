@@ -7,6 +7,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.1] - 2026-05-15
+
+### Ajouté — Tâches de bootstrap projet
+- 7 templates dans `templates/bootstrap-tasks/` (001-secrets, 002-git, 003-envs
+  cochés par défaut ; 004-stack, 005-deployment, 006-testing, 007-monitoring
+  optionnels)
+- Section NORMS "Création d'un projet PM ↔ Redmine" + "Tâches de bootstrap"
+- Frontmatter `project/overview.md` : champ `bootstrap.{skip,done}[]`
+- Script `pm-project-bootstrap.py` à venir (commit suivant)
+
+---
+
 ## [1.7.0] - 2026-05-14
 
 ### Ajouté — Environnements + gestion des secrets via Vaultwarden

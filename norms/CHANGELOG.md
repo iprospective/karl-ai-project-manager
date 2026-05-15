@@ -5,6 +5,33 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.1] - 2026-05-15
+
+### Ajouté — Tâches de bootstrap projet + flow création projet PM↔Redmine
+- Section NORMS "Création d'un projet PM ↔ Redmine" :
+  - Mapping 1↔1 entre projet PM (slug) et projet Redmine (identifier)
+  - Flow : lister API → vérifier existence → vérifier non-doublon côté PM
+  - 3 cas : créer / réutiliser / bloquer (déjà utilisé ailleurs)
+- Section NORMS "Tâches de bootstrap" :
+  - 7 templates standards dans `templates/bootstrap-tasks/`
+  - Convention `default_checked: true|false` par template
+  - 3 premiers cochés par défaut (secrets, git-repos, environnements)
+  - 4 autres optionnels (stack, deployment, testing, monitoring)
+  - Flow d'instanciation via `scripts/pm-project-bootstrap.py` (à venir)
+  - Création d'un ticket Redmine par template retenu (cohérent avec NORMS)
+- Frontmatter `project/overview.md` enrichi :
+  - `bootstrap.skip[]` : templates explicitement skippés
+  - `bootstrap.done[]` : templates déjà appliqués (rempli auto)
+- Templates créés dans `templates/bootstrap-tasks/` :
+  - 001-secrets-vaultwarden, 002-git-repos, 003-environnements (cochés défaut)
+  - 004-stack, 005-deployment, 006-testing, 007-monitoring (non cochés)
+
+### Modifié
+- NORMS schema bumped 1.7.0 → 1.7.1 (patch — additif rétrocompatible)
+- Template `project-overview.md` : champ `bootstrap` + bump 1.6.0 → 1.7.1
+
+---
+
 ## [1.7.0] - 2026-05-14
 
 ### Ajouté — Environnements et gestion des secrets

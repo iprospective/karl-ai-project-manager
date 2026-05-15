@@ -1,5 +1,5 @@
 ---
-schema_version: "1.6.0"
+schema_version: "1.7.1"
 slug: ""                       # identifiant kebab-case (= nom du dossier)
 name: ""
 client: ""                     # OBLIGATOIRE — slug de l'entité parente (peut être type=client/product/self)
@@ -9,6 +9,11 @@ created: 2026-05-12
 # Partage cross-client — source de vérité du frontmatter
 used_by_clients: []            # entités qui consomment ce projet (typique pour les modules génériques)
 provided_by: null              # pointeur vers le projet fournisseur, ex: "dolibarr/mmi-productcheck"
+
+# Bootstrap — tracking des tâches d'initialisation projet
+bootstrap:
+  skip: []                     # IDs de templates jamais à proposer (ex: ["003-environnements"])
+  done: []                     # IDs de templates déjà appliqués (rempli par pm-project-bootstrap.py)
 
 # Override possibles des valeurs héritées du client
 defaults:

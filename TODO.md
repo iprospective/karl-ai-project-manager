@@ -39,6 +39,7 @@ _(aucun)_
 
 - [ ] `001` `#priority:normal` [#constraint #redmine #user-request] [Critères de valeur Redmine à préserver dans toute évolution](TODO/001-redmine-value-criteria.md) — collaboration, base docs searchable, com client : contraintes à respecter
 - [ ] `004` `#priority:normal` [#norms #agents] Compléter `clients/lemathou/client/overview.md` — contacts, secteur, contexte
+- [ ] `007` `#priority:normal` [#user-request #structure #norms] [Flatten `projects/clients/` → `projects/`](TODO/007-flatten-projects-clients.md) — étape B de l'abstraction des chemins (étape A livrée en NORMS v1.8.0). Ticket [#1668](https://tasks.iprospective.fr/issues/1668)
 
 ### low
 

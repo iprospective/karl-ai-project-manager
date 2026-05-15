@@ -7,6 +7,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.2] - 2026-05-15
+
+### Ajouté
+- NORMS § "Memberships par défaut sur nouveau projet Redmine" :
+  groupe Admin (49) en Manager + groupe iProspective (70) en Intervenant
+
+### Acté
+- Bootstrap projet `clients/redmine/projects/redmine/` exécuté avec succès :
+  tickets RM1661 (secrets), RM1662 (git-repos), RM1663 (environnements) créés
+  côté Redmine + tâches MD générées + bootstrap.done rempli
+
+---
+
 ## [1.7.1] - 2026-05-15
 
 ### Ajouté — Tâches de bootstrap projet

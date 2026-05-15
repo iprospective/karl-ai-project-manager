@@ -1,9 +1,9 @@
 ---
-schema_version: "1.7.1"
+schema_version: "1.7.2"
 updated: 2026-05-15
 ---
 
-# Normes de gestion des tâches — v1.7.1
+# Normes de gestion des tâches — v1.7.2
 
 ## Configuration globale
 
@@ -411,6 +411,39 @@ projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
 Le mapping inverse (Redmine identifier → projet PM) doit toujours être unique. Si un
 même projet Redmine doit servir plusieurs projets MD, c'est probablement une erreur de
 modélisation côté PM (probablement deux projets distincts à créer).
+
+**Memberships par défaut sur un nouveau projet Redmine** (instance iprospective —
+`tasks.iprospective.fr`) :
+
+À la création d'un projet Redmine via API (`POST /projects.json`), ajouter
+systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :
+
+| Groupe Redmine | id | Rôle | role_id |
+|---|---|---|---|
+| `Admin` | 49 | `Manager` | 3 |
+| `iProspective` | 70 | `Intervenant` | 7 |
+
+Justification :
+- `Admin` en Manager garantit que tu (Mathieu) gardes les pleins droits sur le projet,
+  sans dépendre d'une appartenance individuelle
+- `iProspective` en Intervenant permet aux comptes de l'équipe (humains + agents :
+  `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
+  les ajouter un par un à chaque projet
+
+Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
+À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
+
+Payload API pour automation :
+```bash
+# Admin (group_id=49) en Manager (role_id=3)
+curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+  -d '{"membership":{"user_id":49,"role_ids":[3]}}' \
+  "$REDMINE_URL/projects/<project_id>/memberships.json"
+# iProspective (group_id=70) en Intervenant (role_id=7)
+curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+  -d '{"membership":{"user_id":70,"role_ids":[7]}}' \
+  "$REDMINE_URL/projects/<project_id>/memberships.json"
+```
 
 ### Tâches de bootstrap (`templates/bootstrap-tasks/`)
 

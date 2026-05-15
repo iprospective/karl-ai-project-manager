@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.7.2] - 2026-05-15
+
+### Ajouté — Memberships par défaut sur nouveau projet Redmine
+- Convention à inscrire pour tout nouveau projet Redmine de l'instance interne :
+  - Groupe `Admin` (id 49) → rôle `Manager` (role_id 3)
+  - Groupe `iProspective` (id 70) → rôle `Intervenant` (role_id 7)
+- Payload API exemple pour `POST /projects/<id>/memberships.json`
+- À automatiser dans le futur `pm project init` (TODO 003)
+
+### Modifié
+- NORMS schema bumped 1.7.1 → 1.7.2 (patch — additif)
+
+---
+
 ## [1.7.1] - 2026-05-15
 
 ### Ajouté — Tâches de bootstrap projet + flow création projet PM↔Redmine

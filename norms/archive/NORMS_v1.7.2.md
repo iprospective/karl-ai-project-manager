@@ -1,9 +1,9 @@
 ---
-schema_version: "1.8.0"
+schema_version: "1.7.2"
 updated: 2026-05-15
 ---
 
-# Normes de gestion des tâches — v1.8.0
+# Normes de gestion des tâches — v1.7.2
 
 ## Configuration globale
 
@@ -19,71 +19,15 @@ gitlab:
 redmine:
   instance: ${REDMINE_URL}     # global, peut être surchargé dans project.md
   api_key: ${REDMINE_API_KEY}
+
+paths:
+  projects: ${PROJECTS_PATH}   # chemin absolu vers le repo projects/
 ```
 
-La résolution des chemins est centralisée dans `pm.config.yml` (cf. section
-suivante). Plus aucun chemin filesystem n'est dérivé en concaténation manuelle
-dans le code ou la doc.
+## Types d'entités (clients/)
 
-## Configuration des chemins (`pm.config.yml`)
-
-Tous les chemins du système (racine du repo PM, racine du repo projets,
-emplacement des entités, des projets, des tâches, des symlinks de liaison
-code ↔ PM) sont **paramétrés** dans `pm.config.yml` à la racine du repo PM.
-
-**Objectif** : pouvoir déplacer le repo PM, déplacer le repo projets, ou
-réorganiser la structure interne **sans toucher au code des scripts ni à la
-doc des agents**.
-
-**Lib** : `scripts/pm_paths.py` expose `PMConfig.load()` qui charge la config,
-résout `${VAR}` depuis `.env`, et fournit `.path(key, **kwargs)` pour résoudre
-n'importe quel chemin via les patterns définis. Tous les scripts du repo
-**doivent** passer par cette lib — jamais de concaténation manuelle ni de
-hardcode `clients/`.
-
-**Patterns standards** (clés de `paths:` dans `pm.config.yml`) :
-
-| Clé | Résolution par défaut |
-|---|---|
-| `entities_dir` | `{projects_root}/clients` |
-| `entity` | `{entities_dir}/{entity}` |
-| `entity_client_dir` | `{entity}/client` |
-| `entity_memory_dir` | `{entity}/memory` |
-| `entity_projects_dir` | `{entity}/projects` |
-| `entity_used_dir` | `{entity}/projects_used` |
-| `project` | `{entity_projects_dir}/{project}` |
-| `project_dir` | `{project}/project` |
-| `project_memory_dir` | `{project}/memory` |
-| `tasks_dir` | `{project}/tasks` |
-| `task_file` | `{tasks_dir}/RM{id}_{slug}.md` |
-| `task_log_file` | `{tasks_dir}/RM{id}_{slug}.log.md` |
-| `workspace_link` | `{project}/workspace` |
-| `reverse_link` | `{workspace_dir}/.mmi-pm` |
-
-**Override local** : `pm.config.local.yml` (gitignored) peut surcharger
-n'importe quelle clé pour un déploiement spécifique.
-
-**Usage côté script** :
-```python
-from pm_paths import PMConfig
-cfg = PMConfig.load()
-cfg.projects_root                                      # Path
-cfg.path("task_file", entity="lemathou", project="x", id=42, slug="foo")
-for ent, proj, _ in cfg.iter_projects(entity=None): ...
-cfg.find_task(rm_id)                                   # Path | None
-cfg.find_project_by_redmine_id(rm_proj_id)             # (Path, Path) | (None, None)
-```
-
-**Usage côté doc / agents** : les chemins sont nommés par leur pattern
-logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
-expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
-référence humaine.
-
-## Types d'entités
-
-Le dossier `paths.entities_dir` (par défaut `{projects_root}/clients`) regroupe
-**3 types d'entités**, distingués par le champ `type` du frontmatter
-`{entity_client_dir}/overview.md` :
+Le dossier `clients/` regroupe **3 types d'entités**, distingués par le champ `type` du
+frontmatter `client/overview.md` :
 
 | `type` | Sémantique | Exemples |
 |---|---|---|
@@ -97,9 +41,9 @@ pour chaque entité, qu'elle soit `client`, `product` ou `self`.
 **Règle d'arbitrage** lorsqu'un projet pourrait vivre sous plusieurs entités (ex: un
 module Dolibarr générique utilisé par plusieurs clients) :
 
-- Si **commandé/financé par un client** → sous ce client (`paths.project` avec `entity=<client>`)
-- Si **générique** (marketplace, communauté, usage interne propre) → sous l'écosystème produit (`paths.project` avec `entity=<product>`)
-- Si **outil interne** non rattaché à un produit tiers → sous `self` (`paths.project` avec `entity=iprospective`)
+- Si **commandé/financé par un client** → sous ce client (`clients/<client>/projects/<projet>/`)
+- Si **générique** (marketplace, communauté, usage interne propre) → sous l'écosystème produit (`clients/<product>/projects/<projet>/`)
+- Si **outil interne** non rattaché à un produit tiers → sous `self` (`clients/iprospective/projects/<outil>/`)
 
 Suivre l'engagement de livraison et la responsabilité des données.
 
@@ -118,20 +62,18 @@ Ces deux champs sont **redondants par construction**, pour permettre la lecture 
 deux sens sans scan inverse coûteux. Un script `pm doctor` (à venir) valide la cohérence.
 
 **Source de vérité** : le frontmatter, pas l'arborescence filesystem. Le chemin
-canonique d'un projet est toujours `paths.project` (`entity=<owner>`,
-`project=<projet>`).
+canonique d'un projet est toujours `clients/<owner>/projects/<projet>/`.
 
-**Vue cross-client (navigation humaine uniquement)** : un dossier `paths.entity_used_dir`
-(par défaut `{entity}/projects_used`, au même niveau que `entity_projects_dir`, **pas**
-un sous-dossier) peut contenir des symlinks relatifs vers les projets fournisseurs.
-Ces symlinks sont **générés** par un script (`pm sync-views`) à partir des
-`used_by_clients[]`, jamais édités à la main.
+**Vue cross-client (navigation humaine uniquement)** : un dossier `clients/<client>/projects_used/`
+(au même niveau que `projects/`, **pas** un sous-dossier) peut contenir des symlinks
+relatifs vers les projets fournisseurs. Ces symlinks sont **générés** par un script
+(`pm sync-views`) à partir des `used_by_clients[]`, jamais édités à la main.
 
 **Règles cross-client :**
 - La cascade des aspects reste **mono-client** : un projet hérite uniquement de son
   client `client:`, jamais des clients listés dans `used_by_clients[]`.
 - Tous les chemins dans le frontmatter (`outputs[]`, etc.) sont **canoniques**
-  (résolus via `paths.project` avec l'`entity` propriétaire), jamais via `entity_used_dir`.
+  (`clients/<owner>/...`), jamais via `projects_used/`.
 - Les scripts d'itération doivent utiliser `find -P` (ou `! -type l`) et **ne pas suivre
   les symlinks** dans `projects_used/`. Sinon double-comptage.
 - L'édition se fait toujours via le chemin canonique. `projects_used/` est en lecture
@@ -145,9 +87,7 @@ Ces symlinks sont **générés** par un script (`pm sync-views`) à partir des
 ### Repo project-management (système, public)
 
 ```
-project-management/                   # racine : pm.config.yml :: roots.pm_dir
-  pm.config.yml                       # config de chemins (résolution centralisée)
-  pm.config.local.yml                 # surcharge locale (gitignored, optionnel)
+project-management/
   norms/
     NORMS.md                          # version courante (ce fichier)
     CHANGELOG.md                      # historique des évolutions
@@ -164,11 +104,9 @@ project-management/                   # racine : pm.config.yml :: roots.pm_dir
     reviewer.md
     summarizer.md                     # génération auto des Changelog/Pistes/Remarques
   scripts/
-    pm_paths.py                       # lib de résolution de chemins (PMConfig)
     validate-task.py
     priority.py                       # ordonnancement par ROI
     pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
-    pm-project-bootstrap.py           # instancie les bootstrap-tasks dans un projet
     redmine-test.py                   # test de connexion API Redmine
     redmine-fetch-task.py             # fetch ticket Redmine → génère le MD
     redmine-fetch-updates.py          # récupère les nouveautés depuis le dernier check
@@ -179,27 +117,23 @@ project-management/                   # racine : pm.config.yml :: roots.pm_dir
 
 ### Repo projets (privé, gitignored dans le repo PM)
 
-Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
-Structure interne définie par les patterns de `paths:` — la représentation
-ci-dessous montre la **résolution par défaut**.
-
 ```
-{projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
+projects/                             # ai-projects (repo séparé)
   README.md
-  {entities_dir}/                     # = projects_root/clients
-    {entity}/                         # entité = client | product | self (slug)
-      {entity_client_dir}/            # = entity/client  — cahier des charges
+  clients/
+    {client-slug}/
+      client/                         # cahier des charges client (multi-fichiers)
         overview.md                   # OBLIGATOIRE — frontmatter + sommaire
         hosting.md                    # aspect — optionnel
         contracts.md                  # aspect — optionnel
         ...                           # tout aspect pertinent
-      {entity_memory_dir}/            # = entity/memory  — mémoire structurée (agents)
+      memory/                         # mémoire structurée (écrite par agents)
       Changelog.md                    # AUTO — activité agrégée
       Pistes.md                       # AUTO — idées non décidées
       Remarques.md                    # AUTO — observations factuelles
-      {entity_projects_dir}/          # = entity/projects
-        {project}/                    # = entity_projects_dir/{project-slug}
-          {project_dir}/              # = project/project  — cahier des charges
+      projects/
+        {projet-slug}/
+          project/                    # cahier des charges projet (multi-fichiers)
             overview.md               # OBLIGATOIRE — frontmatter + sommaire
             hosting.md                # aspect — optionnel
             stack.md
@@ -207,74 +141,65 @@ ci-dessous montre la **résolution par défaut**.
             workflows.md
             audience.md               # exemples — uniquement les aspects pertinents
             ...
-          {project_memory_dir}/       # = project/memory  — mémoire spécifique projet
+          memory/                     # mémoire spécifique projet
           Changelog.md                # AUTO
           Pistes.md                   # AUTO
           Remarques.md                # AUTO
-          {tasks_dir}/                # = project/tasks
-            RM{id}_{titre-kebab}.md         # = paths.task_file
-            RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
+          tasks/
+            RM{id}_{titre-kebab}.md
+            RM{id}_{titre-kebab}.log.md
 ```
 
-### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+### Workspace projet — symlinks bidirectionnels `mmi-pm` ↔ `workspace`
 
 Chaque projet a **deux emplacements** distincts mais liés :
 
 | Emplacement | Contenu | Repo git |
 |---|---|---|
-| `{workspace_dir}/` — variable selon projet, ex: `/zfs/workspaces/<P>/` ou `/zfs/workspaces/<entity>/<P>/` | Code source du projet | repo de code (ex: `iprospective/dev/<P>`) |
-| `paths.project` (par défaut `{projects_root}/clients/<C>/projects/<P>/`) | Cahier des charges, tâches, mémoire | `ai-projects` |
+| `/zfs/workspaces/<P>/` (chemin variable, parfois `/zfs/workspaces/<entity>/<P>/`) | Code source du projet | repo de code (ex: `iprospective/dev/<P>`) |
+| `$PROJECTS_PATH/clients/<C>/projects/<P>/` | Cahier des charges, tâches, mémoire | `ai-projects` |
 
-Les deux emplacements se référencent **mutuellement** par symlinks (chemins
-absolus, définis dans `pm.config.yml :: paths.reverse_link` et
-`paths.workspace_link`) :
+Les deux emplacements se référencent **mutuellement** par symlinks relatifs :
 
 ```
-{workspace_dir}/.mmi-pm    → paths.project           # paths.reverse_link
-paths.project/workspace    → {workspace_dir}         # paths.workspace_link
+/zfs/workspaces/<P>/mmi-pm        → $PROJECTS_PATH/clients/<C>/projects/<P>/
+$PROJECTS_PATH/clients/<C>/projects/<P>/workspace → /zfs/workspaces/<P>/
 ```
 
 **Création (les deux symlinks ensemble) :**
 ```bash
-# Côté workspace (code) :
-ln -s "$(python3 -c 'from pm_paths import PMConfig; \
-  print(PMConfig.load().path("project", entity="<C>", project="<P>"))')" \
-  "$WORKSPACE_DIR/.mmi-pm"
+WORKSPACE=/zfs/workspaces/<P>
+PMDIR=$PROJECTS_PATH/clients/<C>/projects/<P>
 
-# Côté PM (référence inverse) :
-ln -s "$WORKSPACE_DIR" "$(python3 -c '…path("workspace_link", …)…')"
+ln -s "$PMDIR"      "$WORKSPACE/mmi-pm"
+ln -s "$WORKSPACE"  "$PMDIR/workspace"
 ```
 
-(Un futur `pm sync-links` automatisera ces deux opérations.)
-
 **Bénéfices :**
-- Un agent travaillant dans le workspace voit code ET tâches/docs (`.mmi-pm/project/`,
-  `.mmi-pm/tasks/`)
-- Un agent travaillant côté PM (dans `paths.project`) accède directement au code via
-  `workspace/` — utile pour consulter une stack, un commit, un fichier en cours de
-  modification
+- Un agent travaillant dans le workspace voit code ET tâches/docs (`mmi-pm/project/`, `mmi-pm/tasks/`)
+- Un agent travaillant côté PM (dans `clients/.../projects/<P>/`) accède directement au
+  code via `workspace/` — utile pour consulter une stack, un commit, un fichier en
+  cours de modification
 - Bidirectionnel : si le dossier d'un côté est déplacé, on a un point de repère côté
   opposé pour rétablir le lien sans chercher
-- La centralisation est préservée (l'orchestrateur scanne `cfg.projects_root` directement,
+- La centralisation est préservée (l'orchestrateur scanne `$PROJECTS_PATH` directement,
   sans suivre `workspace/`)
 
 **Conventions :**
-- Le symlink `.mmi-pm` côté workspace est **caché** (préfixe `.`) pour ne pas polluer
-  l'arborescence du code
-- Le symlink `workspace` côté PM est **dans la racine du dossier projet PM** (au même
-  niveau que `project/`, `tasks/`, `memory/`)
+- Le symlink `workspace` côté PM est **dans la racine du dossier projet PM** (au même niveau
+  que `project/`, `tasks/`, `memory/`)
 - Les scripts d'itération (validator, dashboard, summarizer) doivent **ignorer**
-  les symlinks `workspace` (utiliser `find -P` ou `! -type l`, ou `cfg.iter_projects()`
-  qui filtre déjà les symlinks) pour ne pas se perdre dans le code
+  les symlinks `workspace` (utiliser `find -P` ou `! -type l`) pour ne pas se perdre
+  dans le code
 - Les deux symlinks pointent en chemins **absolus** (les paths workspace/PM ne sont
   pas systématiquement co-localisés ; `realpath` doit fonctionner depuis n'importe où)
 
 **Résolution de chemins cross-tree** (ex: cascade vers le client) :
-Ne pas utiliser `.mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser
-la lib + le champ `client:` du frontmatter de `project/overview.md` :
+Ne pas utiliser `mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser
+`$PROJECTS_PATH` + le champ `client:` du frontmatter de `project/overview.md` :
 
-```python
-client_dir = cfg.path("entity", entity=client_slug)
+```bash
+CLIENT_DIR="$PROJECTS_PATH/clients/${client_slug}"
 ```
 
 ### Aspects — cahier des charges dynamique
@@ -294,8 +219,8 @@ Un aspect peut exister au niveau client ET au niveau projet. L'agent lit les deu
 Le projet précise/surcharge le client sur les points en contradiction.
 
 Exemple :
-- `{entity_client_dir}/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
-- `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
+- `clients/{C}/client/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
+- `clients/{C}/projects/{P}/project/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
 
 ### Environnements (aspect `environments.md`)
@@ -410,12 +335,10 @@ Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
 **Lecture du contexte par un agent (worker, summarizer, reviewer) :**
 ```
 1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
-2. Client     : {entity_client_dir}/*.md + {entity_memory_dir}/*.md
-3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
-4. Tâche      : paths.task_file + paths.task_log_file
+2. Client     : clients/{C}/client.md + memory/*.md
+3. Projet     : clients/{C}/projects/{P}/project.md + memory/*.md
+4. Tâche      : clients/{C}/projects/{P}/tasks/RM{id}_*.md + .log.md
 ```
-
-(Chemins résolus via `pm.config.yml` — par défaut : `{projects_root}/clients/{C}/...`)
 
 Chaque niveau **complète** ou **surcharge** le précédent selon les règles ci-dessus.
 
@@ -476,9 +399,8 @@ projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
 
 1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
 2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
-3. **Vérifier l'unicité** d'usage côté PM : itérer `cfg.iter_projects()` (ou
-   `grep -r 'redmine.project_id:' "$(cfg.path("entities_dir"))"`) pour s'assurer
-   qu'aucun autre projet PM ne référence déjà cet identifier
+3. **Vérifier l'unicité** d'usage côté PM : faire un `grep -r 'redmine.project_id:' clients/`
+   pour s'assurer qu'aucun autre projet PM ne référence déjà cet identifier
 4. **Trois cas** :
    - Identifier candidat dispo côté Redmine ET non utilisé côté PM → proposer de
      **créer** le projet Redmine (`POST /projects.json`)
@@ -654,15 +576,13 @@ Deux flux supportés :
 
 **a) Création depuis Redmine** (workflow humain ou agent)
 1. Un humain (ou un agent) crée le ticket dans Redmine et l'assigne à un agent IA
-2. L'orchestrateur détecte l'assignation, génère `paths.task_file` (résolu via
-   `pm.config.yml` à partir de l'entité et du projet)
+2. L'orchestrateur détecte l'assignation, génère `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
 3. Le worker assigné prend la tâche en charge
 
 **b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
-1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
+1. Depuis `/zfs/workspaces/{P}`, l'utilisateur lance `pm task create --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
-3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
-   `paths.project`)
+3. Génère le fichier MD dans `mmi-pm/tasks/RM{id}_*.md`
 4. Commit + push automatique
 
 Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en

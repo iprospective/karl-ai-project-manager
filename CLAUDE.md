@@ -5,9 +5,10 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## Orientation rapide
 
-- **Normes et schéma :** `norms/NORMS.md` (v1.7.2)
+- **Normes et schéma :** `norms/NORMS.md` (v1.8.0)
+- **Config des chemins :** `pm.config.yml` — patterns logiques (`entity`, `project`, `task_file`, …). Résolution Python via `scripts/pm_paths.py`.
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
-- **Hiérarchie :** `clients/{C}/projects/{P}/tasks/RM{id}_*.md`
+- **Hiérarchie :** `paths.task_file` = `{tasks_dir}/RM{id}_{slug}.md` (entité → projet → tâche)
 - **Cascade :** client → projet → tâche (héritage avec override possible)
 - **Knowledge transverse :** `knowledge/INDEX.md` — capitalisation technique/opérationnelle par produit, partagée entre clients (Redmine, …). Référence cette knowledge avant de chercher ailleurs quand tu rencontres un produit qu'elle couvre.
 
@@ -16,10 +17,10 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 1. Lire `agents/worker-common.md`
 2. Lire `agents/worker-{role}.md` (ton rôle précisé dans l'invocation)
 3. Lire `norms/NORMS.md`
-4. Lire `clients/{C}/client/*.md` (overview + aspects) + `clients/{C}/memory/*.md`
-5. Lire `clients/{C}/projects/{P}/project/*.md` (overview + aspects) + `memory/*.md`
-6. Lire `clients/{C}/projects/{P}/tasks/RM{id}_*.md` (ta tâche)
-7. Lire les dernières 50 lignes du `.log.md`
+4. Lire `{entity_client_dir}/*.md` (overview + aspects) + `{entity_memory_dir}/*.md` pour `entity={C}`
+5. Lire `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` pour `entity={C}, project={P}`
+6. Lire `paths.task_file` (ta tâche) — résolu via `cfg.path("task_file", entity={C}, project={P}, id={id}, slug=*)`
+7. Lire les dernières 50 lignes du `paths.task_log_file`
 8. Travailler selon le protocole de ton rôle, en respectant la cascade
 
 ## Quand tu reçois une invocation de type "review la tâche RM{id}"

@@ -19,21 +19,28 @@ ou surcharge le précédent (cf. NORMS.md § Cascade et héritage).
 1. `agents/worker-common.md` — ce fichier
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/NORMS.md` — schéma, machine d'états, protocoles
-4. `clients/{C}/client/*.md` (overview + tous les aspects) + `clients/{C}/memory/*.md`
-5. `clients/{C}/projects/{P}/project/*.md` (overview + aspects) + `memory/*.md`
-6. `clients/{C}/projects/{P}/tasks/RM{id}_*.md` — la tâche assignée
+4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
+5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md`
+6. `paths.task_file` — la tâche assignée
 7. Fichiers dans `refs[]` — documents de référence liés à la tâche
 8. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
-9. Dernières 50 lignes de `RM{id}_*.log.md` — état courant
+9. Dernières 50 lignes de `paths.task_log_file` — état courant
+
+(Les patterns `{entity_client_dir}`, `{project_dir}`, `paths.task_file` etc. sont
+définis dans `pm.config.yml` ; la résolution par défaut donne
+`{projects_root}/clients/{C}/...`. La lib `scripts/pm_paths.py` les résout :
+`cfg.path("project_dir", entity={C}, project={P})`.)
 
 **Aspects cascade :** si un aspect (ex: `hosting.md`) existe à la fois au niveau client
 et au niveau projet, lire les deux. Le projet précise/surcharge le client en cas
 de contradiction.
 
-**Résolution de chemins (workspace projet) :** depuis un workspace `/zfs/workspaces/{P}`,
-`mmi-pm/` est un symlink vers le dossier PM centralisé. Pour atteindre le client, utiliser
-`$PROJECTS_PATH/clients/{client-slug}/` (slug lu dans le frontmatter de `project/overview.md`),
-**pas** `mmi-pm/../../client/` (la résolution logique des symlinks n'est pas fiable).
+**Résolution de chemins (workspace projet) :** depuis un workspace de code, le
+symlink caché `paths.reverse_link` (`.mmi-pm/` par défaut) pointe vers le dossier
+PM centralisé du projet. Pour atteindre le client, utiliser
+`cfg.path("entity", entity=<slug>)` (slug lu dans le frontmatter de
+`project/overview.md`), **pas** `.mmi-pm/../../client/` (la résolution logique des
+symlinks n'est pas fiable).
 
 Respecter le `context_budget` du frontmatter.
 

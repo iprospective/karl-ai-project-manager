@@ -3,11 +3,14 @@
 Les agents sont déclenchés manuellement via Claude Code CLI depuis la racine de ce dépôt.
 
 ```bash
-# 1. Charger les variables d'environnement (credentials, URLs, chemins)
+# 1. Se placer à la racine du repo PM (chemin défini dans pm.config.yml ::
+#    roots.pm_dir — adapter au besoin)
+cd /zfs/workspaces/ai/project-management
+
+# 2. Charger les variables d'environnement (credentials, URLs)
 source .env
 
-# 2. Lancer Claude Code — CLAUDE.md est chargé automatiquement
-cd /zfs/workspaces/ai/project-management
+# 3. Lancer Claude Code — CLAUDE.md est chargé automatiquement
 claude
 ```
 
@@ -70,18 +73,18 @@ Crée une nouvelle tâche pour le projet mon-projet :
 
 ```
 1. Créer le ticket Redmine
-2. Créer le fichier MD :
-   cp templates/task.md projects/mon-projet/tasks/RM1234_titre-kebab.md
-   touch projects/mon-projet/tasks/RM1234_titre-kebab.log.md
-3. Remplir le frontmatter (redmine_id, title, type, priority, due...)
-4. Rédiger Contexte + Critères d'acceptation + Instructions
-5. Assigner le ticket Redmine au worker
-6. Invoquer l'agent :
+2. Créer le fichier MD via :
+   python3 scripts/redmine-fetch-task.py --issue 1234
+   (le chemin de destination est résolu via pm.config.yml :: paths.task_file)
+3. Compléter le frontmatter (priority, due, roi, ...) et rédiger Contexte +
+   Critères d'acceptation + Instructions
+4. Assigner le ticket Redmine au worker
+5. Invoquer l'agent :
    "Tu es worker-{role}. Traite la tâche RM1234 du projet mon-projet."
-7. L'agent travaille, met à jour le MD et Redmine
-8. Quand status = a_tester_verifier :
+6. L'agent travaille, met à jour le MD et Redmine
+7. Quand status = a_tester_verifier :
    "Tu es reviewer. Valide la tâche RM1234 du projet mon-projet."
-9. Si approuvé → status = ferme, ticket Redmine clôturé
+8. Si approuvé → status = ferme, ticket Redmine clôturé
 ```
 
 ---

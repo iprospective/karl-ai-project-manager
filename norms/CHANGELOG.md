@@ -5,6 +5,49 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.8.0] - 2026-05-15
+
+### Ajouté — Configuration centralisée des chemins (`pm.config.yml`)
+- Nouveau fichier `pm.config.yml` à la racine du repo PM (commité, sans chemin
+  absolu local — toutes les valeurs sensibles passent par `${VAR}` depuis `.env`)
+- Nouvelle lib `scripts/pm_paths.py` (`PMConfig.load()`) qui résout tous les
+  chemins du système via les patterns définis dans `pm.config.yml`
+- Support d'un `pm.config.local.yml` (gitignored) pour surcharger localement
+- Patterns standards documentés dans NORMS (`entities_dir`, `entity`,
+  `entity_projects_dir`, `project`, `tasks_dir`, `task_file`, etc.)
+- Lib expose : `cfg.path(key, **kwargs)`, `cfg.iter_entities()`,
+  `cfg.iter_projects(entity=None)`, `cfg.find_task(rm_id)`,
+  `cfg.find_project_by_redmine_id(slug_or_id)`
+
+### Modifié — Symlink workspace → PM renommé en `.mmi-pm` (caché)
+- Convention v1.5.1 : symlink `mmi-pm` (visible) → v1.8.0 : `.mmi-pm` (caché)
+- Évite de polluer l'arborescence du code source côté workspace
+- Les 2 symlinks existants (`/zfs/workspaces/redmine/mmi-pm`,
+  `/zfs/workspaces/perso/mathematicians-db/mmi-pm`) ont été renommés
+- La convention est désormais portée par `pm.config.yml :: paths.reverse_link`
+
+### Modifié — Refacto des scripts pour passer par `pm_paths`
+- `pm-dashboard.py`, `redmine-fetch-task.py`, `redmine-fetch-updates.py`,
+  `pm-project-bootstrap.py` : suppression du hardcode `projects_root / "clients"`,
+  remplacé par `cfg.path(...)` ou `cfg.iter_projects()`
+- `priority.py`, `validate-task.py` : corrections de docstrings (exemples)
+- `cron.example.sh`, `scripts/invoke.md` : références à `pm.config.yml`
+
+### Modifié — NORMS reformulé en patterns logiques
+- Tous les chemins littéraux `clients/{C}/projects/{P}/...` dans NORMS, agents,
+  CLAUDE.md, README, templates → reformulés en `paths.X` ou `{pattern}` syntax
+- L'arborescence "Repo projets" dans NORMS utilise désormais les noms de
+  patterns (résolution par défaut indiquée pour référence humaine)
+- Suppression du couplage doc ↔ structure filesystem actuelle
+
+### Pourquoi
+Permet de déplacer le repo PM, déplacer le repo projets, ou réorganiser la
+structure interne (ex: flatten `projects/clients/` → `projects/`) sans toucher
+au code des scripts ni à la doc des agents. Une seule ligne à modifier dans
+`pm.config.yml` ou son override local.
+
+---
+
 ## [1.7.2] - 2026-05-15
 
 ### Ajouté — Memberships par défaut sur nouveau projet Redmine

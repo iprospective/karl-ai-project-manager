@@ -10,23 +10,25 @@
 
 ## Contexte
 
-La convention de stockage v1.5.0 met un symlink `mmi-pm` dans chaque workspace projet,
-pointant vers le dossier PM centralisé. Un outil CLI `pm` exécuté depuis le workspace
-projet permet d'orchestrer les opérations courantes (création de ticket Redmine +
-fichier MD + commit) sans naviguer entre les arbres.
+La convention de stockage v1.5.0 (puis v1.8.0 — symlink renommé `.mmi-pm` caché) met
+un symlink dans chaque workspace projet, pointant vers le dossier PM centralisé. Un
+outil CLI `pm` exécuté depuis le workspace projet permet d'orchestrer les opérations
+courantes (création de ticket Redmine + fichier MD + commit) sans naviguer entre les
+arbres.
 
 ## Commandes prévues
 
 ### Création
 - [ ] `pm task create --type <T> --title "..."`
-  - Crée le ticket Redmine dans le projet configuré (`mmi-pm/project/overview.md ::
+  - Crée le ticket Redmine dans le projet configuré (`.mmi-pm/project/overview.md ::
     redmine.project_id`)
   - Récupère l'ID
-  - Génère `mmi-pm/tasks/RM{id}_{slug}.md` depuis `templates/task.md`
+  - Génère `.mmi-pm/tasks/RM{id}_{slug}.md` depuis `templates/task.md`
   - Commit + push dans le repo `ai-projects`
 - [ ] `pm project init <client-slug> <project-slug>`
-  - Crée le squelette PM centralisé dans `$PROJECTS_PATH/clients/{C}/projects/{P}/`
-  - Crée le symlink `mmi-pm` dans le workspace courant
+  - Crée le squelette PM centralisé via `cfg.path("project", entity=<C>, project=<P>)`
+  - Crée le symlink `paths.reverse_link` (`.mmi-pm`) dans le workspace courant et
+    le symlink `paths.workspace_link` (côté PM)
   - Initialise `project/overview.md` depuis le template
 - [ ] `pm client init <client-slug>`
   - Crée le squelette client centralisé
@@ -43,8 +45,9 @@ fichier MD + commit) sans naviguer entre les arbres.
 ## Implémentation
 
 - Python, packagé en single-file ou `setup.py` standard
-- Lit `$PROJECTS_PATH` et `$REDMINE_URL`/`$REDMINE_API_KEY` depuis `.env`
-- Résolution du contexte projet : `realpath mmi-pm` → tree central
+- Utilise `scripts/pm_paths.py` (`PMConfig.load()`) pour tous les chemins ; lit
+  `$REDMINE_URL`/`$REDMINE_API_KEY` depuis `.env`
+- Résolution du contexte projet : `realpath .mmi-pm` → tree central
 - Validator appelé avant tout commit
 
 ## Critères d'acceptation

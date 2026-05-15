@@ -7,6 +7,43 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.8.0] - 2026-05-15
+
+### Ajouté — Couche d'abstraction des chemins (`pm.config.yml` + `pm_paths.py`)
+- Nouveau fichier `pm.config.yml` à la racine : tous les chemins du système
+  (racines, entités, projets, tâches, symlinks) sont définis comme patterns
+  paramétrables. Aucun chemin absolu local n'est commité (uniquement `${VAR}`
+  depuis `.env`)
+- Nouvelle lib `scripts/pm_paths.py` : `PMConfig.load()` + `cfg.path(...)` +
+  itérateurs (`iter_entities`, `iter_projects`) + lookups Redmine
+  (`find_task`, `find_project_by_redmine_id`)
+- Support d'un `pm.config.local.yml` (gitignored) pour surcharge locale
+- Permet de déplacer le repo PM, déplacer le repo projets, ou réorganiser la
+  structure interne sans toucher au code ni à la doc — une seule ligne à
+  modifier dans la config
+
+### Modifié — Symlink workspace → PM caché (`.mmi-pm`)
+- Renommage de `mmi-pm` → `.mmi-pm` dans les 2 workspaces concernés
+  (`/zfs/workspaces/redmine`, `/zfs/workspaces/perso/mathematicians-db`)
+- Convention portée par `paths.reverse_link` dans `pm.config.yml`
+
+### Modifié — Refacto exhaustif scripts + doc
+- 5 scripts refactorés pour passer par `PMConfig` : `pm-dashboard.py`,
+  `redmine-fetch-task.py`, `redmine-fetch-updates.py`, `pm-project-bootstrap.py`
+  (+ corrections docstrings `priority.py`, `validate-task.py`)
+- Doc reformulée en patterns logiques (`paths.task_file`, `{entity_client_dir}`,
+  …) : `CLAUDE.md`, `agents/worker-common.md`, `agents/orchestrateur.md`,
+  `agents/summarizer.md`, `README.md`, `templates/bootstrap-tasks/002-git-repos.md`,
+  `TODO/003-pm-cli.md`
+- Plus aucun hardcode `projects_root / "clients"` ni `mmi-pm/...` dans le code
+  ou la doc vivante
+
+### Conventions
+- NORMS v1.8.0 (minor bump) : `norms/CHANGELOG.md` détaille les évolutions ;
+  snapshot v1.7.2 archivé dans `norms/archive/`
+
+---
+
 ## [1.7.2] - 2026-05-15
 
 ### Ajouté

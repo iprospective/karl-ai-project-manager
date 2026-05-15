@@ -4,8 +4,7 @@
 Affiche : statuts globaux par projet, top ROI, en cours, à tester, activité récente.
 
 Usage :
-    ./scripts/pm-dashboard.py                    # utilise $PROJECTS_PATH
-    ./scripts/pm-dashboard.py /path/to/projects  # chemin explicite
+    ./scripts/pm-dashboard.py                    # utilise pm.config.yml
     ./scripts/pm-dashboard.py --client lemathou  # filtre client
     ./scripts/pm-dashboard.py --top 20           # top N ROI (défaut 10)
 """
@@ -16,6 +15,9 @@ import re
 import sys
 from datetime import datetime
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_paths import PMConfig
 
 try:
     import yaml
@@ -70,22 +72,7 @@ def parse_frontmatter(file_path):
         return None
 
 
-def scan_clients(projects_root):
-    clients_dir = projects_root / "clients"
-    if not clients_dir.is_dir():
-        return []
-    return sorted([p for p in clients_dir.iterdir() if p.is_dir()])
-
-
-def scan_projects(client_dir):
-    proj_dir = client_dir / "projects"
-    if not proj_dir.is_dir():
-        return []
-    return sorted([p for p in proj_dir.iterdir() if p.is_dir()])
-
-
-def scan_tasks(project_dir):
-    tasks_dir = project_dir / "tasks"
+def scan_tasks(tasks_dir):
     if not tasks_dir.is_dir():
         return []
     tasks = []
@@ -125,13 +112,22 @@ def status_breakdown(tasks):
     return counts
 
 
-def recent_logs(projects_root, n=5):
+def recent_logs(cfg, n=5):
+    """Logs récents en parcourant uniquement les tasks_dir des projets connus.
+
+    Évite de suivre les symlinks (vues `projects_used/`) qui causeraient un
+    double-comptage.
+    """
     log_files = []
-    for f in projects_root.rglob("*.log.md"):
-        if LOG_FILENAME.match(f.name):
+    for ent_slug, proj_slug, _ in cfg.iter_projects():
+        tasks_dir = cfg.path("tasks_dir", entity=ent_slug, project=proj_slug)
+        if not tasks_dir.is_dir():
+            continue
+        for f in tasks_dir.iterdir():
+            if not LOG_FILENAME.match(f.name):
+                continue
             try:
-                mtime = f.stat().st_mtime
-                log_files.append((mtime, f))
+                log_files.append((f.stat().st_mtime, f))
             except OSError:
                 continue
     log_files.sort(reverse=True)
@@ -142,20 +138,18 @@ def fmt_dt(ts):
     return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
 
 
-def collect(projects_root, client_filter=None):
-    """Retourne [(client_dir, project_dir, tasks), ...] et l'index par redmine_id."""
+def collect(cfg, client_filter=None):
+    """Retourne `[(ent_slug, proj_slug, tasks), ...]` et l'index par redmine_id."""
     data = []
     tasks_by_id = {}
-    for c in scan_clients(projects_root):
-        if client_filter and c.name != client_filter:
-            continue
-        for p in scan_projects(c):
-            tasks = scan_tasks(p)
-            data.append((c, p, tasks))
-            for _, fm in tasks:
-                rid = fm.get("redmine_id")
-                if rid:
-                    tasks_by_id[rid] = fm
+    for ent_slug, proj_slug, _ in cfg.iter_projects(entity=client_filter):
+        tasks_dir = cfg.path("tasks_dir", entity=ent_slug, project=proj_slug)
+        tasks = scan_tasks(tasks_dir)
+        data.append((ent_slug, proj_slug, tasks))
+        for _, fm in tasks:
+            rid = fm.get("redmine_id")
+            if rid:
+                tasks_by_id[rid] = fm
     return data, tasks_by_id
 
 
@@ -172,7 +166,7 @@ def render_header(projects_root):
 
 
 def render_overview(data):
-    total_clients = len({c.name for c, _, _ in data})
+    total_clients = len({ent for ent, _, _ in data})
     total_projects = len(data)
     total_tasks = sum(len(t) for _, _, t in data)
     msg = f"{total_clients} client(s) · {total_projects} projet(s) · {total_tasks} tâche(s)"
@@ -194,30 +188,30 @@ def render_status_table(data):
         for s in STATUSES:
             table.add_column(STATUS_SHORT[s], justify="right")
         table.add_column("Total", justify="right", style="bold")
-        for c, p, tasks in data:
+        for ent, proj, tasks in data:
             counts = status_breakdown(tasks)
-            row = [c.name, p.name] + [str(counts[s]) if counts[s] else "·" for s in STATUSES] + [str(len(tasks))]
+            row = [ent, proj] + [str(counts[s]) if counts[s] else "·" for s in STATUSES] + [str(len(tasks))]
             table.add_row(*row)
         console.print(Panel(table, title="Statuts par projet", border_style="dim"))
         console.print()
     else:
         print("Statuts par projet")
-        for c, p, tasks in data:
+        for ent, proj, tasks in data:
             counts = status_breakdown(tasks)
             parts = " · ".join(f"{STATUS_SHORT[s]}={counts[s]}" for s in STATUSES if counts[s])
-            print(f"  {c.name}/{p.name}: {parts or '(vide)'}")
+            print(f"  {ent}/{proj}: {parts or '(vide)'}")
         print()
 
 
 def render_top_roi(data, tasks_by_id, top_n):
     eligible = []
-    for c, p, tasks in data:
+    for ent, proj, tasks in data:
         for path, fm in tasks:
             if fm.get("status") != "a_faire":
                 continue
             if not deps_satisfied(fm, tasks_by_id):
                 continue
-            eligible.append((task_score(fm), c.name, p.name, path, fm))
+            eligible.append((task_score(fm), ent, proj, path, fm))
     eligible.sort(key=lambda x: x[0], reverse=True)
 
     if RICH:
@@ -229,11 +223,11 @@ def render_top_roi(data, tasks_by_id, top_n):
             table.add_column("Type")
             table.add_column("Pri")
             table.add_column("Titre")
-            for score, c, p, _, fm in eligible[:top_n]:
+            for score, ent, proj, _, fm in eligible[:top_n]:
                 table.add_row(
                     f"{score:.2f}",
                     f"RM{fm.get('redmine_id', '?')}",
-                    f"{c}/{p}",
+                    f"{ent}/{proj}",
                     fm.get("type", "?"),
                     fm.get("priority", "?"),
                     (fm.get("title") or "?")[:50],
@@ -249,8 +243,8 @@ def render_top_roi(data, tasks_by_id, top_n):
     else:
         print("Top ROI")
         if eligible:
-            for score, c, p, _, fm in eligible[:top_n]:
-                print(f"  {score:6.2f}  RM{fm.get('redmine_id', '?'):>5}  {c}/{p}  "
+            for score, ent, proj, _, fm in eligible[:top_n]:
+                print(f"  {score:6.2f}  RM{fm.get('redmine_id', '?'):>5}  {ent}/{proj}  "
                       f"{fm.get('type', '?'):<14}  {(fm.get('title') or '?')[:50]}")
         else:
             print("  (aucune tâche éligible)")
@@ -258,7 +252,7 @@ def render_top_roi(data, tasks_by_id, top_n):
 
 
 def render_status_list(data, status, title, border_style="green"):
-    items = [(c.name, p.name, fm) for c, p, tasks in data for _, fm in tasks if fm.get("status") == status]
+    items = [(ent, proj, fm) for ent, proj, tasks in data for _, fm in tasks if fm.get("status") == status]
     if not items:
         return
     if RICH:
@@ -268,8 +262,8 @@ def render_status_list(data, status, title, border_style="green"):
         table.add_column("Titre")
         if status == "en_cours":
             table.add_column("Complétion", justify="right")
-        for c, p, fm in items:
-            row = [f"RM{fm.get('redmine_id', '?')}", f"{c}/{p}", (fm.get("title") or "?")[:50]]
+        for ent, proj, fm in items:
+            row = [f"RM{fm.get('redmine_id', '?')}", f"{ent}/{proj}", (fm.get("title") or "?")[:50]]
             if status == "en_cours":
                 row.append(f"{fm.get('completion_pct', 0)}%")
             table.add_row(*row)
@@ -277,14 +271,14 @@ def render_status_list(data, status, title, border_style="green"):
         console.print()
     else:
         print(f"{title} ({len(items)})")
-        for c, p, fm in items:
+        for ent, proj, fm in items:
             extra = f" ({fm.get('completion_pct', 0)}%)" if status == "en_cours" else ""
-            print(f"  RM{fm.get('redmine_id', '?'):>5}  {c}/{p}  {(fm.get('title') or '?')[:50]}{extra}")
+            print(f"  RM{fm.get('redmine_id', '?'):>5}  {ent}/{proj}  {(fm.get('title') or '?')[:50]}{extra}")
         print()
 
 
-def render_activity(projects_root, n):
-    recents = recent_logs(projects_root, n)
+def render_activity(cfg, n):
+    recents = recent_logs(cfg, n)
     if not recents:
         return
     if RICH:
@@ -292,12 +286,12 @@ def render_activity(projects_root, n):
         table.add_column("Modifié", style="dim")
         table.add_column("Fichier")
         for ts, f in recents:
-            table.add_row(fmt_dt(ts), str(f.relative_to(projects_root)))
+            table.add_row(fmt_dt(ts), str(f.relative_to(cfg.projects_root)))
         console.print(Panel(table, title=f"Activité récente ({len(recents)} derniers logs)", border_style="dim"))
     else:
         print(f"Activité récente ({len(recents)} derniers logs)")
         for ts, f in recents:
-            print(f"  {fmt_dt(ts)}  {f.relative_to(projects_root)}")
+            print(f"  {fmt_dt(ts)}  {f.relative_to(cfg.projects_root)}")
 
 
 def main():
@@ -305,33 +299,23 @@ def main():
         description="PM Dashboard — vue d'ensemble du système de gestion de tâches.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    ap.add_argument("path", nargs="?", default=None,
-                    help="Chemin vers projects/. Par défaut : $PROJECTS_PATH")
     ap.add_argument("--client", help="Filtrer sur un client (slug)")
     ap.add_argument("--top", type=int, default=10, help="Nombre de tâches dans Top ROI (défaut 10)")
     ap.add_argument("--activity", type=int, default=5, help="Nombre de logs récents (défaut 5)")
     args = ap.parse_args()
 
-    path = args.path or os.environ.get("PROJECTS_PATH")
-    if not path:
-        print("ERREUR : passer le chemin en argument ou définir $PROJECTS_PATH", file=sys.stderr)
-        sys.exit(1)
+    cfg = PMConfig.load()
 
-    root = Path(path).resolve()
-    if not root.exists():
-        print(f"ERREUR : {root} n'existe pas", file=sys.stderr)
-        sys.exit(1)
+    data, tasks_by_id = collect(cfg, client_filter=args.client)
 
-    data, tasks_by_id = collect(root, client_filter=args.client)
-
-    render_header(root)
+    render_header(cfg.projects_root)
     render_overview(data)
     render_status_table(data)
     render_top_roi(data, tasks_by_id, args.top)
     render_status_list(data, "en_cours", "En cours", border_style="green")
     render_status_list(data, "a_tester_verifier", "À tester / vérifier", border_style="yellow")
     render_status_list(data, "a_corriger", "À corriger", border_style="red")
-    render_activity(root, args.activity)
+    render_activity(cfg, args.activity)
 
 
 if __name__ == "__main__":

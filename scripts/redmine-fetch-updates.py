@@ -21,6 +21,9 @@ from datetime import datetime
 from pathlib import Path
 from urllib import error, request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_paths import PMConfig
+
 try:
     import yaml
 except ImportError:
@@ -29,29 +32,6 @@ except ImportError:
 
 
 FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-
-
-def load_env():
-    env = Path(__file__).resolve().parent.parent / ".env"
-    if not env.is_file():
-        return
-    for line in env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        k, v = k.strip(), v.strip().strip("'\"")
-        if k and k not in os.environ:
-            os.environ[k] = v
-
-
-def find_task_md(projects_root, issue_id):
-    """Trouve le fichier RM{id}_*.md (hors .log.md) correspondant à l'issue."""
-    for f in projects_root.rglob(f"RM{issue_id}_*.md"):
-        if f.name.endswith(".log.md"):
-            continue
-        return f
-    return None
 
 
 def parse_frontmatter(content):
@@ -140,18 +120,16 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Ne pas mettre à jour le MD")
     args = ap.parse_args()
 
-    load_env()
+    cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
     key = os.environ.get("REDMINE_API_KEY")
-    projects_path = os.environ.get("PROJECTS_PATH")
-    if not (url and key and projects_path):
-        print("ERREUR : $REDMINE_URL, $REDMINE_API_KEY, $PROJECTS_PATH requis", file=sys.stderr)
+    if not (url and key):
+        print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
         sys.exit(1)
 
-    projects_root = Path(projects_path).resolve()
-    md_path = find_task_md(projects_root, args.issue)
+    md_path = cfg.find_task(args.issue)
     if not md_path:
-        print(f"ERREUR : aucun MD pour RM{args.issue} dans {projects_root}", file=sys.stderr)
+        print(f"ERREUR : aucun MD pour RM{args.issue} dans {cfg.projects_root}", file=sys.stderr)
         sys.exit(1)
 
     content = md_path.read_text(encoding="utf-8")

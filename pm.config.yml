@@ -1,0 +1,61 @@
+# pm.config.yml — Configuration des chemins du système PM
+#
+# Couche d'abstraction permettant de déplacer le repo PM, déplacer le repo
+# projets, ou réorganiser la structure interne, sans toucher au code des
+# scripts ni à la doc des agents.
+#
+# Tous les scripts du repo PM (et les agents qui suivent les NORMS) doivent
+# passer par scripts/pm_paths.py pour résoudre des chemins, jamais par
+# concaténation manuelle ni hardcode du sous-dossier "clients/".
+#
+# Override local : créer pm.config.local.yml (gitignored) — la lib fusionne
+# les deux, le local écrase les clés de ce fichier-ci.
+
+schema_version: "1"
+
+# ── Racines ───────────────────────────────────────────────────────────────
+# pm_dir       : racine du repo project-management (ce repo-ci)
+# projects_root: racine du repo ai-projects (données : clients/projets/tâches)
+#
+# Syntaxe d'interpolation :
+#   ${VAR}          — variable d'environnement (depuis .env, obligatoire)
+#   ${VAR:-default} — valeur par défaut si non définie
+#   "auto"          — détecté à partir de l'emplacement du script
+roots:
+  pm_dir:        "${PM_DIR:-auto}"
+  projects_root: "${PROJECTS_PATH}"
+
+# ── Patterns de chemins ───────────────────────────────────────────────────
+# Variables d'interpolation disponibles dans les patterns (str.format) :
+#   {pm_dir} {projects_root}        — racines (résolues depuis `roots`)
+#   {entity} {project}              — slugs passés en argument à .path()
+#   {id} {slug}                     — pour task_file / task_log_file
+#   {workspace_dir}                 — chemin du workspace de code (pour reverse_link)
+#
+# Les patterns peuvent se référencer entre eux par leur clé (résolution
+# topologique : entity_projects_dir utilise {entity}, qui utilise
+# {entities_dir}, etc.).
+paths:
+  # Niveau entité (client / produit / self)
+  entities_dir:        "{projects_root}/clients"
+  entity:              "{entities_dir}/{entity}"
+  entity_client_dir:   "{entity}/client"
+  entity_memory_dir:   "{entity}/memory"
+  entity_projects_dir: "{entity}/projects"
+  entity_used_dir:     "{entity}/projects_used"
+
+  # Niveau projet
+  project:             "{entity_projects_dir}/{project}"
+  project_dir:         "{project}/project"
+  project_memory_dir:  "{project}/memory"
+  tasks_dir:           "{project}/tasks"
+
+  # Niveau tâche
+  task_file:           "{tasks_dir}/RM{id}_{slug}.md"
+  task_log_file:       "{tasks_dir}/RM{id}_{slug}.log.md"
+
+  # Symlinks de liaison code ↔ PM
+  # workspace_link  : côté PM, pointe vers le workspace de code
+  # reverse_link    : côté workspace de code, pointe vers le projet PM
+  workspace_link:      "{project}/workspace"
+  reverse_link:        "{workspace_dir}/.mmi-pm"

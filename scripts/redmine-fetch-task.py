@@ -2,9 +2,9 @@
 """Fetcher un ticket Redmine et générer le fichier MD correspondant.
 
 Identifie automatiquement le projet MD via `redmine.project_id` dans
-`project/overview.md`, ou prend client/projet en argument. Génère le fichier
-de tâche dans `clients/<C>/projects/<P>/tasks/RM{id}_{slug}.md` + un log
-initial, puis valide via validate-task.py.
+`project/overview.md`, ou prend entité/projet en argument. Génère le fichier
+de tâche au chemin résolu par `pm.config.yml :: paths.task_file`, plus un
+log initial, puis valide via validate-task.py.
 
 Usage :
     ./scripts/redmine-fetch-task.py --issue 42
@@ -22,6 +22,9 @@ import unicodedata
 from datetime import datetime
 from pathlib import Path
 from urllib import error, request
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_paths import PMConfig
 
 try:
     import yaml
@@ -54,20 +57,6 @@ PRIORITY_TO_NORMS = {
     "high": "high", "haute": "high",
     "urgent": "urgent", "urgente": "urgent", "immediate": "urgent", "immédiate": "urgent",
 }
-
-
-def load_env():
-    env = Path(__file__).resolve().parent.parent / ".env"
-    if not env.is_file():
-        return
-    for line in env.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        k, v = k.strip(), v.strip().strip("'\"")
-        if k and k not in os.environ:
-            os.environ[k] = v
 
 
 def fetch_issue(url, key, issue_id):
@@ -133,37 +122,6 @@ def slugify(s):
         truncated.append(w)
         total += add
     return "-".join(truncated) or filtered[0][:MAX_SLUG_LEN]
-
-
-def find_project_by_redmine_id(projects_root, redmine_project_id):
-    clients_dir = projects_root / "clients"
-    if not clients_dir.is_dir():
-        return None, None
-    fm_re = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
-    for c in clients_dir.iterdir():
-        if not c.is_dir():
-            continue
-        projs = c / "projects"
-        if not projs.is_dir():
-            continue
-        for p in projs.iterdir():
-            overview = p / "project" / "overview.md"
-            if not overview.is_file():
-                continue
-            try:
-                m = fm_re.match(overview.read_text(encoding="utf-8"))
-            except OSError:
-                continue
-            if not m:
-                continue
-            try:
-                fm = yaml.safe_load(m.group(1)) or {}
-            except yaml.YAMLError:
-                continue
-            rid = (fm.get("redmine") or {}).get("project_id")
-            if rid == redmine_project_id:
-                return c, p
-    return None, None
 
 
 def latest_journal_id(issue):
@@ -260,21 +218,12 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="Afficher sans écrire")
     args = ap.parse_args()
 
-    load_env()
+    cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
     key = os.environ.get("REDMINE_API_KEY")
-    projects_path = os.environ.get("PROJECTS_PATH")
 
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
-        sys.exit(1)
-    if not projects_path:
-        print("ERREUR : $PROJECTS_PATH requis (.env)", file=sys.stderr)
-        sys.exit(1)
-
-    projects_root = Path(projects_path).resolve()
-    if not projects_root.is_dir():
-        print(f"ERREUR : {projects_root} introuvable", file=sys.stderr)
         sys.exit(1)
 
     try:
@@ -289,8 +238,8 @@ def main():
         sys.exit(1)
 
     if args.client and args.project:
-        client_dir = projects_root / "clients" / args.client
-        project_dir = client_dir / "projects" / args.project
+        entity_slug, project_slug = args.client, args.project
+        project_dir = cfg.path("project", entity=entity_slug, project=project_slug)
         if not project_dir.is_dir():
             print(f"ERREUR : {project_dir} introuvable", file=sys.stderr)
             sys.exit(1)
@@ -306,11 +255,12 @@ def main():
         if not rm_project:
             print("ERREUR : impossible de déterminer l'identifier du projet Redmine", file=sys.stderr)
             sys.exit(1)
-        client_dir, project_dir = find_project_by_redmine_id(projects_root, rm_project)
+        entity_dir, project_dir = cfg.find_project_by_redmine_id(rm_project)
         if project_dir is None:
             print(f"ERREUR : aucun projet MD ne référence redmine.project_id='{rm_project}'", file=sys.stderr)
             print("        Préciser --client <slug> --project <slug>", file=sys.stderr)
             sys.exit(1)
+        entity_slug, project_slug = entity_dir.name, project_dir.name
 
     # Résoudre le login de l'auteur (l'API issues ne renvoie que name)
     author_info = issue.get("author") or {}
@@ -318,17 +268,16 @@ def main():
 
     fm = build_frontmatter(issue, author_login)
     slug = args.slug or slugify(fm["title"])
-    filename = f"RM{fm['redmine_id']}_{slug}.md"
-    target = project_dir / "tasks" / filename
-    log_target = project_dir / "tasks" / f"RM{fm['redmine_id']}_{slug}.log.md"
+    target = cfg.path("task_file", entity=entity_slug, project=project_slug, id=fm["redmine_id"], slug=slug)
+    log_target = cfg.path("task_log_file", entity=entity_slug, project=project_slug, id=fm["redmine_id"], slug=slug)
 
     content = render_md(fm, issue.get("description") or "", url, fm["redmine_id"])
 
     print(f"Issue       : #{issue['id']} — {(issue.get('tracker') or {}).get('name', '?')}")
     print(f"Sujet       : {fm['title']}")
     print(f"Auteur      : {fm['creator']}")
-    print(f"Client      : {client_dir.name}")
-    print(f"Projet      : {project_dir.name}")
+    print(f"Client      : {entity_slug}")
+    print(f"Projet      : {project_slug}")
     print(f"Destination : {target}")
     print()
 

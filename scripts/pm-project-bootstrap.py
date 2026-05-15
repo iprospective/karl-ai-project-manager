@@ -27,6 +27,9 @@ from datetime import datetime
 from pathlib import Path
 from urllib import error, request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_paths import PMConfig
+
 try:
     import yaml
 except ImportError:
@@ -51,20 +54,6 @@ FRENCH_STOPWORDS = {
     "of", "in", "on", "for", "to", "and", "or",
 }
 MAX_SLUG_LEN = 40
-
-
-def load_env():
-    env_file = REPO_ROOT / ".env"
-    if not env_file.is_file():
-        return
-    for line in env_file.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        k, _, v = line.partition("=")
-        k, v = k.strip(), v.strip().strip("'\"")
-        if k and k not in os.environ:
-            os.environ[k] = v
 
 
 def slugify(s: str) -> str:
@@ -306,7 +295,7 @@ def main():
     ap.add_argument("--exclude", action="append", default=[], help="Force-exclude template id (peut être répété)")
     args = ap.parse_args()
 
-    load_env()
+    cfg = PMConfig.load()
     redmine_url = os.environ.get("REDMINE_URL")
     api_key = os.environ.get("REDMINE_API_KEY")
     if not (redmine_url and api_key) and not args.dry_run:
@@ -359,7 +348,10 @@ def main():
         issue_id = create_redmine_ticket(redmine_project, tpl, redmine_url, api_key)
         print(f"  → ticket #{issue_id} créé")
         path = write_task(project_dir, tpl, issue_id, overview)
-        print(f"  → {path.relative_to(project_dir.parent.parent.parent.parent)}")
+        try:
+            print(f"  → {path.relative_to(cfg.projects_root)}")
+        except ValueError:
+            print(f"  → {path}")
         new_done.append(tpl["id"])
 
     if new_done:

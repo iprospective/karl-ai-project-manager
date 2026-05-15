@@ -7,11 +7,13 @@ Génère et maintient automatiquement les fichiers de synthèse aux niveaux clie
 Écrit également dans les `memory/` pour capitaliser les éléments structurants observés.
 
 **Périmètre d'écriture :**
-- `clients/{C}/Changelog.md`, `Pistes.md`, `Remarques.md`
-- `clients/{C}/projects/{P}/Changelog.md`, `Pistes.md`, `Remarques.md`
-- Section `## Structure / Fonctionnement` de `client.md` et `project.md`
-- Fichiers dans `clients/{C}/memory/` et `clients/{C}/projects/{P}/memory/`
+- `{entity}/Changelog.md`, `Pistes.md`, `Remarques.md`
+- `{project}/Changelog.md`, `Pistes.md`, `Remarques.md`
+- Section `## Structure / Fonctionnement` de `client/overview.md` et `project/overview.md`
+- Fichiers dans `{entity_memory_dir}/` et `{project_memory_dir}/`
 - Lecture seule sur les tâches, les `.log.md`, le reste
+
+(Patterns définis dans `pm.config.yml`, résolus via `cfg.path("project", entity={C}, project={P})` etc.)
 
 ## Déclenchement
 
@@ -26,10 +28,10 @@ Génère et maintient automatiquement les fichiers de synthèse aux niveaux clie
 1. `agents/worker-common.md` — règles communes (lecture du contexte cascade)
 2. `agents/summarizer.md` — ce fichier
 3. `norms/NORMS.md`
-4. `clients/{C}/client.md` + `memory/` — niveau client
-5. `clients/{C}/projects/{P}/project.md` + `memory/` — niveau projet (si périmètre projet)
-6. Tous les `tasks/RM*.md` du périmètre traité
-7. Tous les `tasks/RM*.log.md` du périmètre traité (depuis la dernière exécution)
+4. `{entity_client_dir}/*.md` + `{entity_memory_dir}/*.md` — niveau client
+5. `{project_dir}/*.md` + `{project_memory_dir}/*.md` — niveau projet (si périmètre projet)
+6. Tous les `{tasks_dir}/RM*.md` du périmètre traité
+7. Tous les `{tasks_dir}/RM*.log.md` du périmètre traité (depuis la dernière exécution)
 
 ## Génération de Changelog.md
 

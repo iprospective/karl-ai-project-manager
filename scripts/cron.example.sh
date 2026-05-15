@@ -1,7 +1,8 @@
 #!/bin/bash
 # Exemple de configuration cron pour l'orchestrateur et le summarizer.
 #
-# Adapter les chemins et fréquences au besoin.
+# Adapter PM_DIR au chemin réel d'installation (doit correspondre à
+# pm.config.yml :: roots.pm_dir) et LOG_DIR à l'emplacement souhaité.
 #
 # Installation :
 #   crontab -e

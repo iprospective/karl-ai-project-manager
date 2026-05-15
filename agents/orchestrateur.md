@@ -15,8 +15,8 @@ Coordinateur central du pool d'agents. Surveille les tâches en attente, assigne
 ## Contexte à charger au démarrage
 
 1. `norms/NORMS.md` — schéma, règles, machine d'états
-2. `clients/*/client.md` — contexte de tous les clients actifs
-3. `clients/*/projects/*/project.md` — contexte des projets actifs
+2. `{entity_client_dir}/overview.md` pour chaque entité actives — itérer via `cfg.iter_entities()`
+3. `{project_dir}/overview.md` pour chaque projet actif — itérer via `cfg.iter_projects()`
 4. Tous les tickets Redmine en statut `a_faire` ou `etude_chiffrage_en_cours`
 5. Fichiers MD des tâches parentes avec sous-tâches en cours
 

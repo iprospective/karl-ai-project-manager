@@ -8,10 +8,9 @@ et affiche le classement décroissant.
 Score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(time_minutes, 1)
 
 Usage :
-    ./scripts/priority.py <chemin>
-    ./scripts/priority.py /path/to/projects/clients/lemathou/projects/mon-projet/tasks
-    ./scripts/priority.py /path/to/projects                      # global
-    ./scripts/priority.py /path/to/projects --top 10
+    ./scripts/priority.py <chemin>                # scan récursif d'un répertoire
+    ./scripts/priority.py "$PROJECTS_PATH"        # scan global
+    ./scripts/priority.py "$PROJECTS_PATH" --top 10
 """
 
 import argparse

@@ -24,7 +24,7 @@ ProxyJump dans `~/.ssh/config`).
 
 ## Critères d'acceptation
 
-- [ ] Le workspace (`/zfs/workspaces/<P>/`) est un repo git initialisé
+- [ ] Le workspace de code (cf. `.mmi-pm/workspace` ou `paths.workspace_link`) est un repo git initialisé
 - [ ] `.gitignore` adapté au projet (exclure logs, configs sensibles, build artifacts,
       bundles, node_modules, etc.)
 - [ ] Premier commit avec un état propre et fonctionnel
@@ -37,7 +37,8 @@ ProxyJump dans `~/.ssh/config`).
 
 ## Instructions
 
-1. `cd /zfs/workspaces/<P>` (ou via `mmi-pm/workspace` côté PM)
+1. Se placer dans le workspace de code (résolu depuis `paths.project/workspace` ou
+   accessible directement)
 2. `git init -b main` si pas déjà fait
 3. Rédiger un `.gitignore` adapté
 4. Premier commit : `git add . && git commit -m "Initial commit"`

@@ -6,7 +6,6 @@ Utilisable en pre-commit hook ou en CI.
 
 Usage :
     ./scripts/validate-task.py <fichier.md> [<fichier2.md> ...]
-    ./scripts/validate-task.py projects/mon-projet/tasks/*.md
 """
 
 import os

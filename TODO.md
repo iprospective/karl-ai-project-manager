@@ -34,6 +34,7 @@ _(aucun)_
 - [ ] `002` `#priority:high` [#user-request #agents #meta] [Interface de gestion + supervision des agents](TODO/002-management-interface.md) — UI lecture/édition + supervision live des agents, archi MD-source + DB-index, phasage CLI → UI → live → métriques
 - [ ] `003` `#priority:high` [#user-request #redmine #gitlab #agents] [CLI projet `pm`](TODO/003-pm-cli.md) — commandes depuis le workspace (task create/list/assign/close, project init), orchestration Redmine + MD + git
 - [ ] `006` `#priority:high` [#user-request #redmine #docs #norms] [Publication des documents vers le Wiki Redmine](TODO/006-wiki-redmine-sync.md) — sens MD → Wiki, conditions/format à itérer, phasage MVP → médias → automatisation
+- [ ] `008` `#priority:high` [#user-request #redmine #agents #scripts] [Multi-user env vars `.env` + sélection dynamique côté scripts](TODO/008-multi-user-env-vars.md) — rename `MAIN/PJ1` → `KARL/CHEFPROJ1` (noms réels) + adapter les 5 scripts Redmine (cassés actuellement avec le nouveau `.env`)
 
 ### normal
 

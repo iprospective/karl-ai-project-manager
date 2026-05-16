@@ -9,17 +9,21 @@ Usage :
     ./scripts/redmine-post-note.py --issue 42 --note "Fait" --status 3   # 3 = Resolved
     ./scripts/redmine-post-note.py --issue 42 --note "Bloqué" --status 2 # 2 = In Progress
 
-Statuts Redmine de l'instance iprospective :
+Statuts Redmine de l'instance iprospective (après consolidation RM1742) :
     8 = A étudier / Qualifier    (NORMS a_etudier_chiffrer)
    14 = Etude en cours           (NORMS etude_chiffrage_en_cours)
    12 = A Faire                  (NORMS a_faire)
     2 = En cours                 (NORMS en_cours)
     9 = A tester/vérifier        (NORMS a_tester_verifier)
    11 = A corriger               (NORMS a_corriger)
-    5 = Résolu/Fermé             (NORMS ferme + close_reason: resolu)
-   10 = Abandonné                (NORMS ferme + close_reason: abandonne)
-    6 = Rejeté                   (NORMS ferme + close_reason: wont_fix|hors_perimetre)
-    7 = Pas un bug / Déjà existant (NORMS ferme + close_reason: invalide|doublon)
+   18 = Fermé                    (NORMS ferme, raison portée par CF Raison Fermé id=11)
+
+CF Raison Fermé (id=11, enumeration) valeurs :
+   10 = Résolu              (NORMS close_reason: resolu)
+   11 = Rejeté              (NORMS close_reason: wont_fix | hors_perimetre)
+   12 = Abandonné           (NORMS close_reason: abandonne)
+   13 = Déjà existant       (NORMS close_reason: doublon)
+   14 = Pas un bug          (NORMS close_reason: invalide)
 """
 
 import argparse
@@ -31,6 +35,9 @@ from pathlib import Path
 from urllib import error, request
 
 
+# Statuts Redmine (instance iprospective) après consolidation RM1742 :
+# un seul statut terminal `Fermé` (id=18), la raison est portée par le CF
+# 'Raison Fermé' (id=11, format enumeration).
 NORMS_TO_REDMINE_STATUS = {
     "a_etudier_chiffrer": 8,
     "etude_chiffrage_en_cours": 14,
@@ -38,13 +45,26 @@ NORMS_TO_REDMINE_STATUS = {
     "en_cours": 2,
     "a_tester_verifier": 9,
     "a_corriger": 11,
-    "ferme": 5,
-    "ferme:resolu": 5,
-    "ferme:abandonne": 10,
-    "ferme:wont_fix": 6,
-    "ferme:hors_perimetre": 6,
-    "ferme:invalide": 7,
-    "ferme:doublon": 7,
+    "ferme": 18,
+    "ferme:resolu": 18,
+    "ferme:abandonne": 18,
+    "ferme:wont_fix": 18,
+    "ferme:hors_perimetre": 18,
+    "ferme:invalide": 18,
+    "ferme:doublon": 18,
+}
+
+# Mapping NORMS close_reason → CF 'Raison Fermé' (id=11) value (enumeration id).
+# Asymétrie : wont_fix et hors_perimetre partagent la même valeur Rejeté
+# (pas de valeur dédiée 'Hors périmètre' côté CF).
+CF_RAISON_FERME_ID = 11
+NORMS_CLOSE_REASON_TO_CF = {
+    "resolu": "10",         # Résolu
+    "abandonne": "12",      # Abandonné
+    "wont_fix": "11",       # Rejeté
+    "hors_perimetre": "11", # Rejeté (pas de valeur dédiée)
+    "invalide": "14",       # Pas un bug / rien à faire
+    "doublon": "13",        # Déjà existant
 }
 
 
@@ -75,6 +95,7 @@ def main():
     ap.add_argument("--private", action="store_true", help="Note privée (non visible client)")
     args = ap.parse_args()
 
+    cf_raison_value = None
     if args.norms_status:
         sid = NORMS_TO_REDMINE_STATUS.get(args.norms_status)
         if sid is None:
@@ -85,10 +106,17 @@ def main():
         # au demandeur (auteur du ticket) si aucun --assign-to explicite n'a été donné.
         if args.norms_status == "a_tester_verifier" and not args.assign_to:
             args.assign_to = "author"
+        # ferme:<reason> → set aussi le CF 'Raison Fermé' (RM1742)
+        if args.norms_status.startswith("ferme:"):
+            reason = args.norms_status.split(":", 1)[1]
+            cf_raison_value = NORMS_CLOSE_REASON_TO_CF.get(reason)
+            if not cf_raison_value:
+                print(f"ERREUR : close_reason '{reason}' sans mapping CF Raison Fermé", file=sys.stderr)
+                sys.exit(1)
 
     load_env()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
         sys.exit(1)
@@ -104,6 +132,8 @@ def main():
         issue_payload["private_notes"] = True
     if args.status:
         issue_payload["status_id"] = args.status
+    if cf_raison_value:
+        issue_payload["custom_fields"] = [{"id": CF_RAISON_FERME_ID, "value": cf_raison_value}]
 
     # Uploads / pièces jointes
     if args.attach:

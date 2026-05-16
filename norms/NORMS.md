@@ -661,7 +661,9 @@ ia:
 V2 prévue : cascade par projet (`ia.managers:` par `paths.project`) et/ou
 champ `ia_manager:` dans le frontmatter de `project/overview.md`.
 
-**Mapping NORMS → Redmine (instance iprospective)** :
+**Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
+
+Statut Redmine (un seul terminal `Fermé`) :
 
 | NORMS | Redmine | id |
 |---|---|---|
@@ -671,10 +673,21 @@ champ `ia_manager:` dans le frontmatter de `project/overview.md`.
 | `en_cours` | En cours | 2 |
 | `a_tester_verifier` | A tester/vérifier | 9 |
 | `a_corriger` | A corriger | 11 |
-| `ferme` (`close_reason: resolu`) | Résolu/Fermé | 5 |
-| `ferme` (`close_reason: abandonne`) | Abandonné | 10 |
-| `ferme` (`close_reason: wont_fix` / `hors_perimetre`) | Rejeté | 6 |
-| `ferme` (`close_reason: invalide` / `doublon`) | Pas un bug / Déjà existant | 7 |
+| `ferme` (toutes raisons) | Fermé | **18** |
+
+Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs :
+
+| NORMS `close_reason` | CF Raison Fermé | value_id |
+|---|---|---|
+| `resolu` | Résolu | 10 |
+| `wont_fix` / `hors_perimetre` | Rejeté | 11 |
+| `abandonne` | Abandonné | 12 |
+| `doublon` | Déjà existant | 13 |
+| `invalide` | Pas un bug / rien à faire | 14 |
+
+Note : les anciens statuts terminaux `Résolu/Fermé` (5), `Rejeté` (6),
+`Pas un bug / Déjà existant` (7), `Abandonné` (10) sont **dépréciés** —
+à désactiver/supprimer en UI Redmine.
 
 ### Flux de création de tâches (v1.5.0)
 

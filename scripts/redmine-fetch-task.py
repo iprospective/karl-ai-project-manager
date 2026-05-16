@@ -25,6 +25,7 @@ from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from redmine_utils import issue_is_ia_tagged, get_ia_cf_id
 
 try:
     import yaml
@@ -216,11 +217,13 @@ def main():
     ap.add_argument("--overwrite", action="store_true", help="Écraser si fichier existe")
     ap.add_argument("--slug", help="Slug à utiliser pour le nom de fichier (sinon généré depuis le titre)")
     ap.add_argument("--dry-run", action="store_true", help="Afficher sans écrire")
+    ap.add_argument("--force", action="store_true",
+                    help="Bypasse le filtre tag IA (créer le MD même si le ticket n'est pas tagué)")
     args = ap.parse_args()
 
     cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
 
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
@@ -229,6 +232,7 @@ def main():
     try:
         # On inclut les journaux pour pouvoir initialiser redmine_last_journal_id
         # à la dernière entrée existante (évite de re-traiter le passé).
+        # custom_fields est inclus par défaut dans la réponse d'un issue.
         full = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}&include=description,journals"
         req = request.Request(full, headers={"Accept": "application/json"})
         with request.urlopen(req, timeout=10) as resp:
@@ -236,6 +240,13 @@ def main():
     except error.HTTPError as e:
         print(f"ERREUR Redmine : HTTP {e.code} {e.reason}", file=sys.stderr)
         sys.exit(1)
+
+    # Filtre IA : refuser les tickets non tagués (sauf --force ou si CF non configuré)
+    if not args.force and get_ia_cf_id() is not None and not issue_is_ia_tagged(issue):
+        print(f"ERREUR : ticket #{args.issue} non tagué 'IA' côté Redmine. ", file=sys.stderr)
+        print(f"        Utiliser scripts/redmine-tag-ia.py {args.issue} pour le tagger, ", file=sys.stderr)
+        print(f"        ou --force pour bypasser le filtre (déconseillé).", file=sys.stderr)
+        sys.exit(2)
 
     if args.client and args.project:
         entity_slug, project_slug = args.client, args.project

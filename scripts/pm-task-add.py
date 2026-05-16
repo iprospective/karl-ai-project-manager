@@ -30,6 +30,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from redmine_utils import get_ia_cf_id
 
 try:
     import yaml
@@ -132,6 +133,11 @@ def main():
         "subject": args.title,
         "description": args.description,
     }}
+    # Toujours setter le CF IA — les tickets créés depuis pm-task-add sont par
+    # définition IA-trackés (cf. NORMS « Filtrage IA »).
+    cf_ia_id = get_ia_cf_id()
+    if cf_ia_id is not None:
+        payload["issue"]["custom_fields"] = [{"id": cf_ia_id, "value": "IA"}]
     req = urllib.request.Request(
         f"{url}/issues.json",
         data=json.dumps(payload).encode("utf-8"),

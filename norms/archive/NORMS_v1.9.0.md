@@ -1,9 +1,9 @@
 ---
-schema_version: "1.10.0"
+schema_version: "1.9.0"
 updated: 2026-05-16
 ---
 
-# Normes de gestion des tâches — v1.10.0
+# Normes de gestion des tâches — v1.9.0
 
 ## Configuration globale
 
@@ -709,86 +709,6 @@ cible) et synchronisés avec les `relations` Redmine via le script
 **Sens des dépendances** : ne pas confondre. Si **A dépend de B**, alors
 `A.depends_on = [B]` ET `B.blocks = [A]`. Côté Redmine, c'est une seule
 relation `blocks` postée depuis B vers A.
-
-## Filtrage IA — quels tickets Redmine sont synchronisés en MD
-
-L'instance Redmine contient bien plus de tickets que ceux que PM doit
-tracker. Pour éviter d'engloutir des centaines de tickets historiques en
-MD (et leurs journaux) sans valeur ajoutée pour les agents, un **mutex
-explicite** discrimine :
-
-| Côté Redmine | Comportement PM |
-|---|---|
-| Ticket **sans** CF `IA` | Invisible pour PM. Aucun fetch, aucun MD, aucun sync. |
-| Ticket **avec** CF `IA = "IA"` | Tracké par PM. MD local créé, sync bidirectionnelle active. |
-
-**Mécanisme** : un custom field global de l'instance Redmine, type `List`,
-nom `IA`, une seule valeur possible (`IA`). Présent sur tous les trackers
-et tous les projets (`is_for_all: true`).
-
-### Configuration
-
-1. **Créer le CF** en UI Redmine (l'API REST ne supporte pas la création
-   de custom fields, retourne HTTP 403) :
-   - *Administration → Custom fields → Issues → New custom field*
-   - Format `List`, Name `IA`, Possible values `IA`, Used as filter ✓,
-     Searchable ✓, For all projects ✓, tous les trackers cochés
-2. **Récupérer l'id** retourné, le stocker dans `.env` :
-   ```
-   REDMINE_CF_IA_ID=<id>
-   ```
-3. Documenté dans `.env.example`.
-
-Si `REDMINE_CF_IA_ID` n'est pas défini, le filtre est **désactivé** (mode
-rétrocompat : tous les tickets sont considérés trackables). Recommandé
-uniquement pendant la phase de mise en place.
-
-### Effet sur les scripts
-
-| Script | Comportement quand le filtre est actif |
-|---|---|
-| `redmine-fetch-task.py` | Refuse de créer le MD si le ticket n'est pas tagué (sauf `--force`) |
-| `redmine-fetch-updates.py` | Skip la sync si le ticket n'est plus tagué (signale le drift) |
-| `pm-task-add.py` | Set automatiquement le CF `IA` au POST (les nouveaux tickets PM sont IA par construction) |
-| `redmine-tag-ia.py` | Helper d'opt-in/opt-out : tag/untag un ticket existant, déclenche le fetch si nouveau tag |
-
-### Opt-in d'un ticket existant
-
-Pour faire entrer un ticket Redmine historique sous gestion PM :
-
-```bash
-./scripts/redmine-tag-ia.py <RM-id>           # tag + fetch + crée le MD local
-./scripts/redmine-tag-ia.py <RM-id> --no-fetch # tag seulement, MD à créer plus tard
-```
-
-Pour le retirer :
-
-```bash
-./scripts/redmine-tag-ia.py <RM-id> --untag   # warning si MD local existe
-```
-
-### Règles d'intégrité
-
-- **Pas de MD sans CF IA** : si un MD existe pour un ticket qui n'est pas
-  tagué, c'est un drift à corriger (re-tag ou archive du MD).
-- **Pas de CF IA sans MD** : un ticket tagué mais sans MD est en attente
-  de fetch (`redmine-fetch-task.py --issue <id>` ou
-  `redmine-tag-ia.py <id>` qui le déclenche).
-- **Tag = consentement à la collecte** : les agents IA peuvent lire les
-  journaux du ticket et appender au `.log.md`. Ne pas tagger les tickets
-  contenant des données sensibles non destinées à un LLM tiers (Anthropic API).
-
-### Test d'un ticket vis-à-vis du filtre
-
-```bash
-# Côté Redmine
-curl -sS -H "X-Redmine-API-Key: $REDMINE_USER_MAIN_API_KEY" \
-  "$REDMINE_URL/issues/<id>.json" | python3 -c "
-import sys, json
-issue = json.load(sys.stdin)['issue']
-for cf in issue.get('custom_fields', []):
-    if cf['name'] == 'IA': print(f'IA = {cf.get(\"value\")!r}')"
-```
 
 ## Machine d'états
 

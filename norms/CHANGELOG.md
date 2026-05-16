@@ -5,6 +5,45 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.10.0] - 2026-05-16
+
+### Ajouté — Filtrage IA (RM1716)
+
+Mutex de synchronisation entre l'instance Redmine (~1700 tickets historiques)
+et le repo PM : seuls les tickets explicitement tagués `IA` sont fetchés en
+MD et synchronisés. Évite l'engloutissement du repo par des journaux Redmine
+non pertinents pour les agents IA.
+
+- **Custom field global Redmine** `IA` (format `List`, valeurs : `IA`,
+  `is_for_all: true`, tous trackers). À créer en UI Redmine (l'API REST
+  ne supporte pas la création de CFs → HTTP 403). Id stocké dans
+  `.env :: REDMINE_CF_IA_ID`.
+- **Nouvelle section NORMS « Filtrage IA »** : règles d'intégrité,
+  comportement des scripts, opt-in/opt-out, test d'un ticket.
+- **`scripts/redmine_utils.py`** : module partagé — résolution credentials,
+  `get_ia_cf_id()`, `issue_is_ia_tagged()`, `set_issue_ia_tag()`,
+  `fetch_issue()`, `http_json()`.
+- **`scripts/redmine-tag-ia.py`** : helper d'opt-in/opt-out (`tag` /
+  `--untag`), déclenche `redmine-fetch-task` si nouveau tag.
+- **`redmine-fetch-task.py`** : refuse de créer le MD si non tagué
+  (option `--force` pour bypass).
+- **`redmine-fetch-updates.py`** : skip la sync si non tagué, signale le
+  drift quand le MD existe encore (option `--force`).
+- **`pm-task-add.py`** : set automatiquement le CF `IA` au POST (les
+  tickets créés depuis PM sont IA par construction).
+- **`.env.example`** : ajout `REDMINE_CF_IA_ID=` documenté.
+- Snapshot : `archive/NORMS_v1.9.0.md`.
+
+### Notes de migration
+
+Si `REDMINE_CF_IA_ID` n'est pas défini, le filtre est désactivé (mode
+rétrocompat). Pour activer : créer le CF en UI Redmine, renseigner
+l'id dans `.env`, puis tagger les tickets pertinents un par un via
+`redmine-tag-ia.py`. **Ne pas** tagger en masse les 1700 tickets sans
+réflexion (cela rendrait le filtre inutile et noierait le repo).
+
+---
+
 ## [1.9.0] - 2026-05-16
 
 ### Ajouté — Champ `relates` et tooling `pm-task-link` (RM1709)

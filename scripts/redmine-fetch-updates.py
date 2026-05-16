@@ -23,6 +23,7 @@ from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from redmine_utils import issue_is_ia_tagged, get_ia_cf_id
 
 try:
     import yaml
@@ -118,11 +119,13 @@ def main():
     ap.add_argument("--since", type=int, help="ID journal de départ (sinon lu depuis le MD)")
     ap.add_argument("--all", action="store_true", help="Afficher tout l'historique (équivaut à --since 0)")
     ap.add_argument("--dry-run", action="store_true", help="Ne pas mettre à jour le MD")
+    ap.add_argument("--force", action="store_true",
+                    help="Bypasse le filtre tag IA (syncer même si non tagué)")
     args = ap.parse_args()
 
     cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
         sys.exit(1)
@@ -151,6 +154,14 @@ def main():
     except error.HTTPError as e:
         print(f"ERREUR Redmine : HTTP {e.code} {e.reason}", file=sys.stderr)
         sys.exit(1)
+
+    # Filtre IA : skip si le ticket n'est pas tagué (sauf --force / CF non configuré).
+    # Le MD existe localement mais le ticket Redmine a été dé-tagué entre temps : drift à signaler.
+    if not args.force and get_ia_cf_id() is not None and not issue_is_ia_tagged(issue):
+        print(f"⚠ Ticket #{args.issue} non tagué 'IA' côté Redmine — sync skip.", file=sys.stderr)
+        print(f"  MD local présent : {md_path.relative_to(cfg.projects_root)}", file=sys.stderr)
+        print(f"  Drift : re-tagger côté Redmine, ou utiliser --force, ou archiver le MD.", file=sys.stderr)
+        sys.exit(0)
 
     # En-tête : état courant côté Redmine
     print(f"Ticket #{args.issue} — {issue.get('subject')}")

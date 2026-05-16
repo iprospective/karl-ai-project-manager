@@ -40,6 +40,19 @@ except ImportError:
 
 TYPE_TO_TRACKER = {"bugfix": 1, "feature": 2, "assistance": 3, "infrastructure": 4, "maintenance": 4, "autre": 4}
 PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+KARL_USER_ID = 79
+
+
+def load_ia_manager_id():
+    """Lit pm.config.yml :: ia.default_manager.redmine_id. Defaut 5 (Mathieu)."""
+    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
+    if not cfg_path.is_file():
+        return 5
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return 5
+    return ((cfg.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
 
 
 def slugify(s: str, maxlen: int = 50) -> str:
@@ -92,6 +105,10 @@ def main():
     ap.add_argument("--tags", default="", help="Liste csv de tags")
     ap.add_argument("--target-env", default=None)
     ap.add_argument("--project", help="Override auto-detect (format: entity/project)")
+    ap.add_argument("--initiator-agent", action="store_true",
+                    help="Le créateur effectif est l'agent (karl, id 79) : "
+                         "cas audit autonome ou bootstrap. "
+                         "Sinon par défaut : Manager IA (pm.config.yml :: ia.default_manager)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -151,6 +168,22 @@ def main():
         sys.exit(f"ERREUR Redmine HTTP {e.code} : {e.read().decode(errors='replace')[:500]}")
 
     rm_id = d["issue"]["id"]
+
+    # Set author_id : par défaut Manager IA (Mathieu), karl si --initiator-agent.
+    # On fait un PUT immédiat car le POST a toujours author=key-owner (karl).
+    target_author = KARL_USER_ID if args.initiator_agent else load_ia_manager_id()
+    if target_author != KARL_USER_ID:
+        put_req = urllib.request.Request(
+            f"{url}/issues/{rm_id}.json",
+            data=json.dumps({"issue": {"author_id": target_author}}).encode("utf-8"),
+            headers={"Content-Type": "application/json", "X-Redmine-API-Key": key},
+            method="PUT",
+        )
+        try:
+            urllib.request.urlopen(put_req, timeout=10).read()
+            print(f"  · author_id → {target_author}")
+        except urllib.error.HTTPError as e:
+            print(f"⚠ PUT author_id échoué (HTTP {e.code}) — ticket reste author=karl", file=sys.stderr)
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]

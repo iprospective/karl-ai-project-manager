@@ -625,15 +625,23 @@ L'agent (ou l'orchestrateur) qui modifie le `status` MD doit :
 3. Poster une note Redmine + changer le `status_id` correspondant
    (typiquement via `scripts/redmine-post-note.py --norms-status <statut>`)
 
+**Demandeur effectif = `author_id` natif Redmine** (cf. RM1735) :
+
+Le ticket porte son demandeur via le champ standard `author_id`. À la création
+par `pm-task-add.py`, un PUT immédiat ajuste `author_id` :
+- **Par défaut** → Manager IA (`pm.config.yml :: ia.default_manager.redmine_id`)
+- **Avec `--initiator-agent`** → karl (id=79) : audits autonomes, bootstrap
+  automatique, tâches initiées par un agent
+
+Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1736 pour la suppression
+définitive sur l'instance). Plus aucun script ne le consulte.
+
 **Règle d'attribution Redmine** :
-- Passage en `a_tester_verifier` → ré-attribuer le ticket au **demandeur** pour
-  qu'il puisse tester. Le résolveur de cible (cf. ci-dessous) appliqué par
-  `pm-task-status-update.py` :
-  1. CF `Demandeur` (id=12) rempli ET ≠ karl → ce user
-  2. CF `Demandeur` = karl  → **Manager IA** (cf. `pm.config.yml :: ia.default_manager`)
-  3. Auteur du ticket = karl → **Manager IA**
-  4. Auteur ≠ karl → l'auteur (règle historique de `redmine-post-note --assign-to author`)
-  5. Inaccessible → Manager IA (fallback)
+- Passage en `a_tester_verifier` → ré-attribuer au **demandeur** (author).
+  Résolveur appliqué par `pm-task-status-update.py` :
+  1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
+  2. `author ≠ karl` avec email accessible → cet `author`
+  3. fallback (email inaccessible) → Manager IA
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
 - Passage en `ferme` → conserver l'attribution courante.

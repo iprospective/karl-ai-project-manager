@@ -107,41 +107,27 @@ def fetch_user_email(user_id):
 def resolve_notif_target(issue):
     """Détermine (to_email, redmine_user_id, reason) pour la notif/assignation.
 
+    Le `author` Redmine est la source de vérité du demandeur (modifié au POST
+    par `pm-task-add` via PUT author_id, cf. RM1735). Le CF 'Demandeur' n'est
+    plus consulté.
+
     Règles, par ordre de priorité :
-    1. CF 'Demandeur' (id=12) rempli ET ≠ karl → ce user
-    2. CF 'Demandeur' = karl  → Manager IA (config)
-    3. creator == karl        → Manager IA (config)
-    4. creator avec email accessible → ce creator
-    5. fallback : Manager IA (config)
+    1. author == karl (cas légitime --initiator-agent : audit, bootstrap, ...) → Manager IA
+    2. author ≠ karl avec email accessible → cet author
+    3. author ≠ karl, email inaccessible → Manager IA (fallback)
     """
     issue = issue or {}
     mgr_id = IA_MANAGER["redmine_id"]
     mgr_email = IA_MANAGER["email"]
-
-    # 1-2. CF Demandeur
-    for cf in issue.get("custom_fields") or []:
-        if cf.get("id") == CF_DEMANDEUR_ID and cf.get("value"):
-            try:
-                uid = int(cf["value"])
-            except (TypeError, ValueError):
-                continue
-            if uid == KARL_USER_ID:
-                return mgr_email, mgr_id, f"CF Demandeur=karl → Manager IA ({IA_MANAGER['name']})"
-            email = fetch_user_email(uid)
-            if email:
-                return email, uid, f"CF Demandeur → user_id={uid} <{email}>"
-            return mgr_email, mgr_id, f"CF Demandeur={uid} (email inaccessible) → Manager IA"
-
-    # 3-5. Creator
     author = issue.get("author") or {}
     author_id = author.get("id")
     author_name = author.get("name", "?")
     if author_id == KARL_USER_ID:
-        return mgr_email, mgr_id, f"creator=karl → Manager IA ({IA_MANAGER['name']})"
+        return mgr_email, mgr_id, f"author=karl → Manager IA ({IA_MANAGER['name']})"
     email = fetch_user_email(author_id) if author_id else None
     if email:
-        return email, author_id, f"creator={author_name} <{email}>"
-    return mgr_email, mgr_id, f"creator={author_name} (email inaccessible) → Manager IA"
+        return email, author_id, f"author={author_name} <{email}>"
+    return mgr_email, mgr_id, f"author={author_name} (email inaccessible) → Manager IA"
 
 
 def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, dry_run=False):

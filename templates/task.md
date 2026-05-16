@@ -1,5 +1,5 @@
 ---
-schema_version: "1.7.0"
+schema_version: "1.9.0"
 
 # Identification
 redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
@@ -51,11 +51,12 @@ bug:
     2.
   conditions: ""
 
-# Dépendances
-depends_on: []
-blocks: []
+# Liens entre tâches (cf. NORMS — section "Liens entre tâches")
+depends_on: []           # list[int] — RM-ids dont CETTE tâche dépend (B finit avant A)
+blocks: []               # list[int] — RM-ids que CETTE tâche bloque (A finit avant B)
+relates: []              # list[int] — RM-ids latéraux (même famille, non bloquant)
 
-# Références externes
+# Références externes (champ libre, pas de relation Redmine)
 refs: []
 # - type: redmine_partner | redmine | doc | url | gitlab | jira | autre
 #   url:

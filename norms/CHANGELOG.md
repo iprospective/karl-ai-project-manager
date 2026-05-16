@@ -5,6 +5,42 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.9.0] - 2026-05-16
+
+### Ajouté — Champ `relates` et tooling `pm-task-link` (RM1709)
+
+- **Schéma tâche** : nouveau champ `relates: list[int]` dans le frontmatter
+  pour exprimer un lien **latéral non-bloquant** entre tickets (même famille
+  de réflexion, sujet commun). Comble le gap entre `parent_task`/`sub_tasks`
+  (hiérarchie), `depends_on`/`blocks` (dépendance bloquante), et `refs`
+  (référence libre).
+- **Section NORMS « Liens entre tâches »** : tableau récapitulatif des 4
+  catégories de liens supportés (`parent`/`sub`, `depends_on`/`blocks`,
+  `relates`, `refs`), leur sémantique, leur miroir côté cible, et le mapping
+  vers les `relations` Redmine.
+- **Script `scripts/pm-task-link.py`** : sous-commandes
+  `add` / `list` / `rm` / `sync` qui maintiennent la cohérence Redmine ↔
+  frontmatter PM ↔ `.log.md` pour les types `relates`, `depends_on`, `blocks`.
+- **Skill `mmi-pm-task-link`** : wrapper langage naturel
+  (« lie RM1234 et RM5678 », « liste les relations de RM1234 »).
+
+### Modifié
+
+- `templates/task.md` : `schema_version` 1.7.0 → 1.9.0 ; ajout de
+  `relates: []` à la section Dépendances/Liens.
+- `scripts/pm-task-add.py` : `schema_version` 1.7.1 → 1.9.0 ; ajout de
+  `relates: []` dans le frontmatter généré.
+- Snapshot archive : `archive/NORMS_v1.8.0.md`.
+
+### Notes de migration
+
+Les tâches existantes (créées en ≤1.8.x sans champ `relates`) restent valides
+— l'absence du champ est interprétée comme `relates: []`. Le script
+`pm-task-link sync` (ou `add`) ajoute le champ à la volée quand un nouveau
+lien est créé.
+
+---
+
 ## [1.8.0] - 2026-05-15
 
 ### Ajouté — Configuration centralisée des chemins (`pm.config.yml`)

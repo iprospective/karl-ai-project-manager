@@ -1,9 +1,9 @@
 ---
-schema_version: "1.9.0"
-updated: 2026-05-16
+schema_version: "1.8.0"
+updated: 2026-05-15
 ---
 
-# Normes de gestion des tâches — v1.9.0
+# Normes de gestion des tâches — v1.8.0
 
 ## Configuration globale
 
@@ -681,34 +681,6 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 - `test_url` — si environnement de test disponible
 - `deploy_actions` — si déploiement nécessaire
 - `close_reason` — obligatoire quand `status: ferme`
-
-## Liens entre tâches
-
-Le frontmatter d'une tâche supporte plusieurs types de liens, chacun avec une
-sémantique propre. Ces champs sont **symétrisés** (RM-id miroir maintenu côté
-cible) et synchronisés avec les `relations` Redmine via le script
-`scripts/pm-task-link.py`.
-
-| Champ | Cardinalité | Sémantique | Miroir côté cible | Redmine `relation_type` |
-|---|---|---|---|---|
-| `parent_task` | `int \| null` | Hiérarchie : ce ticket a un parent | `sub_tasks` (attribut `parent_issue_id`) | — (attribut d'issue) |
-| `sub_tasks` | `list[int]` | Hiérarchie : enfants directs | `parent_task` (attribut `parent_issue_id`) | — (attribut d'issue) |
-| `depends_on` | `list[int]` | Bloquant : A doit attendre B (B finit avant A) | `blocks` côté B | POST sur B : `blocks` → A |
-| `blocks` | `list[int]` | Bloquant : A doit finir avant B (réciproque de `depends_on`) | `depends_on` côté B | POST sur A : `blocks` → B |
-| `relates` | `list[int]` | **Lien latéral non-bloquant** : sujet/famille commun | `relates` côté cible | POST `relates` |
-| `refs` | `list[obj]` | Référence externe libre (URL, commit, ticket partenaire) | — | — (champ libre, pas de relation Redmine) |
-
-**Règles d'intégrité :**
-- Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
-  Si l'un est présent sans l'autre, c'est un drift à corriger via
-  `pm-task-link sync <rm-id>`.
-- `parent_task` est unique (au plus un parent par tâche).
-- Un ticket ne peut pas se lier à lui-même.
-- `pm-task-link rm` supprime les deux côtés.
-
-**Sens des dépendances** : ne pas confondre. Si **A dépend de B**, alors
-`A.depends_on = [B]` ET `B.blocks = [A]`. Côté Redmine, c'est une seule
-relation `blocks` postée depuis B vers A.
 
 ## Machine d'états
 

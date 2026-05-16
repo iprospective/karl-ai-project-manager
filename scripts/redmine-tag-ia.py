@@ -28,11 +28,11 @@ def main():
                     help="Ne pas créer le MD local après tagging (par défaut: si tag → fetch)")
     args = ap.parse_args()
 
+    cfg = PMConfig.load()  # charge .env
+
     if get_ia_cf_id() is None:
         sys.exit("ERREUR : REDMINE_CF_IA_ID non configuré dans .env. "
                  "Créer le custom field 'IA' en UI Redmine puis renseigner l'id.")
-
-    cfg = PMConfig.load()
 
     # État courant
     issue = fetch_issue(args.rm_id)

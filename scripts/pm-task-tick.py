@@ -41,7 +41,10 @@ FM_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 LOG_THRESHOLD_TOKENS = 1000  # n'append au .log.md que si > seuil
 
 UNTRACKED_LOG = Path.home() / ".claude" / "logs" / "pm-task-tick-untracked.jsonl"
-CURRENT_TASK_GLOBAL = Path.home() / ".claude" / "current_task"
+# Note : pas de sentinel global ~/.claude/current_task — il pose un problème
+# de collision multi-sessions (plusieurs sessions Claude Code en parallèle
+# partagent le même fichier). On utilise uniquement des sentinels par-projet
+# (.mmi-pm/CURRENT_TASK) qui sont isolés par cwd. Cf. discussion RM1717.
 
 
 def load_pricing():
@@ -75,19 +78,16 @@ def compute_cost_usd(model, input_tk, output_tk, cache_read_tk, cache_creation_t
 # ── Identification du RM-id courant (cascade) ───────────────────────────────
 
 def resolve_current_rm_id(cwd):
-    """Retourne (rm_id, source_reason) ou (None, reason_skip)."""
-    # 1. Sentinel global ~/.claude/current_task
-    if CURRENT_TASK_GLOBAL.is_file():
-        try:
-            v = CURRENT_TASK_GLOBAL.read_text(encoding="utf-8").strip()
-            if v.isdigit():
-                return int(v), f"sentinel ~/.claude/current_task = {v}"
-        except OSError:
-            pass
+    """Retourne (rm_id, source_reason) ou (None, reason_skip).
 
+    Cascade isolée par-projet (pas de sentinel global pour éviter les
+    collisions multi-sessions) :
+      1. sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`
+      2. heuristique : seule tâche `en_cours` dans le projet
+    """
     cwd = Path(cwd).resolve() if cwd else Path.cwd()
 
-    # 2. Sentinel projet <workspace>/.mmi-pm/CURRENT_TASK
+    # 1. Sentinel projet <workspace>/.mmi-pm/CURRENT_TASK
     for d in [cwd] + list(cwd.parents):
         sentinel = d / ".mmi-pm" / "CURRENT_TASK"
         if sentinel.is_file():
@@ -100,7 +100,7 @@ def resolve_current_rm_id(cwd):
         if (d / ".mmi-pm").is_symlink() or (d / ".mmi-pm").is_dir():
             break  # on a trouvé un workspace PM, pas la peine de remonter
 
-    # 3. Une seule tâche en_cours dans le projet pointé par cwd
+    # 2. Une seule tâche en_cours dans le projet pointé par cwd
     try:
         cfg = PMConfig.load()
     except SystemExit:

@@ -775,10 +775,12 @@ Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
 réponse Claude. Il :
 
 1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant via 3 heuristiques en cascade :
-   - Fichier sentinel `~/.claude/current_task` (RM-id explicite)
+2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
+   sentinel global utilisateur — éviter les collisions multi-sessions) :
    - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
    - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
+   - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
+     qui parse les "RM1234" dans le prompt user)
 3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
 4. Sinon : lit le dernier message assistant du transcript, somme les tokens
    par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter

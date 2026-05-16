@@ -633,7 +633,7 @@ par `pm-task-add.py`, un PUT immédiat ajuste `author_id` :
 - **Avec `--initiator-agent`** → karl (id=79) : audits autonomes, bootstrap
   automatique, tâches initiées par un agent
 
-Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1736 pour la suppression
+Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1739 pour la suppression
 définitive sur l'instance). Plus aucun script ne le consulte.
 
 **Règle d'attribution Redmine** :

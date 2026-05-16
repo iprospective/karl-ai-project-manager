@@ -34,7 +34,6 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 KARL_USER_ID = 79
-CF_DEMANDEUR_ID = 12  # Custom field 'Demandeur' (type=user) côté Redmine iProspective
 
 
 def load_ia_manager():
@@ -237,9 +236,9 @@ def main():
     target = resolve_notif_target(issue) if issue else None
 
     # Override d'assignation Redmine pour a_tester_verifier : si le résolveur
-    # désigne un user différent du défaut "author" (cas creator=karl ou CF
-    # Demandeur=karl), on passe --assign-to <id> explicite à redmine-post-note
-    # pour court-circuiter sa règle interne (author par défaut).
+    # désigne un user différent de l'author (cas author=karl légitime → Manager
+    # IA), on passe --assign-to <id> explicite à redmine-post-note pour
+    # court-circuiter sa règle interne (author par défaut).
     assign_override_id = None
     if args.status == "a_tester_verifier" and target:
         _, target_uid, _ = target
@@ -280,7 +279,7 @@ def main():
     print(f"✓ Log appendé : {log_path.name}")
 
     # 5. Notif mail au demandeur (résolu via resolve_notif_target ; Manager IA
-    # par défaut si creator/Demandeur = karl ou inaccessible).
+    # par défaut si author=karl ou email inaccessible).
     if not args.no_mail:
         if issue is None:
             print("  ⚠ Impossible de fetcher le ticket Redmine pour la notif mail (skip)", file=sys.stderr)

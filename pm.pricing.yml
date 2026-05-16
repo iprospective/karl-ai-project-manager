@@ -1,0 +1,59 @@
+# pm.pricing.yml — Tarification des modèles Anthropic en USD par MTok
+#
+# Source : https://docs.claude.com/en/docs/about-claude/models (vérifier
+# régulièrement, les prix sont à maintenir manuellement).
+# Dernière mise à jour : 2026-05-17 (cf. RM1717).
+#
+# Unités : USD par 1 000 000 tokens (MTok), arrondies au cent près.
+# Cache read = ~10× moins cher que input (lookup en mémoire serveur).
+# Cache creation = ~25% plus cher que input (écriture initiale en cache).
+
+schema_version: "1"
+
+# ── Modèles Claude actuels (Claude 4.x) ───────────────────────────────────
+models:
+  # Opus 4.x — modèle haut de gamme (raisonnement long, code complexe)
+  claude-opus-4-7:
+    input_per_mtok_usd:           15.00
+    output_per_mtok_usd:           75.00
+    cache_read_per_mtok_usd:        1.50
+    cache_creation_per_mtok_usd:   18.75
+  claude-opus-4-6:
+    input_per_mtok_usd:           15.00
+    output_per_mtok_usd:           75.00
+    cache_read_per_mtok_usd:        1.50
+    cache_creation_per_mtok_usd:   18.75
+  claude-opus-4-5:
+    input_per_mtok_usd:           15.00
+    output_per_mtok_usd:           75.00
+    cache_read_per_mtok_usd:        1.50
+    cache_creation_per_mtok_usd:   18.75
+
+  # Sonnet 4.x — équilibre coût/performance (usage quotidien)
+  claude-sonnet-4-6:
+    input_per_mtok_usd:            3.00
+    output_per_mtok_usd:           15.00
+    cache_read_per_mtok_usd:        0.30
+    cache_creation_per_mtok_usd:    3.75
+  claude-sonnet-4-5:
+    input_per_mtok_usd:            3.00
+    output_per_mtok_usd:           15.00
+    cache_read_per_mtok_usd:        0.30
+    cache_creation_per_mtok_usd:    3.75
+
+  # Haiku 4.x — modèle rapide / low-cost (classification, routing)
+  claude-haiku-4-5:
+    input_per_mtok_usd:            1.00
+    output_per_mtok_usd:            5.00
+    cache_read_per_mtok_usd:        0.10
+    cache_creation_per_mtok_usd:    1.25
+  claude-haiku-4-5-20251001:
+    input_per_mtok_usd:            1.00
+    output_per_mtok_usd:            5.00
+    cache_read_per_mtok_usd:        0.10
+    cache_creation_per_mtok_usd:    1.25
+
+# ── Coût horaire humain (pour calcul ROI) ─────────────────────────────────
+# Stocké en EUR (gain et coût exprimés dans la même unité côté ROI).
+# Référence interne, non sensible.
+human_hourly_rate_eur: 80

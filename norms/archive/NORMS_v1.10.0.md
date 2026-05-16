@@ -1,9 +1,9 @@
 ---
-schema_version: "1.11.0"
-updated: 2026-05-17
+schema_version: "1.10.0"
+updated: 2026-05-16
 ---
 
-# Normes de gestion des tâches — v1.11.0
+# Normes de gestion des tâches — v1.10.0
 
 ## Configuration globale
 
@@ -722,100 +722,6 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 - `test_url` — si environnement de test disponible
 - `deploy_actions` — si déploiement nécessaire
 - `close_reason` — obligatoire quand `status: ferme`
-
-## ROI assisté par IA (RM1717)
-
-Chaque ticket porte un coût (tokens IA + temps humain) et un gain
-(immédiat + récurrent). Le ROI se calcule à partir de ces 4 dimensions.
-
-### Tarification
-
-Les prix par modèle sont dans `pm.pricing.yml` (commitable, à maintenir
-quand Anthropic ajuste). Unités : **USD/MTok** pour input/output/cache,
-**EUR/h** pour le coût humain.
-
-### Frontmatter étendu (v1.11.0)
-
-```yaml
-# Estimation prévisionnelle
-estimate:
-  difficulty: medium                  # inchangé
-  human_time_minutes: 30              # NEW — temps humain prévu (revue, décisions, tests)
-  ai_time_minutes: 15                 # NEW — temps wall-clock IA prévu
-  tokens: 50000                       # tokens prévus (total)
-  cost_usd: 0.75                      # NEW — coût USD prévu (estimé depuis tokens × prix)
-  estimated_model: claude-opus-4-7    # NEW — modèle prévu (pour calcul cost prévu)
-  confidence: 0.6
-  estimated_by: pm-task-add
-  estimated_at: 2026-05-17T14:30
-
-# ROI — les deux échelles coexistent
-roi:
-  immediate_benefit: 3                # 1-5 — rapide à estimer (qualitatif)
-  monthly_benefit: 3                  # 1-5 — récurrent qualitatif
-  immediate_gain_eur: null            # NEW — gain € immédiat (one-shot)
-  monthly_gain_eur: null              # NEW — gain € récurrent mensuel
-  # yearly_gain_eur dérivé = monthly_gain_eur × 12 (pas stocké)
-
-# Cumulés effectifs (auto-incrémentés par le hook pm-task-tick)
-tokens_total: 0                       # somme tous types
-tokens_breakdown:                     # NEW — détail par type
-  input: 0
-  output: 0
-  cache_read: 0
-  cache_creation: 0
-cost_total_usd: 0.0                   # NEW — cumulé recalculé à chaque tick
-human_time_total_minutes: 0           # NEW — temps humain effectif
-ai_time_total_minutes: 0              # NEW — temps wall-clock IA effectif
-```
-
-### Auto-incrémentation (hook Claude Code Stop)
-
-Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
-réponse Claude. Il :
-
-1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant via 3 heuristiques en cascade :
-   - Fichier sentinel `~/.claude/current_task` (RM-id explicite)
-   - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
-   - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
-3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
-4. Sinon : lit le dernier message assistant du transcript, somme les tokens
-   par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
-   du MD (atomique avec optimistic locking)
-5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
-   éviter le bruit, sinon silencieux)
-
-### Calcul du ROI
-
-```
-invest_eur = cost_total_usd × usd_to_eur + (human_time_total_minutes / 60) × human_hourly_rate_eur
-benefit_yearly_eur = (immediate_gain_eur ou immediate_benefit × 100)
-                   + (monthly_gain_eur ou monthly_benefit × 50) × 12
-roi_ratio = benefit_yearly_eur / max(invest_eur, 1)
-```
-
-Quand `*_gain_eur` est renseigné, il prime sur l'échelle 1-5. Si seul le
-1-5 est connu, un facteur conventionnel s'applique (100 €/point immédiat,
-50 €/point/mois récurrent — ajustable dans `pm.pricing.yml` plus tard).
-
-### Hook vs script manuel
-
-- **Hook automatique** : sessions Claude Code (~/.claude/settings.json),
-  attribution silencieuse en arrière-plan
-- **Script manuel** : `scripts/pm-task-tick.py --rm-id X --tokens-input N --tokens-output N --model M --human-minutes M`
-  pour les agents non-Claude-Code (n8n, scripts custom) ou ajout manuel de
-  temps humain post-hoc
-
-### Notes
-
-- **Race conditions multi-sessions** : 2 Claude bossant sur le même ticket
-  simultanément écrivent dans le même frontmatter — l'optimistic locking
-  (`updated`) doit faire son job. Vérifier en pratique.
-- **Cache reads** : ~10× moins chers que input pur — bien distinguer dans
-  le calcul (cf. tableau `pm.pricing.yml`).
-- **Précision** : la mesure ne prend en compte que les sessions Claude Code
-  hookées. Sessions oubliées (sans hook) ou autres agents (n8n) → invisibles.
 
 ## Liens entre tâches
 

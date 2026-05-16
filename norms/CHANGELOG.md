@@ -5,6 +5,66 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.11.0] - 2026-05-17
+
+### Ajouté — ROI assisté par IA (RM1717)
+
+Chaque ticket porte désormais un coût (tokens + temps humain) et un gain
+(immédiat + récurrent, € ou 1-5). Auto-incrémentation des tokens via hook
+Claude Code Stop.
+
+- **`pm.pricing.yml`** (nouveau) : tarification USD/MTok par modèle Claude
+  (Opus 4.x, Sonnet 4.x, Haiku 4.x) — input/output/cache_read/cache_creation.
+  Inclut aussi `human_hourly_rate_eur: 80` pour le ROI complet.
+- **NORMS section « ROI assisté par IA »** : nouveaux champs frontmatter,
+  cascade d'heuristiques pour identification du RM-id courant, formule de
+  calcul ROI.
+- **Frontmatter étendu** :
+  - `estimate.{human_time_minutes, ai_time_minutes, cost_usd, estimated_model}`
+  - `roi.{immediate_gain_eur, monthly_gain_eur}` (coexistent avec 1-5)
+  - `tokens_breakdown.{input, output, cache_read, cache_creation}`
+  - `cost_total_usd`, `human_time_total_minutes`, `ai_time_total_minutes`
+  - `time_total_minutes` conservé pour compat (= human + ai)
+- **`scripts/pm-task-tick.py`** (nouveau) : dual-mode
+  - **hook Stop** : lit JSON sur stdin, identifie RM-id (cascade : sentinel
+    global `~/.claude/current_task` → sentinel projet `.mmi-pm/CURRENT_TASK`
+    → seule tâche `en_cours` dans le projet pointé par cwd `.mmi-pm`),
+    extrait usage du dernier message assistant du transcript, calcule coût
+    USD, met à jour le frontmatter, append au .log.md si > seuil (1000 tokens).
+    Tickets non identifiés → log JSONL dans `~/.claude/logs/pm-task-tick-untracked.jsonl`.
+  - **CLI manuel** : `pm-task-tick.py --rm-id X --tokens-input N --model M --human-minutes M ...`
+    pour agents non-Claude-Code ou ajout post-hoc.
+- **`~/.claude/settings.json`** : hook Stop configuré pour invoquer
+  `pm-task-tick.py` à chaque réponse Claude (silencieux, jamais bloquant).
+- **`templates/task.md`** et **`pm-task-add.py`** : schema 1.11.0, init des
+  nouveaux champs à zéro/null.
+
+### Tests pilotes
+
+- CLI mode : `pm-task-tick --rm-id 1717 --tokens-input 5000 --tokens-output 2000
+  --cache-read 30000 --cache-creation 1000 --model claude-opus-4-7` → tokens_total
+  passe à 38000, cost_total_usd à $0.28875 (calcul exact vérifié contre la
+  grille de prix).
+- Hook mode : transcript factice avec 14800 tokens supplémentaires (1500/800/
+  12000/500) → cost_total_usd passe à $0.398625 (+$0.10988, calcul exact ✓).
+
+### Notes de migration
+
+- Les tâches existantes (≤ v1.10.x) n'ont pas les nouveaux champs ; le hook
+  les ajoute à la volée à la première écriture (`update_task_fm` lit le YAML
+  existant, complète, réécrit).
+- **Race conditions multi-Claude** : à valider en pratique. L'optimistic
+  locking (`updated`) doit faire son job ; sinon prévoir un lock fichier.
+
+### Hors scope (V2)
+
+- Adaptation de `priority.py` pour calcul ROI €
+- Dashboard `pm-roi.py` (drift prévu/effectif, cumulés)
+- Sentinel `CURRENT_TASK` automatique (hook UserPromptSubmit qui parse les
+  "RM1234" dans le prompt user pour set automatiquement)
+
+---
+
 ## [1.10.0] - 2026-05-16
 
 ### Ajouté — Filtrage IA (RM1716)

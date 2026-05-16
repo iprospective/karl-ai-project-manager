@@ -190,7 +190,7 @@ def main():
 
     # Build MD
     fm = {
-        "schema_version": "1.9.0",
+        "schema_version": "1.11.0",
         "redmine_id": rm_id,
         "redmine_last_journal_id": None,
         "redmine_last_checked_at": None,
@@ -205,15 +205,27 @@ def main():
         "close_reason": None,
         "completion_pct": 0,
         "priority": args.priority,
-        "roi": {"immediate_benefit": 3, "monthly_benefit": 3},
-        "estimate": {"difficulty": "medium", "time_minutes": 60, "tokens": None,
-                     "confidence": 0.5, "estimated_by": "pm-task-add", "estimated_at": now},
+        "roi": {
+            "immediate_benefit": 3, "monthly_benefit": 3,
+            "immediate_gain_eur": None, "monthly_gain_eur": None,
+        },
+        "estimate": {
+            "difficulty": "medium",
+            "human_time_minutes": 30, "ai_time_minutes": 30, "time_minutes": 60,
+            "tokens": None, "cost_usd": None, "estimated_model": None,
+            "confidence": 0.5, "estimated_by": "pm-task-add", "estimated_at": now,
+        },
         "depends_on": [], "blocks": [], "relates": [], "refs": [],
         "target_env": args.target_env,
         "test_url": None,
         "git": {"repo": None, "branch": None, "mr_url": None},
         "deploy_actions": [],
-        "tokens_total": 0, "time_total_minutes": 0,
+        "tokens_total": 0,
+        "tokens_breakdown": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
+        "cost_total_usd": 0.0,
+        "human_time_total_minutes": 0,
+        "ai_time_total_minutes": 0,
+        "time_total_minutes": 0,  # conservé pour compat (= human + ai cumul)
         "created": datetime.now().strftime("%Y-%m-%d"),
         "due": None, "updated": now,
         "status_history": [{"status": "a_faire", "at": now, "by": "iprospective",

@@ -1,5 +1,5 @@
 ---
-schema_version: "1.9.0"
+schema_version: "1.11.0"
 
 # Identification
 redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
@@ -27,19 +27,25 @@ close_reason: null
 # resolu | abandonne | doublon | wont_fix | invalide | hors_perimetre
 completion_pct: 0
 
-# Priorité & ROI
+# Priorité & ROI (cf. NORMS — section "ROI assisté par IA")
 priority: normal
 # low | normal | high | urgent
 roi:
-  immediate_benefit: 3    # /5 — valeur produite immédiatement
-  monthly_benefit: 2      # /5 — valeur récurrente mensuelle
+  immediate_benefit: 3      # /5 — qualitatif, valeur produite immédiatement
+  monthly_benefit: 2        # /5 — qualitatif, valeur récurrente mensuelle
+  immediate_gain_eur: null  # € — quantitatif (prime sur 1-5 si renseigné)
+  monthly_gain_eur: null    # €/mois — quantitatif récurrent
 
 # Estimation (calculée par IA lors du chiffrage)
 estimate:
-  difficulty: null        # low | medium | high | critical
-  time_minutes: null
-  tokens: null
-  confidence: null        # 0.0 → 1.0
+  difficulty: null            # low | medium | high | critical
+  human_time_minutes: null    # temps humain prévu (revue, décisions, tests)
+  ai_time_minutes: null       # temps wall-clock IA prévu
+  time_minutes: null          # legacy, conservé pour compat
+  tokens: null                # tokens prévus (total)
+  cost_usd: null              # coût USD prévu (= tokens × prix modèle)
+  estimated_model: null       # ex: claude-opus-4-7 (pour calcul cost prévu)
+  confidence: null            # 0.0 → 1.0
   estimated_by: null
   estimated_at: null
 
@@ -75,9 +81,17 @@ git:
 deploy_actions: []
 # - "Description de l'action à effectuer au déploiement"
 
-# Métriques cumulées (agrégées depuis status_history)
-tokens_total: 0
-time_total_minutes: 0
+# Métriques cumulées effectives (auto-incrémentées par le hook pm-task-tick)
+tokens_total: 0                # somme tous types
+tokens_breakdown:              # détail par type pour audit
+  input: 0
+  output: 0
+  cache_read: 0
+  cache_creation: 0
+cost_total_usd: 0.0            # cumulé USD (recalculé à chaque tick depuis pricing.yml)
+human_time_total_minutes: 0    # temps humain effectif
+ai_time_total_minutes: 0       # temps wall-clock IA effectif
+time_total_minutes: 0          # legacy = human + ai (compat ascendante)
 
 # Dates
 created: 2026-04-26

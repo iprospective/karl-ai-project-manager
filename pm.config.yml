@@ -59,3 +59,16 @@ paths:
   # reverse_link    : côté workspace de code, pointe vers le projet PM
   workspace_link:      "{project}/workspace"
   reverse_link:        "{workspace_dir}/.mmi-pm"
+
+# ── Manager IA — supervision des agents (cf. RM1734) ──────────────────────
+# L'humain qui supervise les agents IA : reçoit les notifs mail de livraison,
+# se voit assigner les tickets en `a_tester_verifier` quand l'auteur est karl.
+#
+# V1 : un seul manager global (Mathieu). V2 prévue : cascade par projet
+# (section `ia.managers:` par paths.project) puis champ `ia_manager:` dans
+# le frontmatter de project/overview.md.
+ia:
+  default_manager:
+    redmine_id: 5
+    email: mathieu@iprospective.fr
+    name: Mathieu Moulin

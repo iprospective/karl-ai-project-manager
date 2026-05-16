@@ -626,12 +626,32 @@ L'agent (ou l'orchestrateur) qui modifie le `status` MD doit :
    (typiquement via `scripts/redmine-post-note.py --norms-status <statut>`)
 
 **Règle d'attribution Redmine** :
-- Passage en `a_tester_verifier` → ré-attribuer le ticket au **demandeur** (auteur Redmine)
-  pour qu'il puisse tester. `redmine-post-note.py --norms-status a_tester_verifier` le fait
-  automatiquement (équivaut à `--assign-to author`).
+- Passage en `a_tester_verifier` → ré-attribuer le ticket au **demandeur** pour
+  qu'il puisse tester. Le résolveur de cible (cf. ci-dessous) appliqué par
+  `pm-task-status-update.py` :
+  1. CF `Demandeur` (id=12) rempli ET ≠ karl → ce user
+  2. CF `Demandeur` = karl  → **Manager IA** (cf. `pm.config.yml :: ia.default_manager`)
+  3. Auteur du ticket = karl → **Manager IA**
+  4. Auteur ≠ karl → l'auteur (règle historique de `redmine-post-note --assign-to author`)
+  5. Inaccessible → Manager IA (fallback)
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
 - Passage en `ferme` → conserver l'attribution courante.
+
+**Manager IA** (cf. RM1734) : humain qui supervise les agents (karl + futurs),
+reçoit la notif mail à chaque livraison, se voit assigner les tickets
+`a_tester_verifier` quand l'auteur est karl. Configuré dans `pm.config.yml` :
+
+```yaml
+ia:
+  default_manager:
+    redmine_id: 5
+    email: mathieu@iprospective.fr
+    name: Mathieu Moulin
+```
+
+V2 prévue : cascade par projet (`ia.managers:` par `paths.project`) et/ou
+champ `ia_manager:` dans le frontmatter de `project/overview.md`.
 
 **Mapping NORMS → Redmine (instance iprospective)** :
 

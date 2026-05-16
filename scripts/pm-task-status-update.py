@@ -28,14 +28,37 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 
-KARL_USER_ID = 79
-WEBMASTER_EMAIL = "webmaster@iprospective.fr"
-CF_DEMANDEUR_ID = 12  # Custom field 'Demandeur' (type=user) côté Redmine iProspective
-
 try:
     import yaml
 except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
+
+KARL_USER_ID = 79
+CF_DEMANDEUR_ID = 12  # Custom field 'Demandeur' (type=user) côté Redmine iProspective
+
+
+def load_ia_manager():
+    """Lit ia.default_manager de pm.config.yml (mémorisé par appel).
+
+    Retourne dict {redmine_id, email, name}. Defaults si manquant.
+    """
+    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
+    defaults = {"redmine_id": 5, "email": "mathieu@iprospective.fr", "name": "Mathieu Moulin"}
+    if not cfg_path.is_file():
+        return defaults
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError:
+        return defaults
+    mgr = (cfg.get("ia") or {}).get("default_manager") or {}
+    return {
+        "redmine_id": mgr.get("redmine_id", defaults["redmine_id"]),
+        "email": mgr.get("email", defaults["email"]),
+        "name": mgr.get("name", defaults["name"]),
+    }
+
+
+IA_MANAGER = load_ia_manager()
 
 
 VALID_STATUSES = {
@@ -82,40 +105,54 @@ def fetch_user_email(user_id):
 
 
 def resolve_notif_target(issue):
-    """Détermine (to, reason) pour la notif.
+    """Détermine (to_email, redmine_user_id, reason) pour la notif/assignation.
 
     Règles, par ordre de priorité :
-    1. CF 'Demandeur' (id=12) rempli → email de ce user
-    2. creator == karl (id=79) → webmaster (évite la self-notif)
-    3. email du creator via API
-    4. fallback : webmaster
+    1. CF 'Demandeur' (id=12) rempli ET ≠ karl → ce user
+    2. CF 'Demandeur' = karl  → Manager IA (config)
+    3. creator == karl        → Manager IA (config)
+    4. creator avec email accessible → ce creator
+    5. fallback : Manager IA (config)
     """
     issue = issue or {}
-    # 1. CF Demandeur
+    mgr_id = IA_MANAGER["redmine_id"]
+    mgr_email = IA_MANAGER["email"]
+
+    # 1-2. CF Demandeur
     for cf in issue.get("custom_fields") or []:
         if cf.get("id") == CF_DEMANDEUR_ID and cf.get("value"):
             try:
                 uid = int(cf["value"])
             except (TypeError, ValueError):
                 continue
+            if uid == KARL_USER_ID:
+                return mgr_email, mgr_id, f"CF Demandeur=karl → Manager IA ({IA_MANAGER['name']})"
             email = fetch_user_email(uid)
             if email:
-                return email, f"CF Demandeur → user_id={uid} <{email}>"
-    # 2-4. Creator
+                return email, uid, f"CF Demandeur → user_id={uid} <{email}>"
+            return mgr_email, mgr_id, f"CF Demandeur={uid} (email inaccessible) → Manager IA"
+
+    # 3-5. Creator
     author = issue.get("author") or {}
     author_id = author.get("id")
     author_name = author.get("name", "?")
     if author_id == KARL_USER_ID:
-        return WEBMASTER_EMAIL, "creator=karl → webmaster"
+        return mgr_email, mgr_id, f"creator=karl → Manager IA ({IA_MANAGER['name']})"
     email = fetch_user_email(author_id) if author_id else None
     if email:
-        return email, f"creator={author_name} <{email}>"
-    return WEBMASTER_EMAIL, f"creator={author_name} (email inaccessible) → webmaster"
+        return email, author_id, f"creator={author_name} <{email}>"
+    return mgr_email, mgr_id, f"creator={author_name} (email inaccessible) → Manager IA"
 
 
-def send_status_notif(rm_id, old_status, new_status, note, issue, dry_run=False):
-    """Envoie un mail via karl-mail-send.py. Échec non fatal."""
-    to_addr, reason = resolve_notif_target(issue)
+def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, dry_run=False):
+    """Envoie un mail via karl-mail-send.py. Échec non fatal.
+
+    `target` peut être pré-résolu (to_email, redmine_uid, reason) pour éviter
+    un double appel à resolve_notif_target ; sinon résolu ici.
+    """
+    if target is None:
+        target = resolve_notif_target(issue)
+    to_addr, _redmine_uid, reason = target
     title = (issue or {}).get("subject", "?")
     subject = f"[RM{rm_id}] {title} — {old_status} → {new_status}"
     redmine_url = os.environ.get("REDMINE_URL", "").rstrip("/")
@@ -208,19 +245,35 @@ def main():
         norms_status = f"ferme:{args.close_reason}"
     note = args.note or f"Statut → {args.status}" + (f" ({args.close_reason})" if args.close_reason else "")
 
+    # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
+    # notif mail — éviter deux appels API).
+    issue = fetch_issue_basic(args.rm_id)
+    target = resolve_notif_target(issue) if issue else None
+
+    # Override d'assignation Redmine pour a_tester_verifier : si le résolveur
+    # désigne un user différent du défaut "author" (cas creator=karl ou CF
+    # Demandeur=karl), on passe --assign-to <id> explicite à redmine-post-note
+    # pour court-circuiter sa règle interne (author par défaut).
+    assign_override_id = None
+    if args.status == "a_tester_verifier" and target:
+        _, target_uid, _ = target
+        author_id = (issue or {}).get("author", {}).get("id")
+        if target_uid and target_uid != author_id:
+            assign_override_id = target_uid
+
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")
         print(f"--dry-run : Redmine note = {note!r}, norms-status = {norms_status}")
-        if not args.no_mail:
-            issue = fetch_issue_basic(args.rm_id)
-            if issue:
-                send_status_notif(args.rm_id, old_status, args.status, note, issue, dry_run=True)
-            else:
-                print("--dry-run : impossible de fetcher l'issue pour la notif mail")
+        if assign_override_id:
+            print(f"--dry-run : assignation Redmine forcée → user_id={assign_override_id}")
+        if not args.no_mail and issue:
+            send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target, dry_run=True)
         return
 
     cmd = [sys.executable, str(Path(__file__).parent / "redmine-post-note.py"),
            "--issue", str(args.rm_id), "--note", note, "--norms-status", norms_status]
+    if assign_override_id:
+        cmd.extend(["--assign-to", str(assign_override_id)])
     env = os.environ.copy()
     main = env.get("REDMINE_USER_MAIN_API_KEY")
     if main:
@@ -240,13 +293,13 @@ def main():
         f.write(entry)
     print(f"✓ Log appendé : {log_path.name}")
 
-    # 5. Notif mail au demandeur (creator), ou webmaster si creator=karl
+    # 5. Notif mail au demandeur (résolu via resolve_notif_target ; Manager IA
+    # par défaut si creator/Demandeur = karl ou inaccessible).
     if not args.no_mail:
-        issue = fetch_issue_basic(args.rm_id)
         if issue is None:
             print("  ⚠ Impossible de fetcher le ticket Redmine pour la notif mail (skip)", file=sys.stderr)
         else:
-            send_status_notif(args.rm_id, old_status, args.status, note, issue, dry_run=args.dry_run)
+            send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target)
 
 
 if __name__ == "__main__":

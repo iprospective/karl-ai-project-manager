@@ -297,10 +297,15 @@ def main():
         print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
               "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
     elif args.status == "a_tester_verifier" and target:
+        # redmine-post-note assigne par défaut à l'author pour a_tester_verifier.
+        # On rend cette assignation explicite ici pour que MD frontmatter
+        # `assigned_to` reflète la réalité Redmine.
         _, target_uid, _ = target
         author_id = (issue or {}).get("author", {}).get("id")
         if target_uid and target_uid != author_id:
             assign_override_value = str(target_uid)
+        elif author_id:
+            assign_override_value = "author"
 
     assigned_to_id = resolve_assign_value(assign_override_value, issue)
     if assigned_to_id is not None:

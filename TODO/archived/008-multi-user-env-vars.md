@@ -7,7 +7,7 @@
 | **Tags** | `#user-request` `#redmine` `#agents` `#scripts` |
 | **Origine** | Demande user — 2026-05-15 (suite à la refonte multi-user de `.env`) |
 | **Créé** | 2026-05-15 |
-| **Ticket Redmine** | À créer dans le projet `ai-agents` quand cette TODO est attaquée |
+| **Ticket Redmine** | À créer dans le projet `pm-ai-agents` quand cette TODO est attaquée |
 
 ## Contexte
 

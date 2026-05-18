@@ -9,7 +9,7 @@
 #   puis copier les lignes ci-dessous (sans le shebang)
 
 PM_DIR=/zfs/workspaces/ai/project-management
-LOG_DIR=/var/log/ai-agents
+LOG_DIR=/var/log/pm-ai-agents
 
 # ── Orchestrateur ────────────────────────────────────────────────
 # Toutes les 15 minutes : scan des tâches a_faire, assignation aux workers

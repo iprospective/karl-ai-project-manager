@@ -5,6 +5,29 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.12.0] - 2026-05-18
+
+### Ajouté — Règle de prise en charge : `en_cours` ⇒ auto-assignation
+
+Quand un agent commence à travailler sur une tâche, il doit, dans le même
+mouvement, (1) passer le ticket en `en_cours` et (2) s'assigner le ticket
+Redmine. Une tâche `en_cours` sans `assigned_to` cohérent devient un état
+invalide.
+
+- **NORMS** : nouvelle sous-section « Prise en charge d'une tâche : `en_cours`
+  ⇒ auto-assignation (obligatoire) » sous « Synchronisation des statuts MD ↔
+  Redmine ». Couvre explicitement le mode interactif (hors orchestrateur).
+- **agents/worker-common.md** : la « Vérification initiale » distingue maintenant
+  mode orchestré (signaler + s'arrêter si non aligné) et mode interactif
+  (établir activement les deux conditions puis continuer).
+- **TODO scripts** : coupler status + assignation dans `pm-task-status-update.py`
+  (auto-assigner à l'agent courant quand cible = `en_cours`, user Redmine résolu
+  via `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79). En attendant,
+  l'agent enchaîne manuellement `pm-task-status-update.py` puis
+  `redmine-post-note.py --assign-to`.
+
+---
+
 ## [1.11.0] - 2026-05-17
 
 ### Ajouté — ROI assisté par IA (RM1717)

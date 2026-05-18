@@ -1,9 +1,9 @@
 ---
-schema_version: "1.11.0"
-updated: 2026-05-17
+schema_version: "1.12.0"
+updated: 2026-05-18
 ---
 
-# Normes de gestion des tâches — v1.11.0
+# Normes de gestion des tâches — v1.12.0
 
 ## Configuration globale
 
@@ -702,6 +702,41 @@ ia:
 
 V2 prévue : cascade par projet (`ia.managers:` par `paths.project`) et/ou
 champ `ia_manager:` dans le frontmatter de `project/overview.md`.
+
+### Prise en charge d'une tâche : `en_cours` ⇒ auto-assignation (obligatoire) — v1.12.0
+
+**Règle** : un agent qui commence à travailler sur une tâche doit, dans le **même
+mouvement** :
+
+1. Passer le `status` de la tâche à `en_cours` (côté Redmine + frontmatter MD + log)
+2. **S'assigner le ticket Redmine** (champ `assigned_to`) si ce n'est pas déjà le cas
+
+Les deux opérations sont **indissociables**. Une tâche `en_cours` sans
+`assigned_to` cohérent est un état invalide : `en_cours` signifie « un agent
+nommément identifié est en train de faire le travail maintenant ». Pas
+d'`en_cours` flottant.
+
+Cette règle vaut **même hors orchestrateur** (mode interactif Claude Code) : si
+un humain demande à l'agent de bosser sur RM1234 et que le ticket n'est ni à
+`en_cours` ni assigné à l'agent, l'agent fait lui-même les deux opérations avant
+de démarrer le travail effectif.
+
+**Symétrie avec la `Vérification initiale` de [worker-common.md](../agents/worker-common.md)** :
+ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
+en mode interactif l'établit activement au démarrage.
+
+**Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas
+encore status + assignation. En attendant un patch, l'agent enchaîne
+manuellement :
+
+```bash
+./pm-task-status-update.py <RM-id> en_cours --note "Prise en charge"
+./redmine-post-note.py --issue <RM-id> --note "Auto-assignation <agent>" --assign-to <user-id>
+```
+
+→ TODO scripts : `pm-task-status-update.py` doit, quand la cible est `en_cours`,
+auto-assigner au user Redmine de l'agent courant (résolu via
+`pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79).
 
 **Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
 

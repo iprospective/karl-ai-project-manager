@@ -48,7 +48,11 @@ Respecter le `context_budget` du frontmatter.
 
 ```
 - Vérifier que status = en_cours ET assigned_to = soi-même
-- Si non → ne pas travailler, signaler à l'orchestrateur et s'arrêter
+- Si non, deux cas :
+    - Mode orchestré (lancé par l'orchestrateur) → ne pas travailler, signaler et s'arrêter
+    - Mode interactif (lancé par un humain ou en auto) → appliquer activement les deux
+      opérations (cf. NORMS § « Prise en charge d'une tâche : en_cours ⇒ auto-assignation »),
+      puis continuer.
 - Si oui → appender dans .log.md : "Prise en charge — {résumé du plan de travail}"
 ```
 

@@ -63,7 +63,7 @@ def main():
     load_env()
 
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
 
     if not url:
         fail("$REDMINE_URL non défini (vérifier .env)")

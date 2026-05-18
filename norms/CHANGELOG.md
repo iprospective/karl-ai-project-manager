@@ -5,6 +5,36 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.13.0] - 2026-05-18
+
+### Ajouté — Règle de maintenance de la description du ticket Redmine
+
+La description d'un ticket Redmine (corps principal, distinct des notes) est
+un document **vivant** que l'agent doit maintenir à jour. Trois déclencheurs
+obligatoires :
+
+1. **Infos d'état dans la description** qui ont changé (statut en prose, URL
+   d'env de test, version cible, décision provisoire) → réécrire la
+   description, pas seulement contredire dans une note.
+2. **Checklists Markdown `- [ ]` / `- [x]`** ou listes de tâches/sous-objectifs
+   dont l'état évolue → cocher dans la description elle-même, pas uniquement
+   en note. La description sert de tableau de bord, les notes d'historique.
+3. **Demande explicite** du demandeur (« mets à jour la description avec X »,
+   reformulation de périmètre, etc.).
+
+Toute mise à jour de description doit être **accompagnée d'une note** résumant
+ce qui a changé et pourquoi (Redmine ne diff pas les descriptions dans l'UI).
+
+- **NORMS** : nouvelle sous-section « Mise à jour de la description du ticket
+  Redmine (obligatoire) » sous « Lien Redmine ↔ MD », entre la table de
+  mapping Redmine et « Flux de création de tâches ».
+- **TODO scripts** : `pm-task-description-update.py` (lit description courante,
+  ouvre `$EDITOR` ou applique un patch, PUT API + note auto + append `.log.md`).
+  En attendant, mise à jour via appel direct API Redmine (`PUT /issues/<id>.json`
+  avec champs `description` + `notes` dans le même appel).
+
+---
+
 ## [1.12.0] - 2026-05-18
 
 ### Ajouté — Règle de prise en charge : `en_cours` ⇒ auto-assignation

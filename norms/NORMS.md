@@ -1,9 +1,9 @@
 ---
-schema_version: "1.12.0"
+schema_version: "1.13.0"
 updated: 2026-05-18
 ---
 
-# Normes de gestion des tâches — v1.12.0
+# Normes de gestion des tâches — v1.13.0
 
 ## Configuration globale
 
@@ -765,6 +765,53 @@ Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs 
 Note : les anciens statuts terminaux `Résolu/Fermé` (5), `Rejeté` (6),
 `Pas un bug / Déjà existant` (7), `Abandonné` (10) sont **dépréciés** —
 à désactiver/supprimer en UI Redmine.
+
+### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
+
+La **description** d'un ticket Redmine (le corps principal, distinct des notes
+de journal) est un document **vivant** : ce n'est pas un message figé à la
+création, mais l'état courant de la demande. L'agent doit la maintenir à jour
+chaque fois que son contenu cesse de refléter la réalité.
+
+**Trois déclencheurs obligent à mettre à jour la description** :
+
+1. **La description contient des informations d'état qui ont changé** — par
+   exemple un statut interne décrit en prose (« En attente de validation
+   client », « bloqué par X »), une URL d'environnement de test, une version
+   cible, une décision provisoire. Si la description affirme quelque chose qui
+   n'est plus vrai, elle doit être réécrite, pas seulement contredite dans une
+   note.
+2. **La description contient une liste de tâches / une checklist** dont l'état
+   évolue (cases cochées Markdown `- [ ]` / `- [x]`, sous-objectifs, critères
+   d'acceptation, étapes restantes). À chaque progression, l'agent met à jour
+   les cases ou items concernés **dans la description elle-même**, pas
+   uniquement dans une note. La description sert de tableau de bord ; les notes
+   servent à l'historique.
+3. **Demande explicite** du demandeur ou d'un autre intervenant (« mets à jour
+   la description avec X », « ajoute Y dans la description », reformulation
+   demandée du périmètre, etc.).
+
+**Note de journal accompagnante** : toute mise à jour de description doit être
+accompagnée d'une note Redmine résumant **ce qui a changé** et **pourquoi**
+(« Description : coché items 3 et 4 de la checklist (livraison faite, doc à
+jour) »). Cela préserve la traçabilité — Redmine ne diff pas les descriptions
+dans l'UI standard.
+
+**Symétrie avec les notes** :
+- **Note** = événement daté, append-only, raconte le « quoi s'est passé ».
+- **Description** = état courant, mutable, raconte le « où on en est ».
+
+Une checklist cochée uniquement dans une note (et pas dans la description) est
+invisible dès qu'on scrolle ; une décision d'état figée dans la description
+initiale et contredite par 12 notes successives est illisible. Les deux médias
+sont complémentaires et **les deux doivent être tenus à jour**.
+
+**Implémentation** (état v1.13.0) : la mise à jour se fait via l'API Redmine
+`PUT /issues/<id>.json` avec champ `description` (et `notes` accompagnante dans
+le même appel). Pas de wrapper PM dédié pour l'instant — appel direct via
+`curl`/`requests` ou helper ad-hoc. TODO scripts : ajouter
+`pm-task-description-update.py` (lit description courante, ouvre `$EDITOR` ou
+applique un patch, PUT + note auto + append `.log.md`).
 
 ### Flux de création de tâches (v1.5.0)
 

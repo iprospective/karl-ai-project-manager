@@ -103,9 +103,9 @@ Fichiers concernés (à regrep le jour J) :
 
 - **Bloque** : aucune dépendance bloquante côté code (la lib `pm_paths` rend ça
   trivial).
-- **Bloqué par** : création du projet PM côté arbo (probablement
-  `clients/iprospective/projects/ai-agents/` pour aligner avec
-  `redmine.project_id: ai-agents`) — à bootstrapper avant d'attaquer l'étape B.
+- **Bloqué par** : création du projet PM côté arbo
+  (`clients/iprospective/projects/pm-ai-agents/` aligné avec
+  `redmine.project_id: pm-ai-agents`) — **fait le 2026-05-15** (cf. journal).
 - **Co-bénéfice** : un futur `pm sync-links` simplifierait l'étape 3 et
   pourrait être livré en même temps (cf. TODO/003).
 
@@ -118,3 +118,8 @@ Fichiers concernés (à regrep le jour J) :
   projet pour agents IA" (name uniquement — l'identifier `ai-agents` n'est
   pas modifiable via API). Ticket [#1668](https://tasks.iprospective.fr/issues/1668)
   créé pour cette tâche.
+- **2026-05-15 (suite)** : 2e renommage du projet id=66 → name "PM — Agents IA
+  & Outils PM", identifier `pm-ai-agents` (forcé en SQL direct via mmi, car
+  l'API Redmine refuse la modif d'identifier). Création du projet PM côté arbo
+  `clients/iprospective/projects/pm-ai-agents/` (workspace = le repo PM
+  lui-même, dogfooding). Memberships par défaut déjà présents.

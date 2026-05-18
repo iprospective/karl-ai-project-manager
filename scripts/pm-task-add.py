@@ -8,7 +8,7 @@ Usage :
 
 Détection projet :
   1. --project entity/project explicite
-  2. cwd via mmi-pm / .mmi-pm symlink (comme pm-task-list)
+  2. cwd via .mmi-pm symlink (comme pm-task-list)
   3. cwd dans projects_root/clients/<E>/projects/<P>/
 
 Mapping NORMS → Redmine tracker (par défaut) :
@@ -18,19 +18,15 @@ Mapping NORMS → Redmine tracker (par défaut) :
     autre        → 4 (Tâche)
 """
 import argparse
-import json
-import os
 import re
 import sys
 import unicodedata
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
-from redmine_utils import get_ia_cf_id
+from redmine_utils import create_redmine_issue
 
 try:
     import yaml
@@ -40,7 +36,6 @@ except ImportError:
 
 TYPE_TO_TRACKER = {"bugfix": 1, "feature": 2, "assistance": 3, "infrastructure": 4, "maintenance": 4, "autre": 4}
 PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
-KARL_USER_ID = 79
 
 
 def load_ia_manager_id():
@@ -65,16 +60,15 @@ def detect_project_from_cwd(cfg):
     """Réplique la détection de pm-task-list.py (simplifiée)."""
     cwd = Path.cwd().resolve()
     for d in [cwd] + list(cwd.parents):
-        for name in ("mmi-pm", ".mmi-pm"):
-            link = d / name
-            if link.is_symlink():
-                target = link.resolve()
-                try:
-                    parts = target.relative_to(cfg.projects_root).parts
-                    if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-                        return parts[1], parts[3]
-                except ValueError:
-                    pass
+        link = d / ".mmi-pm"
+        if link.is_symlink():
+            target = link.resolve()
+            try:
+                parts = target.relative_to(cfg.projects_root).parts
+                if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
+                    return parts[1], parts[3]
+            except ValueError:
+                pass
     try:
         parts = cwd.relative_to(cfg.projects_root).parts
         if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
@@ -137,53 +131,19 @@ def main():
         print(f"--dry-run : title={args.title!r}")
         return
 
-    # POST Redmine
-    url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
-    if not (url and key):
-        sys.exit("ERREUR : REDMINE_URL et REDMINE_USER_PJ1_API_KEY requis (.env)")
-
-    payload = {"issue": {
-        "project_id": rm_proj_id,
-        "tracker_id": tracker_id,
-        "priority_id": priority_id,
-        "subject": args.title,
-        "description": args.description,
-    }}
-    # Toujours setter le CF IA — les tickets créés depuis pm-task-add sont par
-    # définition IA-trackés (cf. NORMS « Filtrage IA »).
-    cf_ia_id = get_ia_cf_id()
-    if cf_ia_id is not None:
-        payload["issue"]["custom_fields"] = [{"id": cf_ia_id, "value": "IA"}]
-    req = urllib.request.Request(
-        f"{url}/issues.json",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json", "X-Redmine-API-Key": key},
-        method="POST",
+    # POST Redmine (via helper partagé — set CF IA + PUT author_id).
+    # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
+    target_author = None if args.initiator_agent else load_ia_manager_id()
+    rm_id = create_redmine_issue(
+        project_id=rm_proj_id,
+        tracker_id=tracker_id,
+        priority_id=priority_id,
+        subject=args.title,
+        description=args.description,
+        author_id=target_author,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=20) as r:
-            d = json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        sys.exit(f"ERREUR Redmine HTTP {e.code} : {e.read().decode(errors='replace')[:500]}")
-
-    rm_id = d["issue"]["id"]
-
-    # Set author_id : par défaut Manager IA (Mathieu), karl si --initiator-agent.
-    # On fait un PUT immédiat car le POST a toujours author=key-owner (karl).
-    target_author = KARL_USER_ID if args.initiator_agent else load_ia_manager_id()
-    if target_author != KARL_USER_ID:
-        put_req = urllib.request.Request(
-            f"{url}/issues/{rm_id}.json",
-            data=json.dumps({"issue": {"author_id": target_author}}).encode("utf-8"),
-            headers={"Content-Type": "application/json", "X-Redmine-API-Key": key},
-            method="PUT",
-        )
-        try:
-            urllib.request.urlopen(put_req, timeout=10).read()
-            print(f"  · author_id → {target_author}")
-        except urllib.error.HTTPError as e:
-            print(f"⚠ PUT author_id échoué (HTTP {e.code}) — ticket reste author=karl", file=sys.stderr)
+    if target_author is not None:
+        print(f"  · author_id → {target_author}")
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]

@@ -94,3 +94,67 @@ def set_issue_ia_tag(issue_id, value="IA"):
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} : {body.get('_error', '')}")
+
+
+def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
+                         description="", author_id=None, tag_ia=True,
+                         extra_custom_fields=None, timeout=20):
+    """Crée un ticket Redmine côté PM (POST + CF IA + PUT author optionnel).
+
+    Source unique de vérité pour la création de tickets depuis le système PM.
+    Le CF IA est setté par défaut — les tickets PM-créés sont IA-trackés par
+    construction (cf. NORMS « Filtrage IA »).
+
+    Args:
+        project_id: int (id) ou str (identifier) du projet Redmine.
+        tracker_id: int — tracker NORMS (cf. NORMS_TYPE_TO_TRACKER côté caller).
+        priority_id: int — priorité Redmine (1 low … 4 urgent).
+        subject: str — titre.
+        description: str — corps Redmine (markdown/textile selon instance).
+        author_id: int|None — si fourni, PUT après POST pour réécrire author.
+            POST set toujours author=owner-de-la-clé-API ; passer un id ici
+            n'a de sens que si différent de cet owner.
+        tag_ia: bool — set le CF IA='IA' au POST (défaut True).
+            Mettre False uniquement pour cas hors-PM (tickets externes,
+            tests, migration historique).
+        extra_custom_fields: list[{id, value}] — CFs additionnels (ex: target_env).
+
+    Returns:
+        int : rm_id du ticket créé.
+
+    Raises:
+        SystemExit : POST échoué (bloquant).
+            PUT author_id échouant n'est pas bloquant — warning stderr et
+            le ticket reste author=key-owner.
+    """
+    url, key = redmine_creds()
+    payload_issue = {
+        "project_id": project_id,
+        "tracker_id": tracker_id,
+        "priority_id": priority_id,
+        "subject": subject,
+        "description": description,
+    }
+    custom_fields = list(extra_custom_fields or [])
+    if tag_ia:
+        cf_ia_id = get_ia_cf_id()
+        if cf_ia_id is not None:
+            custom_fields.append({"id": cf_ia_id, "value": "IA"})
+    if custom_fields:
+        payload_issue["custom_fields"] = custom_fields
+
+    code, body = http_json("POST", f"{url}/issues.json", key,
+                           {"issue": payload_issue}, timeout=timeout)
+    if code not in (200, 201):
+        sys.exit(f"ERREUR Redmine HTTP {code} sur POST /issues : "
+                 f"{body.get('_error', '')[:500]}")
+    rm_id = body["issue"]["id"]
+
+    if author_id is not None:
+        code2, body2 = http_json("PUT", f"{url}/issues/{rm_id}.json", key,
+                                 {"issue": {"author_id": author_id}}, timeout=10)
+        if code2 not in (200, 204):
+            print(f"⚠ PUT author_id={author_id} échoué (HTTP {code2}) sur RM{rm_id} — "
+                  f"ticket reste author=key-owner", file=sys.stderr)
+
+    return rm_id

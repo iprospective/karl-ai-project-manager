@@ -17,18 +17,16 @@ Options :
     --exclude <id>              Force-exclude a template (can be repeated)
 """
 import argparse
-import json
 import mimetypes
-import os
 import re
 import sys
 import unicodedata
 from datetime import datetime
 from pathlib import Path
-from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from redmine_utils import create_redmine_issue
 
 try:
     import yaml
@@ -174,34 +172,23 @@ def interactive_picker(selectable):
     return retained
 
 
-def create_redmine_ticket(project_id, tpl, redmine_url, api_key):
+def create_redmine_ticket(project_id, tpl):
+    """Crée le ticket Redmine pour un template bootstrap.
+
+    Délègue à `redmine_utils.create_redmine_issue()` (source unique) qui
+    set automatiquement le CF IA (cf. NORMS « Filtrage IA »). Le bootstrap
+    est exécuté par karl (agent) → POST author=karl OK, pas de PUT
+    author_id nécessaire.
+    """
     tracker_id = NORMS_TYPE_TO_TRACKER.get(tpl["type"], 4)
     priority_id = NORMS_PRIORITY_TO_REDMINE.get(tpl["priority"], 2)
-    payload = {
-        "issue": {
-            "project_id": project_id,
-            "tracker_id": tracker_id,
-            "priority_id": priority_id,
-            "subject": tpl["title"],
-            "description": tpl["body"].strip(),
-        }
-    }
-    url = f"{redmine_url.rstrip('/')}/issues.json"
-    req = request.Request(
-        url, data=json.dumps(payload).encode(), method="POST",
-        headers={"Content-Type": "application/json", "X-Redmine-API-Key": api_key, "Accept": "application/json"},
+    return create_redmine_issue(
+        project_id=project_id,
+        tracker_id=tracker_id,
+        priority_id=priority_id,
+        subject=tpl["title"],
+        description=tpl["body"].strip(),
     )
-    try:
-        with request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read())
-            return data["issue"]["id"]
-    except error.HTTPError as e:
-        print(f"ERROR creating ticket for {tpl['id']}: HTTP {e.code} {e.reason}", file=sys.stderr)
-        try:
-            print(e.read().decode("utf-8", errors="replace"), file=sys.stderr)
-        except Exception:
-            pass
-        sys.exit(1)
 
 
 def now_iso():
@@ -296,11 +283,6 @@ def main():
     args = ap.parse_args()
 
     cfg = PMConfig.load()
-    redmine_url = os.environ.get("REDMINE_URL")
-    api_key = os.environ.get("REDMINE_API_KEY")
-    if not (redmine_url and api_key) and not args.dry_run:
-        sys.exit("REDMINE_URL et REDMINE_API_KEY requis (.env)")
-
     project_dir = Path(args.project_dir).resolve()
     overview_path = project_dir / "project" / "overview.md"
     if not overview_path.is_file():
@@ -345,7 +327,7 @@ def main():
     new_done = []
     for tpl in retained:
         print(f"\n[{tpl['id']}] création ticket Redmine …")
-        issue_id = create_redmine_ticket(redmine_project, tpl, redmine_url, api_key)
+        issue_id = create_redmine_ticket(redmine_project, tpl)
         print(f"  → ticket #{issue_id} créé")
         path = write_task(project_dir, tpl, issue_id, overview)
         try:

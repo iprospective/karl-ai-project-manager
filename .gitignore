@@ -33,3 +33,6 @@ pm.config.local.yml
 
 # Projets — repo git séparé, cloné dans ce dossier
 projects/
+
+# Auto-référence du PM (symlink racine pointant vers lui-même via pm-ai-agents)
+.mmi-pm

@@ -3,7 +3,9 @@
 
 Usage :
     pm-task-status-update.py <RM-id> <new-status>             # statut NORMS
-    pm-task-status-update.py 1670 en_cours
+    pm-task-status-update.py 1670 en_cours                    # auto-assign à karl (cf. NORMS § Prise en charge)
+    pm-task-status-update.py 1670 en_cours --no-assign        # désactive l'auto-assign
+    pm-task-status-update.py 1670 en_cours --assign-to 5      # assigne à user 5 explicitement
     pm-task-status-update.py 1670 a_tester_verifier
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
 
@@ -13,6 +15,11 @@ Statuts NORMS valides :
 
 close_reason (si --status ferme) :
     resolu | abandonne | wont_fix | hors_perimetre | invalide | doublon
+
+Assignation Redmine (NORMS v1.12.0 § « Prise en charge d'une tâche ») :
+    Le passage à `en_cours` auto-assigne l'agent courant (karl, owner API key)
+    sauf si --no-assign est passé. --assign-to <id|me|author> et --assign-to-me
+    permettent de forcer une assignation explicite à tout autre statut.
 """
 import argparse
 import json
@@ -173,6 +180,24 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
         print(f"  ✓ Notif mail envoyée à {to_addr}  {mid}")
 
 
+def resolve_assign_value(value, issue):
+    """Résout une valeur --assign-to (str) en redmine user_id (int).
+
+    Accepte : 'me' (owner API key = karl), 'author' (demandeur du ticket),
+    ou un id entier en str. Retourne None si non résolvable.
+    """
+    if value is None:
+        return None
+    if value == "me":
+        return KARL_USER_ID
+    if value == "author":
+        return (issue or {}).get("author", {}).get("id")
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("rm_id", type=int)
@@ -180,6 +205,15 @@ def main():
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
+    ap.add_argument("--assign-to",
+                    help="Assigner à un user Redmine : <id> | 'me' (owner API key = karl) | "
+                         "'author' (demandeur du ticket). Exclusif avec --assign-to-me.")
+    ap.add_argument("--assign-to-me", action="store_true",
+                    help="Raccourci pour --assign-to me. Implicite si status=en_cours et "
+                         "aucun --assign-to* explicite (NORMS v1.12.0 § « Prise en charge d'une tâche »).")
+    ap.add_argument("--no-assign", action="store_true",
+                    help="Désactive l'auto-assignation implicite sur en_cours. À utiliser uniquement "
+                         "pour cas particuliers (rebascule, replanif…) — viole la règle NORMS sinon.")
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
     ap.add_argument("--dry-run", action="store_true")
@@ -191,6 +225,16 @@ def main():
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
     if args.close_reason and args.close_reason not in VALID_CLOSE_REASONS:
         sys.exit(f"ERREUR : close_reason invalide. Valides : {sorted(VALID_CLOSE_REASONS)}")
+    if args.assign_to and args.assign_to_me:
+        sys.exit("ERREUR : --assign-to et --assign-to-me sont mutuellement exclusifs.")
+    if args.assign_to_me:
+        args.assign_to = "me"
+    if args.assign_to and args.assign_to not in ("me", "author"):
+        # Doit être un id entier
+        try:
+            int(args.assign_to)
+        except ValueError:
+            sys.exit(f"ERREUR : --assign-to attend un id entier, 'me' ou 'author' (reçu : {args.assign_to!r})")
 
     cfg = PMConfig.load()
     md_path = cfg.find_task(args.rm_id)
@@ -221,9 +265,6 @@ def main():
     })
     fm["status_history"] = hist
 
-    new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
-    new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
-
     # 2. Push update Redmine via redmine-post-note.py
     norms_status = args.status
     if args.status == "ferme" and args.close_reason:
@@ -235,30 +276,52 @@ def main():
     issue = fetch_issue_basic(args.rm_id)
     target = resolve_notif_target(issue) if issue else None
 
-    # Override d'assignation Redmine pour a_tester_verifier : si le résolveur
-    # désigne un user différent de l'author (cas author=karl légitime → Manager
-    # IA), on passe --assign-to <id> explicite à redmine-post-note pour
-    # court-circuiter sa règle interne (author par défaut).
-    assign_override_id = None
-    if args.status == "a_tester_verifier" and target:
+    # Résolution de l'assignation Redmine.
+    #
+    # Priorité (du plus explicite au plus implicite) :
+    #   1. --assign-to <value> (explicite, peut être 'me' / 'author' / id)
+    #   2. status=en_cours sans flag explicite → 'me' par défaut
+    #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
+    #      indissociable de en_cours). --no-assign pour outrepasser.
+    #   3. status=a_tester_verifier → override vers Manager IA si author=karl
+    #      (préserve la logique pré-existante, RM1734).
+    #
+    # `assign_override_value` est la valeur passée à redmine-post-note --assign-to
+    # (peut être 'me' / 'author' / '<id>'). `assigned_to_id` est l'int résolu
+    # pour la frontmatter MD.
+    assign_override_value = None
+    if args.assign_to:
+        assign_override_value = args.assign_to
+    elif args.status == "en_cours" and not args.no_assign:
+        assign_override_value = "me"
+        print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
+              "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
+    elif args.status == "a_tester_verifier" and target:
         _, target_uid, _ = target
         author_id = (issue or {}).get("author", {}).get("id")
         if target_uid and target_uid != author_id:
-            assign_override_id = target_uid
+            assign_override_value = str(target_uid)
+
+    assigned_to_id = resolve_assign_value(assign_override_value, issue)
+    if assigned_to_id is not None:
+        fm["assigned_to"] = assigned_to_id
+
+    new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
 
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")
         print(f"--dry-run : Redmine note = {note!r}, norms-status = {norms_status}")
-        if assign_override_id:
-            print(f"--dry-run : assignation Redmine forcée → user_id={assign_override_id}")
+        if assign_override_value:
+            print(f"--dry-run : assignation Redmine forcée → user_id={assign_override_value}")
         if not args.no_mail and issue:
             send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target, dry_run=True)
         return
 
     cmd = [sys.executable, str(Path(__file__).parent / "redmine-post-note.py"),
            "--issue", str(args.rm_id), "--note", note, "--norms-status", norms_status]
-    if assign_override_id:
-        cmd.extend(["--assign-to", str(assign_override_id)])
+    if assign_override_value:
+        cmd.extend(["--assign-to", str(assign_override_value)])
     env = os.environ.copy()
     main = env.get("REDMINE_USER_MAIN_API_KEY")
     if main:
@@ -273,9 +336,17 @@ def main():
 
     # 4. Append log
     log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
-    entry = f"\n## {now} — Statut : {old_status} → {args.status}\nTokens : 0 | Durée : 0 min\n\n{note}\n"
+    entry_lines = [
+        f"\n## {now} — Statut : {old_status} → {args.status}",
+        "Tokens : 0 | Durée : 0 min",
+        "",
+    ]
+    if assigned_to_id is not None:
+        entry_lines.append(f"Assigné à user_id={assigned_to_id} (via --assign-to "
+                           f"{assign_override_value!r}).")
+    entry_lines.extend(["", note, ""])
     with log_path.open("a", encoding="utf-8") as f:
-        f.write(entry)
+        f.write("\n".join(entry_lines))
     print(f"✓ Log appendé : {log_path.name}")
 
     # 5. Notif mail au demandeur (résolu via resolve_notif_target ; Manager IA

@@ -216,6 +216,48 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
+#### Commit + push systématique (obligatoire)
+
+Toute modification d'un fichier rattaché à un projet PM **doit être suivie
+d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
+git approprié. La règle s'applique à **deux périmètres** :
+
+1. **Dossier projet PM côté `{projects_root}` (= ai-projects)** : `overview.md`,
+   aspects, fichiers de tâche `RM*.md`/`.log.md`, ou structure d'entité
+   (`client/`, `memory/`). Repo cible :
+   `gitlab:iprospective/ai-artificial-intelligence/ai-projects.git`.
+
+2. **Workspace de code lié au projet** côté `/zfs/workspaces/<...>/` — identifié
+   par la **paire de symlinks** :
+   - côté PM : `{paths.workspace_link}` (typiquement `…/projects/<slug>/workspace`)
+     pointe vers le workspace
+   - côté workspace : `{paths.reverse_link}` (`.mmi-pm`) pointe vers le projet PM
+
+   Tout fichier modifié dans ce workspace (code, conf, docs internes) doit être
+   commit+push dans le repo applicatif du workspace lui-même (typiquement
+   `gitlab:iprospective/<...>` ou `gogs:<...>`, **pas** ai-projects).
+
+**Règles communes aux deux périmètres** :
+- Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
+  pour ne pas embarquer d'autres modifs en cours non liées qui ne sont pas
+  de ta responsabilité — chacun est responsable de ses propres modifs
+- Message de commit court, dans la langue du repo, précisant
+  l'entité/projet/tâche concerné
+- Push systématique : pas de "je commit, le user pushera" — le repo doit
+  refléter l'état canonique à tout moment, sinon les autres agents (ou toi
+  dans une session future) travaillent sur une vue divergente
+- Si le push échoue (conflit avec `origin/<branche>`), `git pull --rebase`
+  puis re-push ; en cas de conflit non trivial, escalader au demandeur
+- Ne **jamais** committer un dossier projet PM dans le repo
+  `project-management/` lui-même : `projects/` est gitignored par construction
+  (cf. section précédente)
+- Si le workspace de code n'est pas (encore) un repo git, c'est probablement
+  une lacune de bootstrap — ouvrir/relancer la tâche `002-git-repos` du
+  bootstrap plutôt que de "skipper" le commit
+
+Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
+agents pilotés interactivement par l'utilisateur via Claude Code).
+
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 
 Chaque projet a **deux emplacements** distincts mais liés :

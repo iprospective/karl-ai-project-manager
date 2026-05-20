@@ -5,6 +5,7 @@ Usage :
     pm-task-add.py --title "Setup CI GitLab" --type infrastructure --priority high
     pm-task-add.py --title "..." --description "Détails..." --tags "ci,gitlab"
     pm-task-add.py --project iprospective/pm-ai-agents --title "..." --type feature
+    pm-task-add.py --title "..." --retro              # ticket de suivi de travail déjà fait
 
 Détection projet :
   1. --project entity/project explicite
@@ -16,6 +17,14 @@ Mapping NORMS → Redmine tracker (par défaut) :
     feature      → 2 (Évolution)
     assistance   → 3 (Assistance)
     autre        → 4 (Tâche)
+
+--retro (ticket rétroactif) :
+    Crée le ticket PUIS le fait traverser le state machine NORMS
+    (a_faire → en_cours+self-assign → a_tester_verifier+Manager IA) en un seul
+    appel. À utiliser quand l'agent crée un ticket pour tracer un travail qu'il
+    vient de finir (« ticket de suivi »). Évite l'oubli récurrent des
+    transitions de statut documenté dans NORMS v1.12.0 § « Prise en charge
+    d'une tâche ».
 """
 import argparse
 import re
@@ -103,6 +112,12 @@ def main():
                     help="Le créateur effectif est l'agent (karl, id 79) : "
                          "cas audit autonome ou bootstrap. "
                          "Sinon par défaut : Manager IA (pm.config.yml :: ia.default_manager)")
+    ap.add_argument("--retro", action="store_true",
+                    help="Ticket rétroactif : après création, enchaîne automatiquement "
+                         "en_cours (auto-assign agent courant) puis a_tester_verifier "
+                         "(ré-assignation au Manager IA). À utiliser pour les tickets de "
+                         "suivi de travail déjà livré. Cf. NORMS v1.12.0 § « Prise en "
+                         "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -216,6 +231,27 @@ def main():
             print(f"⚠ validate-task.py warnings :\n{r.stdout}{r.stderr}", file=sys.stderr)
     except Exception as e:
         print(f"⚠ validate-task.py non exécuté : {e}", file=sys.stderr)
+
+    # --retro : enchaîne en_cours puis a_tester_verifier via pm-task-status-update.
+    # Le ticket Redmine doit déjà être indexable (POST ci-dessus a renvoyé rm_id),
+    # donc l'API peut être interrogée immédiatement.
+    if args.retro:
+        import subprocess
+        status_script = Path(__file__).parent / "pm-task-status-update.py"
+        for status, note in [
+            ("en_cours", "Prise en charge (ticket rétroactif, travail déjà livré)"),
+            ("a_tester_verifier", "Travail livré au moment de la création du ticket — prêt à vérifier"),
+        ]:
+            print(f"  → transition --retro : {status}")
+            r = subprocess.run(
+                [sys.executable, str(status_script), str(rm_id), status, "--note", note],
+                check=False,
+            )
+            if r.returncode != 0:
+                print(f"⚠ Transition --retro {status} a échoué (exit {r.returncode}). "
+                      f"Reprends manuellement : pm-task-status-update.py {rm_id} {status}",
+                      file=sys.stderr)
+                break
 
 
 if __name__ == "__main__":

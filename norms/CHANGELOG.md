@@ -5,6 +5,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.13.1] - 2026-05-20
+
+### Précisé — 4e déclencheur de mise à jour de la description
+
+Ajout d'un 4e cas obligeant à réécrire la description du ticket :
+**modification substantielle de la demande en cours de travail** (re-cadrage
+par le demandeur après rédaction initiale — rename de chemin, changement
+d'identifiant, ajout/retrait d'item de périmètre). Une simple note de fix
+n'est pas suffisante : la description doit refléter l'état final pour
+servir de référence à la vérification.
+
+Déclenché par RM1785 (restructuration matnat) où le demandeur a renommé
+`erp_old/old` → `erp_old/dev` après création du ticket, et le fix avait
+été tracé uniquement dans une note alors que la description listait encore
+l'ancien chemin.
+
+---
+
 ## [1.13.0] - 2026-05-18
 
 ### Ajouté — Règle de maintenance de la description du ticket Redmine

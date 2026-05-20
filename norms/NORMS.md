@@ -1,9 +1,9 @@
 ---
-schema_version: "1.13.0"
-updated: 2026-05-18
+schema_version: "1.13.1"
+updated: 2026-05-20
 ---
 
-# Normes de gestion des tâches — v1.13.0
+# Normes de gestion des tâches — v1.13.1
 
 ## Configuration globale
 
@@ -773,7 +773,7 @@ de journal) est un document **vivant** : ce n'est pas un message figé à la
 création, mais l'état courant de la demande. L'agent doit la maintenir à jour
 chaque fois que son contenu cesse de refléter la réalité.
 
-**Trois déclencheurs obligent à mettre à jour la description** :
+**Quatre déclencheurs obligent à mettre à jour la description** :
 
 1. **La description contient des informations d'état qui ont changé** — par
    exemple un statut interne décrit en prose (« En attente de validation
@@ -790,6 +790,18 @@ chaque fois que son contenu cesse de refléter la réalité.
 3. **Demande explicite** du demandeur ou d'un autre intervenant (« mets à jour
    la description avec X », « ajoute Y dans la description », reformulation
    demandée du périmètre, etc.).
+4. **Modification substantielle de la demande en cours de travail** — quand
+   le demandeur change un nom de chemin, un identifiant, une cible, ou
+   ajoute/retire un item du périmètre **après** que la description a été
+   rédigée. Le re-cadrage doit être répercuté dans la description (pas
+   seulement traité dans une note de journal), car la description sert de
+   référence pour la vérification finale. Ex : la description liste
+   `old/ → erp_old/old/` mais le demandeur demande ensuite `erp_old/dev/` —
+   réécrire la description avec `erp_old/dev/`, et accompagner d'une note
+   « Description mise à jour suite re-cadrage : `erp_old/old` → `erp_old/dev` ».
+   Ne **pas** se contenter d'une note « fix complémentaire » : si quelqu'un
+   relit la description plus tard, il doit y voir l'état final, pas
+   l'état initial.
 
 **Note de journal accompagnante** : toute mise à jour de description doit être
 accompagnée d'une note Redmine résumant **ce qui a changé** et **pourquoi**

@@ -1,9 +1,9 @@
 ---
-schema_version: "1.14.0"
-updated: 2026-05-26
+schema_version: "1.13.1"
+updated: 2026-05-20
 ---
 
-# Normes de gestion des tâches — v1.14.0
+# Normes de gestion des tâches — v1.13.1
 
 ## Configuration globale
 
@@ -1278,39 +1278,6 @@ Tokens : 3 200 | Durée : 15 min
 
 Résumé de ce qui a été fait, décisions prises, problèmes rencontrés.
 ```
-
-#### Journalisation des échanges avec l'humain (obligatoire, au fil de l'eau)
-
-Quand un échange utilisateur ↔ agent porte sur une tâche — arbitrage, décision,
-re-cadrage du besoin, retour de test, correction de cap — l'agent **résume** cet
-échange et l'appende au `.log.md` de la tâche **au fur et à mesure**, sans attendre
-la clôture. On journalise le *pourquoi* des décisions, pas seulement le code produit.
-
-- **Résumer, pas recopier** : une synthèse pertinente, pas le transcript verbatim.
-- **Au fil de l'eau** : une entrée par étape significative, datée. Objectif :
-  pouvoir reconstituer le fil de la tâche (et les raisons des choix) sans relire
-  la conversation d'origine.
-- N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
-  sa place dans le journal.
-
-#### Référencer un commit dans une entrée
-
-Toute entrée de journal qui **produit ou modifie du code** doit citer le(s)
-commit(s) correspondant(s), pour tracer précisément quelle livraison à quelle étape :
-
-```markdown
-Commit: <repo-alias>@<sha-court> — <message court>
-        https://gitlab.iprospective.fr/<ns>/<repo>/-/commit/<sha-complet>
-```
-
-- La forme **canonique de tracking** est le SHA (≥ 7 caractères) ou, mieux quand le
-  repo est sur GitLab, l'**URL de commit complète** (cliquable et résolvable).
-- Le frontmatter `git.branch` / `git.mr_url` reste le pointeur *courant* (branche de
-  travail, MR ouverte) ; le `.log.md` conserve l'*historique* des commits par étape.
-  Pour une référence ponctuelle hors workflow dev, utiliser `refs: [{type: commit, …}]`.
-- **Prérequis** : le workspace doit être un dépôt git. S'il ne l'est pas (ex. un
-  workspace infra non initialisé), il n'y a pas de commit à référencer — le signaler
-  explicitement dans l'entrée plutôt que de laisser un trou.
 
 ---
 

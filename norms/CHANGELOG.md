@@ -5,6 +5,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.14.0] - 2026-05-26
+
+### Ajouté — Journalisation des échanges humain↔agent + référencement de commit
+
+Deux règles ajoutées à la section « Règles du journal (.log.md) » :
+
+1. **Journalisation au fil de l'eau des échanges avec l'humain** : tout arbitrage,
+   décision, re-cadrage du besoin ou retour de test concernant une tâche doit être
+   résumé et appendé au `.log.md` au fur et à mesure (le *pourquoi* des décisions,
+   pas seulement le code). Résumer, pas recopier verbatim.
+
+2. **Référencement de commit** : toute entrée de journal qui produit/modifie du code
+   doit citer le(s) commit(s) — forme canonique = SHA court ou URL de commit GitLab
+   complète (cliquable). `git.branch`/`git.mr_url` = pointeur courant ; le `.log.md`
+   garde l'historique par étape. Prérequis : workspace sous git (sinon le signaler).
+
+Déclenché par RM1793 (outil de supervision LXC) : échanges itératifs de cadrage
+(métrique RAM, dédoublonnage, vue ARC par hyperviseur) non tracés, et workspace
+infra non initialisé en git → impossible de référencer la livraison par commit.
+
+---
+
 ## [1.13.1] - 2026-05-20
 
 ### Précisé — 4e déclencheur de mise à jour de la description

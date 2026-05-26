@@ -73,6 +73,15 @@ VALID_STATUSES = {
 }
 VALID_CLOSE_REASONS = {"resolu", "abandonne", "wont_fix", "hors_perimetre", "invalide", "doublon"}
 
+# Ligne de checklist Markdown non cochée dans la description.
+UNCHECKED_RE = re.compile(r"^\s*[-*]\s*\[ \]\s", re.MULTILINE)
+
+
+def count_unchecked(description):
+    """Nombre d'items de checklist non cochés dans la description Redmine."""
+    return len(UNCHECKED_RE.findall(description or ""))
+
+
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
@@ -216,6 +225,10 @@ def main():
                          "pour cas particuliers (rebascule, replanif…) — viole la règle NORMS sinon.")
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
+    ap.add_argument("--allow-unchecked", action="store_true",
+                    help="Autorise le passage en a_tester_verifier / ferme:resolu même si la "
+                         "description contient des items de checklist non cochés (sinon bloqué — "
+                         "NORMS § màj description : cocher au fil de l'eau).")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -275,6 +288,20 @@ def main():
     # notif mail — éviter deux appels API).
     issue = fetch_issue_basic(args.rm_id)
     target = resolve_notif_target(issue) if issue else None
+
+    # Garde-fou checklist (NORMS § màj description) : on ne passe pas une tâche en
+    # vérification / clôture-résolue avec des items de checklist non cochés dans la
+    # description. La checklist doit être tenue à jour au fil de l'eau.
+    gate_status = args.status == "a_tester_verifier" or (args.status == "ferme" and args.close_reason == "resolu")
+    if gate_status and issue and not args.allow_unchecked:
+        n_unchecked = count_unchecked(issue.get("description"))
+        if n_unchecked:
+            sys.exit(
+                f"ERREUR : {n_unchecked} item(s) de checklist non coché(s) dans la description de "
+                f"RM{args.rm_id}, refus de passer en '{args.status}'.\n"
+                f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
+                f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
+            )
 
     # Résolution de l'assignation Redmine.
     #

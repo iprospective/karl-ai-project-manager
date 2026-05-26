@@ -5,6 +5,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.15.0] - 2026-05-26
+
+### Ajouté — Double traçabilité : note Redmine de synthèse pour l'humain
+
+Complète la règle de journalisation de v1.14.0. Le `.log.md` est le journal de
+travail de l'agent ; les **humains suivent les tickets dans Redmine** et ne lisent
+pas les `.log.md`. Donc tout **échange consistant** (décision, arbitrage, jalon,
+livraison) doit AUSSI être résumé dans une **note Redmine** lisible par un humain.
+
+- **Discernement** explicitement requis : noter ce qui a une portée, pas chaque
+  micro-aller-retour ; une session courte peut ne justifier qu'une seule note (voire
+  aucune). Ne pas noyer le ticket sous le bruit.
+- Réaffirme : **pas de note pour un simple changement de statut** (Redmine le
+  journalise nativement) — une note ne se justifie que s'il y a qqch à dire en plus.
+- Répartition : `.log.md` = détail technique au fil de l'eau ; note Redmine =
+  synthèse à hauteur d'humain.
+
+Déclenché par RM1793 : les échanges avaient été journalisés en `.log.md` mais rien
+n'avait été poussé dans Redmine (invisible pour un humain consultant le ticket).
+
+---
+
 ## [1.14.0] - 2026-05-26
 
 ### Ajouté — Journalisation des échanges humain↔agent + référencement de commit

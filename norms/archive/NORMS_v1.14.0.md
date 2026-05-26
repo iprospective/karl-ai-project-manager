@@ -1,9 +1,9 @@
 ---
-schema_version: "1.15.0"
+schema_version: "1.14.0"
 updated: 2026-05-26
 ---
 
-# Normes de gestion des tâches — v1.15.0
+# Normes de gestion des tâches — v1.14.0
 
 ## Configuration globale
 
@@ -1292,26 +1292,6 @@ la clôture. On journalise le *pourquoi* des décisions, pas seulement le code p
   la conversation d'origine.
 - N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
   sa place dans le journal.
-
-#### Double traçabilité : `.log.md` (agent) ET note Redmine (humain)
-
-Le `.log.md` est le journal **de travail de l'agent** ; les humains, eux, suivent
-les tickets **dans Redmine** — ils ne lisent pas les `.log.md`. Donc tout **échange
-consistant** doit AUSSI être résumé dans une **note Redmine**, pour la traçabilité
-humaine.
-
-- **Quoi** : une note Redmine de synthèse (lisible par un humain, sans jargon
-  interne) à chaque échange consistant — décision, arbitrage, re-cadrage, jalon,
-  **livraison**. Pas une copie du `.log.md` (qui reste plus détaillé/technique).
-- **Discernement (important)** : noter les échanges *qui ont une portée*, pas chaque
-  micro-aller-retour. Une session courte et très interactive peut ne justifier
-  **qu'une seule** note de synthèse (voire aucune si rien de structurant). Ne pas
-  noyer le ticket sous le bruit.
-- **Pas de note pour un simple changement de statut** : Redmine journalise nativement
-  les transitions (détail old→new). Une note ne se justifie que s'il y a quelque
-  chose à *dire* en plus.
-- Répartition : `.log.md` = détail + *pourquoi* technique (au fil de l'eau) ;
-  note Redmine = synthèse à hauteur d'humain (jalons consistants).
 
 #### Référencer un commit dans une entrée
 

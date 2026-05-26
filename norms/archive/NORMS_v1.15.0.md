@@ -1,9 +1,9 @@
 ---
-schema_version: "1.16.0"
+schema_version: "1.15.0"
 updated: 2026-05-26
 ---
 
-# Normes de gestion des tâches — v1.16.0
+# Normes de gestion des tâches — v1.15.0
 
 ## Configuration globale
 
@@ -818,30 +818,12 @@ invisible dès qu'on scrolle ; une décision d'état figée dans la description
 initiale et contredite par 12 notes successives est illisible. Les deux médias
 sont complémentaires et **les deux doivent être tenus à jour**.
 
-**% réalisé (`done_ratio`) au fil de l'eau** — v1.16.0 : l'agent maintient le
-pourcentage de réalisation du ticket (`done_ratio` Redmine ↔ `completion_pct` MD)
-**au fur et à mesure**, pas seulement à la clôture. La valeur se dérive :
-- du **ratio de cases cochées** de la checklist quand il y en a une
-  (`cochées / total`, arrondi) — c'est la règle par défaut ;
-- sinon de l'**évaluation de l'agent** (avancement estimé du travail).
-
-Le changement de `done_ratio` étant **journalisé nativement** par Redmine (comme
-le statut, cf. v1.15.0), il ne donne **pas** lieu à une note dédiée. Une note
-n'accompagne que les changements de **description** (texte/checklist), que Redmine
-ne diff pas. Cocher un item de checklist EST une modification de description → note ;
-faire passer le `done_ratio` de 50 à 75 → pas de note.
-
-**Implémentation** (état v1.16.0) :
-- **`pm-task-description-update.py <rm-id>`** : coche/décoche la checklist
-  (`--check 1,2`, `--uncheck 3`, `--check-all`), met à jour `done_ratio`
-  (`--done-ratio auto` depuis la checklist, ou un entier), ou remplace toute la
-  description (`--set-from-file`). PUT Redmine (`description` + `done_ratio` +
-  `notes` si la description a changé) + sync MD (`completion_pct` + checklist du
-  corps) + append `.log.md`. C'est le wrapper de référence.
-- **`pm-task-status-update.py`** refuse de passer une tâche en `a_tester_verifier`
-  ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
-  description (`--allow-unchecked` pour outrepasser si c'est volontaire). Garde-fou
-  pour ne pas livrer/clore avec une checklist non tenue à jour.
+**Implémentation** (état v1.13.0) : la mise à jour se fait via l'API Redmine
+`PUT /issues/<id>.json` avec champ `description` (et `notes` accompagnante dans
+le même appel). Pas de wrapper PM dédié pour l'instant — appel direct via
+`curl`/`requests` ou helper ad-hoc. TODO scripts : ajouter
+`pm-task-description-update.py` (lit description courante, ouvre `$EDITOR` ou
+applique un patch, PUT + note auto + append `.log.md`).
 
 ### Flux de création de tâches (v1.5.0)
 

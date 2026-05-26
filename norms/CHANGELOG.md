@@ -5,6 +5,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.16.0] - 2026-05-26
+
+### Ajouté — `% réalisé` (done_ratio) maintenu au fil de l'eau + outillage description
+
+Étend la règle de mise à jour de la description (§ « Mise à jour de la description
+du ticket Redmine »).
+
+- L'agent maintient le **pourcentage de réalisation** (`done_ratio` Redmine ↔
+  `completion_pct` MD) **au fur et à mesure**, dérivé du ratio de cases cochées de
+  la checklist (par défaut) ou de son évaluation à défaut de checklist — pas
+  seulement à la clôture.
+- Le changement de `done_ratio` étant **journalisé nativement** par Redmine (comme
+  le statut, cf. v1.15.0), il ne donne **pas** lieu à une note dédiée ; seules les
+  modifications de **description** (texte/checklist) en justifient une.
+- **Outillage** : `pm-task-description-update.py` (coche/décoche checklist,
+  `--done-ratio auto`, `--set-from-file`, PUT + sync MD + log) ; garde-fou dans
+  `pm-task-status-update.py` refusant `a_tester_verifier`/`ferme:resolu` avec des
+  items de checklist non cochés (`--allow-unchecked` pour outrepasser).
+
+Déclenché par RM1796 : checklist de la description cochée seulement à la fin (au
+lieu du fil de l'eau), et besoin de suivre le % d'avancement.
+
+---
+
 ## [1.15.0] - 2026-05-26
 
 ### Ajouté — Double traçabilité : note Redmine de synthèse pour l'humain

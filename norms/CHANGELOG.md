@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.18.0] - 2026-06-01
+
+### Ajouté — Branche de travail renseignée dans le CF Redmine « GIT Branche »
+
+Complète la section § « Branche de travail par ticket » (v1.17.0).
+
+- Dès la **création** d'une branche dédiée à un ticket, l'agent renseigne le
+  **custom field Redmine `GIT Branche`** (id 3, string) avec le nom de la branche
+  (et `GIT PR`, id 4, avec l'URL de la MR/PR une fois ouverte).
+- C'est le CF dédié, **pas une note** : info visible et filtrable côté Redmine.
+  Le frontmatter MD `git.branch` / `git.mr_url` reste le miroir local.
+
+---
+
 ## [1.16.0] - 2026-05-26
 
 ### Ajouté — `% réalisé` (done_ratio) maintenu au fil de l'eau + outillage description

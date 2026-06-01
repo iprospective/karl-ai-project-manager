@@ -1,9 +1,9 @@
 ---
-schema_version: "1.17.0"
+schema_version: "1.18.0"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.17.0
+# Normes de gestion des tâches — v1.18.0
 
 ## Configuration globale
 
@@ -273,6 +273,12 @@ tâche). Exemple : `1762-etransactions-historique`.
 - La branche est créée depuis la branche d'intégration courante du repo de code.
 - Le frontmatter `git.branch` de la tâche pointe vers cette branche (cf. section
   « Lien Redmine ↔ MD ») ; `git.mr_url` vers la MR/PR une fois ouverte.
+- **Renseigner le custom field Redmine « GIT Branche » dès la création de la
+  branche** (v1.18.0) : le CF Redmine `GIT Branche` (id 3, format string) reçoit
+  le **nom de la branche** ; le CF `GIT PR` (id 4) reçoit l'URL de la MR/PR une
+  fois ouverte. C'est le CF dédié, **pas une note** : il rend l'info visible et
+  filtrable côté Redmine. Le frontmatter MD `git.branch` / `git.mr_url` reste le
+  miroir local.
 - À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
 - (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme

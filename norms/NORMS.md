@@ -1,9 +1,9 @@
 ---
-schema_version: "1.19.1"
+schema_version: "1.20.0"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.19.1
+# Normes de gestion des tâches — v1.20.0
 
 ## Configuration globale
 
@@ -283,6 +283,28 @@ tâche). Exemple : `1762-etransactions-historique`.
 - (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.
+
+#### Projets versionnés : branche de version active (base de branchement) — v1.20.0
+
+Certains projets ne suivent pas un simple modèle `prod`/`dev` mais une **famille
+de versions**, chacune avec sa propre branche d'intégration. C'est typiquement le
+cas des projets et **modules Dolibarr** : en plus de `dev` (= prochaine version)
+et `master`, il existe une **branche par version** (`14.0`, `15.0-mmi`,
+`16.0-mmi`, `19.0-mmi`…), et l'une d'elles est la **version active** = celle
+déployée en production.
+
+- La **version active** est **déclarée dans l'`overview.md` du projet** (champ
+  explicite, ex. « Version active : 19.0 »). Pour un module appartenant à un
+  écosystème (ici Dolibarr), la version active suit celle de l'application hôte.
+- Le choix de la **branche de base** d'un ticket dépend de la cible :
+  - ticket `feature`/`fix` **pour la prod actuelle** → partir de la **branche de
+    version active** (ex. `19.0-mmi`) ;
+  - ticket **réservé à la prochaine version active** → partir de la branche `dev`.
+- La branche de ticket `<RM-id>-<slug-court>` est tirée de cette branche de base
+  et y est remergée à la livraison : la branche de base joue alors le rôle de
+  « branche d'intégration » au sens de la sous-section précédente.
+- En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
+  avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 

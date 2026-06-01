@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.19.1] - 2026-06-01
+
+### Clarifié — Procédure de mise à jour de NORMS anti-collision (multi-sessions)
+
+Ajout d'une sous-section *Procédure de mise à jour* dans § « Versionning des normes ».
+Avant de bumper la version **et** de committer, vérifier qu'aucune mise à jour
+parallèle n'a déjà engagé le même numéro de version, sous deux formes : (1) **update
+non commité** sur le filesystem partagé → relire `schema_version` sur disque juste
+avant de choisir le numéro cible ; (2) **commit non pull** → `git fetch` + vérifier
+que la branche n'est pas en retard (`pull --rebase` au besoin), résoudre les conflits
+`schema_version`/`CHANGELOG` délibérément. Bump = dernière étape + commit immédiat.
+
+---
+
 ## [1.19.0] - 2026-06-01
 
 ### Ajouté — Workflow test + mise en production (MEP) et statuts associés

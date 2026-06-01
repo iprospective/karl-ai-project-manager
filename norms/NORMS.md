@@ -1,9 +1,9 @@
 ---
-schema_version: "1.19.0"
+schema_version: "1.19.1"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.19.0
+# Normes de gestion des tâches — v1.19.1
 
 ## Configuration globale
 
@@ -1577,3 +1577,28 @@ Cette architecture ne définit **que** la distribution des agents sur plusieurs 
 | Majeur | `1.0 → 2.0` | Changement breaking — snapshot archivé dans `archive/` |
 | Mineur | `1.0 → 1.1` | Ajout rétrocompatible — snapshot archivé dans `archive/` |
 | Patch | `1.1 → 1.1.1` | Clarification — CHANGELOG suffit, pas d'archive |
+
+### Procédure de mise à jour (anti-collision multi-sessions)
+
+Plusieurs agents/sessions partagent le **même filesystem** (un seul `NORMS.md`) et la
+**même branche de travail** du repo PM. Une mise à jour de NORMS (choix du numéro de
+version **ET** commit) peut donc entrer en collision avec une mise à jour parallèle.
+**Avant** de bumper la version et **avant** de committer, vérifier qu'aucune mise à
+jour concurrente n'a déjà engagé le même numéro de version — sous l'une de ces formes :
+
+1. **Update non commité** (sur le disque partagé) : une autre session a peut-être déjà
+   édité `NORMS.md`/`CHANGELOG.md` sans committer. → **Relire `schema_version` sur
+   disque juste avant de choisir le numéro cible** (ne pas se fier à la valeur lue en
+   début de session) et inspecter l'état de travail (`git status`, diff non commité).
+   Le numéro cible doit être strictement supérieur à la version réellement présente.
+2. **Commit non pull** (côté remote ou autre clone) : un bump peut exister dans un
+   commit pas encore récupéré. → **`git fetch` puis vérifier que la branche n'est pas
+   en retard** ; faire un `pull --rebase` si besoin avant de committer. Au push,
+   résoudre délibérément tout conflit sur la ligne `schema_version` / le `CHANGELOG`
+   (ce sont les points de conflit attendus).
+
+Règles de réduction de la fenêtre de course :
+- Le **bump de version est la dernière étape** d'édition, suivi d'un **commit
+  immédiat** (ne pas laisser traîner un bump non commité).
+- Si la version sur disque ≠ celle lue au démarrage de la tâche → **stop**, réconcilier
+  (rebaser, renuméroter) avant de poursuivre ; ne jamais bumper à l'aveugle.

@@ -42,13 +42,38 @@ REDMINE_TO_NORMS_STATUS = {
     14: "etude_chiffrage_en_cours",
     12: "a_faire",
     2:  "en_cours",
-    9:  "a_tester_verifier",
+    19: "a_tester_dev",
+    9:  "a_tester_demandeur",        # ex-a_tester_verifier (déprécié)
+    3:  "a_mep",                     # Résolu/Validé/A MEP (non terminal)
+    20: "en_mep",                    # MEP/Tester en preprod
+    13: "en_pause",                  # Attente retour / en pause
     11: "a_corriger",
+    18: "ferme",                     # terminal réel — raison via CF "Raison Fermé" (id 11)
+    # --- statuts Redmine dépréciés (rétrocompat lecture seule) ---
     5:  ("ferme", "resolu"),
     10: ("ferme", "abandonne"),
     6:  ("ferme", "wont_fix"),       # ou hors_perimetre — ambigu
     7:  ("ferme", "invalide"),       # ou doublon — ambigu
 }
+
+# CF "Raison Fermé" (id=11, enumeration) → close_reason NORMS, par value_id.
+# La valeur arrive en id (string), pas en label. Cf. NORMS § Mapping NORMS → Redmine.
+CF_RAISON_FERME_ID = 11
+CLOSE_REASON_FROM_CF = {
+    "10": "resolu",
+    "11": "wont_fix",     # Rejeté (ou hors_perimetre)
+    "12": "abandonne",
+    "13": "doublon",      # Déjà existant
+    "14": "invalide",     # Pas un bug / rien à faire
+}
+
+
+def cf_value(issue, cf_id):
+    """Valeur d'un custom field de l'issue (ou None)."""
+    for c in issue.get("custom_fields") or []:
+        if c.get("id") == cf_id:
+            return c.get("value")
+    return None
 
 REDMINE_TO_NORMS_PRIORITY = {1: "low", 2: "normal", 3: "high", 4: "urgent"}
 
@@ -102,11 +127,25 @@ def diff_fields(fm, issue):
             new_status, new_close = mapping
         else:
             new_status, new_close = mapping, None
-        if fm.get("status") != new_status:
+        # a_tester_verifier (déprécié) est traité comme a_tester_demandeur :
+        # ne pas re-diff si le MD porte encore l'ancien alias équivalent.
+        cur = fm.get("status")
+        if cur == "a_tester_verifier" and new_status == "a_tester_demandeur":
+            cur = new_status
+        if cur != new_status:
             diffs["status"] = (fm.get("status"), new_status)
-        # close_reason : seulement si on bascule en ferme (et qu'il n'y en a pas déjà)
+        # close_reason : seulement si on bascule en ferme (et qu'il n'y en a pas déjà).
+        # Pour le terminal réel (id 18), la raison vient du CF "Raison Fermé".
         if new_status == "ferme" and not fm.get("close_reason"):
-            diffs["close_reason"] = (fm.get("close_reason"), new_close)
+            if new_close is None:
+                new_close = CLOSE_REASON_FROM_CF.get(str(cf_value(issue, CF_RAISON_FERME_ID)))
+            if new_close:
+                diffs["close_reason"] = (fm.get("close_reason"), new_close)
+
+    # Assigned_to (id Redmine du responsable courant)
+    rm_assignee = (issue.get("assigned_to") or {}).get("id")
+    if rm_assignee is not None and fm.get("assigned_to") != rm_assignee:
+        diffs["assigned_to"] = (fm.get("assigned_to"), rm_assignee)
 
     # Priority
     rm_pid = (issue.get("priority") or {}).get("id")

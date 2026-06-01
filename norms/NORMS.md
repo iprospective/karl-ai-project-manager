@@ -1,9 +1,9 @@
 ---
-schema_version: "1.16.0"
-updated: 2026-05-26
+schema_version: "1.17.0"
+updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.16.0
+# Normes de gestion des tâches — v1.17.0
 
 ## Configuration globale
 
@@ -257,6 +257,26 @@ git approprié. La règle s'applique à **deux périmètres** :
 
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
+
+#### Branche de travail par ticket (obligatoire) — v1.17.0
+
+Tout travail de code rattaché à un ticket PM se fait sur une **branche dédiée
+au ticket**, jamais directement sur la branche d'intégration (`main`, `19.0-mmi`,
+etc.). Convention de nommage **systématique** :
+
+    <RM-id>-<slug-court>
+
+où `<RM-id>` est l'identifiant Redmine (sans préfixe) et `<slug-court>` un
+résumé court en kebab-case du sujet (≈ 2-4 mots, **pas** le titre complet de la
+tâche). Exemple : `1762-etransactions-historique`.
+
+- La branche est créée depuis la branche d'intégration courante du repo de code.
+- Le frontmatter `git.branch` de la tâche pointe vers cette branche (cf. section
+  « Lien Redmine ↔ MD ») ; `git.mr_url` vers la MR/PR une fois ouverte.
+- À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
+- (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
+  réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
+  courte ci-dessus.
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 

@@ -5,6 +5,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.20.2] - 2026-06-01
+
+### Ajouté — Règle de sécurité prod : consentement explicite obligatoire
+
+Dans § « Cycle dev → test → MEP », workflow MEP : aucune commande susceptible de
+modifier/casser la **production** (merge vers `prod_branch`, `git pull`/`reset`/
+`checkout` sur un serveur prod, upgrade/migration de module, vidage de cache prod,
+restart de service, écriture de fichier prod) ne doit être **exécutée sans
+consentement explicite de l'humain pour l'action précise**. L'agent inspecte (lecture
+seule), propose la commande exacte, attend le feu vert ; un accord ne vaut pas pour les
+étapes suivantes. Un arbre de prod sale ou une source de déploiement divergente sont
+des signaux d'arrêt.
+
+> Note : les entrées [1.20.0] et [1.20.1] (bumps faits en sessions parallèles) manquent
+> dans ce changelog — à backfiller par leurs auteurs.
+
+---
+
 ## [1.19.1] - 2026-06-01
 
 ### Clarifié — Procédure de mise à jour de NORMS anti-collision (multi-sessions)

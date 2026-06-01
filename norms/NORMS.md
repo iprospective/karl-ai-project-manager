@@ -1,9 +1,9 @@
 ---
-schema_version: "1.20.1"
+schema_version: "1.20.2"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.20.1
+# Normes de gestion des tâches — v1.20.2
 
 ## Configuration globale
 
@@ -1533,6 +1533,18 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 4. Si OK ⇒ merge `integration_branch` → `prod_branch` + `pull prod_branch` en prod ⇒
    tickets `ferme` (`close_reason: resolu`).
    - Régression détectée ⇒ `a_corriger` (note obligatoire).
+
+> **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
+> susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
+> consentement explicite de l'humain pour cette action précise**. Sont visés notamment :
+> merge vers `prod_branch`, `git pull`/`reset`/`checkout` sur un serveur de prod,
+> exécution d'une migration ou d'un upgrade de module, vidage de cache prod, restart de
+> service, toute écriture de fichier en prod. L'agent **inspecte** (lectures seules) et
+> **propose la commande exacte**, puis attend le feu vert. Un accord pour une étape ne
+> vaut **pas** pour les suivantes. Avant toute écriture, **vérifier l'état réel du
+> serveur** (branche suivie, remote source réel, propreté de l'arbre) : un arbre de prod
+> sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
+> à l'humain plutôt qu'à forcer.
 
 > Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
 > manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans

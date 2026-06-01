@@ -1,9 +1,9 @@
 ---
-schema_version: "1.20.3"
+schema_version: "1.20.4"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.20.3
+# Normes de gestion des tâches — v1.20.4
 
 ## Configuration globale
 
@@ -259,7 +259,7 @@ git approprié. La règle s'applique à **deux périmètres** :
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
 
-#### Remote canonique GitLab, MR, et gotchas API — v1.21.0
+#### Remote canonique GitLab, MR, et gotchas API — v1.20.4
 
 - **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
   (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui

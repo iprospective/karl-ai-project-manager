@@ -1,9 +1,9 @@
 ---
-schema_version: "1.20.0"
+schema_version: "1.20.1"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.20.0
+# Normes de gestion des tâches — v1.20.1
 
 ## Configuration globale
 
@@ -293,13 +293,25 @@ et `master`, il existe une **branche par version** (`14.0`, `15.0-mmi`,
 `16.0-mmi`, `19.0-mmi`…), et l'une d'elles est la **version active** = celle
 déployée en production.
 
-- La **version active** est **déclarée dans l'`overview.md` du projet** (champ
-  explicite, ex. « Version active : 19.0 »). Pour un module appartenant à un
-  écosystème (ici Dolibarr), la version active suit celle de l'application hôte.
+Le modèle de versionnement est **déclaré dans le frontmatter de l'`overview.md`
+du projet** via le bloc `versioning` (absent ⇒ projet non versionné, modèle
+`prod`/`dev` classique) :
+
+```yaml
+versioning:
+  scheme: dolibarr        # type de versionnement (ou null)
+  active_version: "19.0"  # version déployée en production
+  active_branch: 19.0-mmi # branche d'intégration de la version active (base des tickets prod)
+  next_branch: dev        # branche de la prochaine version (base des tickets next-version)
+```
+
+- Pour un module appartenant à un écosystème (ici Dolibarr), `active_version` suit
+  celle de l'application hôte.
 - Le choix de la **branche de base** d'un ticket dépend de la cible :
-  - ticket `feature`/`fix` **pour la prod actuelle** → partir de la **branche de
-    version active** (ex. `19.0-mmi`) ;
-  - ticket **réservé à la prochaine version active** → partir de la branche `dev`.
+  - ticket `feature`/`fix` **pour la prod actuelle** → partir de `active_branch`
+    (ex. `19.0-mmi`) ;
+  - ticket **réservé à la prochaine version active** → partir de `next_branch`
+    (ex. `dev`).
 - La branche de ticket `<RM-id>-<slug-court>` est tirée de cette branche de base
   et y est remergée à la livraison : la branche de base joue alors le rôle de
   « branche d'intégration » au sens de la sous-section précédente.

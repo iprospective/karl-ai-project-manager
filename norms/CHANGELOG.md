@@ -5,6 +5,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.20.3] - 2026-06-01
+
+### Ajouté — Outillage de la hiérarchie parent/enfant
+
+Dans § « Liens entre tâches », nouvelle sous-section « Hiérarchie parent/enfant ».
+`parent_task` / `sub_tasks` sont l'**attribut natif Redmine `parent_issue_id`** (pas
+une relation) : ils sont désormais entièrement outillés, plus d'édition manuelle.
+
+- `pm-task-add --parent <RM>` : crée un ticket enfant (POST `parent_issue_id` +
+  `parent_task` côté enfant + `sub_tasks` côté parent + logs).
+- `pm-task-link parent <child> <parent>` / `--unset` : (re)pose, déplace ou détache le
+  parent d'un ticket existant (PUT Redmine + migration des `sub_tasks` ancien→nouveau).
+- `pm-task-sync <RM>` : réconcilie `parent_task` depuis `issue.parent.id` et maintient
+  les `sub_tasks` locaux (réflexion read d'un changement fait côté Redmine UI).
+- Cœur partagé `scripts/pm_hierarchy.py` + `redmine_utils.set_issue_parent()` /
+  `create_redmine_issue(parent_issue_id=…)`.
+
+Règles d'intégrité : parent unique, pas d'auto-parent ni de cycle, `sub_tasks` dérivé
+(drift rétabli par `pm-task-sync` sur l'enfant).
+
+---
+
 ## [1.20.2] - 2026-06-01
 
 ### Ajouté — Règle de sécurité prod : consentement explicite obligatoire

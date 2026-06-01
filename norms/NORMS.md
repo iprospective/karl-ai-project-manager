@@ -1,9 +1,9 @@
 ---
-schema_version: "1.20.2"
+schema_version: "1.20.3"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.20.2
+# Normes de gestion des tâches — v1.20.3
 
 ## Configuration globale
 
@@ -234,8 +234,9 @@ git approprié. La règle s'applique à **deux périmètres** :
    - côté workspace : `{paths.reverse_link}` (`.mmi-pm`) pointe vers le projet PM
 
    Tout fichier modifié dans ce workspace (code, conf, docs internes) doit être
-   commit+push dans le repo applicatif du workspace lui-même (typiquement
-   `gitlab:iprospective/<...>` ou `gogs:<...>`, **pas** ai-projects).
+   commit+push dans le repo applicatif du workspace lui-même (remote GitLab
+   canonique `git:`/`gitlab:iprospective/<...>`, **pas** ai-projects ; cf.
+   « Remote canonique GitLab » ci-dessous).
 
 **Règles communes aux deux périmètres** :
 - Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
@@ -257,6 +258,38 @@ git approprié. La règle s'applique à **deux périmètres** :
 
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
+
+#### Remote canonique GitLab, MR, et gotchas API — v1.21.0
+
+- **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
+  (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
+  qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
+  traque la branche d'intégration locale.
+- **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
+  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
+  Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
+  passe par GitLab.
+- **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
+  une merge request de la branche de ticket vers la branche de base (version
+  active ou `dev`, cf. sous-sections suivantes), puis la merger.
+- **Gotcha glab/API GitLab — les `%2F` ne passent pas** : sur
+  `gitlab.iprospective.fr`, le front Apache **rejette les chemins projet
+  URL-encodés** (`iprospective%2Fdolibarr%2F…` → 404 Apache). Workaround
+  systématique : utiliser l'**ID numérique** du projet, récupéré sans slash via
+  une recherche :
+
+  ```bash
+  # 1) trouver l'ID numérique (pas de %2F dans une recherche)
+  glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
+  # 2) agir avec l'ID (ex. créer une MR vers la branche de version active)
+  glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
+    -f source_branch="<RM-id>-<slug>" -f target_branch="19.0-mmi" -f title="…" \
+    -f remove_source_branch=true
+  # 3) merger
+  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge"
+  ```
+- **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
+  `GIT PR` (id 4) avec son URL (cf. sous-section suivante).
 
 #### Branche de travail par ticket (obligatoire) — v1.17.0
 
@@ -1083,6 +1116,34 @@ cible) et synchronisés avec les `relations` Redmine via le script
 **Sens des dépendances** : ne pas confondre. Si **A dépend de B**, alors
 `A.depends_on = [B]` ET `B.blocks = [A]`. Côté Redmine, c'est une seule
 relation `blocks` postée depuis B vers A.
+
+### Hiérarchie parent/enfant (v1.20.3)
+
+`parent_task` / `sub_tasks` ne sont **pas des relations Redmine** mais l'**attribut
+natif d'issue `parent_issue_id`** (colonne « Redmine `relation_type` » = `—` dans le
+tableau). Ils ne transitent donc pas par `/issues/<id>/relations.json` mais par un
+`PUT parent_issue_id` sur l'enfant. La réflexion MD ↔ Redmine est outillée — **ne jamais
+éditer ces champs à la main** :
+
+| Geste | Commande | Effet |
+|---|---|---|
+| Créer un ticket enfant | `pm-task-add … --parent <RM>` | POST avec `parent_issue_id` + `parent_task` enfant + `sub_tasks` parent |
+| (Re)poser / déplacer le parent d'un ticket existant | `pm-task-link parent <child> <parent>` | PUT Redmine + migre `sub_tasks` ancien→nouveau parent |
+| Détacher | `pm-task-link parent <child> --unset` | PUT Redmine (parent vidé) + retire de `sub_tasks` du parent |
+| Réconcilier depuis Redmine | `pm-task-sync <RM>` | lit `issue.parent.id` → `parent_task` + maintient les `sub_tasks` locaux |
+
+Le cœur (réflexion frontmatter des deux côtés + logs) vit dans `scripts/pm_hierarchy.py`,
+partagé par les trois scripts. Quand le parent n'est pas tracké localement (ticket
+Redmine hors-PM), le champ enfant est posé mais `sub_tasks` n'est pas maintenu (no-op
+silencieux, le lien Redmine reste correct).
+
+**Règles d'intégrité hiérarchie :**
+- `parent_task` est unique (au plus un parent par tâche).
+- Pas d'auto-parent ni de cycle (Redmine refuse les cycles au PUT ; les scripts
+  refusent l'auto-parent en amont).
+- `sub_tasks` est dérivé : il doit toujours refléter l'ensemble des enfants dont le
+  `parent_task` pointe vers ce ticket. En cas de drift, `pm-task-sync` sur l'enfant
+  rétablit la cohérence.
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 

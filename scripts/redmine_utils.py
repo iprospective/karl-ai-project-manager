@@ -96,9 +96,24 @@ def set_issue_ia_tag(issue_id, value="IA"):
         sys.exit(f"ERREUR Redmine HTTP {code} : {body.get('_error', '')}")
 
 
+def set_issue_parent(issue_id, parent_id):
+    """Pose (ou retire) le parent natif d'une issue Redmine via `parent_issue_id`.
+
+    `parent_id=None` détache l'issue de son parent (envoie une valeur vide, que
+    Redmine interprète comme « pas de parent »). Sys.exit si le PUT échoue.
+    """
+    url, key = redmine_creds()
+    val = parent_id if parent_id is not None else ""
+    payload = {"issue": {"parent_issue_id": val}}
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
+    if code not in (200, 204):
+        sys.exit(f"ERREUR Redmine HTTP {code} sur parent_issue_id de #{issue_id} : "
+                 f"{body.get('_error', '')}")
+
+
 def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
                          description="", author_id=None, tag_ia=True,
-                         extra_custom_fields=None, timeout=20):
+                         extra_custom_fields=None, parent_issue_id=None, timeout=20):
     """Crée un ticket Redmine côté PM (POST + CF IA + PUT author optionnel).
 
     Source unique de vérité pour la création de tickets depuis le système PM.
@@ -118,6 +133,8 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
             Mettre False uniquement pour cas hors-PM (tickets externes,
             tests, migration historique).
         extra_custom_fields: list[{id, value}] — CFs additionnels (ex: target_env).
+        parent_issue_id: int|None — si fourni, crée l'issue comme enfant de ce
+            ticket (attribut natif Redmine `parent_issue_id`).
 
     Returns:
         int : rm_id du ticket créé.
@@ -135,6 +152,8 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
         "subject": subject,
         "description": description,
     }
+    if parent_issue_id is not None:
+        payload_issue["parent_issue_id"] = parent_issue_id
     custom_fields = list(extra_custom_fields or [])
     if tag_ia:
         cf_ia_id = get_ia_cf_id()

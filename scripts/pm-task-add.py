@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from redmine_utils import create_redmine_issue
+import pm_hierarchy
 
 try:
     import yaml
@@ -108,6 +109,10 @@ def main():
     ap.add_argument("--tags", default="", help="Liste csv de tags")
     ap.add_argument("--target-env", default=None)
     ap.add_argument("--project", help="Override auto-detect (format: entity/project)")
+    ap.add_argument("--parent", type=int, default=None, metavar="RM_ID",
+                    help="Crée la tâche comme enfant de RM_ID (attribut natif Redmine "
+                         "parent_issue_id). Pose parent_task côté enfant + sub_tasks "
+                         "côté parent. Cf. NORMS § « Hiérarchie parent/enfant ».")
     ap.add_argument("--initiator-agent", action="store_true",
                     help="Le créateur effectif est l'agent (karl, id 79) : "
                          "cas audit autonome ou bootstrap. "
@@ -144,6 +149,8 @@ def main():
     if args.dry_run:
         print(f"--dry-run : POST Redmine project={rm_proj_id} tracker={tracker_id} prio={priority_id}")
         print(f"--dry-run : title={args.title!r}")
+        if args.parent:
+            print(f"--dry-run : parent_issue_id={args.parent}")
         return
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
@@ -156,6 +163,7 @@ def main():
         subject=args.title,
         description=args.description,
         author_id=target_author,
+        parent_issue_id=args.parent,
     )
     if target_author is not None:
         print(f"  · author_id → {target_author}")
@@ -172,7 +180,7 @@ def main():
         "title": args.title,
         "type": args.type,
         "bootstrap_template": None,
-        "parent_task": None,
+        "parent_task": args.parent,
         "sub_tasks": [],
         "creator": "iprospective",
         "team": [{"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}],
@@ -231,6 +239,19 @@ def main():
             print(f"⚠ validate-task.py warnings :\n{r.stdout}{r.stderr}", file=sys.stderr)
     except Exception as e:
         print(f"⚠ validate-task.py non exécuté : {e}", file=sys.stderr)
+
+    # --parent : le MD enfant porte déjà parent_task (cf. fm). Maintenir le côté
+    # parent (sub_tasks du parent) + tracer dans les deux logs.
+    if args.parent:
+        pm_hierarchy.append_log(md_path, "pm-task-add",
+                                f"`parent_task` = RM{args.parent} (posé à la création).")
+        sub = pm_hierarchy.maintain_parent_subtasks(
+            cfg, rm_id, old_parent=None, new_parent=args.parent, source="pm-task-add")
+        if sub["added_to"]:
+            print(f"  · parent RM{args.parent} : sub_tasks += RM{rm_id}")
+        else:
+            print(f"  ⚠ parent RM{args.parent} : MD non trouvé localement — "
+                  f"sub_tasks non maintenu (parent côté Redmine OK)")
 
     # --retro : enchaîne en_cours puis a_tester_verifier via pm-task-status-update.
     # Le ticket Redmine doit déjà être indexable (POST ci-dessus a renvoyé rm_id),

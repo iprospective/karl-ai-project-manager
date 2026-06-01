@@ -2,15 +2,20 @@
 """pm-task-link — Gestion des liens entre tickets PM (Redmine + frontmatter + log).
 
 Sous-commandes :
-    add  <from-id> <to-id> --type {relates|depends_on|blocks}
-    list <id>
-    rm   <from-id> <to-id> [--type T]
-    sync <id>
+    add    <from-id> <to-id> --type {relates|depends_on|blocks}
+    parent <child-id> <parent-id> | <child-id> --unset
+    list   <id>
+    rm     <from-id> <to-id> [--type T]
+    sync   <id>
 
 Types supportés (NORMS v1.9.0) :
     relates       — lien latéral non-bloquant (symétrique côté PM)
     depends_on    — A.depends_on += B  ⇔  B.blocks += A     (Redmine: B blocks A)
     blocks        — A.blocks += B      ⇔  B.depends_on += A (Redmine: A blocks B)
+
+Hiérarchie parent/enfant (attribut natif Redmine parent_issue_id, pas une relation) :
+    parent <child> <parent>   — pose/déplace le parent (child.parent_task + parent.sub_tasks)
+    parent <child> --unset    — détache l'enfant de son parent
 
 Le script maintient :
   - la relation Redmine (POST / DELETE sur /issues/<id>/relations.json)
@@ -35,6 +40,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_hierarchy
+from redmine_utils import set_issue_parent
 
 try:
     import yaml
@@ -277,6 +284,37 @@ def cmd_rm(args, cfg):
     print(f"✓ Supprimé : PM={removed_pm or 'rien'} | Redmine relations={deleted_ids or 'rien'}")
 
 
+def cmd_parent(args, cfg):
+    """Pose, déplace ou retire le parent (attribut natif Redmine + MD local)."""
+    child = args.child_id
+    parent = None if args.unset else args.parent_id
+    if parent is not None and child == parent:
+        sys.exit("ERREUR : un ticket ne peut pas être son propre parent")
+
+    # Garde : l'enfant doit exister localement (on maintient son frontmatter).
+    if cfg.find_task(child) is None:
+        sys.exit(f"ERREUR : RM{child} introuvable parmi les projets PM")
+
+    # 1. Redmine (attribut natif). Redmine refuse les cycles de lui-même.
+    set_issue_parent(child, parent)
+
+    # 2. MD local (enfant parent_task + ancien/nouveau parent sub_tasks).
+    res = pm_hierarchy.set_parent(cfg, child, parent, source="pm-task-link")
+
+    if parent is None:
+        print(f"✓ RM{child} détaché de son parent (RM{res['old_parent']}).")
+    else:
+        verb = "déplacé vers" if res["old_parent"] else "rattaché à"
+        print(f"✓ RM{child} {verb} le parent RM{parent}.")
+    if res["removed_from"]:
+        print(f"  · sub_tasks RM{res['removed_from']} -= RM{child}")
+    if res["added_to"]:
+        print(f"  · sub_tasks RM{res['added_to']} += RM{child}")
+    elif parent is not None:
+        print(f"  ⚠ parent RM{parent} : MD non trouvé localement — "
+              f"sub_tasks non maintenu (parent côté Redmine OK)")
+
+
 def _pm_to_redmine_type(pm_type):
     """Mapping PM type → Redmine relation_type (sans tenir compte de la direction)."""
     return {"relates": "relates", "depends_on": "blocks", "blocks": "blocks"}[pm_type]
@@ -351,6 +389,12 @@ def main():
     s_add.add_argument("to_id", type=int)
     s_add.add_argument("--type", default="relates", choices=PM_TYPES)
 
+    s_parent = sub.add_parser("parent", help="Poser / déplacer / retirer le parent d'un ticket")
+    s_parent.add_argument("child_id", type=int)
+    s_parent.add_argument("parent_id", type=int, nargs="?", default=None)
+    s_parent.add_argument("--unset", action="store_true",
+                          help="Détache l'enfant de son parent (parent_id ignoré)")
+
     s_list = sub.add_parser("list", help="Lister les liens d'une tâche")
     s_list.add_argument("rm_id", type=int)
 
@@ -368,6 +412,10 @@ def main():
 
     if args.cmd == "add":
         cmd_add(args, cfg)
+    elif args.cmd == "parent":
+        if args.parent_id is None and not args.unset:
+            sys.exit("ERREUR : 'parent <child> <parent>' ou 'parent <child> --unset'")
+        cmd_parent(args, cfg)
     elif args.cmd == "list":
         cmd_list(args, cfg)
     elif args.cmd == "rm":

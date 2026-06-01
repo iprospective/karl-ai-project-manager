@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_hierarchy
 
 try:
     import yaml
@@ -158,6 +159,12 @@ def diff_fields(fm, issue):
     if new_due and fm.get("due") != new_due:
         diffs["due"] = (fm.get("due"), new_due)
 
+    # Parent (attribut natif Redmine parent_issue_id ↔ frontmatter parent_task).
+    # issue["parent"]["id"] absent => pas de parent => None.
+    rm_parent = (issue.get("parent") or {}).get("id")
+    if fm.get("parent_task") != rm_parent:
+        diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
+
     # Updated timestamp (always refresh)
     new_updated = (issue.get("updated_on") or "").replace("Z", "")[:16]
     if new_updated and fm.get("updated") != new_updated:
@@ -234,6 +241,15 @@ def sync_one(cfg, url, key, rm_id, args):
     if new_journals:
         fm["redmine_last_journal_id"] = new_journals[-1]["id"]
     write_md(md_path, fm, body)
+
+    # Hiérarchie : si parent_task a changé, maintenir les sub_tasks de l'ancien et
+    # du nouveau parent (MD locaux uniquement ; le champ enfant est déjà écrit
+    # ci-dessus via apply_to_fm). Cf. pm_hierarchy.
+    if "parent_task" in diffs:
+        old_parent, new_parent = diffs["parent_task"]
+        pm_hierarchy.maintain_parent_subtasks(
+            cfg, rm_id, old_parent=old_parent, new_parent=new_parent,
+            source="pm-task-sync")
 
     log_path = md_path.with_name(md_path.stem + ".log.md")
     with log_path.open("a", encoding="utf-8") as f:

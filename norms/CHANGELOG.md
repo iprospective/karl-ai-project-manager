@@ -5,6 +5,44 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.19.0] - 2026-06-01
+
+### Ajouté — Workflow test + mise en production (MEP) et statuts associés
+
+Formalise dans NORMS le cycle dev → test → MEP déjà partiellement implémenté côté
+Redmine. Mise en cohérence de la machine d'états avec les statuts existants de
+l'instance (qui en avait plus que NORMS n'en mappait).
+
+- **5 statuts** ajoutés/explicités, tous déjà présents côté Redmine :
+  `a_tester_dev` (id 19), `a_tester_demandeur` (id 9, remplace `a_tester_verifier`),
+  `a_mep` (Résolu/Validé/A MEP, id 3, **non terminal**), `en_mep` (MEP/Tester en
+  preprod, id 20), `en_pause` (Attente retour / en pause, id 13).
+- `a_tester_verifier` **déprécié** → alias en lecture de `a_tester_demandeur`.
+- **Machine d'états** étendue (transitions dev → a_tester_dev → a_tester_demandeur →
+  a_mep → en_mep → ferme ; en_pause depuis tout état actif) + mapping NORMS↔Redmine
+  remis à jour.
+- **Règles d'attribution** par transition complétées (testeur ≠ dev sur `a_tester_dev`,
+  responsable MEP sur `a_mep`, testeur humain sur `en_mep`).
+- **Nouvelle section canonique** *Cycle de développement → test → mise en production* :
+  branches de référence par projet (bloc `git:` dans `overview.md` —
+  `prod_branch`/`integration_branch`/`repo`/`remote`), modèle d'environnements
+  (1 prod, 1 preprod, N test, N dev), workflow dev (branche `<RMid>-<desc>`, CF
+  `GIT Branche` puis MR `branche→dev` tracée dans CF `GIT PR`) et workflow MEP
+  (provisoire : preprod → vérif humaine → merge `dev`→prod + pull).
+- **Section *Architecture de déploiement § V2*** réécrite : ne traite plus que de la
+  distribution des agents ; le workflow de branches/release pointe vers la nouvelle
+  section (suppression d'un cycle de vie contradictoire `agent/{server}/…` → `main`).
+
+### À suivre (hors périmètre de cette version doc)
+
+Mise à jour des **scripts et templates** pour enforcer le nouveau modèle :
+`pm-task-status-update.py` (enum + map + normalisation de l'alias + création de
+branche sur `en_cours` + gate checklist sur `a_tester_demandeur`/`a_mep`),
+templates `overview.md` (bloc `git:`) et `bootstrap-tasks/005-deployment`. Tracké
+dans un ticket dédié.
+
+---
+
 ## [1.18.0] - 2026-06-01
 
 ### Ajouté — Branche de travail renseignée dans le CF Redmine « GIT Branche »

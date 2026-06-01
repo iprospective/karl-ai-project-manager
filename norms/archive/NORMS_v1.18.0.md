@@ -1,9 +1,9 @@
 ---
-schema_version: "1.19.0"
+schema_version: "1.18.0"
 updated: 2026-06-01
 ---
 
-# Normes de gestion des tâches — v1.19.0
+# Normes de gestion des tâches — v1.18.0
 
 ## Configuration globale
 
@@ -655,7 +655,7 @@ Protocole de reprise :
 2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
 3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
 4. Appliquer le travail demandé selon le protocole worker standard
-5. Resoumettre via `redmine-post-note.py --norms-status a_tester_demandeur` (qui
+5. Resoumettre via `redmine-post-note.py --norms-status a_tester_verifier` (qui
    réattribue automatiquement au demandeur)
 
 Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
@@ -705,31 +705,18 @@ Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1739 pour la suppression
 définitive sur l'instance). Plus aucun script ne le consulte.
 
 **Règle d'attribution Redmine** :
-- Passage en `a_tester_dev` → ré-attribuer à un **testeur ≠ le dev** (agent ou
-  humain), pour un test indépendant en env `test`. Manuel via `--assign-to <id>`
-  pour l'instant ; l'orchestrateur routera vers un worker-test quand il sera en place.
-- Passage en `a_tester_demandeur` → ré-attribuer au **demandeur** (author).
+- Passage en `a_tester_verifier` → ré-attribuer au **demandeur** (author).
   Résolveur appliqué par `pm-task-status-update.py` :
   1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
   2. `author ≠ karl` avec email accessible → cet `author`
   3. fallback (email inaccessible) → Manager IA
-- Passage en `a_mep` → ré-attribuer au **responsable MEP / intégration** (par défaut
-  Manager IA ou orchestrateur ; configurable par projet).
-- Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
-  en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
-- Passage en `en_pause` → **conserver** l'attribution courante (la tâche reste
-  possédée, juste sortie des files actives).
 - Passage en `ferme` → conserver l'attribution courante.
-
-> Note : `a_tester_verifier` (≤ v1.18.0) est **déprécié**, remplacé par le couple
-> `a_tester_dev` / `a_tester_demandeur`. Les scripts l'acceptent encore en lecture
-> et le normalisent vers `a_tester_demandeur` (rétrocompat).
 
 **Manager IA** (cf. RM1734) : humain qui supervise les agents (karl + futurs),
 reçoit la notif mail à chaque livraison, se voit assigner les tickets
-`a_tester_demandeur` quand l'auteur est karl. Configuré dans `pm.config.yml` :
+`a_tester_verifier` quand l'auteur est karl. Configuré dans `pm.config.yml` :
 
 ```yaml
 ia:
@@ -787,18 +774,9 @@ Statut Redmine (un seul terminal `Fermé`) :
 | `etude_chiffrage_en_cours` | Etude en cours | 14 |
 | `a_faire` | A Faire | 12 |
 | `en_cours` | En cours | 2 |
-| `a_tester_dev` | A tester/vérifier dev | 19 |
-| `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
-| `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` | MEP/Tester en preprod | 20 |
-| `en_pause` | Attente retour / en pause | 13 |
-| `a_corriger` | A corriger/finir | 11 |
+| `a_tester_verifier` | A tester/vérifier | 9 |
+| `a_corriger` | A corriger | 11 |
 | `ferme` (toutes raisons) | Fermé | **18** |
-
-`a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
-`a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le
-demandeur, mergé dans l'intégration, en file de MEP) — à ne pas confondre avec
-`ferme`.
 
 Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs :
 
@@ -812,8 +790,7 @@ Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs 
 
 Note : les anciens statuts terminaux `Résolu/Fermé` (5), `Rejeté` (6),
 `Pas un bug / Déjà existant` (7), `Abandonné` (10) sont **dépréciés** —
-à désactiver/supprimer en UI Redmine. Attention à ne pas les confondre avec le
-nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
+à désactiver/supprimer en UI Redmine.
 
 ### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
 
@@ -887,8 +864,8 @@ faire passer le `done_ratio` de 50 à 75 → pas de note.
   description (`--set-from-file`). PUT Redmine (`description` + `done_ratio` +
   `notes` si la description a changé) + sync MD (`completion_pct` + checklist du
   corps) + append `.log.md`. C'est le wrapper de référence.
-- **`pm-task-status-update.py`** refuse de passer une tâche en `a_tester_demandeur`,
-  `a_mep` ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
+- **`pm-task-status-update.py`** refuse de passer une tâche en `a_tester_verifier`
+  ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
   description (`--allow-unchecked` pour outrepasser si c'est volontaire). Garde-fou
   pour ne pas livrer/clore avec une checklist non tenue à jour.
 
@@ -1140,32 +1117,20 @@ for cf in issue.get('custom_fields', []):
         │ approuvé                  │ abandonné / hors périmètre
         ▼                           ▼
    [a_faire]                    [ferme]
-        │ démarrage (+ création branche <RMid>-<desc>)
+        │ démarrage
         ▼
-   [en_cours] ◄────────────────────────────────────┐
-        │ dev terminé                              │
-        ▼                                          │
-[a_tester_dev] ──── problèmes ───► [a_corriger] ───┤ corrections faites
-        │ test dev OK                              │
-        ▼                                          │
-[a_tester_demandeur] ── rejet ─────────────────────┤
-        │ validé (MR branche→dev, CF GIT PR, merge)
-        ▼                                          │
-    [a_mep]                                        │
-        │ dev déployée en preprod                  │
-        ▼                                          │
-    [en_mep] ──── régression preprod ──────────────┘
-        │ tests OK + merge dev→prod + pull prod
+   [en_cours] ◄──────────────────────────┐
+        │ soumis                         │ corrections faites
+        ▼                                │
+[a_tester_verifier]                      │
+        │ problèmes trouvés              │
+        ├──────────────► [a_corriger] ───┘
+        │ validé
         ▼
     [ferme]
-
-[en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
-[a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
 ```
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
-Le workflow complet (branches, envs, MEP) est décrit en § *Cycle de
-développement → test → mise en production*.
 
 ### Transitions valides
 
@@ -1174,19 +1139,12 @@ développement → test → mise en production*.
 | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `assigned_to` renseigné |
 | `etude_chiffrage_en_cours` | `a_faire` | `estimate.*` complet |
 | `etude_chiffrage_en_cours` | `ferme` | `close_reason` requis |
-| `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
-| `en_cours` | `a_tester_dev` | dev terminé |
+| `a_faire` | `en_cours` | — |
+| `en_cours` | `a_tester_verifier` | — |
 | `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
-| `a_tester_dev` | `a_tester_demandeur` | test dev OK |
-| `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |
-| `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
-| `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
-| `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | `integration_branch` déployée en preprod |
-| `en_mep` | `ferme` | tests preprod OK + merge `integration_branch`→`prod_branch` + pull prod — `close_reason: resolu` |
-| `en_mep` | `a_corriger` | régression preprod (note dans journal) |
+| `a_tester_verifier` | `a_corriger` | note dans journal |
+| `a_tester_verifier` | `ferme` | `close_reason: resolu` |
 | `a_corriger` | `en_cours` | — |
-| `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
 
 ## Valeurs énumérées
@@ -1195,10 +1153,7 @@ développement → test → mise en production*.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
-
-`a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
-`a_tester_demandeur`, normalisé par les scripts.
+`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `a_faire` | `en_cours` | `a_tester_verifier` | `a_corriger` | `ferme`
 
 ### priority
 `low` | `normal` | `high` | `urgent`
@@ -1257,7 +1212,7 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 - Assigne les tickets aux workers via l'API Redmine (opération atomique)
 - Seul écrivain sur les fichiers de tâches parentes (à tous les niveaux)
 - Met à jour `completion_pct` des parents quand leurs enfants terminent (propagation bottom-up)
-- Déclenche le testeur/reviewer quand une tâche passe en `a_tester_dev`
+- Déclenche le reviewer quand une tâche passe en `a_tester_verifier`
 - Route les tickets vers le bon worker selon le champ `type`
 
 **Workers (agents spécialisés)**
@@ -1275,11 +1230,9 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 - Append-only sur tous les `.log.md`
 
 **Reviewer**
-- Déclenché par l'orchestrateur sur `a_tester_dev` (test indépendant, par un agent
-  ≠ celui qui a fait le dev)
+- Déclenché par l'orchestrateur sur `a_tester_verifier`
 - Lit le fichier de tâche + le `.log.md` + les critères d'acceptation
-- Valide → `a_tester_demandeur` (passe la main au demandeur ; ne clôt pas — la
-  clôture passe par la validation demandeur puis la MEP, cf. § Cycle dev → MEP)
+- Valide → `ferme` avec `close_reason: resolu`
 - Rejette → `a_corriger` avec note obligatoire dans le `.log.md`
 
 ### Règles d'écriture
@@ -1311,10 +1264,10 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 6. Worker travaille, appende ses logs dans RM{id}.log.md
 7. À la fin, worker met à jour son fichier :
    - completion_pct, outputs, updated, status_history
-8. Worker passe le ticket Redmine en a_tester_dev
-9. Orchestrateur détecte le changement, déclenche le testeur/reviewer
-10. Reviewer valide → a_tester_demandeur (puis demandeur → a_mep → MEP), ou renvoie en a_corriger
-11. Si validé : orchestrateur propage la completion au parent
+8. Worker passe le ticket Redmine en a_tester_verifier
+9. Orchestrateur détecte le changement, déclenche le reviewer
+10. Reviewer approuve ou renvoie en a_corriger
+11. Si approuvé : orchestrateur propage la completion au parent
 ```
 
 ### Sous-tâches multi-niveaux
@@ -1425,87 +1378,6 @@ Commit: <repo-alias>@<sha-court> — <message court>
 
 ---
 
-## Cycle de développement → test → mise en production (MEP)
-
-Référence **canonique** du workflow de release applicatif, du dev d'un ticket
-jusqu'à la prod. Le nommage des branches et le cycle de vie ne sont définis
-**qu'ici** (la section *Architecture de déploiement* ne traite plus que de la
-distribution des agents sur plusieurs machines).
-
-### Branches git de référence (par projet)
-
-Chaque projet déclare ses branches de référence dans le frontmatter de
-`project/overview.md`, bloc `git:` :
-
-```yaml
-git:
-  repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
-  remote: origin            # alias du remote de référence
-  prod_branch: master       # branche déployée en prod (master historique ; main = cible de migration)
-  integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en preprod
-```
-
-- `prod_branch` : souvent `master` (historique), migration progressive vers `main`.
-- `integration_branch` (`dev`) : agrège les branches de ticket déjà testées, avant MEP.
-- **Source unique** des branches de workflow : les `environments[].branch` doivent y
-  être cohérents (`preprod.branch == integration_branch`, `prod.branch == prod_branch`).
-- À distinguer du bloc `git:` du **frontmatter de tâche** (`git.branch`, `git.mr_url`),
-  qui pointe la branche de *travail courante du ticket*, pas les branches de référence.
-
-### Modèle d'environnements
-
-Un projet a typiquement :
-- **1 prod** (`prod`) — déployée depuis `prod_branch`.
-- **1 preprod** (`preprod`) — déployée depuis `integration_branch` ; tests de
-  non-régression avant MEP.
-- **N test** (`test`, `test-<but>`…) — pour tester en parallèle plusieurs branches de
-  ticket, idéalement par une personne ou un agent **≠ celui qui a fait le dev**.
-- **N dev** (`dev`, `dev-<développeur>`…) — autant que de développeurs (voire plusieurs
-  par dev).
-
-Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
-(cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
-
-### Workflow de développement (par ticket)
-
-1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
-   Redmine (§ Prise en charge d'une tâche) + **création de la branche dédiée**
-   `<RMid>-<short-desc>` (depuis `integration_branch`) + renseignement du CF Redmine
-   `GIT Branche`.
-2. **Dev terminé** (ou étape) ⇒ `a_tester_dev` : test par un agent/une personne **≠ le
-   dev**, dans un env `test`.
-   - Test OK ⇒ `a_tester_demandeur` + ré-assignation au **demandeur**.
-   - Problèmes ⇒ `a_corriger` (retour au worker).
-3. **Validation demandeur** — le demandeur valide (test OK) ⇒
-   - créer une **MR GitLab** depuis la branche du ticket `<RMid>-<desc>` vers
-     `integration_branch` (`dev`) et renseigner son URL dans le CF Redmine **`GIT PR`**
-     (id 4) — cette MR sert de **trace** du merge d'intégration ;
-   - merge de la MR dans `integration_branch` ⇒ le ticket passe `a_mep` et entre dans
-     le workflow MEP.
-   - Rejet ⇒ `a_corriger`.
-
-> Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
-> `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
-
-### Workflow de mise en production (MEP) — **provisoire, évoluera**
-
-La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
-ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
-
-1. Déployer `integration_branch` dans l'env **preprod** ⇒ les tickets concernés passent
-   `en_mep`.
-2. Tests de **non-régression** sur preprod.
-3. Vérification par un **testeur humain**.
-4. Si OK ⇒ merge `integration_branch` → `prod_branch` + `pull prod_branch` en prod ⇒
-   tickets `ferme` (`close_reason: resolu`).
-   - Régression détectée ⇒ `a_corriger` (note obligatoire).
-
-> Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
-> manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
-> `project/deployment.md` (template bootstrap `005-deployment`).
-
----
-
 ## Architecture de déploiement
 
 ### V1 — Machine unique (recommandée pour démarrer)
@@ -1553,11 +1425,28 @@ Limites : latence sur les écritures, garanties d'atomicité réduites entre ser
 
 ### V2 — Git/branches GitLab (distribution robuste)
 
-Chaque serveur a un clone local du repo GitLab ; les agents travaillent sur des branches dédiées et Git gère la synchronisation et la détection de conflits au merge. C'est la solution la plus robuste pour distribuer le travail sans NFS.
+Chaque serveur a un clone local du repo GitLab. Les agents travaillent sur des branches dédiées. Git gère la synchronisation et détecte les conflits au merge. C'est la solution la plus robuste et scalable.
 
-Cette architecture ne définit **que** la distribution des agents sur plusieurs machines. Le **workflow de branches et de release** (nommage des branches de ticket, branche d'intégration, preprod, MEP) est décrit une seule fois en § *Cycle de développement → test → mise en production* — ne pas le redéfinir ici.
+```
+GitLab (source de vérité)
+        │
+        ├── main                          ← tâches validées, état stable
+        ├── agent/srv-A/RM1234-feature    ← Worker A (serveur A)
+        ├── agent/srv-B/RM1235-bugfix     ← Worker B (serveur B)
+        └── agent/srv-C/RM1236-audit      ← Worker C (serveur C)
+```
 
-**Avantages :** distribution réelle sans NFS, historique complet des changements, détection de conflits native.
+**Cycle de vie d'une tâche en V2 :**
+```
+1. Orchestrateur crée la branche agent/{server}/{RM{id}-titre} sur GitLab
+2. Worker checkout la branche sur son serveur local
+3. Worker travaille, commit régulièrement (au moins à chaque changement de status)
+4. Worker crée une MR vers main quand la tâche passe en a_tester_verifier
+5. Reviewer valide la MR
+6. Merge → état stable dans main → tâche ferme
+```
+
+**Avantages :** distribution réelle sans NFS, historique complet des changements, détection de conflits native, intégration naturelle avec le workflow GitLab déjà prévu.
 
 ### Choix selon le contexte
 

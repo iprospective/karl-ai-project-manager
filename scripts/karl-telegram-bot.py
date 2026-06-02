@@ -47,8 +47,8 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from redmine_utils import (add_issue_note, fetch_issue, get_ia_cf_id,
-                           list_issues, search_issues)
+from redmine_utils import (add_issue_note, fetch_issue, find_users, get_ia_cf_id,
+                           list_issues, list_time_entries, search_issues)
 from pm_paths import PMConfig
 
 TG_API = "https://api.telegram.org/bot{token}/{method}"
@@ -57,6 +57,10 @@ AUTO_LOCK_SECONDS = 300   # 5 min d'inactivité → re-verrouillage
 FAIL_THRESHOLD = 3        # nb d'échecs /unlock avant blocage
 LOCKOUT_SECONDS = 300     # durée du blocage après FAIL_THRESHOLD échecs
 PBKDF2_ITERATIONS = 200_000
+
+KARL_ID = 79              # identité agent karl (Redmine) — seul producteur de tokens
+# Entrée de log « Tick IA » écrite par pm-task-tick : `## <date>T.. — …` + `Tokens : N`
+TOKEN_LOG_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T[\d:]+ —.*\nTokens ?: ?(\d+)", re.M)
 
 
 # ─────────────────────────────── Mot de passe ───────────────────────────────
@@ -269,6 +273,86 @@ def cmd_note(cfg_pm, who, rm_id, note):
     return f"✅ Note ajoutée à <b>RM{rm_id}</b>{suffix}."
 
 
+# ─────────────────────────────── Bilan du jour ──────────────────────────────
+
+def _fmt_tokens(n):
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.2f} M".replace(".", ",")
+    if n >= 1_000:
+        return f"{n / 1_000:.1f} k".replace(".", ",")
+    return str(n)
+
+
+def _fmt_hours(h):
+    return f"{h:.2f}".replace(".", ",")
+
+
+def resolve_user(arg, manager_id):
+    """Résout l'argument de /today en (user_id, nom, is_agent).
+
+    Retourne (None, message_erreur, False) si introuvable. Accepte : vide/karl →
+    agent ; moi/me/mathieu → manager ; un id numérique ; sinon fragment de nom
+    (recherche Redmine best-effort)."""
+    a = (arg or "").strip().lower()
+    if not a or a in ("karl", "agent"):
+        return KARL_ID, "karl", True
+    if a in ("moi", "me", "mathieu", "manager"):
+        return manager_id, "Mathieu", manager_id == KARL_ID
+    if a.isdigit():
+        uid = int(a)
+        return uid, f"user #{uid}", uid == KARL_ID
+    users = find_users(arg.strip())
+    if not users:
+        return (None, f"Utilisateur « {html.escape(arg.strip())} » introuvable "
+                      f"(essaie un id, « moi » ou « karl »).", False)
+    u = users[0]
+    name = f"{u.get('firstname', '')} {u.get('lastname', '')}".strip() or u.get("login", str(u["id"]))
+    return u["id"], name, u["id"] == KARL_ID
+
+
+def sum_log_tokens_today(cfg_pm, today_iso):
+    """Somme les tokens des entrées `.log.md` datées d'aujourd'hui (travail karl).
+
+    Retourne (total_tokens, set_des_rm_ids_touchés)."""
+    total, tickets = 0, set()
+    for p in Path(cfg_pm.projects_root).rglob("*.log.md"):
+        try:
+            txt = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        file_total = sum(int(m.group(2)) for m in TOKEN_LOG_RE.finditer(txt)
+                         if m.group(1) == today_iso)
+        if file_total:
+            total += file_total
+            mm = re.match(r"RM(\d+)_", p.name)
+            if mm:
+                tickets.add(int(mm.group(1)))
+    return total, tickets
+
+
+def cmd_today(cfg_pm, today_iso, user_id, display, is_agent):
+    """Bilan du jour pour un user : heures saisies (Redmine) + tokens (logs, karl)."""
+    te = list_time_entries({"user_id": user_id, "spent_on": today_iso}, limit=100)
+    hours = sum(float(t.get("hours") or 0) for t in te)
+    if te and (te[0].get("user") or {}).get("name"):
+        display = te[0]["user"]["name"]
+    issues = sorted({t["issue"]["id"] for t in te if t.get("issue")})
+
+    lines = [f"📊 <b>Aujourd'hui {today_iso}</b> — {html.escape(display)}",
+             f"• Heures saisies : <b>{_fmt_hours(hours)} h</b> ({len(te)} saisie(s))"]
+    if issues:
+        shown = ", ".join(f"RM{i}" for i in issues[:8])
+        more = f" +{len(issues) - 8}" if len(issues) > 8 else ""
+        lines.append(f"• Tickets : {shown}{more}")
+    if is_agent:
+        tok, tickets = sum_log_tokens_today(cfg_pm, today_iso)
+        suffix = f" sur {len(tickets)} ticket(s)" if tickets else ""
+        lines.append(f"• Tokens IA (logs du jour) : <b>{_fmt_tokens(tok)}</b>{suffix}")
+    else:
+        lines.append("• Tokens IA : — (user humain)")
+    return "\n".join(lines)
+
+
 # ────────────────────────────────── Handler ─────────────────────────────────
 
 HELP = ("<b>karl-pm</b> — commandes :\n"
@@ -277,6 +361,7 @@ HELP = ("<b>karl-pm</b> — commandes :\n"
         "/recent — tickets récemment modifiés\n"
         "/search &lt;texte&gt; — recherche\n"
         "/note &lt;id&gt; &lt;texte&gt; — ajoute une note\n"
+        "/today [user] — bilan heures + tokens du jour (défaut : karl)\n"
         "/status — état du bot\n"
         "/lock — verrouiller\n"
         "/unlock &lt;mdp&gt; — déverrouiller\n"
@@ -399,6 +484,18 @@ def handle(bot, msg):
         _safe(token, chat_id, lambda: cmd_note(bot["cfg_pm"], uname, rm_id, note))
         return
 
+    if cmd in ("/today", "/jour"):
+        m = re.match(r"/(?:today|jour)(?:@\S+)?(?:\s+(.+))?$", text, re.S)
+        arg = (m.group(1) or "").strip() if m else ""
+        uid, name, is_agent = resolve_user(arg, bot["manager_id"])
+        if uid is None:
+            send(token, chat_id, name)  # name porte le message d'erreur
+            return
+        today_iso = datetime.now().strftime("%Y-%m-%d")
+        _safe(token, chat_id,
+              lambda: cmd_today(bot["cfg_pm"], today_iso, uid, name, is_agent))
+        return
+
     send(token, chat_id, "Commande inconnue. /help pour la liste.")
 
 
@@ -439,8 +536,17 @@ def main():
     whitelist = {int(x) for x in wl_raw.replace(" ", "").split(",") if x.strip().isdigit()}
     lock = Lock(os.environ.get("TELEGRAM_LOCK_PASSWORD_HASH"))
 
-    bot = {"token": token, "whitelist": whitelist, "lock": lock,
-           "cfg_pm": cfg_pm, "start": time.time(), "version": "v0.2"}
+    # Id Redmine du manager (cf. pm.config.yml :: ia.default_manager) — pour /today moi
+    manager_id = 5
+    try:
+        import yaml
+        ycfg = yaml.safe_load((Path(cfg_pm.pm_dir) / "pm.config.yml").read_text(encoding="utf-8"))
+        manager_id = ((ycfg.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
+    except Exception:
+        pass
+
+    bot = {"token": token, "whitelist": whitelist, "lock": lock, "cfg_pm": cfg_pm,
+           "manager_id": manager_id, "start": time.time(), "version": "v0.3"}
 
     me = tg(token, "getMe")["result"]
     print(f"✓ Bot connecté : @{me.get('username')} ({me.get('first_name')})")

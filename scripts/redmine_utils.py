@@ -116,6 +116,36 @@ def search_issues(query, limit=15, timeout=20):
     return body.get("results", [])
 
 
+def list_time_entries(params=None, limit=100, timeout=20):
+    """Liste des saisies de temps via `/time_entries.json` avec filtres natifs.
+
+    `params` ex: {"user_id": 5, "spent_on": "2026-06-02"}. Retourne une liste de
+    dicts time_entry (chacun avec hours, user, issue, custom_fields…).
+    """
+    url, key = redmine_creds()
+    qp = dict(params or {})
+    qp.setdefault("limit", limit)
+    qs = urllib.parse.urlencode(qp)
+    code, body = http_json("GET", f"{url}/time_entries.json?{qs}", key, timeout=timeout)
+    if code != 200:
+        sys.exit(f"ERREUR Redmine HTTP {code} sur /time_entries : {body.get('_error', '')}")
+    return body.get("time_entries", [])
+
+
+def find_users(name, limit=5, timeout=20):
+    """Recherche d'utilisateurs Redmine par fragment (login/nom/mail).
+
+    Best-effort : nécessite les droits admin sur la clé API. Retourne une liste
+    de dicts {id, firstname, lastname, login, ...} ou [] si non autorisé / aucun.
+    """
+    url, key = redmine_creds()
+    qs = urllib.parse.urlencode({"name": name, "limit": limit})
+    code, body = http_json("GET", f"{url}/users.json?{qs}", key, timeout=timeout)
+    if code != 200:
+        return []
+    return body.get("users", [])
+
+
 def add_issue_note(issue_id, note, timeout=20):
     """Ajoute une note (journal) à une issue via PUT `notes`. Sys.exit si échec."""
     url, key = redmine_creds()

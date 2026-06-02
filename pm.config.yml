@@ -72,3 +72,12 @@ ia:
     redmine_id: 5
     email: mathieu@iprospective.fr
     name: Mathieu Moulin
+
+# ── Traçabilité — note Redmine par commit (cf. NORMS § « Unité de traçabilité ») ──
+# Niveau auquel un commit rattaché à une tâche déclenche une note Redmine.
+# Permet de calibrer le bruit à l'usage (mode `all` = test/observation).
+#   work : commits de travail/livraison/structurants uniquement (défaut)
+#   all  : tout commit rattaché à une tâche (mesurer le bruit réel)
+#   none : aucune note auto par commit (.log.md + time_entry conservés)
+traceability:
+  commit_note_level: work

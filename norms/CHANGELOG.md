@@ -5,6 +5,31 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.23.0] - 2026-06-02
+
+### Modifié — Consolidation traçabilité commit/note (anti-doublon, anti-contradiction)
+
+Factorisation des règles éparses sur « quand commiter / quand noter », qui
+vivaient en 3 endroits avec des cadrages divergents (discrétionnaire vs
+systématique). Source de vérité unique désormais.
+
+- **Nouveau bloc canonique** « Unité de traçabilité : l'étape significative »
+  (§ Collaboration multi-agents) : l'unité tracée est l'**étape significative**
+  (pas le fichier, pas la frappe). À cette frontière → message de commit **court**
+  + note Redmine **détaillée** (réf commit + temps + tokens) + entrée `.log.md`
+  technique + transition de statut si livraison. Même synthèse de fond, deux
+  granularités — pas de triple rédaction.
+- **Matrice unique « quand poster une note »** : commit de travail/livraison/
+  structurant → oui ; événement structurant **sans commit** (cahier des charges,
+  réflexion) → note complémentaire ; commit trivial/housekeeping → non ; statut/
+  `done_ratio` → non ; maj description → oui (renvoi § dédiée).
+- **Niveau configurable** `pm.config.yml :: traceability.commit_note_level`
+  (`work` défaut | `all` test | `none`) — pour calibrer le bruit à l'usage.
+- L'ancien « Double traçabilité » est remplacé par ce bloc ; la § ROI
+  « Journalisation par commit » ne garde que les **métriques** (time_entry + CF)
+  et renvoie à la matrice canonique pour le *quand/quoi* de la note. Scope des
+  métriques resserré au commit **de travail**.
+
 ## [1.22.0] - 2026-06-02
 
 ### Ajouté — Note Redmine systématique par commit

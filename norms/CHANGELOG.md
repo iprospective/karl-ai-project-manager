@@ -5,6 +5,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.22.0] - 2026-06-02
+
+### Ajouté — Note Redmine systématique par commit
+
+Un commit rattaché à une tâche s'accompagne désormais **toujours** d'une note
+Redmine human-readable : référence du commit (SHA + URL GitLab), temps + tokens
+de l'incrément, et ce qui a été livré. Comble le trou de la v1.21.0 (les commits
+n'allaient que dans le `.log.md`, invisible des humains, + une time_entry peu
+lisible).
+
+- § « ROI assisté par IA » → « Journalisation par commit » : ajout du bloc
+  « Note Redmine systématique par commit (obligatoire) » + clause anti-spam
+  (regroupement possible de petits WIP rapprochés ; un commit de livraison/jalon
+  garde sa note propre).
+- § « Double traçabilité » : ajout de l'exception systématique « le commit » pour
+  lever l'ambiguïté avec la règle anti-bruit (« pas chaque micro-aller-retour »).
+
 ## [1.21.0] - 2026-06-02
 
 ### Ajouté — Resync config Redmine + documentation temps/tokens dans Redmine

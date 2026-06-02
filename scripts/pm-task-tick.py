@@ -25,6 +25,7 @@ import json
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -41,6 +42,11 @@ FM_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 LOG_THRESHOLD_TOKENS = 1000  # n'append au .log.md que si > seuil
 
 UNTRACKED_LOG = Path.home() / ".claude" / "logs" / "pm-task-tick-untracked.jsonl"
+TURN_START_DIR = Path.home() / ".claude" / "logs"
+# Garde-fou : un tour wall-clock > ce seuil est ignoré (ex: prompt soumis puis
+# attente d'une validation de permission pendant des heures). Évite de polluer
+# ai_time avec des durées absurdes.
+AI_MINUTES_CAP = 240.0
 # Note : pas de sentinel global ~/.claude/current_task — il pose un problème
 # de collision multi-sessions (plusieurs sessions Claude Code en parallèle
 # partagent le même fichier). On utilise uniquement des sentinels par-projet
@@ -243,6 +249,31 @@ def extract_last_response_usage(transcript_path):
     }
 
 
+def consume_turn_minutes(session_id):
+    """Lit + efface le fichier de départ du tour (posé par pm-turn-start).
+
+    Retourne le temps IA wall-clock du tour en minutes (0.0 si absent/invalide).
+    Toujours appelé, même si le tour n'est pas attribuable à un ticket, pour ne
+    pas laisser traîner le fichier de départ.
+    """
+    if not session_id:
+        return 0.0
+    sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(session_id))[:80]
+    p = TURN_START_DIR / f"turn-start-{sid}.json"
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        p.unlink()
+    except (OSError, json.JSONDecodeError, ValueError):
+        return 0.0
+    start = data.get("start_epoch")
+    if not start:
+        return 0.0
+    mins = (time.time() - float(start)) / 60.0
+    if mins < 0 or mins > AI_MINUTES_CAP:
+        return 0.0
+    return round(mins, 2)
+
+
 def run_hook_mode():
     """Lit l'event JSON sur stdin et update le ticket courant."""
     try:
@@ -252,6 +283,8 @@ def run_hook_mode():
 
     cwd = evt.get("cwd") or os.getcwd()
     transcript_path = evt.get("transcript_path")
+    # Toujours consommer le départ de tour (nettoie le fichier même si non-tracké)
+    ai_minutes = consume_turn_minutes(evt.get("session_id"))
 
     rm_id, reason = resolve_current_rm_id(cwd)
     usage = extract_last_response_usage(transcript_path) if transcript_path else None
@@ -267,6 +300,7 @@ def run_hook_mode():
                     "cwd": str(cwd),
                     "session_id": evt.get("session_id"),
                     "usage": usage,
+                    "ai_minutes": ai_minutes,
                 }, f)
                 f.write("\n")
         except OSError:
@@ -287,7 +321,7 @@ def run_hook_mode():
     total = usage["input"] + usage["output"] + usage["cache_read"] + usage["cache_creation"]
     log_entry = (
         f"\n## {ts} — Tick IA ({usage['model']})\n"
-        f"Tokens : {total} | Coût : ${cost:.4f}\n\n"
+        f"Tokens : {total} | Coût : ${cost:.4f} | IA : {ai_minutes} min\n\n"
         f"Détail : input={usage['input']}, output={usage['output']}, "
         f"cache_read={usage['cache_read']}, cache_creation={usage['cache_creation']}\n"
         f"Source : hook Stop ({reason})\n"
@@ -296,7 +330,7 @@ def run_hook_mode():
     ok, msg = update_task_fm(rm_id, {
         "input": usage["input"], "output": usage["output"],
         "cache_read": usage["cache_read"], "cache_creation": usage["cache_creation"],
-        "cost_usd": cost,
+        "cost_usd": cost, "ai_minutes": ai_minutes,
     }, usage["model"], log_entry=log_entry)
     # Hook : pas de stdout (silencieux). Erreurs → stderr (Claude les ignore).
     if not ok:

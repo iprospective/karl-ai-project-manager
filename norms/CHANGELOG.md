@@ -5,6 +5,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.24.0] - 2026-06-02
+
+### Ajouté — Champ `logs.access` (aspect `environments.md`) + convention access logs prod
+
+Ajout du champ `logs.access` à l'aspect `environments.md` (template bumpé en 1.8.0),
+à côté de `logs.app` et `logs.fpm`, pour déclarer l'access log du serveur web par env.
+
+- **Convention prod iProspective (OVH)** désormais documentée (§ Environnements) :
+  les access logs nginx vivent sur le serveur hébergeur à
+  `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`), un fichier par vhost
+  (ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`). Préfixe `<host>:` si distant.
+- Cas d'usage : analyse de la charge de crawl (bots/scrapers), diagnostic de pics,
+  audit des accès.
+- Rétrocompatible : les instances existantes (schema 1.7.0) restent valides ; le champ
+  est optionnel.
+
 ## [1.23.0] - 2026-06-02
 
 ### Modifié — Consolidation traçabilité commit/note (anti-doublon, anti-contradiction)

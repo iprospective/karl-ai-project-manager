@@ -1,5 +1,5 @@
 ---
-schema_version: "1.7.0"
+schema_version: "1.8.0"
 # Liste des environnements de ce projet (ou client si appliqué au niveau client).
 # Chaque env est indépendant — pas tous les projets ont tous les envs.
 environments:
@@ -15,6 +15,7 @@ environments:
     logs:
       app:                     # chemin relatif/absolu, ex: var/logs/dev.log
       fpm:                     # ex: /var/log/php/calicote-74.error.log
+      access:                  # access log nginx, préfixé host si distant — prod OVH : <host>:/var/log/nginx/<domaine>_access.log
     secrets_source:            # vaultwarden://<org>/<collection>/<item>  (ou null)
     notes:                     # ex: "Hot-reload activé, données dé-anonymisées"
   # - name: test

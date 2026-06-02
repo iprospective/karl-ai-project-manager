@@ -12,6 +12,7 @@ import json
 import os
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 
@@ -82,6 +83,47 @@ def fetch_issue(issue_id, include=None):
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} pour issue #{issue_id} : {body.get('_error', '')}")
     return body.get("issue", {})
+
+
+def list_issues(params=None, limit=25, timeout=20):
+    """Liste des issues via `/issues.json` avec filtres Redmine arbitraires.
+
+    `params` : dict de filtres natifs Redmine (ex: {"assigned_to_id": "me",
+    "status_id": "open", "sort": "updated_on:desc"}). `limit` borne le retour.
+    Retourne une liste de dicts issue (vide si aucun). Sys.exit si HTTP != 200.
+    """
+    url, key = redmine_creds()
+    qp = dict(params or {})
+    qp.setdefault("limit", limit)
+    qs = urllib.parse.urlencode(qp)
+    code, body = http_json("GET", f"{url}/issues.json?{qs}", key, timeout=timeout)
+    if code != 200:
+        sys.exit(f"ERREUR Redmine HTTP {code} sur /issues : {body.get('_error', '')}")
+    return body.get("issues", [])
+
+
+def search_issues(query, limit=15, timeout=20):
+    """Recherche plein-texte via `/search.json` (scope issues uniquement).
+
+    Retourne une liste de résultats {id, title, type, url, datetime, description}.
+    Sys.exit si HTTP != 200.
+    """
+    url, key = redmine_creds()
+    qs = urllib.parse.urlencode({"q": query, "issues": 1, "limit": limit})
+    code, body = http_json("GET", f"{url}/search.json?{qs}", key, timeout=timeout)
+    if code != 200:
+        sys.exit(f"ERREUR Redmine HTTP {code} sur /search : {body.get('_error', '')}")
+    return body.get("results", [])
+
+
+def add_issue_note(issue_id, note, timeout=20):
+    """Ajoute une note (journal) à une issue via PUT `notes`. Sys.exit si échec."""
+    url, key = redmine_creds()
+    payload = {"issue": {"notes": note}}
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, timeout=timeout)
+    if code not in (200, 204):
+        sys.exit(f"ERREUR Redmine HTTP {code} sur note de #{issue_id} : {body.get('_error', '')}")
+    return True
 
 
 def set_issue_ia_tag(issue_id, value="IA"):

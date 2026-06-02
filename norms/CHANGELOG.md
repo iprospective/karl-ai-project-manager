@@ -5,6 +5,29 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.21.0] - 2026-06-02
+
+### Ajouté — Resync config Redmine + documentation temps/tokens dans Redmine
+
+Nouvelle section « Synchronisation de la configuration Redmine (obligatoire,
+périodique) » : les IDs Redmine (statuts, trackers, priorités, custom fields,
+activités) sont propres à l'instance et mutables, et référencés en dur (`.env`,
+`knowledge/redmine/api.md`, constantes scripts). Règle de revérification
+périodique contre l'instance live + endpoints `GET` de référence + table des CF
+dédiés actuels. Gap outillage signalé (`redmine-config-check.py` à écrire).
+
+Dans § « ROI assisté par IA », deux sous-sections :
+- « Documentation dans Redmine — champs dédiés » : estimation poussée sur CF 21
+  (`Tokens prévus`), CF 22 (`Temps estimé IA (h)`), `estimated_hours` natif ;
+  cumul sur CF 17 (`Tokens passés`). Estimation établie **à la création**, **à la
+  prise de ticket** si manquante, et réestimée **à la mise à jour de desc** si
+  conséquente.
+- « Journalisation par commit — temps + tokens » : à chaque commit, report du
+  delta consommé depuis le commit précédent en saisie de temps Redmine
+  (`POST /time_entries.json` : `hours`, `activity_id`, CF 16 `Tokens`). Le hook
+  `pm-task-tick` reste la base de mesure. Gap outillage signalé (push Redmine
+  non encore implémenté).
+
 ## [1.20.3] - 2026-06-01
 
 ### Ajouté — Outillage de la hiérarchie parent/enfant

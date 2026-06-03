@@ -27,16 +27,27 @@ custom_fields:
   16: {name: "Tokens",              format: int,         on: time_entry, used_by: "delta tokens par saisie de temps/commit (RM1806)"}
 
 # ── Statuts (status NORMS → id Redmine) ───────────────────────────────────────
-# Source de vérité = redmine-post-note.py::NORMS_TO_REDMINE_STATUS.
-# (api.md contient une version périmée — ferme:resolu=5 n'existe plus en live.)
+# Source canonique = NORMS.md § « Synchronisation des statuts MD ↔ Redmine »
+# (table NORMS↔Redmine). Les scripts (redmine-post-note, pm-task-status-update)
+# lisent ce bloc via redmine_utils.status_map() — ne plus hardcoder ailleurs.
 statuses:
   a_etudier_chiffrer:       8    # "A étudier / Qualifier"
   etude_chiffrage_en_cours: 14   # "Etude en cours"
   a_faire:                  12   # "A Faire"
   en_cours:                 2    # "En cours"
-  a_tester_verifier:        9    # "A tester/vérifier demandeur"
+  a_tester_dev:             19   # "A tester/vérifier dev"        (test par testeur ≠ dev)
+  a_tester_demandeur:       9    # "A tester/vérifier demandeur"  (validation par l'author)
+  a_mep:                    3    # "Résolu/Validé/A MEP"          (non terminal ≠ ferme)
+  en_mep:                   20   # "MEP/Tester en preprod"
+  en_pause:                 13   # "Attente retour / en pause"
   a_corriger:               11   # "A corriger/finir"
-  ferme:                    18   # "Fermé" (seul statut clos)
+  ferme:                    18   # "Fermé"  (seul statut clos ; la nuance de raison
+                                 #  est portée par le CF 11 « Raison Fermé »)
+
+# Alias dépréciés (acceptés en lecture, normalisés vers le statut canonique).
+# `a_tester_verifier` (≤ NORMS v1.18.0) → `a_tester_demandeur`.
+status_aliases:
+  a_tester_verifier: a_tester_demandeur
 
 # ── Trackers (type NORMS → id) ────────────────────────────────────────────────
 # Source de vérité = pm-task-add.py::TYPE_TO_TRACKER.

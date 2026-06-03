@@ -6,12 +6,14 @@ Usage :
     pm-task-status-update.py 1670 en_cours                    # auto-assign à karl (cf. NORMS § Prise en charge)
     pm-task-status-update.py 1670 en_cours --no-assign        # désactive l'auto-assign
     pm-task-status-update.py 1670 en_cours --assign-to 5      # assigne à user 5 explicitement
-    pm-task-status-update.py 1670 a_tester_verifier
+    pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
+    pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
 
-Statuts NORMS valides :
+Statuts NORMS valides (source : redmine.reference.yml) :
     a_etudier_chiffrer | etude_chiffrage_en_cours | a_faire | en_cours
-    a_tester_verifier | a_corriger | ferme
+    a_tester_dev | a_tester_demandeur | a_mep | en_mep | en_pause | a_corriger | ferme
+    (alias déprécié accepté : a_tester_verifier → a_tester_demandeur)
 
 close_reason (si --status ferme) :
     resolu | abandonne | wont_fix | hors_perimetre | invalide | doublon
@@ -34,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import redmine_utils
 
 try:
     import yaml
@@ -67,10 +70,10 @@ def load_ia_manager():
 IA_MANAGER = load_ia_manager()
 
 
-VALID_STATUSES = {
-    "a_etudier_chiffrer", "etude_chiffrage_en_cours", "a_faire", "en_cours",
-    "a_tester_verifier", "a_corriger", "ferme",
-}
+# Statuts NORMS acceptés (canoniques + alias dépréciés) — source unique
+# redmine.reference.yml via redmine_utils. Couvre le couple a_tester_dev /
+# a_tester_demandeur (cf. NORMS § Synchronisation des statuts) + a_mep/en_mep/en_pause.
+VALID_STATUSES = redmine_utils.valid_statuses()
 VALID_CLOSE_REASONS = {"resolu", "abandonne", "wont_fix", "hors_perimetre", "invalide", "doublon"}
 
 # Ligne de checklist Markdown non cochée dans la description.
@@ -226,7 +229,7 @@ def main():
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
     ap.add_argument("--allow-unchecked", action="store_true",
-                    help="Autorise le passage en a_tester_verifier / ferme:resolu même si la "
+                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
                          "description contient des items de checklist non cochés (sinon bloqué — "
                          "NORMS § màj description : cocher au fil de l'eau).")
     ap.add_argument("--dry-run", action="store_true")
@@ -234,6 +237,12 @@ def main():
 
     if args.status not in VALID_STATUSES:
         sys.exit(f"ERREUR : statut invalide '{args.status}'. Valides : {sorted(VALID_STATUSES)}")
+    # Normalise les alias dépréciés (a_tester_verifier → a_tester_demandeur) pour
+    # que frontmatter, status_history et Redmine enregistrent la forme canonique.
+    canon_status = redmine_utils.normalize_status(args.status)
+    if canon_status != args.status:
+        print(f"  · statut déprécié '{args.status}' normalisé → '{canon_status}'", file=sys.stderr)
+        args.status = canon_status
     if args.status == "ferme" and not args.close_reason:
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
     if args.close_reason and args.close_reason not in VALID_CLOSE_REASONS:
@@ -292,7 +301,9 @@ def main():
     # Garde-fou checklist (NORMS § màj description) : on ne passe pas une tâche en
     # vérification / clôture-résolue avec des items de checklist non cochés dans la
     # description. La checklist doit être tenue à jour au fil de l'eau.
-    gate_status = args.status == "a_tester_verifier" or (args.status == "ferme" and args.close_reason == "resolu")
+    # NORMS § màj description : gate sur a_tester_demandeur, a_mep, ferme:resolu.
+    gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
+        args.status == "ferme" and args.close_reason == "resolu")
     if gate_status and issue and not args.allow_unchecked:
         n_unchecked = count_unchecked(issue.get("description"))
         if n_unchecked:
@@ -310,8 +321,12 @@ def main():
     #   2. status=en_cours sans flag explicite → 'me' par défaut
     #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
     #      indissociable de en_cours). --no-assign pour outrepasser.
-    #   3. status=a_tester_verifier → override vers Manager IA si author=karl
-    #      (préserve la logique pré-existante, RM1734).
+    #   3. status=a_tester_demandeur ou a_mep → override vers Manager IA / author
+    #      (NORMS § « Règle d'attribution Redmine », RM1734).
+    #      a_tester_dev / en_mep / a_corriger → pas de défaut (testeur ≠ dev,
+    #      testeur preprod humain, worker précédent) : attribution manuelle via
+    #      --assign-to tant que l'orchestrateur n'est pas en place.
+    #      en_pause / ferme → conserver l'attribution courante.
     #
     # `assign_override_value` est la valeur passée à redmine-post-note --assign-to
     # (peut être 'me' / 'author' / '<id>'). `assigned_to_id` est l'int résolu
@@ -323,13 +338,16 @@ def main():
         assign_override_value = "me"
         print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
               "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
-    elif args.status == "a_tester_verifier" and target:
-        # redmine-post-note assigne par défaut à l'author pour a_tester_verifier.
-        # On rend cette assignation explicite ici pour que MD frontmatter
-        # `assigned_to` reflète la réalité Redmine.
+    elif args.status in ("a_tester_demandeur", "a_mep") and target:
+        # NORMS : a_tester_demandeur → demandeur (author) ; author==karl → Manager IA.
+        #         a_mep → responsable MEP/intégration (par défaut Manager IA).
+        # On rend l'assignation explicite ici pour que MD frontmatter `assigned_to`
+        # reflète la réalité Redmine.
         _, target_uid, _ = target
         author_id = (issue or {}).get("author", {}).get("id")
-        if target_uid and target_uid != author_id:
+        if args.status == "a_mep":
+            assign_override_value = str(IA_MANAGER["redmine_id"])
+        elif target_uid and target_uid != author_id:
             assign_override_value = str(target_uid)
         elif author_id:
             assign_override_value = "author"

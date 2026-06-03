@@ -14,6 +14,92 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from pathlib import Path
+
+_REFERENCE_FILE = Path(__file__).resolve().parent.parent / "redmine.reference.yml"
+_REFERENCE_CACHE = None
+
+# Fallback minimal si redmine.reference.yml est introuvable/illisible — garde les
+# transitions critiques fonctionnelles même sans le fichier de référence.
+_FALLBACK_STATUS_IDS = {
+    "a_etudier_chiffrer": 8, "etude_chiffrage_en_cours": 14, "a_faire": 12,
+    "en_cours": 2, "a_tester_dev": 19, "a_tester_demandeur": 9, "a_mep": 3,
+    "en_mep": 20, "en_pause": 13, "a_corriger": 11, "ferme": 18,
+}
+_FALLBACK_STATUS_ALIASES = {"a_tester_verifier": "a_tester_demandeur"}
+# Raisons de fermeture → toutes vers le statut `ferme` (id porté par la réf).
+_CLOSE_REASONS = ("resolu", "abandonne", "wont_fix", "hors_perimetre", "invalide", "doublon")
+
+
+def load_reference():
+    """Charge redmine.reference.yml (les IDs Redmine bindés). Cache mémoire.
+
+    Retourne un dict (sections custom_fields/statuses/status_aliases/trackers/
+    priorities/activities) ou {} si le fichier est absent/illisible (les helpers
+    retombent alors sur leurs fallbacks).
+    """
+    global _REFERENCE_CACHE
+    if _REFERENCE_CACHE is not None:
+        return _REFERENCE_CACHE
+    try:
+        import yaml
+        _REFERENCE_CACHE = yaml.safe_load(_REFERENCE_FILE.read_text(encoding="utf-8")) or {}
+    except Exception:  # OSError, ImportError, yaml.YAMLError → fallback silencieux
+        _REFERENCE_CACHE = {}
+    return _REFERENCE_CACHE
+
+
+def cf_id_by_name(name):
+    """ID du custom field nommé `name` d'après la référence, ou None."""
+    for cid, spec in (load_reference().get("custom_fields") or {}).items():
+        if isinstance(spec, dict) and spec.get("name") == name:
+            return cid
+    return None
+
+
+def status_aliases():
+    """Mapping {statut_déprécié: statut_canonique} depuis la référence (+ fallback)."""
+    ref = load_reference().get("status_aliases")
+    return dict(ref) if isinstance(ref, dict) and ref else dict(_FALLBACK_STATUS_ALIASES)
+
+
+def normalize_status(status):
+    """Normalise un statut NORMS (résout les alias dépréciés). Idempotent."""
+    if not status:
+        return status
+    base, _, reason = status.partition(":")
+    canon = status_aliases().get(base, base)
+    return f"{canon}:{reason}" if reason else canon
+
+
+def status_ids():
+    """Mapping {statut_NORMS_canonique: id_Redmine} depuis la référence (+ fallback)."""
+    ref = load_reference().get("statuses")
+    return dict(ref) if isinstance(ref, dict) and ref else dict(_FALLBACK_STATUS_IDS)
+
+
+def status_map():
+    """Mapping complet {statut_ou_variante: id_Redmine} pour POST/PUT Redmine.
+
+    Inclut : les statuts canoniques, les alias dépréciés, et les variantes
+    `ferme:<raison>` (toutes vers l'id du statut `ferme`). C'est la table que
+    redmine-post-note.py consomme.
+    """
+    ids = status_ids()
+    out = dict(ids)
+    ferme_id = ids.get("ferme")
+    if ferme_id is not None:
+        for reason in _CLOSE_REASONS:
+            out[f"ferme:{reason}"] = ferme_id
+    for alias, canon in status_aliases().items():
+        if canon in ids:
+            out[alias] = ids[canon]
+    return out
+
+
+def valid_statuses():
+    """Ensemble des statuts NORMS acceptés en écriture (canoniques + alias dépréciés)."""
+    return set(status_ids()) | set(status_aliases())
 
 
 def redmine_creds():

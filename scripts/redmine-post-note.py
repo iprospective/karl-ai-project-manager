@@ -9,14 +9,18 @@ Usage :
     ./scripts/redmine-post-note.py --issue 42 --note "Fait" --status 3   # 3 = Resolved
     ./scripts/redmine-post-note.py --issue 42 --note "Bloqué" --status 2 # 2 = In Progress
 
-Statuts Redmine de l'instance iprospective (après consolidation RM1742) :
-    8 = A étudier / Qualifier    (NORMS a_etudier_chiffrer)
-   14 = Etude en cours           (NORMS etude_chiffrage_en_cours)
-   12 = A Faire                  (NORMS a_faire)
-    2 = En cours                 (NORMS en_cours)
-    9 = A tester/vérifier        (NORMS a_tester_verifier)
-   11 = A corriger               (NORMS a_corriger)
-   18 = Fermé                    (NORMS ferme, raison portée par CF Raison Fermé id=11)
+Statuts Redmine de l'instance iprospective (source : redmine.reference.yml) :
+    8 = A étudier / Qualifier       (NORMS a_etudier_chiffrer)
+   14 = Etude en cours              (NORMS etude_chiffrage_en_cours)
+   12 = A Faire                     (NORMS a_faire)
+    2 = En cours                    (NORMS en_cours)
+   19 = A tester/vérifier dev       (NORMS a_tester_dev)
+    9 = A tester/vérifier demandeur (NORMS a_tester_demandeur ; alias déprécié a_tester_verifier)
+    3 = Résolu/Validé/A MEP         (NORMS a_mep — non terminal)
+   20 = MEP/Tester en preprod       (NORMS en_mep)
+   13 = Attente retour / en pause   (NORMS en_pause)
+   11 = A corriger/finir            (NORMS a_corriger)
+   18 = Fermé                       (NORMS ferme, raison portée par CF Raison Fermé id=11)
 
 CF Raison Fermé (id=11, enumeration) valeurs :
    10 = Résolu              (NORMS close_reason: resolu)
@@ -34,25 +38,24 @@ import sys
 from pathlib import Path
 from urllib import error, request
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-# Statuts Redmine (instance iprospective) après consolidation RM1742 :
-# un seul statut terminal `Fermé` (id=18), la raison est portée par le CF
-# 'Raison Fermé' (id=11, format enumeration).
-NORMS_TO_REDMINE_STATUS = {
-    "a_etudier_chiffrer": 8,
-    "etude_chiffrage_en_cours": 14,
-    "a_faire": 12,
-    "en_cours": 2,
-    "a_tester_verifier": 9,
-    "a_corriger": 11,
-    "ferme": 18,
-    "ferme:resolu": 18,
-    "ferme:abandonne": 18,
-    "ferme:wont_fix": 18,
-    "ferme:hors_perimetre": 18,
-    "ferme:invalide": 18,
-    "ferme:doublon": 18,
-}
+# Statuts Redmine (instance iprospective) — table NORMS → id chargée depuis la
+# source unique `redmine.reference.yml` (via redmine_utils.status_map()), qui
+# inclut les variantes `ferme:<raison>` et les alias dépréciés. Un seul statut
+# terminal `Fermé` (id=18), la raison est portée par le CF 'Raison Fermé' (id=11).
+try:
+    from redmine_utils import status_map as _status_map
+    NORMS_TO_REDMINE_STATUS = _status_map()
+except Exception:  # réf indisponible → fallback hardcodé (transitions critiques)
+    NORMS_TO_REDMINE_STATUS = {
+        "a_etudier_chiffrer": 8, "etude_chiffrage_en_cours": 14, "a_faire": 12,
+        "en_cours": 2, "a_tester_dev": 19, "a_tester_demandeur": 9, "a_mep": 3,
+        "en_mep": 20, "en_pause": 13, "a_corriger": 11, "ferme": 18,
+        "a_tester_verifier": 9,  # alias déprécié
+        "ferme:resolu": 18, "ferme:abandonne": 18, "ferme:wont_fix": 18,
+        "ferme:hors_perimetre": 18, "ferme:invalide": 18, "ferme:doublon": 18,
+    }
 
 # Mapping NORMS close_reason → CF 'Raison Fermé' (id=11) value (enumeration id).
 # Asymétrie : wont_fix et hors_perimetre partagent la même valeur Rejeté

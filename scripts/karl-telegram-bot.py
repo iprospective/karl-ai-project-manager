@@ -509,6 +509,41 @@ def _safe(token, chat_id, fn):
         send(token, chat_id, f"Erreur : {e}")
 
 
+# ───────────────────────────── Offset persistant ────────────────────────────
+# L'offset getUpdates est persisté sur disque : au redémarrage le bot reprend là
+# où il s'était arrêté, sans re-traiter ni sauter d'updates. (Telegram garde les
+# updates non confirmés ~24 h, donc une perte du fichier reste récupérable.)
+
+def _offset_file():
+    base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+    return Path(base) / "karl-telegram-bot" / "offset"
+
+
+def load_offset():
+    """Lit l'offset persisté, ou None si absent/illisible."""
+    try:
+        return int(_offset_file().read_text(encoding="utf-8").strip())
+    except (FileNotFoundError, ValueError):
+        return None
+    except Exception as e:
+        print(f"  ⚠ lecture offset échouée ({e}) — repart de zéro")
+        return None
+
+
+def save_offset(offset):
+    """Persiste l'offset (écriture atomique). Best-effort, non fatal."""
+    if offset is None:
+        return
+    f = _offset_file()
+    try:
+        f.parent.mkdir(parents=True, exist_ok=True)
+        tmp = f.with_suffix(".tmp")
+        tmp.write_text(str(offset), encoding="utf-8")
+        tmp.replace(f)
+    except Exception as e:
+        print(f"  ⚠ persistance offset échouée ({e}) — on continue")
+
+
 # ─────────────────────────────────── Main ───────────────────────────────────
 
 def gen_password_hash():
@@ -546,7 +581,7 @@ def main():
         pass
 
     bot = {"token": token, "whitelist": whitelist, "lock": lock, "cfg_pm": cfg_pm,
-           "manager_id": manager_id, "start": time.time(), "version": "v0.3"}
+           "manager_id": manager_id, "start": time.time(), "version": "v0.4"}
 
     me = tg(token, "getMe")["result"]
     print(f"✓ Bot connecté : @{me.get('username')} ({me.get('first_name')})")
@@ -557,9 +592,9 @@ def main():
     else:
         print("  Verrou : DÉSACTIVÉ — configure TELEGRAM_LOCK_PASSWORD_HASH "
               "(python3 scripts/karl-telegram-bot.py --hash-password)")
-    print("  Long-polling… (Ctrl-C pour arrêter)")
+    offset = load_offset()
+    print(f"  Long-polling… (offset repris : {offset}) (Ctrl-C pour arrêter)")
 
-    offset = None
     while True:
         try:
             resp = tg(token, "getUpdates", offset=offset, timeout=30)
@@ -569,6 +604,9 @@ def main():
             continue
         for upd in resp.get("result", []):
             offset = upd["update_id"] + 1
+            # On confirme l'update (offset persisté) AVANT de le traiter : même si
+            # le handler crashe, on ne le rejouera pas en boucle au redémarrage.
+            save_offset(offset)
             msg = upd.get("message") or upd.get("edited_message")
             if not msg or "text" not in msg:
                 continue

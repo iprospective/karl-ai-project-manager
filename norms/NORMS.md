@@ -1,9 +1,9 @@
 ---
-schema_version: "1.25.0"
+schema_version: "1.26.0"
 updated: 2026-06-03
 ---
 
-# Normes de gestion des tâches — v1.25.0
+# Normes de gestion des tâches — v1.26.0
 
 ## Configuration globale
 
@@ -1126,7 +1126,7 @@ revalider via le § « Synchronisation de la configuration Redmine »).
 **Cumul effectif → poussé sur le ticket :** CF **17** `Tokens passés` reflète
 `tokens_total` du frontmatter (recalé à chaque mise à jour Redmine).
 
-### Journalisation par commit — temps + tokens consommés (obligatoire) — v1.21.0
+### Journalisation par commit — temps + tokens consommés (obligatoire) — v1.21.0, convention activités + outillage v1.26.0
 
 Le hook `pm-task-tick` (déclenché à chaque fin de réponse Claude) reste
 **nécessaire** : il mesure et accumule en continu tokens + temps IA dans le
@@ -1140,13 +1140,34 @@ depuis le commit précédent, sous forme d'une **saisie de temps**
 
 - `issue_id` = le ticket ; `spent_on` = date du commit
 - `hours` = temps IA wall-clock écoulé depuis le dernier commit (delta de
-  `ai_time_total_minutes` ÷ 60)
-- `activity_id` = activité Redmine correspondant au type de travail (cf.
-  `GET /enumerations/time_entry_activities.json` ; ex. `Développement/Debug`,
-  `SysAdmin/Conf/Debug`, `Audit/Analyse`)
+  `ai_time_total_minutes` ÷ 60). `hours=0` est **accepté** par l'instance —
+  une étape sans temps mesuré reste donc une saisie datée valide (le tokens du
+  delta, lui, est toujours porté par le CF 16).
+- `activity_id` = **nature** du travail, dérivée du `type` de la tâche selon la
+  **convention canonique ci-dessous** (≠ le tracker, qui encode la *catégorie*
+  de ticket). Résolution outillée : `redmine_utils.activity_for_type(type)`.
 - CF **16** `Tokens` = tokens consommés depuis le dernier commit (delta de
   `tokens_total`)
 - commentaire = le hash + sujet du commit (lien `git.*`)
+
+**Convention `type` de tâche → activité de temps Redmine** (source unique :
+`redmine.reference.yml :: type_to_activity` ; surchargagle par saisie via
+`pm-task-report.py --activity <id>`) :
+
+| `type` NORMS | Activité Redmine | id | Nature |
+|---|---|---|---|
+| `feature` | `Developpement/Feature` | 31 | écrire une fonctionnalité neuve |
+| `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
+| `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
+| `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
+| `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
+| `assistance` | `Assistance` | 11 | aide / support ponctuel |
+| `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
+
+> La résolution se fait au grain **tâche** (par son `type`). La refacto ou la
+> feature qui vit *dans* un commit d'un ticket d'un autre type ne sera taguée
+> finement qu'avec le futur **mode incrémental par commit**, où chaque commit
+> pourra déclarer sa propre nature (override `--activity` en attendant).
 
 Après le report, le CF **17** `Tokens passés` du ticket est resynchronisé sur
 le cumul, et l'entrée est tracée dans le `.log.md` (cf. § « Référencer un commit »).
@@ -1157,11 +1178,20 @@ la réf du commit. Le *quand* et le *quoi* de cette note sont définis **une seu
 fois**, dans la matrice canonique § « Unité de traçabilité : l'étape
 significative » — ne pas les redéfinir ici.
 
-> **Outillage souhaité (gap connu)** : aujourd'hui `pm-task-tick` n'écrit que
-> dans le MD/log et **ne pousse rien vers Redmine**. Le report par commit
-> (estimation→CF, delta→time_entry, cumul→CF 17) reste à outiller — cible :
-> hook `post-commit` ou option de `pm-task-tick`/`pm-task-add`. En attendant,
-> report manuel via l'API.
+**Outillage : `scripts/pm-task-report.py`** (RM1819). Lit le frontmatter +
+`.log.md` d'un ticket (`--rm-id`) ou de tous (`--all`), et pousse vers Redmine :
+une **time_entry datée par entrée `Tokens :` du log** (`spent_on`, `hours` =
+temps IA, CF 16 = tokens, `activity_id` selon la convention ci-dessus,
+comments = titre de l'entrée), puis **resync CF 17** = `tokens_total`.
+Idempotent : le `time_entry.id` de chaque saisie est historisé dans le bloc
+`reporting.time_entries[]` du frontmatter (clé de dédup `<ts>#<tokens>`), un
+re-run ne crée pas de doublon. Dry-run par défaut, `--apply` pour exécuter.
+
+> **Reste à outiller (gap résiduel)** : le déclenchement **automatique au
+> commit** (hook `post-commit` calculant le delta depuis le dernier report).
+> Aujourd'hui `pm-task-report.py` se lance à la main / par lot. Le mode
+> incrémental fin (un time_entry par commit, avec nature de travail déclarée
+> par commit) viendra dessus.
 
 ## Liens entre tâches
 

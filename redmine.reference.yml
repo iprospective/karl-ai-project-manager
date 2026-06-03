@@ -17,14 +17,36 @@
 instance: https://tasks.iprospective.fr
 
 # ── Custom fields (id → définition attendue) ──────────────────────────────────
-# `on` = customized_type Redmine (issue | time_entry | group).
+# `type` = customized_type Redmine (issue | time_entry | group).
+# NB : ne pas nommer cette clé `on` — YAML 1.1 la parse comme le booléen True.
 custom_fields:
-  15: {name: "IA",                  format: list,        on: issue,      used_by: "REDMINE_CF_IA_ID (.env) ; filtrage IA (NORMS)"}
-  11: {name: "Raison Fermé",        format: enumeration, on: issue,      used_by: "CF_RAISON_FERME_ID ; close_reason (redmine-post-note, pm-task-sync)"}
-  17: {name: "Tokens passés",       format: int,         on: issue,      used_by: "cumul tokens_total (RM1806)"}
-  21: {name: "Tokens prévus",       format: int,         on: issue,      used_by: "estimate.tokens (RM1806)"}
-  22: {name: "Temps estimé IA (h)", format: float,       on: issue,      used_by: "estimate.ai_time_minutes ÷ 60 (RM1806)"}
-  16: {name: "Tokens",              format: int,         on: time_entry, used_by: "delta tokens par saisie de temps/commit (RM1806)"}
+  15: {name: "IA",                  format: list,        type: issue,      used_by: "REDMINE_CF_IA_ID (.env) ; filtrage IA (NORMS)"}
+  11: {name: "Raison Fermé",        format: enumeration, type: issue,      used_by: "CF_RAISON_FERME_ID ; close_reason (redmine-post-note, pm-task-sync)"}
+  17: {name: "Tokens passés",       format: int,         type: issue,      used_by: "cumul tokens_total (RM1806)"}
+  21: {name: "Tokens prévus",       format: int,         type: issue,      used_by: "estimate.tokens (RM1806)"}
+  22: {name: "Temps estimé IA (h)", format: float,       type: issue,      used_by: "estimate.ai_time_minutes ÷ 60 (RM1806)"}
+  25: {name: "LLM prévu",           format: enumeration, type: issue,      used_by: "estimate.estimated_model → palier (RM1806 ; cf. llm_tiers)"}
+  16: {name: "Tokens",              format: int,         type: time_entry, used_by: "delta tokens par saisie de temps/commit (RM1806)"}
+
+# ── CF25 « LLM prévu » — paliers de capacité (énumération) ─────────────────────
+# Valeurs d'énumération Redmine (value id → label) et mapping depuis le nom de
+# modèle de `estimate.estimated_model`. `model_match` : sous-chaîne (casse
+# insensible) du nom de modèle → value id. Premier match gagne ; sinon CF25 non
+# poussé (warning).
+llm_tiers:
+  values:
+    34: "Very High (Opus...)"
+    35: "High (Mistral mediium, Sonnet...)"
+    36: "Medium (DeepSeek...)"
+    37: "Light (Qwen 27b)"
+    38: "Very Light (Quen 4b)"
+  model_match:
+    opus:     34
+    sonnet:   35
+    haiku:    36
+    deepseek: 36
+    mistral:  35
+    qwen:     37
 
 # ── Statuts (status NORMS → id Redmine) ───────────────────────────────────────
 # Source canonique = NORMS.md § « Synchronisation des statuts MD ↔ Redmine »
@@ -66,10 +88,31 @@ priorities:
   urgent: 4   # "Urgent"
 
 # ── Activités de saisie de temps (id → nom) ───────────────────────────────────
-# Utilisées par RM1806 pour qualifier le time_entry d'un commit selon le type de
-# travail. Seules les activités effectivement choisies par l'outillage figurent ici.
+# Utilisées par RM1806/RM1819 pour qualifier le time_entry d'un commit selon le
+# type de travail. Seules les activités effectivement choisies par l'outillage
+# figurent ici.
 activities:
-  9:  "Développement"
-  16: "Développement/Debug"
+  9:  "Développement"               # dev générique (ni feature/refacto/debug ciblé)
+  31: "Developpement/Feature"       # fonctionnalité neuve (créée RM1819 ; nom sans accent côté instance)
+  16: "Développement/Debug"         # correction de défaut
+  30: "Développement/Refacto/Clean" # refacto / nettoyage de code (créée RM1819)
   13: "SysAdmin/Conf/Debug"
   10: "Audit/Analyse"
+  11: "Assistance"
+  18: "Autre"
+
+# ── Convention type de tâche NORMS → activité de temps (RM1819) ────────────────
+# Quand un report de temps (time_entry) est créé pour un commit / une étape, son
+# `activity_id` est dérivé du `type` de la tâche selon cette table. Cohérente
+# avec le travail réel de karl (l'agent) : la *nature* du travail, distincte du
+# *tracker* (qui encode la catégorie de ticket). Source unique : ne pas
+# redupliquer en dur — `redmine_utils.activity_for_type()` lit ce bloc (fallback
+# `autre`). Surchargagle par saisie via `pm-task-report.py --activity <id>`.
+type_to_activity:
+  feature:        31   # Developpement/Feature        — écrire une fonctionnalité neuve
+  bugfix:         16   # Développement/Debug          — corriger un défaut
+  maintenance:    30   # Développement/Refacto/Clean  — refacto, nettoyage, entretien
+  infrastructure: 13   # SysAdmin/Conf/Debug          — déploiement, conteneurs, systemd, conf
+  research:       10   # Audit/Analyse                — investigation, audit, exploration
+  assistance:     11   # Assistance                   — aide / support ponctuel
+  autre:          18   # Autre                        — fourre-tout (défaut)

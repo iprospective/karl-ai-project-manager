@@ -407,6 +407,17 @@ def main():
         else:
             send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target)
 
+    # 6. Prise de ticket (→ en_cours) : pousse l'estimation vers Redmine si elle
+    # ne l'a jamais été (NORMS § ROI « estimer à la prise de ticket si manquante »).
+    if args.status == "en_cours" and not (fm.get("metrics") or {}).get("estimate_pushed_at"):
+        est = fm.get("estimate") or {}
+        if any(est.get(k) is not None for k in ("tokens", "ai_time_minutes", "human_time_minutes", "estimated_model")):
+            r2 = subprocess.run(
+                [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
+                 "--rm-id", str(args.rm_id), "--estimate"], check=False)
+            if r2.returncode != 0:
+                print(f"  ⚠ push estimation à la prise échoué (exit {r2.returncode})", file=sys.stderr)
+
 
 if __name__ == "__main__":
     main()

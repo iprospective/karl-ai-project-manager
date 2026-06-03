@@ -57,6 +57,28 @@ def cf_id_by_name(name):
     return None
 
 
+# Fallback si la référence est absente/incomplète (cf. redmine.reference.yml ::
+# type_to_activity, source de vérité). Garde la convention vivante hors-fichier.
+#   31 Developpement/Feature · 16 Développement/Debug · 30 Développement/Refacto/Clean
+#   13 SysAdmin/Conf/Debug · 10 Audit/Analyse · 11 Assistance · 18 Autre
+_FALLBACK_TYPE_TO_ACTIVITY = {
+    "feature": 31, "bugfix": 16, "maintenance": 30, "infrastructure": 13,
+    "research": 10, "assistance": 11, "autre": 18,
+}
+_DEFAULT_ACTIVITY_ID = 18  # "Autre"
+
+
+def activity_for_type(task_type):
+    """Activité de temps Redmine (id) pour un `type` de tâche NORMS.
+
+    Lit `type_to_activity` de la référence (source unique), retombe sur la table
+    fallback puis sur 18 « Autre ». Cf. NORMS § « Journalisation par commit ».
+    """
+    key = (task_type or "").strip().lower()
+    mapping = load_reference().get("type_to_activity") or _FALLBACK_TYPE_TO_ACTIVITY
+    return mapping.get(key, _FALLBACK_TYPE_TO_ACTIVITY.get(key, _DEFAULT_ACTIVITY_ID))
+
+
 def status_aliases():
     """Mapping {statut_déprécié: statut_canonique} depuis la référence (+ fallback)."""
     ref = load_reference().get("status_aliases")
@@ -242,6 +264,60 @@ def add_issue_note(issue_id, note, timeout=20):
     return True
 
 
+def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
+                        notes=None, timeout=20):
+    """PUT générique sur une issue : custom_fields + estimated_hours + note.
+
+    `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
+    Redmine). `notes` : str optionnel (journalise le changement). N'envoie que les
+    attributs fournis. Retourne (ok: bool, err: str).
+
+    ⚠ Piège permissions (cf. knowledge/redmine/api.md) : sans « Edit issues »,
+    Redmine renvoie 204 mais *drop* silencieusement les attributs ≠ notes. Ce
+    helper ne re-vérifie pas ; l'appelant le fait s'il a besoin de la garantie.
+    """
+    url, key = redmine_creds()
+    issue = {}
+    if custom_fields:
+        issue["custom_fields"] = custom_fields
+    if estimated_hours is not None:
+        issue["estimated_hours"] = estimated_hours
+    if notes:
+        issue["notes"] = notes
+    if not issue:
+        return True, ""
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,
+                           {"issue": issue}, timeout=timeout)
+    if code not in (200, 204):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+    return True, ""
+
+
+def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
+                      comments=None, custom_fields=None, timeout=20):
+    """Crée une saisie de temps (`POST /time_entries.json`) sur une issue.
+
+    `hours` : float (> 0 attendu côté Redmine). `activity_id` : id d'activité
+    (cf. redmine.reference.yml :: activities). `spent_on` : 'YYYY-MM-DD' (défaut
+    aujourd'hui côté Redmine si None). `comments` : str. `custom_fields` :
+    list[{id, value}] (ex: CF 16 Tokens). Retourne (ok, time_entry_id_or_err).
+    """
+    url, key = redmine_creds()
+    entry = {"issue_id": issue_id, "hours": round(float(hours), 2),
+             "activity_id": activity_id}
+    if spent_on:
+        entry["spent_on"] = spent_on
+    if comments:
+        entry["comments"] = comments
+    if custom_fields:
+        entry["custom_fields"] = custom_fields
+    code, body = http_json("POST", f"{url}/time_entries.json", key,
+                           {"time_entry": entry}, timeout=timeout)
+    if code not in (200, 201):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+    return True, body.get("time_entry", {}).get("id")
+
+
 def set_issue_ia_tag(issue_id, value="IA"):
     """Set le CF IA sur un ticket. `value=''` ou `None` retire le tag."""
     cf_id = get_ia_cf_id()
@@ -271,7 +347,8 @@ def set_issue_parent(issue_id, parent_id):
 
 def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
                          description="", author_id=None, tag_ia=True,
-                         extra_custom_fields=None, parent_issue_id=None, timeout=20):
+                         extra_custom_fields=None, parent_issue_id=None,
+                         status_id=None, timeout=20):
     """Crée un ticket Redmine côté PM (POST + CF IA + PUT author optionnel).
 
     Source unique de vérité pour la création de tickets depuis le système PM.
@@ -293,6 +370,12 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
         extra_custom_fields: list[{id, value}] — CFs additionnels (ex: target_env).
         parent_issue_id: int|None — si fourni, crée l'issue comme enfant de ce
             ticket (attribut natif Redmine `parent_issue_id`).
+        status_id: int|None — statut Redmine initial. Si None (défaut), résolu
+            vers `a_faire` (le statut initial canonique de la state-machine
+            NORMS). Sans ça, Redmine retombe sur le statut par défaut du tracker
+            (« Nouveau », id 1) qui est HORS state-machine PM → divergence avec
+            le MD qui pose toujours `a_faire`. Passer un id explicite pour créer
+            directement dans une autre phase (ex. `a_etudier_chiffrer`).
 
     Returns:
         int : rm_id du ticket créé.
@@ -312,6 +395,12 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
     }
     if parent_issue_id is not None:
         payload_issue["parent_issue_id"] = parent_issue_id
+    # Statut initial : a_faire par défaut (jamais « Nouveau » du tracker, qui
+    # est hors state-machine NORMS et diverge du MD posé par les callers).
+    if status_id is None:
+        status_id = status_ids().get("a_faire")
+    if status_id is not None:
+        payload_issue["status_id"] = status_id
     custom_fields = list(extra_custom_fields or [])
     if tag_ia:
         cf_ia_id = get_ia_cf_id()

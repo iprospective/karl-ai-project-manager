@@ -96,10 +96,43 @@ def check_custom_fields(ref, live, drifts):
             drifts.append(_drift("custom_fields", cf_id, spec["format"], item.get("field_format"),
                                  "format_changed",
                                  f"CF {cf_id} ({exp_name!r}) : format {spec['format']} → {item.get('field_format')}"))
-        if spec.get("on") and item.get("customized_type") != spec["on"]:
-            drifts.append(_drift("custom_fields", cf_id, spec["on"], item.get("customized_type"),
+        if spec.get("type") and item.get("customized_type") != spec["type"]:
+            drifts.append(_drift("custom_fields", cf_id, spec["type"], item.get("customized_type"),
                                  "type_changed",
-                                 f"CF {cf_id} ({exp_name!r}) : customized_type {spec['on']} → {item.get('customized_type')}"))
+                                 f"CF {cf_id} ({exp_name!r}) : customized_type {spec['type']} → {item.get('customized_type')}"))
+
+
+def check_cf_trackers(ref, live, drifts):
+    """Avertit si un CF *issue* bindé n'est associé à aucun (ou pas tous) les trackers.
+
+    Un CF issue non associé à un tracker est *silencieusement ignoré* par Redmine
+    au PUT/POST sur un ticket de ce tracker (cf. CF22 'Temps estimé IA' constaté
+    sans aucun tracker). Le trou n'est visible qu'ici, pas à l'écriture.
+    """
+    # Noms de trackers attendus = ceux référencés dans ref.trackers (issue trackers).
+    live_trk = live["trackers"]
+    expected = {live_trk[tid]["name"] for tid in (ref.get("trackers") or {}).values()
+                if tid in live_trk}
+    if not expected:
+        return
+    live_cf = live["custom_fields"]
+    for cf_id, spec in (ref.get("custom_fields") or {}).items():
+        if not isinstance(spec, dict) or spec.get("type") != "issue":
+            continue
+        item = live_cf.get(cf_id)
+        if item is None:
+            continue  # déjà signalé en 'missing' par check_custom_fields
+        assoc = {t.get("name") for t in (item.get("trackers") or [])}
+        missing = expected - assoc
+        if not assoc:
+            drifts.append(_drift("custom_fields", cf_id, sorted(expected), [],
+                                 "no_trackers",
+                                 f"CF {cf_id} ({spec.get('name')!r}) associé à AUCUN tracker "
+                                 f"→ ignoré silencieusement à l'écriture. Activer sur : {sorted(expected)}"))
+        elif missing:
+            drifts.append(_drift("custom_fields", cf_id, sorted(expected), sorted(assoc),
+                                 "tracker_partial",
+                                 f"CF {cf_id} ({spec.get('name')!r}) absent des trackers {sorted(missing)}"))
 
 
 def check_id_name_map(section, ref_map, live, drifts, *, name_check=True):
@@ -142,6 +175,7 @@ def check_env_consistency(ref, live, drifts):
 def run_diff(ref, live):
     drifts = []
     check_custom_fields(ref, live, drifts)
+    check_cf_trackers(ref, live, drifts)
     check_id_name_map("issue_statuses", ref.get("statuses"), live, drifts, name_check=False)
     check_id_name_map("trackers", ref.get("trackers"), live, drifts, name_check=False)
     check_id_name_map("issue_priorities", ref.get("priorities"), live, drifts, name_check=False)

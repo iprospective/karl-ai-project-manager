@@ -108,6 +108,16 @@ def main():
     ap.add_argument("--description", default="")
     ap.add_argument("--tags", default="", help="Liste csv de tags")
     ap.add_argument("--target-env", default=None)
+    # Estimation (NORMS § ROI) — poussée vers Redmine (CF21/22/25 + estimated_hours)
+    # si au moins un flag est fourni. Cf. pm-task-metrics-push.py --estimate.
+    ap.add_argument("--est-tokens", type=int, default=None, help="Tokens prévus (CF21)")
+    ap.add_argument("--est-ai-minutes", type=float, default=None, help="Temps IA prévu en min (→ CF22 h)")
+    ap.add_argument("--est-human-minutes", type=float, default=None, help="Temps humain prévu en min (→ estimated_hours)")
+    ap.add_argument("--est-model", default=None, help="Modèle LLM prévu (→ palier CF25, cf. llm_tiers)")
+    ap.add_argument("--est-difficulty", default=None, choices=["low", "medium", "high", "critical"])
+    ap.add_argument("--est-confidence", type=float, default=None, help="Confiance 0..1")
+    ap.add_argument("--no-push-estimate", action="store_true",
+                    help="N'envoie pas l'estimation vers Redmine même si des flags --est-* sont fournis")
     ap.add_argument("--project", help="Override auto-detect (format: entity/project)")
     ap.add_argument("--parent", type=int, default=None, metavar="RM_ID",
                     help="Crée la tâche comme enfant de RM_ID (attribut natif Redmine "
@@ -193,10 +203,15 @@ def main():
             "immediate_gain_eur": None, "monthly_gain_eur": None,
         },
         "estimate": {
-            "difficulty": "medium",
-            "human_time_minutes": 30, "ai_time_minutes": 30, "time_minutes": 60,
-            "tokens": None, "cost_usd": None, "estimated_model": None,
-            "confidence": 0.5, "estimated_by": "pm-task-add", "estimated_at": now,
+            "difficulty": args.est_difficulty or "medium",
+            "human_time_minutes": args.est_human_minutes if args.est_human_minutes is not None else 30,
+            "ai_time_minutes": args.est_ai_minutes if args.est_ai_minutes is not None else 30,
+            "time_minutes": (
+                (args.est_human_minutes if args.est_human_minutes is not None else 30)
+                + (args.est_ai_minutes if args.est_ai_minutes is not None else 30)),
+            "tokens": args.est_tokens, "cost_usd": None, "estimated_model": args.est_model,
+            "confidence": args.est_confidence if args.est_confidence is not None else 0.5,
+            "estimated_by": "pm-task-add", "estimated_at": now,
         },
         "depends_on": [], "blocks": [], "relates": [], "refs": [],
         "target_env": args.target_env,
@@ -239,6 +254,22 @@ def main():
             print(f"⚠ validate-task.py warnings :\n{r.stdout}{r.stderr}", file=sys.stderr)
     except Exception as e:
         print(f"⚠ validate-task.py non exécuté : {e}", file=sys.stderr)
+
+    # Push estimation → Redmine (CF21/22/25 + estimated_hours) si estimation
+    # explicite fournie. NORMS § ROI « Documentation dans Redmine » : estimer à
+    # la création. Délègue à pm-task-metrics-push.py (source unique du mapping).
+    est_provided = any(v is not None for v in (
+        args.est_tokens, args.est_ai_minutes, args.est_human_minutes,
+        args.est_model, args.est_difficulty, args.est_confidence))
+    if est_provided and not args.no_push_estimate:
+        import subprocess
+        r = subprocess.run(
+            [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
+             "--rm-id", str(rm_id), "--estimate"],
+            check=False)
+        if r.returncode != 0:
+            print(f"⚠ push estimation échoué (exit {r.returncode}) — relance : "
+                  f"pm-task-metrics-push.py --rm-id {rm_id} --estimate", file=sys.stderr)
 
     # --parent : le MD enfant porte déjà parent_task (cf. fm). Maintenir le côté
     # parent (sub_tasks du parent) + tracer dans les deux logs.

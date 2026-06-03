@@ -111,26 +111,30 @@ avec les perms nécessaires.
 
 ## Mapping NORMS ↔ Redmine status (instance iprospective)
 
-Configuration spécifique de cette instance — IDs Redmine variables d'une instance à l'autre :
+Configuration spécifique de cette instance — IDs Redmine variables d'une instance à l'autre.
+
+> **Source canonique** : `redmine.reference.yml` (racine du repo PM) + le binding réel
+> `redmine-post-note.py::NORMS_TO_REDMINE_STATUS`. Revalidé via
+> `scripts/redmine-config-check.py` (NORMS § « Synchronisation de la configuration
+> Redmine »). Le snippet ci-dessous est documentaire — en cas de doute, c'est le
+> live (et la référence) qui font foi.
 
 ```python
 NORMS_TO_REDMINE_STATUS = {
-    "a_etudier_chiffrer":      8,   # "A étudier / Qualifier"
+    "a_etudier_chiffrer":       8,  # "A étudier / Qualifier"
     "etude_chiffrage_en_cours": 14, # "Etude en cours"
-    "a_faire":                 12,  # "A Faire"
-    "en_cours":                 2,  # "En cours"
-    "a_tester_verifier":        9,  # "A tester/vérifier"
-    "a_corriger":              11,  # "A corriger"
-    "ferme:resolu":             5,  # "Résolu/Fermé"
-    "ferme:abandonne":         10,  # "Abandonné"
-    "ferme:wont_fix":           6,  # "Rejeté"
-    "ferme:hors_perimetre":     6,
-    "ferme:invalide":           7,  # "Pas un bug / Déjà existant"
-    "ferme:doublon":            7,
+    "a_faire":                  12, # "A Faire"
+    "en_cours":                  2, # "En cours"
+    "a_tester_verifier":         9, # "A tester/vérifier demandeur"
+    "a_corriger":               11, # "A corriger/finir"
+    "ferme":                    18, # "Fermé"  (seul statut clos ; toutes les
+                                    #  variantes ferme:* y retombent, la nuance
+                                    #  est portée par le CF 11 « Raison Fermé »)
 }
 ```
 
-Pour une nouvelle instance : `GET /issue_statuses.json?key=...` pour récupérer les IDs.
+Pour une nouvelle instance : `GET /issue_statuses.json?key=...` pour récupérer les IDs,
+puis `scripts/redmine-config-check.py --dump` pour régénérer un squelette de référence.
 
 ## Tracker → type de tâche (interne)
 

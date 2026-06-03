@@ -1,9 +1,9 @@
 ---
-schema_version: "1.24.0"
-updated: 2026-06-02
+schema_version: "1.25.0"
+updated: 2026-06-03
 ---
 
-# Normes de gestion des tâches — v1.24.0
+# Normes de gestion des tâches — v1.25.0
 
 ## Configuration globale
 
@@ -1406,6 +1406,38 @@ développement → test → mise en production*.
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
+
+### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
+
+Les deux premiers statuts du workflow ne sont **pas** une simple file d'attente
+administrative : ils matérialisent une **phase de travail à part entière**,
+réalisée **avant d'écrire la moindre ligne de code**. Aucun ticket non trivial ne
+passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
+
+| Statut NORMS | Redmine | Sens |
+|---|---|---|
+| `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
+| `etude_chiffrage_en_cours` | Etude en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
+
+**Contenu de l'étude** (`etude_chiffrage_en_cours`) :
+- **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
+- **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
+- **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
+  C'est le **livrable** de cette phase pour tout ticket non trivial.
+- **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
+
+**Sorties de phase** :
+- `etude_chiffrage_en_cours → a_faire` — étude validée, `estimate.*` complet → prêt à coder.
+- `etude_chiffrage_en_cours → ferme` — abandonné / hors périmètre (`close_reason` requis).
+
+Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase
+jusqu'à sa fermeture : le livrable *est* l'étude, pas du code. À l'inverse, un ticket
+en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. transitions).
+
+**Synchronisation Redmine** : ces deux statuts sont mappés (§ *Mapping NORMS → Redmine*,
+ids **8** et **14**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
+(`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
+un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
 
 ## Valeurs énumérées
 

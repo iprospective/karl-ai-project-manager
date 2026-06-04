@@ -54,7 +54,8 @@ llm_tiers:
 # lisent ce bloc via redmine_utils.status_map() — ne plus hardcoder ailleurs.
 statuses:
   a_etudier_chiffrer:       8    # "A étudier / Qualifier"
-  etude_chiffrage_en_cours: 14   # "Etude en cours"
+  etude_chiffrage_en_cours: 14   # "Etude/CDC en cours"
+  etude_chiffrage_a_valider: 21  # "Etude/CDC à valider"  (étude/CDC finie → validation par le demandeur)
   a_faire:                  12   # "A Faire"
   en_cours:                 2    # "En cours"
   a_tester_dev:             19   # "A tester/vérifier dev"        (test par testeur ≠ dev)

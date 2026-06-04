@@ -5,6 +5,31 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.28.0] - 2026-06-04
+
+### Ajouté — Statut `etude_chiffrage_a_valider` (Etude/CDC à valider, id 21) : validation de la phase d'analyse par le demandeur
+
+La phase d'étude/qualification (v1.25.0) gagne une **étape de validation** avant le
+passage au développement. L'agent ne transitionne plus directement de
+`etude_chiffrage_en_cours` à `a_faire` : il soumet d'abord son livrable (CDC +
+chiffrage) au demandeur.
+
+- Nouveau statut NORMS **`etude_chiffrage_a_valider`** → Redmine **id 21**
+  (« Etude/CDC à valider »).
+- **Réattribution automatique au demandeur** (author ; author == karl → Manager IA)
+  par `pm-task-status-update.py` — même résolveur que `a_tester_demandeur`. C'est le
+  pendant amont du `a_tester_demandeur` aval.
+- Nouvelles transitions : `etude_chiffrage_en_cours → etude_chiffrage_a_valider`
+  (étude finie), `etude_chiffrage_a_valider → a_faire` (validé), `→ etude_chiffrage_en_cours`
+  (retour demandeur), `→ ferme` (abandon).
+- Sources mises à jour : `redmine.reference.yml` (`statuses.etude_chiffrage_a_valider: 21`),
+  `redmine_utils.py` (fallback), `pm-task-status-update.py` (logique d'attribution +
+  usage), table de mapping NORMS↔Redmine, machine d'états, enum `status`,
+  skill `mmi-pm-task-status-update`.
+
+Rétrocompatible : aucun ticket existant impacté ; le saut direct `en_cours → a_faire`
+reste techniquement possible mais n'est plus le chemin nominal pour les tickets étudiés.
+
 ## [1.24.0] - 2026-06-02
 
 ### Ajouté — Champ `logs.access` (aspect `environments.md`) + convention access logs prod

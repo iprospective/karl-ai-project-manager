@@ -22,7 +22,8 @@ _REFERENCE_CACHE = None
 # Fallback minimal si redmine.reference.yml est introuvable/illisible — garde les
 # transitions critiques fonctionnelles même sans le fichier de référence.
 _FALLBACK_STATUS_IDS = {
-    "a_etudier_chiffrer": 8, "etude_chiffrage_en_cours": 14, "a_faire": 12,
+    "a_etudier_chiffrer": 8, "etude_chiffrage_en_cours": 14,
+    "etude_chiffrage_a_valider": 21, "a_faire": 12,
     "en_cours": 2, "a_tester_dev": 19, "a_tester_demandeur": 9, "a_mep": 3,
     "en_mep": 20, "en_pause": 13, "a_corriger": 11, "ferme": 18,
 }

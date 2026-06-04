@@ -1,9 +1,9 @@
 ---
-schema_version: "1.26.0"
-updated: 2026-06-03
+schema_version: "1.28.0"
+updated: 2026-06-04
 ---
 
-# Normes de gestion des tâches — v1.26.0
+# Normes de gestion des tâches — v1.28.0
 
 ## Configuration globale
 
@@ -782,6 +782,10 @@ Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1739 pour la suppression
 définitive sur l'instance). Plus aucun script ne le consulte.
 
 **Règle d'attribution Redmine** :
+- Passage en `etude_chiffrage_a_valider` → ré-attribuer au **demandeur** (author) :
+  l'étude / CDC / chiffrage sont finis et soumis à sa validation. **Même résolveur
+  que `a_tester_demandeur`** (author ≠ karl → author ; author == karl → Manager IA).
+  Appliqué automatiquement par `pm-task-status-update.py`.
 - Passage en `a_tester_dev` → ré-attribuer à un **testeur ≠ le dev** (agent ou
   humain), pour un test indépendant en env `test`. Manuel via `--assign-to <id>`
   pour l'instant ; l'orchestrateur routera vers un worker-test quand il sera en place.
@@ -861,7 +865,8 @@ Statut Redmine (un seul terminal `Fermé`) :
 | NORMS | Redmine | id |
 |---|---|---|
 | `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
-| `etude_chiffrage_en_cours` | Etude en cours | 14 |
+| `etude_chiffrage_en_cours` | Etude/CDC en cours | 14 |
+| `etude_chiffrage_a_valider` | Etude/CDC à valider | 21 |
 | `a_faire` | A Faire | 12 |
 | `en_cours` | En cours | 2 |
 | `a_tester_dev` | A tester/vérifier dev | 19 |
@@ -1385,9 +1390,13 @@ for cf in issue.get('custom_fields', []):
         │ estimation lancée
         ▼
 [etude_chiffrage_en_cours]
-        │ approuvé                  │ abandonné / hors périmètre
-        ▼                           ▼
-   [a_faire]                    [ferme]
+        │ étude/CDC + chiffrage finis      │ abandonné / hors périmètre
+        ▼                                  ▼
+[etude_chiffrage_a_valider] (→ demandeur)  [ferme]
+        │ validé par le demandeur   ▲ retour demandeur (ajustements)
+        │                           └──────────────┐
+        ▼                                          │
+   [a_faire]                          [etude_chiffrage_en_cours]
         │ démarrage (+ création branche <RMid>-<desc>)
         ▼
    [en_cours] ◄────────────────────────────────────┐
@@ -1420,8 +1429,10 @@ développement → test → mise en production*.
 | De | Vers | Condition |
 |---|---|---|
 | `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `assigned_to` renseigné |
-| `etude_chiffrage_en_cours` | `a_faire` | `estimate.*` complet |
-| `etude_chiffrage_en_cours` | `ferme` | `close_reason` requis |
+| `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
+| `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
+| `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
+| `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
 | `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
 | `en_cours` | `a_tester_dev` | dev terminé |
 | `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
@@ -1447,7 +1458,8 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 | Statut NORMS | Redmine | Sens |
 |---|---|---|
 | `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
-| `etude_chiffrage_en_cours` | Etude en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
+| `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
+| `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
 
 **Contenu de l'étude** (`etude_chiffrage_en_cours`) :
 - **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
@@ -1456,16 +1468,25 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
   C'est le **livrable** de cette phase pour tout ticket non trivial.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
 
+**Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
+est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
+à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
+**ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
+que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
+développement. C'est le pendant amont du `a_tester_demandeur` aval.
+
 **Sorties de phase** :
-- `etude_chiffrage_en_cours → a_faire` — étude validée, `estimate.*` complet → prêt à coder.
-- `etude_chiffrage_en_cours → ferme` — abandonné / hors périmètre (`close_reason` requis).
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
+- `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
+- `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
 
 Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase
 jusqu'à sa fermeture : le livrable *est* l'étude, pas du code. À l'inverse, un ticket
 en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. transitions).
 
-**Synchronisation Redmine** : ces deux statuts sont mappés (§ *Mapping NORMS → Redmine*,
-ids **8** et **14**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
+**Synchronisation Redmine** : ces trois statuts sont mappés (§ *Mapping NORMS → Redmine*,
+ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
 
@@ -1475,7 +1496,7 @@ un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
 `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
-`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
 
 `a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
 `a_tester_demandeur`, normalisé par les scripts.

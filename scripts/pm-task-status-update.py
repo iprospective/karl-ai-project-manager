@@ -6,14 +6,18 @@ Usage :
     pm-task-status-update.py 1670 en_cours                    # auto-assign à karl (cf. NORMS § Prise en charge)
     pm-task-status-update.py 1670 en_cours --no-assign        # désactive l'auto-assign
     pm-task-status-update.py 1670 en_cours --assign-to 5      # assigne à user 5 explicitement
+    pm-task-status-update.py 1670 etude_chiffrage_a_valider   # étude/CDC finie → validation par le demandeur
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
 
 Statuts NORMS valides (source : redmine.reference.yml) :
-    a_etudier_chiffrer | etude_chiffrage_en_cours | a_faire | en_cours
+    a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
     a_tester_dev | a_tester_demandeur | a_mep | en_mep | en_pause | a_corriger | ferme
     (alias déprécié accepté : a_tester_verifier → a_tester_demandeur)
+
+Réattribution au demandeur (author ; author==karl → Manager IA) :
+    etude_chiffrage_a_valider et a_tester_demandeur soumettent le ticket au demandeur.
 
 close_reason (si --status ferme) :
     resolu | abandonne | wont_fix | hors_perimetre | invalide | doublon
@@ -321,8 +325,8 @@ def main():
     #   2. status=en_cours sans flag explicite → 'me' par défaut
     #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
     #      indissociable de en_cours). --no-assign pour outrepasser.
-    #   3. status=a_tester_demandeur ou a_mep → override vers Manager IA / author
-    #      (NORMS § « Règle d'attribution Redmine », RM1734).
+    #   3. status=a_tester_demandeur / etude_chiffrage_a_valider / a_mep → override
+    #      vers demandeur (author) / Manager IA (NORMS § « Règle d'attribution Redmine », RM1734).
     #      a_tester_dev / en_mep / a_corriger → pas de défaut (testeur ≠ dev,
     #      testeur preprod humain, worker précédent) : attribution manuelle via
     #      --assign-to tant que l'orchestrateur n'est pas en place.
@@ -338,9 +342,11 @@ def main():
         assign_override_value = "me"
         print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
               "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
-    elif args.status in ("a_tester_demandeur", "a_mep") and target:
-        # NORMS : a_tester_demandeur → demandeur (author) ; author==karl → Manager IA.
-        #         a_mep → responsable MEP/intégration (par défaut Manager IA).
+    elif args.status in ("a_tester_demandeur", "etude_chiffrage_a_valider", "a_mep") and target:
+        # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
+        #         etude_chiffrage_a_valider   → demandeur (author) : l'étude/CDC + chiffrage
+        #                                       finis sont soumis à validation (même résolveur).
+        #         a_mep                       → responsable MEP/intégration (par défaut Manager IA).
         # On rend l'assignation explicite ici pour que MD frontmatter `assigned_to`
         # reflète la réalité Redmine.
         _, target_uid, _ = target

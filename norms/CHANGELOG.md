@@ -5,6 +5,39 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.30.1] - 2026-06-04
+
+### Clarifié — « Ne committer que ses propres modifs » vaut dans TOUS les repos partagés
+
+La règle de vérification active au commit (v1.29.0, § « Commit + push systématique »)
+ne visait explicitement que `ai-projects`. Généralisée : elle s'applique aussi au repo
+système **`project-management`** (NORMS, `templates/`, `scripts/`, `pm.*.yml`) et au
+workspace de code — tous fréquemment dirty en concurrence. Ne jamais embarquer dans un
+commit un fichier qu'on n'a pas soi-même modifié (ex. `pm.pricing.yml`,
+`pm-task-tick.py` laissés modifiés par une autre session pendant une édition de NORMS).
+
+## [1.30.0] - 2026-06-04
+
+### Ajouté — Projets infra : ticket d'analyse de l'infra par défaut (template `008-infra-analysis`)
+
+Tout projet de nature **infrastructure** (slug/nom « infra », ou aspect
+`hosting`/`infrastructure` — gestion de serveurs/hyperviseurs/réseau/stockage plutôt
+qu'une application unique) doit par défaut porter un **ticket d'analyse de l'infra** :
+état des lieux matériel, stockage (disques + SMART, pools/RAID), charges hébergées,
+monitoring, et une section **anomalies** d'où découle un ticket dédié par anomalie
+significative. Le livrable est un document vivant (`docs/infrastructure.md` dans le
+workspace, ou aspect `project/hosting.md`).
+
+- Nouveau template de bootstrap **`templates/bootstrap-tasks/008-infra-analysis.md`**
+  (`default_checked: true`, `applicable_when` = projet infra uniquement).
+- NORMS § « Tâches de bootstrap » : ligne ajoutée au tableau des templates + encadré de
+  règle « Projets infra → ticket d'analyse par défaut ».
+- Première application : projet `calyclay/infra` (serveur `srve`), audit du 2026-06-04.
+
+> Note : le CHANGELOG ne portait pas d'entrée `[1.29.0]` (bump appliqué dans
+> `NORMS.md` — règle « Vérification active au commit » — sans entrée dédiée). Trou
+> laissé tel quel, hors périmètre de cette mise à jour.
+
 ## [1.28.0] - 2026-06-04
 
 ### Ajouté — Statut `etude_chiffrage_a_valider` (Etude/CDC à valider, id 21) : validation de la phase d'analyse par le demandeur

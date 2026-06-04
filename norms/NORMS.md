@@ -1,9 +1,9 @@
 ---
-schema_version: "1.29.0"
+schema_version: "1.30.1"
 updated: 2026-06-04
 ---
 
-# Normes de gestion des tâches — v1.29.0
+# Normes de gestion des tâches — v1.30.1
 
 ## Configuration globale
 
@@ -242,9 +242,14 @@ git approprié. La règle s'applique à **deux périmètres** :
 - Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
   pour ne pas embarquer d'autres modifs en cours non liées qui ne sont pas
   de ta responsabilité — chacun est responsable de ses propres modifs.
-  **Vérification active au commit (obligatoire) — v1.29.0** : le repo `ai-projects`
-  est **fréquemment dirty en concurrence** (plusieurs sessions/agents en parallèle
-  laissent des fichiers modifiés ou non suivis qui ne te concernent pas). Avant tout
+  **Vérification active au commit (obligatoire) — v1.29.0, généralisée v1.30.1** :
+  **tous les repos partagés** — `ai-projects` **comme le repo système
+  `project-management`** (NORMS, `templates/`, `scripts/`, `pm.*.yml`) et **le
+  workspace de code** — sont **fréquemment dirty en concurrence** (plusieurs
+  sessions/agents en parallèle laissent des fichiers modifiés ou non suivis qui ne te
+  concernent pas ; ex. typique : `pm.pricing.yml`, `pm-task-tick.py` modifiés par une
+  autre tâche pendant que tu édites NORMS). La règle « ne committer que ses propres
+  modifs » vaut donc **dans chaque repo, sans exception**. Avant tout
   commit : (1) stager par **chemin explicite** les seuls fichiers de la tâche
   courante (pas de glob large qui ratisse) ; (2) **relire le set stagé**
   (`git diff --cached --name-only`) et confirmer que **chaque** entrée concerne bien
@@ -696,6 +701,18 @@ stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
 | `005-deployment` | Rédiger `project/deployment.md` (CI/CD, rollback) | ☐ |
 | `006-testing` | Rédiger `project/testing.md` (stratégie de tests) | ☐ |
 | `007-monitoring` | Rédiger `project/monitoring.md` (logs, métriques, alertes) | ☐ |
+| `008-infra-analysis` | Analyse de l'infra : inventaire, état, risques (`docs/infrastructure.md`) | ✅ *(projets infra uniquement)* |
+
+> **Projets infra → ticket d'analyse par défaut (v1.30.0).** Tout projet de nature
+> **infrastructure** (slug/nom « infra », ou aspect `hosting`/`infrastructure` — qui
+> gère des serveurs/hyperviseurs/réseau/stockage plutôt qu'une seule application) doit
+> par défaut porter un **ticket d'analyse de l'infra** : état des lieux matériel,
+> stockage (disques + SMART, pools/RAID), charges hébergées, monitoring, et une section
+> **anomalies** d'où découle **un ticket dédié par anomalie significative**. C'est le
+> rôle du template `008-infra-analysis`, proposé **coché** sur ces projets et non
+> applicable aux projets purement applicatifs. Le livrable est un document vivant
+> (`docs/infrastructure.md` dans le workspace, ou aspect `project/hosting.md`), mis à
+> jour à chaque intervention notable.
 
 **Flow d'instanciation** (via `scripts/pm-project-bootstrap.py`) :
 

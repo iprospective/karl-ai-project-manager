@@ -53,6 +53,7 @@ llm_tiers:
 # (table NORMS↔Redmine). Les scripts (redmine-post-note, pm-task-status-update)
 # lisent ce bloc via redmine_utils.status_map() — ne plus hardcoder ailleurs.
 statuses:
+  nouveau:                  1    # "Nouveau"  (statut d'entrée : ticket créé non encore trié)
   a_etudier_chiffrer:       8    # "A étudier / Qualifier"
   etude_chiffrage_en_cours: 14   # "Etude/CDC en cours"
   etude_chiffrage_a_valider: 21  # "Etude/CDC à valider"  (étude/CDC finie → validation par le demandeur)

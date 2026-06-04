@@ -105,6 +105,12 @@ def main():
     ap.add_argument("--title", required=True)
     ap.add_argument("--type", default="feature", choices=list(TYPE_TO_TRACKER))
     ap.add_argument("--priority", default="normal", choices=list(PRIORITY_TO_ID))
+    ap.add_argument("--status", default="nouveau",
+                    choices=["nouveau", "a_etudier_chiffrer", "a_faire", "en_cours"],
+                    help="Statut initial du ticket (défaut: nouveau — ticket déposé non "
+                         "trié). Si ≠ nouveau, le ticket est créé en nouveau puis "
+                         "transitionné via pm-task-status-update (couplage NORMS : "
+                         "auto-assignation karl pour en_cours, note, status_history).")
     ap.add_argument("--description", default="")
     ap.add_argument("--tags", default="", help="Liste csv de tags")
     ap.add_argument("--target-env", default=None)
@@ -135,6 +141,10 @@ def main():
                          "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    if args.retro and args.status != "nouveau":
+        sys.exit("ERREUR : --status et --retro sont incompatibles (--retro pilote sa "
+                 "propre séquence en_cours → a_tester_verifier).")
 
     cfg = PMConfig.load()
 
@@ -194,7 +204,7 @@ def main():
         "sub_tasks": [],
         "creator": "iprospective",
         "team": [{"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}],
-        "status": "a_faire",
+        "status": "nouveau",
         "close_reason": None,
         "completion_pct": 0,
         "priority": args.priority,
@@ -226,7 +236,7 @@ def main():
         "time_total_minutes": 0,  # conservé pour compat (= human + ai cumul)
         "created": datetime.now().strftime("%Y-%m-%d"),
         "due": None, "updated": now,
-        "status_history": [{"status": "a_faire", "at": now, "by": "iprospective",
+        "status_history": [{"status": "nouveau", "at": now, "by": "iprospective",
                             "model": None, "tokens": None, "duration_minutes": None}],
         "pistes": [],
         "tags": tags,
@@ -283,6 +293,24 @@ def main():
         else:
             print(f"  ⚠ parent RM{args.parent} : MD non trouvé localement — "
                   f"sub_tasks non maintenu (parent côté Redmine OK)")
+
+    # --status <statut> : le ticket est créé en `nouveau` (défaut tracker Redmine) ;
+    # si un autre statut est demandé, on transitionne via pm-task-status-update
+    # (source unique des transitions : couplage NORMS — auto-assign karl pour
+    # en_cours, note Redmine, MAJ frontmatter status/status_history + log).
+    if not args.retro and args.status != "nouveau":
+        import subprocess
+        status_script = Path(__file__).parent / "pm-task-status-update.py"
+        print(f"  → statut initial demandé : {args.status} (transition depuis nouveau)")
+        r = subprocess.run(
+            [sys.executable, str(status_script), str(rm_id), args.status,
+             "--note", "Statut initial posé à la création (pm-task-add --status)"],
+            check=False,
+        )
+        if r.returncode != 0:
+            print(f"⚠ Transition initiale vers {args.status} échouée (exit {r.returncode}). "
+                  f"Reprends : pm-task-status-update.py {rm_id} {args.status}",
+                  file=sys.stderr)
 
     # --retro : enchaîne en_cours puis a_tester_verifier via pm-task-status-update.
     # Le ticket Redmine doit déjà être indexable (POST ci-dessus a renvoyé rm_id),

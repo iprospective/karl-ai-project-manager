@@ -30,6 +30,27 @@ chiffrage) au demandeur.
 Rétrocompatible : aucun ticket existant impacté ; le saut direct `en_cours → a_faire`
 reste techniquement possible mais n'est plus le chemin nominal pour les tickets étudiés.
 
+## [1.27.0] - 2026-06-03
+
+### Ajouté — Statut d'entrée `nouveau` (Nouveau, id 1) + `pm-task-add --status`
+
+Le statut Redmine natif `Nouveau` (id 1) devient un **statut NORMS de première
+classe** sous le nom `nouveau`, comme **statut d'entrée** de la state-machine.
+
+- `pm-task-add.py` crée désormais par défaut un ticket en `nouveau` (ticket déposé,
+  non encore trié), avec `author_id` posé mais **sans `assigned_to`**. Le MD reflète
+  `status: nouveau` (plus de divergence MD↔Redmine : avant, le MD posait `a_faire`
+  alors que Redmine retombait sur `Nouveau` faute de `status_id` au POST).
+- Nouveau flag **`pm-task-add.py --status <statut>`** : crée en `nouveau` puis
+  transitionne vers le statut demandé via `pm-task-status-update.py` (couplage NORMS
+  conservé : assignation karl pour `en_cours`, note, `status_history`).
+- Sources mises à jour : `redmine.reference.yml` (`statuses.nouveau: 1`),
+  `scripts/validate-task.py` (`VALID_STATUSES`), table de mapping NORMS↔Redmine.
+- `redmine_utils.create_redmine_issue()` accepte un paramètre optionnel `status_id`
+  (None ⇒ défaut tracker = Nouveau).
+
+Rétrocompatible : les tickets existants en `a_faire`/`en_cours`/… restent valides.
+
 ## [1.24.0] - 2026-06-02
 
 ### Ajouté — Champ `logs.access` (aspect `environments.md`) + convention access logs prod

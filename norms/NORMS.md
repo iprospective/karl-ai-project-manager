@@ -864,6 +864,7 @@ Statut Redmine (un seul terminal `Fermé`) :
 
 | NORMS | Redmine | id |
 |---|---|---|
+| `nouveau` | Nouveau | 1 |
 | `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
 | `etude_chiffrage_en_cours` | Etude/CDC en cours | 14 |
 | `etude_chiffrage_a_valider` | Etude/CDC à valider | 21 |
@@ -881,6 +882,15 @@ Statut Redmine (un seul terminal `Fermé`) :
 `a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le
 demandeur, mergé dans l'intégration, en file de MEP) — à ne pas confondre avec
 `ferme`.
+
+`nouveau` (Nouveau, id 1) est le **statut d'entrée** : `pm-task-add.py` crée par
+défaut un ticket en `nouveau` (ticket déposé, non encore trié/engagé), avec
+`author_id` posé mais **sans `assigned_to`** (pas encore pris en charge). Le tri
+vers `a_faire` / `a_etudier_chiffrer` / `en_cours` se fait ensuite (manuellement
+ou à la création via `pm-task-add.py --status <statut>`, qui crée en `nouveau`
+puis transitionne via `pm-task-status-update.py` pour bénéficier du couplage
+NORMS — assignation, note, `status_history`). Un ticket reste légitimement en
+`nouveau` tant qu'il n'a pas été engagé ; ce n'est pas un état invalide.
 
 Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs :
 

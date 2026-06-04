@@ -371,12 +371,10 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
         extra_custom_fields: list[{id, value}] — CFs additionnels (ex: target_env).
         parent_issue_id: int|None — si fourni, crée l'issue comme enfant de ce
             ticket (attribut natif Redmine `parent_issue_id`).
-        status_id: int|None — statut Redmine initial. Si None (défaut), résolu
-            vers `a_faire` (le statut initial canonique de la state-machine
-            NORMS). Sans ça, Redmine retombe sur le statut par défaut du tracker
-            (« Nouveau », id 1) qui est HORS state-machine PM → divergence avec
-            le MD qui pose toujours `a_faire`. Passer un id explicite pour créer
-            directement dans une autre phase (ex. `a_etudier_chiffrer`).
+        status_id: int|None — statut Redmine initial. Si None (défaut), Redmine
+            applique le statut par défaut du tracker (« Nouveau », id 1 — le
+            statut d'entrée NORMS). Passer un id explicite pour créer directement
+            dans un autre statut (le MD du caller doit alors refléter le même).
 
     Returns:
         int : rm_id du ticket créé.
@@ -396,10 +394,11 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
     }
     if parent_issue_id is not None:
         payload_issue["parent_issue_id"] = parent_issue_id
-    # Statut initial : a_faire par défaut (jamais « Nouveau » du tracker, qui
-    # est hors state-machine NORMS et diverge du MD posé par les callers).
-    if status_id is None:
-        status_id = status_ids().get("a_faire")
+    # Statut initial : si non fourni, on laisse Redmine appliquer le statut par
+    # défaut du tracker (« Nouveau », id 1 — statut d'entrée NORMS). Les callers
+    # qui veulent créer directement dans un autre statut passent status_id, ou
+    # (recommandé) créent en Nouveau puis transitionnent via pm-task-status-update
+    # pour bénéficier du couplage NORMS (assignation, note, status_history).
     if status_id is not None:
         payload_issue["status_id"] = status_id
     custom_fields = list(extra_custom_fields or [])

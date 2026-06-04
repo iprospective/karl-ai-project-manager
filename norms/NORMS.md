@@ -1,9 +1,9 @@
 ---
-schema_version: "1.28.0"
+schema_version: "1.29.0"
 updated: 2026-06-04
 ---
 
-# Normes de gestion des tâches — v1.28.0
+# Normes de gestion des tâches — v1.29.0
 
 ## Configuration globale
 
@@ -241,7 +241,18 @@ git approprié. La règle s'applique à **deux périmètres** :
 **Règles communes aux deux périmètres** :
 - Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
   pour ne pas embarquer d'autres modifs en cours non liées qui ne sont pas
-  de ta responsabilité — chacun est responsable de ses propres modifs
+  de ta responsabilité — chacun est responsable de ses propres modifs.
+  **Vérification active au commit (obligatoire) — v1.29.0** : le repo `ai-projects`
+  est **fréquemment dirty en concurrence** (plusieurs sessions/agents en parallèle
+  laissent des fichiers modifiés ou non suivis qui ne te concernent pas). Avant tout
+  commit : (1) stager par **chemin explicite** les seuls fichiers de la tâche
+  courante (pas de glob large qui ratisse) ; (2) **relire le set stagé**
+  (`git diff --cached --name-only`) et confirmer que **chaque** entrée concerne bien
+  cette tâche ; (3) committer seulement alors. Ne **jamais** committer un fichier
+  qu'on n'a pas soi-même modifié dans la session courante, même s'il apparaît dirty
+  (ni un fichier non suivi appartenant à une autre tâche). Une solution d'isolation
+  propre (workspaces instanciés par projet / zones de stash temporaires) est **à
+  l'étude** — cf. ticket dédié
 - Message de commit court, dans la langue du repo, précisant
   l'entité/projet/tâche concerné
 - Push systématique : pas de "je commit, le user pushera" — le repo doit

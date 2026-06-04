@@ -200,8 +200,49 @@ def main():
                 print(f"ERREUR : --assign-to attend un id entier, 'author' ou 'me' (reçu : {args.assign_to})", file=sys.stderr)
                 sys.exit(1)
 
-    body = json.dumps({"issue": issue_payload}).encode("utf-8")
     full = f"{url.rstrip('/')}/issues/{args.issue}.json?key={key}"
+
+    # --- Déverrouillage des transitions « assignee-only » ---
+    # Certaines transitions du workflow Redmine (typiquement Etude/CDC en cours →
+    # Etude/CDC à valider [14→21], et A tester demandeur) ne sont autorisées QUE
+    # si le ticket est assigné au compte API courant. Or ces transitions
+    # s'accompagnent justement d'une réattribution AU DEMANDEUR : si on pousse
+    # statut + nouvel assigné dans le même PUT alors que le compte API n'est pas
+    # (encore) l'assigné, Redmine évalue le workflow sur l'assigné AVANT update →
+    # la transition est refusée *silencieusement* (PUT 204, statut inchangé).
+    # Parade : s'auto-assigner d'abord (PUT préalable), ce qui débloque la
+    # transition assignee-only, puis le PUT principal (statut + réattribution
+    # finale au demandeur) passe. Cf. NORMS § « Transitions assignee-only ».
+    if args.status:
+        try:
+            meta_url = f"{url.rstrip('/')}/issues/{args.issue}.json?include=allowed_statuses&key={key}"
+            with request.urlopen(request.Request(meta_url, headers={"Accept": "application/json"}), timeout=10) as r:
+                meta = json.loads(r.read())["issue"]
+            allowed = {s["id"] for s in meta.get("allowed_statuses", [])}
+            cur_assignee = (meta.get("assigned_to") or {}).get("id")
+        except Exception:
+            allowed, cur_assignee = None, None
+        if allowed is not None and args.status not in allowed:
+            try:
+                cur_url = f"{url.rstrip('/')}/users/current.json?key={key}"
+                with request.urlopen(request.Request(cur_url, headers={"Accept": "application/json"}), timeout=10) as r:
+                    me_id = json.loads(r.read())["user"]["id"]
+            except Exception:
+                me_id = None
+            if me_id is not None and cur_assignee != me_id:
+                try:
+                    pre_body = json.dumps({"issue": {"assigned_to_id": me_id}}).encode("utf-8")
+                    pre_req = request.Request(full, data=pre_body, method="PUT",
+                                              headers={"Content-Type": "application/json", "Accept": "application/json"})
+                    with request.urlopen(pre_req, timeout=10) as r:
+                        r.read()
+                    print(f"  · auto-assignation préalable au compte API (id={me_id}) "
+                          f"pour débloquer la transition assignee-only → statut {args.status}",
+                          file=sys.stderr)
+                except Exception as e:
+                    print(f"  ⚠ pré-assignation pour transition assignee-only échouée : {e}", file=sys.stderr)
+
+    body = json.dumps({"issue": issue_payload}).encode("utf-8")
     req = request.Request(full, data=body, method="PUT",
                           headers={"Content-Type": "application/json", "Accept": "application/json"})
     try:

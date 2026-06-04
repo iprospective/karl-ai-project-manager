@@ -41,6 +41,7 @@ FM_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 REDMINE_TO_NORMS_STATUS = {
     8:  "a_etudier_chiffrer",
     14: "etude_chiffrage_en_cours",
+    21: "etude_chiffrage_a_valider",  # Etude/CDC à valider (transition assignee-only, cf. redmine-post-note)
     12: "a_faire",
     2:  "en_cours",
     19: "a_tester_dev",

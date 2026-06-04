@@ -1,9 +1,9 @@
 ---
-schema_version: "1.30.1"
+schema_version: "1.31.0"
 updated: 2026-06-04
 ---
 
-# Normes de gestion des tâches — v1.30.1
+# Normes de gestion des tâches — v1.31.0
 
 ## Configuration globale
 
@@ -1527,6 +1527,30 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+
+### Transitions « assignee-only » — v1.31.0
+
+Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket
+est assigné au compte API courant** (karl, id 79). C'est notamment le cas des deux
+transitions qui *soumettent au demandeur* :
+
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` (Redmine **14 → 21**) ;
+- `* → a_tester_demandeur` (Redmine → **9**).
+
+Or ces transitions s'accompagnent justement d'une **réattribution au demandeur**. Si
+l'on pousse `status_id` **et** `assigned_to_id` (= demandeur) dans le **même PUT** alors
+que le compte API n'est pas (encore) l'assigné, Redmine évalue le workflow sur l'assigné
+**avant** mise à jour → la transition est **refusée silencieusement** : `HTTP 204` mais
+statut inchangé (faux diagnostic « permission *Edit issues* manquante »).
+
+**Règle d'exécution (gérée automatiquement par `redmine-post-note.py`)** : avant un PUT
+de statut, si le statut cible n'est pas dans `allowed_statuses` et que le compte API
+n'est pas l'assigné courant, **s'auto-assigner d'abord** (PUT préalable) pour débloquer
+la transition, **puis** faire le PUT principal (statut + réattribution finale au
+demandeur). Conséquence visible : un journal d'assignation supplémentaire (→ karl, puis
+→ demandeur). Ne **jamais** contourner en fixant le statut « en dur ». Le mapping inverse
+Redmine→NORMS (`pm-task-sync.py`) doit connaître l'id **21** sous peine de laisser le MD
+périmé sur `etude_chiffrage_en_cours`.
 
 ## Valeurs énumérées
 

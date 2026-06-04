@@ -5,6 +5,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.31.0] - 2026-06-04
+
+### Documenté — Transitions Redmine « assignee-only » (§ Phase d'étude → Synchronisation)
+
+Certaines transitions du workflow Redmine (`etude_chiffrage_a_valider` [14→21],
+`a_tester_demandeur` [→9]) ne sont autorisées que si le ticket est assigné au compte API
+courant. Comme elles réattribuent au demandeur dans le même PUT, le changement de statut
+était refusé silencieusement (204, statut inchangé). `redmine-post-note.py` s'auto-assigne
+désormais d'abord pour débloquer la transition, puis pousse statut + réattribution finale.
+Mapping inverse `pm-task-sync.py` complété (id 21 → `etude_chiffrage_a_valider`). Constaté
+sur RM1836.
+
 ## [1.30.1] - 2026-06-04
 
 ### Clarifié — « Ne committer que ses propres modifs » vaut dans TOUS les repos partagés

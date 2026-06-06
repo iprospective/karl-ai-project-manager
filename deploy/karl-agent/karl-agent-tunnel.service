@@ -1,0 +1,23 @@
+[Unit]
+Description=karl-agent — tunnel reverse SSH vers mmi (RM1771)
+Documentation=file:///zfs/workspaces/ai/project-management/agents/karl/karl-agent.md
+After=network-online.target karl-agent.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=AUTOSSH_GATETIME=0
+# -R 127.0.0.1:9876:... : le bind DISTANT (côté mmi) est EXPLICITEMENT 127.0.0.1.
+#   Ne JAMAIS écrire "-R 9876:..." : selon GatewayPorts, sshd pourrait alors
+#   binder 0.0.0.0 et exposer le superviseur publiquement (interdit, RM1771).
+# ExitOnForwardFailure=yes : si le forward ne s'établit pas, on échoue (puis Restart),
+#   plutôt que de laisser une session SSH sans tunnel.
+ExecStart=/usr/bin/autossh -M 0 -N \
+  -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
+  -o ExitOnForwardFailure=yes -o StrictHostKeyChecking=accept-new \
+  -R 127.0.0.1:9876:127.0.0.1:9876 mmi
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

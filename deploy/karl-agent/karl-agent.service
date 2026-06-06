@@ -1,0 +1,18 @@
+[Unit]
+Description=karl-agent — superviseur de sessions tmux d'agents karl-pm (RM1771)
+Documentation=file:///zfs/workspaces/ai/project-management/agents/karl/karl-agent.md
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/zfs/workspaces/ai/project-management
+# Le daemon charge le .env du repo (KARL_AGENT_TOKEN, KARL_AGENT_PORT, …).
+# Ne JAMAIS mettre de secret en clair dans cette unit (versionnée) :
+# les variables sensibles vont dans /zfs/workspaces/ai/project-management/.env (gitignored).
+ExecStart=/usr/bin/python3 /zfs/workspaces/ai/project-management/scripts/karl-agent.py
+Restart=on-failure
+RestartSec=2
+# Le daemon bind 127.0.0.1 EN DUR (invariant sécu) — rien à durcir côté réseau ici.
+
+[Install]
+WantedBy=default.target

@@ -220,6 +220,74 @@ def wiki_put(url, key, proj, title, text):
     return code
 
 
+# ── Description native du projet (cible P3) ──────────────────────────────
+def proj_desc_get(url, key, proj):
+    """Description native du projet Redmine (str, '' si vide). Sys.exit si HTTP≠200."""
+    code, body = rm.http_json("GET", f"{url}/projects/{proj}.json", key)
+    if code != 200:
+        sys.exit(f"ERREUR Redmine HTTP {code} sur GET projet {proj} : {body.get('_error', '')}")
+    return (body.get("project", {}).get("description") or "")
+
+
+def proj_desc_put(url, key, proj, text):
+    """PUT partiel de la description du projet. Sys.exit si échec."""
+    code, body = rm.http_json("PUT", f"{url}/projects/{proj}.json", key,
+                              {"project": {"description": text}})
+    if code not in (200, 204):
+        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT projet {proj} : {body.get('_error', '')}")
+    return code
+
+
+def canonicalize_desc(text):
+    """Description distante → forme canonique comparable (CRLF→LF, strip fnlist + blancs).
+
+    Pas de bandeau/H1 sur la description projet (c'est le champ réel du projet),
+    juste une normalisation. '' si vide.
+    """
+    text = _FNLIST_RE.sub("", text.replace("\r\n", "\n").replace("\r", "\n"))
+    stripped = text.strip("\n")
+    return stripped + "\n" if stripped else ""
+
+
+# ── Parsing de sections H2 (pour overview → description, section-level) ───
+_H2_LINE_RE = re.compile(r"^## (.+?)\s*$")
+
+
+def parse_sections(body):
+    """Découpe un corps markdown en blocs H2. Retourne [{heading, title, body}].
+
+    Le 1ᵉʳ bloc (préambule avant tout `## `) a heading/title None. Round-trip
+    exact via reassemble_sections().
+    """
+    parts, heading, title, buf = [], None, None, []
+    for ln in body.split("\n"):
+        m = _H2_LINE_RE.match(ln)
+        if m:
+            parts.append({"heading": heading, "title": title, "body": "\n".join(buf)})
+            heading, title, buf = ln, m.group(1).strip(), []
+        else:
+            buf.append(ln)
+    parts.append({"heading": heading, "title": title, "body": "\n".join(buf)})
+    return parts
+
+
+def reassemble_sections(parts):
+    out = []
+    for p in parts:
+        if p["heading"] is not None:
+            out.append(p["heading"])
+        out.append(p["body"])
+    return "\n".join(out)
+
+
+def section_content(parts, title):
+    """Contenu (sans blancs d'encadrement) de la section H2 `title`, ou None."""
+    for p in parts:
+        if p["title"] == title:
+            return p["body"].strip("\n")
+    return None
+
+
 # ── Merge 3-way ──────────────────────────────────────────────────────────
 def git_merge3(local, base, remote, labels=("local (git)", "base (dernier sync)", "wiki (Redmine)")):
     """Merge 3-way via `git merge-file -p`. Retourne (texte_mergé, conflit: bool).
@@ -457,6 +525,105 @@ def sync_aspect(a, *, url, key, rproj, repo, state, state_dir, maps, args):
     return "merged"
 
 
+def sync_description(overview_path, *, url, key, rproj, repo, state, state_dir, maps, args):
+    """Synchronise overview ## Description ⇄ description native du projet (spec §7).
+
+    Section-level : seule la section `## Description` est synchronisée ; le reste de
+    overview.md (Workspace, Équipe, Notes, Aspects documentés) n'est pas touché.
+    Détection distant = comparaison directe (le champ description n'a pas de
+    compteur de version). Fold-back = remplace UNIQUEMENT la section Description.
+    """
+    basename_to_title, title_to_basename = maps
+    rel = str(overview_path.relative_to(repo))
+    raw = overview_path.read_text(encoding="utf-8")
+    _, body = split_frontmatter(raw)
+    content = section_content(parse_sections(body), "Description")
+    if content is None:
+        print("  ⏭  overview : pas de section ## Description → skip")
+        return "noop"
+
+    secret_hits = scan_secrets(content)
+    local = canonicalize(rewrite_links_push(canonicalize(content), basename_to_title))
+    remote = canonicalize_desc(proj_desc_get(url, key, rproj))
+    tgt = state["targets"].get("overview")
+    base = None
+    if tgt and (state_dir / "overview.base").is_file():
+        base = canonicalize((state_dir / "overview.base").read_text(encoding="utf-8"))
+
+    def write_base_state(merged):
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / "overview.base").write_text(merged, encoding="utf-8")
+        state["targets"]["overview"] = {
+            "kind": "project_description", "source_file": rel,
+            "last_desc_hash": body_hash(merged),
+        }
+
+    def do_push(content_canon, why):
+        if secret_hits:
+            print(f"  🚫 overview (desc) : secret(s) [{', '.join(secret_hits)}] → push bloqué")
+            return "blocked"
+        if args.dry_run:
+            print(f"  ✎ overview → description projet {why} (push simulé)")
+        else:
+            proj_desc_put(url, key, rproj, content_canon)
+            write_base_state(content_canon)
+            print(f"  ✓ overview → description projet {why} (push)")
+        return "pushed"
+
+    def do_foldback(merged, why):
+        new_content = rewrite_links_foldback(merged, title_to_basename).strip("\n")
+        if args.dry_run:
+            print(f"  ✎ overview ← description projet {why} (fold-back simulé)")
+            return "folded"
+        hot = overview_path.read_text(encoding="utf-8")     # relecture À CHAUD
+        header, hbody = split_raw(hot)
+        parts = parse_sections(hbody)
+        for p in parts:
+            if p["title"] == "Description":
+                p["body"] = "\n" + new_content + "\n"
+                break
+        overview_path.write_text(header + reassemble_sections(parts), encoding="utf-8")
+        write_base_state(merged)
+        print(f"  ✓ overview ← description projet {why} (fold-back → {rel}, section Description)")
+        return "folded"
+
+    if args.push_only:
+        return do_push(local, "push-only")
+    if base is None:
+        if args.pull_only and remote:
+            return do_foldback(remote, "adopt-desc (pas de base)")
+        return do_push(local, "réamorçage base")
+
+    local_changed, remote_changed = local != base, remote != base
+    if not local_changed and not remote_changed:
+        print("  =  overview ↔ description projet inchangé")
+        return "noop"
+    if args.pull_only:
+        return do_foldback(remote, "pull-only") if remote_changed \
+            else (print("  =  overview (pull-only, distant inchangé)") or "noop")
+    if local_changed and not remote_changed:
+        return do_push(local, "local modifié")
+    if remote_changed and not local_changed:
+        return do_foldback(remote, "description projet modifiée")
+
+    merged, conflict = git_merge3(local, base, remote)
+    if conflict:
+        cf = overview_path.with_suffix(overview_path.suffix + ".wikiconflict")
+        if not args.dry_run:
+            cf.write_text(merged, encoding="utf-8")
+        print(f"  ⚠ overview ✗ CONFLIT description → {cf.name} (push/fold-back skippés)")
+        return "conflict"
+    if secret_hits:
+        print("  🚫 overview : merge OK mais secret local → push bloqué, fold-back seul")
+        return do_foldback(merged, "auto-merge (push bloqué)")
+    merged = canonicalize(merged)
+    if not args.dry_run:
+        proj_desc_put(url, key, rproj, merged)
+        do_foldback(merged, "auto-merge")  # écrit aussi la section locale + base
+    print("  ✓ overview ⇄ description projet auto-merge (3-way, écrit des deux côtés)")
+    return "merged"
+
+
 def notify_conflict(a, conflict_path, rproj, url, key, dry=False):
     """Notifie un conflit de sync : note Redmine sur le ticket de l'aspect (si connu)."""
     rm_ticket = a.get("rm_ticket")
@@ -485,6 +652,8 @@ def main():
     ap.add_argument("--force", action="store_true", help="repousse local→wiki même si inchangé")
     ap.add_argument("--push-only", action="store_true", help="git→wiki seul (écrase le wiki)")
     ap.add_argument("--pull-only", action="store_true", help="wiki→git seul (jamais de push)")
+    ap.add_argument("--project-desc-only", action="store_true",
+                    help="ne synchroniser que overview ## Description ⇄ description projet")
     ap.add_argument("--commit", action="store_true", help="git commit des fold-back")
     ap.add_argument("--index-title", default="Wiki", help="titre de la page index wiki")
     args = ap.parse_args()
@@ -498,8 +667,16 @@ def main():
     state_dir = project_root / ".wiki-sync"
     repo = cfg.projects_root
 
-    aspects = collect_aspects(project_dir, args.aspect)
-    if not aspects:
+    # Périmètre : aspects (pages wiki) et/ou overview→description projet.
+    if args.project_desc_only:
+        do_aspects, do_desc = False, True
+    elif args.aspect:
+        do_aspects, do_desc = True, False   # un aspect ciblé ne touche pas la description
+    else:
+        do_aspects, do_desc = True, True
+
+    aspects = collect_aspects(project_dir, args.aspect) if do_aspects else []
+    if do_aspects and not aspects:
         sys.exit("Aucun aspect à synchroniser.")
 
     # Tables de réécriture des liens (sur TOUS les aspects du projet, pas juste
@@ -528,8 +705,13 @@ def main():
                         state_dir=state_dir, maps=maps, args=args)
         counts[r] = counts.get(r, 0) + 1
 
+    if do_desc:
+        r = sync_description(project_dir / "overview.md", url=url, key=key, rproj=rproj,
+                             repo=repo, state=state, state_dir=state_dir, maps=maps, args=args)
+        counts[r] = counts.get(r, 0) + 1
+
     # Page index (régénérée — pas de fold-back, dérivée) sauf en sync ciblé / pull-only.
-    if not args.aspect and not args.pull_only:
+    if do_aspects and not args.aspect and not args.pull_only:
         idx = build_index_body(project_name, aspects, git_short_sha(repo, "."))
         if args.dry_run:
             print(f"  ✎ index → [[{args.index_title}]] (simulé)")
@@ -546,6 +728,8 @@ def main():
         if args.commit:
             paths = [str(a["path"].relative_to(repo)) for a in aspects]
             paths += [str((state_dir).relative_to(repo))]
+            if do_desc:
+                paths.append(str((project_dir / "overview.md").relative_to(repo)))
             git_commit_paths(repo, paths, f"chore(wiki): fold-back {proj} [wiki-sync]")
             print(f"  ✓ {folded} fold-back commité(s)")
         else:

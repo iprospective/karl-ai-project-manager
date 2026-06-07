@@ -1,9 +1,9 @@
 ---
-schema_version: "1.31.0"
-updated: 2026-06-04
+schema_version: "1.32.0"
+updated: 2026-06-07
 ---
 
-# Normes de gestion des tâches — v1.31.0
+# Normes de gestion des tâches — v1.32.0
 
 ## Configuration globale
 
@@ -78,6 +78,24 @@ cfg.find_project_by_redmine_id(rm_proj_id)             # (Path, Path) | (None, N
 logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
+
+## Skills PM (distribution cross-instance)
+
+Le dossier `skills/` du repo PM héberge les **skills Claude Code** (`SKILL.md`) qui font
+partie de l'outillage PM et doivent être disponibles sur **toutes les instances**. C'est
+le canal de distribution cross-instance des skills — distinct des skills personnels
+(`~/.claude/skills`, repo `claude-skills`) et des skills agents (`~/.agents/skills`).
+
+Claude Code n'auto-découvre les skills que depuis `~/.claude/skills/` (ou le `.claude/skills/`
+d'un projet, ou les plugins). Un `SKILL.md` versionné dans `skills/` n'est donc invocable
+qu'une fois **symlinké** dans le dossier skills de l'utilisateur, via
+`scripts/pm-skills-sync.py` (à lancer au setup de l'instance puis après tout pull qui
+ajoute/retire un skill). Le script est idempotent, ne supprime jamais un vrai dossier
+(collision de nom → averti, ignoré) et n'agit que sur ses propres symlinks. Détails et
+convention : `skills/README.md`.
+
+N'y placer que des skills **réellement transverses au PM** ; un skill propre à un autre
+domaine (sécurité, etc.) vit dans le repo de ce domaine.
 
 ## Types d'entités
 

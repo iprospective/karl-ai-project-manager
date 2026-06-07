@@ -17,7 +17,11 @@ cp .env.example .env
 # 3. Cloner le repo des projets (chemin défini par PROJECTS_PATH dans .env)
 git clone git@gitlab.iprospective.fr:iprospective/ai-projects.git "$PROJECTS_PATH"
 
-# 4. (Optionnel) Surcharger pm.config.yml en local
+# 4. Exposer les skills PM à Claude Code (symlinks ~/.claude/skills/ → skills/)
+python3 scripts/pm-skills-sync.py
+# (à relancer après un pull qui ajoute/retire un skill ; cf. skills/README.md)
+
+# 5. (Optionnel) Surcharger pm.config.yml en local
 #    cp pm.config.yml pm.config.local.yml
 #    # éditer pour ajuster les chemins/patterns (gitignored)
 ```

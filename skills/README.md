@@ -1,0 +1,47 @@
+---
+type: index
+created: 2026-06-07
+---
+
+# Skills PM — distribués à toutes les instances
+
+Ce dossier héberge les **skills Claude Code** (packages `SKILL.md`) qui font partie de
+l'outillage PM et doivent être **disponibles sur toutes les instances** qui clonent ce
+repo (`ai-project-management`). C'est le canal de distribution cross-instance des skills,
+distinct de :
+
+- `~/.claude/skills/` (repo perso `claude-skills`) — skills **personnels**, indépendants de PM.
+- `~/.agents/skills/` (repo `agents-skills`) — skills agents partagés, hors périmètre PM.
+
+## Pourquoi un mécanisme de symlink
+
+Claude Code n'auto-découvre les skills que depuis `~/.claude/skills/`, le `.claude/skills/`
+d'un projet, ou les plugins. Un `SKILL.md` posé ici n'est donc **pas invocable** tel quel :
+chaque instance doit l'**exposer** via un symlink dans `~/.claude/skills/`. C'est le rôle de
+`scripts/pm-skills-sync.py` (même pattern que les symlinks `~/.claude/skills/X → ~/.agents/skills/X`
+déjà utilisés pour les skills agents).
+
+## Installation sur une instance
+
+```bash
+python3 scripts/pm-skills-sync.py          # crée/rafraîchit les symlinks
+python3 scripts/pm-skills-sync.py --dry-run # montre sans rien changer
+python3 scripts/pm-skills-sync.py --prune   # retire en plus les symlinks devenus orphelins
+```
+
+À lancer **après chaque `git pull`** qui ajoute/supprime un skill (ou une fois au setup
+de l'instance). Idempotent : ne touche pas aux skills perso, ne supprime jamais un vrai
+dossier (collision de nom → averti et ignoré).
+
+## Convention
+
+- Un sous-dossier par skill, nommé exactement comme le skill (`name:` du frontmatter).
+- Chaque sous-dossier contient au minimum `SKILL.md` (frontmatter `name` + `description`).
+- Réserver ce dossier aux skills **réellement transverses au PM** (ex: opérer le PM,
+  outillage dev partagé). Les skills d'un domaine spécifique (sécurité, etc.) vivent dans
+  leur propre repo.
+
+## Skills présents
+
+- [`mmi-env-sync`](./mmi-env-sync/) — synchroniser un environnement de dev/test depuis la
+  prod (BDD + fichiers) via le framework `2-scripts/synchro`, avec adaptations de sécurité.

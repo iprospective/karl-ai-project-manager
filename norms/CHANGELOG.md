@@ -5,6 +5,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.32.0] - 2026-06-07
+
+### Ajouté — Skills PM distribués cross-instance (§ Skills PM)
+
+Nouveau dossier `skills/` à la racine du repo PM : héberge les skills Claude Code
+(`SKILL.md`) transverses au PM, distribués à toutes les instances. Comme Claude Code
+n'auto-découvre les skills que depuis `~/.claude/skills/`, le script
+`scripts/pm-skills-sync.py` crée les symlinks nécessaires (idempotent, ne supprime jamais
+un vrai dossier, `--dry-run`/`--prune`). Étape ajoutée au README (Installation). Premier
+skill versionné : `mmi-env-sync` (synchro d'un environnement dev/test depuis la prod —
+BDD + fichiers — avec adaptations de sécurité). Distinct des skills personnels
+(`claude-skills`) et agents (`agents-skills`).
+
 ## [1.31.0] - 2026-06-04
 
 ### Documenté — Transitions Redmine « assignee-only » (§ Phase d'étude → Synchronisation)

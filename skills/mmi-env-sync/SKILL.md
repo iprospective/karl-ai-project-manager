@@ -1,6 +1,6 @@
 ---
 name: mmi-env-sync
-description: Synchronise un environnement de DEV/TEST local depuis la PROD (fichiers + base de données) via le framework /home/workspaces/2-scripts/synchro. Propose ou crée la conf d'environnement quand le projet utilise un framework connu (PrestaShop, Dolibarr, WordPress), sinon aide à écrire un script de synchro ad hoc en suivant le même pattern dump→import→adaptation. Usage : "/mmi-env-sync", ou langage naturel "récupère les données de prod dans ma base dev", "rafraîchis la base dev de <projet>", "synchronise l'environnement de test".
+description: Synchronise un environnement de DEV/TEST local depuis la PROD (fichiers + base de données) via le framework de synchro du repo PM (tools/synchro/). Propose ou crée la conf d'environnement quand le projet utilise un framework connu (PrestaShop, Dolibarr, WordPress), sinon aide à écrire un script de synchro ad hoc en suivant le même pattern dump→import→adaptation. Usage : "/mmi-env-sync", ou langage naturel "récupère les données de prod dans ma base dev", "rafraîchis la base dev de <projet>", "synchronise l'environnement de test".
 allowed-tools: Bash, Read, Write, Edit
 ---
 
@@ -16,7 +16,11 @@ Rapatrier la PROD vers un environnement **local** de dev/test (base + éventuell
 
 ## Le framework de synchro
 
-Tout vit dans **`/home/workspaces/2-scripts/synchro/`** (= `/zfs/workspaces/...`, symlink). Repo git versionné — **aucun secret en clair dedans**.
+Le framework vit dans le **repo PM**, sous **`tools/synchro/`** (versionné et distribué
+avec `ai-project-management` — sur cette workstation : `/home/workspaces/ai/project-management/tools/synchro/`).
+**Aucun secret en clair** : auth MySQL admin locale via `~/.my.cnf`, secrets distants/prod
+via **Vaultwarden** (`resolve_secret "vaultwarden://…"`, URI dans la conf). Le dossier
+`environments/` est **gitignoré** (confs machine-spécifiques, sans mot de passe).
 
 ```
 sync.sh                      # point d'entrée
@@ -108,5 +112,5 @@ créer un `lib/<type>.sh` si le type a vocation à se réutiliser.
 (ssh `calicote-erp`) → local `calicote_dolibarr`. Lancer un rafraîchissement BDD :
 
 ```bash
-cd /home/workspaces/2-scripts/synchro && ./sync.sh calicote-dolibarr-dev --db --yes
+cd /home/workspaces/ai/project-management/tools/synchro && ./sync.sh calicote-dolibarr-dev --db --yes
 ```

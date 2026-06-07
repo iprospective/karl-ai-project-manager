@@ -23,6 +23,7 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | Daemon | `scripts/karl-agent.py` (stdlib-only, aucune dépendance) |
 | Units systemd | `deploy/karl-agent/{karl-agent,karl-agent-tunnel}.service` |
 | Installeur | `deploy/karl-agent/install.sh` |
+| Désinstalleur | `deploy/karl-agent/uninstall.sh` |
 | Logs pipe-pane | `$XDG_STATE_HOME/karl-agent/karl-RM<id>.log` (déf. `~/.local/state/karl-agent/`) |
 | Logs daemon | `journalctl --user -u karl-agent -f` |
 
@@ -113,6 +114,19 @@ L'installeur : vérifie les prérequis, teste l'alias `ssh mmi`, copie les units
 `~/.config/systemd/user/`, active le **linger** (`loginctl enable-linger mathieu`,
 pour survivre aux reboots sans session ouverte), puis `enable --now` les deux
 services.
+
+### Désinstallation
+
+```bash
+bash deploy/karl-agent/uninstall.sh                  # stop + disable + retire les units
+bash deploy/karl-agent/uninstall.sh --kill-sessions  # + ferme les tmux karl-RM* vivants
+bash deploy/karl-agent/uninstall.sh --disable-linger # + retire le linger utilisateur
+```
+
+Idempotent et symétrique de l'installeur. Par défaut il **conserve** les sessions
+tmux `karl-RM*` (un humain peut y être attaché) et le linger (d'autres services
+user peuvent en dépendre) — il faut les flags pour les retirer. Le code et les logs
+(`~/.local/state/karl-agent/`) ne sont jamais touchés.
 
 ### deploy_actions (manuel, une fois)
 

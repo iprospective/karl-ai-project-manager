@@ -17,23 +17,29 @@ Table de décision (spec §6) :
     local≠base, distant≠base, OK  → AUTO-MERGE (git merge-file) → écrit les 2 sens
     local≠base, distant≠base, ✗   → CONFLIT → <fichier>.md.wikiconflict + notif, skip
 
-Phases : P1 (RM1841) = push mono-dir ✅. **P2 (RM1842, ici)** = fold-back + merge
-3-way + conflits + réécriture liens inverse. P3 (RM1843) = overview→description
-projet. P4 (RM1844) = câblage git (`pm-sync-push` + cron). Le fold-back écrit des
-fichiers locaux ; leur **commit** est du ressort de P4 (ici on signale + `--commit`).
+Phases : P1 (RM1841) = push mono-dir ✅. P2 (RM1842) = fold-back + merge 3-way +
+conflits + réécriture liens inverse ✅. P3 (RM1843) = overview→description projet ✅.
+**P4 (RM1844, ici)** = câblage git : lock-file anti-concurrence, `--all` (cron
+fallback), **auto-commit** des fold-back par défaut, `--push` (`pm-sync-push`).
 
 Frontière inviolable (spec §2) : le **frontmatter n'est JAMAIS** poussé ni écrasé.
 Au fold-back, on **relit le fichier local à chaud** et on ne remplace QUE le corps
 (discipline optimistic-lock NORMS — leçon TOCTOU RM1834).
 
+Anti-boucle (spec §9) : aucun hook git ne déclenche le sync — il n'est lancé que
+manuellement ou par cron. Un commit `[wiki-sync]` ne re-déclenche donc rien (et de
+toute façon, après fold-back base=local=distant → le passage suivant est noop).
+
 Usage :
-    pm-wiki-sync.py <projet>                 # sync bidirectionnel (défaut)
-    pm-wiki-sync.py <projet> --push-only     # git→wiki seul (écrase le wiki, = P1)
+    pm-wiki-sync.py <projet>                 # sync bidirectionnel (défaut), auto-commit des fold-back
+    pm-wiki-sync.py --all                     # tous les projets wiki-sync-enabled (cron fallback)
+    pm-wiki-sync.py <projet> --push           # sync puis `git push` du repo projects (= pm-sync-push)
+    pm-wiki-sync.py <projet> --push-only      # git→wiki seul (écrase le wiki, = P1)
     pm-wiki-sync.py <projet> --pull-only      # wiki→git seul (jamais de push)
     pm-wiki-sync.py <projet> --aspect <slug>  # une seule cible
     pm-wiki-sync.py <projet> --dry-run        # n'écrit rien (wiki, git, état)
     pm-wiki-sync.py <projet> --force          # repousse local→wiki même si inchangé
-    pm-wiki-sync.py <projet> --commit         # git commit des fold-back (sinon : signalés)
+    pm-wiki-sync.py <projet> --no-commit      # n'auto-commite pas les fold-back (les signale)
 """
 import argparse
 import hashlib
@@ -368,6 +374,81 @@ def git_commit_paths(repo, paths, message):
         return False
 
 
+def git_push(repo):
+    """`git push` du repo (branche courante). Retourne ok: bool. Non fatal si échec."""
+    try:
+        out = subprocess.run(["git", "-C", str(repo), "push"],
+                             capture_output=True, text=True, timeout=120)
+        if out.returncode != 0:
+            print(f"  ⚠ git push échoué : {out.stderr.strip()}", file=sys.stderr)
+            return False
+        msg = (out.stderr or out.stdout).strip().splitlines()
+        print(f"  ✓ git push : {msg[-1] if msg else 'OK'}")
+        return True
+    except (OSError, subprocess.SubprocessError) as e:
+        print(f"  ⚠ git push : {e}", file=sys.stderr)
+        return False
+
+
+# ── Lock anti-concurrence (.wiki-sync/.lock) ─────────────────────────────
+class LockBusy(Exception):
+    """Levée quand un autre sync détient déjà le lock du projet (process vivant)."""
+
+
+class ProjectLock:
+    """Sérialise deux syncs concurrents d'un même projet (spec §9).
+
+    Lock-file `.wiki-sync/.lock` (gitignore'd) créé en O_EXCL. Un lock détenu par
+    un PID mort est volé (récupération après crash). Un lock vivant → LockBusy.
+    """
+
+    def __init__(self, state_dir):
+        self.path = state_dir / ".lock"
+        self.state_dir = state_dir
+        self.acquired = False
+
+    def __enter__(self):
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        except FileExistsError:
+            if not self._stale():
+                raise LockBusy(str(self.path))
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        os.write(fd, f"{os.getpid()}\n".encode())
+        os.close(fd)
+        self.acquired = True
+        return self
+
+    def _stale(self):
+        """True si le lock pointe un PID absent/illisible (donc volable)."""
+        try:
+            pid = int(self.path.read_text(encoding="utf-8").strip() or "0")
+        except (OSError, ValueError):
+            return True
+        if pid <= 0:
+            return True
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            return False  # process vivant (autre utilisateur) → pas volable
+        return False
+
+    def __exit__(self, *exc):
+        if self.acquired:
+            try:
+                os.unlink(self.path)
+            except OSError:
+                pass
+        return False
+
+
 # ── État local (.wiki-sync/) ─────────────────────────────────────────────
 def load_state(state_dir):
     f = state_dir / "state.json"
@@ -644,25 +725,25 @@ def notify_conflict(a, conflict_path, rproj, url, key, dry=False):
     # TODO P4 : notif Telegram (RM1774) en plus de la note Redmine.
 
 
-def main():
-    ap = argparse.ArgumentParser(description="Sync docs PM ⇄ Wiki Redmine (P2 bidirectionnel)")
-    ap.add_argument("project", help="slug du projet PM (ex: pm-ai-agents)")
-    ap.add_argument("--aspect", help="ne synchroniser qu'un aspect (par slug)")
-    ap.add_argument("--dry-run", action="store_true", help="n'écrit rien (wiki, git, état)")
-    ap.add_argument("--force", action="store_true", help="repousse local→wiki même si inchangé")
-    ap.add_argument("--push-only", action="store_true", help="git→wiki seul (écrase le wiki)")
-    ap.add_argument("--pull-only", action="store_true", help="wiki→git seul (jamais de push)")
-    ap.add_argument("--project-desc-only", action="store_true",
-                    help="ne synchroniser que overview ## Description ⇄ description projet")
-    ap.add_argument("--commit", action="store_true", help="git commit des fold-back")
-    ap.add_argument("--index-title", default="Wiki", help="titre de la page index wiki")
-    args = ap.parse_args()
-    if args.push_only and args.pull_only:
-        sys.exit("ERREUR : --push-only et --pull-only sont exclusifs")
+def discover_wiki_projects(cfg):
+    """Projets wiki-sync-enabled = ceux ayant un `.wiki-sync/state.json` (initialisés).
 
-    cfg = PMConfig.load()
-    url, key = rm.redmine_creds()
-    ent, proj, project_root, project_dir = resolve_project(cfg, args.project)
+    L'opt-in est implicite : un premier `pm-wiki-sync.py <projet>` crée l'état, après
+    quoi le cron `--all` prend le projet en charge. Retourne une liste de slugs triés.
+    """
+    out = []
+    for _ent, proj, proj_path in cfg.iter_projects():
+        if (Path(proj_path) / ".wiki-sync" / "state.json").is_file():
+            out.append(proj)
+    return sorted(out)
+
+
+def sync_one_project(cfg, url, key, slug, args):
+    """Synchronise un projet (sous lock). Retourne le dict de comptes d'actions.
+
+    Lève LockBusy si un autre sync du même projet est déjà en cours.
+    """
+    ent, proj, project_root, project_dir = resolve_project(cfg, slug)
     rproj, project_name = read_overview_meta(project_dir)
     state_dir = project_root / ".wiki-sync"
     repo = cfg.projects_root
@@ -677,7 +758,8 @@ def main():
 
     aspects = collect_aspects(project_dir, args.aspect) if do_aspects else []
     if do_aspects and not aspects:
-        sys.exit("Aucun aspect à synchroniser.")
+        print(f"▶ {proj} : aucun aspect à synchroniser — skip")
+        return {}
 
     # Tables de réécriture des liens (sur TOUS les aspects du projet, pas juste
     # ceux de ce run — pour que les liens restent corrects en --aspect ciblé).
@@ -690,57 +772,125 @@ def main():
         title_to_basename[wt] = f.name
     maps = (basename_to_title, title_to_basename)
 
-    state = load_state(state_dir)
-    state.setdefault("targets", {})
+    mode = "push-only" if args.push_only else ("pull-only" if args.pull_only else "bidir")
+
+    with ProjectLock(state_dir):  # sérialise deux syncs concurrents du même projet
+        state = load_state(state_dir)
+        state.setdefault("targets", {})
+
+        print(f"▶ {proj} (Redmine={rproj}) — {len(aspects)} aspect(s) [{mode}"
+              + (", dry-run" if args.dry_run else "") + "]")
+
+        counts = {}
+        for a in aspects:
+            r = sync_aspect(a, url=url, key=key, rproj=rproj, repo=repo, state=state,
+                            state_dir=state_dir, maps=maps, args=args)
+            counts[r] = counts.get(r, 0) + 1
+
+        if do_desc:
+            r = sync_description(project_dir / "overview.md", url=url, key=key, rproj=rproj,
+                                 repo=repo, state=state, state_dir=state_dir, maps=maps, args=args)
+            counts[r] = counts.get(r, 0) + 1
+
+        # Page index (régénérée — pas de fold-back, dérivée) sauf en sync ciblé / pull-only.
+        if do_aspects and not args.aspect and not args.pull_only:
+            idx = build_index_body(project_name, aspects, git_short_sha(repo, "."))
+            if args.dry_run:
+                print(f"  ✎ index → [[{args.index_title}]] (simulé)")
+            else:
+                wiki_put(url, key, rproj, args.index_title, idx)
+                print(f"  ✓ index → [[{args.index_title}]]")
+
+        if not args.dry_run:
+            save_state(state_dir, state)
+
+        # Auto-commit des fold-back (défaut P4) — commit ciblé par chemin (jamais
+        # `git add -A` : le repo projects est partagé/dirty). `--no-commit` les signale.
+        folded = counts.get("folded", 0) + counts.get("merged", 0)
+        if folded and not args.dry_run:
+            if args.no_commit:
+                print(f"  ℹ {folded} fichier(s) modifié(s) par fold-back — non commité(s) "
+                      f"(--no-commit)")
+            else:
+                paths = [str(a["path"].relative_to(repo)) for a in aspects]
+                paths += [str((state_dir / "state.json").relative_to(repo))]
+                paths += [str(p.relative_to(repo)) for p in state_dir.glob("*.base")]
+                if do_desc:
+                    paths.append(str((project_dir / "overview.md").relative_to(repo)))
+                if git_commit_paths(repo, paths, f"chore(wiki): fold-back {proj} [wiki-sync]"):
+                    print(f"  ✓ {folded} fold-back commité(s) [wiki-sync]")
+
+    summary = " ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "rien"
+    print(f"— {proj}: {summary}")
+    return counts
+
+
+def main():
+    ap = argparse.ArgumentParser(description="Sync docs PM ⇄ Wiki Redmine (RM1821, P1→P4)")
+    ap.add_argument("project", nargs="?", help="slug du projet PM (ex: pm-ai-agents)")
+    ap.add_argument("--all", action="store_true",
+                    help="tous les projets wiki-sync-enabled (.wiki-sync/state.json présent)")
+    ap.add_argument("--push", action="store_true",
+                    help="après le sync, `git push` du repo projects (= pm-sync-push)")
+    ap.add_argument("--aspect", help="ne synchroniser qu'un aspect (par slug)")
+    ap.add_argument("--dry-run", action="store_true", help="n'écrit rien (wiki, git, état)")
+    ap.add_argument("--force", action="store_true", help="repousse local→wiki même si inchangé")
+    ap.add_argument("--push-only", action="store_true", help="git→wiki seul (écrase le wiki)")
+    ap.add_argument("--pull-only", action="store_true", help="wiki→git seul (jamais de push)")
+    ap.add_argument("--project-desc-only", action="store_true",
+                    help="ne synchroniser que overview ## Description ⇄ description projet")
+    ap.add_argument("--no-commit", action="store_true",
+                    help="ne pas auto-committer les fold-back (juste les signaler)")
+    ap.add_argument("--commit", action="store_true",
+                    help="(déprécié — l'auto-commit est désormais le défaut ; sans effet)")
+    ap.add_argument("--index-title", default="Wiki", help="titre de la page index wiki")
+    args = ap.parse_args()
+    if args.push_only and args.pull_only:
+        sys.exit("ERREUR : --push-only et --pull-only sont exclusifs")
+    if args.all and args.project:
+        sys.exit("ERREUR : --all et un projet nommé sont exclusifs")
+    if args.all and args.aspect:
+        sys.exit("ERREUR : --aspect n'a pas de sens avec --all")
+    if not args.all and not args.project:
+        sys.exit("ERREUR : préciser un projet, ou --all")
     if args.force:
         args.push_only = True  # --force ⇒ push inconditionnel (override base)
 
-    mode = "push-only" if args.push_only else ("pull-only" if args.pull_only else "bidir")
-    print(f"▶ {proj} (Redmine={rproj}) — {len(aspects)} aspect(s) [{mode}"
-          + (", dry-run" if args.dry_run else "") + "]")
+    cfg = PMConfig.load()
+    url, key = rm.redmine_creds()
+    repo = cfg.projects_root
 
-    counts = {}
-    for a in aspects:
-        r = sync_aspect(a, url=url, key=key, rproj=rproj, repo=repo, state=state,
-                        state_dir=state_dir, maps=maps, args=args)
-        counts[r] = counts.get(r, 0) + 1
+    if args.all:
+        slugs = discover_wiki_projects(cfg)
+        if not slugs:
+            print("Aucun projet wiki-sync-enabled (.wiki-sync/state.json) trouvé.")
+            return
+        print(f"▶▶ --all : {len(slugs)} projet(s) wiki-sync-enabled : {', '.join(slugs)}")
+    else:
+        slugs = [args.project]
 
-    if do_desc:
-        r = sync_description(project_dir / "overview.md", url=url, key=key, rproj=rproj,
-                             repo=repo, state=state, state_dir=state_dir, maps=maps, args=args)
-        counts[r] = counts.get(r, 0) + 1
+    total = {}
+    for slug in slugs:
+        try:
+            counts = sync_one_project(cfg, url, key, slug, args)
+        except LockBusy as e:
+            print(f"  ⏭  {slug} : sync déjà en cours (lock {e}) → skip")
+            total["busy"] = total.get("busy", 0) + 1
+            continue
+        for k, v in counts.items():
+            total[k] = total.get(k, 0) + v
 
-    # Page index (régénérée — pas de fold-back, dérivée) sauf en sync ciblé / pull-only.
-    if do_aspects and not args.aspect and not args.pull_only:
-        idx = build_index_body(project_name, aspects, git_short_sha(repo, "."))
-        if args.dry_run:
-            print(f"  ✎ index → [[{args.index_title}]] (simulé)")
-        else:
-            wiki_put(url, key, rproj, args.index_title, idx)
-            print(f"  ✓ index → [[{args.index_title}]]")
+    # `git push` après tous les projets (repo projects partagé → un seul push suffit).
+    if args.push and not args.dry_run:
+        git_push(repo)
 
-    if not args.dry_run:
-        save_state(state_dir, state)
+    if args.all or len(slugs) > 1:
+        summary = " ".join(f"{k}={v}" for k, v in sorted(total.items())) or "rien"
+        print(f"\n══ total : {summary}")
 
-    # Commit des fold-back si demandé (sinon : signalés pour P4).
-    folded = counts.get("folded", 0) + counts.get("merged", 0)
-    if folded and not args.dry_run:
-        if args.commit:
-            paths = [str(a["path"].relative_to(repo)) for a in aspects]
-            paths += [str((state_dir).relative_to(repo))]
-            if do_desc:
-                paths.append(str((project_dir / "overview.md").relative_to(repo)))
-            git_commit_paths(repo, paths, f"chore(wiki): fold-back {proj} [wiki-sync]")
-            print(f"  ✓ {folded} fold-back commité(s)")
-        else:
-            print(f"  ℹ {folded} fichier(s) modifié(s) par fold-back — à committer "
-                  f"(ou relance avec --commit ; auto-commit = P4/RM1844)")
-
-    summary = " ".join(f"{k}={v}" for k, v in sorted(counts.items()))
-    print(f"\n— {summary}")
-    if counts.get("conflict"):
+    if total.get("conflict"):
         sys.exit(3)
-    if counts.get("blocked"):
+    if total.get("blocked"):
         sys.exit(2)
 
 

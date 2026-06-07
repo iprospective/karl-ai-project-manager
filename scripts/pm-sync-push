@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# pm-sync-push — sync bidirectionnel des docs de design PM ⇄ Wiki Redmine, puis `git push`.
+#
+# Wrapper de `pm-wiki-sync.py --push` (spec RM1821 §9, « pull-then-push »). Le sync fait
+# le fold-back wiki→git (+ auto-commit `[wiki-sync]`) et le push git→wiki ; ce script
+# enchaîne ensuite le `git push` du repo projects. Tous les arguments sont relayés.
+#
+#   pm-sync-push <projet>     # un projet (ex: pm-ai-agents)
+#   pm-sync-push --all        # tous les projets wiki-sync-enabled (cron fallback)
+#
+# Codes de sortie hérités de pm-wiki-sync.py : 0 OK, 2 secret bloqué, 3 conflit.
+set -euo pipefail
+exec python3 "$(dirname "$(readlink -f "$0")")/pm-wiki-sync.py" --push "$@"

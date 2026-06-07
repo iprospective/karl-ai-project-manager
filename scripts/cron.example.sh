@@ -22,3 +22,10 @@ LOG_DIR=/var/log/pm-ai-agents
 # ── Rapport hebdomadaire ─────────────────────────────────────────
 # Tous les lundis à 08:00 : ranking ROI global
 0 8 * * 1 cd "$PM_DIR" && source .env && python3 scripts/priority.py "$PROJECTS_PATH" --top 30 >> "$LOG_DIR/priority-weekly.log" 2>&1
+
+# ── Wiki-sync (fallback async) ───────────────────────────────────
+# Toutes les 10 min : capte les édits faits côté Wiki Redmine entre deux push git
+# (fold-back wiki→git + auto-commit [wiki-sync], puis git push). Le sens git→wiki
+# normal passe par `pm-sync-push` à la publication ; ce cron rattrape les retouches
+# wiki hors activité git. Lock-file par projet → pas de chevauchement avec un push manuel.
+*/10 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-wiki-sync.py --all --push >> "$LOG_DIR/wiki-sync.log" 2>&1

@@ -5,6 +5,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.35.0] - 2026-06-08
+
+### Ajouté — Outillage obligatoire en session PM (§ « Outillage obligatoire en session PM »)
+
+Principe : en session PM, toute opération touchant à l'**état des tâches, branches git,
+repos/submodules ou tickets Redmine** passe par les skills/scripts PM dédiés, jamais à la
+main. **Règle anti-trou** : une opération sans outil est un trou à combler (créer le
+script), pas une exception manuelle. Les opérations amendant l'état d'une tâche sont
+branchées derrière `pm-task-status-update.py` (source unique), qui propage Redmine + MD +
+log + worklog de session ; ce dernier est alimenté automatiquement via `pm_session_hook.py`
+(RM1875). Table de couverture actuelle incluse — **trou identifié : branches / repos /
+submodules** (obligations existantes sans outil dédié). Audit des manques à mener.
+
+---
+
 ## [1.34.1] - 2026-06-08
 
 ### Clarifié — Création d'un skill PM (§ « Skills PM »)

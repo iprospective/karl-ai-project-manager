@@ -33,6 +33,19 @@ if command -v ttyd >/dev/null 2>&1; then HAVE_TTYD=1; else
   echo "             navigateur. Pour l'activer : sudo apt install ttyd"
 fi
 
+# PIÈGE CONNU (vécu sur dev, RM1873) : le paquet `ttyd` (apt) installe ET active
+# tout seul un service SYSTÈME `ttyd.service` qui lance `ttyd -p 7681 -O login`
+# (un login web) → il squatte le port 7681 et NOTRE ttyd user (qui fait
+# `attach-karl.sh`) ne peut plus binder (EADDRINUSE, crash-loop). Symptôme dans
+# le navigateur : un prompt « <host> login: » au lieu du TUI de l'agent.
+# `systemctl is-enabled/is-active` SANS --user interroge le manager système :
+# il voit le service du paquet, pas le nôtre (homonyme, scope user).
+if systemctl is-enabled ttyd.service >/dev/null 2>&1 || systemctl is-active ttyd.service >/dev/null 2>&1; then
+  echo "  ⚠ Le service SYSTÈME ttyd.service (paquet apt) occupe le port 7681."
+  echo "    Neutralise-le (root) AVANT que notre ttyd user puisse démarrer :"
+  echo "      sudo systemctl disable --now ttyd.service && sudo systemctl mask ttyd.service"
+fi
+
 echo "==> Test de l'alias SSH 'mmi' (tunnel)"
 if ! ssh -o BatchMode=yes -o ConnectTimeout=5 mmi true 2>/dev/null; then
   echo "  ATTENTION : 'ssh mmi' ne répond pas en BatchMode. Vérifie ~/.ssh/config"

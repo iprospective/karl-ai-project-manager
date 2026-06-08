@@ -93,6 +93,14 @@ ssh -L 9876:localhost:9876 -L 7681:localhost:7681 dev.lxc
 # puis navigateur → http://localhost:9876/
 ```
 
+> **Piège apt (vécu sur dev).** `sudo apt install ttyd` installe **et active tout
+> seul** un service **système** `ttyd.service` (paquet) qui lance `ttyd -O login`
+> sur 7681 → il squatte le port, notre ttyd *user* ne peut plus binder, et le
+> navigateur affiche un `<host> login:` au lieu du TUI de l'agent. À neutraliser
+> juste après l'install : `sudo systemctl disable --now ttyd.service && sudo
+> systemctl mask ttyd.service`. (Homonymie volontaire à connaître : le service du
+> paquet = scope *système* ; le nôtre = scope *user*.) `install.sh` le détecte.
+
 > **INVARIANT SÉCU.** Le cockpit reste **LOCAL** (port-forward SSH / tunnel mmi),
 > jamais en écoute publique, **tant que l'auth (oauth2-proxy→GitLab, RM1845)
 > n'est pas en place**. ttyd bind `127.0.0.1` en dur (`-i 127.0.0.1`), comme le
@@ -186,6 +194,8 @@ user peuvent en dépendre) — il faut les flags pour les retirer. Le code et le
 | `409` au spawn | session déjà active — `/kill` d'abord, ou `/send` dessus. |
 | `400 cwd hors racines` | le `cwd` demandé n'est pas sous `KARL_AGENT_ALLOWED_ROOTS`. |
 | Tunnel se rebind sur 0.0.0.0 | vérifier `-R 127.0.0.1:9876:...` (et `GatewayPorts` côté sshd mmi). |
+| Cockpit : `<host> login:` au lieu du TUI | le service **système** `ttyd.service` du paquet apt squatte 7681 (lance `ttyd -O login`). `sudo systemctl disable --now ttyd.service && sudo systemctl mask ttyd.service`, puis `systemctl --user restart ttyd.service`. |
+| `ttyd.service` (user) en `activating`/`failed` | port 7681 déjà pris (`EADDRINUSE`) — souvent le ttyd système du paquet (ci-dessus). `journalctl --user -u ttyd.service`. |
 
 ## Pistes / évolutions (hors v1)
 

@@ -272,6 +272,13 @@ def main():
     print(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
     print(f"  {md_path.relative_to(cfg.projects_root)}")
 
+    # Worklog de session (best-effort, no-op hors session Claude Code) : enregistre
+    # le ticket comme `nouveau`. Si --status transitionne ensuite, pm-task-status-update
+    # ré-upsertera le statut final. Cf RM1875.
+    import pm_session_hook
+    pm_session_hook.log_to_session(f"RM{rm_id}", label=args.title,
+                                   status="nouveau", project=project)
+
     # Validate
     try:
         import subprocess

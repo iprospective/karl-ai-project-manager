@@ -424,6 +424,19 @@ def main():
             if r2.returncode != 0:
                 print(f"  ⚠ push estimation à la prise échoué (exit {r2.returncode})", file=sys.stderr)
 
+    # 7. Worklog de session (best-effort, no-op hors session Claude Code) : reflète
+    # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.
+    # Upsert : crée l'item si le ticket n'avait pas été ouvert dans cette session. Cf RM1875.
+    if not args.dry_run:
+        import pm_session_hook
+        try:
+            proj = md_path.relative_to(cfg.projects_root).parts[3]
+        except (ValueError, IndexError):
+            proj = None
+        pm_session_hook.log_to_session(
+            f"RM{args.rm_id}", label=fm.get("title"),
+            status=args.status, project=proj)
+
 
 if __name__ == "__main__":
     main()

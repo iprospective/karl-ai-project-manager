@@ -16,6 +16,13 @@ Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 ExecStart=/usr/bin/python3 /zfs/workspaces/ai/project-management/scripts/karl-agent.py
 Restart=on-failure
 RestartSec=2
+# CRITIQUE : le serveur tmux spawné par le daemon hérite de SON cgroup systemd.
+# Avec le KillMode=control-group par défaut, tout `systemctl stop/restart` du
+# daemon enverrait SIGTERM à tout le cgroup → TOUTES les sessions d'agents
+# mourraient à chaque redéploiement (contredit la persistance tmux, raison d'être
+# du superviseur). KillMode=process ne tue QUE le process principal à l'arrêt ;
+# les sessions tmux survivent au redémarrage du daemon (RM1873, vécu sur dev).
+KillMode=process
 # Le daemon bind 127.0.0.1 EN DUR (invariant sécu) — rien à durcir côté réseau ici.
 
 [Install]

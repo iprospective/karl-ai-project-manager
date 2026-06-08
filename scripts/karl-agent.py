@@ -184,6 +184,26 @@ def _require_rm_id(payload: dict) -> str:
     return rm_id
 
 
+def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
+    """Attend que le TUI du moteur soit prêt à recevoir une entrée, avant
+    d'injecter le prompt initial. Sans ça, les touches envoyées trop tôt partent
+    dans le vide pendant le splash de démarrage (course observée sur claude, RM1873).
+    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout."""
+    if engine != "claude":
+        time.sleep(0.3)
+        return
+    name = _session_name(rm_id)
+    # Marqueurs robustes de « claude prêt » : pied de page (raccourcis / accept
+    # edits / agents) ou la ligne d'invite ❯. Présents une fois le TUI initialisé.
+    markers = ("for shortcuts", "accept edits", "for agents", "❯")
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        rc, out, _ = _tmux("capture-pane", "-p", "-t", name)
+        if rc == 0 and any(m in out for m in markers):
+            return
+        time.sleep(0.3)
+
+
 def op_spawn(payload: dict) -> dict:
     rm_id = _require_rm_id(payload)
     if _has_session(rm_id):
@@ -216,11 +236,15 @@ def op_spawn(payload: dict) -> dict:
     logf = _log_path(rm_id)
     _tmux("pipe-pane", "-o", "-t", name, f"cat >> {shlex.quote(str(logf))}")
 
-    # Prompt initial éventuel, livré par send-keys (jamais dans la cmd).
+    # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
+    # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
+    # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
     if prompt:
-        time.sleep(0.3)  # laisse le moteur démarrer son TUI
-        op_send({"rm_id": rm_id, "msg": prompt, "enter": True})
+        _wait_engine_ready(rm_id, engine)
+        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
+        time.sleep(0.3)
+        _tmux("send-keys", "-t", name, "Enter")
 
     return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd), "created": True}
 

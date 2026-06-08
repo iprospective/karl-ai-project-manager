@@ -1,9 +1,9 @@
 ---
-schema_version: "1.32.0"
-updated: 2026-06-07
+schema_version: "1.33.0"
+updated: 2026-06-08
 ---
 
-# Normes de gestion des tâches — v1.32.0
+# Normes de gestion des tâches — v1.33.0
 
 ## Configuration globale
 
@@ -1063,6 +1063,9 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 - `test_url` — si environnement de test disponible
 - `deploy_actions` — si déploiement nécessaire
 - `close_reason` — obligatoire quand `status: ferme`
+- `requires_agent_test` — `default` (défaut) | `oui` | `non` | `demander` : conditionne la
+  passe agent-testeur en fin de dev (cf. § « Passe agent-testeur indépendante »). Mappé sur
+  le CF Redmine 27. Absent ⇔ `default`.
 
 ## ROI assisté par IA (RM1717)
 
@@ -1439,6 +1442,32 @@ for cf in issue.get('custom_fields', []):
     if cf['name'] == 'IA': print(f'IA = {cf.get(\"value\")!r}')"
 ```
 
+## Passe agent-testeur indépendante (`requires_agent_test`)
+
+À la fin d'un dev (`en_cours` terminé), le workflow canonique passe par `a_tester_dev`
+(test par un **agent/humain testeur ≠ le dev**) avant `a_tester_demandeur`. Cette passe
+n'est pas toujours nécessaire (artillerie lourde) — un champ par tâche la **conditionne** :
+
+- **Champ tâche** `requires_agent_test` : `default` (défaut) | `oui` | `non` | `demander`.
+- **Défaut projet** : `defaults.requires_agent_test` dans la config projet (`overview.md`).
+  Si absent → **défaut système : `non`**.
+- **Côté Redmine** : CF **27** « AI Test par agent » (énumération `Oui`/`Non`/`Demander`,
+  value ids 39/40/41 ; cf. `redmine.reference.yml :: agent_test_values`). **Non
+  sélectionné = `default`** (hérite). Le frontmatter MD fait foi pour l'agent ;
+  `pm-task-sync` peut le rafraîchir depuis le CF.
+
+**Résolution + routing** en fin de dev (`requires_agent_test` tâche → si `default`, défaut
+projet → si absent, `non`) :
+
+| Valeur résolue | Transition depuis `en_cours` |
+|---|---|
+| `oui` | → `a_tester_dev` (passe agent-testeur indépendante, attribué à un testeur ≠ dev) |
+| `non` | → `a_tester_demandeur` (**bypass**, attribué au demandeur) |
+| `demander` | l'agent **demande au demandeur** quelle voie prendre, puis applique |
+
+Un agent en mode non interactif qui tombe sur `demander` (ou ne peut pas résoudre) **reste
+en `en_cours`** et le signale plutôt que de trancher seul.
+
 ## Machine d'états
 
 ```
@@ -1474,6 +1503,7 @@ for cf in issue.get('custom_fields', []):
 
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
+[en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
@@ -1490,7 +1520,8 @@ développement → test → mise en production*.
 | `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
 | `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
 | `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
-| `en_cours` | `a_tester_dev` | dev terminé |
+| `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
+| `en_cours` | `a_tester_demandeur` | dev terminé + `requires_agent_test` résolu à `non` (bypass passe agent-testeur) ; `demander` → demandeur tranche |
 | `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
 | `a_tester_dev` | `a_tester_demandeur` | test dev OK |
 | `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |

@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.33.0] - 2026-06-08
+
+### Ajouté — Passe agent-testeur conditionnelle (`requires_agent_test`)
+
+La passe `a_tester_dev` (test par un agent/humain ≠ le dev) n'est plus systématique : un
+champ tâche `requires_agent_test` (`default`|`oui`|`non`|`demander`) la conditionne, avec
+défaut projet (`defaults.requires_agent_test`) et **défaut système `non`**. Routing en fin
+de dev : `oui` → `a_tester_dev` ; `non` → `a_tester_demandeur` (**nouvelle transition
+`en_cours → a_tester_demandeur`**, bypass) ; `demander` → l'agent demande au demandeur.
+Mappé sur le **CF Redmine 27** « AI Test par agent » (énum Oui/Non/Demander = 39/40/41 ;
+vide = `default`) — `redmine.reference.yml :: agent_test_values`, `.env ::
+REDMINE_CF_AGENT_TEST_ID`. `pm-task-add.py` : option `--agent-test` + champ frontmatter +
+push CF si ≠ default. Workflow Redmine `En cours → À tester demandeur` activé côté instance.
+
 ## [1.32.0] - 2026-06-07
 
 ### Ajouté — Skills PM distribués cross-instance (§ Skills PM)

@@ -113,6 +113,10 @@ def main():
                          "auto-assignation karl pour en_cours, note, status_history).")
     ap.add_argument("--description", default="")
     ap.add_argument("--tags", default="", help="Liste csv de tags")
+    ap.add_argument("--agent-test", dest="agent_test", default="default",
+                    choices=["default", "oui", "non", "demander"],
+                    help="Passe agent-testeur en fin de dev (frontmatter requires_agent_test "
+                         "/ CF27). default → hérite du projet (défaut système : non).")
     ap.add_argument("--target-env", default=None)
     # Estimation (NORMS § ROI) — poussée vers Redmine (CF21/22/25 + estimated_hours)
     # si au moins un flag est fourni. Cf. pm-task-metrics-push.py --estimate.
@@ -187,6 +191,18 @@ def main():
     )
     if target_author is not None:
         print(f"  · author_id → {target_author}")
+
+    # CF27 « AI Test par agent » : poussé seulement si ≠ default (vide côté Redmine = default).
+    if args.agent_test != "default":
+        from redmine_utils import load_reference, update_issue_fields
+        enum_id = (load_reference().get("agent_test_values") or {}).get(args.agent_test)
+        if enum_id:
+            ok, err = update_issue_fields(rm_id, custom_fields=[{"id": 27, "value": str(enum_id)}])
+            print(f"  · CF27 agent-test → {args.agent_test}" if ok
+                  else f"  ⚠ push CF27 échoué : {err}")
+        else:
+            print(f"  ⚠ CF27 non poussé : valeur {args.agent_test!r} absente de agent_test_values")
+
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     tags = [t.strip() for t in args.tags.split(",") if t.strip()]
@@ -206,6 +222,7 @@ def main():
         "team": [{"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}],
         "status": "nouveau",
         "close_reason": None,
+        "requires_agent_test": args.agent_test,
         "completion_pct": 0,
         "priority": args.priority,
         "roi": {

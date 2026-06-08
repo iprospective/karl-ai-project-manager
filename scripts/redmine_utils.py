@@ -80,6 +80,17 @@ def activity_for_type(task_type):
     return mapping.get(key, _FALLBACK_TYPE_TO_ACTIVITY.get(key, _DEFAULT_ACTIVITY_ID))
 
 
+def task_type_cf():
+    """(cf_id, {type_NORMS: value_id}) pour le CF « Task type » (taxonomie fine).
+
+    Le tracker encode la catégorie coarse ; ce CF porte le détail quand le type
+    NORMS est plus fin (ex. `documentation`). Source unique :
+    `redmine.reference.yml :: task_type_cf`. Retourne (None, {}) si non configuré.
+    """
+    ref = load_reference().get("task_type_cf") or {}
+    return ref.get("id"), dict(ref.get("values") or {})
+
+
 def status_aliases():
     """Mapping {statut_déprécié: statut_canonique} depuis la référence (+ fallback)."""
     ref = load_reference().get("status_aliases")

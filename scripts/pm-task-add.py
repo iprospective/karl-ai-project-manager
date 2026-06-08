@@ -44,7 +44,7 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 
-TYPE_TO_TRACKER = {"bugfix": 1, "feature": 2, "assistance": 3, "infrastructure": 4, "maintenance": 4, "autre": 4}
+TYPE_TO_TRACKER = {"bugfix": 1, "feature": 2, "assistance": 3, "infrastructure": 4, "maintenance": 4, "documentation": 4, "autre": 4}
 PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
 
 
@@ -177,6 +177,15 @@ def main():
             print(f"--dry-run : parent_issue_id={args.parent}")
         return
 
+    # CF « Task type » (taxonomie fine) : posé si le type NORMS a une
+    # correspondance dans la référence (ex. documentation → 42). Le tracker reste
+    # la catégorie coarse (documentation retombe sur « Tâche »).
+    from redmine_utils import task_type_cf
+    extra_cf = []
+    tt_cf_id, tt_values = task_type_cf()
+    if tt_cf_id and args.type in tt_values:
+        extra_cf.append({"id": tt_cf_id, "value": str(tt_values[args.type])})
+
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
     target_author = None if args.initiator_agent else load_ia_manager_id()
@@ -188,7 +197,10 @@ def main():
         description=args.description,
         author_id=target_author,
         parent_issue_id=args.parent,
+        extra_custom_fields=extra_cf or None,
     )
+    if extra_cf:
+        print(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
     if target_author is not None:
         print(f"  · author_id → {target_author}")
 

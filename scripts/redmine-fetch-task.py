@@ -135,6 +135,17 @@ def latest_journal_id(issue):
 def build_frontmatter(issue, author_login):
     tracker_name = (issue.get("tracker") or {}).get("name", "").strip().lower()
     task_type = TRACKER_TO_TYPE.get(tracker_name, "feature")
+    # Taxonomie fine : si le CF « Task type » (CF20) porte une valeur mappée à un
+    # type NORMS (ex. Documentation → documentation), elle prime sur le tracker
+    # coarse. Symétrique de la pose côté pm-task-add.
+    from redmine_utils import task_type_cf
+    tt_cf_id, tt_values = task_type_cf()
+    if tt_cf_id:
+        rev = {str(v): k for k, v in tt_values.items()}
+        for cf in (issue.get("custom_fields") or []):
+            if cf.get("id") == tt_cf_id and str(cf.get("value")) in rev:
+                task_type = rev[str(cf["value"])]
+                break
 
     prio_name = (issue.get("priority") or {}).get("name", "").strip().lower()
     priority = PRIORITY_TO_NORMS.get(prio_name, "normal")

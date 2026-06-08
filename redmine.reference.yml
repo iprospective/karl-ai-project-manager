@@ -126,5 +126,17 @@ type_to_activity:
   maintenance:    30   # Développement/Refacto/Clean  — refacto, nettoyage, entretien
   infrastructure: 13   # SysAdmin/Conf/Debug          — déploiement, conteneurs, systemd, conf
   research:       10   # Audit/Analyse                — investigation, audit, exploration
+  documentation:  10   # Audit/Analyse                — lecture/analyse + rédaction de doc (pas d'activité dédiée)
   assistance:     11   # Assistance                   — aide / support ponctuel
   autre:          18   # Autre                        — fourre-tout (défaut)
+
+# ── CF 20 « Task type » — taxonomie fine iProspective (NORMS type → valeur) ────
+# Le *tracker* encode la catégorie *coarse* (Anomalie/Evolution/Assistance/Tâche).
+# Quand le type NORMS est plus fin que le tracker (ex. `documentation` retombe sur
+# le tracker « Tâche »), on porte le détail dans ce CF enumeration. Posé à la
+# création par pm-task-add quand le type a une correspondance ici. Source unique :
+# lue par `redmine_utils.task_type_cf()` — ne pas redupliquer en dur.
+task_type_cf:
+  id: 20               # CF « Task type » (enumeration, issue)
+  values:
+    documentation: 42  # "Documentation"

@@ -5,6 +5,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.34.0] - 2026-06-08
+
+### Ajouté — Champs SSH d'environnement (`ssh_alias` / `ssh_target`)
+
+L'aspect `environments.md` gagne deux champs par env (§ « Environnements ») :
+`ssh_alias` (alias `~/.ssh/config`, avec `ProxyJump`/clés préconfigurés) et
+`ssh_target` (cible explicite `user@hostname`). **Règle d'usage** : pour se connecter,
+utiliser `ssh_alias` s'il est renseigné, sinon `ssh_target` ; `host`/`user` redeviennent
+indicatifs (préfixe des logs distants, contexte). Template
+`templates/aspects/common/environments.md` mis à jour (schéma aspect `1.8.0 → 1.9.0`).
+
 ## [1.33.0] - 2026-06-08
 
 ### Ajouté — Passe agent-testeur conditionnelle (`requires_agent_test`)

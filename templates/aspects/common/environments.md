@@ -1,5 +1,5 @@
 ---
-schema_version: "1.8.0"
+schema_version: "1.9.0"
 # Liste des environnements de ce projet (ou client si appliqué au niveau client).
 # Chaque env est indépendant — pas tous les projets ont tous les envs.
 environments:
@@ -7,9 +7,11 @@ environments:
     status: active             # active | disabled | planned
     url:                       # URL publique de l'env, ex: https://dev.calicote.test
     admin_url:                 # URL d'admin si distincte, ex: https://dev.calicote.test/admin
-    host:                      # alias SSH ou hostname, ex: dev.local
-    user:                      # user système, ex: mathieu
-    app_path:                  # chemin code sur l'host, ex: /zfs/workspaces/calicote
+    ssh_alias:                 # alias ~/.ssh/config — À UTILISER DE PRÉFÉRENCE, ex: calicote-presta
+    ssh_target:                # cible SSH explicite user@hostname (fallback), ex: calicote@srv1.sfy-gestion.com
+    host:                      # identité machine hôte (indicatif, préfixe logs distants), ex: sfy-srv1
+    user:                      # user système, ex: calicote
+    app_path:                  # chemin code sur l'host, ex: /home/calicote/public_html
     branch:                    # branche git associée, ex: dev
     fpm_pool:                  # nom du pool FPM si PHP, ex: calicote-74
     logs:

@@ -1,0 +1,22 @@
+{
+  "//": "Modèle de conf brevo-cleaner. Copier en <env>.json (gitignoré) et adapter.",
+  "//brevo_key_cmd": "Commande shell imprimant la clé API Brevo v3. Exécutée depuis la racine de l'outil. Ne PAS mettre la clé en clair : la lire au runtime (DB prod, Vaultwarden, env var…).",
+  "//name_attrs": "Attributs Brevo contenant prénom/nom (PRENOM/NOM, ou FIRSTNAME/LASTNAME selon le mapping du compte).",
+  "//order_attrs": "Attributs montant commande / CA : si l'un est > 0, le contact est PROTÉGÉ (jamais supprimé).",
+  "//allowlist_cmds": "Commandes shell imprimant les emails légitimes (un par ligne). Sources prod : clients, abonnés newsletter, contacts ERP… Tout email présent ici est PROTÉGÉ.",
+  "//detector": "Seuils du détecteur de noms-charabia. Calibrés sur la vague de spam calicote 2024 (caractères aléatoires majuscule/minuscule).",
+
+  "env_name": "MONPROJET",
+  "brevo_key_cmd": "bash environments/MONPROJET/brevo-key.sh",
+  "name_attrs": ["PRENOM", "NOM"],
+  "order_attrs": ["PS_ORDER_TOTAL", "PS_CA_USER"],
+  "allowlist_cmds": [
+    "bash environments/MONPROJET/allow-presta.sh"
+  ],
+  "detector": {
+    "min_token_len": 6,
+    "case_switches": 3,
+    "cons_run": 6,
+    "require_zero_vowels": true
+  }
+}

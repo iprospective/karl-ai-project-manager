@@ -1,0 +1,8 @@
+# Confs d'environnement = spécifiques machine/projet, peuvent pointer vers des
+# accès prod. Versionner uniquement les *.example.
+/environments/*.json
+!/environments/*.json.example
+# Helpers par environnement (référencent alias SSH / chemins prod).
+/environments/*/
+# Dossiers de travail (backups, listes, logs).
+/work/

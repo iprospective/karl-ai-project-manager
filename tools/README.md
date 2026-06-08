@@ -20,3 +20,13 @@ adaptations de sécurité (mails, paiements, sync, domaine). Piloté par le skil
   distants via Vaultwarden (`vaultwarden://` dans la conf, résolu au runtime).
 
 Détails d'usage et conventions : voir le skill `mmi-env-sync`.
+
+## brevo-cleaner/
+
+Purge d'un compte **Brevo** des contacts spam à **nom aléatoire** (vague d'inscriptions
+bot). Outil autonome (python) sur le même modèle que `synchro/` : entrypoint
+self-localisé, conf par projet gitignorée, secrets lus au runtime depuis la prod.
+Suppression conditionnée à 3 critères cumulatifs (nom charabia **ET** absent de la prod
+**ET** aucune commande), backup intégral systématique, modes `plan` (dry-run) /
+`apply --yes`. Point d'entrée : `brevo-cleaner/brevo_cleaner.py <env> plan|apply`.
+Détails : voir `brevo-cleaner/README.md`.

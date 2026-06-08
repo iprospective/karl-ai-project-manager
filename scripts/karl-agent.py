@@ -30,6 +30,8 @@ SÉCURITÉ
 
 ──────────────────────────────────────────────────────────────────────────────
 API (JSON, localhost:9876)
+  GET  /                        → text/html (cockpit web v0, RM1873)
+  GET  /cockpit-config          → {ttyd_base, auth_required}  (public)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
   POST /spawn  {rm_id, cwd?, engine?, prompt?, width?, height?}
@@ -109,6 +111,11 @@ LOG_DIR = Path(
 )
 
 AUTH_TOKEN = os.environ.get("KARL_AGENT_TOKEN") or None  # optionnel
+
+# Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
+COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
+# Base URL du terminal web ttyd. Vide → le client la calcule (location.hostname:7681).
+TTYD_URL = os.environ.get("KARL_AGENT_TTYD_URL", "")
 
 
 # ── Helpers tmux ─────────────────────────────────────────────────────────────
@@ -284,6 +291,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_html(self, code: int, html: str):
+        body = html.encode("utf-8")
+        self.send_response(code)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _check_auth(self) -> bool:
         if AUTH_TOKEN is None:
             return True
@@ -304,10 +319,23 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routage --
     def do_GET(self):
-        if not self._check_auth():
-            return self._send_json(401, {"error": "token requis (X-Karl-Token)"})
         parsed = urlparse(self.path)
         path = parsed.path
+        # Routes publiques du cockpit (RM1873) — SANS auth : la page doit pouvoir
+        # se charger pour qu'on y saisisse le token, et elle ne divulgue rien de
+        # sensible (le ttyd_base est déjà déductible côté client).
+        if path in ("/", "/cockpit"):
+            try:
+                return self._send_html(200, (COCKPIT_DIR / "index.html").read_text(encoding="utf-8"))
+            except FileNotFoundError:
+                return self._send_json(404, {"error": "cockpit/index.html absent"})
+        if path == "/cockpit-config":
+            return self._send_json(200, {
+                "ttyd_base": TTYD_URL,
+                "auth_required": AUTH_TOKEN is not None,
+            })
+        if not self._check_auth():
+            return self._send_json(401, {"error": "token requis (X-Karl-Token)"})
         try:
             if path == "/health":
                 return self._send_json(200, {

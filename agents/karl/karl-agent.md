@@ -21,7 +21,8 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | Quoi | Chemin |
 |---|---|
 | Daemon | `scripts/karl-agent.py` (stdlib-only, aucune dépendance) |
-| Units systemd | `deploy/karl-agent/{karl-agent,karl-agent-tunnel}.service` |
+| Units systemd | `deploy/karl-agent/{karl-agent,karl-agent-tunnel,ttyd}.service` |
+| Cockpit web (RM1873) | `deploy/karl-agent/cockpit/{index.html,attach-karl.sh}` |
 | Installeur | `deploy/karl-agent/install.sh` |
 | Désinstalleur | `deploy/karl-agent/uninstall.sh` |
 | Logs pipe-pane | `$XDG_STATE_HOME/karl-agent/karl-RM<id>.log` (déf. `~/.local/state/karl-agent/`) |
@@ -40,6 +41,8 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 
 | Méthode | Route | Corps / params | Réponse |
 |---|---|---|---|
+| GET | `/` `/cockpit` | — | `text/html` (cockpit web v0) — **public** |
+| GET | `/cockpit-config` | — | `{ttyd_base, auth_required}` — **public** |
 | GET | `/health` | — | `{status, sessions, tmux}` |
 | GET | `/sessions` | — | `{sessions:[{rm_id, tmux, created, attached}]}` |
 | POST | `/spawn` | `{rm_id, cwd?, engine?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, cwd, created}` |
@@ -68,6 +71,38 @@ curl -s -X POST http://127.0.0.1:9876/kill -d '{"rm_id":"1669"}'
 # reprise de main humaine, directement sur dev :
 tmux attach -t karl-RM1669
 ```
+
+## Cockpit web v0 (RM1873)
+
+Première UI web du système PM — **seed de RM1679**. Donne *lancer + superviser +
+reprise de main* dans le navigateur, sur l'API karl-agent existante.
+
+- **UI servie en même origine** par le daemon (`GET /`), HTML/JS auto-contenu
+  (`deploy/karl-agent/cockpit/index.html`) : pas de CORS, pas de build, pas de
+  dépendance. Liste les sessions (poll `/sessions`), formulaire de lancement
+  (`/spawn`), boutons Attach / Kill.
+- **Terminal web = ttyd** (`ttyd.service`), un seul process, lancé writable (`-W`)
+  avec `-a` : le cockpit passe le `rm_id` en argument d'URL (`?arg=<id>`) ; le
+  wrapper `cockpit/attach-karl.sh` **valide** `rm_id` (`^[0-9]+$`) puis fait
+  `exec tmux attach -t karl-RM<id>`. Multiples onglets = multiples viewers du
+  même tmux (mirroring natif). C'est la reprise de main, mais dans le navigateur.
+
+```bash
+# Accès LOCAL (port-forward des deux ports depuis le laptop) :
+ssh -L 9876:localhost:9876 -L 7681:localhost:7681 dev.lxc
+# puis navigateur → http://localhost:9876/
+```
+
+> **INVARIANT SÉCU.** Le cockpit reste **LOCAL** (port-forward SSH / tunnel mmi),
+> jamais en écoute publique, **tant que l'auth (oauth2-proxy→GitLab, RM1845)
+> n'est pas en place**. ttyd bind `127.0.0.1` en dur (`-i 127.0.0.1`), comme le
+> daemon. Ne PAS exposer un cockpit de *lancement* d'agents sans ce gate.
+
+Les pages `/` et `/cockpit-config` sont **publiques** (pas de token) pour que la
+page puisse charger et qu'on y saisisse le token si `KARL_AGENT_TOKEN` est défini ;
+les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichissement
+(badges working/blocked/idle, « besoin d'aide », chat structuré) viendra avec la
+**boucle hooks→état du superviseur v2 (RM1874)**.
 
 ## Sécurité — invariants
 
@@ -101,6 +136,7 @@ Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.
 | `KARL_AGENT_DEFAULT_CWD` | _(repo)_ | cwd si non fourni au spawn. |
 | `KARL_AGENT_WIDTH` / `_HEIGHT` | `200` / `50` | Géométrie du pane tmux. |
 | `KARL_AGENT_LOG_DIR` | `~/.local/state/karl-agent` | Logs pipe-pane (alimente `/stream`). |
+| `KARL_AGENT_TTYD_URL` | _(vide)_ | Base URL du ttyd du cockpit ; vide → le client la déduit (`location.hostname:7681`). |
 
 ## Installation (sur le LXC `dev`)
 

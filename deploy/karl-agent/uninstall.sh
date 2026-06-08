@@ -22,14 +22,14 @@ for arg in "$@"; do
 done
 
 echo "==> Arrêt + désactivation des services"
-for svc in karl-agent.service karl-agent-tunnel.service; do
+for svc in karl-agent.service karl-agent-tunnel.service ttyd.service; do
   systemctl --user disable --now "$svc" 2>/dev/null || true
 done
 
 echo "==> Suppression des units dans $UNIT_DST"
-rm -f "$UNIT_DST/karl-agent.service" "$UNIT_DST/karl-agent-tunnel.service"
+rm -f "$UNIT_DST/karl-agent.service" "$UNIT_DST/karl-agent-tunnel.service" "$UNIT_DST/ttyd.service"
 systemctl --user daemon-reload
-systemctl --user reset-failed karl-agent.service karl-agent-tunnel.service 2>/dev/null || true
+systemctl --user reset-failed karl-agent.service karl-agent-tunnel.service ttyd.service 2>/dev/null || true
 
 if [ "$KILL_SESSIONS" = 1 ]; then
   echo "==> Fermeture des sessions tmux karl-RM*"

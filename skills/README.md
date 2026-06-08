@@ -53,6 +53,9 @@ dossier (collision de nom → averti et ignoré).
   [`mmi-pm-client-new`](./mmi-pm-client-new/) — création projets/clients.
 - [`mmi-pm-karl-mail-send`](./mmi-pm-karl-mail-send/), [`mmi-pm-karl-sms-private-send`](./mmi-pm-karl-sms-private-send/) —
   notifications de karl.
+- [`mmi-pm-session-status`](./mmi-pm-session-status/) — suivi d'avancement **par session**
+  (worklog local keyé par `$CLAUDE_CODE_SESSION_ID`) ; répond cheap à « il reste quoi à
+  faire dans cette session ». Volet déclaratif de RM1875.
 
 **Outillage dev partagé** :
 

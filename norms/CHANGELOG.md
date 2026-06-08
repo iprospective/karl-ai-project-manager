@@ -5,6 +5,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.34.1] - 2026-06-08
+
+### Clarifié — Création d'un skill PM (§ « Skills PM »)
+
+Explicitation : un skill faisant partie de l'outillage PM se crée **dans `skills/<nom>/`**
+(versionné) + script dans `scripts/pm-*.py`, **jamais** dans le dossier skills perso
+(`~/.claude/skills/`). Lancer `pm-skills-sync.py` pour le symlinker, l'ajouter au
+`skills/README.md`. L'état instance-local d'un skill (worklogs de session, caches) reste
+hors repo. Motivé par la création du skill `mmi-pm-session-status`.
+
+---
+
 ## [1.34.0] - 2026-06-08
 
 ### Ajouté — Champs SSH d'environnement (`ssh_alias` / `ssh_target`)

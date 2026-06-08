@@ -1,9 +1,9 @@
 ---
-schema_version: "1.34.0"
+schema_version: "1.34.1"
 updated: 2026-06-08
 ---
 
-# Normes de gestion des tâches — v1.34.0
+# Normes de gestion des tâches — v1.34.1
 
 ## Configuration globale
 
@@ -96,6 +96,14 @@ convention : `skills/README.md`.
 
 N'y placer que des skills **réellement transverses au PM** ; un skill propre à un autre
 domaine (sécurité, etc.) vit dans le repo de ce domaine.
+
+**Créer un skill PM** : poser le `SKILL.md` directement dans `skills/<nom>/` (versionné),
+et son éventuel script dans `scripts/pm-<entité>-<action>.py` (comme les autres `pm-*.py`),
+référencé en relatif depuis le `SKILL.md`. **Jamais** dans le dossier skills perso
+(`~/.claude/skills/`, repo `claude-skills`) — c'est ce repo PM qui révisionne et distribue
+les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour créer le symlink
+qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
+qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
 
 ## Types d'entités
 

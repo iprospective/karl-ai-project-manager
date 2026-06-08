@@ -236,6 +236,14 @@ def op_spawn(payload: dict) -> dict:
     logf = _log_path(rm_id)
     _tmux("pipe-pane", "-o", "-t", name, f"cat >> {shlex.quote(str(logf))}")
 
+    # Cockpit (RM1873) : rendre le terminal web scrollable. Sans `mouse on`, la
+    # molette ne scrolle pas l'historique du pane une fois attaché via ttyd.
+    # Options globales du serveur tmux (dédié aux sessions karl-*). `history-limit`
+    # ne s'applique qu'aux panes créés APRÈS (donc aux prochaines sessions) ;
+    # `mouse on` prend effet immédiatement pour toutes.
+    _tmux("set-option", "-g", "mouse", "on")
+    _tmux("set-option", "-g", "history-limit", "50000")
+
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).

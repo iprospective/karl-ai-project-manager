@@ -43,5 +43,18 @@ dossier (collision de nom → averti et ignoré).
 
 ## Skills présents
 
+**Opération du PM** (wrappers des scripts `pm-*.py` / `karl-*.py`) :
+
+- [`mmi-pm-task-add`](./mmi-pm-task-add/), [`mmi-pm-task-list`](./mmi-pm-task-list/),
+  [`mmi-pm-task-show`](./mmi-pm-task-show/), [`mmi-pm-task-status-update`](./mmi-pm-task-status-update/),
+  [`mmi-pm-task-comment`](./mmi-pm-task-comment/), [`mmi-pm-task-link`](./mmi-pm-task-link/),
+  [`mmi-pm-task-sync`](./mmi-pm-task-sync/) — cycle de vie des tâches.
+- [`mmi-pm-project-new`](./mmi-pm-project-new/), [`mmi-pm-project-bootstrap-replay`](./mmi-pm-project-bootstrap-replay/),
+  [`mmi-pm-client-new`](./mmi-pm-client-new/) — création projets/clients.
+- [`mmi-pm-karl-mail-send`](./mmi-pm-karl-mail-send/), [`mmi-pm-karl-sms-private-send`](./mmi-pm-karl-sms-private-send/) —
+  notifications de karl.
+
+**Outillage dev partagé** :
+
 - [`mmi-env-sync`](./mmi-env-sync/) — synchroniser un environnement de dev/test depuis la
-  prod (BDD + fichiers) via le framework `2-scripts/synchro`, avec adaptations de sécurité.
+  prod (BDD + fichiers) via le framework `tools/synchro/`, avec adaptations de sécurité.

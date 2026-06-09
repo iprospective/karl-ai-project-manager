@@ -1,8 +1,22 @@
 # ADR 0001 — Découpage des données PM en repos par client (orchestrateur à périmètre restreint)
 
-- **Statut** : proposé (étude RM1887, à valider par Mathieu)
-- **Date** : 2026-06-08
-- **Tickets** : RM1887 (cette étude) — RM1885 (objectif : orchestrateur à périmètre restreint) — RM1769 (symlinks niveau client) — RM1872 (friction pointeur submodule) — fédération multi-instances (RM1802)
+- **Statut** : driver tranché le 2026-06-09 — cette étude devient la **facette données/GitLab** du chapeau **RM1906** (orchestrateur client-facing multi-tenant confiné). Option D (repo-par-client) **retenue**, conditionnée à la mise en œuvre du client-facing.
+- **Date** : 2026-06-08 (driver réel ajouté 2026-06-09)
+- **Tickets** : **RM1906** (chapeau multi-tenant) — RM1887 (cette étude = facette données) — RM1907 (Redmine) / RM1908 (SSH+isolation) / RM1909 (provisioning+pilotage) facettes sœurs — RM1885 (périmètre restreint) — RM1769 (symlinks niveau client) — RM1872 (friction pointeur submodule) — fédération (RM1802/RM1859)
+
+## Driver réel (tranché 2026-06-09)
+
+La question pivot « besoin de droits par client ? » est tranchée, mais **pas** par la
+ségrégation interne (déjà couverte par les users/groupes GitLab). Le vrai moteur : **on met
+l'orchestrateur à disposition des clients, et le client pilote directement** → le tenant
+`karl-<client>` est **quasi-untrusted** et doit être **confiné sur 4 plans** (Redmine, GitLab,
+SSH, secrets) + **isolé** dans un substrat dédié. C'est ce qui force réellement le repo-par-client :
+un compte de service `karl-<client>` doit porter un **credential GitLab incapable de lire la donnée
+des autres clients** — impossible avec un monorepo.
+
+→ **Option D retenue** (repo PM par client), comme **pré-requis données** du confinement GitLab.
+Le design d'ensemble vit dans **RM1906** ; cet ADR ne couvre que la facette données/GitLab.
+Sparse-checkout (option B) reste le fallback si le client-facing n'est finalement pas déployé.
 
 ## Contexte
 

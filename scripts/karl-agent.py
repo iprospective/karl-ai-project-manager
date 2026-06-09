@@ -43,8 +43,9 @@ API (JSON, localhost:9876)
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
-  POST /monitor {rm_id, preset, orientation?}  → split-window moniteur (RM1893 §3)
-  POST /layout  {rm_id, layout}                → réarrange les panes (RM1893 §3)
+  POST /monitor   {rm_id, preset, orientation?} → split-window moniteur (RM1893 §3)
+  POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
+  POST /layout    {rm_id, layout}                → réarrange les panes (RM1893 §3)
   POST /kill   {rm_id}          → {rm_id, killed:true}
 
 Lancement :
@@ -471,8 +472,41 @@ def op_monitor(payload: dict) -> dict:
                        "-c", "#{pane_current_path}", presets[preset])
     if rc != 0:
         raise ApiError(500, f"split-window a échoué : {err.strip()}")
+    # Marque le nouveau pane (actif après split) comme moniteur → permet de le
+    # retirer sans jamais toucher au pane de l'agent (qui n'a pas ce flag).
+    _tmux("set-option", "-p", "-t", name, "@karl_mon", "1")
     _tmux("select-layout", "-t", name, "tiled")
     return {"rm_id": rm_id, "preset": preset, "added": True}
+
+
+def op_unmonitor(payload: dict) -> dict:
+    """Ferme un pane moniteur (RM1893 §3). Cible le moniteur actif (celui que
+    l'utilisateur a cliqué dans le terminal) ou, à défaut, le dernier ajouté.
+    Ne touche JAMAIS au pane de l'agent (non marqué @karl_mon)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    name = _session_name(rm_id)
+    rc, out, err = _tmux("list-panes", "-t", name, "-F",
+                         "#{pane_id} #{pane_active} #{@karl_mon}")
+    if rc != 0:
+        raise ApiError(500, f"list-panes a échoué : {err.strip()}")
+    monitors, active_mon = [], None
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 3 or parts[2] != "1":   # 2 champs = pane non marqué (agent)
+            continue
+        monitors.append(parts[0])
+        if parts[1] == "1":
+            active_mon = parts[0]
+    target = active_mon or (monitors[-1] if monitors else None)
+    if not target:
+        raise ApiError(400, "aucun moniteur à fermer")
+    rc, _, err = _tmux("kill-pane", "-t", target)
+    if rc != 0:
+        raise ApiError(500, f"kill-pane a échoué : {err.strip()}")
+    _tmux("select-layout", "-t", name, "tiled")
+    return {"rm_id": rm_id, "closed": target, "remaining": len(monitors) - 1}
 
 
 def op_layout(payload: dict) -> dict:
@@ -603,6 +637,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":
                 return self._send_json(201, op_monitor(payload))
+            if path == "/unmonitor":
+                return self._send_json(200, op_unmonitor(payload))
             if path == "/layout":
                 return self._send_json(200, op_layout(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})

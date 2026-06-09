@@ -52,6 +52,7 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/capture/<rm_id>` | `?lines=N` (historique) | `text/plain` (snapshot du pane) |
 | GET | `/stream/<rm_id>` | — | `text/event-stream` (tail du pipe-pane, SSE) |
 | POST | `/monitor` | `{rm_id, preset, orientation?=h\|v}` | `201 {added}` — pane moniteur via `split-window`, commande issue du catalogue serveur (RM1893 §3) |
+| POST | `/unmonitor` | `{rm_id}` | `{closed, remaining}` — ferme le moniteur actif (cliqué) ou le dernier ajouté ; ne touche jamais au pane de l'agent (flag `@karl_mon`) |
 | POST | `/layout` | `{rm_id, layout}` | `{layout}` — `even-horizontal\|even-vertical\|main-vertical\|main-horizontal\|tiled` |
 | POST | `/kill` | `{rm_id}` | `{rm_id, killed}` |
 

@@ -148,6 +148,7 @@
       <div class="tabactions" id="tabactions" style="display:none">
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
+        <button class="mini" id="unmonbtn" onclick="removeMonitor()" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
         <select class="mini" id="layoutsel" onchange="setLayout()" title="Disposition des panes">
           <option value="">Disposition…</option>
         </select>
@@ -333,6 +334,14 @@ async function addMonitor() {
     await api("/monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, preset }) });
     toast("Moniteur « " + preset + " » ajouté");
     setTimeout(reattach, 300);   // recharge l'iframe pour afficher le nouveau pane
+  } catch (e) { toast(e.message, true); }
+}
+async function removeMonitor() {
+  if (!attached) return;
+  try {
+    await api("/unmonitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached }) });
+    toast("Moniteur fermé");
+    setTimeout(reattach, 300);
   } catch (e) { toast(e.message, true); }
 }
 async function setLayout() {

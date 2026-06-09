@@ -61,6 +61,8 @@
   .toast.show { opacity: 1; transform: none; }
   .toast.err { border-left-color: var(--danger); }
   .lock { font-size: 11px; color: var(--warn); }
+  .searchrow { display: flex; gap: 6px; }
+  .searchrow input { flex: 1; }
   .results { list-style: none; margin: 10px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
   .results li { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px;
     cursor: pointer; background: var(--panel2); }
@@ -93,7 +95,10 @@
 
     <div class="card">
       <h2>Rechercher un ticket</h2>
-      <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
+      <div class="searchrow">
+        <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
+        <button class="mini" id="searchclear" onclick="clearSearch()" title="Vider la recherche">✕</button>
+      </div>
       <ul class="results" id="results"></ul>
     </div>
 
@@ -264,6 +269,11 @@ function applyTemplate() {
 }
 
 // ----- §7 : recherche de tickets (MD locaux) -----
+function clearSearch() {
+  document.getElementById("search").value = "";
+  document.getElementById("results").innerHTML = "";
+  document.getElementById("search").focus();
+}
 async function search() {
   const q = document.getElementById("search").value.trim();
   const ul = document.getElementById("results");

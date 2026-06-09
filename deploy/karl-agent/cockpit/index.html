@@ -73,6 +73,21 @@
   .results .r-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
   .resolved.nf { color: var(--warn); }
+  .tabbar { display: flex; align-items: stretch; gap: 8px; background: var(--panel);
+    border-bottom: 1px solid var(--line); padding: 0 10px; min-height: 38px; }
+  .tabs { display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; flex: 1; }
+  .tab { display: flex; align-items: center; gap: 7px; padding: 0 8px 0 11px; cursor: pointer;
+    border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; height: 30px;
+    background: var(--panel2); color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .tab:hover { color: var(--fg); }
+  .tab.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
+  .tab .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
+  .tab.att .tdot, .tab.active .tdot { background: var(--ok); }
+  .tab .tid { font-family: var(--mono); }
+  .tab .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; }
+  .tab .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
+  .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
+  .tabactions { display: flex; align-items: center; gap: 6px; }
 </style>
 </head>
 <body>
@@ -125,27 +140,22 @@
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
-
-    <div class="card">
-      <h2>Sessions actives <span id="count" style="color:var(--muted)"></span></h2>
-      <ul class="sessions" id="sessions"></ul>
-    </div>
   </section>
 
   <section class="right">
-    <div class="termbar">
-      <span class="title" id="termtitle">Aucune session attachée</span>
-      <span style="flex:1"></span>
-      <select class="mini" id="monpreset" style="display:none" title="Moniteur à ajouter"></select>
-      <button class="mini" id="monbtn" style="display:none" onclick="addMonitor()">➕ Moniteur</button>
-      <select class="mini" id="layoutsel" style="display:none" onchange="setLayout()" title="Disposition des panes">
-        <option value="">Disposition…</option>
-      </select>
-      <button class="mini" id="reattach" style="display:none" onclick="reattach()">↻ Recharger</button>
-      <button class="mini" id="detach" style="display:none" onclick="detach()">✕ Détacher</button>
+    <div class="tabbar">
+      <div class="tabs" id="tabs"><span class="notabs" id="notabs">Aucune session — lances-en une à gauche</span></div>
+      <div class="tabactions" id="tabactions" style="display:none">
+        <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
+        <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
+        <select class="mini" id="layoutsel" onchange="setLayout()" title="Disposition des panes">
+          <option value="">Disposition…</option>
+        </select>
+        <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
+      </div>
     </div>
     <div class="placeholder" id="placeholder">
-      Lance une session ou clique <b style="margin:0 4px">Attach</b> sur une session active<br>
+      Lance une session à gauche, ou clique un <b style="margin:0 4px">onglet</b> ci-dessus<br>
       pour ouvrir son terminal ici (reprise de main : tu peux taper directement).
     </div>
     <iframe id="term" style="display:none"></iframe>
@@ -208,29 +218,28 @@ async function refreshHealth() {
   }
 }
 async function refreshSessions() {
-  const ul = document.getElementById("sessions"), cnt = document.getElementById("count");
+  const tabs = document.getElementById("tabs");
+  const notabs = document.getElementById("notabs");
   try {
     const { sessions } = await api("/sessions");
-    cnt.textContent = sessions.length ? "(" + sessions.length + ")" : "";
-    if (!sessions.length) { ul.innerHTML = '<div class="empty">aucune session</div>'; return; }
     sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
-    ul.innerHTML = "";
+    // si la session affichée a disparu (kill externe) → on détache la vue
+    if (attached && !sessions.some(s => s.rm_id === attached)) detach();
+    tabs.querySelectorAll(".tab").forEach(e => e.remove());
+    notabs.style.display = sessions.length ? "none" : "";
     for (const s of sessions) {
-      const li = document.createElement("li");
-      li.className = "sess" + (attached === s.rm_id ? " active" : "");
-      li.innerHTML =
-        '<span class="rm">RM' + s.rm_id + '</span>' +
-        '<span class="meta">' + (s.created ? "depuis " + ago(s.created) : "") + '</span>' +
-        (s.attached ? '<span class="badge att">attaché</span>' : '') +
-        '<button class="mini" data-a="' + s.rm_id + '">Attach</button>' +
-        '<button class="mini danger" data-k="' + s.rm_id + '">Kill</button>';
-      ul.appendChild(li);
+      const tab = document.createElement("div");
+      tab.className = "tab" + (attached === s.rm_id ? " active" : "") + (s.attached ? " att" : "");
+      tab.title = "karl-RM" + s.rm_id +
+        (s.created ? " · ouvert il y a " + ago(s.created) : "") +
+        (s.attached ? " · attaché" : "");
+      tab.innerHTML = '<span class="tdot"></span><span class="tid">RM' + s.rm_id +
+        '</span><span class="tkill" title="Fermer la session">✕</span>';
+      tab.onclick = () => attach(s.rm_id);
+      tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
+      tabs.appendChild(tab);
     }
-    ul.querySelectorAll("[data-a]").forEach(b => b.onclick = () => attach(b.dataset.a));
-    ul.querySelectorAll("[data-k]").forEach(b => b.onclick = () => kill(b.dataset.k));
-  } catch (e) {
-    ul.innerHTML = '<div class="empty">erreur : ' + e.message + '</div>';
-  }
+  } catch (e) { /* health affiche déjà l'erreur de connexion */ }
 }
 
 // ----- §1 : résolution rm_id → client/projet/cwd/prompt -----
@@ -297,20 +306,14 @@ async function search() {
   } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + e.message + '</div>'; }
 }
 
-// ----- attach / detach (+ contrôles moniteur) -----
-function setMonitorControls(show) {
-  ["monpreset", "monbtn", "layoutsel"].forEach(id => document.getElementById(id).style.display = show ? "" : "none");
-}
+// ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
   document.getElementById("placeholder").style.display = "none";
   const f = document.getElementById("term");
   f.style.display = "block"; f.src = ttydUrl(rmId);
-  document.getElementById("termtitle").textContent = "karl-RM" + rmId + "  (terminal live — tape pour reprendre la main)";
-  document.getElementById("detach").style.display = "";
-  document.getElementById("reattach").style.display = "";
-  setMonitorControls(true);
-  refreshSessions();
+  document.getElementById("tabactions").style.display = "";
+  refreshSessions();   // re-rend les onglets pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
 function detach() {
@@ -318,11 +321,7 @@ function detach() {
   const f = document.getElementById("term");
   f.src = "about:blank"; f.style.display = "none";
   document.getElementById("placeholder").style.display = "flex";
-  document.getElementById("termtitle").textContent = "Aucune session attachée";
-  document.getElementById("detach").style.display = "none";
-  document.getElementById("reattach").style.display = "none";
-  setMonitorControls(false);
-  refreshSessions();
+  document.getElementById("tabactions").style.display = "none";
 }
 
 // ----- §3 : moniteurs multi-panes -----

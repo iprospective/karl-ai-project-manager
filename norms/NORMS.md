@@ -1,9 +1,9 @@
 ---
-schema_version: "1.36.0"
+schema_version: "1.37.0"
 updated: 2026-06-09
 ---
 
-# Normes de gestion des tâches — v1.36.0
+# Normes de gestion des tâches — v1.37.0
 
 ## Configuration globale
 
@@ -1432,6 +1432,19 @@ côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type
 > **Outillage souhaité (gap connu)** : un script `scripts/redmine-config-check.py`
 > qui diff la config live contre les références locales et signale tout drift.
 > En attendant, le contrôle est manuel (requêtes `GET` ci-dessus).
+
+**Règle de propagation — source unique → consommateurs (v1.37.0).** Quand tu fais
+évoluer un **paramètre canonique** (taxonomie de `type` et mappings
+`TYPE_TO_TRACKER` / `type_to_activity` / `task_type_cf`, IDs Redmine, statuts,
+priorités, énumérations…), mets à jour **dans le même changement** *tous* les
+scripts et consommateurs qui le référencent — y compris ceux qui en dérivent une
+liste pour l'UI. Préférer une **lecture à l'exécution** de la source (ex. le
+cockpit karl-agent peuple son sélecteur de types via `pm-task-add --list-types`,
+plutôt qu'une liste codée en dur) ; à défaut, le miroir est resynchronisé dans le
+même commit. Une source de vérité et son miroir ne doivent **jamais diverger en
+silence** — c'est la même classe de bug que le drift de config Redmine ci-dessus,
+côté *écriture* cette fois. Avant de clore : vérifier la cohérence
+`pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 

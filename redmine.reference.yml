@@ -127,10 +127,15 @@ activities:
 type_to_activity:
   feature:        31   # Developpement/Feature        — écrire une fonctionnalité neuve
   bugfix:         16   # Développement/Debug          — corriger un défaut
+  refactoring:    30   # Développement/Refacto/Clean  — refonte de code
+  security:       16   # Développement/Debug          — correctif de sécurité
+  performance:    30   # Développement/Refacto/Clean  — optimisation
   maintenance:    30   # Développement/Refacto/Clean  — refacto, nettoyage, entretien
   infrastructure: 13   # SysAdmin/Conf/Debug          — déploiement, conteneurs, systemd, conf
-  research:       10   # Audit/Analyse                — investigation, audit, exploration
+  research:       10   # Audit/Analyse                — investigation, exploration
+  audit:          10   # Audit/Analyse                — audit / analyse
   documentation:  10   # Audit/Analyse                — lecture/analyse + rédaction de doc (pas d'activité dédiée)
+  design:         18   # Autre                        — conception (pas d'activité dédiée)
   assistance:     11   # Assistance                   — aide / support ponctuel
   autre:          18   # Autre                        — fourre-tout (défaut)
 

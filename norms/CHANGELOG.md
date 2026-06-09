@@ -5,6 +5,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.37.0] - 2026-06-09
+
+### Ajouté — Règle de propagation « source unique → consommateurs » (§ « Synchronisation de la configuration Redmine »)
+
+Quand un **paramètre canonique** évolue (taxonomie de `type`, mappings
+`TYPE_TO_TRACKER` / `type_to_activity` / `task_type_cf`, IDs Redmine, statuts,
+priorités, énumérations), **tous** les scripts/consommateurs qui le référencent
+doivent être mis à jour dans le **même changement** — privilégier la lecture de la
+source à l'exécution (ex. cockpit karl-agent via `pm-task-add --list-types`),
+sinon resynchroniser le miroir dans le même commit. Anti-drift côté écriture.
+
+### Corrigé — Taxonomie `type` réconciliée (les 13 valeurs créables)
+
+`TYPE_TO_TRACKER` (gate de création de `pm-task-add`) ne couvrait que 7 types et
+ignorait `audit`, `research`, `refactoring`, `security`, `performance`, `design`
+— pourtant cartographiés dans NORMS (routage worker) et `type_to_activity`.
+Désormais les **13 types canoniques** sont créables (trackers dédiés pour
+`bugfix`/`feature`/`assistance`, le reste → « Tâche »). `pm-task-add --list-types`
+expose la liste (source de vérité machine) ; `redmine.reference.yml ::
+type_to_activity` complété pour les nouveaux types ; le cockpit karl-agent peuple
+son sélecteur dynamiquement.
+
+---
+
 ## [1.36.0] - 2026-06-09
 
 ### Modifié — Fusion `staging` / `preprod` (§ « Environnements », § « target_env », § « Modèle d'environnements »)

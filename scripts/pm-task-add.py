@@ -49,24 +49,38 @@ except ImportError:
 # lire la liste via `--list-types`, jamais la redupliquer en dur (NORMS § « Source
 # de vérité unique »). Cohérent avec `redmine.reference.yml :: trackers` et
 # `type_to_activity` (research = Audit/Analyse).
+# Les 13 `type` canoniques NORMS (cf. table de routage worker, NORMS §
+# « Assignation »). Seuls bugfix/feature/assistance ont un tracker Redmine dédié ;
+# tous les autres retombent sur « Tâche » (4) — la nature fine est portée par le
+# nom du type, l'activité de temps (type_to_activity) et, à terme, le CF 20.
 TYPE_TO_TRACKER = {
-    "bugfix": 1,          # Anomalie
-    "feature": 2,         # Évolution
-    "assistance": 3,      # Assistance
-    "infrastructure": 4,  # Tâche
-    "maintenance": 4,     # Tâche
-    "documentation": 4,   # Tâche
-    "research": 4,        # Tâche (activité Audit/Analyse — investigation, audit, exploration)
+    "feature": 2,         # Évolution            (worker-dev)
+    "bugfix": 1,          # Anomalie             (worker-dev)
+    "refactoring": 4,     # Tâche                (worker-dev)
+    "security": 4,        # Tâche                (worker-dev)
+    "performance": 4,     # Tâche                (worker-dev)
+    "infrastructure": 4,  # Tâche                (worker-infra)
+    "maintenance": 4,     # Tâche                (worker-analyst)
+    "documentation": 4,   # Tâche                (worker-analyst)
+    "research": 4,        # Tâche — Audit/Analyse (worker-analyst)
+    "audit": 4,           # Tâche — Audit/Analyse (worker-analyst)
+    "design": 4,          # Tâche                (worker-design)
+    "assistance": 3,      # Assistance           (worker-analyst)
     "autre": 4,           # Tâche (repli)
 }
 TYPE_LABELS = {
     "feature": "feature — fonctionnalité",
     "bugfix": "bugfix — anomalie",
-    "assistance": "assistance — support",
+    "refactoring": "refactoring — refonte",
+    "security": "security — sécurité",
+    "performance": "performance — optimisation",
     "infrastructure": "infrastructure — sysadmin/conf",
-    "maintenance": "maintenance — refacto/clean",
+    "maintenance": "maintenance — entretien",
     "documentation": "documentation",
-    "research": "research — audit / analyse",
+    "research": "research — investigation",
+    "audit": "audit — audit / analyse",
+    "design": "design — conception",
+    "assistance": "assistance — support",
     "autre": "autre",
 }
 PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}

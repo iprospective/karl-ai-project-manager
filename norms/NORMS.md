@@ -1,9 +1,9 @@
 ---
-schema_version: "1.35.0"
-updated: 2026-06-08
+schema_version: "1.36.0"
+updated: 2026-06-09
 ---
 
-# Normes de gestion des tâches — v1.35.0
+# Normes de gestion des tâches — v1.36.0
 
 ## Configuration globale
 
@@ -511,15 +511,22 @@ Exemple :
 ### Environnements (aspect `environments.md`)
 
 Aspect dédié à la déclaration des environnements d'exécution d'un projet (dev, test,
-staging, preprod, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
+staging, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
 
 **Format** : frontmatter avec liste `environments[]`, chaque entrée décrivant un env.
 Voir `templates/aspects/common/environments.md`.
 
 **Énumération des noms d'env standard :**
-`local | dev | test | staging | preprod | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
+`local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
 
-Custom autorisé si le projet a une particularité (ex: `staging-eu`, `preprod-archive`,
+> **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
+> l'env de non-régression déployé depuis `integration_branch` avant MEP. **Valeur
+> canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
+> id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
+> de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées
+> distinctes pour ce rôle.
+
+Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-archive`,
 `prod-canary`).
 
 **Champs par environnement :**
@@ -1698,11 +1705,12 @@ périmé sur `etude_chiffrage_en_cours`.
 `1` (négligeable) → `5` (critique)
 
 ### target_env
-`null` | `local` | `dev` | `test` | `staging` | `preprod` | `prod` | `demo` | `qa` | `sandbox` | `<custom-kebab-case>`
+`null` | `local` | `dev` | `test` | `staging` | `prod` | `demo` | `qa` | `sandbox` | `<custom-kebab-case>`
 
 Doit correspondre à un `environments[].name` du `project/environments.md` (ou
 `client/environments.md` en cascade). Custom autorisé si le projet a un env spécifique
-(`staging-eu`, `prod-canary`…).
+(`staging-eu`, `prod-canary`…). `preprod` reste accepté comme **alias** de `staging`
+(cf. § Environnements) mais `staging` est la valeur canonique à privilégier.
 
 ## Journal (fichier .log.md)
 
@@ -1938,13 +1946,13 @@ git:
   repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
   remote: origin            # alias du remote de référence
   prod_branch: master       # branche déployée en prod (master historique ; main = cible de migration)
-  integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en preprod
+  integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en staging (alias preprod)
 ```
 
 - `prod_branch` : souvent `master` (historique), migration progressive vers `main`.
 - `integration_branch` (`dev`) : agrège les branches de ticket déjà testées, avant MEP.
 - **Source unique** des branches de workflow : les `environments[].branch` doivent y
-  être cohérents (`preprod.branch == integration_branch`, `prod.branch == prod_branch`).
+  être cohérents (`staging.branch == integration_branch`, `prod.branch == prod_branch`).
 - À distinguer du bloc `git:` du **frontmatter de tâche** (`git.branch`, `git.mr_url`),
   qui pointe la branche de *travail courante du ticket*, pas les branches de référence.
 
@@ -1952,8 +1960,8 @@ git:
 
 Un projet a typiquement :
 - **1 prod** (`prod`) — déployée depuis `prod_branch`.
-- **1 preprod** (`preprod`) — déployée depuis `integration_branch` ; tests de
-  non-régression avant MEP.
+- **1 staging** (`staging`, alias `preprod`) — déployée depuis `integration_branch` ;
+  tests de non-régression avant MEP.
 - **N test** (`test`, `test-<but>`…) — pour tester en parallèle plusieurs branches de
   ticket, idéalement par une personne ou un agent **≠ celui qui a fait le dev**.
 - **N dev** (`dev`, `dev-<développeur>`…) — autant que de développeurs (voire plusieurs

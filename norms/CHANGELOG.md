@@ -5,6 +5,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.36.0] - 2026-06-09
+
+### Modifié — Fusion `staging` / `preprod` (§ « Environnements », § « target_env », § « Modèle d'environnements »)
+
+`staging` et `preprod` désignaient le même environnement (non-régression déployé depuis
+`integration_branch` avant MEP). Ils sont désormais **fusionnés en un seul env** :
+**valeur canonique `staging`**, `preprod` conservé comme **alias accepté**. Retiré
+`preprod` de l'énumération standard des noms d'env (`environments[].name`) et de
+l'énum `target_env`. Le narratif du workflow MEP et le libellé du statut Redmine id 20
+(« MEP/Tester en preprod ») restent inchangés — `preprod` y reste un alias valide de
+`staging`. Templates mis à jour : `aspects/common/environments.md`, `task.md`,
+`bootstrap-tasks/003-environnements.md`.
+
+---
+
 ## [1.35.0] - 2026-06-08
 
 ### Ajouté — Outillage obligatoire en session PM (§ « Outillage obligatoire en session PM »)

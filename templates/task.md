@@ -69,7 +69,7 @@ refs: []
 #   label: ""
 
 # Environnement & déploiement
-target_env: null          # null | dev | test | staging | preprod | prod | demo | qa | sandbox
+target_env: null          # null | dev | test | staging | prod | demo | qa | sandbox  (preprod = alias staging)
                           # → précise l'env visé (déploiement, debug, ajustement spécifique)
                           # référence un `environments[].name` du project/environments.md
 test_url: null            # URL où QA peut tester ; si null et target_env set,

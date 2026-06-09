@@ -19,7 +19,7 @@ applicable_when: |
 ## Contexte
 
 Tout projet a au moins un environnement (prod), souvent plusieurs (dev, test, staging,
-preprod, prod). Ces environnements doivent être documentés dans `project/environments.md`
+prod). Ces environnements doivent être documentés dans `project/environments.md`
 pour que les agents et humains puissent :
 
 - Naviguer entre les envs sans se tromper
@@ -32,7 +32,7 @@ Référence : `norms/NORMS.md` § "Environnements (aspect `environments.md`)".
 
 - [ ] `project/environments.md` existe (depuis `templates/aspects/common/environments.md`)
 - [ ] Au minimum un environnement `prod` est déclaré
-- [ ] Les environnements applicables (dev, test, staging, preprod, demo, qa, sandbox)
+- [ ] Les environnements applicables (dev, test, staging, demo, qa, sandbox)
       sont déclarés avec leurs champs renseignés :
   - `name`, `status`, `url`, `host`, `user`, `app_path`, `branch`
   - `logs.app` et `logs.fpm` si applicable

@@ -3,7 +3,7 @@ schema_version: "1.9.0"
 # Liste des environnements de ce projet (ou client si appliqué au niveau client).
 # Chaque env est indépendant — pas tous les projets ont tous les envs.
 environments:
-  - name: dev                  # local | dev | test | staging | preprod | prod | demo | qa | sandbox | <custom>
+  - name: dev                  # local | dev | test | staging | prod | demo | qa | sandbox | <custom>  (preprod = alias de staging)
     status: active             # active | disabled | planned
     url:                       # URL publique de l'env, ex: https://dev.calicote.test
     admin_url:                 # URL d'admin si distincte, ex: https://dev.calicote.test/admin
@@ -21,8 +21,7 @@ environments:
     secrets_source:            # vaultwarden://<org>/<collection>/<item>  (ou null)
     notes:                     # ex: "Hot-reload activé, données dé-anonymisées"
   # - name: test
-  # - name: staging
-  # - name: preprod
+  # - name: staging          # env de non-régression avant MEP (alias historique : preprod)
   # - name: prod
 
 # Tableau des variables d'environnement attendues par l'app (sans les valeurs).

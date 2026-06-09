@@ -16,9 +16,11 @@ Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 # tant que l'auth (oauth2-proxy→GitLab, RM1845) n'est pas en place.
 #   -W : terminal inscriptible (reprise de main) ;
 #   -a : le client passe le rm_id en argument d'URL (?arg=<id>), validé par le wrapper.
+#   disableLeaveAlert : sinon ttyd installe un garde beforeunload qui fait surgir
+#     « voulez-vous recharger/quitter ? » à chaque rechargement de l'iframe (RM1893).
 ExecStart=/usr/bin/env ttyd -i 127.0.0.1 -p 7681 -W -a \
   -t fontSize=14 -t 'theme={"background":"#0b0e14","foreground":"#c8d3e0"}' \
-  -t titleFixed=karl-agent \
+  -t titleFixed=karl-agent -t disableLeaveAlert=true \
   /zfs/workspaces/ai/project-management/deploy/karl-agent/cockpit/attach-karl.sh
 Restart=on-failure
 RestartSec=2

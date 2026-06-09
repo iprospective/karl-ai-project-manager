@@ -333,7 +333,7 @@ async function addMonitor() {
   try {
     await api("/monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, preset }) });
     toast("Moniteur « " + preset + " » ajouté");
-    setTimeout(reattach, 300);   // recharge l'iframe pour afficher le nouveau pane
+    // pas de reattach : le client ttyd attaché voit le nouveau pane en direct (tmux redessine)
   } catch (e) { toast(e.message, true); }
 }
 async function removeMonitor() {
@@ -341,7 +341,6 @@ async function removeMonitor() {
   try {
     await api("/unmonitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached }) });
     toast("Moniteur fermé");
-    setTimeout(reattach, 300);
   } catch (e) { toast(e.message, true); }
 }
 async function setLayout() {
@@ -349,7 +348,7 @@ async function setLayout() {
   if (!attached || !layout) return;
   try {
     await api("/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, layout }) });
-    setTimeout(reattach, 250);
+    // redessin live côté ttyd, pas de reattach
   } catch (e) { toast(e.message, true); }
   document.getElementById("layoutsel").value = "";
 }

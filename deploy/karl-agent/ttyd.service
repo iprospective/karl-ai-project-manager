@@ -20,7 +20,7 @@ Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin
 #     « voulez-vous recharger/quitter ? » à chaque rechargement de l'iframe (RM1893).
 ExecStart=/usr/bin/env ttyd -i 127.0.0.1 -p 7681 -W -a \
   -t fontSize=14 -t 'theme={"background":"#0b0e14","foreground":"#c8d3e0"}' \
-  -t titleFixed=karl-agent -t disableLeaveAlert=true \
+  -t titleFixed=karl-agent -t disableLeaveAlert=true -t rendererType=dom \
   /zfs/workspaces/ai/project-management/deploy/karl-agent/cockpit/attach-karl.sh
 Restart=on-failure
 RestartSec=2

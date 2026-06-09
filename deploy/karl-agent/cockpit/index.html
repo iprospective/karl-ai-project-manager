@@ -95,6 +95,35 @@
   .tab .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   .tabactions { display: flex; align-items: center; gap: 6px; }
+  .termwrap { flex: 1; display: flex; min-height: 0; }
+  .termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .metapanel { width: 320px; border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; transition: width .15s; overflow: hidden; }
+  .metapanel.collapsed { width: 34px; }
+  .metatoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
+    border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
+  .metabody { overflow-y: auto; padding: 12px; font-size: 12.5px; }
+  .metapanel.collapsed .metabody { display: none; }
+  .ms { margin-bottom: 14px; }
+  .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
+  .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+  .kv .k { color: var(--muted); } .kv .v { text-align: right; word-break: break-word; }
+  .pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg); }
+  .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
+  .pill.dang { color: var(--danger); border-color: var(--danger); }
+  .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
+  .doclist { list-style: none; margin: 0; padding: 0; }
+  .doclist li { padding: 4px 6px; border-radius: 5px; cursor: pointer; font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+  .doclist li:hover { background: var(--panel2); }
+  .desc { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 160px; overflow-y: auto; white-space: pre-wrap; color: var(--fg); font-size: 11.5px; }
+  .logtail { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 130px; overflow: auto; white-space: pre; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+  .rels { display: flex; flex-wrap: wrap; gap: 4px; }
+  .rels .pill { cursor: pointer; }
+  .docmodal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 20; align-items: center; justify-content: center; }
+  .docmodal.show { display: flex; }
+  .docbox { width: min(900px, 92vw); height: min(80vh, 800px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; }
+  .docbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
+  #doccontent { margin: 0; padding: 16px; overflow: auto; white-space: pre-wrap; font-size: 12.5px; color: var(--fg); flex: 1; }
 </style>
 </head>
 <body>
@@ -185,12 +214,27 @@
         <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
       </div>
     </div>
-    <div class="placeholder" id="placeholder">
-      Lance une session à gauche, ou clique un <b style="margin:0 4px">onglet</b> ci-dessus<br>
-      pour ouvrir son terminal ici (reprise de main : tu peux taper directement).
+    <div class="termwrap">
+      <div class="termarea">
+        <div class="placeholder" id="placeholder">
+          Lance une session à gauche, ou clique un <b style="margin:0 4px">onglet</b> ci-dessus<br>
+          pour ouvrir son terminal ici (reprise de main : tu peux taper directement).
+        </div>
+        <iframe id="term" style="display:none"></iframe>
+      </div>
+      <aside class="metapanel collapsed" id="metapanel">
+        <button class="metatoggle" id="metatoggle" onclick="toggleMeta()" title="Infos de la session (replier/déplier)">ℹ</button>
+        <div class="metabody" id="metabody"></div>
+      </aside>
     </div>
-    <iframe id="term" style="display:none"></iframe>
   </section>
+
+  <div class="docmodal" id="docmodal" onclick="if(event.target===this)closeDoc()">
+    <div class="docbox">
+      <div class="docbar"><span id="doctitle"></span><button class="mini" onclick="closeDoc()">✕</button></div>
+      <pre id="doccontent"></pre>
+    </div>
+  </div>
 </main>
 
 <div class="toast" id="toast"></div>
@@ -261,9 +305,8 @@ async function refreshSessions() {
     for (const s of sessions) {
       const tab = document.createElement("div");
       tab.className = "tab" + (attached === s.rm_id ? " active" : "") + (s.attached ? " att" : "");
-      tab.title = "karl-RM" + s.rm_id +
-        (s.created ? " · ouvert il y a " + ago(s.created) : "") +
-        (s.attached ? " · attaché" : "");
+      tab.title = tabTip(s);
+      if (resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);  // remplit le cache → tooltip au prochain rendu
       tab.innerHTML = '<span class="tdot"></span><span class="tid">RM' + s.rm_id +
         '</span><span class="tkill" title="Fermer la session">✕</span>';
       tab.onclick = () => attach(s.rm_id);
@@ -378,6 +421,107 @@ async function createTicket() {
   finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
 }
 
+// ----- panneau de pilotage (méta de la session) -----
+const resolveCache = {};
+const wsCache = {};
+function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+async function ensureResolved(rmId, force) {
+  rmId = String(rmId);
+  if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
+  try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
+  return resolveCache[rmId];
+}
+function tabTip(s) {
+  const r = resolveCache[s.rm_id];
+  let t = "karl-RM" + s.rm_id;
+  if (r && r.found) t = "RM" + s.rm_id + " — " + (r.title || "") + "\n" + r.client + "/" + r.project +
+    (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
+  if (s.created) t += "\nouvert il y a " + ago(s.created);
+  if (s.attached) t += " · attaché";
+  return t;
+}
+function toggleMeta() { document.getElementById("metapanel").classList.toggle("collapsed"); }
+async function refreshWorkspace(rmId) {
+  try { wsCache[rmId] = await api("/workspace-status/" + rmId); } catch (e) { wsCache[rmId] = null; }
+  if (attached === String(rmId)) renderMeta(rmId);
+}
+function rmLink(id) { return '<span class="pill" onclick="gotoTicket(' + id + ')">RM' + id + '</span>'; }
+function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); attachIfRunning(id); }
+function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
+function renderMeta(rmId) {
+  const r = resolveCache[rmId], ws = wsCache[rmId], b = document.getElementById("metabody");
+  if (r === undefined) { b.innerHTML = '<div class="ms">chargement…</div>'; return; }
+  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>karl-RM' + rmId + '<br><span style="color:var(--muted)">ticket non PM-tracké</span></div>'; return; }
+  const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
+  let h = "";
+  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">karl-RM' + rmId + '</span></div></div>';
+  h += '<div class="ms"><h4>Ticket</h4>' +
+    '<div class="kv"><span class="k">id</span><span class="v">' + (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) + '</span></div>' +
+    '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
+    '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
+    '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span></span></div>' +
+    '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
+    '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
+  h += '<div class="ms"><h4>Client / Projet</h4>' + esc(r.client) + ' / ' + esc(r.project) + '</div>';
+  h += '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
+  if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
+  else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
+  else {
+    h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
+    h += '<div class="rels" style="margin-top:4px">';
+    h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
+    if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
+    if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
+    if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
+    h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
+  }
+  h += '</div>';
+  if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
+    h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
+    if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
+    if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
+    (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
+      h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
+    });
+    h += '</div>';
+  }
+  if (r.git && (r.git.branch || r.git.mr_url)) {
+    h += '<div class="ms"><h4>Git ticket</h4>';
+    if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
+    if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
+    h += '</div>';
+  }
+  const rels = [];
+  if (r.parent_task) rels.push(["parent", [r.parent_task]]);
+  if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
+  if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
+  if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
+  if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
+  if (rels.length) {
+    h += '<div class="ms"><h4>Relations</h4>';
+    rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
+    h += '</div>';
+  }
+  if (r.project_docs && r.project_docs.length) {
+    h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
+    r.project_docs.forEach(d => { h += '<li onclick="openDoc(\'' + esc(d.path) + '\',\'' + esc(d.name) + '\')">📄 ' + esc(d.name) + '</li>'; });
+    h += '</ul></div>';
+  }
+  if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + esc(r.description) + '</div></div>';
+  if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
+  b.innerHTML = h;
+}
+async function openDoc(path, name) {
+  document.getElementById("doctitle").textContent = name;
+  document.getElementById("doccontent").textContent = "chargement…";
+  document.getElementById("docmodal").classList.add("show");
+  try {
+    const r = await fetch("/file?path=" + encodeURIComponent(path), { headers: headers() });
+    document.getElementById("doccontent").textContent = r.ok ? await r.text() : "erreur " + r.status;
+  } catch (e) { document.getElementById("doccontent").textContent = "erreur : " + e.message; }
+}
+function closeDoc() { document.getElementById("docmodal").classList.remove("show"); }
+
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
@@ -385,6 +529,10 @@ function attach(rmId) {
   const f = document.getElementById("term");
   f.style.display = "block"; f.src = ttydUrl(rmId);
   document.getElementById("tabactions").style.display = "";
+  document.getElementById("metapanel").classList.remove("collapsed");
+  renderMeta(rmId);                                  // affiche le cache (ou « chargement »)
+  ensureResolved(rmId).then(() => { if (attached === String(rmId)) renderMeta(rmId); });
+  refreshWorkspace(rmId);
   refreshSessions();   // re-rend les onglets pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
@@ -394,6 +542,8 @@ function detach() {
   f.src = "about:blank"; f.style.display = "none";
   document.getElementById("placeholder").style.display = "flex";
   document.getElementById("tabactions").style.display = "none";
+  document.getElementById("metapanel").classList.add("collapsed");
+  document.getElementById("metabody").innerHTML = "";
 }
 
 // ----- §3 : moniteurs multi-panes -----

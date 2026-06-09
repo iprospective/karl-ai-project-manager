@@ -63,6 +63,13 @@
   .lock { font-size: 11px; color: var(--warn); }
   .searchrow { display: flex; gap: 6px; }
   .searchrow input { flex: 1; }
+  details.card > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
+    color: var(--muted); font-weight: 600; list-style: none; outline: none; }
+  details.card > summary::-webkit-details-marker { display: none; }
+  details.card > summary::before { content: "▸ "; color: var(--accent); }
+  details.card[open] > summary::before { content: "▾ "; }
+  .row2 { display: flex; gap: 8px; }
+  .row2 > div { flex: 1; }
   .results { list-style: none; margin: 10px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
   .results li { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px;
     cursor: pointer; background: var(--panel2); }
@@ -116,6 +123,41 @@
       </div>
       <ul class="results" id="results"></ul>
     </div>
+
+    <details class="card" id="ntcard">
+      <summary>Nouveau ticket</summary>
+      <label for="nt-title">Titre</label>
+      <input id="nt-title" type="text" placeholder="Titre du ticket">
+      <label for="nt-project">Projet</label>
+      <select id="nt-project"></select>
+      <div class="row2">
+        <div>
+          <label for="nt-type">Type</label>
+          <select id="nt-type">
+            <option value="feature">feature</option>
+            <option value="bugfix">bugfix</option>
+            <option value="assistance">assistance</option>
+            <option value="infrastructure">infrastructure</option>
+            <option value="maintenance">maintenance</option>
+            <option value="autre">autre</option>
+          </select>
+        </div>
+        <div>
+          <label for="nt-prio">Priorité</label>
+          <select id="nt-prio">
+            <option value="low">low</option>
+            <option value="normal" selected>normal</option>
+            <option value="high">high</option>
+            <option value="urgent">urgent</option>
+          </select>
+        </div>
+      </div>
+      <label for="nt-tags">Tags <span style="color:var(--muted)">(csv, optionnel)</span></label>
+      <input id="nt-tags" type="text" placeholder="ci, infra">
+      <label for="nt-desc">Description <span style="color:var(--muted)">(optionnel)</span></label>
+      <textarea id="nt-desc" placeholder="Détails…"></textarea>
+      <button class="primary" id="nt-btn" onclick="createTicket()">Créer le ticket</button>
+    </details>
 
     <div class="card">
       <h2>Lancer une session</h2>
@@ -307,6 +349,47 @@ async function search() {
   } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + e.message + '</div>'; }
 }
 
+// ----- §8 : création de ticket -----
+async function loadProjects() {
+  const sel = document.getElementById("nt-project");
+  try {
+    const { projects } = await api("/projects");
+    sel.innerHTML = "";
+    for (const p of projects) {
+      const o = document.createElement("option");
+      o.value = p.value; o.textContent = p.value;
+      if (p.value === "iprospective/pm-ai-agents") o.selected = true;
+      sel.appendChild(o);
+    }
+  } catch (e) { /* silencieux */ }
+}
+async function createTicket() {
+  const title = document.getElementById("nt-title").value.trim();
+  if (!title) { toast("Titre requis", true); return; }
+  const body = {
+    title,
+    project: document.getElementById("nt-project").value,
+    type: document.getElementById("nt-type").value,
+    priority: document.getElementById("nt-prio").value,
+    tags: document.getElementById("nt-tags").value.trim(),
+    description: document.getElementById("nt-desc").value.trim(),
+  };
+  const btn = document.getElementById("nt-btn");
+  btn.disabled = true; btn.textContent = "Création…";
+  try {
+    const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast("Ticket RM" + r.rm_id + " créé");
+    document.getElementById("rm").value = r.rm_id;   // pré-remplit le lanceur
+    resolveRm();
+    document.getElementById("nt-title").value = "";
+    document.getElementById("nt-tags").value = "";
+    document.getElementById("nt-desc").value = "";
+    document.getElementById("ntcard").open = false;
+    if (document.getElementById("search").value.trim()) search();
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
+}
+
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
@@ -402,6 +485,7 @@ async function kill(rmId) {
   rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
   rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
   document.getElementById("search").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+  loadProjects();
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

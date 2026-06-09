@@ -36,6 +36,9 @@ API (JSON, localhost:9876)
   GET  /sessions                → [{rm_id, tmux, created, attached}]
   GET  /resolve/<rm_id>         → {found, client, project, cwd, prompt, …}  (MD local, RM1893 §1)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
+  GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  POST /tickets {title, type, priority, project, description?, tags?}
+                                → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
   POST /spawn  {rm_id, cwd?, engine?, prompt?, width?, height?}
                                 → {rm_id, tmux, created:true}
   POST /send   {rm_id, msg, enter?=true}
@@ -436,6 +439,60 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     return out[:limit]
 
 
+# ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
+# Wrappe scripts/pm-task-add.py. Les credentials Redmine viennent du .env chargé
+# par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
+# sous-processus. Les entrées client sont passées en argv (liste, jamais via un
+# shell) → aucune injection possible ; type/priorité validés contre une liste.
+TASK_TYPES = ["bugfix", "feature", "assistance", "infrastructure", "maintenance", "autre"]
+PRIORITIES = ["low", "normal", "high", "urgent"]
+
+
+def op_list_projects() -> list:
+    out = []
+    for cl in sorted(PROJECTS_BASE.glob("*")):
+        pdir = cl / "projects"
+        if not pdir.is_dir():
+            continue
+        for pr in sorted(pdir.glob("*")):
+            if pr.is_dir():
+                out.append({"client": cl.name, "project": pr.name, "value": f"{cl.name}/{pr.name}"})
+    return out
+
+
+def op_create_ticket(payload: dict) -> dict:
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise ApiError(400, "title requis")
+    ttype = payload.get("type", "autre")
+    if ttype not in TASK_TYPES:
+        raise ApiError(400, f"type invalide (connus : {TASK_TYPES})")
+    prio = payload.get("priority", "normal")
+    if prio not in PRIORITIES:
+        raise ApiError(400, f"priority invalide (connus : {PRIORITIES})")
+    project = (payload.get("project") or "").strip()
+    if not project or "/" not in project:
+        raise ApiError(400, "project requis (forme entity/project)")
+    args = [sys.executable, str(REPO_ROOT / "scripts" / "pm-task-add.py"),
+            "--title", title, "--type", ttype, "--priority", prio, "--project", project]
+    desc = (payload.get("description") or "").strip()
+    if desc:
+        args += ["--description", desc]
+    tags = (payload.get("tags") or "").strip()
+    if tags:
+        args += ["--tags", tags]
+    try:
+        p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
+                           text=True, timeout=90, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "pm-task-add : timeout")
+    blob = (p.stdout or "") + "\n" + (p.stderr or "")
+    m = re.search(r"RM(\d+) créé", blob) or re.search(r"#(\d+) créé", blob)
+    if not m:
+        raise ApiError(500, "pm-task-add a échoué : " + blob.strip()[-400:])
+    return {"created": True, "rm_id": m.group(1), "output": blob.strip()[-600:]}
+
+
 # ── Moniteurs multi-panes (RM1893 §3) ────────────────────────────────────────
 # Catalogue serveur de commandes de monitoring (jamais de commande brute client,
 # même modèle de sécurité que les moteurs). Surchargeable via cockpit/monitors.json.
@@ -628,6 +685,8 @@ class Handler(BaseHTTPRequestHandler):
                 g = lambda k: qs[k][0] if k in qs else None  # noqa: E731
                 return self._send_json(200, {"results": op_search(
                     g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
+            if path == "/projects":
+                return self._send_json(200, {"projects": op_list_projects()})
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})
@@ -642,6 +701,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json()
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
+            if path == "/tickets":
+                return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
             if path == "/kill":

@@ -47,6 +47,8 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/sessions` | — | `{sessions:[{rm_id, tmux, created, attached}]}` |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
+| GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
+| POST | `/tickets` | `{title, type, priority, project, description?, tags?}` | `201 {created, rm_id}` — wrappe `pm-task-add` (creds Redmine hérités du `.env`), entrées en argv = pas d'injection (RM1893 §8) |
 | POST | `/spawn` | `{rm_id, cwd?, engine?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, cwd, created}` |
 | POST | `/send` | `{rm_id, msg, enter?=true}` | `{rm_id, sent}` |
 | GET | `/capture/<rm_id>` | `?lines=N` (historique) | `text/plain` (snapshot du pane) |

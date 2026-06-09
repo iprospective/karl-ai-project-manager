@@ -34,7 +34,10 @@ API (JSON, localhost:9876)
   GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities}  (public)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
-  GET  /resolve/<rm_id>         → {found, client, project, cwd, prompt, …}  (MD local, RM1893 §1)
+  GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
+                                   description, log…) depuis le MD local (RM1893 §1)
+  GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
+  GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   POST /tickets {title, type, priority, project, description?, tags?}
@@ -319,10 +322,19 @@ _TASK_GLOB = "*/projects/*/tasks/RM{}_*.md"
 LAYOUTS = {"even-horizontal", "even-vertical", "main-vertical", "main-horizontal", "tiled"}
 
 
+_NULLISH = {"null", "~", "", "None"}
+
+
+def _scalar(line: str) -> str:
+    v = line.split(":", 1)[1].strip().strip("'\"")
+    return "" if v in _NULLISH else v
+
+
 def _read_task_meta(path: Path) -> dict:
     """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
-    Retourne {title, status, priority, tags:[...]}. Tolérant aux variations."""
-    meta = {"title": "", "status": "", "priority": "", "tags": []}
+    Retourne {title, status, priority, type, test_url, target_env, tags:[...]}."""
+    meta = {"title": "", "status": "", "priority": "", "type": "",
+            "test_url": "", "target_env": "", "tags": []}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -340,14 +352,84 @@ def _read_task_meta(path: Path) -> dict:
                 continue
             in_tags = False
         if line.startswith("title:"):
-            meta["title"] = line.split(":", 1)[1].strip()
+            meta["title"] = _scalar(line)
         elif line.startswith("status:"):
-            meta["status"] = line.split(":", 1)[1].strip()
+            meta["status"] = _scalar(line)
         elif line.startswith("priority:"):
-            meta["priority"] = line.split(":", 1)[1].strip()
+            meta["priority"] = _scalar(line)
+        elif line.startswith("type:"):
+            meta["type"] = _scalar(line)
+        elif line.startswith("test_url:"):
+            meta["test_url"] = _scalar(line)
+        elif line.startswith("target_env:"):
+            meta["target_env"] = _scalar(line)
         elif line.startswith("tags:"):
             in_tags = True
     return meta
+
+
+def _read_project_envs(project_dir: Path) -> list:
+    """Liste [{name, url}] des environnements d'un projet, lue depuis
+    `<project>/project/environments.md` (bloc `environments:` du frontmatter).
+    Parse ciblé (pas de dépendance YAML), borné au bloc pour ne pas attraper
+    `env_vars:`."""
+    f = project_dir / "project" / "environments.md"
+    try:
+        text = f.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    if not text.startswith("---"):
+        return []
+    end = text.find("\n---", 3)
+    fm = text[3:end] if end != -1 else text
+    envs, cur, in_block = [], None, False
+    for line in fm.splitlines():
+        if re.match(r"^environments:\s*$", line):
+            in_block = True
+            continue
+        if in_block and re.match(r"^\S", line):   # autre clé top-level → fin du bloc
+            break
+        if not in_block:
+            continue
+        s = line.strip()
+        m = re.match(r"-\s+name:\s*(.+)", s)
+        if m:
+            if cur:
+                envs.append(cur)
+            cur = {"name": m.group(1).strip().strip("'\""), "url": ""}
+            continue
+        if cur is not None:
+            mu = re.match(r"url:\s*(.+)", s)
+            if mu:
+                u = mu.group(1).strip().strip("'\"")
+                cur["url"] = "" if u in _NULLISH else u
+    if cur:
+        envs.append(cur)
+    return envs
+
+
+# Phase (statut NORMS) → rôle d'environnement, pour proposer le « lien env actif ».
+_STATUS_ENV_ROLE = {
+    "a_tester_demandeur": "staging", "a_mep": "staging", "en_mep": "staging",
+    "ferme": "prod",
+}
+_ENV_ROLE_KEYS = {
+    "dev": ["dev"],
+    "staging": ["staging", "preprod", "recette", "test"],
+    "prod": ["prod", "production", "live"],
+}
+
+
+def _env_for_status(status: str, envs: list):
+    """Choisit l'env pertinent pour la phase courante (heuristique). None si vide."""
+    if not envs:
+        return None
+    role = _STATUS_ENV_ROLE.get(status, "dev")
+    keys = _ENV_ROLE_KEYS.get(role, [role])
+    for e in envs:
+        if any(k in e["name"].lower() for k in keys):
+            return e
+    return envs[-1] if role == "prod" else envs[0]
 
 
 def _task_client_project(tf: Path):
@@ -383,9 +465,53 @@ def _resolve_workspace(project_dir: Path):
     return None
 
 
+def _parse_frontmatter(text: str) -> dict:
+    """Frontmatter complet en dict via PyYAML si dispo (présent sur dev car requis
+    par les scripts PM), sinon {} → on retombe sur le mini-parser scalaire."""
+    if not text.startswith("---"):
+        return {}
+    end = text.find("\n---", 3)
+    if end == -1:
+        return {}
+    try:
+        import yaml
+        d = yaml.safe_load(text[3:end])
+        return d if isinstance(d, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _task_body(text: str) -> str:
+    """Corps Markdown (description) après le frontmatter."""
+    if not text.startswith("---"):
+        return text.strip()
+    end = text.find("\n---", 3)
+    return text[end + 4:].strip() if end != -1 else ""
+
+
+def _log_tail(tf: Path, n: int = 18) -> str:
+    logf = tf.with_name(tf.stem + ".log.md")
+    try:
+        lines = [l for l in logf.read_text(encoding="utf-8").splitlines() if l.strip()]
+    except OSError:
+        return ""
+    return "\n".join(lines[-n:])
+
+
+def _project_docs(project_dir: Path) -> list:
+    """Fichiers de doc du projet (overview, environments, CDC, specs…)."""
+    docs = []
+    pdir = project_dir / "project"
+    if pdir.is_dir():
+        for f in sorted(pdir.glob("*.md")):
+            docs.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
+    return docs
+
+
 def op_resolve(rm_id: str) -> dict:
-    """Résout un rm_id vers (client, projet, cwd, prompt canonique) depuis le MD
-    local — pour pré-remplir le lanceur du cockpit (RM1893 §1). Pas de fetch Redmine."""
+    """Résout un rm_id en métadonnées riches depuis le MD local (RM1893 §1) — pour
+    pré-remplir le lanceur ET alimenter le panneau de pilotage du cockpit. Pas de
+    fetch Redmine ; tout vient du frontmatter/corps/log/projet locaux."""
     if not _RM_ID_RE.match(rm_id):
         raise ApiError(400, "rm_id invalide")
     tf = _find_task_file(rm_id)
@@ -393,14 +519,44 @@ def op_resolve(rm_id: str) -> dict:
         return {"found": False, "rm_id": rm_id, "cwd": DEFAULT_CWD,
                 "prompt": f"traite la tâche RM{rm_id}"}
     client, project = _task_client_project(tf)
-    meta = _read_task_meta(tf)
-    ws = _resolve_workspace(tf.parent.parent)
-    cwd = str(ws) if ws else DEFAULT_CWD
+    project_dir = tf.parent.parent
+    try:
+        text = tf.read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    fm = _parse_frontmatter(text)
+    meta = _read_task_meta(tf)            # repli scalaire si yaml indispo
+
+    def pick(key, default=""):
+        v = fm.get(key) if isinstance(fm, dict) else None
+        if v in (None, "", "null"):
+            v = meta.get(key, default)
+        return v if v not in (None, "null") else default
+
+    status = pick("status")
+    envs = _read_project_envs(project_dir)
+    git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+    redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
+    ws = _resolve_workspace(project_dir)
+
     return {
         "found": True, "rm_id": rm_id, "client": client, "project": project,
-        "title": meta["title"], "status": meta["status"],
-        "task_file": str(tf.relative_to(REPO_ROOT)), "cwd": cwd,
+        "title": pick("title"), "type": pick("type"), "status": status,
+        "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
+        "due": pick("due"), "assigned_to": fm.get("assigned_to"),
+        "description": _task_body(text)[:6000],
+        "task_file": str(tf.relative_to(REPO_ROOT)),
+        "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",
+        "test_url": pick("test_url"), "target_env": pick("target_env"),
+        "environments": envs, "active_env": _env_for_status(status, envs),
+        "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
+        "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
+        "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],
+        "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
+        "project_docs": _project_docs(project_dir),
+        "log_tail": _log_tail(tf),
     }
 
 
@@ -437,6 +593,67 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
         })
     out.sort(key=lambda r: -int(r["rm_id"]))
     return out[:limit]
+
+
+# ── Statut du workspace de la tâche (intérim ; outil dédié = RM1883) ─────────
+def _git(cwd, *args, timeout=8):
+    try:
+        p = subprocess.run(["git", "-C", str(cwd), *args],
+                           capture_output=True, text=True, timeout=timeout)
+        return p.returncode, p.stdout.strip(), p.stderr.strip()
+    except (OSError, subprocess.TimeoutExpired):
+        return 1, "", "git indisponible"
+
+
+def op_workspace_status(rm_id: str) -> dict:
+    """État git du workspace de code de la tâche (branche, dirty, untracked,
+    ahead/behind). Vue *intérim* : l'outil complet (submodules, prod, nettoyage)
+    est RM1883 — karl-agent l'appellera quand il existera."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    tf = _find_task_file(rm_id)
+    cwd = Path(DEFAULT_CWD)
+    if tf:
+        ws = _resolve_workspace(tf.parent.parent)
+        if ws:
+            cwd = ws
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return {"rm_id": rm_id, "cwd": str(cwd), "is_git": False}
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    _, porcelain, _ = _git(cwd, "status", "--porcelain")
+    lines = [l for l in porcelain.splitlines() if l]
+    dirty = sum(1 for l in lines if not l.startswith("??"))
+    untracked = sum(1 for l in lines if l.startswith("??"))
+    ahead = behind = 0
+    rc, ab, _ = _git(cwd, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    if rc == 0 and ab:
+        parts = ab.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            behind, ahead = int(parts[0]), int(parts[1])
+    return {
+        "rm_id": rm_id, "cwd": str(cwd), "is_git": True, "branch": branch,
+        "dirty": dirty, "untracked": untracked, "ahead": ahead, "behind": behind,
+        "clean": dirty == 0 and untracked == 0,
+        "interim": True,  # remplacé par l'outil RM1883
+    }
+
+
+def op_file(relpath: str) -> str:
+    """Sert un fichier .md sous projects/ (lecture seule, anti-évasion) — pour
+    afficher les docs projet (CDC, overview…) dans le panneau du cockpit."""
+    if not relpath:
+        raise ApiError(400, "path requis")
+    target = (REPO_ROOT / relpath).resolve()
+    base = (REPO_ROOT / "projects").resolve()
+    if not (target == base or base in target.parents):
+        raise ApiError(403, "chemin hors de projects/")
+    if target.suffix != ".md" or not target.is_file():
+        raise ApiError(404, "fichier .md introuvable")
+    try:
+        return target.read_text(encoding="utf-8")
+    except OSError as e:
+        raise ApiError(500, f"lecture impossible : {e}")
 
 
 # ── Création de ticket depuis le cockpit (RM1893 §8) ─────────────────────────
@@ -711,6 +928,11 @@ class Handler(BaseHTTPRequestHandler):
                     g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path.startswith("/workspace-status/"):
+                return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
+            if path == "/file":
+                qs = parse_qs(parsed.query)
+                return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

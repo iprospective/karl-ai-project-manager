@@ -241,6 +241,9 @@ def op_spawn(payload: dict) -> dict:
     logf = _log_path(rm_id)
     _tmux("pipe-pane", "-o", "-t", name, f"cat >> {shlex.quote(str(logf))}")
 
+    # Marque le pane de l'agent (seul pane à ce stade) → /unmonitor le protège.
+    _tmux("set-option", "-p", "-t", name, "@karl_agent", "1")
+
     # Cockpit (RM1873) : rendre le terminal web scrollable. Sans `mouse on`, la
     # molette ne scrolle pas l'historique du pane une fois attaché via ttyd.
     # Options globales du serveur tmux (dédié aux sessions karl-*). `history-limit`
@@ -481,27 +484,35 @@ def op_monitor(payload: dict) -> dict:
 
 def op_unmonitor(payload: dict) -> dict:
     """Ferme un pane moniteur (RM1893 §3). Cible le moniteur actif (celui que
-    l'utilisateur a cliqué dans le terminal) ou, à défaut, le dernier ajouté.
-    Ne touche JAMAIS au pane de l'agent (non marqué @karl_mon)."""
+    l'utilisateur a cliqué dans le terminal) ou, à défaut, le dernier. Identifie
+    le pane de l'AGENT (marqué @karl_agent au spawn, sinon pane index 0) et le
+    protège ; tout autre pane est considéré comme moniteur — robuste même pour
+    les moniteurs ajoutés avant le marquage @karl_mon."""
     rm_id = _require_rm_id(payload)
     if not _has_session(rm_id):
         raise ApiError(404, f"session absente : {_session_name(rm_id)}")
     name = _session_name(rm_id)
+    # Délimiteur '|' : les champs d'options vides ne sont pas avalés (contrairement
+    # à un split sur espaces). pane_id (%N) ne contient jamais de '|'.
     rc, out, err = _tmux("list-panes", "-t", name, "-F",
-                         "#{pane_id} #{pane_active} #{@karl_mon}")
+                         "#{pane_id}|#{pane_index}|#{pane_active}|#{@karl_agent}")
     if rc != 0:
         raise ApiError(500, f"list-panes a échoué : {err.strip()}")
-    monitors, active_mon = [], None
+    panes = []
     for line in out.splitlines():
-        parts = line.split()
-        if len(parts) < 3 or parts[2] != "1":   # 2 champs = pane non marqué (agent)
+        f = line.split("|")
+        if len(f) < 4:
             continue
-        monitors.append(parts[0])
-        if parts[1] == "1":
-            active_mon = parts[0]
-    target = active_mon or (monitors[-1] if monitors else None)
-    if not target:
+        panes.append({"id": f[0], "index": f[1], "active": f[2] == "1", "agent": f[3] == "1"})
+    if len(panes) <= 1:
         raise ApiError(400, "aucun moniteur à fermer")
+    agent = next((p for p in panes if p["agent"]), None) \
+        or next((p for p in panes if p["index"] == "0"), panes[0])
+    monitors = [p for p in panes if p["id"] != agent["id"]]
+    if not monitors:
+        raise ApiError(400, "aucun moniteur à fermer")
+    active = next((p for p in monitors if p["active"]), None)
+    target = (active or monitors[-1])["id"]
     rc, _, err = _tmux("kill-pane", "-t", target)
     if rc != 0:
         raise ApiError(500, f"kill-pane a échoué : {err.strip()}")

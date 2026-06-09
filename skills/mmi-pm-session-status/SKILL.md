@@ -26,8 +26,9 @@ Implémente le volet « manifest déclaratif » de **RM1875** (NORMS — suivi p
 ## Quand déclencher
 
 **Lecture** (la question cible) :
-- "il reste quoi à faire (dans cette session) ?", "où en est-on ?", "récap session",
-  "qu'est-ce qu'on a ouvert ?", "/mmi-pm-session-status" → `show`
+- "état de la session ?", "état de session", "état session ?" (= « où on en est »),
+  "il reste quoi à faire (dans cette session) ?", "où en est-on ?", "où on en est ?",
+  "récap session", "qu'est-ce qu'on a ouvert ?", "/mmi-pm-session-status" → `show`
 
 **Écriture** (à faire PROACTIVEMENT par l'agent, sans que l'utilisateur le demande) :
 - dès qu'un **ticket PM est créé** dans la session → `add RM<id> "<libellé>" --project <p> --status nouveau`

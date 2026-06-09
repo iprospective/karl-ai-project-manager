@@ -31,7 +31,7 @@ SÉCURITÉ
 ──────────────────────────────────────────────────────────────────────────────
 API (JSON, localhost:9876)
   GET  /                        → text/html (cockpit web, RM1873)
-  GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts}  (public)
+  GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities}  (public)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
   GET  /resolve/<rm_id>         → {found, client, project, cwd, prompt, …}  (MD local, RM1893 §1)
@@ -444,8 +444,29 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
 # par le daemon (REDMINE_URL/REDMINE_USER_MAIN_API_KEY) et sont hérités par le
 # sous-processus. Les entrées client sont passées en argv (liste, jamais via un
 # shell) → aucune injection possible ; type/priorité validés contre une liste.
-TASK_TYPES = ["bugfix", "feature", "assistance", "infrastructure", "maintenance", "autre"]
 PRIORITIES = ["low", "normal", "high", "urgent"]
+_TASK_TYPES_CACHE = None
+
+
+def _task_types() -> list:
+    """Taxonomie canonique des types, lue DYNAMIQUEMENT depuis pm-task-add
+    (`--list-types`) → source de vérité unique, jamais redupliquée ici (NORMS).
+    Cachée pour la durée de vie du process. Repli si l'appel échoue."""
+    global _TASK_TYPES_CACHE
+    if _TASK_TYPES_CACHE is not None:
+        return _TASK_TYPES_CACHE
+    fallback = [{"value": v, "label": v} for v in (
+        "feature", "bugfix", "assistance", "infrastructure",
+        "maintenance", "documentation", "research", "autre")]
+    try:
+        p = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "pm-task-add.py"), "--list-types"],
+            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=20, env=os.environ)
+        data = json.loads(p.stdout) if p.returncode == 0 else None
+        _TASK_TYPES_CACHE = data if isinstance(data, list) and data else fallback
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        _TASK_TYPES_CACHE = fallback
+    return _TASK_TYPES_CACHE
 
 
 def op_list_projects() -> list:
@@ -465,8 +486,9 @@ def op_create_ticket(payload: dict) -> dict:
     if not title:
         raise ApiError(400, "title requis")
     ttype = payload.get("type", "autre")
-    if ttype not in TASK_TYPES:
-        raise ApiError(400, f"type invalide (connus : {TASK_TYPES})")
+    valid = {t["value"] for t in _task_types()}
+    if ttype not in valid:
+        raise ApiError(400, f"type invalide (connus : {sorted(valid)})")
     prio = payload.get("priority", "normal")
     if prio not in PRIORITIES:
         raise ApiError(400, f"priority invalide (connus : {PRIORITIES})")
@@ -659,6 +681,8 @@ class Handler(BaseHTTPRequestHandler):
                 "auth_required": AUTH_TOKEN is not None,
                 "monitors": list(_monitor_presets().keys()),
                 "layouts": sorted(LAYOUTS),
+                "task_types": _task_types(),
+                "priorities": PRIORITIES,
             })
         if not self._check_auth():
             return self._send_json(401, {"error": "token requis (X-Karl-Token)"})

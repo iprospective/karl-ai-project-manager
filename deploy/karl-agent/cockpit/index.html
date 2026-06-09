@@ -133,23 +133,11 @@
       <div class="row2">
         <div>
           <label for="nt-type">Type</label>
-          <select id="nt-type">
-            <option value="feature">feature</option>
-            <option value="bugfix">bugfix</option>
-            <option value="assistance">assistance</option>
-            <option value="infrastructure">infrastructure</option>
-            <option value="maintenance">maintenance</option>
-            <option value="autre">autre</option>
-          </select>
+          <select id="nt-type"></select>
         </div>
         <div>
           <label for="nt-prio">Priorité</label>
-          <select id="nt-prio">
-            <option value="low">low</option>
-            <option value="normal" selected>normal</option>
-            <option value="high">high</option>
-            <option value="urgent">urgent</option>
-          </select>
+          <select id="nt-prio"></select>
         </div>
       </div>
       <label for="nt-tags">Tags <span style="color:var(--muted)">(csv, optionnel)</span></label>
@@ -480,6 +468,17 @@ async function kill(rmId) {
   (CFG.monitors || []).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = "📺 " + m; mp.appendChild(o); });
   const ls = document.getElementById("layoutsel");
   (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
+  // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
+  const ntType = document.getElementById("nt-type");
+  (CFG.task_types || []).forEach(t => {
+    const o = document.createElement("option"); o.value = t.value; o.textContent = t.label || t.value;
+    if (t.value === "feature") o.selected = true; ntType.appendChild(o);
+  });
+  const ntPrio = document.getElementById("nt-prio");
+  (CFG.priorities || ["low", "normal", "high", "urgent"]).forEach(pr => {
+    const o = document.createElement("option"); o.value = pr; o.textContent = pr;
+    if (pr === "normal") o.selected = true; ntPrio.appendChild(o);
+  });
   // wiring
   const rmIn = document.getElementById("rm");
   rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });

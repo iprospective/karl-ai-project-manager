@@ -89,7 +89,11 @@ trackers:
   bugfix:     1   # "Anomalie"
   feature:    2   # "Evolution"
   assistance: 3   # "Assistance"
-  autre:      4   # "Tâche"  (infrastructure/maintenance/autre y retombent)
+  autre:      4   # "Tâche"  (infrastructure/maintenance/documentation/research/autre y retombent)
+  # research = audit/analyse (investigation, audit, exploration) ; pas de tracker
+  # dédié côté Redmine → retombe sur "Tâche". La nature fine est portée par
+  # l'activité de temps "Audit/Analyse" (cf. type_to_activity) et, à terme, le CF
+  # 20 "Task type" (TODO : créer la valeur enum "Audit/Analyse" puis task_type_cf).
 
 # ── Priorités (priorité NORMS → id) ───────────────────────────────────────────
 # Source de vérité = pm-task-add.py::PRIORITY_TO_ID.

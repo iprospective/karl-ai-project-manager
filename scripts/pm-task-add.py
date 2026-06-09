@@ -44,7 +44,31 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 
-TYPE_TO_TRACKER = {"bugfix": 1, "feature": 2, "assistance": 3, "infrastructure": 4, "maintenance": 4, "documentation": 4, "autre": 4}
+# Taxonomie canonique des `type` de tâche → tracker Redmine (coarse).
+# SOURCE DE VÉRITÉ : ce dict. Tout consommateur (cockpit karl-agent, doc) doit
+# lire la liste via `--list-types`, jamais la redupliquer en dur (NORMS § « Source
+# de vérité unique »). Cohérent avec `redmine.reference.yml :: trackers` et
+# `type_to_activity` (research = Audit/Analyse).
+TYPE_TO_TRACKER = {
+    "bugfix": 1,          # Anomalie
+    "feature": 2,         # Évolution
+    "assistance": 3,      # Assistance
+    "infrastructure": 4,  # Tâche
+    "maintenance": 4,     # Tâche
+    "documentation": 4,   # Tâche
+    "research": 4,        # Tâche (activité Audit/Analyse — investigation, audit, exploration)
+    "autre": 4,           # Tâche (repli)
+}
+TYPE_LABELS = {
+    "feature": "feature — fonctionnalité",
+    "bugfix": "bugfix — anomalie",
+    "assistance": "assistance — support",
+    "infrastructure": "infrastructure — sysadmin/conf",
+    "maintenance": "maintenance — refacto/clean",
+    "documentation": "documentation",
+    "research": "research — audit / analyse",
+    "autre": "autre",
+}
 PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
 
 
@@ -101,7 +125,19 @@ def load_project_overview(cfg, entity, project):
 
 
 def main():
+    # Liste machine des types canoniques (consommée par karl-agent / cockpit pour
+    # peupler le sélecteur sans dupliquer la taxonomie). Traité avant argparse car
+    # --title est requis pour une création normale mais pas pour un simple listing.
+    if "--list-types" in sys.argv:
+        import json
+        print(json.dumps(
+            [{"value": t, "label": TYPE_LABELS.get(t, t), "tracker": TYPE_TO_TRACKER[t]}
+             for t in TYPE_TO_TRACKER],
+            ensure_ascii=False))
+        return
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--list-types", action="store_true",
+                    help="Affiche la taxonomie canonique des types (JSON) et quitte.")
     ap.add_argument("--title", required=True)
     ap.add_argument("--type", default="feature", choices=list(TYPE_TO_TRACKER))
     ap.add_argument("--priority", default="normal", choices=list(PRIORITY_TO_ID))

@@ -30,10 +30,12 @@ SÉCURITÉ
 
 ──────────────────────────────────────────────────────────────────────────────
 API (JSON, localhost:9876)
-  GET  /                        → text/html (cockpit web v0, RM1873)
-  GET  /cockpit-config          → {ttyd_base, auth_required}  (public)
+  GET  /                        → text/html (cockpit web, RM1873)
+  GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts}  (public)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
+  GET  /resolve/<rm_id>         → {found, client, project, cwd, prompt, …}  (MD local, RM1893 §1)
+  GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   POST /spawn  {rm_id, cwd?, engine?, prompt?, width?, height?}
                                 → {rm_id, tmux, created:true}
   POST /send   {rm_id, msg, enter?=true}
@@ -41,6 +43,8 @@ API (JSON, localhost:9876)
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
+  POST /monitor {rm_id, preset, orientation?}  → split-window moniteur (RM1893 §3)
+  POST /layout  {rm_id, layout}                → réarrange les panes (RM1893 §3)
   POST /kill   {rm_id}          → {rm_id, killed:true}
 
 Lancement :
@@ -299,6 +303,192 @@ def op_kill(payload: dict) -> dict:
     return {"rm_id": rm_id, "killed": True}
 
 
+# ── Tickets PM locaux : résolution + recherche (RM1893 §1, §7) ────────────────
+# Lecture des MD de tâches synchronisés en local. Stdlib-only (pas d'import des
+# modules du repo, pour rester runnable sur un dev bare). Aucun credential : tout
+# vient du filesystem. Arbo : projects/clients/<C>/projects/<P>/tasks/RM<id>_*.md
+PROJECTS_BASE = REPO_ROOT / "projects" / "clients"
+_TASK_GLOB = "*/projects/*/tasks/RM{}_*.md"
+LAYOUTS = {"even-horizontal", "even-vertical", "main-vertical", "main-horizontal", "tiled"}
+
+
+def _read_task_meta(path: Path) -> dict:
+    """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
+    Retourne {title, status, priority, tags:[...]}. Tolérant aux variations."""
+    meta = {"title": "", "status": "", "priority": "", "tags": []}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return meta
+    if not text.startswith("---"):
+        return meta
+    end = text.find("\n---", 3)
+    fm = text[3:end] if end != -1 else text
+    in_tags = False
+    for line in fm.splitlines():
+        if in_tags:
+            s = line.strip()
+            if s.startswith("- "):
+                meta["tags"].append(s[2:].strip().strip("'\""))
+                continue
+            in_tags = False
+        if line.startswith("title:"):
+            meta["title"] = line.split(":", 1)[1].strip()
+        elif line.startswith("status:"):
+            meta["status"] = line.split(":", 1)[1].strip()
+        elif line.startswith("priority:"):
+            meta["priority"] = line.split(":", 1)[1].strip()
+        elif line.startswith("tags:"):
+            in_tags = True
+    return meta
+
+
+def _task_client_project(tf: Path):
+    """De .../clients/<C>/projects/<P>/tasks/RMx_*.md → (client, project)."""
+    return tf.parent.parent.parent.parent.name, tf.parent.parent.name
+
+
+def _find_task_file(rm_id: str):
+    # Exclure les .log.md (même préfixe RM<id>_, mais pas de frontmatter).
+    matches = sorted(p for p in PROJECTS_BASE.glob(_TASK_GLOB.format(rm_id))
+                     if not p.name.endswith(".log.md"))
+    return matches[0] if matches else None
+
+
+def _resolve_workspace(project_dir: Path):
+    """Trouve le workspace de code dont le symlink `.mmi-pm` pointe vers ce projet
+    PM (scan superficiel des racines autorisées). None si aucun → cwd = repo PM."""
+    target = project_dir.resolve()
+    for root in ALLOWED_ROOTS:
+        if not root.is_dir():
+            continue
+        try:
+            entries = list(root.iterdir())
+        except OSError:
+            continue
+        for entry in entries:
+            link = entry / ".mmi-pm"
+            try:
+                if link.is_symlink() and link.resolve() == target:
+                    return entry
+            except OSError:
+                continue
+    return None
+
+
+def op_resolve(rm_id: str) -> dict:
+    """Résout un rm_id vers (client, projet, cwd, prompt canonique) depuis le MD
+    local — pour pré-remplir le lanceur du cockpit (RM1893 §1). Pas de fetch Redmine."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    tf = _find_task_file(rm_id)
+    if not tf:
+        return {"found": False, "rm_id": rm_id, "cwd": DEFAULT_CWD,
+                "prompt": f"traite la tâche RM{rm_id}"}
+    client, project = _task_client_project(tf)
+    meta = _read_task_meta(tf)
+    ws = _resolve_workspace(tf.parent.parent)
+    cwd = str(ws) if ws else DEFAULT_CWD
+    return {
+        "found": True, "rm_id": rm_id, "client": client, "project": project,
+        "title": meta["title"], "status": meta["status"],
+        "task_file": str(tf.relative_to(REPO_ROOT)), "cwd": cwd,
+        "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",
+    }
+
+
+def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
+    """Recherche sur les MD de tâches locaux (RM1893 §7). Match q sur id/titre/tags ;
+    filtres status/client/project/tag. Trié par rm_id décroissant."""
+    q_low = (q or "").lower().strip()
+    out = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        rid = m.group(1)
+        cl, pr = _task_client_project(tf)
+        if client and cl != client:
+            continue
+        if project and pr != project:
+            continue
+        meta = _read_task_meta(tf)
+        if status and meta["status"] != status:
+            continue
+        if tag and tag not in meta["tags"]:
+            continue
+        if q_low:
+            hay = f"{rid} {meta['title']} {' '.join(meta['tags'])}".lower()
+            if q_low not in hay:
+                continue
+        out.append({
+            "rm_id": rid, "title": meta["title"], "status": meta["status"],
+            "priority": meta["priority"], "client": cl, "project": pr,
+            "tags": meta["tags"],
+        })
+    out.sort(key=lambda r: -int(r["rm_id"]))
+    return out[:limit]
+
+
+# ── Moniteurs multi-panes (RM1893 §3) ────────────────────────────────────────
+# Catalogue serveur de commandes de monitoring (jamais de commande brute client,
+# même modèle de sécurité que les moteurs). Surchargeable via cockpit/monitors.json.
+_DEFAULT_MONITORS = {
+    "opensvc": "watch -n2 om mon",
+    "journal": "journalctl -fn80 --no-pager",
+    "htop": "htop",
+    "dmesg": "dmesg -w",
+    "sessions": "watch -n2 tmux list-sessions",
+}
+
+
+def _monitor_presets() -> dict:
+    f = COCKPIT_DIR / "monitors.json"
+    if f.is_file():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and all(isinstance(v, str) for v in data.values()):
+                return data
+        except (ValueError, OSError):
+            pass
+    return _DEFAULT_MONITORS
+
+
+def op_monitor(payload: dict) -> dict:
+    """Ajoute un pane moniteur (split-window) à la session de l'agent."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    preset = payload.get("preset")
+    presets = _monitor_presets()
+    if preset not in presets:
+        raise ApiError(400, f"preset inconnu : {preset} (connus : {list(presets)})")
+    name = _session_name(rm_id)
+    orient = "-v" if payload.get("orientation") == "v" else "-h"
+    rc, _, err = _tmux("split-window", orient, "-t", name,
+                       "-c", "#{pane_current_path}", presets[preset])
+    if rc != 0:
+        raise ApiError(500, f"split-window a échoué : {err.strip()}")
+    _tmux("select-layout", "-t", name, "tiled")
+    return {"rm_id": rm_id, "preset": preset, "added": True}
+
+
+def op_layout(payload: dict) -> dict:
+    """Réarrange les panes de la session (RM1893 §3)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    layout = payload.get("layout", "tiled")
+    if layout not in LAYOUTS:
+        raise ApiError(400, f"layout inconnu : {layout} (connus : {sorted(LAYOUTS)})")
+    rc, _, err = _tmux("select-layout", "-t", _session_name(rm_id), layout)
+    if rc != 0:
+        raise ApiError(500, f"select-layout a échoué : {err.strip()}")
+    return {"rm_id": rm_id, "layout": layout}
+
+
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
@@ -365,6 +555,8 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
                 "auth_required": AUTH_TOKEN is not None,
+                "monitors": list(_monitor_presets().keys()),
+                "layouts": sorted(LAYOUTS),
             })
         if not self._check_auth():
             return self._send_json(401, {"error": "token requis (X-Karl-Token)"})
@@ -384,6 +576,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_capture(rm_id, lines))
             if path.startswith("/stream/"):
                 return self._stream(path[len("/stream/"):])
+            if path.startswith("/resolve/"):
+                return self._send_json(200, op_resolve(path[len("/resolve/"):]))
+            if path == "/tickets/search":
+                qs = parse_qs(parsed.query)
+                g = lambda k: qs[k][0] if k in qs else None  # noqa: E731
+                return self._send_json(200, {"results": op_search(
+                    g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})
@@ -402,6 +601,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_send(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
+            if path == "/monitor":
+                return self._send_json(201, op_monitor(payload))
+            if path == "/layout":
+                return self._send_json(200, op_layout(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

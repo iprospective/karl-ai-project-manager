@@ -45,10 +45,14 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/cockpit-config` | — | `{ttyd_base, auth_required}` — **public** |
 | GET | `/health` | — | `{status, sessions, tmux}` |
 | GET | `/sessions` | — | `{sessions:[{rm_id, tmux, created, attached}]}` |
+| GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
+| GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | POST | `/spawn` | `{rm_id, cwd?, engine?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, cwd, created}` |
 | POST | `/send` | `{rm_id, msg, enter?=true}` | `{rm_id, sent}` |
 | GET | `/capture/<rm_id>` | `?lines=N` (historique) | `text/plain` (snapshot du pane) |
 | GET | `/stream/<rm_id>` | — | `text/event-stream` (tail du pipe-pane, SSE) |
+| POST | `/monitor` | `{rm_id, preset, orientation?=h\|v}` | `201 {added}` — pane moniteur via `split-window`, commande issue du catalogue serveur (RM1893 §3) |
+| POST | `/layout` | `{rm_id, layout}` | `{layout}` — `even-horizontal\|even-vertical\|main-vertical\|main-horizontal\|tiled` |
 | POST | `/kill` | `{rm_id}` | `{rm_id, killed}` |
 
 - `engine` ∈ `{claude, shell}` (templates serveur ; défaut `claude`). Le moteur

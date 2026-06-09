@@ -61,6 +61,16 @@
   .toast.show { opacity: 1; transform: none; }
   .toast.err { border-left-color: var(--danger); }
   .lock { font-size: 11px; color: var(--warn); }
+  .results { list-style: none; margin: 10px 0 0; padding: 0; max-height: 280px; overflow-y: auto; }
+  .results li { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px;
+    cursor: pointer; background: var(--panel2); }
+  .results li:hover { border-color: var(--accent); }
+  .results .r-top { display: flex; gap: 6px; align-items: baseline; }
+  .results .r-id { font-family: var(--mono); color: var(--accent); font-weight: 600; font-size: 12px; }
+  .results .r-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .results .r-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
+  .resolved.nf { color: var(--warn); }
 </style>
 </head>
 <body>
@@ -82,17 +92,31 @@
     </div>
 
     <div class="card">
+      <h2>Rechercher un ticket</h2>
+      <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
+      <ul class="results" id="results"></ul>
+    </div>
+
+    <div class="card">
       <h2>Lancer une session</h2>
       <label for="rm">Ticket (RM id)</label>
       <input id="rm" type="number" inputmode="numeric" placeholder="ex : 1669" min="1">
+      <div class="resolved" id="resolved"></div>
       <label for="engine">Moteur</label>
       <select id="engine">
         <option value="claude">claude</option>
         <option value="shell">shell</option>
       </select>
-      <label for="cwd">Répertoire de travail <span style="color:var(--muted)">(optionnel)</span></label>
+      <label for="cwd">Répertoire de travail <span style="color:var(--muted)">(auto-résolu)</span></label>
       <input id="cwd" type="text" placeholder="/zfs/workspaces/…">
-      <label for="prompt">Prompt initial <span style="color:var(--muted)">(optionnel)</span></label>
+      <label for="ptpl">Prompt initial</label>
+      <select id="ptpl" onchange="applyTemplate()">
+        <option value="traiter">Traiter la tâche</option>
+        <option value="continuer">Continuer la tâche</option>
+        <option value="chiffrer">Étudier / chiffrer</option>
+        <option value="reviewer">Reviewer</option>
+        <option value="libre">Libre (saisie manuelle)</option>
+      </select>
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
@@ -107,6 +131,11 @@
     <div class="termbar">
       <span class="title" id="termtitle">Aucune session attachée</span>
       <span style="flex:1"></span>
+      <select class="mini" id="monpreset" style="display:none" title="Moniteur à ajouter"></select>
+      <button class="mini" id="monbtn" style="display:none" onclick="addMonitor()">➕ Moniteur</button>
+      <select class="mini" id="layoutsel" style="display:none" onchange="setLayout()" title="Disposition des panes">
+        <option value="">Disposition…</option>
+      </select>
       <button class="mini" id="reattach" style="display:none" onclick="reattach()">↻ Recharger</button>
       <button class="mini" id="detach" style="display:none" onclick="detach()">✕ Détacher</button>
     </div>
@@ -121,8 +150,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let CFG = { ttyd_base: "", auth_required: false };
+let CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [] };
 let attached = null;
+let resolved = null;
+let resolveTimer = null;
 
 function token() { return localStorage.getItem("karlToken") || ""; }
 function saveToken() {
@@ -197,6 +228,69 @@ async function refreshSessions() {
   }
 }
 
+// ----- §1 : résolution rm_id → client/projet/cwd/prompt -----
+async function resolveRm() {
+  const rm = document.getElementById("rm").value.trim();
+  const el = document.getElementById("resolved");
+  if (!/^\d+$/.test(rm)) { resolved = null; el.textContent = ""; el.className = "resolved"; return; }
+  try {
+    const r = await api("/resolve/" + rm);
+    resolved = r;
+    if (r.found) {
+      el.className = "resolved";
+      el.textContent = "✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "");
+      document.getElementById("cwd").value = r.cwd;
+    } else {
+      el.className = "resolved nf";
+      el.textContent = "⚠ ticket non trouvé en local — prompt générique";
+    }
+    applyTemplate();
+  } catch (e) { resolved = null; el.textContent = ""; el.className = "resolved"; }
+}
+function applyTemplate() {
+  const tpl = document.getElementById("ptpl").value;
+  const rm = document.getElementById("rm").value.trim();
+  const ta = document.getElementById("prompt");
+  if (tpl === "libre") return;        // ne pas écraser la saisie manuelle
+  if (!/^\d+$/.test(rm)) { return; }
+  const r = resolved && resolved.found ? resolved : null;
+  const cp = r ? (" du client " + r.client + " projet " + r.project) : "";
+  let txt = "";
+  if (tpl === "traiter") txt = "traite la tâche RM" + rm + cp;
+  else if (tpl === "continuer") txt = "continue la tâche RM" + rm + cp + " : relis le .log.md et reprends où tu t'es arrêté";
+  else if (tpl === "chiffrer") txt = "étudie et chiffre la tâche RM" + rm + cp;
+  else if (tpl === "reviewer") txt = "review la tâche RM" + rm;
+  ta.value = txt;
+}
+
+// ----- §7 : recherche de tickets (MD locaux) -----
+async function search() {
+  const q = document.getElementById("search").value.trim();
+  const ul = document.getElementById("results");
+  try {
+    const { results } = await api("/tickets/search?q=" + encodeURIComponent(q));
+    if (!results.length) { ul.innerHTML = '<div class="empty">aucun résultat</div>'; return; }
+    ul.innerHTML = "";
+    for (const t of results) {
+      const li = document.createElement("li");
+      li.innerHTML =
+        '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' +
+        '<span class="r-title">' + (t.title || "(sans titre)") + '</span></div>' +
+        '<div class="r-meta">' + t.client + " / " + t.project + " · " + (t.status || "?") + '</div>';
+      li.onclick = () => {
+        document.getElementById("rm").value = t.rm_id;
+        resolveRm();
+        document.getElementById("rm").scrollIntoView({ block: "nearest", behavior: "smooth" });
+      };
+      ul.appendChild(li);
+    }
+  } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + e.message + '</div>'; }
+}
+
+// ----- attach / detach (+ contrôles moniteur) -----
+function setMonitorControls(show) {
+  ["monpreset", "monbtn", "layoutsel"].forEach(id => document.getElementById(id).style.display = show ? "" : "none");
+}
 function attach(rmId) {
   attached = String(rmId);
   document.getElementById("placeholder").style.display = "none";
@@ -205,6 +299,7 @@ function attach(rmId) {
   document.getElementById("termtitle").textContent = "karl-RM" + rmId + "  (terminal live — tape pour reprendre la main)";
   document.getElementById("detach").style.display = "";
   document.getElementById("reattach").style.display = "";
+  setMonitorControls(true);
   refreshSessions();
 }
 function reattach() { if (attached) attach(attached); }
@@ -216,7 +311,29 @@ function detach() {
   document.getElementById("termtitle").textContent = "Aucune session attachée";
   document.getElementById("detach").style.display = "none";
   document.getElementById("reattach").style.display = "none";
+  setMonitorControls(false);
   refreshSessions();
+}
+
+// ----- §3 : moniteurs multi-panes -----
+async function addMonitor() {
+  if (!attached) return;
+  const preset = document.getElementById("monpreset").value;
+  if (!preset) return;
+  try {
+    await api("/monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, preset }) });
+    toast("Moniteur « " + preset + " » ajouté");
+    setTimeout(reattach, 300);   // recharge l'iframe pour afficher le nouveau pane
+  } catch (e) { toast(e.message, true); }
+}
+async function setLayout() {
+  const layout = document.getElementById("layoutsel").value;
+  if (!attached || !layout) return;
+  try {
+    await api("/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, layout }) });
+    setTimeout(reattach, 250);
+  } catch (e) { toast(e.message, true); }
+  document.getElementById("layoutsel").value = "";
 }
 
 async function spawn() {
@@ -258,7 +375,16 @@ async function kill(rmId) {
     document.getElementById("lock").textContent = "🔒 auth requise";
     if (token()) document.getElementById("token").value = token();
   }
-  document.getElementById("rm").addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
+  // peuple le sélecteur de moniteurs + les dispositions depuis la config serveur
+  const mp = document.getElementById("monpreset");
+  (CFG.monitors || []).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = "📺 " + m; mp.appendChild(o); });
+  const ls = document.getElementById("layoutsel");
+  (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
+  // wiring
+  const rmIn = document.getElementById("rm");
+  rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
+  rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
+  document.getElementById("search").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

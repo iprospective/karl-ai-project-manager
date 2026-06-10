@@ -5,6 +5,34 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.38.0] - 2026-06-11
+
+### Ajouté — Relation « implémentation » entre projets (§ « Relation "implémentation" entre projets »)
+
+Nouveau type de relation **inter-projets** (RM1837), distinct du partage cross-client :
+un projet peut être l'**implémentation** d'un projet **général** (interface ↔
+implémentation). Le général définit procédures/templates/conventions/assets
+réutilisables, l'enfant les applique à un contexte (client, instance).
+
+- Relation **plusieurs-à-plusieurs** : champs `project/overview.md`
+  **`implements: [...]`** (côté implémentation) et **`implemented_by: [...]`** (côté
+  général), tous deux des **listes**, redondants par construction, cohérence validée par
+  `pm doctor` (à venir).
+- Distinct de `provided_by` (livrable consommé) — les deux peuvent coexister.
+- Cas canoniques : **projets infra client → `iprospective/infrastructure`** (cumulatif
+  avec la détection « projet infra » qui conditionne `008-infra-analysis`) ; **instances
+  produit client → projet produit général**.
+- Conséquences opérationnelles documentées : **placement des assets** (réutilisable →
+  repo général ; spécifique → enfant), **tickets cross-projet** (besoin générique → ticket
+  dans le général, relié via `relates`).
+- **Pas de cascade d'aspects** (déclaratif, comme le cross-client).
+- Première application : `abatik/infra implements iprospective/infrastructure` +
+  backfill `calyclay/infra` (exemple vécu RM1835).
+- Reste à outiller : validation `pm doctor` des paires `implements`/`implemented_by`,
+  geste CLI de création de ticket cross-projet.
+
+---
+
 ## [1.37.0] - 2026-06-09
 
 ### Ajouté — Règle de propagation « source unique → consommateurs » (§ « Synchronisation de la configuration Redmine »)

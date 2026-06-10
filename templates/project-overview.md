@@ -10,6 +10,10 @@ created: 2026-05-12
 used_by_clients: []            # entités qui consomment ce projet (typique pour les modules génériques)
 provided_by: null              # pointeur vers le projet fournisseur, ex: "dolibarr/mmi-productcheck"
 
+# Relation « implémentation » entre projets (many-to-many, listes)
+implements: []                 # projets généraux que ce projet implémente, ex: ["iprospective/infrastructure"]
+implemented_by: []             # projets qui implémentent celui-ci (côté projet général)
+
 # Bootstrap — tracking des tâches d'initialisation projet
 bootstrap:
   skip: []                     # IDs de templates jamais à proposer (ex: ["003-environnements"])

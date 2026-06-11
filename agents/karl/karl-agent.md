@@ -58,10 +58,16 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | POST | `/layout` | `{rm_id, layout}` | `{layout}` — `even-horizontal\|even-vertical\|main-vertical\|main-horizontal\|tiled` |
 | POST | `/kill` | `{rm_id}` | `{rm_id, killed}` |
 
-- `engine` ∈ `{claude, shell}` (templates serveur ; défaut `claude`). Le moteur
-  réel de `claude` est `KARL_AGENT_SPAWN_CMD` (déf. `claude`).
+- `engine` ∈ `{claude, opencode, vibe, shell}` (templates serveur ; défaut
+  `claude`). Chaque moteur définit sa commande (surchargée par
+  `KARL_AGENT_<MOTEUR>_CMD`) et ses **marqueurs de readiness** (sous-chaînes du pane
+  signalant « TUI prêt » avant d'injecter le prompt) — cf. `ENGINES` dans le daemon.
+  opencode et vibe sont des TUI pilotés en tmux exactement comme claude (RM1921) ;
+  `vibe` est lancé avec `--trust` (confie le cwd déjà validé). `shell` (`bash -l`)
+  n'a pas de marqueur → simple délai.
 - `prompt` est livré **après** le spawn via `send-keys` (jamais concaténé dans la
-  ligne de commande lancée par tmux).
+  ligne de commande lancée par tmux), même pour opencode/vibe qui sauraient le
+  prendre à l'invocation — invariant sécu #4 (pas d'entrée client en argv).
 - Codes : `400` (entrée invalide), `401` (token manquant), `404` (session absente),
   `409` (session déjà active), `500` (échec tmux).
 
@@ -146,6 +152,8 @@ Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.
 | `KARL_AGENT_PORT` | `9876` | Port d'écoute (toujours sur 127.0.0.1). |
 | `KARL_AGENT_TOKEN` | _(vide)_ | Si défini, exige l'en-tête `X-Karl-Token`. |
 | `KARL_AGENT_SPAWN_CMD` | `claude` | Commande du moteur `claude`. |
+| `KARL_AGENT_OPENCODE_CMD` | `opencode` | Commande du moteur `opencode`. |
+| `KARL_AGENT_VIBE_CMD` | `vibe --trust` | Commande du moteur `vibe` (Mistral Vibe). |
 | `KARL_AGENT_DEFAULT_ENGINE` | `claude` | Moteur par défaut au spawn. |
 | `KARL_AGENT_ALLOWED_ROOTS` | `/zfs/workspaces` | Racines autorisées pour `cwd` (`:`-séparées). |
 | `KARL_AGENT_DEFAULT_CWD` | _(repo)_ | cwd si non fourni au spawn. |
@@ -214,7 +222,15 @@ user peuvent en dépendre) — il faut les flags pour les retirer. Le code et le
   conciliables sur un même process : à arbitrer avec RM1669/RM1679.
 - **Détection « session bloquée »** : poller `claude agents --json` (champ
   `waitingFor`) pour le relais permission/aide → brique RM1824.
-- **Moteur opencode** : `opencode serve` (API `/event` SSE, `/question` +
-  `/permission` structurés, attach natif, autonomie par PermissionRuleset).
-  Attention : `opencode run` headless **hang** si une permission est « ask »
-  (GH #16367/#17516) → imposer des rulesets allow/deny. Voie programmatique = SDK JS/TS.
+- **Multi-moteur — lancement TUI : FAIT (RM1921).** opencode et vibe (Mistral Vibe)
+  sont des moteurs `ENGINES` à part entière, lancés/attachés/pilotés en tmux comme
+  claude (prompt via send-keys, readiness par marqueurs). Reste la **supervision
+  enrichie** (badges working/blocked/idle), dont le substrat diffère par moteur :
+  - **opencode** : `opencode serve` (API `/event` SSE, `/question` + `/permission`
+    structurés, attach natif, autonomie par PermissionRuleset). Attention :
+    `opencode run` headless **hang** si une permission est « ask » (GH #16367/#17516)
+    → imposer des rulesets allow/deny. Voie programmatique = SDK JS/TS.
+  - **vibe** : pas de bus de hooks comme Claude Code ; flux structuré seulement en
+    mode programmatique (`vibe -p --output streaming`, NDJSON par message), non
+    conciliable avec le TUI attachable. Budgets natifs `--max-turns/-price/-tokens`.
+  → à traiter en extension de la boucle hooks→état du superviseur v2 (RM1874).

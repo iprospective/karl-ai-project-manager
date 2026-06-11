@@ -107,9 +107,30 @@ ALLOWED_ROOTS = [
 DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 
 # Templates de moteur. {cwd} déjà validé ; jamais d'entrée client brute ici.
+# Chaque moteur : `cmd` (ligne lancée par tmux) + `ready_markers` (sous-chaînes dont
+# l'apparition dans le pane signale « TUI prêt à recevoir le prompt » ; vide = pas
+# d'attente, simple délai). Le prompt initial est TOUJOURS livré par send-keys APRÈS
+# le spawn (jamais concaténé dans la cmd — invariant sécu #4 : pas d'entrée client en
+# argv), bien qu'opencode/vibe sachent le prendre à l'invocation.
 ENGINES = {
-    "claude": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
-    "shell": "bash -l",
+    "claude": {
+        "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
+        "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
+    },
+    "opencode": {
+        "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
+        "ready_markers": ("Ask anything", "tab agents", "ctrl+p commands"),
+    },
+    "vibe": {
+        # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
+        # cette invocation, sinon le TUI bloque sur l'invite de confiance du dossier.
+        "cmd": os.environ.get("KARL_AGENT_VIBE_CMD", "vibe --trust"),
+        "ready_markers": ("Mistral Vibe", "Type /help"),
+    },
+    "shell": {
+        "cmd": "bash -l",
+        "ready_markers": (),
+    },
 }
 DEFAULT_ENGINE = os.environ.get("KARL_AGENT_DEFAULT_ENGINE", "claude")
 DEFAULT_WIDTH = int(os.environ.get("KARL_AGENT_WIDTH", "200"))
@@ -200,13 +221,12 @@ def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
     d'injecter le prompt initial. Sans ça, les touches envoyées trop tôt partent
     dans le vide pendant le splash de démarrage (course observée sur claude, RM1873).
     Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout."""
-    if engine != "claude":
+    # Marqueurs propres au moteur (cf. ENGINES). Vide (ex. shell) → pas d'attente.
+    markers = ENGINES.get(engine, {}).get("ready_markers", ())
+    if not markers:
         time.sleep(0.3)
         return
     name = _session_name(rm_id)
-    # Marqueurs robustes de « claude prêt » : pied de page (raccourcis / accept
-    # edits / agents) ou la ligne d'invite ❯. Présents une fois le TUI initialisé.
-    markers = ("for shortcuts", "accept edits", "for agents", "❯")
     deadline = time.time() + timeout
     while time.time() < deadline:
         rc, out, _ = _tmux("capture-pane", "-p", "-t", name)
@@ -223,7 +243,7 @@ def op_spawn(payload: dict) -> dict:
     engine = payload.get("engine", DEFAULT_ENGINE)
     if engine not in ENGINES:
         raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
-    cmd = ENGINES[engine]
+    cmd = ENGINES[engine]["cmd"]
 
     try:
         cwd = _resolve_cwd(payload.get("cwd"))

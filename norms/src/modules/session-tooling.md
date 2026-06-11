@@ -1,3 +1,6 @@
+> 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
+> **Outils :** tous les `pm-*` · **Préchargé par :** tous.
+
 ## Outillage obligatoire en session PM — v1.35.0
 
 En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute

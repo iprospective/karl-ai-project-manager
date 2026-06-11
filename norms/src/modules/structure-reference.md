@@ -1,3 +1,6 @@
+> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je crée/répare le lien workspace↔PM.
+> **Outils :** `pm_paths.PMConfig`, `pm-sync-links`⚠ · **Préchargé par :** worker-infra.
+
 ### Repo project-management (système, public)
 
 ```

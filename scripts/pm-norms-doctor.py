@@ -77,11 +77,13 @@ def check_coverage():
     covered = set()
     if LEDGER.exists():
         data = yaml.safe_load(LEDGER.read_text()) or {}
-        for x in (data.get("removed") or []):
-            covered.add(norm(x))
-        for e in (data.get("rewritten") or []):
-            if isinstance(e, dict) and e.get("old"):
-                covered.add(norm(e["old"]))
+        blocks = list(data.get("removed") or [])
+        blocks += [e["old"] for e in (data.get("rewritten") or [])
+                   if isinstance(e, dict) and e.get("old")]
+        for blk in blocks:                          # une entrée peut être un bloc multi-lignes
+            for ol in str(blk).splitlines():
+                if norm(ol):
+                    covered.add(norm(ol))
     uncovered = sorted(oracle - active - covered)
     return "couverture", uncovered
 
@@ -102,6 +104,12 @@ def check_kernel():
         return None
     refs = set(re.findall(r"modules/[a-z0-9-]+\.md", kernel.read_text()))
     return sorted(r for r in refs if not (SRC / r).exists())
+
+
+def check_module_headers():
+    """Chaque module doit porter son en-tête « quand lire ceci » (point d'entrée lisible)."""
+    return [f.name for f in sorted(SRC.glob("modules/*.md"))
+            if "quand lire ceci" not in f.read_text()]
 
 
 def check_fences():
@@ -191,7 +199,12 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} déclencheurs KERNEL : tous les modules référencés existent")
-    print(f"  · SKIPPED (en-têtes « quand lire ceci » des modules) — à ajouter ultérieurement")
+    hmiss = check_module_headers()
+    if hmiss:
+        print(f"  {FAIL} en-têtes modules : « quand lire ceci » manquant : {', '.join(hmiss)}")
+        rc |= 1
+    else:
+        print(f"  {PASS} en-têtes : tous les modules ont leur « quand lire ceci »")
 
     print(f"== {'OK' if rc == 0 else 'ÉCHEC'} ==")
     return rc

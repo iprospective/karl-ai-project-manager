@@ -223,6 +223,9 @@ Tokens : 3 200 | Durée : 15 min
 Résumé de ce qui a été fait...
 ```
 
+> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je crée/répare le lien workspace↔PM.
+> **Outils :** `pm_paths.PMConfig`, `pm-sync-links`⚠ · **Préchargé par :** worker-infra.
+
 ### Repo project-management (système, public)
 
 ```
@@ -414,6 +417,9 @@ logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
 
+> 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
+> **Outils :** tous les `pm-*` · **Préchargé par :** tous.
+
 ## Outillage obligatoire en session PM — v1.35.0
 
 En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute
@@ -446,6 +452,9 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
+> **Outils :** `pm-client-new`, `pm-doctor`⚠ · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
 
@@ -584,6 +593,9 @@ Exemple :
 - `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
 
+> 📂 **Module `project-creation` — quand lire ceci :** je crée un projet PM↔Redmine · bootstrap · memberships · flux de création de tâches.
+> **Outils :** `pm-project-new`, `pm-project-bootstrap` · **Préchargé par :** —.
+
 ### Création d'un projet PM ↔ Redmine
 
 À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
@@ -623,8 +635,8 @@ Justification :
   `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
   les ajouter un par un à chaque projet
 
-Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
-À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
+`pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces deux ajouts à la
+création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
 
 Payload API pour automation :
 ```bash
@@ -709,7 +721,7 @@ Deux flux supportés :
    `pm.config.yml` à partir de l'entité et du projet)
 3. Le worker assigné prend la tâche en charge
 
-**b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
+**b) Création depuis CLI dans le workspace projet** (`pm-task-add.py` / skill `mmi-pm-task-add`)
 1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
 3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
@@ -718,6 +730,9 @@ Deux flux supportés :
 
 Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en
 v1.5 — voir [PISTES.md](../PISTES.md).
+
+> 📂 **Module `status-workflow` — quand lire ceci :** je change un statut · je prends une tâche · fin de dev/routing test · un ticket me revient · machine d'états · phase d'étude.
+> **Outils :** `pm-task-status-update`, `redmine-fetch-updates` · **Préchargé par :** worker-dev, worker-analyst, orchestrateur.
 
 ## Passe agent-testeur indépendante (`requires_agent_test`)
 
@@ -1019,18 +1034,10 @@ de démarrer le travail effectif.
 ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
 en mode interactif l'établit activement au démarrage.
 
-**Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas
-encore status + assignation. En attendant un patch, l'agent enchaîne
-manuellement :
-
-```bash
-./pm-task-status-update.py <RM-id> en_cours --note "Prise en charge"
-./redmine-post-note.py --issue <RM-id> --note "Auto-assignation <agent>" --assign-to <user-id>
-```
-
-→ TODO scripts : `pm-task-status-update.py` doit, quand la cible est `en_cours`,
-auto-assigner au user Redmine de l'agent courant (résolu via
-`pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79).
+**Implémentation** : `pm-task-status-update.py` **couple** status + assignation —
+quand la cible est `en_cours`, il auto-assigne au user Redmine de l'agent courant
+(résolu via `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79). Aucun PUT
+manuel à faire ; `--no-assign` pour outrepasser.
 
 **Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
 
@@ -1085,6 +1092,9 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
+
+> 📂 **Module `redmine-hygiene` — quand lire ceci :** le ticket a une checklist · sa description est périmée · son done_ratio évolue.
+> **Outils :** `pm-task-description-update` · **Préchargé par :** worker-dev, worker-analyst, worker-design.
 
 ### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
 
@@ -1162,6 +1172,9 @@ faire passer le `done_ratio` de 50 à 75 → pas de note.
   `a_mep` ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
   description (`--allow-unchecked` pour outrepasser si c'est volontaire). Garde-fou
   pour ne pas livrer/clore avec une checklist non tenue à jour.
+
+> 📂 **Module `redmine-reference` — quand lire ceci :** avant une session touchant l'intégration Redmine / périodiquement · ids CF/statuts/activités · filtrage IA.
+> **Outils :** `redmine-config-check` · **Préchargé par :** —.
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 
@@ -1300,9 +1313,9 @@ unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.
 
-> **Outillage souhaité (gap connu)** : un script `scripts/redmine-config-check.py`
-> qui diff la config live contre les références locales et signale tout drift.
-> En attendant, le contrôle est manuel (requêtes `GET` ci-dessus).
+> **Outillage** : `scripts/redmine-config-check.py` diffe la config live contre les
+> références locales et signale tout drift — à lancer avant une session d'intégration
+> Redmine ou périodiquement.
 
 **Règle de propagation — source unique → consommateurs (v1.37.0).** Quand tu fais
 évoluer un **paramètre canonique** (taxonomie de `type` et mappings
@@ -1316,6 +1329,9 @@ même commit. Une source de vérité et son miroir ne doivent **jamais diverger 
 silence** — c'est la même classe de bug que le drift de config Redmine ci-dessus,
 côté *écriture* cette fois. Avant de clore : vérifier la cohérence
 `pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
+
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> **Outils :** `glab`, `mmi-pm-git-*`⚠ · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
 
@@ -1561,6 +1577,9 @@ versioning:
 - En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
 
+> 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
+> **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
+
 ## Ordonnancement par ROI
 
 Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
@@ -1764,6 +1783,9 @@ re-run ne crée pas de doublon. Dry-run par défaut, `--apply` pour exécuter.
 > incrémental fin (un time_entry par commit, avec nature de travail déclarée
 > par commit) viendra dessus.
 
+> 📂 **Module `task-links` — quand lire ceci :** je lie / fais dépendre / parente deux tickets.
+> **Outils :** `pm-task-link` · **Préchargé par :** —.
+
 ## Liens entre tâches
 
 Le frontmatter d'une tâche supporte plusieurs types de liens, chacun avec une
@@ -1819,6 +1841,9 @@ silencieux, le lien Redmine reste correct).
 - `sub_tasks` est dérivé : il doit toujours refléter l'ensemble des enfants dont le
   `parent_task` pointe vers ce ticket. En cas de drift, `pm-task-sync` sur l'enfant
   rétablit la cohérence.
+
+> 📂 **Module `traceability` — quand lire ceci :** je commit / franchis une étape significative · je journalise une décision · je référence un commit.
+> **Outils :** `pm-task-report` · **Préchargé par :** —.
 
 #### Journalisation des échanges avec l'humain (obligatoire, au fil de l'eau)
 
@@ -1894,6 +1919,9 @@ Commit: <repo-alias>@<sha-court> — <message court>
   explicitement dans l'entrée plutôt que de laisser un trou.
 
 ---
+
+> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (Vaultwarden).
+> **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
 
 ### Environnements (aspect `environments.md`)
 
@@ -2019,6 +2047,9 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
 référencés et leur rôle, pour audit humain.
 
+> 📂 **Module `collaboration` — quand lire ceci :** je suis l'orchestrateur : rôles, assignation, sous-tâches multi-niveaux, propagation de complétion.
+> **Outils :** — · **Préchargé par :** orchestrateur.
+
 ### Rôles des agents
 
 **Orchestrateur**
@@ -2102,6 +2133,9 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+> 📂 **Module `summarizer` — quand lire ceci :** je génère les fichiers auto-générés (Changelog / Pistes / Remarques).
+> **Outils :** — · **Préchargé par :** summarizer.
+
 ## Fichiers auto-générés (écrits par l'agent summarizer)
 
 | Fichier | Niveau | Contenu | Source |
@@ -2111,6 +2145,9 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 | `Remarques.md` | client + projet | Observations factuelles des agents (patterns, anomalies) | Extraits des `.log.md` |
 | `client.md ## Structure` | client | Comment ce client opère, ses processus | Agrège observations long terme |
 | `project.md ## Structure` | projet | Comment ce projet est architecturé, ses conventions | Agrège observations long terme |
+
+> 📂 **Module `governance` — quand lire ceci :** gouvernance HORS-runtime : déploiement multi-machines · versionning de NORMS · distribution des skills · config globale.
+> **Outils :** `pm-norms-assemble`, `pm-norms-doctor` · **Préchargé par :** —.
 
 ## Architecture de déploiement
 

@@ -1,3 +1,6 @@
+> 📂 **Module `redmine-hygiene` — quand lire ceci :** le ticket a une checklist · sa description est périmée · son done_ratio évolue.
+> **Outils :** `pm-task-description-update` · **Préchargé par :** worker-dev, worker-analyst, worker-design.
+
 ### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
 
 La **description** d'un ticket Redmine (le corps principal, distinct des notes

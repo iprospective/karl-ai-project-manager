@@ -1,3 +1,6 @@
+> 📂 **Module `governance` — quand lire ceci :** gouvernance HORS-runtime : déploiement multi-machines · versionning de NORMS · distribution des skills · config globale.
+> **Outils :** `pm-norms-assemble`, `pm-norms-doctor` · **Préchargé par :** —.
+
 ## Architecture de déploiement
 
 ### V1 — Machine unique (recommandée pour démarrer)

@@ -1,3 +1,6 @@
+> 📂 **Module `task-links` — quand lire ceci :** je lie / fais dépendre / parente deux tickets.
+> **Outils :** `pm-task-link` · **Préchargé par :** —.
+
 ## Liens entre tâches
 
 Le frontmatter d'une tâche supporte plusieurs types de liens, chacun avec une

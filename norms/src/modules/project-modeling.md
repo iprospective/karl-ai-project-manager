@@ -1,3 +1,6 @@
+> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
+> **Outils :** `pm-client-new`, `pm-doctor`⚠ · **Préchargé par :** worker-analyst.
+
 ## Types d'entités
 
 Le dossier `paths.entities_dir` (par défaut `{projects_root}/clients`) regroupe

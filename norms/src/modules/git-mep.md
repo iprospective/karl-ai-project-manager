@@ -1,3 +1,6 @@
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> **Outils :** `glab`, `mmi-pm-git-*`⚠ · **Préchargé par :** worker-dev, worker-db, worker-infra.
+
 ## Cycle de développement → test → mise en production (MEP)
 
 Référence **canonique** du workflow de release applicatif, du dev d'un ticket

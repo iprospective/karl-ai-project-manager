@@ -41,11 +41,13 @@ index exhaustif         détail de la règle +          SKILL.md         pm-*.py
 des déclencheurs        lien vers l'outil
 ```
 
-- **KERNEL** = `NORMS-KERNEL.md`. Lu par **tout** worker. Index **exhaustif des
-  déclencheurs** + les tripwires complets (cf. §4).
-- **Modules** = `norms/modules/*.md`. Chargés **à la demande**. Il peut y en avoir
+- **KERNEL** = `norms/src/NORMS-KERNEL.md`. Lu par **tout** worker. Index **exhaustif
+  des déclencheurs** + les tripwires complets (cf. §4).
+- **Modules** = `norms/src/modules/*.md`. Chargés **à la demande**. Il peut y en avoir
   **beaucoup**, organisés en **sous-modules** imbriqués quand un domaine est riche
   (ex. `git/branch.md`, `git/mr.md`, `git/mep.md` sous un `git/`).
+- **Méta-artefacts** (non assemblés) : `norms/src/manifest.yml` (ordre),
+  `_frontmatter.txt`, `_original-frozen.md` (oracle de non-perte), `dedup-ledger.yml`.
 - **Skills** = `skills/*/SKILL.md`. Une règle qui s'**exécute** nomme le skill qui
   la réalise.
 - **Scripts** = `scripts/*.py`. Ce que le skill appelle.

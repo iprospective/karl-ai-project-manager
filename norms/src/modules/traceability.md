@@ -1,3 +1,6 @@
+> 📂 **Module `traceability` — quand lire ceci :** je commit / franchis une étape significative · je journalise une décision · je référence un commit.
+> **Outils :** `pm-task-report` · **Préchargé par :** —.
+
 #### Journalisation des échanges avec l'humain (obligatoire, au fil de l'eau)
 
 Quand un échange utilisateur ↔ agent porte sur une tâche — arbitrage, décision,

@@ -1,3 +1,6 @@
+> 📂 **Module `summarizer` — quand lire ceci :** je génère les fichiers auto-générés (Changelog / Pistes / Remarques).
+> **Outils :** — · **Préchargé par :** summarizer.
+
 ## Fichiers auto-générés (écrits par l'agent summarizer)
 
 | Fichier | Niveau | Contenu | Source |

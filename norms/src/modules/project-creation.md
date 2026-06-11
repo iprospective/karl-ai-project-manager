@@ -1,3 +1,6 @@
+> 📂 **Module `project-creation` — quand lire ceci :** je crée un projet PM↔Redmine · bootstrap · memberships · flux de création de tâches.
+> **Outils :** `pm-project-new`, `pm-project-bootstrap` · **Préchargé par :** —.
+
 ### Création d'un projet PM ↔ Redmine
 
 À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
@@ -37,8 +40,8 @@ Justification :
   `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
   les ajouter un par un à chaque projet
 
-Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
-À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
+`pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces deux ajouts à la
+création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
 
 Payload API pour automation :
 ```bash
@@ -123,7 +126,7 @@ Deux flux supportés :
    `pm.config.yml` à partir de l'entité et du projet)
 3. Le worker assigné prend la tâche en charge
 
-**b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
+**b) Création depuis CLI dans le workspace projet** (`pm-task-add.py` / skill `mmi-pm-task-add`)
 1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
 2. Le script crée le ticket Redmine, récupère l'ID
 3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers

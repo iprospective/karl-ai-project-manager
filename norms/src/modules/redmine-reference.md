@@ -1,3 +1,6 @@
+> 📂 **Module `redmine-reference` — quand lire ceci :** avant une session touchant l'intégration Redmine / périodiquement · ids CF/statuts/activités · filtrage IA.
+> **Outils :** `redmine-config-check` · **Préchargé par :** —.
+
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 
 L'instance Redmine contient bien plus de tickets que ceux que PM doit
@@ -135,9 +138,9 @@ unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.
 
-> **Outillage souhaité (gap connu)** : un script `scripts/redmine-config-check.py`
-> qui diff la config live contre les références locales et signale tout drift.
-> En attendant, le contrôle est manuel (requêtes `GET` ci-dessus).
+> **Outillage** : `scripts/redmine-config-check.py` diffe la config live contre les
+> références locales et signale tout drift — à lancer avant une session d'intégration
+> Redmine ou périodiquement.
 
 **Règle de propagation — source unique → consommateurs (v1.37.0).** Quand tu fais
 évoluer un **paramètre canonique** (taxonomie de `type` et mappings

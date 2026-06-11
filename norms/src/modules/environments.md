@@ -1,3 +1,6 @@
+> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (Vaultwarden).
+> **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
+
 ### Environnements (aspect `environments.md`)
 
 Aspect dédié à la déclaration des environnements d'exécution d'un projet (dev, test,

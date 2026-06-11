@@ -1,3 +1,6 @@
+> 📂 **Module `collaboration` — quand lire ceci :** je suis l'orchestrateur : rôles, assignation, sous-tâches multi-niveaux, propagation de complétion.
+> **Outils :** — · **Préchargé par :** orchestrateur.
+
 ### Rôles des agents
 
 **Orchestrateur**

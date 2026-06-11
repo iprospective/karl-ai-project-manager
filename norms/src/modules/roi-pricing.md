@@ -1,3 +1,6 @@
+> 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
+> **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
+
 ## Ordonnancement par ROI
 
 Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :

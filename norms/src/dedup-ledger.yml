@@ -5,16 +5,44 @@
 # pm-norms-doctor signale une perte. C'est le journal auditable de TOUTE
 # déviation au texte d'origine — la contrepartie du principe « zéro perte ».
 #
-# Deux natures :
-#   removed   — ligne supprimée car DOUBLON LITTÉRAL non normalisable (gardée une
-#               seule fois ailleurs sous une autre forme). Lister le texte retiré.
-#   rewritten — ligne RÉÉCRITE (ex. note périmée passée au présent). old = texte
+# Deux natures (une entrée peut être un bloc multi-lignes ; le doctor couvre
+# chaque ligne du bloc) :
+#   removed   — ligne(s) supprimée(s) car DOUBLON LITTÉRAL non normalisable.
+#   rewritten — texte RÉÉCRIT (ex. note périmée passée au présent). old = texte
 #               d'origine retiré ; reason = justification.
 #
 # NB : un doublon strictement identique (même texte normalisé présent ailleurs)
 # n'a PAS besoin d'entrée — la couverture le retrouve via l'autre occurrence.
-# Seuls les retraits/réécritures de lignes UNIQUES doivent être inscrits.
 
 removed: []
 
-rewritten: []
+rewritten:
+  - reason: "v1.12.0 périmée : pm-task-status-update.py couple désormais status+assignation (réécrit au présent)"
+    old: |
+      **Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas
+      encore status + assignation. En attendant un patch, l'agent enchaîne
+      manuellement :
+
+      ```bash
+      ./pm-task-status-update.py <RM-id> en_cours --note "Prise en charge"
+      ./redmine-post-note.py --issue <RM-id> --note "Auto-assignation <agent>" --assign-to <user-id>
+      ```
+
+      → TODO scripts : `pm-task-status-update.py` doit, quand la cible est `en_cours`,
+      auto-assigner au user Redmine de l'agent courant (résolu via
+      `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79).
+
+  - reason: "périmée : scripts/redmine-config-check.py existe désormais (réécrit au présent)"
+    old: |
+      > **Outillage souhaité (gap connu)** : un script `scripts/redmine-config-check.py`
+      > qui diff la config live contre les références locales et signale tout drift.
+      > En attendant, le contrôle est manuel (requêtes `GET` ci-dessus).
+
+  - reason: "périmée : pm-project-new.py (skill mmi-pm-project-new) automatise les memberships (réécrit au présent)"
+    old: |
+      Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
+      À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
+
+  - reason: "périmée : la création de tâche depuis CLI est livrée (pm-task-add.py / mmi-pm-task-add)"
+    old: |
+      **b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))

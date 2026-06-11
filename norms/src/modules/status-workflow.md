@@ -1,3 +1,6 @@
+> 📂 **Module `status-workflow` — quand lire ceci :** je change un statut · je prends une tâche · fin de dev/routing test · un ticket me revient · machine d'états · phase d'étude.
+> **Outils :** `pm-task-status-update`, `redmine-fetch-updates` · **Préchargé par :** worker-dev, worker-analyst, orchestrateur.
+
 ## Passe agent-testeur indépendante (`requires_agent_test`)
 
 À la fin d'un dev (`en_cours` terminé), le workflow canonique passe par `a_tester_dev`
@@ -298,18 +301,10 @@ de démarrer le travail effectif.
 ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
 en mode interactif l'établit activement au démarrage.
 
-**Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas
-encore status + assignation. En attendant un patch, l'agent enchaîne
-manuellement :
-
-```bash
-./pm-task-status-update.py <RM-id> en_cours --note "Prise en charge"
-./redmine-post-note.py --issue <RM-id> --note "Auto-assignation <agent>" --assign-to <user-id>
-```
-
-→ TODO scripts : `pm-task-status-update.py` doit, quand la cible est `en_cours`,
-auto-assigner au user Redmine de l'agent courant (résolu via
-`pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79).
+**Implémentation** : `pm-task-status-update.py` **couple** status + assignation —
+quand la cible est `en_cours`, il auto-assigne au user Redmine de l'agent courant
+(résolu via `pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79). Aucun PUT
+manuel à faire ; `--no-assign` pour outrepasser.
 
 **Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
 

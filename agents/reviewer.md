@@ -10,7 +10,7 @@ Valide les tâches soumises en `a_tester_verifier`. Vérifie la conformité aux 
 
 ## Contexte à charger
 
-1. `norms/NORMS.md` — machine d'états, critères de qualité
+1. `norms/src/NORMS-KERNEL.md` — KERNEL (déclencheurs + tripwires) ; `norms/src/modules/status-workflow.md` pour la machine d'états, autres modules à la demande
 2. `projects/{projet}/project.md` — contexte projet
 3. `projects/{projet}/tasks/RM{id}_*.md` — la tâche complète
 4. `projects/{projet}/tasks/RM{id}_*.log.md` — journal complet du travail effectué

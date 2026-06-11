@@ -27,7 +27,7 @@ Génère et maintient automatiquement les fichiers de synthèse aux niveaux clie
 
 1. `agents/worker-common.md` — règles communes (lecture du contexte cascade)
 2. `agents/summarizer.md` — ce fichier
-3. `norms/NORMS.md`
+3. `norms/src/NORMS-KERNEL.md` (KERNEL ; + `norms/src/modules/summarizer.md` et autres modules à la demande)
 4. `{entity_client_dir}/*.md` + `{entity_memory_dir}/*.md` — niveau client
 5. `{project_dir}/*.md` + `{project_memory_dir}/*.md` — niveau projet (si périmètre projet)
 6. Tous les `{tasks_dir}/RM*.md` du périmètre traité

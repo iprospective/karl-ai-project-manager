@@ -5,7 +5,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 ## Orientation rapide
 
-- **Normes et schéma :** `norms/NORMS.md` (v1.8.0)
+- **Normes (KERNEL) :** `norms/src/NORMS-KERNEL.md` — **lecture obligatoire** (déclencheurs + tripwires) ; ouvre les `norms/src/modules/*.md` **à la demande** via les déclencheurs du KERNEL. (`norms/NORMS.md` = doc complet *généré*, pour référence humaine — ne pas l'éditer.)
 - **Config des chemins :** `pm.config.yml` — patterns logiques (`entity`, `project`, `task_file`, …). Résolution Python via `scripts/pm_paths.py`.
 - **Ton rôle :** `agents/worker-{role}.md` + `agents/worker-common.md`
 - **Hiérarchie :** `paths.task_file` = `{tasks_dir}/RM{id}_{slug}.md` (entité → projet → tâche)
@@ -16,7 +16,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 
 1. Lire `agents/worker-common.md`
 2. Lire `agents/worker-{role}.md` (ton rôle précisé dans l'invocation)
-3. Lire `norms/NORMS.md`
+3. Lire `norms/src/NORMS-KERNEL.md` (KERNEL : déclencheurs + tripwires) ; ouvrir `norms/src/modules/*.md` quand un déclencheur se présente
 4. Lire `{entity_client_dir}/*.md` (overview + aspects) + `{entity_memory_dir}/*.md` pour `entity={C}`
 5. Lire `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` pour `entity={C}, project={P}`
 6. Lire `paths.task_file` (ta tâche) — résolu via `cfg.path("task_file", entity={C}, project={P}, id={id}, slug=*)`
@@ -26,7 +26,7 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 ## Quand tu reçois une invocation de type "review la tâche RM{id}"
 
 1. Lire `agents/reviewer.md`
-2. Lire `norms/NORMS.md`
+2. Lire `norms/src/NORMS-KERNEL.md` (KERNEL ; + modules à la demande)
 3. Lire la tâche + son `.log.md` + ses `outputs[]`
 4. Appliquer le protocole de validation
 

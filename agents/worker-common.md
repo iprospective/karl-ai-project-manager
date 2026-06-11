@@ -14,11 +14,11 @@ Ce fichier est chargé par tous les agents workers en première position, avant 
 ## Contexte à charger à chaque tâche (cascade)
 
 Lecture en cascade : système → client → projet → tâche. Chaque niveau complète
-ou surcharge le précédent (cf. NORMS.md § Cascade et héritage).
+ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héritage).
 
 1. `agents/worker-common.md` — ce fichier
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
-3. `norms/NORMS.md` — schéma, machine d'états, protocoles
+3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout)
 4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
 5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md`
 6. `paths.task_file` — la tâche assignée

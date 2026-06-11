@@ -36,7 +36,9 @@ def read_manifest_sources():
         if s.startswith("#") or not s:
             continue
         if s.startswith("- "):
-            sources.append(s[2:].strip())
+            name = s[2:].split("#", 1)[0].strip()   # retire un commentaire inline
+            if name:
+                sources.append(name)
     return sources
 
 

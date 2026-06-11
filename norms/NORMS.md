@@ -6,148 +6,447 @@ updated: 2026-06-11
 
 # Normes de gestion des tâches — v1.38.0
 
-## Architecture de déploiement
+## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
-### V1 — Machine unique (recommandée pour démarrer)
+> **Tu lis ce fichier en ENTIER, à chaque session.** Il est court par conception. Il
+> contient deux choses : (1) les **tripwires** — règles à respecter en permanence — et
+> (2) la **table des déclencheurs** — *quand* ouvrir *quel* module pour le détail.
+>
+> **Tu n'ouvres un module QUE quand son déclencheur se présente.** Le détail complet de
+> chaque règle vit dans `modules/<nom>.md` ; le KERNEL te dit qu'elle existe et quand y
+> aller. En cas de doute : le module fait foi sur le **détail**, le KERNEL sur
+> l'**obligation d'y aller**.
+>
+> `NORMS.md` (document complet, ~117 Ko) est un **artefact généré** par
+> `pm-norms-assemble.py` à partir de ce KERNEL + des modules — **ne l'édite jamais à la
+> main**. Contrat de maintenance : [`../MAINTAINING.md`](../MAINTAINING.md).
 
-Tous les agents tournent sur la même machine. L'inférence LLM est déjà distante (API Anthropic). Aucune configuration réseau requise.
+## Table des déclencheurs — quand ouvrir quel module
 
-```
-┌─────────────────────────────────────────────────┐
-│  Serveur principal                              │
-│                                                 │
-│  ┌─────────────┐  ┌──────────┐  ┌──────────┐   │
-│  │Orchestrateur│  │ Worker A │  │ Worker B │   │
-│  │  (n8n)      │  │          │  │          │   │
-│  └──────┬──────┘  └────┬─────┘  └────┬─────┘   │
-│         └──────────────┴─────────────┘          │
-│                        ▼                        │
-│          /zfs/workspaces/ai/project-management  │
-└─────────────────────────────────────────────────┘
-          │                        │
-          ▼                        ▼
-   Anthropic API             Redmine (local)
-   (inférence LLM)
-```
-
-### V1.5 — NFS sur ZFS (ajout de serveurs sans refonte)
-
-ZFS supporte nativement le partage NFS. Le dossier de travail est monté sur les serveurs additionnels. Les agents sur tous les serveurs voient le même filesystem. Le protocole optimistic locking (`updated`) est indispensable à ce stade.
-
-```
-Serveur principal (ZFS)                 Serveur B
-┌─────────────────────────┐             ┌──────────────────┐
-│ /zfs/workspaces/ai      │───NFS──────►│ /mnt/ai-workspace│
-│                         │             │ Worker B, C      │
-│ Orchestrateur           │◄────────────│                  │
-│ Worker A                │             └──────────────────┘
-└─────────────────────────┘
-```
-
-Activation du partage NFS sur ZFS :
-```bash
-zfs set sharenfs="rw=@192.168.x.0/24,sync,no_subtree_check" zfs/workspaces/ai
-```
-
-Limites : latence sur les écritures, garanties d'atomicité réduites entre serveurs distants.
-
-### V2 — Git/branches GitLab (distribution robuste)
-
-Chaque serveur a un clone local du repo GitLab ; les agents travaillent sur des branches dédiées et Git gère la synchronisation et la détection de conflits au merge. C'est la solution la plus robuste pour distribuer le travail sans NFS.
-
-Cette architecture ne définit **que** la distribution des agents sur plusieurs machines. Le **workflow de branches et de release** (nommage des branches de ticket, branche d'intégration, preprod, MEP) est décrit une seule fois en § *Cycle de développement → test → mise en production* — ne pas le redéfinir ici.
-
-**Avantages :** distribution réelle sans NFS, historique complet des changements, détection de conflits native.
-
-### Choix selon le contexte
-
-| Situation | Architecture |
-|---|---|
-| Démarrage, 1 serveur | **V1** |
-| Ajout rapide de 1-2 serveurs | **V1.5** (NFS) |
-| Scalabilité et robustesse | **V2** (Git/branches) |
-| Très grand volume, état centralisé | V3 — base de données (future) |
-
----
-
-## Configuration globale
-
-Les valeurs sensibles (tokens, URLs d'instance) sont définies dans `.env` (gitignored).
-Copier `.env.example` en `.env` et renseigner les variables avant utilisation.
-
-```yaml
-gitlab:
-  instance: ${GITLAB_URL}
-  ssh: ${GITLAB_SSH}
-  token: ${GITLAB_TOKEN}
-
-redmine:
-  instance: ${REDMINE_URL}     # global, peut être surchargé dans project.md
-  api_key: ${REDMINE_API_KEY}
-```
-
-La résolution des chemins est centralisée dans `pm.config.yml` (cf. section
-suivante). Plus aucun chemin filesystem n'est dérivé en concaténation manuelle
-dans le code ou la doc.
-
-## Skills PM (distribution cross-instance)
-
-Le dossier `skills/` du repo PM héberge les **skills Claude Code** (`SKILL.md`) qui font
-partie de l'outillage PM et doivent être disponibles sur **toutes les instances**. C'est
-le canal de distribution cross-instance des skills — distinct des skills personnels
-(`~/.claude/skills`, repo `claude-skills`) et des skills agents (`~/.agents/skills`).
-
-Claude Code n'auto-découvre les skills que depuis `~/.claude/skills/` (ou le `.claude/skills/`
-d'un projet, ou les plugins). Un `SKILL.md` versionné dans `skills/` n'est donc invocable
-qu'une fois **symlinké** dans le dossier skills de l'utilisateur, via
-`scripts/pm-skills-sync.py` (à lancer au setup de l'instance puis après tout pull qui
-ajoute/retire un skill). Le script est idempotent, ne supprime jamais un vrai dossier
-(collision de nom → averti, ignoré) et n'agit que sur ses propres symlinks. Détails et
-convention : `skills/README.md`.
-
-N'y placer que des skills **réellement transverses au PM** ; un skill propre à un autre
-domaine (sécurité, etc.) vit dans le repo de ce domaine.
-
-**Créer un skill PM** : poser le `SKILL.md` directement dans `skills/<nom>/` (versionné),
-et son éventuel script dans `scripts/pm-<entité>-<action>.py` (comme les autres `pm-*.py`),
-référencé en relatif depuis le `SKILL.md`. **Jamais** dans le dossier skills perso
-(`~/.claude/skills/`, repo `claude-skills`) — c'est ce repo PM qui révisionne et distribue
-les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour créer le symlink
-qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
-qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
-
-## Versionning des normes
-
-| Type | Exemple | Règle |
+| QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
-| Majeur | `1.0 → 2.0` | Changement breaking — snapshot archivé dans `archive/` |
-| Mineur | `1.0 → 1.1` | Ajout rétrocompatible — snapshot archivé dans `archive/` |
-| Patch | `1.1 → 1.1.1` | Clarification — CHANGELOG suffit, pas d'archive |
+| je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
+| je commence à coder un ticket (branche) | `modules/git-mep.md` | `mmi-pm-git-*` ⚠ |
+| je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
+| je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
+| je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next` ⚠) |
+| je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
+| fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
+| un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
+| le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
+| je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
+| un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
+| je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
+| je crée un projet / une entité PM | `modules/project-creation.md` (+ bootstrap, memberships) | `pm-project-new`, `pm-project-bootstrap`, `pm-client-new` |
+| un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor` ⚠, `pm-sync-views` ⚠ |
+| je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
+| je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
+| je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
+| je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
+| je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
+| avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
+| j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
+| je suis l'orchestrateur (assignation, sous-tâches, propagation) | `modules/collaboration.md` | — |
+| je génère les fichiers auto (Changelog/Pistes/Remarques) | `modules/summarizer.md` | — |
+| gouvernance : déploiement, versionning de NORMS, distribution des skills | `modules/governance.md` + [`../MAINTAINING.md`](../MAINTAINING.md) | `pm-norms-assemble`, `pm-norms-doctor` |
 
-### Procédure de mise à jour (anti-collision multi-sessions)
+⚠ = outil pas encore livré (suivi RM1923) ; en attendant, l'opération manuelle est décrite dans le module.
 
-Plusieurs agents/sessions partagent le **même filesystem** (un seul `NORMS.md`) et la
-**même branche de travail** du repo PM. Une mise à jour de NORMS (choix du numéro de
-version **ET** commit) peut donc entrer en collision avec une mise à jour parallèle.
-**Avant** de bumper la version et **avant** de committer, vérifier qu'aucune mise à
-jour concurrente n'a déjà engagé le même numéro de version — sous l'une de ces formes :
+## Tripwires — à respecter en permanence (dangereux si raté)
 
-1. **Update non commité** (sur le disque partagé) : une autre session a peut-être déjà
-   édité `NORMS.md`/`CHANGELOG.md` sans committer. → **Relire `schema_version` sur
-   disque juste avant de choisir le numéro cible** (ne pas se fier à la valeur lue en
-   début de session) et inspecter l'état de travail (`git status`, diff non commité).
-   Le numéro cible doit être strictement supérieur à la version réellement présente.
-2. **Commit non pull** (côté remote ou autre clone) : un bump peut exister dans un
-   commit pas encore récupéré. → **`git fetch` puis vérifier que la branche n'est pas
-   en retard** ; faire un `pull --rebase` si besoin avant de committer. Au push,
-   résoudre délibérément tout conflit sur la ligne `schema_version` / le `CHANGELOG`
-   (ce sont les points de conflit attendus).
+Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffisant** ici ; le détail/rationnel est dans le module indiqué.
 
-Règles de réduction de la fenêtre de course :
-- Le **bump de version est la dernière étape** d'édition, suivi d'un **commit
-  immédiat** (ne pas laisser traîner un bump non commité).
-- Si la version sur disque ≠ celle lue au démarrage de la tâche → **stop**, réconcilier
-  (rebaser, renuméroter) avant de poursuivre ; ne jamais bumper à l'aveugle.
+1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
+2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
+3. **Branche par ticket.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. → `modules/git-mep.md`
+4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. → `modules/status-workflow.md`
+5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
+6. **redmine_id obligatoire.** Toute tâche/projet MD est reliée à son équivalent Redmine ; nom de fichier `RM{id}_…` cohérent avec `redmine_id`. → `modules/status-workflow.md`
+7. **Filtrage IA.** Tout ticket créé depuis le système PM porte le CF `IA = "IA"` (posé par les outils au POST). Pas de MD local sans CF IA. → `modules/redmine-reference.md`
+8. **Estimation.** Estimer (tokens + temps) **à la création** d'une tâche, et **à la prise** si l'estimation manque. → `modules/roi-pricing.md`
+9. **Description vivante.** Si le ticket a une **checklist** ou un état décrit en prose : la tenir à jour **dans la description** (pas seulement en note), + `done_ratio` au fil de l'eau. → `modules/redmine-hygiene.md`
+10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. → `modules/git-mep.md`
+11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
+12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
+
+Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
+
+## Propriété, verrou & journal — tripwires structurels
+
+### Principe fondamental
+
+**Redmine est le mutex. Les fichiers MD sont le contexte de travail.**
+
+L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+
+L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). Ce qui doit être coordonné, c'est uniquement l'accès aux fichiers.
+
+### Règles d'écriture
+
+| Fichier | Orchestrateur | Worker assigné | Autres workers | Reviewer |
+|---|---|---|---|---|
+| `RM{id}.md` (tâche assignée) | lecture | **R+W** | lecture | lecture |
+| `RM{id}.md` (tâche parente) | **R+W** | lecture | lecture | lecture |
+| `RM{id}.log.md` | append | append | lecture | append |
+| `project.md` | **R+W** | lecture | lecture | lecture |
+| `NORMS.md` | lecture | lecture | lecture | lecture |
+
+### Protocole optimistic locking
+
+Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+
+```
+1. Agent lit le fichier, note la valeur courante de updated (T1)
+2. Agent prépare ses modifications
+3. Agent relit le champ updated avant d'écrire
+4. Si updated ≠ T1 → collision détectée → re-lire le fichier et recommencer
+5. Si updated = T1 → écrire et mettre updated à T2 (timestamp courant)
+```
+
+Ce protocole s'applique à tous les fichiers `.md` (jamais aux `.log.md` qui sont append-only).
+
+### Règles du journal (.log.md)
+
+- **Append-only** : on n'efface jamais, on n'édite jamais une entrée existante
+- Tout agent peut appender, même en lecture seule sur la tâche
+- En cas d'écriture simultanée, l'ordre des entrées n'est pas garanti — c'est acceptable
+- Pas d'optimistic locking sur les `.log.md` (append = pas de perte de données)
+
+Format imposé pour chaque entrée :
+
+```markdown
+## 2026-04-27T14:32 — agent-dev (claude-sonnet-4-6)
+Tokens : 3 200 | Durée : 15 min
+
+Résumé de ce qui a été fait, décisions prises, problèmes rencontrés.
+```
+
+## Cascade et héritage
+
+Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
+
+**Règles :**
+- Par défaut, les valeurs d'un niveau parent sont héritées par tous ses enfants
+- Un niveau enfant peut **surcharger** une valeur en la redéfinissant explicitement
+- Les sections de texte (Description, Structure...) ne se surchargent pas — elles s'additionnent
+
+**Champs candidats à l'héritage :**
+- `team`, `defaults.priority`, `gitlab.group`, `gitlab.default_branch`
+- `redmine.instance`, contraintes globales
+
+**Lecture du contexte par un agent (worker, summarizer, reviewer) :**
+```
+1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
+2. Client     : {entity_client_dir}/*.md + {entity_memory_dir}/*.md
+3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
+4. Tâche      : paths.task_file + paths.task_log_file
+```
+
+(Chemins résolus via `pm.config.yml` — par défaut : `{projects_root}/clients/{C}/...`)
+
+Chaque niveau **complète** ou **surcharge** le précédent selon les règles ci-dessus.
+
+## Nommage des fichiers
+
+| Élément | Format |
+|---|---|
+| Tâche | `RM{id}_{titre-en-kebab-case}.md` |
+| Journal | `RM{id}_{titre-en-kebab-case}.log.md` |
+| Overview projet | `project/overview.md` |
+| Overview client | `client/overview.md` |
+
+## Schéma frontmatter — Tâche
+
+Voir [templates/task.md](../templates/task.md) pour le template complet.
+
+### Champs obligatoires
+`schema_version`, `redmine_id`, `title`, `type`, `creator`, `status`, `priority`, `created`
+
+### Champs conditionnels
+- `bug.*` — uniquement si `type: bugfix`
+- `git.*` — si développement impliqué
+- `test_url` — si environnement de test disponible
+- `deploy_actions` — si déploiement nécessaire
+- `close_reason` — obligatoire quand `status: ferme`
+- `requires_agent_test` — `default` (défaut) | `oui` | `non` | `demander` : conditionne la
+  passe agent-testeur en fin de dev (cf. § « Passe agent-testeur indépendante »). Mappé sur
+  le CF Redmine 27. Absent ⇔ `default`.
+
+## Valeurs énumérées
+
+### type
+`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
+
+### status
+`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
+
+`a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
+`a_tester_demandeur`, normalisé par les scripts.
+
+### priority
+`low` | `normal` | `high` | `urgent`
+
+### close_reason
+`resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`
+
+### bug.reproducibility
+`always` | `often` | `sometimes` | `rarely` | `never`
+
+### estimate.difficulty
+`low` | `medium` | `high` | `critical`
+
+### pistes.type
+`automation` | `amélioration` | `sécurité` | `performance` | `intégration` | `documentation`
+
+### pistes.effort
+`low` | `medium` | `high`
+
+### roi.immediate_benefit / roi.monthly_benefit
+`1` (négligeable) → `5` (critique)
+
+### target_env
+`null` | `local` | `dev` | `test` | `staging` | `prod` | `demo` | `qa` | `sandbox` | `<custom-kebab-case>`
+
+Doit correspondre à un `environments[].name` du `project/environments.md` (ou
+`client/environments.md` en cascade). Custom autorisé si le projet a un env spécifique
+(`staging-eu`, `prod-canary`…). `preprod` reste accepté comme **alias** de `staging`
+(cf. § Environnements) mais `staging` est la valeur canonique à privilégier.
+
+## Journal (fichier .log.md)
+
+Format append-only — ne jamais modifier rétroactivement. Chaque entrée :
+
+```markdown
+## 2026-04-26T14:32 — agent-scraper (claude-sonnet-4-6)
+Tokens : 3 200 | Durée : 15 min
+
+Résumé de ce qui a été fait...
+```
+
+### Repo project-management (système, public)
+
+```
+project-management/                   # racine : pm.config.yml :: roots.pm_dir
+  pm.config.yml                       # config de chemins (résolution centralisée)
+  pm.config.local.yml                 # surcharge locale (gitignored, optionnel)
+  norms/
+    NORMS.md                          # version courante (ce fichier)
+    CHANGELOG.md                      # historique des évolutions
+    archive/                          # snapshots de toutes les versions
+  templates/
+    client.md                         # template client
+    project.md                        # template projet
+    task.md                           # template tâche (skeleton)
+    RM9999_*.md                       # exemple complet pour CI
+  agents/
+    worker-common.md                  # règles communes des workers
+    worker-{role}.md                  # rôles spécifiques
+    orchestrateur.md
+    reviewer.md
+    summarizer.md                     # génération auto des Changelog/Pistes/Remarques
+  scripts/
+    pm_paths.py                       # lib de résolution de chemins (PMConfig)
+    validate-task.py
+    priority.py                       # ordonnancement par ROI
+    pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
+    pm-project-bootstrap.py           # instancie les bootstrap-tasks dans un projet
+    redmine-test.py                   # test de connexion API Redmine
+    redmine-fetch-task.py             # fetch ticket Redmine → génère le MD
+    redmine-fetch-updates.py          # récupère les nouveautés depuis le dernier check
+    redmine-post-note.py              # poste une note (+ statut + assignation) sur un ticket
+    invoke.md
+    cron.example.sh
+```
+
+### Repo projets (privé, gitignored dans le repo PM)
+
+Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
+Structure interne définie par les patterns de `paths:` — la représentation
+ci-dessous montre la **résolution par défaut**.
+
+```
+{projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
+  README.md
+  {entities_dir}/                     # = projects_root/clients
+    {entity}/                         # entité = client | product | self (slug)
+      {entity_client_dir}/            # = entity/client  — cahier des charges
+        overview.md                   # OBLIGATOIRE — frontmatter + sommaire
+        hosting.md                    # aspect — optionnel
+        contracts.md                  # aspect — optionnel
+        ...                           # tout aspect pertinent
+      {entity_memory_dir}/            # = entity/memory  — mémoire structurée (agents)
+      Changelog.md                    # AUTO — activité agrégée
+      Pistes.md                       # AUTO — idées non décidées
+      Remarques.md                    # AUTO — observations factuelles
+      {entity_projects_dir}/          # = entity/projects
+        {project}/                    # = entity_projects_dir/{project-slug}
+          {project_dir}/              # = project/project  — cahier des charges
+            overview.md               # OBLIGATOIRE — frontmatter + sommaire
+            hosting.md                # aspect — optionnel
+            stack.md
+            data-model.md
+            workflows.md
+            audience.md               # exemples — uniquement les aspects pertinents
+            ...
+          {project_memory_dir}/       # = project/memory  — mémoire spécifique projet
+          Changelog.md                # AUTO
+          Pistes.md                   # AUTO
+          Remarques.md                # AUTO
+          {tasks_dir}/                # = project/tasks
+            RM{id}_{titre-kebab}.md         # = paths.task_file
+            RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
+```
+
+### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+
+Chaque projet a **deux emplacements** distincts mais liés :
+
+| Emplacement | Contenu | Repo git |
+|---|---|---|
+| `{workspace_dir}/` — variable selon projet, ex: `/zfs/workspaces/<P>/` ou `/zfs/workspaces/<entity>/<P>/` | Code source du projet | repo de code (ex: `iprospective/dev/<P>`) |
+| `paths.project` (par défaut `{projects_root}/clients/<C>/projects/<P>/`) | Cahier des charges, tâches, mémoire | `ai-projects` |
+
+Les deux emplacements se référencent **mutuellement** par symlinks (chemins
+absolus, définis dans `pm.config.yml :: paths.reverse_link` et
+`paths.workspace_link`) :
+
+```
+{workspace_dir}/.mmi-pm    → paths.project           # paths.reverse_link
+paths.project/workspace    → {workspace_dir}         # paths.workspace_link
+```
+
+**Création (les deux symlinks ensemble) :**
+```bash
+# Côté workspace (code) :
+ln -s "$(python3 -c 'from pm_paths import PMConfig; \
+  print(PMConfig.load().path("project", entity="<C>", project="<P>"))')" \
+  "$WORKSPACE_DIR/.mmi-pm"
+
+# Côté PM (référence inverse) :
+ln -s "$WORKSPACE_DIR" "$(python3 -c '…path("workspace_link", …)…')"
+```
+
+(Un futur `pm sync-links` automatisera ces deux opérations.)
+
+**Bénéfices :**
+- Un agent travaillant dans le workspace voit code ET tâches/docs (`.mmi-pm/project/`,
+  `.mmi-pm/tasks/`)
+- Un agent travaillant côté PM (dans `paths.project`) accède directement au code via
+  `workspace/` — utile pour consulter une stack, un commit, un fichier en cours de
+  modification
+- Bidirectionnel : si le dossier d'un côté est déplacé, on a un point de repère côté
+  opposé pour rétablir le lien sans chercher
+- La centralisation est préservée (l'orchestrateur scanne `cfg.projects_root` directement,
+  sans suivre `workspace/`)
+
+**Conventions :**
+- Le symlink `.mmi-pm` côté workspace est **caché** (préfixe `.`) pour ne pas polluer
+  l'arborescence du code
+- Le symlink `workspace` côté PM est **dans la racine du dossier projet PM** (au même
+  niveau que `project/`, `tasks/`, `memory/`)
+- Les scripts d'itération (validator, dashboard, summarizer) doivent **ignorer**
+  les symlinks `workspace` (utiliser `find -P` ou `! -type l`, ou `cfg.iter_projects()`
+  qui filtre déjà les symlinks) pour ne pas se perdre dans le code
+- Les deux symlinks pointent en chemins **absolus** (les paths workspace/PM ne sont
+  pas systématiquement co-localisés ; `realpath` doit fonctionner depuis n'importe où)
+
+**Résolution de chemins cross-tree** (ex: cascade vers le client) :
+Ne pas utiliser `.mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser
+la lib + le champ `client:` du frontmatter de `project/overview.md` :
+
+```python
+client_dir = cfg.path("entity", entity=client_slug)
+```
+
+## Structure des dossiers
+
+## Configuration des chemins (`pm.config.yml`)
+
+Tous les chemins du système (racine du repo PM, racine du repo projets,
+emplacement des entités, des projets, des tâches, des symlinks de liaison
+code ↔ PM) sont **paramétrés** dans `pm.config.yml` à la racine du repo PM.
+
+**Objectif** : pouvoir déplacer le repo PM, déplacer le repo projets, ou
+réorganiser la structure interne **sans toucher au code des scripts ni à la
+doc des agents**.
+
+**Lib** : `scripts/pm_paths.py` expose `PMConfig.load()` qui charge la config,
+résout `${VAR}` depuis `.env`, et fournit `.path(key, **kwargs)` pour résoudre
+n'importe quel chemin via les patterns définis. Tous les scripts du repo
+**doivent** passer par cette lib — jamais de concaténation manuelle ni de
+hardcode `clients/`.
+
+**Patterns standards** (clés de `paths:` dans `pm.config.yml`) :
+
+| Clé | Résolution par défaut |
+|---|---|
+| `entities_dir` | `{projects_root}/clients` |
+| `entity` | `{entities_dir}/{entity}` |
+| `entity_client_dir` | `{entity}/client` |
+| `entity_memory_dir` | `{entity}/memory` |
+| `entity_projects_dir` | `{entity}/projects` |
+| `entity_used_dir` | `{entity}/projects_used` |
+| `project` | `{entity_projects_dir}/{project}` |
+| `project_dir` | `{project}/project` |
+| `project_memory_dir` | `{project}/memory` |
+| `tasks_dir` | `{project}/tasks` |
+| `task_file` | `{tasks_dir}/RM{id}_{slug}.md` |
+| `task_log_file` | `{tasks_dir}/RM{id}_{slug}.log.md` |
+| `workspace_link` | `{project}/workspace` |
+| `reverse_link` | `{workspace_dir}/.mmi-pm` |
+
+**Override local** : `pm.config.local.yml` (gitignored) peut surcharger
+n'importe quelle clé pour un déploiement spécifique.
+
+**Usage côté script** :
+```python
+from pm_paths import PMConfig
+cfg = PMConfig.load()
+cfg.projects_root                                      # Path
+cfg.path("task_file", entity="lemathou", project="x", id=42, slug="foo")
+for ent, proj, _ in cfg.iter_projects(entity=None): ...
+cfg.find_task(rm_id)                                   # Path | None
+cfg.find_project_by_redmine_id(rm_proj_id)             # (Path, Path) | (None, None)
+```
+
+**Usage côté doc / agents** : les chemins sont nommés par leur pattern
+logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
+expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
+référence humaine.
+
+## Outillage obligatoire en session PM — v1.35.0
+
+En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute
+opération touchant à l'**état des tâches, aux branches git, aux repos/submodules ou aux
+tickets Redmine** passe par les **skills/scripts PM dédiés** — **jamais à la main**. C'est
+ce qui garantit la cohérence Redmine ↔ MD ↔ worklog de session et l'application des
+couplages NORMS (auto-assignation, notes, `status_history`, logs, filigrane IA, temps/tokens).
+
+**Règle anti-trou** : si une opération de cette nature a un outil, l'utiliser ; si elle n'en
+a pas, c'est un **trou d'outillage à combler** (créer le script/skill) — pas une exception à
+faire à la main. En particulier, toute opération qui **amende l'état d'une tâche** est
+branchée derrière `pm-task-status-update.py` (**source unique des transitions**), qui propage
+Redmine + MD + log + worklog de session. Le worklog de session (`pm-session-status.py`) est
+alimenté **automatiquement** par les scripts qui modifient l'état des tâches (via
+`pm_session_hook.py`) ; cf. RM1875.
+
+### Couverture actuelle (à compléter au fil des trous identifiés)
+
+| Domaine | Opération | Outil canonique |
+|---|---|---|
+| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
+| Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
+| Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
+| Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
+| Tâche | description / checklist | `pm-task-description-update.py` |
+| Tâche | estimation / métriques / temps-tokens | `pm-task-metrics-push.py`, `pm-task-tick.py` |
+| Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
+| Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
+| Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
+| Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
+| Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
+| **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
 ## Types d'entités
 
 Le dossier `paths.entities_dir` (par défaut `{projects_root}/clients`) regroupe
@@ -285,264 +584,140 @@ Exemple :
 - `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
 
-## Liens entre tâches
+### Création d'un projet PM ↔ Redmine
 
-Le frontmatter d'une tâche supporte plusieurs types de liens, chacun avec une
-sémantique propre. Ces champs sont **symétrisés** (RM-id miroir maintenu côté
-cible) et synchronisés avec les `relations` Redmine via le script
-`scripts/pm-task-link.py`.
+À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
+projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
 
-| Champ | Cardinalité | Sémantique | Miroir côté cible | Redmine `relation_type` |
-|---|---|---|---|---|
-| `parent_task` | `int \| null` | Hiérarchie : ce ticket a un parent | `sub_tasks` (attribut `parent_issue_id`) | — (attribut d'issue) |
-| `sub_tasks` | `list[int]` | Hiérarchie : enfants directs | `parent_task` (attribut `parent_issue_id`) | — (attribut d'issue) |
-| `depends_on` | `list[int]` | Bloquant : A doit attendre B (B finit avant A) | `blocks` côté B | POST sur B : `blocks` → A |
-| `blocks` | `list[int]` | Bloquant : A doit finir avant B (réciproque de `depends_on`) | `depends_on` côté B | POST sur A : `blocks` → B |
-| `relates` | `list[int]` | **Lien latéral non-bloquant** : sujet/famille commun | `relates` côté cible | POST `relates` |
-| `refs` | `list[obj]` | Référence externe libre (URL, commit, ticket partenaire) | — | — (champ libre, pas de relation Redmine) |
+1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
+2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
+3. **Vérifier l'unicité** d'usage côté PM : itérer `cfg.iter_projects()` (ou
+   `grep -r 'redmine.project_id:' "$(cfg.path("entities_dir"))"`) pour s'assurer
+   qu'aucun autre projet PM ne référence déjà cet identifier
+4. **Trois cas** :
+   - Identifier candidat dispo côté Redmine ET non utilisé côté PM → proposer de
+     **créer** le projet Redmine (`POST /projects.json`)
+   - Identifier existant côté Redmine ET non utilisé côté PM → proposer de **réutiliser**
+   - Identifier existant côté Redmine ET déjà utilisé côté PM → bloquer + indiquer le
+     projet PM qui l'utilise déjà, demander un autre slug
 
-**Règles d'intégrité :**
-- Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
-  Si l'un est présent sans l'autre, c'est un drift à corriger via
-  `pm-task-link sync <rm-id>`.
-- `parent_task` est unique (au plus un parent par tâche).
-- Un ticket ne peut pas se lier à lui-même.
-- `pm-task-link rm` supprime les deux côtés.
+Le mapping inverse (Redmine identifier → projet PM) doit toujours être unique. Si un
+même projet Redmine doit servir plusieurs projets MD, c'est probablement une erreur de
+modélisation côté PM (probablement deux projets distincts à créer).
 
-**Sens des dépendances** : ne pas confondre. Si **A dépend de B**, alors
-`A.depends_on = [B]` ET `B.blocks = [A]`. Côté Redmine, c'est une seule
-relation `blocks` postée depuis B vers A.
+**Memberships par défaut sur un nouveau projet Redmine** (instance iprospective —
+`tasks.iprospective.fr`) :
 
-### Hiérarchie parent/enfant (v1.20.3)
+À la création d'un projet Redmine via API (`POST /projects.json`), ajouter
+systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :
 
-`parent_task` / `sub_tasks` ne sont **pas des relations Redmine** mais l'**attribut
-natif d'issue `parent_issue_id`** (colonne « Redmine `relation_type` » = `—` dans le
-tableau). Ils ne transitent donc pas par `/issues/<id>/relations.json` mais par un
-`PUT parent_issue_id` sur l'enfant. La réflexion MD ↔ Redmine est outillée — **ne jamais
-éditer ces champs à la main** :
+| Groupe Redmine | id | Rôle | role_id |
+|---|---|---|---|
+| `Admin` | 49 | `Manager` | 3 |
+| `iProspective` | 70 | `Intervenant` | 7 |
 
-| Geste | Commande | Effet |
+Justification :
+- `Admin` en Manager garantit que tu (Mathieu) gardes les pleins droits sur le projet,
+  sans dépendre d'une appartenance individuelle
+- `iProspective` en Intervenant permet aux comptes de l'équipe (humains + agents :
+  `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
+  les ajouter un par un à chaque projet
+
+Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
+À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
+
+Payload API pour automation :
+```bash
+# Admin (group_id=49) en Manager (role_id=3)
+curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+  -d '{"membership":{"user_id":49,"role_ids":[3]}}' \
+  "$REDMINE_URL/projects/<project_id>/memberships.json"
+# iProspective (group_id=70) en Intervenant (role_id=7)
+curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+  -d '{"membership":{"user_id":70,"role_ids":[7]}}' \
+  "$REDMINE_URL/projects/<project_id>/memberships.json"
+```
+
+### Tâches de bootstrap (`templates/bootstrap-tasks/`)
+
+À la création d'un projet PM, certaines tâches **récurrentes de setup** doivent être
+créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,
+stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
+
+**Templates standards** (présents dans `templates/bootstrap-tasks/`) :
+
+| ID | Titre | Coché par défaut |
 |---|---|---|
-| Créer un ticket enfant | `pm-task-add … --parent <RM>` | POST avec `parent_issue_id` + `parent_task` enfant + `sub_tasks` parent |
-| (Re)poser / déplacer le parent d'un ticket existant | `pm-task-link parent <child> <parent>` | PUT Redmine + migre `sub_tasks` ancien→nouveau parent |
-| Détacher | `pm-task-link parent <child> --unset` | PUT Redmine (parent vidé) + retire de `sub_tasks` du parent |
-| Réconcilier depuis Redmine | `pm-task-sync <RM>` | lit `issue.parent.id` → `parent_task` + maintient les `sub_tasks` locaux |
+| `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
+| `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
+| `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
+| `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |
+| `005-deployment` | Rédiger `project/deployment.md` (CI/CD, rollback) | ☐ |
+| `006-testing` | Rédiger `project/testing.md` (stratégie de tests) | ☐ |
+| `007-monitoring` | Rédiger `project/monitoring.md` (logs, métriques, alertes) | ☐ |
+| `008-infra-analysis` | Analyse de l'infra : inventaire, état, risques (`docs/infrastructure.md`) | ✅ *(projets infra uniquement)* |
 
-Le cœur (réflexion frontmatter des deux côtés + logs) vit dans `scripts/pm_hierarchy.py`,
-partagé par les trois scripts. Quand le parent n'est pas tracké localement (ticket
-Redmine hors-PM), le champ enfant est posé mais `sub_tasks` n'est pas maintenu (no-op
-silencieux, le lien Redmine reste correct).
+> **Projets infra → ticket d'analyse par défaut (v1.30.0).** Tout projet de nature
+> **infrastructure** (slug/nom « infra », ou aspect `hosting`/`infrastructure` — qui
+> gère des serveurs/hyperviseurs/réseau/stockage plutôt qu'une seule application) doit
+> par défaut porter un **ticket d'analyse de l'infra** : état des lieux matériel,
+> stockage (disques + SMART, pools/RAID), charges hébergées, monitoring, et une section
+> **anomalies** d'où découle **un ticket dédié par anomalie significative**. C'est le
+> rôle du template `008-infra-analysis`, proposé **coché** sur ces projets et non
+> applicable aux projets purement applicatifs. Le livrable est un document vivant
+> (`docs/infrastructure.md` dans le workspace, ou aspect `project/hosting.md`), mis à
+> jour à chaque intervention notable.
 
-**Règles d'intégrité hiérarchie :**
-- `parent_task` est unique (au plus un parent par tâche).
-- Pas d'auto-parent ni de cycle (Redmine refuse les cycles au PUT ; les scripts
-  refusent l'auto-parent en amont).
-- `sub_tasks` est dérivé : il doit toujours refléter l'ensemble des enfants dont le
-  `parent_task` pointe vers ce ticket. En cas de drift, `pm-task-sync` sur l'enfant
-  rétablit la cohérence.
+**Flow d'instanciation** (via `scripts/pm-project-bootstrap.py`) :
 
-## Ordonnancement par ROI
+1. Détecter les templates **applicables** au projet (état du frontmatter overview,
+   présence des aspects, etc.)
+2. **Proposer** la liste à l'humain (interactif) — les 3 premiers cochés par défaut,
+   les autres non
+3. L'humain peut **décocher** ou **cocher** des templates supplémentaires
+4. L'humain peut **bypasser** complètement (option `--yes`) ou skip un template
+   spécifique (champ frontmatter `bootstrap.skip[]`)
+5. Pour chaque template retenu :
+   - Créer un ticket Redmine dans `redmine.project_id` du projet
+   - Instancier `tasks/RM<id>_<slug>.md` depuis le template (frontmatter rempli)
+   - Initialiser le `.log.md`
 
-Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
-
-```
-score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
-```
-
-Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
-
-Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
-Sortie : top N tâches triées par score décroissant, par client/projet ou global.
-
-## ROI assisté par IA (RM1717)
-
-Chaque ticket porte un coût (tokens IA + temps humain) et un gain
-(immédiat + récurrent). Le ROI se calcule à partir de ces 4 dimensions.
-
-### Tarification
-
-Les prix par modèle sont dans `pm.pricing.yml` (commitable, à maintenir
-quand Anthropic ajuste). Unités : **USD/MTok** pour input/output/cache,
-**EUR/h** pour le coût humain.
-
-### Frontmatter étendu (v1.11.0)
+**Frontmatter `project/overview.md` enrichi pour suivre le bootstrap :**
 
 ```yaml
-# Estimation prévisionnelle
-estimate:
-  difficulty: medium                  # inchangé
-  human_time_minutes: 30              # NEW — temps humain prévu (revue, décisions, tests)
-  ai_time_minutes: 15                 # NEW — temps wall-clock IA prévu
-  tokens: 50000                       # tokens prévus (total)
-  cost_usd: 0.75                      # NEW — coût USD prévu (estimé depuis tokens × prix)
-  estimated_model: claude-opus-4-7    # NEW — modèle prévu (pour calcul cost prévu)
-  confidence: 0.6
-  estimated_by: pm-task-add
-  estimated_at: 2026-05-17T14:30
-
-# ROI — les deux échelles coexistent
-roi:
-  immediate_benefit: 3                # 1-5 — rapide à estimer (qualitatif)
-  monthly_benefit: 3                  # 1-5 — récurrent qualitatif
-  immediate_gain_eur: null            # NEW — gain € immédiat (one-shot)
-  monthly_gain_eur: null              # NEW — gain € récurrent mensuel
-  # yearly_gain_eur dérivé = monthly_gain_eur × 12 (pas stocké)
-
-# Cumulés effectifs (auto-incrémentés par le hook pm-task-tick)
-tokens_total: 0                       # somme tous types
-tokens_breakdown:                     # NEW — détail par type
-  input: 0
-  output: 0
-  cache_read: 0
-  cache_creation: 0
-cost_total_usd: 0.0                   # NEW — cumulé recalculé à chaque tick
-human_time_total_minutes: 0           # NEW — temps humain effectif
-ai_time_total_minutes: 0              # NEW — temps wall-clock IA effectif
+bootstrap:
+  skip: []          # IDs de templates explicitement skippés (jamais proposés)
+  done: []          # IDs de templates déjà appliqués (= tâche créée)
 ```
 
-### Auto-incrémentation (hook Claude Code Stop)
+Si un template est dans `done[]`, il n'est plus reproposé (même si le critère de
+détection le rend applicable). Si dans `skip[]`, idem. Le flow d'instanciation
+remplit `done[]` automatiquement.
 
-Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
-réponse Claude. Il :
+**Convention `default_checked` dans les templates :**
 
-1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
-   sentinel global utilisateur — éviter les collisions multi-sessions) :
-   - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
-   - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
-   - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
-     qui parse les "RM1234" dans le prompt user)
-3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
-4. Sinon : lit le dernier message assistant du transcript, somme les tokens
-   par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
-   du MD (atomique avec optimistic locking)
-5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
-   éviter le bruit, sinon silencieux)
+Chaque template porte un champ frontmatter `default_checked: true|false` qui
+détermine s'il est coché par défaut dans le picker interactif.
 
-### Calcul du ROI
+### Flux de création de tâches (v1.5.0)
 
-```
-invest_eur = cost_total_usd × usd_to_eur + (human_time_total_minutes / 60) × human_hourly_rate_eur
-benefit_yearly_eur = (immediate_gain_eur ou immediate_benefit × 100)
-                   + (monthly_gain_eur ou monthly_benefit × 50) × 12
-roi_ratio = benefit_yearly_eur / max(invest_eur, 1)
-```
+Deux flux supportés :
 
-Quand `*_gain_eur` est renseigné, il prime sur l'échelle 1-5. Si seul le
-1-5 est connu, un facteur conventionnel s'applique (100 €/point immédiat,
-50 €/point/mois récurrent — ajustable dans `pm.pricing.yml` plus tard).
+**a) Création depuis Redmine** (workflow humain ou agent)
+1. Un humain (ou un agent) crée le ticket dans Redmine et l'assigne à un agent IA
+2. L'orchestrateur détecte l'assignation, génère `paths.task_file` (résolu via
+   `pm.config.yml` à partir de l'entité et du projet)
+3. Le worker assigné prend la tâche en charge
 
-### Hook vs script manuel
+**b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
+1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
+2. Le script crée le ticket Redmine, récupère l'ID
+3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
+   `paths.project`)
+4. Commit + push automatique
 
-- **Hook automatique** : sessions Claude Code (~/.claude/settings.json),
-  attribution silencieuse en arrière-plan
-- **Script manuel** : `scripts/pm-task-tick.py --rm-id X --tokens-input N --tokens-output N --model M --human-minutes M`
-  pour les agents non-Claude-Code (n8n, scripts custom) ou ajout manuel de
-  temps humain post-hoc
-
-### Notes
-
-- **Race conditions multi-sessions** : 2 Claude bossant sur le même ticket
-  simultanément écrivent dans le même frontmatter — l'optimistic locking
-  (`updated`) doit faire son job. Vérifier en pratique.
-- **Cache reads** : ~10× moins chers que input pur — bien distinguer dans
-  le calcul (cf. tableau `pm.pricing.yml`).
-- **Précision** : la mesure ne prend en compte que les sessions Claude Code
-  hookées. Sessions oubliées (sans hook) ou autres agents (n8n) → invisibles.
-
-### Documentation dans Redmine — champs dédiés (obligatoire) — v1.21.0
-
-Le frontmatter MD n'est pas suffisant : l'estimation et les cumuls doivent
-être **visibles côté Redmine** dans les champs dédiés de l'instance (IDs à
-revalider via le § « Synchronisation de la configuration Redmine »).
-
-**Estimation prévisionnelle → poussée sur le ticket :**
-
-| Frontmatter | Champ Redmine |
-|---|---|
-| `estimate.tokens` | CF **21** `Tokens prévus` (int) |
-| `estimate.ai_time_minutes` (÷ 60) | CF **22** `Temps estimé IA (h)` (float) |
-| `estimate.human_time_minutes` (÷ 60) | natif `estimated_hours` (temps estimé) |
-
-**Quand estimer / réestimer** :
-- **À la création** de la tâche (`pm-task-add`) : estimation initiale obligatoire,
-  poussée immédiatement sur CF 21 / 22 / `estimated_hours`.
-- **À la prise de ticket** (passage `en_cours`) : si aucune estimation n'a été
-  faite auparavant (ticket créé hors PM, ou estimation oubliée), **l'établir à ce
-  moment** — filet de sécurité avant de commencer le travail.
-- **À la mise à jour de la description** : réestimer **uniquement si** le changement
-  est assez conséquent pour impacter le temps/tokens prévu (sinon ne pas toucher).
-  Tracer la réestimation dans le `.log.md` (ancienne → nouvelle valeur).
-
-**Cumul effectif → poussé sur le ticket :** CF **17** `Tokens passés` reflète
-`tokens_total` du frontmatter (recalé à chaque mise à jour Redmine).
-
-### Journalisation par commit — temps + tokens consommés (obligatoire) — v1.21.0, convention activités + outillage v1.26.0
-
-Le hook `pm-task-tick` (déclenché à chaque fin de réponse Claude) reste
-**nécessaire** : il mesure et accumule en continu tokens + temps IA dans le
-frontmatter MD — c'est la **base de calcul**. Le commit en est le **point de
-report** vers Redmine.
-
-**Règle** : à chaque commit **de travail** (unité = l'étape significative, cf. §
-« Unité de traçabilité »), reporter sur le ticket Redmine le **delta** consommé
-depuis le commit précédent, sous forme d'une **saisie de temps**
-(`POST /time_entries.json`) :
-
-- `issue_id` = le ticket ; `spent_on` = date du commit
-- `hours` = temps IA wall-clock écoulé depuis le dernier commit (delta de
-  `ai_time_total_minutes` ÷ 60). `hours=0` est **accepté** par l'instance —
-  une étape sans temps mesuré reste donc une saisie datée valide (le tokens du
-  delta, lui, est toujours porté par le CF 16).
-- `activity_id` = **nature** du travail, dérivée du `type` de la tâche selon la
-  **convention canonique ci-dessous** (≠ le tracker, qui encode la *catégorie*
-  de ticket). Résolution outillée : `redmine_utils.activity_for_type(type)`.
-- CF **16** `Tokens` = tokens consommés depuis le dernier commit (delta de
-  `tokens_total`)
-- commentaire = le hash + sujet du commit (lien `git.*`)
-
-**Convention `type` de tâche → activité de temps Redmine** (source unique :
-`redmine.reference.yml :: type_to_activity` ; surchargagle par saisie via
-`pm-task-report.py --activity <id>`) :
-
-| `type` NORMS | Activité Redmine | id | Nature |
-|---|---|---|---|
-| `feature` | `Developpement/Feature` | 31 | écrire une fonctionnalité neuve |
-| `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
-| `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
-| `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
-| `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
-| `assistance` | `Assistance` | 11 | aide / support ponctuel |
-| `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
-
-> La résolution se fait au grain **tâche** (par son `type`). La refacto ou la
-> feature qui vit *dans* un commit d'un ticket d'un autre type ne sera taguée
-> finement qu'avec le futur **mode incrémental par commit**, où chaque commit
-> pourra déclarer sa propre nature (override `--activity` en attendant).
-
-Après le report, le CF **17** `Tokens passés` du ticket est resynchronisé sur
-le cumul, et l'entrée est tracée dans le `.log.md` (cf. § « Référencer un commit »).
-
-**Note Redmine accompagnante.** Ces métriques (temps + tokens du delta) sont
-reprises dans la **note Redmine** du commit, aux côtés du résumé détaillé et de
-la réf du commit. Le *quand* et le *quoi* de cette note sont définis **une seule
-fois**, dans la matrice canonique § « Unité de traçabilité : l'étape
-significative » — ne pas les redéfinir ici.
-
-**Outillage : `scripts/pm-task-report.py`** (RM1819). Lit le frontmatter +
-`.log.md` d'un ticket (`--rm-id`) ou de tous (`--all`), et pousse vers Redmine :
-une **time_entry datée par entrée `Tokens :` du log** (`spent_on`, `hours` =
-temps IA, CF 16 = tokens, `activity_id` selon la convention ci-dessus,
-comments = titre de l'entrée), puis **resync CF 17** = `tokens_total`.
-Idempotent : le `time_entry.id` de chaque saisie est historisé dans le bloc
-`reporting.time_entries[]` du frontmatter (clé de dédup `<ts>#<tokens>`), un
-re-run ne crée pas de doublon. Dry-run par défaut, `--apply` pour exécuter.
-
-> **Reste à outiller (gap résiduel)** : le déclenchement **automatique au
-> commit** (hook `post-commit` calculant le delta depuis le dernier report).
-> Aujourd'hui `pm-task-report.py` se lance à la main / par lot. Le mode
-> incrémental fin (un time_entry par commit, avec nature de travail déclarée
-> par commit) viendra dessus.
+Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en
+v1.5 — voir [PISTES.md](../PISTES.md).
 
 ## Passe agent-testeur indépendante (`requires_agent_test`)
 
@@ -910,6 +1085,83 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
+
+### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
+
+La **description** d'un ticket Redmine (le corps principal, distinct des notes
+de journal) est un document **vivant** : ce n'est pas un message figé à la
+création, mais l'état courant de la demande. L'agent doit la maintenir à jour
+chaque fois que son contenu cesse de refléter la réalité.
+
+**Quatre déclencheurs obligent à mettre à jour la description** :
+
+1. **La description contient des informations d'état qui ont changé** — par
+   exemple un statut interne décrit en prose (« En attente de validation
+   client », « bloqué par X »), une URL d'environnement de test, une version
+   cible, une décision provisoire. Si la description affirme quelque chose qui
+   n'est plus vrai, elle doit être réécrite, pas seulement contredite dans une
+   note.
+2. **La description contient une liste de tâches / une checklist** dont l'état
+   évolue (cases cochées Markdown `- [ ]` / `- [x]`, sous-objectifs, critères
+   d'acceptation, étapes restantes). À chaque progression, l'agent met à jour
+   les cases ou items concernés **dans la description elle-même**, pas
+   uniquement dans une note. La description sert de tableau de bord ; les notes
+   servent à l'historique.
+3. **Demande explicite** du demandeur ou d'un autre intervenant (« mets à jour
+   la description avec X », « ajoute Y dans la description », reformulation
+   demandée du périmètre, etc.).
+4. **Modification substantielle de la demande en cours de travail** — quand
+   le demandeur change un nom de chemin, un identifiant, une cible, ou
+   ajoute/retire un item du périmètre **après** que la description a été
+   rédigée. Le re-cadrage doit être répercuté dans la description (pas
+   seulement traité dans une note de journal), car la description sert de
+   référence pour la vérification finale. Ex : la description liste
+   `old/ → erp_old/old/` mais le demandeur demande ensuite `erp_old/dev/` —
+   réécrire la description avec `erp_old/dev/`, et accompagner d'une note
+   « Description mise à jour suite re-cadrage : `erp_old/old` → `erp_old/dev` ».
+   Ne **pas** se contenter d'une note « fix complémentaire » : si quelqu'un
+   relit la description plus tard, il doit y voir l'état final, pas
+   l'état initial.
+
+**Note de journal accompagnante** : toute mise à jour de description doit être
+accompagnée d'une note Redmine résumant **ce qui a changé** et **pourquoi**
+(« Description : coché items 3 et 4 de la checklist (livraison faite, doc à
+jour) »). Cela préserve la traçabilité — Redmine ne diff pas les descriptions
+dans l'UI standard.
+
+**Symétrie avec les notes** :
+- **Note** = événement daté, append-only, raconte le « quoi s'est passé ».
+- **Description** = état courant, mutable, raconte le « où on en est ».
+
+Une checklist cochée uniquement dans une note (et pas dans la description) est
+invisible dès qu'on scrolle ; une décision d'état figée dans la description
+initiale et contredite par 12 notes successives est illisible. Les deux médias
+sont complémentaires et **les deux doivent être tenus à jour**.
+
+**% réalisé (`done_ratio`) au fil de l'eau** — v1.16.0 : l'agent maintient le
+pourcentage de réalisation du ticket (`done_ratio` Redmine ↔ `completion_pct` MD)
+**au fur et à mesure**, pas seulement à la clôture. La valeur se dérive :
+- du **ratio de cases cochées** de la checklist quand il y en a une
+  (`cochées / total`, arrondi) — c'est la règle par défaut ;
+- sinon de l'**évaluation de l'agent** (avancement estimé du travail).
+
+Le changement de `done_ratio` étant **journalisé nativement** par Redmine (comme
+le statut, cf. v1.15.0), il ne donne **pas** lieu à une note dédiée. Une note
+n'accompagne que les changements de **description** (texte/checklist), que Redmine
+ne diff pas. Cocher un item de checklist EST une modification de description → note ;
+faire passer le `done_ratio` de 50 à 75 → pas de note.
+
+**Implémentation** (état v1.16.0) :
+- **`pm-task-description-update.py <rm-id>`** : coche/décoche la checklist
+  (`--check 1,2`, `--uncheck 3`, `--check-all`), met à jour `done_ratio`
+  (`--done-ratio auto` depuis la checklist, ou un entier), ou remplace toute la
+  description (`--set-from-file`). PUT Redmine (`description` + `done_ratio` +
+  `notes` si la description a changé) + sync MD (`completion_pct` + checklist du
+  corps) + append `.log.md`. C'est le wrapper de référence.
+- **`pm-task-status-update.py`** refuse de passer une tâche en `a_tester_demandeur`,
+  `a_mep` ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
+  description (`--allow-unchecked` pour outrepasser si c'est volontaire). Garde-fou
+  pour ne pas livrer/clore avec une checklist non tenue à jour.
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 
@@ -1309,206 +1561,339 @@ versioning:
 - En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
 
-## Fichiers auto-générés (écrits par l'agent summarizer)
+## Ordonnancement par ROI
 
-| Fichier | Niveau | Contenu | Source |
-|---|---|---|---|
-| `Changelog.md` | client + projet | Activité datée (tâches fermées, étapes franchies) | Trigger événementiel sur `ferme` |
-| `Pistes.md` | client + projet | Idées non décidées capitalisées | Agrège les `pistes[]` des tâches |
-| `Remarques.md` | client + projet | Observations factuelles des agents (patterns, anomalies) | Extraits des `.log.md` |
-| `client.md ## Structure` | client | Comment ce client opère, ses processus | Agrège observations long terme |
-| `project.md ## Structure` | projet | Comment ce projet est architecturé, ses conventions | Agrège observations long terme |
-
-### Repo project-management (système, public)
+Script `scripts/priority.py` qui calcule pour chaque tâche `a_faire` :
 
 ```
-project-management/                   # racine : pm.config.yml :: roots.pm_dir
-  pm.config.yml                       # config de chemins (résolution centralisée)
-  pm.config.local.yml                 # surcharge locale (gitignored, optionnel)
-  norms/
-    NORMS.md                          # version courante (ce fichier)
-    CHANGELOG.md                      # historique des évolutions
-    archive/                          # snapshots de toutes les versions
-  templates/
-    client.md                         # template client
-    project.md                        # template projet
-    task.md                           # template tâche (skeleton)
-    RM9999_*.md                       # exemple complet pour CI
-  agents/
-    worker-common.md                  # règles communes des workers
-    worker-{role}.md                  # rôles spécifiques
-    orchestrateur.md
-    reviewer.md
-    summarizer.md                     # génération auto des Changelog/Pistes/Remarques
-  scripts/
-    pm_paths.py                       # lib de résolution de chemins (PMConfig)
-    validate-task.py
-    priority.py                       # ordonnancement par ROI
-    pm-dashboard.py                   # CLI dashboard (statuts, ROI, en cours, activité)
-    pm-project-bootstrap.py           # instancie les bootstrap-tasks dans un projet
-    redmine-test.py                   # test de connexion API Redmine
-    redmine-fetch-task.py             # fetch ticket Redmine → génère le MD
-    redmine-fetch-updates.py          # récupère les nouveautés depuis le dernier check
-    redmine-post-note.py              # poste une note (+ statut + assignation) sur un ticket
-    invoke.md
-    cron.example.sh
+score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(estimate.time_minutes, 1)
 ```
 
-### Repo projets (privé, gitignored dans le repo PM)
+Avec `priority_weight = {low: 0.5, normal: 1, high: 2, urgent: 4}`.
 
-Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
-Structure interne définie par les patterns de `paths:` — la représentation
-ci-dessous montre la **résolution par défaut**.
+Filtre : tâches `a_faire` dont toutes les `depends_on` sont `ferme`.
+Sortie : top N tâches triées par score décroissant, par client/projet ou global.
 
-```
-{projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
-  README.md
-  {entities_dir}/                     # = projects_root/clients
-    {entity}/                         # entité = client | product | self (slug)
-      {entity_client_dir}/            # = entity/client  — cahier des charges
-        overview.md                   # OBLIGATOIRE — frontmatter + sommaire
-        hosting.md                    # aspect — optionnel
-        contracts.md                  # aspect — optionnel
-        ...                           # tout aspect pertinent
-      {entity_memory_dir}/            # = entity/memory  — mémoire structurée (agents)
-      Changelog.md                    # AUTO — activité agrégée
-      Pistes.md                       # AUTO — idées non décidées
-      Remarques.md                    # AUTO — observations factuelles
-      {entity_projects_dir}/          # = entity/projects
-        {project}/                    # = entity_projects_dir/{project-slug}
-          {project_dir}/              # = project/project  — cahier des charges
-            overview.md               # OBLIGATOIRE — frontmatter + sommaire
-            hosting.md                # aspect — optionnel
-            stack.md
-            data-model.md
-            workflows.md
-            audience.md               # exemples — uniquement les aspects pertinents
-            ...
-          {project_memory_dir}/       # = project/memory  — mémoire spécifique projet
-          Changelog.md                # AUTO
-          Pistes.md                   # AUTO
-          Remarques.md                # AUTO
-          {tasks_dir}/                # = project/tasks
-            RM{id}_{titre-kebab}.md         # = paths.task_file
-            RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
-```
+## ROI assisté par IA (RM1717)
 
-### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+Chaque ticket porte un coût (tokens IA + temps humain) et un gain
+(immédiat + récurrent). Le ROI se calcule à partir de ces 4 dimensions.
 
-Chaque projet a **deux emplacements** distincts mais liés :
+### Tarification
 
-| Emplacement | Contenu | Repo git |
-|---|---|---|
-| `{workspace_dir}/` — variable selon projet, ex: `/zfs/workspaces/<P>/` ou `/zfs/workspaces/<entity>/<P>/` | Code source du projet | repo de code (ex: `iprospective/dev/<P>`) |
-| `paths.project` (par défaut `{projects_root}/clients/<C>/projects/<P>/`) | Cahier des charges, tâches, mémoire | `ai-projects` |
+Les prix par modèle sont dans `pm.pricing.yml` (commitable, à maintenir
+quand Anthropic ajuste). Unités : **USD/MTok** pour input/output/cache,
+**EUR/h** pour le coût humain.
 
-Les deux emplacements se référencent **mutuellement** par symlinks (chemins
-absolus, définis dans `pm.config.yml :: paths.reverse_link` et
-`paths.workspace_link`) :
+### Frontmatter étendu (v1.11.0)
 
-```
-{workspace_dir}/.mmi-pm    → paths.project           # paths.reverse_link
-paths.project/workspace    → {workspace_dir}         # paths.workspace_link
+```yaml
+# Estimation prévisionnelle
+estimate:
+  difficulty: medium                  # inchangé
+  human_time_minutes: 30              # NEW — temps humain prévu (revue, décisions, tests)
+  ai_time_minutes: 15                 # NEW — temps wall-clock IA prévu
+  tokens: 50000                       # tokens prévus (total)
+  cost_usd: 0.75                      # NEW — coût USD prévu (estimé depuis tokens × prix)
+  estimated_model: claude-opus-4-7    # NEW — modèle prévu (pour calcul cost prévu)
+  confidence: 0.6
+  estimated_by: pm-task-add
+  estimated_at: 2026-05-17T14:30
+
+# ROI — les deux échelles coexistent
+roi:
+  immediate_benefit: 3                # 1-5 — rapide à estimer (qualitatif)
+  monthly_benefit: 3                  # 1-5 — récurrent qualitatif
+  immediate_gain_eur: null            # NEW — gain € immédiat (one-shot)
+  monthly_gain_eur: null              # NEW — gain € récurrent mensuel
+  # yearly_gain_eur dérivé = monthly_gain_eur × 12 (pas stocké)
+
+# Cumulés effectifs (auto-incrémentés par le hook pm-task-tick)
+tokens_total: 0                       # somme tous types
+tokens_breakdown:                     # NEW — détail par type
+  input: 0
+  output: 0
+  cache_read: 0
+  cache_creation: 0
+cost_total_usd: 0.0                   # NEW — cumulé recalculé à chaque tick
+human_time_total_minutes: 0           # NEW — temps humain effectif
+ai_time_total_minutes: 0              # NEW — temps wall-clock IA effectif
 ```
 
-**Création (les deux symlinks ensemble) :**
-```bash
-# Côté workspace (code) :
-ln -s "$(python3 -c 'from pm_paths import PMConfig; \
-  print(PMConfig.load().path("project", entity="<C>", project="<P>"))')" \
-  "$WORKSPACE_DIR/.mmi-pm"
+### Auto-incrémentation (hook Claude Code Stop)
 
-# Côté PM (référence inverse) :
-ln -s "$WORKSPACE_DIR" "$(python3 -c '…path("workspace_link", …)…')"
+Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
+réponse Claude. Il :
+
+1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
+2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
+   sentinel global utilisateur — éviter les collisions multi-sessions) :
+   - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
+   - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
+   - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
+     qui parse les "RM1234" dans le prompt user)
+3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
+4. Sinon : lit le dernier message assistant du transcript, somme les tokens
+   par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
+   du MD (atomique avec optimistic locking)
+5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
+   éviter le bruit, sinon silencieux)
+
+### Calcul du ROI
+
+```
+invest_eur = cost_total_usd × usd_to_eur + (human_time_total_minutes / 60) × human_hourly_rate_eur
+benefit_yearly_eur = (immediate_gain_eur ou immediate_benefit × 100)
+                   + (monthly_gain_eur ou monthly_benefit × 50) × 12
+roi_ratio = benefit_yearly_eur / max(invest_eur, 1)
 ```
 
-(Un futur `pm sync-links` automatisera ces deux opérations.)
+Quand `*_gain_eur` est renseigné, il prime sur l'échelle 1-5. Si seul le
+1-5 est connu, un facteur conventionnel s'applique (100 €/point immédiat,
+50 €/point/mois récurrent — ajustable dans `pm.pricing.yml` plus tard).
 
-**Bénéfices :**
-- Un agent travaillant dans le workspace voit code ET tâches/docs (`.mmi-pm/project/`,
-  `.mmi-pm/tasks/`)
-- Un agent travaillant côté PM (dans `paths.project`) accède directement au code via
-  `workspace/` — utile pour consulter une stack, un commit, un fichier en cours de
-  modification
-- Bidirectionnel : si le dossier d'un côté est déplacé, on a un point de repère côté
-  opposé pour rétablir le lien sans chercher
-- La centralisation est préservée (l'orchestrateur scanne `cfg.projects_root` directement,
-  sans suivre `workspace/`)
+### Hook vs script manuel
 
-**Conventions :**
-- Le symlink `.mmi-pm` côté workspace est **caché** (préfixe `.`) pour ne pas polluer
-  l'arborescence du code
-- Le symlink `workspace` côté PM est **dans la racine du dossier projet PM** (au même
-  niveau que `project/`, `tasks/`, `memory/`)
-- Les scripts d'itération (validator, dashboard, summarizer) doivent **ignorer**
-  les symlinks `workspace` (utiliser `find -P` ou `! -type l`, ou `cfg.iter_projects()`
-  qui filtre déjà les symlinks) pour ne pas se perdre dans le code
-- Les deux symlinks pointent en chemins **absolus** (les paths workspace/PM ne sont
-  pas systématiquement co-localisés ; `realpath` doit fonctionner depuis n'importe où)
+- **Hook automatique** : sessions Claude Code (~/.claude/settings.json),
+  attribution silencieuse en arrière-plan
+- **Script manuel** : `scripts/pm-task-tick.py --rm-id X --tokens-input N --tokens-output N --model M --human-minutes M`
+  pour les agents non-Claude-Code (n8n, scripts custom) ou ajout manuel de
+  temps humain post-hoc
 
-**Résolution de chemins cross-tree** (ex: cascade vers le client) :
-Ne pas utiliser `.mmi-pm/../../` (résolution logique non fiable des symlinks). Utiliser
-la lib + le champ `client:` du frontmatter de `project/overview.md` :
+### Notes
 
-```python
-client_dir = cfg.path("entity", entity=client_slug)
-```
+- **Race conditions multi-sessions** : 2 Claude bossant sur le même ticket
+  simultanément écrivent dans le même frontmatter — l'optimistic locking
+  (`updated`) doit faire son job. Vérifier en pratique.
+- **Cache reads** : ~10× moins chers que input pur — bien distinguer dans
+  le calcul (cf. tableau `pm.pricing.yml`).
+- **Précision** : la mesure ne prend en compte que les sessions Claude Code
+  hookées. Sessions oubliées (sans hook) ou autres agents (n8n) → invisibles.
 
-## Structure des dossiers
+### Documentation dans Redmine — champs dédiés (obligatoire) — v1.21.0
 
-## Configuration des chemins (`pm.config.yml`)
+Le frontmatter MD n'est pas suffisant : l'estimation et les cumuls doivent
+être **visibles côté Redmine** dans les champs dédiés de l'instance (IDs à
+revalider via le § « Synchronisation de la configuration Redmine »).
 
-Tous les chemins du système (racine du repo PM, racine du repo projets,
-emplacement des entités, des projets, des tâches, des symlinks de liaison
-code ↔ PM) sont **paramétrés** dans `pm.config.yml` à la racine du repo PM.
+**Estimation prévisionnelle → poussée sur le ticket :**
 
-**Objectif** : pouvoir déplacer le repo PM, déplacer le repo projets, ou
-réorganiser la structure interne **sans toucher au code des scripts ni à la
-doc des agents**.
-
-**Lib** : `scripts/pm_paths.py` expose `PMConfig.load()` qui charge la config,
-résout `${VAR}` depuis `.env`, et fournit `.path(key, **kwargs)` pour résoudre
-n'importe quel chemin via les patterns définis. Tous les scripts du repo
-**doivent** passer par cette lib — jamais de concaténation manuelle ni de
-hardcode `clients/`.
-
-**Patterns standards** (clés de `paths:` dans `pm.config.yml`) :
-
-| Clé | Résolution par défaut |
+| Frontmatter | Champ Redmine |
 |---|---|
-| `entities_dir` | `{projects_root}/clients` |
-| `entity` | `{entities_dir}/{entity}` |
-| `entity_client_dir` | `{entity}/client` |
-| `entity_memory_dir` | `{entity}/memory` |
-| `entity_projects_dir` | `{entity}/projects` |
-| `entity_used_dir` | `{entity}/projects_used` |
-| `project` | `{entity_projects_dir}/{project}` |
-| `project_dir` | `{project}/project` |
-| `project_memory_dir` | `{project}/memory` |
-| `tasks_dir` | `{project}/tasks` |
-| `task_file` | `{tasks_dir}/RM{id}_{slug}.md` |
-| `task_log_file` | `{tasks_dir}/RM{id}_{slug}.log.md` |
-| `workspace_link` | `{project}/workspace` |
-| `reverse_link` | `{workspace_dir}/.mmi-pm` |
+| `estimate.tokens` | CF **21** `Tokens prévus` (int) |
+| `estimate.ai_time_minutes` (÷ 60) | CF **22** `Temps estimé IA (h)` (float) |
+| `estimate.human_time_minutes` (÷ 60) | natif `estimated_hours` (temps estimé) |
 
-**Override local** : `pm.config.local.yml` (gitignored) peut surcharger
-n'importe quelle clé pour un déploiement spécifique.
+**Quand estimer / réestimer** :
+- **À la création** de la tâche (`pm-task-add`) : estimation initiale obligatoire,
+  poussée immédiatement sur CF 21 / 22 / `estimated_hours`.
+- **À la prise de ticket** (passage `en_cours`) : si aucune estimation n'a été
+  faite auparavant (ticket créé hors PM, ou estimation oubliée), **l'établir à ce
+  moment** — filet de sécurité avant de commencer le travail.
+- **À la mise à jour de la description** : réestimer **uniquement si** le changement
+  est assez conséquent pour impacter le temps/tokens prévu (sinon ne pas toucher).
+  Tracer la réestimation dans le `.log.md` (ancienne → nouvelle valeur).
 
-**Usage côté script** :
-```python
-from pm_paths import PMConfig
-cfg = PMConfig.load()
-cfg.projects_root                                      # Path
-cfg.path("task_file", entity="lemathou", project="x", id=42, slug="foo")
-for ent, proj, _ in cfg.iter_projects(entity=None): ...
-cfg.find_task(rm_id)                                   # Path | None
-cfg.find_project_by_redmine_id(rm_proj_id)             # (Path, Path) | (None, None)
+**Cumul effectif → poussé sur le ticket :** CF **17** `Tokens passés` reflète
+`tokens_total` du frontmatter (recalé à chaque mise à jour Redmine).
+
+### Journalisation par commit — temps + tokens consommés (obligatoire) — v1.21.0, convention activités + outillage v1.26.0
+
+Le hook `pm-task-tick` (déclenché à chaque fin de réponse Claude) reste
+**nécessaire** : il mesure et accumule en continu tokens + temps IA dans le
+frontmatter MD — c'est la **base de calcul**. Le commit en est le **point de
+report** vers Redmine.
+
+**Règle** : à chaque commit **de travail** (unité = l'étape significative, cf. §
+« Unité de traçabilité »), reporter sur le ticket Redmine le **delta** consommé
+depuis le commit précédent, sous forme d'une **saisie de temps**
+(`POST /time_entries.json`) :
+
+- `issue_id` = le ticket ; `spent_on` = date du commit
+- `hours` = temps IA wall-clock écoulé depuis le dernier commit (delta de
+  `ai_time_total_minutes` ÷ 60). `hours=0` est **accepté** par l'instance —
+  une étape sans temps mesuré reste donc une saisie datée valide (le tokens du
+  delta, lui, est toujours porté par le CF 16).
+- `activity_id` = **nature** du travail, dérivée du `type` de la tâche selon la
+  **convention canonique ci-dessous** (≠ le tracker, qui encode la *catégorie*
+  de ticket). Résolution outillée : `redmine_utils.activity_for_type(type)`.
+- CF **16** `Tokens` = tokens consommés depuis le dernier commit (delta de
+  `tokens_total`)
+- commentaire = le hash + sujet du commit (lien `git.*`)
+
+**Convention `type` de tâche → activité de temps Redmine** (source unique :
+`redmine.reference.yml :: type_to_activity` ; surchargagle par saisie via
+`pm-task-report.py --activity <id>`) :
+
+| `type` NORMS | Activité Redmine | id | Nature |
+|---|---|---|---|
+| `feature` | `Developpement/Feature` | 31 | écrire une fonctionnalité neuve |
+| `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
+| `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
+| `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
+| `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
+| `assistance` | `Assistance` | 11 | aide / support ponctuel |
+| `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
+
+> La résolution se fait au grain **tâche** (par son `type`). La refacto ou la
+> feature qui vit *dans* un commit d'un ticket d'un autre type ne sera taguée
+> finement qu'avec le futur **mode incrémental par commit**, où chaque commit
+> pourra déclarer sa propre nature (override `--activity` en attendant).
+
+Après le report, le CF **17** `Tokens passés` du ticket est resynchronisé sur
+le cumul, et l'entrée est tracée dans le `.log.md` (cf. § « Référencer un commit »).
+
+**Note Redmine accompagnante.** Ces métriques (temps + tokens du delta) sont
+reprises dans la **note Redmine** du commit, aux côtés du résumé détaillé et de
+la réf du commit. Le *quand* et le *quoi* de cette note sont définis **une seule
+fois**, dans la matrice canonique § « Unité de traçabilité : l'étape
+significative » — ne pas les redéfinir ici.
+
+**Outillage : `scripts/pm-task-report.py`** (RM1819). Lit le frontmatter +
+`.log.md` d'un ticket (`--rm-id`) ou de tous (`--all`), et pousse vers Redmine :
+une **time_entry datée par entrée `Tokens :` du log** (`spent_on`, `hours` =
+temps IA, CF 16 = tokens, `activity_id` selon la convention ci-dessus,
+comments = titre de l'entrée), puis **resync CF 17** = `tokens_total`.
+Idempotent : le `time_entry.id` de chaque saisie est historisé dans le bloc
+`reporting.time_entries[]` du frontmatter (clé de dédup `<ts>#<tokens>`), un
+re-run ne crée pas de doublon. Dry-run par défaut, `--apply` pour exécuter.
+
+> **Reste à outiller (gap résiduel)** : le déclenchement **automatique au
+> commit** (hook `post-commit` calculant le delta depuis le dernier report).
+> Aujourd'hui `pm-task-report.py` se lance à la main / par lot. Le mode
+> incrémental fin (un time_entry par commit, avec nature de travail déclarée
+> par commit) viendra dessus.
+
+## Liens entre tâches
+
+Le frontmatter d'une tâche supporte plusieurs types de liens, chacun avec une
+sémantique propre. Ces champs sont **symétrisés** (RM-id miroir maintenu côté
+cible) et synchronisés avec les `relations` Redmine via le script
+`scripts/pm-task-link.py`.
+
+| Champ | Cardinalité | Sémantique | Miroir côté cible | Redmine `relation_type` |
+|---|---|---|---|---|
+| `parent_task` | `int \| null` | Hiérarchie : ce ticket a un parent | `sub_tasks` (attribut `parent_issue_id`) | — (attribut d'issue) |
+| `sub_tasks` | `list[int]` | Hiérarchie : enfants directs | `parent_task` (attribut `parent_issue_id`) | — (attribut d'issue) |
+| `depends_on` | `list[int]` | Bloquant : A doit attendre B (B finit avant A) | `blocks` côté B | POST sur B : `blocks` → A |
+| `blocks` | `list[int]` | Bloquant : A doit finir avant B (réciproque de `depends_on`) | `depends_on` côté B | POST sur A : `blocks` → B |
+| `relates` | `list[int]` | **Lien latéral non-bloquant** : sujet/famille commun | `relates` côté cible | POST `relates` |
+| `refs` | `list[obj]` | Référence externe libre (URL, commit, ticket partenaire) | — | — (champ libre, pas de relation Redmine) |
+
+**Règles d'intégrité :**
+- Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
+  Si l'un est présent sans l'autre, c'est un drift à corriger via
+  `pm-task-link sync <rm-id>`.
+- `parent_task` est unique (au plus un parent par tâche).
+- Un ticket ne peut pas se lier à lui-même.
+- `pm-task-link rm` supprime les deux côtés.
+
+**Sens des dépendances** : ne pas confondre. Si **A dépend de B**, alors
+`A.depends_on = [B]` ET `B.blocks = [A]`. Côté Redmine, c'est une seule
+relation `blocks` postée depuis B vers A.
+
+### Hiérarchie parent/enfant (v1.20.3)
+
+`parent_task` / `sub_tasks` ne sont **pas des relations Redmine** mais l'**attribut
+natif d'issue `parent_issue_id`** (colonne « Redmine `relation_type` » = `—` dans le
+tableau). Ils ne transitent donc pas par `/issues/<id>/relations.json` mais par un
+`PUT parent_issue_id` sur l'enfant. La réflexion MD ↔ Redmine est outillée — **ne jamais
+éditer ces champs à la main** :
+
+| Geste | Commande | Effet |
+|---|---|---|
+| Créer un ticket enfant | `pm-task-add … --parent <RM>` | POST avec `parent_issue_id` + `parent_task` enfant + `sub_tasks` parent |
+| (Re)poser / déplacer le parent d'un ticket existant | `pm-task-link parent <child> <parent>` | PUT Redmine + migre `sub_tasks` ancien→nouveau parent |
+| Détacher | `pm-task-link parent <child> --unset` | PUT Redmine (parent vidé) + retire de `sub_tasks` du parent |
+| Réconcilier depuis Redmine | `pm-task-sync <RM>` | lit `issue.parent.id` → `parent_task` + maintient les `sub_tasks` locaux |
+
+Le cœur (réflexion frontmatter des deux côtés + logs) vit dans `scripts/pm_hierarchy.py`,
+partagé par les trois scripts. Quand le parent n'est pas tracké localement (ticket
+Redmine hors-PM), le champ enfant est posé mais `sub_tasks` n'est pas maintenu (no-op
+silencieux, le lien Redmine reste correct).
+
+**Règles d'intégrité hiérarchie :**
+- `parent_task` est unique (au plus un parent par tâche).
+- Pas d'auto-parent ni de cycle (Redmine refuse les cycles au PUT ; les scripts
+  refusent l'auto-parent en amont).
+- `sub_tasks` est dérivé : il doit toujours refléter l'ensemble des enfants dont le
+  `parent_task` pointe vers ce ticket. En cas de drift, `pm-task-sync` sur l'enfant
+  rétablit la cohérence.
+
+#### Journalisation des échanges avec l'humain (obligatoire, au fil de l'eau)
+
+Quand un échange utilisateur ↔ agent porte sur une tâche — arbitrage, décision,
+re-cadrage du besoin, retour de test, correction de cap — l'agent **résume** cet
+échange et l'appende au `.log.md` de la tâche **au fur et à mesure**, sans attendre
+la clôture. On journalise le *pourquoi* des décisions, pas seulement le code produit.
+
+- **Résumer, pas recopier** : une synthèse pertinente, pas le transcript verbatim.
+- **Au fil de l'eau** : une entrée par étape significative, datée. Objectif :
+  pouvoir reconstituer le fil de la tâche (et les raisons des choix) sans relire
+  la conversation d'origine.
+- N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
+  sa place dans le journal.
+
+#### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
+
+**Référence unique** pour « quand commiter, quand noter ». L'unité de travail
+tracée n'est ni le fichier ni la frappe : c'est l'**étape significative** — un
+incrément consistant et cohérent (livraison, fonctionnalité, correctif, décision
+structurante). On ne commit ni chaque fichier sauvé, ni un seul gros bloc à la
+toute fin : on commit **à la frontière d'une étape significative**.
+
+À cette frontière, à partir d'**un seul effort de fond** décliné en deux
+granularités, l'agent produit :
+
+1. **Message de commit** — résumé **court** (1 ligne + corps optionnel), langue du repo.
+2. **Note Redmine** — résumé **détaillé**, human-readable, destiné au ticket : ce
+   qui a été fait/livré et *pourquoi*, + **réf du commit** (SHA + URL GitLab, cf.
+   « Référencer un commit ») + **temps + tokens** du delta (cf. § « Journalisation
+   par commit »). C'est la trace que les humains lisent.
+3. **Entrée `.log.md`** — variante technique de l'agent (détail, décisions) + réf
+   commit + métriques, append-only (format ci-dessus). Les humains ne la lisent pas.
+4. Si l'étape est une **livraison** : transition de statut + `done_ratio` au même
+   moment (cf. §§ dédiés).
+
+> Même synthèse de fond, supports différents (long → note, court → commit,
+> technique → log) : pas trois rédactions distinctes.
+
+**Quand poster une note Redmine** — matrice unique, ne pas redéfinir ailleurs :
+
+| Événement | Note ? |
+|---|---|
+| Commit de **travail / livraison / structurant** (chose dont on veut garder trace) | **Oui** — note détaillée + réf commit + métriques |
+| Événement **structurant sans commit** (cahier des charges, réflexion, arbitrage, décision, re-cadrage) | **Oui** — note complémentaire (synthèse, sans réf commit) |
+| Commit **trivial / housekeeping** (sync frontmatter, append `.log.md`, fix typo doc PM) | **Non** (sauf `commit_note_level: all`) |
+| Simple changement de **statut** ou `done_ratio` | **Non** — Redmine les journalise nativement |
+| Mise à jour de **description** (texte/checklist) | **Oui** — cf. § « Mise à jour de la description » (Redmine ne diff pas les descriptions) |
+
+**Niveau de note par commit — configurable** (`pm.config.yml :: traceability.commit_note_level`,
+pour calibrer le bruit à l'usage) :
+- `work` (défaut) — note pour les commits de travail/livraison/structurants uniquement.
+- `all` — note pour **tout** commit rattaché à une tâche (mode test : mesurer le bruit réel).
+- `none` — pas de note auto par commit (on conserve `.log.md` + time_entry).
+
+#### Référencer un commit dans une entrée
+
+Toute entrée de journal qui **produit ou modifie du code** doit citer le(s)
+commit(s) correspondant(s), pour tracer précisément quelle livraison à quelle étape :
+
+```markdown
+Commit: <repo-alias>@<sha-court> — <message court>
+        https://gitlab.iprospective.fr/<ns>/<repo>/-/commit/<sha-complet>
 ```
 
-**Usage côté doc / agents** : les chemins sont nommés par leur pattern
-logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
-expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
-référence humaine.
+- La forme **canonique de tracking** est le SHA (≥ 7 caractères) ou, mieux quand le
+  repo est sur GitLab, l'**URL de commit complète** (cliquable et résolvable).
+- Le frontmatter `git.branch` / `git.mr_url` reste le pointeur *courant* (branche de
+  travail, MR ouverte) ; le `.log.md` conserve l'*historique* des commits par étape.
+  Pour une référence ponctuelle hors workflow dev, utiliser `refs: [{type: commit, …}]`.
+- **Prérequis** : le workspace doit être un dépôt git. S'il ne l'est pas (ex. un
+  workspace infra non initialisé), il n'y a pas de commit à référencer — le signaler
+  explicitement dans l'entrée plutôt que de laisser un trou.
+
+---
 
 ### Environnements (aspect `environments.md`)
 
@@ -1634,476 +2019,6 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
 référencés et leur rôle, pour audit humain.
 
-### Création d'un projet PM ↔ Redmine
-
-À la création d'un nouveau projet PM, le flow doit garantir un mapping **1 ↔ 1** entre
-projet PM et projet Redmine. Étapes (à automatiser dans `pm project init`) :
-
-1. **Lister** les projets Redmine accessibles via l'API (`GET /projects.json`)
-2. **Vérifier l'existence** d'un projet Redmine avec un identifier candidat
-3. **Vérifier l'unicité** d'usage côté PM : itérer `cfg.iter_projects()` (ou
-   `grep -r 'redmine.project_id:' "$(cfg.path("entities_dir"))"`) pour s'assurer
-   qu'aucun autre projet PM ne référence déjà cet identifier
-4. **Trois cas** :
-   - Identifier candidat dispo côté Redmine ET non utilisé côté PM → proposer de
-     **créer** le projet Redmine (`POST /projects.json`)
-   - Identifier existant côté Redmine ET non utilisé côté PM → proposer de **réutiliser**
-   - Identifier existant côté Redmine ET déjà utilisé côté PM → bloquer + indiquer le
-     projet PM qui l'utilise déjà, demander un autre slug
-
-Le mapping inverse (Redmine identifier → projet PM) doit toujours être unique. Si un
-même projet Redmine doit servir plusieurs projets MD, c'est probablement une erreur de
-modélisation côté PM (probablement deux projets distincts à créer).
-
-**Memberships par défaut sur un nouveau projet Redmine** (instance iprospective —
-`tasks.iprospective.fr`) :
-
-À la création d'un projet Redmine via API (`POST /projects.json`), ajouter
-systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :
-
-| Groupe Redmine | id | Rôle | role_id |
-|---|---|---|---|
-| `Admin` | 49 | `Manager` | 3 |
-| `iProspective` | 70 | `Intervenant` | 7 |
-
-Justification :
-- `Admin` en Manager garantit que tu (Mathieu) gardes les pleins droits sur le projet,
-  sans dépendre d'une appartenance individuelle
-- `iProspective` en Intervenant permet aux comptes de l'équipe (humains + agents :
-  `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
-  les ajouter un par un à chaque projet
-
-Le futur `pm project init` (TODO 003) devra automatiser ces deux ajouts.
-À faire manuellement en attendant, via l'UI Redmine → Settings → Members → Add.
-
-Payload API pour automation :
-```bash
-# Admin (group_id=49) en Manager (role_id=3)
-curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-  -d '{"membership":{"user_id":49,"role_ids":[3]}}' \
-  "$REDMINE_URL/projects/<project_id>/memberships.json"
-# iProspective (group_id=70) en Intervenant (role_id=7)
-curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
-  -d '{"membership":{"user_id":70,"role_ids":[7]}}' \
-  "$REDMINE_URL/projects/<project_id>/memberships.json"
-```
-
-### Tâches de bootstrap (`templates/bootstrap-tasks/`)
-
-À la création d'un projet PM, certaines tâches **récurrentes de setup** doivent être
-créées pour ne pas oublier les fondations : Vaultwarden, repos git, environnements,
-stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
-
-**Templates standards** (présents dans `templates/bootstrap-tasks/`) :
-
-| ID | Titre | Coché par défaut |
-|---|---|---|
-| `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
-| `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
-| `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
-| `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |
-| `005-deployment` | Rédiger `project/deployment.md` (CI/CD, rollback) | ☐ |
-| `006-testing` | Rédiger `project/testing.md` (stratégie de tests) | ☐ |
-| `007-monitoring` | Rédiger `project/monitoring.md` (logs, métriques, alertes) | ☐ |
-| `008-infra-analysis` | Analyse de l'infra : inventaire, état, risques (`docs/infrastructure.md`) | ✅ *(projets infra uniquement)* |
-
-> **Projets infra → ticket d'analyse par défaut (v1.30.0).** Tout projet de nature
-> **infrastructure** (slug/nom « infra », ou aspect `hosting`/`infrastructure` — qui
-> gère des serveurs/hyperviseurs/réseau/stockage plutôt qu'une seule application) doit
-> par défaut porter un **ticket d'analyse de l'infra** : état des lieux matériel,
-> stockage (disques + SMART, pools/RAID), charges hébergées, monitoring, et une section
-> **anomalies** d'où découle **un ticket dédié par anomalie significative**. C'est le
-> rôle du template `008-infra-analysis`, proposé **coché** sur ces projets et non
-> applicable aux projets purement applicatifs. Le livrable est un document vivant
-> (`docs/infrastructure.md` dans le workspace, ou aspect `project/hosting.md`), mis à
-> jour à chaque intervention notable.
-
-**Flow d'instanciation** (via `scripts/pm-project-bootstrap.py`) :
-
-1. Détecter les templates **applicables** au projet (état du frontmatter overview,
-   présence des aspects, etc.)
-2. **Proposer** la liste à l'humain (interactif) — les 3 premiers cochés par défaut,
-   les autres non
-3. L'humain peut **décocher** ou **cocher** des templates supplémentaires
-4. L'humain peut **bypasser** complètement (option `--yes`) ou skip un template
-   spécifique (champ frontmatter `bootstrap.skip[]`)
-5. Pour chaque template retenu :
-   - Créer un ticket Redmine dans `redmine.project_id` du projet
-   - Instancier `tasks/RM<id>_<slug>.md` depuis le template (frontmatter rempli)
-   - Initialiser le `.log.md`
-
-**Frontmatter `project/overview.md` enrichi pour suivre le bootstrap :**
-
-```yaml
-bootstrap:
-  skip: []          # IDs de templates explicitement skippés (jamais proposés)
-  done: []          # IDs de templates déjà appliqués (= tâche créée)
-```
-
-Si un template est dans `done[]`, il n'est plus reproposé (même si le critère de
-détection le rend applicable). Si dans `skip[]`, idem. Le flow d'instanciation
-remplit `done[]` automatiquement.
-
-**Convention `default_checked` dans les templates :**
-
-Chaque template porte un champ frontmatter `default_checked: true|false` qui
-détermine s'il est coché par défaut dans le picker interactif.
-
-### Flux de création de tâches (v1.5.0)
-
-Deux flux supportés :
-
-**a) Création depuis Redmine** (workflow humain ou agent)
-1. Un humain (ou un agent) crée le ticket dans Redmine et l'assigne à un agent IA
-2. L'orchestrateur détecte l'assignation, génère `paths.task_file` (résolu via
-   `pm.config.yml` à partir de l'entité et du projet)
-3. Le worker assigné prend la tâche en charge
-
-**b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
-1. Depuis le workspace de code, l'utilisateur lance `pm task create --type ... --title "..."`
-2. Le script crée le ticket Redmine, récupère l'ID
-3. Génère le fichier MD dans `.mmi-pm/tasks/RM{id}_*.md` (le symlink pointe vers
-   `paths.project`)
-4. Commit + push automatique
-
-Le sens inverse pur (MD → Redmine sans ticket préexistant) n'est pas implémenté en
-v1.5 — voir [PISTES.md](../PISTES.md).
-
-### Mise à jour de la description du ticket Redmine (obligatoire) — v1.13.0
-
-La **description** d'un ticket Redmine (le corps principal, distinct des notes
-de journal) est un document **vivant** : ce n'est pas un message figé à la
-création, mais l'état courant de la demande. L'agent doit la maintenir à jour
-chaque fois que son contenu cesse de refléter la réalité.
-
-**Quatre déclencheurs obligent à mettre à jour la description** :
-
-1. **La description contient des informations d'état qui ont changé** — par
-   exemple un statut interne décrit en prose (« En attente de validation
-   client », « bloqué par X »), une URL d'environnement de test, une version
-   cible, une décision provisoire. Si la description affirme quelque chose qui
-   n'est plus vrai, elle doit être réécrite, pas seulement contredite dans une
-   note.
-2. **La description contient une liste de tâches / une checklist** dont l'état
-   évolue (cases cochées Markdown `- [ ]` / `- [x]`, sous-objectifs, critères
-   d'acceptation, étapes restantes). À chaque progression, l'agent met à jour
-   les cases ou items concernés **dans la description elle-même**, pas
-   uniquement dans une note. La description sert de tableau de bord ; les notes
-   servent à l'historique.
-3. **Demande explicite** du demandeur ou d'un autre intervenant (« mets à jour
-   la description avec X », « ajoute Y dans la description », reformulation
-   demandée du périmètre, etc.).
-4. **Modification substantielle de la demande en cours de travail** — quand
-   le demandeur change un nom de chemin, un identifiant, une cible, ou
-   ajoute/retire un item du périmètre **après** que la description a été
-   rédigée. Le re-cadrage doit être répercuté dans la description (pas
-   seulement traité dans une note de journal), car la description sert de
-   référence pour la vérification finale. Ex : la description liste
-   `old/ → erp_old/old/` mais le demandeur demande ensuite `erp_old/dev/` —
-   réécrire la description avec `erp_old/dev/`, et accompagner d'une note
-   « Description mise à jour suite re-cadrage : `erp_old/old` → `erp_old/dev` ».
-   Ne **pas** se contenter d'une note « fix complémentaire » : si quelqu'un
-   relit la description plus tard, il doit y voir l'état final, pas
-   l'état initial.
-
-**Note de journal accompagnante** : toute mise à jour de description doit être
-accompagnée d'une note Redmine résumant **ce qui a changé** et **pourquoi**
-(« Description : coché items 3 et 4 de la checklist (livraison faite, doc à
-jour) »). Cela préserve la traçabilité — Redmine ne diff pas les descriptions
-dans l'UI standard.
-
-**Symétrie avec les notes** :
-- **Note** = événement daté, append-only, raconte le « quoi s'est passé ».
-- **Description** = état courant, mutable, raconte le « où on en est ».
-
-Une checklist cochée uniquement dans une note (et pas dans la description) est
-invisible dès qu'on scrolle ; une décision d'état figée dans la description
-initiale et contredite par 12 notes successives est illisible. Les deux médias
-sont complémentaires et **les deux doivent être tenus à jour**.
-
-**% réalisé (`done_ratio`) au fil de l'eau** — v1.16.0 : l'agent maintient le
-pourcentage de réalisation du ticket (`done_ratio` Redmine ↔ `completion_pct` MD)
-**au fur et à mesure**, pas seulement à la clôture. La valeur se dérive :
-- du **ratio de cases cochées** de la checklist quand il y en a une
-  (`cochées / total`, arrondi) — c'est la règle par défaut ;
-- sinon de l'**évaluation de l'agent** (avancement estimé du travail).
-
-Le changement de `done_ratio` étant **journalisé nativement** par Redmine (comme
-le statut, cf. v1.15.0), il ne donne **pas** lieu à une note dédiée. Une note
-n'accompagne que les changements de **description** (texte/checklist), que Redmine
-ne diff pas. Cocher un item de checklist EST une modification de description → note ;
-faire passer le `done_ratio` de 50 à 75 → pas de note.
-
-**Implémentation** (état v1.16.0) :
-- **`pm-task-description-update.py <rm-id>`** : coche/décoche la checklist
-  (`--check 1,2`, `--uncheck 3`, `--check-all`), met à jour `done_ratio`
-  (`--done-ratio auto` depuis la checklist, ou un entier), ou remplace toute la
-  description (`--set-from-file`). PUT Redmine (`description` + `done_ratio` +
-  `notes` si la description a changé) + sync MD (`completion_pct` + checklist du
-  corps) + append `.log.md`. C'est le wrapper de référence.
-- **`pm-task-status-update.py`** refuse de passer une tâche en `a_tester_demandeur`,
-  `a_mep` ou `ferme:resolu` s'il reste des items de checklist **non cochés** dans la
-  description (`--allow-unchecked` pour outrepasser si c'est volontaire). Garde-fou
-  pour ne pas livrer/clore avec une checklist non tenue à jour.
-
-## Outillage obligatoire en session PM — v1.35.0
-
-En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute
-opération touchant à l'**état des tâches, aux branches git, aux repos/submodules ou aux
-tickets Redmine** passe par les **skills/scripts PM dédiés** — **jamais à la main**. C'est
-ce qui garantit la cohérence Redmine ↔ MD ↔ worklog de session et l'application des
-couplages NORMS (auto-assignation, notes, `status_history`, logs, filigrane IA, temps/tokens).
-
-**Règle anti-trou** : si une opération de cette nature a un outil, l'utiliser ; si elle n'en
-a pas, c'est un **trou d'outillage à combler** (créer le script/skill) — pas une exception à
-faire à la main. En particulier, toute opération qui **amende l'état d'une tâche** est
-branchée derrière `pm-task-status-update.py` (**source unique des transitions**), qui propage
-Redmine + MD + log + worklog de session. Le worklog de session (`pm-session-status.py`) est
-alimenté **automatiquement** par les scripts qui modifient l'état des tâches (via
-`pm_session_hook.py`) ; cf. RM1875.
-
-### Couverture actuelle (à compléter au fil des trous identifiés)
-
-| Domaine | Opération | Outil canonique |
-|---|---|---|
-| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
-| Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
-| Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
-| Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
-| Tâche | description / checklist | `pm-task-description-update.py` |
-| Tâche | estimation / métriques / temps-tokens | `pm-task-metrics-push.py`, `pm-task-tick.py` |
-| Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
-| Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
-| Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
-| Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
-| Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
-| **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
-
-#### Journalisation des échanges avec l'humain (obligatoire, au fil de l'eau)
-
-Quand un échange utilisateur ↔ agent porte sur une tâche — arbitrage, décision,
-re-cadrage du besoin, retour de test, correction de cap — l'agent **résume** cet
-échange et l'appende au `.log.md` de la tâche **au fur et à mesure**, sans attendre
-la clôture. On journalise le *pourquoi* des décisions, pas seulement le code produit.
-
-- **Résumer, pas recopier** : une synthèse pertinente, pas le transcript verbatim.
-- **Au fil de l'eau** : une entrée par étape significative, datée. Objectif :
-  pouvoir reconstituer le fil de la tâche (et les raisons des choix) sans relire
-  la conversation d'origine.
-- N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
-  sa place dans le journal.
-
-#### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
-
-**Référence unique** pour « quand commiter, quand noter ». L'unité de travail
-tracée n'est ni le fichier ni la frappe : c'est l'**étape significative** — un
-incrément consistant et cohérent (livraison, fonctionnalité, correctif, décision
-structurante). On ne commit ni chaque fichier sauvé, ni un seul gros bloc à la
-toute fin : on commit **à la frontière d'une étape significative**.
-
-À cette frontière, à partir d'**un seul effort de fond** décliné en deux
-granularités, l'agent produit :
-
-1. **Message de commit** — résumé **court** (1 ligne + corps optionnel), langue du repo.
-2. **Note Redmine** — résumé **détaillé**, human-readable, destiné au ticket : ce
-   qui a été fait/livré et *pourquoi*, + **réf du commit** (SHA + URL GitLab, cf.
-   « Référencer un commit ») + **temps + tokens** du delta (cf. § « Journalisation
-   par commit »). C'est la trace que les humains lisent.
-3. **Entrée `.log.md`** — variante technique de l'agent (détail, décisions) + réf
-   commit + métriques, append-only (format ci-dessus). Les humains ne la lisent pas.
-4. Si l'étape est une **livraison** : transition de statut + `done_ratio` au même
-   moment (cf. §§ dédiés).
-
-> Même synthèse de fond, supports différents (long → note, court → commit,
-> technique → log) : pas trois rédactions distinctes.
-
-**Quand poster une note Redmine** — matrice unique, ne pas redéfinir ailleurs :
-
-| Événement | Note ? |
-|---|---|
-| Commit de **travail / livraison / structurant** (chose dont on veut garder trace) | **Oui** — note détaillée + réf commit + métriques |
-| Événement **structurant sans commit** (cahier des charges, réflexion, arbitrage, décision, re-cadrage) | **Oui** — note complémentaire (synthèse, sans réf commit) |
-| Commit **trivial / housekeeping** (sync frontmatter, append `.log.md`, fix typo doc PM) | **Non** (sauf `commit_note_level: all`) |
-| Simple changement de **statut** ou `done_ratio` | **Non** — Redmine les journalise nativement |
-| Mise à jour de **description** (texte/checklist) | **Oui** — cf. § « Mise à jour de la description » (Redmine ne diff pas les descriptions) |
-
-**Niveau de note par commit — configurable** (`pm.config.yml :: traceability.commit_note_level`,
-pour calibrer le bruit à l'usage) :
-- `work` (défaut) — note pour les commits de travail/livraison/structurants uniquement.
-- `all` — note pour **tout** commit rattaché à une tâche (mode test : mesurer le bruit réel).
-- `none` — pas de note auto par commit (on conserve `.log.md` + time_entry).
-
-#### Référencer un commit dans une entrée
-
-Toute entrée de journal qui **produit ou modifie du code** doit citer le(s)
-commit(s) correspondant(s), pour tracer précisément quelle livraison à quelle étape :
-
-```markdown
-Commit: <repo-alias>@<sha-court> — <message court>
-        https://gitlab.iprospective.fr/<ns>/<repo>/-/commit/<sha-complet>
-```
-
-- La forme **canonique de tracking** est le SHA (≥ 7 caractères) ou, mieux quand le
-  repo est sur GitLab, l'**URL de commit complète** (cliquable et résolvable).
-- Le frontmatter `git.branch` / `git.mr_url` reste le pointeur *courant* (branche de
-  travail, MR ouverte) ; le `.log.md` conserve l'*historique* des commits par étape.
-  Pour une référence ponctuelle hors workflow dev, utiliser `refs: [{type: commit, …}]`.
-- **Prérequis** : le workspace doit être un dépôt git. S'il ne l'est pas (ex. un
-  workspace infra non initialisé), il n'y a pas de commit à référencer — le signaler
-  explicitement dans l'entrée plutôt que de laisser un trou.
-
----
-
-### Principe fondamental
-
-**Redmine est le mutex. Les fichiers MD sont le contexte de travail.**
-
-L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
-
-L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). Ce qui doit être coordonné, c'est uniquement l'accès aux fichiers.
-
-### Règles d'écriture
-
-| Fichier | Orchestrateur | Worker assigné | Autres workers | Reviewer |
-|---|---|---|---|---|
-| `RM{id}.md` (tâche assignée) | lecture | **R+W** | lecture | lecture |
-| `RM{id}.md` (tâche parente) | **R+W** | lecture | lecture | lecture |
-| `RM{id}.log.md` | append | append | lecture | append |
-| `project.md` | **R+W** | lecture | lecture | lecture |
-| `NORMS.md` | lecture | lecture | lecture | lecture |
-
-### Protocole optimistic locking
-
-Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
-
-```
-1. Agent lit le fichier, note la valeur courante de updated (T1)
-2. Agent prépare ses modifications
-3. Agent relit le champ updated avant d'écrire
-4. Si updated ≠ T1 → collision détectée → re-lire le fichier et recommencer
-5. Si updated = T1 → écrire et mettre updated à T2 (timestamp courant)
-```
-
-Ce protocole s'applique à tous les fichiers `.md` (jamais aux `.log.md` qui sont append-only).
-
-### Règles du journal (.log.md)
-
-- **Append-only** : on n'efface jamais, on n'édite jamais une entrée existante
-- Tout agent peut appender, même en lecture seule sur la tâche
-- En cas d'écriture simultanée, l'ordre des entrées n'est pas garanti — c'est acceptable
-- Pas d'optimistic locking sur les `.log.md` (append = pas de perte de données)
-
-Format imposé pour chaque entrée :
-
-```markdown
-## 2026-04-27T14:32 — agent-dev (claude-sonnet-4-6)
-Tokens : 3 200 | Durée : 15 min
-
-Résumé de ce qui a été fait, décisions prises, problèmes rencontrés.
-```
-
-## Cascade et héritage
-
-Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
-
-**Règles :**
-- Par défaut, les valeurs d'un niveau parent sont héritées par tous ses enfants
-- Un niveau enfant peut **surcharger** une valeur en la redéfinissant explicitement
-- Les sections de texte (Description, Structure...) ne se surchargent pas — elles s'additionnent
-
-**Champs candidats à l'héritage :**
-- `team`, `defaults.priority`, `gitlab.group`, `gitlab.default_branch`
-- `redmine.instance`, contraintes globales
-
-**Lecture du contexte par un agent (worker, summarizer, reviewer) :**
-```
-1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
-2. Client     : {entity_client_dir}/*.md + {entity_memory_dir}/*.md
-3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
-4. Tâche      : paths.task_file + paths.task_log_file
-```
-
-(Chemins résolus via `pm.config.yml` — par défaut : `{projects_root}/clients/{C}/...`)
-
-Chaque niveau **complète** ou **surcharge** le précédent selon les règles ci-dessus.
-
-## Nommage des fichiers
-
-| Élément | Format |
-|---|---|
-| Tâche | `RM{id}_{titre-en-kebab-case}.md` |
-| Journal | `RM{id}_{titre-en-kebab-case}.log.md` |
-| Overview projet | `project/overview.md` |
-| Overview client | `client/overview.md` |
-
-## Schéma frontmatter — Tâche
-
-Voir [templates/task.md](../templates/task.md) pour le template complet.
-
-### Champs obligatoires
-`schema_version`, `redmine_id`, `title`, `type`, `creator`, `status`, `priority`, `created`
-
-### Champs conditionnels
-- `bug.*` — uniquement si `type: bugfix`
-- `git.*` — si développement impliqué
-- `test_url` — si environnement de test disponible
-- `deploy_actions` — si déploiement nécessaire
-- `close_reason` — obligatoire quand `status: ferme`
-- `requires_agent_test` — `default` (défaut) | `oui` | `non` | `demander` : conditionne la
-  passe agent-testeur en fin de dev (cf. § « Passe agent-testeur indépendante »). Mappé sur
-  le CF Redmine 27. Absent ⇔ `default`.
-
-## Valeurs énumérées
-
-### type
-`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
-
-### status
-`a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
-
-`a_tester_verifier` est **déprécié** (≤ v1.18.0) — alias en lecture de
-`a_tester_demandeur`, normalisé par les scripts.
-
-### priority
-`low` | `normal` | `high` | `urgent`
-
-### close_reason
-`resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`
-
-### bug.reproducibility
-`always` | `often` | `sometimes` | `rarely` | `never`
-
-### estimate.difficulty
-`low` | `medium` | `high` | `critical`
-
-### pistes.type
-`automation` | `amélioration` | `sécurité` | `performance` | `intégration` | `documentation`
-
-### pistes.effort
-`low` | `medium` | `high`
-
-### roi.immediate_benefit / roi.monthly_benefit
-`1` (négligeable) → `5` (critique)
-
-### target_env
-`null` | `local` | `dev` | `test` | `staging` | `prod` | `demo` | `qa` | `sandbox` | `<custom-kebab-case>`
-
-Doit correspondre à un `environments[].name` du `project/environments.md` (ou
-`client/environments.md` en cascade). Custom autorisé si le projet a un env spécifique
-(`staging-eu`, `prod-canary`…). `preprod` reste accepté comme **alias** de `staging`
-(cf. § Environnements) mais `staging` est la valeur canonique à privilégier.
-
-## Journal (fichier .log.md)
-
-Format append-only — ne jamais modifier rétroactivement. Chaque entrée :
-
-```markdown
-## 2026-04-26T14:32 — agent-scraper (claude-sonnet-4-6)
-Tokens : 3 200 | Durée : 15 min
-
-Résumé de ce qui a été fait...
-```
-
 ### Rôles des agents
 
 **Orchestrateur**
@@ -2187,3 +2102,155 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+## Fichiers auto-générés (écrits par l'agent summarizer)
+
+| Fichier | Niveau | Contenu | Source |
+|---|---|---|---|
+| `Changelog.md` | client + projet | Activité datée (tâches fermées, étapes franchies) | Trigger événementiel sur `ferme` |
+| `Pistes.md` | client + projet | Idées non décidées capitalisées | Agrège les `pistes[]` des tâches |
+| `Remarques.md` | client + projet | Observations factuelles des agents (patterns, anomalies) | Extraits des `.log.md` |
+| `client.md ## Structure` | client | Comment ce client opère, ses processus | Agrège observations long terme |
+| `project.md ## Structure` | projet | Comment ce projet est architecturé, ses conventions | Agrège observations long terme |
+
+## Architecture de déploiement
+
+### V1 — Machine unique (recommandée pour démarrer)
+
+Tous les agents tournent sur la même machine. L'inférence LLM est déjà distante (API Anthropic). Aucune configuration réseau requise.
+
+```
+┌─────────────────────────────────────────────────┐
+│  Serveur principal                              │
+│                                                 │
+│  ┌─────────────┐  ┌──────────┐  ┌──────────┐   │
+│  │Orchestrateur│  │ Worker A │  │ Worker B │   │
+│  │  (n8n)      │  │          │  │          │   │
+│  └──────┬──────┘  └────┬─────┘  └────┬─────┘   │
+│         └──────────────┴─────────────┘          │
+│                        ▼                        │
+│          /zfs/workspaces/ai/project-management  │
+└─────────────────────────────────────────────────┘
+          │                        │
+          ▼                        ▼
+   Anthropic API             Redmine (local)
+   (inférence LLM)
+```
+
+### V1.5 — NFS sur ZFS (ajout de serveurs sans refonte)
+
+ZFS supporte nativement le partage NFS. Le dossier de travail est monté sur les serveurs additionnels. Les agents sur tous les serveurs voient le même filesystem. Le protocole optimistic locking (`updated`) est indispensable à ce stade.
+
+```
+Serveur principal (ZFS)                 Serveur B
+┌─────────────────────────┐             ┌──────────────────┐
+│ /zfs/workspaces/ai      │───NFS──────►│ /mnt/ai-workspace│
+│                         │             │ Worker B, C      │
+│ Orchestrateur           │◄────────────│                  │
+│ Worker A                │             └──────────────────┘
+└─────────────────────────┘
+```
+
+Activation du partage NFS sur ZFS :
+```bash
+zfs set sharenfs="rw=@192.168.x.0/24,sync,no_subtree_check" zfs/workspaces/ai
+```
+
+Limites : latence sur les écritures, garanties d'atomicité réduites entre serveurs distants.
+
+### V2 — Git/branches GitLab (distribution robuste)
+
+Chaque serveur a un clone local du repo GitLab ; les agents travaillent sur des branches dédiées et Git gère la synchronisation et la détection de conflits au merge. C'est la solution la plus robuste pour distribuer le travail sans NFS.
+
+Cette architecture ne définit **que** la distribution des agents sur plusieurs machines. Le **workflow de branches et de release** (nommage des branches de ticket, branche d'intégration, preprod, MEP) est décrit une seule fois en § *Cycle de développement → test → mise en production* — ne pas le redéfinir ici.
+
+**Avantages :** distribution réelle sans NFS, historique complet des changements, détection de conflits native.
+
+### Choix selon le contexte
+
+| Situation | Architecture |
+|---|---|
+| Démarrage, 1 serveur | **V1** |
+| Ajout rapide de 1-2 serveurs | **V1.5** (NFS) |
+| Scalabilité et robustesse | **V2** (Git/branches) |
+| Très grand volume, état centralisé | V3 — base de données (future) |
+
+---
+
+## Configuration globale
+
+Les valeurs sensibles (tokens, URLs d'instance) sont définies dans `.env` (gitignored).
+Copier `.env.example` en `.env` et renseigner les variables avant utilisation.
+
+```yaml
+gitlab:
+  instance: ${GITLAB_URL}
+  ssh: ${GITLAB_SSH}
+  token: ${GITLAB_TOKEN}
+
+redmine:
+  instance: ${REDMINE_URL}     # global, peut être surchargé dans project.md
+  api_key: ${REDMINE_API_KEY}
+```
+
+La résolution des chemins est centralisée dans `pm.config.yml` (cf. section
+suivante). Plus aucun chemin filesystem n'est dérivé en concaténation manuelle
+dans le code ou la doc.
+
+## Skills PM (distribution cross-instance)
+
+Le dossier `skills/` du repo PM héberge les **skills Claude Code** (`SKILL.md`) qui font
+partie de l'outillage PM et doivent être disponibles sur **toutes les instances**. C'est
+le canal de distribution cross-instance des skills — distinct des skills personnels
+(`~/.claude/skills`, repo `claude-skills`) et des skills agents (`~/.agents/skills`).
+
+Claude Code n'auto-découvre les skills que depuis `~/.claude/skills/` (ou le `.claude/skills/`
+d'un projet, ou les plugins). Un `SKILL.md` versionné dans `skills/` n'est donc invocable
+qu'une fois **symlinké** dans le dossier skills de l'utilisateur, via
+`scripts/pm-skills-sync.py` (à lancer au setup de l'instance puis après tout pull qui
+ajoute/retire un skill). Le script est idempotent, ne supprime jamais un vrai dossier
+(collision de nom → averti, ignoré) et n'agit que sur ses propres symlinks. Détails et
+convention : `skills/README.md`.
+
+N'y placer que des skills **réellement transverses au PM** ; un skill propre à un autre
+domaine (sécurité, etc.) vit dans le repo de ce domaine.
+
+**Créer un skill PM** : poser le `SKILL.md` directement dans `skills/<nom>/` (versionné),
+et son éventuel script dans `scripts/pm-<entité>-<action>.py` (comme les autres `pm-*.py`),
+référencé en relatif depuis le `SKILL.md`. **Jamais** dans le dossier skills perso
+(`~/.claude/skills/`, repo `claude-skills`) — c'est ce repo PM qui révisionne et distribue
+les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour créer le symlink
+qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
+qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
+
+## Versionning des normes
+
+| Type | Exemple | Règle |
+|---|---|---|
+| Majeur | `1.0 → 2.0` | Changement breaking — snapshot archivé dans `archive/` |
+| Mineur | `1.0 → 1.1` | Ajout rétrocompatible — snapshot archivé dans `archive/` |
+| Patch | `1.1 → 1.1.1` | Clarification — CHANGELOG suffit, pas d'archive |
+
+### Procédure de mise à jour (anti-collision multi-sessions)
+
+Plusieurs agents/sessions partagent le **même filesystem** (un seul `NORMS.md`) et la
+**même branche de travail** du repo PM. Une mise à jour de NORMS (choix du numéro de
+version **ET** commit) peut donc entrer en collision avec une mise à jour parallèle.
+**Avant** de bumper la version et **avant** de committer, vérifier qu'aucune mise à
+jour concurrente n'a déjà engagé le même numéro de version — sous l'une de ces formes :
+
+1. **Update non commité** (sur le disque partagé) : une autre session a peut-être déjà
+   édité `NORMS.md`/`CHANGELOG.md` sans committer. → **Relire `schema_version` sur
+   disque juste avant de choisir le numéro cible** (ne pas se fier à la valeur lue en
+   début de session) et inspecter l'état de travail (`git status`, diff non commité).
+   Le numéro cible doit être strictement supérieur à la version réellement présente.
+2. **Commit non pull** (côté remote ou autre clone) : un bump peut exister dans un
+   commit pas encore récupéré. → **`git fetch` puis vérifier que la branche n'est pas
+   en retard** ; faire un `pull --rebase` si besoin avant de committer. Au push,
+   résoudre délibérément tout conflit sur la ligne `schema_version` / le `CHANGELOG`
+   (ce sont les points de conflit attendus).
+
+Règles de réduction de la fenêtre de course :
+- Le **bump de version est la dernière étape** d'édition, suivi d'un **commit
+  immédiat** (ne pas laisser traîner un bump non commité).
+- Si la version sur disque ≠ celle lue au démarrage de la tâche → **stop**, réconcilier
+  (rebaser, renuméroter) avant de poursuivre ; ne jamais bumper à l'aveugle.

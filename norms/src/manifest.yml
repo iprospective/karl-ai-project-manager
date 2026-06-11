@@ -1,22 +1,29 @@
-# Manifest d'assemblage de NORMS.md (ordre des sources).
-# Bootstrap identité : une seule source = le corps complet courant.
-# L'extraction (RM1922) carvera _full-body.md en kernel + modules,
-# en gardant `pm-norms-assemble.py check` vert à chaque étape.
+# Manifest d'assemblage de NORMS.md (ordre des sources = ordre de lecture du doc complet).
+# Source de vérité = ces fichiers. NORMS.md est GÉNÉRÉ (pm-norms-assemble.py) — ne pas
+# l'éditer à la main. Le KERNEL (NORMS-KERNEL.md) est ce que lit un worker ; les modules
+# sont chargés à la demande via les déclencheurs du KERNEL. Cf. norms/MAINTAINING.md.
 sources:
-  - _full-body.md
-  - modules/governance.md
-  - modules/project-modeling.md
-  - modules/task-links.md
-  - modules/roi-pricing.md
-  - modules/status-workflow.md
-  - modules/redmine-reference.md
-  - modules/git-mep.md
-  - modules/summarizer.md
+  - _full-body.md            # préambule : titre du document
+  - NORMS-KERNEL.md          # KERNEL : déclencheurs + tripwires + colonne vertébrale
+  # --- structure & mise en place ---
   - modules/structure-reference.md
-  - modules/environments.md
-  - modules/project-creation.md
-  - modules/redmine-hygiene.md
   - modules/session-tooling.md
+  - modules/project-modeling.md
+  - modules/project-creation.md
+  # --- workflow & Redmine ---
+  - modules/status-workflow.md
+  - modules/redmine-hygiene.md
+  - modules/redmine-reference.md
+  # --- git & release ---
+  - modules/git-mep.md
+  # --- métriques, liens, traçabilité ---
+  - modules/roi-pricing.md
+  - modules/task-links.md
   - modules/traceability.md
-  - NORMS-KERNEL.md
+  # --- environnements ---
+  - modules/environments.md
+  # --- rôles ---
   - modules/collaboration.md
+  - modules/summarizer.md
+  # --- gouvernance (hors runtime worker) ---
+  - modules/governance.md

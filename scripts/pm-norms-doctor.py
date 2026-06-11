@@ -34,7 +34,8 @@ ASSEMBLE = SCRIPTS / "pm-norms-assemble.py"
 ORACLE = SRC / "_original-frozen.md"
 LEDGER = SRC / "dedup-ledger.yml"
 
-KNOWN_GAPS = {"pm-doctor.py", "pm-sync-views.py", "pm-sync-links.py", "--list-next"}
+KNOWN_GAPS = {"pm-doctor.py", "pm-sync-views.py", "pm-sync-links.py", "--list-next",
+              "mmi-pm-git"}
 
 TOOL_RE = re.compile(r"\b((?:pm|redmine)-[a-z0-9-]+\.py)\b")
 SKILL_RE = re.compile(r"\b(mmi-pm-[a-z0-9-]+)\b")
@@ -92,6 +93,15 @@ def check_manifest():
     missing = [s for s in listed if not (SRC / s).exists()]
     orphan = sorted(on_disk - listed)
     return missing, orphan
+
+
+def check_kernel():
+    """Tout module référencé par le KERNEL (modules/X.md) doit exister. None si pas de KERNEL."""
+    kernel = SRC / "NORMS-KERNEL.md"
+    if not kernel.exists():
+        return None
+    refs = set(re.findall(r"modules/[a-z0-9-]+\.md", kernel.read_text()))
+    return sorted(r for r in refs if not (SRC / r).exists())
 
 
 def check_fences():
@@ -173,9 +183,15 @@ def main():
     else:
         print(f"  {PASS} outillage : tout outil cité (hors trous connus) existe")
 
-    for name in ("couverture déclencheurs KERNEL↔modules",
-                 "en-têtes « quand lire ceci » des modules"):
-        print(f"  · SKIPPED ({name}) — KERNEL non encore écrit")
+    kmiss = check_kernel()
+    if kmiss is None:
+        print(f"  · SKIPPED (déclencheurs KERNEL) — pas de KERNEL")
+    elif kmiss:
+        print(f"  {FAIL} déclencheurs KERNEL : modules référencés introuvables : {', '.join(kmiss)}")
+        rc |= 1
+    else:
+        print(f"  {PASS} déclencheurs KERNEL : tous les modules référencés existent")
+    print(f"  · SKIPPED (en-têtes « quand lire ceci » des modules) — à ajouter ultérieurement")
 
     print(f"== {'OK' if rc == 0 else 'ÉCHEC'} ==")
     return rc

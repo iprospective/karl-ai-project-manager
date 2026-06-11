@@ -114,3 +114,24 @@ coexister sur un même projet.
 il **ne déclenche aucun héritage** de frontmatter ni d'aspects. La cascade reste
 mono-client (un projet n'hérite que de son `client:`).
 
+### Aspects — cahier des charges dynamique
+
+Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
+(aspects) dans le dossier `client/` ou `project/`. Cette approche évite le fichier
+monolithique illisible et permet d'enrichir progressivement la connaissance du périmètre.
+
+**Règles :**
+- `overview.md` est **obligatoire** — il porte le frontmatter et un index des aspects
+- Tout autre fichier est **optionnel** — sa présence indique que l'aspect est documenté
+- L'agent qui charge le contexte lit **tous** les fichiers du dossier `project/` (et `client/`)
+- Les templates d'aspects sont dans `templates/aspects/{domaine}/{aspect}.md`
+
+**Cascade des aspects :**
+Un aspect peut exister au niveau client ET au niveau projet. L'agent lit les deux.
+Le projet précise/surcharge le client sur les points en contradiction.
+
+Exemple :
+- `{entity_client_dir}/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
+- `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
+→ Pour ce projet, l'agent applique AWS (override).
+

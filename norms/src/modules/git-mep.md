@@ -91,3 +91,154 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 
 ---
 
+#### Commit + push systématique (obligatoire)
+
+Toute modification d'un fichier rattaché à un projet PM **doit être suivie
+d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
+git approprié. La règle s'applique à **deux périmètres** :
+
+1. **Dossier projet PM côté `{projects_root}` (= ai-projects)** : `overview.md`,
+   aspects, fichiers de tâche `RM*.md`/`.log.md`, ou structure d'entité
+   (`client/`, `memory/`). Repo cible :
+   `gitlab:iprospective/ai-artificial-intelligence/ai-projects.git`.
+
+2. **Workspace de code lié au projet** côté `/zfs/workspaces/<...>/` — identifié
+   par la **paire de symlinks** :
+   - côté PM : `{paths.workspace_link}` (typiquement `…/projects/<slug>/workspace`)
+     pointe vers le workspace
+   - côté workspace : `{paths.reverse_link}` (`.mmi-pm`) pointe vers le projet PM
+
+   Tout fichier modifié dans ce workspace (code, conf, docs internes) doit être
+   commit+push dans le repo applicatif du workspace lui-même (remote GitLab
+   canonique `git:`/`gitlab:iprospective/<...>`, **pas** ai-projects ; cf.
+   « Remote canonique GitLab » ci-dessous).
+
+**Règles communes aux deux périmètres** :
+- Stager **uniquement** les fichiers touchés (jamais `git add .` ou `-A`),
+  pour ne pas embarquer d'autres modifs en cours non liées qui ne sont pas
+  de ta responsabilité — chacun est responsable de ses propres modifs.
+  **Vérification active au commit (obligatoire) — v1.29.0, généralisée v1.30.1** :
+  **tous les repos partagés** — `ai-projects` **comme le repo système
+  `project-management`** (NORMS, `templates/`, `scripts/`, `pm.*.yml`) et **le
+  workspace de code** — sont **fréquemment dirty en concurrence** (plusieurs
+  sessions/agents en parallèle laissent des fichiers modifiés ou non suivis qui ne te
+  concernent pas ; ex. typique : `pm.pricing.yml`, `pm-task-tick.py` modifiés par une
+  autre tâche pendant que tu édites NORMS). La règle « ne committer que ses propres
+  modifs » vaut donc **dans chaque repo, sans exception**. Avant tout
+  commit : (1) stager par **chemin explicite** les seuls fichiers de la tâche
+  courante (pas de glob large qui ratisse) ; (2) **relire le set stagé**
+  (`git diff --cached --name-only`) et confirmer que **chaque** entrée concerne bien
+  cette tâche ; (3) committer seulement alors. Ne **jamais** committer un fichier
+  qu'on n'a pas soi-même modifié dans la session courante, même s'il apparaît dirty
+  (ni un fichier non suivi appartenant à une autre tâche). Une solution d'isolation
+  propre (workspaces instanciés par projet / zones de stash temporaires) est **à
+  l'étude** — cf. ticket dédié
+- Message de commit court, dans la langue du repo, précisant
+  l'entité/projet/tâche concerné
+- Push systématique : pas de "je commit, le user pushera" — le repo doit
+  refléter l'état canonique à tout moment, sinon les autres agents (ou toi
+  dans une session future) travaillent sur une vue divergente
+- Si le push échoue (conflit avec `origin/<branche>`), `git pull --rebase`
+  puis re-push ; en cas de conflit non trivial, escalader au demandeur
+- Ne **jamais** committer un dossier projet PM dans le repo
+  `project-management/` lui-même : `projects/` est gitignored par construction
+  (cf. section précédente)
+- Si le workspace de code n'est pas (encore) un repo git, c'est probablement
+  une lacune de bootstrap — ouvrir/relancer la tâche `002-git-repos` du
+  bootstrap plutôt que de "skipper" le commit
+
+Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
+agents pilotés interactivement par l'utilisateur via Claude Code).
+
+#### Remote canonique GitLab, MR, et gotchas API — v1.20.4
+
+- **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
+  (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
+  qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
+  traque la branche d'intégration locale.
+- **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
+  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
+  Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
+  passe par GitLab.
+- **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
+  une merge request de la branche de ticket vers la branche de base (version
+  active ou `dev`, cf. sous-sections suivantes), puis la merger.
+- **Gotcha glab/API GitLab — les `%2F` ne passent pas** : sur
+  `gitlab.iprospective.fr`, le front Apache **rejette les chemins projet
+  URL-encodés** (`iprospective%2Fdolibarr%2F…` → 404 Apache). Workaround
+  systématique : utiliser l'**ID numérique** du projet, récupéré sans slash via
+  une recherche :
+
+  ```bash
+  # 1) trouver l'ID numérique (pas de %2F dans une recherche)
+  glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
+  # 2) agir avec l'ID (ex. créer une MR vers la branche de version active)
+  glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
+    -f source_branch="<RM-id>-<slug>" -f target_branch="19.0-mmi" -f title="…" \
+    -f remove_source_branch=true
+  # 3) merger
+  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge"
+  ```
+- **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
+  `GIT PR` (id 4) avec son URL (cf. sous-section suivante).
+
+#### Branche de travail par ticket (obligatoire) — v1.17.0
+
+Tout travail de code rattaché à un ticket PM se fait sur une **branche dédiée
+au ticket**, jamais directement sur la branche d'intégration (`main`, `19.0-mmi`,
+etc.). Convention de nommage **systématique** :
+
+    <RM-id>-<slug-court>
+
+où `<RM-id>` est l'identifiant Redmine (sans préfixe) et `<slug-court>` un
+résumé court en kebab-case du sujet (≈ 2-4 mots, **pas** le titre complet de la
+tâche). Exemple : `1762-etransactions-historique`.
+
+- La branche est créée depuis la branche d'intégration courante du repo de code.
+- Le frontmatter `git.branch` de la tâche pointe vers cette branche (cf. section
+  « Lien Redmine ↔ MD ») ; `git.mr_url` vers la MR/PR une fois ouverte.
+- **Renseigner le custom field Redmine « GIT Branche » dès la création de la
+  branche** (v1.18.0) : le CF Redmine `GIT Branche` (id 3, format string) reçoit
+  le **nom de la branche** ; le CF `GIT PR` (id 4) reçoit l'URL de la MR/PR une
+  fois ouverte. C'est le CF dédié, **pas une note** : il rend l'info visible et
+  filtrable côté Redmine. Le frontmatter MD `git.branch` / `git.mr_url` reste le
+  miroir local.
+- À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
+- (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
+  réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
+  courte ci-dessus.
+
+#### Projets versionnés : branche de version active (base de branchement) — v1.20.0
+
+Certains projets ne suivent pas un simple modèle `prod`/`dev` mais une **famille
+de versions**, chacune avec sa propre branche d'intégration. C'est typiquement le
+cas des projets et **modules Dolibarr** : en plus de `dev` (= prochaine version)
+et `master`, il existe une **branche par version** (`14.0`, `15.0-mmi`,
+`16.0-mmi`, `19.0-mmi`…), et l'une d'elles est la **version active** = celle
+déployée en production.
+
+Le modèle de versionnement est **déclaré dans le frontmatter de l'`overview.md`
+du projet** via le bloc `versioning` (absent ⇒ projet non versionné, modèle
+`prod`/`dev` classique) :
+
+```yaml
+versioning:
+  scheme: dolibarr        # type de versionnement (ou null)
+  active_version: "19.0"  # version déployée en production
+  active_branch: 19.0-mmi # branche d'intégration de la version active (base des tickets prod)
+  next_branch: dev        # branche de la prochaine version (base des tickets next-version)
+```
+
+- Pour un module appartenant à un écosystème (ici Dolibarr), `active_version` suit
+  celle de l'application hôte.
+- Le choix de la **branche de base** d'un ticket dépend de la cible :
+  - ticket `feature`/`fix` **pour la prod actuelle** → partir de `active_branch`
+    (ex. `19.0-mmi`) ;
+  - ticket **réservé à la prochaine version active** → partir de `next_branch`
+    (ex. `dev`).
+- La branche de ticket `<RM-id>-<slug-court>` est tirée de cette branche de base
+  et y est remergée à la livraison : la branche de base joue alors le rôle de
+  « branche d'intégration » au sens de la sous-section précédente.
+- En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
+  avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
+

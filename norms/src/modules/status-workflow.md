@@ -157,3 +157,211 @@ demandeur). Conséquence visible : un journal d'assignation supplémentaire (→
 Redmine→NORMS (`pm-task-sync.py`) doit connaître l'id **21** sous peine de laisser le MD
 périmé sur `etude_chiffrage_en_cours`.
 
+### Tâche
+
+- `redmine_id: <int>` est **obligatoire** dans le frontmatter
+- Le nom de fichier `RM{id}_{titre}.md` **doit correspondre** à `redmine_id`
+  (cohérence vérifiée par le validateur)
+- Pas de tâche MD sans ticket Redmine préexistant
+
+### Projet
+
+- `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
+- `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
+  Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
+
+### Workflow multi-tour (reprise après notes du demandeur)
+
+Quand un ticket revient à un worker (réattribution, ou statut passe à `a_corriger`),
+le worker doit ne traiter que les **nouveautés** depuis sa dernière vue du ticket.
+
+Champs du frontmatter de la tâche :
+- `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
+- `redmine_last_checked_at: <str iso>` — timestamp du dernier check
+
+Protocole de reprise :
+1. `scripts/redmine-fetch-updates.py --issue <id>` → affiche tous les journaux
+   postérieurs à `redmine_last_journal_id`, et met à jour ce champ
+2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
+3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
+4. Appliquer le travail demandé selon le protocole worker standard
+5. Resoumettre via `redmine-post-note.py --norms-status a_tester_demandeur` (qui
+   réattribue automatiquement au demandeur)
+
+Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
+**dernière entrée existante** au moment du fetch, pour que le worker ne traite que
+ce qui se passe **après** sa prise en charge.
+
+**Persistance dans le journal** : `redmine-fetch-updates.py` appende chaque nouveau
+journal Redmine récupéré au fichier `.log.md` de la tâche (append-only, conforme
+NORMS). Format d'entrée :
+
+```markdown
+## YYYY-MM-DDTHH:MM — Redmine #<journal_id> — <auteur Redmine>
+Source : Redmine (sync via redmine-fetch-updates)
+
+Changements :
+- `field` : `old` → `new`
+- ...
+
+Note (verbatim) :
+> ligne 1
+> ligne 2
+```
+
+Le worker peut ainsi retrouver l'historique complet des échanges (côté Redmine ET
+côté agent) en relisant simplement le `.log.md`, sans avoir à re-fetcher l'API.
+
+### Synchronisation des statuts MD ↔ Redmine (obligatoire)
+
+**Tout changement de `status` dans le frontmatter d'une tâche doit être répercuté
+sur le ticket Redmine correspondant**, dans le même cycle de travail.
+
+L'agent (ou l'orchestrateur) qui modifie le `status` MD doit :
+1. Mettre à jour le frontmatter (`status`, `status_history`, `updated`)
+2. Appender l'événement dans `.log.md`
+3. Poster une note Redmine + changer le `status_id` correspondant
+   (typiquement via `scripts/redmine-post-note.py --norms-status <statut>`)
+
+**Demandeur effectif = `author_id` natif Redmine** (cf. RM1735) :
+
+Le ticket porte son demandeur via le champ standard `author_id`. À la création
+par `pm-task-add.py`, un PUT immédiat ajuste `author_id` :
+- **Par défaut** → Manager IA (`pm.config.yml :: ia.default_manager.redmine_id`)
+- **Avec `--initiator-agent`** → karl (id=79) : audits autonomes, bootstrap
+  automatique, tâches initiées par un agent
+
+Le CF `Demandeur` (id=12) est **déprécié** (cf. RM1739 pour la suppression
+définitive sur l'instance). Plus aucun script ne le consulte.
+
+**Règle d'attribution Redmine** :
+- Passage en `etude_chiffrage_a_valider` → ré-attribuer au **demandeur** (author) :
+  l'étude / CDC / chiffrage sont finis et soumis à sa validation. **Même résolveur
+  que `a_tester_demandeur`** (author ≠ karl → author ; author == karl → Manager IA).
+  Appliqué automatiquement par `pm-task-status-update.py`.
+- Passage en `a_tester_dev` → ré-attribuer à un **testeur ≠ le dev** (agent ou
+  humain), pour un test indépendant en env `test`. Manuel via `--assign-to <id>`
+  pour l'instant ; l'orchestrateur routera vers un worker-test quand il sera en place.
+- Passage en `a_tester_demandeur` → ré-attribuer au **demandeur** (author).
+  Résolveur appliqué par `pm-task-status-update.py` :
+  1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
+  2. `author ≠ karl` avec email accessible → cet `author`
+  3. fallback (email inaccessible) → Manager IA
+- Passage en `a_mep` → ré-attribuer au **responsable MEP / intégration** (par défaut
+  Manager IA ou orchestrateur ; configurable par projet).
+- Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
+  en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
+- Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
+  l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
+- Passage en `en_pause` → **conserver** l'attribution courante (la tâche reste
+  possédée, juste sortie des files actives).
+- Passage en `ferme` → conserver l'attribution courante.
+
+> Note : `a_tester_verifier` (≤ v1.18.0) est **déprécié**, remplacé par le couple
+> `a_tester_dev` / `a_tester_demandeur`. Les scripts l'acceptent encore en lecture
+> et le normalisent vers `a_tester_demandeur` (rétrocompat).
+
+**Manager IA** (cf. RM1734) : humain qui supervise les agents (karl + futurs),
+reçoit la notif mail à chaque livraison, se voit assigner les tickets
+`a_tester_demandeur` quand l'auteur est karl. Configuré dans `pm.config.yml` :
+
+```yaml
+ia:
+  default_manager:
+    redmine_id: 5
+    email: mathieu@iprospective.fr
+    name: Mathieu Moulin
+```
+
+V2 prévue : cascade par projet (`ia.managers:` par `paths.project`) et/ou
+champ `ia_manager:` dans le frontmatter de `project/overview.md`.
+
+### Prise en charge d'une tâche : `en_cours` ⇒ auto-assignation (obligatoire) — v1.12.0
+
+**Règle** : un agent qui commence à travailler sur une tâche doit, dans le **même
+mouvement** :
+
+1. Passer le `status` de la tâche à `en_cours` (côté Redmine + frontmatter MD + log)
+2. **S'assigner le ticket Redmine** (champ `assigned_to`) si ce n'est pas déjà le cas
+
+Les deux opérations sont **indissociables**. Une tâche `en_cours` sans
+`assigned_to` cohérent est un état invalide : `en_cours` signifie « un agent
+nommément identifié est en train de faire le travail maintenant ». Pas
+d'`en_cours` flottant.
+
+Cette règle vaut **même hors orchestrateur** (mode interactif Claude Code) : si
+un humain demande à l'agent de bosser sur RM1234 et que le ticket n'est ni à
+`en_cours` ni assigné à l'agent, l'agent fait lui-même les deux opérations avant
+de démarrer le travail effectif.
+
+**Symétrie avec la `Vérification initiale` de [worker-common.md](../agents/worker-common.md)** :
+ce qu'un worker orchestré vérifie passivement (status + assigné à soi), un agent
+en mode interactif l'établit activement au démarrage.
+
+**Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas
+encore status + assignation. En attendant un patch, l'agent enchaîne
+manuellement :
+
+```bash
+./pm-task-status-update.py <RM-id> en_cours --note "Prise en charge"
+./redmine-post-note.py --issue <RM-id> --note "Auto-assignation <agent>" --assign-to <user-id>
+```
+
+→ TODO scripts : `pm-task-status-update.py` doit, quand la cible est `en_cours`,
+auto-assigner au user Redmine de l'agent courant (résolu via
+`pm.config.yml :: agents.<id>.redmine_id`, défaut karl=79).
+
+**Mapping NORMS → Redmine (instance iprospective)** — après consolidation RM1742 :
+
+Statut Redmine (un seul terminal `Fermé`) :
+
+| NORMS | Redmine | id |
+|---|---|---|
+| `nouveau` | Nouveau | 1 |
+| `a_etudier_chiffrer` | A étudier / Qualifier | 8 |
+| `etude_chiffrage_en_cours` | Etude/CDC en cours | 14 |
+| `etude_chiffrage_a_valider` | Etude/CDC à valider | 21 |
+| `a_faire` | A Faire | 12 |
+| `en_cours` | En cours | 2 |
+| `a_tester_dev` | A tester/vérifier dev | 19 |
+| `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
+| `a_mep` | Résolu/Validé/A MEP | 3 |
+| `en_mep` | MEP/Tester en preprod | 20 |
+| `en_pause` | Attente retour / en pause | 13 |
+| `a_corriger` | A corriger/finir | 11 |
+| `ferme` (toutes raisons) | Fermé | **18** |
+
+`a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
+`a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le
+demandeur, mergé dans l'intégration, en file de MEP) — à ne pas confondre avec
+`ferme`.
+
+`nouveau` (Nouveau, id 1) est le **statut d'entrée** : `pm-task-add.py` crée par
+défaut un ticket en `nouveau` (ticket déposé, non encore trié/engagé), avec
+`author_id` posé mais **sans `assigned_to`** (pas encore pris en charge). Le tri
+vers `a_faire` / `a_etudier_chiffrer` / `en_cours` se fait ensuite (manuellement
+ou à la création via `pm-task-add.py --status <statut>`, qui crée en `nouveau`
+puis transitionne via `pm-task-status-update.py` pour bénéficier du couplage
+NORMS — assignation, note, `status_history`). Un ticket reste légitimement en
+`nouveau` tant qu'il n'a pas été engagé ; ce n'est pas un état invalide.
+
+Raison de fermeture (CF `Raison Fermé`, id=11, format enumeration) — valeurs :
+
+| NORMS `close_reason` | CF Raison Fermé | value_id |
+|---|---|---|
+| `resolu` | Résolu | 10 |
+| `wont_fix` / `hors_perimetre` | Rejeté | 11 |
+| `abandonne` | Abandonné | 12 |
+| `doublon` | Déjà existant | 13 |
+| `invalide` | Pas un bug / rien à faire | 14 |
+
+Note : les anciens statuts terminaux `Résolu/Fermé` (5), `Rejeté` (6),
+`Pas un bug / Déjà existant` (7), `Abandonné` (10) sont **dépréciés** —
+à désactiver/supprimer en UI Redmine. Attention à ne pas les confondre avec le
+nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
+
+## Lien Redmine ↔ MD (obligatoire)
+
+Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
+Cette règle est vérifiée par le validateur.
+

@@ -12,3 +12,11 @@ sources:
   - modules/redmine-reference.md
   - modules/git-mep.md
   - modules/summarizer.md
+  - modules/structure-reference.md
+  - modules/environments.md
+  - modules/project-creation.md
+  - modules/redmine-hygiene.md
+  - modules/session-tooling.md
+  - modules/traceability.md
+  - NORMS-KERNEL.md
+  - modules/collaboration.md

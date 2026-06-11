@@ -94,6 +94,17 @@ def check_manifest():
     return missing, orphan
 
 
+def check_fences():
+    """Chaque source doit avoir un nombre PAIR de ``` (sinon un bloc de code a été
+    coupé entre deux fichiers — invisible à la couverture qui ne voit que les lignes)."""
+    bad = []
+    for f in active_source_files():
+        n = sum(1 for l in f.read_text().splitlines() if l.lstrip().startswith("```"))
+        if n % 2:
+            bad.append(f"{f.relative_to(SRC)} ({n})")
+    return bad
+
+
 def tool_exists(token):
     if token == "--list-next":
         return False
@@ -144,6 +155,13 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} manifest : sources cohérentes, pas d'orphelin")
+
+    bad_fences = check_fences()
+    if bad_fences:
+        print(f"  {FAIL} fences : bloc(s) de code coupé(s) (``` impair) : {', '.join(bad_fences)}")
+        rc |= 1
+    else:
+        print(f"  {PASS} fences : tous les blocs de code équilibrés")
 
     tools = scan_tools()
     gaps = sorted(t for t in tools if not tool_exists(t) and t not in KNOWN_GAPS)

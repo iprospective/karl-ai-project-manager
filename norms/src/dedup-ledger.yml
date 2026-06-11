@@ -1,0 +1,20 @@
+# Registre des écarts au verbatim de _original-frozen.md (l'oracle de non-perte).
+#
+# RÈGLE : toute ligne de l'oracle qui n'apparaît PLUS verbatim dans les sources
+# actives (kernel + modules, listées dans manifest.yml) DOIT figurer ici, sinon
+# pm-norms-doctor signale une perte. C'est le journal auditable de TOUTE
+# déviation au texte d'origine — la contrepartie du principe « zéro perte ».
+#
+# Deux natures :
+#   removed   — ligne supprimée car DOUBLON LITTÉRAL non normalisable (gardée une
+#               seule fois ailleurs sous une autre forme). Lister le texte retiré.
+#   rewritten — ligne RÉÉCRITE (ex. note périmée passée au présent). old = texte
+#               d'origine retiré ; reason = justification.
+#
+# NB : un doublon strictement identique (même texte normalisé présent ailleurs)
+# n'a PAS besoin d'entrée — la couverture le retrouve via l'autre occurrence.
+# Seuls les retraits/réécritures de lignes UNIQUES doivent être inscrits.
+
+removed: []
+
+rewritten: []

@@ -125,7 +125,10 @@ ENGINES = {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
         # cette invocation, sinon le TUI bloque sur l'invite de confiance du dossier.
         "cmd": os.environ.get("KARL_AGENT_VIBE_CMD", "vibe --trust"),
-        "ready_markers": ("Mistral Vibe", "Type /help"),
+        # « Type /help » n'apparaît que sur le TUI prêt — PAS sur l'écran d'onboarding
+        # première-exécution (« Welcome to Mistral Vibe »), qui matcherait un marqueur
+        # « Mistral Vibe » trop lâche et ferait injecter le prompt dans le wizard.
+        "ready_markers": ("Type /help",),
     },
     "shell": {
         "cmd": "bash -l",

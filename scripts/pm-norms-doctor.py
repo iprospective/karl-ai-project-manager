@@ -87,7 +87,8 @@ def check_coverage():
 
 def check_manifest():
     listed = set(_pna().read_manifest_sources())
-    on_disk = {p.name for p in SRC.glob("*.md") if not p.name.startswith("_original")}
+    on_disk = {str(p.relative_to(SRC)) for p in SRC.rglob("*.md")
+               if not p.name.startswith("_original")}
     missing = [s for s in listed if not (SRC / s).exists()]
     orphan = sorted(on_disk - listed)
     return missing, orphan

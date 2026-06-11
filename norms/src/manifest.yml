@@ -4,3 +4,11 @@
 # en gardant `pm-norms-assemble.py check` vert à chaque étape.
 sources:
   - _full-body.md
+  - modules/governance.md
+  - modules/project-modeling.md
+  - modules/task-links.md
+  - modules/roi-pricing.md
+  - modules/status-workflow.md
+  - modules/redmine-reference.md
+  - modules/git-mep.md
+  - modules/summarizer.md

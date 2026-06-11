@@ -189,8 +189,16 @@ user peuvent en dépendre) — il faut les flags pour les retirer. Le code et le
 
 ### deploy_actions (manuel, une fois)
 
-- [ ] Installer sur `dev` : `tmux`, `autossh`, et un moteur (`claude` ou `opencode`).
-      `python3` est déjà présent. (`sudo apt install tmux autossh`)
+- [ ] Installer sur `dev` : `tmux`, `autossh`, et au moins un moteur (`claude`,
+      `opencode`, `vibe`). `python3` est déjà présent. (`sudo apt install tmux autossh`)
+- [ ] **Moteurs multi (RM1921)** : chaque moteur doit être *résolvable et
+      authentifié* dans l'environnement du service. Sur `dev` :
+      `claude` et `vibe` sont dans `~/.local/bin` (dans le PATH du service) ;
+      **`opencode` est dans `~/.opencode/bin` (hors PATH)** → définir
+      `KARL_AGENT_OPENCODE_CMD=/home/mathieu/.opencode/bin/opencode` dans `.env`.
+      **`vibe` exige un onboarding première-exécution** (clé API Mistral via le
+      wizard `vibe`/`vibe --setup`, stockée dans `~/.vibe/config.toml`) — sinon le
+      TUI reste bloqué sur « Welcome to Mistral Vibe ». Auth analogue à claude/opencode.
 - [ ] Configurer l'alias SSH `mmi` + clé autorisée **dans le `~/.ssh/config` de
       `dev`** (l'host MathouDell l'a déjà ; le conteneur `dev` est distinct).
 - [ ] `loginctl enable-linger mathieu` sur `dev` (fait par l'installeur ; peut

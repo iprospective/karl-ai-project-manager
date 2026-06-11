@@ -1,0 +1,6 @@
+# Manifest d'assemblage de NORMS.md (ordre des sources).
+# Bootstrap identité : une seule source = le corps complet courant.
+# L'extraction (RM1922) carvera _full-body.md en kernel + modules,
+# en gardant `pm-norms-assemble.py check` vert à chaque étape.
+sources:
+  - _full-body.md

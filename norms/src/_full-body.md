@@ -1,8 +1,3 @@
----
-schema_version: "1.38.0"
-updated: 2026-06-11
----
-<!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
 # Normes de gestion des tâches — v1.38.0
 

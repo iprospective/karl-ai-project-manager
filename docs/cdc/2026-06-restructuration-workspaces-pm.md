@@ -222,6 +222,33 @@ gitlab.iprospective.fr/clients/           ← groupe chapeau
 - **Pont AGENTS.md (RM1892)** : réécrit pour « `.mmi-pm` = dossier » + pointer l'outil
   de gestion (`/zfs/workspaces/.mmi-pm-core/`) ; versionné dans le repo env (§ 3.1).
 
+### 3.7 Continuité de l'environnement agent pendant la migration
+
+Tout déplacement de dossier casse silencieusement une partie de l'outillage de la
+machine **et des agents eux-mêmes**. Checklist à dérouler à **chaque** déplacement
+(workspace client/projet, ou outil PM) — à outiller dans le tooling de migration :
+
+1. **Sessions Claude Code** : l'historique d'un workspace vit dans
+   `~/.claude/projects/<chemin-cwd-encodé>/` (ex. `-zfs-workspaces-ai-project-management`).
+   Déplacer un workspace ⇒ **renommer le dossier de sessions** vers le nouveau chemin
+   encodé, sinon perte de `claude --resume`, de l'auto-memory projet et des marqueurs
+   de sessions. Y compris pour les sessions **en cours** sur les dossiers déplacés
+   (les fermer/marquer avant le move du dossier concerné).
+2. **Auto-memory & mémoires persistantes** : suivent le dossier de sessions (même
+   racine) ; leur **contenu** référence des chemins absolus → passe de réécriture.
+3. **Instructions globales** : `~/.claude/CLAUDE.md` (host) et
+   `/zfs/workspaces/AGENTS.md` référencent `ai/project-management` → mise à jour
+   coordonnée avec P6, ainsi que les skills `~/.claude/skills/mmi-pm-*`.
+4. **Chemins durs côté services** : systemd sur dev.lxc (cockpit, ttyd, tunnel mmi),
+   bot Telegram, hooks de tick temps/tokens, cron `pm-sync-push`, `.env`
+   (`PM_DIR`/`PROJECTS_PATH`) — inventaire avant P6 (risque 7).
+5. **La session qui exécute la migration** : son cwd peut disparaître sous ses pieds
+   → opérer depuis un cwd stable hors des dossiers déplacés ; après le déménagement
+   de l'outil (P6), **redémarrer les sessions** ; le snapshot git/contexte d'une
+   session restée ouverte devient faux → re-vérifier l'état réel avant toute écriture.
+6. **Symlinks absolus restants** (`projects_used/`, vue compat, liens de navigation) :
+   re-pointage systématique + vérification dangling (RM1883 en appui).
+
 ## 4. Chantiers
 
 ### C0 — Hygiène préalable (court, débloque le reste)
@@ -327,6 +354,11 @@ système fonctionnel ; sauvegarde complète préalable (faite par Mathieu, 2026-
   niveau client ? (défauts ? erreur explicite ?) — à spécifier dans RM1885.
 7. **Telegram/cockpit/hooks** : les chemins durs éventuels vers `ai/project-management`
   (services systemd sur dev.lxc, bot, hooks) à inventorier avant P6.
+8. **Continuité de l'environnement agent** (ajout 2026-06-12, remarques Mathieu) :
+  pendant la restructuration, les agents perdent leurs repères (cwd, snapshot git,
+  dossiers de sessions Claude indexés sur le chemin, mémoires avec chemins absolus)
+  → checklist § 3.7 obligatoire à chaque déplacement, intégrée aux tickets RM1945
+  (déménagement outil) et RM1946 (normalisation workspaces).
 
 ## 7. Récapitulatif des tickets à créer (après validation du CDC)
 

@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 import redmine_utils
 
 try:
@@ -252,6 +253,8 @@ def main():
                     help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
                          "description contient des items de checklist non cochés (sinon bloqué — "
                          "NORMS § màj description : cocher au fil de l'eau).")
+    ap.add_argument("--no-commit", action="store_true",
+                    help="Pas d'auto-commit git des fichiers écrits (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -452,6 +455,12 @@ def main():
         pm_session_hook.log_to_session(
             f"RM{args.rm_id}", label=fm.get("title"),
             status=args.status, project=proj)
+
+    # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
+    # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).
+    if not args.dry_run and not args.no_commit:
+        pm_git.autocommit([md_path, log_path],
+                          f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
 
 
 if __name__ == "__main__":

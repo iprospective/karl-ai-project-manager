@@ -90,3 +90,12 @@ notifications:
 #   none : aucune note auto par commit (.log.md + time_entry conservés)
 traceability:
   commit_note_level: work
+
+# ── Auto-commit git des scripts pm-* (RM1834 piste A) ─────────────────────
+# Chaque script pm-* committe (et pousse) atomiquement les fichiers qu'il
+# vient d'écrire — `git commit -- <chemins>` sous verrou local, non-fatal
+# (un échec n'interrompt jamais l'opération principale). Plus de staging
+# manuel dans l'arbre partagé multi-sessions. Override par appel : --no-commit.
+git:
+  autocommit: true
+  autopush: true

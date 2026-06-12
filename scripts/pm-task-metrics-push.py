@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 import redmine_utils
 
 try:
@@ -172,6 +173,7 @@ def main():
     # Stubs de dépréciation (RM1825) : modes retirés, message d'orientation.
     ap.add_argument("--commit", metavar="HASH", help=argparse.SUPPRESS)
     ap.add_argument("--cumul", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -188,6 +190,8 @@ def main():
     if dirty and not args.dry_run:
         write_task_fm(md_path, fm, m)
         print(f"✓ frontmatter métriques mis à jour : {md_path.name}")
+        if not args.no_commit:
+            pm_git.autocommit([md_path], f"pm(metrics): RM{args.rm_id} estimation poussée")
 
 
 if __name__ == "__main__":

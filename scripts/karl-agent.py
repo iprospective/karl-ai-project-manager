@@ -31,7 +31,8 @@ SÉCURITÉ
 ──────────────────────────────────────────────────────────────────────────────
 API (JSON, localhost:9876)
   GET  /                        → text/html (cockpit web, RM1873)
-  GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities}  (public)
+  GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities,
+                                   engines, models}  (public ; models = clés du catalogue par moteur, RM1941)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
@@ -42,8 +43,11 @@ API (JSON, localhost:9876)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   POST /tickets {title, type, priority, project, description?, tags?}
                                 → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
-  POST /spawn  {rm_id, cwd?, engine?, prompt?, width?, height?}
-                                → {rm_id, tmux, created:true}
+  POST /spawn  {rm_id, cwd?, engine?, model?, prompt?, width?, height?}
+                                → {rm_id, tmux, model, model_source, created:true}
+                                  model : "" = défaut moteur · "ticket" = frontmatter
+                                  ai_model (cascade tâche→projet) · clé du catalogue
+                                  serveur (cockpit/models.json, RM1941)
   POST /send   {rm_id, msg, enter?=true}
                                 → {rm_id, sent:true}
   GET  /capture/<rm_id>[?lines=N]
@@ -116,10 +120,12 @@ ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
+        "model_flag": "--model",
     },
     "opencode": {
         "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
         "ready_markers": ("Ask anything", "tab agents", "ctrl+p commands"),
+        "model_flag": "--model",          # format provider/model
     },
     "vibe": {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
@@ -129,6 +135,9 @@ ENGINES = {
         # première-exécution (« Welcome to Mistral Vibe »), qui matcherait un marqueur
         # « Mistral Vibe » trop lâche et ferait injecter le prompt dans le wizard.
         "ready_markers": ("Type /help",),
+        # vibe n'a pas de flag modèle : override par env du champ active_model
+        # du ~/.vibe/config.toml (le modèle doit y être déclaré dans [[models]]).
+        "model_env": "VIBE_ACTIVE_MODEL",
     },
     "shell": {
         "cmd": "bash -l",
@@ -136,6 +145,54 @@ ENGINES = {
     },
 }
 DEFAULT_ENGINE = os.environ.get("KARL_AGENT_DEFAULT_ENGINE", "claude")
+
+# Catalogue des modèles par moteur (RM1941). Même modèle de sécurité que les
+# moniteurs : le client envoie une CLÉ de ce catalogue, jamais une valeur brute ;
+# le serveur mappe vers la valeur réelle (flag ou env selon le moteur). Valeurs
+# spéciales côté client : "" = défaut du moteur, "ticket" = prescrit par le
+# frontmatter de la tâche (`ai_model`, cascade tâche → overview projet).
+# Surchargeable via cockpit/models.json : {"<engine>": {"clé": "valeur", …}}.
+_DEFAULT_MODELS = {
+    "claude": {
+        "opus": "opus",
+        "sonnet": "sonnet",
+        "haiku": "haiku",
+    },
+    "opencode": {
+        "claude-opus": "anthropic/claude-opus-4-8",
+        "claude-sonnet": "anthropic/claude-sonnet-4-6",
+        "deepseek": "ollama-cloud/deepseek-v4-pro",
+        "deepseek-free": "opencode/deepseek-v4-flash-free",
+        "qwen-coder": "ollama-cloud/qwen3-coder-next",
+    },
+    "vibe": {
+        "mistral-medium": "mistral-medium-3.5",
+        "vibe-cli": "mistral-vibe-cli-latest",
+        "devstral-small": "devstral-small-latest",
+        "devstral-local": "devstral",
+    },
+}
+
+# Garde sur les valeurs de modèle issues du frontmatter (`ai_model`) : ce sont des
+# données du repo (pas du client HTTP), mais on refuse quand même tout ce qui ne
+# ressemble pas à un identifiant de modèle avant interpolation dans la commande.
+_MODEL_VALUE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}$")
+
+
+def _model_catalog() -> dict:
+    """Catalogue effectif des modèles par moteur (cockpit/models.json sinon défauts)."""
+    f = COCKPIT_DIR / "models.json"
+    if f.is_file():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and all(
+                isinstance(v, dict) and all(isinstance(x, str) for x in v.values())
+                for v in data.values()
+            ):
+                return data
+        except (ValueError, OSError):
+            pass
+    return _DEFAULT_MODELS
 DEFAULT_WIDTH = int(os.environ.get("KARL_AGENT_WIDTH", "200"))
 DEFAULT_HEIGHT = int(os.environ.get("KARL_AGENT_HEIGHT", "50"))
 
@@ -238,6 +295,30 @@ def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
         time.sleep(0.3)
 
 
+def _ticket_model(rm_id: str) -> str | None:
+    """Modèle prescrit par le ticket (RM1941) : frontmatter `ai_model` de la tâche,
+    sinon celui de l'overview du projet (cascade projet → tâche, le plus précis
+    gagne). None si rien de prescrit → défaut du moteur. La valeur est la valeur
+    NATIVE du moteur visé (alias claude, provider/model opencode, nom [[models]]
+    vibe) — c'est l'auteur du ticket qui la choisit en connaissant le moteur."""
+    tf = _find_task_file(rm_id)
+    if not tf:
+        return None
+    candidates = [tf, tf.parent.parent / "project" / "overview.md"]
+    for f in candidates:
+        try:
+            fm = _parse_frontmatter(f.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        v = fm.get("ai_model")
+        if isinstance(v, str) and v.strip():
+            v = v.strip()
+            if not _MODEL_VALUE_RE.match(v):
+                raise ApiError(400, f"ai_model invalide dans {f.name} : {v!r}")
+            return v
+    return None
+
+
 def op_spawn(payload: dict) -> dict:
     rm_id = _require_rm_id(payload)
     if _has_session(rm_id):
@@ -247,6 +328,31 @@ def op_spawn(payload: dict) -> dict:
     if engine not in ENGINES:
         raise ApiError(400, f"engine inconnu : {engine} (connus : {list(ENGINES)})")
     cmd = ENGINES[engine]["cmd"]
+
+    # Modèle (RM1941) : "" = défaut moteur ; "ticket" = frontmatter `ai_model` ;
+    # sinon une CLÉ du catalogue serveur (jamais une valeur brute client).
+    model_key = str(payload.get("model") or "").strip()
+    model_value, model_source = None, "default"
+    if model_key == "ticket":
+        model_value = _ticket_model(rm_id)
+        model_source = "ticket" if model_value else "default"
+    elif model_key:
+        cat = _model_catalog().get(engine, {})
+        if model_key not in cat:
+            raise ApiError(400, f"modèle inconnu pour {engine} : {model_key} (connus : {list(cat)})")
+        model_value, model_source = cat[model_key], "catalogue"
+    env_extra = []
+    if model_value:
+        if "model_flag" in ENGINES[engine]:
+            cmd = f"{cmd} {ENGINES[engine]['model_flag']} {shlex.quote(model_value)}"
+        elif "model_env" in ENGINES[engine]:
+            env_extra = ["-e", f"{ENGINES[engine]['model_env']}={model_value}"]
+        elif model_key == "ticket":
+            # moteur sans choix de modèle (shell…) : la prescription du ticket est
+            # ignorée silencieusement — la sentinelle doit rester un choix sûr.
+            model_value, model_source = None, "default"
+        else:
+            raise ApiError(400, f"le moteur {engine} ne supporte pas le choix de modèle")
 
     try:
         cwd = _resolve_cwd(payload.get("cwd"))
@@ -260,6 +366,7 @@ def op_spawn(payload: dict) -> dict:
     rc, _, err = _tmux(
         "new-session", "-d", "-s", name,
         "-x", str(width), "-y", str(height),
+        *env_extra,
         "-c", str(cwd), cmd,
     )
     if rc != 0:
@@ -291,7 +398,8 @@ def op_spawn(payload: dict) -> dict:
         time.sleep(0.3)
         _tmux("send-keys", "-t", name, "Enter")
 
-    return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd), "created": True}
+    return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
+            "model": model_value, "model_source": model_source, "created": True}
 
 
 def op_send(payload: dict) -> dict:
@@ -580,7 +688,18 @@ def op_resolve(rm_id: str) -> dict:
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
         "project_docs": _project_docs(project_dir),
         "log_tail": _log_tail(tf),
+        # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
+        "ai_model": _safe_ticket_model(rm_id),
     }
+
+
+def _safe_ticket_model(rm_id: str):
+    """_ticket_model sans lever : /resolve ne doit pas échouer pour un ai_model
+    malformé (le spawn, lui, refuse). Renvoie la valeur ou None."""
+    try:
+        return _ticket_model(rm_id)
+    except ApiError:
+        return None
 
 
 def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
@@ -923,6 +1042,10 @@ class Handler(BaseHTTPRequestHandler):
                 "layouts": sorted(LAYOUTS),
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
+                "engines": list(ENGINES),
+                # clés du catalogue par moteur (RM1941) — le client ne voit que les
+                # clés, le mapping vers les valeurs réelles reste côté serveur.
+                "models": {e: sorted(m) for e, m in _model_catalog().items()},
             })
         if not self._check_auth():
             return self._send_json(401, {"error": "token requis (X-Karl-Token)"})

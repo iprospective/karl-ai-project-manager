@@ -182,12 +182,14 @@
       <input id="rm" type="number" inputmode="numeric" placeholder="ex : 1669" min="1">
       <div class="resolved" id="resolved"></div>
       <label for="engine">Moteur</label>
-      <select id="engine">
+      <select id="engine" onchange="populateModels()">
         <option value="claude">claude</option>
         <option value="opencode">opencode</option>
         <option value="vibe">Mistral Vibe</option>
         <option value="shell">shell</option>
       </select>
+      <label for="model">Modèle</label>
+      <select id="model"></select>
       <label for="cwd">Répertoire de travail <span style="color:var(--muted)">(auto-résolu)</span></label>
       <input id="cwd" type="text" placeholder="/zfs/workspaces/…">
       <label for="ptpl">Prompt initial</label>
@@ -335,8 +337,31 @@ async function resolveRm() {
       el.textContent = "⚠ ticket non trouvé en local — prompt générique";
     }
     applyTemplate();
+    populateModels();   // rafraîchit le libellé « défini dans le ticket (…) »
   } catch (e) { resolved = null; el.textContent = ""; el.className = "resolved"; }
 }
+// ----- RM1941 : sélecteur de modèle dépendant du moteur -----
+function populateModels() {
+  const engine = document.getElementById("engine").value;
+  const sel = document.getElementById("model");
+  const prev = sel.value;
+  sel.innerHTML = "";
+  const keys = (CFG.models || {})[engine] || [];
+  // « défini dans le ticket » d'abord (défaut quand un RM-id est résolu), puis défaut moteur.
+  const tkt = document.createElement("option");
+  tkt.value = "ticket";
+  const presc = resolved && resolved.found && resolved.ai_model ? " (" + resolved.ai_model + ")" : "";
+  tkt.textContent = "défini dans le ticket" + presc;
+  sel.appendChild(tkt);
+  const def = document.createElement("option");
+  def.value = ""; def.textContent = "défaut moteur";
+  sel.appendChild(def);
+  keys.forEach(k => { const o = document.createElement("option"); o.value = k; o.textContent = k; sel.appendChild(o); });
+  // conserve le choix si encore valide, sinon : ticket par défaut (sentinelle sans
+  // ai_model = défaut moteur côté serveur, donc toujours un choix sûr).
+  sel.value = [...sel.options].some(o => o.value === prev) ? prev : "ticket";
+}
+
 function applyTemplate() {
   const tpl = document.getElementById("ptpl").value;
   const rm = document.getElementById("rm").value.trim();
@@ -580,6 +605,8 @@ async function spawn() {
   const rm = document.getElementById("rm").value.trim();
   if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
   const body = { rm_id: rm, engine: document.getElementById("engine").value };
+  const model = document.getElementById("model").value;
+  if (model) body.model = model;
   const cwd = document.getElementById("cwd").value.trim();
   const prompt = document.getElementById("prompt").value.trim();
   if (cwd) body.cwd = cwd;
@@ -620,6 +647,7 @@ async function kill(rmId) {
   (CFG.monitors || []).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = "📺 " + m; mp.appendChild(o); });
   const ls = document.getElementById("layoutsel");
   (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
+  populateModels();   // RM1941 : catalogue des modèles du moteur courant
   // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
   const ntType = document.getElementById("nt-type");
   (CFG.task_types || []).forEach(t => {

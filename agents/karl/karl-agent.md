@@ -49,7 +49,7 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
 | POST | `/tickets` | `{title, type, priority, project, description?, tags?}` | `201 {created, rm_id}` — wrappe `pm-task-add` (creds Redmine hérités du `.env`), entrées en argv = pas d'injection (RM1893 §8) |
-| POST | `/spawn` | `{rm_id, cwd?, engine?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, cwd, created}` |
+| POST | `/spawn` | `{rm_id, cwd?, engine?, model?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, model, model_source, cwd, created}` |
 | POST | `/send` | `{rm_id, msg, enter?=true}` | `{rm_id, sent}` |
 | GET | `/capture/<rm_id>` | `?lines=N` (historique) | `text/plain` (snapshot du pane) |
 | GET | `/stream/<rm_id>` | — | `text/event-stream` (tail du pipe-pane, SSE) |
@@ -68,6 +68,18 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 - `prompt` est livré **après** le spawn via `send-keys` (jamais concaténé dans la
   ligne de commande lancée par tmux), même pour opencode/vibe qui sauraient le
   prendre à l'invocation — invariant sécu #4 (pas d'entrée client en argv).
+- `model` (RM1941) : `""`/absent = défaut du moteur ; **`"ticket"`** = modèle
+  prescrit par le frontmatter **`ai_model`** de la tâche (cascade : tâche →
+  `project/overview.md` du projet ; rien de prescrit ou moteur sans support →
+  défaut sans erreur) ; sinon une **clé du catalogue serveur** (défauts dans le
+  daemon, surchargeables via `cockpit/models.json` `{"<engine>": {"clé": "valeur"}}`)
+  — la valeur cliente n'est **jamais** interpolée brute (même modèle de sécurité
+  que les moniteurs), clé inconnue → 400. Application par moteur : claude/opencode
+  `--model <valeur>` ; vibe env `VIBE_ACTIVE_MODEL` (le modèle doit être déclaré
+  dans `[[models]]` du `~/.vibe/config.toml`). `ai_model` contient la valeur
+  **native du moteur visé** (alias claude, `provider/model` opencode, nom vibe) ;
+  champ pas encore dans le schéma NORMS — convention documentée ici, extension
+  NORMS à proposer si l'usage se confirme.
 - Codes : `400` (entrée invalide), `401` (token manquant), `404` (session absente),
   `409` (session déjà active), `500` (échec tmux).
 

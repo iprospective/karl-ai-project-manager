@@ -73,6 +73,15 @@ ia:
     email: mathieu@iprospective.fr
     name: Mathieu Moulin
 
+# ── Notifications — mails émis par les scripts PM ─────────────────────────
+# Interrupteur global des notifs email (via karl-mail-send.py), ex.
+# pm-task-status-update → mail au demandeur sur changement de statut.
+# Désactivé par défaut : exige vault-agentd déverrouillé et génère du bruit
+# tant que le flux n'est pas calibré. Le flag --no-mail par appel reste
+# utilisable pour couper ponctuellement même une fois activé ici.
+notifications:
+  email_enabled: false
+
 # ── Traçabilité — note Redmine par commit (cf. NORMS § « Unité de traçabilité ») ──
 # Niveau auquel un commit rattaché à une tâche déclenche une note Redmine.
 # Permet de calibrer le bruit à l'usage (mode `all` = test/observation).

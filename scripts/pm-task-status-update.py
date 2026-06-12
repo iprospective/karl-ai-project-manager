@@ -74,6 +74,19 @@ def load_ia_manager():
 IA_MANAGER = load_ia_manager()
 
 
+def email_notifs_enabled():
+    """Lit notifications.email_enabled de pm.config.yml (défaut False).
+
+    Interrupteur global des notifs mail — distinct du --no-mail par appel.
+    """
+    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return False
+    return bool((cfg.get("notifications") or {}).get("email_enabled", False))
+
+
 # Statuts NORMS acceptés (canoniques + alias dépréciés) — source unique
 # redmine.reference.yml via redmine_utils. Couvre le couple a_tester_dev /
 # a_tester_demandeur (cf. NORMS § Synchronisation des statuts) + a_mep/en_mep/en_pause.
@@ -158,6 +171,9 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
     `target` peut être pré-résolu (to_email, redmine_uid, reason) pour éviter
     un double appel à resolve_notif_target ; sinon résolu ici.
     """
+    if not email_notifs_enabled():
+        print("  → notif mail désactivée (pm.config.yml : notifications.email_enabled=false)")
+        return
     if target is None:
         target = resolve_notif_target(issue)
     to_addr, _redmine_uid, reason = target

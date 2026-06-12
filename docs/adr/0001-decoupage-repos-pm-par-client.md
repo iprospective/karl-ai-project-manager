@@ -1,8 +1,38 @@
 # ADR 0001 — Découpage des données PM en repos par client (orchestrateur à périmètre restreint)
 
-- **Statut** : driver tranché le 2026-06-09 — cette étude devient la **facette données/GitLab** du chapeau **RM1906** (orchestrateur client-facing multi-tenant confiné). Option D (repo-par-client) **retenue**, conditionnée à la mise en œuvre du client-facing.
-- **Date** : 2026-06-08 (driver réel ajouté 2026-06-09)
+- **Statut** : **AMENDÉ le 2026-06-12** (cf. § Amendement ci-dessous) — granularité et montage
+  supersédés par le CDC `docs/cdc/2026-06-restructuration-workspaces-pm.md`. Driver tranché le
+  2026-06-09 — cette étude est la **facette données/GitLab** du chapeau **RM1906** (orchestrateur
+  client-facing multi-tenant confiné).
+- **Date** : 2026-06-08 (driver réel ajouté 2026-06-09 ; amendement 2026-06-12)
 - **Tickets** : **RM1906** (chapeau multi-tenant) — RM1887 (cette étude = facette données) — RM1907 (Redmine) / RM1908 (SSH+isolation) / RM1909 (provisioning+pilotage) facettes sœurs — RM1885 (périmètre restreint) — RM1769 (symlinks niveau client) — RM1872 (friction pointeur submodule) — fédération (RM1802/RM1859)
+
+## ⚠ Amendement 2026-06-12 — granularité et montage supersédés
+
+Décisions de Mathieu (session 2026-06-09 « B : repos par projet », confirmées et complétées
+le 2026-06-12, consignées dans le **CDC `docs/cdc/2026-06-restructuration-workspaces-pm.md`**,
+qui devient le document de référence) :
+
+1. **Granularité : repo par PROJET** (l'option E ci-dessous, rejetée par l'étude, est
+   **retenue**) + un repo « **cœur client** » (`<client>-core`) par client. Le grain des
+   **droits** reste double : groupe GitLab `clients/<C>` (client entier) **ou** repo projet
+   individuel (instance limitée à un projet, ex. `hal`).
+2. **Montage : co-location** (« Modèle 2 ») — la donnée PM d'un projet vit dans
+   `<workspace projet>/.mmi-pm/` (dossier réel **committé** dans le repo du workspace
+   projet) ; celle du client dans `<workspace client>/.mmi-pm/` (repo `<client>-core`).
+   Côté outil PM, `projects/` devient une **vue gitignorée** (symlinks), et le canonique
+   du résolveur bascule vers les workspaces.
+
+Les objections de l'étude contre l'option E sont résolues par le nouveau design :
+- *« cascade client→projet éclatée »* → relogée dans le repo cœur client ;
+- *« 22+ repos, lourd »* → gérés par **découverte dynamique via l'API GitLab**
+  (`pm-workspace-sync` : on clone ce que le token voit, aucune liste committée) ;
+- le rejet des **submodules** (option C) est lui **confirmé et étendu** : pas de submodule
+  non plus entre client-core et projets.
+
+Le reste de l'étude (faits mesurés, analyse des options, effets de bord) demeure valide
+comme matériau historique ; les sections « Recommandation » et « Plan de migration »
+ci-dessous sont **remplacées** par les chantiers C2/C3 et phases P0–P7 du CDC.
 
 ## Driver réel (tranché 2026-06-09)
 

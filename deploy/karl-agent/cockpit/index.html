@@ -197,6 +197,7 @@
         <option value="traiter">Traiter la tâche</option>
         <option value="continuer">Continuer la tâche</option>
         <option value="chiffrer">Étudier / chiffrer</option>
+        <option value="etat">État du ticket</option>
         <option value="reviewer">Reviewer</option>
         <option value="libre">Libre (saisie manuelle)</option>
       </select>
@@ -374,6 +375,7 @@ function applyTemplate() {
   if (tpl === "traiter") txt = "traite la tâche RM" + rm + cp;
   else if (tpl === "continuer") txt = "continue la tâche RM" + rm + cp + " : relis le .log.md et reprends où tu t'es arrêté";
   else if (tpl === "chiffrer") txt = "étudie et chiffre la tâche RM" + rm + cp;
+  else if (tpl === "etat") txt = "fais un état du ticket RM" + rm + cp + " : relis la tâche, son .log.md et ses outputs, et donne un point synthétique (avancement, reste à faire, blocages, prochaine étape) SANS rien modifier ni changer de statut";
   else if (tpl === "reviewer") txt = "review la tâche RM" + rm;
   ta.value = txt;
 }

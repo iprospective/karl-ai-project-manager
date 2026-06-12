@@ -1,10 +1,10 @@
 ---
-schema_version: "1.38.0"
-updated: 2026-06-11
+schema_version: "1.39.0"
+updated: 2026-06-12
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.38.0
+# Normes de gestion des tâches — v1.39.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -445,7 +445,9 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
 | Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
 | Tâche | description / checklist | `pm-task-description-update.py` |
-| Tâche | estimation / métriques / temps-tokens | `pm-task-metrics-push.py`, `pm-task-tick.py` |
+| Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
+| Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
+| Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |

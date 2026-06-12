@@ -46,3 +46,11 @@ rewritten:
   - reason: "périmée : la création de tâche depuis CLI est livrée (pm-task-add.py / mmi-pm-task-add)"
     old: |
       **b) Création depuis CLI dans le workspace projet** (à implémenter — voir [TODO/003](../TODO/003-pm-cli.md))
+
+  - reason: "RM1825 (v1.39.0) : ligne d'outillage éclatée en 3 — estimation (metrics-push --estimate) / mesure (tick) / report conso (report) après retrait des modes --commit/--cumul"
+    old: |
+      | Tâche | estimation / métriques / temps-tokens | `pm-task-metrics-push.py`, `pm-task-tick.py` |
+
+  - reason: "bump de version du titre H1 (l'oracle est figé à v1.38.0 ; le titre vivant suit _frontmatter.txt — entrée à mettre à jour à chaque bump)"
+    old: |
+      # Normes de gestion des tâches — v1.38.0

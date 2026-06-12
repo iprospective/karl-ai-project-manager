@@ -1,10 +1,10 @@
 ---
-schema_version: "1.39.0"
+schema_version: "1.40.0"
 updated: 2026-06-12
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.39.0
+# Normes de gestion des tâches — v1.40.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -448,6 +448,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
+| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
@@ -1429,6 +1430,16 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 ---
 
 #### Commit + push systématique (obligatoire)
+
+> **Auto-commit des scripts pm-\* (RM1834 piste A, v1.40.0).** Les scripts
+> `pm-task-add/-status-update/-comment/-link/-sync/-report/-metrics-push`
+> **committent et poussent eux-mêmes, atomiquement**, les fichiers qu'ils
+> viennent d'écrire (module `scripts/pm_git.py` : `git commit -- <chemins>`
+> sous verrou local, non-fatal ; interrupteurs `pm.config.yml :: git.autocommit`
+> / `git.autopush`, flag `--no-commit` par appel). Conséquence : pour toute
+> opération passée par un script PM, **tu n'as RIEN à committer toi-même** dans
+> ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
+> libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
 
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo

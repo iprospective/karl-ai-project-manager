@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 import pm_hierarchy
 from redmine_utils import set_issue_parent
 
@@ -168,6 +169,17 @@ def append_log(md_path, message):
         f.write(entry)
 
 
+def autocommit_tasks(args, md_paths, message):
+    """Auto-commit RM1834 : MD + .log.md de chaque tâche touchée (non-fatal)."""
+    if getattr(args, "no_commit", False):
+        return
+    paths = []
+    for p in md_paths:
+        if p:
+            paths += [p, p.parent / p.name.replace(".md", ".log.md")]
+    pm_git.autocommit(paths, message)
+
+
 # ── Sous-commandes ──────────────────────────────────────────────────────────
 
 def cmd_add(args, cfg):
@@ -208,6 +220,9 @@ def cmd_add(args, cfg):
     print(f"  Frontmatter source : {'maj' if src_changed else 'déjà à jour'}")
     print(f"  Frontmatter cible  : {'maj' if dst_changed else 'déjà à jour'}")
     print(f"  Redmine relation   : #{rm_id}" if rm_id else "  Redmine relation   : déjà existante")
+    if src_changed or dst_changed:
+        autocommit_tasks(args, [from_path if src_changed else None, to_path if dst_changed else None],
+                         f"pm(link): RM{args.from_id} {args.type} RM{args.to_id}")
 
 
 def cmd_list(args, cfg):
@@ -280,6 +295,8 @@ def cmd_rm(args, cfg):
         write_task_md(to_path, to_fm, to_body)
         append_log(from_path, f"Lien supprimé vers RM{args.to_id} (types: {removed_pm}, Redmine #{deleted_ids}).")
         append_log(to_path,   f"Lien supprimé vers RM{args.from_id} (types: {removed_pm}, Redmine #{deleted_ids}).")
+        autocommit_tasks(args, [from_path, to_path],
+                         f"pm(link): RM{args.from_id} unlink RM{args.to_id}")
 
     print(f"✓ Supprimé : PM={removed_pm or 'rien'} | Redmine relations={deleted_ids or 'rien'}")
 
@@ -313,6 +330,12 @@ def cmd_parent(args, cfg):
     elif parent is not None:
         print(f"  ⚠ parent RM{parent} : MD non trouvé localement — "
               f"sub_tasks non maintenu (parent côté Redmine OK)")
+    touched = [cfg.find_task(child)]
+    for rid in (res.get("removed_from"), res.get("added_to")):
+        if rid:
+            touched.append(cfg.find_task(rid))
+    autocommit_tasks(args, touched,
+                     f"pm(link): RM{child} parent -> {'RM%s' % parent if parent else 'aucun'}")
 
 
 def _pm_to_redmine_type(pm_type):
@@ -369,6 +392,7 @@ def cmd_sync(args, cfg):
         print(f"✓ Frontmatter RM{args.rm_id} synchronisé depuis Redmine :")
         for field, v in changed:
             print(f"    + {field} RM{v}")
+        autocommit_tasks(args, [md_path], f"pm(link): RM{args.rm_id} sync relations")
     else:
         print(f"✓ RM{args.rm_id} déjà à jour vs Redmine")
 
@@ -406,6 +430,10 @@ def main():
 
     s_sync = sub.add_parser("sync", help="Synchroniser le frontmatter PM depuis Redmine")
     s_sync.add_argument("rm_id", type=int)
+
+    for s in (s_add, s_parent, s_rm, s_sync):
+        s.add_argument("--no-commit", action="store_true",
+                       help="Pas d'auto-commit git des fichiers écrits (RM1834)")
 
     args = ap.parse_args()
     cfg = PMConfig.load()

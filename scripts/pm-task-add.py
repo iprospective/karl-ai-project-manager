@@ -36,6 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from redmine_utils import create_redmine_issue
+import pm_git
 import pm_hierarchy
 
 try:
@@ -379,6 +380,17 @@ def main():
         else:
             print(f"  ⚠ parent RM{args.parent} : MD non trouvé localement — "
                   f"sub_tasks non maintenu (parent côté Redmine OK)")
+
+    # Auto-commit atomique des fichiers écrits (RM1834 piste A) : la tâche créée
+    # (+ le MD/log du parent si --parent les a modifiés). Placé AVANT --status /
+    # --retro : les transitions déléguées à pm-task-status-update auto-committent
+    # leurs propres écritures.
+    commit_paths = [md_path, log_path]
+    if args.parent:
+        parent_md = cfg.find_task(args.parent)
+        if parent_md:
+            commit_paths += [parent_md, parent_md.parent / parent_md.name.replace(".md", ".log.md")]
+    pm_git.autocommit(commit_paths, f"pm(add): RM{rm_id} {slug}")
 
     # --status <statut> : le ticket est créé en `nouveau` (défaut tracker Redmine) ;
     # si un autre statut est demandé, on transitionne via pm-task-status-update

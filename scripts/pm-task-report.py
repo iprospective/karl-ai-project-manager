@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 from redmine_utils import activity_for_type, cf_id_by_name, http_json, redmine_creds
 
 try:
@@ -257,6 +258,7 @@ def main():
                     help="seulement resync CF17 (pas de time_entries)")
     ap.add_argument("--activity", type=int, help="force l'activité Redmine")
     ap.add_argument("--force", action="store_true", help="re-PUT CF17 même si à jour")
+    ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
     args = ap.parse_args()
 
     cfg = PMConfig.load()
@@ -301,6 +303,17 @@ def main():
             skipped += 1
         elif st == "error":
             errors += 1
+
+    # Auto-commit atomique en LOT des fichiers écrits (RM1834 piste A) : un seul
+    # commit pour tout le batch (frontmatter ledger + .log.md des tickets traités).
+    if args.apply and not args.no_commit:
+        written = [p for p, r in zip(targets, results) if r["status"] in ("pushed", "error")]
+        paths = []
+        for p in written:
+            paths += [p, p.parent / p.name.replace(".md", ".log.md")]
+        if paths:
+            pm_git.autocommit(paths, f"pm(report): {len(written)} ticket(s) -> Redmine "
+                                     f"(time_entries + CF17)")
 
     verb = "créées" if args.apply else "à créer"
     print(f"\n-- {pushed} ticket(s) poussé(s), {would} à pousser, {skipped} à jour, "

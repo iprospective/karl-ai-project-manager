@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 import pm_hierarchy
 
 try:
@@ -260,6 +261,10 @@ def sync_one(cfg, url, key, rm_id, args):
         for j in new_journals:
             f.write("\n" + fmt_journal_md(j))
 
+    # Auto-commit atomique des fichiers écrits (RM1834 piste A).
+    if not getattr(args, "dry_run", False) and not getattr(args, "no_commit", False):
+        pm_git.autocommit([md_path, log_path], f"pm(sync): RM{rm_id} <- Redmine")
+
     return True
 
 
@@ -268,6 +273,7 @@ def main():
     ap.add_argument("rm_id", nargs="?", type=int, help="ID du ticket à synchroniser (ou --all-tasks)")
     ap.add_argument("--all-tasks", action="store_true", help="Synchronise toutes les tâches MD existantes")
     ap.add_argument("--no-journals", action="store_true", help="Sync frontmatter seulement (pas les notes)")
+    ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 

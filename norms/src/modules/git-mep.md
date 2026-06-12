@@ -96,6 +96,16 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 
 #### Commit + push systématique (obligatoire)
 
+> **Auto-commit des scripts pm-\* (RM1834 piste A, v1.40.0).** Les scripts
+> `pm-task-add/-status-update/-comment/-link/-sync/-report/-metrics-push`
+> **committent et poussent eux-mêmes, atomiquement**, les fichiers qu'ils
+> viennent d'écrire (module `scripts/pm_git.py` : `git commit -- <chemins>`
+> sous verrou local, non-fatal ; interrupteurs `pm.config.yml :: git.autocommit`
+> / `git.autopush`, flag `--no-commit` par appel). Conséquence : pour toute
+> opération passée par un script PM, **tu n'as RIEN à committer toi-même** dans
+> ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
+> libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
+
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
 git approprié. La règle s'applique à **deux périmètres** :

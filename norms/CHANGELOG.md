@@ -5,6 +5,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.40.0] - 2026-06-12
+
+### Ajouté — Auto-commit git des scripts pm-* (RM1834 piste A)
+
+Les scripts PM committent et poussent **eux-mêmes, atomiquement**, les fichiers
+qu'ils écrivent (`scripts/pm_git.py`) :
+
+- `git commit -- <chemins explicites>` : impossible d'embarquer un fichier
+  stagé par une session concurrente ; verrou local (flock) sérialise les
+  invocations sur la machine ; **non-fatal** (échec ⇒ warning, l'opération
+  principale aboutit ; push rejeté ⇒ commit local conservé, jamais de
+  rebase/merge dans l'arbre partagé).
+- Câblé dans : `pm-task-add` (+ MD parent), `pm-task-status-update`,
+  `pm-task-comment`, `pm-task-link` (add/rm/parent/sync), `pm-task-sync`,
+  `pm-task-report` (commit de lot en `--all`), `pm-task-metrics-push`.
+- Interrupteurs `pm.config.yml :: git.autocommit` / `git.autopush` ;
+  flag `--no-commit` par appel.
+- Module `git-mep` : la règle manuelle « commit+push systématique » reste
+  obligatoire pour les **édits libres** et le workspace de code ; pour toute
+  opération passée par un script PM, plus rien à committer à la main.
+
 ## [1.39.0] - 2026-06-12
 
 ### Modifié — Outillage métriques : réconciliation RM1806/RM1819 (RM1825)

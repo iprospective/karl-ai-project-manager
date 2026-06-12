@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git
 
 
 def main():
@@ -23,6 +24,7 @@ def main():
     ap.add_argument("--note", required=True, help="Note (ou '-' pour stdin)")
     ap.add_argument("--private", action="store_true", help="Note privée Redmine")
     ap.add_argument("--no-log", action="store_true", help="Ne pas appender au .log.md")
+    ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
     args = ap.parse_args()
 
     note = sys.stdin.read() if args.note == "-" else args.note
@@ -56,6 +58,8 @@ def main():
         with log_path.open("a", encoding="utf-8") as f:
             f.write(entry)
         print(f"✓ Log local appendé : {log_path.relative_to(cfg.projects_root)}")
+        if not args.no_commit:
+            pm_git.autocommit([log_path], f"pm(comment): RM{args.rm_id} note Redmine + log")
 
 
 if __name__ == "__main__":

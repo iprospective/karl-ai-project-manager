@@ -54,3 +54,4 @@ rewritten:
   - reason: "bump de version du titre H1 (l'oracle est figé à v1.38.0 ; le titre vivant suit _frontmatter.txt — entrée à mettre à jour à chaque bump)"
     old: |
       # Normes de gestion des tâches — v1.38.0
+      # Normes de gestion des tâches — v1.39.0

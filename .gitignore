@@ -36,3 +36,8 @@ projects/
 
 # Auto-référence du PM (symlink racine pointant vers lui-même via pm-ai-agents)
 .mmi-pm
+
+# Overrides d'instance du cockpit karl-agent (catalogues locaux : modèles par
+# moteur, presets moniteurs) — propres à chaque machine, jamais versionnés.
+deploy/karl-agent/cockpit/models.json
+deploy/karl-agent/cockpit/monitors.json

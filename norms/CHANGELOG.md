@@ -5,6 +5,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.39.0] - 2026-06-12
+
+### Modifié — Outillage métriques : réconciliation RM1806/RM1819 (RM1825)
+
+Le doublon de report des métriques temps/tokens est résolu :
+
+- **`pm-task-metrics-push.py` = estimation seule** (`--estimate` : CF21/22/25 +
+  `estimated_hours`). Les modes `--commit`/`--cumul` sont **retirés** (stubs
+  d'erreur orientant vers le remplaçant). Les marqueurs frontmatter
+  `metrics.reported_*` sont obsolètes (conservés, plus jamais écrits).
+- **`pm-task-report.py` = report exclusif de la consommation** (time_entries
+  CF16 ancrées sur les entrées datées du `.log.md`, dédup par ledger
+  `reporting.time_entries[]`, resync cumul CF17 « Tokens passés »).
+- Table d'outillage (module `session-tooling`) : la ligne « estimation /
+  métriques / temps-tokens » est éclatée en 3 lignes (estimation / mesure /
+  report conso).
+- La **note Redmine par commit** (matrice du module `traceability`,
+  `traceability.commit_note_level`) reste une norme **comportementale** de
+  l'agent — elle n'était implémentée que par le mode `--commit` retiré ;
+  aucun changement de norme, seul le support automatique disparaît.
+
 ## [1.38.0] - 2026-06-11
 
 ### Ajouté — Relation « implémentation » entre projets (§ « Relation "implémentation" entre projets »)

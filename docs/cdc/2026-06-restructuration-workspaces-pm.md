@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Statut** | DRAFT — à valider par Mathieu |
+| **Statut** | VALIDÉ par Mathieu le 2026-06-12 (amendements intégrés : produits = workspaces normaux, historique conservé, pilote calyclay, migration au fil de l'eau) |
 | **Date** | 2026-06-12 |
 | **Rédaction** | karl (session interactive avec Mathieu) |
 | **Tickets sources** | RM1887, RM1885, RM1834, RM1769, RM1892, RM1883, RM1837, RM1906, RM1922/1923/1940 |
@@ -59,7 +59,9 @@ Décisions prises et confirmées (sessions du 2026-06-09 et 2026-06-12) :
 8. **Environnements locaux standard par projet de dev** : un **bare repo** par projet +
    worktrees `dev/` et `test/` (réservés à l'humain) + `.worktrees/<ticket>` éphémères
    (sessions agent, RM1834). Les projets implémentant un produit (Dolibarr, PrestaShop…)
-   partagent l'object store du produit via un **miroir bare commun + alternates**.
+   partagent l'object store du produit via **alternates sur le `.repo.git` du workspace
+   projet produit** (ex. `/zfs/workspaces/dolibarr/dolibarr/`), chemin résolu nativement
+   par la relation `implements` (RM1837). **Pas de dépôt central de miroirs.**
    Source : 2026-06-12.
 9. **RM1834 = hybride A+B** : branche-par-tâche dans un worktree ; sur branche partagée,
    ne committer que ses propres modifs. Données + BDD partagées, avec outil de clonage
@@ -140,27 +142,41 @@ Décisions prises et confirmées (sessions du 2026-06-09 et 2026-06-12) :
   worktree à la fois. Compatible avec NORMS (branche par ticket → un worktree par
   ticket) ; `dev/` et `test/` épinglent leurs branches longues.
 - **Projets implémentant un produit** (Dolibarr, PrestaShop…) : le bare est cloné avec
-  `--reference-if-able /zfs/workspaces/.products/<produit>.git` (alternates) → l'object
-  store du produit n'est stocké **qu'une fois** pour tous les clients. Le jour des
-  forks par client : seul le remote du bare change, les alternates restent valides.
+  `--reference-if-able <workspace projet produit>/.repo.git` (alternates) → l'object
+  store du produit n'est stocké **qu'une fois** pour tous les clients. Le chemin de la
+  référence est résolu via la relation `implements:` de l'overview projet (RM1837) :
+  `calicote/dolibarr → dolibarr/dolibarr`. `--reference-if-able` garantit le fallback
+  en clone complet si la référence est absente (instance restreinte type `hal`).
+  Le jour des forks par client : seul le remote du bare change, les alternates restent
+  valides.
 - **BDD/data** : conformément à RM1834 — dossier de données partagé + liste de BDD de
   dev (une par défaut) + outil de clonage de BDD pour les tâches qui le requièrent.
   Les pools FPM/webserver continuent de pointer les chemins stables `dev/` et `test/`.
 
-### 3.4 Miroirs produits partagés
+### 3.4 Produits = workspaces projets normaux (pas de dépôt central)
+
+Les produits (dolibarr, prestashop, redmine…) sont des **entités PM ordinaires**, avec
+un projet par module/composant. Le projet principal suit le layout standard § 3.3,
+avec ses worktrees **par version** en plus de (ou à la place de) `dev`/`test` :
 
 ```
-/zfs/workspaces/.products/
-├── dolibarr.git        ← miroir bare upstream (fetch périodique)
-├── prestashop.git
-└── …
+/zfs/workspaces/dolibarr/dolibarr/    ← projet « dolibarr » de l'entité produit dolibarr
+├── .mmi-pm/
+├── .repo.git/                        ← bare upstream (fetch périodique) — RÉFÉRENCE d'alternates
+├── 19.0/   20.0/   develop/          ← worktrees par version
+└── .worktrees/
+/zfs/workspaces/dolibarr/<module-x>/  ← un projet par module custom
 ```
 
-- Rôle : source d'alternates pour les bares projets (§ 3.3). Append-only : **jamais de
-  `gc`/`prune` agressif** sur ces miroirs (un prune casserait les emprunteurs) —
-  config `gc.auto=0` + procédure documentée.
-- Distinct des **entités PM produit** existantes (prestashop, redmine, roundcube,
-  nextcloud…) qui, elles, suivent le schéma client/projet normal.
+- Le `.repo.git` du projet produit sert de **référence d'alternates** à tous les
+  projets clients qui l'implémentent — résolution **native** par la dépendance
+  `implements` : `calicote/dolibarr → dolibarr/dolibarr` (RM1837).
+- **Garde-fous** (ce bare devient porteur pour N repos clients) :
+  - jamais de `gc`/`prune` agressif (`gc.auto=0` + procédure documentée) ;
+  - toute relocalisation du workspace produit ⇒ mise à jour des alternates des
+    emprunteurs (fichier `objects/info/alternates`), outillée ;
+  - une instance restreinte sans le workspace produit clone en complet
+    (`--reference-if-able`).
 
 ### 3.5 GitLab : namespace, droits, découverte
 
@@ -233,7 +249,7 @@ gitlab.iprospective.fr/clients/           ← groupe chapeau
 | Repo env racine : régularisation du .git, gitignore liste blanche, AGENTS.md versionné, tooling/ | **à créer** |
 | Déménagement outil PM → `/zfs/workspaces/.mmi-pm-core/` + submodule | **à créer** (lié RM1940) |
 | Inventaire + normalisation `<client>/<projet>` pour tous les clients (remodelage compris, traitement des `git init` sans commit) | **à créer** (chapeau + 1 sous-ticket par client à remodeler) |
-| Layout standard bare + dev/ + test/ + .worktrees/ ; miroirs `.products/` ; outillage d'instanciation d'env | **à créer** |
+| Layout standard bare + dev/ + test/ + .worktrees/ ; workspaces produits (worktrees par version, partage par alternates via `implements`) ; outillage d'instanciation d'env | **à créer** |
 | Outil de statut multi-repos (devient indispensable : ~35 repos de plus) | RM1883 |
 
 ### C3 — Éclatement des données PM (co-location)
@@ -274,12 +290,18 @@ système fonctionnel ; sauvegarde complète préalable (faite par Mathieu, 2026-
 - **P0** — Sauvegarde complète + snapshot ZFS. ✔ en cours
 - **P1** — Repo env racine (commit initial : .gitignore, AGENTS.md, tooling vide).
   Réversible trivialement.
-- **P2** — Pilote normalisation sur 1 client (proposition : `calicote`) : structure
-  `<client>/<projet>`, layout bare+dev+test sur 1 projet. Validation humaine.
-- **P3** — Généralisation normalisation (1 sous-ticket par client) + `.products/`.
-- **P4** — Pilote éclatement PM sur le même client : groupe GitLab, `<client>-core`,
-  `.mmi-pm/` committés, vue compat symlinks côté `.mmi-pm-core/projects/`.
-- **P5** — Bascule résolveur + généralisation éclatement + archivage `ai-projects`.
+- **P2** — Pilote normalisation sur **`calyclay`** (acté 2026-06-12 : il a `calymix`,
+  projet sans dépendance produit, + des projets dépendants) : structure
+  `<client>/<projet>`, layout bare+dev+test. Validation humaine.
+- **P3** — Généralisation normalisation (1 sous-ticket par client) + layout des
+  workspaces produits (dolibarr, prestashop, …) avec worktrees par version.
+- **P4** — Pilote éclatement PM sur `calyclay` : groupe GitLab, `<client>-core`,
+  `.mmi-pm/` committés **avec historique extrait** (`git filter-repo` par
+  client/projet, acté 2026-06-12), vue compat symlinks côté `.mmi-pm-core/projects/`.
+- **P5** — Généralisation éclatement **au fil de l'eau, client par client** (acté
+  2026-06-12 : pas de gel global ; seul le client en cours de migration est gelé,
+  les sessions actives sur les autres continuent sur `ai-projects` jusqu'à leur tour).
+  Bascule résolveur, puis archivage `ai-projects` en lecture seule.
 - **P6** — Déménagement outil → `.mmi-pm-core/` (submodule), mise à jour AGENTS.md,
   propagation fédération (RM1940), pilote confinement `hal`.
 - **P7** — RM1834 (worktrees de session) + nettoyage (suppression vue compat,
@@ -287,16 +309,17 @@ système fonctionnel ; sauvegarde complète préalable (faite par Mathieu, 2026-
 
 ## 6. Risques et points ouverts
 
-1. **Multi-sessions pendant la migration** : plusieurs sessions écrivent dans
-  `ai-projects` en continu → fenêtre de gel à prévoir par phase (P4/P5), ou migration
-  client par client avec redirection au fil de l'eau.
-2. **Historique git** : l'extraction par projet avec historique (`git filter-repo`)
-  est coûteuse ×24 ; alternative assumée : import à plat + ancien repo archivé en
-  lecture seule (l'historique reste consultable). **À trancher.**
-3. **Alternates** : un `prune` malheureux sur un miroir `.products/` corrompt les
-  emprunteurs → procédure + garde-fou (config) obligatoires dès P3.
-4. **Choix de nommage à confirmer** : `.repo.git` (bare projet), `.products/`
-  (miroirs), `clients/` (groupe GitLab chapeau), `pm.yml` (marqueur).
+1. ~~Multi-sessions pendant la migration~~ **Tranché (2026-06-12)** : migration au
+  fil de l'eau, client par client ; gel limité au client en cours de migration.
+  Pendant la transition, le résolveur doit savoir servir les deux mondes (vue compat).
+2. ~~Historique git~~ **Tranché (2026-06-12)** : extraction **avec historique**
+  (`git filter-repo` par client/projet). Coût assumé (×24, scriptable) ; l'ancien
+  repo archivé reste le filet de sécurité.
+3. **Alternates** : un `prune` malheureux sur le `.repo.git` d'un projet produit
+  corrompt les emprunteurs → procédure + garde-fou (config) obligatoires dès P3.
+4. ~~Choix de nommage~~ **Tranché (2026-06-12)** : `.repo.git`, groupe GitLab
+  `clients/`, marqueur `pm.yml` ; `.products/` abandonné (produits = workspaces
+  normaux, § 3.4).
 5. **Entités hybrides** : clients PM « produit » (prestashop, redmine…) et entité
   `lemathou`/perso — vérifier que le schéma `<client>/<projet>` leur convient tel
   quel (l'inventaire C2 statue).
@@ -311,7 +334,7 @@ système fonctionnel ; sauvegarde complète préalable (faite par Mathieu, 2026-
    RM1887/1885/1834/1883/1892/1906.
 2. C1 : budget/mesure de contexte par rôle.
 3. C2 : repo env racine ; déménagement `.mmi-pm-core` ; normalisation workspaces
-   (chapeau + sous-tickets) ; layout bare/dev/test + `.products/`.
+   (chapeau + sous-tickets) ; layout bare/dev/test + workspaces produits.
 4. C3 : `pm-workspace-sync` ; bascule résolveur + vue compat.
 5. C4 : harmonisation 24 projets ; `pm-project-doctor`.
 6. C5 : CF Risque/Mode de validation ; validation par lots ; triage ROI cockpit.

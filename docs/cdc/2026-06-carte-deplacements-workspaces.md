@@ -172,9 +172,27 @@ infra, ai/project-management, perso/maths.
   `git init` vides) : créés seulement si nécessaires à la migration, sinon notés ici.
 - **matnat** : peupler les 4 projets PM + ménage du vrac racine.
 
-## 8. Premier geste proposé (à ton signal)
+## 8. Pilote — RÉSULTAT (2026-06-13) ✅
 
-Sur **calicote uniquement**, le geste à risque nul : créer `calicote/calicote-core` +
-`.mmi-pm-client`, puis **un seul projet** en CONV (`calicote/dolibarr` : `git init` vide,
-aucun historique, aucun travail actif). Tu valides le résultat (structure + `.mmi-pm` réel +
-premier commit + push), et seulement alors on enchaîne les 3 autres projets calicote.
+Premier geste exécuté sur **calicote** : `calicote/calicote-core` (`.mmi-pm-client`) +
+`calicote/dolibarr-core` (`.mmi-pm` ex-symlink → dossier réel). Créés sur GitLab (groupe
+top-level `calicote/` après promotion `sfy/calicote`→`calicote`), pushés (SHA local=remote).
+`ai-projects` conservé en parallèle (« on garde les deux »). Résolveur + `pm-doctor` verts.
+
+**Procédure CONV validée de bout en bout** (à rejouer pour chaque projet) :
+1. créer le repo `<client>/<projet>-core` (et `<client>-core` une fois par client) ;
+2. `.mmi-pm-client/` (client) / `.mmi-pm/` (projet) = **copie** des données depuis
+   `ai-projects` (l'original reste) ; pour un projet, le symlink `.mmi-pm` est remplacé
+   par le dossier (`rm` du symlink seul → cible ai-projects intacte) ;
+3. `.gitignore` whitelist (`/*` + `!/.gitignore` + `!/.mmi-pm[-client]/`) → ne tracke que
+   le PM, ignore le code ; vérifier qu'aucun code n'est stagé ;
+4. premier commit + push.
+
+**Apprentissage (résolu RM1949)** : la détection « projet courant » lisait le **symlink**
+`.mmi-pm` → cassée sur un dossier. Corrigé par une détection **unique overview-based**
+(`PMConfig.detect_project_from_cwd` lit `.mmi-pm/project/overview.md` → `client`+`slug`,
+marche pour symlink ET dossier ; un seul mécanisme, pas de marqueur). Le `.mmi-pm` co-localisé
+est donc **auto-suffisant** pour la détection.
+
+**Suite immédiate** : 3 autres projets calicote — `prestashop`, `infra`, `dpsync` (même
+CONV, risque nul ; `prestashop` a ses repos code `dev/`/`test/` gitignorés).

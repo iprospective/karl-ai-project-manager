@@ -56,6 +56,7 @@ rewritten:
       # Normes de gestion des tâches — v1.38.0
       # Normes de gestion des tâches — v1.39.0
       # Normes de gestion des tâches — v1.40.0
+      # Normes de gestion des tâches — v1.41.0
 
   - reason: "RM1923 (v1.41.0) : pm-doctor.py livré — les notes « à venir » du module project-modeling passent au présent"
     old: |

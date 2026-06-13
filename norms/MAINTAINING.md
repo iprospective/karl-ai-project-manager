@@ -213,6 +213,12 @@ contrôlé pour existence réelle.
   les trous (« fais X » sans outil).
 - **Pas de doublon littéral** réintroduit ; cross-refs internes résolvent.
 - **Pas de périmé** : aucune note ne déclare manquant un outil présent dans `scripts/`.
+- **Budget de contexte** (RM1943) : aucun rôle ne dépasse son plafond
+  `pm.config.yml :: context.budget_tokens` (délégué à `pm-context-budget.py
+  --check`). Garde-fou anti-régression : tout module qu'on ajoute au
+  **préchargement** d'un rôle (en-tête « Préchargé par : ») regonfle son contexte
+  toujours-chargé — le doctor le refuse au-delà du plafond. Mesure et comparaison
+  avant/après : `pm-context-budget.py --all-roles`.
 
 ---
 

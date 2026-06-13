@@ -41,6 +41,7 @@
 | je suis l'orchestrateur (assignation, sous-tâches, propagation) | `modules/collaboration.md` | — |
 | je génère les fichiers auto (Changelog/Pistes/Remarques) | `modules/summarizer.md` | — |
 | gouvernance : déploiement, versionning de NORMS, distribution des skills | `modules/governance.md` + [`../MAINTAINING.md`](../MAINTAINING.md) | `pm-norms-assemble`, `pm-norms-doctor` |
+| j'ajoute/édite un module ou le préchargement d'un rôle (coût de contexte) | `modules/governance.md` | `pm-context-budget` |
 
 ⚠ = outil pas encore livré (suivi RM1923) ; en attendant, l'opération manuelle est décrite dans le module.
 

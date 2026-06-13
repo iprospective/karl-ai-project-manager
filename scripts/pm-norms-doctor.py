@@ -146,6 +146,27 @@ def scan_tools():
     return found
 
 
+def check_context_budget():
+    """Délègue à pm-context-budget.py --check : rôles dépassant context.budget_tokens.
+
+    Retourne None si non configuré / outil absent, [] si tout sous plafond,
+    [rôles] sinon. Invariant anti-régression du coût de contexte (RM1943)."""
+    tool = SCRIPTS / "pm-context-budget.py"
+    cfg_path = REPO / "pm.config.yml"
+    try:
+        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    if not tool.exists() or not ((cfg.get("context") or {}).get("budget_tokens")):
+        return None
+    r = subprocess.run([sys.executable, str(tool), "--check"],
+                       capture_output=True, text=True)
+    if r.returncode == 0:
+        return []
+    # --check liste les rôles avec « ✗ DÉPASSÉ »
+    return [l.split()[0] for l in r.stdout.splitlines() if "DÉPASSÉ" in l]
+
+
 def main():
     rc = 0
     print("== pm-norms-doctor ==")
@@ -207,6 +228,16 @@ def main():
         rc |= 1
     else:
         print(f"  {PASS} en-têtes : tous les modules ont leur « quand lire ceci »")
+
+    over = check_context_budget()
+    if over is None:
+        print(f"  · budget contexte : non configuré (pm.config.yml :: context.budget_tokens)")
+    elif over:
+        print(f"  {FAIL} budget contexte : rôle(s) au-dessus du plafond : {', '.join(over)}")
+        print(f"        → détail : scripts/pm-context-budget.py --all-roles")
+        rc |= 1
+    else:
+        print(f"  {PASS} budget contexte : tous les rôles sous leur plafond")
 
     print(f"== {'OK' if rc == 0 else 'ÉCHEC'} ==")
     return rc

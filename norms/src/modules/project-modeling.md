@@ -1,5 +1,5 @@
 > 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
-> **Outils :** `pm-client-new`, `pm-doctor`⚠ · **Préchargé par :** worker-analyst.
+> **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
 
@@ -37,7 +37,7 @@ on utilise deux champs dans le frontmatter `project/overview.md` :
 | `provided_by: <client>/<projet>` | Pointeur vers le projet fournisseur | déclaré côté **consommateur** (ex: un projet client qui s'appuie sur le module) |
 
 Ces deux champs sont **redondants par construction**, pour permettre la lecture dans les
-deux sens sans scan inverse coûteux. Un script `pm doctor` (à venir) valide la cohérence.
+deux sens sans scan inverse coûteux. `scripts/pm-doctor.py` valide la cohérence des paires.
 
 **Source de vérité** : le frontmatter, pas l'arborescence filesystem. Le chemin
 canonique d'un projet est toujours `paths.project` (`entity=<owner>`,
@@ -80,7 +80,7 @@ général peut être implémenté par plusieurs enfants. Les deux champs sont do
 | `implemented_by: [<entité>/<projet>, ...]` | Liste des projets qui implémentent celui-ci | déclaré côté **général** (ex: `iprospective/infrastructure` liste ses projets infra clients) |
 
 Comme `used_by_clients`/`provided_by`, ces deux champs sont **redondants par
-construction** (lecture dans les deux sens) ; la cohérence est validée par `pm doctor`
+construction** (lecture dans les deux sens) ; la cohérence est validée par `pm-doctor.py`
 (à venir). Source de vérité = le **frontmatter** `project/overview.md`, pas
 l'arborescence. Le chemin canonique reste `paths.project`. Listes vides = `[]`.
 

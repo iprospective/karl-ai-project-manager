@@ -5,6 +5,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.41.0] - 2026-06-13
+
+### Ajouté — Outillage NORMS livré : pm-branch-start, pm-doctor, --list-next (RM1923)
+
+Trois trous d'outillage comblés ; les ⚠ correspondants du KERNEL sont levés :
+
+- **`pm-branch-start.py <RMid> [--from BR] [--take]`** (remplace le placeholder
+  `mmi-pm-git-*`) : crée/checkout la branche `<RMid>-<slug>`, renseigne le CF
+  Redmine **GIT Branche (id 3)**, met à jour `git.repo`/`git.branch` du
+  frontmatter + log, auto-commit (RM1834) ; `--take` enchaîne la prise.
+  Garde-fou : refuse ai-projects comme repo cible. Module `git-mep` § Workflow.
+- **`pm-doctor.py`** : valide la cohérence des paires redondantes par
+  construction — `used_by_clients ↔ provided_by` et `implements ↔
+  implemented_by` (RM1837) — + existence des cibles. Exit 1 si incohérence.
+- **`pm-task-status-update.py --list-next`** : liste les transitions NORMS
+  valides depuis le statut courant (table du module `status-workflow` encodée),
+  reprise d'`en_pause` via `status_history`, et marque celles que le compte API
+  peut réellement poser côté Redmine (`include=allowed_statuses`).
+- `redmine.reference.yml` : CF **3 GIT Branche**, **4 GIT PR**, **14
+  Environnement de test** ajoutés à la référence.
+- Restent suivis par RM1923 : `pm-sync-views`, `pm-sync-links` (durée de vie
+  courte : la co-location C3/RM1942 supprime les symlinks), hook post-commit
+  de report (recouvre RM1895).
+
 ## [1.40.0] - 2026-06-12
 
 ### Ajouté — Auto-commit git des scripts pm-* (RM1834 piste A)

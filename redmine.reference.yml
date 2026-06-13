@@ -28,6 +28,9 @@ custom_fields:
   25: {name: "LLM prévu",           format: enumeration, type: issue,      used_by: "estimate.estimated_model → palier (RM1806 ; cf. llm_tiers)"}
   16: {name: "Tokens",              format: int,         type: time_entry, used_by: "delta tokens par saisie de temps/commit (RM1806)"}
   27: {name: "AI Test par agent",   format: enumeration, type: issue,      used_by: "REDMINE_CF_AGENT_TEST_ID (.env) ; requires_agent_test (routing dev→test ; cf. agent_test_values)"}
+  3:  {name: "GIT Branche",         format: string,      type: issue,      used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
+  4:  {name: "GIT PR",              format: link,        type: issue,      used_by: "URL de la MR de livraison (RM1820 string→link)"}
+  14: {name: "Environnement de test", format: link,      type: issue,      used_by: "URL de l'environnement de test (RM1820 string→link)"}
 
 # ── CF27 « AI Test par agent » — faut-il une passe agent-testeur indépendante ──
 # Mapping frontmatter `requires_agent_test` → value id d'énumération Redmine.

@@ -1,5 +1,5 @@
 > 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
-> **Outils :** `glab`, `mmi-pm-git-*`⚠ · **Préchargé par :** worker-dev, worker-db, worker-infra.
+> **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
 
@@ -47,7 +47,10 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
    Redmine (§ Prise en charge d'une tâche) + **création de la branche dédiée**
    `<RMid>-<short-desc>` (depuis `integration_branch`) + renseignement du CF Redmine
-   `GIT Branche`.
+   `GIT Branche` (id 3). **Outil canonique : `pm-branch-start.py <RMid> --from
+   <integration_branch> [--take]`** (RM1923) — crée/checkout la branche, pousse le
+   CF, met à jour `git.repo`/`git.branch` du frontmatter + log, et `--take`
+   enchaîne la prise (`pm-task-status-update en_cours`).
 2. **Dev terminé** (ou étape) ⇒ `a_tester_dev` : test par un agent/une personne **≠ le
    dev**, dans un env `test`.
    - Test OK ⇒ `a_tester_demandeur` + ré-assignation au **demandeur**.

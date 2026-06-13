@@ -55,3 +55,13 @@ rewritten:
     old: |
       # Normes de gestion des tâches — v1.38.0
       # Normes de gestion des tâches — v1.39.0
+      # Normes de gestion des tâches — v1.40.0
+
+  - reason: "RM1923 (v1.41.0) : pm-doctor.py livré — les notes « à venir » du module project-modeling passent au présent"
+    old: |
+      deux sens sans scan inverse coûteux. Un script `pm doctor` (à venir) valide la cohérence.
+      construction** (lecture dans les deux sens) ; la cohérence est validée par `pm doctor`
+
+  - reason: "RM1923 (v1.41.0) : pm-branch-start.py livré — la ligne du workflow git-mep citant le CF GIT Branche est enrichie de l'outil canonique (CF id 3)"
+    old: |
+      `GIT Branche`.

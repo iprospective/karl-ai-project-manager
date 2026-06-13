@@ -231,10 +231,118 @@ def resolve_assign_value(value, issue):
         return None
 
 
+# ── Transitions NORMS (source : module status-workflow, § « Transitions valides ») ──
+# {statut courant: [(cible, condition), ...]}. S'ajoutent les règles génériques :
+# tout état actif → en_pause ; tout état → ferme (close_reason requis) ;
+# en_pause → reprise à l'état précédent (lu dans status_history).
+NORMS_TRANSITIONS = {
+    "nouveau": [
+        ("a_etudier_chiffrer", "tri : besoin d'étude/chiffrage"),
+        ("a_faire", "tri : prêt à coder tel quel"),
+        ("en_cours", "tri : prise immédiate (auto-assignation)"),
+    ],
+    "a_etudier_chiffrer": [
+        ("etude_chiffrage_en_cours", "assigned_to renseigné"),
+    ],
+    "etude_chiffrage_en_cours": [
+        ("etude_chiffrage_a_valider", "CDC + estimate.* complets → soumis au demandeur"),
+    ],
+    "etude_chiffrage_a_valider": [
+        ("a_faire", "validé par le demandeur → prêt à coder"),
+        ("etude_chiffrage_en_cours", "retour demandeur (ajustements)"),
+    ],
+    "a_faire": [
+        ("en_cours", "création branche <RMid>-<desc> + CF GIT Branche (pm-branch-start)"),
+    ],
+    "en_cours": [
+        ("a_tester_dev", "dev terminé + requires_agent_test résolu à 'oui'"),
+        ("a_tester_demandeur", "dev terminé + requires_agent_test résolu à 'non' (bypass)"),
+        ("a_etudier_chiffrer", "périmètre modifié"),
+    ],
+    "a_tester_dev": [
+        ("a_tester_demandeur", "test dev OK"),
+        ("a_corriger", "problèmes (note dans journal)"),
+    ],
+    "a_tester_demandeur": [
+        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée"),
+        ("a_corriger", "rejet (note dans journal)"),
+        ("ferme", "ticket sans code à déployer — close_reason: resolu"),
+    ],
+    "a_mep": [
+        ("en_mep", "integration_branch déployée en preprod"),
+    ],
+    "en_mep": [
+        ("ferme", "tests preprod OK + merge → prod_branch + pull prod — close_reason: resolu"),
+        ("a_corriger", "régression preprod (note dans journal)"),
+    ],
+    "a_corriger": [
+        ("en_cours", "reprise du dev"),
+    ],
+}
+INACTIVE_STATUSES = {"ferme", "en_pause"}
+
+
+def list_next(rm_id):
+    """Affiche les transitions NORMS valides depuis le statut courant du ticket
+    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+    cfg = PMConfig.load()
+    md_path = cfg.find_task(rm_id)
+    if not md_path:
+        sys.exit(f"ERREUR : fichier RM{rm_id}_*.md introuvable")
+    m = FRONTMATTER_RE.match(md_path.read_text(encoding="utf-8"))
+    fm = yaml.safe_load(m.group(2)) or {} if m else {}
+    cur = redmine_utils.normalize_status(fm.get("status") or "?")
+
+    # Transitions spécifiques + génériques
+    nexts = list(NORMS_TRANSITIONS.get(cur, []))
+    if cur == "en_pause":
+        hist = [h.get("status") for h in (fm.get("status_history") or [])
+                if h.get("status") and h.get("status") != "en_pause"]
+        prev = redmine_utils.normalize_status(hist[-1]) if hist else None
+        if prev:
+            nexts.append((prev, "reprise à l'état précédent (déblocage)"))
+    if cur not in INACTIVE_STATUSES:
+        nexts.append(("en_pause", "blocage tiers"))
+    if cur != "ferme":
+        nexts.append(("ferme", "close_reason requis (--close-reason)"))
+
+    # Côté Redmine : statuts réellement posables par CE compte API sur CE ticket.
+    allowed_ids = None
+    url = os.environ.get("REDMINE_URL", "").rstrip("/")
+    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    if url and key:
+        try:
+            req = urllib.request.Request(
+                f"{url}/issues/{rm_id}.json?include=allowed_statuses",
+                headers={"X-Redmine-API-Key": key, "Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                iss = json.loads(r.read()).get("issue") or {}
+            allowed_ids = {s["id"] for s in iss.get("allowed_statuses") or []} or None
+        except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+            allowed_ids = None
+    sids = redmine_utils.status_ids()
+
+    print(f"RM{rm_id} — statut courant : {cur}")
+    print("Transitions NORMS valides :")
+    for tgt, cond in nexts:
+        mark = ""
+        if allowed_ids is not None:
+            ok = sids.get(tgt) in allowed_ids
+            mark = "  [Redmine OK]" if ok else "  [Redmine REFUSERA pour ce compte]"
+        print(f"  → {tgt:<26} {cond}{mark}")
+    if allowed_ids is None:
+        print("  (vérification live Redmine indisponible — transitions NORMS seules)")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("rm_id", type=int)
-    ap.add_argument("status", help=f"Nouveau statut NORMS : {', '.join(sorted(VALID_STATUSES))}")
+    ap.add_argument("status", nargs="?",
+                    help=f"Nouveau statut NORMS : {', '.join(sorted(VALID_STATUSES))} "
+                         f"(omis si --list-next)")
+    ap.add_argument("--list-next", action="store_true",
+                    help="Liste les transitions NORMS valides depuis le statut courant "
+                         "(+ celles que le compte API peut réellement poser côté Redmine)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
@@ -257,6 +365,12 @@ def main():
                     help="Pas d'auto-commit git des fichiers écrits (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    if args.list_next:
+        list_next(args.rm_id)
+        return
+    if not args.status:
+        sys.exit("ERREUR : statut requis (ou --list-next pour voir les transitions valides)")
 
     if args.status not in VALID_STATUSES:
         sys.exit(f"ERREUR : statut invalide '{args.status}'. Valides : {sorted(VALID_STATUSES)}")

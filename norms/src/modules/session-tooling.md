@@ -30,6 +30,8 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
+| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` |
+| Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |

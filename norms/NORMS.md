@@ -1,10 +1,10 @@
 ---
-schema_version: "1.40.0"
-updated: 2026-06-12
+schema_version: "1.41.0"
+updated: 2026-06-13
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.40.0
+# Normes de gestion des tâches — v1.41.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -26,10 +26,10 @@ updated: 2026-06-12
 | QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
-| je commence à coder un ticket (branche) | `modules/git-mep.md` | `mmi-pm-git-*` ⚠ |
+| je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
-| je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next` ⚠) |
+| je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
@@ -38,7 +38,7 @@ updated: 2026-06-12
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
 | je crée un projet / une entité PM | `modules/project-creation.md` (+ bootstrap, memberships) | `pm-project-new`, `pm-project-bootstrap`, `pm-client-new` |
-| un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor` ⚠, `pm-sync-views` ⚠ |
+| un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
@@ -449,6 +449,8 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
+| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` |
+| Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
@@ -457,7 +459,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
 
 > 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
-> **Outils :** `pm-client-new`, `pm-doctor`⚠ · **Préchargé par :** worker-analyst.
+> **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
 
@@ -495,7 +497,7 @@ on utilise deux champs dans le frontmatter `project/overview.md` :
 | `provided_by: <client>/<projet>` | Pointeur vers le projet fournisseur | déclaré côté **consommateur** (ex: un projet client qui s'appuie sur le module) |
 
 Ces deux champs sont **redondants par construction**, pour permettre la lecture dans les
-deux sens sans scan inverse coûteux. Un script `pm doctor` (à venir) valide la cohérence.
+deux sens sans scan inverse coûteux. `scripts/pm-doctor.py` valide la cohérence des paires.
 
 **Source de vérité** : le frontmatter, pas l'arborescence filesystem. Le chemin
 canonique d'un projet est toujours `paths.project` (`entity=<owner>`,
@@ -538,7 +540,7 @@ général peut être implémenté par plusieurs enfants. Les deux champs sont do
 | `implemented_by: [<entité>/<projet>, ...]` | Liste des projets qui implémentent celui-ci | déclaré côté **général** (ex: `iprospective/infrastructure` liste ses projets infra clients) |
 
 Comme `used_by_clients`/`provided_by`, ces deux champs sont **redondants par
-construction** (lecture dans les deux sens) ; la cohérence est validée par `pm doctor`
+construction** (lecture dans les deux sens) ; la cohérence est validée par `pm-doctor.py`
 (à venir). Source de vérité = le **frontmatter** `project/overview.md`, pas
 l'arborescence. Le chemin canonique reste `paths.project`. Listes vides = `[]`.
 
@@ -1334,7 +1336,7 @@ côté *écriture* cette fois. Avant de clore : vérifier la cohérence
 `pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
 
 > 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
-> **Outils :** `glab`, `mmi-pm-git-*`⚠ · **Préchargé par :** worker-dev, worker-db, worker-infra.
+> **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
 
@@ -1382,7 +1384,10 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
    Redmine (§ Prise en charge d'une tâche) + **création de la branche dédiée**
    `<RMid>-<short-desc>` (depuis `integration_branch`) + renseignement du CF Redmine
-   `GIT Branche`.
+   `GIT Branche` (id 3). **Outil canonique : `pm-branch-start.py <RMid> --from
+   <integration_branch> [--take]`** (RM1923) — crée/checkout la branche, pousse le
+   CF, met à jour `git.repo`/`git.branch` du frontmatter + log, et `--take`
+   enchaîne la prise (`pm-task-status-update en_cours`).
 2. **Dev terminé** (ou étape) ⇒ `a_tester_dev` : test par un agent/une personne **≠ le
    dev**, dans un env `test`.
    - Test OK ⇒ `a_tester_demandeur` + ré-assignation au **demandeur**.

@@ -18,10 +18,10 @@
 | QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
-| je commence à coder un ticket (branche) | `modules/git-mep.md` | `mmi-pm-git-*` ⚠ |
+| je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
-| je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next` ⚠) |
+| je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
@@ -30,7 +30,7 @@
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
 | je crée un projet / une entité PM | `modules/project-creation.md` (+ bootstrap, memberships) | `pm-project-new`, `pm-project-bootstrap`, `pm-client-new` |
-| un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor` ⚠, `pm-sync-views` ⚠ |
+| un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |

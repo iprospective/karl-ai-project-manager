@@ -34,8 +34,9 @@ ASSEMBLE = SCRIPTS / "pm-norms-assemble.py"
 ORACLE = SRC / "_original-frozen.md"
 LEDGER = SRC / "dedup-ledger.yml"
 
-KNOWN_GAPS = {"pm-doctor.py", "pm-sync-views.py", "pm-sync-links.py", "--list-next",
-              "mmi-pm-git"}
+# Livrés depuis (RM1923) : pm-doctor.py, --list-next, pm-branch-start.py
+# (qui remplace le placeholder mmi-pm-git-*).
+KNOWN_GAPS = {"pm-sync-views.py", "pm-sync-links.py"}
 
 TOOL_RE = re.compile(r"\b((?:pm|redmine)-[a-z0-9-]+\.py)\b")
 SKILL_RE = re.compile(r"\b(mmi-pm-[a-z0-9-]+)\b")
@@ -125,7 +126,8 @@ def check_fences():
 
 def tool_exists(token):
     if token == "--list-next":
-        return False
+        f = SCRIPTS / "pm-task-status-update.py"
+        return f.exists() and "--list-next" in f.read_text(encoding="utf-8")
     if token.endswith(".py"):
         return (SCRIPTS / token).exists()
     if token.startswith("mmi-pm-"):

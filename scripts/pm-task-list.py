@@ -77,33 +77,12 @@ def parse_frontmatter(path: Path):
 
 
 def detect_project_from_cwd(cfg: PMConfig):
-    """Retourne (entity_slug, project_slug) ou None."""
-    cwd = Path.cwd().resolve()
+    """Retourne (entity_slug, project_slug) ou None.
 
-    # 1. Cherche un symlink .mmi-pm dans cwd ou ancêtres
-    for d in [cwd] + list(cwd.parents):
-        link = d / ".mmi-pm"
-        if link.is_symlink():
-            target = link.resolve()
-            try:
-                rel = target.relative_to(cfg.projects_root)
-                parts = rel.parts
-                # attendu: clients/<E>/projects/<P>
-                if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-                    return parts[1], parts[3]
-            except ValueError:
-                pass
-
-    # 2. cwd directement sous projects_root/clients/<E>/projects/<P>(/...)
-    try:
-        rel = cwd.relative_to(cfg.projects_root)
-        parts = rel.parts
-        if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-            return parts[1], parts[3]
-    except ValueError:
-        pass
-
-    return None
+    Délègue à la détection centralisée `PMConfig.detect_project_from_cwd`
+    (overview-based, gère `.mmi-pm` symlink OU dossier — RM1942).
+    """
+    return cfg.detect_project_from_cwd()
 
 
 def scan_project_tasks(cfg: PMConfig, entity: str, project: str):

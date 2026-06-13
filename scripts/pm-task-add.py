@@ -106,25 +106,9 @@ def slugify(s: str, maxlen: int = 50) -> str:
 
 
 def detect_project_from_cwd(cfg):
-    """Réplique la détection de pm-task-list.py (simplifiée)."""
-    cwd = Path.cwd().resolve()
-    for d in [cwd] + list(cwd.parents):
-        link = d / ".mmi-pm"
-        if link.is_symlink():
-            target = link.resolve()
-            try:
-                parts = target.relative_to(cfg.projects_root).parts
-                if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-                    return parts[1], parts[3]
-            except ValueError:
-                pass
-    try:
-        parts = cwd.relative_to(cfg.projects_root).parts
-        if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-            return parts[1], parts[3]
-    except ValueError:
-        pass
-    return None
+    """Détection du projet courant — déléguée à PMConfig (overview-based,
+    gère `.mmi-pm` symlink OU dossier co-localisé, RM1942)."""
+    return cfg.detect_project_from_cwd()
 
 
 def load_project_overview(cfg, entity, project):

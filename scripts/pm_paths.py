@@ -249,3 +249,52 @@ class PMConfig:
                 ent_path = self.path("entity", entity=ent_slug)
                 return ent_path, proj_path
         return None, None
+
+    def detect_project_from_cwd(
+        self, start: Optional[Path] = None
+    ) -> Optional[Tuple[str, str]]:
+        """Détecte (entity, project) depuis le cwd (ou `start`) — source unique.
+
+        Mécanisme **indépendant de la forme de `.mmi-pm`** (symlink hérité OU
+        dossier co-localisé, RM1942) : on lit `<.mmi-pm>/project/overview.md` et
+        on en extrait `client` + `slug` (présents qu'on suive un symlink ou qu'on
+        lise un dossier réel). Fallbacks : chemin cible du symlink, puis position
+        du cwd sous `projects_root`.
+        """
+        cwd = (start or Path.cwd()).resolve()
+
+        # 1. cwd directement sous projects_root/clients/<E>/projects/<P> : le plus
+        #    spécifique (passe AVANT la remontée, sinon on capte le `.mmi-pm` de
+        #    l'outil PM dans lequel `ai-projects` est imbriqué).
+        try:
+            rel = cwd.relative_to(self.projects_root).parts
+            if len(rel) >= 4 and rel[0] == "clients" and rel[2] == "projects":
+                return rel[1], rel[3]
+        except ValueError:
+            pass
+
+        # 2. Remontée cwd + ancêtres à la recherche d'un `.mmi-pm`
+        for d in [cwd] + list(cwd.parents):
+            mp = d / ".mmi-pm"
+            if not mp.exists():
+                continue
+            # 2a. Lecture de l'overview (marche pour dossier ET symlink suivi)
+            ov = mp / "project" / "overview.md"
+            if ov.is_file():
+                try:
+                    m = self._FM_RE.match(ov.read_text(encoding="utf-8"))
+                    fm = (yaml.safe_load(m.group(1)) or {}) if m else {}
+                    ent, slug = fm.get("client"), fm.get("slug")
+                    if ent and slug:
+                        return str(ent), str(slug)
+                except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                    pass
+            # 2b. Fallback : symlink hérité → parse du chemin cible
+            if mp.is_symlink():
+                try:
+                    rel = mp.resolve().relative_to(self.projects_root).parts
+                    if len(rel) >= 4 and rel[0] == "clients" and rel[2] == "projects":
+                        return rel[1], rel[3]
+                except (ValueError, OSError):
+                    pass
+        return None

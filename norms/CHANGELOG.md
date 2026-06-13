@@ -5,6 +5,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.42.0] - 2026-06-13
+
+### Ajouté — Budget de contexte par rôle (RM1943)
+
+Mesure et garde-fou du contexte **toujours-chargé** d'une session, par rôle :
+
+- **`scripts/pm-context-budget.py`** : compose le contexte fixe d'un rôle
+  (pont AGENTS.md + CLAUDE.md PM + KERNEL + modules **préchargés** du rôle +
+  worker-common + addendum) et l'estime en tokens (octets/3,6). `--all-roles`
+  (tableau comparatif + Δ vs NORMS monolithique d'avant RM1922), `--role`,
+  `--before`, `--entity/--project` (cascade réelle), `--check`.
+- **Plafond** `pm.config.yml :: context.budget_tokens` (`default` + override
+  par rôle) ; **`pm-norms-doctor` échoue** si un rôle dépasse — invariant
+  anti-régression : précharger un module lourd pour un rôle est désormais
+  refusé au-delà du budget.
+- Mesure de référence (2026-06-13) : worker-dev **21,2k** vs **39,5k** avant
+  factorisation (**−46 %**) ; reviewer/summarizer **−78 %**. Module
+  `governance` § Budget de contexte + `MAINTAINING.md` §11.
+
 ## [1.41.0] - 2026-06-13
 
 ### Ajouté — Outillage NORMS livré : pm-branch-start, pm-doctor, --list-next (RM1923)

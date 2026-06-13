@@ -99,3 +99,15 @@ traceability:
 git:
   autocommit: true
   autopush: true
+
+# ── Budget de contexte par rôle (RM1943) ──────────────────────────────────
+# Plafond (≈ tokens, octets/3.6) du contexte TOUJOURS-CHARGÉ d'une session :
+# pont AGENTS.md + CLAUDE.md PM + KERNEL + modules préchargés du rôle +
+# worker-common + addendum rôle (hors cascade client/projet, variable).
+# Mesure : scripts/pm-context-budget.py --all-roles ; garde-fou anti-régression
+# vérifié par pm-norms-doctor (--check). Référence 2026-06-13 : worker-dev
+# 21,2k (avant RM1922 : 39,5k). Resserrer les plafonds = réduire les
+# préchargements de modules (premier levier : status-workflow 5,6k).
+context:
+  budget_tokens:
+    default: 24000

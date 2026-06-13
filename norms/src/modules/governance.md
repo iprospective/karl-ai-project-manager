@@ -1,5 +1,5 @@
 > 📂 **Module `governance` — quand lire ceci :** gouvernance HORS-runtime : déploiement multi-machines · versionning de NORMS · distribution des skills · config globale.
-> **Outils :** `pm-norms-assemble`, `pm-norms-doctor` · **Préchargé par :** —.
+> **Outils :** `pm-norms-assemble`, `pm-norms-doctor`, `pm-context-budget` · **Préchargé par :** —.
 
 ## Architecture de déploiement
 
@@ -143,3 +143,23 @@ Règles de réduction de la fenêtre de course :
   immédiat** (ne pas laisser traîner un bump non commité).
 - Si la version sur disque ≠ celle lue au démarrage de la tâche → **stop**, réconcilier
   (rebaser, renuméroter) avant de poursuivre ; ne jamais bumper à l'aveugle.
+
+### Budget de contexte par rôle (RM1943)
+
+Le KERNEL + les modules **préchargés** par un rôle constituent le contexte
+**toujours-chargé** de chaque session de ce rôle — payé à chaque démarrage. C'est
+le poste que la factorisation NORMS (RM1922) optimise ; il ne doit pas re-gonfler
+en douce.
+
+- **Mesurer** : `scripts/pm-context-budget.py --all-roles` (détail d'un rôle :
+  `--role <r>` ; cascade d'un projet réel : `--entity E --project P` ; référence
+  d'avant la factorisation : `--before`). Estimation octets/3,6 (le tokenizer réel
+  n'est pas accessible hors API — ordre de grandeur, pas valeur exacte).
+- **Plafond** : `pm.config.yml :: context.budget_tokens` (`default` + override par
+  rôle). `pm-norms-doctor` échoue si un rôle dépasse (invariant anti-régression).
+- **Conséquence pratique** : ajouter un module au **préchargement** d'un rôle
+  (en-tête `> … **Préchargé par :** …`) augmente son contexte fixe. Ne précharger
+  qu'un module **réellement utilisé à chaque session** du rôle ; sinon le laisser
+  **à la demande** (ouvert via son déclencheur KERNEL). Premier levier de réduction
+  si un plafond est atteint : retirer un module du préchargement le plus lourd
+  (à ce jour `status-workflow`, ~5,6k).

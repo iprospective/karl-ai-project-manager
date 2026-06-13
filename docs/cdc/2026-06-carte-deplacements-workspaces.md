@@ -2,171 +2,179 @@
 
 | | |
 |---|---|
-| **Statut** | DRAFT à valider par Mathieu — **aucun geste tant que cette carte n'est pas validée** |
+| **Statut** | **VALIDÉE avec décisions Mathieu 2026-06-13** — pilote = `calicote`. Gestes uniquement après accord pas-à-pas. |
 | **Date** | 2026-06-13 |
 | **Base** | `docs/cdc/2026-06-inventaire-workspaces.md` (état des lieux vérifié) |
 | **Programme** | RM1942 — chantiers C2 (normalisation dossiers) puis C3 (co-location données) |
 
-## 1. Modèle cible (reformulé d'après tes précisions — à confirmer)
+## 1. Modèle cible (validé)
 
 ```
 /zfs/workspaces/<client>/                  ← dossier CLIENT = repo git  → remote <client>/<client>-core
-  .mmi-pm/                                  ← données PM niveau client (client/, memory/, projects_used/) — COMMITÉES
-  <projet>/                                 ← dossier PROJET = repo git  → remote <client>/<projet>-core
+  .mmi-pm-client/                           ← données PM niveau client (client/, memory/, projects_used/) — COMMITÉES
+  [<groupe>/]<projet>/                       ← dossier PROJET = repo git  → remote <client>/<projet>-core
     .mmi-pm/                                ← données PM niveau projet (project/, tasks/, memory/) — COMMITÉES
     <code…>                                 ← le(s) repo(s) de CODE du projet, gitignoré(s) par le repo -core
 ```
 
-- Le repo **`-core`** d'un dossier ne tracke (au moins « dans un premier temps ») **que
-  son `.mmi-pm/`** ; il gitignore le code. Le **code** garde son/ses propre(s) repo(s)
-  (ex. `calyclay/calymix.git`, 118 commits) imbriqué(s) dans le dossier projet.
-- `.mmi-pm` cesse d'être un symlink → **dossier réel committé** (la donnée PM voyage
-  dans le repo, plus dans le monorepo `ai-projects`).
-
-**⚠ À confirmer avant tout (questions ouvertes, §6) :** le nommage exact des remotes,
-le préfixe de groupe GitLab, et 3 divergences de nom workspace↔PM.
+Décisions actées :
+- **Deux marqueurs distincts** (proposition Mathieu, retenue) : `.mmi-pm-client/` au niveau
+  client, `.mmi-pm/` au niveau projet. Nommage explicite ⇒ le pont AGENTS.md et le
+  résolveur distinguent les deux niveaux **sans marqueur `pm.yml` supplémentaire**.
+- **Remotes** : `<client>/<client>-core` et `<client>/<projet>-core`, **distincts des repos
+  de code** (ce sont les repos de *structure* des workspaces PM ; le code garde son propre
+  repo imbriqué et gitignoré). **Pas de groupe GitLab chapeau `clients/`** — la création
+  d'un nouvel env PM sera traitée plus tard.
+- **Le repo `-core` ne tracke que son `.mmi-pm[-client]/`** (au moins au début) ; gitignore
+  le reste.
+- **Groupes de dossiers libres** : un projet peut vivre sous un sous-dossier de
+  regroupement (ex. `prestashop/modules/mmi_productcheck`). Le résolveur repère le projet
+  par la présence de `.mmi-pm`, **pas** par une profondeur fixe.
+- **Noms de dossiers = lisibilité d'abord.** Là où le dossier diverge du slug PM, on garde
+  le **nom de dossier** et on réconcilie le PM/les autres outils **plus tard** (ticket).
 
 ## 2. Légende des actions
 
 - **CONV** = conversion sur place : créer le repo `-core`, transformer le symlink
-  `.mmi-pm` en dossier réel (déplacer les données depuis `ai-projects`), premier commit.
+  `.mmi-pm` en dossier réel (rapatrier les données depuis `ai-projects`), premier commit.
   **Aucun déplacement de dossier de code.**
 - **MOVE** = le dossier de code change d'emplacement (puis CONV).
-- **NE PAS TOUCHER** = laissé tel quel (sauf éventuelle CONV du `.mmi-pm`).
+- **NE PAS TOUCHER** = structure laissée telle quelle (sauf CONV du `.mmi-pm`).
 
 ## 3. Carte par client — avant → après
 
-### iprospective (les 2 workspaces « à la racine » à ranger)
+### calicote — ⭐ PILOTE (aucun travail actif dessus)
+
+| Workspace actuel | .mmi-pm → PM | Action |
+|---|---|---|
+| `calicote/dolibarr` | `calicote/dolibarr` | **CONV** (`git init` vide) |
+| `calicote/prestashop` | `calicote/prestashop` | **CONV** (`git init` vide) |
+| `calicote/infra` | `calicote/infra` | **CONV** (`git init` vide) |
+| `calicote/dpsync` | PM `calicote/prestasync` | **CONV — garder le dossier `dpsync`** ; PM/outils à renommer plus tard (→ ticket T1) |
+
+→ crée `calicote/` `.mmi-pm-client` + remote `calicote/calicote-core`.
+
+### iprospective (workspaces « à la racine » à ranger)
 
 | Workspace actuel | → Cible | Action | repo code |
 |---|---|---|---|
-| `/zfs/workspaces/infra` | `/zfs/workspaces/iprospective/infrastructure/infra/` (`.mmi-pm` au niveau `iprospective/infrastructure/`) | **MOVE** | a un remote `gitlab:sysadmin/infrastructure.git` (23 commits) → **préserver le `.git`** |
-| `/zfs/workspaces/security` | `/zfs/workspaces/iprospective/security/security/` (`.mmi-pm` au niveau `iprospective/security/`) | **MOVE** | remote `gitlab:…/ai-security.git` (2 commits) → préserver |
-| *(pm-ai-agents)* | `ai/project-management` — **cas spécial**, déménage en C2/P6 (`/zfs/workspaces/.mmi-pm-core`), pas ici | — | l'outil lui-même |
+| `/zfs/workspaces/infra` | `iprospective/infrastructure/infra/` (`.mmi-pm` au niveau `iprospective/infrastructure/`) | **MOVE** — *actif, fenêtre requise* | remote `gitlab:sysadmin/infrastructure.git` (23 c.) → préserver |
+| `/zfs/workspaces/security` | `iprospective/audits/audits/` (`.mmi-pm` au niveau `iprospective/audits/`) | **MOVE** — *actif, fenêtre requise* ; dossier `audits` ↔ PM `security` (→ ticket T1) | remote `gitlab:…/ai-security.git` (2 c.) → préserver |
+| *(pm-ai-agents)* | l'outil lui-même → `/zfs/workspaces/.mmi-pm-core` en C2/P6 | — *actif* | — |
 
-→ crée le dossier client `iprospective/` + son repo `iprospective/iprospective-core` (`.mmi-pm` client).
+→ crée `iprospective/` `.mmi-pm-client` + remote `iprospective/iprospective-core`.
 
-### redmine / roundcube (client = nom du projet)
+### calyclay — *calymix actif, fenêtre requise*
 
-| Workspace actuel | → Cible | Action |
-|---|---|---|
-| `/zfs/workspaces/redmine` | `/zfs/workspaces/redmine/redmine/` (contenu dans le sous-dossier ; `.mmi-pm` projet dedans, `.mmi-pm` client au niveau `redmine/`) | **MOVE** (contenu d'un cran) |
-| `/zfs/workspaces/roundcube` | `/zfs/workspaces/roundcube/roundcube/` (idem) | **MOVE** |
-
-### calicote (déjà bien rangé — CONV sur place + 1 renommage)
-
-| Workspace actuel | .mmi-pm → PM | Action | repo code |
+| Workspace | .mmi-pm → PM | Action | repo code |
 |---|---|---|---|
-| `calicote/dolibarr` | `calicote/dolibarr` | **CONV** | `git init` vide |
-| `calicote/prestashop` | `calicote/prestashop` | **CONV** | `git init` vide |
-| `calicote/infra` | `calicote/infra` | **CONV** | `git init` vide |
-| `calicote/dpsync` | `calicote/**prestasync**` | **CONV + renommer** dossier `dpsync`→`prestasync` (ou aligner le PM) | `git init` vide |
-
-→ crée `calicote/calicote-core` (`.mmi-pm` client).
-
-### calyclay
-
-| Workspace actuel | .mmi-pm → PM | Action | repo code |
-|---|---|---|---|
-| `calyclay/calymix` | `calyclay/calymix` | **CONV — mais fenêtre calme requise** (projet actif) | `gitlab:calyclay/calymix.git` (118 commits) |
+| `calyclay/calymix` | `calyclay/calymix` | **CONV — fenêtre calme** | `gitlab:calyclay/calymix.git` (118 c.) |
 | `calyclay/infra` | `calyclay/infra` | **CONV** | 1 commit local, pas de remote |
 
 → crée `calyclay/calyclay-core`.
 
-### pisceen (CONV + 1 alignement de nom)
+### pisceen
 
 | Workspace actuel | .mmi-pm → PM | Action |
 |---|---|---|
 | `pisceen/dolibarr` | `pisceen/dolibarr` | **CONV** |
 | `pisceen/infra` | `pisceen/infra` | **CONV** |
-| `pisceen/presta` | `pisceen/**pisceen-presta**` | **CONV + aligner** (`presta` vs `pisceen-presta`) |
+| `pisceen/presta` | `pisceen/pisceen-presta` | **CONV + aligner le dossier** `presta`→`pisceen-presta` |
 
 → crée `pisceen/pisceen-core`.
 
-### lemathou (workspace nommé `perso`)
+### lemathou (workspace nommé `perso` — client canonique = `lemathou`)
 
 | Workspace actuel | .mmi-pm → PM | Action |
 |---|---|---|
-| `perso/maths/maths_v5` (+ autres repos) | `lemathou/maths` | **NE PAS TOUCHER la structure** (client/projet/repos OK) — reste à trancher : `perso` vs `lemathou` (§6) |
-| `perso/mathematicians-db` | `lemathou/mathematicians-db` | idem |
+| `perso/maths/…` | `lemathou/maths` | structure intacte ; client canonique `lemathou` (dossier `perso`→`lemathou`) — *perso/maths **actif**, fenêtre requise* |
+| `perso/mathematicians-db` | `lemathou/mathematicians-db` | structure intacte ; idem rattachement `lemathou` |
+
+→ crée `lemathou/lemathou-core`.
 
 ### lydiemariller
 
 | Workspace actuel | .mmi-pm → PM | Action |
 |---|---|---|
-| `lydiemariller/wordpress/dev` | `lydiemariller/lydiemariller-com` | **NE PAS TOUCHER la structure** (client/projet/repo OK) — divergence nom `wordpress` vs `lydiemariller-com` (§6) |
+| `lydiemariller/wordpress/dev` | `lydiemariller/lydiemariller-com` | structure intacte ; **aligner le dossier projet** `wordpress`→`lydiemariller-com` |
 
-### matnat (structure OK — juste cartographier le PM + nettoyer le vrac)
-
-`matnat/{erp_old, infra, site_sf5, site_sf7}` ont déjà chacun leur `.mmi-pm`. **Ne pas
-toucher la structure.** À faire : définir matnat comme client, peupler les 4 projets PM
-(0 tâche aujourd'hui), et trier le vrac à la racine `matnat/` (`android-app`, `data/`,
-`*.mwb`, `*.txt`, `recup/`…) — hors périmètre restructuration, simple ménage.
+→ crée `lydiemariller/lydiemariller-core`.
 
 ### abatik
 
-| Workspace | .mmi-pm → PM | Action |
+| `abatik/infra` | `abatik/infra` | **CONV** (pas de git) → crée `abatik/abatik-core` |
 |---|---|---|
-| `abatik/infra` | `abatik/infra` | **CONV** (pas de git aujourd'hui) |
 
-### prestashop (produit)
+### matnat — structure OK, juste cartographier + ménage
 
-| Workspace actuel | .mmi-pm → PM | Action |
+`matnat/{erp_old, infra, site_sf5, site_sf7}` ont déjà leur `.mmi-pm`. **Structure intacte.**
+À faire : définir matnat comme client (`matnat-core`), **peupler** les 4 projets PM (0 tâche),
+trier le vrac racine (`android-app`, `data/`, `*.mwb`, `*.txt`, `recup/`…) — ménage hors
+restructuration.
+
+### Entités produit (redmine, roundcube, prestashop, nextcloud)
+
+| Workspace actuel | → Cible | Action |
 |---|---|---|
-| `prestashop/modules/mmi_productcheck` | `prestashop/mmi_productcheck` | **NE PAS TOUCHER** (le module est déjà un sous-module git sous `modules/`) — divergence de profondeur à statuer (§6) |
+| `/zfs/workspaces/redmine` | `redmine/redmine/` (contenu d'un cran) | **MOVE** |
+| `/zfs/workspaces/roundcube` | `roundcube/roundcube/` (contenu d'un cran) | **MOVE** |
+| `prestashop/modules/mmi_productcheck` | **inchangé** — `modules/` = sous-dossier de regroupement assumé | NE PAS TOUCHER |
+| `nextcloud/nc-clients` | `nextcloud/nc-clients` | **CONV** (`git init` vide) |
 
-### nextcloud (produit)
+→ **`.mmi-pm-client` / `*-core` au niveau produit : différé** (Q4 : « on fait pas si pas
+besoin »). À reprendre via ticket si nécessaire (T2).
 
-| Workspace | .mmi-pm → PM | Action |
-|---|---|---|
-| `nextcloud/nc-clients` | `nextcloud/nc-clients` | **CONV** | `git init` vide |
+## 4. Créations
 
-## 4. Créations nécessaires
+### Repos `-core` à créer (données PM, distincts du code)
 
-### Repos « client-core » à créer (un par client, ⇐ aucun n'existe)
-
-`iprospective-core`, `calicote-core`, `calyclay-core`, `pisceen-core`, `lemathou-core`,
-`lydiemariller-core`, `matnat-core`, `abatik-core`, `redmine-core`, `roundcube-core`,
-`prestashop-core`, `nextcloud-core`.
-
-### Repos « projet-core » à créer
-
-Un par projet listé en §3 (24 projets). Pour les 7 `git init` vides actuels, le repo
-local existe déjà (à brancher sur son remote) ; pour les autres, à initialiser.
+- **client-core** (clients réels) : `calicote-core`, `iprospective-core`, `calyclay-core`,
+  `pisceen-core`, `lemathou-core`, `lydiemariller-core`, `matnat-core`, `abatik-core`.
+- **client-core produits** (redmine, roundcube, prestashop, nextcloud) : **différé** (T2).
+- **projet-core** : un par projet (les 7 `git init` vides ont déjà le repo local, à brancher
+  sur leur remote ; les autres à initialiser au passage).
 
 ### Côté PM (données)
 
-**Aucun projet PM manquant** : les 24 projets existent déjà dans `ai-projects`. Rien à
-créer côté PM, **uniquement à migrer** (les `.mmi-pm` deviennent des dossiers réels).
-matnat = 4 projets à **peupler** (0 tâche).
+Aucun projet PM manquant (24 existent). **Migration seule** : `.mmi-pm` symlink → dossier
+réel. matnat = 4 projets à peupler.
 
-## 5. Récap des gestes par niveau de risque
+## 5. Risque & coordination
 
 | Risque | Gestes |
 |---|---|
-| 🟢 Nul | CONV des 7 `git init` vides (calicote ×4, nextcloud, abatik, calyclay/infra) — aucun déplacement, aucun historique en jeu |
-| 🟡 Faible | CONV avec alignement de nom (dpsync→prestasync, presta→pisceen-presta) |
-| 🟠 Moyen | MOVE avec historique git réel : `infra`, `security` (préserver `.git` + remotes) ; MOVE redmine/roundcube (contenu d'un cran) |
-| 🔴 À coordonner | `calyclay/calymix` (actif) ; `ai/project-management` (l'outil, C2/P6) |
+| 🟢 Nul | CONV des `git init` vides : **calicote ×4** (pilote), nextcloud, abatik, calyclay/infra |
+| 🟡 Faible | CONV + alignement de dossier : pisceen (`presta`→`pisceen-presta`), lydiemariller (`wordpress`→`lydiemariller-com`) |
+| 🟠 Moyen | MOVE avec historique git : redmine, roundcube (contenu d'un cran) |
+| 🔴 Fenêtre requise (**projets actifs**) | `security`→`iprospective/audits`, `infra`→`iprospective/infrastructure`, `calyclay/calymix`, `ai/project-management` (l'outil), `perso/maths` |
 
-## 6. Questions ouvertes — à trancher AVANT tout geste
+**Projets actifs à ne migrer que sur fenêtre calme annoncée** : security, calyclay/calymix,
+infra, ai/project-management, perso/maths.
 
-1. **Nommage des remotes** : confirmes-tu `<client>/<client>-core` et
-   `<client>/<projet>-core` ? Et le **groupe GitLab** chapeau : `clients/<client>/…`
-   (comme l'ADR) ou directement `<client>/…` ? Les repos `-core` sont-ils **distincts**
-   des repos de code (ex. `calyclay/calymix.git` = code, `calyclay/calymix-core.git` =
-   données PM) — c'est ma lecture, à valider.
-2. **`perso` vs `lemathou`** : le workspace est `perso/`, le client PM est `lemathou`.
-   On garde `perso/` et on aligne le slug PM ? on renomme le workspace en `lemathou/` ?
-   (idem implicite : `perso` = entité *self* ?)
-3. **Divergences de nom workspace↔PM** : `dpsync`/`prestasync`, `presta`/`pisceen-presta`,
-   `wordpress`/`lydiemariller-com`, `prestashop/modules/mmi_productcheck` (profondeur).
-   Pour chacune : **aligner le dossier sur le PM**, ou **le PM sur le dossier** ?
-4. **`.mmi-pm` client niveau redmine/roundcube/prestashop/nextcloud** (entités produit) :
-   ont-elles besoin d'un `.mmi-pm` client (donc d'un `*-core`), ou le niveau client est-il
-   vide pour ces produits ?
-5. **Ordre d'exécution** : on confirme le **pilote** ? (je propose **calicote** : 4 CONV à
-   risque nul + 1 renommage, zéro historique en jeu, et tu ne codes pas dessus en ce
-   moment — plus serein que calyclay dont calymix est actif).
-6. **Repos de code sans remote** (`calyclay/infra`, les `git init` vides) : on leur crée
-   un remote de code aussi, ou seul le `-core` (données PM) est versionné pour démarrer ?
+## 6. Décisions validées (2026-06-13)
+
+1. Remotes `<client>/<client>-core` + `<client>/<projet>-core`, distincts du code, **sans**
+   groupe chapeau `clients/`.
+2. Marqueurs `.mmi-pm-client` (client) / `.mmi-pm` (projet).
+3. Noms de dossier conservés pour lisibilité ; PM/outils réconciliés plus tard où ça diverge.
+4. Client PM `lemathou` (pas `perso`).
+5. `modules/mmi_productcheck` conservé (regroupement par sous-dossier assumé).
+6. `.mmi-pm-client` produits : différé tant qu'inutile.
+7. Pilote = **calicote**.
+
+## 7. Tickets à créer (réconciliations différées)
+
+- **T1 — Réconcilier les noms divergents dossier↔PM/outils** : `dpsync`↔`prestasync`,
+  `audits`↔`security` (renommer le PM + autres outils sur le nom de dossier lisible).
+- **T2 — `.mmi-pm-client`/`-core` pour les entités produit** : à évaluer si le besoin
+  apparaît (redmine, roundcube, prestashop, nextcloud).
+- **T3 — Remotes de code** pour les workspaces qui n'en ont pas (`calyclay/infra`, les
+  `git init` vides) : créés seulement si nécessaires à la migration, sinon notés ici.
+- **matnat** : peupler les 4 projets PM + ménage du vrac racine.
+
+## 8. Premier geste proposé (à ton signal)
+
+Sur **calicote uniquement**, le geste à risque nul : créer `calicote/calicote-core` +
+`.mmi-pm-client`, puis **un seul projet** en CONV (`calicote/dolibarr` : `git init` vide,
+aucun historique, aucun travail actif). Tu valides le résultat (structure + `.mmi-pm` réel +
+premier commit + push), et seulement alors on enchaîne les 3 autres projets calicote.

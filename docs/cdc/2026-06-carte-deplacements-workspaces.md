@@ -242,7 +242,8 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | roundcube | ✅ complet (projet seul, `--no-client`) | groupe `roundcubemail` (noms divergents) |
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
 | calyclay | ✅ partiel (client + `infra`) | Maintainer accordé ; `infra` fait via `--skip calymix` ; **calymix reste à migrer** (actif, fenêtre calme) — intact (symlink) |
-| lemathou (workspace `perso`), iprospective | à faire | divergence `perso`↔`lemathou` + `maths` actif ; iprospective = projets actifs (infra, security/audits, pm-ai-agents, worm) → fenêtres |
+| lemathou (workspace `perso`) | ✅ partiel (client + `mathematicians-db`) | groupe `lemathou` (Owner) ; dossier `perso` gardé (≠ PM/groupe `lemathou`, noms divergents) ; **`maths` reste** (actif, `--skip maths_v5`) |
+| iprospective | à faire | tous projets **actifs** : infra, security (→`audits`), pm-ai-agents, worm → fenêtres calmes |
 
 **3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)
 → converties en chantier de fond **RM1976** (convention GitLab↔Redmine↔dossier). Recommandé

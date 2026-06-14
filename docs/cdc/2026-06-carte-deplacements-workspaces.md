@@ -237,11 +237,12 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | pisceen | ✅ complet (dolibarr, infra, presta + client) | a fallu **renommer le user GitLab `pisceen`** (squattait le path top-level) ; `presta` gardé (PM `pisceen-presta`) |
 | matnat | ✅ complet (erp_old, infra, site_sf5, site_sf7 + client) | **dossier `matnat` ↔ groupe GitLab `matnat-materiaux-naturels`** (`--group`, noms divergents assumés) ; Maintainer accordé ; 0 tâche PM (à peupler) |
 | **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; fenêtre calme |
-| lydiemariller | à faire | 1 projet ; décision nom `wordpress`↔`lydiemariller-com` (comme presta) |
+| lydiemariller | ✅ complet (lydiemariller-com + client) | `.mmi-pm` remonté de `dev/`→projet ; **`wordpress`→`lydiemariller-com`** ; repos sous groupe `lydie-mariller`. **Reste (root)** : renommer le dossier client `lydiemariller`→`lydie-mariller` (`/zfs/workspaces` est root) — sans impact sur les repos/.mmi-pm |
+| redmine | ✅ complet (projet seul, `--no-client`) | groupe `redmine` (Owner) ; `.gitignore` code sauvegardé en `.gitignore.pre-coloc` |
+| roundcube | ✅ complet (projet seul, `--no-client`) | groupe `roundcubemail` (noms divergents) |
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
 | calyclay | ✅ partiel (client + `infra`) | Maintainer accordé ; `infra` fait via `--skip calymix` ; **calymix reste à migrer** (actif, fenêtre calme) — intact (symlink) |
-| redmine, roundcube | à faire | **MOVE** (contenu d'un cran) ; `.mmi-pm-client` produit différé (Q4) |
-| lemathou (workspace `perso`), iprospective | à faire | divergence `perso`↔`lemathou` ; iprospective = projets actifs (infra, security/audits, pm-ai-agents, worm) → fenêtres |
+| lemathou (workspace `perso`), iprospective | à faire | divergence `perso`↔`lemathou` + `maths` actif ; iprospective = projets actifs (infra, security/audits, pm-ai-agents, worm) → fenêtres |
 
 **3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)
 → converties en chantier de fond **RM1976** (convention GitLab↔Redmine↔dossier). Recommandé

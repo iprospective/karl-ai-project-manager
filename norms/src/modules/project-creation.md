@@ -26,12 +26,13 @@ modélisation côté PM (probablement deux projets distincts à créer).
 `tasks.iprospective.fr`) :
 
 À la création d'un projet Redmine via API (`POST /projects.json`), ajouter
-systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :
+systématiquement ces trois memberships via `POST /projects/<id>/memberships.json` :
 
 | Groupe Redmine | id | Rôle | role_id |
 |---|---|---|---|
 | `Admin` | 49 | `Manager` | 3 |
 | `iProspective` | 70 | `Intervenant` | 7 |
+| `Agents IA` | 73 | `Intervenant` | 7 |
 
 Justification :
 - `Admin` en Manager garantit que tu (Mathieu) gardes les pleins droits sur le projet,
@@ -39,8 +40,11 @@ Justification :
 - `iProspective` en Intervenant permet aux comptes de l'équipe (humains + agents :
   `claude-chefproj-1`, `karl@`, etc.) de voir et collaborer sur le projet sans devoir
   les ajouter un par un à chaque projet
+- `Agents IA` en Intervenant donne aux **agents IA** (karl & co) l'accès au projet —
+  sans ce groupe, un nouveau projet n'est pas accessible aux workers IA (RM1977).
+  Rôle universel sur l'instance (`Développeur` est ajouté en plus sur les projets dev).
 
-`pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces deux ajouts à la
+`pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
 
 Payload API pour automation :
@@ -52,6 +56,10 @@ curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE
 # iProspective (group_id=70) en Intervenant (role_id=7)
 curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
   -d '{"membership":{"user_id":70,"role_ids":[7]}}' \
+  "$REDMINE_URL/projects/<project_id>/memberships.json"
+# Agents IA (group_id=73) en Intervenant (role_id=7)
+curl -X POST -H "Content-Type: application/json" -H "X-Redmine-API-Key: $REDMINE_API_KEY" \
+  -d '{"membership":{"user_id":73,"role_ids":[7]}}' \
   "$REDMINE_URL/projects/<project_id>/memberships.json"
 ```
 

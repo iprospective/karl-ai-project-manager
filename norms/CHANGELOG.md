@@ -5,6 +5,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.43.0] - 2026-06-14
+
+### Corrigé — Membership « Agents IA » par défaut sur un nouveau projet (RM1977)
+
+`pm-project-new.py` ajoute désormais un **3ᵉ membership par défaut** : groupe
+`Agents IA` (id 73) en `Intervenant` (role 7), en plus de `Admin`/Manager et
+`iProspective`/Intervenant. Sans ce groupe, un nouveau projet Redmine n'était
+**pas accessible aux agents IA** (karl & co). Rôle universel sur l'instance
+(`Développeur` reste ajouté ad hoc sur les projets dev). Module
+`project-creation` (tableau memberships) mis à jour.
+
 ## [1.42.0] - 2026-06-13
 
 ### Ajouté — Budget de contexte par rôle (RM1943)

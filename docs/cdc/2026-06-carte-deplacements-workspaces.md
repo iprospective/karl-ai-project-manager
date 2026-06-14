@@ -235,6 +235,7 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | nextcloud | ✅ complet (nc-clients + client) | groupe créé |
 | abatik | ✅ complet (infra + client) | a fallu passer `mathieu` Maintainer sur le groupe |
 | pisceen | ✅ complet (dolibarr, infra, presta + client) | a fallu **renommer le user GitLab `pisceen`** (squattait le path top-level) ; `presta` gardé (PM `pisceen-presta`) |
+| matnat | ✅ complet (erp_old, infra, site_sf5, site_sf7 + client) | **dossier `matnat` ↔ groupe GitLab `matnat-materiaux-naturels`** (`--group`, noms divergents assumés) ; Maintainer accordé ; 0 tâche PM (à peupler) |
 | **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; fenêtre calme |
 | lydiemariller | à faire | 1 projet ; décision nom `wordpress`↔`lydiemariller-com` (comme presta) |
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |

@@ -221,12 +221,20 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 
 | Client | État | Note |
 |---|---|---|
-| calicote | ✅ complet (4 projets + client) | groupe promu top-level |
+| calicote | ✅ complet (4 projets + client) | groupe promu top-level (sfy/calicote→calicote) |
 | nextcloud | ✅ complet (nc-clients + client) | groupe créé |
-| abatik | ⛔ bloqué | `mathieu` = Developer (30) sur le groupe GitLab `abatik` → ne peut pas créer de repo. **Action : passer Maintainer/Owner sur `abatik`** (ou root crée les repos), puis `pm-workspace-coloc.py abatik` |
-| **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** (en cours) ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; migrer sur fenêtre calme |
-| pisceen | à faire | vérifier droits groupe GitLab d'abord |
-| lemathou (perso), lydiemariller, matnat, redmine, roundcube, iprospective | à faire | divergences/moves/fenêtres (cf. §3, §5) |
+| abatik | ✅ complet (infra + client) | a fallu passer `mathieu` Maintainer sur le groupe |
+| pisceen | ✅ complet (dolibarr, infra, presta + client) | a fallu **renommer le user GitLab `pisceen`** (squattait le path top-level) ; `presta` gardé (PM `pisceen-presta`) |
+| **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; fenêtre calme |
+| lydiemariller | à faire | 1 projet ; décision nom `wordpress`↔`lydiemariller-com` (comme presta) |
+| matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
+| calyclay | partiel possible | `calymix` **actif** (fenêtre) ; `calyclay/infra` faisable (mais l'outil traite tout le client → besoin d'un `--skip`) |
+| redmine, roundcube | à faire | **MOVE** (contenu d'un cran) ; `.mmi-pm-client` produit différé (Q4) |
+| lemathou (workspace `perso`), iprospective | à faire | divergence `perso`↔`lemathou` ; iprospective = projets actifs (infra, security/audits, pm-ai-agents, worm) → fenêtres |
+
+**3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)
+→ converties en chantier de fond **RM1976** (convention GitLab↔Redmine↔dossier). Recommandé
+de trancher RM1976 avant de poursuivre, pour rendre les migrations restantes mécaniques.
 
 **Leçon droits GitLab** : selon le groupe, `mathieu` est Owner / Maintainer / Developer.
 Créer les repos `-core` exige **Maintainer (40)**. À vérifier par client avant migration ;

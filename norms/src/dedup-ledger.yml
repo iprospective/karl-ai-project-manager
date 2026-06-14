@@ -66,3 +66,7 @@ rewritten:
   - reason: "RM1923 (v1.41.0) : pm-branch-start.py livré — la ligne du workflow git-mep citant le CF GIT Branche est enrichie de l'outil canonique (CF id 3)"
     old: |
       `GIT Branche`.
+
+  - reason: "RM1977 (v1.43.0) : 3e membership par défaut ajouté (Agents IA/Intervenant) — 'deux'→'trois'"
+    old: |
+      systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :

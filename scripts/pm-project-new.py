@@ -19,7 +19,8 @@ Usage :
 Étapes :
   1. Crée projet Redmine sous parent (id ou identifier) — utilise REDMINE_USER_MAIN_API_KEY
      OU rattache à un projet Redmine existant (--existing-redmine-id)
-  2. Ajoute 2 memberships par défaut (Admin/Manager, iProspective/Intervenant) — idempotent
+  2. Ajoute 3 memberships par défaut (Admin/Manager, iProspective/Intervenant,
+     Agents IA/Intervenant) — idempotent
   3. Crée struct PM (project/, memory/, tasks/)
   4. Écrit overview.md (et environments.md squelette si --with-env)
   5. Crée symlinks bidirectionnels (workspace ←→ PM)
@@ -138,8 +139,9 @@ def main():
         rm_identifier = args.slug
         print(f"  ✓ Redmine project id={rm_id} créé")
 
-    # 2. Default memberships (NORMS v1.7.2) — idempotent (422 = déjà présent)
-    for gid, rid, label in [(49, 3, "Admin/Manager"), (70, 7, "iProspective/Intervenant")]:
+    # 2. Default memberships (NORMS v1.7.2 ; Agents IA ajouté RM1977) — idempotent (422 = déjà présent)
+    for gid, rid, label in [(49, 3, "Admin/Manager"), (70, 7, "iProspective/Intervenant"),
+                            (73, 7, "Agents IA/Intervenant")]:
         code, data = api_call("POST", f"{url}/projects/{rm_identifier}/memberships.json",
                               key, {"membership": {"user_id": gid, "role_ids": [rid]}})
         if code == 201:

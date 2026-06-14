@@ -155,7 +155,15 @@ def coloc_dir(folder, mmi_name, src_dir, sub_dirs, group, repo, dry):
         s = src_dir / d
         if s.is_dir():
             run(["cp", "-a", str(s), str(mmi) + "/"])
-    (folder / ".gitignore").write_text(GITIGNORE.format(name=mmi_name), encoding="utf-8")
+    gi = folder / ".gitignore"
+    whitelist = GITIGNORE.format(name=mmi_name)
+    if gi.is_file() and gi.read_text(encoding="utf-8", errors="replace") != whitelist:
+        # Préserver un .gitignore existant (ex. code redmine, 44 lignes) avant d'écrire la whitelist
+        bak = folder / ".gitignore.pre-coloc"
+        if not bak.exists():
+            gi.rename(bak)
+            print(f"    · .gitignore existant sauvegardé → {bak.name}")
+    gi.write_text(whitelist, encoding="utf-8")
     if not (folder / ".git").exists():
         git(folder, "init", "-q")
     if git(folder, "remote", "get-url", "origin").returncode != 0:
@@ -185,6 +193,8 @@ def main():
     ap.add_argument("--group", help="Namespace GitLab (défaut <entity>)")
     ap.add_argument("--skip", action="append", default=[],
                     help="Nom de dossier projet à NE PAS migrer (ex. projet actif). Répétable.")
+    ap.add_argument("--no-client", action="store_true",
+                    help="Ne pas créer le client-core / .mmi-pm-client (entité produit à projet unique, Q4).")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -212,11 +222,14 @@ def main():
                 f"    → fais-toi passer Maintainer/Owner sur '{group}' (ou fais créer "
                 f"les repos par root), puis relance.")
 
-    # Niveau client
-    print("-- client --")
-    ensure_repo(gid, f"{args.entity}-core", args.dry_run)
-    coloc_dir(ws, ".mmi-pm-client", pm_client, ["client", "memory", "projects_used"],
-              group, f"{args.entity}-core", args.dry_run)
+    # Niveau client (sauf --no-client : entités produit à projet unique, Q4)
+    if args.no_client:
+        print("-- client -- (sauté : --no-client)")
+    else:
+        print("-- client --")
+        ensure_repo(gid, f"{args.entity}-core", args.dry_run)
+        coloc_dir(ws, ".mmi-pm-client", pm_client, ["client", "memory", "projects_used"],
+                  group, f"{args.entity}-core", args.dry_run)
 
     # Niveau projet : chaque .mmi-pm symlink du workspace
     print("-- projets --")

@@ -151,7 +151,17 @@ réel. matnat = 4 projets à peupler.
 **Projets actifs à ne migrer que sur fenêtre calme annoncée** : security, calyclay/calymix,
 infra, ai/project-management, perso/maths.
 
-## 6. Décisions validées (2026-06-13)
+## 6. Décisions validées (2026-06-13 ; +2026-06-14)
+
+**0. (2026-06-14) Les noms PEUVENT diverger entre les 4 axes** — dossier workspace /
+groupe+repo GitLab / identifier Redmine / slug PM. On **documente le mapping**, on ne
+force PAS l'alignement. Exemples actés : dossier `matnat` ↔ groupe GitLab
+`matnat-materiaux-naturels` ; dossier `dpsync` ↔ PM `prestasync` ; dossier `presta` ↔ PM
+`pisceen-presta`. **Conséquence** : l'outil `pm-workspace-coloc.py` prend `--group` pour
+le namespace GitLab (≠ nom de dossier) ; plus besoin de renommer pour réconcilier (RM1983
+`pm-gitlab-rename` reste dispo pour les cas où on VEUT renommer). Le **dossier** reste le
+nom court lisible ; chaque axe garde le nom qui lui convient.
+
 
 1. Remotes `<client>/<client>-core` + `<client>/<projet>-core`, distincts du code, **sans**
    groupe chapeau `clients/`.

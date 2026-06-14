@@ -81,21 +81,148 @@ def compute_cost_usd(model, input_tk, output_tk, cache_read_tk, cache_creation_t
     )
 
 
-# ── Identification du RM-id courant (cascade) ───────────────────────────────
+# ── Identification du RM-id courant ─────────────────────────────────────────
+#
+# Principe (RM1823) : on ne DEVINE PAS le ticket depuis l'état du projet.
+# Plusieurs tâches `en_cours` dans un projet est le cas NORMAL ; plusieurs
+# sessions en parallèle, voire plusieurs tickets dans une même session, aussi.
+# On attribue donc chaque tour au ticket que LE TOUR A RÉELLEMENT TOUCHÉ, lu
+# dans le transcript que le hook Stop reçoit déjà (transcript_path). Fallback :
+# sentinel projet, sinon untracked. L'ancienne heuristique « seule tâche
+# en_cours » est abandonnée (trompeuse).
 
-def resolve_current_rm_id(cwd):
-    """Retourne (rm_id, source_reason) ou (None, reason_skip).
+# Force du signal : 3 = mutation PM explicite (script/skill agissant sur un
+# ticket), 2 = édition d'un fichier de ticket, 1 = simple mention textuelle.
+_PM_SCRIPT_RE  = re.compile(r"(?:pm-task-[a-z-]+|pm-project-[a-z-]+|redmine-[a-z-]+)\.py\b")
+_RMID_FLAG_RE  = re.compile(r"--rm-id[=\s]+(\d{2,6})")
+_RMID_POS_RE   = re.compile(r"\.py\s+(\d{2,6})\b")        # id positionnel juste après le script
+_RMID_TAG_RE   = re.compile(r"\bRM[-\s]?(\d{2,6})\b")
+_RMID_FILE_RE  = re.compile(r"\bRM(\d{2,6})_")
+_LEADING_ID_RE = re.compile(r"^\s*(?:RM[-\s]?)?(\d{2,6})\b")
 
-    Cascade isolée par-projet (pas de sentinel global pour éviter les
-    collisions multi-sessions) :
-      1. sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`
-      2. heuristique : seule tâche `en_cours` dans le projet
-    """
+
+def _ids_in_pm_command(cmd):
+    """RM-ids cités dans une commande invoquant un script PM (signal fort)."""
+    ids = []
+    for rx in (_RMID_FLAG_RE, _RMID_POS_RE, _RMID_TAG_RE, _RMID_FILE_RE):
+        ids += [int(m.group(1)) for m in rx.finditer(cmd)]
+    return ids
+
+
+def _blocks(evt):
+    """(role, [content blocks]) d'un event de transcript, normalisé."""
+    msg = evt.get("message") if isinstance(evt, dict) else None
+    if not isinstance(msg, dict):
+        return None, []
+    content = msg.get("content")
+    if isinstance(content, str):
+        return msg.get("role"), [{"type": "text", "text": content}]
+    if isinstance(content, list):
+        return msg.get("role"), content
+    return msg.get("role"), []
+
+
+def _is_human_prompt(evt):
+    """True si l'event est un vrai prompt humain (≠ message porteur de tool_result)."""
+    role, blocks = _blocks(evt)
+    if role != "user":
+        return False
+    for b in blocks:
+        if isinstance(b, dict) and b.get("type") == "tool_result":
+            return False
+    return True
+
+
+def _evidence_from_event(evt):
+    """Liste de (rm_id, strength) trouvés dans un event."""
+    _role, blocks = _blocks(evt)
+    out = []
+    for b in blocks:
+        if not isinstance(b, dict):
+            continue
+        t = b.get("type")
+        if t == "tool_use":
+            name = b.get("name") or ""
+            inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+            if name == "Bash":
+                cmd = str(inp.get("command", ""))
+                if _PM_SCRIPT_RE.search(cmd):
+                    out += [(rid, 3) for rid in _ids_in_pm_command(cmd)]
+                out += [(int(m.group(1)), 2) for m in _RMID_FILE_RE.finditer(cmd)]
+                out += [(int(m.group(1)), 1) for m in _RMID_TAG_RE.finditer(cmd)]
+            elif name in ("Edit", "Write", "NotebookEdit", "Read"):
+                m = _RMID_FILE_RE.search(str(inp.get("file_path", "")))
+                if m:
+                    strong = name in ("Edit", "Write", "NotebookEdit")
+                    out.append((int(m.group(1)), 2 if strong else 1))
+            elif name == "Skill":
+                if str(inp.get("skill", "")).startswith("mmi-pm-"):
+                    m = _LEADING_ID_RE.match(str(inp.get("args", "")))
+                    if m:
+                        out.append((int(m.group(1)), 3))
+        elif t == "text":
+            txt = str(b.get("text", ""))
+            out += [(int(m.group(1)), 1) for m in _RMID_TAG_RE.finditer(txt)]
+            out += [(int(m.group(1)), 1) for m in _RMID_FILE_RE.finditer(txt)]
+    return out
+
+
+def _pick_from_events(events):
+    """(rm_id, strength) du signal le plus fort puis le plus récent, ou None."""
+    cands = []
+    for pos, evt in enumerate(events):
+        for rid, strength in _evidence_from_event(evt):
+            cands.append((strength, pos, rid))
+    if not cands:
+        return None
+    cands.sort(key=lambda c: (c[0], c[1]))   # plus fort, puis plus récent
+    strength, _pos, rid = cands[-1]
+    return rid, strength
+
+
+def _load_transcript(transcript_path):
+    p = Path(transcript_path)
+    if not p.is_file():
+        return None
+    events = []
+    try:
+        with p.open(encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except OSError:
+        return None
+    return events
+
+
+def _resolve_from_transcript(transcript_path):
+    events = _load_transcript(transcript_path)
+    if not events:
+        return None, "transcript absent/vide"
+    # Tour courant = events depuis le dernier prompt humain (inclus, pour
+    # capter une mention RM explicite dans la demande de l'utilisateur).
+    last_human = max((i for i, e in enumerate(events) if _is_human_prompt(e)), default=-1)
+    turn = events[last_human:] if last_human >= 0 else events
+    pick = _pick_from_events(turn)
+    if pick is not None:
+        return pick[0], f"transcript:tour (signal={pick[1]})"
+    # Le tour n'a touché aucun ticket → continuation : dernier ticket de la session.
+    pick = _pick_from_events(events)
+    if pick is not None:
+        return pick[0], f"transcript:continuation (signal={pick[1]})"
+    return None, "transcript sans référence ticket"
+
+
+def _resolve_from_sentinel(cwd):
     cwd = Path(cwd).resolve() if cwd else Path.cwd()
-
-    # 1. Sentinel projet <workspace>/.mmi-pm/CURRENT_TASK
     for d in [cwd] + list(cwd.parents):
-        sentinel = d / ".mmi-pm" / "CURRENT_TASK"
+        link = d / ".mmi-pm"
+        sentinel = link / "CURRENT_TASK"
         if sentinel.is_file():
             try:
                 v = sentinel.read_text(encoding="utf-8").strip()
@@ -103,62 +230,28 @@ def resolve_current_rm_id(cwd):
                     return int(v), f"sentinel {sentinel}"
             except OSError:
                 pass
-        if (d / ".mmi-pm").is_symlink() or (d / ".mmi-pm").is_dir():
-            break  # on a trouvé un workspace PM, pas la peine de remonter
+        if link.exists():
+            break  # workspace PM trouvé, inutile de remonter
+    return None, "pas de sentinel"
 
-    # 2. Une seule tâche en_cours dans le projet pointé par cwd
-    try:
-        cfg = PMConfig.load()
-    except SystemExit:
-        return None, "pm.config inaccessible"
 
-    # Le cwd est-il dans un workspace lié à un projet PM ?
-    project_dir = None
-    for d in [cwd] + list(cwd.parents):
-        link = d / ".mmi-pm"
-        if link.is_symlink():
-            try:
-                project_dir = link.resolve()
-                break
-            except OSError:
-                pass
-    if project_dir is None:
-        # Peut-être qu'on est directement dans projects_root/clients/<C>/projects/<P>/...
-        try:
-            parts = cwd.relative_to(cfg.projects_root).parts
-            if len(parts) >= 4 and parts[0] == "clients" and parts[2] == "projects":
-                project_dir = cfg.path("project", entity=parts[1], project=parts[3])
-        except ValueError:
-            pass
-    if project_dir is None:
-        return None, f"cwd {cwd} hors workspace PM"
+def resolve_current_rm_id(cwd, transcript_path=None):
+    """Retourne (rm_id, source_reason) ou (None, reason_skip).
 
-    # Trouver les tâches en_cours dans ce projet
-    tasks_dir = project_dir / "tasks"
-    if not tasks_dir.is_dir():
-        return None, f"{tasks_dir} introuvable"
-    en_cours = []
-    for f in tasks_dir.glob("RM*.md"):
-        if f.name.endswith(".log.md"):
-            continue
-        try:
-            content = f.read_text(encoding="utf-8")
-            m = FM_RE.match(content)
-            if not m:
-                continue
-            fm = yaml.safe_load(m.group(2)) or {}
-            if fm.get("status") == "en_cours":
-                rm_id = fm.get("redmine_id")
-                if isinstance(rm_id, int):
-                    en_cours.append(rm_id)
-        except (OSError, yaml.YAMLError):
-            continue
-
-    if len(en_cours) == 1:
-        return en_cours[0], f"seule tâche en_cours dans {project_dir.name}"
-    if len(en_cours) == 0:
-        return None, f"aucune tâche en_cours dans {project_dir.name}"
-    return None, f"{len(en_cours)} tâches en_cours dans {project_dir.name} (ambigu)"
+    Priorité :
+      1. ce que le TOUR a réellement touché, lu dans le transcript
+         (mutation PM > édition de fichier ticket > mention textuelle) ;
+      2. fallback : sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`.
+    """
+    last_reason = "pas de transcript"
+    if transcript_path:
+        rid, last_reason = _resolve_from_transcript(transcript_path)
+        if rid is not None:
+            return rid, last_reason
+    rid, sreason = _resolve_from_sentinel(cwd)
+    if rid is not None:
+        return rid, sreason
+    return None, f"{last_reason}; {sreason}"
 
 
 # ── Update du frontmatter ───────────────────────────────────────────────────
@@ -286,7 +379,7 @@ def run_hook_mode():
     # Toujours consommer le départ de tour (nettoie le fichier même si non-tracké)
     ai_minutes = consume_turn_minutes(evt.get("session_id"))
 
-    rm_id, reason = resolve_current_rm_id(cwd)
+    rm_id, reason = resolve_current_rm_id(cwd, transcript_path)
     usage = extract_last_response_usage(transcript_path) if transcript_path else None
 
     # Log silencieusement les cas non-trackés (pour analyse a posteriori)

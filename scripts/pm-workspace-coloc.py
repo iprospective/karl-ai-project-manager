@@ -42,17 +42,31 @@ def run(args, **kw):
     return subprocess.run(args, capture_output=True, text=True, **kw)
 
 
+_LAST_ERROR = None
+
+
 def glab(path, method="GET", fields=None):
+    """Appel API GitLab. Retourne les données parsées, ou None sur erreur (le
+    message GitLab est stocké dans `_LAST_ERROR`). Détecte les réponses d'erreur
+    structurées ({message}/{error}) que glab peut renvoyer avec un exit 0."""
+    global _LAST_ERROR
     cmd = ["glab", "api", "--hostname", GITLAB_HOST, "--method", method, path]
     for k, v in (fields or {}).items():
         cmd += ["-f", f"{k}={v}"]
     r = run(cmd)
-    if r.returncode != 0:
-        return None
+    data = None
     try:
-        return json.loads(r.stdout)
+        data = json.loads(r.stdout) if r.stdout.strip() else None
     except json.JSONDecodeError:
+        data = None
+    # Réponse d'erreur GitLab (forme {message:…} ou {error:…} sans 'id')
+    if isinstance(data, dict) and ("message" in data or "error" in data) and "id" not in data:
+        _LAST_ERROR = str(data.get("message") or data.get("error"))
         return None
+    if r.returncode != 0:
+        _LAST_ERROR = (r.stderr or r.stdout).strip()[:200] or f"exit {r.returncode}"
+        return None
+    return data
 
 
 def current_user_id():
@@ -84,12 +98,15 @@ def ensure_group(group_path, dry):
         print(f"  [dry] créerait le groupe top-level '{group_path}'")
         return "DRY"
     # top-level uniquement (pas de parent_id) — sinon adapter
-    res = glab("groups", "POST",
-               {"name": group_path, "path": group_path, "visibility": "private"})
-    if not res:
-        sys.exit(f"ERREUR : création du groupe '{group_path}' échouée")
+    glab("groups", "POST",
+         {"name": group_path, "path": group_path, "visibility": "private"})
+    gid = group_id(group_path)  # re-fetch : robuste quelle que soit la réponse POST
+    if gid is None:
+        sys.exit(f"  ✗ création du groupe '{group_path}' impossible : {_LAST_ERROR}\n"
+                 f"    (le chemin est peut-être déjà pris par un user/projet GitLab — "
+                 f"choisir un autre namespace : --group <autre>)")
     print(f"  ✓ groupe top-level créé : {group_path}")
-    return res["id"]
+    return gid
 
 
 def ensure_repo(gid, name, dry):
@@ -112,7 +129,7 @@ def ensure_repo(gid, name, dry):
                 "visibility": "private",
                 "description": "Repo de structure PM (.mmi-pm) — RM1942 co-location"})
     if not res:
-        sys.exit(f"ERREUR : création du repo {name} échouée")
+        sys.exit(f"  ✗ création du repo {name} impossible : {_LAST_ERROR}")
     print(f"  ✓ repo créé : {res['path_with_namespace']}")
 
 

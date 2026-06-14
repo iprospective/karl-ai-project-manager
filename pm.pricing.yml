@@ -2,7 +2,7 @@
 #
 # Source : https://docs.claude.com/en/docs/about-claude/models (vérifier
 # régulièrement, les prix sont à maintenir manuellement).
-# Dernière mise à jour : 2026-05-17 (cf. RM1717).
+# Dernière mise à jour : 2026-06-03 (cf. RM1823 — ajout Opus 4.8).
 #
 # Unités : USD par 1 000 000 tokens (MTok), arrondies au cent près.
 # Cache read = ~10× moins cher que input (lookup en mémoire serveur).
@@ -13,6 +13,11 @@ schema_version: "1"
 # ── Modèles Claude actuels (Claude 4.x) ───────────────────────────────────
 models:
   # Opus 4.x — modèle haut de gamme (raisonnement long, code complexe)
+  claude-opus-4-8:
+    input_per_mtok_usd:           15.00
+    output_per_mtok_usd:           75.00
+    cache_read_per_mtok_usd:        1.50
+    cache_creation_per_mtok_usd:   18.75
   claude-opus-4-7:
     input_per_mtok_usd:           15.00
     output_per_mtok_usd:           75.00

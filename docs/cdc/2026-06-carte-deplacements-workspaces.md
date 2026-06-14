@@ -210,3 +210,24 @@ conservé. 5 repos sous le groupe top-level `calicote/`.
 nextcloud ; puis pisceen) ; (b) attaquer la **bascule du résolveur C3/RM1949** pour rendre
 les `.mmi-pm` co-localisés canoniques (le vrai basculement) ; (c) marquer une pause et
 regarder calicote comme référence.
+
+## 9. Outil de migration + avancement (2026-06-14)
+
+**Outil livré** : `scripts/pm-workspace-coloc.py <entity>` (RM1946) — rejoue la conversion
+(client-core + projet-core, copie `.mmi-pm[-client]` depuis ai-projects, gitignore
+anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste canonique.
+
+**Avancement co-location :**
+
+| Client | État | Note |
+|---|---|---|
+| calicote | ✅ complet (4 projets + client) | groupe promu top-level |
+| nextcloud | ✅ complet (nc-clients + client) | groupe créé |
+| abatik | ⛔ bloqué | `mathieu` = Developer (30) sur le groupe GitLab `abatik` → ne peut pas créer de repo. **Action : passer Maintainer/Owner sur `abatik`** (ou root crée les repos), puis `pm-workspace-coloc.py abatik` |
+| **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** (en cours) ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; migrer sur fenêtre calme |
+| pisceen | à faire | vérifier droits groupe GitLab d'abord |
+| lemathou (perso), lydiemariller, matnat, redmine, roundcube, iprospective | à faire | divergences/moves/fenêtres (cf. §3, §5) |
+
+**Leçon droits GitLab** : selon le groupe, `mathieu` est Owner / Maintainer / Developer.
+Créer les repos `-core` exige **Maintainer (40)**. À vérifier par client avant migration ;
+l'outil le signale et s'arrête proprement.

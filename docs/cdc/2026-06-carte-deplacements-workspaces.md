@@ -239,7 +239,7 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | **iprospective/worm** | ⏳ à migrer plus tard | **projet ACTIF** ; workspace `/zfs/workspaces/iprospective/dev/ORM/worm` — **conserver dossier + conf** ; fenêtre calme |
 | lydiemariller | à faire | 1 projet ; décision nom `wordpress`↔`lydiemariller-com` (comme presta) |
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
-| calyclay | partiel possible | `calymix` **actif** (fenêtre) ; `calyclay/infra` faisable (mais l'outil traite tout le client → besoin d'un `--skip`) |
+| calyclay | ✅ partiel (client + `infra`) | Maintainer accordé ; `infra` fait via `--skip calymix` ; **calymix reste à migrer** (actif, fenêtre calme) — intact (symlink) |
 | redmine, roundcube | à faire | **MOVE** (contenu d'un cran) ; `.mmi-pm-client` produit différé (Q4) |
 | lemathou (workspace `perso`), iprospective | à faire | divergence `perso`↔`lemathou` ; iprospective = projets actifs (infra, security/audits, pm-ai-agents, worm) → fenêtres |
 

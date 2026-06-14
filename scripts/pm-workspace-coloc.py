@@ -183,6 +183,8 @@ def main():
     ap.add_argument("entity")
     ap.add_argument("--workspace", help="Dossier workspace client (défaut /zfs/workspaces/<entity>)")
     ap.add_argument("--group", help="Namespace GitLab (défaut <entity>)")
+    ap.add_argument("--skip", action="append", default=[],
+                    help="Nom de dossier projet à NE PAS migrer (ex. projet actif). Répétable.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
 
@@ -224,6 +226,9 @@ def main():
         print("  (aucun .mmi-pm symlink restant — déjà co-localisé ?)")
     for link in links:
         folder = link.parent
+        if folder.name in args.skip:
+            print(f"  · {folder.name} SKIP (--skip ; projet actif ?)")
+            continue
         src = link.resolve()  # cible ai-projects (donnée PM réelle)
         repo = f"{folder.name}-core"
         ensure_repo(gid, repo, args.dry_run)

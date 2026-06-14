@@ -194,5 +194,19 @@ top-level `calicote/` après promotion `sfy/calicote`→`calicote`), pushés (SH
 marche pour symlink ET dossier ; un seul mécanisme, pas de marqueur). Le `.mmi-pm` co-localisé
 est donc **auto-suffisant** pour la détection.
 
-**Suite immédiate** : 3 autres projets calicote — `prestashop`, `infra`, `dpsync` (même
-CONV, risque nul ; `prestashop` a ses repos code `dev/`/`test/` gitignorés).
+**CALICOTE TERMINÉ (2026-06-14)** : les 4 projets co-localisés — `dolibarr-core`,
+`prestashop-core`, `infra-core`, `dpsync-core` (+ `calicote-core` client). `.mmi-pm` en
+dossier réel partout, détection OK depuis chaque workspace, `pm-doctor` vert, `ai-projects`
+conservé. 5 repos sous le groupe top-level `calicote/`.
+
+> **État de transition (important)** : la **donnée canonique reste `ai-projects`** — le
+> résolveur lit/écrit là. Les `.mmi-pm[-client]/` co-localisés sont des **copies validées**
+> (snapshots). Tant que la **bascule du résolveur (C3/RM1949)** n'est pas faite, **continuer
+> à travailler normalement** (les outils PM écrivent dans `ai-projects`) ; **ne pas éditer
+> les `.mmi-pm` à la main** (ils dériveraient). Calicote fonctionne donc exactement comme
+> avant ; les nouveaux repos sont *prêts mais pas encore faisant foi*.
+
+**Prochaines options** : (a) d'autres clients au même pattern (risque nul : abatik,
+nextcloud ; puis pisceen) ; (b) attaquer la **bascule du résolveur C3/RM1949** pour rendre
+les `.mmi-pm` co-localisés canoniques (le vrai basculement) ; (c) marquer une pause et
+regarder calicote comme référence.

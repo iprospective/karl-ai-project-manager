@@ -138,7 +138,8 @@ def main():
         if args.dry_run:
             print(f"  [dry] transfert → groupe {args.to_group} (id {gid})")
         else:
-            r = glab(f"projects/{pid}/transfer", "POST", {"namespace": str(gid)})
+            # GitLab : le transfert de projet est un PUT (POST → 404 sur l'instance)
+            r = glab(f"projects/{pid}/transfer", "PUT", {"namespace": str(gid)})
             print(f"  ✓ transféré → {args.to_group}" if r else
                   f"  ✗ transfert échoué : {_LAST_ERROR}")
             if not r:

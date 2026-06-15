@@ -245,8 +245,8 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | lemathou (workspace `perso`) | ✅ complet (client + mathematicians-db + maths) | groupe `lemathou` (Owner) ; dossier `perso` gardé ; `.mmi-pm` de maths remonté `maths_v5/`→`maths/` (projet multi-versions → RM1990) ; repo code `lemathou/mathematicians-db` rapatrié depuis `iprospective/dev` |
 | iprospective/**worm** | ✅ complet (`--no-client`) | restructuré : `dev/ORM/worm` → `dev/Worm/` (projet) + `dev/` (env) ; `.mmi-pm` remonté ; repo `iprospective/Worm-core` ; code `worm-web-orm` intact ; **2 sessions relocalisées** (pm-session-relocate) ; lien workspace recâblé |
 | iprospective/infra | ✅ complet | norme `<projet>/dev` : `iprospective/infra/` (projet, repo `infra-core`) + `dev/` (code `sysadmin/infrastructure`) ; `.mmi-pm` remonté ; **18 sessions relocalisées** + 4 mémoires corrigées ; lien workspace recâblé ; PM `infrastructure` |
-| iprospective/security | 🟠 à faire | `security` → `iprospective/audits/` (projet) + `dev/` (code) ; repo `audits-core` (PM `security`) ; root + co-loc + 1 session |
-| iprospective (client-core) | à faire | `.mmi-pm-client` à poser une fois infra/security dans `/zfs/workspaces/iprospective/` (attention au clone outil présent) |
+| iprospective/security | ✅ complet | `iprospective/audits/` (projet, repo `audits-core`) + `dev/` (code `ai-security`) ; `.mmi-pm` remonté ; 1 session relocalisée + 9 mémoires ; PM `security` |
+| iprospective (client-core) | ✅ complet | `.mmi-pm-client` + repo `iprospective-core` posés ; clone outil `ai-project-management` épargné (`--skip`) |
 | iprospective/pm-ai-agents | 🔴 P6 spécial | l'outil lui-même (+ clone fédéré `iprospective/ai-project-management`) — session dédiée, en dernier |
 
 **3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)

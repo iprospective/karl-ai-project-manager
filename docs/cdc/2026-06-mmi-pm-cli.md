@@ -48,26 +48,30 @@ résolveur.
 - Relation avec les skills `mmi-pm-*` (Claude) : les skills restent des wrappers
   contextuels ; `mmi-pm` est le pendant shell/sudo, idéalement appuyé sur la même logique.
 
-## 4. Identifiabilité d'un repo PM  ✅ DÉCIDÉ (D1 — **révisé 2026-06-15 : PAS de pm.yml**)
+## 4. Identifiabilité d'un repo PM  ✅ DÉCIDÉ (D1 — **FINAL 2026-06-15 : `meta.yml`**)
 
-Le **frontmatter d'`overview.md` EST déjà le manifeste machine** (slug, name, client,
-`gitlab.repo/group`, `redmine`, `bootstrap`, `aspects`…), lu en **~40 endroits** du code.
-→ **On ne crée PAS de `pm.yml`** : ce serait une duplication (drift garanti) + un refactor de
-~40 sites pour rien.
+**Séparation donnée / prose** (décision Mathieu après réflexion ; on abandonne le frontmatter-dans-MD) :
+- **`meta.yml`** = manifeste **machine** (= l'actuel frontmatter d'`overview.md` : `slug`, `name`,
+  `client`, `status`, `gitlab`, `redmine`, `bootstrap`, `defaults`, `aspects`…). Format **YAML**
+  (cohérent avec tout le système ; TOML écarté : données imbriquées + listes-de-maps, et écosystème
+  déjà 100 % YAML).
+- **`overview.md`** = **prose pure** (description détaillée), **plus de frontmatter**.
+- Emplacement : `.mmi-pm/meta.yml` (projet) / `.mmi-pm-client/meta.yml` (client) — *à confirmer*.
 
-**Le manifeste = `overview.md`** ; le **marqueur** = sa présence :
-- projet ⇒ `.mmi-pm/project/overview.md` ; client ⇒ `.mmi-pm-client/client/overview.md`.
-- identité : `slug` (+ `client` pour un projet) lus dans le frontmatter.
+**Marqueur D1** = présence de `meta.yml`. Le **scan** (§8) teste `.mmi-pm[-client]/meta.yml` (API
+d'arbre, sans clone) et le lit pour le catalogue.
 
-Conséquences :
-- Le **scan** d'un dépôt (§8) teste l'existence de `.mmi-pm[-client]/…/overview.md` (via API
-  d'arbre, **sans clone**) et lit son frontmatter pour le catalogue.
-- `index rebuild` lit `overview.md` → **slugs corrects immédiatement, aucune migration** (vérifié
-  diff-vide 25/25, worm inclus).
-- Champ **`path`** (emplacement canonique de déploiement) absent du frontmatter → à **ajouter à
-  `overview.md`** le moment venu pour catalogue/import (Lot 3), sans refactor.
-- Évolution possible (hors périmètre) : extraire le frontmatter vers un vrai manifeste YAML pur
-  (split machine/humain) — coûte le refactor des ~40 lecteurs.
+Bénéfices : **un seul parser** (`yaml.safe_load`) au lieu de ~40 lectures de frontmatter dispersées
+(dette remboursée) ; prose propre ; **sync Redmine simplifiée**.
+
+⚠ **Implique un refactor** (~40 lecteurs de frontmatter + migration des données) → **chantier dédié
+(ticket)**. `mmi-pm index rebuild` lira `meta.yml` (aujourd'hui il lit `overview.md` — bascule
+triviale une fois `meta.yml` en place).
+
+**Noms de dossiers — gardés (décision 2026-06-15)** : `.mmi-pm` (projet) / `.mmi-pm-client` (client).
+`meta.yml.type` porte désormais le niveau, mais la distinction de nom **aide la lisibilité** ;
+renommer serait load-bearing (onboarding `/zfs/workspaces/AGENTS.md`, résolveur, symlinks d'index) →
+non justifié. Changeable plus tard sans drame si besoin.
 
 ## 5. Index résolveur
 

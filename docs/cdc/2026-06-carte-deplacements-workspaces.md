@@ -243,7 +243,11 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
 | calyclay | ✅ complet (client + infra + calymix) | Maintainer accordé ; calymix migré (projets fermés) |
 | lemathou (workspace `perso`) | ✅ complet (client + mathematicians-db + maths) | groupe `lemathou` (Owner) ; dossier `perso` gardé ; `.mmi-pm` de maths remonté `maths_v5/`→`maths/` (projet multi-versions → RM1990) ; repo code `lemathou/mathematicians-db` rapatrié depuis `iprospective/dev` |
-| iprospective | à faire | tous projets **actifs** : infra, security (→`audits`), pm-ai-agents, worm → fenêtres calmes |
+| iprospective/**worm** | ✅ complet (`--no-client`) | restructuré : `dev/ORM/worm` → `dev/Worm/` (projet) + `dev/` (env) ; `.mmi-pm` remonté ; repo `iprospective/Worm-core` ; code `worm-web-orm` intact ; **2 sessions relocalisées** (pm-session-relocate) ; lien workspace recâblé |
+| iprospective/infra | 🟠 à faire | MOVE `infra` → `iprospective/infrastructure/infra` (root) + co-loc + **18 sessions** à relocaliser |
+| iprospective/security | 🟠 à faire | MOVE `security` → `iprospective/audits/audits` (root) + co-loc + 1 session |
+| iprospective (client-core) | à faire | `.mmi-pm-client` à poser une fois infra/security dans `/zfs/workspaces/iprospective/` (attention au clone outil présent) |
+| iprospective/pm-ai-agents | 🔴 P6 spécial | l'outil lui-même (+ clone fédéré `iprospective/ai-project-management`) — session dédiée, en dernier |
 
 **3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)
 → converties en chantier de fond **RM1976** (convention GitLab↔Redmine↔dossier). Recommandé

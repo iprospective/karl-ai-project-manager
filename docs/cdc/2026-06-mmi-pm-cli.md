@@ -23,7 +23,9 @@ résolveur.
 > **⚠ RÉVISION 2026-06-15 (à intégrer) :** Mathieu préfère finalement un **user dédié
 > `mathieu-pm`** (PAS `root`) pour la propriété ET le sudo de l'outil. → remplacer partout
 > `root:root` par `mathieu-pm:mathieu-pm`, et `sudo` (root) par `sudo -u mathieu-pm` (D3/§13a +
-> dispatcher). `KARL_USER` (runtime agent = `mathieu`) reste distinct (lecture seule).
+> dispatcher). `KARL_USER` (runtime agent = `mathieu`) reste distinct (lecture seule). Le user
+> sudo dédié doit être un **paramètre de config** (ex. `KARL_SUDO_USER` dans `.env`, à côté de
+> `KARL_USER`), pas en dur → fédération.
 
 - `.mmi-pm-core` = `root:root` *(→ `mathieu-pm`, cf. révision)* (outil de prod non agent-writable — RM1945).
 - `mmi-pm` **re-exec en sudo uniquement** les sous-commandes privilégiées ; les

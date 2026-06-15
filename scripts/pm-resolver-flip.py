@@ -47,16 +47,18 @@ EXCLUDES = ["workspace", ".wiki-sync"]  # exclus du re-sync (recréés / régén
 
 
 def _read_client_slug(overview: Path):
-    """Lit `client` + `slug` dans le frontmatter d'un project/overview.md."""
+    """Lit `client` + `slug` (RM1994 : meta.yml du dossier de données, sinon frontmatter overview).
+
+    `overview` = `<.mmi-pm[-client]>/<sub>/overview.md` → meta.yml = `<.mmi-pm[-client]>/meta.yml`.
+    """
+    meta = overview.parent.parent / "meta.yml"
     try:
-        m = _FM_RE.match(overview.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError):
-        return None, None
-    if not m:
-        return None, None
-    try:
-        fm = yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
+        if meta.is_file():
+            fm = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
+        else:
+            m = _FM_RE.match(overview.read_text(encoding="utf-8"))
+            fm = (yaml.safe_load(m.group(1)) or {}) if m else {}
+    except (OSError, UnicodeDecodeError, yaml.YAMLError):
         return None, None
     return fm.get("client"), fm.get("slug")
 

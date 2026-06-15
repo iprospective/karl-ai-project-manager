@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import yaml
 from pm_paths import PMConfig
 
 VALID_TYPES = {"client", "product", "self"}
@@ -38,49 +39,37 @@ def main():
         (client_root / sub).mkdir(parents=True, exist_ok=True)
 
     now = datetime.now().strftime("%Y-%m-%d")
-    fm_lines = [
-        '---',
-        'schema_version: "1.6.0"',
-        f'slug: {args.slug}',
-        f'name: {args.name}',
-        f'type: {args.type}',
-        'status: active',
-        f'created: {now}',
-        '',
-        'contacts:',
-        f'  - name: {args.contact_name}',
-        f'    email: {args.contact_email}',
-        '    role: owner',
-        '',
-        'defaults:',
-        '  priority: normal',
-        '  team:',
-        '    - username: iprospective',
-        '      email: mathieu@iprospective.fr',
-        '      role: owner',
-        '',
-        'gitlab:',
-        f'  group: {args.gitlab_group}',
-        '  default_branch: main',
-        'redmine:',
-        '  instance:                    # null → hérite de ${REDMINE_URL}',
-        f'  default_project_id: {args.redmine_default_project}',
-        '',
-        'aspects:',
-        '  - overview',
-        '---',
-        '',
-        '## Description',
-        f'<!-- Activité / contexte de {args.name} -->',
-        '',
-        '## Aspects documentés',
-        '- [overview.md](overview.md)',
-        '',
-        '## Notes',
-        '<!-- Décisions, contexte historique -->',
-    ]
+    # meta.yml (manifeste machine) + overview.md (prose) — RM1994
+    meta = {
+        "schema_version": "1.6.0",
+        "slug": args.slug,
+        "name": args.name,
+        "type": args.type,
+        "status": "active",
+        "created": now,
+        "contacts": [
+            {"name": args.contact_name, "email": args.contact_email, "role": "owner"}
+        ],
+        "defaults": {
+            "priority": "normal",
+            "team": [
+                {"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}
+            ],
+        },
+        "gitlab": {"group": args.gitlab_group, "default_branch": "main"},
+        "redmine": {"instance": None, "default_project_id": args.redmine_default_project},
+        "aspects": ["overview"],
+    }
+    (client_root / "meta.yml").write_text(
+        yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
     overview = client_root / "client" / "overview.md"
-    overview.write_text("\n".join(fm_lines) + "\n", encoding="utf-8")
+    overview.write_text(
+        f"## Description\n<!-- Activité / contexte de {args.name} -->\n\n"
+        "## Aspects documentés\n- [overview.md](overview.md)\n\n"
+        "## Notes\n<!-- Décisions, contexte historique -->\n",
+        encoding="utf-8",
+    )
 
     print(f"✓ Client {args.slug} ({args.type}) créé :")
     print(f"  {client_root.relative_to(cfg.projects_root)}/")

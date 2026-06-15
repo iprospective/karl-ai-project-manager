@@ -37,6 +37,7 @@ from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import yaml
 from pm_paths import PMConfig
 
 
@@ -156,46 +157,31 @@ def main():
         (project_root / sub).mkdir(parents=True, exist_ok=True)
     print(f"  ✓ Struct PM créée : {project_root.relative_to(cfg.projects_root)}/")
 
-    # 4. overview.md
+    # 4. meta.yml (manifeste machine) + overview.md (prose) — RM1994
     now = datetime.now().strftime("%Y-%m-%d")
     gitlab_group = args.gitlab_group or ""
+    meta = {
+        "schema_version": "1.7.1",
+        "slug": args.slug,
+        "name": args.name,
+        "client": args.client,
+        "status": "active",
+        "created": now,
+        "used_by_clients": [],
+        "provided_by": None,
+        "implements": [],
+        "implemented_by": [],
+        "bootstrap": {"skip": [], "done": []},
+        "defaults": {"priority": "normal", "team": []},
+        "redmine": {"instance": None, "project_id": rm_identifier, "subprojects": []},
+        "gitlab": {"repo": None, "group": gitlab_group, "default_branch": "main"},
+        "aspects": ["overview"] + (["environments"] if args.with_environments else []),
+    }
+    (project_root / "meta.yml").write_text(
+        yaml.safe_dump(meta, sort_keys=False, allow_unicode=True), encoding="utf-8"
+    )
     overview = project_root / "project" / "overview.md"
-    overview.write_text(f"""---
-schema_version: 1.7.1
-slug: {args.slug}
-name: {args.name}
-client: {args.client}
-status: active
-created: {now}
-
-used_by_clients: []
-provided_by: null
-implements: []
-implemented_by: []
-
-bootstrap:
-  skip: []
-  done: []
-
-defaults:
-  priority: normal
-  team: []
-
-redmine:
-  instance: null
-  project_id: {rm_identifier}         # Redmine id={rm_id}, parent={parent_label}
-  subprojects: []
-gitlab:
-  repo: null
-  group: {gitlab_group}
-  default_branch: main
-
-aspects:
-  - overview{'''
-  - environments''' if args.with_environments else ''}
----
-
-## Description
+    overview.write_text(f"""## Description
 
 {args.description or "_(à compléter)_"}
 
@@ -213,7 +199,7 @@ Symlinks bidirectionnels :
 - [overview.md](overview.md)
 {'- [environments.md](environments.md)' if args.with_environments else ''}
 """, encoding="utf-8")
-    print(f"  ✓ overview.md écrit")
+    print(f"  ✓ meta.yml + overview.md (prose) écrits")
 
     if args.with_environments:
         env_path = project_root / "project" / "environments.md"

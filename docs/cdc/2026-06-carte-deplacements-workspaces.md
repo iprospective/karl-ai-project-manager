@@ -241,8 +241,8 @@ anti-fuite, idempotent, préflight droits GitLab). C'est désormais le geste can
 | redmine | ✅ complet (projet seul, `--no-client`) | groupe `redmine` (Owner) ; `.gitignore` code sauvegardé en `.gitignore.pre-coloc` |
 | roundcube | ✅ complet (projet seul, `--no-client`) | groupe `roundcubemail` (noms divergents) |
 | matnat | à faire | structure OK, 0 tâche PM (peupler) ; ménage vrac racine |
-| calyclay | ✅ partiel (client + `infra`) | Maintainer accordé ; `infra` fait via `--skip calymix` ; **calymix reste à migrer** (actif, fenêtre calme) — intact (symlink) |
-| lemathou (workspace `perso`) | ✅ partiel (client + `mathematicians-db`) | groupe `lemathou` (Owner) ; dossier `perso` gardé (≠ PM/groupe `lemathou`, noms divergents) ; **`maths` reste** (actif, `--skip maths_v5`) |
+| calyclay | ✅ complet (client + infra + calymix) | Maintainer accordé ; calymix migré (projets fermés) |
+| lemathou (workspace `perso`) | ✅ complet (client + mathematicians-db + maths) | groupe `lemathou` (Owner) ; dossier `perso` gardé ; `.mmi-pm` de maths remonté `maths_v5/`→`maths/` (projet multi-versions → RM1990) ; repo code `lemathou/mathematicians-db` rapatrié depuis `iprospective/dev` |
 | iprospective | à faire | tous projets **actifs** : infra, security (→`audits`), pm-ai-agents, worm → fenêtres calmes |
 
 **3 frictions namespace/droits d'affilée** (transfert calicote, droits abatik, user pisceen)

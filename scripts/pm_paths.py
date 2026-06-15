@@ -314,3 +314,40 @@ class PMConfig:
                 except (ValueError, OSError):
                     pass
         return None
+
+    # --- Manifeste d'entité (RM1994) : meta.yml séparé, fin du frontmatter-dans-MD ---
+
+    def _read_meta(self, meta_path: Path, overview_path: Path) -> dict:
+        """Lit le manifeste machine d'une entité (projet/client).
+
+        Source unique de vérité = `meta.yml` (RM1994). **Shim de migration** : tant que
+        `meta.yml` est absent, on retombe sur le frontmatter d'`overview.md` (l'ancienne
+        convention). Une fois la migration faite, le frontmatter disparaît et seul
+        `meta.yml` subsiste.
+        """
+        if meta_path.is_file():
+            try:
+                return yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+            except (OSError, yaml.YAMLError):
+                return {}
+        if overview_path.is_file():
+            try:
+                m = self._FM_RE.match(overview_path.read_text(encoding="utf-8"))
+                return (yaml.safe_load(m.group(1)) or {}) if m else {}
+            except (OSError, UnicodeDecodeError, yaml.YAMLError):
+                return {}
+        return {}
+
+    def project_meta(self, entity, project) -> dict:
+        """Métadonnées machine d'un projet (`.mmi-pm/meta.yml`, sinon overview frontmatter)."""
+        proj = self.path("project", entity=entity, project=project)
+        return self._read_meta(proj / "meta.yml", proj / "project" / "overview.md")
+
+    def client_meta(self, entity) -> dict:
+        """Métadonnées machine d'un client (`.mmi-pm-client/meta.yml`, sinon overview frontmatter)."""
+        client_dir = self.path("entity_client_dir", entity=entity)  # …/.mmi-pm-client/client (symlink)
+        try:
+            mmi_client = client_dir.resolve().parent                # …/.mmi-pm-client
+        except OSError:
+            mmi_client = client_dir.parent
+        return self._read_meta(mmi_client / "meta.yml", client_dir / "overview.md")

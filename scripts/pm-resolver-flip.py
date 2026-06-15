@@ -105,6 +105,8 @@ def main():
                     help="dossier d'archive (défaut: <projects_root>/_archive-resolver-flip)")
     ap.add_argument("--no-resync", action="store_true",
                     help="ne pas re-syncer ai-projects → .mmi-pm (flip seul)")
+    ap.add_argument("--exclude", action="append", default=[],
+                    help="slug de projet à ne PAS basculer (répétable)")
     args = ap.parse_args()
 
     dry = not args.execute
@@ -126,17 +128,29 @@ def main():
     if not projects:
         sys.exit(f"ERREUR : aucun projet ai-projects pour le client '{args.client}'")
 
-    n_flip = n_skip = n_err = 0
+    proot = cfg.projects_root.resolve()
+    n_flip = n_skip = n_nocolo = n_err = 0
     for ent, slug, ppath in projects:
         print(f"\n── {ent}/{slug}")
+        if slug in args.exclude:
+            print("   ⏭  exclu explicitement (--exclude) — ignoré")
+            n_skip += 1
+            continue
         if ppath.is_symlink():
             print(f"   ⏭  déjà basculé (symlink → {os.readlink(ppath)}) — ignoré")
             n_skip += 1
             continue
         target = colo.get((ent, slug))
         if target is None:
-            print(f"   ✗  ERREUR : aucun .mmi-pm co-localisé pour ({ent},{slug}) "
-                  f"— flip impossible")
+            print(f"   ⏭  pas de .mmi-pm co-localisé pour ({ent},{slug}) — non "
+                  f"co-localisé (ex: l'outil PM lui-même) — ignoré")
+            n_nocolo += 1
+            continue
+        # Garde dur : la cible doit vivre HORS d'ai-projects (sinon flip
+        # circulaire — ex. un .mmi-pm encore symlinké vers ai-projects).
+        if str(target).startswith(str(proot)):
+            print(f"   ✗  REFUS : cible {target} est DANS ai-projects "
+                  f"(non co-localisée pour de vrai) — flip circulaire évité")
             n_err += 1
             continue
         print(f"   source ai-projects : {ppath}")
@@ -176,7 +190,8 @@ def main():
             print("    $ ln -s .. " + str(ws_link))
         n_flip += 1
 
-    print(f"\n== Bilan : {n_flip} basculé(s), {n_skip} déjà fait(s), {n_err} erreur(s) ==")
+    print(f"\n== Bilan : {n_flip} basculé(s), {n_skip} ignoré(s), "
+          f"{n_nocolo} non co-localisé(s), {n_err} erreur(s) ==")
     if dry:
         print("   (DRY-RUN — relancer avec --execute pour appliquer)")
     if n_err:

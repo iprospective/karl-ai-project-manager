@@ -187,8 +187,15 @@ class PMConfig:
         """Yield `(entity_slug, project_slug, project_path)` pour chaque projet.
 
         Si `entity` est précisé, ne yield que les projets de cette entité.
-        Ignore les symlinks (vues `projects_used/`).
+
+        **Suit les symlinks-vers-dossier** (bascule du résolveur, RM1949) : un
+        projet basculé est un symlink `clients/<E>/projects/<P>` → son `.mmi-pm`
+        co-localisé ; il doit être yieldé comme un projet réel. Un projet non
+        basculé reste un dossier réel. Les deux formes coexistent (bascule
+        client par client). **Dédup par cible résolue** : anti double-comptage si
+        deux entrées (réelle + symlink, ou deux symlinks) pointent la même cible.
         """
+        seen_targets: set = set()
         for ent_slug, _ in self.iter_entities():
             if entity is not None and ent_slug != entity:
                 continue
@@ -199,8 +206,17 @@ class PMConfig:
             if not proj_dir.is_dir():
                 continue
             for p in sorted(proj_dir.iterdir()):
-                if p.is_dir() and not p.is_symlink():
-                    yield ent_slug, p.name, p
+                # `is_dir()` suit les symlinks → True pour un symlink→dossier
+                if not p.is_dir():
+                    continue
+                try:
+                    target = p.resolve()
+                except OSError:
+                    continue
+                if target in seen_targets:
+                    continue
+                seen_targets.add(target)
+                yield ent_slug, p.name, p
 
     # ── Lookups Redmine ─────────────────────────────────────────────────
     _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)

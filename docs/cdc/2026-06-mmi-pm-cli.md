@@ -20,7 +20,12 @@ résolveur.
 
 ## 2. Modèle de sécurité
 
-- `.mmi-pm-core` = `root:root` (outil de prod non agent-writable — RM1945).
+> **⚠ RÉVISION 2026-06-15 (à intégrer) :** Mathieu préfère finalement un **user dédié
+> `mathieu-pm`** (PAS `root`) pour la propriété ET le sudo de l'outil. → remplacer partout
+> `root:root` par `mathieu-pm:mathieu-pm`, et `sudo` (root) par `sudo -u mathieu-pm` (D3/§13a +
+> dispatcher). `KARL_USER` (runtime agent = `mathieu`) reste distinct (lecture seule).
+
+- `.mmi-pm-core` = `root:root` *(→ `mathieu-pm`, cf. révision)* (outil de prod non agent-writable — RM1945).
 - `mmi-pm` **re-exec en sudo uniquement** les sous-commandes privilégiées ; les
   lectures / task-ops tournent en tant que `KARL_USER` (déclaré dans `.env`).
 - Clone effectué **en tant que `KARL_USER` puis chown** (jamais clone-as-root : hooks git).

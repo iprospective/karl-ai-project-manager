@@ -101,42 +101,38 @@ cmd_index_remove(){
   log "index: retiré $CLIENT/$PROJECT"
 }
 
+# Manifeste = frontmatter d'overview.md (RM1680 D1 révisé : pas de pm.yml séparé).
+# Discovery par `find` profondeur-agnostique (gère worm à iprospective/dev/Worm). Un `.mmi-pm`
+# symlink (ancienne instance) n'est pas traversé par find sans -L → exclu automatiquement.
 cmd_index_rebuild(){
-  local np=0 nc=0 has_pmyml=0 client project loc pmyml
-  log "reconstruction de l'index sous $PROJECTS_PATH (scan $WORKSPACES_ROOT/*/*)"
-  # --- niveau client : <root>/<client>/.mmi-pm-client ---
-  for mc in "$WORKSPACES_ROOT"/*/.mmi-pm-client; do
-    [ -d "$mc" ] || continue
-    loc="$(dirname "$mc")"; client=""
-    pmyml="$mc/pm.yml"; [ -f "$pmyml" ] && client="$(sed -n 's/^slug: *//p' "$pmyml" | head -1)"
-    client="${client:-$(basename "$loc")}"
+  local np=0 nc=0 ov loc client slug sub clink
+  log "reconstruction de l'index sous $PROJECTS_PATH (manifeste = overview.md)"
+  # --- niveau client : .../.mmi-pm-client/client/overview.md ---
+  while IFS= read -r ov; do
+    [ -n "$ov" ] || continue
+    loc="${ov%/.mmi-pm-client/client/overview.md}"
+    slug="$(awk '/^slug:/{print $2; exit}' "$ov" | tr -d '"')"
+    slug="${slug:-$(basename "$loc")}"
     for sub in client memory projects_used; do
-      [ -d "$mc/$sub" ] || continue
-      local clink="$PROJECTS_PATH/clients/$client/$sub"
-      if [ "$DRY" = 1 ]; then echo "  [dry] $client/$sub -> $mc/$sub";
-      else mkdir -p "$(dirname "$clink")"; ln -sfn "$mc/$sub" "$clink"; fi
+      [ -d "$loc/.mmi-pm-client/$sub" ] || continue
+      clink="$PROJECTS_PATH/clients/$slug/$sub"
+      if [ "$DRY" = 1 ]; then echo "  [dry] client $slug/$sub -> $loc/.mmi-pm-client/$sub"
+      else mkdir -p "$(dirname "$clink")"; ln -sfn "$loc/.mmi-pm-client/$sub" "$clink"; fi
     done
     nc=$((nc+1))
-  done
-  # --- niveau projet : <root>/<client>/<projet>/.mmi-pm ---
-  for mmi in "$WORKSPACES_ROOT"/*/*/.mmi-pm; do
-    [ -d "$mmi" ] || continue
-    [ -L "$mmi" ] && continue          # ignore un .mmi-pm symlink (ancienne instance non co-localisée)
-    loc="$(dirname "$mmi")"; client=""; project=""
-    pmyml="$mmi/pm.yml"
-    if [ -f "$pmyml" ]; then
-      has_pmyml=1
-      client="$(sed -n 's/^client: *//p' "$pmyml" | head -1)"
-      project="$(sed -n 's/^slug: *//p' "$pmyml" | head -1)"
-    fi
+  done < <(find "$WORKSPACES_ROOT" -maxdepth 5 -name .git -prune -o -type f -path '*/.mmi-pm-client/client/overview.md' -print 2>/dev/null)
+  # --- niveau projet : .../.mmi-pm/project/overview.md ---
+  while IFS= read -r ov; do
+    [ -n "$ov" ] || continue
+    loc="${ov%/.mmi-pm/project/overview.md}"
+    slug="$(awk '/^slug:/{print $2; exit}' "$ov" | tr -d '"')"
+    client="$(awk '/^client:/{print $2; exit}' "$ov" | tr -d '"')"
+    slug="${slug:-$(basename "$loc")}"
     client="${client:-$(basename "$(dirname "$loc")")}"
-    project="${project:-$(basename "$loc")}"
-    link_project "$client" "$project" "$loc"
+    link_project "$client" "$slug" "$loc"
     np=$((np+1))
-  done
+  done < <(find "$WORKSPACES_ROOT" -maxdepth 6 -name .git -prune -o -type f -path '*/.mmi-pm/project/overview.md' -print 2>/dev/null)
   log "index rebuild: $nc client(s), $np projet(s)$([ "$DRY" = 1 ] && echo ' [dry-run]')"
-  [ "$has_pmyml" = 0 ] && \
-    log "AVERTISSEMENT: aucun pm.yml → slugs dérivés du chemin (migration pm.yml à faire, cf. CDC §10)."
   return 0
 }
 

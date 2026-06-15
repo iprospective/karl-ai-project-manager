@@ -48,20 +48,26 @@ résolveur.
 - Relation avec les skills `mmi-pm-*` (Claude) : les skills restent des wrappers
   contextuels ; `mmi-pm` est le pendant shell/sudo, idéalement appuyé sur la même logique.
 
-## 4. Identifiabilité d'un repo PM  ✅ DÉCIDÉ (D1, 2026-06-15)
+## 4. Identifiabilité d'un repo PM  ✅ DÉCIDÉ (D1 — **révisé 2026-06-15 : PAS de pm.yml**)
 
-**Détection par présence du dossier co-localisé** : `.mmi-pm/` à la racine ⇒ **projet**,
-`.mmi-pm-client/` ⇒ **client** (déjà vrai pour tous les repos `-core`).
-**Métadonnées catalogue dans un manifeste `pm.yml`** placé DANS ce dossier
-(`.mmi-pm/pm.yml`, `.mmi-pm-client/pm.yml`), portant au minimum : `type: client|project`,
-`slug`, `name`, `description`, + champs de mapping (cf. §8). Aligné CDC restructuration
-§3.1 ; aucune collision de nom.
+Le **frontmatter d'`overview.md` EST déjà le manifeste machine** (slug, name, client,
+`gitlab.repo/group`, `redmine`, `bootstrap`, `aspects`…), lu en **~40 endroits** du code.
+→ **On ne crée PAS de `pm.yml`** : ce serait une duplication (drift garanti) + un refactor de
+~40 sites pour rien.
+
+**Le manifeste = `overview.md`** ; le **marqueur** = sa présence :
+- projet ⇒ `.mmi-pm/project/overview.md` ; client ⇒ `.mmi-pm-client/client/overview.md`.
+- identité : `slug` (+ `client` pour un projet) lus dans le frontmatter.
 
 Conséquences :
-- Le **scan** d'un dépôt (§8) teste l'existence de `.mmi-pm[-client]/pm.yml` à la racine du
-  repo (via API d'arbre, **sans clone**) et lit le manifeste pour alimenter le catalogue.
-- À produire : un `pm.yml` pour chaque client/projet existant — génération par `mmi-pm`
-  (cf. §10 migration).
+- Le **scan** d'un dépôt (§8) teste l'existence de `.mmi-pm[-client]/…/overview.md` (via API
+  d'arbre, **sans clone**) et lit son frontmatter pour le catalogue.
+- `index rebuild` lit `overview.md` → **slugs corrects immédiatement, aucune migration** (vérifié
+  diff-vide 25/25, worm inclus).
+- Champ **`path`** (emplacement canonique de déploiement) absent du frontmatter → à **ajouter à
+  `overview.md`** le moment venu pour catalogue/import (Lot 3), sans refactor.
+- Évolution possible (hors périmètre) : extraire le frontmatter vers un vrai manifeste YAML pur
+  (split machine/humain) — coûte le refactor des ~40 lecteurs.
 
 ## 5. Index résolveur
 
@@ -95,13 +101,13 @@ PM les scanne, **maintient un catalogue** des clients/projets disponibles, facil
 l'import local.
 
 **§8a Mapping — ✅ DÉCIDÉ (D2, 2026-06-15) : hybride.** Découverte par **groupe/namespace**
-(GitLab group / GitHub org) pour l'efficacité du scan, mais le **`pm.yml` fait foi**
-(slug, type, et pour un projet `client: <slug>`). S'appuie sur la structure existante
+(GitLab group / GitHub org) pour l'efficacité du scan, mais le **frontmatter d'`overview.md`
+fait foi** (slug, type, et pour un projet `client`). S'appuie sur la structure existante
 (1 groupe ≈ 1 client, `<client>-core` + `<projet>-core` dedans) tout en restant robuste
 multi-source ; le rattachement projet→client vient du manifeste, pas (seulement) du groupe.
 
 **§8b — ❓DÉCISION** : mécanisme de scan (API GitLab/GitHub vs `git ls-remote` vs clone
-shallow — reco : API d'arbre pour tester `.mmi-pm[-client]/pm.yml` sans clone) ; stockage
+shallow — reco : API d'arbre pour tester `.mmi-pm[-client]/…/overview.md` sans clone) ; stockage
 & format du catalogue (emplacement, rafraîchissement).
 
 ## 9. Remote git optionnel
@@ -111,9 +117,10 @@ local** + **auto-commit PM** (RM1834-A). (détailler le choix par défaut)
 
 ## 10. Migration de l'existant
 
-Comment les clients/projets co-localisés actuels (24 projets, 9 clients) sont
-**enregistrés** dans le monde `mmi-pm` (l'index `.mmi-pm-core/projects/` est déjà
-peuplé par la bascule → réutilisable ?). (à préciser)
+**Quasi nulle** : `mmi-pm index rebuild` régénère l'index depuis les `overview.md` co-localisés
+(slugs/clients corrects, déjà présents). Vérifié **diff-vide 25/25**. Seul ajout futur : le champ
+`path` au frontmatter `overview` des projets hors-norme (worm) pour fiabiliser l'**import** (Lot 3) ;
+la *découverte* locale par `find` les gère déjà sans ce champ.
 
 ## 11. Liens & compatibilité
 
@@ -127,7 +134,8 @@ Absorbe l'ancien périmètre « wrapper `pm` » de RM1680. Voir relations en tê
 - **Lot 2 — Provisioning local** *(à revoir)* : `client new`/`project new`/`client import`/
   `project import`.
 - **Lot 3 — Dépôts PM** *(à revoir)* : `source add/list/scan` + catalogue.
-- Transverse : schéma `pm.yml` + génération `pm.yml` pour l'existant (§10).
+- Transverse : ~~schéma `pm.yml`~~ → **abandonné** (manifeste = `overview.md`). Reste : ajouter
+  le champ `path` (emplacement canonique) au frontmatter `overview` pour catalogue/import (Lot 3).
 - Critères d'acceptation : (à compléter par lot).
 
 ## 13. Lot 1 — spécification détaillée
@@ -161,13 +169,7 @@ assumée (les ops privilégiées sont peu fréquentes : create/import/update).
 - [x] dispatcher : grammaire `<nom> <verbe>`, `--help`, `bash -n` OK.
 - [x] sous-commande non-priv (list/doctor/dry-run) lancée par l'agent **ne déclenche pas sudo**.
 - [x] sous-commande priv en agent → **re-exec sudo** (mot de passe) ; `--dry-run` prévisualise sans sudo.
-- [x] `index rebuild` **ignore les `.mmi-pm` symlink** (exclut l'ancienne instance).
+- [x] `index rebuild` = **diff vide** vs index actuel — via `overview.md` (vérifié **25/25**,
+  inclut `worm`) ; un `.mmi-pm` symlink (ancienne instance) n'est pas traversé par `find` → exclu.
 - [ ] `mmi-pm core update` met à jour + re-verrouille — *codé + dry-run OK ; test réel après
-  provisioning root de `.mmi-pm-core` (bascule Phase 2)*.
-- [ ] `index rebuild` = **diff vide** vs index actuel — **bloqué par le `pm.yml`** (slugs corrects)
-  + cas hors-norme (`worm` à `iprospective/dev/Worm`, 3 niveaux). Dépend de la migration §10.
-
-**Limitations connues (v1)** : sans `pm.yml`, `rebuild` dérive les slugs du chemin (faux pour
-pm-ai-agents/security/infrastructure/prestasync/lemathou/lydiemariller) et scanne en 2 niveaux
-`/<client>/<projet>` (rate `worm`). `list` (lecture de l'index existant) reste la source fiable
-tant que la migration `pm.yml` n'est pas faite. → priorité du transverse `pm.yml` avant Lot 2.
+  provisioning de `.mmi-pm-core` (bascule Phase 2 ; chown → `KARL_SUDO_USER`, cf. révision §2)*.

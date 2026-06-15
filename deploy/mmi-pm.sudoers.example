@@ -1,0 +1,14 @@
+# mmi-pm — règle sudoers (Lot 1, RM1680 §13a).
+#
+# Autorise l'utilisateur runtime de l'agent (KARL_USER) à lancer mmi-pm en root.
+# DÉCISION §13a : MOT DE PASSE REQUIS — PAS de NOPASSWD (barrière humaine sur chaque
+# opération privilégiée : core update / index / import).
+#
+# Installation :
+#   1. Remplacer <KARL_USER> par l'utilisateur runtime (ex. mathieu) et le chemin si besoin.
+#   2. sudo cp ce fichier vers /etc/sudoers.d/mmi-pm  (puis: sudo visudo -c)
+#   3. chmod 0440 /etc/sudoers.d/mmi-pm
+#
+# Le re-exec se fait via le chemin absolu figé ci-dessous ; mmi-pm valide ses args.
+
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *

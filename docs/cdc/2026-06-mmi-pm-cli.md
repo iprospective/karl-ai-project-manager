@@ -151,7 +151,16 @@ d'attaque réduite). `mmi-pm` doit quand même valider strictement ses args. Fri
 assumée (les ops privilégiées sont peu fréquentes : create/import/update).
 
 **Critères d'acceptation Lot 1** :
-- [ ] `mmi-pm core update` met à jour + re-verrouille sans casser le runtime.
-- [ ] `mmi-pm index rebuild` régénère un index équivalent à l'actuel (diff vide).
-- [ ] sous-commande non-priv lancée par l'agent ne déclenche pas sudo.
-- [ ] sous-commande priv lancée par l'agent se re-exec proprement en sudo.
+- [x] dispatcher : grammaire `<nom> <verbe>`, `--help`, `bash -n` OK.
+- [x] sous-commande non-priv (list/doctor/dry-run) lancée par l'agent **ne déclenche pas sudo**.
+- [x] sous-commande priv en agent → **re-exec sudo** (mot de passe) ; `--dry-run` prévisualise sans sudo.
+- [x] `index rebuild` **ignore les `.mmi-pm` symlink** (exclut l'ancienne instance).
+- [ ] `mmi-pm core update` met à jour + re-verrouille — *codé + dry-run OK ; test réel après
+  provisioning root de `.mmi-pm-core` (bascule Phase 2)*.
+- [ ] `index rebuild` = **diff vide** vs index actuel — **bloqué par le `pm.yml`** (slugs corrects)
+  + cas hors-norme (`worm` à `iprospective/dev/Worm`, 3 niveaux). Dépend de la migration §10.
+
+**Limitations connues (v1)** : sans `pm.yml`, `rebuild` dérive les slugs du chemin (faux pour
+pm-ai-agents/security/infrastructure/prestasync/lemathou/lydiemariller) et scanne en 2 niveaux
+`/<client>/<projet>` (rate `worm`). `list` (lecture de l'index existant) reste la source fiable
+tant que la migration `pm.yml` n'est pas faite. → priorité du transverse `pm.yml` avant Lot 2.

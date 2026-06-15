@@ -1,0 +1,187 @@
+#!/usr/bin/env bash
+# mmi-pm — point d'entrée CLI unique du provisioning PM (Lot 1, RM1680).
+#
+# CDC : docs/cdc/2026-06-mmi-pm-cli.md. Décisions appliquées :
+#   D3 — frontière sudo : re-exec sélectif (ops privilégiées → sudo, MOT DE PASSE requis,
+#        pas de NOPASSWD). `--dry-run` prévisualise sans sudo.
+#   D4 — dispatcher mince : route vers les `pm-*.py` existants quand pertinent.
+# Self-locating : l'outil est la racine `bin/..` ; charge `.env` (PROJECTS_PATH, KARL_USER).
+#
+# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|client|project|list|doctor)
+
+set -euo pipefail
+shopt -s nullglob
+
+ORIG_ARGS=("$@")
+SELF="$(readlink -f "$0")"
+CORE_DIR="$(dirname "$(dirname "$SELF")")"          # bin/.. = racine de l'outil
+[ -f "$CORE_DIR/.env" ] && { set -a; . "$CORE_DIR/.env"; set +a; }
+PROJECTS_PATH="${PROJECTS_PATH:-$CORE_DIR/projects}"
+KARL_USER="${KARL_USER:-$(id -un)}"
+WORKSPACES_ROOT="${WORKSPACES_ROOT:-/zfs/workspaces}"
+DRY=0
+
+die(){ echo "mmi-pm: $*" >&2; exit 1; }
+log(){ echo "mmi-pm: $*"; }
+
+usage(){ cat <<EOF
+mmi-pm — provisioning PM (Lot 1)
+
+  mmi-pm core update                 MAJ de l'outil déployé + re-verrouillage   [priv]
+  mmi-pm index add <c>/<p> [path]    ajoute le lien d'index d'un projet         [priv]
+  mmi-pm index remove <c>/<p>        retire le lien d'index                      [priv]
+  mmi-pm index rebuild               reconstruit l'index depuis les emplacements [priv]
+                                     canoniques (.mmi-pm / .mmi-pm-client)
+  mmi-pm list                        inventaire de l'index                       [lecture]
+  mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
+
+Options : --dry-run (prévisualise les ops privilégiées sans sudo)
+Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH  KARL_USER=$KARL_USER
+EOF
+}
+
+# --- classification des sous-commandes (D3) ---
+is_privileged(){ # $1=nom $2=verbe
+  case "${1:-} ${2:-}" in
+    "core update"|"index add"|"index remove"|"index rebuild") return 0;;
+    "client new"|"client import"|"project new"|"project import") return 0;;  # Lot 2 (placeholders)
+    *) return 1;;
+  esac
+}
+
+# --- résolution <client>/<projet> ---
+split_spec(){ # $1=<client>/<projet> -> globals CLIENT/PROJECT
+  case "$1" in */*) :;; *) die "format attendu: <client>/<projet>";; esac
+  CLIENT="${1%%/*}"; PROJECT="${1#*/}"
+  [ -n "$CLIENT" ] && [ -n "$PROJECT" ] || die "format attendu: <client>/<projet>"
+}
+
+link_project(){ # $1=client $2=projet $3=loc(.../<projet>)
+  local link="$PROJECTS_PATH/clients/$1/projects/$2"
+  if [ "$DRY" = 1 ]; then echo "  [dry] $1/$2 -> $3/.mmi-pm"; return; fi
+  mkdir -p "$(dirname "$link")"; ln -sfn "$3/.mmi-pm" "$link"
+}
+
+# ====================== commandes ======================
+
+cmd_core_update(){
+  [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] || die "core update : root requis"
+  [ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un dépôt git"
+  local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  if [ "$DRY" = 1 ]; then
+    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R root:root ; .env -> root:$KARL_USER 640"
+    return
+  fi
+  git -C "$CORE_DIR" fetch --quiet origin
+  git -C "$CORE_DIR" pull --ff-only origin "$branch"
+  git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
+  local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
+  chown -R root:root "$CORE_DIR"
+  [ -f "$CORE_DIR/.env" ] && { chown "root:$KARL_USER" "$CORE_DIR/.env"; chmod 640 "$CORE_DIR/.env"; }
+  log "outil $old -> $new ($branch) ; ownership re-verrouillé root:root"
+  log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
+}
+
+cmd_index_add(){
+  [ $# -ge 1 ] || die "usage: mmi-pm index add <client>/<projet> [path]"
+  split_spec "$1"
+  local loc="${2:-$WORKSPACES_ROOT/$CLIENT/$PROJECT}"
+  [ -d "$loc/.mmi-pm" ] || die "pas de .mmi-pm dans $loc"
+  link_project "$CLIENT" "$PROJECT" "$loc"
+  log "index: $CLIENT/$PROJECT -> $loc/.mmi-pm"
+}
+
+cmd_index_remove(){
+  [ $# -ge 1 ] || die "usage: mmi-pm index remove <client>/<projet>"
+  split_spec "$1"
+  local link="$PROJECTS_PATH/clients/$CLIENT/projects/$PROJECT"
+  [ -L "$link" ] || die "pas de lien d'index pour $CLIENT/$PROJECT"
+  if [ "$DRY" = 1 ]; then echo "  [dry] rm $link"; else rm "$link"; fi
+  log "index: retiré $CLIENT/$PROJECT"
+}
+
+cmd_index_rebuild(){
+  local np=0 nc=0 has_pmyml=0 client project loc pmyml
+  log "reconstruction de l'index sous $PROJECTS_PATH (scan $WORKSPACES_ROOT/*/*)"
+  # --- niveau client : <root>/<client>/.mmi-pm-client ---
+  for mc in "$WORKSPACES_ROOT"/*/.mmi-pm-client; do
+    [ -d "$mc" ] || continue
+    loc="$(dirname "$mc")"; client=""
+    pmyml="$mc/pm.yml"; [ -f "$pmyml" ] && client="$(sed -n 's/^slug: *//p' "$pmyml" | head -1)"
+    client="${client:-$(basename "$loc")}"
+    for sub in client memory projects_used; do
+      [ -d "$mc/$sub" ] || continue
+      local clink="$PROJECTS_PATH/clients/$client/$sub"
+      if [ "$DRY" = 1 ]; then echo "  [dry] $client/$sub -> $mc/$sub";
+      else mkdir -p "$(dirname "$clink")"; ln -sfn "$mc/$sub" "$clink"; fi
+    done
+    nc=$((nc+1))
+  done
+  # --- niveau projet : <root>/<client>/<projet>/.mmi-pm ---
+  for mmi in "$WORKSPACES_ROOT"/*/*/.mmi-pm; do
+    [ -d "$mmi" ] || continue
+    [ -L "$mmi" ] && continue          # ignore un .mmi-pm symlink (ancienne instance non co-localisée)
+    loc="$(dirname "$mmi")"; client=""; project=""
+    pmyml="$mmi/pm.yml"
+    if [ -f "$pmyml" ]; then
+      has_pmyml=1
+      client="$(sed -n 's/^client: *//p' "$pmyml" | head -1)"
+      project="$(sed -n 's/^slug: *//p' "$pmyml" | head -1)"
+    fi
+    client="${client:-$(basename "$(dirname "$loc")")}"
+    project="${project:-$(basename "$loc")}"
+    link_project "$client" "$project" "$loc"
+    np=$((np+1))
+  done
+  log "index rebuild: $nc client(s), $np projet(s)$([ "$DRY" = 1 ] && echo ' [dry-run]')"
+  [ "$has_pmyml" = 0 ] && \
+    log "AVERTISSEMENT: aucun pm.yml → slugs dérivés du chemin (migration pm.yml à faire, cf. CDC §10)."
+  return 0
+}
+
+cmd_list(){
+  [ -d "$PROJECTS_PATH/clients" ] || die "index absent: $PROJECTS_PATH/clients"
+  for cdir in "$PROJECTS_PATH"/clients/*/; do
+    echo "$(basename "$cdir")"
+    for p in "$cdir"projects/*; do
+      [ -e "$p" ] || [ -L "$p" ] || continue
+      printf '  └ %s' "$(basename "$p")"
+      [ -L "$p" ] && printf ' -> %s' "$(readlink "$p")"
+      echo
+    done
+  done
+}
+
+cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
+
+# ====================== parsing & dispatch ======================
+
+# extrait --dry-run, garde le reste positionnel
+POS=()
+for a in "$@"; do case "$a" in --dry-run) DRY=1;; --help|-h) usage; exit 0;; *) POS+=("$a");; esac; done
+set -- "${POS[@]:-}"
+[ $# -ge 1 ] || { usage; exit 0; }
+
+NOUN="${1:-}"; VERB="${2:-}"
+
+# gate sudo : ops privilégiées → re-exec sudo (mot de passe), sauf en dry-run (prévisualisation agent)
+if is_privileged "$NOUN" "$VERB" && [ "$DRY" = 0 ] && [ "$(id -u)" -ne 0 ]; then
+  log "opération privilégiée → sudo (mot de passe requis)"
+  exec sudo "$SELF" "${ORIG_ARGS[@]}"
+fi
+
+case "$NOUN" in
+  core)  case "$VERB" in update) shift 2||true; cmd_core_update "$@";; *) die "core: verbe inconnu '$VERB' (update)";; esac;;
+  index) shift 2||true
+         case "$VERB" in
+           add)     cmd_index_add "$@";;
+           remove)  cmd_index_remove "$@";;
+           rebuild) cmd_index_rebuild "$@";;
+           *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
+         esac;;
+  list)   cmd_list;;
+  doctor) shift||true; cmd_doctor "$@";;
+  client|project) die "'$NOUN $VERB' = Lot 2 (pas encore implémenté)";;
+  *) usage; exit 1;;
+esac

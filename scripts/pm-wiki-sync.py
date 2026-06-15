@@ -333,13 +333,18 @@ def resolve_project(cfg, slug):
 
 
 def read_overview_meta(project_dir):
-    ov = project_dir / "overview.md"
-    if not ov.is_file():
-        sys.exit(f"ERREUR : {ov} introuvable")
-    fm, _ = split_frontmatter(ov.read_text(encoding="utf-8"))
+    # RM1994 : manifeste = meta.yml (sinon fallback frontmatter overview)
+    meta = project_dir.parent / "meta.yml"
+    if meta.is_file():
+        fm = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
+    else:
+        ov = project_dir / "overview.md"
+        if not ov.is_file():
+            sys.exit(f"ERREUR : ni {meta} ni {ov} trouvés")
+        fm, _ = split_frontmatter(ov.read_text(encoding="utf-8"))
     rid = (fm.get("redmine") or {}).get("project_id")
     if not rid:
-        sys.exit(f"ERREUR : redmine.project_id absent du frontmatter de {ov}")
+        sys.exit(f"ERREUR : redmine.project_id absent du manifeste de {project_dir}")
     return rid, fm.get("name") or str(rid)
 
 

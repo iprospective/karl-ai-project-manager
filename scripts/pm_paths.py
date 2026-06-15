@@ -243,23 +243,8 @@ class PMConfig:
         (slug `identifier`). Retourne `(entity_path, project_path)` ou `(None, None)`.
         """
         for ent_slug, proj_slug, proj_path in self.iter_projects():
-            overview = (
-                self.path("project_dir", entity=ent_slug, project=proj_slug)
-                / "overview.md"
-            )
-            if not overview.is_file():
-                continue
-            try:
-                content = overview.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
-                continue
-            m = self._FM_RE.match(content)
-            if not m:
-                continue
-            try:
-                fm = yaml.safe_load(m.group(1)) or {}
-            except yaml.YAMLError:
-                continue
+            # RM1994 : lecteur central (meta.yml, sinon frontmatter overview)
+            fm = self.project_meta(ent_slug, proj_slug)
             rid = (fm.get("redmine") or {}).get("project_id")
             if rid == redmine_project_id:
                 ent_path = self.path("entity", entity=ent_slug)

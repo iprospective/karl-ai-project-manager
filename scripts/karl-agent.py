@@ -304,12 +304,24 @@ def _ticket_model(rm_id: str) -> str | None:
     tf = _find_task_file(rm_id)
     if not tf:
         return None
-    candidates = [tf, tf.parent.parent / "project" / "overview.md"]
-    for f in candidates:
+    mmi = tf.parent.parent  # dossier .mmi-pm
+    try:
+        import yaml as _yaml
+    except ImportError:
+        _yaml = None
+    # Cascade (le plus précis gagne) : tâche (frontmatter) → manifeste projet
+    # meta.yml (RM1994, YAML pur) → overview.md (fallback frontmatter pendant la migration).
+    candidates = [(tf, "fm"), (mmi / "meta.yml", "yaml"),
+                  (mmi / "project" / "overview.md", "fm")]
+    for f, kind in candidates:
         try:
-            fm = _parse_frontmatter(f.read_text(encoding="utf-8"))
+            text = f.read_text(encoding="utf-8")
         except OSError:
             continue
+        if kind == "yaml":
+            fm = (_yaml.safe_load(text) or {}) if _yaml else {}
+        else:
+            fm = _parse_frontmatter(text)
         v = fm.get("ai_model")
         if isinstance(v, str) and v.strip():
             v = v.strip()

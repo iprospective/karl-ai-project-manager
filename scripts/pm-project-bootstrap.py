@@ -267,10 +267,20 @@ def write_task(project_dir, tpl, issue_id, overview):
 
 
 def update_overview_done(overview_path, done):
-    fm, body = parse_frontmatter(overview_path)
-    fm.setdefault("bootstrap", {"skip": [], "done": []})
-    fm["bootstrap"]["done"] = sorted(set(fm["bootstrap"].get("done", []) or []) | set(done))
-    write_frontmatter(overview_path, fm, body)
+    # RM1994 : bootstrap.done s'écrit dans meta.yml (sinon frontmatter overview en transition).
+    meta_path = overview_path.parent.parent / "meta.yml"
+    if meta_path.is_file():
+        fm = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+        fm.setdefault("bootstrap", {"skip": [], "done": []})
+        fm["bootstrap"]["done"] = sorted(set(fm["bootstrap"].get("done", []) or []) | set(done))
+        meta_path.write_text(
+            yaml.safe_dump(fm, sort_keys=False, allow_unicode=True), encoding="utf-8"
+        )
+    else:
+        fm, body = parse_frontmatter(overview_path)
+        fm.setdefault("bootstrap", {"skip": [], "done": []})
+        fm["bootstrap"]["done"] = sorted(set(fm["bootstrap"].get("done", []) or []) | set(done))
+        write_frontmatter(overview_path, fm, body)
 
 
 def main():
@@ -288,7 +298,12 @@ def main():
     if not overview_path.is_file():
         sys.exit(f"{overview_path} introuvable")
 
-    overview, _ = parse_frontmatter(overview_path)
+    # RM1994 : manifeste = meta.yml (sinon fallback frontmatter overview)
+    meta_path = project_dir / "meta.yml"
+    if meta_path.is_file():
+        overview = yaml.safe_load(meta_path.read_text(encoding="utf-8")) or {}
+    else:
+        overview, _ = parse_frontmatter(overview_path)
     redmine_project = (overview.get("redmine") or {}).get("project_id")
     if not redmine_project and not args.dry_run:
         sys.exit("project/overview.md :: redmine.project_id manquant")

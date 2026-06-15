@@ -112,15 +112,11 @@ def detect_project_from_cwd(cfg):
 
 
 def load_project_overview(cfg, entity, project):
-    """Retourne le frontmatter overview.md du projet."""
-    p = cfg.path("project_dir", entity=entity, project=project) / "overview.md"
-    if not p.is_file():
-        sys.exit(f"ERREUR : overview.md introuvable pour {entity}/{project}")
-    content = p.read_text(encoding="utf-8")
-    m = re.match(r"^---\s*\n(.*?)\n---\s*\n", content, re.DOTALL)
-    if not m:
-        sys.exit(f"ERREUR : pas de frontmatter dans {p}")
-    return yaml.safe_load(m.group(1)) or {}
+    """Manifeste du projet (meta.yml, sinon frontmatter overview) — RM1994.
+
+    Le contrôle du champ requis (redmine.project_id) est fait par l'appelant.
+    """
+    return cfg.project_meta(entity, project)
 
 
 def main():

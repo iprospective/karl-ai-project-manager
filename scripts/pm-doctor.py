@@ -34,20 +34,15 @@ FM_RE = re.compile(r"^---\s*\n(.*?)\n---", re.DOTALL)
 
 
 def load_overviews(cfg):
-    """{(entité, projet): frontmatter} de tous les project/overview.md lisibles."""
-    out = {}
-    for ent, proj, _ in cfg.iter_projects():
-        p = cfg.path("project_dir", entity=ent, project=proj) / "overview.md"
-        if not p.is_file():
-            continue
-        m = FM_RE.match(p.read_text(encoding="utf-8", errors="replace"))
-        if not m:
-            continue
-        try:
-            out[(ent, proj)] = yaml.safe_load(m.group(1)) or {}
-        except yaml.YAMLError:
-            out[(ent, proj)] = None  # frontmatter illisible = problème
-    return out
+    """{(entité, projet): manifeste} de tous les projets.
+
+    RM1994 : lit le manifeste via le lecteur central `cfg.project_meta` (meta.yml,
+    sinon fallback frontmatter overview tant que la migration n'est pas finie).
+    """
+    return {
+        (ent, proj): cfg.project_meta(ent, proj)
+        for ent, proj, _ in cfg.iter_projects()
+    }
 
 
 def parse_ref(value):

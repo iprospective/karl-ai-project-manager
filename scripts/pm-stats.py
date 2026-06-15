@@ -66,10 +66,8 @@ def parse_frontmatter(path: Path):
 
 
 def entity_type(cfg: PMConfig, entity: str) -> str:
-    """Lit `type` dans client/overview.md de l'entité (défaut: 'client')."""
-    overview = cfg.path("entity_client_dir", entity=entity) / "overview.md"
-    fm = parse_frontmatter(overview) if overview.is_file() else None
-    return (fm or {}).get("type") or "client"
+    """Lit `type` dans le manifeste client (meta.yml, sinon overview) — RM1994."""
+    return cfg.client_meta(entity).get("type") or "client"
 
 
 def scan_project_tasks(cfg: PMConfig, entity: str, project: str):

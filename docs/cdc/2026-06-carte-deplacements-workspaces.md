@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Statut** | **CO-LOCATION TERMINÉE (2026-06-15)** — 12 clients / tous les projets PM co-localisés, **sauf `pm-ai-agents`** (l'outil lui-même, P6 en session dédiée). Reste : bascule résolveur (C3/RM1949), prod-remotes (RM1992), modules orphelins (RM1990). |
+| **Statut** | **BASCULE RÉSOLVEUR TERMINÉE (2026-06-15, RM1949)** — 24/25 projets canoniques depuis leur `.mmi-pm` co-localisé (résolveur suit les symlinks) ; seul `pm-ai-agents` reste sur `ai-projects` (l'outil lui-même, P5/P6). Reste : P4 (ai-projects archive read-only + `pm-workspace-sync` RM1948), P5/P6 (déménagement outil RM1945), prod-remotes (RM1992), modules orphelins (RM1990). |
 | **Date** | 2026-06-13 |
 | **Base** | `docs/cdc/2026-06-inventaire-workspaces.md` (état des lieux vérifié) |
 | **Programme** | RM1942 — chantiers C2 (normalisation dossiers) puis C3 (co-location données) |
@@ -209,12 +209,16 @@ est donc **auto-suffisant** pour la détection.
 dossier réel partout, détection OK depuis chaque workspace, `pm-doctor` vert, `ai-projects`
 conservé. 5 repos sous le groupe top-level `calicote/`.
 
-> **État de transition (important)** : la **donnée canonique reste `ai-projects`** — le
-> résolveur lit/écrit là. Les `.mmi-pm[-client]/` co-localisés sont des **copies validées**
-> (snapshots). Tant que la **bascule du résolveur (C3/RM1949)** n'est pas faite, **continuer
-> à travailler normalement** (les outils PM écrivent dans `ai-projects`) ; **ne pas éditer
-> les `.mmi-pm` à la main** (ils dériveraient). Calicote fonctionne donc exactement comme
-> avant ; les nouveaux repos sont *prêts mais pas encore faisant foi*.
+> **~~État de transition~~ — PÉRIMÉ (bascule faite le 2026-06-15, RM1949).**
+> La **bascule du résolveur est RÉALISÉE** : la donnée **canonique est désormais le
+> `.mmi-pm[-client]/` co-localisé** (24/25 projets ; `pm_paths.iter_projects` suit les
+> symlinks). Dans `ai-projects`, chaque projet basculé est un **symlink** vers son
+> `.mmi-pm` co-localisé ; les outils PM lisent/écrivent dans le co-localisé et committent
+> dans les repos `-core`. **Éditer les `.mmi-pm` co-localisés est désormais le geste
+> normal.** Seul **`pm-ai-agents`** (l'outil lui-même) reste en dossier réel sur
+> `ai-projects` (→ P5/P6, RM1945). Dossiers d'origine archivés sous
+> `projects/_archive-resolver-flip/` (gitignoré) ; snapshot ZFS
+> `rm1949-bascule-resolveur-2026-06-15`. Outil : `scripts/pm-resolver-flip.py`.
 
 **Prochaines options** : (a) d'autres clients au même pattern (risque nul : abatik,
 nextcloud ; puis pisceen) ; (b) attaquer la **bascule du résolveur C3/RM1949** pour rendre

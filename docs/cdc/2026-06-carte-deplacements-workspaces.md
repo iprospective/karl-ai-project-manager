@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| **Statut** | **VALIDÉE avec décisions Mathieu 2026-06-13** — pilote = `calicote`. Gestes uniquement après accord pas-à-pas. |
+| **Statut** | **CO-LOCATION TERMINÉE (2026-06-15)** — 12 clients / tous les projets PM co-localisés, **sauf `pm-ai-agents`** (l'outil lui-même, P6 en session dédiée). Reste : bascule résolveur (C3/RM1949), prod-remotes (RM1992), modules orphelins (RM1990). |
 | **Date** | 2026-06-13 |
 | **Base** | `docs/cdc/2026-06-inventaire-workspaces.md` (état des lieux vérifié) |
 | **Programme** | RM1942 — chantiers C2 (normalisation dossiers) puis C3 (co-location données) |
@@ -118,7 +118,7 @@ restructuration.
 |---|---|---|
 | `/zfs/workspaces/redmine` | `redmine/redmine/` (contenu d'un cran) | **MOVE** |
 | `/zfs/workspaces/roundcube` | `roundcube/roundcube/` (contenu d'un cran) | **MOVE** |
-| `prestashop/modules/mmi_productcheck` | **inchangé** — `modules/` = sous-dossier de regroupement assumé | NE PAS TOUCHER |
+| `prestashop/modules/mmi_productcheck` | ✅ co-localisé (norme `<projet>/dev`) | groupe promu `iprospective/prestashop`→`prestashop` ; 6 remotes recâblés ; le module (sous-module orphelin) restructuré **à la main par Mathieu** : code → `dev/`, `.mmi-pm` au niveau projet ; repo `prestashop/mmi_productcheck-core`. Autres modules orphelins (`mmi_customer`…) → RM1990 |
 | `nextcloud/nc-clients` | `nextcloud/nc-clients` | **CONV** (`git init` vide) |
 
 → **`.mmi-pm-client` / `*-core` au niveau produit : différé** (Q4 : « on fait pas si pas

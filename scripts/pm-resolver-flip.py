@@ -88,6 +88,36 @@ def build_colocated_map(workspaces_root: Path, maxdepth: int = 6):
     return out
 
 
+def build_client_colocated_map(workspaces_root: Path, maxdepth: int = 4):
+    """Scanne `workspaces_root` pour les `.mmi-pm-client/client/overview.md` et
+    retourne `{client_slug: mmipm_client_path}`. Mapping par slug lu dans
+    l'overview (robuste au nommage de dossier, ex. perso↔lemathou,
+    lydie-mariller↔lydiemariller)."""
+    out = {}
+    try:
+        res = subprocess.run(
+            ["find", str(workspaces_root), "-maxdepth", str(maxdepth),
+             "-type", "d", "-name", ".git", "-prune", "-o",
+             "-type", "d", "-name", ".mmi-pm-client", "-print"],
+            capture_output=True, text=True, check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        sys.exit(f"ERREUR find (client) : {e.stderr}")
+    for line in res.stdout.splitlines():
+        mmipmc = Path(line)
+        # Un overview de CLIENT porte son identité dans `slug:` (pas `client:`).
+        client, slug = _read_client_slug(mmipmc / "client" / "overview.md")
+        key = slug or client
+        if key:
+            out[str(key)] = mmipmc.resolve()
+    return out
+
+
+# Sous-dossiers du niveau client à basculer (projects/ reste réel : il contient
+# les symlinks de projets ; pas de workspace symlink à recréer ici).
+CLIENT_SUBDIRS = ["client", "memory", "projects_used"]
+
+
 def run(cmd, dry):
     print(f"    $ {' '.join(str(c) for c in cmd)}")
     if not dry:
@@ -107,6 +137,8 @@ def main():
                     help="ne pas re-syncer ai-projects → .mmi-pm (flip seul)")
     ap.add_argument("--exclude", action="append", default=[],
                     help="slug de projet à ne PAS basculer (répétable)")
+    ap.add_argument("--no-client-level", action="store_true",
+                    help="ne pas basculer le niveau client (client/, memory/, projects_used/)")
     args = ap.parse_args()
 
     dry = not args.execute
@@ -190,8 +222,51 @@ def main():
             print("    $ ln -s .. " + str(ws_link))
         n_flip += 1
 
-    print(f"\n== Bilan : {n_flip} basculé(s), {n_skip} ignoré(s), "
-          f"{n_nocolo} non co-localisé(s), {n_err} erreur(s) ==")
+    # ── Niveau client : client/, memory/, projects_used/ → symlinks ─────────
+    n_cflip = n_cskip = 0
+    if not args.no_client_level:
+        client_colo = build_client_colocated_map(wsroot)
+        ctarget = client_colo.get(args.client)
+        print(f"\n══ niveau client : {args.client}")
+        if ctarget is None:
+            print("   ⏭  pas de .mmi-pm-client co-localisé (produit/différé) — ignoré")
+        elif str(ctarget).startswith(str(proot)):
+            print(f"   ✗  REFUS : .mmi-pm-client {ctarget} est DANS ai-projects")
+            n_err += 1
+        else:
+            print(f"   cible .mmi-pm-client : {ctarget}")
+            for sub in CLIENT_SUBDIRS:
+                src = cfg.path("entity", entity=args.client) / sub
+                dst = ctarget / sub
+                print(f"   ── {sub}")
+                if not src.exists():
+                    print("      ⏭  absent côté ai-projects — ignoré")
+                    continue
+                if src.is_symlink():
+                    print(f"      ⏭  déjà basculé (symlink → {os.readlink(src)})")
+                    n_cskip += 1
+                    continue
+                if not dst.exists():
+                    print(f"      ✗  cible {dst} absente — ignoré")
+                    n_err += 1
+                    continue
+                if not args.no_resync:
+                    print("      1) re-sync (rsync -a --delete)")
+                    run(["rsync", "-a", "--delete", f"{src}/", f"{dst}/"], dry)
+                cdest = archive_dir / args.client / "__client__" / sub
+                print(f"      2) archive : mv {src} → {cdest}")
+                if not dry:
+                    cdest.parent.mkdir(parents=True, exist_ok=True)
+                    if cdest.exists():
+                        sys.exit(f"ERREUR : archive déjà existante : {cdest}")
+                run(["mv", str(src), str(cdest)], dry)
+                print(f"      3) symlink : {src} → {dst}")
+                run(["ln", "-s", str(dst), str(src)], dry)
+                n_cflip += 1
+
+    print(f"\n== Bilan : {n_flip} projet(s) basculé(s), {n_skip} ignoré(s), "
+          f"{n_nocolo} non co-localisé(s) | client-level {n_cflip} basculé(s), "
+          f"{n_cskip} ignoré(s) | {n_err} erreur(s) ==")
     if dry:
         print("   (DRY-RUN — relancer avec --execute pour appliquer)")
     if n_err:

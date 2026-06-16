@@ -73,18 +73,20 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER:$KARL_SUDO_USER ; .env -> $KARL_SUDO_USER:$KARL_USER 640"
+    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER (hors .env, no-follow symlinks) ; chmod go-w"
     return
   fi
   git -C "$CORE_DIR" fetch --quiet origin
   git -C "$CORE_DIR" pull --ff-only origin "$branch"
   git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
-  # -RP : ne JAMAIS suivre les symlinks d'index (sinon on rechownerait la donnée
-  # client co-localisée). -P est le défaut GNU mais on l'explicite (load-bearing).
-  chown -RP "$KARL_SUDO_USER:$KARL_SUDO_USER" "$CORE_DIR"
-  [ -f "$CORE_DIR/.env" ] && { chown "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/.env"; chmod 640 "$CORE_DIR/.env"; }
-  log "outil $old -> $new ($branch) ; ownership re-verrouillé $KARL_SUDO_USER:$KARL_SUDO_USER"
+  # Re-verrou (en KARL_SUDO_USER). On EXCLUT .env : son groupe KARL_USER est posé par
+  # provision-core (seul root peut fixer ce groupe tiers) et git ne le modifie jamais
+  # (gitignored). -hP : ne suit pas les symlinks d'index → donnée client co-localisée intacte.
+  find "$CORE_DIR" -name .env -prune -o -print0 \
+    | xargs -0r chown -hP "$KARL_SUDO_USER:$KARL_SUDO_USER"
+  chmod -R go-w "$CORE_DIR"   # aucune écriture groupe/other (idempotent ; .env 640 intact)
+  log "outil $old -> $new ($branch) ; re-verrouillé $KARL_SUDO_USER (.env préservé)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
 

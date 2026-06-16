@@ -1,10 +1,10 @@
 ---
-schema_version: "1.44.0"
+schema_version: "1.45.0"
 updated: 2026-06-16
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.43.0
+# Normes de gestion des tâches — v1.45.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -34,6 +34,7 @@ updated: 2026-06-16
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
+| j'introduis/fais évoluer une donnée ou un artefact partagé Redmine↔PM (champ, vue, template, doc, métrique) | `modules/redmine-sync.md` (principe de parité) | scripts de sync dédiés |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -1107,6 +1108,65 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
+> 📂 **Module `redmine-sync` — quand lire ceci :** tu introduis ou fais évoluer une **donnée / vue / artefact partagé** entre Redmine et le PM (nouveau champ, nouvelle vue, template d'issue, doc, métrique…) · tu te demandes « où est la source de vérité et comment les deux côtés restent-ils alignés ? ».
+> **Outils :** scripts de sync dédiés (`pm-task-status-update`, `pm-task-description-update`, `redmine-template-sync`, `pm-wiki-sync`, `pm-task-metrics-push`…) · **Préchargé par :** —.
+
+## Principe de parité Redmine ↔ PM
+
+**On cherche en permanence à établir (ou à rapprocher) la synchronisation entre les
+données Redmine et les données PM — pour qu'humains et agents IA voient toujours le
+même état.** Redmine est la **vitrine humaine**, les fichiers MD sont le **plan de
+travail des agents**, mais c'est le **même état** vu sous deux angles, pas deux
+référentiels concurrents.
+
+Toute donnée qui existe **des deux côtés** (statut, priorité, titre, description /
+CDC, done_ratio, liens entre tâches, métriques temps/tokens…) est tenue synchronisée
+**dans le même cycle** que sa modification — jamais mise à jour d'un seul côté en
+laissant l'autre dériver.
+
+### Objectif directeur, pas perfection imposée
+
+C'est un **objectif directeur**. La parité parfaite n'est pas toujours atteignable
+(API partielle, plugin sans REST, latence de fetch…) ; la règle est alors :
+**réduire l'écart, jamais l'agrandir sciemment**. Quand un côté ne peut pas être
+synchronisé automatiquement, on le documente et on prévoit le rapprochement, plutôt
+que d'acter une divergence silencieuse.
+
+### Conséquence pratique — concevoir la sync *avant* la copie
+
+Chaque fois qu'on introduit une donnée ou un artefact partagé, on conçoit **d'abord**
+sa synchronisation :
+
+- privilégier une **source canonique unique** dont les autres représentations sont
+  des **miroirs générés**, plutôt que plusieurs copies maintenues à la main ;
+- si la cible n'a pas d'API (ex. plugin Redmine), écrire l'outil de sync qui pousse
+  la source vers la cible de façon **idempotente** (un trou d'outillage = un script
+  à créer, cf. tripwire #1) ;
+- marquer toute représentation **générée** comme telle (bandeau « ne pas éditer ici »)
+  pour ne pas recréer un drift à deux sources.
+
+### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
+
+Il ne remplace pas, il **chapeaute** — le détail vit dans les modules dédiés :
+
+- **Statut** (tripwire #4) : tout changement de `status` se répercute Redmine
+  (status_id + note) + frontmatter + `.log.md` dans le même cycle. → `status-workflow`.
+- **Description vivante** (tripwire #9) : la description Redmine est l'état courant,
+  tenue à jour (checklist, done_ratio) ; les notes sont l'historique. → `redmine-hygiene`.
+- **Traçabilité** (tripwire #12) : note Redmine + entrée `.log.md` à chaque étape
+  significative. → `traceability`.
+- **Liens** entre tâches : miroir maintenu des deux côtés. → `task-links`.
+- **Métriques** temps/tokens poussées vers les CF Redmine. → `roi-pricing`.
+- **Docs / Wiki** : aspects et overviews poussés en Wiki / description projet depuis
+  git (source canonique, wiki = miroir). → `pm-wiki-sync`.
+
+### Exemples de référence
+
+- **`redmine-template-sync.py`** — les templates d'issue (plugin
+  `redmine_issue_templates`, sans API REST) sont des **miroirs** d'un fichier source
+  unique (`templates/redmine/issue-body.md`), poussés via rails runner idempotent.
+  On édite la source, on relance, les N templates sont alignés (RM2016).
+- **`pm-wiki-sync`** — sens unique git → Wiki, bandeau « généré » sur chaque page.
 > 📂 **Module `redmine-hygiene` — quand lire ceci :** le ticket a une checklist · sa description est périmée · son done_ratio évolue.
 > **Outils :** `pm-task-description-update` · **Préchargé par :** worker-dev, worker-analyst, worker-design.
 

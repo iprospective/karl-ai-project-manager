@@ -5,6 +5,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.45.0] - 2026-06-16
+
+### Ajouté — Module `redmine-sync` : principe de parité Redmine ↔ PM
+
+Nouveau **module à la demande** `modules/redmine-sync.md` (groupe « workflow &
+Redmine ») portant le **principe de parité** : **on cherche en permanence à établir
+(ou rapprocher) la synchronisation entre les données Redmine et les données PM**,
+pour qu'humains et agents IA voient toujours le même état. Redmine = vitrine humaine,
+fichiers MD = plan de travail des agents, mais **même état** sous deux angles.
+
+- Placé en **module** (chargé à la demande), pas dans le KERNEL : le principe est un
+  objectif directeur, pas un tripwire toujours-chargé → coût de contexte runtime nul.
+- **Découvrable** via une ligne de déclencheur ajoutée au KERNEL (« j'introduis/fais
+  évoluer une donnée ou un artefact partagé Redmine↔PM »).
+- Se pose en **ombrelle** des tripwires de sync existants (statut #4, description
+  vivante #9, traçabilité #12, liens, métriques, wiki) — il les chapeaute, ne les
+  duplique pas.
+- Conséquence pratique inscrite : concevoir la sync **avant** la copie, depuis une
+  **source canonique unique** ; à défaut de parité parfaite, réduire l'écart, jamais
+  l'agrandir.
+- Motivé par RM2016 (norme demande/CDC répliquée CLI + Redmine UI) et le script
+  `redmine-template-sync.py` (miroir des templates d'issue depuis source unique).
+- Ajouté au `manifest.yml` (assemblage).
+
 ## [1.44.0] - 2026-06-16
 
 ### Ajouté — Champ `post_deploy` à l'aspect `environments` (schema aspect 1.9.0 → 1.10.0)

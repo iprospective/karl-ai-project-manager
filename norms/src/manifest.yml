@@ -12,6 +12,7 @@ sources:
   - modules/project-creation.md
   # --- workflow & Redmine ---
   - modules/status-workflow.md
+  - modules/redmine-sync.md
   - modules/redmine-hygiene.md
   - modules/redmine-reference.md
   # --- git & release ---

@@ -5,6 +5,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.44.0] - 2026-06-16
+
+### Ajouté — Champ `post_deploy` à l'aspect `environments` (schema aspect 1.9.0 → 1.10.0)
+
+Nouveau champ optionnel **par environnement** : `post_deploy`, **liste de commandes
+shell** à exécuter après un déploiement sur cet env (ex. purge du cache applicatif).
+Forme **scriptée** de la procédure de déploiement, à préférer à la prose (qui ne sert
+plus qu'à expliquer le *pourquoi*).
+
+- **Déclaratif, non auto-exécuté** : documente les commandes ; aucun outil ne les lance
+  automatiquement. Un humain les exécute délibérément — sur la prod, consentement
+  explicite requis (cf. « Règle de sécurité prod »).
+- **Chemins absolus obligatoires** : `rm -rf var/cache/*` en relatif vise `/var/cache`
+  (dossier système) si lancé du mauvais cwd → toujours ancrer sur `app_path`.
+- Module `environments` (liste des champs) + template
+  `templates/aspects/common/environments.md` mis à jour.
+
 ## [1.43.0] - 2026-06-14
 
 ### Corrigé — Membership « Agents IA » par défaut sur un nouveau projet (RM1977)

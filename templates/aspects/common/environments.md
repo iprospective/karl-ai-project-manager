@@ -1,5 +1,5 @@
 ---
-schema_version: "1.9.0"
+schema_version: "1.10.0"
 # Liste des environnements de ce projet (ou client si appliqué au niveau client).
 # Chaque env est indépendant — pas tous les projets ont tous les envs.
 environments:
@@ -19,6 +19,8 @@ environments:
       fpm:                     # ex: /var/log/php/calicote-74.error.log
       access:                  # access log nginx, préfixé host si distant — prod OVH : <host>:/var/log/nginx/<domaine>_access.log
     secrets_source:            # vaultwarden://<org>/<collection>/<item>  (ou null)
+    post_deploy:               # commandes shell à lancer APRÈS un déploiement sur cet env — DÉCLARATIF (non auto-exécuté), chemins ABSOLUS obligatoires
+      # - "rm -rf <app_path>/var/cache/*"        # ex. PrestaShop : purge cache (overrides/templates) — JAMAIS de chemin relatif (viserait /var/cache)
     notes:                     # ex: "Hot-reload activé, données dé-anonymisées"
   # - name: test
   # - name: staging          # env de non-régression avant MEP (alias historique : preprod)

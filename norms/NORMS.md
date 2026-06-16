@@ -1,6 +1,6 @@
 ---
-schema_version: "1.43.0"
-updated: 2026-06-14
+schema_version: "1.44.0"
+updated: 2026-06-16
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
@@ -1983,6 +1983,17 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
 - `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+- `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
+  env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
+  déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
+  Deux règles **impératives** :
+  - **Déclaratif, NON auto-exécuté** : ce champ *documente* les commandes ; aucun outil
+    ne les lance automatiquement pour l'instant. Un humain les exécute délibérément. Sur
+    la prod, toute commande modifiant l'état exige le **consentement explicite** (cf.
+    « Règle de sécurité prod »).
+  - **Chemins ABSOLUS obligatoires** : ancrer chaque chemin sur `app_path`. Un
+    `rm -rf var/cache/*` *relatif* vise `/var/cache` (dossier système Linux) s'il est
+    lancé du mauvais cwd — écrire `rm -rf /home/<user>/public_html/var/cache/*`.
 - `notes` : libre
 
 **Connexion SSH (règle d'usage)** : pour se connecter à un env, utiliser **`ssh_alias`

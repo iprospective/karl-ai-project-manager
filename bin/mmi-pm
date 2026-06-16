@@ -18,6 +18,7 @@ CORE_DIR="$(dirname "$(dirname "$SELF")")"          # bin/.. = racine de l'outil
 [ -f "$CORE_DIR/.env" ] && { set -a; . "$CORE_DIR/.env"; set +a; }
 PROJECTS_PATH="${PROJECTS_PATH:-$CORE_DIR/projects}"
 KARL_USER="${KARL_USER:-$(id -un)}"
+KARL_SUDO_USER="${KARL_SUDO_USER:-root}"   # propriétaire + user des ops privilégiées (révision 2026-06-15)
 WORKSPACES_ROOT="${WORKSPACES_ROOT:-/zfs/workspaces}"
 DRY=0
 
@@ -36,7 +37,8 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
-Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH  KARL_USER=$KARL_USER
+Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
+          KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
 EOF
 }
 
@@ -65,21 +67,24 @@ link_project(){ # $1=client $2=projet $3=loc(.../<projet>)
 # ====================== commandes ======================
 
 cmd_core_update(){
-  [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] || die "core update : root requis"
+  [ "$(id -un)" = "$KARL_SUDO_USER" ] || [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] \
+    || die "core update : doit tourner en $KARL_SUDO_USER (via sudo)"
   [ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un dépôt git"
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R root:root ; .env -> root:$KARL_USER 640"
+    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER:$KARL_SUDO_USER ; .env -> $KARL_SUDO_USER:$KARL_USER 640"
     return
   fi
   git -C "$CORE_DIR" fetch --quiet origin
   git -C "$CORE_DIR" pull --ff-only origin "$branch"
   git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
-  chown -R root:root "$CORE_DIR"
-  [ -f "$CORE_DIR/.env" ] && { chown "root:$KARL_USER" "$CORE_DIR/.env"; chmod 640 "$CORE_DIR/.env"; }
-  log "outil $old -> $new ($branch) ; ownership re-verrouillé root:root"
+  # -RP : ne JAMAIS suivre les symlinks d'index (sinon on rechownerait la donnée
+  # client co-localisée). -P est le défaut GNU mais on l'explicite (load-bearing).
+  chown -RP "$KARL_SUDO_USER:$KARL_SUDO_USER" "$CORE_DIR"
+  [ -f "$CORE_DIR/.env" ] && { chown "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/.env"; chmod 640 "$CORE_DIR/.env"; }
+  log "outil $old -> $new ($branch) ; ownership re-verrouillé $KARL_SUDO_USER:$KARL_SUDO_USER"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
 
@@ -101,17 +106,17 @@ cmd_index_remove(){
   log "index: retiré $CLIENT/$PROJECT"
 }
 
-# Manifeste = frontmatter d'overview.md (RM1680 D1 révisé : pas de pm.yml séparé).
+# Manifeste = meta.yml (RM1994 : plus de frontmatter dans overview.md).
 # Discovery par `find` profondeur-agnostique (gère worm à iprospective/dev/Worm). Un `.mmi-pm`
 # symlink (ancienne instance) n'est pas traversé par find sans -L → exclu automatiquement.
 cmd_index_rebuild(){
-  local np=0 nc=0 ov loc client slug sub clink
-  log "reconstruction de l'index sous $PROJECTS_PATH (manifeste = overview.md)"
-  # --- niveau client : .../.mmi-pm-client/client/overview.md ---
-  while IFS= read -r ov; do
-    [ -n "$ov" ] || continue
-    loc="${ov%/.mmi-pm-client/client/overview.md}"
-    slug="$(awk '/^slug:/{print $2; exit}' "$ov" | tr -d '"')"
+  local np=0 nc=0 mf loc client slug sub clink
+  log "reconstruction de l'index sous $PROJECTS_PATH (manifeste = meta.yml)"
+  # --- niveau client : .../.mmi-pm-client/meta.yml ---
+  while IFS= read -r mf; do
+    [ -n "$mf" ] || continue
+    loc="${mf%/.mmi-pm-client/meta.yml}"
+    slug="$(awk '/^slug:/{print $2; exit}' "$mf" | tr -d '"')"
     slug="${slug:-$(basename "$loc")}"
     for sub in client memory projects_used; do
       [ -d "$loc/.mmi-pm-client/$sub" ] || continue
@@ -120,18 +125,18 @@ cmd_index_rebuild(){
       else mkdir -p "$(dirname "$clink")"; ln -sfn "$loc/.mmi-pm-client/$sub" "$clink"; fi
     done
     nc=$((nc+1))
-  done < <(find "$WORKSPACES_ROOT" -maxdepth 5 -name .git -prune -o -type f -path '*/.mmi-pm-client/client/overview.md' -print 2>/dev/null)
-  # --- niveau projet : .../.mmi-pm/project/overview.md ---
-  while IFS= read -r ov; do
-    [ -n "$ov" ] || continue
-    loc="${ov%/.mmi-pm/project/overview.md}"
-    slug="$(awk '/^slug:/{print $2; exit}' "$ov" | tr -d '"')"
-    client="$(awk '/^client:/{print $2; exit}' "$ov" | tr -d '"')"
+  done < <(find "$WORKSPACES_ROOT" -maxdepth 6 -name .git -prune -o -type f -path '*/.mmi-pm-client/meta.yml' -print 2>/dev/null)
+  # --- niveau projet : .../.mmi-pm/meta.yml ---
+  while IFS= read -r mf; do
+    [ -n "$mf" ] || continue
+    loc="${mf%/.mmi-pm/meta.yml}"
+    slug="$(awk '/^slug:/{print $2; exit}' "$mf" | tr -d '"')"
+    client="$(awk '/^client:/{print $2; exit}' "$mf" | tr -d '"')"
     slug="${slug:-$(basename "$loc")}"
     client="${client:-$(basename "$(dirname "$loc")")}"
     link_project "$client" "$slug" "$loc"
     np=$((np+1))
-  done < <(find "$WORKSPACES_ROOT" -maxdepth 6 -name .git -prune -o -type f -path '*/.mmi-pm/project/overview.md' -print 2>/dev/null)
+  done < <(find "$WORKSPACES_ROOT" -maxdepth 6 -name .git -prune -o -type f -path '*/.mmi-pm/meta.yml' -print 2>/dev/null)
   log "index rebuild: $nc client(s), $np projet(s)$([ "$DRY" = 1 ] && echo ' [dry-run]')"
   return 0
 }
@@ -161,10 +166,11 @@ set -- "${POS[@]:-}"
 
 NOUN="${1:-}"; VERB="${2:-}"
 
-# gate sudo : ops privilégiées → re-exec sudo (mot de passe), sauf en dry-run (prévisualisation agent)
-if is_privileged "$NOUN" "$VERB" && [ "$DRY" = 0 ] && [ "$(id -u)" -ne 0 ]; then
-  log "opération privilégiée → sudo (mot de passe requis)"
-  exec sudo "$SELF" "${ORIG_ARGS[@]}"
+# gate sudo : ops privilégiées → re-exec sudo -u KARL_SUDO_USER (mot de passe), sauf en dry-run
+if is_privileged "$NOUN" "$VERB" && [ "$DRY" = 0 ] \
+   && [ "$(id -un)" != "$KARL_SUDO_USER" ] && [ "$(id -u)" -ne 0 ]; then
+  log "opération privilégiée → sudo -u $KARL_SUDO_USER (mot de passe requis)"
+  exec sudo -u "$KARL_SUDO_USER" "$SELF" "${ORIG_ARGS[@]}"
 fi
 
 case "$NOUN" in

@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# provision-core — bootstrap initial d'une instance .mmi-pm-core (one-time, ROOT requis).
+#
+# Verrouille la propriété de l'outil déployé sous KARL_SUDO_USER et fixe les perms
+# du .env (lisible par KARL_USER au runtime). Le changement de propriétaire
+# inter-utilisateur (mathieu -> mathieu-pm) exige root → ce geste initial NE passe PAS
+# par `sudo -u KARL_SUDO_USER`. Les MAJ courantes passent ensuite par
+# `mmi-pm core update` (re-lock en KARL_SUDO_USER, qui suffit une fois la propriété posée).
+#
+# Pré-requis : .mmi-pm-core = checkout git provisionné, .env déjà placé (secrets),
+# users KARL_USER / KARL_SUDO_USER existants. RM1945 / RM1680.
+#
+# Usage : sudo provision-core [/zfs/workspaces/.mmi-pm-core]
+set -euo pipefail
+
+CORE_DIR="${1:-/zfs/workspaces/.mmi-pm-core}"
+die(){ echo "provision-core: $*" >&2; exit 1; }
+
+[ "$(id -u)" -eq 0 ] || die "root requis (chown inter-utilisateur mathieu -> KARL_SUDO_USER)"
+[ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un checkout git"
+[ -f "$CORE_DIR/.env" ] || die "$CORE_DIR/.env absent — le placer (secrets) avant de verrouiller"
+
+# Charger la config de l'instance (KARL_USER runtime, KARL_SUDO_USER propriétaire).
+set -a; . "$CORE_DIR/.env"; set +a
+: "${KARL_USER:?KARL_USER absent du .env}"
+: "${KARL_SUDO_USER:?KARL_SUDO_USER absent du .env}"
+id "$KARL_SUDO_USER" >/dev/null 2>&1 || die "user système '$KARL_SUDO_USER' inexistant"
+id "$KARL_USER"      >/dev/null 2>&1 || die "user système '$KARL_USER' inexistant"
+
+# Verrou : propriété de TOUT l'outil sous KARL_SUDO_USER. -RP = ne PAS suivre les
+# symlinks d'index (projects/clients/.../<proj> -> .mmi-pm co-localisé) : on ne doit
+# JAMAIS rechowner la donnée client. -P est le défaut GNU, explicité (load-bearing).
+chown -RP "$KARL_SUDO_USER:$KARL_SUDO_USER" "$CORE_DIR"
+
+# .env : groupe KARL_USER + 640 → lisible par l'agent runtime, non modifiable par lui.
+chown "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/.env"
+chmod 640 "$CORE_DIR/.env"
+
+echo "provision-core: $CORE_DIR verrouillé sous $KARL_SUDO_USER:$KARL_SUDO_USER"
+echo "provision-core: .env -> $KARL_SUDO_USER:$KARL_USER (640, lisible par l'agent runtime)"
+echo "provision-core: MAJ ultérieures -> 'mmi-pm core update' (en $KARL_SUDO_USER)"

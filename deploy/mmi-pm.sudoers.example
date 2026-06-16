@@ -1,14 +1,25 @@
-# mmi-pm — règle sudoers (Lot 1, RM1680 §13a).
+# mmi-pm — règles sudoers (Lot 1, RM1680 §13a ; révision mathieu-pm 2026-06-15).
 #
-# Autorise l'utilisateur runtime de l'agent (KARL_USER) à lancer mmi-pm en root.
+# Modèle de sécurité (RM1945) : l'outil déployé (.mmi-pm-core) appartient à un USER
+# DÉDIÉ — KARL_SUDO_USER (ex. mathieu-pm), distinct de l'agent runtime KARL_USER
+# (ex. mathieu, lecture seule). Deux droits sudo :
+#
+#   1. Ops courantes (mmi-pm core update / index …)       -> en KARL_SUDO_USER
+#   2. Bootstrap initial d'une instance (provision-core)  -> en root
+#      (le chown inter-utilisateur mathieu -> mathieu-pm exige root, one-time).
+#
 # DÉCISION §13a : MOT DE PASSE REQUIS — PAS de NOPASSWD (barrière humaine sur chaque
 # opération privilégiée : core update / index / import).
 #
 # Installation :
-#   1. Remplacer <KARL_USER> par l'utilisateur runtime (ex. mathieu) et le chemin si besoin.
-#   2. sudo cp ce fichier vers /etc/sudoers.d/mmi-pm  (puis: sudo visudo -c)
-#   3. chmod 0440 /etc/sudoers.d/mmi-pm
+#   1. Remplacer <KARL_USER> (agent runtime) et <KARL_SUDO_USER> (propriétaire outil).
+#   2. sudo cp ce fichier vers /etc/sudoers.d/mmi-pm   (puis: sudo visudo -c)
+#   3. sudo chmod 0440 /etc/sudoers.d/mmi-pm
 #
-# Le re-exec se fait via le chemin absolu figé ci-dessous ; mmi-pm valide ses args.
+# Les re-exec se font via chemins absolus figés ; mmi-pm valide ses args.
 
-<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *
+# Ops courantes — mmi-pm tourne comme l'utilisateur propriétaire de l'outil.
+<KARL_USER> ALL=(<KARL_SUDO_USER>) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *
+
+# Bootstrap initial (verrouillage propriété) — root, one-time par instance.
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/provision-core *

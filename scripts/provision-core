@@ -42,11 +42,19 @@ chown -RP "$KARL_SUDO_USER:$KARL_SUDO_USER" "$CORE_DIR"
 # Le parent /zfs/workspaces (750 root:KARL_USER) confine déjà l'accès à KARL_USER + root.
 chmod -R u=rwX,go=rX "$CORE_DIR"
 
+# Index résolveur (projects/) = donnée KARL_USER régénérable, HORS frontière de confiance
+# (symlinks vers .mmi-pm co-localisé que karl possède déjà). On le rend KARL_USER-owned →
+# karl reconstruit son index SANS privilège (`mmi-pm index *` non gaté). Re-chown cross-user
+# (KARL_SUDO_USER -> KARL_USER) : possible seulement ici car root. Modes u=rwX déjà posés
+# ci-dessus → owner karl écrit. -RP : ne suit pas les symlinks → donnée client intacte.
+chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR/projects"
+
 # .env : secrets → groupe KARL_USER + 640 (lisible par l'agent, PAS world). Seul root peut
 # fixer ce groupe tiers ; git ne touche jamais .env (gitignored) → posé une fois ici.
 chown "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/.env"
 chmod 640 "$CORE_DIR/.env"
 
 echo "provision-core: $CORE_DIR verrouillé sous $KARL_SUDO_USER (lecture runtime via 'other')"
+echo "provision-core: projects/ -> $KARL_USER (index karl-writable, hors verrou)"
 echo "provision-core: .env -> $KARL_SUDO_USER:$KARL_USER (640, lisible par l'agent runtime)"
 echo "provision-core: MAJ ultérieures -> 'mmi-pm core update' (en $KARL_SUDO_USER)"

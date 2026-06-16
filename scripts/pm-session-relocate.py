@@ -20,6 +20,7 @@ Usage :
     pm-session-relocate.py <ancien-chemin-abs> <nouveau-chemin-abs> [--fix-paths] [--dry-run]
 """
 import argparse
+import re
 import sys
 from pathlib import Path
 
@@ -27,8 +28,15 @@ PROJECTS = Path.home() / ".claude" / "projects"
 
 
 def encode(path: str) -> str:
-    """Chemin absolu → nom de dossier de sessions Claude (`/`→`-`)."""
-    return "-" + path.strip("/").replace("/", "-")
+    """Chemin absolu → nom de dossier de sessions Claude.
+
+    Reproduit FIDÈLEMENT la règle de Claude Code (fonction `cM`, vérifiée dans le
+    binaire 2.1.178) : `replace(/[^a-zA-Z0-9]/g, "-")` — TOUT caractère non
+    alphanumérique (`/`, `.`, `_`, …) devient `-`, casse préservée. Ne PAS se limiter
+    au `/` : un chemin contenant un `.` (ex. `/zfs/workspaces/.mmi-pm-core`) produit
+    sinon un nom que le CLI ne cherche jamais (`-…-.mmi-pm-core` vs réel `-…--mmi-pm-core`).
+    """
+    return re.sub(r"[^a-zA-Z0-9]", "-", path.rstrip("/"))
 
 
 def main():

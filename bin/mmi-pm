@@ -29,13 +29,14 @@ usage(){ cat <<EOF
 mmi-pm — provisioning PM (Lot 1)
 
   mmi-pm core update                 MAJ de l'outil déployé + re-verrouillage   [priv]
-  mmi-pm index add <c>/<p> [path]    ajoute le lien d'index d'un projet         [priv]
-  mmi-pm index remove <c>/<p>        retire le lien d'index                      [priv]
-  mmi-pm index rebuild               reconstruit l'index depuis les emplacements [priv]
+  mmi-pm index add <c>/<p> [path]    ajoute le lien d'index d'un projet         [index]
+  mmi-pm index remove <c>/<p>        retire le lien d'index                      [index]
+  mmi-pm index rebuild               reconstruit l'index depuis les emplacements [index]
                                      canoniques (.mmi-pm / .mmi-pm-client)
   mmi-pm list                        inventaire de l'index                       [lecture]
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
+Légende : [priv]=sudo KARL_SUDO_USER  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
 Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
           KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
@@ -43,10 +44,16 @@ EOF
 }
 
 # --- classification des sous-commandes (D3) ---
+# Surface privilégiée minimale (décision RM1902, 2026-06-16) : SEUL `core update` mute la
+# frontière de confiance (outil + normes) → sudo KARL_SUDO_USER. Tout le reste tourne en
+# KARL_USER (non privilégié) :
+#   - `index *`         n'écrit que des symlinks dans projects/ (index karl-writable,
+#                       régénérable, gitignored, pointant vers données karl) → rien à gater.
+#   - `client/project *` (Lot 2) mutent la méta-structure karl co-localisée ; durcissement
+#                       reporté (second temps) → pas de privilège pour l'instant.
 is_privileged(){ # $1=nom $2=verbe
   case "${1:-} ${2:-}" in
-    "core update"|"index add"|"index remove"|"index rebuild") return 0;;
-    "client new"|"client import"|"project new"|"project import") return 0;;  # Lot 2 (placeholders)
+    "core update") return 0;;
     *) return 1;;
   esac
 }
@@ -73,19 +80,23 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER (hors .env, no-follow symlinks) ; chmod go-w"
+    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER (hors .env + projects/, no-follow symlinks) ; chmod go-w (hors projects/)"
     return
   fi
   git -C "$CORE_DIR" fetch --quiet origin
   git -C "$CORE_DIR" pull --ff-only origin "$branch"
   git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
-  # Re-verrou (en KARL_SUDO_USER). On EXCLUT .env : son groupe KARL_USER est posé par
-  # provision-core (seul root peut fixer ce groupe tiers) et git ne le modifie jamais
-  # (gitignored). -hP : ne suit pas les symlinks d'index → donnée client co-localisée intacte.
-  find "$CORE_DIR" -name .env -prune -o -print0 \
+  # Re-verrou (en KARL_SUDO_USER). On EXCLUT deux chemins :
+  #   - .env       : groupe KARL_USER posé par provision-core (seul root fixe ce groupe tiers),
+  #                  git ne le touche jamais (gitignored). chown sauté ; chmod go-w idempotent (640).
+  #   - projects/  : index KARL_USER-owned (donnée karl régénérable, hors frontière de confiance) ;
+  #                  KARL_SUDO_USER ne peut ni le chown ni le chmod (pas propriétaire) → exclu des deux.
+  # -hP : ne suit pas les symlinks d'index → donnée client co-localisée intacte.
+  find "$CORE_DIR" \( -name .env -o -path "$CORE_DIR/projects" \) -prune -o -print0 \
     | xargs -0r chown -hP "$KARL_SUDO_USER:$KARL_SUDO_USER"
-  chmod -R go-w "$CORE_DIR"   # aucune écriture groupe/other (idempotent ; .env 640 intact)
+  find "$CORE_DIR" -path "$CORE_DIR/projects" -prune -o -print0 \
+    | xargs -0r chmod go-w      # aucune écriture groupe/other hors projects/ (.env 640 intact)
   log "outil $old -> $new ($branch) ; re-verrouillé $KARL_SUDO_USER (.env préservé)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }

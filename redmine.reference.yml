@@ -152,3 +152,4 @@ task_type_cf:
   id: 20               # CF « Task type » (enumeration, issue)
   values:
     documentation: 42  # "Documentation"
+    database: 44       # "Database"

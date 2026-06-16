@@ -61,6 +61,7 @@ TYPE_TO_TRACKER = {
     "security": 4,        # Tâche                (worker-dev)
     "performance": 4,     # Tâche                (worker-dev)
     "infrastructure": 4,  # Tâche                (worker-infra)
+    "database": 4,        # Tâche                (worker-db)
     "maintenance": 4,     # Tâche                (worker-analyst)
     "documentation": 4,   # Tâche                (worker-analyst)
     "research": 4,        # Tâche — Audit/Analyse (worker-analyst)
@@ -76,6 +77,7 @@ TYPE_LABELS = {
     "security": "security — sécurité",
     "performance": "performance — optimisation",
     "infrastructure": "infrastructure — sysadmin/conf",
+    "database": "database — schéma / migration / données",
     "maintenance": "maintenance — entretien",
     "documentation": "documentation",
     "research": "research — investigation",
@@ -142,7 +144,13 @@ def main():
                          "trié). Si ≠ nouveau, le ticket est créé en nouveau puis "
                          "transitionné via pm-task-status-update (couplage NORMS : "
                          "auto-assignation karl pour en_cours, note, status_history).")
-    ap.add_argument("--description", default="")
+    ap.add_argument("--description", default="",
+                    help="Description du ticket. Mets '-' pour lire l'entrée standard "
+                         "(stdin) — pratique pour une description multi-ligne lisible.")
+    ap.add_argument("--description-file", default=None,
+                    help="Lit la description depuis un fichier ('-' = stdin). À "
+                         "privilégier pour une description structurée multi-ligne "
+                         "(évite les descriptions sur une seule ligne illisibles).")
     ap.add_argument("--tags", default="", help="Liste csv de tags")
     ap.add_argument("--agent-test", dest="agent_test", default="default",
                     choices=["default", "oui", "non", "demander"],
@@ -176,6 +184,15 @@ def main():
                          "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
+    # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
+    # passées sur une seule ligne en argument shell.
+    if args.description_file is not None:
+        args.description = (sys.stdin.read() if args.description_file == "-"
+                            else Path(args.description_file).read_text(encoding="utf-8"))
+    elif args.description == "-":
+        args.description = sys.stdin.read()
 
     if args.retro and args.status != "nouveau":
         sys.exit("ERREUR : --status et --retro sont incompatibles (--retro pilote sa "

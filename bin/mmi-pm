@@ -36,6 +36,9 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env init [ws] [args…]       instancie le layout git d'un workspace      [karl]
                                      (repos/<r>.git + envs/<r>-dev ; --dry-run,
                                      --with-test, --teardown ; pm-env-init.py)
+  mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
+                                     (adoption in-place, snapshot ZFS, --dry-run ;
+                                     pm-env-migrate.py)
   mmi-pm list                        inventaire de l'index                       [lecture]
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
@@ -179,8 +182,9 @@ cmd_env(){
   # on le réinjecte pour pm-env-init.
   local dry=(); [ "$DRY" = 1 ] && dry=(--dry-run)
   case "${1:-}" in
-    init) shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init)";;
+    init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
+    migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate)";;
   esac
 }
 

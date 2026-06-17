@@ -94,6 +94,20 @@ développement → test → mise en production*.
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
 
+**Précondition de fermeture — sous-tâches.** Un ticket qui possède des
+**sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
+elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
+**refusée** tant qu'un enfant reste ouvert) — corollaire de la règle d'orchestration
+« un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
+(module `collaboration`, § *Propagation de complétion*).
+
+> **Conséquence de modélisation (à anticiper).** Si un ticket destiné à devenir
+> **parent** porte un **livrable propre** validable/clôturable indépendamment de
+> l'implémentation (cadrage, CDC, étude, décision d'architecture), **placer ce livrable
+> dans une sous-tâche dédiée** que l'on clôt — *sinon le parent reste bloqué ouvert*
+> jusqu'à ce que **toutes** les sous-tâches d'implémentation soient fermées. Principe :
+> **un parent est un conteneur, pas un livrable.**
+
 ### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
 
 Les deux premiers statuts du workflow ne sont **pas** une simple file d'attente

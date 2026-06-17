@@ -101,12 +101,15 @@ elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent es
 « un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
 (module `collaboration`, § *Propagation de complétion*).
 
-> **Conséquence de modélisation (à anticiper).** Si un ticket destiné à devenir
-> **parent** porte un **livrable propre** validable/clôturable indépendamment de
-> l'implémentation (cadrage, CDC, étude, décision d'architecture), **placer ce livrable
-> dans une sous-tâche dédiée** que l'on clôt — *sinon le parent reste bloqué ouvert*
-> jusqu'à ce que **toutes** les sous-tâches d'implémentation soient fermées. Principe :
-> **un parent est un conteneur, pas un livrable.**
+> **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
+> cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
+> description du parent** quand il sert de **pilote** (référence « north-star » pour les
+> enfants) — c'est même souhaitable. Ce qui ne doit pas reposer sur le parent, c'est la
+> **clôture** de ce livrable : le parent restant bloqué ouvert tant que ses sous-tâches
+> d'implémentation ne sont pas fermées, créer une **sous-tâche dédiée** (« cadrage / CDC »)
+> que l'on clôt pour acter l'achèvement de l'étude. Principe : **dissocier le contenu de
+> référence (description du parent, pilote) de l'unité clôturable (sous-tâche).** Le parent
+> reste un **conteneur** dont la fermeture suit celle de ses enfants.
 
 ### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
 

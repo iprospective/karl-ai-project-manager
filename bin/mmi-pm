@@ -33,6 +33,9 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm index remove <c>/<p>        retire le lien d'index                      [index]
   mmi-pm index rebuild               reconstruit l'index depuis les emplacements [index]
                                      canoniques (.mmi-pm / .mmi-pm-client)
+  mmi-pm env init [ws] [args…]       instancie le layout git d'un workspace      [karl]
+                                     (repos/<r>.git + envs/<r>-dev ; --dry-run,
+                                     --with-test, --teardown ; pm-env-init.py)
   mmi-pm list                        inventaire de l'index                       [lecture]
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
@@ -169,6 +172,18 @@ cmd_list(){
 
 cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
 
+# `env init` (RM1947, P1a) : layout git d'un workspace. Non privilégié (git/fs en
+# KARL_USER dans le workspace). --dry-run propagé tel quel à pm-env-init.
+cmd_env(){
+  # --dry-run est capté par le parsing global (→ $DRY, retiré des positionnels) :
+  # on le réinjecte pour pm-env-init.
+  local dry=(); [ "$DRY" = 1 ] && dry=(--dry-run)
+  case "${1:-}" in
+    init) shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init)";;
+  esac
+}
+
 # ====================== parsing & dispatch ======================
 
 # extrait --dry-run, garde le reste positionnel
@@ -195,6 +210,7 @@ case "$NOUN" in
            rebuild) cmd_index_rebuild "$@";;
            *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
          esac;;
+  env)    shift||true; cmd_env "$@";;
   list)   cmd_list;;
   doctor) shift||true; cmd_doctor "$@";;
   client|project) die "'$NOUN $VERB' = Lot 2 (pas encore implémenté)";;

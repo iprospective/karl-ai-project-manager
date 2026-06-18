@@ -361,10 +361,17 @@ def consume_turn_minutes(session_id):
     start = data.get("start_epoch")
     if not start:
         return 0.0
-    mins = (time.time() - float(start)) / 60.0
-    if mins < 0 or mins > AI_MINUTES_CAP:
-        return 0.0
-    return round(mins, 2)
+    now = time.time()
+    # Attente HUMAINE à exclure (délibération sur AskUserQuestion/ExitPlanMode,
+    # encadrée par pm-turn-wait via PreToolUse/PostToolUse).
+    human_wait = float(data.get("human_wait_seconds", 0) or 0)
+    ws = data.get("wait_start")  # attente encore ouverte au Stop (PostToolUse non vu) → la compter
+    if ws:
+        human_wait += now - float(ws)
+    mins = (now - float(start)) / 60.0 - human_wait / 60.0
+    if mins < 0 or mins > 2 * AI_MINUTES_CAP:
+        return 0.0                                  # aberrant (fichier obsolète) → jeté
+    return round(min(mins, AI_MINUTES_CAP), 2)      # plafonne un tour légitimement long
 
 
 def run_hook_mode():

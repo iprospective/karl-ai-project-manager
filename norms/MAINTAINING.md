@@ -228,8 +228,25 @@ Inchangé par rapport à la procédure historique (plusieurs sessions partagent 
 filesystem et la même branche) : relire `schema_version` **sur disque** juste avant de
 bumper ; `git fetch` + `pull --rebase` avant de committer ; le bump est la **dernière**
 étape, suivie d'un **commit immédiat** ; conflits attendus sur `schema_version` /
-`CHANGELOG` à résoudre délibérément. Le numéro de version vit désormais dans le
-**KERNEL** (source) ; `NORMS.md` généré le reflète.
+`CHANGELOG` à résoudre délibérément.
+
+**Où vit le numéro (RM2033)** : la version est portée par les **sources** —
+`src/_frontmatter.txt` (`schema_version`) **et** le titre de `src/_full-body.md`
+(`— vX.Y.Z`), qui doivent rester **cohérents** (le build échoue sinon). Donc, à
+**chaque modification notable d'un module**, la procédure complète est :
+
+1. éditer le(s) module(s) ;
+2. **bumper** `schema_version` (frontmatter) **et** le titre (`_full-body.md`) ;
+3. ajouter une entrée **`CHANGELOG.md`** (`## [X.Y.Z] - date`, format Keep a Changelog) ;
+4. **réassembler** : `pm-norms-assemble.py build` → régénère `NORMS.md` **et**
+   synchronise **`norms/VERSION`** (fichier ne contenant que le numéro, version de
+   **NORMS seule**) ; `check` valide la cohérence des trois.
+
+**Savoir si NORMS a bougé** : `norms/VERSION` est lisible en une commande, et
+`scripts/pm-norms-changes.py` compile le delta entre deux versions :
+`--check <connue>` (à jour ? exit 0/1), `--since <connue>` (entrées CHANGELOG à lire),
+`--between A B`. Un agent compare sa version NORMS apprise à `norms/VERSION` et ne lit
+que le delta (esprit KERNEL/modules-à-la-demande) au lieu de tout relire.
 
 ---
 

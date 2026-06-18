@@ -236,19 +236,20 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   et qu'elle correspond bien au ticket dont on commite le travail. Un seul working
   tree + bascules de branche = source d'erreur quand on jongle.
 - **Un worktree par ticket plutôt que des `checkout` successifs.** Quand on mène
-  plusieurs tickets en parallèle, ne pas hésiter à créer un **git worktree dédié**
-  par branche/ticket (`git worktree add ../<repo>-<RMid> <RMid>-<slug>`) : chaque
-  ticket a sa branche checkée out dans son propre dossier, on ne se trompe plus de
-  cible et on évite de réécrire le working tree (qui casse une autre tâche en
-  cours). Nettoyer le worktree à la livraison (`git worktree remove`).
-- **Mapper branche/worktree ↔ session.** Pour qu'on retrouve toujours quelle
-  session a produit quelle branche — et surtout pour que **deux sessions
-  travaillant le même ticket ne committent pas dans le même worktree** —, garder
-  un **mapping explicite session ↔ branche/worktree**. En cas de concurrence
-  réelle sur un même ticket, **discriminer la branche par un id de session**
-  (ex. `<RMid>-<slug>-<sessid>`) et un worktree distinct, plutôt que de partager
-  une branche/un dossier ⇒ pas de commits entrelacés ni de working tree piétiné.
-  (La forme courte `<RMid>-<slug>` reste la norme hors concurrence.)
+  plusieurs tickets en parallèle, créer un **git worktree dédié** par ticket via
+  **`pm-branch-start <RMid> --worktree`** (RM2034) : il crée le worktree
+  `<repo>-<RMid>-s<seq>`, une branche **discriminée par session**
+  `<RMid>-<slug>-m<PMid>-s<seq>`, et **enregistre** branche + worktree dans le
+  registre de session. Chaque ticket a sa branche dans son propre dossier : on ne
+  se trompe plus de cible et on ne réécrit pas le working tree d'une autre tâche.
+  Ménage à la livraison : **`pm-worktree remove <path>`** (git worktree remove +
+  purge du registre).
+- **Mapper branche/worktree ↔ session.** L'id de session court (`s<seq>`, alloué
+  une fois sous flock — RM2034) + l'id machine (`m<PMid>`, `PM_MACHINE_ID` du
+  `.env`) **discriminent** la branche/worktree pour que **deux sessions sur le même
+  ticket ne se marchent pas dessus**. Le registre `var/sessions/` mémorise les
+  branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
+  courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
 
 #### Projets versionnés : branche de version active (base de branchement) — v1.20.0
 

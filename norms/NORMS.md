@@ -1642,7 +1642,16 @@ tâche). Exemple : `1762-etransactions-historique`.
   fois ouverte. C'est le CF dédié, **pas une note** : il rend l'info visible et
   filtrable côté Redmine. Le frontmatter MD `git.branch` / `git.mr_url` reste le
   miroir local.
-- À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
+- **À la livraison : MR sur le remote, et on CONSERVE la branche distante.**
+  La livraison d'une branche de ticket vers l'intégration se fait **via une
+  Merge Request** GitLab — **pas** un merge poussé en direct sur la branche
+  d'intégration. Et **la branche distante est conservée après merge** (jamais
+  supprimée) : elle garde la trace de revue/livraison et un point de référence
+  par ticket. ⚠️ Distinguer **autoriser un merge ≠ autoriser une suppression** :
+  ne **jamais supprimer une branche distante** sans accord explicite.
+- **Ménage : seulement en local.** Les branches **locales** mergées peuvent
+  (doivent) être nettoyées (`git branch -d`), le **remote** restant la référence
+  conservée. Le ménage local ne touche jamais au remote.
 - (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.

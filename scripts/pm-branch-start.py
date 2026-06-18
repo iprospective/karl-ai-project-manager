@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_session
 import redmine_utils
 
 try:
@@ -57,6 +58,10 @@ def main():
     ap.add_argument("--slug", help="Slug de branche (défaut : slug du fichier de tâche)")
     ap.add_argument("--take", action="store_true",
                     help="Enchaîne la prise du ticket (status en_cours + auto-assignation)")
+    ap.add_argument("--worktree", action="store_true",
+                    help="Crée un git worktree dédié (au lieu d'un checkout in-place) + "
+                         "branche discriminée par session <RMid>-<slug>-m<PMid>-s<seq> (RM2034). "
+                         "Pour mener plusieurs tickets en parallèle sans se tromper de cible.")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git PM (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
@@ -89,15 +94,36 @@ def main():
         print(f"  ⚠ --from omis : base = branche courante '{base}' (vérifie que c'est "
               f"bien la branche d'intégration du projet)", file=sys.stderr)
 
+    # Mode worktree (RM2034) : branche discriminée par session + worktree dédié,
+    # pour mener plusieurs tickets en parallèle sans se tromper de cible.
+    wt = None
+    if args.worktree:
+        suffix = f"-m{pm_session.machine_id()}-s<seq>" if args.dry_run else pm_session.branch_suffix()
+        branch = f"{args.rm_id}-{slug}{suffix}"
+        seq = None if args.dry_run else pm_session.get_session_seq()
+        wt = root.parent / (f"{root.name}-{args.rm_id}" + (f"-s{seq}" if seq is not None else ""))
+
     exists = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
                   check=False).returncode == 0
     if args.dry_run:
-        print(f"--dry-run : {'checkout' if exists else f'création depuis {base} +checkout'} "
-              f"de '{branch}' dans {root} ; CF '{CF_BRANCH_NAME}'={branch} ; "
+        action = (f"worktree add {wt}" if args.worktree
+                  else ("checkout" if exists else f"création depuis {base} +checkout"))
+        print(f"--dry-run : {action} pour '{branch}' dans {root} ; CF '{CF_BRANCH_NAME}'={branch} ; "
               f"frontmatter git.repo={root.name}, git.branch={branch}")
         return
 
-    if exists:
+    if args.worktree:
+        if wt.exists():
+            print(f"✓ worktree existant '{wt}' (branche '{branch}') réutilisé ({root.name})")
+        elif exists:
+            _git(root, "worktree", "add", str(wt), branch)
+            print(f"✓ worktree '{wt}' sur branche existante '{branch}' ({root.name})")
+        else:
+            _git(root, "worktree", "add", str(wt), "-b", branch, base)
+            print(f"✓ worktree '{wt}' + branche '{branch}' depuis '{base}' ({root.name})")
+        pm_session.record_branch(branch)
+        pm_session.record_worktree(str(wt))
+    elif exists:
         _git(root, "checkout", branch)
         print(f"✓ branche existante '{branch}' checkée out ({root.name})")
     else:
@@ -124,6 +150,8 @@ def main():
     fm = yaml.safe_load(m.group(2)) or {}
     git_block = fm.get("git") or {}
     git_block.update({"repo": root.name, "branch": branch})
+    if wt is not None:
+        git_block["worktree"] = str(wt)
     fm["git"] = git_block
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     fm["updated"] = now

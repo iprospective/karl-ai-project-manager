@@ -801,10 +801,10 @@ en `en_cours`** et le signale plutôt que de trancher seul.
         │ validé (MR branche→dev, CF GIT PR, merge)
         ▼                                          │
     [a_mep]                                        │
-        │ dev déployée en preprod                  │
+        │ MR dev→preprod + déploiement preprod     │
         ▼                                          │
     [en_mep] ──── régression preprod ──────────────┘
-        │ tests OK + merge dev→prod + pull prod
+        │ tests preprod OK + MR preprod→prod + pull prod   (2 branches : MR dev→prod)
         ▼
     [ferme]
 
@@ -835,8 +835,8 @@ développement → test → mise en production*.
 | `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
 | `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
 | `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | `integration_branch` déployée en preprod |
-| `en_mep` | `ferme` | tests preprod OK + merge `integration_branch`→`prod_branch` + pull prod — `close_reason: resolu` |
+| `a_mep` | `en_mep` | **3 branches** : MR `dev`→`preprod` mergée + `preprod` déployée. **2 branches** : `dev` déployée en staging |
+| `en_mep` | `ferme` | tests preprod OK + **3 branches** : MR `preprod`→`prod_branch` / **2 branches** : MR `dev`→`prod_branch` + pull prod — `close_reason: resolu` |
 | `en_mep` | `a_corriger` | régression preprod (note dans journal) |
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
@@ -1440,14 +1440,23 @@ Chaque projet déclare ses branches de référence dans le frontmatter de
 git:
   repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
   remote: origin            # alias du remote de référence
-  prod_branch: master       # branche déployée en prod (master historique ; main = cible de migration)
-  integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en staging (alias preprod)
+  prod_branch: main         # branche de prod (main par défaut ; master si legacy)
+  integration_branch: dev   # branche d'intégration : agrège les devs testés
+  preprod_branch: preprod   # OPTIONNEL — déclaré ⇒ active le flux 3 branches (RM2030)
 ```
 
-- `prod_branch` : souvent `master` (historique), migration progressive vers `main`.
+- `prod_branch` : **`main` par défaut**, `master` pour les repos legacy qui l'ont
+  encore. Rien d'imposé — déclaré par projet ; la migration `master → main` se fait
+  au fil de l'eau.
 - `integration_branch` (`dev`) : agrège les branches de ticket déjà testées, avant MEP.
+- `preprod_branch` (`preprod`) — **OPT-IN (RM2030)** : sa **présence** active le
+  **flux 3 branches longues protégées** `dev → preprod → prod_branch` (cf. § Workflow
+  MEP). **Absent ⇒ modèle 2 branches** `dev → prod_branch` (historique). C'est le
+  **seul levier** : pas de flag séparé, pas de « bypass » — un projet qui ne veut pas
+  de préprod ne déclare simplement pas `preprod_branch`.
 - **Source unique** des branches de workflow : les `environments[].branch` doivent y
-  être cohérents (`staging.branch == integration_branch`, `prod.branch == prod_branch`).
+  être cohérents — `prod.branch == prod_branch` ; `staging.branch == preprod_branch`
+  si déclaré, **sinon** `== integration_branch`.
 - À distinguer du bloc `git:` du **frontmatter de tâche** (`git.branch`, `git.mr_url`),
   qui pointe la branche de *travail courante du ticket*, pas les branches de référence.
 
@@ -1455,8 +1464,9 @@ git:
 
 Un projet a typiquement :
 - **1 prod** (`prod`) — déployée depuis `prod_branch`.
-- **1 staging** (`staging`, alias `preprod`) — déployée depuis `integration_branch` ;
-  tests de non-régression avant MEP.
+- **1 staging** (`staging`, alias `preprod`) — déployée depuis **`preprod_branch`** si le
+  projet est en **flux 3 branches** (opt-in), **sinon** depuis `integration_branch`.
+  Tests de non-régression avant prod.
 - **N test** (`test`, `test-<but>`…) — pour tester en parallèle plusieurs branches de
   ticket, idéalement par une personne ou un agent **≠ celui qui a fait le dev**.
 - **N dev** (`dev`, `dev-<développeur>`…) — autant que de développeurs (voire plusieurs
@@ -1489,18 +1499,33 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
 
-### Workflow de mise en production (MEP) — **provisoire, évoluera**
+### Workflow de mise en production (MEP)
 
 La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
-ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
+ticket par ticket : plusieurs tickets en `a_mep` montent ensemble. Le chemin dépend du
+**modèle de branches** du projet (cf. § Branches git de référence).
 
-1. Déployer `integration_branch` dans l'env **preprod** ⇒ les tickets concernés passent
-   `en_mep`.
-2. Tests de **non-régression** sur preprod.
-3. Vérification par un **testeur humain**.
-4. Si OK ⇒ merge `integration_branch` → `prod_branch` + `pull prod_branch` en prod ⇒
-   tickets `ferme` (`close_reason: resolu`).
-   - Régression détectée ⇒ `a_corriger` (note obligatoire).
+**Flux 3 branches** (opt-in : `preprod_branch` déclaré) — **`dev → preprod → prod_branch`**.
+Les 3 branches longues sont **protégées** ; règle stricte **« merge only from »** :
+`preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
+(jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
+
+1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
+2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
+3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
+   (`close_reason: resolu`).
+   - Régression preprod ⇒ `a_corriger` (note obligatoire).
+
+**Deux modes de promotion :**
+- **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
+- **Enchaîné (auto)** : une action outillée déroule `dev → preprod → prod_branch`
+  d'affilée, **sans halte manuelle** en preprod — l'équivalent « rapide » **sans
+  déroger** au modèle (preprod reste traversée). C'est cet enchaînement qui tient lieu
+  de « bypass » : il n'existe **pas** d'option pour *sauter* preprod.
+
+**Flux 2 branches** (pas de `preprod_branch`) — **`dev → prod_branch`** (historique) :
+`integration_branch` déployée en staging, tests de non-régression, puis **MR
+`dev → prod_branch`** + `pull prod_branch`.
 
 > **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
 > susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
@@ -1514,9 +1539,12 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 > sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
 > à l'humain plutôt qu'à forcer.
 
-> Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
-> manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
-> `project/deployment.md` (template bootstrap `005-deployment`).
+> Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
+> à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
+> manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »
+> (aujourd'hui **convention NORMS + protections GitLab** sur `preprod`/`prod_branch` ;
+> **garde CI / push-rule** = follow-up, GitLab ne sachant pas nativement « mergeable
+> seulement depuis X »). Cf. `project/deployment.md` (template `005-deployment`).
 
 ---
 
@@ -2075,7 +2103,9 @@ Voir `templates/aspects/common/environments.md`.
 `local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
 
 > **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
-> l'env de non-régression déployé depuis `integration_branch` avant MEP. **Valeur
+> l'env de non-régression avant prod, déployé depuis **`preprod_branch`** quand le projet
+> est en **flux 3 branches** (opt-in, RM2030), **sinon** depuis `integration_branch`
+> (modèle 2 branches). **Valeur
 > canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
 > id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
 > de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées

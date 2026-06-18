@@ -53,10 +53,10 @@ en `en_cours`** et le signale plutôt que de trancher seul.
         │ validé (MR branche→dev, CF GIT PR, merge)
         ▼                                          │
     [a_mep]                                        │
-        │ dev déployée en preprod                  │
+        │ MR dev→preprod + déploiement preprod     │
         ▼                                          │
     [en_mep] ──── régression preprod ──────────────┘
-        │ tests OK + merge dev→prod + pull prod
+        │ tests preprod OK + MR preprod→prod + pull prod   (2 branches : MR dev→prod)
         ▼
     [ferme]
 
@@ -87,8 +87,8 @@ développement → test → mise en production*.
 | `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
 | `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
 | `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | `integration_branch` déployée en preprod |
-| `en_mep` | `ferme` | tests preprod OK + merge `integration_branch`→`prod_branch` + pull prod — `close_reason: resolu` |
+| `a_mep` | `en_mep` | **3 branches** : MR `dev`→`preprod` mergée + `preprod` déployée. **2 branches** : `dev` déployée en staging |
+| `en_mep` | `ferme` | tests preprod OK + **3 branches** : MR `preprod`→`prod_branch` / **2 branches** : MR `dev`→`prod_branch` + pull prod — `close_reason: resolu` |
 | `en_mep` | `a_corriger` | régression preprod (note dans journal) |
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |

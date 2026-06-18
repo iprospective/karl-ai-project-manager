@@ -13,7 +13,9 @@ Voir `templates/aspects/common/environments.md`.
 `local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
 
 > **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
-> l'env de non-régression déployé depuis `integration_branch` avant MEP. **Valeur
+> l'env de non-régression avant prod, déployé depuis **`preprod_branch`** quand le projet
+> est en **flux 3 branches** (opt-in, RM2030), **sinon** depuis `integration_branch`
+> (modèle 2 branches). **Valeur
 > canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
 > id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
 > de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées

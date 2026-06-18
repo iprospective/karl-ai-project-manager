@@ -63,8 +63,14 @@ CF_TOKENS_NAME = "Tokens"                 # CF 16 (time_entry) — tokens du del
 # dans le time_entry (silencieux) + frontmatter. Si le texte de note candidat
 # correspond à ce motif, on REFUSE de le poster (avertissement).
 NOTE_CONSO_RE = re.compile(
-    r"\btick\b|tokens?\s*pass|\bconso(mmation)?\b|pass[ée]s?\s+\d|"
-    r"\b\d[\d ,.]*\s*(tokens?|min\b)|co[uû]t\s*[:=]", re.I)
+    r"\btick\b"                       # « tick »
+    r"|tokens?\s*[:=]\s*\d"            # Tokens: 123  /  tokens=123
+    r"|\d[\d ,.]*\s*tokens?\b"         # 123 tokens
+    r"|co[uû]t\s*[:=]"                 # Coût: / cout=
+    r"|\bIA\s*[:=]\s*[\d.]"            # IA: 30   (champ de tick)
+    r"|pass[ée]s?\s+(de\s+)?\d"        # « passé 30 » / « passées de 12 »
+    r"|\bconsomm",                     # consommé / consommation
+    re.I)
 
 # La convention type de tâche → activité Redmine vit dans redmine.reference.yml
 # (type_to_activity), lue via redmine_utils.activity_for_type(). Surchargagle

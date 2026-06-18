@@ -17,6 +17,7 @@ non-perte verte à chaque étape.
 import sys
 import argparse
 import difflib
+import re
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -24,6 +25,7 @@ NORMS = REPO / "norms" / "NORMS.md"
 SRC = REPO / "norms" / "src"
 MANIFEST = SRC / "manifest.yml"
 FM_FILE = SRC / "_frontmatter.txt"
+VERSION_FILE = REPO / "norms" / "VERSION"   # version NORMS seule (RM2033) — généré depuis le frontmatter
 BANNER = ("<!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — "
           "NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->")
 
@@ -46,6 +48,22 @@ def build_text():
     fm = FM_FILE.read_text()
     body = "".join((SRC / name).read_text() for name in read_manifest_sources())
     return "---\n" + fm + "---\n" + BANNER + "\n" + body
+
+
+def norms_version():
+    """Version NORMS = `schema_version` du frontmatter (source unique). RM2033.
+
+    Vérifie au passage la cohérence avec le titre `— vX.Y.Z` du corps (anti-drift).
+    """
+    m = re.search(r'schema_version:\s*"?(\d+\.\d+\.\d+)"?', FM_FILE.read_text())
+    if not m:
+        sys.exit("✗ schema_version introuvable dans _frontmatter.txt")
+    ver = m.group(1)
+    title = (SRC / "_full-body.md").read_text()
+    tm = re.search(r"—\s*v(\d+\.\d+\.\d+)", title)
+    if tm and tm.group(1) != ver:
+        sys.exit(f"✗ drift de version : frontmatter {ver} ≠ titre _full-body.md v{tm.group(1)}")
+    return ver
 
 
 def cmd_init(_args):
@@ -79,21 +97,31 @@ def cmd_init(_args):
 def cmd_build(_args):
     out = build_text()
     NORMS.write_text(out)
+    ver = norms_version()
+    VERSION_FILE.write_text(ver + "\n")
     print(f"✓ NORMS.md généré ({len(out.splitlines())} lignes) "
           f"depuis {len(read_manifest_sources())} source(s)")
+    print(f"✓ norms/VERSION = {ver}")
     return 0
 
 
 def cmd_check(_args):
     want, have = build_text(), NORMS.read_text()
-    if want == have:
-        print("✓ check OK — NORMS.md == assemble(src) (non-perte vérifiée)")
-        return 0
-    print("✗ DIVERGENCE : NORMS.md (disque) ≠ assemble(src)", file=sys.stderr)
-    sys.stderr.writelines(difflib.unified_diff(
-        have.splitlines(True), want.splitlines(True),
-        "NORMS.md(disque)", "assemble(src)"))
-    return 1
+    if want != have:
+        print("✗ DIVERGENCE : NORMS.md (disque) ≠ assemble(src)", file=sys.stderr)
+        sys.stderr.writelines(difflib.unified_diff(
+            have.splitlines(True), want.splitlines(True),
+            "NORMS.md(disque)", "assemble(src)"))
+        return 1
+    # garde de cohérence VERSION (RM2033)
+    ver = norms_version()
+    have_ver = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else None
+    if have_ver != ver:
+        print(f"✗ norms/VERSION ({have_ver}) ≠ version frontmatter ({ver}) — lancer `build`",
+              file=sys.stderr)
+        return 1
+    print(f"✓ check OK — NORMS.md == assemble(src) ; norms/VERSION = {ver} (cohérent)")
+    return 0
 
 
 def main():

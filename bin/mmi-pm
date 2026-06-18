@@ -39,6 +39,10 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm norms version               version NORMS courante (norms/VERSION)      [lecture]
+  mmi-pm norms changes [args…]       delta NORMS entre versions                  [lecture]
+                                     (--check <v> | --since <v> | --between A B ;
+                                     pm-norms-changes.py)
   mmi-pm list                        inventaire de l'index                       [lecture]
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
@@ -175,6 +179,15 @@ cmd_list(){
 
 cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
 
+# `norms version|changes` (RM2033) : lecture seule, version NORMS + delta de versions.
+cmd_norms(){
+  case "${1:-}" in
+    version) exec python3 "$CORE_DIR/scripts/pm-norms-changes.py" --current;;
+    changes) shift; exec python3 "$CORE_DIR/scripts/pm-norms-changes.py" "$@";;
+    *) die "norms: verbe inconnu '${1:-}' (version|changes)";;
+  esac
+}
+
 # `env init` (RM1947, P1a) : layout git d'un workspace. Non privilégié (git/fs en
 # KARL_USER dans le workspace). --dry-run propagé tel quel à pm-env-init.
 cmd_env(){
@@ -215,6 +228,7 @@ case "$NOUN" in
            *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
          esac;;
   env)    shift||true; cmd_env "$@";;
+  norms)  shift||true; cmd_norms "$@";;
   list)   cmd_list;;
   doctor) shift||true; cmd_doctor "$@";;
   client|project) die "'$NOUN $VERB' = Lot 2 (pas encore implémenté)";;

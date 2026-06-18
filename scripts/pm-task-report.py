@@ -31,6 +31,7 @@ Gotcha scan : `os.walk(followlinks=False)` — les symlinks `.mmi-pm` /
 `projects_used` créent des cycles.
 """
 import argparse
+import hashlib
 import os
 import re
 import sys
@@ -56,6 +57,14 @@ LOG_IA_RE = re.compile(r"IA\s*:\s*([\d.]+)\s*min")
 
 CF_TOKENS_PASSES_NAME = "Tokens passés"   # CF 17 (issue) — cumul tokens
 CF_TOKENS_NAME = "Tokens"                 # CF 16 (time_entry) — tokens du delta
+
+# Garde-fou ABSOLU (consigne user, RM2035) : une NOTE de journal ne doit JAMAIS
+# servir à annoncer du temps/tokens consommés. Le temps/tokens vivent uniquement
+# dans le time_entry (silencieux) + frontmatter. Si le texte de note candidat
+# correspond à ce motif, on REFUSE de le poster (avertissement).
+NOTE_CONSO_RE = re.compile(
+    r"\btick\b|tokens?\s*pass|\bconso(mmation)?\b|pass[ée]s?\s+\d|"
+    r"\b\d[\d ,.]*\s*(tokens?|min\b)|co[uû]t\s*[:=]", re.I)
 
 # La convention type de tâche → activité Redmine vit dans redmine.reference.yml
 # (type_to_activity), lue via redmine_utils.activity_for_type(). Surchargagle
@@ -137,9 +146,36 @@ def post_time_entry(url, key, *, issue_id, spent_on, hours, activity_id,
     return body.get("time_entry", {}).get("id"), None
 
 
+def post_note(url, key, *, issue_id, text, commit_hash=None):
+    """PUT une note de journal substantielle sur l'issue. Retourne (ok, err|raison).
+
+    Garde-fou : refuse une note dont le propos est la conso (NOTE_CONSO_RE) — le
+    temps/tokens ne passent JAMAIS par une note (consigne RM2035). Marqueur de
+    commit ajouté pour l'association molle avec le(s) time_entry du même commit.
+    """
+    text = (text or "").strip()
+    if not text:
+        return False, "vide"
+    if NOTE_CONSO_RE.search(text):
+        return False, "refusée (motif conso : une note ne reporte pas le temps/tokens)"
+    if commit_hash:
+        text = f"{text}\n\n— commit `{commit_hash[:10]}`"
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,
+                           {"issue": {"notes": text}})
+    if code not in (200, 204):
+        return False, f"HTTP {code} {body.get('_error', '')[:150]}"
+    return True, None
+
+
 def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
-                  activity_override):
-    """Report d'un ticket. Retourne un dict résumé."""
+                  activity_override, note_text=None, commit_hash=None):
+    """Report d'un ticket. Retourne un dict résumé.
+
+    note_text/commit_hash : si fournis (déclencheur post-commit), poste UNE note
+    de journal substantielle (le message de commit), une seule fois par commit
+    (dédup ledger `reporting.notes[]`). La note ne porte JAMAIS de conso
+    (garde-fou post_note). Marqueur `[hash]` ajouté au comments des time_entries.
+    """
     fm, m = load_fm(md_path)
     if fm is None:
         return {"file": md_path.name, "status": "no-fm"}
@@ -152,11 +188,18 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     cf17_before = int(reporting.get("cf17_tokens") or 0)
     ledger = reporting.get("time_entries") or []
     pushed_keys = {te.get("key") for te in ledger}
+    notes_ledger = reporting.get("notes") or []
+    pushed_note_keys = {n.get("key") for n in notes_ledger}
+    note_key = None
+    if note_text:
+        note_key = (commit_hash[:40] if commit_hash
+                    else "txt:" + hashlib.sha1(note_text.encode("utf-8")).hexdigest()[:16])
+    has_pending_note = bool(note_text) and note_key not in pushed_note_keys
 
     res = {"file": md_path.name, "rm_id": rm_id, "tokens_total": tokens_total,
            "cf17_before": cf17_before, "new_te": 0, "te_tokens": 0,
-           "status": "skip-no-tokens"}
-    if tokens_total <= 0:
+           "note_pending": has_pending_note, "status": "skip-no-tokens"}
+    if tokens_total <= 0 and not has_pending_note:
         return res
 
     # --- entrées de log non encore poussées ---
@@ -169,7 +212,7 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     res["te_tokens"] = sum(e["tokens"] for e in new_entries)
 
     cf17_needs = (cf17_before != tokens_total) or force
-    if not new_entries and not cf17_needs:
+    if not new_entries and not cf17_needs and not has_pending_note:
         res["status"] = "skip-uptodate"
         return res
 
@@ -186,10 +229,11 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     errors = []
 
     for e in new_entries:
+        comment = f'{e["title"]} [{commit_hash[:8]}]' if commit_hash else e["title"]
         te_id, err = post_time_entry(
             url, key, issue_id=rm_id, spent_on=e["ts"][:10],
             hours=round(e["ia_minutes"] / 60.0, 2), activity_id=activity_id,
-            comments=e["title"], cf16_id=cf16_id, tokens=e["tokens"])
+            comments=comment, cf16_id=cf16_id, tokens=e["tokens"])
         if err:
             errors.append(f"{e['key']}: {err}")
             continue
@@ -208,8 +252,22 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
         if code not in (200, 204):
             cf17_err = f"CF17 HTTP {code} {body.get('_error', '')[:150]}"
 
+    # note de journal SUBSTANTIELLE (jamais de conso — garde-fou dans post_note)
+    note_status = None
+    if has_pending_note:
+        ok, why = post_note(url, key, issue_id=rm_id, text=note_text,
+                            commit_hash=commit_hash)
+        if ok:
+            notes_ledger.append({"key": note_key, "at": now, "commit": commit_hash})
+            note_status = "posted"
+        else:
+            # refus (garde-fou conso / note vide) = comportement attendu, PAS une erreur
+            note_status = f"skip ({why})"
+    res["note_status"] = note_status
+
     # persister le ledger + CF17 dans le frontmatter
     reporting["time_entries"] = ledger
+    reporting["notes"] = notes_ledger
     if not cf17_err:
         reporting["cf17_tokens"] = tokens_total
     reporting["pushed_at"] = now
@@ -224,6 +282,8 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
                      f"{', '.join(str(r['id']) for r in created)})")
     if cf17_needs and not cf17_err:
         parts.append(f"CF17 = {tokens_total}")
+    if note_status == "posted":
+        parts.append(f"note (commit {commit_hash[:8]})")
     if parts:
         append_log(md_path,
                    f"## {now} — report → Redmine\n{' ; '.join(parts)}\n\n")
@@ -244,8 +304,17 @@ def fmt_row(r):
     te = r.get("new_te", 0)
     te_part = f"{te:>3} TE / {r.get('te_tokens', 0):>11,} tok" if te else "  (TE à jour)"
     cf17 = f"CF17 {r.get('cf17_before',0):>11,}→{r.get('tokens_total',0):>11,}"
+    ns = r.get("note_status")
+    if ns == "posted":
+        note = "  +note✓"
+    elif ns and ns.startswith("skip"):
+        note = "  +note⊘"          # refusée par le garde-fou (conso) ou vide
+    elif r.get("note_pending"):
+        note = "  +note(à poster)"
+    else:
+        note = ""
     err = f"  ✗ {'; '.join(r.get('errors', []))}" if s == "error" else ""
-    return f"  {icon} RM{rm:<5} {te_part}  {cf17}{err}"
+    return f"  {icon} RM{rm:<5} {te_part}  {cf17}{note}{err}"
 
 
 def main():
@@ -259,7 +328,13 @@ def main():
     ap.add_argument("--activity", type=int, help="force l'activité Redmine")
     ap.add_argument("--force", action="store_true", help="re-PUT CF17 même si à jour")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
+    ap.add_argument("--note", help="note de journal SUBSTANTIELLE à poster (ex. message de "
+                    "commit). Refusée si elle annonce de la conso (garde-fou). Requiert --rm-id.")
+    ap.add_argument("--commit", help="hash du commit déclencheur (marqueur sur les time_entries "
+                    "+ clé de dédup de la note)")
     args = ap.parse_args()
+    if args.note and not args.rm_id:
+        ap.error("--note nécessite --rm-id (une note cible un ticket précis)")
 
     cfg = PMConfig.load()
     cf16_id = cf_id_by_name(CF_TOKENS_NAME)
@@ -284,7 +359,8 @@ def main():
     results = [report_ticket(p, cf16_id=cf16_id, cf17_id=cf17_id,
                              apply=args.apply, force=args.force,
                              cf17_only=args.cf17_only,
-                             activity_override=args.activity)
+                             activity_override=args.activity,
+                             note_text=args.note, commit_hash=args.commit)
                for p in targets]
 
     pushed = would = skipped = errors = 0

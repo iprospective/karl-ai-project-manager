@@ -15,6 +15,13 @@ import datetime
 import json
 import os
 import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    import pm_session  # registre seq / branches / worktrees (RM2034)
+except Exception:
+    pm_session = None
 
 WORKLOG_DIR = os.path.expanduser("~/.claude/session-worklogs")
 
@@ -83,6 +90,19 @@ def render_md(data):
     if data.get("title"):
         out.append("**" + data["title"] + "**")
     out.append("_maj : " + data["updated"] + "_\n")
+
+    # Branches / worktrees ouverts par la session (RM2034). Lecture seule :
+    # n'alloue pas de seq (affiché seulement si la session en a déjà un).
+    rec = pm_session.current_record() if pm_session else None
+    if rec:
+        out.append("_session **s%s** (machine %s)_" % (rec.get("seq"), rec.get("machine")))
+        if rec.get("branches"):
+            out.append("\n## 🌿 Branches")
+            out += ["- `%s`" % b for b in rec["branches"]]
+        if rec.get("worktrees"):
+            out.append("\n## 🗂️ Worktrees")
+            out += ["- `%s`" % w for w in rec["worktrees"]]
+        out.append("")
     todo = [i for i in data["items"] if not is_done(i) and not is_waiting(i)]
     wait = [i for i in data["items"] if is_waiting(i)]
     done = [i for i in data["items"] if is_done(i)]

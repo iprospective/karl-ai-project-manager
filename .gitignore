@@ -41,3 +41,7 @@ projects/
 # moteur, presets moniteurs) — propres à chaque machine, jamais versionnés.
 deploy/karl-agent/cockpit/models.json
 deploy/karl-agent/cockpit/monitors.json
+
+# État runtime machine-local (compteur de session, registre branches/worktrees —
+# RM2034). Présent dans l'arbre mais jamais versionné (par machine).
+var/

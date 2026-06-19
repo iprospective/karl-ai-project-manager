@@ -167,17 +167,44 @@ def _evidence_from_event(evt):
     return out
 
 
+_CLOSED_CACHE = {}
+
+
+def _is_closed(rm_id):
+    """True si RM<id> est au statut terminal `ferme`. Fail-safe : ticket introuvable
+    ou statut illisible → False (on préfère ticker que perdre la conso). Caché par
+    exécution. (`ferme`/18 seul statut terminal ; `a_mep`/3 reste tickable.) RM2053."""
+    if rm_id in _CLOSED_CACHE:
+        return _CLOSED_CACHE[rm_id]
+    closed = False
+    try:
+        md = PMConfig.load().find_task(rm_id)
+        if md:
+            m = FM_RE.match(md.read_text(encoding="utf-8"))
+            if m:
+                closed = ((yaml.safe_load(m.group(2)) or {}).get("status") == "ferme")
+    except Exception:
+        closed = False
+    _CLOSED_CACHE[rm_id] = closed
+    return closed
+
+
 def _pick_from_events(events):
-    """(rm_id, strength) du signal le plus fort puis le plus récent, ou None."""
+    """(rm_id, strength) du signal le plus fort puis le plus récent **parmi les tickets
+    OUVERTS**, ou None si aucun candidat ouvert. On n'attribue JAMAIS une tick à un
+    ticket fermé (RM2053) : un tour touchant un ticket ouvert + un fermé ticke l'ouvert ;
+    un tour ne touchant que du fermé ne ticke rien."""
     cands = []
     for pos, evt in enumerate(events):
         for rid, strength in _evidence_from_event(evt):
             cands.append((strength, pos, rid))
     if not cands:
         return None
-    cands.sort(key=lambda c: (c[0], c[1]))   # plus fort, puis plus récent
-    strength, _pos, rid = cands[-1]
-    return rid, strength
+    cands.sort(key=lambda c: (c[0], c[1]))   # faible→fort, ancien→récent
+    for strength, _pos, rid in reversed(cands):   # du plus fort/récent au plus faible
+        if not _is_closed(rid):
+            return rid, strength
+    return None   # tous les candidats touchés sont fermés
 
 
 def _load_transcript(transcript_path):
@@ -227,7 +254,10 @@ def _resolve_from_sentinel(cwd):
             try:
                 v = sentinel.read_text(encoding="utf-8").strip()
                 if v.isdigit():
-                    return int(v), f"sentinel {sentinel}"
+                    rid = int(v)
+                    if _is_closed(rid):   # sentinel périmé sur un ticket clos → ignoré (RM2053)
+                        return None, f"sentinel {sentinel} pointe un ticket fermé (ignoré)"
+                    return rid, f"sentinel {sentinel}"
             except OSError:
                 pass
         if link.exists():

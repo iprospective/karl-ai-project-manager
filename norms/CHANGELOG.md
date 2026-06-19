@@ -5,6 +5,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.49.0] - 2026-06-19
+
+### Ajouté — `pm-protect` : enforcement GitLab des branches protégées (RM2052)
+
+Outil **`pm-protect`** (`--repo` / `--project-id`, `--dry-run`) appliquant la
+**politique de protection standard** d'un projet PM (idempotent, `allow_force_push=
+false`, token *manager*), enforcement concret du tripwire #3 :
+
+| Branche | push | merge |
+|---|---|---|
+| prod (`main`/`master`) | personne | Maintainer |
+| intégration (`dev`) | Maintainer | Maintainer |
+| `preprod` (si présente) | personne | Maintainer |
+
+`git-mep` documente la table comme standard. `merge=Maintainer` laisse `pm-mr merge`
+fonctionner ; `push=personne` sur prod force la promotion par MR.
+
 ## [1.48.0] - 2026-06-19
 
 ### Renforcé — Pas de commit direct sur une branche protégée (RM2051)

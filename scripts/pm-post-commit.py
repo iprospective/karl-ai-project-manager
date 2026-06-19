@@ -24,7 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-REPORT = "/zfs/workspaces/.mmi-pm-core/scripts/pm-task-report.py"
+PM_CORE = "/zfs/workspaces/.mmi-pm-core"
+REPORT = PM_CORE + "/scripts/pm-task-report.py"
 
 
 def _git(*args):
@@ -34,7 +35,13 @@ def _git(*args):
 
 def main():
     cwd = Path(os.getcwd())          # git positionne le hook à la racine du worktree
-    if not (cwd / ".mmi-pm").exists():
+    # Repo PM = workspace avec .mmi-pm, OU le repo core .mmi-pm-core lui-même (code PM-system :
+    # le ticket y est résolu via le RM<id> du message de commit, pas de .mmi-pm/CURRENT_TASK).
+    try:
+        is_core = cwd.resolve() == Path(PM_CORE).resolve()
+    except OSError:
+        is_core = False
+    if not (cwd / ".mmi-pm").exists() and not is_core:
         return                        # repo non PM-tracké
     try:
         commit = _git("rev-parse", "HEAD")

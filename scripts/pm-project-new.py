@@ -247,25 +247,10 @@ env_vars: []
         reverse.symlink_to(project_root)
     print(f"  ✓ symlinks bidirectionnels")
 
-    # 5b. Hook git post-commit (RM2035) : à chaque commit du workspace, report auto de
-    # la conso (time_entries + CF17) vers Redmine + co-poste le message de commit en note
-    # substantielle. Symlink vers le script central (no-op si non-PM / chore / sans RM-id).
-    try:
-        gd = subprocess.check_output(
-            ["git", "-C", str(workspace), "rev-parse", "--absolute-git-dir"],
-            text=True, stderr=subprocess.DEVNULL).strip()
-        hook = Path(gd) / "hooks" / "post-commit"
-        target = Path(__file__).resolve().parent / "pm-post-commit.py"
-        hook.parent.mkdir(parents=True, exist_ok=True)
-        if hook.exists() and not hook.is_symlink():
-            print(f"  · post-commit déjà présent (non-symlink) → à fusionner à la main")
-        else:
-            if hook.is_symlink() or hook.exists():
-                hook.unlink()
-            hook.symlink_to(target)
-            print(f"  ✓ hook post-commit (report conso auto → Redmine)")
-    except Exception as e:
-        print(f"  · hook post-commit non posé ({e})")
+    # 5b. Hook git post-commit (RM2035) : report auto de la conso → Redmine à chaque commit.
+    #     Délégué au script idempotent pm-hooks-install (source unique de la logique d'install).
+    hooks_install = Path(__file__).resolve().parent / "pm-hooks-install.py"
+    subprocess.run([sys.executable, str(hooks_install), "--repo", str(workspace)], check=False)
 
     # 6. Bootstrap
     if not args.no_bootstrap:

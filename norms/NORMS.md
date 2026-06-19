@@ -1,10 +1,10 @@
 ---
-schema_version: "1.46.0"
+schema_version: "1.47.0"
 updated: 2026-06-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.46.0
+# Normes de gestion des tâches — v1.47.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -44,6 +44,7 @@ updated: 2026-06-19
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
+| début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
@@ -1658,10 +1659,11 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
     commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
     révoque ; mauvais en-tête → 401/404).
-- **Rotation des tokens** : les PAT ont une **expiration** → les **régénérer
-  régulièrement** (GitLab : *Access Tokens → Rotate*). Cadence **configurable**
-  (`pm.config.yml`/`.env`, ex. validité ~1 mois, renouvellement hebdomadaire pour
-  garder de la marge). *(Outillage de rotation auto = follow-up RM1871.)*
+- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
+  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
+  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
+  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
+  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
 - **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
   membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
   l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le

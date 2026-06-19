@@ -1629,25 +1629,51 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   passe par GitLab.
 - **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
   une merge request de la branche de ticket vers la branche de base (version
-  active ou `dev`, cf. sous-sections suivantes), puis la merger.
-- **Gotcha glab/API GitLab — les `%2F` ne passent pas** : sur
-  `gitlab.iprospective.fr`, le front Apache **rejette les chemins projet
-  URL-encodés** (`iprospective%2Fdolibarr%2F…` → 404 Apache). Workaround
-  systématique : utiliser l'**ID numérique** du projet, récupéré sans slash via
-  une recherche :
+  active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
+  distante conservée** (cf. KERNEL #3).
+- **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
+  `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
+  les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
+  au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
+- **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
+  rôles GitLab.
+  - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
+    *Maintainer*) : **merge** les MR, gère les projets. Utilisé par `pm-mr merge` et
+    la promotion MEP.
+  - `GITLAB_WORKER_TOKEN` (+ `GITLAB_WORKER_USER`) — karl **worker** (rôle
+    *Developer*) : push des branches, **crée** des MR. Utilisé par `pm-branch-start`
+    et `pm-mr create`.
+  - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
+    commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
+    révoque ; mauvais en-tête → 401/404).
+- **Rotation des tokens** : les PAT ont une **expiration** → les **régénérer
+  régulièrement** (GitLab : *Access Tokens → Rotate*). Cadence **configurable**
+  (`pm.config.yml`/`.env`, ex. validité ~1 mois, renouvellement hebdomadaire pour
+  garder de la marge). *(Outillage de rotation auto = follow-up RM1871.)*
+- **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
+  membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
+  l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le
+  manager) sur chaque projet pré-existant à piloter.
+- **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
+  - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
+    utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
+  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN: <pat>` ; un token OAuth
+    `glab` en `Authorization: Bearer …` (sinon non-authentifié → 404 sur repo
+    `internal`).
+  - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
+  - **Conserver la branche** au merge : `should_remove_source_branch=false`.
 
   ```bash
-  # 1) trouver l'ID numérique (pas de %2F dans une recherche)
+  # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
   glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
-  # 2) agir avec l'ID (ex. créer une MR vers la branche de version active)
   glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
-    -f source_branch="<RM-id>-<slug>" -f target_branch="19.0-mmi" -f title="…" \
-    -f remove_source_branch=true
-  # 3) merger
-  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge"
+    -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
+    -f remove_source_branch=false
+  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
+    -f should_remove_source_branch=false
   ```
 - **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
-  `GIT PR` (id 4) avec son URL (cf. sous-section suivante).
+  `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
 
 #### Branche de travail par ticket (obligatoire) — v1.17.0
 

@@ -5,7 +5,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
-## [1.46.0] - 2026-06-19
+## [1.47.0] - 2026-06-19
 
 ### Ajouté — Rotation des tokens GitLab à J-7 + vérif début de session (RM2046)
 
@@ -23,6 +23,24 @@ Politique de rotation des PAT GitLab de karl **clarifiée et outillée** : rotat
   des PAT GitLab → `pm-token-check` ».
 - Section *Rotation des tokens* de `git-mep` réécrite (remplace l'ancienne cadence
   floue « ~hebdo sur ~1 mois ») ; `.env.example` mis à jour.
+
+## [1.46.0] - 2026-06-19
+
+### Précisé — Fermeture bloquée par une sous-tâche ouverte (piège diagnostique)
+
+La précondition « un parent ne se ferme que si toutes ses sous-tâches sont fermées »
+(déjà énoncée dans `modules/status-workflow.md`) est désormais **remontée en tripwire**
+(KERNEL #4, *Sync statut MD↔Redmine*) et complétée du **symptôme diagnostique** :
+
+- Le refus Redmine est **silencieux** (PUT 204, `status_id` ignoré, statut inchangé) et
+  les scripts l'**interprétaient à tort** en « permission *Edit issues* manquante ».
+- Ce n'est lié **ni au rôle ni au tracker** (« Evolution » = « Tâche », mêmes droits).
+- Diagnostic autoritatif : `GET /issues/<id>.json?include=allowed_statuses` puis
+  `?include=children` (un enfant non clos = le blocage).
+
+Côté outillage : `pm-task-status-update` diagnostique désormais lui-même, sur échec de
+transition vers `ferme`, les **sous-tâches ouvertes** et les annonce, au lieu de
+supposer un manque de droits.
 
 ## [1.45.0] - 2026-06-16
 

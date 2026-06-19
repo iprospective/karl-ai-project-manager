@@ -223,13 +223,11 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
     commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
     révoque ; mauvais en-tête → 401/404).
-- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7 avant
-  péremption**, pour **tous** les `GITLAB_*_TOKEN` (pas que le manager). En **début
-  de session PM**, **`pm-token-check`** rapporte `expires_at`/J-N de chaque token
-  (valeur jamais imprimée ; RC=2 si l'un est sous le seuil → cron/hook-able).
-  **`--rotate-due`** rote (`…/self/rotate`) et réécrit le `.env` canonique
-  atomiquement (tripwire #11 ; l'ancienne valeur est révoquée aussitôt → relancer les
-  scripts). Options : `--threshold`, `--rotate-expiry-days` (défaut 365), `--dry-run`.
+- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
+  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
+  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
+  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
+  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
 - **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
   membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
   l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le

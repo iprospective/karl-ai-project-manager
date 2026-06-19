@@ -108,6 +108,9 @@ git:
 # vérifié par pm-norms-doctor (--check). Référence 2026-06-13 : worker-dev
 # 21,2k (avant RM1922 : 39,5k). Resserrer les plafonds = réduire les
 # préchargements de modules (premier levier : status-workflow 5,6k).
+# 2026-06-19 (RM2046) : plafond relevé 24000 → 32768 pour donner de la marge
+# (worker-dev ~24,3k après tripwire #4 + pm-token-check) ; le garde-fou reste
+# actif, on resserrera si besoin.
 context:
   budget_tokens:
-    default: 24000
+    default: 32768

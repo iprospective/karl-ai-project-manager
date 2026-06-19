@@ -27,8 +27,10 @@ Modes :
   --activity ID  force l'activité Redmine pour toutes les saisies
   --force        re-PUT CF17 même si déjà à jour
 
-Gotcha scan : `os.walk(followlinks=False)` — les symlinks `.mmi-pm` /
-`projects_used` créent des cycles.
+Gotcha scan : le mode `--all` itère les projets via `PMConfig.iter_projects` +
+`tasks_dir` (résolveur canonique, migration-aware) — PAS `os.walk(projects_root)` :
+depuis la co-localisation (RM1949), les tâches vivent dans `<ws>/.mmi-pm/tasks/` et ne
+sont plus sous `projects_root` (RM2038).
 """
 import argparse
 import hashlib
@@ -78,11 +80,36 @@ NOTE_CONSO_RE = re.compile(
 
 
 def iter_task_files(cfg):
-    """Yield les Path des fichiers tâche `RM<id>_<slug>.md` (hors `.log.md`)."""
-    for dirpath, _dirnames, filenames in os.walk(str(cfg.projects_root), followlinks=False):
-        for name in filenames:
-            if TASK_FILE_RE.match(name):
-                yield Path(dirpath) / name
+    """Yield les Path des fichiers tâche `RM<id>_<slug>.md` (hors `.log.md`).
+
+    Parcourt les projets via le résolveur canonique (`iter_projects` + `tasks_dir`),
+    exactement comme `PMConfig.find_task` — donc migration-aware : trouve les tâches
+    **co-localisées** dans `<ws>/.mmi-pm/tasks/` (bascule RM1949) comme les projets
+    pré-bascule. Dédup par chemin résolu.
+
+    ⚠ NE PAS revenir à `os.walk(cfg.projects_root)` : depuis la co-localisation, les
+    tâches ne vivent plus sous `projects_root` (les `.mmi-pm` ne sont pas suivis) → 0
+    ticket trouvé (RM2038).
+    """
+    seen = set()
+    for ent_slug, proj_slug, _ in cfg.iter_projects():
+        try:
+            tasks_dir = cfg.path("tasks_dir", entity=ent_slug, project=proj_slug)
+        except KeyError:
+            continue
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if not TASK_FILE_RE.match(f.name):   # exclut les `.log.md`
+                continue
+            try:
+                rp = f.resolve()
+            except OSError:
+                continue
+            if rp in seen:
+                continue
+            seen.add(rp)
+            yield f
 
 
 def load_fm(path):
@@ -386,15 +413,21 @@ def main():
         elif st == "error":
             errors += 1
 
-    # Auto-commit atomique en LOT des fichiers écrits (RM1834 piste A) : un seul
-    # commit pour tout le batch (frontmatter ledger + .log.md des tickets traités).
+    # Auto-commit atomique des fichiers écrits (RM1834 piste A). Le batch `--all`
+    # couvre PLUSIEURS workspaces/repos (co-localisation RM1949/RM2038) → on groupe
+    # par racine de repo et on committe chacun séparément (autocommit ne gère qu'un
+    # repo à la fois et ignorerait les chemins hors de paths[0]).
     if args.apply and not args.no_commit:
         written = [p for p, r in zip(targets, results) if r["status"] in ("pushed", "error")]
-        paths = []
+        by_root = {}
         for p in written:
-            paths += [p, p.parent / p.name.replace(".md", ".log.md")]
-        if paths:
-            pm_git.autocommit(paths, f"pm(report): {len(written)} ticket(s) -> Redmine "
+            root = pm_git.repo_root(p)
+            if root is None:
+                continue
+            by_root.setdefault(root, []).extend([p, p.parent / p.name.replace(".md", ".log.md")])
+        for root, paths in by_root.items():
+            n = sum(1 for x in paths if not x.name.endswith(".log.md"))
+            pm_git.autocommit(paths, f"pm(report): {n} ticket(s) -> Redmine "
                                      f"(time_entries + CF17)")
 
     verb = "créées" if args.apply else "à créer"

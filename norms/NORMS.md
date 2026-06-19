@@ -1,10 +1,10 @@
 ---
-schema_version: "1.46.0"
+schema_version: "1.47.0"
 updated: 2026-06-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.46.0
+# Normes de gestion des tâches — v1.47.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -44,7 +44,7 @@ updated: 2026-06-19
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
-| début de session PM / périodiquement : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7, tous tokens) | `pm-token-check` (`--rotate-due`) |
+| début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
@@ -62,7 +62,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
 3. **Branche par ticket + livraison par MR.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. → `modules/git-mep.md`
-4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. → `modules/status-workflow.md`
+4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
 6. **redmine_id obligatoire.** Toute tâche/projet MD est reliée à son équivalent Redmine ; nom de fichier `RM{id}_…` cohérent avec `redmine_id`. → `modules/status-workflow.md`
 7. **Filtrage IA.** Tout ticket créé depuis le système PM porte le CF `IA = "IA"` (posé par les outils au POST). Pas de MD local sans CF IA. → `modules/redmine-reference.md`
@@ -849,6 +849,18 @@ elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent es
 **refusée** tant qu'un enfant reste ouvert) — corollaire de la règle d'orchestration
 « un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
 (module `collaboration`, § *Propagation de complétion*).
+
+> **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
+> `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
+> **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
+> rapportent alors « *permission 'Edit issues' manquante* », ce qui est une
+> **interprétation** (statut inchangé après PUT), **pas la vraie cause**. Ne pas
+> conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
+> ont les **mêmes** droits). Diagnostic autoritatif :
+> `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
+> non permise) puis `?include=children` (un enfant non clos = le blocage). Remède :
+> fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
+> parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
 
 > **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
 > cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
@@ -1647,13 +1659,11 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
     commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
     révoque ; mauvais en-tête → 401/404).
-- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7 avant
-  péremption**, pour **tous** les `GITLAB_*_TOKEN` (pas que le manager). En **début
-  de session PM**, **`pm-token-check`** rapporte `expires_at`/J-N de chaque token
-  (valeur jamais imprimée ; RC=2 si l'un est sous le seuil → cron/hook-able).
-  **`--rotate-due`** rote (`…/self/rotate`) et réécrit le `.env` canonique
-  atomiquement (tripwire #11 ; l'ancienne valeur est révoquée aussitôt → relancer les
-  scripts). Options : `--threshold`, `--rotate-expiry-days` (défaut 365), `--dry-run`.
+- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
+  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
+  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
+  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
+  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
 - **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
   membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
   l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le

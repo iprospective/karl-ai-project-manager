@@ -49,6 +49,14 @@ chmod -R u=rwX,go=rX "$CORE_DIR"
 # ci-dessus → owner karl écrit. -RP : ne suit pas les symlinks → donnée client intacte.
 chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR/projects"
 
+# État runtime (var/) = compteur de sessions/worktrees écrit par KARL_USER au runtime
+# (pm_session : var/sessions/.seq, .lock, index.json). Gitignored, régénérable, hors
+# frontière de confiance — même traitement que projects/ : KARL_USER-owned + writable,
+# sinon le runtime (lecture seule) ne peut ni allouer de session ni créer var/ sous la
+# racine verrouillée. mkdir d'abord (instance fraîche sans var/).
+mkdir -p "$CORE_DIR/var"
+chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR/var"
+
 # .env : secrets → groupe KARL_USER + 640 (lisible par l'agent, PAS world). Seul root peut
 # fixer ce groupe tiers ; git ne touche jamais .env (gitignored) → posé une fois ici.
 chown "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/.env"
@@ -56,5 +64,6 @@ chmod 640 "$CORE_DIR/.env"
 
 echo "provision-core: $CORE_DIR verrouillé sous $KARL_SUDO_USER (lecture runtime via 'other')"
 echo "provision-core: projects/ -> $KARL_USER (index karl-writable, hors verrou)"
+echo "provision-core: var/ -> $KARL_USER (état runtime sessions/worktrees writable, hors verrou)"
 echo "provision-core: .env -> $KARL_SUDO_USER:$KARL_USER (640, lisible par l'agent runtime)"
 echo "provision-core: MAJ ultérieures -> 'mmi-pm core update' (en $KARL_SUDO_USER)"

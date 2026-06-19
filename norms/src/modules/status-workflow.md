@@ -101,6 +101,18 @@ elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent es
 « un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
 (module `collaboration`, § *Propagation de complétion*).
 
+> **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
+> `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
+> **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
+> rapportent alors « *permission 'Edit issues' manquante* », ce qui est une
+> **interprétation** (statut inchangé après PUT), **pas la vraie cause**. Ne pas
+> conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
+> ont les **mêmes** droits). Diagnostic autoritatif :
+> `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
+> non permise) puis `?include=children` (un enfant non clos = le blocage). Remède :
+> fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
+> parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
+
 > **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
 > cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
 > description du parent** quand il sert de **pilote** (référence « north-star » pour les

@@ -5,6 +5,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.46.0] - 2026-06-19
+
+### Précisé — Fermeture bloquée par une sous-tâche ouverte (piège diagnostique)
+
+La précondition « un parent ne se ferme que si toutes ses sous-tâches sont fermées »
+(déjà énoncée dans `modules/status-workflow.md`) est désormais **remontée en tripwire**
+(KERNEL #4, *Sync statut MD↔Redmine*) et complétée du **symptôme diagnostique** :
+
+- Le refus Redmine est **silencieux** (PUT 204, `status_id` ignoré, statut inchangé) et
+  les scripts l'**interprétaient à tort** en « permission *Edit issues* manquante ».
+- Ce n'est lié **ni au rôle ni au tracker** (« Evolution » = « Tâche », mêmes droits).
+- Diagnostic autoritatif : `GET /issues/<id>.json?include=allowed_statuses` puis
+  `?include=children` (un enfant non clos = le blocage).
+
+Côté outillage : `pm-task-status-update` diagnostique désormais lui-même, sur échec de
+transition vers `ferme`, les **sous-tâches ouvertes** et les annonce, au lieu de
+supposer un manque de droits.
+
 ## [1.45.0] - 2026-06-16
 
 ### Ajouté — Module `redmine-sync` : principe de parité Redmine ↔ PM

@@ -85,6 +85,19 @@ def load_env():
             os.environ[k] = v
 
 
+def open_subtasks(url, key, issue_id):
+    """Sous-tâches NON fermées du ticket. Redmine refuse la transition d'un parent
+    vers `Fermé` tant qu'un enfant reste ouvert — cause #1 d'un changement de statut
+    silencieusement ignoré (cf. NORMS status-workflow, tripwire #4)."""
+    try:
+        u = f"{url.rstrip('/')}/issues.json?parent_id={issue_id}&status_id=open&limit=100&key={key}"
+        with request.urlopen(request.Request(u, headers={"Accept": "application/json"}), timeout=10) as r:
+            data = json.loads(r.read())
+        return [(i["id"], i["status"]["name"], i.get("subject", "")) for i in data.get("issues", [])]
+    except Exception:
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--issue", type=int, required=True, help="ID du ticket")
@@ -286,7 +299,19 @@ def main():
                 print(f"⚠ Assigné PAS changé (actuel={actual_aid}, demandé={expected_aid})", file=sys.stderr)
                 warned = True
         if warned:
-            print("  Cause probable : permission 'Edit issues' manquante pour le compte API.", file=sys.stderr)
+            # Diagnostic : un parent ne se ferme pas tant qu'un enfant est ouvert.
+            # On vérifie AVANT de supposer un manque de droits (cf. NORMS tripwire #4).
+            subs = open_subtasks(url, key, args.issue) if args.status else []
+            if subs:
+                print("  Cause : sous-tâche(s) ouverte(s) — Redmine refuse de fermer le "
+                      "parent tant qu'un enfant n'est pas fermé :", file=sys.stderr)
+                for sid, sname, subj in subs:
+                    print(f"    · #{sid} [{sname}] {subj[:70]}", file=sys.stderr)
+                print("  → fermer/détacher ces sous-tâches d'abord (NORMS status-workflow).",
+                      file=sys.stderr)
+            else:
+                print("  Cause probable : permission 'Edit issues' manquante pour le compte API.",
+                      file=sys.stderr)
             sys.exit(2)
 
 

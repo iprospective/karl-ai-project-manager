@@ -208,6 +208,14 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   une merge request de la branche de ticket vers la branche de base (version
   active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
   distante conservée** (cf. KERNEL #3).
+- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
+  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
+  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
+  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
+  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
+  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048). Enforcement
+  GitLab : **protéger `dev` et le `prod_branch`** (push direct interdit, *Allowed to
+  merge* = mainteneurs, *Allowed to push* = personne).
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
@@ -223,6 +231,12 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
     commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
     révoque ; mauvais en-tête → 401/404).
+  - **Split clone-dev / runtime (RM2051)** : le **clone de dev** (`PM_DEV_DIR`) ne
+    porte **pas** de `.env` (secrets uniquement dans `.mmi-pm-core`). `PMConfig` charge
+    le `.env` de `pm_dir` s'il existe (runtime canonique, via le symlink), **sinon**
+    celui du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite**. Donc :
+    lancer les scripts à secrets **depuis le runtime** (symlink), ou exporter
+    `PM_CORE_DIR=<.mmi-pm-core>`, ou sourcer le `.env` canonique.
 - **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
   `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
   rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;

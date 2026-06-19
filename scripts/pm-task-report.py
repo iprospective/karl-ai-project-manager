@@ -33,10 +33,12 @@ depuis la co-localisation (RM1949), les tâches vivent dans `<ws>/.mmi-pm/tasks/
 sont plus sous `projects_root` (RM2038).
 """
 import argparse
+import fcntl
 import hashlib
 import os
 import re
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -56,9 +58,17 @@ TASK_FILE_RE = re.compile(r"^RM\d+_.*(?<!\.log)\.md$")
 LOG_HEADER_RE = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2}T[\d:]+)\s+—\s+(.+?)\s*$")
 LOG_TOKENS_RE = re.compile(r"^Tokens\s*:\s*(\d+)")
 LOG_IA_RE = re.compile(r"IA\s*:\s*([\d.]+)\s*min")
+LOG_DETAIL_RE = re.compile(r"input\s*=\s*(\d+).*?output\s*=\s*(\d+)", re.I)
+# Marqueur de dédup posé dans le commentaire du time_entry — clé d'idempotence
+# AUTORITATIVE côté Redmine (RM2048) : avant d'insérer, on vérifie qu'aucun TE de
+# l'issue ne porte déjà ce marqueur. Ne dépend plus du seul ledger local (fragile).
+TICK_MARK_RE = re.compile(r"\[tick:([^\]]+)\]")
 
-CF_TOKENS_PASSES_NAME = "Tokens passés"   # CF 17 (issue) — cumul tokens
-CF_TOKENS_NAME = "Tokens"                 # CF 16 (time_entry) — tokens du delta
+# Modèle de tokens v2 (RM2048) : input/output SÉPARÉS, cache EXCLU du reporting.
+CF_TOK_OUT_NAME = "Tokens output"          # CF 16 (time_entry) — delta output
+CF_TOK_IN_NAME = "Tokens input"            # CF 28 (time_entry) — delta input
+CF_TOK_OUT_TOTAL_NAME = "Tokens output total"  # CF 17 (issue) — cumul output
+CF_TOK_IN_TOTAL_NAME = "Tokens input total"    # CF 29 (issue) — cumul input
 
 # Garde-fou ABSOLU (consigne user, RM2035) : une NOTE de journal ne doit JAMAIS
 # servir à annoncer du temps/tokens consommés. Le temps/tokens vivent uniquement
@@ -137,41 +147,91 @@ def parse_log_entries(log_path):
     """Parse un `.log.md`, retourne la liste des entrées datées consommatrices.
 
     Une entrée = un header `## <ts> — <titre>` suivi (avant le header suivant)
-    d'une ligne `Tokens : N`. On ne garde que N>0. `ia_minutes` optionnel.
-    Clé de dédup = `<ts>#<tokens>`.
+    d'une ligne `Tokens : N` et, optionnellement, d'une ligne
+    `Détail : input=… output=… cache_read=… cache_creation=…`. On ne garde que N>0.
+    `input`/`output` viennent du Détail (cache EXCLU, RM2048) ; si le Détail manque
+    (vieilles entrées), fallback `output=tokens, input=0` + flag `no_detail`.
+    Clé de dédup = `<ts>#<tokens>` (stable, indépendante du split).
     """
     if not log_path.is_file():
         return []
     entries = []
     cur = None
+
+    def _finalize(c):
+        if not c or c.get("tokens") is None or c["tokens"] <= 0:
+            return
+        if c.get("input") is None and c.get("output") is None:
+            # Pas de ligne `Détail :` → split inconnu. On NE fabrique PAS output=tokens
+            # (ces vieilles entrées portent le total cache-inflé : ré-inflation). On
+            # marque no_detail ; le report les IGNORE pour la création de TE (le cumul
+            # CF17/CF29 vient du tokens_breakdown du frontmatter, lui correct). RM2048.
+            c["output"], c["input"], c["no_detail"] = 0, 0, True
+        else:
+            c["input"] = c.get("input") or 0
+            c["output"] = c.get("output") or 0
+            c["no_detail"] = False
+        c["key"] = f"{c['ts']}#{c['tokens']}"
+        entries.append(c)
+
     for raw in log_path.read_text(encoding="utf-8").splitlines():
         mh = LOG_HEADER_RE.match(raw)
         if mh:
+            _finalize(cur)
             cur = {"ts": mh.group(1), "title": mh.group(2).strip(),
-                   "tokens": None, "ia_minutes": 0.0}
+                   "tokens": None, "ia_minutes": 0.0, "input": None, "output": None}
             continue
-        if cur is None or cur["tokens"] is not None:
+        if cur is None:
             continue
-        mt = LOG_TOKENS_RE.match(raw)
-        if mt:
-            cur["tokens"] = int(mt.group(1))
-            mia = LOG_IA_RE.search(raw)
-            if mia:
-                cur["ia_minutes"] = float(mia.group(1))
-            if cur["tokens"] > 0:
-                cur["key"] = f"{cur['ts']}#{cur['tokens']}"
-                entries.append(cur)
-            cur = None
+        if cur["tokens"] is None:
+            mt = LOG_TOKENS_RE.match(raw)
+            if mt:
+                cur["tokens"] = int(mt.group(1))
+                mia = LOG_IA_RE.search(raw)
+                if mia:
+                    cur["ia_minutes"] = float(mia.group(1))
+                continue
+        md = LOG_DETAIL_RE.search(raw)
+        if md and cur.get("tokens"):
+            cur["input"], cur["output"] = int(md.group(1)), int(md.group(2))
+    _finalize(cur)
     return entries
 
 
+def existing_tick_keys(url, key, issue_id):
+    """Mappe `tick_key -> time_entry_id` pour les TE Redmine de l'issue portant un
+    marqueur `[tick:…]` (tous users — on dédoublonne sur le contenu, pas l'auteur).
+    Idempotence autoritative : on ne fait pas confiance au seul ledger local (RM2048).
+    Retourne None si le GET échoue (→ l'appelant s'abstient d'insérer, anti-doublon)."""
+    found = {}
+    offset = 0
+    while True:
+        code, body = http_json(
+            "GET", f"{url}/time_entries.json?issue_id={issue_id}&limit=100&offset={offset}",
+            key, None)
+        if code not in (200, 201):
+            return None
+        items = body.get("time_entries", [])
+        for t in items:
+            mk = TICK_MARK_RE.search(t.get("comments") or "")
+            if mk:
+                found[mk.group(1)] = t.get("id")
+        if len(items) < 100:
+            break
+        offset += 100
+    return found
+
+
 def post_time_entry(url, key, *, issue_id, spent_on, hours, activity_id,
-                    comments, cf16_id, tokens):
-    """POST une saisie de temps. Retourne (time_entry_id | None, err)."""
+                    comments, cf_out_id, cf_in_id, out_tokens, in_tokens, tick_key):
+    """POST une saisie de temps (modèle v2 : output + input séparés, cache exclu).
+    Le marqueur `[tick:<tick_key>]` est apposé pour l'idempotence Redmine."""
+    comment = f"{comments} [tick:{tick_key}]"
     payload = {"time_entry": {
         "issue_id": issue_id, "spent_on": spent_on, "hours": hours,
-        "activity_id": activity_id, "comments": comments[:255],
-        "custom_fields": [{"id": cf16_id, "value": str(tokens)}],
+        "activity_id": activity_id, "comments": comment[:255],
+        "custom_fields": [{"id": cf_out_id, "value": str(out_tokens)},
+                          {"id": cf_in_id, "value": str(in_tokens)}],
     }}
     code, body = http_json("POST", f"{url}/time_entries.json", key, payload)
     if code not in (200, 201):
@@ -200,14 +260,42 @@ def post_note(url, key, *, issue_id, text, commit_hash=None):
     return True, None
 
 
-def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
-                  activity_override, note_text=None, commit_hash=None):
-    """Report d'un ticket. Retourne un dict résumé.
+def _acquire_lock(rm_id):
+    """Verrou exclusif par ticket (sérialise les reports concurrents — hooks
+    post-commit détachés. RM2048). Best-effort : si le verrou traîne >30s on
+    continue quand même (le GET Redmine reste le garde-fou anti-doublon)."""
+    f = open(f"/tmp/pm-report-RM{rm_id}.lock", "w")
+    deadline = time.time() + 30
+    while True:
+        try:
+            fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return f
+        except BlockingIOError:
+            if time.time() > deadline:
+                return f
+            time.sleep(0.3)
 
-    note_text/commit_hash : si fournis (déclencheur post-commit), poste UNE note
-    de journal substantielle (le message de commit), une seule fois par commit
-    (dédup ledger `reporting.notes[]`). La note ne porte JAMAIS de conso
-    (garde-fou post_note). Marqueur `[hash]` ajouté au comments des time_entries.
+
+def _release_lock(f):
+    try:
+        fcntl.flock(f, fcntl.LOCK_UN)
+        f.close()
+    except Exception:
+        pass
+
+
+def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_id,
+                  apply, force, cf17_only, activity_override, note_text=None,
+                  commit_hash=None):
+    """Report d'un ticket (modèle tokens v2, RM2048).
+
+    - time_entry : CF output (16) + CF input (28), cache EXCLU, recalculés depuis
+      la ligne `Détail :` du log ;
+    - cumuls issue : CF output total (17) + CF input total (29) ;
+    - **idempotence autoritative côté Redmine** (marqueur `[tick:key]`) + verrou par
+      ticket → un report rejoué N fois ne crée jamais de doublon ;
+    - note_text/commit_hash : poste UNE note substantielle (message de commit), une
+      fois (dédup ledger). Jamais de conso dans la note (garde-fou post_note).
     """
     fm, m = load_fm(md_path)
     if fm is None:
@@ -217,8 +305,12 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
         return {"file": md_path.name, "status": "no-rmid"}
 
     tokens_total = int(fm.get("tokens_total") or 0)
+    breakdown = fm.get("tokens_breakdown") or {}
+    out_total = int(breakdown.get("output") or 0)
+    in_total = int(breakdown.get("input") or 0)
     reporting = fm.get("reporting") or {}
-    cf17_before = int(reporting.get("cf17_tokens") or 0)
+    cf_out_before = int(reporting.get("cf_out_total") or reporting.get("cf17_tokens") or 0)
+    cf_in_before = int(reporting.get("cf_in_total") or 0)
     ledger = reporting.get("time_entries") or []
     pushed_keys = {te.get("key") for te in ledger}
     notes_ledger = reporting.get("notes") or []
@@ -230,22 +322,25 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     has_pending_note = bool(note_text) and note_key not in pushed_note_keys
 
     res = {"file": md_path.name, "rm_id": rm_id, "tokens_total": tokens_total,
-           "cf17_before": cf17_before, "new_te": 0, "te_tokens": 0,
+           "out_total": out_total, "in_total": in_total,
+           "cf17_before": cf_out_before, "new_te": 0, "te_tokens": 0,
            "note_pending": has_pending_note, "status": "skip-no-tokens"}
     if tokens_total <= 0 and not has_pending_note:
         return res
 
-    # --- entrées de log non encore poussées ---
+    # --- entrées de log non encore poussées (filtre ledger LOCAL, 1er niveau) ---
     new_entries = []
     if not cf17_only:
         log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
-        new_entries = [e for e in parse_log_entries(log_path)
-                       if e["key"] not in pushed_keys]
+        all_entries = [e for e in parse_log_entries(log_path) if e["key"] not in pushed_keys]
+        # On IGNORE les entrées sans `Détail` (split inconnu, total cache-inflé).
+        res["nodetail"] = sum(1 for e in all_entries if e.get("no_detail"))
+        new_entries = [e for e in all_entries if not e.get("no_detail")]
     res["new_te"] = len(new_entries)
-    res["te_tokens"] = sum(e["tokens"] for e in new_entries)
+    res["te_tokens"] = sum(e["output"] + e["input"] for e in new_entries)
 
-    cf17_needs = (cf17_before != tokens_total) or force
-    if not new_entries and not cf17_needs and not has_pending_note:
+    cf_needs = (cf_out_before != out_total) or (cf_in_before != in_total) or force
+    if not new_entries and not cf_needs and not has_pending_note:
         res["status"] = "skip-uptodate"
         return res
 
@@ -253,7 +348,7 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
         res["status"] = "would-push"
         return res
 
-    # --- APPLY ---
+    # --- APPLY (sérialisé par ticket) ---
     url, key = redmine_creds()
     task_type = fm.get("type")
     activity_id = activity_override or activity_for_type(task_type)
@@ -261,29 +356,60 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     created = []
     errors = []
 
-    for e in new_entries:
-        comment = f'{e["title"]} [{commit_hash[:8]}]' if commit_hash else e["title"]
-        te_id, err = post_time_entry(
-            url, key, issue_id=rm_id, spent_on=e["ts"][:10],
-            hours=round(e["ia_minutes"] / 60.0, 2), activity_id=activity_id,
-            comments=comment, cf16_id=cf16_id, tokens=e["tokens"])
-        if err:
-            errors.append(f"{e['key']}: {err}")
-            continue
-        rec = {"id": te_id, "key": e["key"], "at": e["ts"],
-               "spent_on": e["ts"][:10], "tokens": e["tokens"],
-               "hours": round(e["ia_minutes"] / 60.0, 2)}
-        created.append(rec)
-        ledger.append(rec)
+    lock = _acquire_lock(rm_id)
+    try:
+        # Idempotence AUTORITATIVE : retirer les entrées déjà présentes côté Redmine
+        # (marqueur [tick:key]). GET en échec → on s'abstient (anti-doublon).
+        if new_entries:
+            seen = existing_tick_keys(url, key, rm_id)   # {tick_key: te_id} | None
+            if seen is None:
+                errors.append("GET time_entries échoué — insertion suspendue (anti-doublon)")
+                new_entries = []
+            else:
+                to_create = []
+                for e in new_entries:
+                    if e["key"] in seen:
+                        # déjà côté Redmine → soigner le ledger local, NE PAS re-poster
+                        ledger.append({"id": seen[e["key"]], "key": e["key"], "at": e["ts"],
+                                       "spent_on": e["ts"][:10], "output": e["output"],
+                                       "input": e["input"],
+                                       "hours": round(e["ia_minutes"] / 60.0, 2)})
+                    else:
+                        to_create.append(e)
+                new_entries = to_create
 
-    # resync CF17 (cumul absolu)
-    cf17_err = None
-    if cf17_needs:
+        for e in new_entries:
+            te_id, err = post_time_entry(
+                url, key, issue_id=rm_id, spent_on=e["ts"][:10],
+                hours=round(e["ia_minutes"] / 60.0, 2), activity_id=activity_id,
+                comments=e["title"], cf_out_id=cf_out_id, cf_in_id=cf_in_id,
+                out_tokens=e["output"], in_tokens=e["input"], tick_key=e["key"])
+            if err:
+                errors.append(f"{e['key']}: {err}")
+                continue
+            rec = {"id": te_id, "key": e["key"], "at": e["ts"], "spent_on": e["ts"][:10],
+                   "output": e["output"], "input": e["input"],
+                   "hours": round(e["ia_minutes"] / 60.0, 2)}
+            created.append(rec)
+            ledger.append(rec)
+    finally:
+        _release_lock(lock)
+
+    # recale les compteurs sur le RÉEL (après filtre idempotence Redmine) — sinon on
+    # affiche les entrées candidates, pas celles effectivement créées.
+    res["new_te"] = len(created)
+    res["te_tokens"] = sum(r["output"] + r["input"] for r in created)
+
+    # resync cumuls : CF output total (17) + CF input total (29)
+    cf_err = None
+    if cf_needs:
         code, body = http_json(
             "PUT", f"{url}/issues/{rm_id}.json", key,
-            {"issue": {"custom_fields": [{"id": cf17_id, "value": str(tokens_total)}]}})
+            {"issue": {"custom_fields": [
+                {"id": cf_out_total_id, "value": str(out_total)},
+                {"id": cf_in_total_id, "value": str(in_total)}]}})
         if code not in (200, 204):
-            cf17_err = f"CF17 HTTP {code} {body.get('_error', '')[:150]}"
+            cf_err = f"CF cumul HTTP {code} {body.get('_error', '')[:150]}"
 
     # note de journal SUBSTANTIELLE (jamais de conso — garde-fou dans post_note)
     note_status = None
@@ -294,15 +420,16 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
             notes_ledger.append({"key": note_key, "at": now, "commit": commit_hash})
             note_status = "posted"
         else:
-            # refus (garde-fou conso / note vide) = comportement attendu, PAS une erreur
             note_status = f"skip ({why})"
     res["note_status"] = note_status
 
-    # persister le ledger + CF17 dans le frontmatter
+    # persister ledger + cumuls dans le frontmatter
     reporting["time_entries"] = ledger
     reporting["notes"] = notes_ledger
-    if not cf17_err:
-        reporting["cf17_tokens"] = tokens_total
+    if not cf_err:
+        reporting["cf_out_total"] = out_total
+        reporting["cf_in_total"] = in_total
+        reporting["cf17_tokens"] = out_total   # compat lecture ancienne clé
     reporting["pushed_at"] = now
     fm["reporting"] = reporting
     fm["updated"] = now
@@ -313,8 +440,8 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
     if created:
         parts.append(f"{len(created)} time_entries (ids "
                      f"{', '.join(str(r['id']) for r in created)})")
-    if cf17_needs and not cf17_err:
-        parts.append(f"CF17 = {tokens_total}")
+    if cf_needs and not cf_err:
+        parts.append(f"CF out_total={out_total} in_total={in_total}")
     if note_status == "posted":
         parts.append(f"note (commit {commit_hash[:8]})")
     if parts:
@@ -322,8 +449,8 @@ def report_ticket(md_path, *, cf16_id, cf17_id, apply, force, cf17_only,
                    f"## {now} — report → Redmine\n{' ; '.join(parts)}\n\n")
 
     res["created"] = len(created)
-    res["status"] = "error" if (errors or cf17_err) else "pushed"
-    res["errors"] = errors + ([cf17_err] if cf17_err else [])
+    res["status"] = "error" if (errors or cf_err) else "pushed"
+    res["errors"] = errors + ([cf_err] if cf_err else [])
     return res
 
 
@@ -336,7 +463,7 @@ def fmt_row(r):
             "error": "✗"}.get(s, "?")
     te = r.get("new_te", 0)
     te_part = f"{te:>3} TE / {r.get('te_tokens', 0):>11,} tok" if te else "  (TE à jour)"
-    cf17 = f"CF17 {r.get('cf17_before',0):>11,}→{r.get('tokens_total',0):>11,}"
+    cf17 = f"out={r.get('out_total',0):>10,} in={r.get('in_total',0):>10,}"
     ns = r.get("note_status")
     if ns == "posted":
         note = "  +note✓"
@@ -370,11 +497,15 @@ def main():
         ap.error("--note nécessite --rm-id (une note cible un ticket précis)")
 
     cfg = PMConfig.load()
-    cf16_id = cf_id_by_name(CF_TOKENS_NAME)
-    cf17_id = cf_id_by_name(CF_TOKENS_PASSES_NAME)
-    if cf16_id is None or cf17_id is None:
-        sys.exit("ERREUR : CF 'Tokens'(16)/'Tokens passés'(17) introuvables "
-                 "dans redmine.reference.yml")
+    cf_out_id = cf_id_by_name(CF_TOK_OUT_NAME)              # 16
+    cf_in_id = cf_id_by_name(CF_TOK_IN_NAME)                # 28
+    cf_out_total_id = cf_id_by_name(CF_TOK_OUT_TOTAL_NAME)  # 17
+    cf_in_total_id = cf_id_by_name(CF_TOK_IN_TOTAL_NAME)    # 29
+    missing = [n for n, v in [(CF_TOK_OUT_NAME, cf_out_id), (CF_TOK_IN_NAME, cf_in_id),
+                              (CF_TOK_OUT_TOTAL_NAME, cf_out_total_id),
+                              (CF_TOK_IN_TOTAL_NAME, cf_in_total_id)] if v is None]
+    if missing:
+        sys.exit(f"ERREUR : CF introuvables dans redmine.reference.yml : {missing}")
 
     if args.rm_id:
         md_path = cfg.find_task(args.rm_id)
@@ -385,11 +516,12 @@ def main():
         targets = sorted(iter_task_files(cfg))
 
     mode = "APPLY" if args.apply else "DRY-RUN"
-    scope = "CF17 seul" if args.cf17_only else "time_entries + CF17"
-    print(f"== pm-task-report — {scope} — {mode} "
-          f"(CF16={cf16_id}, CF17={cf17_id}) ==\n")
+    scope = "cumuls seuls" if args.cf17_only else "time_entries + cumuls"
+    print(f"== pm-task-report — {scope} — {mode} (out=CF{cf_out_id}/in=CF{cf_in_id}, "
+          f"cumuls out=CF{cf_out_total_id}/in=CF{cf_in_total_id}) ==\n")
 
-    results = [report_ticket(p, cf16_id=cf16_id, cf17_id=cf17_id,
+    results = [report_ticket(p, cf_out_id=cf_out_id, cf_in_id=cf_in_id,
+                             cf_out_total_id=cf_out_total_id, cf_in_total_id=cf_in_total_id,
                              apply=args.apply, force=args.force,
                              cf17_only=args.cf17_only,
                              activity_override=args.activity,

@@ -5,6 +5,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.46.0] - 2026-06-19
+
+### Ajouté — Rotation des tokens GitLab à J-7 + vérif début de session (RM2046)
+
+Politique de rotation des PAT GitLab de karl **clarifiée et outillée** : rotation
+**une semaine avant péremption** (seuil J-7), pour **tous** les `GITLAB_*_TOKEN`
+(manager, worker, futurs), pas seulement le manager.
+
+- Nouvel outil **`pm-token-check`** : rapporte `expires_at`/J-N de chaque token via
+  `GET /personal_access_tokens/self` (valeur jamais imprimée). Code retour `2` si au
+  moins un token est sous le seuil (cron/hook-able), `0` sinon. `--rotate-due` rote
+  (`…/self/rotate`) les tokens dus et **réécrit le `.env` canonique atomiquement**
+  (tripwire #11 ; ancienne valeur révoquée aussitôt). Options `--threshold`,
+  `--rotate-expiry-days` (défaut 365), `--dry-run`.
+- **Déclencheur KERNEL** ajouté : « début de session PM / périodiquement → péremption
+  des PAT GitLab → `pm-token-check` ».
+- Section *Rotation des tokens* de `git-mep` réécrite (remplace l'ancienne cadence
+  floue « ~hebdo sur ~1 mois ») ; `.env.example` mis à jour.
+
 ## [1.45.0] - 2026-06-16
 
 ### Ajouté — Module `redmine-sync` : principe de parité Redmine ↔ PM

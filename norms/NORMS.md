@@ -1,10 +1,10 @@
 ---
-schema_version: "1.48.0"
+schema_version: "1.49.0"
 updated: 2026-06-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.48.0
+# Normes de gestion des tâches — v1.49.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1649,9 +1649,19 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
   de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
   `main`). Un commit direct sur `main` court-circuite la promotion → divergences
-  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048). Enforcement
-  GitLab : **protéger `dev` et le `prod_branch`** (push direct interdit, *Allowed to
-  merge* = mainteneurs, *Allowed to push* = personne).
+  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048).
+- **Enforcement GitLab — outil `pm-protect` (RM2052)** : `pm-protect [--repo PATH |
+  --project-id N]` applique la **politique de protection standard** (idempotent,
+  `allow_force_push=false`, branche absente ignorée), token *manager* :
+
+  | Branche | Allowed to push | Allowed to merge |
+  |---|---|---|
+  | prod (`main`, ou `master` si elle existe) | **personne** | Maintainer |
+  | intégration (`dev`) | **Maintainer** (restructuration assumée) | Maintainer |
+  | `preprod` (flux 3 branches) | **personne** | Maintainer |
+
+  `merge=Maintainer` laisse `pm-mr merge` (karl manager) fonctionner ; `push=personne`
+  sur prod force la promotion **par MR**. À (ré)appliquer sur chaque repo PM-piloté.
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer

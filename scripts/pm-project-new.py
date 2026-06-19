@@ -247,6 +247,11 @@ env_vars: []
         reverse.symlink_to(project_root)
     print(f"  ✓ symlinks bidirectionnels")
 
+    # 5b. Hook git post-commit (RM2035) : report auto de la conso → Redmine à chaque commit.
+    #     Délégué au script idempotent pm-hooks-install (source unique de la logique d'install).
+    hooks_install = Path(__file__).resolve().parent / "pm-hooks-install.py"
+    subprocess.run([sys.executable, str(hooks_install), "--repo", str(workspace)], check=False)
+
     # 6. Bootstrap
     if not args.no_bootstrap:
         bootstrap_script = Path(__file__).parent / "pm-project-bootstrap.py"

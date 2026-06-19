@@ -5,6 +5,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.50.0] - 2026-06-19
+
+### Précisé — `pm-task-tick` : garde « ticket fermé » (RM2053)
+
+Module `roi-pricing` : documentation du garde qui empêche d'attribuer une tick à un
+ticket `status: ferme`. Le résolveur retient le signal le plus fort **parmi les tickets
+ouverts** ; un tour ne touchant que du fermé ne ticke rien ; un sentinel `CURRENT_TASK`
+pointant un ticket clos est ignoré ; fail-safe statut illisible → ouvert. Évite que la
+cérémonie de clôture / le suivi post-fermeture ne gonfle un ticket déjà fermé.
+
 ## [1.49.0] - 2026-06-19
 
 ### Ajouté — `pm-protect` : enforcement GitLab des branches protégées (RM2052)

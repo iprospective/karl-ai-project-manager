@@ -5,6 +5,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.48.0] - 2026-06-19
+
+### Renforcé — Pas de commit direct sur une branche protégée (RM2051)
+
+Tripwire #3 (*Branche par ticket + livraison par MR*) étendu : **aucun commit/push
+direct sur une branche protégée**, intégration (`dev`) **ET** prod (`main`/`master`),
+**dès le flux 2 branches** (pas seulement le flux 3 branches opt-in). La promotion
+`dev`→prod passe elle-même par une MR. Motivation : des commits directs sur `main`
+(RM2035/2038/2048) provoquaient divergences et **collisions de version NORMS**.
+Enforcement GitLab : protéger `dev` et le `prod_branch` (push direct interdit, merge
+de MR seul). Détail dans `git-mep`.
+
+### Documenté — Split clone-dev / runtime pour les secrets (`PM_CORE_DIR`)
+
+`PMConfig` charge le `.env` de `pm_dir` s'il existe (runtime canonique), **sinon** le
+`.env` du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite** (au lieu
+d'un `roots.projects_root non défini` obscur) expliquant que le clone de dev ne porte
+pas les secrets. `git-mep` + `.env.example` mis à jour.
+
 ## [1.47.0] - 2026-06-19
 
 ### Ajouté — Rotation des tokens GitLab à J-7 + vérif début de session (RM2046)

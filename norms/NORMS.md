@@ -1,10 +1,10 @@
 ---
-schema_version: "1.47.0"
+schema_version: "1.48.0"
 updated: 2026-06-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.47.0
+# Normes de gestion des tâches — v1.48.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -61,7 +61,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
-3. **Branche par ticket + livraison par MR.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. → `modules/git-mep.md`
+3. **Branche par ticket + livraison par MR.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé). → `modules/git-mep.md`
 4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
 6. **redmine_id obligatoire.** Toute tâche/projet MD est reliée à son équivalent Redmine ; nom de fichier `RM{id}_…` cohérent avec `redmine_id`. → `modules/status-workflow.md`
@@ -1644,6 +1644,14 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   une merge request de la branche de ticket vers la branche de base (version
   active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
   distante conservée** (cf. KERNEL #3).
+- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
+  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
+  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
+  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
+  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
+  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048). Enforcement
+  GitLab : **protéger `dev` et le `prod_branch`** (push direct interdit, *Allowed to
+  merge* = mainteneurs, *Allowed to push* = personne).
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
@@ -1659,6 +1667,12 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
     commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
     révoque ; mauvais en-tête → 401/404).
+  - **Split clone-dev / runtime (RM2051)** : le **clone de dev** (`PM_DEV_DIR`) ne
+    porte **pas** de `.env` (secrets uniquement dans `.mmi-pm-core`). `PMConfig` charge
+    le `.env` de `pm_dir` s'il existe (runtime canonique, via le symlink), **sinon**
+    celui du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite**. Donc :
+    lancer les scripts à secrets **depuis le runtime** (symlink), ou exporter
+    `PM_CORE_DIR=<.mmi-pm-core>`, ou sourcer le `.env` canonique.
 - **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
   `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
   rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;

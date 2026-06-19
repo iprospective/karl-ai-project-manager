@@ -24,6 +24,7 @@ import argparse
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -200,6 +201,30 @@ def cmd_create(args, token):
                        check=False)
 
 
+def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
+    """Attend la fin du calcul de mergeabilité GitLab (async : `preparing` →
+    `checking` → `mergeable`). Sans ça, un `merge` lancé juste après `create`
+    échoue en 422 'Branch cannot be merged' alors qu'il n'y a aucun conflit.
+    Retourne le mr à jour (mergeable). Sort en erreur sur conflit, ou si toujours
+    en calcul après le délai."""
+    last = None
+    for i in range(attempts):
+        st, mr, _ = api("GET", base, token)
+        if not mr:
+            sys.exit(f"ERREUR : MR !{iid} introuvable pendant l'attente (HTTP {st}).")
+        dms, ms = mr.get("detailed_merge_status"), mr.get("merge_status")
+        last = dms or ms
+        if dms == "mergeable" or (dms is None and ms == "can_be_merged"):
+            return mr
+        if dms in ("conflict", "broken_status") or ms == "cannot_be_merged":
+            sys.exit(f"ERREUR : MR !{iid} non mergeable ({last}) — conflit à résoudre.")
+        # transitoire (preparing / checking / unchecked / ci_still_running…) → on patiente
+        if i < attempts - 1:
+            time.sleep(delay)
+    sys.exit(f"ERREUR : MR !{iid} toujours non mergeable après {attempts} tentatives "
+             f"(dernier état : {last}).")
+
+
 def cmd_merge(args, token):
     pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
     base = f"/projects/{pid}/merge_requests/{args.iid}"
@@ -211,6 +236,7 @@ def cmd_merge(args, token):
         return
     if mr["state"] != "opened":
         sys.exit(f"ERREUR : MR !{args.iid} en état '{mr['state']}' (pas 'opened').")
+    mr = wait_mergeable(base, args.iid, token)  # attend la fin du calcul async GitLab
     fields = {"should_remove_source_branch": "false"}  # CONSERVE la branche (NORMS)
     if args.squash:
         fields["squash"] = "true"

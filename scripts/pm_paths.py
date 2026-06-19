@@ -50,6 +50,22 @@ def _load_env_file(path: Path) -> None:
             os.environ[k] = v
 
 
+def _secrets_env(pm_dir: Path) -> Optional[Path]:
+    """`.env` portant secrets + chemins. Celui de `pm_dir` s'il existe (cas runtime
+    canonique : pm_dir == `.mmi-pm-core`). Sinon, le `.env` du core pointé par
+    `PM_CORE_DIR` (cas d'un CLONE de dev, qui ne porte PAS de secrets — symétrique de
+    `PM_DEV_DIR`). `None` si aucun n'est trouvable → erreur explicite dans `load()`."""
+    here = pm_dir / ".env"
+    if here.is_file():
+        return here
+    core = os.environ.get("PM_CORE_DIR")
+    if core:
+        cand = Path(core).expanduser().resolve() / ".env"
+        if cand.is_file():
+            return cand
+    return None
+
+
 def _expand_env(value: str) -> str:
     """Résout `${VAR}` et `${VAR:-default}` dans une chaîne."""
     if not isinstance(value, str):
@@ -87,8 +103,10 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge .env (sans écraser l'env existant)
-        _load_env_file(pm_dir / ".env")
+        # 2. Charge le .env de secrets (pm_dir si présent, sinon core via PM_CORE_DIR)
+        env_file = _secrets_env(pm_dir)
+        if env_file:
+            _load_env_file(env_file)
 
         # 3. Charge pm.config.yml + pm.config.local.yml (merge)
         cfg_path = pm_dir / "pm.config.yml"
@@ -111,6 +129,18 @@ class PMConfig:
 
         projects_root_raw = _expand_env(roots.get("projects_root", ""))
         if not projects_root_raw:
+            if env_file is None:
+                sys.exit(
+                    f"ERREUR : aucun .env trouvé pour {pm_dir}.\n"
+                    "  Normal pour un CLONE de dev : il ne porte pas les secrets "
+                    "(ils vivent dans le .env canonique de .mmi-pm-core). Pour exécuter\n"
+                    "  un script du système PM, au choix :\n"
+                    "    • le lancer depuis le RUNTIME via le symlink "
+                    "(ai/project-management/scripts/…) — le .env canonique est résolu ;\n"
+                    "    • exporter PM_CORE_DIR=<chemin .mmi-pm-core> (pointe le .env canonique) ;\n"
+                    "    • sourcer le .env canonique avant l'appel.\n"
+                    "  (cf. NORMS git-mep : split clone-dev / runtime canonique)"
+                )
             sys.exit(
                 "ERREUR : roots.projects_root non défini "
                 "(vérifier $PROJECTS_PATH dans .env ou pm.config.local.yml)"

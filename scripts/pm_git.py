@@ -63,6 +63,15 @@ def load_git_config():
             "autopush": bool(merged.get("autopush", True))}
 
 
+def repo_root(path):
+    """Racine du repo git contenant `path` (Path) ou None. Utile pour grouper par
+    repo un lot de fichiers couvrant plusieurs workspaces (mode `--all`, RM2038)."""
+    p = Path(path)
+    start = p if p.is_dir() else p.parent
+    r = _run(["git", "-C", str(start), "rev-parse", "--show-toplevel"])
+    return Path(r.stdout.strip()) if r.returncode == 0 else None
+
+
 def autocommit(paths, message, push=None, enabled=None):
     """Committe (et pousse) atomiquement les chemins listés. Retourne le sha court ou None.
 

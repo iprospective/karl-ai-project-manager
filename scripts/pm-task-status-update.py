@@ -400,6 +400,22 @@ def main():
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
 
+    # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
+    # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les
+    # fermés (cas vécu RM1963). Lancé AVANT la lecture du MD ci-dessous pour que le ledger
+    # écrit par le report soit relu et préservé. --no-commit : l'auto-commit de ce script
+    # (plus bas) emporte le ledger. Best-effort : un échec ne bloque pas la clôture.
+    if args.status == "ferme":
+        rep = Path(__file__).resolve().parent / "pm-task-report.py"
+        try:
+            r = subprocess.run([sys.executable, str(rep), "--rm-id", str(args.rm_id),
+                                "--apply", "--no-commit"],
+                               capture_output=True, text=True, timeout=120)
+            lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
+            print("  · report-on-close : " + (lines[-1].strip() if lines else "(rien à pousser)"))
+        except Exception as e:
+            print(f"  ⚠ report-on-close échoué (non bloquant) : {e}", file=sys.stderr)
+
     # 1. Parse + update frontmatter
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)

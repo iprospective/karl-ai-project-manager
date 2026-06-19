@@ -17,14 +17,23 @@ Chaque projet déclare ses branches de référence dans le frontmatter de
 git:
   repo: <url-ou-alias>      # ex: git:sfy/pisceen-dercya/pisceen-prestashop.git
   remote: origin            # alias du remote de référence
-  prod_branch: master       # branche déployée en prod (master historique ; main = cible de migration)
-  integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en staging (alias preprod)
+  prod_branch: main         # branche de prod (main par défaut ; master si legacy)
+  integration_branch: dev   # branche d'intégration : agrège les devs testés
+  preprod_branch: preprod   # OPTIONNEL — déclaré ⇒ active le flux 3 branches (RM2030)
 ```
 
-- `prod_branch` : souvent `master` (historique), migration progressive vers `main`.
+- `prod_branch` : **`main` par défaut**, `master` pour les repos legacy qui l'ont
+  encore. Rien d'imposé — déclaré par projet ; la migration `master → main` se fait
+  au fil de l'eau.
 - `integration_branch` (`dev`) : agrège les branches de ticket déjà testées, avant MEP.
+- `preprod_branch` (`preprod`) — **OPT-IN (RM2030)** : sa **présence** active le
+  **flux 3 branches longues protégées** `dev → preprod → prod_branch` (cf. § Workflow
+  MEP). **Absent ⇒ modèle 2 branches** `dev → prod_branch` (historique). C'est le
+  **seul levier** : pas de flag séparé, pas de « bypass » — un projet qui ne veut pas
+  de préprod ne déclare simplement pas `preprod_branch`.
 - **Source unique** des branches de workflow : les `environments[].branch` doivent y
-  être cohérents (`staging.branch == integration_branch`, `prod.branch == prod_branch`).
+  être cohérents — `prod.branch == prod_branch` ; `staging.branch == preprod_branch`
+  si déclaré, **sinon** `== integration_branch`.
 - À distinguer du bloc `git:` du **frontmatter de tâche** (`git.branch`, `git.mr_url`),
   qui pointe la branche de *travail courante du ticket*, pas les branches de référence.
 
@@ -32,8 +41,9 @@ git:
 
 Un projet a typiquement :
 - **1 prod** (`prod`) — déployée depuis `prod_branch`.
-- **1 staging** (`staging`, alias `preprod`) — déployée depuis `integration_branch` ;
-  tests de non-régression avant MEP.
+- **1 staging** (`staging`, alias `preprod`) — déployée depuis **`preprod_branch`** si le
+  projet est en **flux 3 branches** (opt-in), **sinon** depuis `integration_branch`.
+  Tests de non-régression avant prod.
 - **N test** (`test`, `test-<but>`…) — pour tester en parallèle plusieurs branches de
   ticket, idéalement par une personne ou un agent **≠ celui qui a fait le dev**.
 - **N dev** (`dev`, `dev-<développeur>`…) — autant que de développeurs (voire plusieurs
@@ -66,18 +76,33 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
 
-### Workflow de mise en production (MEP) — **provisoire, évoluera**
+### Workflow de mise en production (MEP)
 
 La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
-ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
+ticket par ticket : plusieurs tickets en `a_mep` montent ensemble. Le chemin dépend du
+**modèle de branches** du projet (cf. § Branches git de référence).
 
-1. Déployer `integration_branch` dans l'env **preprod** ⇒ les tickets concernés passent
-   `en_mep`.
-2. Tests de **non-régression** sur preprod.
-3. Vérification par un **testeur humain**.
-4. Si OK ⇒ merge `integration_branch` → `prod_branch` + `pull prod_branch` en prod ⇒
-   tickets `ferme` (`close_reason: resolu`).
-   - Régression détectée ⇒ `a_corriger` (note obligatoire).
+**Flux 3 branches** (opt-in : `preprod_branch` déclaré) — **`dev → preprod → prod_branch`**.
+Les 3 branches longues sont **protégées** ; règle stricte **« merge only from »** :
+`preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
+(jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
+
+1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
+2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
+3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
+   (`close_reason: resolu`).
+   - Régression preprod ⇒ `a_corriger` (note obligatoire).
+
+**Deux modes de promotion :**
+- **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
+- **Enchaîné (auto)** : une action outillée déroule `dev → preprod → prod_branch`
+  d'affilée, **sans halte manuelle** en preprod — l'équivalent « rapide » **sans
+  déroger** au modèle (preprod reste traversée). C'est cet enchaînement qui tient lieu
+  de « bypass » : il n'existe **pas** d'option pour *sauter* preprod.
+
+**Flux 2 branches** (pas de `preprod_branch`) — **`dev → prod_branch`** (historique) :
+`integration_branch` déployée en staging, tests de non-régression, puis **MR
+`dev → prod_branch`** + `pull prod_branch`.
 
 > **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
 > susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
@@ -91,9 +116,12 @@ ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
 > sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
 > à l'humain plutôt qu'à forcer.
 
-> Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
-> manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
-> `project/deployment.md` (template bootstrap `005-deployment`).
+> Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
+> à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
+> manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »
+> (aujourd'hui **convention NORMS + protections GitLab** sur `preprod`/`prod_branch` ;
+> **garde CI / push-rule** = follow-up, GitLab ne sachant pas nativement « mergeable
+> seulement depuis X »). Cf. `project/deployment.md` (template `005-deployment`).
 
 ---
 
@@ -178,25 +206,51 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   passe par GitLab.
 - **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
   une merge request de la branche de ticket vers la branche de base (version
-  active ou `dev`, cf. sous-sections suivantes), puis la merger.
-- **Gotcha glab/API GitLab — les `%2F` ne passent pas** : sur
-  `gitlab.iprospective.fr`, le front Apache **rejette les chemins projet
-  URL-encodés** (`iprospective%2Fdolibarr%2F…` → 404 Apache). Workaround
-  systématique : utiliser l'**ID numérique** du projet, récupéré sans slash via
-  une recherche :
+  active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
+  distante conservée** (cf. KERNEL #3).
+- **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
+  `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
+  les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
+  au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
+- **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
+  rôles GitLab.
+  - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
+    *Maintainer*) : **merge** les MR, gère les projets. Utilisé par `pm-mr merge` et
+    la promotion MEP.
+  - `GITLAB_WORKER_TOKEN` (+ `GITLAB_WORKER_USER`) — karl **worker** (rôle
+    *Developer*) : push des branches, **crée** des MR. Utilisé par `pm-branch-start`
+    et `pm-mr create`.
+  - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
+    commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
+    révoque ; mauvais en-tête → 401/404).
+- **Rotation des tokens** : les PAT ont une **expiration** → les **régénérer
+  régulièrement** (GitLab : *Access Tokens → Rotate*). Cadence **configurable**
+  (`pm.config.yml`/`.env`, ex. validité ~1 mois, renouvellement hebdomadaire pour
+  garder de la marge). *(Outillage de rotation auto = follow-up RM1871.)*
+- **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
+  membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
+  l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le
+  manager) sur chaque projet pré-existant à piloter.
+- **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
+  - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
+    utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
+  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN: <pat>` ; un token OAuth
+    `glab` en `Authorization: Bearer …` (sinon non-authentifié → 404 sur repo
+    `internal`).
+  - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
+  - **Conserver la branche** au merge : `should_remove_source_branch=false`.
 
   ```bash
-  # 1) trouver l'ID numérique (pas de %2F dans une recherche)
+  # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
   glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
-  # 2) agir avec l'ID (ex. créer une MR vers la branche de version active)
   glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
-    -f source_branch="<RM-id>-<slug>" -f target_branch="19.0-mmi" -f title="…" \
-    -f remove_source_branch=true
-  # 3) merger
-  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge"
+    -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
+    -f remove_source_branch=false
+  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
+    -f should_remove_source_branch=false
   ```
 - **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
-  `GIT PR` (id 4) avec son URL (cf. sous-section suivante).
+  `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
 
 #### Branche de travail par ticket (obligatoire) — v1.17.0
 
@@ -219,7 +273,16 @@ tâche). Exemple : `1762-etransactions-historique`.
   fois ouverte. C'est le CF dédié, **pas une note** : il rend l'info visible et
   filtrable côté Redmine. Le frontmatter MD `git.branch` / `git.mr_url` reste le
   miroir local.
-- À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
+- **À la livraison : MR sur le remote, et on CONSERVE la branche distante.**
+  La livraison d'une branche de ticket vers l'intégration se fait **via une
+  Merge Request** GitLab — **pas** un merge poussé en direct sur la branche
+  d'intégration. Et **la branche distante est conservée après merge** (jamais
+  supprimée) : elle garde la trace de revue/livraison et un point de référence
+  par ticket. ⚠️ Distinguer **autoriser un merge ≠ autoriser une suppression** :
+  ne **jamais supprimer une branche distante** sans accord explicite.
+- **Ménage : seulement en local.** Les branches **locales** mergées peuvent
+  (doivent) être nettoyées (`git branch -d`), le **remote** restant la référence
+  conservée. Le ménage local ne touche jamais au remote.
 - (Multi-serveur V2) le schéma `agent/{server}/RM{id}-titre` reste l'exception
   réservée à l'orchestration distribuée ; en mono-machine, utiliser la forme
   courte ci-dessus.

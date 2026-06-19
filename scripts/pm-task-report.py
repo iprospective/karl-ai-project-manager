@@ -162,7 +162,11 @@ def parse_log_entries(log_path):
         if not c or c.get("tokens") is None or c["tokens"] <= 0:
             return
         if c.get("input") is None and c.get("output") is None:
-            c["output"], c["input"], c["no_detail"] = c["tokens"], 0, True
+            # Pas de ligne `Détail :` → split inconnu. On NE fabrique PAS output=tokens
+            # (ces vieilles entrées portent le total cache-inflé : ré-inflation). On
+            # marque no_detail ; le report les IGNORE pour la création de TE (le cumul
+            # CF17/CF29 vient du tokens_breakdown du frontmatter, lui correct). RM2048.
+            c["output"], c["input"], c["no_detail"] = 0, 0, True
         else:
             c["input"] = c.get("input") or 0
             c["output"] = c.get("output") or 0
@@ -328,8 +332,10 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
     new_entries = []
     if not cf17_only:
         log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
-        new_entries = [e for e in parse_log_entries(log_path)
-                       if e["key"] not in pushed_keys]
+        all_entries = [e for e in parse_log_entries(log_path) if e["key"] not in pushed_keys]
+        # On IGNORE les entrées sans `Détail` (split inconnu, total cache-inflé).
+        res["nodetail"] = sum(1 for e in all_entries if e.get("no_detail"))
+        new_entries = [e for e in all_entries if not e.get("no_detail")]
     res["new_te"] = len(new_entries)
     res["te_tokens"] = sum(e["output"] + e["input"] for e in new_entries)
 

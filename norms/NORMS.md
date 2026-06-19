@@ -1,10 +1,10 @@
 ---
-schema_version: "1.49.0"
+schema_version: "1.50.0"
 updated: 2026-06-19
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.49.0
+# Normes de gestion des tâches — v1.50.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1883,6 +1883,14 @@ réponse Claude. Il :
    - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
    - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
      qui parse les "RM1234" dans le prompt user)
+   - **Garde « ticket fermé » (RM2053)** : la cible n'est **jamais** un ticket
+     `status: ferme`. Le résolveur retient le signal le plus fort **parmi les tickets
+     ouverts** ; un tour touchant un ticket ouvert + un fermé ticke l'**ouvert** ; un
+     tour ne touchant que du fermé → **aucune tick** (la conso du tour est perdue,
+     négligeable). Un sentinel `CURRENT_TASK` pointant un ticket clos est ignoré.
+     **Fail-safe** : statut illisible → traité comme ouvert (mieux vaut ticker que
+     perdre). Évite que la cérémonie de clôture / le suivi post-fermeture ne gonfle un
+     ticket déjà fermé.
 3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
 4. Sinon : lit le dernier message assistant du transcript, somme les tokens
    par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter

@@ -87,18 +87,22 @@ cmd_core_update(){
   [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] \
     || die "core update : doit tourner en root (sudo) — le code de l'instance est root-owned"
   [ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un dépôt git"
-  # root opère sur un .git root-owned (après verrou) ou mathieu-owned (transition) → safe.directory.
-  local g="git -c safe.directory=* -c safe.directory=$CORE_DIR"
-  local branch old; branch="$($g -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-  old="$($g -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  # core update tourne en root sur un .git root-owned (après verrou) → `git` simple suffit
+  # (owner == user). Garde anti « dubious ownership » si l'ownership diffère (transition) :
+  # déclarer le repo sûr pour root, idempotent (pas le `-c` inline, fragile à l'expansion).
+  if ! git config --global --get-all safe.directory 2>/dev/null | grep -qxF "$CORE_DIR"; then
+    git config --global --add safe.directory "$CORE_DIR" 2>/dev/null || true
+  fi
+  local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
     log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
     return
   fi
-  $g -C "$CORE_DIR" fetch --quiet origin
-  $g -C "$CORE_DIR" pull --ff-only origin "$branch"
-  $g -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
-  local new; new="$($g -C "$CORE_DIR" rev-parse --short HEAD)"
+  git -C "$CORE_DIR" fetch --quiet origin
+  git -C "$CORE_DIR" pull --ff-only origin "$branch"
+  git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
+  local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
   # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.
   [ -x "$CORE_DIR/scripts/core-lock" ] || die "scripts/core-lock absent/inexécutable"

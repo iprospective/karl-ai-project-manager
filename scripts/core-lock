@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# core-lock — pose/retire le verrou de propriété 3-couches de .mmi-pm-core
+#             (RM2032, couche core du modèle RM1902 ; cf. docs/cdc/2026-06-privsep-pm.md).
+#
+# SOURCE UNIQUE de la politique de propriété de l'instance déployée : provision-core
+# (bootstrap one-time) et `mmi-pm core update` (déploiement) DÉLÈGUENT ici. Ne JAMAIS
+# dupliquer le chown ailleurs.
+#
+# Modèle 3-couches :
+#   - CODE → root:root              : tout le versionné (bin/ scripts/ norms/ templates/
+#       agents/ pm.*.yml .git …). L'agent runtime KARL_USER (mathieu) LIT/EXÉCUTE via les
+#       bits « other » mais ne peut ni écrire ni committer l'instance (anti-pétouilles).
+#   - .env → root:KARL_USER 640     : secrets dans la couche immuable (root) ; lus par le
+#       groupe KARL_USER (mathieu, et mathieu-pm via son appartenance à ce groupe). SEUL
+#       root les modifie.
+#   - var/ → KARL_SUDO_USER:KARL_USER 2775 (setgid) : état runtime (var/sessions/…). Owner =
+#       service PM (mathieu-pm) ; le groupe KARL_USER laisse l'agent écrire ; setgid → les
+#       nouveaux fichiers héritent du groupe KARL_USER.
+#   - projects/ → KARL_USER:KARL_USER : index résolveur régénérable (symlinks vers .mmi-pm
+#       co-localisé, HORS frontière de confiance) → écrit sans privilège (mmi-pm index,
+#       auto-commit ai-projects sous projects/.git). [CDC §8 « projects/ selon décision
+#       finale » → tranché KARL_USER : l'index doit pouvoir s'écrire sans sudo.]
+#
+# Pré-requis système : KARL_SUDO_USER (mathieu-pm) DOIT être membre du groupe KARL_USER
+# (mathieu) pour lire .env (640) et écrire var/ (groupe). Vérifié ci-dessous (avertissement).
+#
+# Usage : sudo core-lock <lock|unlock> [CORE_DIR] [--dry-run]
+#   lock    : pose le verrou (déploiement / après MAJ).
+#   unlock  : rend TOUT à KARL_USER (phases de dev/débogage de l'instance ; réversibilité).
+set -euo pipefail
+
+ACTION="${1:-}"; shift || true
+CORE_DIR="/zfs/workspaces/.mmi-pm-core"
+DRY=0
+for a in "$@"; do
+  case "$a" in
+    --dry-run) DRY=1;;
+    -*) echo "core-lock: option inconnue '$a'" >&2; exit 1;;
+    *)  CORE_DIR="$a";;
+  esac
+done
+
+die(){ echo "core-lock: $*" >&2; exit 1; }
+run(){ if [ "$DRY" = 1 ]; then echo "  [dry] $*"; else "$@"; fi; }
+
+case "$ACTION" in
+  lock|unlock) :;;
+  *) die "usage: core-lock <lock|unlock> [CORE_DIR] [--dry-run]";;
+esac
+[ "$DRY" = 1 ] || [ "$(id -u)" -eq 0 ] || die "root requis (chown vers/depuis root)"
+[ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un checkout git"
+[ -f "$CORE_DIR/.env" ] || die "$CORE_DIR/.env absent (secrets) — provisionner d'abord"
+
+# Users lus dans le .env de l'instance (fédération) : KARL_USER = agent runtime (mathieu),
+# KARL_SUDO_USER = service PM privilégié (mathieu-pm).
+set -a; . "$CORE_DIR/.env"; set +a
+: "${KARL_USER:?KARL_USER absent du .env}"
+: "${KARL_SUDO_USER:?KARL_SUDO_USER absent du .env}"
+id "$KARL_USER"      >/dev/null 2>&1 || die "user runtime '$KARL_USER' inexistant"
+id "$KARL_SUDO_USER" >/dev/null 2>&1 || die "user PM '$KARL_SUDO_USER' inexistant"
+
+# Pré-requis d'appartenance : sans ça, mathieu-pm ne lit pas .env et l'agent n'écrit pas var/.
+if ! id -nG "$KARL_SUDO_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$KARL_USER"; then
+  echo "core-lock: ⚠ $KARL_SUDO_USER n'est PAS membre du groupe $KARL_USER" >&2
+  echo "core-lock:   → il ne pourra pas lire .env. Corriger : sudo usermod -aG $KARL_USER $KARL_SUDO_USER" >&2
+fi
+
+if [ "$ACTION" = lock ]; then
+  # 1) CODE → root (défaut pour tout). -RP : ne SUIT PAS les symlinks (index projects/ →
+  #    .mmi-pm co-localisé) : on ne rechowne JAMAIS la donnée client pointée.
+  run chown -RP root:root "$CORE_DIR"
+  run chmod -R u=rwX,go=rX "$CORE_DIR"
+
+  # 2) projects/ → KARL_USER (index régénérable, écrit sans privilège). Owner u=rwX déjà posé.
+  run chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR/projects"
+
+  # 3) var/ → KARL_SUDO_USER:KARL_USER, groupe-écrivable + setgid : l'agent (KARL_USER, via le
+  #    groupe) écrit var/sessions/… ; les nouveaux fichiers héritent du groupe KARL_USER.
+  #    mkdir d'abord : sous racine root verrouillée, l'agent ne pourrait pas créer var/.
+  run mkdir -p "$CORE_DIR/var"
+  run chown -RP "$KARL_SUDO_USER:$KARL_USER" "$CORE_DIR/var"
+  run chmod -R u=rwX,g=rwX,o=rX "$CORE_DIR/var"
+  run find "$CORE_DIR/var" -type d -exec chmod g+s {} +
+
+  # 4) .env → root:KARL_USER 640 : secrets en couche immuable (root) ; groupe KARL_USER lit
+  #    (mathieu + mathieu-pm via le groupe). SEUL root modifie.
+  run chown root:"$KARL_USER" "$CORE_DIR/.env"
+  run chmod 640 "$CORE_DIR/.env"
+
+  echo "core-lock: $CORE_DIR VERROUILLÉ — code=root ; .env=root:$KARL_USER 640 ; var/=$KARL_SUDO_USER:$KARL_USER 2775 ; projects/=$KARL_USER$([ "$DRY" = 1 ] && echo ' [dry-run]')"
+else
+  # unlock : TOUT → KARL_USER (dev/débogage de l'instance). Réversibilité complète du verrou.
+  run chown -RP "$KARL_USER:$KARL_USER" "$CORE_DIR"
+  run chmod -R u=rwX,go=rX "$CORE_DIR"
+  echo "core-lock: $CORE_DIR DÉVERROUILLÉ — tout → $KARL_USER (dev/debug)$([ "$DRY" = 1 ] && echo ' [dry-run]')"
+fi

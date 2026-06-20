@@ -84,32 +84,26 @@ link_project(){ # $1=client $2=projet $3=loc(.../<projet>)
 # ====================== commandes ======================
 
 cmd_core_update(){
-  [ "$(id -un)" = "$KARL_SUDO_USER" ] || [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] \
-    || die "core update : doit tourner en $KARL_SUDO_USER (via sudo)"
+  [ "$(id -u)" -eq 0 ] || [ "$DRY" = 1 ] \
+    || die "core update : doit tourner en root (sudo) — le code de l'instance est root-owned"
   [ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un dépôt git"
-  local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
-  old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
+  # root opère sur un .git root-owned (après verrou) ou mathieu-owned (transition) → safe.directory.
+  local g="git -c safe.directory=* -c safe.directory=$CORE_DIR"
+  local branch old; branch="$($g -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
+  old="$($g -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git -C $CORE_DIR pull --ff-only origin $branch ; submodule update ; chown -R $KARL_SUDO_USER (hors .env + projects/ + var/, no-follow symlinks) ; chmod go-w (hors projects/ + var/)"
+    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
     return
   fi
-  git -C "$CORE_DIR" fetch --quiet origin
-  git -C "$CORE_DIR" pull --ff-only origin "$branch"
-  git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
-  local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
-  # Re-verrou (en KARL_SUDO_USER). On EXCLUT trois chemins :
-  #   - .env       : groupe KARL_USER posé par provision-core (seul root fixe ce groupe tiers),
-  #                  git ne le touche jamais (gitignored). chown sauté ; chmod go-w idempotent (640).
-  #   - projects/  : index KARL_USER-owned (donnée karl régénérable, hors frontière de confiance) ;
-  #                  KARL_SUDO_USER ne peut ni le chown ni le chmod (pas propriétaire) → exclu des deux.
-  #   - var/       : état runtime KARL_USER-owned (compteur sessions/worktrees, pm_session) ; même
-  #                  raison que projects/ → exclu des deux, sinon le runtime perd l'écriture de var/.
-  # -hP : ne suit pas les symlinks d'index → donnée client co-localisée intacte.
-  find "$CORE_DIR" \( -name .env -o -path "$CORE_DIR/projects" -o -path "$CORE_DIR/var" \) -prune -o -print0 \
-    | xargs -0r chown -hP "$KARL_SUDO_USER:$KARL_SUDO_USER"
-  find "$CORE_DIR" \( -path "$CORE_DIR/projects" -o -path "$CORE_DIR/var" \) -prune -o -print0 \
-    | xargs -0r chmod go-w      # aucune écriture groupe/other hors projects/ + var/ (.env 640 intact)
-  log "outil $old -> $new ($branch) ; re-verrouillé $KARL_SUDO_USER (.env préservé)"
+  $g -C "$CORE_DIR" fetch --quiet origin
+  $g -C "$CORE_DIR" pull --ff-only origin "$branch"
+  $g -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
+  local new; new="$($g -C "$CORE_DIR" rev-parse --short HEAD)"
+  # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
+  # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.
+  [ -x "$CORE_DIR/scripts/core-lock" ] || die "scripts/core-lock absent/inexécutable"
+  "$CORE_DIR/scripts/core-lock" lock "$CORE_DIR"
+  log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
 

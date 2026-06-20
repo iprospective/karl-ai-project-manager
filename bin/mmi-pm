@@ -46,7 +46,7 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm list                        inventaire de l'index                       [lecture]
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
-Légende : [priv]=sudo KARL_SUDO_USER  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
+Légende : [priv]=re-exec sudo ROOT  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
 Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
           KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
@@ -55,8 +55,8 @@ EOF
 
 # --- classification des sous-commandes (D3) ---
 # Surface privilégiée minimale (décision RM1902, 2026-06-16) : SEUL `core update` mute la
-# frontière de confiance (outil + normes) → sudo KARL_SUDO_USER. Tout le reste tourne en
-# KARL_USER (non privilégié) :
+# frontière de confiance (outil + normes), désormais ROOT-owned (verrou 3-couches RM2032)
+# → re-exec sudo ROOT. Tout le reste tourne en KARL_USER (non privilégié) :
 #   - `index *`         n'écrit que des symlinks dans projects/ (index karl-writable,
 #                       régénérable, gitignored, pointant vers données karl) → rien à gater.
 #   - `client/project *` (Lot 2) mutent la méta-structure karl co-localisée ; durcissement
@@ -207,11 +207,12 @@ set -- "${POS[@]:-}"
 
 NOUN="${1:-}"; VERB="${2:-}"
 
-# gate sudo : ops privilégiées → re-exec sudo -u KARL_SUDO_USER (mot de passe), sauf en dry-run
-if is_privileged "$NOUN" "$VERB" && [ "$DRY" = 0 ] \
-   && [ "$(id -un)" != "$KARL_SUDO_USER" ] && [ "$(id -u)" -ne 0 ]; then
-  log "opération privilégiée → sudo -u $KARL_SUDO_USER (mot de passe requis)"
-  exec sudo -u "$KARL_SUDO_USER" "$SELF" "${ORIG_ARGS[@]}"
+# gate sudo : `core update` mute le code ROOT-owned (verrou 3-couches RM2032) → l'outil se
+# RE-EXEC en ROOT tout seul (mot de passe requis), sauf en dry-run. Pas besoin de taper
+# `sudo` à la main. (core update = seul verbe privilégié, cf. is_privileged.)
+if is_privileged "$NOUN" "$VERB" && [ "$DRY" = 0 ] && [ "$(id -u)" -ne 0 ]; then
+  log "opération privilégiée (code root-owned) → re-exec sudo (mot de passe requis)"
+  exec sudo "$SELF" "${ORIG_ARGS[@]}"
 fi
 
 case "$NOUN" in

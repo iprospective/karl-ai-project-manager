@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+# install-mmi-pm — installeur complet d'une instance mmi-pm (RM2062).
+#
+# Point d'entrée UNIQUE du bootstrap d'instance, idempotent. Sur un checkout
+# .mmi-pm-core déjà cloné + .env rempli (secrets + KARL_USER/KARL_SUDO_USER), met
+# l'environnement en service :
+#   1. prérequis (git, python3, module yaml) ;
+#   2. users : KARL_USER (login, doit pré-exister) ; KARL_SUDO_USER (service PM) créé si
+#      absent (useradd --system, dans le groupe KARL_USER) ;
+#   3. alias `mmi-pm` sur le PATH : symlink /usr/local/bin/mmi-pm → bin/mmi-pm
+#      (mmi-pm est self-locating via readlink -f → le lien résout l'instance) ;
+#   4. sudoers : deploy/mmi-pm.sudoers.example → /etc/sudoers.d/mmi-pm (substitué,
+#      validé visudo -cf, 0440) ;
+#   5. verrou : délègue à provision-core (groupe + index rebuild + core-lock 3-couches)
+#      — sauf --no-lock.
+#
+# Self-locating (CORE_DIR = dirname(dirname(readlink -f $0))). ROOT requis (users,
+# symlink système, sudoers, chown). RM2062 / RM2032 / RM1945 / RM1680.
+#
+# Usage : sudo install-mmi-pm [CORE_DIR] [--no-lock] [--dry-run]
+set -euo pipefail
+
+SELF="$(readlink -f "$0")"
+CORE_DIR="$(dirname "$(dirname "$SELF")")"   # scripts/.. = racine de l'instance
+NO_LOCK=0; DRY=0
+for a in "$@"; do
+  case "$a" in
+    --no-lock) NO_LOCK=1;;
+    --dry-run) DRY=1;;
+    -*) echo "install-mmi-pm: option inconnue '$a'" >&2; exit 1;;
+    *)  CORE_DIR="$(readlink -f "$a")";;
+  esac
+done
+
+die(){ echo "install-mmi-pm: $*" >&2; exit 1; }
+run(){ if [ "$DRY" = 1 ]; then echo "  [dry] $*"; else "$@"; fi; }
+step(){ echo "==> $*"; }
+
+[ "$DRY" = 1 ] || [ "$(id -u)" -eq 0 ] || die "root requis (users, symlink système, sudoers, verrou)"
+[ -d "$CORE_DIR/.git" ] || [ -f "$CORE_DIR/.git" ] || die "$CORE_DIR n'est pas un checkout git"
+[ -f "$CORE_DIR/.env" ] || die "$CORE_DIR/.env absent — copier .env.example, remplir les secrets, puis relancer"
+[ -x "$CORE_DIR/bin/mmi-pm" ] || die "$CORE_DIR/bin/mmi-pm absent/inexécutable (checkout incomplet ?)"
+
+set -a; . "$CORE_DIR/.env"; set +a
+: "${KARL_USER:?KARL_USER absent du .env}"
+: "${KARL_SUDO_USER:?KARL_SUDO_USER absent du .env}"
+
+# 1. Prérequis ───────────────────────────────────────────────────────────────
+step "Prérequis"
+MISS=0
+for c in git python3; do command -v "$c" >/dev/null 2>&1 || { echo "  MANQUANT : $c"; MISS=1; }; done
+python3 -c 'import yaml' 2>/dev/null || { echo "  MANQUANT : module python 'yaml' (apt install python3-yaml)"; MISS=1; }
+[ "$MISS" = 0 ] || die "prérequis manquants (voir ci-dessus)"
+echo "  ✓ git, python3, yaml"
+
+# 2. Users ────────────────────────────────────────────────────────────────────
+step "Utilisateurs système"
+id "$KARL_USER" >/dev/null 2>&1 || die "KARL_USER '$KARL_USER' inexistant — c'est le compte agent (login) ; le créer d'abord"
+echo "  ✓ KARL_USER=$KARL_USER présent"
+if id "$KARL_SUDO_USER" >/dev/null 2>&1; then
+  echo "  ✓ KARL_SUDO_USER=$KARL_SUDO_USER présent"
+else
+  echo "  · création du service PM $KARL_SUDO_USER (system, sans login)"
+  run useradd --system --shell /usr/sbin/nologin -M -g "$KARL_SUDO_USER" -G "$KARL_USER" "$KARL_SUDO_USER" 2>/dev/null \
+    || run useradd --system --shell /usr/sbin/nologin -M -G "$KARL_USER" "$KARL_SUDO_USER"
+fi
+# Appartenance au groupe KARL_USER (lecture .env 640, écriture var/ setgid) — idempotent.
+run usermod -aG "$KARL_USER" "$KARL_SUDO_USER"
+
+# 3. Alias mmi-pm sur le PATH ─────────────────────────────────────────────────
+step "Alias mmi-pm sur le PATH (/usr/local/bin/mmi-pm)"
+run ln -sfn "$CORE_DIR/bin/mmi-pm" /usr/local/bin/mmi-pm
+echo "  ✓ /usr/local/bin/mmi-pm -> $CORE_DIR/bin/mmi-pm"
+
+# 4. Sudoers ──────────────────────────────────────────────────────────────────
+step "Règles sudoers (/etc/sudoers.d/mmi-pm)"
+SRC="$CORE_DIR/deploy/mmi-pm.sudoers.example"
+[ -f "$SRC" ] || die "$SRC absent"
+if [ "$DRY" = 1 ]; then
+  echo "  [dry] substitue <KARL_USER>=$KARL_USER / <KARL_SUDO_USER>=$KARL_SUDO_USER → /etc/sudoers.d/mmi-pm (visudo -cf, 0440)"
+else
+  TMP="$(mktemp)"; trap 'rm -f "$TMP"' EXIT
+  sed -e "s|<KARL_USER>|$KARL_USER|g" -e "s|<KARL_SUDO_USER>|$KARL_SUDO_USER|g" "$SRC" > "$TMP"
+  visudo -cf "$TMP" >/dev/null || die "sudoers généré invalide (visudo -cf a échoué) — rien installé"
+  install -m 0440 -o root -g root "$TMP" /etc/sudoers.d/mmi-pm
+  echo "  ✓ /etc/sudoers.d/mmi-pm installé (0440, validé)"
+fi
+
+# 5. Verrou (délégué à provision-core) ────────────────────────────────────────
+if [ "$NO_LOCK" = 1 ]; then
+  step "Verrou : SAUTÉ (--no-lock) — instance laissée writable (dev)"
+else
+  step "Verrou 3-couches (délégué à provision-core → core-lock)"
+  if [ "$DRY" = 1 ]; then
+    echo "  [dry] $CORE_DIR/scripts/provision-core $CORE_DIR"
+  else
+    "$CORE_DIR/scripts/provision-core" "$CORE_DIR"
+  fi
+fi
+
+echo
+echo "install-mmi-pm: instance $CORE_DIR installée$([ "$DRY" = 1 ] && echo ' [dry-run]')."
+echo "  • commande : mmi-pm <core|index|list|doctor …>  (sur le PATH)"
+echo "  • déploiement d'une MAJ : sudo mmi-pm core update"
+if [ "$NO_LOCK" = 1 ]; then
+  echo "  • verrou non posé → 'sudo $CORE_DIR/scripts/core-lock lock' quand prêt"
+fi
+exit 0

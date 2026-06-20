@@ -1,25 +1,32 @@
-# mmi-pm — règles sudoers (Lot 1, RM1680 §13a ; révision mathieu-pm 2026-06-15).
+# mmi-pm — règles sudoers (Lot 1, RM1680 §13a ; modèle 3-couches RM2032).
 #
-# Modèle de sécurité (RM1945) : l'outil déployé (.mmi-pm-core) appartient à un USER
-# DÉDIÉ — KARL_SUDO_USER (ex. mathieu-pm), distinct de l'agent runtime KARL_USER
-# (ex. mathieu, lecture seule). Deux droits sudo :
+# Modèle de sécurité 3-couches (cf. docs/cdc/2026-06-privsep-pm.md) appliqué à
+# l'instance déployée .mmi-pm-core :
+#   - CODE = root (immuable) → sa MAJ et son (re)verrouillage exigent ROOT ;
+#   - Service PM = KARL_SUDO_USER (ex. mathieu-pm) → ops de structure/index/sync PM ;
+#   - Agent runtime = KARL_USER (ex. mathieu) → lit/exécute le code, code dans les projets.
 #
-#   1. Ops courantes (mmi-pm core update / index …)       -> en KARL_SUDO_USER
-#   2. Bootstrap initial d'une instance (provision-core)  -> en root
-#      (le chown inter-utilisateur mathieu -> mathieu-pm exige root, one-time).
-#
-# DÉCISION §13a : MOT DE PASSE REQUIS — PAS de NOPASSWD (barrière humaine sur chaque
-# opération privilégiée : core update / index / import).
+# Trois droits sudo (TOUS avec MOT DE PASSE — PAS de NOPASSWD, barrière humaine, §13a) :
+#   1. PM ops courantes (structure, index, sync…)        -> en KARL_SUDO_USER
+#   2. Déploiement du code + (re)verrou                  -> en root
+#      (`mmi-pm core update` = git pull du code root-owned + délègue à `core-lock`)
+#   3. Verrou/déverrou de propriété + bootstrap          -> en root
+#      (`core-lock lock|unlock`, `provision-core` ; chown inter-utilisateur exige root)
 #
 # Installation :
-#   1. Remplacer <KARL_USER> (agent runtime) et <KARL_SUDO_USER> (propriétaire outil).
+#   1. Remplacer <KARL_USER> (agent runtime) et <KARL_SUDO_USER> (service PM).
 #   2. sudo cp ce fichier vers /etc/sudoers.d/mmi-pm   (puis: sudo visudo -c)
 #   3. sudo chmod 0440 /etc/sudoers.d/mmi-pm
 #
-# Les re-exec se font via chemins absolus figés ; mmi-pm valide ses args.
+# Les chemins sont absolus figés ; mmi-pm valide ses args. ORDRE = last-match-wins :
+# l'entrée root `core update` (2) doit suivre l'entrée générale mathieu-pm (1).
 
-# Ops courantes — mmi-pm tourne comme l'utilisateur propriétaire de l'outil.
+# 1. PM ops courantes — mmi-pm tourne comme le service PM (KARL_SUDO_USER).
 <KARL_USER> ALL=(<KARL_SUDO_USER>) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm *
 
-# Bootstrap initial (verrouillage propriété) — root, one-time par instance.
+# 2. Déploiement du code (root-owned) : pull + re-verrou via core-lock → root.
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update*
+
+# 3. Verrou de propriété 3-couches (RM2032) + bootstrap initial — root.
+<KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/core-lock *
 <KARL_USER> ALL=(root) /zfs/workspaces/.mmi-pm-core/scripts/provision-core *

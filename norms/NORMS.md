@@ -850,6 +850,18 @@ elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent es
 « un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
 (module `collaboration`, § *Propagation de complétion*).
 
+**Précondition de fermeture — relations bloquantes.** De même, un ticket **bloqué par**
+une relation `blocks` / `precedes` (= NORMS `depends_on`) ne peut être fermé tant que le
+ticket **source** reste ouvert — refus tout aussi **silencieux** que pour les sous-tâches.
+Ce n'est **ni** un problème de droit, **ni** de workflow, **ni** de tracker. (Vécu sur
+RM1813, bloqué par #1816 / #1814 / #1848 encore ouverts.)
+
+**Outil de diagnostic — `pm-task-blockers.py <id>` (réflexe).** Dès qu'une transition vers
+`ferme` (ou tout statut) est **refusée silencieusement**, lancer
+`scripts/pm-task-blockers.py <id>` : il liste en un coup les **relations bloquantes
+ouvertes** (blocks/precedes) ET les **sous-tâches ouvertes**, et dit **quoi clôturer
+d'abord** (`--json` pour l'outillage). À préférer au diagnostic manuel ci-dessous.
+
 > **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
 > `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
 > **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
@@ -858,7 +870,7 @@ elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent es
 > conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
 > ont les **mêmes** droits). Diagnostic autoritatif :
 > `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
-> non permise) puis `?include=children` (un enfant non clos = le blocage). Remède :
+> non permise) puis `?include=children,relations` (un enfant non clos **ou** une relation bloquante ouverte = le blocage ; `pm-task-blockers.py` automatise les deux). Remède :
 > fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
 > parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
 

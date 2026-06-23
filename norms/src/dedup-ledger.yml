@@ -70,3 +70,21 @@ rewritten:
   - reason: "RM1977 (v1.43.0) : 3e membership par défaut ajouté (Agents IA/Intervenant) — 'deux'→'trois'"
     old: |
       systématiquement ces deux memberships via `POST /projects/<id>/memberships.json` :
+
+  - reason: "RM2043 (v1.51.0) privsep : cascade contexte projet inclut docs/ — KERNEL réécrit (ajout {docs_dir}/*.md)"
+    old: |
+      3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
+
+  - reason: "RM2043 (v1.51.0) privsep : module project-modeling — section « Aspects » scindée canoniques (project/) vs libres (docs/) ; paragraphe + bulles réécrits"
+    old: |
+      Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
+      (aspects) dans le dossier `client/` ou `project/`. Cette approche évite le fichier
+      monolithique illisible et permet d'enrichir progressivement la connaissance du périmètre.
+      - Tout autre fichier est **optionnel** — sa présence indique que l'aspect est documenté
+      - L'agent qui charge le contexte lit **tous** les fichiers du dossier `project/` (et `client/`)
+      - `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
+
+  - reason: "RM2043 (v1.51.0) privsep : module structure-reference — project_dir = canoniques + ajout docs_dir ; arbo & bénéfices réécrits"
+    old: |
+      {project_dir}/              # = project/project  — cahier des charges
+      `.mmi-pm/tasks/`)

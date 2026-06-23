@@ -101,6 +101,7 @@ def components(role, before=False, entity=None, project=None, with_host=False):
                 ("cascade client/*.md", "entity_client_dir", {"entity": entity}),
                 ("cascade client memory/*.md", "entity_memory_dir", {"entity": entity}),
                 ("cascade project/*.md", "project_dir", {"entity": entity, "project": project}),
+                ("cascade docs/*.md", "docs_dir", {"entity": entity, "project": project}),
                 ("cascade project memory/*.md", "project_memory_dir", {"entity": entity, "project": project})):
             d = cfg.path(key, **kw)
             if d.is_dir():

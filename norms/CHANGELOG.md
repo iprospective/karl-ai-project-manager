@@ -5,6 +5,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.51.0] - 2026-06-23
+
+### Modifié — frontière `docs/` : aspects libres hors `project/` (RM2043, privsep)
+
+Étape 0 du volet privsep PM. Les **aspects-docs libres** d'un projet (roadmap,
+data-model, orchestrator, specs…) quittent `project/` pour **`.mmi-pm/docs/`**
+(group-writable `mathieu`, wiki-syncés) ; `project/` ne garde que les **canoniques**
+`overview.md` + `environments.md` (couche `mathieu-pm`, mutation via `mmi-pm`, hors
+wiki-sync). Le discriminant reste *« a un filet de réconciliation (wiki-sync 3-way),
+ou pas »*.
+
+- **`structure-reference`** : nouveau pattern `docs_dir = {project}/docs` ; arbo et
+  table des chemins mises à jour ; symlink de confort `<workspace>/docs → .mmi-pm/docs`.
+- **`project-modeling`** : section « Aspects » scindée canoniques (`project/`) vs
+  libres (`docs/`) ; la cascade de contexte lit désormais `project/` **et** `docs/`.
+- **KERNEL** : cascade projet = `{project_dir}/*.md + {docs_dir}/*.md + {project_memory_dir}/*.md`.
+
+Outillage rendu *docs-aware* (mêmes commits) : `pm.config.yml`/`pm_paths` (`docs_dir`),
+`pm-wiki-sync` (scrute `docs/` seul ; `environments` sort du wiki-sync), `pm-context-budget`
+(cascade `docs/*.md`), `karl-agent._project_docs` (surface `project/`+`docs/`), `pm-doctor`
+(invariant : aucun aspect libre résiduel dans `project/`), `pm-project-new` (scaffold `docs/`
++ symlink). Migration réelle des données = `pm-docs-migrate --all` (outil idempotent /
+dry-run / réversible), exécutée séparément sur le repo `ai-projects`.
+
 ## [1.50.0] - 2026-06-19
 
 ### Précisé — `pm-task-tick` : garde « ticket fermé » (RM2053)

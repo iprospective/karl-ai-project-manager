@@ -13,6 +13,10 @@ Valide les champs redondants par construction des `project/overview.md`
   2. **implements ↔ implemented_by** (relation implémentation, RM1837)
      - listes symétriques : A.implements ∋ B ⇔ B.implemented_by ∋ A.
      - chaque cible `<entité>/<projet>` doit exister.
+  3. **Structure docs/ (privsep, RM2043)** — frontière mathieu-pm/mathieu :
+     `project/` ne contient QUE les canoniques (overview.md, environments.md) ;
+     tout autre aspect libre doit vivre dans `docs/` (group-writable, wiki-syncé).
+     Un `*.md` libre resté dans `project/` = aspect non migré → erreur.
 
 Sortie : rapport par problème ; exit 0 si tout est cohérent, 1 sinon.
 Usage : pm-doctor.py [--quiet]
@@ -53,6 +57,24 @@ def parse_ref(value):
     return (ent.strip(), proj.strip()) if ent.strip() and proj.strip() else None
 
 
+# Aspects qui RESTENT dans project/ (canoniques) — cf. pm-docs-migrate. Tout autre
+# *.md dans project/ est un aspect libre non migré vers docs/ (privsep RM2043).
+CANONICAL_PROJECT_DOCS = {"overview.md", "environments.md"}
+
+
+def check_docs_structure(cfg, errors):
+    """Invariant privsep (RM2043) : aucun aspect libre résiduel dans `project/`."""
+    for ent, proj, _ in cfg.iter_projects():
+        project_dir = cfg.path("project_dir", entity=ent, project=proj)
+        if not project_dir.is_dir():
+            continue
+        for f in sorted(project_dir.glob("*.md")):
+            if f.name not in CANONICAL_PROJECT_DOCS:
+                errors.append(f"{ent}/{proj} : aspect libre '{f.name}' resté dans "
+                              f"project/ — doit être migré vers docs/ "
+                              f"(pm-docs-migrate --project {ent}/{proj})")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -63,6 +85,9 @@ def main():
     ovs = load_overviews(cfg)
     entities = {e for e, _ in ovs}
     errors, warns = [], []
+
+    # 3. Invariant de structure docs/ (privsep RM2043)
+    check_docs_structure(cfg, errors)
 
     for (ent, proj), fm in sorted(ovs.items()):
         me = f"{ent}/{proj}"

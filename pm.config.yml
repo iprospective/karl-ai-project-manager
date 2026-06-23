@@ -46,7 +46,8 @@ paths:
 
   # Niveau projet
   project:             "{entity_projects_dir}/{project}"
-  project_dir:         "{project}/project"
+  project_dir:         "{project}/project"   # CANONIQUE : overview.md + environments.md (couche mathieu-pm stricte, mutation via mmi-pm)
+  docs_dir:            "{project}/docs"      # aspects-docs LIBRES (wiki-syncés, group-writable mathieu) — cf. RM2043 / CDC privsep §5
   project_memory_dir:  "{project}/memory"
   tasks_dir:           "{project}/tasks"
 

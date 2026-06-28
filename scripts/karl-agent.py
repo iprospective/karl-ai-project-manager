@@ -642,12 +642,17 @@ def _log_tail(tf: Path, n: int = 18) -> str:
 
 
 def _project_docs(project_dir: Path) -> list:
-    """Fichiers de doc du projet (overview, environments, CDC, specs…)."""
+    """Fichiers de doc du projet (overview, environments, CDC, specs…).
+
+    Deux emplacements depuis RM2043 (privsep) : `project/` (canoniques overview +
+    environments) et `docs/` (aspects libres wiki-syncés). On surface les deux.
+    """
     docs = []
-    pdir = project_dir / "project"
-    if pdir.is_dir():
-        for f in sorted(pdir.glob("*.md")):
-            docs.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
+    for sub in ("project", "docs"):
+        pdir = project_dir / sub
+        if pdir.is_dir():
+            for f in sorted(pdir.glob("*.md")):
+                docs.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
     return docs
 
 

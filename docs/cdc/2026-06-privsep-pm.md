@@ -43,27 +43,38 @@ Comme **aucune mutation ne peut contourner l'outil** (la donnée appartient à `
 
 **Décision** : on ne fait **aucune exception de gray-zone** — *tout* le PM passe par `mmi-pm`/`mathieu-pm`, y compris l'état de tâche (§3). Le NOPASSWD supprime la friction qui aurait justifié de laisser le workflow courant à `mathieu`.
 
-## 5. Frontière des données : `.mmi-pm` (mathieu-pm) vs `docs/` (mathieu)
+## 5. Frontière des données : `.mmi-pm` (mathieu-pm) — `docs/` group-writable
 
 Le vrai discriminant pour « éditable directement par `mathieu` » n'est pas « prose vs structuré » mais **« a un mécanisme de réconciliation, ou pas »** :
 
 - Les fichiers **synchronisés vers le wiki Redmine** sont sûrs à éditer librement **parce que `pm-wiki-sync` fait un fold-back / merge 3-way** (RM1821) — deux éditions concurrentes se réconcilient.
 - Les fichiers de **`tasks/`** (`RM*.md` + **`.log.md`**) n'ont **aucun filet** : état en parité stricte avec l'issue Redmine + journal d'audit → édition libre = corruption.
 
-**Conséquence (layout)** — pour garder `.mmi-pm/` **100 % `mathieu-pm`** (ACL triviale, zéro exception interne) :
+**Décision de layout (révisée)** — seul **`docs/` vit DANS `.mmi-pm/`** (pas en sibling),
+avec le **patron `var/`** : dossier `mathieu-pm:mathieu` **2775 setgid**. Le *dossier* est ainsi
+**protégé** (renommer/supprimer `docs/` exige le write sur `.mmi-pm` = `mathieu-pm` → `mathieu`
+ne peut pas), tandis que les **fichiers** dedans sont **éditables par `mathieu`** via le groupe.
+`repos/` et `envs/` **restent des siblings de `.mmi-pm`** à la racine du workspace (inchangé) ;
+seule leur **propriété** évolue (création *gated* `mathieu-pm`, cf. ci-dessous) :
 
 ```
-<client>/<projet>/
-├── .mmi-pm/        100 % mathieu-pm — tasks/, project/{overview,environments,aspects canoniques}, meta.yml   [mutation via mmi-pm]
-├── docs/           mathieu-éditable — doc wiki LIBRE, réconciliée par le sync                                 [édition directe]
-├── repos/ envs/    mathieu (le code)
+<client>/<projet>/                  ← racine workspace : appartient à mathieu-pm (non supprimable par mathieu)
+├── .mmi-pm/                        100 % mathieu-pm
+│   ├── tasks/    RM*.md + .log.md — parité Redmine + audit, AUCUN filet     [mutation via mmi-pm]
+│   ├── project/  overview.md + environments.md (canoniques)                 [mutation via mmi-pm]
+│   ├── meta.yml  manifeste machine                                          [mutation via mmi-pm]
+│   ├── memory/   mémoire projet                                             [mutation via mmi-pm]
+│   └── docs/     mathieu-pm:mathieu 2775 setgid — aspects LIBRES wiki-syncés [édition directe via groupe]
+├── docs → .mmi-pm/docs             symlink de confort (créé à la migration / scaffolding)
+└── repos/ envs/                    mathieu-pm 755 — bare-repos + worktrees (création gated ; worktree chowné mathieu)
 ```
 
-- **Restent dans `project/` (canoniques, `mathieu-pm`)** : `overview.md`, `environments.md` (+ whitelist d'aspects structurés consommés par l'outillage).
-- **Partent vers `docs/` (libres, `mathieu`)** : tous les autres aspects-docs (roadmap, data-model, orchestrator, migration-plan, etc. — ≈ 9 fichiers épars).
-- **Propriété élégante** : la frontière de droits = **le périmètre du wiki-sync** ; elle se **dérive** du manifeste de sync (si un fichier entre/sort du sync, sa permission suit).
+- **Restent dans `project/` (canoniques, `mathieu-pm`, mutation via `mmi-pm`)** : `overview.md`, `environments.md` — consommés par l'outillage, HORS wiki-sync.
+- **Partent vers `docs/` (libres, group-writable `mathieu`, wiki-syncés)** : tous les autres aspects-docs (roadmap, data-model, orchestrator, migration-plan, etc. — **9 fichiers** sur 5 projets, mesuré par `pm-doctor`).
+- **Propriété élégante** : la frontière de droits = **le périmètre du wiki-sync** ; `pm-wiki-sync` ne scrute QUE `docs/`, `pm-doctor` interdit tout aspect libre résiduel dans `project/`.
 - L'**opération de sync** (`mmi-pm wiki sync`) reste sensible (touche Redmine) → `mathieu-pm` ; `mathieu` édite le fichier, l'outil réconcilie (`mathieu-pm` est dans le groupe `mathieu` → lit/écrit les fichiers partagés pour le fold-back).
-- Même logique au **niveau client** (`.mmi-pm-client`) : overview client wiki-synced → `docs/` ; `memory/`/`projects_used/` → `mathieu-pm`.
+- **`repos/` et `envs/`** : `mathieu-pm` **755** — seul `mathieu-pm` y crée un bare-repo / un worktree (création *gated*) ; chaque worktree `envs/<repo>-dev` est ensuite **chowné `mathieu`** (le code reste éditable). Enforcement = provisioning env (RM1947).
+- Même logique au **niveau client** (`.mmi-pm-client`) — overview client wiki-synced → `docs/` — **hors périmètre de RM2043** (projets seulement) ; à reprendre avec RM1902.
 
 ## 6. Patron de sécurité — dispatcher défensif
 
@@ -95,9 +106,9 @@ Ce patron (**surface minimale + cible confinée par fd + fail-closed**) est le m
 
 L'ordre est contraint : **on ne peut pas verrouiller `.mmi-pm` en `mathieu-pm` tant que des docs `mathieu`-éditables y vivent.**
 
-0. **Migration `docs/` + refactor scripts** (prérequis) — move aspects libres `project/→docs/` sur les `.mmi-pm` existants ; adapter `pm-wiki-sync` (scope source), `pm_paths` (`docs_dir`), scaffolding (`pm-project-new`/`-bootstrap`/`-client-new`), `pm-doctor`, `templates/aspects`, NORMS (`project-modeling`/`structure-reference`). Outil `pm-docs-migrate` idempotent/dry-run/réversible.
+0. **Migration `docs/` + refactor scripts** (prérequis, **RM2043**) — move aspects libres `project/→docs/` sur les `.mmi-pm` existants ; rendre l'outillage *docs-aware* : `pm_paths`/`pm.config.yml` (`docs_dir`), `pm-wiki-sync` (scope source = `docs/` seul), `pm-context-budget` (cascade `docs/*.md`), `karl-agent._project_docs` (surface `project/`+`docs/`), `pm-doctor` (invariant : pas d'aspect libre résiduel dans `project/`), scaffolding `pm-project-new` (crée `docs/` + symlink), NORMS (`project-modeling`/`structure-reference`). Outil `pm-docs-migrate` idempotent/dry-run/réversible. *(`-bootstrap`/`-client-new` : pas d'impact — `-bootstrap` ne lit que `project/environments.md`, clients hors périmètre.)*
 1. **`mmi-pm edit`** (capacité confinée, §7).
 2. **Dispatcher défensif** (§6) — whitelist/validation/confinement/audit.
-3. **`core-lock` 3-niveaux + sudoers NOPASSWD** (RM2032) — chown root/mathieu-pm/mathieu, `.env` `root:mathieu` 640, `var/` `mathieu-pm:mathieu` 2775, `projects/` selon décision finale ; `mmi-pm` re-gated.
+3. **`core-lock` 3-niveaux + sudoers** (RM2032, **livré**) — chown root/mathieu-pm/mathieu, `.env` `root:mathieu` 640, `var/` `mathieu-pm:mathieu` 2775, **`projects/` `mathieu`** (index régénérable) ; `mmi-pm` re-gated. *(Verrou des `.mmi-pm` projet en `mathieu-pm` = RM1902, après RM2043.)*
 
 Multi-tenant (RM1906) : durcir le NOPASSWD (virer le `*`, whitelist d'args, bascule socket) — la frontière devient *load-bearing*.

@@ -58,8 +58,10 @@ ci-dessous montre la **résolution par défaut**.
       Remarques.md                    # AUTO — observations factuelles
       {entity_projects_dir}/          # = entity/projects
         {project}/                    # = entity_projects_dir/{project-slug}
-          {project_dir}/              # = project/project  — cahier des charges
-            overview.md               # OBLIGATOIRE — frontmatter + sommaire
+          {project_dir}/              # = project/project  — CANONIQUES (mathieu-pm, via mmi-pm)
+            overview.md               # OBLIGATOIRE — frontmatter + sommaire/index des aspects
+            environments.md           # aspect canonique — optionnel (consommé par l'outillage)
+          {docs_dir}/                 # = project/docs  — aspects LIBRES (wiki-syncés, group-writable)
             hosting.md                # aspect — optionnel
             stack.md
             data-model.md
@@ -108,7 +110,8 @@ ln -s "$WORKSPACE_DIR" "$(python3 -c '…path("workspace_link", …)…')"
 
 **Bénéfices :**
 - Un agent travaillant dans le workspace voit code ET tâches/docs (`.mmi-pm/project/`,
-  `.mmi-pm/tasks/`)
+  `.mmi-pm/docs/`, `.mmi-pm/tasks/`) ; un symlink de confort `<workspace>/docs → .mmi-pm/docs`
+  expose les aspects libres à la racine du code
 - Un agent travaillant côté PM (dans `paths.project`) accède directement au code via
   `workspace/` — utile pour consulter une stack, un commit, un fichier en cours de
   modification
@@ -166,6 +169,7 @@ hardcode `clients/`.
 | `entity_used_dir` | `{entity}/projects_used` |
 | `project` | `{entity_projects_dir}/{project}` |
 | `project_dir` | `{project}/project` |
+| `docs_dir` | `{project}/docs` |
 | `project_memory_dir` | `{project}/memory` |
 | `tasks_dir` | `{project}/tasks` |
 | `task_file` | `{tasks_dir}/RM{id}_{slug}.md` |

@@ -133,7 +133,7 @@ Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
 ```
 1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
 2. Client     : {entity_client_dir}/*.md + {entity_memory_dir}/*.md
-3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
+3. Projet     : {project_dir}/*.md + {docs_dir}/*.md + {project_memory_dir}/*.md
 4. Tâche      : paths.task_file + paths.task_log_file
 ```
 

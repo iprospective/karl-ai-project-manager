@@ -1,10 +1,10 @@
 ---
-schema_version: "1.50.0"
-updated: 2026-06-19
+schema_version: "1.51.0"
+updated: 2026-06-23
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.50.0
+# Normes de gestion des tâches — v1.51.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -141,7 +141,7 @@ Le système suit une cascade à 3 niveaux : **client → projet → tâche**.
 ```
 1. Système    : NORMS.md + agents/worker-common.md + agents/worker-{role}.md
 2. Client     : {entity_client_dir}/*.md + {entity_memory_dir}/*.md
-3. Projet     : {project_dir}/*.md + {project_memory_dir}/*.md
+3. Projet     : {project_dir}/*.md + {docs_dir}/*.md + {project_memory_dir}/*.md
 4. Tâche      : paths.task_file + paths.task_log_file
 ```
 
@@ -286,8 +286,10 @@ ci-dessous montre la **résolution par défaut**.
       Remarques.md                    # AUTO — observations factuelles
       {entity_projects_dir}/          # = entity/projects
         {project}/                    # = entity_projects_dir/{project-slug}
-          {project_dir}/              # = project/project  — cahier des charges
-            overview.md               # OBLIGATOIRE — frontmatter + sommaire
+          {project_dir}/              # = project/project  — CANONIQUES (mathieu-pm, via mmi-pm)
+            overview.md               # OBLIGATOIRE — frontmatter + sommaire/index des aspects
+            environments.md           # aspect canonique — optionnel (consommé par l'outillage)
+          {docs_dir}/                 # = project/docs  — aspects LIBRES (wiki-syncés, group-writable)
             hosting.md                # aspect — optionnel
             stack.md
             data-model.md
@@ -336,7 +338,8 @@ ln -s "$WORKSPACE_DIR" "$(python3 -c '…path("workspace_link", …)…')"
 
 **Bénéfices :**
 - Un agent travaillant dans le workspace voit code ET tâches/docs (`.mmi-pm/project/`,
-  `.mmi-pm/tasks/`)
+  `.mmi-pm/docs/`, `.mmi-pm/tasks/`) ; un symlink de confort `<workspace>/docs → .mmi-pm/docs`
+  expose les aspects libres à la racine du code
 - Un agent travaillant côté PM (dans `paths.project`) accède directement au code via
   `workspace/` — utile pour consulter une stack, un commit, un fichier en cours de
   modification
@@ -394,6 +397,7 @@ hardcode `clients/`.
 | `entity_used_dir` | `{entity}/projects_used` |
 | `project` | `{entity_projects_dir}/{project}` |
 | `project_dir` | `{project}/project` |
+| `docs_dir` | `{project}/docs` |
 | `project_memory_dir` | `{project}/memory` |
 | `tasks_dir` | `{project}/tasks` |
 | `task_file` | `{tasks_dir}/RM{id}_{slug}.md` |
@@ -582,14 +586,23 @@ mono-client (un projet n'hérite que de son `client:`).
 
 ### Aspects — cahier des charges dynamique
 
-Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
-(aspects) dans le dossier `client/` ou `project/`. Cette approche évite le fichier
-monolithique illisible et permet d'enrichir progressivement la connaissance du périmètre.
+Le **cahier des charges** d'un projet est éclaté en plusieurs fichiers (aspects).
+Cette approche évite le fichier monolithique illisible et permet d'enrichir
+progressivement la connaissance du périmètre. **Deux emplacements** depuis la
+privsep (RM2043), selon le discriminant *« a un filet de réconciliation, ou pas »* :
+
+- **`project/`** — aspects **canoniques** consommés par l'outillage : `overview.md`
+  (obligatoire, frontmatter + index) et `environments.md`. Couche `mathieu-pm`
+  **stricte**, mutation **via `mmi-pm` uniquement**, **hors** wiki-sync.
+- **`docs/`** — aspects **libres** (roadmap, data-model, orchestrator, specs, CDC…) :
+  **wiki-syncés** (fold-back / merge 3-way) donc sûrs à éditer en direct ;
+  group-writable `mathieu`. C'est `docs/` que `pm-wiki-sync` scrute.
 
 **Règles :**
 - `overview.md` est **obligatoire** — il porte le frontmatter et un index des aspects
-- Tout autre fichier est **optionnel** — sa présence indique que l'aspect est documenté
-- L'agent qui charge le contexte lit **tous** les fichiers du dossier `project/` (et `client/`)
+- Tout autre aspect est **optionnel** ; un aspect **libre** se range dans **`docs/`**
+  (un `*.md` libre laissé dans `project/` est signalé en erreur par `pm-doctor`)
+- L'agent qui charge le contexte lit **tous** les fichiers de `project/` **et** `docs/`
 - Les templates d'aspects sont dans `templates/aspects/{domaine}/{aspect}.md`
 
 **Cascade des aspects :**
@@ -598,7 +611,7 @@ Le projet précise/surcharge le client sur les points en contradiction.
 
 Exemple :
 - `{entity_client_dir}/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
-- `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
+- `{docs_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
 
 > 📂 **Module `project-creation` — quand lire ceci :** je crée un projet PM↔Redmine · bootstrap · memberships · flux de création de tâches.

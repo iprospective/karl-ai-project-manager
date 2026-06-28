@@ -119,14 +119,23 @@ mono-client (un projet n'hérite que de son `client:`).
 
 ### Aspects — cahier des charges dynamique
 
-Le **cahier des charges** d'un client ou d'un projet est éclaté en plusieurs fichiers
-(aspects) dans le dossier `client/` ou `project/`. Cette approche évite le fichier
-monolithique illisible et permet d'enrichir progressivement la connaissance du périmètre.
+Le **cahier des charges** d'un projet est éclaté en plusieurs fichiers (aspects).
+Cette approche évite le fichier monolithique illisible et permet d'enrichir
+progressivement la connaissance du périmètre. **Deux emplacements** depuis la
+privsep (RM2043), selon le discriminant *« a un filet de réconciliation, ou pas »* :
+
+- **`project/`** — aspects **canoniques** consommés par l'outillage : `overview.md`
+  (obligatoire, frontmatter + index) et `environments.md`. Couche `mathieu-pm`
+  **stricte**, mutation **via `mmi-pm` uniquement**, **hors** wiki-sync.
+- **`docs/`** — aspects **libres** (roadmap, data-model, orchestrator, specs, CDC…) :
+  **wiki-syncés** (fold-back / merge 3-way) donc sûrs à éditer en direct ;
+  group-writable `mathieu`. C'est `docs/` que `pm-wiki-sync` scrute.
 
 **Règles :**
 - `overview.md` est **obligatoire** — il porte le frontmatter et un index des aspects
-- Tout autre fichier est **optionnel** — sa présence indique que l'aspect est documenté
-- L'agent qui charge le contexte lit **tous** les fichiers du dossier `project/` (et `client/`)
+- Tout autre aspect est **optionnel** ; un aspect **libre** se range dans **`docs/`**
+  (un `*.md` libre laissé dans `project/` est signalé en erreur par `pm-doctor`)
+- L'agent qui charge le contexte lit **tous** les fichiers de `project/` **et** `docs/`
 - Les templates d'aspects sont dans `templates/aspects/{domaine}/{aspect}.md`
 
 **Cascade des aspects :**
@@ -135,6 +144,6 @@ Le projet précise/surcharge le client sur les points en contradiction.
 
 Exemple :
 - `{entity_client_dir}/hosting.md` : "Tous nos sites sont hébergés chez OVH par défaut"
-- `{project_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
+- `{docs_dir}/hosting.md` : "Ce projet est sur AWS pour des raisons spécifiques"
 → Pour ce projet, l'agent applique AWS (override).
 

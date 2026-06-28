@@ -152,9 +152,11 @@ def main():
         else:
             print(f"  ⚠ membership {label} HTTP {code}", file=sys.stderr)
 
-    # 3. PM struct
-    for sub in ("project", "memory", "tasks"):
+    # 3. PM struct — project/ (canoniques), docs/ (aspects libres wiki-syncés, RM2043),
+    #    memory/, tasks/. docs/ porte un .gitkeep pour persister vide tant qu'aucun aspect.
+    for sub in ("project", "docs", "memory", "tasks"):
         (project_root / sub).mkdir(parents=True, exist_ok=True)
+    (project_root / "docs" / ".gitkeep").write_text("", encoding="utf-8")
     print(f"  ✓ Struct PM créée : {project_root.relative_to(cfg.projects_root)}/")
 
     # 4. meta.yml (manifeste machine) + overview.md (prose) — RM1994
@@ -245,7 +247,14 @@ env_vars: []
         print(f"  · {reverse} existe déjà, skip")
     else:
         reverse.symlink_to(project_root)
-    print(f"  ✓ symlinks bidirectionnels")
+    # Symlink de confort docs/ (RM2043) : <workspace>/docs → .mmi-pm/docs (relatif,
+    # passe par le reverse-link → robuste à la bascule co-localisée du résolveur).
+    docs_link = workspace / "docs"
+    if docs_link.exists() or docs_link.is_symlink():
+        print(f"  · {docs_link} existe déjà, skip")
+    else:
+        docs_link.symlink_to(Path(".mmi-pm") / "docs")
+    print(f"  ✓ symlinks bidirectionnels (+ docs/)")
 
     # 5b. Hook git post-commit (RM2035) : report auto de la conso → Redmine à chaque commit.
     #     Délégué au script idempotent pm-hooks-install (source unique de la logique d'install).

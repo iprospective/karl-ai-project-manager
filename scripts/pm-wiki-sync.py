@@ -328,7 +328,9 @@ def git_merge3(local, base, remote, labels=("local (git)", "base (dernier sync)"
 def resolve_project(cfg, slug):
     for ent, proj, proj_path in cfg.iter_projects():
         if proj == slug:
-            return ent, proj, proj_path, cfg.path("project_dir", entity=ent, project=proj)
+            return (ent, proj, proj_path,
+                    cfg.path("project_dir", entity=ent, project=proj),
+                    cfg.path("docs_dir", entity=ent, project=proj))
     sys.exit(f"ERREUR : projet '{slug}' introuvable dans l'arbo PM")
 
 
@@ -473,13 +475,21 @@ def save_state(state_dir, state):
 
 
 # ── Collecte des aspects ─────────────────────────────────────────────────
-def collect_aspects(project_dir, only_aspect=None):
-    """Énumère project/*.md (non récursif) hors overview.md et hors wiki_sync:false.
+def collect_aspects(docs_dir, only_aspect=None):
+    """Énumère docs/*.md (non récursif) hors overview.md et hors wiki_sync:false.
+
+    Depuis RM2043 (privsep) les aspects-docs LIBRES vivent dans `.mmi-pm/docs/`
+    (group-writable mathieu, wiki-syncés) ; `project/` ne garde que les canoniques
+    (overview.md, environments.md), gérés par mathieu-pm et HORS wiki-sync. Cette
+    fonction ne scrute donc QUE `docs/`. Un projet sans docs/ (aucun aspect libre)
+    → liste vide.
 
     Retourne [{slug, path, title, rm_ticket, body_canon, wiki_title}].
     """
     aspects = []
-    for f in sorted(project_dir.glob("*.md")):
+    if not docs_dir.is_dir():
+        return aspects
+    for f in sorted(docs_dir.glob("*.md")):
         slug = f.stem
         if slug == "overview":
             continue
@@ -748,7 +758,7 @@ def sync_one_project(cfg, url, key, slug, args):
 
     Lève LockBusy si un autre sync du même projet est déjà en cours.
     """
-    ent, proj, project_root, project_dir = resolve_project(cfg, slug)
+    ent, proj, project_root, project_dir, docs_dir = resolve_project(cfg, slug)
     rproj, project_name = read_overview_meta(project_dir)
     state_dir = project_root / ".wiki-sync"
     repo = cfg.projects_root
@@ -761,7 +771,7 @@ def sync_one_project(cfg, url, key, slug, args):
     else:
         do_aspects, do_desc = True, True
 
-    aspects = collect_aspects(project_dir, args.aspect) if do_aspects else []
+    aspects = collect_aspects(docs_dir, args.aspect) if do_aspects else []
     if do_aspects and not aspects:
         print(f"▶ {proj} : aucun aspect à synchroniser — skip")
         return {}
@@ -769,7 +779,7 @@ def sync_one_project(cfg, url, key, slug, args):
     # Tables de réécriture des liens (sur TOUS les aspects du projet, pas juste
     # ceux de ce run — pour que les liens restent corrects en --aspect ciblé).
     basename_to_title, title_to_basename = {}, {}
-    for f in project_dir.glob("*.md"):
+    for f in (docs_dir.glob("*.md") if docs_dir.is_dir() else []):
         if f.stem == "overview":
             continue
         wt = wiki_title_for_slug(f.stem)

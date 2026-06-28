@@ -24,6 +24,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
 PM_CORE = "/zfs/workspaces/.mmi-pm-core"
 REPORT = PM_CORE + "/scripts/pm-task-report.py"
 
@@ -64,6 +66,14 @@ def main():
             rm = None
     if not rm:
         return
+    # Worklog de session (best-effort, no-op hors session Claude Code) : attacher le
+    # dernier commit au ticket touché, pour que « il reste quoi à faire » montre l'avancée
+    # réelle. Statut non forcé → résolu en live par `pm-session-status show` (RM2068).
+    try:
+        import pm_session_hook
+        pm_session_hook.log_to_session(f"RM{rm}", commit=commit[:9])
+    except Exception:
+        pass
     cmd = [sys.executable, REPORT, "--rm-id", rm, "--apply",
            "--commit", commit, "--note", subject, "--no-commit"]
     try:

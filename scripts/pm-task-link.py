@@ -224,6 +224,18 @@ def cmd_add(args, cfg):
         autocommit_tasks(args, [from_path if src_changed else None, to_path if dst_changed else None],
                          f"pm(link): RM{args.from_id} {args.type} RM{args.to_id}")
 
+    # Worklog de session (best-effort, no-op hors session Claude Code) : refléter que
+    # cette session a touché RM<from_id>. Statut non forcé → résolu en live par `show`
+    # (RM2068). On enrichit la note avec le lien créé. Cf RM1875.
+    import pm_session_hook
+    try:
+        proj = from_path.relative_to(cfg.projects_root).parts[3]
+    except (ValueError, IndexError):
+        proj = None
+    pm_session_hook.log_to_session(
+        f"RM{args.from_id}", label=from_fm.get("title"), project=proj,
+        note=f"lien {args.type} → RM{args.to_id}")
+
 
 def cmd_list(args, cfg):
     md_path, fm, _ = load_task_md(cfg, args.rm_id)

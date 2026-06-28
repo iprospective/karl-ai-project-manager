@@ -63,11 +63,16 @@ def migrate_one(mmi: Path, projects_root: Path, dry: bool, reverse: bool):
                 os.rename(f, dest)
             moves += 1
 
-    # Symlink de confort <workspace>/docs → .mmi-pm/docs (projets co-localisés seulement :
-    # cible résolue HORS du projects_root du PM ; sinon on ne touche pas l'arbo interne).
+    # Symlink de confort <workspace>/docs → .mmi-pm/docs — UNIQUEMENT si le projet a
+    # réellement un docs/ (aspects déplacés ce run, ou docs/ déjà présent). Sans ça, un
+    # projet sans aspect libre récolterait un symlink PENDANT vers un .mmi-pm/docs absent
+    # (pollution, notamment des repos tiers). Co-localisé seulement : cible résolue HORS
+    # du projects_root (sinon on ne touche pas l'arbo interne). En dry-run, docs_dir n'est
+    # pas créé → on se base sur moves>0 pour la prévisualisation.
     resolved = mmi.resolve()
     colocated = not _is_under(resolved, projects_root)
-    if colocated:
+    has_docs = moves > 0 or docs_dir.is_dir()
+    if colocated and has_docs:
         workspace = resolved.parent
         link = workspace / "docs"
         rel_target = f"{resolved.name}/docs"  # ex: .mmi-pm/docs

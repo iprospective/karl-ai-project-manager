@@ -99,9 +99,19 @@ cmd_core_update(){
     log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
     return
   fi
+  # ── Multiplexing SSH (RM2069) : fetch + pull(refetch) + submodules partagent UNE
+  #    connexion SSH → UNE seule passphrase (root via sudo n'a pas d'agent ; remote =
+  #    alias SSH gitlab:). Master fermé + temp nettoyé en sortie. ControlPersist = filet
+  #    en cas d'erreur. Zéro impact si un agent root existe (zéro prompt).
+  local _cmdir _ghost; _cmdir="$(mktemp -d)"
+  _ghost="$(git -C "$CORE_DIR" remote get-url origin 2>/dev/null | sed 's/:.*//')"
+  export GIT_SSH_COMMAND="ssh -o ControlMaster=auto -o ControlPath=${_cmdir}/cm-%C -o ControlPersist=20s"
   git -C "$CORE_DIR" fetch --quiet origin
   git -C "$CORE_DIR" pull --ff-only origin "$branch"
   git -C "$CORE_DIR" submodule update --init --recursive 2>/dev/null || true
+  ssh -o ControlPath="${_cmdir}/cm-%C" -O exit "$_ghost" 2>/dev/null || true
+  rm -rf "$_cmdir" 2>/dev/null || true
+  unset GIT_SSH_COMMAND
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
   # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.

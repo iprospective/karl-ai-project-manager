@@ -14,12 +14,26 @@ les tickets/tâches touchés dans la session et leur avancement. Permet de répo
 « il reste quoi à faire ? » en **lisant un seul petit fichier** — pas de re-scan du contexte,
 donc peu de tokens, et ça survit à la compaction.
 
-Implémente le volet « manifest déclaratif » de **RM1875** (NORMS — suivi par session).
+Implémente le volet « manifest déclaratif » de **RM1875** + le **harvest automatique / statut live** de **RM2068**.
+
+## Auto-alimenté + statut live (RM2068)
+
+Deux propriétés réduisent fortement la charge :
+- **Auto-alimentation (effet de bord, zéro token agent)** : `pm-task-add` / `pm-task-status-update` /
+  `pm-task-link` et le **hook post-commit** upsertent le worklog tout seuls (via `pm_session_hook`,
+  no-op hors session Claude). Tout ticket créé / transitionné / lié / committé dans la session
+  **apparaît sans appel manuel**. L'écriture manuelle reste utile pour les **chantiers non-ticket**.
+- **Statut live à la lecture** : `show` (et `refresh`) résolvent le statut **courant** de chaque
+  ticket depuis le frontmatter de sa tâche, et **signalent la dérive** vs le statut d'ouverture
+  (« ouvert `en_cours` → `ferme` (ailleurs) ») → fidèle même quand une **autre session** a fait
+  avancer/fermer le ticket. `show --no-live` = rendu snapshot rapide (sans résolution).
 
 ## Stockage (instance-local, jamais committé)
 
 - Source de vérité : `~/.claude/session-worklogs/<session-id>.json`
-- Rendu lisible (régénéré à chaque mutation) : `~/.claude/session-worklogs/<session-id>.md`
+- Rendu lisible (régénéré à chaque mutation, et par `refresh`) : `~/.claude/session-worklogs/<session-id>.md`
+- `refresh` (re-résout le live + réécrit le `.md`) est câblé sur les hooks **SessionStart**/**PreCompact**
+  (settings.json) → la reprise / post-compaction lit un `.md` à jour sans re-scan.
 
 État de session éphémère et propre à l'instance → **hors repo PM** (ne pas committer).
 
@@ -30,20 +44,23 @@ Implémente le volet « manifest déclaratif » de **RM1875** (NORMS — suivi p
   "il reste quoi à faire (dans cette session) ?", "où en est-on ?", "où on en est ?",
   "récap session", "qu'est-ce qu'on a ouvert ?", "/mmi-pm-session-status" → `show`
 
-**Écriture** (à faire PROACTIVEMENT par l'agent, sans que l'utilisateur le demande) :
-- dès qu'un **ticket PM est créé** dans la session → `add RM<id> "<libellé>" --project <p> --status nouveau`
-- dès qu'une **tâche/chantier non-ticket** est décidé (« reste le déploiement prod ») → `add <slug> "<libellé>" --status à_faire`
-- dès qu'un item **change d'état** (fait, en attente, bloqué) → `set <ref> <statut>`
+**Écriture** — depuis RM2068, les **tickets PM** sont logués **automatiquement** par les scripts
+(`pm-task-add`/`-status-update`/`-link` + hook post-commit) : pas besoin de les `add` à la main.
+Reste à faire proactivement par l'agent :
+- **chantier non-ticket** décidé (« reste le déploiement prod ») → `add <slug> "<libellé>" --status à_faire`
+- précision/avancée hors transition de statut → `set <ref> <statut>` ou `add <ref> --next "<prochaine action>"`
 
 ## Invocation
 
 ```bash
 # (depuis la racine du repo PM)
-scripts/pm-session-status.py show          # afficher l'état (défaut)
+scripts/pm-session-status.py show            # état avec statut live + dérive (défaut)
+scripts/pm-session-status.py show --no-live  # rendu snapshot rapide (sans résolution frontmatter)
+scripts/pm-session-status.py refresh         # re-résout le live + réécrit le .md (hooks SessionStart/PreCompact)
 
-# ajouter / upsert un item (ref = RM-id ou slug libre)
-scripts/pm-session-status.py add RM1886 "Git-hooks par environnement" --project pm-ai-agents --status nouveau
+# ajouter / upsert un item (ref = RM-id ou slug libre) — surtout pour les chantiers non-ticket
 scripts/pm-session-status.py add pisceen-facettes "Fix #-serveur facettes" --status en_attente --note "uncommitted; reste test nav + commit + déploiement prod"
+scripts/pm-session-status.py add RM1886 --next "rebrancher le hook puis tester"   # enrichir la prochaine action
 
 # changer un statut / divers
 scripts/pm-session-status.py set RM1886 en_cours
@@ -64,5 +81,7 @@ Pour les tickets PM, garder une cohérence avec les statuts NORMS quand pertinen
 ## Comportement de l'agent
 
 - Sur une question « reste quoi à faire / récap » → exécuter `show` et **relayer la sortie** (déjà lisible en Markdown).
-- Au fil de la session → **logger les créations/changements** de tickets et chantiers (voir « Écriture »), pour que `show` reste fidèle.
+  Le statut affiché est **live** (frontmatter) ; une mention « ouvert X → Y (ailleurs) » = le ticket a bougé
+  hors de cette session → en tenir compte dans le récap.
+- Les tickets se loguent **seuls** (RM2068) ; à toi de logger les **chantiers non-ticket** (voir « Écriture »).
 - Le worklog est **par session** : ne reflète que ce que CETTE session a ouvert/touché, pas l'ensemble du backlog projet (pour ça → `mmi-pm-task-list`).

@@ -101,6 +101,20 @@ git:
   autocommit: true
   autopush: true
 
+# ── Runtime des envs de workspace (RM1834 / RM1947 F1) ─────────────────────
+# Ops privilégiées (vhost Apache, BDD, purge logs) déléguées au helper
+# fail-closed `tools/env-runtime/pm-env-helper.sh` déployé sur la box de dev
+# (sudo NOPASSWD). Consommé par scripts/pm-env-session.py.
+# workspace_map : traduction chemin host → chemin vu par la box (bind-mounts).
+env_runtime:
+  ssh_host: mathieu@dev.lxc
+  helper: /usr/local/sbin/pm-env-helper
+  log_dir: /var/log/php
+  workspace_map:
+    # bind-mount à l'identique host ↔ dev.lxc (mapping identité ; le mécanisme
+    # sert pour une box dont le point de montage diffère)
+    /zfs/workspaces: /zfs/workspaces
+
 # ── Budget de contexte par rôle (RM1943) ──────────────────────────────────
 # Plafond (≈ tokens, octets/3.6) du contexte TOUJOURS-CHARGÉ d'une session :
 # pont AGENTS.md + CLAUDE.md PM + KERNEL + modules préchargés du rôle +

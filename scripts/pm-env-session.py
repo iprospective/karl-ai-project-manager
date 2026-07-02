@@ -22,6 +22,11 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
         pool: matnat-84   # pool FPM partagé du workspace (RM2081)
         docroot: public   # sous-dossier servi dans l'env
         db: matnat        # BDD dev partagée (source des clones à la demande)
+        db_clone_default: false   # défaut PROJET : cloner la BDD par ticket ?
+
+    Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
+    tranchent sans question ; sinon la question est posée (TTY) avec le défaut
+    projet `db_clone_default` ; hors TTY (hook, agent) le défaut s'applique.
 
 Ops privilégiées (vhost/BDD/logs) déléguées à `pm-env-helper` sur la box de dev
 via ssh+sudo — config `pm.config.yml :: env_runtime`. La config app (creds/base-URL,
@@ -169,6 +174,8 @@ def resolve_base(bare: Path, integration_branch: str | None) -> str:
 
 
 def cmd_create(args):
+    if args.db_clone and args.no_db_clone:
+        die("--db-clone et --no-db-clone sont mutuellement exclusifs")
     cfg = load_env_runtime_cfg()
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     repo = pick_repo(load_repos(ws), args.repo)
@@ -228,16 +235,33 @@ def cmd_create(args):
         docroot_c = map_container_path(cfg, wt / docroot)
         helper(cfg, ["vhost-add", env_name, docroot_c, f"/run/php/{pool}.sock"], dry)
 
-    # 4. BDD — partagée par défaut, clone dédié à la demande
+    # 4. BDD — TOUJOURS optionnel : flag explicite > question (TTY) > défaut projet
     db = runtime.get("db")
-    if args.db_clone:
-        db or die("--db-clone demandé mais runtime.db absent du manifeste")
-        clone = f"{db}_rm{rmid}"
-        helper(cfg, ["db-clone", db, clone], dry)
-        print(f"  ⚠ config app à pointer sur `{clone}` dans le worktree "
-              f"(brique C4/provisionneur framework — manuel pour l'instant)")
-    elif db:
-        print(f"  · BDD partagée `{db}` (clone dédié : --db-clone)")
+    if args.db_clone and not db:
+        die("--db-clone demandé mais runtime.db absent du manifeste")
+    if db:
+        if args.db_clone:
+            want_clone = True
+        elif args.no_db_clone:
+            want_clone = False
+        else:
+            default = bool(runtime.get("db_clone_default"))
+            if sys.stdin.isatty() and sys.stderr.isatty():
+                hint = "O/n" if default else "o/N"
+                ans = input(f"  ? Cloner la BDD partagée `{db}` en `{db}_rm{rmid}` "
+                            f"pour ce ticket ? [{hint}] ").strip().lower()
+                want_clone = default if not ans else ans in ("o", "y", "oui", "yes")
+            else:
+                want_clone = default
+                print(f"  · BDD : défaut projet appliqué (db_clone_default="
+                      f"{'true' if default else 'false'} ; forcer : --db-clone/--no-db-clone)")
+        if want_clone:
+            clone = f"{db}_rm{rmid}"
+            helper(cfg, ["db-clone", db, clone], dry)
+            print(f"  ⚠ config app à pointer sur `{clone}` dans le worktree "
+                  f"(brique C4/provisionneur framework — manuel pour l'instant)")
+        else:
+            print(f"  · BDD partagée `{db}` (pas de clone pour ce ticket)")
 
     print(f"\n{'[dry-run] ' if dry else ''}✓ env de session prêt : "
           f"http://{env_name}.lxc/  (Host: {env_name}.lxc)")
@@ -332,7 +356,9 @@ def main():
     pc.add_argument("--slug", default=None,
                     help="slug de branche (défaut : slug du fichier tâche, sinon `session`)")
     pc.add_argument("--db-clone", action="store_true",
-                    help="clone la BDD partagée en <db>_rm<id> (défaut : BDD partagée)")
+                    help="clone la BDD partagée en <db>_rm<id> sans poser la question")
+    pc.add_argument("--no-db-clone", action="store_true",
+                    help="BDD partagée, sans poser la question")
     pc.add_argument("--no-vhost", action="store_true", help="pas de vhost (code seul)")
     pc.set_defaults(fn=cmd_create)
 

@@ -38,8 +38,17 @@ Apache avant reload, audit syslog `pm-env-helper`).
 ## Config côté PM
 
 `pm.config.yml :: env_runtime` (ssh_host, helper, log_dir, workspace_map) ;
-runtime par repo dans `.mmi-pm/meta.yml › repos[] › runtime: {pool, docroot, db}`
-(absent = env « code seul »).
+runtime par repo dans `.mmi-pm/meta.yml › repos[] › runtime: {pool, docroot, db,
+db_clone_default}` (absent = env « code seul »).
+
+## Clone BDD : toujours optionnel
+
+La BDD reste **partagée par défaut**. Le clone dédié `<db>_rm<id>` se décide
+par ticket : `--db-clone` / `--no-db-clone` tranchent sans question ; sinon la
+**question est posée** (session interactive), pré-remplie par le **défaut
+projet** `runtime.db_clone_default` (false si absent) ; hors TTY (hook, agent)
+le défaut projet s'applique silencieusement. Au teardown, seul le clone est
+droppé — jamais la BDD partagée.
 
 ## Usage
 

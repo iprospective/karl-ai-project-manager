@@ -146,11 +146,14 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         else:
             return
         tool = Path(__file__).resolve().parent / "pm-env-session.py"
+        # En TTY, passthrough : pm-env-session pose la question du clone BDD
+        # (défaut projet db_clone_default) directement à l'utilisateur.
+        tty = sys.stdin.isatty() and sys.stderr.isatty()
         r = subprocess.run([sys.executable, str(tool), verb, str(rm_id), str(ws)],
-                           capture_output=True, text=True, timeout=600)
+                           capture_output=not tty, text=True, timeout=600)
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
-            last = out.splitlines()[-1] if out else ""
+            last = out.splitlines()[-1] if out else f"✓ {verb} ok"
             print(f"  · env de session ({verb}) : {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS

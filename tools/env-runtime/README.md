@@ -50,3 +50,12 @@ pm-env-session.py teardown 2099               # vhost + logs + clone BDD + workt
                                               # (branche et BDD partagée CONSERVÉES)
 pm-env-session.py list
 ```
+
+## Hooks D1/D2 (automatique)
+
+`pm-task-status-update` déclenche l'env de session sur les transitions de
+statut (RM1834) : **`en_cours` → create**, **`ferme` → teardown**. Best-effort,
+jamais bloquant (un teardown refusé — worktree sale — laisse le ticket se
+fermer et l'env se gère à la main). Conditions : tâche co-localisée, manifeste
+`repos:` **mono-repo**, bare présent. Opt-out global :
+`pm.config.yml :: env_runtime.auto_session: false`.

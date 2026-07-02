@@ -18,6 +18,12 @@ Usage :
 Le repo cible est le dépôt de CODE du ticket (défaut : cwd). La branche de
 base doit être la branche d'intégration du projet (tripwire NORMS #3) — si
 --from est omis, la branche courante est utilisée avec un avertissement.
+
+NB : dans un workspace au layout RM1993 (`repos/` + `envs/`), l'env de session
+`envs/<repo>-rm<id>` (worktree + vhost + BDD) est géré par `pm-env-session.py`
+— créé automatiquement à la prise du ticket (hook en_cours de
+pm-task-status-update, RM1834). Le mode --worktree ci-dessous reste le chemin
+pour les repos hors layout.
 """
 import argparse
 import re

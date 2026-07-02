@@ -109,6 +109,9 @@ git:
 env_runtime:
   ssh_host: mathieu@dev.lxc
   helper: /usr/local/sbin/pm-env-helper
+  # hooks D1/D2 (pm-task-status-update) : en_cours → create l'env de session,
+  # ferme → teardown. Ne concerne que les workspaces au layout RM1993 mono-repo.
+  auto_session: true
   log_dir: /var/log/php
   workspace_map:
     # bind-mount à l'identique host ↔ dev.lxc (mapping identité ; le mécanisme

@@ -135,6 +135,8 @@ cmd_db_drop() {
     db_ephemeral "$db" || die "refus : $db n'est pas une BDD éphémère (_rm<id>)"
     db_exists "$db" || { echo "· BDD $db absente — rien à faire"; return 0; }
     mysql -e "DROP DATABASE \`$db\`"
+    # DROP DATABASE ne purge pas les grants par-BDD (posés par db-clone) → orphelins
+    mysql -e "DELETE FROM mysql.db WHERE Db = '$db'; FLUSH PRIVILEGES"
     audit "db-drop $db"
     echo "✓ BDD $db supprimée"
 }

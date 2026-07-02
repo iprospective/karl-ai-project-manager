@@ -106,6 +106,62 @@ def count_unchecked(description):
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
+def env_session_hook(md_path, rm_id, new_status, old_status):
+    """Hooks D1/D2 env de session (RM1834/RM1947) — best-effort, JAMAIS bloquant.
+
+    en_cours → crée l'env de session `envs/<repo>-rm<id>` (pm-env-session create) ;
+    ferme    → teardown (vhost/logs/clone BDD ; branche et BDD partagée conservées).
+
+    Ne s'applique qu'aux workspaces au layout RM1993 : tâche co-localisée
+    (`<ws>/.mmi-pm/tasks/…`) + manifeste `repos:` + bare présent. Mono-repo
+    seulement (multi-repo = ambigu → pm-env-session --repo à la main).
+    Opt-out global : pm.config.yml :: env_runtime.auto_session: false.
+    """
+    try:
+        cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
+        env_cfg = (yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}).get(
+            "env_runtime") or {}
+        if not env_cfg.get("auto_session", True):
+            return
+        # workspace = parent du .mmi-pm contenant la tâche (co-location RM1949)
+        real = md_path.resolve()
+        ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
+        if ws is None:
+            return
+        repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
+            encoding="utf-8")) or {}).get("repos") or []
+        if not repos:
+            return
+        if len(repos) > 1:
+            print(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
+                  f"pm-env-session.py create {rm_id} --repo <name>", file=sys.stderr)
+            return
+        name = repos[0].get("name")
+        if not name or not (ws / "repos" / f"{name}.git").is_dir():
+            return
+        if new_status == "en_cours":
+            verb = "create"
+        elif new_status == "ferme" and (ws / "envs" / f"{name}-rm{rm_id}").is_dir():
+            verb = "teardown"
+        else:
+            return
+        tool = Path(__file__).resolve().parent / "pm-env-session.py"
+        r = subprocess.run([sys.executable, str(tool), verb, str(rm_id), str(ws)],
+                           capture_output=True, text=True, timeout=600)
+        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        if r.returncode == 0:
+            last = out.splitlines()[-1] if out else ""
+            print(f"  · env de session ({verb}) : {last}")
+        else:
+            # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
+            # la transition de statut — l'env se gère à la main.
+            print(f"  ⚠ env de session ({verb}) non appliqué (non bloquant) :\n"
+                  + "\n".join(f"    {ln}" for ln in out.splitlines()[-4:]),
+                  file=sys.stderr)
+    except Exception as e:  # noqa: BLE001 — hook best-effort
+        print(f"  ⚠ hook env de session en échec (non bloquant) : {e}", file=sys.stderr)
+
+
 def fetch_issue_basic(rm_id):
     """Récupère subject + author (id, name) du ticket. Retourne dict ou None."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
@@ -572,6 +628,11 @@ def main():
                  "--rm-id", str(args.rm_id), "--estimate"], check=False)
             if r2.returncode != 0:
                 print(f"  ⚠ push estimation à la prise échoué (exit {r2.returncode})", file=sys.stderr)
+
+    # 6bis. Hooks D1/D2 env de session (RM1834/RM1947) : en_cours → create,
+    # ferme → teardown. Best-effort, jamais bloquant.
+    if args.status in ("en_cours", "ferme") and old_status != args.status:
+        env_session_hook(md_path, args.rm_id, args.status, old_status)
 
     # 7. Worklog de session (best-effort, no-op hors session Claude Code) : reflète
     # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.

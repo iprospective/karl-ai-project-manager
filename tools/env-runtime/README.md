@@ -50,6 +50,24 @@ projet** `runtime.db_clone_default` (false si absent) ; hors TTY (hook, agent)
 le défaut projet s'applique silencieusement. Au teardown, seul le clone est
 droppé — jamais la BDD partagée.
 
+### Paramètres du clone (`runtime.db_clone`)
+
+```yaml
+db_clone:
+  exclude_tables: ['%_log', '_histo%']   # motifs LIKE : données exclues,
+                                         # structure toujours copiée (logs, cache…)
+  post_sql:                              # fixups appliqués SUR LE CLONE après copie
+    - "UPDATE config SET value = 'http://{host}/' WHERE name = 'site_url'"
+    - "UPDATE config SET value = 'dev-{rmid}@example.invalid' WHERE name = 'email_from'"
+```
+
+Placeholders `post_sql` : `{db}` (source), `{clone}`, `{rmid}`, `{host}`
+(`<repo>-rm<id>.lxc`). Sécurité : le SQL du manifeste est exécuté par le helper
+via un compte MySQL **confiné au clone** (`pm_env_exec`, aucun droit global,
+credentials root-only sur la box) — il ne peut ni lire ni écrire hors du clone,
+et jamais la BDD partagée. Un post-SQL en échec laisse le clone en l'état
+(corriger le manifeste, ou `db-drop` puis recréer).
+
 ## Usage
 
 ```bash

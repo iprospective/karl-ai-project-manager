@@ -23,10 +23,17 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
         docroot: public   # sous-dossier servi dans l'env
         db: matnat        # BDD dev partagée (source des clones à la demande)
         db_clone_default: false   # défaut PROJET : cloner la BDD par ticket ?
+        db_clone:                 # paramètres du clone (optionnels)
+          exclude_tables: [log_%, cache%]   # motifs LIKE — données exclues,
+                                            # structure toujours copiée
+          post_sql:                         # fixups exécutés SUR LE CLONE, confinés
+            - "UPDATE config SET value = 'http://{host}/' WHERE name = 'site_url'"
 
     Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
     tranchent sans question ; sinon la question est posée (TTY) avec le défaut
     projet `db_clone_default` ; hors TTY (hook, agent) le défaut s'applique.
+    post_sql : placeholders {db} {clone} {rmid} {host} ; exécuté par le helper
+    via un compte MySQL confiné au clone (jamais root — pas d'échappée possible).
 
 Ops privilégiées (vhost/BDD/logs) déléguées à `pm-env-helper` sur la box de dev
 via ssh+sudo — config `pm.config.yml :: env_runtime`. La config app (creds/base-URL,
@@ -140,14 +147,18 @@ def map_container_path(cfg: dict, host_path: Path) -> str:
     die(f"{host_path} hors des workspace_map de env_runtime — chemin non traduisible")
 
 
-def helper(cfg: dict, args: list[str], dry: bool, check=True):
+def helper(cfg: dict, args: list[str], dry: bool, check=True, stdin: str | None = None):
     """Invoque le helper privilégié sur la box de dev (ssh + sudo -n)."""
     cmd = ["ssh", cfg["ssh_host"], "sudo", "-n", cfg["helper"],
            *(shlex.quote(a) for a in args)]
     if dry:
-        print(f"  [dry] {' '.join(cmd)}")
+        print(f"  [dry] {' '.join(cmd)}" + (" << (sql)" if stdin else ""))
         return None
-    r = run(cmd, check=check)
+    r = subprocess.run(cmd, capture_output=True, text=True, input=stdin)
+    if r.returncode != 0 and check:
+        err = (r.stderr or r.stdout or "").strip()
+        die(f"`{' '.join(cmd)}` a échoué (rc={r.returncode})"
+            + (f" :\n{err}" if err else ""))
     out = (r.stdout or "").strip()
     if out:
         print("  " + out.replace("\n", "\n  "))
@@ -257,7 +268,21 @@ def cmd_create(args):
                       f"{'true' if default else 'false'} ; forcer : --db-clone/--no-db-clone)")
         if want_clone:
             clone = f"{db}_rm{rmid}"
-            helper(cfg, ["db-clone", db, clone], dry)
+            spec = runtime.get("db_clone") or {}
+            excludes = [str(p) for p in (spec.get("exclude_tables") or [])]
+            helper(cfg, ["db-clone", db, clone, *excludes], dry)
+            # post-SQL du manifeste (config domaine/email/modules…) — exécuté
+            # CONFINÉ au clone par le helper. Placeholders : {db} {clone} {rmid} {host}
+            post = spec.get("post_sql") or []
+            if post:
+                subst = {"db": db, "clone": clone, "rmid": str(rmid),
+                         "host": f"{env_name}.lxc"}
+                # substitution ciblée (pas str.format : le SQL peut contenir
+                # des accolades littérales — JSON…) ; placeholders inconnus laissés tels quels
+                rx = re.compile(r"\{(" + "|".join(subst) + r")\}")
+                sql = ";\n".join(rx.sub(lambda m: subst[m.group(1)], s).rstrip("; \t")
+                                 for s in post) + ";"
+                helper(cfg, ["db-post-sql", clone], dry, stdin=sql)
             print(f"  ⚠ config app à pointer sur `{clone}` dans le worktree "
                   f"(brique C4/provisionneur framework — manuel pour l'instant)")
         else:

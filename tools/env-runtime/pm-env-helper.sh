@@ -10,7 +10,12 @@
 # Verbes :
 #   vhost-add <name> <docroot> <sock>   crée+active le vhost Apache <name>.lxc
 #   vhost-remove <name>                 désactive+supprime (si géré par nous) + purge logs apache
-#   db-clone <src> <dst>                CREATE DATABASE dst + copie (dst = *_rm<id> uniquement)
+#   db-clone <src> <dst> [motif ...]    CREATE DATABASE dst + copie (dst = *_rm<id> uniquement).
+#                                       motifs LIKE optionnels = tables EXCLUES des données
+#                                       (structure toujours copiée — logs, cache…)
+#   db-post-sql <db>                    exécute le SQL lu sur STDIN dans <db> (*_rm<id> uniquement)
+#                                       via un compte MySQL CONFINÉ à cette BDD (pas root :
+#                                       le SQL du manifeste ne peut pas s'échapper du clone)
 #   db-drop <db>                        DROP DATABASE (db = *_rm<id> uniquement)
 #   phplog-purge <basename>             purge /var/log/php/<basename>.{error,slow}.log (basename *-rm<id>)
 #
@@ -110,14 +115,30 @@ cmd_vhost_remove() {
 }
 
 cmd_db_clone() {
-    local src="$1" dst="$2"
+    local src="$1" dst="$2"; shift 2
     dbname_ok "$src" || die "nom de BDD source invalide : $src"
     dbname_ok "$dst" || die "nom de BDD cible invalide : $dst"
     db_ephemeral "$dst" || die "cible non éphémère ($dst) : un clone doit être suffixé _rm<id>"
     db_exists "$src" || die "BDD source inexistante : $src"
     db_exists "$dst" && die "BDD cible existe déjà : $dst (db-drop d'abord si voulu)"
+
+    # motifs LIKE de tables à exclure des DONNÉES (structure toujours copiée)
+    local pat excluded=() ignore_args=() t
+    for pat in "$@"; do
+        [[ "$pat" =~ ^[A-Za-z0-9_%]+$ ]] || die "motif d'exclusion invalide : $pat"
+        while IFS= read -r t; do
+            excluded+=("$t"); ignore_args+=("--ignore-table=$src.$t")
+        done < <(mysql -NBe "SELECT table_name FROM information_schema.tables
+                             WHERE table_schema = '$src' AND table_type = 'BASE TABLE'
+                               AND table_name LIKE '$pat'")
+    done
+
     mysql -e "CREATE DATABASE \`$dst\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci"
-    if ! mysqldump --single-transaction --routines --triggers "$src" | mysql "$dst"; then
+    # passe 1 : structure complète (toutes tables, vues, routines, triggers)
+    # passe 2 : données, moins les tables exclues
+    if ! { mysqldump --single-transaction --no-data --routines --triggers "$src" | mysql "$dst" \
+           && mysqldump --single-transaction --no-create-info --skip-triggers \
+                        "${ignore_args[@]}" "$src" | mysql "$dst"; }; then
         mysql -e "DROP DATABASE IF EXISTS \`$dst\`"
         die "copie $src → $dst échouée — clone annulé"
     fi
@@ -125,8 +146,42 @@ cmd_db_clone() {
     mysql -NBe "SELECT CONCAT('GRANT ALL PRIVILEGES ON \`$dst\`.* TO ''', User, '''@''', Host, ''';')
                 FROM mysql.db WHERE Db = '$src' AND User <> ''" | mysql || true
     mysql -e "FLUSH PRIVILEGES"
-    audit "db-clone $src → $dst"
+    audit "db-clone $src → $dst (exclusions: ${#excluded[@]})"
     echo "✓ BDD $dst clonée depuis $src"
+    [ ${#excluded[@]} -gt 0 ] && \
+        echo "  (${#excluded[@]} table(s) copiée(s) SANS données : ${excluded[*]})"
+    return 0
+}
+
+EXEC_CNF="/root/.pm-env-exec.cnf"
+EXEC_USER="pm_env_exec"
+
+ensure_exec_account() {
+    # Compte MySQL CONFINÉ pour le SQL fourni par les manifestes : aucun droit
+    # global, grants posés BDD par BDD → le SQL ne peut pas sortir du clone.
+    if [ ! -f "$EXEC_CNF" ]; then
+        local pw
+        pw=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
+        mysql -e "CREATE USER IF NOT EXISTS '$EXEC_USER'@'localhost' IDENTIFIED BY '$pw';
+                  ALTER USER '$EXEC_USER'@'localhost' IDENTIFIED BY '$pw'"
+        umask 077
+        printf '[client]\nuser = %s\npassword = %s\n' "$EXEC_USER" "$pw" > "$EXEC_CNF"
+    fi
+}
+
+cmd_db_post_sql() {
+    local db="$1"
+    dbname_ok "$db" || die "nom de BDD invalide : $db"
+    db_ephemeral "$db" || die "refus : $db n'est pas une BDD éphémère (_rm<id>)"
+    db_exists "$db" || die "BDD inexistante : $db"
+    ensure_exec_account
+    mysql -e "GRANT ALL PRIVILEGES ON \`$db\`.* TO '$EXEC_USER'@'localhost'; FLUSH PRIVILEGES"
+    # exécution CONFINÉE : compte sans privilège global → USE/écriture hors $db refusés
+    if ! mysql --defaults-extra-file="$EXEC_CNF" "$db"; then
+        die "post-SQL en échec dans $db (le clone reste en l'état — corriger le manifeste ou db-drop)"
+    fi
+    audit "db-post-sql $db"
+    echo "✓ post-SQL appliqué sur $db"
 }
 
 cmd_db_drop() {
@@ -153,8 +208,9 @@ verb="${1:-}"; shift || true
 case "$verb" in
     vhost-add)    [ $# -eq 3 ] || die "usage: vhost-add <name> <docroot> <sock>"; cmd_vhost_add "$@";;
     vhost-remove) [ $# -eq 1 ] || die "usage: vhost-remove <name>"; cmd_vhost_remove "$@";;
-    db-clone)     [ $# -eq 2 ] || die "usage: db-clone <src> <dst>"; cmd_db_clone "$@";;
+    db-clone)     [ $# -ge 2 ] || die "usage: db-clone <src> <dst> [motif-exclusion ...]"; cmd_db_clone "$@";;
+    db-post-sql)  [ $# -eq 1 ] || die "usage: db-post-sql <db>  (SQL sur stdin)"; cmd_db_post_sql "$@";;
     db-drop)      [ $# -eq 1 ] || die "usage: db-drop <db>"; cmd_db_drop "$@";;
     phplog-purge) [ $# -eq 1 ] || die "usage: phplog-purge <basename>"; cmd_phplog_purge "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-remove|db-clone|db-drop|phplog-purge)";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
 esac

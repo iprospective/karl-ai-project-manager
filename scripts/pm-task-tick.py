@@ -31,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git  # auto-commit scopé des écritures (RM2095)
 
 try:
     import yaml
@@ -322,10 +323,16 @@ def update_task_fm(rm_id, deltas, model_used, log_entry=None):
 
     # Log si seuil dépassé
     total_new = sum(int(deltas.get(k, 0) or 0) for k in ("input", "output", "cache_read", "cache_creation"))
+    written = [md_path]
     if log_entry and total_new >= LOG_THRESHOLD_TOKENS:
         log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
         with log_path.open("a", encoding="utf-8") as f:
             f.write(log_entry)
+        written.append(log_path)
+
+    # Auto-commit scopé (RM2095) : le tick modifiait le MD (métriques + `updated`)
+    # sans committer → dérive git du workspace. On committe QUE nos chemins.
+    pm_git.autocommit(written, f"pm(tick): RM{rm_id} métriques temps/tokens")
 
     return True, str(md_path.name)
 

@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git  # auto-commit scopé des écritures (RM2095)
 
 try:
     import yaml
@@ -262,6 +263,9 @@ def main():
     with log_path.open("a", encoding="utf-8") as f:
         f.write(f"\n## {now} — Description : {summary}\n\n" + (args.note + "\n" if args.note else ""))
     print(f"✓ Log appendé : {log_path.name}")
+
+    # Auto-commit scopé (RM2095) : la MAJ de description modifiait le MD sans committer.
+    pm_git.autocommit([md_path, log_path], f"pm(desc): RM{args.rm_id} description/done_ratio")
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git  # auto-commit scopé des écritures (RM2095)
 from redmine_utils import issue_is_ia_tagged, get_ia_cf_id
 
 try:
@@ -211,6 +212,9 @@ def main():
             f.write("\n")
             f.write(fmt_journal_for_log(j))
     print(f"→ Log appendé    : {log_path.name} ({len(new)} entrée(s) ajoutée(s))")
+
+    # Auto-commit scopé (RM2095) : le fetch modifiait MD + log sans committer → dérive.
+    pm_git.autocommit([md_path, log_path], f"pm(fetch): RM{args.issue} sync journaux Redmine")
 
 
 if __name__ == "__main__":

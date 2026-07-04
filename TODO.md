@@ -1,7 +1,11 @@
 # TODO — Système de gestion de tâches `iprospective`
 
 > **Index greppable** des tâches et exigences sur le système lui-même.
-> Détail dans [`TODO/`](./TODO/).
+> Fiches détail archivées dans [`TODO/archived/`](./TODO/archived/) (2026-06-15).
+>
+> **⚠ Index historique** : le suivi opérationnel vit désormais dans les **tickets PM**
+> (Redmine + `tasks/RM*.md`). Chaque item ci-dessous pointe vers son ticket de reprise.
+> Ne plus ajouter d'item ici — créer un ticket (`pm-task-add`).
 >
 > **Distinction avec [`PISTES.md`](./PISTES.md)** :
 > - `PISTES.md` = **explorations spéculatives** sur des évolutions de fond (patterns AI-natifs, refonte, etc.) — ne s'engage à rien.
@@ -20,36 +24,19 @@
 > · `#redmine` · `#gitlab` · `#docs` · `#agents` · `#norms` · `#meta`
 >
 > **Recettes grep** :
-> - Toutes les now/high : `grep -E '#priority:(now|high)' TODO.md`
-> - Détail des entrées d'une priorité : `grep -l '#priority:high' TODO/*.md`
+> - Détail d'une fiche archivée : `ls TODO/archived/`
 
 ## À faire
 
-### now
+_(aucun — créer un ticket, pas une ligne ici)_
 
-_(aucun)_
+## Réalisé / repris en tickets
 
-### high
-
-- [ ] `002` `#priority:high` [#user-request #agents #meta] [Interface de gestion + supervision des agents](TODO/002-management-interface.md) — UI lecture/édition + supervision live des agents, archi MD-source + DB-index, phasage CLI → UI → live → métriques
-- [ ] `003` `#priority:high` [#user-request #redmine #gitlab #agents] [CLI projet `pm`](TODO/003-pm-cli.md) — commandes depuis le workspace (task create/list/assign/close, project init), orchestration Redmine + MD + git
-- [ ] `006` `#priority:high` [#user-request #redmine #docs #norms] [Publication des documents vers le Wiki Redmine](TODO/006-wiki-redmine-sync.md) — sens MD → Wiki, conditions/format à itérer, phasage MVP → médias → automatisation
-- [ ] `008` `#priority:high` [#user-request #redmine #agents #scripts] [Multi-user env vars `.env` + sélection dynamique côté scripts](TODO/008-multi-user-env-vars.md) — rename `MAIN/PJ1` → `KARL/CHEFPROJ1` (noms réels) + adapter les 5 scripts Redmine (cassés actuellement avec le nouveau `.env`)
-
-### normal
-
-- [ ] `001` `#priority:normal` [#constraint #redmine #user-request] [Critères de valeur Redmine à préserver dans toute évolution](TODO/001-redmine-value-criteria.md) — collaboration, base docs searchable, com client : contraintes à respecter
-- [ ] `004` `#priority:normal` [#norms #agents] Compléter `clients/lemathou/client/overview.md` — contacts, secteur, contexte
-- [ ] `007` `#priority:normal` [#user-request #structure #norms] [Flatten `projects/clients/` → `projects/`](TODO/007-flatten-projects-clients.md) — étape B de l'abstraction des chemins (étape A livrée en NORMS v1.8.0). Ticket [#1668](https://tasks.iprospective.fr/issues/1668)
-
-### low
-
-_(aucun)_
-
-### someday
-
-_(aucun)_
-
-## Réalisé
-
-- [x] `005` `#priority:normal` [#norms #user-request] Symlink `/zfs/workspaces/perso/mathematicians-db/mmi-pm` créé — 2026-05-12 (workspace au chemin `/zfs/workspaces/perso/{slug}/` et non `/zfs/workspaces/{slug}/` ; nom de symlink renommé en v1.5.1 de `.pm` → `mmi-pm`)
+- [x] `002` [#user-request #agents #meta] [Interface de gestion + supervision des agents](TODO/archived/002-management-interface.md) — repris en tickets : RM1679 (interface web PM), RM1873 (cockpit karl-agent v0, livré), RM1893 (cockpit tranche 1) — 2026-07-04
+- [x] `003` [#user-request #redmine #gitlab #agents] [CLI projet `pm`](TODO/archived/003-pm-cli.md) — **livré** : CLI `mmi-pm` + scripts `pm-*` (RM1945, déménagement `.mmi-pm-core` 2026-06-16) — 2026-07-04
+- [x] `006` [#user-request #redmine #docs #norms] [Publication des documents vers le Wiki Redmine](TODO/archived/006-wiki-redmine-sync.md) — **livré** : `pm-wiki-sync.py` / `pm-sync-push`, bidir + fold-back (RM1821, P1→P4) — 2026-07-04
+- [x] `008` [#user-request #redmine #agents #scripts] [Multi-user env vars `.env`](TODO/archived/008-multi-user-env-vars.md) — repris en ticket : RM1681 (rename MAIN/PJ1 → KARL/CHEFPROJ1 + adaptation scripts) — 2026-07-04
+- [x] `001` [#constraint #redmine #user-request] [Critères de valeur Redmine à préserver](TODO/archived/001-redmine-value-criteria.md) — contraintes intégrées aux NORMS (modules redmine-*) ; fiche archivée en référence — 2026-07-04
+- [x] `004` [#norms #agents] Compléter `clients/lemathou/client/overview.md` — repris en ticket : RM2103 — 2026-07-04
+- [x] `007` [#user-request #structure #norms] [Flatten `projects/clients/` → `projects/`](TODO/archived/007-flatten-projects-clients.md) — repris en ticket : [RM1668](https://tasks.iprospective.fr/issues/1668) — 2026-07-04
+- [x] `005` [#norms #user-request] Symlink `/zfs/workspaces/perso/mathematicians-db/mmi-pm` créé — 2026-05-12 (workspace au chemin `/zfs/workspaces/perso/{slug}/` et non `/zfs/workspaces/{slug}/` ; nom de symlink renommé en v1.5.1 de `.pm` → `mmi-pm`)

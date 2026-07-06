@@ -88,3 +88,46 @@ rewritten:
     old: |
       {project_dir}/              # = project/project  — cahier des charges
       `.mmi-pm/tasks/`)
+
+  - reason: "RM1871 (pm-mr) : le workflow MR manuel via `glab api` (gotcha %2F Apache, resolution par ID numerique, create+merge, target_branch de version type 19.0-mmi, CF GIT PR id 4) est reecrit autour de l'outil `pm-mr` ; les gotchas (%2F / ID numerique / re-GET) sont conserves en note sous pm-mr dans git-mep"
+    old: |
+      active ou `dev`, cf. sous-sections suivantes), puis la merger.
+      - **Gotcha glab/API GitLab — les `%2F` ne passent pas** : sur
+      `gitlab.iprospective.fr`, le front Apache **rejette les chemins projet
+      URL-encodés** (`iprospective%2Fdolibarr%2F…` → 404 Apache). Workaround
+      systématique : utiliser l'**ID numérique** du projet, récupéré sans slash via
+      une recherche :
+      # 1) trouver l'ID numérique (pas de %2F dans une recherche)
+      # 2) agir avec l'ID (ex. créer une MR vers la branche de version active)
+      -f source_branch="<RM-id>-<slug>" -f target_branch="19.0-mmi" -f title="…" \
+      -f remove_source_branch=true
+      # 3) merger
+      glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge"
+      `GIT PR` (id 4) avec son URL (cf. sous-section suivante).
+
+  - reason: "Fusion staging=preprod (v1.36.0) + flux 2-branches/3-branches opt-in (RM2030) : le narratif MEP (workflow provisoire, montee preprod->prod, testeur humain, regression->a_corriger) et la config d'environnement (prod_branch: master / integration_branch: dev / preprod ; transitions a_mep->en_mep->ferme) sont reecrits — contenu conserve dans git-mep §Cycle dev->MEP, status-workflow (table transitions + diagramme) et environments (fusion staging/preprod)"
+    old: |
+      - À la livraison, merge dans la branche d'intégration (via MR si le repo l'exige).
+      > l'env de non-régression déployé depuis `integration_branch` avant MEP. **Valeur
+      │ dev déployée en preprod                  │
+      │ tests OK + merge dev→prod + pull prod
+      | `a_mep` | `en_mep` | `integration_branch` déployée en preprod |
+      | `en_mep` | `ferme` | tests preprod OK + merge `integration_branch`→`prod_branch` + pull prod — `close_reason: resolu` |
+      prod_branch: master       # branche déployée en prod (master historique ; main = cible de migration)
+      integration_branch: dev   # branche d'intégration : agrège les devs testés, déployée en staging (alias preprod)
+      - `prod_branch` : souvent `master` (historique), migration progressive vers `main`.
+      être cohérents (`staging.branch == integration_branch`, `prod.branch == prod_branch`).
+      - **1 staging** (`staging`, alias `preprod`) — déployée depuis `integration_branch` ;
+      tests de non-régression avant MEP.
+      ### Workflow de mise en production (MEP) — **provisoire, évoluera**
+      ticket par ticket : plusieurs tickets en `a_mep` montent ensemble.
+      1. Déployer `integration_branch` dans l'env **preprod** ⇒ les tickets concernés passent
+      `en_mep`.
+      2. Tests de **non-régression** sur preprod.
+      3. Vérification par un **testeur humain**.
+      4. Si OK ⇒ merge `integration_branch` → `prod_branch` + `pull prod_branch` en prod ⇒
+      tickets `ferme` (`close_reason: resolu`).
+      - Régression détectée ⇒ `a_corriger` (note obligatoire).
+      > Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
+      > manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
+      > `project/deployment.md` (template bootstrap `005-deployment`).

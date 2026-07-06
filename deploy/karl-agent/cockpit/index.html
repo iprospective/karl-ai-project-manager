@@ -350,7 +350,8 @@ async function refreshSessions() {
     // pour les tickets non PM-trackés).
     const groups = new Map();
     for (const s of sessions) {
-      if (resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);  // tooltip + fallback groupe
+      // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
+      if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
       let key = (s.client && s.project) ? s.client + "/" + s.project : null;
       if (!key) {
         const r = resolveCache[s.rm_id];
@@ -374,7 +375,8 @@ async function refreshSessions() {
         tab.title = tabTip(s);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
           : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
-        tab.innerHTML = '<span class="tdot"></span><span class="tid">RM' + s.rm_id + '</span>' +
+        tab.innerHTML = '<span class="tdot"></span><span class="tid">' +
+          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
           badge + '<span class="tkill" title="Fermer la session">✕</span>';
         tab.onclick = () => attach(s.rm_id);
         tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
@@ -528,20 +530,27 @@ async function loadResumable() {
   } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + esc(e.message) + '</div>'; }
 }
 async function resumeSession(s) {
-  // Le tmux de reprise est nommé karl-RM<id> : il faut un ticket d'ancrage.
-  // Défaut : dernier ticket lié à la session, sinon champ lanceur, sinon prompt.
+  // Ancrage de reprise (RM2144) : ticket RM<id> = idéal (jonction écrite),
+  // slug accepté, vide = slug auto dérivé du titre côté serveur.
   let rm = (s.tickets && s.tickets.length) ? String(s.tickets[s.tickets.length - 1].rm_id)
     : document.getElementById("rm").value.trim();
-  rm = prompt("Reprendre dans karl-RM<id> — ticket à associer :", rm || "");
+  rm = prompt("Ancrage — ticket RM<id> (idéal), slug, ou vide = slug auto :", rm || "");
   if (rm === null) return;
-  rm = rm.trim().replace(/^RM/i, "");
-  if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
+  rm = rm.trim();
+  if (/^rm\d+$/i.test(rm)) rm = rm.replace(/^rm/i, "");
+  const body = { session_id: s.session_id };
+  if (rm) {
+    if (!/^\d+$/.test(rm) && !/^[a-z0-9][a-z0-9_-]{1,40}$/.test(rm)) {
+      toast("Ancrage invalide : RM id ou slug [a-z0-9_-]", true); return;
+    }
+    body.rm_id = rm;
+  }
   try {
     const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ session_id: s.session_id, rm_id: rm }),
+      body: JSON.stringify(body),
     });
-    toast("Session reprise dans karl-RM" + r.rm_id);
+    toast("Session reprise dans " + r.tmux);
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(r.rm_id), 400);
   } catch (e) { toast(e.message, true); }
@@ -583,9 +592,10 @@ async function ensureResolved(rmId, force) {
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
   return resolveCache[rmId];
 }
+function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
 function tabTip(s) {
   const r = resolveCache[s.rm_id];
-  let t = "karl-RM" + s.rm_id;
+  let t = s.tmux || tmuxName(s.rm_id);
   if (r && r.found) t = "RM" + s.rm_id + " — " + (r.title || "") + "\n" + r.client + "/" + r.project +
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
@@ -596,6 +606,7 @@ function tabTip(s) {
 }
 function toggleMeta() { document.getElementById("metapanel").classList.toggle("collapsed"); }
 async function refreshWorkspace(rmId) {
+  if (!/^\d+$/.test(String(rmId))) { wsCache[rmId] = null; return; }  // slug : pas de ticket
   try { wsCache[rmId] = await api("/workspace-status/" + rmId); } catch (e) { wsCache[rmId] = null; }
   if (attached === String(rmId)) renderMeta(rmId);
 }
@@ -605,7 +616,7 @@ function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || [
 function renderMeta(rmId) {
   const r = resolveCache[rmId], ws = wsCache[rmId], b = document.getElementById("metabody");
   if (r === undefined) { b.innerHTML = '<div class="ms">chargement…</div>'; return; }
-  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>karl-RM' + rmId + '<br><span style="color:var(--muted)">ticket non PM-tracké</span></div>'; return; }
+  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>' + esc(tmuxName(rmId)) + '<br><span style="color:var(--muted)">' + (/^\d+$/.test(rmId) ? "ticket non PM-tracké" : "session slug (sans ticket d'ancrage)") + '</span></div>'; return; }
   const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
   let h = "";
   h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">karl-RM' + rmId + '</span></div></div>';
@@ -753,7 +764,7 @@ async function spawn() {
   }
 }
 async function kill(rmId) {
-  if (!confirm("Fermer la session karl-RM" + rmId + " ? (le travail non sauvé est perdu)")) return;
+  if (!confirm("Fermer la session " + tmuxName(rmId) + " ? (le travail non sauvé est perdu)")) return;
   try {
     await api("/kill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: String(rmId) }) });
     toast("Session karl-RM" + rmId + " fermée");

@@ -119,8 +119,24 @@ _load_env_file(REPO_ROOT / ".env")
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("KARL_AGENT_PORT", "9876"))
 
-SESSION_PREFIX = "karl-RM"
+# Nommage des sessions (RM2144) : l'ancrage TICKET est l'IDÉAL (karl-RM<id>,
+# jonction n-m écrite), mais un SLUG est accepté (karl-<slug>) — cas type : la
+# reprise d'une session interactive sans ticket évident. Le sid d'une session
+# est donc soit un id numérique de ticket, soit un slug (hors espace rm<n>).
+TMUX_PREFIX = "karl-"
+SESSION_PREFIX = "karl-RM"   # forme ticket (conservée pour les invariants RM1771)
 _RM_ID_RE = re.compile(r"^\d+$")
+_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,40}$")
+
+
+def _is_ticket_sid(sid: str) -> bool:
+    return bool(_RM_ID_RE.match(sid))
+
+
+def _valid_sid(sid: str) -> bool:
+    if _is_ticket_sid(sid):
+        return True
+    return bool(_SLUG_RE.match(sid)) and not re.match(r"^rm\d+$", sid)
 
 # Racines autorisées pour le cwd d'une session (anti-évasion de répertoire).
 ALLOWED_ROOTS = [
@@ -266,7 +282,10 @@ def _tmux(*args, timeout=10):
 
 
 def _session_name(rm_id: str) -> str:
-    return f"{SESSION_PREFIX}{rm_id}"
+    """sid → nom tmux : karl-RM<id> (ticket) ou karl-<slug> (RM2144)."""
+    if _is_ticket_sid(rm_id):
+        return f"{SESSION_PREFIX}{rm_id}"
+    return f"{TMUX_PREFIX}{rm_id}"
 
 
 def _has_session(rm_id: str) -> bool:
@@ -289,10 +308,17 @@ def _list_sessions():
     for line in out.splitlines():
         parts = line.split("\t")
         name = parts[0]
-        if not name.startswith(SESSION_PREFIX):
+        if not name.startswith(TMUX_PREFIX):
             continue
+        # karl-RM<id> → sid numérique (ticket) ; karl-<slug> → sid slug (RM2144).
+        # `rm_id` porte le sid (nom historique conservé pour les clients).
+        key = name[len(TMUX_PREFIX):]
+        sid = key[2:] if key.startswith("RM") and key[2:].isdigit() else key
+        if not _valid_sid(sid):
+            continue  # session tmux étrangère au cockpit
         sessions.append({
-            "rm_id": name[len(SESSION_PREFIX):],
+            "rm_id": sid,
+            "is_ticket": _is_ticket_sid(sid),
             "tmux": name,
             "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None,
             "attached": (len(parts) > 2 and parts[2] == "1"),
@@ -318,9 +344,11 @@ class ApiError(Exception):
 
 
 def _require_rm_id(payload: dict) -> str:
+    """sid requis : id de ticket (idéal) OU slug (RM2144)."""
     rm_id = str(payload.get("rm_id", "")).strip()
-    if not _RM_ID_RE.match(rm_id):
-        raise ApiError(400, "rm_id requis, entier (^\\d+$)")
+    if not rm_id or not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id requis : id de ticket (^\\d+$) ou slug "
+                            "(^[a-z0-9][a-z0-9_-]{1,40}$, hors espace rm<n>)")
     return rm_id
 
 
@@ -394,7 +422,7 @@ def op_spawn(payload: dict) -> dict:
     model_key = str(payload.get("model") or "").strip()
     model_value, model_source = None, "default"
     if model_key == "ticket":
-        model_value = _ticket_model(rm_id)
+        model_value = _ticket_model(rm_id) if _is_ticket_sid(rm_id) else None
         model_source = "ticket" if model_value else "default"
     elif model_key:
         cat = _model_catalog().get(engine, {})
@@ -433,7 +461,9 @@ def op_spawn(payload: dict) -> dict:
 
     _start_session_tmux(rm_id, cmd, cwd, width, height, env_extra)
     if session_id:
-        _record_run(rm_id, engine, session_id, str(cwd))
+        if _is_ticket_sid(rm_id):
+            _record_run(rm_id, engine, session_id, str(cwd))
+        _record_key(rm_id, engine, session_id, str(cwd))
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
@@ -498,7 +528,7 @@ def op_send(payload: dict) -> dict:
 
 
 def op_capture(rm_id: str, lines: int | None) -> str:
-    if not _RM_ID_RE.match(rm_id):
+    if not _valid_sid(rm_id):
         raise ApiError(400, "rm_id invalide")
     if not _has_session(rm_id):
         raise ApiError(404, f"session absente : {_session_name(rm_id)}")
@@ -589,6 +619,40 @@ def _record_run(rm_id: str, engine: str, session_id: str, cwd: str) -> dict:
     _write_json_atomic(rf, {k: v for k, v in run.items()
                             if k not in ("client", "project", "_file")})
     return run
+
+
+def _record_key(sid: str, engine: str, session_id: str, cwd: str) -> None:
+    """Index clé-tmux → (engine, session_id, cwd) — RM2144. Couvre AUSSI les
+    sessions slug (sans jonction ticket) : sert à l'enrichissement /sessions
+    (moteur, projet via cwd) et à la reprise. Touche l'entité session au passage."""
+    now = int(time.time())
+    key = f"RM{sid}" if _is_ticket_sid(sid) else sid
+    _write_json_atomic(LOG_DIR / "keys" / f"{key}.json",
+                       {"sid": sid, "engine": engine, "session_id": session_id,
+                        "cwd": cwd, "last_seen": now})
+    sf = SESS_DIR / engine / f"{session_id}.json"
+    meta = _read_json_file(sf) or {"engine": engine, "session_id": session_id, "created": now}
+    meta.update({"cwd": cwd, "last_seen": now})
+    _write_json_atomic(sf, meta)
+
+
+def _key_info(sid: str) -> dict | None:
+    key = f"RM{sid}" if _is_ticket_sid(sid) else sid
+    return _read_json_file(LOG_DIR / "keys" / f"{key}.json")
+
+
+def _auto_slug(title: str | None, session_id: str) -> str:
+    """Slug d'ancrage automatique pour une reprise sans ticket (RM2144) :
+    dérivé du titre de la session (marqueur [WIP]/[DONE] retiré), unique parmi
+    les tmux vivants, jamais dans l'espace rm<n>."""
+    base = _MARK_RE.sub("", title or "").lower()
+    base = re.sub(r"[^a-z0-9]+", "-", base).strip("-")[:32].strip("-") or session_id[:8]
+    if re.match(r"^rm\d+$", base):
+        base = f"s-{base}"
+    slug, i = base, 2
+    while _has_session(slug):
+        slug, i = f"{base}-{i}", i + 1
+    return slug
 
 
 # Cache mtime → méta extraite (le scan du store relit seulement ce qui a changé).
@@ -748,12 +812,12 @@ def op_resume(payload: dict) -> dict:
     n = payload.get("n")
     if session_id and not _SID_RE.match(session_id):
         raise ApiError(400, "session_id invalide")
-    if rm_id and not _RM_ID_RE.match(rm_id):
-        raise ApiError(400, "rm_id invalide")
+    if rm_id and not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide (id de ticket ou slug)")
 
     if not session_id:
-        if not rm_id:
-            raise ApiError(400, "session_id ou rm_id requis")
+        if not rm_id or not _is_ticket_sid(rm_id):
+            raise ApiError(400, "session_id ou rm_id (ticket) requis")
         runs = _runs_for_ticket(rm_id)
         if n is not None:
             runs = [r for r in runs if r.get("n") == int(n)]
@@ -766,20 +830,22 @@ def op_resume(payload: dict) -> dict:
     if engine != "claude":
         raise ApiError(501, f"resume : itération 1 = claude uniquement (session {engine})")
 
+    jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
     if not rm_id:
-        # Le tmux est nommé karl-RM<id> (mono-session vivante, invariant RM1771) :
-        # une session jamais liée à un ticket doit être reprise AVEC un rm_id.
+        # Ancrage automatique (RM2144) : ticket idéal (dernière jonction), sinon
+        # SLUG dérivé du titre de la session — plus d'obligation de fournir un
+        # ticket à la reprise.
         runs = _runs_by_session().get(session_id, [])
-        if not runs:
-            raise ApiError(400, "rm_id requis : session encore liée à aucun ticket "
-                                "(le tmux de reprise est nommé karl-RM<id>)")
-        rm_id = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))["rm_id"]
+        if runs:
+            rm_id = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))["rm_id"]
+        else:
+            title = _jsonl_tail_meta(jf)["title"] if jf else None
+            rm_id = _auto_slug(title, session_id)
 
     if _has_session(rm_id):
         raise ApiError(409, f"session déjà active : {_session_name(rm_id)}")
 
     # Garde-fous : transcript présent ? cwd toujours valide ?
-    jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
     if jf is None:
         raise ApiError(410, f"transcript introuvable pour {session_id} "
                             "(session purgée ou store non monté) — lancer un spawn neuf")
@@ -793,7 +859,9 @@ def op_resume(payload: dict) -> dict:
     width = int(payload.get("width", DEFAULT_WIDTH))
     height = int(payload.get("height", DEFAULT_HEIGHT))
     _start_session_tmux(rm_id, cmd, cwd, width, height, [])
-    _record_run(rm_id, "claude", session_id, str(cwd))
+    if _is_ticket_sid(rm_id):
+        _record_run(rm_id, "claude", session_id, str(cwd))
+    _record_key(rm_id, "claude", session_id, str(cwd))
 
     prompt = payload.get("prompt")
     if prompt:
@@ -849,12 +917,22 @@ def _sessions_view(qs: dict) -> list:
             if not cur or r.get("last_seen", 0) > cur.get("last_seen", 0):
                 latest[r["rm_id"]] = r
     for s in sessions:
-        r = latest.get(s["rm_id"])
+        # Enrichissement : index clé-tmux (couvre tickets ET slugs, RM2144),
+        # complété par la jonction (client/projet des tickets).
+        k = _key_info(s["rm_id"])
+        if k:
+            s["engine"] = k.get("engine")
+            s["session_id"] = k.get("session_id")
+        r = latest.get(s["rm_id"]) if s.get("is_ticket") else None
         if r:
-            s["engine"] = r.get("engine")
-            s["session_id"] = r.get("session_id")
+            s.setdefault("engine", r.get("engine"))
+            s.setdefault("session_id", r.get("session_id"))
             if r.get("client") != "_":
                 s["client"], s["project"] = r.get("client"), r.get("project")
+        if not s.get("client") and k and k.get("cwd"):
+            c, p = _pm_project_of_cwd(k["cwd"])
+            if c:
+                s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
 
     f_engine, f_client, f_project = qs.get("engine"), qs.get("client"), qs.get("project")
@@ -1586,7 +1664,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- SSE : tail du log pipe-pane (octets de terminal bruts) --
     def _stream(self, rm_id: str):
-        if not _RM_ID_RE.match(rm_id):
+        if not _valid_sid(rm_id):
             return self._send_json(400, {"error": "rm_id invalide"})
         logf = _log_path(rm_id)
         self.send_response(200)

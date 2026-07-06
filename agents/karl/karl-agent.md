@@ -46,7 +46,7 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/health` | — | `{status, sessions, tmux}` |
 | GET | `/sessions` | `?engine=&client=&project=` | `{sessions:[{rm_id, tmux, created, attached, engine?, session_id?, client?, project?, state}]}` — enrichi via l'index sessions⇄tickets (RM1939) ; `state` ∈ `working|attention|idle` (heuristique capture-pane, intérim RM1874 — RM2140) |
 | GET | `/resumable` | `?engine=&client=&project=&status=wip\|done&q=&limit=` | `{resumable:[{engine, session_id, title, mark, cwd, mtime, client, project, tickets, live}]}` — sessions reprenables découvertes dans les stores claude (`KARL_AGENT_CLAUDE_STORES`, défaut `~/.claude/projects`) ; `mark` = marqueur `[WIP]`/`[DONE]` posé par `/session-mark` ; projet déduit du `.mmi-pm` du cwd (RM1939) |
-| POST | `/resume` | `{session_id?, rm_id?, n?, prompt?}` | `201 {rm_id, tmux, engine, session_id, cwd, resumed}` — relance `claude --resume <sid>` dans un tmux `karl-RM<id>` neuf au cwd d'origine ; `rm_id` seul = session la plus récente du ticket ; session jamais liée à un ticket → `rm_id` requis (ancrage). 409 si tmux vivant, 410 si transcript purgé/cwd invalide (RM1939) |
+| POST | `/resume` | `{session_id?, rm_id?, n?, prompt?}` | `201 {rm_id, tmux, engine, session_id, cwd, resumed}` — relance `claude --resume <sid>` dans un tmux neuf au cwd d'origine ; ancrage : ticket `RM<id>` = idéal (jonction écrite), slug accepté, ABSENT = dernier ticket lié sinon slug auto dérivé du titre (RM2144). 409 si tmux vivant, 410 si transcript purgé/cwd invalide (RM1939) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
@@ -84,6 +84,16 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
   NORMS à proposer si l'usage se confirme.
 - Codes : `400` (entrée invalide), `401` (token manquant), `404` (session absente),
   `409` (session déjà active), `500` (échec tmux).
+
+### Nommage des sessions (RM2144)
+
+L'ancrage **ticket** est l'IDÉAL : tmux `karl-RM<id>`, jonction n-m écrite,
+resolve/workspace-status/groupement projet complets. Un **slug** est accepté
+(`karl-<slug>`, `^[a-z0-9][a-z0-9_-]{1,40}$`, hors espace `rm<n>`) — cas type :
+reprise d'une session interactive sans ticket évident. Le champ `rm_id` de
+l'API porte indifféremment l'un ou l'autre (`is_ticket` dans `/sessions`) ;
+l'index clé-tmux (`~/.local/state/karl-agent/keys/`) garde (engine, session_id,
+cwd) pour toutes les sessions, jonction tickets⇄sessions réservée aux tickets.
 
 ### Reprise de session — modèle n-m (RM1939)
 

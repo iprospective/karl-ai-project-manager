@@ -631,9 +631,31 @@ def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
     return meta
 
 
+# Index {realpath du dossier .mmi-pm co-localisé → (client, projet)}, reconstruit
+# depuis l'arbre PM (dont les entrées clients/<C>/projects/<P> sont des SYMLINKS
+# vers les .mmi-pm co-localisés depuis RM1949 — le .mmi-pm d'un workspace est un
+# vrai dossier, pas un lien vers l'arbre). Cache 60 s (l'arbre bouge rarement).
+_pm_index_cache = {"at": 0.0, "map": {}}
+
+
+def _pm_projects_index() -> dict:
+    now = time.time()
+    if now - _pm_index_cache["at"] > 60:
+        m = {}
+        for pd in PROJECTS_BASE.glob("*/projects/*"):
+            try:
+                m[str(pd.resolve())] = (pd.parent.parent.name, pd.name)
+            except OSError:
+                continue
+        _pm_index_cache["at"], _pm_index_cache["map"] = now, m
+    return _pm_index_cache["map"]
+
+
 def _pm_project_of_cwd(cwd: str | None):
-    """cwd → (client, projet) PM via le symlink `.mmi-pm` (cwd puis parents
-    proches — convention : à la racine du workspace ou du dépôt)."""
+    """cwd → (client, projet) PM via son `.mmi-pm` (cwd puis parents proches —
+    convention : à la racine du workspace ou du dépôt). Gère les deux layouts :
+    .mmi-pm co-localisé (canonique RM1949, lookup par l'index inversé) et
+    .mmi-pm symlink vers l'arbre PM (pré-bascule, ex. pm-ai-agents)."""
     if not cwd:
         return None, None
     p = Path(cwd)
@@ -642,7 +664,11 @@ def _pm_project_of_cwd(cwd: str | None):
         try:
             if not (link.is_symlink() or link.is_dir()):
                 continue
-            parts = link.resolve().parts
+            target = link.resolve()
+            hit = _pm_projects_index().get(str(target))
+            if hit:
+                return hit
+            parts = target.parts
             if "clients" in parts:
                 i = parts.index("clients")
                 if len(parts) > i + 3 and parts[i + 2] == "projects":

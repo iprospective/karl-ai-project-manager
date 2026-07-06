@@ -198,6 +198,16 @@ contrôlé pour existence réelle.
 5. **Outiller** : si la règle s'exécute, nommer le skill/script (`tools:`). S'il
    n'existe pas → loguer un trou d'outillage.
 6. **Vérifier** : `pm-norms-doctor` (invariants §11) puis `pm-norms-assemble` + diff.
+   - **Discipline ledger (obligatoire, non différable)** : si tu **reformules** ou
+     **retires** une ligne qui existe dans l'oracle `_original-frozen.md`, le doctor la
+     signale « non couverte ». Tu l'**inscris aussitôt** dans `dedup-ledger.yml`
+     (`rewritten` avec `old:` = texte d'origine + `reason:`, ou `removed:` pour un
+     doublon littéral) — **dans le même commit** que la reformulation. Ne jamais
+     « laisser pour plus tard » : c'est ainsi que le ledger a dérivé de 8 versions
+     (37 lignes non enregistrées, RM2070). La couverture est un **gate à tenir vert
+     en continu**, pas une dette à réconcilier a posteriori. Avant d'inscrire, vérifie
+     que c'est bien une reformulation (contenu conservé ailleurs) et **non une perte
+     réelle** — sinon, restaure le contenu, ne l'enregistre pas.
 7. **Versionner** : cf. §12.
 
 ---

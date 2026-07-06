@@ -207,6 +207,30 @@
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
+
+    <details class="card" id="rescard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadResumable();}">
+      <summary>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></summary>
+      <div class="row2">
+        <div>
+          <label for="rs-project">Projet</label>
+          <select id="rs-project" onchange="loadResumable()"><option value="">tous</option></select>
+        </div>
+        <div>
+          <label for="rs-status">Statut</label>
+          <select id="rs-status" onchange="loadResumable()">
+            <option value="">tous</option>
+            <option value="wip">[WIP] à finir</option>
+            <option value="done">[DONE] terminées</option>
+          </select>
+        </div>
+      </div>
+      <label for="rs-engine">Moteur</label>
+      <select id="rs-engine" onchange="loadResumable()">
+        <option value="claude">claude</option>
+      </select>
+      <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
+      <ul class="results" id="rs-list"></ul>
+    </details>
   </section>
 
   <section class="right">
@@ -418,13 +442,70 @@ async function loadProjects() {
   try {
     const { projects } = await api("/projects");
     sel.innerHTML = "";
+    const rsSel = document.getElementById("rs-project");
     for (const p of projects) {
       const o = document.createElement("option");
       o.value = p.value; o.textContent = p.value;
       if (p.value === "iprospective/pm-ai-agents") o.selected = true;
       sel.appendChild(o);
+      const o2 = o.cloneNode(true); o2.selected = false; rsSel.appendChild(o2);
     }
   } catch (e) { /* silencieux */ }
+}
+
+// ----- RM1939 : sessions reprenables (resume natif du moteur) -----
+async function loadResumable() {
+  const ul = document.getElementById("rs-list");
+  ul.innerHTML = '<div class="empty">chargement…</div>';
+  const q = [];
+  const eng = document.getElementById("rs-engine").value;
+  const proj = document.getElementById("rs-project").value;
+  const st = document.getElementById("rs-status").value;
+  if (eng) q.push("engine=" + encodeURIComponent(eng));
+  if (proj) {
+    const [c, p] = proj.split("/");
+    q.push("client=" + encodeURIComponent(c), "project=" + encodeURIComponent(p));
+  }
+  if (st) q.push("status=" + st);
+  try {
+    const { resumable } = await api("/resumable" + (q.length ? "?" + q.join("&") : ""));
+    if (!resumable.length) { ul.innerHTML = '<div class="empty">aucune session</div>'; return; }
+    ul.innerHTML = "";
+    for (const s of resumable) {
+      const li = document.createElement("li");
+      const markPill = s.mark === "wip" ? '<span class="pill warn">WIP</span> '
+        : s.mark === "done" ? '<span class="pill ok">DONE</span> ' : "";
+      const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
+      li.innerHTML =
+        '<div class="r-top">' + markPill +
+        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span></div>' +
+        '<div class="r-meta">' + (s.client ? esc(s.client + "/" + s.project) : esc(s.cwd || "?")) +
+        (tk ? " · " + tk : "") + " · " + ago(s.mtime) +
+        (s.live ? ' · <span class="pill ok">tmux vivant</span>' : "") + '</div>';
+      li.title = (s.title || "") + "\n" + (s.cwd || "") + "\nsession " + s.session_id;
+      li.onclick = () => resumeSession(s);
+      ul.appendChild(li);
+    }
+  } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + esc(e.message) + '</div>'; }
+}
+async function resumeSession(s) {
+  // Le tmux de reprise est nommé karl-RM<id> : il faut un ticket d'ancrage.
+  // Défaut : dernier ticket lié à la session, sinon champ lanceur, sinon prompt.
+  let rm = (s.tickets && s.tickets.length) ? String(s.tickets[s.tickets.length - 1].rm_id)
+    : document.getElementById("rm").value.trim();
+  rm = prompt("Reprendre dans karl-RM<id> — ticket à associer :", rm || "");
+  if (rm === null) return;
+  rm = rm.trim().replace(/^RM/i, "");
+  if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
+  try {
+    const r = await api("/resume", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: s.session_id, rm_id: rm }),
+    });
+    toast("Session reprise dans karl-RM" + r.rm_id);
+    await refreshSessions(); refreshHealth();
+    setTimeout(() => attach(r.rm_id), 400);
+  } catch (e) { toast(e.message, true); }
 }
 async function createTicket() {
   const title = document.getElementById("nt-title").value.trim();

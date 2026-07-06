@@ -40,7 +40,18 @@ API (JSON, localhost:9876)
                                    gated dès que Basic est configuré, RM2139 ;
                                    models = clés du catalogue par moteur, RM1941)
   GET  /health                  → {status, sessions, tmux}
-  GET  /sessions                → [{rm_id, tmux, created, attached}]
+  GET  /sessions[?engine=&client=&project=]
+                                → [{rm_id, tmux, created, attached, engine?,
+                                   session_id?, client?, project?}]  (RM1939)
+  GET  /resumable[?engine=&client=&project=&status=wip|done&q=&limit=]
+                                → sessions REPRENABLES découvertes dans les
+                                  stores claude (titre [WIP]/[DONE] de
+                                  /session-mark, cwd→projet via .mmi-pm,
+                                  tickets liés via l'index local)  (RM1939)
+  POST /resume {session_id?, rm_id?, n?, prompt?}
+                                → relance `claude --resume <sid>` dans un tmux
+                                  karl-RM<id> neuf, au cwd de la session ;
+                                  écrit la jonction ticket⇄session  (RM1939)
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
                                    description, log…) depuis le MD local (RM1893 §1)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
@@ -74,6 +85,7 @@ import json
 import os
 import re
 import shlex
+import uuid
 import signal
 import subprocess
 import sys
@@ -209,6 +221,26 @@ LOG_DIR = Path(
     os.environ.get("KARL_AGENT_LOG_DIR")
     or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "karl-agent")
 )
+
+# ── Store sessions ⇄ tickets (RM1939) — instance-local, JAMAIS committé ──────
+# Modèle n-m : une session traverse plusieurs tickets, un ticket est repris dans
+# plusieurs sessions. Deux dimensions + jonction :
+#   sessions/<engine>/<session_id>.json      entité SESSION (projet-agnostique)
+#   tasks/<client>/<projet>/RM<id>-<n>.json  jonction (n = occurrence, max+1)
+# Un session-id n'a de sens que sur CETTE machine (fédération : jamais en git).
+SESS_DIR = LOG_DIR / "sessions"
+RUNS_DIR = LOG_DIR / "tasks"
+# Stores claude scannés pour la DÉCOUVERTE des sessions reprenables (l'historique
+# reste chez le moteur ; karl-agent n'en garde qu'un index). Multi-racines ':' —
+# permet de monter le store d'une autre machine en lecture (listing seulement :
+# le resume natif exige le transcript dans le store du user qui lance claude).
+CLAUDE_STORES = [
+    Path(p).expanduser()
+    for p in os.environ.get(
+        "KARL_AGENT_CLAUDE_STORES", str(Path.home() / ".claude" / "projects")
+    ).split(":")
+    if p.strip()
+]
 
 AUTH_TOKEN = os.environ.get("KARL_AGENT_TOKEN") or None  # optionnel
 # Auth Basic user/mdp (RM2139) — v1 simple avant le SSO GitLab (RM1845).
@@ -387,10 +419,41 @@ def op_spawn(payload: dict) -> dict:
     except ValueError as e:
         raise ApiError(400, str(e))
 
+    # RM1939 : pour claude, on FIXE le session-id au lancement → index de reprise
+    # écrit immédiatement, sans découverte. Autres moteurs : itération suivante
+    # (pas de set-at-launch → capture différée du session-id).
+    session_id = None
+    if engine == "claude":
+        session_id = str(uuid.uuid4())
+        cmd = f"{cmd} --session-id {session_id}"
+
     width = int(payload.get("width", DEFAULT_WIDTH))
     height = int(payload.get("height", DEFAULT_HEIGHT))
     name = _session_name(rm_id)
 
+    _start_session_tmux(rm_id, cmd, cwd, width, height, env_extra)
+    if session_id:
+        _record_run(rm_id, engine, session_id, str(cwd))
+
+    # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
+    # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
+    # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
+    prompt = payload.get("prompt")
+    if prompt:
+        _wait_engine_ready(rm_id, engine)
+        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
+        time.sleep(0.3)
+        _tmux("send-keys", "-t", name, "Enter")
+
+    return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
+            "model": model_value, "model_source": model_source,
+            "session_id": session_id, "created": True}
+
+
+def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
+                        env_extra: list) -> None:
+    """Démarre la session tmux karl-RM<id> + plomberie commune (spawn ET resume)."""
+    name = _session_name(rm_id)
     rc, _, err = _tmux(
         "new-session", "-d", "-s", name,
         "-x", str(width), "-y", str(height),
@@ -415,19 +478,6 @@ def op_spawn(payload: dict) -> dict:
     # `mouse on` prend effet immédiatement pour toutes.
     _tmux("set-option", "-g", "mouse", "on")
     _tmux("set-option", "-g", "history-limit", "50000")
-
-    # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
-    # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
-    # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
-    prompt = payload.get("prompt")
-    if prompt:
-        _wait_engine_ready(rm_id, engine)
-        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
-        time.sleep(0.3)
-        _tmux("send-keys", "-t", name, "Enter")
-
-    return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
-            "model": model_value, "model_source": model_source, "created": True}
 
 
 def op_send(payload: dict) -> dict:
@@ -470,6 +520,298 @@ def op_kill(payload: dict) -> dict:
     if rc != 0:
         raise ApiError(500, f"kill-session a échoué : {err.strip()}")
     return {"rm_id": rm_id, "killed": True}
+
+
+# ── Sessions ⇄ tickets : store, découverte, reprise (RM1939, itér.1 claude) ──
+_SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")
+_MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
+
+
+def _write_json_atomic(path: Path, obj: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _read_json_file(path: Path) -> dict | None:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+
+
+def _runs_for_ticket(rm_id: str) -> list:
+    """Jonctions RM<id>-<n> du ticket, tous projets, triées par n. Chaque entrée
+    porte client/project/_file (déduits du chemin — retirés avant écriture)."""
+    runs = []
+    for f in RUNS_DIR.glob(f"*/*/RM{rm_id}-*.json"):
+        d = _read_json_file(f)
+        if d and str(d.get("rm_id")) == rm_id:
+            d["client"], d["project"], d["_file"] = f.parent.parent.name, f.parent.name, str(f)
+            runs.append(d)
+    return sorted(runs, key=lambda d: d.get("n", 0))
+
+
+def _runs_by_session() -> dict:
+    """Index session_id → [jonctions] (scan complet du store, petit par nature)."""
+    idx = {}
+    for f in RUNS_DIR.glob("*/*/RM*-*.json"):
+        d = _read_json_file(f)
+        if d and d.get("session_id"):
+            d["client"], d["project"], d["_file"] = f.parent.parent.name, f.parent.name, str(f)
+            idx.setdefault(d["session_id"], []).append(d)
+    return idx
+
+
+def _record_run(rm_id: str, engine: str, session_id: str, cwd: str) -> dict:
+    """Écrit/rafraîchit l'entité session + la jonction. Même couple (ticket,
+    session) → jonction réutilisée (un resume ne crée pas d'occurrence) ;
+    nouveau couple → n = max existant + 1."""
+    now = int(time.time())
+    sf = SESS_DIR / engine / f"{session_id}.json"
+    meta = _read_json_file(sf) or {"engine": engine, "session_id": session_id, "created": now}
+    meta.update({"cwd": cwd, "last_seen": now})
+    _write_json_atomic(sf, meta)
+
+    runs = _runs_for_ticket(rm_id)
+    same = [r for r in runs if r.get("session_id") == session_id]
+    if same:
+        run = same[-1]
+        run["last_seen"] = now
+        rf = Path(run["_file"])
+    else:
+        run = {"rm_id": rm_id, "n": (max((r.get("n", 0) for r in runs), default=0) + 1),
+               "session_id": session_id, "engine": engine, "created": now, "last_seen": now}
+        tf = _find_task_file(rm_id)
+        client, project = _task_client_project(tf) if tf else ("_", "_")
+        rf = RUNS_DIR / client / project / f"RM{rm_id}-{run['n']}.json"
+    _write_json_atomic(rf, {k: v for k, v in run.items()
+                            if k not in ("client", "project", "_file")})
+    return run
+
+
+# Cache mtime → méta extraite (le scan du store relit seulement ce qui a changé).
+_tail_cache: dict = {}
+
+
+def _jsonl_tail_meta(path: Path, max_bytes: int = 131072) -> dict:
+    """Méta d'un transcript claude, extraite de son DERNIER segment (lecture
+    bornée : les fichiers font parfois des centaines de Mo) : titre (dernier
+    `custom-title`, sinon dernier `ai-title` — même logique que /session-mark),
+    cwd et mtime. Le CLI ré-émet son custom-title à chaque tour → il est
+    toujours dans la fenêtre de fin."""
+    st = path.stat()
+    key = str(path)
+    hit = _tail_cache.get(key)
+    if hit and hit[0] == st.st_mtime:
+        return hit[1]
+    with path.open("rb") as fh:
+        if st.st_size > max_bytes:
+            fh.seek(st.st_size - max_bytes)
+            fh.readline()  # saute la ligne probablement tronquée
+        data = fh.read().decode("utf-8", "replace")
+    title = ai_title = cwd = None
+    for line in data.splitlines():
+        if '"custom-title"' not in line and '"ai-title"' not in line and '"cwd"' not in line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        t = obj.get("type")
+        if t == "custom-title" and obj.get("customTitle"):
+            title = obj["customTitle"]
+        elif t == "ai-title" and obj.get("aiTitle"):
+            ai_title = obj["aiTitle"]
+        if obj.get("cwd"):
+            cwd = obj["cwd"]
+    meta = {"title": title or ai_title, "cwd": cwd, "mtime": int(st.st_mtime)}
+    _tail_cache[key] = (st.st_mtime, meta)
+    return meta
+
+
+def _pm_project_of_cwd(cwd: str | None):
+    """cwd → (client, projet) PM via le symlink `.mmi-pm` (cwd puis parents
+    proches — convention : à la racine du workspace ou du dépôt)."""
+    if not cwd:
+        return None, None
+    p = Path(cwd)
+    for cand in [p, *list(p.parents)[:3]]:
+        link = cand / ".mmi-pm"
+        try:
+            if not (link.is_symlink() or link.is_dir()):
+                continue
+            parts = link.resolve().parts
+            if "clients" in parts:
+                i = parts.index("clients")
+                if len(parts) > i + 3 and parts[i + 2] == "projects":
+                    return parts[i + 1], parts[i + 3]
+        except OSError:
+            continue
+    return None, None
+
+
+def op_resumable(qs: dict) -> list:
+    """Sessions REPRENABLES découvertes dans les stores claude (+ index local
+    pour les tickets liés). Filtres : engine, client, project,
+    status (wip|done — marqueurs [WIP]/[DONE] posés par /session-mark), q."""
+    f_engine = qs.get("engine") or None
+    f_client = qs.get("client") or None
+    f_project = qs.get("project") or None
+    f_status = (qs.get("status") or "").lower() or None
+    f_q = (qs.get("q") or "").lower() or None
+    limit = max(1, min(int(qs.get("limit") or 100), 500))
+
+    if f_engine not in (None, "claude"):
+        return []  # itération 1 : découverte claude uniquement
+    runs_idx = _runs_by_session()
+    live_rm = {s["rm_id"] for s in _list_sessions()}
+    out, seen = [], set()
+    for root in CLAUDE_STORES:
+        if not root.is_dir():
+            continue
+        for jf in root.glob("*/*.jsonl"):
+            sid = jf.stem
+            if sid in seen or not _SID_RE.match(sid):
+                continue
+            seen.add(sid)
+            try:
+                meta = _jsonl_tail_meta(jf)
+            except OSError:
+                continue
+            raw_title = meta["title"] or ""
+            m = _MARK_RE.match(raw_title)
+            runs = runs_idx.get(sid, [])
+            client, project = _pm_project_of_cwd(meta["cwd"])
+            if not client and runs:
+                client, project = runs[-1]["client"], runs[-1]["project"]
+            out.append({
+                "engine": "claude", "session_id": sid,
+                "title": _MARK_RE.sub("", raw_title) or None,
+                "mark": m.group(1).lower() if m else None,
+                "cwd": meta["cwd"], "mtime": meta["mtime"],
+                "client": client, "project": project,
+                "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
+                "live": any(r["rm_id"] in live_rm for r in runs),
+            })
+
+    def keep(e):
+        if f_status and e["mark"] != f_status:
+            return False
+        if f_client and e["client"] != f_client:
+            return False
+        if f_project and e["project"] != f_project:
+            return False
+        if f_q and f_q not in (e["title"] or "").lower():
+            return False
+        return True
+
+    out = [e for e in out if keep(e)]
+    out.sort(key=lambda e: e["mtime"], reverse=True)
+    return out[:limit]
+
+
+def op_resume(payload: dict) -> dict:
+    """Reprend une conversation TERMINÉE côté process (tmux mort) via le resume
+    natif du moteur, dans une session tmux karl-RM<id> neuve. Cible : session_id
+    direct, ou rm_id (+ n) → jonction la plus récente. Itération 1 : claude."""
+    engine = payload.get("engine", "claude")
+    session_id = str(payload.get("session_id") or "").strip() or None
+    rm_id = str(payload.get("rm_id") or "").strip() or None
+    n = payload.get("n")
+    if session_id and not _SID_RE.match(session_id):
+        raise ApiError(400, "session_id invalide")
+    if rm_id and not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+
+    if not session_id:
+        if not rm_id:
+            raise ApiError(400, "session_id ou rm_id requis")
+        runs = _runs_for_ticket(rm_id)
+        if n is not None:
+            runs = [r for r in runs if r.get("n") == int(n)]
+        if not runs:
+            raise ApiError(404, f"aucune session connue pour RM{rm_id}"
+                                + (f" (n={n})" if n is not None else "")
+                                + " — lancer un spawn neuf")
+        last = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))
+        session_id, engine = last["session_id"], last.get("engine", engine)
+    if engine != "claude":
+        raise ApiError(501, f"resume : itération 1 = claude uniquement (session {engine})")
+
+    if not rm_id:
+        # Le tmux est nommé karl-RM<id> (mono-session vivante, invariant RM1771) :
+        # une session jamais liée à un ticket doit être reprise AVEC un rm_id.
+        runs = _runs_by_session().get(session_id, [])
+        if not runs:
+            raise ApiError(400, "rm_id requis : session encore liée à aucun ticket "
+                                "(le tmux de reprise est nommé karl-RM<id>)")
+        rm_id = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))["rm_id"]
+
+    if _has_session(rm_id):
+        raise ApiError(409, f"session déjà active : {_session_name(rm_id)}")
+
+    # Garde-fous : transcript présent ? cwd toujours valide ?
+    jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
+    if jf is None:
+        raise ApiError(410, f"transcript introuvable pour {session_id} "
+                            "(session purgée ou store non monté) — lancer un spawn neuf")
+    smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
+    try:
+        cwd = _resolve_cwd(smeta.get("cwd") or _jsonl_tail_meta(jf)["cwd"])
+    except (ValueError, TypeError) as e:
+        raise ApiError(410, f"cwd de la session invalide ({e}) — lancer un spawn neuf")
+
+    cmd = f"{ENGINES['claude']['cmd']} --resume {shlex.quote(session_id)}"
+    width = int(payload.get("width", DEFAULT_WIDTH))
+    height = int(payload.get("height", DEFAULT_HEIGHT))
+    _start_session_tmux(rm_id, cmd, cwd, width, height, [])
+    _record_run(rm_id, "claude", session_id, str(cwd))
+
+    prompt = payload.get("prompt")
+    if prompt:
+        _wait_engine_ready(rm_id, "claude")
+        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
+        time.sleep(0.3)
+        _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
+
+    return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": "claude",
+            "session_id": session_id, "cwd": str(cwd), "resumed": True}
+
+
+def _sessions_view(qs: dict) -> list:
+    """Sessions tmux vivantes, enrichies (moteur, session_id, client/projet via
+    la jonction la plus récente) + filtres engine/client/project (RM1939)."""
+    sessions = _list_sessions()
+    if not sessions:
+        return []
+    latest = {}
+    for runs in _runs_by_session().values():
+        for r in runs:
+            cur = latest.get(r["rm_id"])
+            if not cur or r.get("last_seen", 0) > cur.get("last_seen", 0):
+                latest[r["rm_id"]] = r
+    for s in sessions:
+        r = latest.get(s["rm_id"])
+        if r:
+            s["engine"] = r.get("engine")
+            s["session_id"] = r.get("session_id")
+            if r.get("client") != "_":
+                s["client"], s["project"] = r.get("client"), r.get("project")
+
+    f_engine, f_client, f_project = qs.get("engine"), qs.get("client"), qs.get("project")
+
+    def keep(s):
+        if f_engine and s.get("engine") != f_engine:
+            return False
+        if f_client and s.get("client") != f_client:
+            return False
+        if f_project and s.get("project") != f_project:
+            return False
+        return True
+
+    return [s for s in sessions if keep(s)]
 
 
 # ── Tickets PM locaux : résolution + recherche (RM1893 §1, §7) ────────────────
@@ -1125,7 +1467,11 @@ class Handler(BaseHTTPRequestHandler):
                     "tmux": _tmux("-V")[0] == 0,
                 })
             if path == "/sessions":
-                return self._send_json(200, {"sessions": _list_sessions()})
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, {"sessions": _sessions_view(qs)})
+            if path == "/resumable":
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, {"resumable": op_resumable(qs)})
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)
@@ -1161,6 +1507,8 @@ class Handler(BaseHTTPRequestHandler):
             payload = self._read_json()
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
+            if path == "/resume":
+                return self._send_json(201, op_resume(payload))
             if path == "/tickets":
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":

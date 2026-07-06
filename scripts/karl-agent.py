@@ -27,12 +27,18 @@ SÉCURITÉ
     le spawn (jamais concaténé dans la ligne de commande).
   - Token partagé **optionnel** `X-Karl-Token` (env `KARL_AGENT_TOKEN`) :
     défense en profondeur côté `mmi` où le tunnel expose le port sur localhost.
+  - Auth **Basic user/mdp optionnelle** (env `KARL_WEB_USER`/`KARL_WEB_PASS`,
+    RM2139) : v1 simple avant le SSO GitLab (RM1845). Configurée ⇒ toutes les
+    routes (y compris `/` et `/cockpit-config`) exigent Basic ou token — requis
+    dès que le cockpit est exposé au-delà du bridge local (karl.iprospective.fr).
 
 ──────────────────────────────────────────────────────────────────────────────
 API (JSON, localhost:9876)
   GET  /                        → text/html (cockpit web, RM1873)
   GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities,
-                                   engines, models}  (public ; models = clés du catalogue par moteur, RM1941)
+                                   engines, models}  (public en mode token seul ;
+                                   gated dès que Basic est configuré, RM2139 ;
+                                   models = clés du catalogue par moteur, RM1941)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions                → [{rm_id, tmux, created, attached}]
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
@@ -62,6 +68,8 @@ Lancement :
     python3 scripts/karl-agent.py            # bind 127.0.0.1:9876
     KARL_AGENT_PORT=9999 python3 scripts/karl-agent.py
 """
+import base64
+import hmac
 import json
 import os
 import re
@@ -203,6 +211,14 @@ LOG_DIR = Path(
 )
 
 AUTH_TOKEN = os.environ.get("KARL_AGENT_TOKEN") or None  # optionnel
+# Auth Basic user/mdp (RM2139) — v1 simple avant le SSO GitLab (RM1845).
+# Posés dans le .env du core. Dès que le couple est configuré, TOUTES les routes
+# exigent une auth (y compris / et /cockpit-config) : le cockpit est joignable
+# au-delà du bridge local via le tunnel mmi + vhost karl.iprospective.fr, donc
+# plus aucune route « publique ». X-Karl-Token reste accepté en alternative
+# pour les clients API non-navigateur.
+BASIC_USER = os.environ.get("KARL_WEB_USER") or None
+BASIC_PASS = os.environ.get("KARL_WEB_PASS") or None
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
@@ -1022,9 +1038,37 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_auth(self) -> bool:
-        if AUTH_TOKEN is None:
-            return True
-        return self.headers.get("X-Karl-Token") == AUTH_TOKEN
+        """Vraie si le client présente le token partagé OU des credentials Basic
+        valides (RM2139). Sans aucune auth configurée → ouvert (usage local)."""
+        if AUTH_TOKEN is not None:
+            if hmac.compare_digest(self.headers.get("X-Karl-Token") or "", AUTH_TOKEN):
+                return True
+        if BASIC_USER is not None and BASIC_PASS is not None:
+            auth = self.headers.get("Authorization") or ""
+            if not auth.startswith("Basic "):
+                return False
+            try:
+                user, _, pwd = base64.b64decode(
+                    auth[6:], validate=True).decode("utf-8").partition(":")
+            except (ValueError, UnicodeDecodeError):
+                return False
+            return (hmac.compare_digest(user, BASIC_USER)
+                    and hmac.compare_digest(pwd, BASIC_PASS))
+        return AUTH_TOKEN is None
+
+    def _send_auth_required(self):
+        """401 ; le challenge Basic n'est émis que si le mode user/mdp est
+        configuré (en mode token seul, pas de prompt navigateur parasite)."""
+        body = json.dumps(
+            {"error": "authentification requise (Basic ou X-Karl-Token)"},
+            ensure_ascii=False).encode("utf-8")
+        self.send_response(401)
+        if BASIC_USER is not None and BASIC_PASS is not None:
+            self.send_header("WWW-Authenticate", 'Basic realm="karl-agent", charset="UTF-8"')
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def _read_json(self) -> dict:
         length = int(self.headers.get("Content-Length", "0") or "0")
@@ -1043,9 +1087,14 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        # Routes publiques du cockpit (RM1873) — SANS auth : la page doit pouvoir
-        # se charger pour qu'on y saisisse le token, et elle ne divulgue rien de
-        # sensible (le ttyd_base est déjà déductible côté client).
+        # Basic configuré ⇒ AUCUNE route publique : la page cockpit elle-même est
+        # gated, le navigateur prompte nativement puis rejoue les credentials sur
+        # tous les fetch same-origin (RM2139).
+        if BASIC_USER is not None and not self._check_auth():
+            return self._send_auth_required()
+        # Routes publiques du cockpit (RM1873) — SANS auth en mode token : la page
+        # doit pouvoir se charger pour qu'on y saisisse le token, et elle ne
+        # divulgue rien de sensible (le ttyd_base est déjà déductible côté client).
         if path in ("/", "/cockpit"):
             try:
                 return self._send_html(200, (COCKPIT_DIR / "index.html").read_text(encoding="utf-8"))
@@ -1054,7 +1103,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
-                "auth_required": AUTH_TOKEN is not None,
+                # En mode Basic, le navigateur a déjà été authentifié pour charger
+                # la page : le champ token du cockpit n'a pas lieu d'être.
+                "auth_required": AUTH_TOKEN is not None and BASIC_USER is None,
                 "monitors": list(_monitor_presets().keys()),
                 "layouts": sorted(LAYOUTS),
                 "task_types": _task_types(),
@@ -1065,7 +1116,7 @@ class Handler(BaseHTTPRequestHandler):
                 "models": {e: sorted(m) for e, m in _model_catalog().items()},
             })
         if not self._check_auth():
-            return self._send_json(401, {"error": "token requis (X-Karl-Token)"})
+            return self._send_auth_required()
         try:
             if path == "/health":
                 return self._send_json(200, {
@@ -1104,7 +1155,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if not self._check_auth():
-            return self._send_json(401, {"error": "token requis (X-Karl-Token)"})
+            return self._send_auth_required()
         path = urlparse(self.path).path
         try:
             payload = self._read_json()

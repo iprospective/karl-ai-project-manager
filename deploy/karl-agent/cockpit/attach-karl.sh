@@ -11,12 +11,16 @@
 set -euo pipefail
 
 id="${1:-}"
-if ! [[ "$id" =~ ^[0-9]+$ ]]; then
-  echo "rm_id invalide : '$id' (attendu ^[0-9]+\$)" >&2
+# RM2144 : sid = id de ticket (idéal → karl-RM<id>) OU slug (→ karl-<slug>).
+# Validation stricte inchangée dans l'esprit : rien d'arbitraire n'atteint tmux.
+if [[ "$id" =~ ^[0-9]+$ ]]; then
+  session="karl-RM${id}"
+elif [[ "$id" =~ ^[a-z0-9][a-z0-9_-]{1,40}$ ]] && ! [[ "$id" =~ ^rm[0-9]+$ ]]; then
+  session="karl-${id}"
+else
+  echo "sid invalide : '$id' (attendu ^[0-9]+\$ ou slug ^[a-z0-9][a-z0-9_-]{1,40}\$)" >&2
   exit 2
 fi
-
-session="karl-RM${id}"
 if ! tmux has-session -t "$session" 2>/dev/null; then
   echo "session absente : $session" >&2
   echo "(lance-la d'abord depuis le cockpit, ou via POST /spawn)" >&2

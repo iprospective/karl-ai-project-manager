@@ -229,9 +229,10 @@
         <div>
           <label for="rs-status">Statut</label>
           <select id="rs-status" onchange="loadResumable()">
-            <option value="">tous</option>
+            <option value="not-done" selected>sauf [DONE]</option>
             <option value="wip">[WIP] à finir</option>
             <option value="done">[DONE] terminées</option>
+            <option value="">toutes</option>
           </select>
         </div>
       </div>

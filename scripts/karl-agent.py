@@ -787,7 +787,11 @@ def op_resumable(qs: dict) -> list:
             })
 
     def keep(e):
-        if f_status and e["mark"] != f_status:
+        # status=not-done : tout sauf les [DONE] (défaut du panneau de reprise)
+        if f_status == "not-done":
+            if e["mark"] == "done":
+                return False
+        elif f_status and e["mark"] != f_status:
             return False
         if f_client and e["client"] != f_client:
             return False

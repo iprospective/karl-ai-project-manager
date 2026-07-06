@@ -780,9 +780,39 @@ def op_resume(payload: dict) -> dict:
             "session_id": session_id, "cwd": str(cwd), "resumed": True}
 
 
+# État heuristique d'une session (RM2140) — INTÉRIM avant le bus de hooks
+# (RM1874) qui donnera les états exacts working/blocked/idle. Lecture du tail
+# du pane :
+#   attention : dialogue de permission / question qui BLOQUE l'agent ;
+#   working   : le moteur produit (claude affiche « esc to interrupt ») ;
+#   idle      : invite au repos (tour fini, ou en attente d'une consigne).
+_ATTENTION_MARKERS = ("Do you want", "Would you like", "(y/n)", "❯ 1.", "│ 1. Yes")
+_WORKING_MARKERS = ("esc to interrupt", "ctrl+b to run in background", "Compacting")
+
+
+def _session_state(rm_id: str, engine) -> str:
+    rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
+    if rc != 0:
+        return "idle"
+    tail = "\n".join(out.rstrip().splitlines()[-15:])
+    if any(m in tail for m in _ATTENTION_MARKERS):
+        return "attention"
+    if any(m in tail for m in _WORKING_MARKERS):
+        return "working"
+    if engine not in (None, "claude"):
+        # moteurs sans marqueurs fiables : âge de la dernière sortie (pipe-pane)
+        try:
+            if time.time() - _log_path(rm_id).stat().st_mtime < 15:
+                return "working"
+        except OSError:
+            pass
+    return "idle"
+
+
 def _sessions_view(qs: dict) -> list:
     """Sessions tmux vivantes, enrichies (moteur, session_id, client/projet via
-    la jonction la plus récente) + filtres engine/client/project (RM1939)."""
+    la jonction la plus récente, état heuristique RM2140) + filtres
+    engine/client/project (RM1939)."""
     sessions = _list_sessions()
     if not sessions:
         return []
@@ -799,6 +829,7 @@ def _sessions_view(qs: dict) -> list:
             s["session_id"] = r.get("session_id")
             if r.get("client") != "_":
                 s["client"], s["project"] = r.get("client"), r.get("project")
+        s["state"] = _session_state(s["rm_id"], s.get("engine"))
 
     f_engine, f_client, f_project = qs.get("engine"), qs.get("client"), qs.get("project")
 

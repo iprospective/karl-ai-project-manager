@@ -44,12 +44,14 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/` `/cockpit` | — | `text/html` (cockpit web v0) — **public** |
 | GET | `/cockpit-config` | — | `{ttyd_base, auth_required}` — **public** |
 | GET | `/health` | — | `{status, sessions, tmux}` |
-| GET | `/sessions` | — | `{sessions:[{rm_id, tmux, created, attached}]}` |
+| GET | `/sessions` | `?engine=&client=&project=` | `{sessions:[{rm_id, tmux, created, attached, engine?, session_id?, client?, project?, state}]}` — enrichi via l'index sessions⇄tickets (RM1939) ; `state` ∈ `working|attention|idle` (heuristique capture-pane, intérim RM1874 — RM2140) |
+| GET | `/resumable` | `?engine=&client=&project=&status=wip\|done&q=&limit=` | `{resumable:[{engine, session_id, title, mark, cwd, mtime, client, project, tickets, live}]}` — sessions reprenables découvertes dans les stores claude (`KARL_AGENT_CLAUDE_STORES`, défaut `~/.claude/projects`) ; `mark` = marqueur `[WIP]`/`[DONE]` posé par `/session-mark` ; projet déduit du `.mmi-pm` du cwd (RM1939) |
+| POST | `/resume` | `{session_id?, rm_id?, n?, prompt?}` | `201 {rm_id, tmux, engine, session_id, cwd, resumed}` — relance `claude --resume <sid>` dans un tmux `karl-RM<id>` neuf au cwd d'origine ; `rm_id` seul = session la plus récente du ticket ; session jamais liée à un ticket → `rm_id` requis (ancrage). 409 si tmux vivant, 410 si transcript purgé/cwd invalide (RM1939) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
 | POST | `/tickets` | `{title, type, priority, project, description?, tags?}` | `201 {created, rm_id}` — wrappe `pm-task-add` (creds Redmine hérités du `.env`), entrées en argv = pas d'injection (RM1893 §8) |
-| POST | `/spawn` | `{rm_id, cwd?, engine?, model?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, model, model_source, cwd, created}` |
+| POST | `/spawn` | `{rm_id, cwd?, engine?, model?, prompt?, width?, height?}` | `201 {rm_id, tmux, engine, model, model_source, cwd, session_id?, created}` — pour claude, le `session_id` est FIXÉ au lancement (`--session-id`) et l'index sessions⇄tickets écrit immédiatement (RM1939) |
 | POST | `/send` | `{rm_id, msg, enter?=true}` | `{rm_id, sent}` |
 | GET | `/capture/<rm_id>` | `?lines=N` (historique) | `text/plain` (snapshot du pane) |
 | GET | `/stream/<rm_id>` | — | `text/event-stream` (tail du pipe-pane, SSE) |
@@ -82,6 +84,18 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
   NORMS à proposer si l'usage se confirme.
 - Codes : `400` (entrée invalide), `401` (token manquant), `404` (session absente),
   `409` (session déjà active), `500` (échec tmux).
+
+### Reprise de session — modèle n-m (RM1939)
+
+Store **instance-local** (jamais committé) sous `~/.local/state/karl-agent/` :
+`sessions/<engine>/<session_id>.json` (entité session, projet-agnostique — clé
+de resume : cwd, last_seen) + `tasks/<client>/<projet>/RM<id>-<n>.json`
+(jonction : une session traverse plusieurs tickets, un ticket est repris dans
+plusieurs sessions ; `n` = occurrence de prise en charge). Le même couple
+(ticket, session) réutilise sa jonction — un resume ne crée pas d'occurrence.
+Itération 1 : moteur **claude** uniquement (session-id fixé au spawn) ; la
+découverte scanne aussi les sessions HORS karl-agent (interactives) via leurs
+transcripts, avec leurs marqueurs `[WIP]`/`[DONE]` (`/session-mark`).
 
 ### Exemples
 

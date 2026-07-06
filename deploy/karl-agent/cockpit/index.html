@@ -93,6 +93,17 @@
   .tab.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
   .tab .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
   .tab.att .tdot, .tab.active .tdot { background: var(--ok); }
+  /* RM2140 : groupes par projet + état heuristique (intérim RM1874) */
+  .tabgroup { display: flex; align-items: flex-end; gap: 4px; }
+  .tabgroup + .tabgroup { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--line); }
+  .tabgroup .glabel { font-size: 10px; color: var(--muted); text-transform: uppercase;
+    letter-spacing: .5px; align-self: center; margin-right: 2px; white-space: nowrap;
+    max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
+  .tab.st-working .tdot { background: var(--ok); }
+  .tab.st-idle .tdot { background: var(--warn); }
+  .tab.st-attention .tdot { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
+  .tab .tbadge { font-size: 11px; line-height: 1; }
+  @keyframes kblink { 50% { opacity: .25; } }
   .tab .tid { font-family: var(--mono); }
   .tab .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; }
   .tab .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
@@ -207,6 +218,30 @@
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
+
+    <details class="card" id="rescard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadResumable();}">
+      <summary>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></summary>
+      <div class="row2">
+        <div>
+          <label for="rs-project">Projet</label>
+          <select id="rs-project" onchange="loadResumable()"><option value="">tous</option></select>
+        </div>
+        <div>
+          <label for="rs-status">Statut</label>
+          <select id="rs-status" onchange="loadResumable()">
+            <option value="">tous</option>
+            <option value="wip">[WIP] à finir</option>
+            <option value="done">[DONE] terminées</option>
+          </select>
+        </div>
+      </div>
+      <label for="rs-engine">Moteur</label>
+      <select id="rs-engine" onchange="loadResumable()">
+        <option value="claude">claude</option>
+      </select>
+      <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
+      <ul class="results" id="rs-list"></ul>
+    </details>
   </section>
 
   <section class="right">
@@ -308,19 +343,47 @@ async function refreshSessions() {
     sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
     // si la session affichée a disparu (kill externe) → on détache la vue
     if (attached && !sessions.some(s => s.rm_id === attached)) detach();
-    tabs.querySelectorAll(".tab").forEach(e => e.remove());
+    tabs.querySelectorAll(".tabgroup").forEach(e => e.remove());
     notabs.style.display = sessions.length ? "none" : "";
+    // RM2140 : onglets groupés par client/projet (source : /sessions enrichi
+    // RM1939 ; fallback /resolve pour les sessions sans jonction ; « divers »
+    // pour les tickets non PM-trackés).
+    const groups = new Map();
     for (const s of sessions) {
-      const tab = document.createElement("div");
-      tab.className = "tab" + (attached === s.rm_id ? " active" : "") + (s.attached ? " att" : "");
-      tab.title = tabTip(s);
-      if (resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);  // remplit le cache → tooltip au prochain rendu
-      tab.innerHTML = '<span class="tdot"></span><span class="tid">RM' + s.rm_id +
-        '</span><span class="tkill" title="Fermer la session">✕</span>';
-      tab.onclick = () => attach(s.rm_id);
-      tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
-      tabs.appendChild(tab);
+      if (resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);  // tooltip + fallback groupe
+      let key = (s.client && s.project) ? s.client + "/" + s.project : null;
+      if (!key) {
+        const r = resolveCache[s.rm_id];
+        key = (r && r.found) ? r.client + "/" + r.project : "divers";
+      }
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(s);
     }
+    let nAttention = 0;
+    for (const key of [...groups.keys()].sort()) {
+      const g = document.createElement("div");
+      g.className = "tabgroup";
+      const gl = document.createElement("span");
+      gl.className = "glabel"; gl.textContent = key; gl.title = key;
+      g.appendChild(gl);
+      for (const s of groups.get(key)) {
+        if (s.state === "attention") nAttention++;
+        const tab = document.createElement("div");
+        tab.className = "tab st-" + (s.state || "idle") +
+          (attached === s.rm_id ? " active" : "") + (s.attached ? " att" : "");
+        tab.title = tabTip(s);
+        const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
+          : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
+        tab.innerHTML = '<span class="tdot"></span><span class="tid">RM' + s.rm_id + '</span>' +
+          badge + '<span class="tkill" title="Fermer la session">✕</span>';
+        tab.onclick = () => attach(s.rm_id);
+        tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
+        g.appendChild(tab);
+      }
+      tabs.appendChild(g);
+    }
+    // titre navigateur : signale d'un coup d'œil les sessions qui attendent
+    document.title = (nAttention ? "⚠" + nAttention + " " : "") + "Cockpit karl-agent";
   } catch (e) { /* health affiche déjà l'erreur de connexion */ }
 }
 
@@ -418,13 +481,70 @@ async function loadProjects() {
   try {
     const { projects } = await api("/projects");
     sel.innerHTML = "";
+    const rsSel = document.getElementById("rs-project");
     for (const p of projects) {
       const o = document.createElement("option");
       o.value = p.value; o.textContent = p.value;
       if (p.value === "iprospective/pm-ai-agents") o.selected = true;
       sel.appendChild(o);
+      const o2 = o.cloneNode(true); o2.selected = false; rsSel.appendChild(o2);
     }
   } catch (e) { /* silencieux */ }
+}
+
+// ----- RM1939 : sessions reprenables (resume natif du moteur) -----
+async function loadResumable() {
+  const ul = document.getElementById("rs-list");
+  ul.innerHTML = '<div class="empty">chargement…</div>';
+  const q = [];
+  const eng = document.getElementById("rs-engine").value;
+  const proj = document.getElementById("rs-project").value;
+  const st = document.getElementById("rs-status").value;
+  if (eng) q.push("engine=" + encodeURIComponent(eng));
+  if (proj) {
+    const [c, p] = proj.split("/");
+    q.push("client=" + encodeURIComponent(c), "project=" + encodeURIComponent(p));
+  }
+  if (st) q.push("status=" + st);
+  try {
+    const { resumable } = await api("/resumable" + (q.length ? "?" + q.join("&") : ""));
+    if (!resumable.length) { ul.innerHTML = '<div class="empty">aucune session</div>'; return; }
+    ul.innerHTML = "";
+    for (const s of resumable) {
+      const li = document.createElement("li");
+      const markPill = s.mark === "wip" ? '<span class="pill warn">WIP</span> '
+        : s.mark === "done" ? '<span class="pill ok">DONE</span> ' : "";
+      const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
+      li.innerHTML =
+        '<div class="r-top">' + markPill +
+        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span></div>' +
+        '<div class="r-meta">' + (s.client ? esc(s.client + "/" + s.project) : esc(s.cwd || "?")) +
+        (tk ? " · " + tk : "") + " · " + ago(s.mtime) +
+        (s.live ? ' · <span class="pill ok">tmux vivant</span>' : "") + '</div>';
+      li.title = (s.title || "") + "\n" + (s.cwd || "") + "\nsession " + s.session_id;
+      li.onclick = () => resumeSession(s);
+      ul.appendChild(li);
+    }
+  } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + esc(e.message) + '</div>'; }
+}
+async function resumeSession(s) {
+  // Le tmux de reprise est nommé karl-RM<id> : il faut un ticket d'ancrage.
+  // Défaut : dernier ticket lié à la session, sinon champ lanceur, sinon prompt.
+  let rm = (s.tickets && s.tickets.length) ? String(s.tickets[s.tickets.length - 1].rm_id)
+    : document.getElementById("rm").value.trim();
+  rm = prompt("Reprendre dans karl-RM<id> — ticket à associer :", rm || "");
+  if (rm === null) return;
+  rm = rm.trim().replace(/^RM/i, "");
+  if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
+  try {
+    const r = await api("/resume", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: s.session_id, rm_id: rm }),
+    });
+    toast("Session reprise dans karl-RM" + r.rm_id);
+    await refreshSessions(); refreshHealth();
+    setTimeout(() => attach(r.rm_id), 400);
+  } catch (e) { toast(e.message, true); }
 }
 async function createTicket() {
   const title = document.getElementById("nt-title").value.trim();
@@ -470,6 +590,8 @@ function tabTip(s) {
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
   if (s.attached) t += " · attaché";
+  if (s.state === "attention") t += "\n⚠ demande une réponse (permission/question)";
+  else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
   return t;
 }
 function toggleMeta() { document.getElementById("metapanel").classList.toggle("collapsed"); }

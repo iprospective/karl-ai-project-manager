@@ -287,10 +287,10 @@ class PMConfig:
         """Détecte (entity, project) depuis le cwd (ou `start`) — source unique.
 
         Mécanisme **indépendant de la forme de `.mmi-pm`** (symlink hérité OU
-        dossier co-localisé, RM1942) : on lit `<.mmi-pm>/project/overview.md` et
-        on en extrait `client` + `slug` (présents qu'on suive un symlink ou qu'on
-        lise un dossier réel). Fallbacks : chemin cible du symlink, puis position
-        du cwd sous `projects_root`.
+        dossier co-localisé, RM1942) : on lit le manifeste du projet — `meta.yml`
+        (RM1994), sinon frontmatter d'`overview.md` (shim pré-migration) — et on
+        en extrait `client` + `slug`. Fallbacks : chemin cible du symlink, puis
+        position du cwd sous `projects_root`.
         """
         cwd = (start or Path.cwd()).resolve()
 
@@ -309,17 +309,13 @@ class PMConfig:
             mp = d / ".mmi-pm"
             if not mp.exists():
                 continue
-            # 2a. Lecture de l'overview (marche pour dossier ET symlink suivi)
-            ov = mp / "project" / "overview.md"
-            if ov.is_file():
-                try:
-                    m = self._FM_RE.match(ov.read_text(encoding="utf-8"))
-                    fm = (yaml.safe_load(m.group(1)) or {}) if m else {}
-                    ent, slug = fm.get("client"), fm.get("slug")
-                    if ent and slug:
-                        return str(ent), str(slug)
-                except (OSError, UnicodeDecodeError, yaml.YAMLError):
-                    pass
+            # 2a. Manifeste du projet (meta.yml RM1994, sinon frontmatter overview —
+            #     marche pour dossier co-localisé ET symlink suivi). Ne PAS lire le
+            #     frontmatter directement : les projets migrés RM1994 n'en ont plus.
+            meta = self._read_meta(mp / "meta.yml", mp / "project" / "overview.md")
+            ent, slug = meta.get("client"), meta.get("slug")
+            if ent and slug:
+                return str(ent), str(slug)
             # 2b. Fallback : symlink hérité → parse du chemin cible
             if mp.is_symlink():
                 try:

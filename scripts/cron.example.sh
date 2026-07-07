@@ -23,6 +23,13 @@ LOG_DIR=/var/log/pm-ai-agents
 # Tous les lundis à 08:00 : ranking ROI global
 0 8 * * 1 cd "$PM_DIR" && source .env && python3 scripts/priority.py "$PROJECTS_PATH" --top 30 >> "$LOG_DIR/priority-weekly.log" 2>&1
 
+# ── Reporting tokens/temps → Redmine (RM2160) ────────────────────
+# Toutes les 30 min : pousse la conso tickée localement par pm-task-tick
+# (frontmatter MD) vers Redmine (time_entries + CF17). Sans ce cron, le
+# reporting reste invisible côté Redmine tant qu'un humain ne lance pas
+# pm-task-report à la main. Idempotent (clés de dédup par time_entry).
+*/30 * * * * python3 "$PM_DIR/scripts/pm-task-report.py" --all --apply >> "$LOG_DIR/pm-task-report.log" 2>&1
+
 # ── Wiki-sync (fallback async) ───────────────────────────────────
 # Toutes les 10 min : capte les édits faits côté Wiki Redmine entre deux push git
 # (fold-back wiki→git + auto-commit [wiki-sync], puis git push). Le sens git→wiki

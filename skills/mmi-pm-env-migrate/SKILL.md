@@ -57,13 +57,19 @@ refs locales sauvées dans `refs/mig/<nom>/*`), backfill `meta.yml › repos:`, 
 ### Snapshot ZFS (réversibilité)
 
 L'outil tente `zfs snapshot` avant mutation. S'il échoue (« droit délégué manquant » —
-l'user n'a pas de `zfs allow` et sudo est interactif) :
+pas de `zfs allow` pour l'user), le filet **canonique** est le wrapper délégué sudoers
+NOPASSWD `scripts/pm-zfs-snap.sh` (validation embarquée, cantonné au dataset workspaces),
+puis relancer la migration avec `--no-snapshot` :
 
-1. proposer à l'humain de lancer lui-même :
-   `! sudo zfs snapshot <pool>/workspaces@pm-env-migrate-<date>` ;
-2. ou faire un tar de secours (workspaces souvent petits — vérifier `du -sh` d'abord)
-   puis relancer avec `--no-snapshot` :
-   `tar -C <parent> -czf <scratchpad>/<ws>-pre-migrate-<date>.tgz <ws>`
+```bash
+sudo -n <repo-pm>/scripts/pm-zfs-snap.sh create zfs/workspaces pm-env-migrate-<date>
+mmi-pm env migrate <ws> -y -v --no-snapshot
+```
+
+Si le wrapper n'est pas délégué sur l'instance (`sudo -n … ` refuse) : demander à
+l'humain de le lancer, ou à défaut tar de secours (workspaces souvent petits — vérifier
+`du -sh` d'abord) avant `--no-snapshot` :
+`tar -C <parent> -czf <scratchpad>/<ws>-pre-migrate-<date>.tgz <ws>`
 
 ## Post-migration (l'outil ne fait PAS ça)
 

@@ -277,6 +277,8 @@
         </select>
         <button class="mini" id="cpbtn" onclick="copyCapture(event.altKey)"
           title="📋 Copier les 300 dernières lignes du terminal dans le presse-papier système&#10;(Alt+clic : afficher dans une fenêtre pour sélection manuelle)">📋 Copier</button>
+        <button class="mini" id="bufbtn" onclick="pullBuffer()"
+          title="📥 Récupérer la dernière copie faite DANS le terminal (ex. sélection copiée dans Claude Code, copy-mode tmux) vers ton presse-papier">📥 Copie</button>
         <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
       </div>
     </div>
@@ -764,31 +766,44 @@ function detach() {
   document.getElementById("chipsrow").style.display = "none";
 }
 
-// ----- RM2168 : copier la capture du terminal vers le presse-papier système -----
+// ----- RM2168 : copier depuis le terminal vers le presse-papier système -----
 // Trois niveaux de repli : navigator.clipboard (HTTPS/localhost) → textarea +
 // execCommand("copy") → modale texte (sélection manuelle, toujours possible).
+async function writeClip(txt) {
+  try { await navigator.clipboard.writeText(txt); return true; } catch (e) { /* repli */ }
+  const ta = document.createElement("textarea");
+  ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.focus(); ta.select();
+  let ok = false;
+  try { ok = document.execCommand("copy"); } catch (e) { /* repli */ }
+  ta.remove();
+  return ok;
+}
 async function copyCapture(showModal) {
   if (!attached) return;
   try {
     const r = await fetch("/capture/" + encodeURIComponent(attached) + "?lines=300", { headers: headers() });
     if (!r.ok) throw new Error("capture : erreur " + r.status);
     const txt = await r.text();
-    if (showModal) { showCaptureModal(txt); return; }
-    let ok = false;
-    try { await navigator.clipboard.writeText(txt); ok = true; } catch (e) { /* repli */ }
-    if (!ok) {
-      const ta = document.createElement("textarea");
-      ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
-      document.body.appendChild(ta); ta.focus(); ta.select();
-      try { ok = document.execCommand("copy"); } catch (e) { /* repli */ }
-      ta.remove();
-    }
-    if (ok) toast("📋 Copié — 300 dernières lignes, collables partout (Ctrl+V)");
-    else showCaptureModal(txt);
+    if (showModal) { showCaptureModal("Capture karl-" + attached, txt); return; }
+    if (await writeClip(txt)) toast("📋 Copié — 300 dernières lignes, collables partout (Ctrl+V)");
+    else showCaptureModal("Capture karl-" + attached, txt);
   } catch (e) { toast(e.message, true); }
 }
-function showCaptureModal(txt) {
-  document.getElementById("doctitle").textContent = "Capture karl-" + attached + " — sélectionne puis Ctrl+C";
+// Récupère la dernière copie faite DANS une session (OSC52 → buffer tmux) :
+// sélection copiée dans Claude Code, `y` en copy-mode, etc.
+async function pullBuffer() {
+  try {
+    const r = await fetch("/buffer", { headers: headers() });
+    if (r.status === 404) { toast("Aucune copie en attente côté tmux — copie d'abord dans le terminal", true); return; }
+    if (!r.ok) throw new Error("buffer : erreur " + r.status);
+    const txt = await r.text();
+    if (await writeClip(txt)) toast("📥 Copie du terminal récupérée — collable partout (Ctrl+V)");
+    else showCaptureModal("Copie tmux", txt);
+  } catch (e) { toast(e.message, true); }
+}
+function showCaptureModal(title, txt) {
+  document.getElementById("doctitle").textContent = title + " — sélectionne puis Ctrl+C";
   document.getElementById("doccontent").textContent = txt;
   document.getElementById("docmodal").classList.add("show");
 }

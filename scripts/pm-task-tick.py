@@ -6,7 +6,9 @@ Deux modes :
 1. **Mode hook Claude Code** (par défaut quand un JSON est lu sur stdin) :
    - Lit l'event Stop sur stdin (session_id, transcript_path, cwd, …)
    - Identifie le RM-id courant (cascade d'heuristiques)
-   - Extrait les tokens du dernier message assistant du transcript
+   - Somme l'usage de TOUS les messages assistant du tour — curseur par session
+     (RM2161 : ne compter que le dernier message sous-comptait massivement les
+     tours longs multi-outils), retries dédupliqués par message.id
    - Calcule le coût USD via pm.pricing.yml
    - Update le frontmatter MD du ticket (atomique, optimistic locking)
    - Append au .log.md si tokens > seuil (1000 par défaut)
@@ -339,44 +341,108 @@ def update_task_fm(rm_id, deltas, model_used, log_entry=None):
 
 # ── Mode hook ───────────────────────────────────────────────────────────────
 
-def extract_last_response_usage(transcript_path):
-    """Lit le transcript JSONL et somme l'usage du dernier message assistant.
+CURSOR_MAX_AGE_DAYS = 7  # GC des curseurs de sessions mortes
+
+
+def _cursor_path(session_id):
+    sid = re.sub(r"[^A-Za-z0-9_-]", "_", str(session_id or "nosession"))[:80]
+    return TURN_START_DIR / f"tick-cursor-{sid}.json"
+
+
+def _load_cursor(session_id, transcript_path, n_lines):
+    """Ligne de reprise du transcript pour cette session, ou None si invalide.
+
+    Invalide si : fichier absent/corrompu, transcript différent (resume vers un
+    autre fichier), ou ligne hors bornes (transcript tronqué/réécrit — on ne
+    recompte JAMAIS depuis 0, le fallback « tour courant » prend le relais)."""
+    try:
+        data = json.loads(_cursor_path(session_id).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None
+    line = data.get("line")
+    if data.get("transcript_path") != str(transcript_path):
+        return None
+    if not isinstance(line, int) or line < 0 or line > n_lines:
+        return None
+    return line
+
+
+def _save_cursor(session_id, transcript_path, line):
+    try:
+        TURN_START_DIR.mkdir(parents=True, exist_ok=True)
+        _cursor_path(session_id).write_text(
+            json.dumps({"transcript_path": str(transcript_path), "line": line}),
+            encoding="utf-8",
+        )
+    except OSError:
+        return
+    # GC opportuniste des curseurs de sessions terminées
+    try:
+        cutoff = time.time() - CURSOR_MAX_AGE_DAYS * 86400
+        for f in TURN_START_DIR.glob("tick-cursor-*.json"):
+            if f.stat().st_mtime < cutoff:
+                f.unlink()
+    except OSError:
+        pass
+
+
+def extract_turn_usage(transcript_path, session_id):
+    """Somme l'usage de tous les messages assistant du tour courant.
+
+    Fenêtre = depuis le curseur de session (ligne du transcript atteinte au Stop
+    précédent) ; à défaut (1er Stop de la session, curseur invalide), depuis le
+    dernier prompt humain — jamais tout le transcript, pour ne pas recompter
+    l'historique d'une session reprise (--resume) déjà tické. Les retries API
+    (même message.id ré-émis) sont dédupliqués en gardant le dernier usage.
+    Avance TOUJOURS le curseur, même si le tour n'est pas attribuable.
 
     Retourne dict {input, output, cache_read, cache_creation, model} ou None.
     """
     p = Path(transcript_path)
     if not p.is_file():
         return None
-    last = None
     try:
-        with p.open("r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    evt = json.loads(line)
-                except json.JSONDecodeError:
-                    continue
-                # Format Claude Code : message avec role=assistant
-                msg = evt.get("message") if isinstance(evt, dict) else None
-                if isinstance(msg, dict) and msg.get("role") == "assistant":
-                    usage = msg.get("usage")
-                    model = msg.get("model")
-                    if usage:
-                        last = (usage, model)
+        lines = p.read_text(encoding="utf-8").splitlines()
     except OSError:
         return None
-    if last is None:
+    events = []  # (index de ligne, event)
+    for i, raw in enumerate(lines):
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            events.append((i, json.loads(raw)))
+        except json.JSONDecodeError:
+            continue
+
+    start = _load_cursor(session_id, p, len(lines))
+    if start is None:
+        humans = [i for i, e in events if _is_human_prompt(e)]
+        start = humans[-1] if humans else 0
+    _save_cursor(session_id, p, len(lines))
+
+    per_msg = {}  # message.id → (usage, model) ; retries écrasés par le dernier vu
+    for i, evt in events:
+        if i < start:
+            continue
+        msg = evt.get("message") if isinstance(evt, dict) else None
+        if isinstance(msg, dict) and msg.get("role") == "assistant":
+            usage = msg.get("usage")
+            if usage:
+                per_msg[msg.get("id") or f"line-{i}"] = (usage, msg.get("model"))
+    if not per_msg:
         return None
-    usage, model = last
-    return {
-        "input": usage.get("input_tokens", 0) or 0,
-        "output": usage.get("output_tokens", 0) or 0,
-        "cache_read": usage.get("cache_read_input_tokens", 0) or 0,
-        "cache_creation": usage.get("cache_creation_input_tokens", 0) or 0,
-        "model": model or "unknown",
-    }
+
+    tot = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    model = None
+    for usage, m in per_msg.values():
+        tot["input"] += usage.get("input_tokens", 0) or 0
+        tot["output"] += usage.get("output_tokens", 0) or 0
+        tot["cache_read"] += usage.get("cache_read_input_tokens", 0) or 0
+        tot["cache_creation"] += usage.get("cache_creation_input_tokens", 0) or 0
+        model = m or model
+    tot["model"] = model or "unknown"
+    return tot
 
 
 def consume_turn_minutes(session_id):
@@ -424,7 +490,9 @@ def run_hook_mode():
     ai_minutes = consume_turn_minutes(evt.get("session_id"))
 
     rm_id, reason = resolve_current_rm_id(cwd, transcript_path)
-    usage = extract_last_response_usage(transcript_path) if transcript_path else None
+    # Toujours appelé (même non-tracké) : avance le curseur de session pour que
+    # la conso d'un tour untracked ne soit pas réattribuée au ticket suivant.
+    usage = extract_turn_usage(transcript_path, evt.get("session_id")) if transcript_path else None
 
     # Log silencieusement les cas non-trackés (pour analyse a posteriori)
     if rm_id is None:

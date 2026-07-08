@@ -61,3 +61,6 @@ dossier (collision de nom → averti et ignoré).
 
 - [`mmi-env-sync`](./mmi-env-sync/) — synchroniser un environnement de dev/test depuis la
   prod (BDD + fichiers) via le framework `tools/synchro/`, avec adaptations de sécurité.
+- [`mmi-pm-env-migrate`](./mmi-pm-env-migrate/) — restructurer/normaliser un workspace au
+  layout RM1993 (`repos/` bares + `envs/` worktrees) via `pm-env-migrate` ; renvois
+  `pm-env-init` / `pm-env-session`. Livré par RM2159.

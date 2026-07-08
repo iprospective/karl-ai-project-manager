@@ -74,6 +74,8 @@ API (JSON, localhost:9876)
                                 → {rm_id, sent:true}
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
+  GET  /buffer                  → text/plain — dernier buffer tmux (copies
+                                  OSC52 faites dans les sessions, RM2168)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
   POST /monitor   {rm_id, preset, orientation?} → split-window moniteur (RM1893 §3)
   POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
@@ -560,6 +562,10 @@ def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
     # `mouse on` prend effet immédiatement pour toutes.
     _tmux("set-option", "-g", "mouse", "on")
     _tmux("set-option", "-g", "history-limit", "50000")
+    # RM2168 : capture les copies OSC52 émises DANS les sessions (ex. sélection
+    # copiée dans Claude Code) vers les buffers tmux → GET /buffer les expose
+    # au cockpit (bouton 📥). Validé empiriquement sur tmux 3.4.
+    _tmux("set-option", "-g", "set-clipboard", "on")
 
 
 def op_send(payload: dict) -> dict:
@@ -577,6 +583,16 @@ def op_send(payload: dict) -> dict:
     if payload.get("enter", True):
         _tmux("send-keys", "-t", name, "Enter")
     return {"rm_id": rm_id, "sent": True}
+
+
+def op_buffer() -> str:
+    """Dernier buffer tmux (RM2168) — reçoit les copies OSC52 faites dans les
+    sessions (set-clipboard on, posé au spawn). Les buffers sont globaux au
+    serveur tmux : on renvoie le plus récent, peu importe la session."""
+    rc, out, _ = _tmux("show-buffer")
+    if rc != 0 or not out:
+        raise ApiError(404, "aucune copie en attente dans tmux (buffer vide)")
+    return out
 
 
 def op_capture(rm_id: str, lines: int | None) -> str:
@@ -1752,6 +1768,8 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 lines = int(qs["lines"][0]) if "lines" in qs else None
                 return self._send_text(200, op_capture(rm_id, lines))
+            if path == "/buffer":
+                return self._send_text(200, op_buffer())
             if path.startswith("/stream/"):
                 return self._stream(path[len("/stream/"):])
             if path.startswith("/resolve/"):

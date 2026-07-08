@@ -342,6 +342,8 @@ async function refreshSessions() {
   try {
     const { sessions } = await api("/sessions");
     sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
+    // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
+    sessions.forEach(s => { sessCache[s.rm_id] = s; });
     // si la session affichée a disparu (kill externe) → on détache la vue
     if (attached && !sessions.some(s => s.rm_id === attached)) detach();
     tabs.querySelectorAll(".tabgroup").forEach(e => e.remove());
@@ -586,6 +588,7 @@ async function createTicket() {
 // ----- panneau de pilotage (méta de la session) -----
 const resolveCache = {};
 const wsCache = {};
+const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
@@ -603,9 +606,33 @@ function tabTip(s) {
   if (s.attached) t += " · attaché";
   if (s.state === "attention") t += "\n⚠ demande une réponse (permission/question)";
   else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
+  (s.registry_conflicts || []).forEach(c => {
+    t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", ");
+  });
   return t;
 }
 function toggleMeta() { document.getElementById("metapanel").classList.toggle("collapsed"); }
+// RM2166 : branches/worktrees de la session (registre pm_session) + conflits
+function wtName(p) { const seg = String(p).split("/").filter(Boolean); return seg[seg.length - 1] || p; }
+function registryHtml(rmId) {
+  const s = sessCache[rmId] || {}, reg = s.registry, conf = s.registry_conflicts || [];
+  let h = "";
+  if (reg) {
+    h += '<div class="kv"><span class="k">session PM</span><span class="v">#' + esc(reg.seq) +
+      (reg.machine ? ' · m' + esc(reg.machine) : '') + (reg.created ? ' · ' + esc(reg.created) : '') + '</span></div>';
+    if (reg.branches && reg.branches.length)
+      h += '<div class="kv"><span class="k">branches</span><span class="v rels">' +
+        reg.branches.map(b => '<span class="pill">' + esc(b) + '</span>').join(' ') + '</span></div>';
+    if (reg.worktrees && reg.worktrees.length)
+      h += '<div class="kv"><span class="k">worktrees</span><span class="v rels">' +
+        reg.worktrees.map(w => '<span class="pill" title="' + esc(w) + '">' + esc(wtName(w)) + '</span>').join(' ') + '</span></div>';
+  }
+  conf.forEach(c => {
+    h += '<div style="margin-top:4px"><span class="pill dang">⚠ RM' + esc(c.rm_id) +
+      ' aussi ouvert en session ' + c.seqs.map(x => '#' + esc(x)).join(', ') + '</span></div>';
+  });
+  return h;
+}
 async function refreshWorkspace(rmId) {
   if (!/^\d+$/.test(String(rmId))) { wsCache[rmId] = null; return; }  // slug : pas de ticket
   try { wsCache[rmId] = await api("/workspace-status/" + rmId); } catch (e) { wsCache[rmId] = null; }
@@ -617,10 +644,10 @@ function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || [
 function renderMeta(rmId) {
   const r = resolveCache[rmId], ws = wsCache[rmId], b = document.getElementById("metabody");
   if (r === undefined) { b.innerHTML = '<div class="ms">chargement…</div>'; return; }
-  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>' + esc(tmuxName(rmId)) + '<br><span style="color:var(--muted)">' + (/^\d+$/.test(rmId) ? "ticket non PM-tracké" : "session slug (sans ticket d'ancrage)") + '</span></div>'; return; }
+  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>' + esc(tmuxName(rmId)) + '<br><span style="color:var(--muted)">' + (/^\d+$/.test(rmId) ? "ticket non PM-tracké" : "session slug (sans ticket d'ancrage)") + '</span>' + registryHtml(rmId) + '</div>'; return; }
   const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
   let h = "";
-  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">karl-RM' + rmId + '</span></div></div>';
+  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">karl-RM' + rmId + '</span></div>' + registryHtml(rmId) + '</div>';
   h += '<div class="ms"><h4>Ticket</h4>' +
     '<div class="kv"><span class="k">id</span><span class="v">' + (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) + '</span></div>' +
     '<div style="margin:4px 0">' + esc(r.title) + '</div>' +

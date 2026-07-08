@@ -42,7 +42,12 @@ API (JSON, localhost:9876)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions[?engine=&client=&project=]
                                 → [{rm_id, tmux, created, attached, engine?,
-                                   session_id?, client?, project?}]  (RM1939)
+                                   session_id?, client?, project?,
+                                   registry?{seq, machine, created, branches[],
+                                   worktrees[]}, registry_conflicts?[]}]
+                                  (RM1939 ; registre pm_session RM2166)
+  GET  /session-registry        → {records, rm_map} — registre pm_session brut
+                                  (var/sessions/index.json, RM2034/RM2166)
   GET  /resumable[?engine=&client=&project=&status=wip|done&q=&limit=]
                                 → sessions REPRENABLES découvertes dans les
                                   stores claude (titre [WIP]/[DONE] de
@@ -324,6 +329,53 @@ def _list_sessions():
             "attached": (len(parts) > 2 and parts[2] == "1"),
         })
     return sessions
+
+
+# ── Registre de sessions PM (pm_session, RM2034) — lecture seule (RM2166) ────
+# `var/sessions/index.json` : { "<seq>": { seq, machine, claude_session_id,
+# created, branches[], worktrees[] } }, alimenté par pm-branch-start /
+# pm-env-session. Machine-local, gitignoré. Lecture directe (stdlib-only,
+# pas d'import pm_session) ; fichier minuscule → relu à chaque requête.
+# Choix v1 (critère RM2166) : les sessions du registre SANS tmux karl-* ne
+# créent pas d'onglet (tmux reste la source des sessions pilotables) mais
+# restent exposées via GET /session-registry.
+REGISTRY_FILE = REPO_ROOT / "var" / "sessions" / "index.json"
+_RM_BRANCH = re.compile(r"^(\d+)-")
+_RM_WORKTREE = re.compile(r"-rm(\d+)$")
+
+
+def _session_registry() -> dict:
+    """Registre brut { seq(str) → record }. {} si absent/illisible."""
+    try:
+        data = json.loads(REGISTRY_FILE.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _registry_rm_map(records: dict) -> dict:
+    """rm_id(str) → [seq, …] des sessions du registre qui le référencent
+    (branche `<id>-…` ou worktree `…-rm<id>`)."""
+    rm_map = {}
+    for rec in records.values():
+        seq, rms = rec.get("seq"), set()
+        for b in rec.get("branches") or []:
+            m = _RM_BRANCH.match(b)
+            if m:
+                rms.add(m.group(1))
+        for w in rec.get("worktrees") or []:
+            m = _RM_WORKTREE.search(w)
+            if m:
+                rms.add(m.group(1))
+        for rm in rms:
+            rm_map.setdefault(rm, []).append(seq)
+    return rm_map
+
+
+def _registry_view() -> dict:
+    """Payload GET /session-registry : records + carte rm_id → sessions."""
+    records = _session_registry()
+    return {"records": records, "rm_map": _registry_rm_map(records)}
 
 
 def _resolve_cwd(cwd: str | None) -> Path:
@@ -920,6 +972,12 @@ def _sessions_view(qs: dict) -> list:
             cur = latest.get(r["rm_id"])
             if not cur or r.get("last_seen", 0) > cur.get("last_seen", 0):
                 latest[r["rm_id"]] = r
+    # Registre pm_session (RM2166) : jointure par claude_session_id + carte
+    # rm_id → sessions pour signaler les travaux concurrents sur un même ticket.
+    registry = _session_registry()
+    reg_by_csid = {r.get("claude_session_id"): r for r in registry.values()
+                   if r.get("claude_session_id")}
+    rm_map = _registry_rm_map(registry)
     for s in sessions:
         # Enrichissement : index clé-tmux (couvre tickets ET slugs, RM2144),
         # complété par la jonction (client/projet des tickets).
@@ -938,6 +996,30 @@ def _sessions_view(qs: dict) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        # RM2166 — encart session : branches/worktrees de la session (registre
+        # pm_session) + conflits (un rm_id référencé par PLUSIEURS sessions).
+        rec = reg_by_csid.get(s.get("session_id"))
+        own_seq = rec.get("seq") if rec else None
+        own_rms = set()
+        if rec:
+            own_rms = {m.group(1) for b in rec.get("branches") or []
+                       if (m := _RM_BRANCH.match(b))}
+            own_rms |= {m.group(1) for w in rec.get("worktrees") or []
+                        if (m := _RM_WORKTREE.search(w))}
+            s["registry"] = {
+                "seq": own_seq, "machine": rec.get("machine"),
+                "created": rec.get("created"),
+                "branches": rec.get("branches") or [],
+                "worktrees": rec.get("worktrees") or [],
+            }
+        if s.get("is_ticket"):
+            own_rms.add(s["rm_id"])  # ticket de l'onglet, même sans registre
+        conflicts = [{"rm_id": rm, "seqs": sorted(x for x in rm_map.get(rm, [])
+                                                  if x != own_seq)}
+                     for rm in sorted(own_rms)
+                     if [x for x in rm_map.get(rm, []) if x != own_seq]]
+        if conflicts:
+            s["registry_conflicts"] = conflicts
 
     f_engine, f_client, f_project = qs.get("engine"), qs.get("client"), qs.get("project")
 
@@ -1608,6 +1690,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs)})
+            if path == "/session-registry":
+                return self._send_json(200, _registry_view())
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"resumable": op_resumable(qs)})

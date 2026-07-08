@@ -1494,6 +1494,55 @@ def _monitor_presets() -> dict:
     return _DEFAULT_MONITORS
 
 
+# ── Chips d'actions en un clic (RM1893 §2) ───────────────────────────────────
+# Rangée de raccourcis sous le terminal : chaque chip INJECTE du texte dans la
+# session attachée via /send (langage naturel — l'agent appelle le bon skill).
+# Catalogue config-driven, surchargeable via cockpit/actions.json (liste de
+# {key, group, label, text, enter?, ticket_only?}). `{id}` est substitué par le
+# sid de la session côté client ; `enter: false` = texte injecté sans Enter
+# (l'utilisateur complète) ; `ticket_only` = masqué pour les sessions slug.
+_DEFAULT_ACTIONS = [
+    {"key": "encours", "group": "PM", "label": "▶ en cours",
+     "text": "passe la tâche RM{id} en cours", "ticket_only": True},
+    {"key": "atester", "group": "PM", "label": "✔ à tester",
+     "text": "le travail de RM{id} est livré : passe-la au statut à tester approprié "
+             "(a_tester_dev ou a_tester_demandeur selon requires_agent_test)",
+     "ticket_only": True},
+    {"key": "commenter", "group": "PM", "label": "💬 commenter",
+     "text": "commente RM{id} : ", "enter": False, "ticket_only": True},
+    {"key": "majdesc", "group": "PM", "label": "📝 MAJ desc",
+     "text": "mets à jour la description du ticket RM{id} pour refléter l'état réel "
+             "(checklist, contexte, critères)", "ticket_only": True},
+    {"key": "tests", "group": "Dev", "label": "🧪 tests",
+     "text": "lance les tests du projet et donne-moi le résultat"},
+    {"key": "commit", "group": "Dev", "label": "💾 commit+push",
+     "text": "committe et pushe tes modifications en cours (chemins explicites, "
+             "jamais git add -A)"},
+    {"key": "gitstatus", "group": "Dev", "label": "🔍 git status",
+     "text": "fais un git status du workspace et résume l'état (modifs, untracked, "
+             "ahead/behind)"},
+    {"key": "point", "group": "Session", "label": "📊 point",
+     "text": "fais un point synthétique : avancement, reste à faire, blocages, "
+             "prochaine étape — sans rien modifier"},
+    {"key": "done", "group": "Session", "label": "🏁 done",
+     "text": "marque la session terminée (/session-mark done)"},
+]
+
+
+def _actions_catalog() -> list:
+    f = COCKPIT_DIR / "actions.json"
+    if f.is_file():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, list) and all(
+                    isinstance(a, dict) and a.get("label") and a.get("text")
+                    for a in data):
+                return data
+        except (ValueError, OSError):
+            pass
+    return _DEFAULT_ACTIONS
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -1671,6 +1720,9 @@ class Handler(BaseHTTPRequestHandler):
                 "auth_required": AUTH_TOKEN is not None and BASIC_USER is None,
                 "monitors": list(_monitor_presets().keys()),
                 "layouts": sorted(LAYOUTS),
+                # chips d'actions (RM1893 §2) — texte en langage naturel injecté
+                # via /send ; rien de sensible (le client peut déjà /send librement).
+                "actions": _actions_catalog(),
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
                 "engines": list(ENGINES),

@@ -2,7 +2,7 @@
 #
 # Source : https://docs.claude.com/en/docs/about-claude/models (vérifier
 # régulièrement, les prix sont à maintenir manuellement).
-# Dernière mise à jour : 2026-06-03 (cf. RM1823 — ajout Opus 4.8).
+# Dernière mise à jour : 2026-07-08 (cf. RM2164 — ajout Fable 5 + Sonnet 5).
 #
 # Unités : USD par 1 000 000 tokens (MTok), arrondies au cent près.
 # Cache read = ~10× moins cher que input (lookup en mémoire serveur).
@@ -10,29 +10,47 @@
 
 schema_version: "1"
 
-# ── Modèles Claude actuels (Claude 4.x) ───────────────────────────────────
+# ── Modèles Claude actuels (Claude 5.x / 4.x) ─────────────────────────────
 models:
-  # Opus 4.x — modèle haut de gamme (raisonnement long, code complexe)
+  # Claude 5 — tier Mythos/Fable (raisonnement le plus exigeant, agentique long)
+  claude-fable-5:
+    input_per_mtok_usd:           10.00
+    output_per_mtok_usd:           50.00
+    cache_read_per_mtok_usd:        1.00
+    cache_creation_per_mtok_usd:   12.50
+  claude-mythos-5:
+    input_per_mtok_usd:           10.00
+    output_per_mtok_usd:           50.00
+    cache_read_per_mtok_usd:        1.00
+    cache_creation_per_mtok_usd:   12.50
+  # Sonnet 5 — tarif plein (promo intro $2/$10 jusqu'au 2026-08-31 non appliquée)
+  claude-sonnet-5:
+    input_per_mtok_usd:            3.00
+    output_per_mtok_usd:           15.00
+    cache_read_per_mtok_usd:        0.30
+    cache_creation_per_mtok_usd:    3.75
+
+  # Opus 4.x — haut de gamme ($5/$25 depuis Opus 4.5 ; corrigé RM2164, était 15/75)
   claude-opus-4-8:
-    input_per_mtok_usd:           15.00
-    output_per_mtok_usd:           75.00
-    cache_read_per_mtok_usd:        1.50
-    cache_creation_per_mtok_usd:   18.75
+    input_per_mtok_usd:            5.00
+    output_per_mtok_usd:           25.00
+    cache_read_per_mtok_usd:        0.50
+    cache_creation_per_mtok_usd:    6.25
   claude-opus-4-7:
-    input_per_mtok_usd:           15.00
-    output_per_mtok_usd:           75.00
-    cache_read_per_mtok_usd:        1.50
-    cache_creation_per_mtok_usd:   18.75
+    input_per_mtok_usd:            5.00
+    output_per_mtok_usd:           25.00
+    cache_read_per_mtok_usd:        0.50
+    cache_creation_per_mtok_usd:    6.25
   claude-opus-4-6:
-    input_per_mtok_usd:           15.00
-    output_per_mtok_usd:           75.00
-    cache_read_per_mtok_usd:        1.50
-    cache_creation_per_mtok_usd:   18.75
+    input_per_mtok_usd:            5.00
+    output_per_mtok_usd:           25.00
+    cache_read_per_mtok_usd:        0.50
+    cache_creation_per_mtok_usd:    6.25
   claude-opus-4-5:
-    input_per_mtok_usd:           15.00
-    output_per_mtok_usd:           75.00
-    cache_read_per_mtok_usd:        1.50
-    cache_creation_per_mtok_usd:   18.75
+    input_per_mtok_usd:            5.00
+    output_per_mtok_usd:           25.00
+    cache_read_per_mtok_usd:        0.50
+    cache_creation_per_mtok_usd:    6.25
 
   # Sonnet 4.x — équilibre coût/performance (usage quotidien)
   claude-sonnet-4-6:

@@ -1302,6 +1302,17 @@ def op_resolve(rm_id: str) -> dict:
         "log_tail": _log_tail(tf),
         # Modèle prescrit (RM1941) : frontmatter ai_model (cascade tâche → projet).
         "ai_model": _safe_ticket_model(rm_id),
+        # Métriques worklog (RM2173) : ce que le PM enregistre via pm-task-tick.
+        "metrics": {
+            "tokens_total": fm.get("tokens_total"),
+            "tokens_breakdown": fm.get("tokens_breakdown")
+                if isinstance(fm.get("tokens_breakdown"), dict) else {},
+            "cost_total_usd": fm.get("cost_total_usd"),
+            "ai_time_total_minutes": fm.get("ai_time_total_minutes"),
+            "human_time_total_minutes": fm.get("human_time_total_minutes"),
+            "time_total_minutes": fm.get("time_total_minutes"),
+            "updated": str(pick("updated")),
+        },
     }
 
 

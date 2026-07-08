@@ -30,6 +30,13 @@ LOG_DIR=/var/log/pm-ai-agents
 # pm-task-report à la main. Idempotent (clés de dédup par time_entry).
 */30 * * * * python3 "$PM_DIR/scripts/pm-task-report.py" --all --apply >> "$LOG_DIR/pm-task-report.log" 2>&1
 
+# ── Veille tarifaire Anthropic (RM2165) ──────────────────────────
+# 1x/jour : compare pm.pricing.yml à la doc officielle (extraction via
+# claude -p headless, modèle sonnet). En cas d'écart : ticket Redmine
+# tagué pricing-watch (dédup : pas de doublon tant qu'un ticket est ouvert).
+# Ne modifie JAMAIS le YAML lui-même.
+30 8 * * * python3 "$PM_DIR/scripts/pm-pricing-check.py" >> "$LOG_DIR/pm-pricing-check.log" 2>&1
+
 # ── Wiki-sync (fallback async) ───────────────────────────────────
 # Toutes les 10 min : capte les édits faits côté Wiki Redmine entre deux push git
 # (fold-back wiki→git + auto-commit [wiki-sync], puis git push). Le sens git→wiki

@@ -389,11 +389,16 @@ async function refreshSessions() {
       groups.get(key).push(s);
     }
     let nAttention = 0;
+    groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     for (const key of [...groups.keys()].sort()) {
+      groupsCache[key] = groups.get(key);
       const g = document.createElement("div");
       g.className = "tabgroup";
       const gl = document.createElement("span");
-      gl.className = "glabel"; gl.textContent = key; gl.title = key;
+      gl.className = "glabel"; gl.textContent = key;
+      gl.title = key + "\n(clic : infos client/projet)";
+      gl.style.cursor = "pointer";
+      gl.onclick = () => showProject(key);
       g.appendChild(gl);
       for (const s of groups.get(key)) {
         if (s.state === "attention") nAttention++;
@@ -614,6 +619,8 @@ async function createTicket() {
 const resolveCache = {};
 const wsCache = {};
 const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
+let metaTicket = null;  // RM2173 : ticket affiché dans l'encart (≠ session attachée)
+let groupsCache = {};   // RM2173 : clé client/projet → sessions du groupe
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
@@ -661,72 +668,151 @@ function registryHtml(rmId) {
 async function refreshWorkspace(rmId) {
   if (!/^\d+$/.test(String(rmId))) { wsCache[rmId] = null; return; }  // slug : pas de ticket
   try { wsCache[rmId] = await api("/workspace-status/" + rmId); } catch (e) { wsCache[rmId] = null; }
-  if (attached === String(rmId)) renderMeta(rmId);
+  if (metaTicket === String(rmId)) renderMeta();
 }
-function rmLink(id) { return '<span class="pill" onclick="gotoTicket(' + id + ')">RM' + id + '</span>'; }
+// RM2173 : clic sur un RM-id → détail de CE ticket dans l'encart (sans toucher
+// au lanceur ni changer de session). gotoTicket (lanceur) reste dispo en action.
+function rmLink(id) { return '<span class="pill" onclick="showTicket(' + id + ')">RM' + id + '</span>'; }
+function showTicket(id) {
+  metaTicket = String(id);
+  document.getElementById("metapanel").classList.remove("collapsed");
+  renderMeta();
+  ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
+  if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
+}
 function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); attachIfRunning(id); }
-function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
-function renderMeta(rmId) {
-  const r = resolveCache[rmId], ws = wsCache[rmId], b = document.getElementById("metabody");
-  if (r === undefined) { b.innerHTML = '<div class="ms">chargement…</div>'; return; }
-  if (!r || !r.found) { b.innerHTML = '<div class="ms"><h4>Session</h4>' + esc(tmuxName(rmId)) + '<br><span style="color:var(--muted)">' + (/^\d+$/.test(rmId) ? "ticket non PM-tracké" : "session slug (sans ticket d'ancrage)") + '</span>' + registryHtml(rmId) + '</div>'; return; }
-  const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
-  let h = "";
-  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">karl-RM' + rmId + '</span></div>' + registryHtml(rmId) + '</div>';
-  h += '<div class="ms"><h4>Ticket</h4>' +
-    '<div class="kv"><span class="k">id</span><span class="v">' + (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) + '</span></div>' +
-    '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
-    '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-    '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span></span></div>' +
-    '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
-    '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
-  h += '<div class="ms"><h4>Client / Projet</h4>' + esc(r.client) + ' / ' + esc(r.project) + '</div>';
-  h += '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
-  if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
-  else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
-  else {
-    h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
-    h += '<div class="rels" style="margin-top:4px">';
-    h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
-    if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
-    if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
-    if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
-    h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
+// Tickets traités par la session attachée : ancrage + RM-ids déduits du registre.
+function sessionTickets() {
+  if (!attached) return [];
+  const out = new Set();
+  if (/^\d+$/.test(attached)) out.add(attached);
+  const reg = (sessCache[attached] || {}).registry || {};
+  (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) out.add(m[1]); });
+  (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) out.add(m[1]); });
+  return [...out];
+}
+function fmtTokens(n) {
+  if (n == null) return "—";
+  n = Number(n);
+  return n >= 1e6 ? (n / 1e6).toFixed(1) + " M" : n >= 1e3 ? Math.round(n / 1e3) + " k" : String(n);
+}
+function fmtMin(m) {
+  if (m == null) return "—";
+  m = Math.round(Number(m));
+  return m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
+}
+// Panneau Projet (RM2173) : clic sur le libellé d'un groupe d'onglets.
+function showProject(key) {
+  metaTicket = null;
+  document.getElementById("metapanel").classList.remove("collapsed");
+  const sess = groupsCache[key] || [];
+  let r = null;
+  for (const s of sess) { const c = resolveCache[s.rm_id]; if (c && c.found) { r = c; break; } }
+  let h = '<div class="ms"><h4>Projet</h4><div style="margin:2px 0 6px;font-weight:600">' + esc(key) + '</div>';
+  if (sess.length) {
+    h += '<div class="kv"><span class="k">sessions</span><span class="v rels">' +
+      sess.map(s => '<span class="pill" onclick="attach(\'' + esc(s.rm_id) + '\')">' +
+        (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>').join(' ') + '</span></div>';
   }
   h += '</div>';
-  if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
-    h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
-    if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
-    if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
-    (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
-      h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
-    });
-    h += '</div>';
-  }
-  if (r.git && (r.git.branch || r.git.mr_url)) {
-    h += '<div class="ms"><h4>Git ticket</h4>';
-    if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
-    if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
-    h += '</div>';
-  }
-  const rels = [];
-  if (r.parent_task) rels.push(["parent", [r.parent_task]]);
-  if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
-  if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
-  if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
-  if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
-  if (rels.length) {
-    h += '<div class="ms"><h4>Relations</h4>';
-    rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
-    h += '</div>';
-  }
-  if (r.project_docs && r.project_docs.length) {
+  if (r && r.project_docs && r.project_docs.length) {
     h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
     r.project_docs.forEach(d => { h += '<li onclick="openDoc(\'' + esc(d.path) + '\',\'' + esc(d.name) + '\')">📄 ' + esc(d.name) + '</li>'; });
     h += '</ul></div>';
   }
-  if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + esc(r.description) + '</div></div>';
-  if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
+  if (!r) h += '<div class="ms" style="color:var(--muted)">docs projet : attache une session du groupe pour les charger</div>';
+  document.getElementById("metabody").innerHTML = h;
+}
+function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
+function renderMeta() {
+  const b = document.getElementById("metabody");
+  if (!attached) { b.innerHTML = ""; return; }
+  // ── Session (tmux + registre pm_session RM2166) ──
+  let h = '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
+    esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>';
+  // ── Tickets de la session (RM2173) : ancrage + registre, cliquables ──
+  const tks = sessionTickets();
+  if (tks.length) {
+    h += '<div class="ms"><h4>Tickets</h4><div class="rels">' + tks.map(t =>
+      '<span class="pill' + (metaTicket === t ? ' ok' : '') + '" style="cursor:pointer" ' +
+      'onclick="showTicket(' + t + ')">RM' + t + '</span>').join(' ') + '</div></div>';
+    tks.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(() => renderMeta()); });
+  } else {
+    h += '<div class="ms" style="color:var(--muted)">' +
+      (/^\d+$/.test(attached) ? "ticket non PM-tracké" : "session slug (sans ticket d\u2019ancrage)") + '</div>';
+  }
+  // ── Détail du ticket sélectionné ──
+  const rmId = metaTicket;
+  const r = rmId ? resolveCache[rmId] : null, ws = rmId ? wsCache[rmId] : null;
+  if (rmId && r === undefined) h += '<div class="ms">chargement…</div>';
+  else if (rmId && (!r || !r.found)) {
+    h += '<div class="ms"><h4>Ticket</h4>RM' + esc(rmId) + ' <span style="color:var(--muted)">non trouvé en local</span></div>';
+  } else if (rmId && r && r.found) {
+    const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
+    h += '<div class="ms"><h4>Ticket</h4>' +
+      '<div class="kv"><span class="k">id</span><span class="v">' +
+      (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) +
+      ' <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" onclick="gotoTicket(' + rmId + ')">→ lanceur</span></span></div>' +
+      '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
+      '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
+      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span></span></div>' +
+      '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
+      '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
+    // Consommation enregistrée par le PM (RM2173) — tokens / coût / temps
+    const m = r.metrics || {};
+    if (m.tokens_total != null || m.cost_total_usd != null) {
+      const bd = m.tokens_breakdown || {};
+      const bdTip = "input " + fmtTokens(bd.input) + " · output " + fmtTokens(bd.output) +
+        " · cache read " + fmtTokens(bd.cache_read) + " · cache write " + fmtTokens(bd.cache_creation);
+      h += '<div class="ms"><h4>Consommation</h4>' +
+        '<div class="kv"><span class="k">tokens</span><span class="v" title="' + esc(bdTip) + '">' + fmtTokens(m.tokens_total) + '</span></div>' +
+        '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
+        '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
+        '<div class="kv"><span class="k">temps humain</span><span class="v">' + fmtMin(m.human_time_total_minutes) + '</span></div>' +
+        '<div class="kv"><span class="k">dernière activité</span><span class="v">' + esc(m.updated || "—") + '</span></div></div>';
+    }
+    h += '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
+    if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
+    else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
+    else {
+      h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
+      h += '<div class="rels" style="margin-top:4px">';
+      h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
+      if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
+      if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
+      if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
+      h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
+    }
+    h += '</div>';
+    if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
+      h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
+      if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
+      if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
+      (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
+        h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
+      });
+      h += '</div>';
+    }
+    if (r.git && (r.git.branch || r.git.mr_url)) {
+      h += '<div class="ms"><h4>Git ticket</h4>';
+      if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
+      if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
+      h += '</div>';
+    }
+    const rels = [];
+    if (r.parent_task) rels.push(["parent", [r.parent_task]]);
+    if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
+    if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
+    if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
+    if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
+    if (rels.length) {
+      h += '<div class="ms"><h4>Relations</h4>';
+      rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
+      h += '</div>';
+    }
+    if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + esc(r.description) + '</div></div>';
+    if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
+  }
   b.innerHTML = h;
 }
 async function openDoc(path, name) {
@@ -748,15 +834,20 @@ function attach(rmId) {
   f.style.display = "block"; f.src = ttydUrl(rmId);
   document.getElementById("tabactions").style.display = "";
   document.getElementById("metapanel").classList.remove("collapsed");
-  renderMeta(rmId);                                  // affiche le cache (ou « chargement »)
-  ensureResolved(rmId).then(() => { if (attached === String(rmId)) renderMeta(rmId); });
-  refreshWorkspace(rmId);
+  // RM2173 : le ticket affiché = l'ancrage de la session (changeable via les chips Tickets)
+  metaTicket = /^\d+$/.test(String(rmId)) ? String(rmId) : null;
+  renderMeta();                                      // affiche le cache (ou « chargement »)
+  if (metaTicket) {
+    ensureResolved(metaTicket).then(() => { if (attached === String(rmId)) renderMeta(); });
+    refreshWorkspace(metaTicket);
+  }
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   refreshSessions();   // re-rend les onglets pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
 function detach() {
   attached = null;
+  metaTicket = null;
   const f = document.getElementById("term");
   f.src = "about:blank"; f.style.display = "none";
   document.getElementById("placeholder").style.display = "flex";

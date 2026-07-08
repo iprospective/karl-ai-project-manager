@@ -110,6 +110,16 @@
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   .tabactions { display: flex; align-items: center; gap: 6px; }
   .termwrap { flex: 1; display: flex; min-height: 0; }
+  /* RM1893 §2 — chips d'actions en un clic sous le terminal */
+  .chipsrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+    padding: 6px 10px; border-top: 1px solid var(--line); background: var(--panel); }
+  .chipsrow .cgroup { font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
+    color: var(--muted); margin: 0 2px 0 8px; }
+  .chipsrow .cgroup:first-child { margin-left: 0; }
+  .chip { font-size: 11px; padding: 3px 9px; border-radius: 12px; cursor: pointer;
+    border: 1px solid var(--line); background: var(--panel2); color: var(--fg); }
+  .chip:hover { border-color: var(--accent); color: var(--accent); }
+  .chip:disabled { opacity: .45; cursor: default; }
   .termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; }
   .metapanel { width: 320px; border-left: 1px solid var(--line); background: var(--panel);
     display: flex; flex-direction: column; transition: width .15s; overflow: hidden; }
@@ -271,6 +281,7 @@
         <div class="metabody" id="metabody"></div>
       </aside>
     </div>
+    <div class="chipsrow" id="chipsrow" style="display:none"></div>
   </section>
 
   <div class="docmodal" id="docmodal" onclick="if(event.target===this)closeDoc()">
@@ -284,7 +295,7 @@
 <div class="toast" id="toast"></div>
 
 <script>
-let CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [] };
+let CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
 let attached = null;
 let resolved = null;
 let resolveTimer = null;
@@ -726,6 +737,7 @@ function attach(rmId) {
   renderMeta(rmId);                                  // affiche le cache (ou « chargement »)
   ensureResolved(rmId).then(() => { if (attached === String(rmId)) renderMeta(rmId); });
   refreshWorkspace(rmId);
+  renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   refreshSessions();   // re-rend les onglets pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
@@ -737,6 +749,48 @@ function detach() {
   document.getElementById("tabactions").style.display = "none";
   document.getElementById("metapanel").classList.add("collapsed");
   document.getElementById("metabody").innerHTML = "";
+  document.getElementById("chipsrow").style.display = "none";
+}
+
+// ----- §2 : chips d'actions en un clic (catalogue serveur CFG.actions) -----
+function renderChips() {
+  const row = document.getElementById("chipsrow");
+  const acts = CFG.actions || [];
+  if (!attached || !acts.length) { row.style.display = "none"; return; }
+  const isTicket = /^\d+$/.test(attached);
+  row.innerHTML = "";
+  let lastGroup = null;
+  for (const a of acts) {
+    if (a.ticket_only && !isTicket) continue;   // session slug : pas de chips PM
+    if (a.group && a.group !== lastGroup) {
+      const g = document.createElement("span");
+      g.className = "cgroup"; g.textContent = a.group;
+      row.appendChild(g); lastGroup = a.group;
+    }
+    const b = document.createElement("button");
+    b.className = "chip"; b.textContent = a.label;
+    b.title = String(a.text || "").replaceAll("{id}", attached) +
+      (a.enter === false ? "\n(texte injecté sans Enter — complète dans le terminal)" : "");
+    b.onclick = () => sendAction(a, b);
+    row.appendChild(b);
+  }
+  row.style.display = row.childElementCount ? "flex" : "none";
+}
+async function sendAction(a, btn) {
+  if (!attached) return;
+  btn.disabled = true;
+  try {
+    await api("/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        rm_id: attached,
+        msg: String(a.text || "").replaceAll("{id}", attached),
+        enter: a.enter !== false,
+      }),
+    });
+    toast(a.enter === false ? "Texte injecté — complète dans le terminal" : "Envoyé : " + a.label);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
 }
 
 // ----- §3 : moniteurs multi-panes -----

@@ -183,7 +183,20 @@ def main():
                          "suivi de travail déjà livré. Cf. NORMS v1.12.0 § « Prise en "
                          "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--porcelain", "--id-only", dest="porcelain", action="store_true",
+                    help="Sortie machine (RM2170) : n'imprime que l'id nu du ticket créé "
+                         "sur stdout, tous les logs partent sur stderr. Pour capturer l'id "
+                         "de façon fiable dans un pipeline (ID=$(pm-task-add … --porcelain)) "
+                         "sans jamais le PRÉDIRE — la séquence Redmine est globale à "
+                         "l'instance, le prochain id n'est pas prévisible.")
     args = ap.parse_args()
+
+    # --porcelain : bascule tous les messages informatifs (print → stdout par
+    # défaut) vers stderr ; seul l'id nu sera émis sur le vrai stdout après
+    # création. Aucun autre print à modifier grâce à ce swap global.
+    _real_stdout = sys.stdout
+    if args.porcelain:
+        sys.stdout = sys.stderr
 
     # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
     # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
@@ -247,6 +260,11 @@ def main():
         parent_issue_id=args.parent,
         extra_custom_fields=extra_cf or None,
     )
+    # Id nu sur le vrai stdout dès que le ticket existe côté Redmine (RM2170) :
+    # le caller le capture même si une étape de post-traitement échoue ensuite.
+    if args.porcelain:
+        print(rm_id, file=_real_stdout, flush=True)
+
     if extra_cf:
         print(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
     if target_author is not None:

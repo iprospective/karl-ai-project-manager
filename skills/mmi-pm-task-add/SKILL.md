@@ -36,8 +36,16 @@ scripts/pm-task-add.py --title "..." [--type T] [--priority P] [--description ".
 
 # Override projet
 ./pm-task-add.py --project iprospective/pm-ai-agents --title "..." --type feature
+
+# Capture fiable de l'id créé pour enchaîner (--porcelain : id nu sur stdout,
+# logs sur stderr) — JAMAIS prédire un RM-id de mémoire (tripwire #13).
+ID=$(./pm-task-add.py --title "Nouvelle tâche" --type feature --porcelain)
+./pm-task-status-update.py "$ID" en_cours
+./pm-branch-start.py "$ID" --take
 ```
 
 ## Notes
 
 Types : bugfix, feature, assistance, infrastructure, maintenance, autre. Priorities : low, normal, high, urgent. Mapping vers Redmine tracker/priority géré automatiquement.
+
+**`--porcelain` (alias `--id-only`)** : n'imprime que l'**id nu** du ticket créé sur stdout (tous les logs vont sur stderr). À utiliser dès qu'on **enchaîne** sur le ticket (status-update, branch-start, task-link) : capturer `ID=$(pm-task-add … --porcelain)` puis consommer `$ID`. Ne jamais saisir un RM-id de mémoire — la séquence Redmine est globale à l'instance, le prochain id n'est pas prévisible (NORMS tripwire #13).

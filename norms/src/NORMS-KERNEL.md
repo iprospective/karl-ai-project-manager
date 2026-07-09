@@ -63,6 +63,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. → `modules/git-mep.md`
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
+13. **Jamais de RM-id prédit.** Ne **jamais** saisir un RM-id de mémoire (« dernier vu + 1 ») : la séquence Redmine est **globale à l'instance** (plusieurs agents/projets créent en concurrence), le prochain id n'est **pas prévisible**. Toujours **capturer** l'id de la sortie de l'outil de création (`ID=$(pm-task-add … --porcelain)`), puis **consommer cette variable** dans toute commande enchaînée (`pm-task-status-update`, `pm-branch-start`, `pm-task-link`) — jamais un littéral. → `modules/session-tooling.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 

@@ -5,6 +5,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.52.0] - 2026-07-09
+
+### Ajouté — tripwire #13 « jamais de RM-id prédit » + `pm-task-add --porcelain` (RM2170)
+
+La séquence des ids Redmine est **globale à l'instance** ; avec plusieurs agents/projets
+en concurrence, le prochain id n'est pas prévisible. Deux incidents (RM2142, RM2163 :
+prise/branche/statut posés sur le mauvais ticket) ont montré le risque de « dernier id
+vu + 1 ».
+
+- **KERNEL** : nouveau tripwire **#13** — ne jamais saisir un RM-id de mémoire ; toujours
+  le **capturer** de la sortie de l'outil, et **consommer la variable** dans les commandes
+  enchaînées (jamais un littéral).
+- **`session-tooling`** : section « Capture d'un RM-id fraîchement créé » (recette
+  `ID=$(pm-task-add … --porcelain)` + chaînage status-update/branch-start/task-link).
+- **Outillage** : `pm-task-add.py` gagne **`--porcelain`** (alias `--id-only`) — n'imprime
+  que l'**id nu sur stdout**, tous les logs sur stderr ; l'id est émis dès que le ticket
+  existe côté Redmine (robuste à un échec de post-traitement). Documenté dans le skill
+  `mmi-pm-task-add`.
+
+---
+
 ## [1.51.0] - 2026-06-23
 
 ### Modifié — frontière `docs/` : aspects libres hors `project/` (RM2043, privsep)

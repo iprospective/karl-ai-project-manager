@@ -17,6 +17,10 @@
 removed: []
 
 rewritten:
+  - reason: "RM2170 (v1.52.0) : pm-task-add gagne --porcelain (id nu) — la ligne d'outillage « créer » est enrichie de l'option dans le module session-tooling"
+    old: |
+      | Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
+
   - reason: "v1.12.0 périmée : pm-task-status-update.py couple désormais status+assignation (réécrit au présent)"
     old: |
       **Implémentation** (état v1.12.0) : `pm-task-status-update.py` ne couple pas

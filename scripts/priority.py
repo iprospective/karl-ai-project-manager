@@ -5,7 +5,14 @@ Scanne les fichiers de tâches d'un répertoire (récursif), filtre celles en
 status=a_faire dont toutes les dépendances sont ferme, calcule un score ROI,
 et affiche le classement décroissant.
 
-Score = (immediate_benefit + monthly_benefit * 12) * priority_weight / max(time_minutes, 1)
+Score en EUROS (RM1717) : privilégie les gains quantitatifs `roi.*_gain_eur`
+quand ils sont renseignés, retombe sur l'échelle qualitative 1-5 sinon
+(1 point ≙ BENEFIT_POINT_EUR €) :
+
+    gain_eur = (immediate_gain_eur | immediate_benefit×BENEFIT_POINT_EUR)
+             + (monthly_gain_eur | monthly_benefit×BENEFIT_POINT_EUR) × 12
+    cout_eur = time_minutes / 60 × human_hourly_rate_eur (pm.pricing.yml)
+    Score    = gain_eur × priority_weight / max(cout_eur, 1)
 
 Usage :
     ./scripts/priority.py <chemin>                # scan récursif d'un répertoire
@@ -26,6 +33,20 @@ except ImportError:
 
 
 PRIORITY_WEIGHTS = {"low": 0.5, "normal": 1.0, "high": 2.0, "urgent": 4.0}
+# Équivalence € d'un point de bénéfice qualitatif (échelle 1-5) — repli quand
+# les gains € ne sont pas renseignés. Taux horaire humain lu dans pm.pricing.yml.
+BENEFIT_POINT_EUR = 100.0
+DEFAULT_HOURLY_RATE_EUR = 80.0
+
+
+def hourly_rate_eur() -> float:
+    """human_hourly_rate_eur depuis pm.pricing.yml (racine du repo PM)."""
+    f = Path(__file__).resolve().parent.parent / "pm.pricing.yml"
+    try:
+        cfg = yaml.safe_load(f.read_text(encoding="utf-8")) or {}
+        return float(cfg.get("human_hourly_rate_eur") or DEFAULT_HOURLY_RATE_EUR)
+    except (OSError, yaml.YAMLError, TypeError, ValueError):
+        return DEFAULT_HOURLY_RATE_EUR
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 
@@ -57,14 +78,23 @@ def collect_tasks(root: Path) -> list[tuple[Path, dict]]:
     return tasks
 
 
-def task_score(fm: dict) -> float:
+def task_score(fm: dict, rate_eur: float = DEFAULT_HOURLY_RATE_EUR) -> float:
+    """ROI en € : gains quantitatifs prioritaires, échelle 1-5 en repli (RM1717)."""
     roi = fm.get("roi") or {}
-    immediate = float(roi.get("immediate_benefit") or 0)
-    monthly = float(roi.get("monthly_benefit") or 0)
+
+    def gain(eur_key, scale_key):
+        eur = roi.get(eur_key)
+        if eur is not None:
+            return float(eur)
+        return float(roi.get(scale_key) or 0) * BENEFIT_POINT_EUR
+
+    gain_eur = gain("immediate_gain_eur", "immediate_benefit") \
+             + gain("monthly_gain_eur", "monthly_benefit") * 12
     weight = PRIORITY_WEIGHTS.get(fm.get("priority", "normal"), 1.0)
     estimate = fm.get("estimate") or {}
     time_min = float(estimate.get("time_minutes") or 60)
-    return (immediate + monthly * 12) * weight / max(time_min, 1)
+    cout_eur = time_min / 60 * rate_eur
+    return gain_eur * weight / max(cout_eur, 1)
 
 
 def deps_satisfied(fm: dict, tasks_by_id: dict) -> bool:
@@ -89,6 +119,7 @@ def main():
         print(f"ERREUR : {root} n'existe pas", file=sys.stderr)
         sys.exit(1)
 
+    rate = hourly_rate_eur()
     all_tasks = collect_tasks(root)
     tasks_by_id = {fm.get("redmine_id"): fm for _, fm in all_tasks if fm.get("redmine_id")}
 
@@ -98,7 +129,7 @@ def main():
             continue
         if not deps_satisfied(fm, tasks_by_id):
             continue
-        eligible.append((task_score(fm), path, fm))
+        eligible.append((task_score(fm, rate), path, fm))
 
     eligible.sort(key=lambda x: x[0], reverse=True)
 

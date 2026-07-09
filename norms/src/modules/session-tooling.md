@@ -21,7 +21,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 
 | Domaine | Opération | Outil canonique |
 |---|---|---|
-| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
+| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` (`--porcelain` = id nu sur stdout) |
 | Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
 | Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
 | Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
@@ -38,4 +38,27 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
+
+La séquence des ids Redmine est **globale à l'instance** : plusieurs agents et
+plusieurs projets créent des tickets **en concurrence**. Le prochain id n'est donc
+**jamais prévisible** — « dernier id vu + 1 » est une **erreur structurelle** (deux
+incidents en deux jours : RM2142 puis RM2163, prises/branches/statuts posés sur le
+mauvais ticket, à corriger après coup).
+
+**Règle** : après une création, **capturer** l'id depuis la sortie de l'outil, ne
+jamais le retaper de mémoire. `pm-task-add.py` expose **`--porcelain`** (alias
+`--id-only`) qui n'imprime que **l'id nu sur stdout** (tous les logs partent sur
+stderr) — la capture devient triviale et fiable :
+
+```bash
+ID=$(pm-task-add --title "…" --type feature --porcelain)   # ex. → 2170
+pm-task-status-update "$ID" en_cours
+pm-branch-start "$ID" --take
+pm-task-link add "$ID" 1834 --type relates
+```
+
+Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
+`--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
 

@@ -1,10 +1,10 @@
 ---
-schema_version: "1.51.0"
+schema_version: "1.52.0"
 updated: 2026-06-23
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.51.0
+# Normes de gestion des tâches — v1.52.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -71,6 +71,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. → `modules/git-mep.md`
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
+13. **Jamais de RM-id prédit.** Ne **jamais** saisir un RM-id de mémoire (« dernier vu + 1 ») : la séquence Redmine est **globale à l'instance** (plusieurs agents/projets créent en concurrence), le prochain id n'est **pas prévisible**. Toujours **capturer** l'id de la sortie de l'outil de création (`ID=$(pm-task-add … --porcelain)`), puis **consommer cette variable** dans toute commande enchaînée (`pm-task-status-update`, `pm-branch-start`, `pm-task-link`) — jamais un littéral. → `modules/session-tooling.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -447,7 +448,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 
 | Domaine | Opération | Outil canonique |
 |---|---|---|
-| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
+| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` (`--porcelain` = id nu sur stdout) |
 | Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
 | Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
 | Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
@@ -464,6 +465,29 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
+
+La séquence des ids Redmine est **globale à l'instance** : plusieurs agents et
+plusieurs projets créent des tickets **en concurrence**. Le prochain id n'est donc
+**jamais prévisible** — « dernier id vu + 1 » est une **erreur structurelle** (deux
+incidents en deux jours : RM2142 puis RM2163, prises/branches/statuts posés sur le
+mauvais ticket, à corriger après coup).
+
+**Règle** : après une création, **capturer** l'id depuis la sortie de l'outil, ne
+jamais le retaper de mémoire. `pm-task-add.py` expose **`--porcelain`** (alias
+`--id-only`) qui n'imprime que **l'id nu sur stdout** (tous les logs partent sur
+stderr) — la capture devient triviale et fiable :
+
+```bash
+ID=$(pm-task-add --title "…" --type feature --porcelain)   # ex. → 2170
+pm-task-status-update "$ID" en_cours
+pm-branch-start "$ID" --take
+pm-task-link add "$ID" 1834 --type relates
+```
+
+Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
+`--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
 
 > 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
 > **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.

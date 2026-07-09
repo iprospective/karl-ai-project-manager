@@ -94,6 +94,22 @@ def run(args, check=True):
     return r.returncode, r.stdout.strip()
 
 
+def best_effort_rmtree(ctx, path):
+    """rmtree tolérant (RM2031) : sur échec — typiquement des fichiers possédés
+    par un AUTRE user (cache Symfony `var/cache/…` du pool FPM, ex. `mathieu-www`)
+    que `KARL_USER` ne peut pas `rmdir` — NE PLANTE PAS. Avertit avec la commande
+    de nettoyage privilégié et laisse le résidu (repéré ensuite par VERIFY).
+    Rend True si supprimé, False sinon."""
+    try:
+        shutil.rmtree(path)
+        return True
+    except OSError as e:
+        ctx.warn(f"nettoyage {path.name} impossible ({e.strerror or e}) — résidu "
+                 f"laissé (fichiers d'un autre propriétaire, ex. cache FPM). "
+                 f"Nettoyage privilégié : sudo rm -rf {path}")
+        return False
+
+
 # ---------------------------------------------------------------- découverte
 
 def find_workspace(start: Path) -> Path:
@@ -287,7 +303,10 @@ def adopt_worktree(ctx, ws, bare, code, clone):
     # peuple l'index depuis HEAD (mixed reset, working tree intact) : git reconnaît
     # alors les fichiers trackés → dirty = modifié, untracked = untracked, ignoré = ignoré.
     git(["-C", str(wt), "reset", "-q", "HEAD"])
-    shutil.rmtree(premig)
+    # Le worktree est complet à ce stade ; le `.premig` n'est plus que du scratch.
+    # Son nettoyage est BEST-EFFORT (RM2031) : un échec (cache FPM d'un autre user)
+    # ne doit pas interrompre migrate_group avant backfill_manifest/rewrite_gitignore.
+    best_effort_rmtree(ctx, premig)
     return wt
 
 

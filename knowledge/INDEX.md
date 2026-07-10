@@ -18,6 +18,23 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 ## Index par produit / techno
 
 - [redmine](./redmine/) — projet/issue tracking, wiki, API, migration Textile → Markdown
+- [zabbix](./zabbix/) — API JSON-RPC (search=faux négatifs, FQDN), triggers figés/nodata,
+  manual_close, items dépendants
+- [gitlab](./gitlab/) — API : gotcha `%2F` (Apache), résolution de projet (search non
+  fiable, matcher le path complet — cf. RM2219), MR
+- [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
+  (`agent refused operation`), bascule vers un vrai ssh-agent
+
+## Règles transverses
+
+- **Les endpoints `search` des API ne sont PAS fiables pour l'inventaire** : ils peuvent
+  renvoyer des faux négatifs **silencieux** (0 résultat alors que l'objet existe — vécu
+  sur GitLab `/projects?search=` ET Zabbix `trigger.get`/`item.get search`). Pour toute
+  résolution/inventaire dont dépend une décision : **énumérer large** (pagination,
+  scope membership/hostids) **et filtrer côté client** sur l'identifiant COMPLET
+  (path_with_namespace, FQDN…), jamais sur un basename. 0 ou >1 match exact = erreur
+  explicite, pas de fallback silencieux. Détails : [gitlab/api.md](./gitlab/api.md),
+  [zabbix/api.md](./zabbix/api.md).
 
 ## Conventions
 

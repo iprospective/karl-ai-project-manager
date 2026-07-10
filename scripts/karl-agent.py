@@ -76,6 +76,13 @@ API (JSON, localhost:9876)
                                 → text/plain (snapshot du pane, + historique)
   GET  /buffer                  → text/plain — dernier buffer tmux (copies
                                   OSC52 faites dans les sessions, RM2168)
+  GET  /pm/commands             → {commands} — catalogue déclaratif des
+                                  commandes PM exposables (RM2209/RM2203)
+  POST /pm/run {name, args{}, confirm?}
+                                → {rc, ok, stdout, stderr} — exécute une
+                                  commande du catalogue (allowlist, args
+                                  validés par type, argv sans shell,
+                                  runs mutants journalisés pm-runs.jsonl)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
   POST /monitor   {rm_id, preset, orientation?} → split-window moniteur (RM1893 §3)
   POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
@@ -1570,6 +1577,167 @@ def _actions_catalog() -> list:
     return _DEFAULT_ACTIONS
 
 
+# ── Command-catalog PM (RM2209, chapeau RM2203) ──────────────────────────────
+# Exposer la surface CLI PM au cockpit SANS écrire un endpoint par script :
+# un catalogue DÉCLARATIF des commandes exposables (le catalogue EST l'allowlist),
+# un runner générique qui valide les args par type et exécute en argv (jamais de
+# shell). Défauts en code, surchargeables via cockpit/pm-commands.json (même
+# pattern que monitors.json / actions.json). Les scripts restent la seule
+# implémentation (single-writer RM1669) — l'UI ne fait qu'appeler.
+#
+# Spec d'une commande : {name, label, category, script, mutate, confirm?, args[]}
+# Spec d'un arg : {name, label?, type: rm_id|int|enum|text|bool, required?,
+#                  positional?, flag?, choices?, max_len?}
+_PM_STATUSES = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+                "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+                "a_tester_demandeur", "a_tester_verifier", "a_mep", "en_mep",
+                "en_pause", "a_corriger", "ferme"]
+_PM_CLOSE_REASONS = ["resolu", "abandonne", "wont_fix", "hors_perimetre",
+                     "invalide", "doublon"]
+_PM_COMMANDS_DEFAULT = [
+    {"name": "task-status", "label": "Changer le statut d'un ticket",
+     "category": "ticket", "script": "pm-task-status-update.py",
+     "mutate": True, "confirm": True, "args": [
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "status", "label": "Nouveau statut", "type": "enum", "required": True,
+          "positional": True, "choices": _PM_STATUSES},
+         {"name": "note", "label": "Note (compte-rendu)", "type": "text", "flag": "--note"},
+         {"name": "close_reason", "label": "Motif de fermeture", "type": "enum",
+          "flag": "--close-reason", "choices": _PM_CLOSE_REASONS},
+         {"name": "allow_unchecked", "label": "Forcer malgré checklist non cochée",
+          "type": "bool", "flag": "--allow-unchecked"},
+     ]},
+    {"name": "task-comment", "label": "Commenter un ticket",
+     "category": "ticket", "script": "pm-task-comment.py",
+     "mutate": True, "args": [
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "note", "label": "Note", "type": "text", "required": True, "flag": "--note"},
+     ]},
+    {"name": "task-link", "label": "Lier deux tickets",
+     "category": "ticket", "script": "pm-task-link.py",
+     "mutate": True, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["add"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "target", "label": "Ticket cible", "type": "rm_id", "required": True, "positional": True},
+         {"name": "type", "label": "Type de lien", "type": "enum", "flag": "--type",
+          "choices": ["relates", "depends_on", "blocks"]},
+     ]},
+    {"name": "conso-report", "label": "Rapport de consommation tokens/coût",
+     "category": "reporting", "script": "pm-conso-report.py",
+     "mutate": False, "args": [
+         {"name": "by", "label": "Grouper par", "type": "enum", "flag": "--by",
+          "choices": ["project", "client", "type", "status", "day", "week", "month"]},
+         {"name": "entity", "label": "Entité", "type": "text", "flag": "--entity", "max_len": 64},
+         {"name": "project", "label": "Projet", "type": "text", "flag": "--project", "max_len": 64},
+         {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
+         {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
+     ]},
+]
+_PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
+PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
+
+
+def _pm_commands() -> list:
+    f = COCKPIT_DIR / "pm-commands.json"
+    if f.is_file():
+        try:
+            data = json.loads(f.read_text(encoding="utf-8"))
+            if isinstance(data, list) and all(
+                    isinstance(c, dict) and c.get("name") and c.get("script")
+                    for c in data):
+                return data
+        except (ValueError, OSError):
+            pass
+    return _PM_COMMANDS_DEFAULT
+
+
+def _pm_validate_arg(spec: dict, value) -> str:
+    """Valide/normalise UNE valeur selon sa spec. ApiError 400 si invalide."""
+    name, typ = spec["name"], spec.get("type", "text")
+    if typ == "bool":
+        return "1" if value in (True, "1", "true", "on") else ""
+    s = str(value).strip()
+    if s.startswith("-"):
+        raise ApiError(400, f"arg {name} : valeur commençant par '-' refusée")
+    if typ == "rm_id":
+        if not re.fullmatch(r"\d{1,8}", s):
+            raise ApiError(400, f"arg {name} : RM-id numérique attendu")
+    elif typ == "int":
+        if not re.fullmatch(r"\d{1,9}", s):
+            raise ApiError(400, f"arg {name} : entier attendu")
+    elif typ == "enum":
+        if s not in (spec.get("choices") or []):
+            raise ApiError(400, f"arg {name} : valeur hors choix {spec.get('choices')}")
+    elif typ == "text":
+        if len(s) > int(spec.get("max_len") or 4000):
+            raise ApiError(400, f"arg {name} : trop long (max {spec.get('max_len', 4000)})")
+        if "\x00" in s:
+            raise ApiError(400, f"arg {name} : caractère nul refusé")
+    else:
+        raise ApiError(400, f"arg {name} : type de spec inconnu {typ!r}")
+    return s
+
+
+def op_pm_run(payload: dict) -> dict:
+    """Exécute une commande du catalogue (allowlist) — argv strict, sans shell."""
+    name = str(payload.get("name") or "")
+    cmd = next((c for c in _pm_commands() if c.get("name") == name), None)
+    if not cmd:
+        raise ApiError(400, f"commande inconnue : {name!r} (voir GET /pm/commands)")
+    if cmd.get("confirm") and payload.get("confirm") is not True:
+        raise ApiError(400, f"commande {name} : confirmation requise (confirm: true)")
+    script_name = cmd["script"]
+    if not _PM_SCRIPT_RE.match(script_name):
+        raise ApiError(500, f"catalogue invalide : script {script_name!r}")
+    script = (REPO_ROOT / "scripts" / script_name).resolve()
+    if not str(script).startswith(str(REPO_ROOT / "scripts")) or not script.is_file():
+        raise ApiError(500, f"script introuvable : {script_name}")
+
+    given = payload.get("args") or {}
+    if not isinstance(given, dict):
+        raise ApiError(400, "args : objet {nom: valeur} attendu")
+    known = {a["name"] for a in cmd.get("args") or []}
+    unknown = set(given) - known
+    if unknown:
+        raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
+    positionals, flags = [], []
+    for spec in cmd.get("args") or []:
+        aname = spec["name"]
+        if aname not in given or given[aname] in (None, ""):
+            if spec.get("required"):
+                raise ApiError(400, f"arg requis manquant : {aname}")
+            continue
+        val = _pm_validate_arg(spec, given[aname])
+        if spec.get("type") == "bool":
+            if val:
+                flags.append(spec["flag"])
+            continue
+        if spec.get("positional"):
+            positionals.append(val)
+        else:
+            flags += [spec["flag"], val]
+    argv = [sys.executable, str(script)] + positionals + flags
+
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                           cwd=str(REPO_ROOT))
+    except subprocess.TimeoutExpired:
+        raise ApiError(500, f"{name} : timeout (300 s)")
+    if cmd.get("mutate"):
+        try:
+            PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({
+                    "ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                    "name": name, "args": given, "rc": r.returncode,
+                }, ensure_ascii=False) + "\n")
+        except OSError:
+            pass  # le journal ne doit jamais faire échouer le run
+    return {"name": name, "rc": r.returncode, "ok": r.returncode == 0,
+            "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -1771,6 +1939,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"sessions": _sessions_view(qs)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
+            if path == "/pm/commands":
+                return self._send_json(200, {"commands": _pm_commands()})
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"resumable": op_resumable(qs)})
@@ -1825,6 +1995,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_unmonitor(payload))
             if path == "/layout":
                 return self._send_json(200, op_layout(payload))
+            if path == "/pm/run":
+                return self._send_json(200, op_pm_run(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

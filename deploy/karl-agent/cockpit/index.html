@@ -1035,9 +1035,9 @@ function renderReviewPane() {
   }
   // — verdict —
   h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'valider\', this)">✅ valider</button>' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'mep\', this)">🚧 demander la MEP</button>' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'renvoyer\', this)">↩ renvoyer en correction</button>' +
+    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'valider\', this)">✅ testé OK → fermer</button>' +
+    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'mep\', this)">🚧 testé OK → demander la MEP</button>' +
+    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'renvoyer\', this)">↩ KO → renvoyer en correction</button>' +
     '</div></div>';
   h += '</div>';
   pane.innerHTML = h;
@@ -1110,9 +1110,9 @@ function renderTQ() {
       if (e.env) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
       else if (e.deployable) h += '<button class="chip" onclick="tqDeploy(' + e.rm_id + ', this)">🚀 déployer</button>';
       else h += '<span class="pill" title="workspace hors layout repos/+envs/ — normaliser d\'abord (mmi-pm env migrate)" style="opacity:.5">🚀 indisponible</span>';
-      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'valider\', this)">✅ valider</button>';
-      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'mep\', this)">🚧 MEP</button>';
-      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'renvoyer\', this)">↩ renvoyer</button>';
+      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'valider\', this)">✅ testé OK → fermer</button>';
+      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'mep\', this)">🚧 testé OK → MEP</button>';
+      h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'renvoyer\', this)">↩ KO → corriger</button>';
       h += '</div>';
       li.innerHTML = h;
       ul.appendChild(li);
@@ -1156,7 +1156,15 @@ async function tqVerdict(rm, kind, btn) {
   btn.disabled = true;
   try {
     const args = Object.assign({ rm_id: String(rm), status: v.status, note: note || v.def }, v.extra);
-    const r = await pmRun("task-status", args, { confirm: true });
+    let r = await pmRun("task-status", args, { confirm: true });
+    // Garde-fou checklist (NORMS) : proposer le forçage explicite plutôt qu'un échec sec
+    if (!r.ok && /checklist non coché/.test((r.stdout || "") + (r.stderr || ""))) {
+      if (window.confirm("RM" + rm + " : des items de checklist ne sont pas cochés dans la description.\n" +
+          "Forcer quand même " + v.status + " (items hors périmètre / différés) ?")) {
+        args.allow_unchecked = true;
+        r = await pmRun("task-status", args, { confirm: true });
+      }
+    }
     toast(r.ok ? "RM" + rm + " → " + v.status : "Échec (rc=" + r.rc + ")", !r.ok);
     if (!r.ok) showCaptureModal("Verdict RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }

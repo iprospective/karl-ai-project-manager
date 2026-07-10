@@ -732,9 +732,13 @@ function showProject(key) {
 function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
 function renderMeta() {
   const b = document.getElementById("metabody");
-  if (!attached) { b.innerHTML = ""; return; }
+  // Le détail d'un ticket s'affiche AUSSI sans session attachée (RM2210 :
+  // « ℹ détail » depuis la file À tester) — seul le bloc Session exige l'attache.
+  if (!attached && !metaTicket) { b.innerHTML = ""; return; }
+  let h = "";
+  if (attached) {
   // ── Session (tmux + registre pm_session RM2166) ──
-  let h = '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
+  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
     esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>';
   // ── Tickets de la session (RM2173) : ancrage + registre, cliquables ──
   const tks = sessionTickets();
@@ -746,6 +750,7 @@ function renderMeta() {
   } else {
     h += '<div class="ms" style="color:var(--muted)">' +
       (/^\d+$/.test(attached) ? "ticket non PM-tracké" : "session slug (sans ticket d\u2019ancrage)") + '</div>';
+  }
   }
   // ── Détail du ticket sélectionné ──
   const rmId = metaTicket;

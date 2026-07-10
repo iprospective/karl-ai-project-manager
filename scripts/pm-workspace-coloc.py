@@ -34,7 +34,9 @@ from pathlib import Path
 GITLAB_HOST = "gitlab.iprospective.fr"
 GIT_ALIAS = "gitlab"  # alias SSH (~/.ssh/config) → gitlab:<path>.git
 WS_ROOT = Path("/zfs/workspaces")
-PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients")
+# .resolve() : le chemin historique est un alias symlink de .mmi-pm-core (RM1994/RM2216) ;
+# les cibles des .mmi-pm résolvent vers le canonique → relative_to exige la même base.
+PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients").resolve()
 GITIGNORE = "/*\n!/.gitignore\n!/{name}/\n"
 
 

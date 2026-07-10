@@ -1679,9 +1679,44 @@ _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
 
 
+def _probe_env(host: str, env: str) -> tuple:
+    """Vivacité d'un env de session (RM2229) → (live: bool, reason: str).
+
+    L'existence du worktree `envs/*-rm<id>` ne prouve PAS que l'env est servi :
+    un vhost absent retombe sur le site Apache par défaut (200 trompeur), un
+    env sans setup appli répond 500. Deux étages :
+      1. GET /pm-env.txt == nom d'env — canari statique posé par
+         pm-env-session dans le docroot : prouve « ce vhost sert CE worktree » ;
+      2. GET / < 500 — l'appli elle-même répond.
+    Timeout court : appelé en parallèle sur la file de test."""
+    import http.client
+    try:
+        c = http.client.HTTPConnection(host, 80, timeout=1.5)
+        c.request("GET", "/pm-env.txt", headers={"Host": host})
+        r = c.getresponse()
+        body = r.read(256).decode("utf-8", "replace").strip()
+        r.read()  # draine avant de réutiliser la connexion
+        if r.status != 200 or body != env:
+            c.close()
+            if r.status == 200:
+                return False, "vhost absent (site par défaut servi)"
+            return False, (f"canari absent (HTTP {r.status}) — "
+                           "env non initialisé, re-déployer")
+        c.request("GET", "/", headers={"Host": host})
+        r2 = c.getresponse()
+        r2.read()
+        c.close()
+        if r2.status >= 500:
+            return False, (f"env servi mais appli en erreur (HTTP {r2.status})"
+                           " — re-déployer")
+        return True, ""
+    except OSError as exc:
+        return False, f"injoignable ({exc.__class__.__name__})"
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
-    (branche du ticket, env de session déjà monté, déployabilité du workspace)."""
+    (branche du ticket, env de session monté ET vivant, déployabilité)."""
     out = []
     for st in ("a_tester_demandeur", "a_tester_dev"):
         out += op_search(status=st, client=qs.get("client"),
@@ -1707,6 +1742,20 @@ def op_test_queue(qs: dict) -> list:
             env = hits[0].name if hits else None
         e["env"] = env
         e["test_host"] = f"{env}.lxc" if env else None
+    # Sonde de vivacité en parallèle (RM2229) : un worktree présent n'est un
+    # env de test QUE si son vhost sert bien ce worktree et que l'appli répond.
+    to_probe = [e for e in out if e.get("env")]
+    if to_probe:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            futs = {pool.submit(_probe_env, e["test_host"], e["env"]): e
+                    for e in to_probe}
+            for fut in concurrent.futures.as_completed(futs):
+                e = futs[fut]
+                try:
+                    e["env_live"], e["env_reason"] = fut.result()
+                except Exception as exc:  # défensif : la file doit toujours rendre
+                    e["env_live"], e["env_reason"] = False, f"sonde en erreur ({exc})"
     out.sort(key=lambda r: (r["status"] != "a_tester_demandeur", r.get("updated") or ""),
              )
     return out

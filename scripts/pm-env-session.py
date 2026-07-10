@@ -4,10 +4,18 @@
 Crée / démonte l'environnement éphémère d'un ticket dans un workspace projet
 au layout RM1993 (`repos/<repo>.git` + `envs/`) :
 
-    create   worktree `envs/<repo>-rm<id>` sur branche `<id>-<slug>`
+    create   worktree `envs/<repo>-rm<id>` sur branche `<id>-<slug>` — si la
+             branche exacte n'existe pas, toute branche locale/remote `<id>-*`
+             est réutilisée (RM2229 : pm-branch-start tronque les slugs)
              + `.user.ini` (error_log par worktree, pool FPM PARTAGÉ du workspace)
+             + canari `<docroot>/pm-env.txt` = nom d'env (sonde de vivacité
+               cockpit : un vhost absent répond 200 via le site Apache par
+               défaut — seul le canari prouve que CET env est servi)
              + vhost Apache `<repo>-rm<id>.lxc` (via helper privilégié)
              + BDD : partagée par défaut ; `--db-clone` = clone dédié `<db>_rm<id>`
+             + étapes `runtime.post_create` / `post_create_container` (setup
+               appli : vendor, assets… — re-exécutées sur un env déjà monté,
+               ce qui fait de create l'action « réparer » du cockpit, RM2229)
     teardown vhost + worktree + logs + drop du clone BDD éventuel
              — la branche N'EST JAMAIS supprimée (NORMS), la BDD partagée non plus.
     list     envs de session présents dans le workspace
@@ -28,6 +36,10 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
                                             # structure toujours copiée
           post_sql:                         # fixups exécutés SUR LE CLONE, confinés
             - "UPDATE config SET value = 'http://{host}/' WHERE name = 'site_url'"
+        post_create:              # setup appli — shell, cwd = worktree (host)
+          - "[ -d vendor ] || cp -r ../matnat_sf7-dev/vendor vendor"
+        post_create_container:    # idem mais via ssh env_runtime.ssh_host,
+          - "php bin/console cache:clear"   # cwd = worktree (chemin conteneur)
 
     Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
     tranchent sans question ; sinon la question est posée (TTY) avec le défaut
@@ -208,14 +220,32 @@ def cmd_create(args):
     else:
         lheads = git(["-C", str(bare), "for-each-ref", "--format=%(refname:short)",
                       "refs/heads"]).stdout.split()
+        # Branche exacte, sinon TOUTE branche du ticket (préfixe `<id>-`) :
+        # pm-branch-start tronque le slug, pas nous (RM2229/RM2065 gap #1) —
+        # sans ça on repartirait de main en croyant reprendre le ticket.
+        if branch not in lheads:
+            hits = sorted(h for h in lheads if h.startswith(f"{rmid}-"))
+            if hits:
+                branch = hits[0]
+                print(f"  · branche du ticket trouvée par préfixe : {branch}")
         if branch in lheads:
             print(f"  git worktree add envs/{env_name} {branch}  (branche existante)")
             not dry and git(["-C", str(bare), "worktree", "add", str(wt), branch])
         else:
-            base = resolve_base(bare, repo.get("integration_branch"))
-            print(f"  git worktree add -b {branch} envs/{env_name}  (depuis {base})")
-            not dry and git(["-C", str(bare), "worktree", "add", "-b", branch,
-                             str(wt), base])
+            rheads = [h.split("/", 3)[-1] for h in
+                      git(["-C", str(bare), "for-each-ref",
+                           "--format=%(refname)", "refs/remotes"]).stdout.split()]
+            rhits = sorted(h for h in rheads if h.startswith(f"{rmid}-"))
+            if rhits:
+                branch = rhits[0]
+                print(f"  git worktree add envs/{env_name} {branch}  (depuis origin/{branch})")
+                not dry and git(["-C", str(bare), "worktree", "add", "-b", branch,
+                                 str(wt), f"origin/{branch}"])
+            else:
+                base = resolve_base(bare, repo.get("integration_branch"))
+                print(f"  git worktree add -b {branch} envs/{env_name}  (depuis {base})")
+                not dry and git(["-C", str(bare), "worktree", "add", "-b", branch,
+                                 str(wt), base])
     if not dry:
         pm_session.record_worktree(str(wt))
         pm_session.record_branch(branch)
@@ -238,6 +268,17 @@ def cmd_create(args):
         ini.parent.is_dir() or die(f"docroot absent dans le worktree : {ini.parent}")
         ini.write_text(USER_INI.format(log=log), encoding="utf-8")
         print(f"  ✓ {ini.relative_to(ws)} (error_log par worktree)")
+
+    # 2b. canari de vivacité (RM2229) : GET /pm-env.txt == env_name ⇔ ce vhost
+    # sert bien CE worktree (un vhost absent retombe sur le site Apache par
+    # défaut avec un 200 trompeur). Nom sans point initial : les dotfiles
+    # sont bloqués par Apache (403).
+    canary = wt / docroot / "pm-env.txt"
+    if dry:
+        print(f"  [dry] écrit {canary.relative_to(ws)} (canari de vivacité)")
+    elif not canary.is_file() or canary.read_text(encoding="utf-8").strip() != env_name:
+        canary.write_text(env_name + "\n", encoding="utf-8")
+        print(f"  ✓ {canary.relative_to(ws)} (canari de vivacité)")
 
     # 3. vhost (privilégié)
     if args.no_vhost:
@@ -288,6 +329,39 @@ def cmd_create(args):
         else:
             print(f"  · BDD partagée `{db}` (pas de clone pour ce ticket)")
 
+    # 5. setup appli déclaratif (RM2229) : étapes du manifeste, exécutées à
+    # CHAQUE create — y compris sur un env déjà monté (= action « réparer »).
+    # L'idempotence des étapes est la responsabilité du manifeste (guards
+    # `[ -d vendor ] ||`…). Tout doit être posé AVANT le premier hit HTTP,
+    # sinon l'opcache/realpath du pool FPM partagé fige la résolution fautive.
+    # Confiance : meta.yml est versionné et possédé par le workspace — même
+    # niveau de confiance que le code du repo (jamais d'entrée client ici).
+    subst = {"rmid": str(rmid), "env": env_name}
+    rx = re.compile(r"\{(" + "|".join(subst) + r")\}")
+    expand = lambda s: rx.sub(lambda m: subst[m.group(1)], s)  # noqa: E731
+    for step in (runtime.get("post_create") or []):
+        step = expand(str(step))
+        print(f"  $ {step}")
+        if not dry:
+            r = subprocess.run(["bash", "-c", step], cwd=str(wt),
+                               capture_output=True, text=True)
+            r.returncode == 0 or die(f"post_create a échoué ({r.returncode}) : "
+                                     f"{step}\n{(r.stderr or r.stdout).strip()}")
+    csteps = runtime.get("post_create_container") or []
+    if csteps:
+        wt_c = map_container_path(cfg, wt)
+        for step in csteps:
+            step = expand(str(step))
+            print(f"  $ [{cfg['ssh_host']}] {step}")
+            if not dry:
+                r = subprocess.run(
+                    ["ssh", cfg["ssh_host"],
+                     f"cd {shlex.quote(wt_c)} && {step}"],
+                    capture_output=True, text=True)
+                r.returncode == 0 or die(
+                    f"post_create_container a échoué ({r.returncode}) : "
+                    f"{step}\n{(r.stderr or r.stdout).strip()}")
+
     print(f"\n{'[dry-run] ' if dry else ''}✓ env de session prêt : "
           f"http://{env_name}.lxc/  (Host: {env_name}.lxc)")
 
@@ -307,12 +381,14 @@ def cmd_teardown(args):
     print(f"workspace : {ws}\nteardown  : envs/{env_name}")
 
     # 1. refuse un worktree sale (sauf --force) — les commits restent sur la branche.
-    # Le `.user.ini` posé par create ne compte pas comme dirt (artefact de l'outil).
-    own = f"{runtime.get('docroot', 'public')}/.user.ini" if runtime else None
+    # Les fichiers posés par create (.user.ini, canari pm-env.txt) ne comptent
+    # pas comme dirt (artefacts de l'outil).
+    docroot = runtime.get("docroot", "public") if runtime else None
+    own = {f"?? {docroot}/.user.ini", f"?? {docroot}/pm-env.txt"} if docroot else set()
     if wt.is_dir():
         st = git(["-C", str(wt), "status", "--porcelain"], check=False).stdout
         dirt = [ln for ln in st.splitlines()
-                if ln.strip() and not (own and ln.strip() == f"?? {own}")]
+                if ln.strip() and ln.strip() not in own]
         if dirt and not args.force:
             die("worktree sale (modifs non commitées) — commit/stash d'abord, "
                 "ou --force pour perdre :\n" + "\n".join(dirt))

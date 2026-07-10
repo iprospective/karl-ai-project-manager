@@ -98,6 +98,34 @@ def open_subtasks(url, key, issue_id):
         return []
 
 
+def open_blockers(url, key, issue_id):
+    """Relations bloquantes OUVERTES du ticket (blocked/precedes côté cible =
+    NORMS depends_on). Cause #2 d'une fermeture silencieusement ignorée après
+    les sous-tâches (tripwire #4) — ex. RM2210 bloqué par RM2209 (2026-07-10)."""
+    try:
+        u = f"{url.rstrip('/')}/issues/{issue_id}.json?include=relations&key={key}"
+        with request.urlopen(request.Request(u, headers={"Accept": "application/json"}), timeout=10) as r:
+            issue = json.loads(r.read())["issue"]
+        out = []
+        for rel in issue.get("relations", []):
+            # bloquant pour NOUS : blocks dont on est la cible, precedes dont on est la suite
+            other = None
+            if rel.get("relation_type") == "blocks" and rel.get("issue_to_id") == issue_id:
+                other = rel.get("issue_id")
+            elif rel.get("relation_type") == "precedes" and rel.get("issue_to_id") == issue_id:
+                other = rel.get("issue_id")
+            if not other:
+                continue
+            ou = f"{url.rstrip('/')}/issues/{other}.json?key={key}"
+            with request.urlopen(request.Request(ou, headers={"Accept": "application/json"}), timeout=10) as r:
+                o = json.loads(r.read())["issue"]
+            if not o["status"].get("is_closed"):
+                out.append((o["id"], o["status"]["name"], o.get("subject", "")))
+        return out
+    except Exception:
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--issue", type=int, required=True, help="ID du ticket")
@@ -310,8 +338,18 @@ def main():
                 print("  → fermer/détacher ces sous-tâches d'abord (NORMS status-workflow).",
                       file=sys.stderr)
             else:
-                print("  Cause probable : permission 'Edit issues' manquante pour le compte API.",
-                      file=sys.stderr)
+                blockers = open_blockers(url, key, args.issue) if args.status else []
+                if blockers:
+                    print("  Cause : relation(s) bloquante(s) ouverte(s) — Redmine refuse la "
+                          "fermeture tant que le(s) bloqueur(s) ne sont pas fermés :", file=sys.stderr)
+                    for bid, bname, subj in blockers:
+                        print(f"    · #{bid} [{bname}] {subj[:70]}", file=sys.stderr)
+                    print("  → fermer ces tickets d'abord (diagnostic complet : pm-task-blockers).",
+                          file=sys.stderr)
+                else:
+                    print("  Causes possibles : permission 'Edit issues' manquante pour le compte "
+                          "API, ou transition interdite par le workflow Redmine. Diagnostic : "
+                          "pm-task-blockers <id>.", file=sys.stderr)
             sys.exit(2)
 
 

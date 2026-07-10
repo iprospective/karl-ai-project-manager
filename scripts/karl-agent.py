@@ -1651,6 +1651,50 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
      ]},
+    # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
+    # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
+    # scripts eux-mêmes ; ici on borne juste la longueur.
+    {"name": "client-new", "label": "Créer un client / produit / self",
+     "category": "projet", "script": "pm-client-new.py", "mutate": True,
+     "confirm": True, "timeout": 300, "args": [
+         {"name": "slug", "label": "Slug", "type": "text", "required": True,
+          "flag": "--slug", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "required": True,
+          "flag": "--name", "max_len": 96},
+         {"name": "type", "label": "Type d'entité", "type": "enum", "flag": "--type",
+          "choices": ["client", "product", "self"]},
+         {"name": "gitlab_group", "label": "Groupe GitLab (ex. iprospective/nextcloud)",
+          "type": "text", "flag": "--gitlab-group", "max_len": 96},
+         {"name": "contact_name", "label": "Contact (nom)", "type": "text",
+          "flag": "--contact-name", "max_len": 96},
+         {"name": "contact_email", "label": "Contact (email)", "type": "text",
+          "flag": "--contact-email", "max_len": 96},
+     ]},
+    {"name": "project-new", "label": "Créer un projet PM (Redmine + arbo + liens + bootstrap)",
+     "category": "projet", "script": "pm-project-new.py", "mutate": True,
+     "confirm": True, "timeout": 600, "args": [
+         {"name": "client", "label": "Client (slug existant)", "type": "text",
+          "required": True, "flag": "--client", "max_len": 48},
+         {"name": "slug", "label": "Slug du projet", "type": "text", "required": True,
+          "flag": "--slug", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "required": True,
+          "flag": "--name", "max_len": 96},
+         {"name": "workspace", "label": "Workspace de code (chemin /zfs/workspaces/…)",
+          "type": "path", "required": True, "flag": "--workspace"},
+         # l'un des deux est requis (XOR contrôlé par le script) :
+         {"name": "redmine_parent", "label": "Projet Redmine parent (slug) — OU id existant ci-dessous",
+          "type": "text", "flag": "--redmine-parent", "max_len": 64},
+         {"name": "existing_redmine_id", "label": "Id projet Redmine existant (si déjà créé)",
+          "type": "text", "flag": "--existing-redmine-id", "max_len": 16},
+         {"name": "description", "label": "Description", "type": "text",
+          "flag": "--description"},
+         {"name": "with_environments", "label": "Créer environments.md",
+          "type": "bool", "flag": "--with-environments"},
+         {"name": "no_bootstrap", "label": "Sans bootstrap", "type": "bool",
+          "flag": "--no-bootstrap"},
+         {"name": "dry_run", "label": "Dry-run (prévisualiser)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
     # Console de test (RM2210) : déploiement/démontage de l'env de session d'un
     # ticket. Le workspace est résolu CÔTÉ SERVEUR depuis le ticket (spec
     # `server: workspace_of_rm`) — jamais un chemin fourni par le client.
@@ -1792,6 +1836,12 @@ def _pm_validate_arg(spec: dict, value) -> str:
     elif typ == "enum":
         if s not in (spec.get("choices") or []):
             raise ApiError(400, f"arg {name} : valeur hors choix {spec.get('choices')}")
+    elif typ == "path":
+        # chemin borné aux workspaces — jamais de chemin arbitraire depuis le web
+        if ".." in s or not s.startswith("/zfs/workspaces/"):
+            raise ApiError(400, f"arg {name} : chemin sous /zfs/workspaces/ attendu")
+        if len(s) > 200:
+            raise ApiError(400, f"arg {name} : chemin trop long")
     elif typ == "text":
         if len(s) > int(spec.get("max_len") or 4000):
             raise ApiError(400, f"arg {name} : trop long (max {spec.get('max_len', 4000)})")

@@ -28,6 +28,7 @@ Mapping NORMS → Redmine tracker (par défaut) :
 """
 import argparse
 import re
+import subprocess
 import sys
 import unicodedata
 from datetime import datetime
@@ -182,6 +183,13 @@ def main():
                          "(ré-assignation au Manager IA). À utiliser pour les tickets de "
                          "suivi de travail déjà livré. Cf. NORMS v1.12.0 § « Prise en "
                          "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
+    ap.add_argument("--start-branch", action="store_true",
+                    help="Enchaîne pm-branch-start --take après création (RM2224) : "
+                         "branche <id>-<slug> + prise en_cours, l'id capturé en interne "
+                         "— l'agent ne manipule JAMAIS l'id (tripwire #13). "
+                         "Incompatible avec --retro/--status.")
+    ap.add_argument("--branch-repo", default=None,
+                    help="Repo cible pour --start-branch (défaut : résolution pm-branch-start)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--porcelain", "--id-only", dest="porcelain", action="store_true",
                     help="Sortie machine (RM2170) : n'imprime que l'id nu du ticket créé "
@@ -207,6 +215,9 @@ def main():
     elif args.description == "-":
         args.description = sys.stdin.read()
 
+    if args.start_branch and (args.retro or args.status != "nouveau"):
+        sys.exit("ERREUR : --start-branch est incompatible avec --retro/--status "
+                 "(pm-branch-start --take gère lui-même la prise en_cours).")
     if args.retro and args.status != "nouveau":
         sys.exit("ERREUR : --status et --retro sont incompatibles (--retro pilote sa "
                  "propre séquence en_cours → a_tester_verifier).")
@@ -406,6 +417,18 @@ def main():
         if parent_md:
             commit_paths += [parent_md, parent_md.parent / parent_md.name.replace(".md", ".log.md")]
     pm_git.autocommit(commit_paths, f"pm(add): RM{rm_id} {slug}")
+
+    if args.start_branch:
+        # Verbe atomique (RM2224) : l'id sort de create_redmine_issue et entre
+        # directement dans pm-branch-start — aucune ressaisie possible.
+        cmd = [sys.executable, str(Path(__file__).resolve().parent / "pm-branch-start.py"),
+               str(rm_id), "--take"]
+        if args.branch_repo:
+            cmd += ["--repo", args.branch_repo]
+        r = subprocess.run(cmd)
+        if r.returncode != 0:
+            print(f"⚠ pm-branch-start a échoué (exit {r.returncode}) — relance : "
+                  f"pm-branch-start.py {rm_id} --take", file=sys.stderr)
 
     # --status <statut> : le ticket est créé en `nouveau` (défaut tracker Redmine) ;
     # si un autre statut est demandé, on transitionne via pm-task-status-update

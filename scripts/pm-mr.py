@@ -23,6 +23,7 @@ Tape l'API REST GitLab en direct (urllib + token lu de la config glab / .env).
 import argparse
 import json
 import os
+import re
 import sys
 import time
 import urllib.error
@@ -145,6 +146,15 @@ def cmd_create(args, token):
     src = current_branch(repo)
     if src in ("HEAD", ""):
         sys.exit("ERREUR : HEAD détaché — pas de branche courante.")
+    # Garde anti-prédiction d'id (RM2224, tripwire #13) : une MR de ticket doit
+    # partir d'une branche `<RMid>-…` du MÊME id. Une branche préfixée d'un autre
+    # id = id deviné/erroné (incident RM2222 sur branche 2219-*) → refus.
+    # Les branches non préfixées (dev, promotion) restent permises.
+    m = re.match(r"^(\d+)-", src)
+    if m and int(m.group(1)) != args.rm_id:
+        sys.exit(f"ERREUR : la branche courante `{src}` porte l'id {m.group(1)} mais la MR "
+                 f"est demandée pour RM{args.rm_id}. Id prédit/erroné (tripwire #13) ? "
+                 f"Renomme la branche (`git branch -m {args.rm_id}-<slug>`) ou corrige le rm_id.")
     tgt = args.target or integration_branch(rpath)
     if src == tgt:
         sys.exit(f"ERREUR : branche courante == cible ({tgt}).")

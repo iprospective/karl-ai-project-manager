@@ -53,9 +53,15 @@ def install_one(repo, seen):
                 continue
         except OSError:
             pass
-        if hook.is_symlink() or hook.exists():
-            hook.unlink()
-        hook.symlink_to(src)
+        try:
+            if hook.is_symlink() or hook.exists():
+                hook.unlink()
+            hook.symlink_to(src)
+        except OSError as e:
+            # repo privsep (ex. .mmi-pm-core : .git root-owned) → à poser par la
+            # couche privilégiée (mmi-pm core update), pas bloquant ici.
+            results.append(("warn", f"{repo} : {name} non posé ({e.strerror}) — couche privilégiée requise"))
+            continue
         results.append(("new", f"{repo} : {name} installé"))
     worst = {"warn": 0, "new": 1, "ok": 2}
     results.sort(key=lambda r: worst[r[0]])

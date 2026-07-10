@@ -1098,9 +1098,19 @@ function renderReviewPane() {
     (q && q.branch ? ' · branche <span class="pill" title="' + esc(q.branch) + '">' + esc(q.branch) + '</span>' : "") + '</div>';
   // — env de test de session (par ticket) —
   h += '<div class="ms"><h4>Env de test du ticket</h4>';
-  if (q && q.test_host) {
-    h += '<div style="margin:6px 0 10px;font-size:15px">🔗 <a href="http://' + esc(q.test_host) + '/" target="_blank"><b>' + esc(q.test_host) + '</b> ↗</a></div>';
+  if (q && q.test_host && q.env_live) {
+    h += '<div style="margin:6px 0 10px;font-size:15px">🔗 <a href="http://' + esc(q.test_host) + '/" target="_blank"><b>' + esc(q.test_host) + '</b> ↗</a> <span style="color:var(--ok,#3fb950)">●</span></div>';
     h += '<div class="rels"><button class="chip" onclick="tqTeardown(\'' + esc(rm) + '\', this)">🧹 démonter cet env</button></div>';
+  } else if (q && q.test_host) {
+    // RM2229 : worktree présent mais la sonde dit que l'env ne sert pas
+    // (vhost absent, setup appli manquant, appli en erreur) — re-déployer
+    // relance create : vhost + canari + étapes post_create du manifeste.
+    h += '<div style="margin:6px 0 4px;font-size:15px">⚠ <b>' + esc(q.test_host) + '</b> — env présent mais indisponible</div>';
+    h += '<div style="color:var(--muted);margin:0 0 8px">' + esc(q.env_reason || 'la sonde ne confirme pas cet env') + '</div>';
+    h += '<div class="rels">' +
+      '<button class="chip" onclick="tqDeploy(\'' + esc(rm) + '\', this)">🔁 re-déployer (répare l\u2019env)</button>' +
+      '<button class="chip" onclick="tqTeardown(\'' + esc(rm) + '\', this)">🧹 démonter</button>' +
+      '</div>';
   } else if (q && q.deployable) {
     h += '<div style="color:var(--muted);margin:4px 0 8px">aucun env monté pour ce ticket — déployer sa branche :</div>';
     h += '<div class="rels">' +
@@ -1192,10 +1202,12 @@ function renderTQ() {
         '<span class="r-title" title="' + esc(e.title) + '">' + esc(e.title) + '</span></div>';
       h += '<div class="r-meta">' + esc((e.client || "?") + "/" + (e.project || "?")) +
         (e.branch ? " · " + esc(e.branch) : "") +
-        (e.test_host ? ' · <a href="http://' + esc(e.test_host) + '/" target="_blank">' + esc(e.test_host) + ' ↗</a>' : "") + '</div>';
+        (e.test_host && e.env_live ? ' · <a href="http://' + esc(e.test_host) + '/" target="_blank">' + esc(e.test_host) + ' ↗</a>' :
+         e.test_host ? ' · <span title="' + esc(e.env_reason || 'env indisponible') + '" style="color:var(--muted)">' + esc(e.test_host) + ' ⚠</span>' : "") + '</div>';
       h += '<div class="rels" style="margin-top:5px">';
       h += '<button class="chip" onclick="openReview(' + e.rm_id + ')">🧪 revue</button>';
-      if (e.env) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
+      if (e.env && e.env_live) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
+      else if (e.env) h += '<button class="chip" title="' + esc(e.env_reason || 'env indisponible') + '" onclick="tqDeploy(' + e.rm_id + ', this)">🔁 re-déployer</button>';
       else if (e.deployable) h += '<button class="chip" onclick="tqDeploy(' + e.rm_id + ', this)">🚀 déployer</button>';
       else h += '<span class="pill" title="workspace hors layout repos/+envs/ — normaliser d\'abord (mmi-pm env migrate)" style="opacity:.5">🚀 indisponible</span>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'valider\', this)">✅ testé OK → fermer</button>';

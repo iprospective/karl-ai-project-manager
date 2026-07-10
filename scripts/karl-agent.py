@@ -1651,6 +1651,50 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
      ]},
+    # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
+    # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
+    # scripts eux-mêmes ; ici on borne juste la longueur.
+    {"name": "client-new", "label": "Créer un client / produit / self",
+     "category": "projet", "script": "pm-client-new.py", "mutate": True,
+     "confirm": True, "timeout": 300, "args": [
+         {"name": "slug", "label": "Slug", "type": "text", "required": True,
+          "flag": "--slug", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "required": True,
+          "flag": "--name", "max_len": 96},
+         {"name": "type", "label": "Type d'entité", "type": "enum", "flag": "--type",
+          "choices": ["client", "product", "self"]},
+         {"name": "gitlab_group", "label": "Groupe GitLab (ex. iprospective/nextcloud)",
+          "type": "text", "flag": "--gitlab-group", "max_len": 96},
+         {"name": "contact_name", "label": "Contact (nom)", "type": "text",
+          "flag": "--contact-name", "max_len": 96},
+         {"name": "contact_email", "label": "Contact (email)", "type": "text",
+          "flag": "--contact-email", "max_len": 96},
+     ]},
+    {"name": "project-new", "label": "Créer un projet PM (Redmine + arbo + liens + bootstrap)",
+     "category": "projet", "script": "pm-project-new.py", "mutate": True,
+     "confirm": True, "timeout": 600, "args": [
+         {"name": "client", "label": "Client (slug existant)", "type": "text",
+          "required": True, "flag": "--client", "max_len": 48},
+         {"name": "slug", "label": "Slug du projet", "type": "text", "required": True,
+          "flag": "--slug", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "required": True,
+          "flag": "--name", "max_len": 96},
+         {"name": "workspace", "label": "Workspace de code (chemin /zfs/workspaces/…)",
+          "type": "path", "required": True, "flag": "--workspace"},
+         # l'un des deux est requis (XOR contrôlé par le script) :
+         {"name": "redmine_parent", "label": "Projet Redmine parent (slug) — OU id existant ci-dessous",
+          "type": "text", "flag": "--redmine-parent", "max_len": 64},
+         {"name": "existing_redmine_id", "label": "Id projet Redmine existant (si déjà créé)",
+          "type": "text", "flag": "--existing-redmine-id", "max_len": 16},
+         {"name": "description", "label": "Description", "type": "text",
+          "flag": "--description"},
+         {"name": "with_environments", "label": "Créer environments.md",
+          "type": "bool", "flag": "--with-environments"},
+         {"name": "no_bootstrap", "label": "Sans bootstrap", "type": "bool",
+          "flag": "--no-bootstrap"},
+         {"name": "dry_run", "label": "Dry-run (prévisualiser)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
     # Console de test (RM2210) : déploiement/démontage de l'env de session d'un
     # ticket. Le workspace est résolu CÔTÉ SERVEUR depuis le ticket (spec
     # `server: workspace_of_rm`) — jamais un chemin fourni par le client.
@@ -1679,9 +1723,44 @@ _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
 
 
+def _probe_env(host: str, env: str) -> tuple:
+    """Vivacité d'un env de session (RM2229) → (live: bool, reason: str).
+
+    L'existence du worktree `envs/*-rm<id>` ne prouve PAS que l'env est servi :
+    un vhost absent retombe sur le site Apache par défaut (200 trompeur), un
+    env sans setup appli répond 500. Deux étages :
+      1. GET /pm-env.txt == nom d'env — canari statique posé par
+         pm-env-session dans le docroot : prouve « ce vhost sert CE worktree » ;
+      2. GET / < 500 — l'appli elle-même répond.
+    Timeout court : appelé en parallèle sur la file de test."""
+    import http.client
+    try:
+        c = http.client.HTTPConnection(host, 80, timeout=1.5)
+        c.request("GET", "/pm-env.txt", headers={"Host": host})
+        r = c.getresponse()
+        body = r.read(256).decode("utf-8", "replace").strip()
+        r.read()  # draine avant de réutiliser la connexion
+        if r.status != 200 or body != env:
+            c.close()
+            if r.status == 200:
+                return False, "vhost absent (site par défaut servi)"
+            return False, (f"canari absent (HTTP {r.status}) — "
+                           "env non initialisé, re-déployer")
+        c.request("GET", "/", headers={"Host": host})
+        r2 = c.getresponse()
+        r2.read()
+        c.close()
+        if r2.status >= 500:
+            return False, (f"env servi mais appli en erreur (HTTP {r2.status})"
+                           " — re-déployer")
+        return True, ""
+    except OSError as exc:
+        return False, f"injoignable ({exc.__class__.__name__})"
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
-    (branche du ticket, env de session déjà monté, déployabilité du workspace)."""
+    (branche du ticket, env de session monté ET vivant, déployabilité)."""
     out = []
     for st in ("a_tester_demandeur", "a_tester_dev"):
         out += op_search(status=st, client=qs.get("client"),
@@ -1707,6 +1786,20 @@ def op_test_queue(qs: dict) -> list:
             env = hits[0].name if hits else None
         e["env"] = env
         e["test_host"] = f"{env}.lxc" if env else None
+    # Sonde de vivacité en parallèle (RM2229) : un worktree présent n'est un
+    # env de test QUE si son vhost sert bien ce worktree et que l'appli répond.
+    to_probe = [e for e in out if e.get("env")]
+    if to_probe:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            futs = {pool.submit(_probe_env, e["test_host"], e["env"]): e
+                    for e in to_probe}
+            for fut in concurrent.futures.as_completed(futs):
+                e = futs[fut]
+                try:
+                    e["env_live"], e["env_reason"] = fut.result()
+                except Exception as exc:  # défensif : la file doit toujours rendre
+                    e["env_live"], e["env_reason"] = False, f"sonde en erreur ({exc})"
     out.sort(key=lambda r: (r["status"] != "a_tester_demandeur", r.get("updated") or ""),
              )
     return out
@@ -1743,6 +1836,12 @@ def _pm_validate_arg(spec: dict, value) -> str:
     elif typ == "enum":
         if s not in (spec.get("choices") or []):
             raise ApiError(400, f"arg {name} : valeur hors choix {spec.get('choices')}")
+    elif typ == "path":
+        # chemin borné aux workspaces — jamais de chemin arbitraire depuis le web
+        if ".." in s or not s.startswith("/zfs/workspaces/"):
+            raise ApiError(400, f"arg {name} : chemin sous /zfs/workspaces/ attendu")
+        if len(s) > 200:
+            raise ApiError(400, f"arg {name} : chemin trop long")
     elif typ == "text":
         if len(s) > int(spec.get("max_len") or 4000):
             raise ApiError(400, f"arg {name} : trop long (max {spec.get('max_len', 4000)})")

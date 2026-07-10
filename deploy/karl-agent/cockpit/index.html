@@ -301,6 +301,13 @@
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
     </details>
+
+    <details class="card" id="pmcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadPmCommands();}">
+      <summary>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span></summary>
+      <div id="pm-menu" style="margin-top:8px"></div>
+      <div id="pm-form"></div>
+      <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
+    </details>
   </section>
 
   <section class="right">
@@ -965,6 +972,87 @@ function showCaptureModal(title, txt) {
   document.getElementById("doctitle").textContent = title + " — sélectionne puis Ctrl+C";
   document.getElementById("doccontent").textContent = txt;
   document.getElementById("docmodal").classList.add("show");
+}
+
+// ----- RM2211 : menus/formulaires auto-générés depuis le command-catalog -----
+// Zéro code UI par commande : GET /pm/commands → menu groupé par catégorie ;
+// le formulaire est généré depuis args[] (enum→select, bool→case, rm_id/int→
+// nombre, text→textarea) ; exécution via POST /pm/run (confirm si déclaré).
+let pmCommands = [];
+async function loadPmCommands() {
+  try {
+    const d = await api("/pm/commands");
+    pmCommands = d.commands || [];
+    const menu = document.getElementById("pm-menu");
+    menu.innerHTML = "";
+    const cats = {};
+    pmCommands.forEach(c => { (cats[c.category || "autres"] = cats[c.category || "autres"] || []).push(c); });
+    for (const cat of Object.keys(cats).sort()) {
+      const g = document.createElement("div");
+      g.innerHTML = '<div class="cgroup" style="margin:8px 0 4px;text-transform:uppercase;font-size:10px;color:var(--muted)">' + esc(cat) + '</div>';
+      const row = document.createElement("div"); row.className = "rels";
+      cats[cat].forEach(c => {
+        const b = document.createElement("button");
+        b.className = "chip"; b.textContent = (c.mutate ? "✏ " : "👁 ") + (c.label || c.name);
+        b.title = c.name + (c.confirm ? " (confirmation requise)" : "");
+        b.onclick = () => renderPmForm(c.name);
+        row.appendChild(b);
+      });
+      g.appendChild(row); menu.appendChild(g);
+    }
+  } catch (e) { toast(e.message, true); }
+}
+function renderPmForm(name) {
+  const c = pmCommands.find(x => x.name === name);
+  const f = document.getElementById("pm-form");
+  document.getElementById("pm-result").style.display = "none";
+  if (!c) { f.innerHTML = ""; return; }
+  let h = '<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px">' +
+    '<b>' + esc(c.label || c.name) + '</b>' +
+    (c.mutate ? ' <span class="pill warn">mutation</span>' : ' <span class="pill">lecture</span>');
+  for (const a of c.args || []) {
+    if (a.server) continue;                        // résolu côté serveur
+    const id = "pmf-" + a.name, lbl = esc(a.label || a.name) + (a.required ? " *" : "");
+    if (a.type === "enum") {
+      h += '<label for="' + id + '">' + lbl + '</label><select id="' + id + '">' +
+        (a.required ? "" : '<option value=""></option>') +
+        (a.choices || []).map(ch => '<option>' + esc(ch) + '</option>').join("") + '</select>';
+    } else if (a.type === "bool") {
+      h += '<label style="display:flex;align-items:center;gap:6px;margin-top:8px">' +
+        '<input type="checkbox" id="' + id + '" style="width:auto"> ' + lbl + '</label>';
+    } else if (a.type === "text" && (!a.max_len || a.max_len > 120)) {
+      h += '<label for="' + id + '">' + lbl + '</label><textarea id="' + id + '" rows="3"></textarea>';
+    } else {
+      h += '<label for="' + id + '">' + lbl + '</label><input id="' + id + '" type="' +
+        ((a.type === "rm_id" || a.type === "int") ? "number" : "text") + '">';
+    }
+  }
+  h += '<button class="primary" style="margin-top:10px" onclick="submitPmForm(\'' + esc(name) + '\', this)">' +
+    (c.mutate ? "✏ Exécuter" : "👁 Afficher") + '</button></div>';
+  f.innerHTML = h;
+}
+async function submitPmForm(name, btn) {
+  const c = pmCommands.find(x => x.name === name);
+  const args = {};
+  for (const a of c.args || []) {
+    if (a.server) continue;
+    const el = document.getElementById("pmf-" + a.name);
+    if (!el) continue;
+    const v = a.type === "bool" ? el.checked : el.value.trim();
+    if (a.type === "bool") { if (v) args[a.name] = true; }
+    else if (v !== "") args[a.name] = v;
+    else if (a.required) { toast("Champ requis : " + (a.label || a.name), true); return; }
+  }
+  if (c.confirm && !window.confirm((c.label || c.name) + " — exécuter cette mutation ?")) return;
+  btn.disabled = true;
+  try {
+    const r = await pmRun(name, args, { confirm: !!c.confirm });
+    const out = document.getElementById("pm-result");
+    out.textContent = (r.stdout || "") + (r.stderr ? "\n--- stderr ---\n" + r.stderr : "");
+    out.style.display = "block";
+    toast(r.ok ? "✓ " + (c.label || name) : "Échec (rc=" + r.rc + ")", !r.ok);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
 }
 
 // ----- RM2210 (retour test) : onglets de revue « à tester » -----

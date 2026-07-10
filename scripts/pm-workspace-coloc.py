@@ -34,7 +34,9 @@ from pathlib import Path
 GITLAB_HOST = "gitlab.iprospective.fr"
 GIT_ALIAS = "gitlab"  # alias SSH (~/.ssh/config) → gitlab:<path>.git
 WS_ROOT = Path("/zfs/workspaces")
-PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients")
+# .resolve() : le chemin historique est un alias symlink de .mmi-pm-core (RM1994/RM2216) ;
+# les cibles des .mmi-pm résolvent vers le canonique → relative_to exige la même base.
+PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients").resolve()
 GITIGNORE = "/*\n!/.gitignore\n!/{name}/\n"
 
 
@@ -155,6 +157,11 @@ def coloc_dir(folder, mmi_name, src_dir, sub_dirs, group, repo, dry):
         s = src_dir / d
         if s.is_dir():
             run(["cp", "-a", str(s), str(mmi) + "/"])
+    # meta.yml vit à la racine du volet PM depuis RM1994 (frontmatter → meta.yml) :
+    # sans lui, pm-env-init & co. ne trouvent plus le manifeste (RM2216).
+    meta = src_dir / "meta.yml"
+    if meta.is_file():
+        run(["cp", "-a", str(meta), str(mmi) + "/"])
     gi = folder / ".gitignore"
     whitelist = GITIGNORE.format(name=mmi_name)
     if gi.is_file() and gi.read_text(encoding="utf-8", errors="replace") != whitelist:
@@ -245,7 +252,7 @@ def main():
         src = link.resolve()  # cible ai-projects (donnée PM réelle)
         repo = f"{folder.name}-core"
         ensure_repo(gid, repo, args.dry_run)
-        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory"],
+        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory", "docs"],
                   group, repo, args.dry_run)
 
     print("== terminé ==" + (" (DRY-RUN, rien écrit)" if args.dry_run else ""))

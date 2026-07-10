@@ -78,6 +78,9 @@ API (JSON, localhost:9876)
                                   OSC52 faites dans les sessions, RM2168)
   GET  /pm/commands             → {commands} — catalogue déclaratif des
                                   commandes PM exposables (RM2209/RM2203)
+  GET  /pm/test-queue[?client=&project=]
+                                → {queue} — tickets a_tester_* enrichis
+                                  (branche, env monté, déployabilité) (RM2210)
   POST /pm/run {name, args{}, confirm?}
                                 → {rc, ok, stdout, stderr} — exécute une
                                   commande du catalogue (allowlist, args
@@ -1190,8 +1193,23 @@ def _find_task_file(rm_id: str):
 
 
 def _resolve_workspace(project_dir: Path):
-    """Trouve le workspace de code dont le symlink `.mmi-pm` pointe vers ce projet
-    PM (scan superficiel des racines autorisées). None si aucun → cwd = repo PM."""
+    """Workspace de code du projet PM. Voie canonique : le symlink
+    `paths.workspace_link` (= `<projet PM>/workspace`, cf. structure-reference) —
+    couvre les workspaces imbriqués (ex. perso/maths) que le scan superficiel
+    ratait (RM2210). Repli : scan des `.mmi-pm` des racines autorisées."""
+    wl = project_dir / "workspace"
+    try:
+        if wl.is_symlink() and wl.resolve().is_dir():
+            ws = wl.resolve()
+            # Invariant bidirectionnel : on ne fait confiance au lien que si le
+            # `.mmi-pm` du workspace (symlink OU dossier co-localisé RM1949)
+            # repointe bien ce projet — un lien `workspace` périmé (ancien
+            # emplacement pré-migration) est ainsi ignoré → repli sur le scan.
+            back = ws / ".mmi-pm"
+            if back.exists() and back.resolve() == project_dir.resolve():
+                return ws
+    except OSError:
+        pass
     target = project_dir.resolve()
     for root in ALLOWED_ROOTS:
         if not root.is_dir():
@@ -1633,9 +1651,65 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
      ]},
+    # Console de test (RM2210) : déploiement/démontage de l'env de session d'un
+    # ticket. Le workspace est résolu CÔTÉ SERVEUR depuis le ticket (spec
+    # `server: workspace_of_rm`) — jamais un chemin fourni par le client.
+    {"name": "env-session-create", "label": "Déployer la branche du ticket en env de test",
+     "category": "env", "script": "pm-env-session.py", "mutate": True, "confirm": True,
+     "timeout": 600, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["create"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "workspace", "server": "workspace_of_rm", "positional": True},
+         {"name": "db_clone", "label": "Cloner la BDD", "type": "bool", "flag": "--db-clone"},
+         {"name": "no_db_clone", "label": "BDD partagée", "type": "bool", "flag": "--no-db-clone"},
+     ]},
+    {"name": "env-session-teardown", "label": "Démonter l'env de test du ticket",
+     "category": "env", "script": "pm-env-session.py", "mutate": True, "confirm": True,
+     "timeout": 600, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["teardown"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "workspace", "server": "workspace_of_rm", "positional": True},
+         {"name": "keep_db", "label": "Conserver le clone BDD", "type": "bool", "flag": "--keep-db"},
+         {"name": "force", "label": "Forcer (modifs non commitées)", "type": "bool", "flag": "--force"},
+     ]},
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
+
+
+def op_test_queue(qs: dict) -> list:
+    """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
+    (branche du ticket, env de session déjà monté, déployabilité du workspace)."""
+    out = []
+    for st in ("a_tester_demandeur", "a_tester_dev"):
+        out += op_search(status=st, client=qs.get("client"),
+                         project=qs.get("project"), limit=100)
+    for e in out:
+        tf = _find_task_file(str(e["rm_id"]))
+        if not tf:
+            continue
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            fm = {}
+        git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+        e["branch"] = git.get("branch")
+        e["updated"] = str(fm.get("updated") or "")
+        ws = _resolve_workspace(tf.parent.parent)
+        # déployable = workspace au layout RM1993 (repos/ présent) ; l'existence
+        # d'un bloc runtime: décide vhost/BDD mais un env code seul reste utile
+        e["deployable"] = bool(ws and (ws / "repos").is_dir())
+        env = None
+        if ws:
+            hits = sorted((ws / "envs").glob(f"*-rm{e['rm_id']}")) if (ws / "envs").is_dir() else []
+            env = hits[0].name if hits else None
+        e["env"] = env
+        e["test_host"] = f"{env}.lxc" if env else None
+    out.sort(key=lambda r: (r["status"] != "a_tester_demandeur", r.get("updated") or ""),
+             )
+    return out
 
 
 def _pm_commands() -> list:
@@ -1697,13 +1771,24 @@ def op_pm_run(payload: dict) -> dict:
     given = payload.get("args") or {}
     if not isinstance(given, dict):
         raise ApiError(400, "args : objet {nom: valeur} attendu")
-    known = {a["name"] for a in cmd.get("args") or []}
+    # les args `server:` sont calculés ici — un client qui les fournit est rejeté
+    known = {a["name"] for a in cmd.get("args") or [] if not a.get("server")}
     unknown = set(given) - known
     if unknown:
         raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
     positionals, flags = [], []
     for spec in cmd.get("args") or []:
         aname = spec["name"]
+        if spec.get("server") == "workspace_of_rm":
+            # workspace du projet du ticket, résolu depuis le MD local
+            rmv = str(given.get("rm_id") or "")
+            tf = _find_task_file(rmv) if rmv.isdigit() else None
+            ws = _resolve_workspace(tf.parent.parent) if tf else None
+            if not ws:
+                raise ApiError(400, f"workspace introuvable pour RM{rmv or '?'} "
+                                    "(ticket inconnu en local ou projet sans workspace)")
+            positionals.append(str(ws))
+            continue
         if aname not in given or given[aname] in (None, ""):
             if spec.get("required"):
                 raise ApiError(400, f"arg requis manquant : {aname}")
@@ -1719,11 +1804,12 @@ def op_pm_run(payload: dict) -> dict:
             flags += [spec["flag"], val]
     argv = [sys.executable, str(script)] + positionals + flags
 
+    timeout_s = int(cmd.get("timeout") or 300)
     try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_s,
                            cwd=str(REPO_ROOT))
     except subprocess.TimeoutExpired:
-        raise ApiError(500, f"{name} : timeout (300 s)")
+        raise ApiError(500, f"{name} : timeout ({timeout_s} s)")
     if cmd.get("mutate"):
         try:
             PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
@@ -1941,6 +2027,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, _registry_view())
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
+            if path == "/pm/test-queue":
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, {"queue": op_test_queue(qs)})
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"resumable": op_resumable(qs)})

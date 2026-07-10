@@ -157,6 +157,11 @@ def coloc_dir(folder, mmi_name, src_dir, sub_dirs, group, repo, dry):
         s = src_dir / d
         if s.is_dir():
             run(["cp", "-a", str(s), str(mmi) + "/"])
+    # meta.yml vit à la racine du volet PM depuis RM1994 (frontmatter → meta.yml) :
+    # sans lui, pm-env-init & co. ne trouvent plus le manifeste (RM2216).
+    meta = src_dir / "meta.yml"
+    if meta.is_file():
+        run(["cp", "-a", str(meta), str(mmi) + "/"])
     gi = folder / ".gitignore"
     whitelist = GITIGNORE.format(name=mmi_name)
     if gi.is_file() and gi.read_text(encoding="utf-8", errors="replace") != whitelist:
@@ -247,7 +252,7 @@ def main():
         src = link.resolve()  # cible ai-projects (donnée PM réelle)
         repo = f"{folder.name}-core"
         ensure_repo(gid, repo, args.dry_run)
-        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory"],
+        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory", "docs"],
                   group, repo, args.dry_run)
 
     print("== terminé ==" + (" (DRY-RUN, rien écrit)" if args.dry_run else ""))

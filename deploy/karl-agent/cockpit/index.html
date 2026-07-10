@@ -266,6 +266,38 @@
 
     <details class="card" id="tqcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadTestQueue();}">
       <summary>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></summary>
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label for="tq-project">Projet</label>
+          <select id="tq-project" onchange="renderTQ()"><option value="">tous</option></select>
+        </div>
+        <div>
+          <label for="tq-status">Statut</label>
+          <select id="tq-status" onchange="renderTQ()">
+            <option value="">tous</option>
+            <option value="a_tester_demandeur">demandeur</option>
+            <option value="a_tester_dev">dev</option>
+          </select>
+        </div>
+      </div>
+      <div class="row2">
+        <div>
+          <label for="tq-sort">Tri</label>
+          <select id="tq-sort" onchange="renderTQ()">
+            <option value="oldest">plus ancien d'abord</option>
+            <option value="newest">plus récent d'abord</option>
+            <option value="rm-desc">RM ↓</option>
+            <option value="rm-asc">RM ↑</option>
+            <option value="project">par projet</option>
+          </select>
+        </div>
+        <div>
+          <label for="tq-deployable">&nbsp;</label>
+          <label style="display:flex;align-items:center;gap:6px;margin:0;color:var(--fg);font-size:12px">
+            <input type="checkbox" id="tq-deployable" onchange="renderTQ()" style="width:auto"> déployables
+          </label>
+        </div>
+      </div>
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
     </details>
@@ -1019,17 +1051,50 @@ async function pmRun(name, args, opts) {
   if (opts && opts.confirm) body.confirm = true;
   return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
+let tqAll = [];   // file brute (le rendu applique filtres + tri, RM2210)
 async function loadTestQueue() {
-  const ul = document.getElementById("tq-list"), cnt = document.getElementById("tq-count");
+  const ul = document.getElementById("tq-list");
   ul.innerHTML = '<li style="color:var(--muted)">chargement…</li>';
   try {
     const { queue } = await api("/pm/test-queue");
+    tqAll = queue;
     tqCache = {};
     queue.forEach(e => { tqCache[String(e.rm_id)] = e; });
     if (currentReview) renderReviewPane();
-    cnt.textContent = queue.length ? "(" + queue.length + ")" : "";
-    ul.innerHTML = "";
-    if (!queue.length) { ul.innerHTML = '<li style="color:var(--muted)">rien à tester 🎉</li>'; return; }
+    // peuple le filtre projet (préserve la sélection)
+    const sel = document.getElementById("tq-project"), prev = sel.value;
+    const projs = [...new Set(queue.map(e => (e.client || "?") + "/" + (e.project || "?")))].sort();
+    sel.innerHTML = '<option value="">tous</option>';
+    projs.forEach(pk => { const o = document.createElement("option"); o.value = pk; o.textContent = pk; sel.appendChild(o); });
+    if ([...sel.options].some(o => o.value === prev)) sel.value = prev;
+    renderTQ();
+  } catch (err) {
+    ul.innerHTML = ""; document.getElementById("tq-count").textContent = "";
+    toast(err.message, true);
+  }
+}
+function renderTQ() {
+  const ul = document.getElementById("tq-list"), cnt = document.getElementById("tq-count");
+  const fp = document.getElementById("tq-project").value;
+  const fs = document.getElementById("tq-status").value;
+  const fd = document.getElementById("tq-deployable").checked;
+  let queue = tqAll.filter(e =>
+    (!fp || (e.client || "?") + "/" + (e.project || "?") === fp) &&
+    (!fs || e.status === fs) &&
+    (!fd || e.deployable));
+  const sort = document.getElementById("tq-sort").value;
+  const upd = e => e.updated || "";
+  const rid = e => Number(e.rm_id) || 0;
+  if (sort === "oldest") queue.sort((a, b) => upd(a) < upd(b) ? -1 : upd(a) > upd(b) ? 1 : 0);
+  else if (sort === "newest") queue.sort((a, b) => upd(a) > upd(b) ? -1 : upd(a) < upd(b) ? 1 : 0);
+  else if (sort === "rm-desc") queue.sort((a, b) => rid(b) - rid(a));
+  else if (sort === "rm-asc") queue.sort((a, b) => rid(a) - rid(b));
+  else if (sort === "project") queue.sort((a, b) =>
+    ((a.client || "") + "/" + (a.project || "")).localeCompare((b.client || "") + "/" + (b.project || "")) || rid(a) - rid(b));
+  cnt.textContent = queue.length ? "(" + queue.length + (queue.length !== tqAll.length ? "/" + tqAll.length : "") + ")" : "";
+  ul.innerHTML = "";
+  if (!queue.length) { ul.innerHTML = '<li style="color:var(--muted)">' + (tqAll.length ? "aucun résultat avec ces filtres" : "rien à tester 🎉") + '</li>'; return; }
+  {
     for (const e of queue) {
       const li = document.createElement("li");
       li.style.cursor = "default";
@@ -1052,7 +1117,7 @@ async function loadTestQueue() {
       li.innerHTML = h;
       ul.appendChild(li);
     }
-  } catch (err) { ul.innerHTML = ""; cnt.textContent = ""; toast(err.message, true); }
+  }
 }
 async function tqDeploy(rm, btn) {
   const clone = window.confirm("Cloner la BDD pour cet env de test ?\nOK = clone dédié (" + rm + ") · Annuler = BDD partagée");

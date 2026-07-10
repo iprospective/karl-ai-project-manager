@@ -19,6 +19,9 @@ from pathlib import Path
 WORKSPACES = Path("/zfs/workspaces")
 PM_CORE = WORKSPACES / ".mmi-pm-core"
 HOOK_SRC = PM_CORE / "scripts" / "pm-post-commit.py"
+# pre-push anti-id-prédit (RM2224) : posé sur le repo racine ET les bares repos/*.git
+# (les branches de ticket partent des worktrees envs/, dont les hooks vivent au bare).
+PREPUSH_SRC = PM_CORE / "scripts" / "pm-pre-push"
 
 
 def git_dir(repo):
@@ -37,19 +40,26 @@ def install_one(repo, seen):
     if str(gd) in seen:
         return None                      # repo déjà traité (workspaces partageant un .git)
     seen.add(str(gd))
-    hook = gd / "hooks" / "post-commit"
-    hook.parent.mkdir(parents=True, exist_ok=True)
-    if hook.exists() and not hook.is_symlink():
-        return ("warn", f"{repo} : post-commit existant (non-symlink) → fusion manuelle")
-    try:
-        if hook.is_symlink() and hook.resolve() == HOOK_SRC.resolve():
-            return ("ok", f"{repo} : déjà installé")
-    except OSError:
-        pass
-    if hook.is_symlink() or hook.exists():
-        hook.unlink()
-    hook.symlink_to(HOOK_SRC)
-    return ("new", f"{repo} : installé")
+    results = []
+    for name, src in (("post-commit", HOOK_SRC), ("pre-push", PREPUSH_SRC)):
+        hook = gd / "hooks" / name
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        if hook.exists() and not hook.is_symlink():
+            results.append(("warn", f"{repo} : {name} existant (non-symlink) → fusion manuelle"))
+            continue
+        try:
+            if hook.is_symlink() and hook.resolve() == src.resolve():
+                results.append(("ok", f"{repo} : {name} déjà installé"))
+                continue
+        except OSError:
+            pass
+        if hook.is_symlink() or hook.exists():
+            hook.unlink()
+        hook.symlink_to(src)
+        results.append(("new", f"{repo} : {name} installé"))
+    worst = {"warn": 0, "new": 1, "ok": 2}
+    results.sort(key=lambda r: worst[r[0]])
+    return results[0] if len(results) == 1 else (results[0][0], " ; ".join(r[1] for r in results))
 
 
 def discover():
@@ -58,6 +68,9 @@ def discover():
     for pat in ("*/.mmi-pm", "*/*/.mmi-pm"):
         for p in WORKSPACES.glob(pat):
             repos.add(p.parent)
+            # bares du layout RM1993 : hooks partagés par tous les worktrees envs/
+            for bare in (p.parent / "repos").glob("*.git"):
+                repos.add(bare)
     repos.add(PM_CORE)
     return sorted(repos)
 

@@ -1348,10 +1348,15 @@ def op_resolve(rm_id: str) -> dict:
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         "description": _task_body(text)[:6000],
-        # Protocole de test (RM2229) : section « À tester » de la dernière note
-        # de livraison (log), sinon de la description — affiché en évidence
-        # dans la fiche de revue du cockpit.
-        "test_protocol": _test_protocol(tf, _task_body(text)),
+        # Protocole de test (RM2229) : champ canonique = frontmatter
+        # `test_protocol` (miroir du CF Redmine, rédigé au fil de l'eau via
+        # pm-task-protocol) ; repli : section « À tester » de la dernière note
+        # de livraison (log), sinon de la description.
+        "test_protocol": (
+            {"source": "cf", "heading": "Protocole de test",
+             "text": str(pick("test_protocol"))[:4000]}
+            if str(pick("test_protocol") or "").strip() not in ("", "None")
+            else _test_protocol(tf, _task_body(text))),
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",

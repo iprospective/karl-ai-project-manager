@@ -1155,7 +1155,7 @@ function renderReviewPane() {
     //   note de livraison — l'essentiel pour tester sans relire tout le ticket —
     if (r.test_protocol) {
       h += '<div class="ms"><h4>📋 Protocole de test <span style="color:var(--muted);font-weight:normal;font-size:12px">(' +
-        esc(r.test_protocol.source === "note" ? "note de livraison" : "description") + ')</span></h4>' +
+        esc(r.test_protocol.source === "cf" ? "champ Protocole de test" : r.test_protocol.source === "note" ? "note de livraison" : "description") + ')</span></h4>' +
         '<div style="white-space:pre-wrap;font-size:13.5px;line-height:1.5;background:rgba(127,127,127,.08);padding:10px 12px;border-radius:8px;max-height:340px;overflow:auto">' +
         esc(r.test_protocol.text) + '</div></div>';
     } else {

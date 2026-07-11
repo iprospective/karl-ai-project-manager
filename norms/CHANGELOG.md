@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.53.0] - 2026-07-11
+
+### Modifié — tripwire #13 étendu : AUCUN identifiant séquentiel prédit (RM2232)
+
+Après un 4e incident (merge de la MR !122 d'une autre session sur iid prédit),
+le tripwire #13 s'étend de « RM-id » à **tout identifiant séquentiel partagé**
+(RM-id, iid de MR GitLab…). Décision explicite Mathieu : la prédiction est
+**interdite** ; tout numéro se capture de la sortie d'un script. Outillage :
+`pm-mr create --porcelain` (iid nu) / `--merge` (create+merge atomique, l'iid
+ne transite pas par l'appelant) / `pm-mr merge --expect-rm <id>` (refuse une MR
+dont la branche source ne porte pas l'id attendu).
+
+---
+
 ## [1.52.0] - 2026-07-09
 
 ### Ajouté — tripwire #13 « jamais de RM-id prédit » + `pm-task-add --porcelain` (RM2170)

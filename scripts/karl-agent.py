@@ -1261,6 +1261,41 @@ def _log_tail(tf: Path, n: int = 18) -> str:
     return "\n".join(lines[-n:])
 
 
+_PROTO_HEAD_RE = re.compile(
+    r"(?im)^#{1,4}\s*(?:📋\s*)?(?:à tester|a tester|protocole de test|"
+    r"tests? à effectuer|quoi tester)\b.*$")
+
+
+def _test_protocol(tf: Path, body: str):
+    """Protocole de test du ticket (RM2229) : la DERNIÈRE section « À tester » /
+    « Protocole de test » trouvée dans le `.log.md` (notes de livraison — la
+    plus récente prime, une re-livraison remplace le protocole), sinon dans la
+    description. Renvoie {source, heading, text} ou None. Convention associée :
+    toute livraison en a_tester_* inclut une note avec un titre `## À tester`."""
+    logf = tf.with_name(tf.stem + ".log.md")
+    try:
+        log_text = logf.read_text(encoding="utf-8")
+    except OSError:
+        log_text = ""
+    for source, text in (("note", log_text), ("description", body or "")):
+        if not text:
+            continue
+        matches = list(_PROTO_HEAD_RE.finditer(text))
+        if not matches:
+            continue
+        m = matches[-1]
+        after = text[m.end():]
+        # coupe à la prochaine section `#`/`##` (nouvelle rubrique de la note
+        # ou entrée horodatée suivante du log)
+        stop = re.search(r"(?m)^#{1,2}\s", after)
+        section = (after[:stop.start()] if stop else after).strip()
+        if section:
+            return {"source": source,
+                    "heading": m.group(0).lstrip("# ").strip(),
+                    "text": section[:4000]}
+    return None
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -1313,6 +1348,10 @@ def op_resolve(rm_id: str) -> dict:
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         "description": _task_body(text)[:6000],
+        # Protocole de test (RM2229) : section « À tester » de la dernière note
+        # de livraison (log), sinon de la description — affiché en évidence
+        # dans la fiche de revue du cockpit.
+        "test_protocol": _test_protocol(tf, _task_body(text)),
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",

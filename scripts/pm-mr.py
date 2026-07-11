@@ -130,6 +130,11 @@ def integration_branch(repo_path):
 
 
 # ── Commandes ────────────────────────────────────────────────────────────────
+def cmd_merge(args, token):
+    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
+    merge_mr(pid, args.iid, token, squash=args.squash, expect_rm=args.expect_rm)
+
+
 def cmd_get(args, token):
     pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
     status, mr, raw = api("GET", f"/projects/{pid}/merge_requests/{args.iid}", token)
@@ -140,6 +145,10 @@ def cmd_get(args, token):
 
 
 def cmd_create(args, token):
+    global _REAL_STDOUT
+    _REAL_STDOUT = sys.stdout
+    if getattr(args, "porcelain", False):
+        sys.stdout = sys.stderr        # logs → stderr ; seul l'iid ira sur stdout
     repo = args.repo
     rpath = repo_path_from_remote(repo)
     pid, _ = resolve_project_id(token, rpath)
@@ -188,6 +197,8 @@ def cmd_create(args, token):
             sys.exit(f"ERREUR création MR (HTTP {st}) : {raw[:200]}")
         print(f"✓ MR !{mr['iid']} créée : {src} → {tgt}")
     print(f"  {mr['web_url']}")
+    if args.porcelain:
+        print(mr["iid"], file=_REAL_STDOUT, flush=True)
 
     # CF Redmine GIT Branche (3) + GIT PR (4) + statut optionnel
     try:
@@ -210,6 +221,11 @@ def cmd_create(args, token):
                         "--note", f"MR !{mr['iid']} ouverte vers {tgt} : {mr['web_url']}"],
                        check=False)
 
+
+    if getattr(args, "merge", False):
+        # Atomique (RM2232) : merge immédiat de LA MR créée — l'iid ne sort pas d'ici ;
+        # garde implicite : la branche source est celle du ticket par construction.
+        merge_mr(pid, mr["iid"], token, expect_rm=args.rm_id if src.startswith(f"{args.rm_id}-") else None)
 
 def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
     """Attend la fin du calcul de mergeabilité GitLab (async : `preparing` →
@@ -235,18 +251,26 @@ def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
              f"(dernier état : {last}).")
 
 
-def cmd_merge(args, token):
-    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
-    base = f"/projects/{pid}/merge_requests/{args.iid}"
+def merge_mr(pid, iid, token, squash=False, expect_rm=None):
+    """Merge le cœur d'une MR. `expect_rm` (RM2232, tripwire #13 étendu) : refuse
+    si la branche source de la MR n'est pas préfixée `<expect_rm>-` — un iid
+    prédit/erroné pointe presque toujours la MR d'une AUTRE session."""
+    base = f"/projects/{pid}/merge_requests/{iid}"
     st, mr, raw = api("GET", base, token)
     if st != 200 or not mr:
-        sys.exit(f"ERREUR : MR !{args.iid} introuvable (HTTP {st}).")
+        sys.exit(f"ERREUR : MR !{iid} introuvable (HTTP {st}).")
+    if expect_rm is not None and not str(mr.get("source_branch", "")).startswith(f"{expect_rm}-") \
+            and mr.get("source_branch") not in ("dev", "preprod"):
+        sys.exit(f"ERREUR : MR !{iid} porte la branche `{mr.get('source_branch')}` — pas celle "
+                 f"de RM{expect_rm}. Iid prédit/erroné (tripwire #13) ? Capture l'iid via "
+                 f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
     if mr["state"] == "merged":
-        print(f"↻ MR !{args.iid} déjà mergée ({mr['source_branch']} → {mr['target_branch']}).")
+        print(f"↻ MR !{iid} déjà mergée ({mr['source_branch']} → {mr['target_branch']}).")
         return
     if mr["state"] != "opened":
-        sys.exit(f"ERREUR : MR !{args.iid} en état '{mr['state']}' (pas 'opened').")
-    mr = wait_mergeable(base, args.iid, token)  # attend la fin du calcul async GitLab
+        sys.exit(f"ERREUR : MR !{iid} en état '{mr['state']}' (pas 'opened').")
+    args = type("A", (), {"iid": iid, "squash": squash})
+    mr = wait_mergeable(base, iid, token)  # attend la fin du calcul async GitLab
     fields = {"should_remove_source_branch": "false"}  # CONSERVE la branche (NORMS)
     if args.squash:
         fields["squash"] = "true"
@@ -278,11 +302,20 @@ def main():
     pc.add_argument("--description")
     pc.add_argument("--status", help="passe le ticket à ce statut (note auto)")
     pc.add_argument("--no-push", action="store_true")
+    pc.add_argument("--porcelain", action="store_true",
+                    help="n'imprime que l'iid nu de la MR sur stdout (logs sur stderr) — "
+                         "capture fiable, JAMAIS de prédiction d'iid (tripwire #13/RM2232)")
+    pc.add_argument("--merge", action="store_true",
+                    help="merge la MR créée dans la foulée (atomique : l'iid ne transite "
+                         "pas par l'appelant ; garde expect-rm implicite)")
 
     pm = sub.add_parser("merge", help="merge une MR (conserve la branche)")
     pm.add_argument("iid", type=int)
     pm.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
     pm.add_argument("--squash", action="store_true")
+    pm.add_argument("--expect-rm", type=int, default=None,
+                    help="refuse si la branche source de la MR n'est pas préfixée <id>- "
+                         "(protège d'un iid prédit/erroné — RM2232)")
 
     pg = sub.add_parser("get", help="état d'une MR")
     pg.add_argument("iid", type=int)

@@ -308,6 +308,11 @@
       <div id="pm-form"></div>
       <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
     </details>
+
+    <details class="card" id="setcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadSettings();}">
+      <summary>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></summary>
+      <div id="set-body" style="margin-top:8px"></div>
+    </details>
   </section>
 
   <section class="right">
@@ -972,6 +977,49 @@ function showCaptureModal(title, txt) {
   document.getElementById("doctitle").textContent = title + " — sélectionne puis Ctrl+C";
   document.getElementById("doccontent").textContent = txt;
   document.getElementById("docmodal").classList.add("show");
+}
+
+// ----- RM2213 : réglages contrôlés (whitelist serveur) -----
+async function loadSettings() {
+  const b = document.getElementById("set-body");
+  b.innerHTML = '<div style="color:var(--muted)">chargement…</div>';
+  try {
+    const { settings } = await api("/pm/settings");
+    b.innerHTML = "";
+    const groups = {};
+    settings.forEach(e => { (groups[e.group] = groups[e.group] || []).push(e); });
+    for (const g of Object.keys(groups)) {
+      const d = document.createElement("details");
+      if (g === "Conf PM") d.open = true;
+      d.innerHTML = '<summary style="cursor:pointer;font-size:11px;text-transform:uppercase;color:var(--muted);margin:6px 0">' + esc(g) + ' (' + groups[g].length + ')</summary>';
+      for (const e of groups[g]) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:8px;margin:5px 0";
+        if (e.type === "bool") {
+          row.innerHTML = '<input type="checkbox" style="width:auto"' + (e.value ? " checked" : "") + '>' +
+            '<span style="font-size:12px;flex:1">' + esc(e.label) + '</span>';
+          row.querySelector("input").onchange = ev => saveSetting(e, ev.target.checked, ev.target);
+        } else {
+          row.innerHTML = '<span style="font-size:12px;flex:1">' + esc(e.label) + '</span>' +
+            '<input type="number" step="0.01" value="' + (e.value != null ? e.value : "") + '" style="width:90px">' +
+            '<button class="mini">💾</button>';
+          row.querySelector("button").onclick = () => saveSetting(e, row.querySelector("input").value, row.querySelector("button"));
+        }
+        d.appendChild(row);
+      }
+      b.appendChild(d);
+    }
+  } catch (err) { b.innerHTML = ""; toast(err.message, true); }
+}
+async function saveSetting(e, value, el) {
+  if (!window.confirm("Modifier « " + e.label + " » → " + value + " ?")) { loadSettings(); return; }
+  el.disabled = true;
+  try {
+    await api("/pm/settings", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: e.key, value, confirm: true }) });
+    toast("✓ " + e.label + " → " + value);
+  } catch (err) { toast(err.message, true); }
+  finally { el.disabled = false; loadSettings(); }
 }
 
 // ----- RM2211 : menus/formulaires auto-générés depuis le command-catalog -----

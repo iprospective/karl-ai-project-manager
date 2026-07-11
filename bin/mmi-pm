@@ -99,6 +99,24 @@ cmd_core_update(){
     log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
     return
   fi
+  # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
+  #    SSH) → même avec le multiplexing RM2069, la connexion unique coûte
+  #    2 authentifications (hop + cible) = 2 passphrases sans agent. Un agent
+  #    temporaire + un ssh-add unique = UNE saisie. `-t 120` : l'identité
+  #    déchiffrée expire seule (filet si un chemin d'erreur saute le kill).
+  #    Agent root déjà garni ⇒ on ne touche à rien (zéro prompt).
+  local _agent_pid="" _agent_st=0
+  ssh-add -l >/dev/null 2>&1 || _agent_st=$?   # garde set -e : code capté, pas fatal
+  if [ "$_agent_st" -eq 1 ]; then          # agent joignable mais sans clé
+    ssh-add -t 120 >/dev/null || true      # une saisie ; échec ⇒ comportement d'avant
+  elif [ "$_agent_st" -gt 1 ]; then        # pas d'agent joignable
+    local _agent_env
+    if _agent_env="$(ssh-agent -s)"; then
+      eval "$_agent_env" >/dev/null
+      _agent_pid="${SSH_AGENT_PID:-}"
+      ssh-add -t 120 >/dev/null || true    # une saisie ; échec ⇒ comportement d'avant
+    fi
+  fi
   # ── Multiplexing SSH (RM2069) : fetch + pull(refetch) + submodules partagent UNE
   #    connexion SSH → UNE seule passphrase (root via sudo n'a pas d'agent ; remote =
   #    alias SSH gitlab:). Master fermé + temp nettoyé en sortie. ControlPersist = filet
@@ -112,6 +130,11 @@ cmd_core_update(){
   ssh -o ControlPath="${_cmdir}/cm-%C" -O exit "$_ghost" 2>/dev/null || true
   rm -rf "$_cmdir" 2>/dev/null || true
   unset GIT_SSH_COMMAND
+  # Fin de l'agent éphémère (RM2239) — uniquement s'il est à nous.
+  if [ -n "$_agent_pid" ]; then
+    ssh-agent -k >/dev/null 2>&1 || true
+    unset SSH_AUTH_SOCK SSH_AGENT_PID
+  fi
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
   # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.

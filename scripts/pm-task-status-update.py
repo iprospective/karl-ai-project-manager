@@ -503,6 +503,12 @@ def main():
     norms_status = args.status
     if args.status == "ferme" and args.close_reason:
         norms_status = f"ferme:{args.close_reason}"
+    # `--note -` = stdin, résolu ICI (RM2229) : avant, le tiret littéral
+    # partait au log local (seul redmine-post-note, qui hérite de stdin,
+    # lisait le contenu) → les notes de livraison étaient absentes du
+    # `.log.md`, donc invisibles de la fiche cockpit (protocole de test).
+    if args.note == "-":
+        args.note = sys.stdin.read().strip()
     note = args.note or f"Statut → {args.status}" + (f" ({args.close_reason})" if args.close_reason else "")
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la

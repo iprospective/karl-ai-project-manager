@@ -1118,6 +1118,11 @@ function renderReviewPane() {
       '</div>';
   } else if (q) {
     h += '<div style="color:var(--muted)">workspace hors layout repos/+envs/ — normaliser d\u2019abord (mmi-pm env migrate) pour déployer ici.</div>';
+  } else if (tqLoaded && r && r.found) {
+    // RM2238 : le ticket a quitté la file « à tester » (clôturé, renvoyé, statut changé).
+    // Sans ça, le panneau restait bloqué sur un « chargement… » trompeur qui ne se résout jamais.
+    h += '<div style="color:var(--muted)">Ce ticket n\u2019est plus dans la file de test (statut : <span class="pill">' + esc(r.status || "?") + '</span>) — clôturé ou renvoyé.</div>';
+    h += '<div class="rels"><button class="chip" onclick="closeReview(currentReview)">✖ fermer ce panneau</button></div>';
   } else {
     h += '<div style="color:var(--muted)">chargement de l\u2019état…</div>';
   }
@@ -1150,12 +1155,14 @@ async function pmRun(name, args, opts) {
   return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 let tqAll = [];   // file brute (le rendu applique filtres + tri, RM2210)
+let tqLoaded = false; // RM2238 : la file /pm/test-queue a-t-elle été chargée au moins une fois ?
 async function loadTestQueue() {
   const ul = document.getElementById("tq-list");
   ul.innerHTML = '<li style="color:var(--muted)">chargement…</li>';
   try {
     const { queue } = await api("/pm/test-queue");
     tqAll = queue;
+    tqLoaded = true;
     tqCache = {};
     queue.forEach(e => { tqCache[String(e.rm_id)] = e; });
     if (currentReview) renderReviewPane();

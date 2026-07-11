@@ -103,19 +103,45 @@ def repo_path_from_remote(repo, remote="origin"):
     return path.lstrip("/")
 
 
+def list_projects_paged(token):
+    """Énumération paginée de /projects (membership). Nécessaire car le `?search=`
+    GitLab a des FAUX NÉGATIFS silencieux (rate des projets existants — RM2219,
+    cf. knowledge/gitlab/api.md)."""
+    page, out = 1, []
+    while True:
+        st, data, raw = api("GET", f"/projects?membership=true&simple=true"
+                                   f"&per_page=100&page={page}", token)
+        if st != 200 or not isinstance(data, list):
+            sys.exit(f"ERREUR énumération projets (HTTP {st}) : {raw[:200]}")
+        out += data
+        if len(data) < 100:
+            return out
+        page += 1
+
+
 def resolve_project_id(token, repo_path):
+    """ID numérique par match EXACT de `path_with_namespace` — RM2219.
+
+    JAMAIS de match souple : les basenames sont partagés entre clients
+    (`infra-core` ×6, `*-core` généralisés RM1887) et l'ancien fallback
+    `p.path == seg` a créé une MR sur le repo d'un AUTRE client. 0 ou >1 match
+    exact = erreur explicite."""
     seg = repo_path.rstrip("/").split("/")[-1]
-    status, data, raw = api("GET", f"/projects?search={urllib.parse.quote(seg)}&per_page=50&membership=true", token)
-    if status != 200 or not isinstance(data, list):
-        sys.exit(f"ERREUR résolution projet (HTTP {status}) : {raw[:200]}")
-    for p in data:
-        if p.get("path_with_namespace") == repo_path:
-            return p["id"], p
-    # fallback : match souple sur la fin du chemin
-    for p in data:
-        if str(p.get("path_with_namespace", "")).endswith(repo_path) or p.get("path") == seg:
-            return p["id"], p
-    sys.exit(f"ERREUR : projet '{repo_path}' introuvable (search '{seg}').")
+    # 1) search (rapide) — accepté UNIQUEMENT sur match exact du path complet
+    st, data, _ = api("GET", f"/projects?search={urllib.parse.quote(seg)}"
+                             f"&per_page=100&membership=true", token)
+    cands = data if (st == 200 and isinstance(data, list)) else []
+    exact = [p for p in cands if p.get("path_with_namespace") == repo_path]
+    # 2) fallback fiable : énumération paginée complète (le search rate des projets)
+    if not exact:
+        cands = list_projects_paged(token)
+        exact = [p for p in cands if p.get("path_with_namespace") == repo_path]
+    if len(exact) == 1:
+        return exact[0]["id"], exact[0]
+    homonyms = sorted({p["path_with_namespace"] for p in cands if p.get("path") == seg})
+    sys.exit(f"ERREUR : projet '{repo_path}' — {len(exact)} match exact "
+             f"(attendu 1), pas de fallback basename (RM2219). "
+             f"Homonymes '{seg}' visibles : {', '.join(homonyms) or 'aucun'}.")
 
 
 def current_branch(repo):
@@ -131,16 +157,20 @@ def integration_branch(repo_path):
 
 # ── Commandes ────────────────────────────────────────────────────────────────
 def cmd_merge(args, token):
-    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
+    pid, proj = resolve_project_id(token, repo_path_from_remote(args.repo))
+    print(f"→ projet {proj['path_with_namespace']} (id {pid})")
     merge_mr(pid, args.iid, token, squash=args.squash, expect_rm=args.expect_rm)
 
 
 def cmd_get(args, token):
-    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
+    pid, proj = resolve_project_id(token, repo_path_from_remote(args.repo))
+    print(f"→ projet {proj['path_with_namespace']} (id {pid})")
     status, mr, raw = api("GET", f"/projects/{pid}/merge_requests/{args.iid}", token)
     if status != 200 or not mr:
         sys.exit(f"ERREUR get MR !{args.iid} (HTTP {status}) : {raw[:200]}")
-    print(f"MR !{mr['iid']} [{mr['state']}] {mr['source_branch']} → {mr['target_branch']}")
+    print(f"MR !{mr['iid']} [{mr['state']}] {mr['source_branch']} → {mr['target_branch']}"
+          f" | {mr.get('detailed_merge_status')}"
+          + (" | ⚠ sha:null (branche source absente)" if mr.get("sha") is None else ""))
     print(f"  {mr['web_url']}")
 
 
@@ -151,7 +181,8 @@ def cmd_create(args, token):
         sys.stdout = sys.stderr        # logs → stderr ; seul l'iid ira sur stdout
     repo = args.repo
     rpath = repo_path_from_remote(repo)
-    pid, _ = resolve_project_id(token, rpath)
+    pid, proj = resolve_project_id(token, rpath)
+    print(f"→ projet {proj['path_with_namespace']} (id {pid})")
     src = current_branch(repo)
     if src in ("HEAD", ""):
         sys.exit("ERREUR : HEAD détaché — pas de branche courante.")
@@ -200,6 +231,16 @@ def cmd_create(args, token):
     if args.porcelain:
         print(mr["iid"], file=_REAL_STDOUT, flush=True)
 
+    # Garde RM2219 : une MR saine référence le sha de sa branche source. `sha:null`
+    # = branche absente de CE projet ⇒ MR créée au mauvais endroit → rollback.
+    st, chk, _ = api("GET", f"/projects/{pid}/merge_requests/{mr['iid']}", token)
+    if chk and chk.get("sha") is None:
+        api("PUT", f"/projects/{pid}/merge_requests/{mr['iid']}", token,
+            fields={"state_event": "close"})
+        sys.exit(f"ERREUR : MR !{mr['iid']} sans sha — la branche `{src}` n'existe pas "
+                 f"sur {proj['path_with_namespace']} (mauvaise résolution de projet ?). "
+                 f"MR fermée (rollback).")
+
     # CF Redmine GIT Branche (3) + GIT PR (4) + statut optionnel
     try:
         import redmine_utils
@@ -210,7 +251,18 @@ def cmd_create(args, token):
                 cfs.append({"id": cid, "value": val})
         if cfs:
             redmine_utils.update_issue_fields(args.rm_id, custom_fields=cfs)
-            print(f"✓ CF Redmine posés (GIT Branche / GIT PR) sur #{args.rm_id}")
+            # RM2219 : Redmine ignore SILENCIEUSEMENT un CF non activé sur le
+            # tracker → relire et vérifier au lieu d'annoncer ✓ à l'aveugle.
+            issue = redmine_utils.fetch_issue(args.rm_id)
+            present = {c.get("id"): c.get("value")
+                       for c in issue.get("custom_fields", [])}
+            missing = [c["id"] for c in cfs if present.get(c["id"]) != c["value"]]
+            if missing:
+                print(f"  ⚠ CF Redmine NON écrits (ids {missing}) — CF absents du "
+                      f"tracker de #{args.rm_id} ? Poser le lien en note/manuel.",
+                      file=sys.stderr)
+            else:
+                print(f"✓ CF Redmine posés et vérifiés (GIT Branche / GIT PR) sur #{args.rm_id}")
     except Exception as e:
         print(f"  ⚠ CF Redmine non posés : {e}", file=sys.stderr)
 
@@ -243,7 +295,11 @@ def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
         if dms == "mergeable" or (dms is None and ms == "can_be_merged"):
             return mr
         if dms in ("conflict", "broken_status") or ms == "cannot_be_merged":
-            sys.exit(f"ERREUR : MR !{iid} non mergeable ({last}) — conflit à résoudre.")
+            hint = " — conflit à résoudre."
+            if mr.get("sha") is None:  # RM2219 : symptôme d'une MR au mauvais endroit
+                hint = (" — `sha:null` : la branche source n'existe pas sur ce projet "
+                        "(MR créée au mauvais endroit ? cf. RM2219).")
+            sys.exit(f"ERREUR : MR !{iid} non mergeable ({last}){hint}")
         # transitoire (preparing / checking / unchecked / ci_still_running…) → on patiente
         if i < attempts - 1:
             time.sleep(delay)

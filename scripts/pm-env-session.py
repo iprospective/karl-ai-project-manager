@@ -69,6 +69,8 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_session
+import pm_git
+import redmine_utils
 
 CORE = Path(__file__).resolve().parent.parent
 
@@ -148,6 +150,47 @@ def task_slug(ws: Path, rmid: int) -> str | None:
         if not f.name.endswith(".log.md"):
             return f.stem[len(f"RM{rmid}_"):]
     return None
+
+
+_FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
+
+
+def set_test_url(ws: Path, rmid: int, url, dry: bool):
+    """Écrit l'URL de test du ticket : frontmatter `test_url` + CF Redmine
+    « Environnement de test » (RM2229). `url=None` = teardown → on VIDE les
+    deux : une URL morte affichée est pire que rien (c'est le bug d'origine).
+    Best-effort — l'env est monté/démonté même si le ticket est introuvable."""
+    tf = next((f for f in (ws / ".mmi-pm" / "tasks").glob(f"RM{rmid}_*.md")
+               if not f.name.endswith(".log.md")), None)
+    if tf is None:
+        print(f"  · test_url non écrit (pas de tâche co-localisée RM{rmid})")
+        return
+    if dry:
+        print(f"  [dry] test_url ← {url!r} (frontmatter + CF Environnement de test)")
+        return
+    try:
+        content = tf.read_text(encoding="utf-8")
+        m = _FRONTMATTER_RE.match(content)
+        fm = yaml.safe_load(m.group(2)) or {}
+        fm["test_url"] = url
+        new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False,
+                                default_flow_style=False)
+        tf.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}",
+                      encoding="utf-8")
+        pm_git.autocommit([tf], f"pm(env): RM{rmid} test_url "
+                                + ("renseigné" if url else "vidé (teardown)"))
+        print(f"  ✓ test_url {'← ' + url if url else 'vidé'} (frontmatter)")
+    except Exception as e:  # noqa: BLE001 — best-effort
+        print(f"  ⚠ test_url frontmatter non écrit ({e})", file=sys.stderr)
+    try:
+        cid = redmine_utils.cf_id_by_name("Environnement de test")
+        if cid:
+            ok, err = redmine_utils.update_issue_fields(
+                rmid, custom_fields=[{"id": cid, "value": url or ""}])
+            print("  ✓ CF « Environnement de test » synchronisé" if ok
+                  else f"  ⚠ CF non poussé ({err})")
+    except Exception as e:  # noqa: BLE001 — hors-ligne etc.
+        print(f"  ⚠ CF Environnement de test non poussé ({e})", file=sys.stderr)
 
 
 def map_container_path(cfg: dict, host_path: Path) -> str:
@@ -362,6 +405,10 @@ def cmd_create(args):
                     f"post_create_container a échoué ({r.returncode}) : "
                     f"{step}\n{(r.stderr or r.stdout).strip()}")
 
+    # 6. test_url du ticket (RM2229) : frontmatter + CF « Environnement de
+    # test » — la file de recette (Redmine + cockpit) pointe l'env vivant.
+    set_test_url(ws, rmid, f"http://{env_name}.lxc/", dry)
+
     print(f"\n{'[dry-run] ' if dry else ''}✓ env de session prêt : "
           f"http://{env_name}.lxc/  (Host: {env_name}.lxc)")
 
@@ -406,8 +453,12 @@ def cmd_teardown(args):
 
     # 3. worktree (la branche <id>-<slug> N'EST JAMAIS supprimée — NORMS)
     if wt.is_dir():
-        if own and (wt / own).is_file() and not dry:
-            (wt / own).unlink()  # sinon git worktree remove refuse (untracked)
+        if docroot and not dry:
+            # artefacts posés par create (.user.ini, canari pm-env.txt) : à
+            # retirer, sinon git worktree remove refuse (untracked)
+            for rel in (f"{docroot}/.user.ini", f"{docroot}/pm-env.txt"):
+                f = wt / rel
+                f.is_file() and f.unlink()
         cmd = ["-C", str(bare), "worktree", "remove"]
         args.force and cmd.append("--force")
         print(f"  git worktree remove envs/{env_name}")
@@ -416,6 +467,11 @@ def cmd_teardown(args):
             pm_session.forget_worktree(str(wt))
     else:
         print("  · worktree déjà absent")
+
+    # 4. test_url du ticket (RM2229) : on VIDE frontmatter + CF — une URL
+    # morte affichée est exactement le bug d'origine.
+    set_test_url(ws, rmid, None, dry)
+
     print(f"\n{'[dry-run] ' if dry else ''}✓ teardown terminé "
           f"(branche {rmid}-* conservée)")
 

@@ -277,7 +277,10 @@ def cmd_create(args, token):
     if getattr(args, "merge", False):
         # Atomique (RM2232) : merge immédiat de LA MR créée — l'iid ne sort pas d'ici ;
         # garde implicite : la branche source est celle du ticket par construction.
-        merge_mr(pid, mr["iid"], token, expect_rm=args.rm_id if src.startswith(f"{args.rm_id}-") else None)
+        # Le merge exige la casquette MANAGER (branches protégées, RM1871) — pas
+        # le token worker du create.
+        merge_mr(pid, mr["iid"], token_for("manager"),
+                 expect_rm=args.rm_id if src.startswith(f"{args.rm_id}-") else None)
 
 def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
     """Attend la fin du calcul de mergeabilité GitLab (async : `preparing` →

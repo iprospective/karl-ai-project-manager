@@ -1688,10 +1688,14 @@ def _probe_env(host: str, env: str) -> tuple:
       1. GET /pm-env.txt == nom d'env — canari statique posé par
          pm-env-session dans le docroot : prouve « ce vhost sert CE worktree » ;
       2. GET / < 500 — l'appli elle-même répond.
+    Connexion sur 127.0.0.1 + en-tête Host (surchargable KARL_PROBE_ADDR) :
+    karl-agent tourne DANS le conteneur dev, où Apache est local et où les
+    noms `*.lxc` ne résolvent pas (dnsmasq est côté hôte).
     Timeout court : appelé en parallèle sur la file de test."""
     import http.client
+    addr = os.environ.get("KARL_PROBE_ADDR", "127.0.0.1")
     try:
-        c = http.client.HTTPConnection(host, 80, timeout=1.5)
+        c = http.client.HTTPConnection(addr, 80, timeout=1.5)
         c.request("GET", "/pm-env.txt", headers={"Host": host})
         r = c.getresponse()
         body = r.read(256).decode("utf-8", "replace").strip()

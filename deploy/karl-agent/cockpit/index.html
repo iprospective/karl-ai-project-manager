@@ -1188,7 +1188,8 @@ function renderReviewPane() {
   } else if (q && q.deployable) {
     h += '<div style="color:var(--muted);margin:4px 0 8px">aucun env monté pour ce ticket — déployer sa branche :</div>';
     h += '<div class="rels">' +
-      '<button class="chip" onclick="tqDeploy(\'' + esc(rm) + '\', this)">🚀 déployer (choix BDD)</button>' +
+      '<button class="chip" onclick="tqDeploy(\'' + esc(rm) + '\', this)">🚀 env dédié au ticket (choix BDD)</button>' +
+      '<button class="chip" onclick="tqDeployShared(\'' + esc(rm) + '\', this)">📤 env test PARTAGÉ du projet</button>' +
       '</div>';
   } else if (q) {
     h += '<div style="color:var(--muted)">workspace hors layout repos/+envs/ — normaliser d\u2019abord (mmi-pm env migrate) pour déployer ici.</div>';
@@ -1316,6 +1317,17 @@ async function tqTeardown(rm, btn) {
     if (!r.ok) showCaptureModal("Teardown RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }
   finally { loadTestQueue(); }
+}
+async function tqDeployShared(rm, btn) {
+  if (!window.confirm("Déployer la branche de RM" + rm + " dans l'env de test PARTAGÉ du projet ?\n" +
+      "(ressource commune — la branche qui y tourne sera remplacée ; refus automatique si travail non commité)")) return;
+  btn.disabled = true;
+  try {
+    const r = await pmRun("env-deploy", { action: "deploy", rm_id: String(rm) }, { confirm: true });
+    toast(r.ok ? "📤 branche déployée dans l'env partagé" : "Échec (rc=" + r.rc + ")", !r.ok);
+    showCaptureModal("Env partagé — RM" + rm, (r.stdout || "") + "\n" + (r.stderr || ""));
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
 }
 const _TQ_VERDICTS = {
   valider:  { status: "ferme", label: "Compte-rendu de validation", extra: { close_reason: "resolu" },

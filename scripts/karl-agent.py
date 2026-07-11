@@ -1737,6 +1737,17 @@ _PM_COMMANDS_DEFAULT = [
     # Console de test (RM2210) : déploiement/démontage de l'env de session d'un
     # ticket. Le workspace est résolu CÔTÉ SERVEUR depuis le ticket (spec
     # `server: workspace_of_rm`) — jamais un chemin fourni par le client.
+    {"name": "env-deploy", "label": "Déployer la branche du ticket dans l'env PARTAGÉ",
+     "category": "env", "script": "pm-env-deploy.py", "mutate": True, "confirm": True,
+     "timeout": 300, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["deploy", "restore"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "workspace", "server": "workspace_of_rm", "positional": True},
+         {"name": "env", "label": "Env partagé (défaut test)", "type": "text",
+          "flag": "--env", "max_len": 32},
+         {"name": "force", "label": "Forcer (worktree sale)", "type": "bool", "flag": "--force"},
+     ]},
     {"name": "env-session-create", "label": "Déployer la branche du ticket en env de test",
      "category": "env", "script": "pm-env-session.py", "mutate": True, "confirm": True,
      "timeout": 600, "args": [

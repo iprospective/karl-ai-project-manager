@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
 import pm_hierarchy
+from redmine_utils import api_ts_local
 
 try:
     import yaml
@@ -90,7 +91,7 @@ def fetch_issue(url, key, issue_id):
 
 
 def fmt_journal_md(j):
-    when = (j.get("created_on") or "").replace("Z", "")[:16]
+    when = api_ts_local(j.get("created_on"))
     lines = [f"## {when} — Redmine #{j['id']} — {j['user']['name']}",
              "Source : Redmine (sync via pm-task-sync)", ""]
     for d in (j.get("details") or []):
@@ -168,7 +169,7 @@ def diff_fields(fm, issue):
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
 
     # Updated timestamp (always refresh)
-    new_updated = (issue.get("updated_on") or "").replace("Z", "")[:16]
+    new_updated = api_ts_local(issue.get("updated_on"))
     if new_updated and fm.get("updated") != new_updated:
         diffs["updated"] = (fm.get("updated"), new_updated)
 

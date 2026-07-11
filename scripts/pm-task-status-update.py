@@ -80,12 +80,19 @@ def email_notifs_enabled():
 
     Interrupteur global des notifs mail — distinct du --no-mail par appel.
     """
-    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
-    try:
-        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return False
-    return bool((cfg.get("notifications") or {}).get("email_enabled", False))
+    root = Path(__file__).resolve().parent.parent
+    val = False
+    # pm.config.local.yml surcharge pm.config.yml (NORMS structure-reference) —
+    # permet le réglage via le cockpit (RM2213) sans toucher au fichier commenté.
+    for name in ("pm.config.yml", "pm.config.local.yml"):
+        try:
+            cfg = yaml.safe_load((root / name).read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        notif = cfg.get("notifications") or {}
+        if "email_enabled" in notif:
+            val = bool(notif["email_enabled"])
+    return val
 
 
 # Statuts NORMS acceptés (canoniques + alias dépréciés) — source unique

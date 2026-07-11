@@ -1809,6 +1809,147 @@ def op_test_queue(qs: dict) -> list:
     return out
 
 
+# ── Réglages contrôlés (RM2213) ──────────────────────────────────────────────
+# Whitelist déclarative de clés éditables depuis le cockpit. Deux cibles :
+#  - conf   → écrit dans pm.config.local.yml (surcharge gitignorée, NORMS) —
+#             le fichier canonique commenté n'est JAMAIS réécrit ;
+#  - tarifs → édition CIBLÉE de la ligne dans pm.pricing.yml (commentaires
+#             et structure intacts ; refus si la ligne n'existe pas).
+_PM_SETTINGS_CONF = [
+    {"key": "conf:notifications.email_enabled", "label": "Notifs mail à chaque changement de statut",
+     "group": "Conf PM", "type": "bool", "path": ["notifications", "email_enabled"]},
+    {"key": "conf:git.autocommit", "label": "Auto-commit des écritures PM",
+     "group": "Conf PM", "type": "bool", "path": ["git", "autocommit"]},
+    {"key": "conf:git.autopush", "label": "Auto-push après commit PM",
+     "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
+    {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
+     "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+]
+_PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
+                 "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
+
+
+def _pricing_file() -> Path:
+    return REPO_ROOT / "pm.pricing.yml"
+
+
+def _conf_merged() -> dict:
+    out = {}
+    for name in ("pm.config.yml", "pm.config.local.yml"):
+        try:
+            cfg = yaml_safe_load((REPO_ROOT / name).read_text(encoding="utf-8")) or {}
+        except OSError:
+            continue
+        for k, v in cfg.items():
+            if isinstance(v, dict) and isinstance(out.get(k), dict):
+                out[k].update(v)
+            else:
+                out[k] = v
+    return out
+
+
+def yaml_safe_load(text):
+    import yaml
+    return yaml.safe_load(text)
+
+
+def _pm_settings() -> list:
+    """Spec + valeurs courantes. Tarifs générés dynamiquement depuis le fichier."""
+    out = []
+    conf = _conf_merged()
+    for e in _PM_SETTINGS_CONF:
+        cur = conf
+        for part in e["path"]:
+            cur = cur.get(part) if isinstance(cur, dict) else None
+            if cur is None:
+                break
+        out.append({**e, "value": bool(cur)})
+    try:
+        pricing = yaml_safe_load(_pricing_file().read_text(encoding="utf-8")) or {}
+    except OSError:
+        pricing = {}
+    h = pricing.get("human_hourly_rate_eur")
+    out.append({"key": "pricing:human_hourly_rate_eur", "label": "Taux horaire humain (€)",
+                "group": "Tarifs", "type": "number", "min": 10, "max": 500, "value": h})
+    for model, fields in sorted((pricing.get("models") or {}).items()):
+        for f in _PRICE_FIELDS:
+            if isinstance(fields, dict) and f in fields:
+                out.append({"key": f"pricing:models.{model}.{f}",
+                            "label": f"{model} · {f.replace('_per_mtok_usd', '')} ($/MTok)",
+                            "group": "Tarifs modèles", "type": "number",
+                            "min": 0, "max": 1000, "value": fields[f]})
+    return out
+
+
+def op_pm_settings_set(payload: dict) -> dict:
+    key = str(payload.get("key") or "")
+    spec = next((e for e in _pm_settings() if e["key"] == key), None)
+    if not spec:
+        raise ApiError(400, f"clé inconnue/hors whitelist : {key!r}")
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    raw = payload.get("value")
+    if spec["type"] == "bool":
+        val = raw in (True, "1", "true", "on")
+    else:
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, f"{key} : nombre attendu")
+        if not (spec.get("min", 0) <= val <= spec.get("max", 1e9)):
+            raise ApiError(400, f"{key} : hors bornes [{spec.get('min')}..{spec.get('max')}]")
+
+    if key.startswith("conf:"):
+        import yaml
+        lp = REPO_ROOT / "pm.config.local.yml"
+        try:
+            local = yaml_safe_load(lp.read_text(encoding="utf-8")) or {}
+        except OSError:
+            local = {}
+        cur = local
+        for part in spec["path"][:-1]:
+            cur = cur.setdefault(part, {})
+        cur[spec["path"][-1]] = val
+        lp.write_text("# Surcharge locale (gitignorée) — clés posées via le cockpit (RM2213).\n"
+                      + yaml.safe_dump(local, allow_unicode=True, sort_keys=False),
+                      encoding="utf-8")
+    else:  # pricing: édition ciblée de la ligne existante
+        pf = _pricing_file()
+        text = pf.read_text(encoding="utf-8")
+        if key == "pricing:human_hourly_rate_eur":
+            pat = re.compile(r"^(human_hourly_rate_eur:\s*)[0-9.]+\s*$", re.M)
+        else:
+            m = re.match(r"pricing:models\.(.+)\.([a-z_]+)$", key)
+            model, field = m.group(1), m.group(2)
+            block = re.search(rf"^  {re.escape(model)}:\n((?:    .*\n)+)", text, re.M)
+            if not block:
+                raise ApiError(400, f"modèle {model} introuvable dans pm.pricing.yml")
+            pat = re.compile(rf"^(    {re.escape(field)}:\s*)[0-9.]+\s*$", re.M)
+            seg = block.group(0)
+            if not pat.search(seg):
+                raise ApiError(400, f"champ {field} introuvable pour {model}")
+            new_seg = pat.sub(lambda mm: f"{mm.group(1)}{val:.2f}", seg, count=1)
+            pf.write_text(text.replace(seg, new_seg, 1), encoding="utf-8")
+            _journal_setting(key, val)
+            return {"key": key, "value": val, "ok": True}
+        if not pat.search(text):
+            raise ApiError(400, "ligne human_hourly_rate_eur introuvable")
+        pf.write_text(pat.sub(lambda mm: f"{mm.group(1)}{val:g}", text, count=1), encoding="utf-8")
+    _journal_setting(key, val)
+    return {"key": key, "value": val, "ok": True}
+
+
+def _journal_setting(key, val):
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "name": "settings", "args": {"key": key, "value": val},
+                                "rc": 0}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+
+
 def _pm_commands() -> list:
     f = COCKPIT_DIR / "pm-commands.json"
     if f.is_file():
@@ -2130,6 +2271,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, _registry_view())
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
+            if path == "/pm/settings":
+                return self._send_json(200, {"settings": _pm_settings()})
             if path == "/pm/test-queue":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"queue": op_test_queue(qs)})
@@ -2189,6 +2332,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/pm/settings":
+                return self._send_json(200, op_pm_settings_set(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

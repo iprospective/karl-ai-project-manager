@@ -39,6 +39,25 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
 
+### Idiomes fréquents (évite de relancer `--help` à chaque session)
+
+- **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,
+  `redmine-post-note <id> --note -`, `pm-task-add --description -` (ou
+  `--description-file <path>`), `pm-task-description-update <id> --set-from-file <path>`.
+  Passer par stdin/fichier plutôt qu'un argument quoté évite AUSSI la protection
+  Bash « newline + `#` » de Claude Code (validation à répétition sur les arguments
+  multi-lignes contenant un dièse).
+- **Transitions valides depuis le statut courant** : `pm-task-status-update <id> --list-next`
+  (au lieu de deviner le flow d'états).
+- **Auto-assignation** : `en_cours` auto-assigne au porteur (`--assign-to me` implicite) ;
+  `--assign-to <id|me|author>` pour forcer, `--no-assign` pour débrayer.
+- **Détection de projet** : si la détection cwd échoue ou est ambiguë,
+  `--project entity/project` explicite (`pm-task-add`, `pm-task-list`, …).
+- **Répétition sans risque** : `--dry-run` sur `pm-task-add`, `pm-task-status-update`,
+  `pm-task-sync` — voir le diff avant d'écrire.
+- **Script lancé depuis un worktree sans `.env`** : préfixer
+  `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
 ### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
 
 La séquence des ids Redmine est **globale à l'instance** : plusieurs agents et

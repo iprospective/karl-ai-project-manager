@@ -5,6 +5,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.54.0] - 2026-07-12
+
+### Ajouté — session-tooling : sous-section « Idiomes fréquents » (RM1996)
+
+Le module `session-tooling` listait les outils canoniques mais pas leurs idiomes
+d'usage, forçant les agents à relancer `--help` à chaque session. Ajout des
+idiomes constatés en séance : contenu long via stdin (`--note -`,
+`--description -`/`--description-file`, `--set-from-file` — évite aussi la
+protection Bash « newline + `#` »), `--list-next` (transitions valides),
+auto-assignation (`en_cours` ⇒ `--assign-to me` implicite), `--project` explicite
+quand la détection cwd échoue, `--dry-run`, et `PM_CORE_DIR=` pour un script
+lancé depuis un worktree sans `.env`.
+
+---
+
 ## [1.53.0] - 2026-07-11
 
 ### Modifié — tripwire #13 étendu : AUCUN identifiant séquentiel prédit (RM2232)

@@ -538,6 +538,21 @@ def main():
                 f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
                 f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
             )
+    # Protocole de test (RM2229) — WARNING non bloquant : une livraison en
+    # vérification sans protocole rédigé (frontmatter test_protocol, miroir du
+    # CF « Protocole de test ») prive le testeur du « quoi tester ». Rédaction
+    # au fil de l'eau : pm-task-protocol.py <id> --set/--append.
+    if gate_status:
+        try:
+            _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
+                md_path.read_text(encoding="utf-8")).group(2)) or {}
+            if str(_fm_now.get("test_protocol") or "").strip() in ("", "None"):
+                print(f"  ⚠ pas de protocole de test sur RM{args.rm_id} — le testeur n'a "
+                      f"pas de « quoi tester ».\n"
+                      f"    → pm-task-protocol.py {args.rm_id} --set -   (ou --append -)",
+                      file=sys.stderr)
+        except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
 
     # Résolution de l'assignation Redmine.
     #

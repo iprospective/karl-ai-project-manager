@@ -17,6 +17,10 @@
 removed: []
 
 rewritten:
+  - reason: "RM2229 (v1.53.0) : test_url tenu automatiquement par pm-env-session (create écrit, teardown vide) — la parenthèse de surcharge est étendue dans le module environments"
+    old: |
+      (sauf si `test_url` est explicitement surchargé).
+
   - reason: "RM2170 (v1.52.0) : pm-task-add gagne --porcelain (id nu) — la ligne d'outillage « créer » est enrichie de l'option dans le module session-tooling"
     old: |
       | Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |

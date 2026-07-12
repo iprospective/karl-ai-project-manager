@@ -5,6 +5,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.55.0] - 2026-07-12
+
+### Ajouté — garde-fous « bon worktree » (RM2240)
+
+En multi-tickets parallèle (`pm-branch-start --worktree`), l'agent éditait
+régulièrement dans le mauvais worktree (le `cd` n'est jamais forcé). Livré :
+`pm-branch-start` termine par la ligne `→ cd <worktree>` (+ `--print-cd` =
+chemin nu pour `cd "$(…)"`) ; nouveau `pm-task-cd.py` (résout `git.worktree`
+du frontmatter) ; hook **pre-commit** (pm-pre-commit, posé par
+pm-hooks-install) qui REFUSE un commit de ticket hors de son worktree
+enregistré, refuse une branche `<id>-…` sans ticket local (tripwire #13, avant
+même le push) et avertit sur un commit d'intégration quand la session a des
+worktrees de ticket actifs ; règle worker-common « se placer dans le bon
+worktree » + ligne de couverture session-tooling.
+
+---
+
 ## [1.54.0] - 2026-07-12
 
 ### Ajouté — session-tooling : sous-section « Idiomes fréquents » (RM1996)

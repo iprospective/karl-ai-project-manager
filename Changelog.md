@@ -5,6 +5,106 @@ Pour les évolutions du schéma des tâches, voir [norms/CHANGELOG.md](norms/CHA
 
 Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
+> Ce fichier consigne les **jalons système** (architecture, outillage, surface
+> d'usage). Le détail vit dans les tickets `pm-ai-agents` ; les évolutions des
+> normes dans `norms/CHANGELOG.md` (versionnées indépendamment, cf. `norms/VERSION`).
+
+---
+
+## [1.12.0] - 2026-07-12 — Cockpit web complet + boucle de recette
+
+### Cockpit karl (web-UI, `karl.iprospective.fr`)
+- **Backend de sessions** `karl-agent` (RM1771) : superviseur tmux d'agents
+  (spawn/send/kill/capture), reprise de session (RM1939), nommage ticket ou slug
+  (RM2144), unit systemd **user** dans le conteneur dev.
+- **Front v0 → v0.1** : lanceur + attach navigateur (RM1873), ergonomie de
+  supervision — prompts, chips skills, moniteurs multi-panes (RM1893), onglets
+  groupés par projet + badge d'attention (RM2140), encart session en direct
+  (branches/worktrees du registre pm_session, RM2166) restructuré multi-tickets
+  (RM2173), copier/coller fiable ttyd (RM2168), choix moteur/modèle (RM1921,
+  RM1941). Auth user/mdp + exposition publique (RM2139, spike RM1803).
+- **Command-catalog déclaratif** (chapeau RM2203) : `GET /pm/commands` +
+  runner générique allowlisté `POST /pm/run` (RM2209), menus/formulaires
+  auto-générés (RM2211), menu Nouveau projet/client (RM2212), menu Réglages —
+  édition contrôlée de pm.config/pm.pricing (RM2213).
+- **Console de test / revue** (RM2210) : file `a_tester_*` enchaînable en
+  onglets 🧪, déploiement d'env de session (choix clone BDD), verdicts
+  valider/MEP/renvoyer ; déploiement vers l'env de test PARTAGÉ (`pm-env-deploy`,
+  RM2218) ; **sonde de vivacité** des envs (canari `pm-env.txt`), fiche ticket
+  riche avec **protocole de test** en évidence (RM2229).
+
+### Boucle de recette outillée (RM2229)
+- CF Redmine 30 « **Protocole de test** » (texte long) + miroir frontmatter
+  `test_protocol`, outil `pm-task-protocol` (--set/--append, rédaction **au fil
+  de l'eau**), garde-fou à la livraison ; `pm-env-session` tient `test_url`
+  (frontmatter + CF 14) : create écrit, teardown vide ; étapes `post_create`
+  déclaratives du manifeste (vendor, assets… — create = « réparer »).
+  NORMS v1.53.0.
+
+### Fiabilité outillage
+- Fin de la prédiction d'ids : tripwire NORMS + `pm-task-add --porcelain`
+  (RM2170), gardes `pm-mr` branche≠id + verbe atomique (RM2224), anti-prédiction
+  d'iid de MR (RM2232), résolution de projet par path complet — fin de la fuite
+  inter-clients (RM2219) ; `redmine-post-note` diagnostique les relations
+  bloquantes au lieu de conclure « permissions » (RM2222) ;
+  `pm-workspace-coloc` : alias PM_CLIENTS (RM2216) ; `pm-task-add` description
+  multi-ligne (RM2003) ; `pm-project-new` crée le volet PM co-localisé (RM2228).
+
+## [1.11.0] - 2026-07-08 — Privsep, instances, métriques
+
+### Privilèges séparés & instances
+- Code du core **root-owned** verrouillé par `core-lock` (RM2032), périmètre
+  `var/` préservé aux updates (RM2056), migration `docs/` + refactor scripts
+  (étape 0, RM2043) ; installeur complet d'instance `install-mmi-pm` + alias
+  `mmi-pm` sur le PATH (RM2062) ; multiplexing SSH du `core update` — une
+  connexion au lieu de N (RM2069).
+- Outils de recâblage : `pm-gitlab-rename` (RM1983), `pm-session-relocate`
+  (RM1989), remotes re-câblés après promotion des groupes GitLab (RM1992) ;
+  détection projet via cwd dans les workspaces co-localisés (RM2095, RM2120).
+
+### Métriques temps/tokens → Redmine
+- Push des métriques par ticket : estimation + delta par commit (RM1806,
+  réconcilié RM1825), reporting v2 split input/output idempotent (RM2048),
+  auto-report post-commit / fin de session / clôture (RM2035), cron de
+  rattrapage (RM2160), fix du sous-comptage du hook Stop (RM2161), tarifs
+  Fable 5 / Opus 4.x dans `pm.pricing.yml` (RM2163/RM2164), ROI assisté
+  (RM1717) ; garde anti-tick sur ticket fermé (RM2053).
+- **Budget de contexte par rôle** : mesure + plafonds enforcés par le doctor
+  (RM1943).
+
+## [1.10.0] - 2026-06-29 — Discipline git & envs de session
+
+- **Workflow 3 branches** dev → preprod → prod (RM2030), interdiction du commit
+  direct sur branche protégée (NORMS RM2051) enforcée côté GitLab par
+  `pm-protect` (RM2052) ; `pm-mr` — push + MR + CF + merge fiable avec poll de
+  mergeabilité (RM1871, RM2055) ; `pm-branch-start` — branche par ticket +
+  en_cours (RM1897).
+- **Layout workspaces repos/+envs/** : migration des workspaces pré-norme
+  (`pm-env-migrate`, RM2028, skill RM2159), ids de session courts + worktrees
+  suivis (RM2034) ; **envs de session par ticket** `pm-env-session` (RM1834,
+  hooks auto sur en_cours/ferme).
+- Rotation auto des tokens GitLab à J-7 + vérif début de session
+  (`pm-token-check`, RM2046) ; worklog de session auto-alimenté par hooks +
+  statut live (RM2068) ; `norms/VERSION` + `pm-norms-changes` (RM2033) ;
+  `pm-task-blockers` — diagnostic des transitions refusées (RM2066).
+
+## [1.9.0] - 2026-06-12 — Gouvernance NORMS & rôles Redmine
+
+- **NORMS factorisé** : KERNEL runtime (déclencheurs + tripwires) + modules à la
+  demande + assemblage `pm-norms-assemble` / garde `pm-norms-doctor` (RM1922) ;
+  skills `mmi-pm-*` migrés dans le repo et distribués cross-instance (RM1868) ;
+  ledger de non-perte réconcilié (RM2070).
+- **Rôles & attribution Redmine** : statut terminal unique « Fermé » + CF Raison
+  (RM1742), Manager IA formalisé + cascade projet (RM1734), demandeur effectif
+  via author (RM1735, migration RM1739), passe agent-testeur conditionnelle
+  `requires_agent_test` (RM1879), statut d'entrée `nouveau` (RM1829), couplage
+  statut+assignation (RM1752).
+- Outillage : `pm-task-link` (RM1709), `pm-task-edit-desc` (RM1794),
+  `redmine-config-check` (RM1807), stats PM (RM1865), `pm-wiki-sync` P1
+  (RM1841), bot Telegram karl — spawn + injection conversationnelle
+  (RM1775/RM1776), symlink workspace unifié `.mmi-pm` (RM1750), filtrage CF
+  « IA » (RM1716).
+
 ---
 
 ## [1.8.0] - 2026-05-15

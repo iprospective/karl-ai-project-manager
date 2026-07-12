@@ -7,7 +7,7 @@
 #   D4 — dispatcher mince : route vers les `pm-*.py` existants quand pertinent.
 # Self-locating : l'outil est la racine `bin/..` ; charge `.env` (PROJECTS_PATH, KARL_USER).
 #
-# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|client|project|list|doctor)
+# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|env|hooks|norms|client|project|list|doctor)
 
 set -euo pipefail
 shopt -s nullglob
@@ -39,6 +39,10 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
+                                     (post-commit, pre-push, pre-commit ;
+                                     --repo <path> pour un seul repo ;
+                                     pm-hooks-install.py)
   mmi-pm norms version               version NORMS courante (norms/VERSION)      [lecture]
   mmi-pm norms changes [args…]       delta NORMS entre versions                  [lecture]
                                      (--check <v> | --since <v> | --between A B ;
@@ -212,6 +216,16 @@ cmd_list(){
 
 cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
 
+# `hooks install` (RM2240) : pose les git-hooks PM (post-commit RM2035, pre-push
+# RM2224, pre-commit RM2240) sur les repos PM + bares repos/*.git. Non privilégié
+# (symlinks .git/hooks en KARL_USER ; le core privsep est signalé en warn).
+cmd_hooks(){
+  case "${1:-}" in
+    install) shift; exec python3 "$CORE_DIR/scripts/pm-hooks-install.py" "$@";;
+    *) die "hooks: verbe inconnu '${1:-}' (install)";;
+  esac
+}
+
 # `norms version|changes` (RM2033) : lecture seule, version NORMS + delta de versions.
 cmd_norms(){
   case "${1:-}" in
@@ -262,6 +276,7 @@ case "$NOUN" in
            *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
          esac;;
   env)    shift||true; cmd_env "$@";;
+  hooks)  shift||true; cmd_hooks "$@";;
   norms)  shift||true; cmd_norms "$@";;
   list)   cmd_list;;
   doctor) shift||true; cmd_doctor "$@";;

@@ -2593,6 +2593,24 @@ les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour crée
 qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
 qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
 
+## Docs vivantes du repo PM (`Changelog.md` + `README.md`)
+
+Le repo PM se documente **au fil des livraisons**, pas en rattrapages (RM2250 :
+deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
+
+- **`Changelog.md` (système)** : toute livraison qui change la **surface du
+  système** — nouvel outil/skill, nouveau flux (statuts, envs, cockpit), changement
+  de comportement d'un outil existant — ajoute sa ligne à l'entrée jalon courante
+  (ou en ouvre une) **dans la même MR** que le code. Niveau de détail : le **jalon
+  et son pourquoi** avec RM-ids, pas le commit-par-commit (le détail vit dans les
+  tickets ; les normes dans `norms/CHANGELOG.md`).
+- **`README.md`** : à retoucher quand l'installation, la structure du repo ou les
+  points d'entrée changent. **Jamais de valeur qui rouille** (numéro de version,
+  compte d'outils…) : pointer les sources vivantes (`norms/VERSION`, `scripts/`).
+- Ces mises à jour font partie de la **livraison** (même esprit que le CHANGELOG
+  projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
+  sans sa ligne de Changelog.
+
 ## Versionning des normes
 
 | Type | Exemple | Règle |

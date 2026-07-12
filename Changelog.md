@@ -13,6 +13,11 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [1.12.0] - 2026-07-12 — Cockpit web complet + boucle de recette
 
+### Gouvernance documentaire
+- Règle « **docs vivantes du repo PM** » (module governance, NORMS v1.54.0) :
+  `Changelog.md` alimenté **dans la même MR** que toute livraison qui change la
+  surface du système ; README sans valeurs qui rouillent (RM2250).
+
 ### Cockpit karl (web-UI, `karl.iprospective.fr`)
 - **Backend de sessions** `karl-agent` (RM1771) : superviseur tmux d'agents
   (spawn/send/kill/capture), reprise de session (RM1939), nommage ticket ou slug

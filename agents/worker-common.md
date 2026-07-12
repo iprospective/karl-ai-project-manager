@@ -56,6 +56,26 @@ Respecter le `context_budget` du frontmatter.
 - Si oui → appender dans .log.md : "Prise en charge — {résumé du plan de travail}"
 ```
 
+## Se placer dans le BON worktree (RM2240)
+
+Avant **toute édition ou commit** pour RM<id> : résoudre `git.worktree` du
+frontmatter et **s'y placer** — un sous-processus (`pm-branch-start`) ne change
+pas le cwd du shell, c'est à toi de faire le `cd` :
+
+```bash
+cd "$(pm-task-cd.py <id>)"        # résout git.worktree du frontmatter
+# ou, à la création :
+cd "$(pm-branch-start.py <id> --take --worktree --print-cd)"
+```
+
+`pm-branch-start --worktree` termine sa sortie par la ligne `→ cd <chemin>` :
+**exécute-la**. Le hook pre-commit (pm-pre-commit, RM2240) refuse un commit de
+ticket fait ailleurs que dans son worktree enregistré — si ça t'arrive, c'est
+que tu as édité au mauvais endroit : rapatrie tes modifs, ne contourne pas.
+Attention aussi au piège inverse : lancer `pm-branch-start --worktree` **depuis
+le worktree d'un autre ticket** base la nouvelle branche dessus — se placer
+d'abord dans l'env d'intégration (`envs/<repo>-dev`).
+
 ## Travail itératif
 
 À chaque étape significative :

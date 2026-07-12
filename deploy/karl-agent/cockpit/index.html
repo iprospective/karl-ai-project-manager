@@ -1306,7 +1306,7 @@ async function tqDeploy(rm, btn) {
     if (r.ok) { toast("Env de test RM" + rm + " déployé"); showCaptureModal("Déploiement RM" + rm, r.stdout); }
     else { toast("Échec déploiement (rc=" + r.rc + ")", true); showCaptureModal("Déploiement RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || "")); }
   } catch (e) { toast(e.message, true); }
-  finally { loadTestQueue(); }
+  finally { ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 async function tqTeardown(rm, btn) {
   if (!window.confirm("Démonter l'env de test de RM" + rm + " ? (branche et BDD partagée conservées)")) return;
@@ -1316,7 +1316,7 @@ async function tqTeardown(rm, btn) {
     toast(r.ok ? "Env RM" + rm + " démonté" : "Échec démontage (rc=" + r.rc + ")", !r.ok);
     if (!r.ok) showCaptureModal("Teardown RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }
-  finally { loadTestQueue(); }
+  finally { ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 async function tqDeployShared(rm, btn) {
   if (!window.confirm("Déployer la branche de RM" + rm + " dans l'env de test PARTAGÉ du projet ?\n" +
@@ -1356,7 +1356,10 @@ async function tqVerdict(rm, kind, btn) {
     toast(r.ok ? "RM" + rm + " → " + v.status : "Échec (rc=" + r.rc + ")", !r.ok);
     if (!r.ok) showCaptureModal("Verdict RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }
-  finally { loadTestQueue(); }
+  // Re-résout le ticket (statut/test_url changés côté serveur) puis recharge la
+  // file : sans ça, la fiche re-rendue relit le resolveCache périmé (RM2229,
+  // retour de recette : « Valider » laissait a_tester_demandeur affiché).
+  finally { ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 
 // ----- §2 : chips d'actions en un clic (catalogue serveur CFG.actions) -----

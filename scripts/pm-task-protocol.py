@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import redmine_utils
 
 try:
     import yaml
@@ -41,8 +42,14 @@ FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
 def cf_id():
+    # Priorité : override .env, sinon redmine.reference.yml (CF 30, RM2229).
     v = os.environ.get("REDMINE_CF_TEST_PROTOCOL_ID", "").strip()
-    return int(v) if v.isdigit() else None
+    if v.isdigit():
+        return int(v)
+    try:
+        return redmine_utils.cf_id_by_name("Protocole de test")
+    except Exception:  # noqa: BLE001 — référence absente : miroir seul
+        return None
 
 
 def push_cf(rm_id: int, text: str) -> bool:

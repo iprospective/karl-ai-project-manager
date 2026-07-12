@@ -899,6 +899,16 @@ développement → test → mise en production*.
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
 
+**Livraison en vérification — protocole de test + URL de test (RM2229).** Le
+**protocole de test** (CF Redmine « Protocole de test », miroir frontmatter
+`test_protocol`) se rédige **au fil de l'eau**, à chaque étape d'avancement du dev —
+pas rétroactivement à la livraison : `pm-task-protocol <id> --set -/--append -`.
+Au passage en `a_tester_dev`/`a_tester_demandeur`/`a_mep` : protocole non vide
+(le garde-fou de `pm-task-status-update` avertit) et **`test_url` renseigné** —
+automatique si l'env de session existe (`pm-env-session create` écrit frontmatter
++ CF « Environnement de test » ; le teardown les vide), sinon manuel. Le testeur
+doit savoir **quoi tester et où** sans relire tout le ticket (fiche de revue cockpit).
+
 **Précondition de fermeture — sous-tâches.** Un ticket qui possède des
 **sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
 elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
@@ -2300,7 +2310,10 @@ sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
 
 **Lien avec les tâches** : le frontmatter de tâche peut référencer un env via
 `target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
-(sauf si `test_url` est explicitement surchargé).
+(sauf si `test_url` est explicitement surchargé). Pour les **envs de session par
+ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create`
+écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
+`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont

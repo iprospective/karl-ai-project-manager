@@ -47,6 +47,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   NORMS v1.53.0.
 
 ### Fiabilité outillage
+- **Garde de périmètre projet** sur les 5 outils PM mutants (RM2274) : refus
+  d'écrire sur un ticket d'un autre projet si l'id n'a jamais été vu dans la
+  session (empreinte d'un id prédit, tripwire #13) ; `--cross-project` pour
+  l'assumer. Complète les gardes code (RM2224/RM2240) côté écritures Redmine/MD.
 - Fin de la prédiction d'ids : tripwire NORMS + `pm-task-add --porcelain`
   (RM2170), gardes `pm-mr` branche≠id + verbe atomique (RM2224), anti-prédiction
   d'iid de MR (RM2232), résolution de projet par path complet — fin de la fuite

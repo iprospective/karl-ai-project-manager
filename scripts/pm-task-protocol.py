@@ -31,6 +31,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_scope
 import redmine_utils
 
 try:
@@ -84,12 +85,15 @@ def main():
     g.add_argument("--set", dest="set_", metavar="TXT", help="Remplace le protocole ('-' = stdin)")
     g.add_argument("--append", metavar="TXT", help="Ajoute un bloc à la suite ('-' = stdin)")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
+    ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     args = ap.parse_args()
 
     cfg = PMConfig.load()
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : aucun fichier RM{args.rm_id}_*.md")
+    if args.set_ is not None or args.append is not None:
+        pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-protocol")
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if not m:

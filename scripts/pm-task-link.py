@@ -183,6 +183,10 @@ def autocommit_tasks(args, md_paths, message):
 # ── Sous-commandes ──────────────────────────────────────────────────────────
 
 def cmd_add(args, cfg):
+    import pm_scope
+    cross = getattr(args, 'cross_project', False)
+    for rid in (args.from_id, args.to_id):
+        pm_scope.assert_task_scope(rid, cfg.find_task(rid), cross, 'pm-task-link')
     if args.from_id == args.to_id:
         sys.exit("ERREUR : impossible de lier un ticket à lui-même")
     if args.type not in PM_TYPES:
@@ -424,6 +428,7 @@ def main():
     s_add.add_argument("from_id", type=int)
     s_add.add_argument("to_id", type=int)
     s_add.add_argument("--type", default="relates", choices=PM_TYPES)
+    s_add.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
 
     s_parent = sub.add_parser("parent", help="Poser / déplacer / retirer le parent d'un ticket")
     s_parent.add_argument("child_id", type=int)

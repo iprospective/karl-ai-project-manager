@@ -428,6 +428,11 @@ référence humaine.
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
 
+> **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
+> `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
+> autre projet que le workspace courant si l'id n'a jamais été vu dans la session —
+> l'empreinte d'un id prédit (tripwire #13). Écriture cross-projet voulue : `--cross-project`.
+
 ## Outillage obligatoire en session PM — v1.35.0
 
 En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute

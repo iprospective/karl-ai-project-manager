@@ -39,6 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git  # auto-commit scopé des écritures (RM2095)
+import pm_scope
 
 try:
     import yaml
@@ -145,12 +146,16 @@ def main():
     ap.add_argument("--set-from-file", help="Remplace toute la description par le contenu du fichier")
     ap.add_argument("--note", help="Texte de note additionnel (en plus de la note auto)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--cross-project", action="store_true",
+                    help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     args = ap.parse_args()
 
     cfg = PMConfig.load()  # charge aussi .env
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
+    if not args.dry_run:
+        pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-description-update")
 
     issue = fetch_issue(args.rm_id)
     desc = issue.get("description") or ""

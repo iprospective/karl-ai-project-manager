@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_scope
 import redmine_utils
 
 try:
@@ -411,6 +412,7 @@ def main():
                          "(+ celles que le compte API peut réellement poser côté Redmine)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
+    ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
                     help="Assigner à un user Redmine : <id> | 'me' (owner API key = karl) | "
@@ -465,6 +467,7 @@ def main():
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
+    pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-status-update")
 
     # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
     # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les

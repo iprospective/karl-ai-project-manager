@@ -144,6 +144,19 @@ cmd_core_update(){
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.
   [ -x "$CORE_DIR/scripts/core-lock" ] || die "scripts/core-lock absent/inexécutable"
   "$CORE_DIR/scripts/core-lock" lock "$CORE_DIR"
+  # Hooks PM du core lui-même (RM2240) : son .git/hooks est root-owned → seule la
+  # couche privilégiée peut les poser (pm-hooks-install les ignore avec un warn).
+  local _hkdir="$CORE_DIR/.git/hooks" _pair _name _src
+  mkdir -p "$_hkdir"
+  for _pair in "post-commit=pm-post-commit.py" "pre-push=pm-pre-push" "pre-commit=pm-pre-commit.py"; do
+    _name="${_pair%%=*}"; _src="$CORE_DIR/scripts/${_pair#*=}"
+    [ -f "$_src" ] || continue
+    if [ -e "$_hkdir/$_name" ] && [ ! -L "$_hkdir/$_name" ]; then
+      log "hook $_name du core : fichier existant non-symlink → fusion manuelle"; continue
+    fi
+    ln -sfn "$_src" "$_hkdir/$_name"
+  done
+  log "hooks PM du core posés/rafraîchis (post-commit, pre-push, pre-commit)"
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }

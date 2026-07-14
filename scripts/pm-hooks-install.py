@@ -64,12 +64,14 @@ def install_one(repo, seen):
                 hook.unlink()
             hook.symlink_to(src)
         except OSError as e:
-            # repo privsep (ex. .mmi-pm-core : .git root-owned) → à poser par la
-            # couche privilégiée (mmi-pm core update), pas bloquant ici.
-            results.append(("warn", f"{repo} : {name} non posé ({e.strerror}) — couche privilégiée requise"))
+            # repo privsep (ex. .mmi-pm-core : .git root-owned) → posé par la
+            # couche privilégiée (sudo mmi-pm core update), pas bloquant ici.
+            # Compté « ignoré », pas « à fusionner » (rien à fusionner à la main).
+            results.append(("skip", f"{repo} : {name} non posé ({e.strerror}) — "
+                                    f"privsep, posé par `sudo mmi-pm core update`"))
             continue
         results.append(("new", f"{repo} : {name} installé"))
-    worst = {"warn": 0, "new": 1, "ok": 2}
+    worst = {"warn": 0, "skip": 1, "new": 2, "ok": 3}
     results.sort(key=lambda r: worst[r[0]])
     return results[0] if len(results) == 1 else (results[0][0], " ; ".join(r[1] for r in results))
 

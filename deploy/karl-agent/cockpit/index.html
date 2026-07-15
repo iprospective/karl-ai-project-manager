@@ -30,8 +30,25 @@
   .dot.ko { background: var(--danger); box-shadow: 0 0 6px var(--danger); }
   header { flex: none; }
   main { display: grid; grid-template-columns: 380px 1fr; gap: 0; flex: 1; min-height: 0; }
-  .left { border-right: 1px solid var(--line); overflow-y: auto; padding: 16px; background: var(--panel);
-    min-height: 0; overscroll-behavior: contain; }
+  .left { border-right: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
+  .lbody { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; overscroll-behavior: contain; }
+  .lpanel { display: none; }
+  .lpanel.active { display: block; }
+  .lnav { display: flex; flex-wrap: wrap; gap: 4px; padding: 8px 10px; flex: none;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  .lnav button { display: flex; align-items: center; gap: 5px; padding: 4px 9px; font-size: 12px;
+    border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+  .lnav button:hover { color: var(--fg); border-color: var(--line); }
+  .lnav button.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
+  .nbadge { font-size: 10px; font-family: var(--mono); padding: 1px 5px; border-radius: 8px;
+    background: var(--panel2); border: 1px solid var(--line); color: var(--fg); line-height: 1.4; }
+  .nbadge.att { color: #fff; background: var(--danger); border-color: var(--danger);
+    animation: kblink 1s ease-in-out infinite; }
+  /* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */
+  .hcnt { display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: var(--mono); }
+  .hcnt .pill.att { color: var(--danger); border-color: var(--danger); animation: kblink 1s ease-in-out infinite; }
   .right { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
     margin: 0 0 10px; font-weight: 600; }
@@ -90,31 +107,36 @@
   .results .r-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
   .resolved.nf { color: var(--warn); }
-  .tabbar { display: flex; align-items: stretch; gap: 8px; background: var(--panel);
+  .tabbar { display: flex; align-items: center; gap: 8px; background: var(--panel);
     border-bottom: 1px solid var(--line); padding: 0 10px; min-height: 38px; }
-  .tabs { display: flex; align-items: flex-end; gap: 4px; overflow-x: auto; flex: 1; }
-  .tab { display: flex; align-items: center; gap: 7px; padding: 0 8px 0 11px; cursor: pointer;
-    border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0; height: 30px;
-    background: var(--panel2); color: var(--muted); font-size: 13px; white-space: nowrap; }
-  .tab:hover { color: var(--fg); }
-  .tab.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
-  .tab .tdot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex: none; }
-  .tab.att .tdot, .tab.active .tdot { background: var(--ok); }
-  /* RM2140 : groupes par projet + état heuristique (intérim RM1874) */
-  .tabgroup { display: flex; align-items: flex-end; gap: 4px; }
-  .tabgroup + .tabgroup { margin-left: 10px; padding-left: 10px; border-left: 1px solid var(--line); }
-  .tabgroup .glabel { font-size: 10px; color: var(--muted); text-transform: uppercase;
-    letter-spacing: .5px; align-self: center; margin-right: 2px; white-space: nowrap;
-    max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
-  .tab.st-working .tdot { background: var(--ok); }
-  .tab.st-idle .tdot { background: var(--warn); }
-  .tab.st-attention .tdot { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
-  .tab .tbadge { font-size: 11px; line-height: 1; }
+  /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+  .curtitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+    font-size: 13px; white-space: nowrap; overflow: hidden; }
+  .curtitle .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); }
+  .curtitle .ttitle { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+  /* état heuristique des sessions (RM2140, intérim RM1874) */
+  .tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; display: inline-block; }
+  .tdot.st-working { background: var(--ok); }
+  .tdot.st-idle { background: var(--warn); }
+  .tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
   @keyframes kblink { 50% { opacity: .25; } }
-  .tab .tid { font-family: var(--mono); }
-  .tab .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; }
-  .tab .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
+  /* RM2283 : panneau « en cours » — sessions groupées par projet */
+  .rgroup { margin-bottom: 16px; }
+  .rghead { display: flex; align-items: baseline; gap: 6px; cursor: pointer; margin-bottom: 6px;
+    font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+  .rghead:hover { color: var(--fg); }
+  .rghead .gcnt { font-family: var(--mono); }
+  .runitem { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+    border-radius: 7px; margin-bottom: 6px; background: var(--panel2); cursor: pointer; }
+  .runitem:hover { border-color: var(--accent); }
+  .runitem.active { border-color: var(--accent); background: var(--bg); }
+  .runitem .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); flex: none; }
+  .runitem .rmeta { color: var(--muted); font-size: 11.5px; flex: 1; min-width: 0;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tbadge { font-size: 11px; line-height: 1; flex: none; }
+  .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; flex: none; }
+  .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
   .tabactions { display: flex; align-items: center; gap: 6px; }
   .termwrap { flex: 1; display: flex; min-height: 0; }
   /* RM1893 §2 — chips d'actions en un clic sous le terminal */
@@ -165,19 +187,29 @@
   <span class="dot" id="health"></span>
   <h1>Cockpit karl-agent</h1>
   <span class="sub" id="healthtxt">connexion…</span>
+  <span class="hcnt" id="hcnt" title="Sessions ouvertes · attention · repos — clic : panneau « en cours »" onclick="switchPanel('running')"></span>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
 
 <main>
   <section class="left">
-    <div class="card" id="tokencard" style="display:none">
-      <h2>Authentification</h2>
-      <label for="token">X-Karl-Token</label>
-      <input id="token" type="password" placeholder="token partagé">
-      <button class="mini" style="margin-top:8px" onclick="saveToken()">Mémoriser</button>
+    <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
+    <nav class="lnav">
+      <button data-panel="running" onclick="switchPanel('running')">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
+      <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets</button>
+      <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
+      <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
+      <button data-panel="pm" onclick="switchPanel('pm')">⚙ commandes pm</button>
+      <button data-panel="settings" onclick="switchPanel('settings')">🔧 réglages</button>
+    </nav>
+    <div class="lbody">
+
+    <div class="lpanel" id="lp-running">
+      <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
 
+    <div class="lpanel" id="lp-tickets">
     <div class="card">
       <h2>Rechercher un ticket</h2>
       <div class="searchrow">
@@ -209,7 +241,9 @@
       <textarea id="nt-desc" placeholder="Détails…"></textarea>
       <button class="primary" id="nt-btn" onclick="createTicket()">Créer le ticket</button>
     </details>
+    </div>
 
+    <div class="lpanel" id="lp-sessions">
     <div class="card">
       <h2>Lancer une session</h2>
       <label for="rm">Ticket (RM id)</label>
@@ -239,8 +273,8 @@
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
 
-    <details class="card" id="rescard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadResumable();}">
-      <summary>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></summary>
+    <div class="card" id="rescard">
+      <h2>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></h2>
       <div class="row2">
         <div>
           <label for="rs-project">Projet</label>
@@ -262,10 +296,12 @@
       </select>
       <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
       <ul class="results" id="rs-list"></ul>
-    </details>
+    </div>
+    </div>
 
-    <details class="card" id="tqcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadTestQueue();}">
-      <summary>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></summary>
+    <div class="lpanel" id="lp-test">
+    <div class="card" id="tqcard">
+      <h2>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></h2>
       <div class="row2" style="margin-top:8px">
         <div>
           <label for="tq-project">Projet</label>
@@ -300,24 +336,37 @@
       </div>
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
-    </details>
+    </div>
+    </div>
 
-    <details class="card" id="pmcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadPmCommands();}">
-      <summary>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span></summary>
+    <div class="lpanel" id="lp-pm">
+    <div class="card" id="pmcard">
+      <h2>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span></h2>
       <div id="pm-menu" style="margin-top:8px"></div>
       <div id="pm-form"></div>
       <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
-    </details>
+    </div>
+    </div>
 
-    <details class="card" id="setcard" ontoggle="if(this.open&&!this._loaded){this._loaded=1;loadSettings();}">
-      <summary>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></summary>
+    <div class="lpanel" id="lp-settings">
+    <div class="card" id="tokencard" style="display:none">
+      <h2>Authentification</h2>
+      <label for="token">X-Karl-Token</label>
+      <input id="token" type="password" placeholder="token partagé">
+      <button class="mini" style="margin-top:8px" onclick="saveToken()">Mémoriser</button>
+    </div>
+    <div class="card" id="setcard">
+      <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
       <div id="set-body" style="margin-top:8px"></div>
-    </details>
+    </div>
+    </div>
+
+    </div><!-- /.lbody -->
   </section>
 
   <section class="right">
     <div class="tabbar">
-      <div class="tabs" id="tabs"><span class="notabs" id="notabs">Aucune session — lances-en une à gauche</span></div>
+      <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
@@ -335,8 +384,8 @@
     <div class="termwrap">
       <div class="termarea">
         <div class="placeholder" id="placeholder">
-          Lance une session à gauche, ou clique un <b style="margin:0 4px">onglet</b> ci-dessus<br>
-          pour ouvrir son terminal ici (reprise de main : tu peux taper directement).
+          Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
+          ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
         </div>
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
@@ -412,9 +461,51 @@ async function refreshHealth() {
     el.className = "dot ko"; tx.textContent = "injoignable — " + e.message;
   }
 }
+// RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
+// persisté (localStorage) ; les panneaux à contenu serveur chargent à la
+// première activation (remplace les <details ontoggle> d'avant).
+const PANEL_LOADERS = { sessions: () => loadResumable(), test: () => loadTestQueue(), pm: () => loadPmCommands(), settings: () => loadSettings() };
+const _panelLoaded = {};
+function switchPanel(name) {
+  if (!document.getElementById("lp-" + name)) name = "running";
+  document.querySelectorAll(".lnav button").forEach(b => b.classList.toggle("active", b.dataset.panel === name));
+  document.querySelectorAll(".lpanel").forEach(p => p.classList.toggle("active", p.id === "lp-" + name));
+  try { localStorage.setItem("karlPanel", name); } catch (e) { /* mode privé */ }
+  if (PANEL_LOADERS[name] && !_panelLoaded[name]) { _panelLoaded[name] = 1; PANEL_LOADERS[name](); }
+}
+
+// >>> computeGroups — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2140/RM2283 : groupe les sessions par client/projet (source : /sessions
+// enrichi RM1939 ; fallback /resolve ; « divers » pour les non PM-trackés),
+// compte les états, et trie les groupes : attention d'abord, puis activité
+// récente, puis alphabétique.
+function computeGroups(sessions, rcache) {
+  const groups = new Map();
+  const counts = { total: sessions.length, attention: 0, idle: 0, working: 0 };
+  for (const s of sessions) {
+    let key = (s.client && s.project) ? s.client + "/" + s.project : null;
+    if (!key) {
+      const r = rcache[s.rm_id];
+      key = (r && r.found) ? r.client + "/" + r.project : "divers";
+    }
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(s);
+    if (s.state === "attention") counts.attention++;
+    else if (s.state === "idle") counts.idle++;
+    else counts.working++;
+  }
+  const att = g => g.some(s => s.state === "attention") ? 1 : 0;
+  const rec = g => Math.max(0, ...g.map(s => s.created || 0));
+  const keys = [...groups.keys()].sort((a, b) =>
+    att(groups.get(b)) - att(groups.get(a)) ||
+    rec(groups.get(b)) - rec(groups.get(a)) ||
+    a.localeCompare(b));
+  return { keys, groups, counts };
+}
+// <<< computeGroups
+
 async function refreshSessions() {
-  const tabs = document.getElementById("tabs");
-  const notabs = document.getElementById("notabs");
+  const list = document.getElementById("runlist");
   try {
     const { sessions } = await api("/sessions");
     sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
@@ -422,76 +513,97 @@ async function refreshSessions() {
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
     // si la session affichée a disparu (kill externe) → on détache la vue
     if (attached && !sessions.some(s => s.rm_id === attached)) detach();
-    tabs.querySelectorAll(".tabgroup").forEach(e => e.remove());
-    notabs.style.display = sessions.length ? "none" : "";
-    // RM2140 : onglets groupés par client/projet (source : /sessions enrichi
-    // RM1939 ; fallback /resolve pour les sessions sans jonction ; « divers »
-    // pour les tickets non PM-trackés).
-    const groups = new Map();
-    for (const s of sessions) {
-      // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
+    // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
+    for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
-      let key = (s.client && s.project) ? s.client + "/" + s.project : null;
-      if (!key) {
-        const r = resolveCache[s.rm_id];
-        key = (r && r.found) ? r.client + "/" + r.project : "divers";
-      }
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(s);
-    }
-    let nAttention = 0;
+    const { keys, groups, counts } = computeGroups(sessions, resolveCache);
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
-    for (const key of [...groups.keys()].sort()) {
-      groupsCache[key] = groups.get(key);
+    list.innerHTML = "";
+    if (!sessions.length && !reviewTabs.length)
+      list.innerHTML = '<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>';
+    for (const key of keys) {
+      const sess = groups.get(key);
+      groupsCache[key] = sess;
       const g = document.createElement("div");
-      g.className = "tabgroup";
-      const gl = document.createElement("span");
-      gl.className = "glabel"; gl.textContent = key;
-      gl.title = key + "\n(clic : infos client/projet)";
-      gl.style.cursor = "pointer";
-      gl.onclick = () => showProject(key);
-      g.appendChild(gl);
-      for (const s of groups.get(key)) {
-        if (s.state === "attention") nAttention++;
-        const tab = document.createElement("div");
-        tab.className = "tab st-" + (s.state || "idle") +
-          (attached === s.rm_id ? " active" : "") + (s.attached ? " att" : "");
-        tab.title = tabTip(s);
+      g.className = "rgroup";
+      const head = document.createElement("div");
+      head.className = "rghead";
+      const gAtt = sess.filter(s => s.state === "attention").length;
+      head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
+        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') + '</span>';
+      head.title = key + "\n(clic : infos client/projet)";
+      head.onclick = () => showProject(key);
+      g.appendChild(head);
+      for (const s of sess) {
+        const r = resolveCache[s.rm_id];
+        const it = document.createElement("div");
+        it.className = "runitem" + (attached === s.rm_id ? " active" : "");
+        it.title = tabTip(s);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
           : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
-        tab.innerHTML = '<span class="tdot"></span><span class="tid">' +
+        const title = r && r.found ? (r.title || "") : "";
+        it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
+          '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + '<span class="tkill" title="Fermer la session">✕</span>';
-        tab.onclick = () => attach(s.rm_id);
-        tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
-        g.appendChild(tab);
+        it.onclick = () => attach(s.rm_id);
+        it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
+        g.appendChild(it);
       }
-      tabs.appendChild(g);
+      list.appendChild(g);
     }
-    // RM2210 : onglets de revue « à tester » (pas des sessions tmux)
+    // RM2210 : revues « à tester » ouvertes (pas des sessions tmux)
     if (reviewTabs.length) {
       const g = document.createElement("div");
-      g.className = "tabgroup";
-      const gl = document.createElement("span");
-      gl.className = "glabel"; gl.textContent = "🧪 à tester";
-      g.appendChild(gl);
+      g.className = "rgroup";
+      g.innerHTML = '<div class="rghead"><span>🧪 revues ouvertes</span><span class="gcnt">' + reviewTabs.length + '</span></div>';
       for (const rm of reviewTabs) {
-        const tab = document.createElement("div");
-        tab.className = "tab" + (currentReview === rm && !attached ? " active" : "");
         const r = resolveCache[rm];
-        tab.title = "Revue RM" + rm + (r && r.found ? " — " + (r.title || "") : "");
-        tab.innerHTML = '<span class="tdot" style="background:var(--warn)"></span>' +
+        const it = document.createElement("div");
+        it.className = "runitem" + (currentReview === rm && !attached ? " active" : "");
+        it.title = "Revue RM" + rm + (r && r.found ? " — " + (r.title || "") : "");
+        it.innerHTML = '<span class="tdot" style="background:var(--warn)"></span>' +
           '<span class="tid">RM' + esc(rm) + '</span>' +
+          '<span class="rmeta">' + esc(r && r.found ? (r.title || "") : "") + '</span>' +
           '<span class="tkill" title="Fermer la revue">✕</span>';
-        tab.onclick = () => openReview(rm);
-        tab.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); closeReview(rm); };
-        g.appendChild(tab);
+        it.onclick = () => openReview(rm);
+        it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); closeReview(rm); };
+        g.appendChild(it);
       }
-      tabs.appendChild(g);
+      list.appendChild(g);
     }
+    // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
+    document.getElementById("hcnt").innerHTML =
+      '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
+      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="requièrent ton attention">⚠ ' + counts.attention + '</span>' +
+      '<span class="pill" title="au repos">💤 ' + counts.idle + '</span>';
+    const nc = document.getElementById("ln-count");
+    nc.textContent = counts.total; nc.style.display = counts.total ? "" : "none";
+    const na = document.getElementById("ln-att");
+    na.textContent = "⚠" + counts.attention; na.style.display = counts.attention ? "" : "none";
     // titre navigateur : signale d'un coup d'œil les sessions qui attendent
-    document.title = (nAttention ? "⚠" + nAttention + " " : "") + "Cockpit karl-agent";
+    document.title = (counts.attention ? "⚠" + counts.attention + " " : "") + "Cockpit karl-agent";
+    renderCurTitle();
   } catch (e) { /* health affiche déjà l'erreur de connexion */ }
+}
+
+// RM2283 : la vue courante (session attachée ou revue) s'affiche dans la barre
+// du terminal — les onglets horizontaux ont migré dans le panneau « en cours ».
+function renderCurTitle() {
+  const el = document.getElementById("curtitle");
+  if (attached) {
+    const s = sessCache[attached] || {}, r = resolveCache[attached];
+    el.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
+      (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
+      '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : tmuxName(attached)) + '</span>' +
+      (s.state === "attention" ? '<span class="tbadge">⚠</span>' : "");
+  } else if (currentReview) {
+    const r = resolveCache[currentReview];
+    el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
+      '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : "") + '</span>';
+  } else {
+    el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
+  }
 }
 
 // ----- §1 : résolution rm_id → client/projet/cwd/prompt -----
@@ -575,6 +687,7 @@ async function search() {
       li.onclick = () => {
         document.getElementById("rm").value = t.rm_id;
         resolveRm();
+        switchPanel("sessions");   // RM2283 : le lanceur vit dans le panneau « sessions »
         document.getElementById("rm").scrollIntoView({ block: "nearest", behavior: "smooth" });
       };
       ul.appendChild(li);
@@ -752,7 +865,7 @@ function showTicket(id) {
   ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
   if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
 }
-function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); attachIfRunning(id); }
+function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); switchPanel("sessions"); attachIfRunning(id); }
 // Tickets traités par la session attachée : ancrage + RM-ids déduits du registre.
 function sessionTickets() {
   if (!attached) return [];
@@ -922,7 +1035,9 @@ function attach(rmId) {
     refreshWorkspace(metaTicket);
   }
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
-  refreshSessions();   // re-rend les onglets pour marquer l'actif
+  switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
+  renderCurTitle();
+  refreshSessions();   // re-rend la liste pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
 function detach() {
@@ -936,6 +1051,7 @@ function detach() {
   document.getElementById("metapanel").classList.add("collapsed");
   document.getElementById("metabody").innerHTML = "";
   document.getElementById("chipsrow").style.display = "none";
+  renderCurTitle();
 }
 
 // ----- RM2168 : copier depuis le terminal vers le presse-papier système -----
@@ -1120,10 +1236,10 @@ function openReview(rm) {
   document.getElementById("placeholder").style.display = "none";
   document.getElementById("reviewpane").style.display = "block";
   document.getElementById("metapanel").classList.remove("collapsed");
-  renderReviewPane(); renderMeta();
-  ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); } });
+  renderReviewPane(); renderMeta(); renderCurTitle();
+  ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
-  refreshSessions();                     // re-rend les onglets (actif)
+  refreshSessions();                     // re-rend la liste « en cours » (actif)
 }
 function closeReview(rm) {
   rm = String(rm);
@@ -1134,6 +1250,7 @@ function closeReview(rm) {
     document.getElementById("placeholder").style.display = "flex";
     document.getElementById("metabody").innerHTML = "";
   }
+  renderCurTitle();
   refreshSessions();
 }
 function renderReviewPane() {
@@ -1495,6 +1612,9 @@ async function kill(rmId) {
   rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
   document.getElementById("search").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
   loadProjects();
+  // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
+  switchPanel((CFG.auth_required && !token()) ? "settings"
+    : (localStorage.getItem("karlPanel") || "running"));
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

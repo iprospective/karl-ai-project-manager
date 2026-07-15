@@ -109,7 +109,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
 
 # ── Config (env, avec chargement .env léger pour rester stdlib-only) ──────────
@@ -1501,13 +1501,21 @@ def op_workspace_status(rm_id: str) -> dict:
 
 def op_file(relpath: str) -> str:
     """Sert un fichier .md sous projects/ (lecture seule, anti-évasion) — pour
-    afficher les docs projet (CDC, overview…) dans le panneau du cockpit."""
+    afficher les docs projet (CDC, overview…) dans le panneau du cockpit.
+
+    RM2303 : garde LEXICALE sur le chemin demandé (absolu, segments «..», hors
+    projects/), sans résoudre les symlinks de la cible — le tree projects/
+    contient des liens légitimes vers les dossiers PM des workspaces (projets
+    relocalisés, pm-sync-links) que l'ancien resolve() faisait rejeter en 403.
+    Les symlinks sont posés par le provisioning serveur, jamais par le client :
+    l'évasion à bloquer est celle de l'URL, pas celle du tree."""
     if not relpath:
         raise ApiError(400, "path requis")
-    target = (REPO_ROOT / relpath).resolve()
-    base = (REPO_ROOT / "projects").resolve()
-    if not (target == base or base in target.parents):
+    parts = PurePosixPath(relpath).parts
+    if (PurePosixPath(relpath).is_absolute() or ".." in parts
+            or not parts or parts[0] != "projects"):
         raise ApiError(403, "chemin hors de projects/")
+    target = REPO_ROOT / relpath
     if target.suffix != ".md" or not target.is_file():
         raise ApiError(404, "fichier .md introuvable")
     try:

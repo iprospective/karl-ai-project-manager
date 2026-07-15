@@ -35,6 +35,35 @@ sa synchronisation :
 - marquer toute représentation **générée** comme telle (bandeau « ne pas éditer ici »)
   pour ne pas recréer un drift à deux sources.
 
+### Format du livrable — portable et versionné
+
+Avant de se demander *comment* on synchronise une source canonique, il faut se
+demander **dans quoi elle vit**. La réponse est invariante :
+
+**Tout livrable documentaire — audit, CDC, spec, roadmap, rapport — est du markdown
+dans le repo git du projet.** C'est la source canonique : diffable, revue en MR,
+versionnée, lisible par n'importe qui.
+
+**Interdit : un livrable dont la source vit dans un outil propriétaire à un
+fournisseur de LLM** (Artifact, canvas, doc hébergé côté vendor…) ou dans tout format
+qu'un autre agent, outil ou humain ne peut pas reprendre. Le système PM est
+**fédéré et multi-agents** : un livrable qui n'existe que dans le contexte d'un
+fournisseur est un livrable perdu dès qu'on change d'agent — et une source hors git,
+donc sans diff, sans revue, sans historique.
+
+> **Critère de décision** — *« un autre LLM, demain, sans mon outillage, peut-il
+> lire, éditer et versionner ce livrable ? »* Si la réponse est non, le format est
+> mauvais, quelle que soit sa qualité de rendu.
+
+Les représentations hébergées (Wiki Redmine, description projet…) restent ce qu'elles
+sont partout ailleurs dans ce module : des **miroirs générés** depuis git (via
+`pm-wiki-sync`), jamais la source. Le rendu joli est un miroir ; le markdown est le
+livrable.
+
+Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils sont
+utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
+comme source. Le cycle reste : markdown en repo → commit → miroir généré.
+
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 
 Il ne remplace pas, il **chapeaute** — le détail vit dans les modules dédiés :

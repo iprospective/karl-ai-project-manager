@@ -621,6 +621,39 @@ def op_send(payload: dict) -> dict:
     return {"rm_id": rm_id, "sent": True}
 
 
+def op_approve(payload: dict) -> dict:
+    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non
+    (menu numéroté claude ou prompt y/n). Re-capture le pane au moment de
+    l'appel et refuse (409) si aucune question n'est visible — l'état a pu
+    changer entre l'affichage UI et le clic. Chaque réponse envoyée est
+    journalisée dans answers.jsonl (socle historique Q/R — RM2305)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    name = _session_name(rm_id)
+    rc, out, err = _tmux("capture-pane", "-p", "-t", name)
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    tail = "\n".join(out.rstrip().splitlines()[-15:])
+    answer = _approve_answer(tail)
+    if answer is None:
+        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
+    rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", answer)
+    if rc != 0:
+        raise ApiError(500, f"send-keys a échoué : {err.strip()}")
+    if answer == "y":
+        _tmux("send-keys", "-t", name, "Enter")
+    try:  # journal best-effort, ne bloque jamais la réponse
+        ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ANSWERS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
+                                "sent": answer, "question": tail},
+                               ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return {"rm_id": rm_id, "approved": True, "sent": answer}
+
+
 def op_buffer() -> str:
     """Dernier buffer tmux (RM2168) — reçoit les copies OSC52 faites dans les
     sessions (set-clipboard on, posé au spawn). Les buffers sont globaux au
@@ -990,6 +1023,20 @@ def op_resume(payload: dict) -> dict:
 #   idle      : invite au repos (tour fini, ou en attente d'une consigne).
 _ATTENTION_MARKERS = ("Do you want", "Would you like", "(y/n)", "❯ 1.", "│ 1. Yes")
 _WORKING_MARKERS = ("esc to interrupt", "ctrl+b to run in background", "Compacting")
+# RM2302 : marqueurs d'un menu numéroté (dialogue TUI claude — la touche chiffre
+# sélectionne et valide seule, sans Enter), sous-ensemble des marqueurs attention.
+_YES_MENU_MARKERS = ("❯ 1.", "│ 1. Yes")
+
+
+def _approve_answer(tail: str) -> str | None:
+    """RM2302 : réponse affirmative à envoyer au pane qui pose une question.
+    "1" = menu numéroté (envoyer le chiffre seul) ; "y" = prompt texte y/n
+    (Enter requis derrière) ; None = pas de question visible dans le tail."""
+    if any(m in tail for m in _YES_MENU_MARKERS):
+        return "1"
+    if any(m in tail for m in _ATTENTION_MARKERS):
+        return "y"
+    return None
 
 
 def _session_state(rm_id: str, engine) -> str:
@@ -1802,6 +1849,7 @@ _PM_COMMANDS_DEFAULT = [
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
+ANSWERS_LOG = LOG_DIR / "answers.jsonl"   # RM2302 : réponses « Oui » envoyées (socle RM2305)
 
 
 def _probe_env(host: str, env: str) -> tuple:
@@ -2403,6 +2451,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/approve":
+                return self._send_json(200, op_approve(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":

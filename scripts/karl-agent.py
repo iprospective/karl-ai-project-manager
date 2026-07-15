@@ -471,6 +471,27 @@ def _ticket_model(rm_id: str) -> str | None:
     return None
 
 
+def _anchor_context(rm_id: str) -> str:
+    """RM2284 : préfixe de contexte d'ancrage pour le prompt initial d'une session
+    ancrée sur un ticket. Mono-ligne (un \\n littéral via send-keys -l vaudrait
+    Enter et soumettrait la ligne seule). Best-effort : si le ticket n'est pas
+    résolu en local, le préfixe reste minimal mais l'id transite quand même."""
+    tf = _find_task_file(rm_id)
+    det = ""
+    if tf:
+        client, project = _task_client_project(tf)
+        meta = _read_task_meta(tf)
+        det = f" — client {client}, projet {project}"
+        title = str(meta.get("title") or "").strip()
+        status = str(meta.get("status") or "").strip()
+        if title:
+            det += f", « {title} »"
+        if status:
+            det += f", statut {status}"
+    return (f"[Ancrage : cette session concerne le ticket RM{rm_id}{det}. "
+            f"Applique le protocole PM correspondant.]")
+
+
 def op_spawn(payload: dict) -> dict:
     rm_id = _require_rm_id(payload)
     if _has_session(rm_id):
@@ -534,6 +555,11 @@ def op_spawn(payload: dict) -> dict:
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
     if prompt:
+        # RM2284 : l'ancrage ticket transite TOUJOURS, même en prompt libre —
+        # si le texte ne mentionne pas déjà RM<id>, on préfixe le contexte
+        # (incident : session lancée pour RM2140 sans que l'agent le sache).
+        if _is_ticket_sid(rm_id) and f"rm{rm_id}" not in str(prompt).lower():
+            prompt = _anchor_context(rm_id) + " " + str(prompt)
         _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)

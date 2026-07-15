@@ -1,10 +1,10 @@
 ---
-schema_version: "1.55.0"
-updated: 2026-07-12
+schema_version: "1.56.0"
+updated: 2026-07-15
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.55.0
+# Normes de gestion des tâches — v1.56.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -35,6 +35,7 @@ updated: 2026-07-12
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
 | j'introduis/fais évoluer une donnée ou un artefact partagé Redmine↔PM (champ, vue, template, doc, métrique) | `modules/redmine-sync.md` (principe de parité) | scripts de sync dédiés |
+| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -1258,6 +1259,35 @@ sa synchronisation :
   à créer, cf. tripwire #1) ;
 - marquer toute représentation **générée** comme telle (bandeau « ne pas éditer ici »)
   pour ne pas recréer un drift à deux sources.
+
+### Format du livrable — portable et versionné
+
+Avant de se demander *comment* on synchronise une source canonique, il faut se
+demander **dans quoi elle vit**. La réponse est invariante :
+
+**Tout livrable documentaire — audit, CDC, spec, roadmap, rapport — est du markdown
+dans le repo git du projet.** C'est la source canonique : diffable, revue en MR,
+versionnée, lisible par n'importe qui.
+
+**Interdit : un livrable dont la source vit dans un outil propriétaire à un
+fournisseur de LLM** (Artifact, canvas, doc hébergé côté vendor…) ou dans tout format
+qu'un autre agent, outil ou humain ne peut pas reprendre. Le système PM est
+**fédéré et multi-agents** : un livrable qui n'existe que dans le contexte d'un
+fournisseur est un livrable perdu dès qu'on change d'agent — et une source hors git,
+donc sans diff, sans revue, sans historique.
+
+> **Critère de décision** — *« un autre LLM, demain, sans mon outillage, peut-il
+> lire, éditer et versionner ce livrable ? »* Si la réponse est non, le format est
+> mauvais, quelle que soit sa qualité de rendu.
+
+Les représentations hébergées (Wiki Redmine, description projet…) restent ce qu'elles
+sont partout ailleurs dans ce module : des **miroirs générés** depuis git (via
+`pm-wiki-sync`), jamais la source. Le rendu joli est un miroir ; le markdown est le
+livrable.
+
+Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils sont
+utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
+comme source. Le cycle reste : markdown en repo → commit → miroir généré.
 
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 

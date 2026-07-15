@@ -5,6 +5,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.56.0] - 2026-07-15
+
+### Ajouté — format des livrables : portable et versionné (RM2301)
+
+NORMS ne disait nulle part sous quelle **forme** un livrable documentaire doit
+exister. Un agent pouvait donc produire un audit/CDC dans un format lié à son
+fournisseur de LLM (Artifact, canvas, doc hébergé) — illisible et non reprenable
+par un autre agent, et hors git donc sans diff, sans revue, sans historique. Cas
+réel : audit ORM de Worm (RM1981), livrable proposé en Artifact, refusé par le
+demandeur ; la règle avait alors été notée dans la mémoire privée de l'agent —
+soit une règle transverse appliquée par un seul agent sur un seul projet, exactement
+le drift que NORMS existe pour empêcher.
+
+Livré : nouvelle section « Format du livrable — portable et versionné » dans
+`redmine-sync` (le module qui porte déjà « source canonique → miroir généré » et
+le bullet Docs/Wiki). Tout livrable documentaire est du **markdown dans le repo
+git** ; les rendus hébergés (Wiki via `pm-wiki-sync`) restent des miroirs générés ;
+les outils de rendu vendor sont une vue jetable, jamais une source. Critère de
+décision : « un autre LLM, demain, sans mon outillage, peut-il lire, éditer et
+versionner ce livrable ? ». Déclencheur ajouté à la table du KERNEL.
+
 ## [1.55.0] - 2026-07-12
 
 ### Ajouté — garde-fous « bon worktree » (RM2240)

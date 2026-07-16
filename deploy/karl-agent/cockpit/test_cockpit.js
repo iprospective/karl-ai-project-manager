@@ -65,4 +65,31 @@ assert.deepStrictEqual([...empty.keys], [], "aucun groupe");
 assert.strictEqual(empty.counts.total, 0, "total 0");
 console.log("✓ liste vide");
 
+// — 3. mdToHtml (RM2309) —
+const fmd = />>> mdToHtml[\s\S]*?(function mdToHtml[\s\S]*?)\n\/\/ <<< mdToHtml/.exec(html);
+assert(fmd, "marqueurs >>> mdToHtml / <<< mdToHtml introuvables");
+const mdToHtml = vm.runInNewContext("(" + fmd[1] + ")");
+
+// sécurité : tout HTML source est échappé, aucun lien javascript:
+let h = mdToHtml('<script>alert(1)</script> et <img src=x onerror=y>');
+assert(!/<script|<img/.test(h) && h.includes("&lt;script&gt;"), "XSS échappé");
+h = mdToHtml("[clic](javascript:alert(1)) et [ok](https://ex.te/p)");
+assert(!h.includes('href="javascript:'), "javascript: refusé");
+assert(h.includes('href="https://ex.te/p"') && h.includes('rel="noopener"'), "https autorisé");
+console.log("✓ mdToHtml : sûreté (échappement + whitelist de liens)");
+
+// structure : titres, listes + cases, code, gras, tableau, citation, hr, frontmatter
+h = mdToHtml("---\ntitle: X\n---\n# Titre\n\n## Sous *titre*\n\ntexte **fort** et `code`\n\n- [x] fait\n- [ ] à faire\n1. un\n\n> note\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\nlet x = '<b>'\n```");
+for (const frag of ['<pre class="mdfm">title: X</pre>', "<h1>Titre</h1>", "<h2>Sous <i>titre</i></h2>",
+  "<b>fort</b>", "<code>code</code>", "<li>☑ fait</li>", "<li>☐ à faire</li>", "<ol><li>un</li></ol>",
+  "<blockquote>note</blockquote>", "<hr>", "<th>a</th>", "<td>2</td>", "<pre>let x = '&lt;b&gt;'</pre>"])
+  assert(h.includes(frag), "fragment attendu : " + frag);
+assert(h.startsWith('<div class="mdview">'), "wrapper mdview");
+console.log("✓ mdToHtml : titres, listes/cases, code, tableau, citation, hr, frontmatter");
+
+// paragraphes multilignes joints, texte simple sans balisage parasite
+h = mdToHtml("ligne un\nligne deux\n\nautre para");
+assert(h.includes("<p>ligne un ligne deux</p>") && h.includes("<p>autre para</p>"), "paragraphes");
+console.log("✓ mdToHtml : paragraphes");
+
 console.log("OK — tous les tests cockpit passent");

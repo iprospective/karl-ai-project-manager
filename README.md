@@ -1,29 +1,30 @@
 # Système de gestion de tâches — iprospective
 
 Système de gestion de projets et tâches conçu pour la collaboration entre humains et agents IA.
-Les tâches sont des fichiers Markdown structurés, Redmine est le tracker opérationnel, GitLab assure le versioning.
+Les tâches sont des fichiers Markdown structurés, Redmine est le tracker opérationnel, GitLab assure
+le versioning. Un **cockpit web** (`deploy/karl-agent/`) supervise les sessions d'agents, expose la
+surface CLI (command-catalog) et porte la **console de test/revue** des tickets livrés.
 
 ## Installation
 
+**Installeur d'instance** (RM2062) — chemin recommandé, il pose le clone root-owned
+(privsep RM2032), le `.env`, l'alias `mmi-pm` sur le PATH et les skills :
+
 ```bash
-# 1. Cloner ce repo
+./install-mmi-pm            # depuis un clone frais ; voir --help
+```
+
+Mise à jour d'une instance : `sudo mmi-pm core update` (pull + re-verrou 3 couches
+via `core-lock` ; une seule passphrase SSH — multiplexing RM2069 + agent éphémère RM2239).
+
+Étapes manuelles équivalentes (dev / instance jetable) :
+
+```bash
 git clone git@gitlab.iprospective.fr:iprospective/ai-artificial-intelligence/ai-project-management.git
 cd ai-project-management
-
-# 2. Configurer l'environnement
-cp .env.example .env
-# Éditer .env avec les vraies valeurs (GitLab token, Redmine API key, PROJECTS_PATH...)
-
-# 3. Cloner le repo des projets (chemin défini par PROJECTS_PATH dans .env)
-git clone git@gitlab.iprospective.fr:iprospective/ai-projects.git "$PROJECTS_PATH"
-
-# 4. Exposer les skills PM à Claude Code (symlinks ~/.claude/skills/ → skills/)
-python3 scripts/pm-skills-sync.py
-# (à relancer après un pull qui ajoute/retire un skill ; cf. skills/README.md)
-
-# 5. (Optionnel) Surcharger pm.config.yml en local
-#    cp pm.config.yml pm.config.local.yml
-#    # éditer pour ajuster les chemins/patterns (gitignored)
+cp .env.example .env        # GitLab token, Redmine API key, PROJECTS_PATH…
+python3 scripts/pm-skills-sync.py   # skills PM → ~/.claude/skills/
+# optionnel : pm.config.local.yml (surcharge gitignorée de pm.config.yml)
 ```
 
 ## Démarrage rapide
@@ -67,8 +68,13 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
   .env                                 # credentials + PROJECTS_PATH (gitignored)
   .gitignore
   norms/
-    NORMS.md                           # référence normative courante (v1.8.0)
+    NORMS.md                           # référence normative GÉNÉRÉE (ne pas éditer)
+    VERSION                            # version courante des normes
     CHANGELOG.md                       # historique des évolutions du schéma
+    src/
+      NORMS-KERNEL.md                  # noyau runtime : déclencheurs + tripwires
+      modules/*.md                     # modules chargés à la demande (sources)
+      dedup-ledger.yml                 # registre des écarts au verbatim (non-perte)
     archive/                           # snapshots des versions
   agents/
     worker-common.md                   # règles communes des workers
@@ -76,15 +82,19 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     orchestrateur.md
     reviewer.md
     summarizer.md
-  scripts/
+  bin/
+    mmi-pm                             # CLI d'instance (core update, index, doctor…)
+  deploy/
+    karl-agent/                        # cockpit web : karl-agent.py (service), cockpit/ (UI),
+                                       # units systemd (service USER dans le conteneur dev)
+  skills/                              # skills mmi-pm-* distribués (pm-skills-sync)
+  scripts/                             # ~50 outils pm-*/redmine-* — quelques familles :
     pm_paths.py                        # lib résolution de chemins (PMConfig)
-    validate-task.py
-    priority.py                        # ordonnancement par ROI
-    pm-dashboard.py                    # CLI dashboard
-    redmine-fetch-task.py              # fetch Redmine → MD
-    redmine-fetch-updates.py
-    redmine-post-note.py
-    pm-project-bootstrap.py
+    pm-task-*.py                       # add, status-update, comment, link, protocol, blockers…
+    pm-env-*.py                        # init, migrate, session (envs par ticket), deploy
+    pm-mr.py · pm-branch-start.py      # branche par ticket, MR fiable (create/merge/get)
+    pm-norms-assemble.py · -doctor.py  # gouvernance NORMS (build + invariants)
+    redmine-fetch-task.py · redmine-post-note.py · pm-project-bootstrap.py …
   templates/
     task.md                            # template tâche
     project.md                         # template projet
@@ -108,8 +118,10 @@ $PROJECTS_PATH/                        # = pm.config.yml :: roots.projects_root
           workspace                    # symlink → workspace de code
 ```
 
-Côté workspace de code (ex: `/zfs/workspaces/<P>/`) : un symlink caché `.mmi-pm`
-pointe vers le projet PM correspondant.
+Côté workspace de code (ex: `/zfs/workspaces/<P>/`) : un `.mmi-pm` caché relie le
+workspace à son volet PM — **symlink** vers `projects/…` (modèle historique) ou
+**dossier co-localisé versionné** dans le workspace (modèle RM1949/RM2228, fichiers
+partagés avec l'arbo centrale). `pm-workspace-coloc` gère la conversion.
 
 ## Pour les agents IA
 
@@ -119,7 +131,7 @@ pointe vers le projet PM correspondant.
 
 ## Références
 
-- Normes courantes : [norms/NORMS.md](norms/NORMS.md) (v1.8.0)
+- Normes courantes : [norms/NORMS.md](norms/NORMS.md) (version : `norms/VERSION`)
 - Config des chemins : [pm.config.yml](pm.config.yml)
 - Lib : [scripts/pm_paths.py](scripts/pm_paths.py)
 - Redmine : défini globalement dans `.env`, surchargeable dans `project/overview.md`

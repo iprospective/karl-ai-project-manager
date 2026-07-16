@@ -5,6 +5,59 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.56.0] - 2026-07-15
+
+### Ajouté — format des livrables : portable et versionné (RM2301)
+
+NORMS ne disait nulle part sous quelle **forme** un livrable documentaire doit
+exister. Un agent pouvait donc produire un audit/CDC dans un format lié à son
+fournisseur de LLM (Artifact, canvas, doc hébergé) — illisible et non reprenable
+par un autre agent, et hors git donc sans diff, sans revue, sans historique. Cas
+réel : audit ORM de Worm (RM1981), livrable proposé en Artifact, refusé par le
+demandeur ; la règle avait alors été notée dans la mémoire privée de l'agent —
+soit une règle transverse appliquée par un seul agent sur un seul projet, exactement
+le drift que NORMS existe pour empêcher.
+
+Livré : nouvelle section « Format du livrable — portable et versionné » dans
+`redmine-sync` (le module qui porte déjà « source canonique → miroir généré » et
+le bullet Docs/Wiki). Tout livrable documentaire est du **markdown dans le repo
+git** ; les rendus hébergés (Wiki via `pm-wiki-sync`) restent des miroirs générés ;
+les outils de rendu vendor sont une vue jetable, jamais une source. Critère de
+décision : « un autre LLM, demain, sans mon outillage, peut-il lire, éditer et
+versionner ce livrable ? ». Déclencheur ajouté à la table du KERNEL.
+
+## [1.55.0] - 2026-07-12
+
+### Ajouté — garde-fous « bon worktree » (RM2240)
+
+En multi-tickets parallèle (`pm-branch-start --worktree`), l'agent éditait
+régulièrement dans le mauvais worktree (le `cd` n'est jamais forcé). Livré :
+`pm-branch-start` termine par la ligne `→ cd <worktree>` (+ `--print-cd` =
+chemin nu pour `cd "$(…)"`) ; nouveau `pm-task-cd.py` (résout `git.worktree`
+du frontmatter) ; hook **pre-commit** (pm-pre-commit, posé par
+pm-hooks-install) qui REFUSE un commit de ticket hors de son worktree
+enregistré, refuse une branche `<id>-…` sans ticket local (tripwire #13, avant
+même le push) et avertit sur un commit d'intégration quand la session a des
+worktrees de ticket actifs ; règle worker-common « se placer dans le bon
+worktree » + ligne de couverture session-tooling.
+
+---
+
+## [1.54.0] - 2026-07-12
+
+### Ajouté — session-tooling : sous-section « Idiomes fréquents » (RM1996)
+
+Le module `session-tooling` listait les outils canoniques mais pas leurs idiomes
+d'usage, forçant les agents à relancer `--help` à chaque session. Ajout des
+idiomes constatés en séance : contenu long via stdin (`--note -`,
+`--description -`/`--description-file`, `--set-from-file` — évite aussi la
+protection Bash « newline + `#` »), `--list-next` (transitions valides),
+auto-assignation (`en_cours` ⇒ `--assign-to me` implicite), `--project` explicite
+quand la détection cwd échoue, `--dry-run`, et `PM_CORE_DIR=` pour un script
+lancé depuis un worktree sans `.env`.
+
+---
+
 ## [1.53.0] - 2026-07-11
 
 ### Modifié — tripwire #13 étendu : AUCUN identifiant séquentiel prédit (RM2232)

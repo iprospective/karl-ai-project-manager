@@ -1,6 +1,11 @@
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
 
+> **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
+> `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
+> autre projet que le workspace courant si l'id n'a jamais été vu dans la session —
+> l'empreinte d'un id prédit (tripwire #13). Écriture cross-projet voulue : `--cross-project`.
+
 ## Outillage obligatoire en session PM — v1.35.0
 
 En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute
@@ -30,7 +35,8 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
-| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` |
+| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
+| Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
 | Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
@@ -38,6 +44,25 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+### Idiomes fréquents (évite de relancer `--help` à chaque session)
+
+- **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,
+  `redmine-post-note <id> --note -`, `pm-task-add --description -` (ou
+  `--description-file <path>`), `pm-task-description-update <id> --set-from-file <path>`.
+  Passer par stdin/fichier plutôt qu'un argument quoté évite AUSSI la protection
+  Bash « newline + `#` » de Claude Code (validation à répétition sur les arguments
+  multi-lignes contenant un dièse).
+- **Transitions valides depuis le statut courant** : `pm-task-status-update <id> --list-next`
+  (au lieu de deviner le flow d'états).
+- **Auto-assignation** : `en_cours` auto-assigne au porteur (`--assign-to me` implicite) ;
+  `--assign-to <id|me|author>` pour forcer, `--no-assign` pour débrayer.
+- **Détection de projet** : si la détection cwd échoue ou est ambiguë,
+  `--project entity/project` explicite (`pm-task-add`, `pm-task-list`, …).
+- **Répétition sans risque** : `--dry-run` sur `pm-task-add`, `pm-task-status-update`,
+  `pm-task-sync` — voir le diff avant d'écrire.
+- **Script lancé depuis un worktree sans `.env`** : préfixer
+  `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
 
 ### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
 

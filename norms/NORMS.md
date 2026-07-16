@@ -1,10 +1,10 @@
 ---
-schema_version: "1.53.0"
-updated: 2026-06-23
+schema_version: "1.56.0"
+updated: 2026-07-15
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.53.0
+# Normes de gestion des tâches — v1.56.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -35,6 +35,7 @@ updated: 2026-06-23
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
 | j'introduis/fais évoluer une donnée ou un artefact partagé Redmine↔PM (champ, vue, template, doc, métrique) | `modules/redmine-sync.md` (principe de parité) | scripts de sync dédiés |
+| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -428,6 +429,11 @@ référence humaine.
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
 
+> **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
+> `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
+> autre projet que le workspace courant si l'id n'a jamais été vu dans la session —
+> l'empreinte d'un id prédit (tripwire #13). Écriture cross-projet voulue : `--cross-project`.
+
 ## Outillage obligatoire en session PM — v1.35.0
 
 En **session PM** (workspace PM-tracké via `.mmi-pm`, ou travail dans le repo PM), toute
@@ -457,7 +463,8 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
-| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` |
+| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
+| Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
 | Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
@@ -465,6 +472,25 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+### Idiomes fréquents (évite de relancer `--help` à chaque session)
+
+- **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,
+  `redmine-post-note <id> --note -`, `pm-task-add --description -` (ou
+  `--description-file <path>`), `pm-task-description-update <id> --set-from-file <path>`.
+  Passer par stdin/fichier plutôt qu'un argument quoté évite AUSSI la protection
+  Bash « newline + `#` » de Claude Code (validation à répétition sur les arguments
+  multi-lignes contenant un dièse).
+- **Transitions valides depuis le statut courant** : `pm-task-status-update <id> --list-next`
+  (au lieu de deviner le flow d'états).
+- **Auto-assignation** : `en_cours` auto-assigne au porteur (`--assign-to me` implicite) ;
+  `--assign-to <id|me|author>` pour forcer, `--no-assign` pour débrayer.
+- **Détection de projet** : si la détection cwd échoue ou est ambiguë,
+  `--project entity/project` explicite (`pm-task-add`, `pm-task-list`, …).
+- **Répétition sans risque** : `--dry-run` sur `pm-task-add`, `pm-task-status-update`,
+  `pm-task-sync` — voir le diff avant d'écrire.
+- **Script lancé depuis un worktree sans `.env`** : préfixer
+  `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
 
 ### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
 
@@ -880,6 +906,16 @@ développement → test → mise en production*.
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
 
+**Livraison en vérification — protocole de test + URL de test (RM2229).** Le
+**protocole de test** (CF Redmine « Protocole de test », miroir frontmatter
+`test_protocol`) se rédige **au fil de l'eau**, à chaque étape d'avancement du dev —
+pas rétroactivement à la livraison : `pm-task-protocol <id> --set -/--append -`.
+Au passage en `a_tester_dev`/`a_tester_demandeur`/`a_mep` : protocole non vide
+(le garde-fou de `pm-task-status-update` avertit) et **`test_url` renseigné** —
+automatique si l'env de session existe (`pm-env-session create` écrit frontmatter
++ CF « Environnement de test » ; le teardown les vide), sinon manuel. Le testeur
+doit savoir **quoi tester et où** sans relire tout le ticket (fiche de revue cockpit).
+
 **Précondition de fermeture — sous-tâches.** Un ticket qui possède des
 **sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
 elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
@@ -1223,6 +1259,35 @@ sa synchronisation :
   à créer, cf. tripwire #1) ;
 - marquer toute représentation **générée** comme telle (bandeau « ne pas éditer ici »)
   pour ne pas recréer un drift à deux sources.
+
+### Format du livrable — portable et versionné
+
+Avant de se demander *comment* on synchronise une source canonique, il faut se
+demander **dans quoi elle vit**. La réponse est invariante :
+
+**Tout livrable documentaire — audit, CDC, spec, roadmap, rapport — est du markdown
+dans le repo git du projet.** C'est la source canonique : diffable, revue en MR,
+versionnée, lisible par n'importe qui.
+
+**Interdit : un livrable dont la source vit dans un outil propriétaire à un
+fournisseur de LLM** (Artifact, canvas, doc hébergé côté vendor…) ou dans tout format
+qu'un autre agent, outil ou humain ne peut pas reprendre. Le système PM est
+**fédéré et multi-agents** : un livrable qui n'existe que dans le contexte d'un
+fournisseur est un livrable perdu dès qu'on change d'agent — et une source hors git,
+donc sans diff, sans revue, sans historique.
+
+> **Critère de décision** — *« un autre LLM, demain, sans mon outillage, peut-il
+> lire, éditer et versionner ce livrable ? »* Si la réponse est non, le format est
+> mauvais, quelle que soit sa qualité de rendu.
+
+Les représentations hébergées (Wiki Redmine, description projet…) restent ce qu'elles
+sont partout ailleurs dans ce module : des **miroirs générés** depuis git (via
+`pm-wiki-sync`), jamais la source. Le rendu joli est un miroir ; le markdown est le
+livrable.
+
+Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils sont
+utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
+comme source. Le cycle reste : markdown en repo → commit → miroir généré.
 
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 
@@ -2281,7 +2346,10 @@ sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
 
 **Lien avec les tâches** : le frontmatter de tâche peut référencer un env via
 `target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
-(sauf si `test_url` est explicitement surchargé).
+(sauf si `test_url` est explicitement surchargé). Pour les **envs de session par
+ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create`
+écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
+`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
@@ -2560,6 +2628,24 @@ référencé en relatif depuis le `SKILL.md`. **Jamais** dans le dossier skills 
 les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour créer le symlink
 qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
 qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
+
+## Docs vivantes du repo PM (`Changelog.md` + `README.md`)
+
+Le repo PM se documente **au fil des livraisons**, pas en rattrapages (RM2250 :
+deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
+
+- **`Changelog.md` (système)** : toute livraison qui change la **surface du
+  système** — nouvel outil/skill, nouveau flux (statuts, envs, cockpit), changement
+  de comportement d'un outil existant — ajoute sa ligne à l'entrée jalon courante
+  (ou en ouvre une) **dans la même MR** que le code. Niveau de détail : le **jalon
+  et son pourquoi** avec RM-ids, pas le commit-par-commit (le détail vit dans les
+  tickets ; les normes dans `norms/CHANGELOG.md`).
+- **`README.md`** : à retoucher quand l'installation, la structure du repo ou les
+  points d'entrée changent. **Jamais de valeur qui rouille** (numéro de version,
+  compte d'outils…) : pointer les sources vivantes (`norms/VERSION`, `scripts/`).
+- Ces mises à jour font partie de la **livraison** (même esprit que le CHANGELOG
+  projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
+  sans sa ligne de Changelog.
 
 ## Versionning des normes
 

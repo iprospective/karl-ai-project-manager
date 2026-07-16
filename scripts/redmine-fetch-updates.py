@@ -24,7 +24,7 @@ from urllib import error, request
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git  # auto-commit scopé des écritures (RM2095)
-from redmine_utils import issue_is_ia_tagged, get_ia_cf_id
+from redmine_utils import issue_is_ia_tagged, get_ia_cf_id, api_ts_local
 
 try:
     import yaml
@@ -81,7 +81,7 @@ def fmt_journal(j):
 
 def fmt_journal_for_log(j):
     """Format Markdown destiné au .log.md (entrée par journal)."""
-    when = (j.get("created_on") or "").replace("Z", "")[:16]
+    when = api_ts_local(j.get("created_on"))
     lines = [
         f"## {when} — Redmine #{j['id']} — {j['user']['name']}",
         "Source : Redmine (sync via redmine-fetch-updates)",

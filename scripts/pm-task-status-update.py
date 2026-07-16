@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_scope
 import redmine_utils
 
 try:
@@ -80,12 +81,19 @@ def email_notifs_enabled():
 
     Interrupteur global des notifs mail — distinct du --no-mail par appel.
     """
-    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
-    try:
-        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return False
-    return bool((cfg.get("notifications") or {}).get("email_enabled", False))
+    root = Path(__file__).resolve().parent.parent
+    val = False
+    # pm.config.local.yml surcharge pm.config.yml (NORMS structure-reference) —
+    # permet le réglage via le cockpit (RM2213) sans toucher au fichier commenté.
+    for name in ("pm.config.yml", "pm.config.local.yml"):
+        try:
+            cfg = yaml.safe_load((root / name).read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        notif = cfg.get("notifications") or {}
+        if "email_enabled" in notif:
+            val = bool(notif["email_enabled"])
+    return val
 
 
 # Statuts NORMS acceptés (canoniques + alias dépréciés) — source unique
@@ -404,6 +412,7 @@ def main():
                          "(+ celles que le compte API peut réellement poser côté Redmine)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
+    ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
                     help="Assigner à un user Redmine : <id> | 'me' (owner API key = karl) | "
@@ -458,6 +467,7 @@ def main():
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
+    pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-status-update")
 
     # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
     # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les
@@ -503,6 +513,12 @@ def main():
     norms_status = args.status
     if args.status == "ferme" and args.close_reason:
         norms_status = f"ferme:{args.close_reason}"
+    # `--note -` = stdin, résolu ICI (RM2229) : avant, le tiret littéral
+    # partait au log local (seul redmine-post-note, qui hérite de stdin,
+    # lisait le contenu) → les notes de livraison étaient absentes du
+    # `.log.md`, donc invisibles de la fiche cockpit (protocole de test).
+    if args.note == "-":
+        args.note = sys.stdin.read().strip()
     note = args.note or f"Statut → {args.status}" + (f" ({args.close_reason})" if args.close_reason else "")
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
@@ -525,6 +541,21 @@ def main():
                 f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
                 f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
             )
+    # Protocole de test (RM2229) — WARNING non bloquant : une livraison en
+    # vérification sans protocole rédigé (frontmatter test_protocol, miroir du
+    # CF « Protocole de test ») prive le testeur du « quoi tester ». Rédaction
+    # au fil de l'eau : pm-task-protocol.py <id> --set/--append.
+    if gate_status:
+        try:
+            _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
+                md_path.read_text(encoding="utf-8")).group(2)) or {}
+            if str(_fm_now.get("test_protocol") or "").strip() in ("", "None"):
+                print(f"  ⚠ pas de protocole de test sur RM{args.rm_id} — le testeur n'a "
+                      f"pas de « quoi tester ».\n"
+                      f"    → pm-task-protocol.py {args.rm_id} --set -   (ou --append -)",
+                      file=sys.stderr)
+        except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
 
     # Résolution de l'assignation Redmine.
     #

@@ -16,6 +16,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_scope
 
 
 def main():
@@ -25,6 +26,7 @@ def main():
     ap.add_argument("--private", action="store_true", help="Note privée Redmine")
     ap.add_argument("--no-log", action="store_true", help="Ne pas appender au .log.md")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
+    ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     args = ap.parse_args()
 
     note = sys.stdin.read() if args.note == "-" else args.note
@@ -34,6 +36,7 @@ def main():
 
     cfg = PMConfig.load()
     md_path = cfg.find_task(args.rm_id)
+    pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-comment")
     if not md_path and not args.no_log:
         print(f"⚠ aucun fichier RM{args.rm_id}_*.md (log skip), poste quand même la note Redmine", file=sys.stderr)
 

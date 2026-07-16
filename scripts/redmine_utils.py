@@ -14,6 +14,7 @@ import sys
 import urllib.error
 import urllib.parse
 import urllib.request
+from datetime import datetime, timezone
 from pathlib import Path
 
 _REFERENCE_FILE = Path(__file__).resolve().parent.parent / "redmine.reference.yml"
@@ -30,6 +31,28 @@ _FALLBACK_STATUS_IDS = {
 _FALLBACK_STATUS_ALIASES = {"a_tester_verifier": "a_tester_demandeur"}
 # Raisons de fermeture → toutes vers le statut `ferme` (id porté par la réf).
 _CLOSE_REASONS = ("resolu", "abandonne", "wont_fix", "hors_perimetre", "invalide", "doublon")
+
+
+def api_ts_local(value, minutes=True):
+    """Timestamp API Redmine (UTC, ex. '2026-07-11T10:51:40Z') → heure locale naïve.
+
+    L'API REST renvoie de l'UTC ; tout le reste de l'outillage écrit des
+    timestamps naïfs en heure locale (datetime.now()). Convertir ici évite le
+    mélange naïf-UTC / naïf-local (RM2237 : `updated` reculé de 2 h au sync).
+    Retourne '' si vide ; une valeur non parsable est renvoyée tronquée telle
+    quelle (comportement historique).
+    """
+    s = (value or "").strip()
+    width = 16 if minutes else 19
+    if not s:
+        return ""
+    try:
+        dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return s.replace("Z", "")[:width]
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone().isoformat()[:width]
 
 
 def load_reference():

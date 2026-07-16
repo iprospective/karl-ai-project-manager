@@ -7,7 +7,7 @@
 #   D4 — dispatcher mince : route vers les `pm-*.py` existants quand pertinent.
 # Self-locating : l'outil est la racine `bin/..` ; charge `.env` (PROJECTS_PATH, KARL_USER).
 #
-# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|client|project|list|doctor)
+# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|env|hooks|norms|client|project|list|doctor)
 
 set -euo pipefail
 shopt -s nullglob
@@ -39,6 +39,10 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
+                                     (post-commit, pre-push, pre-commit ;
+                                     --repo <path> pour un seul repo ;
+                                     pm-hooks-install.py)
   mmi-pm norms version               version NORMS courante (norms/VERSION)      [lecture]
   mmi-pm norms changes [args…]       delta NORMS entre versions                  [lecture]
                                      (--check <v> | --since <v> | --between A B ;
@@ -99,6 +103,24 @@ cmd_core_update(){
     log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
     return
   fi
+  # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
+  #    SSH) → même avec le multiplexing RM2069, la connexion unique coûte
+  #    2 authentifications (hop + cible) = 2 passphrases sans agent. Un agent
+  #    temporaire + un ssh-add unique = UNE saisie. `-t 120` : l'identité
+  #    déchiffrée expire seule (filet si un chemin d'erreur saute le kill).
+  #    Agent root déjà garni ⇒ on ne touche à rien (zéro prompt).
+  local _agent_pid="" _agent_st=0
+  ssh-add -l >/dev/null 2>&1 || _agent_st=$?   # garde set -e : code capté, pas fatal
+  if [ "$_agent_st" -eq 1 ]; then          # agent joignable mais sans clé
+    ssh-add -t 120 >/dev/null || true      # une saisie ; échec ⇒ comportement d'avant
+  elif [ "$_agent_st" -gt 1 ]; then        # pas d'agent joignable
+    local _agent_env
+    if _agent_env="$(ssh-agent -s)"; then
+      eval "$_agent_env" >/dev/null
+      _agent_pid="${SSH_AGENT_PID:-}"
+      ssh-add -t 120 >/dev/null || true    # une saisie ; échec ⇒ comportement d'avant
+    fi
+  fi
   # ── Multiplexing SSH (RM2069) : fetch + pull(refetch) + submodules partagent UNE
   #    connexion SSH → UNE seule passphrase (root via sudo n'a pas d'agent ; remote =
   #    alias SSH gitlab:). Master fermé + temp nettoyé en sortie. ControlPersist = filet
@@ -112,11 +134,29 @@ cmd_core_update(){
   ssh -o ControlPath="${_cmdir}/cm-%C" -O exit "$_ghost" 2>/dev/null || true
   rm -rf "$_cmdir" 2>/dev/null || true
   unset GIT_SSH_COMMAND
+  # Fin de l'agent éphémère (RM2239) — uniquement s'il est à nous.
+  if [ -n "$_agent_pid" ]; then
+    ssh-agent -k >/dev/null 2>&1 || true
+    unset SSH_AUTH_SOCK SSH_AGENT_PID
+  fi
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
   # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.
   [ -x "$CORE_DIR/scripts/core-lock" ] || die "scripts/core-lock absent/inexécutable"
   "$CORE_DIR/scripts/core-lock" lock "$CORE_DIR"
+  # Hooks PM du core lui-même (RM2240) : son .git/hooks est root-owned → seule la
+  # couche privilégiée peut les poser (pm-hooks-install les ignore avec un warn).
+  local _hkdir="$CORE_DIR/.git/hooks" _pair _name _src
+  mkdir -p "$_hkdir"
+  for _pair in "post-commit=pm-post-commit.py" "pre-push=pm-pre-push" "pre-commit=pm-pre-commit.py"; do
+    _name="${_pair%%=*}"; _src="$CORE_DIR/scripts/${_pair#*=}"
+    [ -f "$_src" ] || continue
+    if [ -e "$_hkdir/$_name" ] && [ ! -L "$_hkdir/$_name" ]; then
+      log "hook $_name du core : fichier existant non-symlink → fusion manuelle"; continue
+    fi
+    ln -sfn "$_src" "$_hkdir/$_name"
+  done
+  log "hooks PM du core posés/rafraîchis (post-commit, pre-push, pre-commit)"
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
@@ -189,6 +229,16 @@ cmd_list(){
 
 cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
 
+# `hooks install` (RM2240) : pose les git-hooks PM (post-commit RM2035, pre-push
+# RM2224, pre-commit RM2240) sur les repos PM + bares repos/*.git. Non privilégié
+# (symlinks .git/hooks en KARL_USER ; le core privsep est signalé en warn).
+cmd_hooks(){
+  case "${1:-}" in
+    install) shift; exec python3 "$CORE_DIR/scripts/pm-hooks-install.py" "$@";;
+    *) die "hooks: verbe inconnu '${1:-}' (install)";;
+  esac
+}
+
 # `norms version|changes` (RM2033) : lecture seule, version NORMS + delta de versions.
 cmd_norms(){
   case "${1:-}" in
@@ -239,6 +289,7 @@ case "$NOUN" in
            *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
          esac;;
   env)    shift||true; cmd_env "$@";;
+  hooks)  shift||true; cmd_hooks "$@";;
   norms)  shift||true; cmd_norms "$@";;
   list)   cmd_list;;
   doctor) shift||true; cmd_doctor "$@";;

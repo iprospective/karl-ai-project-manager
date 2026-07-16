@@ -69,8 +69,17 @@ def main():
                          "branche discriminée par session <RMid>-<slug>-m<PMid>-s<seq> (RM2034). "
                          "Pour mener plusieurs tickets en parallèle sans se tromper de cible.")
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git PM (RM1834)")
+    ap.add_argument("--print-cd", action="store_true",
+                    help="N'émet QUE le chemin de travail final sur stdout (logs sur stderr) "
+                         "— usage machine : cd \"$(pm-branch-start.py <id> --worktree --print-cd)\" (RM2240)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+
+    # --print-cd : stdout réservé au chemin final, tout le reste part sur stderr
+    # (même mécanique que pm-task-add --porcelain, RM2224).
+    real_stdout = sys.stdout
+    if args.print_cd:
+        sys.stdout = sys.stderr
 
     cfg = PMConfig.load()
     md_path = cfg.find_task(args.rm_id)
@@ -108,6 +117,17 @@ def main():
         branch = f"{args.rm_id}-{slug}{suffix}"
         seq = None if args.dry_run else pm_session.get_session_seq()
         wt = root.parent / (f"{root.name}-{args.rm_id}" + (f"-s{seq}" if seq is not None else ""))
+        # Idempotence indépendante du cwd (RM2240) : si le frontmatter porte déjà
+        # le worktree de CETTE branche, le réutiliser — sinon une relance depuis
+        # un autre worktree calcule un chemin imbriqué et plante.
+        try:
+            fm_peek = yaml.safe_load(FM_RE.match(md_path.read_text(encoding="utf-8")).group(2)) or {}
+            g_peek = fm_peek.get("git") or {}
+            if g_peek.get("branch") == branch and g_peek.get("worktree") \
+                    and Path(g_peek["worktree"]).is_dir():
+                wt = Path(g_peek["worktree"])
+        except Exception:
+            pass
 
     exists = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
                   check=False).returncode == 0
@@ -180,10 +200,19 @@ def main():
             [sys.executable, str(Path(__file__).parent / "pm-task-status-update.py"),
              str(args.rm_id), "en_cours",
              "--note", f"Prise en charge — branche de travail `{branch}` créée (pm-branch-start)."],
-            check=False)
+            check=False, stdout=sys.stderr if args.print_cd else None)
         if r.returncode != 0:
             print(f"  ⚠ transition en_cours échouée (exit {r.returncode}) — reprends : "
                   f"pm-task-status-update.py {args.rm_id} en_cours", file=sys.stderr)
+
+    # Dernière ligne = action à exécuter : se PLACER dans le worktree du ticket
+    # (RM2240 — un sous-processus ne change pas le cwd du shell parent ; sans ce
+    # rappel l'agent continue à travailler dans le mauvais worktree).
+    workdir = wt if wt is not None else root
+    if args.print_cd:
+        print(str(workdir), file=real_stdout)
+    elif wt is not None:
+        print(f"→ cd {workdir}")
 
 
 if __name__ == "__main__":

@@ -109,7 +109,7 @@ import sys
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
 
 # ── Config (env, avec chargement .env léger pour rester stdlib-only) ──────────
@@ -471,6 +471,27 @@ def _ticket_model(rm_id: str) -> str | None:
     return None
 
 
+def _anchor_context(rm_id: str) -> str:
+    """RM2284 : préfixe de contexte d'ancrage pour le prompt initial d'une session
+    ancrée sur un ticket. Mono-ligne (un \\n littéral via send-keys -l vaudrait
+    Enter et soumettrait la ligne seule). Best-effort : si le ticket n'est pas
+    résolu en local, le préfixe reste minimal mais l'id transite quand même."""
+    tf = _find_task_file(rm_id)
+    det = ""
+    if tf:
+        client, project = _task_client_project(tf)
+        meta = _read_task_meta(tf)
+        det = f" — client {client}, projet {project}"
+        title = str(meta.get("title") or "").strip()
+        status = str(meta.get("status") or "").strip()
+        if title:
+            det += f", « {title} »"
+        if status:
+            det += f", statut {status}"
+    return (f"[Ancrage : cette session concerne le ticket RM{rm_id}{det}. "
+            f"Applique le protocole PM correspondant.]")
+
+
 def op_spawn(payload: dict) -> dict:
     rm_id = _require_rm_id(payload)
     if _has_session(rm_id):
@@ -534,6 +555,11 @@ def op_spawn(payload: dict) -> dict:
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
     if prompt:
+        # RM2284 : l'ancrage ticket transite TOUJOURS, même en prompt libre —
+        # si le texte ne mentionne pas déjà RM<id>, on préfixe le contexte
+        # (incident : session lancée pour RM2140 sans que l'agent le sache).
+        if _is_ticket_sid(rm_id) and f"rm{rm_id}" not in str(prompt).lower():
+            prompt = _anchor_context(rm_id) + " " + str(prompt)
         _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
@@ -593,6 +619,39 @@ def op_send(payload: dict) -> dict:
     if payload.get("enter", True):
         _tmux("send-keys", "-t", name, "Enter")
     return {"rm_id": rm_id, "sent": True}
+
+
+def op_approve(payload: dict) -> dict:
+    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non
+    (menu numéroté claude ou prompt y/n). Re-capture le pane au moment de
+    l'appel et refuse (409) si aucune question n'est visible — l'état a pu
+    changer entre l'affichage UI et le clic. Chaque réponse envoyée est
+    journalisée dans answers.jsonl (socle historique Q/R — RM2305)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    name = _session_name(rm_id)
+    rc, out, err = _tmux("capture-pane", "-p", "-t", name)
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    tail = "\n".join(out.rstrip().splitlines()[-15:])
+    answer = _approve_answer(tail)
+    if answer is None:
+        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
+    rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", answer)
+    if rc != 0:
+        raise ApiError(500, f"send-keys a échoué : {err.strip()}")
+    if answer == "y":
+        _tmux("send-keys", "-t", name, "Enter")
+    try:  # journal best-effort, ne bloque jamais la réponse
+        ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with ANSWERS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
+                                "sent": answer, "question": tail},
+                               ensure_ascii=False) + "\n")
+    except OSError:
+        pass
+    return {"rm_id": rm_id, "approved": True, "sent": answer}
 
 
 def op_buffer() -> str:
@@ -964,6 +1023,20 @@ def op_resume(payload: dict) -> dict:
 #   idle      : invite au repos (tour fini, ou en attente d'une consigne).
 _ATTENTION_MARKERS = ("Do you want", "Would you like", "(y/n)", "❯ 1.", "│ 1. Yes")
 _WORKING_MARKERS = ("esc to interrupt", "ctrl+b to run in background", "Compacting")
+# RM2302 : marqueurs d'un menu numéroté (dialogue TUI claude — la touche chiffre
+# sélectionne et valide seule, sans Enter), sous-ensemble des marqueurs attention.
+_YES_MENU_MARKERS = ("❯ 1.", "│ 1. Yes")
+
+
+def _approve_answer(tail: str) -> str | None:
+    """RM2302 : réponse affirmative à envoyer au pane qui pose une question.
+    "1" = menu numéroté (envoyer le chiffre seul) ; "y" = prompt texte y/n
+    (Enter requis derrière) ; None = pas de question visible dans le tail."""
+    if any(m in tail for m in _YES_MENU_MARKERS):
+        return "1"
+    if any(m in tail for m in _ATTENTION_MARKERS):
+        return "y"
+    return None
 
 
 def _session_state(rm_id: str, engine) -> str:
@@ -1261,6 +1334,41 @@ def _log_tail(tf: Path, n: int = 18) -> str:
     return "\n".join(lines[-n:])
 
 
+_PROTO_HEAD_RE = re.compile(
+    r"(?im)^#{1,4}\s*(?:📋\s*)?(?:à tester|a tester|protocole de test|"
+    r"tests? à effectuer|quoi tester)\b.*$")
+
+
+def _test_protocol(tf: Path, body: str):
+    """Protocole de test du ticket (RM2229) : la DERNIÈRE section « À tester » /
+    « Protocole de test » trouvée dans le `.log.md` (notes de livraison — la
+    plus récente prime, une re-livraison remplace le protocole), sinon dans la
+    description. Renvoie {source, heading, text} ou None. Convention associée :
+    toute livraison en a_tester_* inclut une note avec un titre `## À tester`."""
+    logf = tf.with_name(tf.stem + ".log.md")
+    try:
+        log_text = logf.read_text(encoding="utf-8")
+    except OSError:
+        log_text = ""
+    for source, text in (("note", log_text), ("description", body or "")):
+        if not text:
+            continue
+        matches = list(_PROTO_HEAD_RE.finditer(text))
+        if not matches:
+            continue
+        m = matches[-1]
+        after = text[m.end():]
+        # coupe à la prochaine section `#`/`##` (nouvelle rubrique de la note
+        # ou entrée horodatée suivante du log)
+        stop = re.search(r"(?m)^#{1,2}\s", after)
+        section = (after[:stop.start()] if stop else after).strip()
+        if section:
+            return {"source": source,
+                    "heading": m.group(0).lstrip("# ").strip(),
+                    "text": section[:4000]}
+    return None
+
+
 def _project_docs(project_dir: Path) -> list:
     """Fichiers de doc du projet (overview, environments, CDC, specs…).
 
@@ -1313,6 +1421,15 @@ def op_resolve(rm_id: str) -> dict:
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         "description": _task_body(text)[:6000],
+        # Protocole de test (RM2229) : champ canonique = frontmatter
+        # `test_protocol` (miroir du CF Redmine, rédigé au fil de l'eau via
+        # pm-task-protocol) ; repli : section « À tester » de la dernière note
+        # de livraison (log), sinon de la description.
+        "test_protocol": (
+            {"source": "cf", "heading": "Protocole de test",
+             "text": str(pick("test_protocol"))[:4000]}
+            if str(pick("test_protocol") or "").strip() not in ("", "None")
+            else _test_protocol(tf, _task_body(text))),
         "task_file": str(tf.relative_to(REPO_ROOT)),
         "cwd": str(ws) if ws else DEFAULT_CWD,
         "prompt": f"traite la tâche RM{rm_id} du client {client} projet {project}",
@@ -1431,13 +1548,21 @@ def op_workspace_status(rm_id: str) -> dict:
 
 def op_file(relpath: str) -> str:
     """Sert un fichier .md sous projects/ (lecture seule, anti-évasion) — pour
-    afficher les docs projet (CDC, overview…) dans le panneau du cockpit."""
+    afficher les docs projet (CDC, overview…) dans le panneau du cockpit.
+
+    RM2303 : garde LEXICALE sur le chemin demandé (absolu, segments «..», hors
+    projects/), sans résoudre les symlinks de la cible — le tree projects/
+    contient des liens légitimes vers les dossiers PM des workspaces (projets
+    relocalisés, pm-sync-links) que l'ancien resolve() faisait rejeter en 403.
+    Les symlinks sont posés par le provisioning serveur, jamais par le client :
+    l'évasion à bloquer est celle de l'URL, pas celle du tree."""
     if not relpath:
         raise ApiError(400, "path requis")
-    target = (REPO_ROOT / relpath).resolve()
-    base = (REPO_ROOT / "projects").resolve()
-    if not (target == base or base in target.parents):
+    parts = PurePosixPath(relpath).parts
+    if (PurePosixPath(relpath).is_absolute() or ".." in parts
+            or not parts or parts[0] != "projects"):
         raise ApiError(403, "chemin hors de projects/")
+    target = REPO_ROOT / relpath
     if target.suffix != ".md" or not target.is_file():
         raise ApiError(404, "fichier .md introuvable")
     try:
@@ -1698,6 +1823,17 @@ _PM_COMMANDS_DEFAULT = [
     # Console de test (RM2210) : déploiement/démontage de l'env de session d'un
     # ticket. Le workspace est résolu CÔTÉ SERVEUR depuis le ticket (spec
     # `server: workspace_of_rm`) — jamais un chemin fourni par le client.
+    {"name": "env-deploy", "label": "Déployer la branche du ticket dans l'env PARTAGÉ",
+     "category": "env", "script": "pm-env-deploy.py", "mutate": True, "confirm": True,
+     "timeout": 300, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["deploy", "restore"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+         {"name": "workspace", "server": "workspace_of_rm", "positional": True},
+         {"name": "env", "label": "Env partagé (défaut test)", "type": "text",
+          "flag": "--env", "max_len": 32},
+         {"name": "force", "label": "Forcer (worktree sale)", "type": "bool", "flag": "--force"},
+     ]},
     {"name": "env-session-create", "label": "Déployer la branche du ticket en env de test",
      "category": "env", "script": "pm-env-session.py", "mutate": True, "confirm": True,
      "timeout": 600, "args": [
@@ -1721,6 +1857,7 @@ _PM_COMMANDS_DEFAULT = [
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")
 PM_RUNS_LOG = LOG_DIR / "pm-runs.jsonl"
+ANSWERS_LOG = LOG_DIR / "answers.jsonl"   # RM2302 : réponses « Oui » envoyées (socle RM2305)
 
 
 def _probe_env(host: str, env: str) -> tuple:
@@ -1807,6 +1944,147 @@ def op_test_queue(qs: dict) -> list:
     out.sort(key=lambda r: (r["status"] != "a_tester_demandeur", r.get("updated") or ""),
              )
     return out
+
+
+# ── Réglages contrôlés (RM2213) ──────────────────────────────────────────────
+# Whitelist déclarative de clés éditables depuis le cockpit. Deux cibles :
+#  - conf   → écrit dans pm.config.local.yml (surcharge gitignorée, NORMS) —
+#             le fichier canonique commenté n'est JAMAIS réécrit ;
+#  - tarifs → édition CIBLÉE de la ligne dans pm.pricing.yml (commentaires
+#             et structure intacts ; refus si la ligne n'existe pas).
+_PM_SETTINGS_CONF = [
+    {"key": "conf:notifications.email_enabled", "label": "Notifs mail à chaque changement de statut",
+     "group": "Conf PM", "type": "bool", "path": ["notifications", "email_enabled"]},
+    {"key": "conf:git.autocommit", "label": "Auto-commit des écritures PM",
+     "group": "Conf PM", "type": "bool", "path": ["git", "autocommit"]},
+    {"key": "conf:git.autopush", "label": "Auto-push après commit PM",
+     "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
+    {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
+     "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+]
+_PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
+                 "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
+
+
+def _pricing_file() -> Path:
+    return REPO_ROOT / "pm.pricing.yml"
+
+
+def _conf_merged() -> dict:
+    out = {}
+    for name in ("pm.config.yml", "pm.config.local.yml"):
+        try:
+            cfg = yaml_safe_load((REPO_ROOT / name).read_text(encoding="utf-8")) or {}
+        except OSError:
+            continue
+        for k, v in cfg.items():
+            if isinstance(v, dict) and isinstance(out.get(k), dict):
+                out[k].update(v)
+            else:
+                out[k] = v
+    return out
+
+
+def yaml_safe_load(text):
+    import yaml
+    return yaml.safe_load(text)
+
+
+def _pm_settings() -> list:
+    """Spec + valeurs courantes. Tarifs générés dynamiquement depuis le fichier."""
+    out = []
+    conf = _conf_merged()
+    for e in _PM_SETTINGS_CONF:
+        cur = conf
+        for part in e["path"]:
+            cur = cur.get(part) if isinstance(cur, dict) else None
+            if cur is None:
+                break
+        out.append({**e, "value": bool(cur)})
+    try:
+        pricing = yaml_safe_load(_pricing_file().read_text(encoding="utf-8")) or {}
+    except OSError:
+        pricing = {}
+    h = pricing.get("human_hourly_rate_eur")
+    out.append({"key": "pricing:human_hourly_rate_eur", "label": "Taux horaire humain (€)",
+                "group": "Tarifs", "type": "number", "min": 10, "max": 500, "value": h})
+    for model, fields in sorted((pricing.get("models") or {}).items()):
+        for f in _PRICE_FIELDS:
+            if isinstance(fields, dict) and f in fields:
+                out.append({"key": f"pricing:models.{model}.{f}",
+                            "label": f"{model} · {f.replace('_per_mtok_usd', '')} ($/MTok)",
+                            "group": "Tarifs modèles", "type": "number",
+                            "min": 0, "max": 1000, "value": fields[f]})
+    return out
+
+
+def op_pm_settings_set(payload: dict) -> dict:
+    key = str(payload.get("key") or "")
+    spec = next((e for e in _pm_settings() if e["key"] == key), None)
+    if not spec:
+        raise ApiError(400, f"clé inconnue/hors whitelist : {key!r}")
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    raw = payload.get("value")
+    if spec["type"] == "bool":
+        val = raw in (True, "1", "true", "on")
+    else:
+        try:
+            val = float(raw)
+        except (TypeError, ValueError):
+            raise ApiError(400, f"{key} : nombre attendu")
+        if not (spec.get("min", 0) <= val <= spec.get("max", 1e9)):
+            raise ApiError(400, f"{key} : hors bornes [{spec.get('min')}..{spec.get('max')}]")
+
+    if key.startswith("conf:"):
+        import yaml
+        lp = REPO_ROOT / "pm.config.local.yml"
+        try:
+            local = yaml_safe_load(lp.read_text(encoding="utf-8")) or {}
+        except OSError:
+            local = {}
+        cur = local
+        for part in spec["path"][:-1]:
+            cur = cur.setdefault(part, {})
+        cur[spec["path"][-1]] = val
+        lp.write_text("# Surcharge locale (gitignorée) — clés posées via le cockpit (RM2213).\n"
+                      + yaml.safe_dump(local, allow_unicode=True, sort_keys=False),
+                      encoding="utf-8")
+    else:  # pricing: édition ciblée de la ligne existante
+        pf = _pricing_file()
+        text = pf.read_text(encoding="utf-8")
+        if key == "pricing:human_hourly_rate_eur":
+            pat = re.compile(r"^(human_hourly_rate_eur:\s*)[0-9.]+\s*$", re.M)
+        else:
+            m = re.match(r"pricing:models\.(.+)\.([a-z_]+)$", key)
+            model, field = m.group(1), m.group(2)
+            block = re.search(rf"^  {re.escape(model)}:\n((?:    .*\n)+)", text, re.M)
+            if not block:
+                raise ApiError(400, f"modèle {model} introuvable dans pm.pricing.yml")
+            pat = re.compile(rf"^(    {re.escape(field)}:\s*)[0-9.]+\s*$", re.M)
+            seg = block.group(0)
+            if not pat.search(seg):
+                raise ApiError(400, f"champ {field} introuvable pour {model}")
+            new_seg = pat.sub(lambda mm: f"{mm.group(1)}{val:.2f}", seg, count=1)
+            pf.write_text(text.replace(seg, new_seg, 1), encoding="utf-8")
+            _journal_setting(key, val)
+            return {"key": key, "value": val, "ok": True}
+        if not pat.search(text):
+            raise ApiError(400, "ligne human_hourly_rate_eur introuvable")
+        pf.write_text(pat.sub(lambda mm: f"{mm.group(1)}{val:g}", text, count=1), encoding="utf-8")
+    _journal_setting(key, val)
+    return {"key": key, "value": val, "ok": True}
+
+
+def _journal_setting(key, val):
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                "name": "settings", "args": {"key": key, "value": val},
+                                "rc": 0}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass
 
 
 def _pm_commands() -> list:
@@ -2130,6 +2408,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, _registry_view())
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
+            if path == "/pm/settings":
+                return self._send_json(200, {"settings": _pm_settings()})
             if path == "/pm/test-queue":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"queue": op_test_queue(qs)})
@@ -2179,6 +2459,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/approve":
+                return self._send_json(200, op_approve(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":
@@ -2189,6 +2471,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/pm/settings":
+                return self._send_json(200, op_pm_settings_set(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

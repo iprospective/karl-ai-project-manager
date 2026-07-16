@@ -308,6 +308,11 @@
     <div class="lpanel" id="lp-test">
     <div class="card" id="tqcard">
       <h2>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></h2>
+      <!-- RM2315 : recherche par mots-clés, combinable avec les filtres ci-dessous -->
+      <div class="searchrow" style="margin-top:8px">
+        <input id="tq-q" type="text" placeholder="mots-clés : id, titre, projet, branche, tag…" oninput="renderTQ()">
+        <button class="mini" onclick="clearTQSearch()" title="Vider la recherche">✕</button>
+      </div>
       <div class="row2" style="margin-top:8px">
         <div>
           <label for="tq-project">Projet</label>
@@ -1416,15 +1421,34 @@ async function loadTestQueue() {
     toast(err.message, true);
   }
 }
+// >>> tqMatch — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2315 : match mots-clés d'une entrée de la file de test. Tous les mots de la
+// requête doivent se retrouver (ET), sans casse ni accents, dans : id (avec ou
+// sans préfixe RM), titre, client/projet, branche, env, statut, tags.
+function tqMatch(e, q) {
+  const norm = s => String(s == null ? "" : s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const words = norm(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = norm(["rm" + e.rm_id, e.title, (e.client || "") + "/" + (e.project || ""),
+    e.branch, e.env, e.status, (e.tags || []).join(" ")].join(" "));
+  return words.every(w => hay.includes(w));
+}
+// <<< tqMatch
+function clearTQSearch() {
+  const i = document.getElementById("tq-q");
+  i.value = ""; renderTQ(); i.focus();
+}
 function renderTQ() {
   const ul = document.getElementById("tq-list"), cnt = document.getElementById("tq-count");
   const fp = document.getElementById("tq-project").value;
   const fs = document.getElementById("tq-status").value;
   const fd = document.getElementById("tq-deployable").checked;
+  const fq = document.getElementById("tq-q").value;   // RM2315 : mots-clés
   let queue = tqAll.filter(e =>
     (!fp || (e.client || "?") + "/" + (e.project || "?") === fp) &&
     (!fs || e.status === fs) &&
-    (!fd || e.deployable));
+    (!fd || e.deployable) &&
+    tqMatch(e, fq));
   const sort = document.getElementById("tq-sort").value;
   const upd = e => e.updated || "";
   const rid = e => Number(e.rm_id) || 0;

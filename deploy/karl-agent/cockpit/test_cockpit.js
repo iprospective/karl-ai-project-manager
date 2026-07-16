@@ -65,7 +65,32 @@ assert.deepStrictEqual([...empty.keys], [], "aucun groupe");
 assert.strictEqual(empty.counts.total, 0, "total 0");
 console.log("✓ liste vide");
 
-// — 3. nextAttentionId (RM2302) —
+// — 3. tqMatch (RM2315) : recherche mots-clés dans la file « à tester » —
+const fq = />>> tqMatch[\s\S]*?(function tqMatch[\s\S]*?)\n\/\/ <<< tqMatch/.exec(html);
+assert(fq, "marqueurs >>> tqMatch / <<< tqMatch introuvables");
+const tqMatch = vm.runInNewContext("(" + fq[1] + ")");
+
+const entry = {
+  rm_id: "2302", title: "Améliorations ergonomiques design cockpit",
+  client: "iprospective", project: "pm-ai-agents", status: "a_tester_demandeur",
+  branch: "2302-ameliorations-ergonomiques-desogn-cockpit",
+  env: "ai-project-management-rm2302", tags: ["cockpit", "ux"],
+};
+assert(tqMatch(entry, ""), "requête vide → tout passe");
+assert(tqMatch(entry, "   "), "requête blanche → tout passe");
+assert(tqMatch(entry, "2302"), "match sur l'id nu");
+assert(tqMatch(entry, "RM2302"), "match sur l'id préfixé RM");
+assert(tqMatch(entry, "COCKPIT"), "insensible à la casse");
+assert(tqMatch(entry, "ameliorations"), "insensible aux accents (améliorations)");
+assert(tqMatch(entry, "cockpit ergonomiques"), "multi-mots = ET (les deux présents)");
+assert(!tqMatch(entry, "cockpit prestashop"), "multi-mots = ET (un mot absent → rejet)");
+assert(tqMatch(entry, "pm-ai-agents"), "match sur client/projet");
+assert(tqMatch(entry, "desogn"), "match sur la branche");
+assert(tqMatch(entry, "ux"), "match sur un tag");
+assert(!tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"), "champs nuls → pas de crash, rejet");
+console.log("✓ tqMatch (RM2315) : mots-clés, casse/accents, ET multi-mots");
+
+// — 4. nextAttentionId (RM2302) —
 const fa = />>> nextAttentionId[\s\S]*?(function nextAttentionId[\s\S]*?)\n\/\/ <<< nextAttentionId/.exec(html);
 assert(fa, "marqueurs >>> nextAttentionId / <<< nextAttentionId introuvables");
 const nextAttentionId = vm.runInNewContext("(" + fa[1] + ")");

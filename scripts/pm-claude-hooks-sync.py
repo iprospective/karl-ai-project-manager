@@ -17,6 +17,9 @@ Usage :
   pm-claude-hooks-sync.py --dry-run     # montre les actions sans rien modifier
   pm-claude-hooks-sync.py --check       # exit 1 si un hook PM manque (pour pm-doctor)
   pm-claude-hooks-sync.py --settings F  # fichier settings cible (défaut: ~/.claude/settings.json)
+  pm-claude-hooks-sync.py --pm-root D   # racine PM à câbler dans les hooks (défaut: le repo
+                                        # de ce script) — permet d'exécuter la copie d'un
+                                        # clone dev en pointant le core canonique déployé
 
 Garde-fous :
   - présence détectée par nom de script (un hook déjà câblé via un autre chemin —
@@ -78,7 +81,22 @@ def main() -> int:
     ap.add_argument("--dry-run", action="store_true", help="Affiche sans modifier.")
     ap.add_argument("--check", action="store_true",
                     help="Vérifie seulement : exit 1 si un hook PM manque (aucune écriture).")
+    ap.add_argument("--pm-root", type=Path, default=None,
+                    help="Racine PM câblée dans les commandes de hooks (défaut: le repo de ce "
+                         "script). Utile pour exécuter la copie d'un clone dev en pointant le "
+                         "core canonique déployé.")
     args = ap.parse_args()
+
+    global SCRIPTS
+    if args.pm_root:
+        SCRIPTS = args.pm_root.expanduser().resolve() / "scripts"
+    if not args.check:
+        absent = list(dict.fromkeys(s for _, _, s, _, _ in PM_HOOKS
+                                    if not (SCRIPTS / s).is_file()))
+        if absent:
+            print(f"✗ scripts introuvables sous {SCRIPTS} : {', '.join(absent)} — "
+                  f"rien ne sera câblé (mauvais --pm-root ? core pas déployé ?)")
+            return 1
 
     settings_path = args.settings.expanduser()
     settings = {}

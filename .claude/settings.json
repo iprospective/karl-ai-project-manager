@@ -10,7 +10,10 @@
       "Bash(./scripts/pm-task-add.py *)",
       "Bash(./scripts/pm-task-status-update.py *)",
       "Bash(./scripts/pm-task-description-update.py *)",
-      "Bash(./scripts/pm-task-link.py *)"
+      "Bash(./scripts/pm-task-link.py *)",
+      "Edit(/**)",
+      "Write(/**)",
+      "NotebookEdit(/**)"
     ]
   }
 }

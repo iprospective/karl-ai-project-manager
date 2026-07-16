@@ -23,6 +23,7 @@ Usage : pm-doctor.py [--quiet]
 """
 import argparse
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -75,6 +76,23 @@ def check_docs_structure(cfg, errors):
                               f"(pm-docs-migrate --project {ent}/{proj})")
 
 
+def check_claude_hooks(warns):
+    """Hooks PM du profil Claude Code (RM2306) : sans eux, la conso interactive
+    n'est pas tickée (tokens_total=0) → sous-comptage silencieux du ROI. Délègue
+    à pm-claude-hooks-sync.py --check (source unique du bloc canonique)."""
+    sync = Path(__file__).resolve().parent / "pm-claude-hooks-sync.py"
+    try:
+        r = subprocess.run([sys.executable, str(sync), "--check"],
+                           capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        warns.append(f"hooks Claude Code : contrôle impossible ({e})")
+        return
+    if r.returncode != 0:
+        detail = ", ".join(l.strip("- ") for l in r.stdout.splitlines() if l.startswith("  -"))
+        warns.append(f"hooks PM absents du profil Claude Code ({detail or 'voir --check'}) "
+                     f"→ conso interactive non tickée ; lancer pm-claude-hooks-sync.py")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -88,6 +106,9 @@ def main():
 
     # 3. Invariant de structure docs/ (privsep RM2043)
     check_docs_structure(cfg, errors)
+
+    # 4. Hooks PM du profil Claude Code de la machine (RM2306)
+    check_claude_hooks(warns)
 
     for (ent, proj), fm in sorted(ovs.items()):
         me = f"{ent}/{proj}"

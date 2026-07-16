@@ -137,6 +137,9 @@
   .tbadge { font-size: 11px; line-height: 1; flex: none; }
   .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; flex: none; }
   .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
+  /* RM2302 : bouton « répondre Oui » d'un item en attention */
+  .tyes { font-size: 12px; line-height: 1; color: var(--ok); border-radius: 4px; padding: 2px 4px; flex: none; }
+  .tyes:hover { background: rgba(58,210,159,.16); }
   .tabactions { display: flex; align-items: center; gap: 6px; }
   .termwrap { flex: 1; display: flex; min-height: 0; }
   /* RM1893 §2 — chips d'actions en un clic sous le terminal */
@@ -214,6 +217,9 @@
   <h1>Cockpit karl-agent</h1>
   <span class="sub" id="healthtxt">connexion…</span>
   <span class="hcnt" id="hcnt" title="Sessions ouvertes · attention · repos — clic : panneau « en cours »" onclick="switchPanel('running')"></span>
+  <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
+  <button class="mini" id="nextatt" style="display:none" onclick="gotoNextAttention()"
+    title="Attacher la prochaine session en attente d'une réponse (⚠) — cycle si plusieurs">⚠ suivante ➜</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -328,6 +334,11 @@
     <div class="lpanel" id="lp-test">
     <div class="card" id="tqcard">
       <h2>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></h2>
+      <!-- RM2315 : recherche par mots-clés, combinable avec les filtres ci-dessous -->
+      <div class="searchrow" style="margin-top:8px">
+        <input id="tq-q" type="text" placeholder="mots-clés : id, titre, projet, branche, tag…" oninput="renderTQ()">
+        <button class="mini" onclick="clearTQSearch()" title="Vider la recherche">✕</button>
+      </div>
       <div class="row2" style="margin-top:8px">
         <div>
           <label for="tq-project">Projet</label>
@@ -394,6 +405,8 @@
     <div class="tabbar">
       <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
+        <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
+          title="Répondre Oui à la question en attente de cette session (menu numéroté ou y/n)">✔ Oui</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
         <button class="mini" id="unmonbtn" onclick="removeMonitor()" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
@@ -530,6 +543,17 @@ function computeGroups(sessions, rcache) {
 }
 // <<< computeGroups
 
+// >>> nextAttentionId — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2302 : prochaine session en état « attention » à attacher. `sessions` = liste
+// plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ; cycle à partir de `attached`
+// (si attaché à une session en attention, on prend la suivante) ; null si aucune.
+function nextAttentionId(sessions, attached) {
+  const att = sessions.filter(s => s.state === "attention").map(s => s.rm_id);
+  if (!att.length) return null;
+  return att[(att.indexOf(attached) + 1) % att.length];
+}
+// <<< nextAttentionId
+
 async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
@@ -543,6 +567,7 @@ async function refreshSessions() {
     for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
     const { keys, groups, counts } = computeGroups(sessions, resolveCache);
+    orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
     if (!sessions.length && !reviewTabs.length)
@@ -571,9 +596,13 @@ async function refreshSessions() {
         it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
-          badge + '<span class="tkill" title="Fermer la session">✕</span>';
+          badge +
+          (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
+          '<span class="tkill" title="Fermer la session">✕</span>';
         it.onclick = () => attach(s.rm_id);
         it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
+        const ty = it.querySelector(".tyes");     // RM2302 : « Oui » direct depuis la liste
+        if (ty) ty.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
         g.appendChild(it);
       }
       list.appendChild(g);
@@ -607,6 +636,8 @@ async function refreshSessions() {
     nc.textContent = counts.total; nc.style.display = counts.total ? "" : "none";
     const na = document.getElementById("ln-att");
     na.textContent = "⚠" + counts.attention; na.style.display = counts.attention ? "" : "none";
+    // RM2302 : bouton « ⚠ suivante » visible dès qu'une session attend une réponse
+    document.getElementById("nextatt").style.display = counts.attention ? "" : "none";
     // titre navigateur : signale d'un coup d'œil les sessions qui attendent
     document.title = (counts.attention ? "⚠" + counts.attention + " " : "") + "Cockpit karl-agent";
     renderCurTitle();
@@ -630,6 +661,30 @@ function renderCurTitle() {
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
+  // RM2302 : « ✔ Oui » dans la barre du terminal quand la session attachée attend
+  const st = attached ? (sessCache[attached] || {}).state : null;
+  document.getElementById("yesbtn").style.display = st === "attention" ? "" : "none";
+}
+
+// RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
+function gotoNextAttention() {
+  const id = nextAttentionId(orderedCache, attached);
+  if (!id) { toast("Aucune session n'attend de réponse"); return; }
+  attach(id);
+}
+// RM2302 : répondre Oui à la question en attente d'une session (POST /approve —
+// le serveur re-capture le pane et refuse si la question a disparu).
+async function approve(rmId) {
+  if (!rmId) return;
+  try {
+    const r = await api("/approve", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: rmId }),
+    });
+    toast("✔ Oui envoyé à " + (/^\d+$/.test(String(rmId)) ? "RM" + rmId : rmId) +
+      (r.sent === "y" ? " (y + Entrée)" : " (option 1)"));
+    setTimeout(refreshSessions, 900);   // laisse le TUI avancer avant de re-peindre
+  } catch (e) { toast(e.message, true); }
 }
 
 // ----- §1 : résolution rm_id → client/projet/cwd/prompt -----
@@ -832,6 +887,7 @@ const wsCache = {};
 const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
 let metaTicket = null;  // RM2173 : ticket affiché dans l'encart (≠ session attachée)
 let groupsCache = {};   // RM2173 : clé client/projet → sessions du groupe
+let orderedCache = [];  // RM2302 : sessions à plat, dans l'ordre d'affichage
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
@@ -1415,6 +1471,11 @@ function renderReviewPane() {
       '</div>';
   } else if (q) {
     h += '<div style="color:var(--muted)">workspace hors layout repos/+envs/ — normaliser d\u2019abord (mmi-pm env migrate) pour déployer ici.</div>';
+  } else if (tqLoaded && r && r.found) {
+    // RM2238 : le ticket a quitté la file « à tester » (clôturé, renvoyé, statut changé).
+    // Sans ça, le panneau restait bloqué sur un « chargement… » trompeur qui ne se résout jamais.
+    h += '<div style="color:var(--muted)">Ce ticket n\u2019est plus dans la file de test (statut : <span class="pill">' + esc(r.status || "?") + '</span>) — clôturé ou renvoyé.</div>';
+    h += '<div class="rels"><button class="chip" onclick="closeReview(currentReview)">✖ fermer ce panneau</button></div>';
   } else if (tqAll.length) {
     h += '<div style="color:var(--muted)">ticket hors file de test — env de session non géré depuis cette fiche.</div>';
   } else {
@@ -1449,12 +1510,14 @@ async function pmRun(name, args, opts) {
   return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 let tqAll = [];   // file brute (le rendu applique filtres + tri, RM2210)
+let tqLoaded = false; // RM2238 : la file /pm/test-queue a-t-elle été chargée au moins une fois ?
 async function loadTestQueue() {
   const ul = document.getElementById("tq-list");
   ul.innerHTML = '<li style="color:var(--muted)">chargement…</li>';
   try {
     const { queue } = await api("/pm/test-queue");
     tqAll = queue;
+    tqLoaded = true;
     tqCache = {};
     queue.forEach(e => { tqCache[String(e.rm_id)] = e; });
     if (currentReview) renderReviewPane();
@@ -1470,15 +1533,34 @@ async function loadTestQueue() {
     toast(err.message, true);
   }
 }
+// >>> tqMatch — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2315 : match mots-clés d'une entrée de la file de test. Tous les mots de la
+// requête doivent se retrouver (ET), sans casse ni accents, dans : id (avec ou
+// sans préfixe RM), titre, client/projet, branche, env, statut, tags.
+function tqMatch(e, q) {
+  const norm = s => String(s == null ? "" : s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+  const words = norm(q).split(/\s+/).filter(Boolean);
+  if (!words.length) return true;
+  const hay = norm(["rm" + e.rm_id, e.title, (e.client || "") + "/" + (e.project || ""),
+    e.branch, e.env, e.status, (e.tags || []).join(" ")].join(" "));
+  return words.every(w => hay.includes(w));
+}
+// <<< tqMatch
+function clearTQSearch() {
+  const i = document.getElementById("tq-q");
+  i.value = ""; renderTQ(); i.focus();
+}
 function renderTQ() {
   const ul = document.getElementById("tq-list"), cnt = document.getElementById("tq-count");
   const fp = document.getElementById("tq-project").value;
   const fs = document.getElementById("tq-status").value;
   const fd = document.getElementById("tq-deployable").checked;
+  const fq = document.getElementById("tq-q").value;   // RM2315 : mots-clés
   let queue = tqAll.filter(e =>
     (!fp || (e.client || "?") + "/" + (e.project || "?") === fp) &&
     (!fs || e.status === fs) &&
-    (!fd || e.deployable));
+    (!fd || e.deployable) &&
+    tqMatch(e, fq));
   const sort = document.getElementById("tq-sort").value;
   const upd = e => e.updated || "";
   const rid = e => Number(e.rm_id) || 0;

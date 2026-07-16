@@ -102,6 +102,8 @@ echo
 echo "install-mmi-pm: instance $CORE_DIR installée$([ "$DRY" = 1 ] && echo ' [dry-run]')."
 echo "  • commande : mmi-pm <core|index|list|doctor …>  (sur le PATH)"
 echo "  • déploiement d'une MAJ : sudo mmi-pm core update"
+echo "  • profil Claude Code (par user de travail) : python3 $CORE_DIR/scripts/pm-skills-sync.py"
+echo "    + python3 $CORE_DIR/scripts/pm-claude-hooks-sync.py  (tracking conso — RM2306)"
 if [ "$NO_LOCK" = 1 ]; then
   echo "  • verrou non posé → 'sudo $CORE_DIR/scripts/core-lock lock' quand prêt"
 fi

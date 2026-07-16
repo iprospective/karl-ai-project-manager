@@ -90,4 +90,23 @@ assert(tqMatch(entry, "ux"), "match sur un tag");
 assert(!tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"), "champs nuls → pas de crash, rejet");
 console.log("✓ tqMatch (RM2315) : mots-clés, casse/accents, ET multi-mots");
 
+// — 4. nextAttentionId (RM2302) —
+const fa = />>> nextAttentionId[\s\S]*?(function nextAttentionId[\s\S]*?)\n\/\/ <<< nextAttentionId/.exec(html);
+assert(fa, "marqueurs >>> nextAttentionId / <<< nextAttentionId introuvables");
+const nextAttentionId = vm.runInNewContext("(" + fa[1] + ")");
+
+const flat = [
+  { rm_id: "1", state: "working" },
+  { rm_id: "2", state: "attention" },
+  { rm_id: "3", state: "idle" },
+  { rm_id: "4", state: "attention" },
+];
+assert.strictEqual(nextAttentionId([], null), null, "liste vide → null");
+assert.strictEqual(nextAttentionId([{ rm_id: "1", state: "idle" }], null), null, "aucune attention → null");
+assert.strictEqual(nextAttentionId(flat, null), "2", "rien d'attaché → première attention");
+assert.strictEqual(nextAttentionId(flat, "1"), "2", "attaché hors attention → première attention");
+assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attention → la suivante");
+assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
+console.log("✓ nextAttentionId (RM2302) : cycle sur les sessions en attention");
+
 console.log("OK — tous les tests cockpit passent");

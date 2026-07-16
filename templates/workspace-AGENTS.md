@@ -9,6 +9,16 @@
 
   Garder ce template et le fichier déployé SYNCHRONES — c'est ce qui empêche les
   instances de la fédération de dériver sur un onboarding périmé.
+
+  Voir aussi : templates/workspace-claude-settings.json (RM2302) — settings Claude
+  Code à committer dans `.claude/settings.json` à la racine d'un workspace projet
+  pour auto-autoriser les éditions (Edit/Write/NotebookEdit) dans le workspace et
+  ses sous-dossiers, au lieu d'un prompt de permission à chaque fois. NB : un
+  AGENTS.md/CLAUDE.md ne PEUT PAS accorder de permissions (contexte d'instructions,
+  pas de configuration) — c'est le settings.json qui fait foi. Un symlink pointant
+  hors du workspace (ex. `.mmi-pm`) n'est pas couvert par `Edit(/**)` : ajouter sa
+  cible à `permissions.additionalDirectories` si des éditions directes y sont
+  nécessaires (les écritures PM passent normalement par les scripts pm-*, en Bash).
 -->
 # AGENTS.md — racine des workspaces
 

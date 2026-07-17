@@ -119,6 +119,8 @@
   .tdot.st-working { background: var(--ok); }
   .tdot.st-idle { background: var(--warn); }
   .tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
+  /* RM2327 : question à choix multiple (≠ oui/non) — en attente aussi, réponse humaine */
+  .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
   @keyframes kblink { 50% { opacity: .25; } }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
@@ -532,7 +534,7 @@ function switchPanel(name) {
 // récente, puis alphabétique.
 function computeGroups(sessions, rcache) {
   const groups = new Map();
-  const counts = { total: sessions.length, attention: 0, idle: 0, working: 0 };
+  const counts = { total: sessions.length, attention: 0, choice: 0, idle: 0, working: 0 };
   for (const s of sessions) {
     let key = (s.client && s.project) ? s.client + "/" + s.project : null;
     if (!key) {
@@ -542,10 +544,11 @@ function computeGroups(sessions, rcache) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
     if (s.state === "attention") counts.attention++;
+    else if (s.state === "choice") counts.choice++;   // RM2327 : choix multiple
     else if (s.state === "idle") counts.idle++;
     else counts.working++;
   }
-  const att = g => g.some(s => s.state === "attention") ? 1 : 0;
+  const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
   const keys = [...groups.keys()].sort((a, b) =>
     att(groups.get(b)) - att(groups.get(a)) ||
@@ -556,11 +559,11 @@ function computeGroups(sessions, rcache) {
 // <<< computeGroups
 
 // >>> nextAttentionId — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2302 : prochaine session en état « attention » à attacher. `sessions` = liste
-// plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ; cycle à partir de `attached`
-// (si attaché à une session en attention, on prend la suivante) ; null si aucune.
+// RM2302/RM2327 : prochaine session EN ATTENTE (⚠ oui/non OU ❓ choix multiple) à
+// attacher. `sessions` = liste plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ;
+// cycle à partir de `attached` ; null si aucune.
 function nextAttentionId(sessions, attached) {
-  const att = sessions.filter(s => s.state === "attention").map(s => s.rm_id);
+  const att = sessions.filter(s => s.state === "attention" || s.state === "choice").map(s => s.rm_id);
   if (!att.length) return null;
   return att[(att.indexOf(attached) + 1) % att.length];
 }
@@ -592,8 +595,10 @@ async function refreshSessions() {
       const head = document.createElement("div");
       head.className = "rghead";
       const gAtt = sess.filter(s => s.state === "attention").length;
+      const gCho = sess.filter(s => s.state === "choice").length;
       head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
-        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') + '</span>';
+        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
+        (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
       head.title = key + "\n(clic : infos client/projet)";
       head.onclick = () => showProject(key);
       g.appendChild(head);
@@ -603,6 +608,7 @@ async function refreshSessions() {
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
+          : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
           : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
         const auto = s.auto_yes_until
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
@@ -644,18 +650,20 @@ async function refreshSessions() {
     // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
     document.getElementById("hcnt").innerHTML =
       '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
-      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="requièrent ton attention">⚠ ' + counts.attention + '</span>' +
+      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="questions OUI/NON en attente">⚠ ' + counts.attention + '</span>' +
+      (counts.choice ? '<span class="pill" style="color:var(--warn);border-color:var(--warn)" title="questions à choix multiple en attente (réponse dans le terminal)">❓ ' + counts.choice + '</span>' : '') +
       '<span class="pill" title="au repos">💤 ' + counts.idle + '</span>';
     const nc = document.getElementById("ln-count");
     nc.textContent = counts.total; nc.style.display = counts.total ? "" : "none";
     const na = document.getElementById("ln-att");
-    na.textContent = "⚠" + counts.attention; na.style.display = counts.attention ? "" : "none";
+    const waiting = counts.attention + counts.choice;   // RM2327 : ❓ compte aussi
+    na.textContent = "⚠" + waiting; na.style.display = waiting ? "" : "none";
     // RM2302 : bouton « ⚠ suivante » visible dès qu'une session attend une réponse
-    document.getElementById("nextatt").style.display = counts.attention ? "" : "none";
+    document.getElementById("nextatt").style.display = waiting ? "" : "none";
     // RM2327 : « ✔ tout » visible dès 2 sessions en attention (1 seule = ✔ unitaire)
     document.getElementById("yesall").style.display = counts.attention > 1 ? "" : "none";
     // titre navigateur : signale d'un coup d'œil les sessions qui attendent
-    document.title = (counts.attention ? "⚠" + counts.attention + " " : "") + "Cockpit karl-agent";
+    document.title = (waiting ? "⚠" + waiting + " " : "") + "Cockpit karl-agent";
     renderCurTitle();
   } catch (e) { /* health affiche déjà l'erreur de connexion */ }
 }
@@ -669,7 +677,8 @@ function renderCurTitle() {
     el.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
       (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
       '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : tmuxName(attached)) + '</span>' +
-      (s.state === "attention" ? '<span class="tbadge">⚠</span>' : "");
+      (s.state === "attention" ? '<span class="tbadge">⚠</span>'
+        : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>' : "");
   } else if (currentReview) {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
@@ -958,7 +967,8 @@ function tabTip(s) {
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
   if (s.attached) t += " · attaché";
-  if (s.state === "attention") t += "\n⚠ demande une réponse (permission/question)";
+  if (s.state === "attention") t += "\n⚠ demande une réponse OUI/NON (permission/question)";
+  else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";
   else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
   (s.registry_conflicts || []).forEach(c => {
     t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", ");

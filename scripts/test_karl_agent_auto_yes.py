@@ -48,12 +48,22 @@ ka._list_sessions = lambda: [{"rm_id": rm} for rm in PANES]
 ka.ANSWERS_LOG = pathlib.Path(tempfile.mkdtemp()) / "answers.jsonl"
 
 MENU = "Do you want to proceed?\n❯ 1. Yes\n  2. No"
+CHOICE = "Quelle approche ?\n❯ 1. Refactor complet\n  2. Patch minimal"
+
+# — états de session (RM2327) : oui/non → attention, choix multiple → choice —
+PANES.update({"21": MENU, "22": CHOICE, "23": "$ idle"})
+check("état : oui/non → attention", ka._session_state("21", "claude") == "attention")
+check("état : choix multiple → choice", ka._session_state("22", "claude") == "choice")
+check("état : rien → idle", ka._session_state("23", "claude") == "idle")
+PANES.clear()
+SENT.clear()
 
 # — op_approve_all : répond aux sessions en question, ignore les autres —
-PANES.update({"11": MENU, "12": "$ idle", "13": "Overwrite? (y/n)"})
+PANES.update({"11": MENU, "12": "$ idle", "13": "Overwrite? (y/n)", "14": CHOICE})
 r = ka.op_approve_all({})
 check("tout : 2 sessions répondues", sorted(a["rm_id"] for a in r["approved"]) == ["11", "13"])
-check("tout : la session sans question est ignorée", r["skipped"] == ["12"])
+check("tout : sans question ET choix multiple ignorés (14 jamais auto-répondu)",
+      sorted(r["skipped"]) == ["12", "14"])
 check("tout : menu → « 1 », y/n → « y »",
       {a["rm_id"]: a["sent"] for a in r["approved"]} == {"11": "1", "13": "y"})
 

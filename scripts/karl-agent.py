@@ -1108,17 +1108,23 @@ def op_resume(payload: dict) -> dict:
 #   idle      : invite au repos (tour fini, ou en attente d'une consigne).
 _ATTENTION_MARKERS = ("Do you want", "Would you like", "(y/n)", "❯ 1.", "│ 1. Yes")
 _WORKING_MARKERS = ("esc to interrupt", "ctrl+b to run in background", "Compacting")
-# RM2302 : marqueurs d'un menu numéroté (dialogue TUI claude — la touche chiffre
-# sélectionne et valide seule, sans Enter), sous-ensemble des marqueurs attention.
-_YES_MENU_MARKERS = ("❯ 1.", "│ 1. Yes")
+# RM2302/RM2327 : marqueurs d'un menu numéroté dont l'option 1 est bien un OUI
+# (la touche chiffre sélectionne et valide seule, sans Enter). Un menu numéroté
+# SANS « 1. Yes/Oui » est un choix multiple → état "choice", jamais auto-répondu.
+_YES_MENU_MARKERS = ("1. Yes", "1. Oui")
+_MENU_MARKERS = ("❯ 1.", "│ 1.")
 
 
 def _approve_answer(tail: str) -> str | None:
     """RM2302 : réponse affirmative à envoyer au pane qui pose une question.
-    "1" = menu numéroté (envoyer le chiffre seul) ; "y" = prompt texte y/n
-    (Enter requis derrière) ; None = pas de question visible dans le tail."""
+    "1" = menu numéroté dont l'option 1 est Yes/Oui (chiffre seul) ; "y" =
+    prompt texte y/n ou question sans menu (Enter derrière) ; None = pas de
+    question OU choix multiple non Oui/Non (RM2327 — on ne choisit pas à
+    l'aveugle dans un menu)."""
     if any(m in tail for m in _YES_MENU_MARKERS):
         return "1"
+    if any(m in tail for m in _MENU_MARKERS):
+        return None     # menu numéroté ≠ oui/non → décision humaine
     if any(m in tail for m in _ATTENTION_MARKERS):
         return "y"
     return None
@@ -1130,7 +1136,10 @@ def _session_state(rm_id: str, engine) -> str:
         return "idle"
     tail = "\n".join(out.rstrip().splitlines()[-15:])
     if any(m in tail for m in _ATTENTION_MARKERS):
-        return "attention"
+        # RM2327 : question OUI/NON auto-répondable → "attention" ; menu à choix
+        # multiple (ou forme inconnue de réponse) → "choice" (en attente aussi,
+        # mais réponse humaine requise — icône distincte, hors auto-oui/✔ tout).
+        return "attention" if _approve_answer(tail) else "choice"
     if any(m in tail for m in _WORKING_MARKERS):
         return "working"
     if engine not in (None, "claude"):

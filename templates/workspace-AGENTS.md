@@ -9,16 +9,6 @@
 
   Garder ce template et le fichier déployé SYNCHRONES — c'est ce qui empêche les
   instances de la fédération de dériver sur un onboarding périmé.
-
-  Voir aussi : templates/workspace-claude-settings.json (RM2302) — settings Claude
-  Code à committer dans `.claude/settings.json` à la racine d'un workspace projet
-  pour auto-autoriser les éditions (Edit/Write/NotebookEdit) dans le workspace et
-  ses sous-dossiers, au lieu d'un prompt de permission à chaque fois. NB : un
-  AGENTS.md/CLAUDE.md ne PEUT PAS accorder de permissions (contexte d'instructions,
-  pas de configuration) — c'est le settings.json qui fait foi. Un symlink pointant
-  hors du workspace (ex. `.mmi-pm`) n'est pas couvert par `Edit(/**)` : ajouter sa
-  cible à `permissions.additionalDirectories` si des éditions directes y sont
-  nécessaires (les écritures PM passent normalement par les scripts pm-*, en Bash).
 -->
 # AGENTS.md — racine des workspaces
 
@@ -43,6 +33,31 @@ suis les instructions propres au dossier.
 > contradictoire. Rappel : le protocole worker ne se déclenche que sur une
 > invocation explicite « traite la tâche RM<id> » — une session méta/interactive
 > n'est pas concernée.
+
+### Deux copies du repo PM : PROD vs DEV — ne pas les confondre
+
+Sur MathouDell le repo PM (GitLab `iprospective/ai-artificial-intelligence/ai-pm-core`,
+project id **138**) existe en **deux copies de travail, intentionnellement** — ce
+n'est PAS un double-checkout cassé :
+
+- **`/zfs/workspaces/.mmi-pm-core` = la PROD PM.** C'est elle qui fait tourner le
+  système PM en live (scripts `pm-*.py`, hooks, NORMS de référence). **Root-owned
+  volontairement** : depuis l'hôte en tant que `mathieu` tu **ne peux pas** y écrire
+  ni y `git fetch` (permission refusée sur `.git`) — c'est normal, **ne force pas
+  avec sudo** sans feu vert. L'alias `…/ai/project-management` (le lien `.mmi-pm` de
+  plein de projets) pointe ici.
+- **`/zfs/workspaces/iprospective/ai-project-management` = l'ENV de DEV PM**
+  (`mathieu:mathieu`). C'est là qu'on **développe l'outillage PM** et là que
+  `pm-task-add` & co écrivent quand le projet est résolu via `--project`. Des
+  changements non-committés y sont du **WIP normal**, pas une anomalie.
+
+**Pousser le repo PM** : le remote de la copie dev est **HTTPS + token**, or les
+credential-helpers à token (`git-credential-pm-*`) n'existent **que dans le
+conteneur `dev`**. Depuis l'hôte, un push du repo PM **échoue en auth** → **pousse
+depuis le conteneur** (`ssh mathieu@dev.lxc`). `main` protégée (RM2030) →
+`git push origin main:dev` puis **MR dev→main** (token *manager*, API projet
+id **138**, résolution par match **exact** du `path_with_namespace`). Symptôme
+typique quand on l'ignore : « auto-push différé » qui s'accumule.
 
 ## Si oui — onboarding obligatoire AVANT toute action
 

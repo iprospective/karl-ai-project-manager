@@ -621,15 +621,11 @@ def op_send(payload: dict) -> dict:
     return {"rm_id": rm_id, "sent": True}
 
 
-def op_approve(payload: dict) -> dict:
-    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non
-    (menu numéroté claude ou prompt y/n). Re-capture le pane au moment de
-    l'appel et refuse (409) si aucune question n'est visible — l'état a pu
-    changer entre l'affichage UI et le clic. Chaque réponse envoyée est
-    journalisée dans answers.jsonl (socle historique Q/R — RM2305)."""
-    rm_id = _require_rm_id(payload)
-    if not _has_session(rm_id):
-        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
+    """RM2302/RM2327 : re-capture le pane et répond « oui » si une question y est
+    visible. Retourne la réponse envoyée ("1" menu / "y" prompt) ou None (pas de
+    question). Lève ApiError sur échec tmux. Journalise chaque réponse dans
+    answers.jsonl avec sa provenance (manuel / tout / auto) — socle RM2305."""
     name = _session_name(rm_id)
     rc, out, err = _tmux("capture-pane", "-p", "-t", name)
     if rc != 0:
@@ -637,7 +633,7 @@ def op_approve(payload: dict) -> dict:
     tail = "\n".join(out.rstrip().splitlines()[-15:])
     answer = _approve_answer(tail)
     if answer is None:
-        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
+        return None
     rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", answer)
     if rc != 0:
         raise ApiError(500, f"send-keys a échoué : {err.strip()}")
@@ -647,11 +643,100 @@ def op_approve(payload: dict) -> dict:
         ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with ANSWERS_LOG.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
-                                "sent": answer, "question": tail},
-                               ensure_ascii=False) + "\n")
+                                "sent": answer, "source": source,
+                                "question": tail}, ensure_ascii=False) + "\n")
     except OSError:
         pass
+    return answer
+
+
+def op_approve(payload: dict) -> dict:
+    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non.
+    Refuse (409) si aucune question n'est visible — l'état a pu changer entre
+    l'affichage UI et le clic."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    answer = _send_approval(rm_id, source="manuel")
+    if answer is None:
+        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
     return {"rm_id": rm_id, "approved": True, "sent": answer}
+
+
+def op_approve_all(payload: dict) -> dict:
+    """RM2327 : répond « Oui » d'un coup à TOUTES les sessions qui posent une
+    question. Best-effort par session (une session en échec tmux n'empêche pas
+    les autres) ; celles sans question sont simplement ignorées."""
+    sent, skipped = [], []
+    for s in _list_sessions():
+        rm_id = s["rm_id"]
+        try:
+            answer = _send_approval(rm_id, source="tout")
+        except ApiError:
+            answer = None
+        if answer:
+            sent.append({"rm_id": rm_id, "sent": answer})
+        else:
+            skipped.append(rm_id)
+    return {"approved": sent, "skipped": skipped}
+
+
+# ── Auto-oui par session (RM2327) ────────────────────────────────────────────
+# La session répond « oui » seule à ses questions, pour une durée limitée
+# (timeout obligatoire — pas d'auto-approbation permanente). Boucle de fond
+# côté serveur : fonctionne même navigateur fermé. _AUTO_YES : rm_id → epoch
+# d'expiration (dict, opérations atomiques sous GIL).
+_AUTO_YES: dict = {}
+AUTO_YES_POLL_SECONDS = int(os.environ.get("KARL_AGENT_AUTO_YES_POLL", "3"))
+AUTO_YES_MAX_MINUTES = 240
+
+
+def op_auto_yes(payload: dict) -> dict:
+    """Arme (minutes > 0) ou désarme (minutes = 0) l'auto-oui d'une session."""
+    rm_id = _require_rm_id(payload)
+    try:
+        minutes = float(payload.get("minutes"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "minutes requis (nombre ; 0 = désactiver)")
+    if minutes <= 0:
+        _AUTO_YES.pop(rm_id, None)
+        return {"rm_id": rm_id, "auto_yes_until": None}
+    if minutes > AUTO_YES_MAX_MINUTES:
+        raise ApiError(400, f"minutes > {AUTO_YES_MAX_MINUTES} — l'auto-oui est "
+                            f"volontairement borné (timeout obligatoire)")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    until = time.time() + minutes * 60
+    _AUTO_YES[rm_id] = until
+    return {"rm_id": rm_id, "auto_yes_until": until}
+
+
+def _auto_yes_tick(now=None) -> list:
+    """Une passe de la boucle auto-oui : purge les entrées expirées ou dont la
+    session a disparu, répond aux questions des autres. Retourne [(rm_id, réponse)].
+    Séparée de la boucle pour être testable sans thread ni horloge."""
+    now = time.time() if now is None else now
+    sent = []
+    for rm_id, until in list(_AUTO_YES.items()):
+        if until <= now or not _has_session(rm_id):
+            _AUTO_YES.pop(rm_id, None)
+            continue
+        try:
+            answer = _send_approval(rm_id, source="auto")
+        except ApiError:
+            continue        # tmux grognon : on retentera à la prochaine passe
+        if answer:
+            sent.append((rm_id, answer))
+    return sent
+
+
+def _auto_yes_loop():
+    while True:
+        time.sleep(AUTO_YES_POLL_SECONDS)
+        try:
+            _auto_yes_tick()
+        except Exception as e:  # noqa: BLE001 — la boucle ne meurt jamais
+            sys.stderr.write(f"auto-oui: passe en échec (non fatal) : {e}\n")
 
 
 def op_buffer() -> str:
@@ -1095,6 +1180,10 @@ def _sessions_view(qs: dict) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
+        au = _AUTO_YES.get(s["rm_id"])
+        if au and au > time.time():
+            s["auto_yes_until"] = au
         # RM2166 — encart session : branches/worktrees de la session (registre
         # pm_session) + conflits (un rm_id référencé par PLUSIEURS sessions).
         rec = reg_by_csid.get(s.get("session_id"))
@@ -2461,6 +2550,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_send(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
+            if path == "/approve-all":
+                return self._send_json(200, op_approve_all(payload))
+            if path == "/auto-yes":
+                return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":
@@ -2529,6 +2622,9 @@ def main():
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
+
+    # RM2327 : boucle auto-oui (daemon — meurt avec le serveur)
+    threading.Thread(target=_auto_yes_loop, name="auto-yes", daemon=True).start()
 
     sys.stderr.write(
         f"karl-agent en écoute sur http://{HOST}:{PORT} "

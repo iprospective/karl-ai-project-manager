@@ -65,4 +65,74 @@ assert.deepStrictEqual([...empty.keys], [], "aucun groupe");
 assert.strictEqual(empty.counts.total, 0, "total 0");
 console.log("✓ liste vide");
 
+// — 3. mdToHtml (RM2309) —
+const fmd = />>> mdToHtml[\s\S]*?(function mdToHtml[\s\S]*?)\n\/\/ <<< mdToHtml/.exec(html);
+assert(fmd, "marqueurs >>> mdToHtml / <<< mdToHtml introuvables");
+const mdToHtml = vm.runInNewContext("(" + fmd[1] + ")");
+
+// sécurité : tout HTML source est échappé, aucun lien javascript:
+let h = mdToHtml('<script>alert(1)</script> et <img src=x onerror=y>');
+assert(!/<script|<img/.test(h) && h.includes("&lt;script&gt;"), "XSS échappé");
+h = mdToHtml("[clic](javascript:alert(1)) et [ok](https://ex.te/p)");
+assert(!h.includes('href="javascript:'), "javascript: refusé");
+assert(h.includes('href="https://ex.te/p"') && h.includes('rel="noopener"'), "https autorisé");
+console.log("✓ mdToHtml : sûreté (échappement + whitelist de liens)");
+
+// structure : titres, listes + cases, code, gras, tableau, citation, hr, frontmatter
+h = mdToHtml("---\ntitle: X\n---\n# Titre\n\n## Sous *titre*\n\ntexte **fort** et `code`\n\n- [x] fait\n- [ ] à faire\n1. un\n\n> note\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\nlet x = '<b>'\n```");
+for (const frag of ['<pre class="mdfm">title: X</pre>', "<h1>Titre</h1>", "<h2>Sous <i>titre</i></h2>",
+  "<b>fort</b>", "<code>code</code>", "<li>☑ fait</li>", "<li>☐ à faire</li>", "<ol><li>un</li></ol>",
+  "<blockquote>note</blockquote>", "<hr>", "<th>a</th>", "<td>2</td>", "<pre>let x = '&lt;b&gt;'</pre>"])
+  assert(h.includes(frag), "fragment attendu : " + frag);
+assert(h.startsWith('<div class="mdview">'), "wrapper mdview");
+console.log("✓ mdToHtml : titres, listes/cases, code, tableau, citation, hr, frontmatter");
+
+// paragraphes multilignes joints, texte simple sans balisage parasite
+h = mdToHtml("ligne un\nligne deux\n\nautre para");
+assert(h.includes("<p>ligne un ligne deux</p>") && h.includes("<p>autre para</p>"), "paragraphes");
+console.log("✓ mdToHtml : paragraphes");
+// — 4. tqMatch (RM2315) : recherche mots-clés dans la file « à tester » —
+const fq = />>> tqMatch[\s\S]*?(function tqMatch[\s\S]*?)\n\/\/ <<< tqMatch/.exec(html);
+assert(fq, "marqueurs >>> tqMatch / <<< tqMatch introuvables");
+const tqMatch = vm.runInNewContext("(" + fq[1] + ")");
+
+const entry = {
+  rm_id: "2302", title: "Améliorations ergonomiques design cockpit",
+  client: "iprospective", project: "pm-ai-agents", status: "a_tester_demandeur",
+  branch: "2302-ameliorations-ergonomiques-desogn-cockpit",
+  env: "ai-project-management-rm2302", tags: ["cockpit", "ux"],
+};
+assert(tqMatch(entry, ""), "requête vide → tout passe");
+assert(tqMatch(entry, "   "), "requête blanche → tout passe");
+assert(tqMatch(entry, "2302"), "match sur l'id nu");
+assert(tqMatch(entry, "RM2302"), "match sur l'id préfixé RM");
+assert(tqMatch(entry, "COCKPIT"), "insensible à la casse");
+assert(tqMatch(entry, "ameliorations"), "insensible aux accents (améliorations)");
+assert(tqMatch(entry, "cockpit ergonomiques"), "multi-mots = ET (les deux présents)");
+assert(!tqMatch(entry, "cockpit prestashop"), "multi-mots = ET (un mot absent → rejet)");
+assert(tqMatch(entry, "pm-ai-agents"), "match sur client/projet");
+assert(tqMatch(entry, "desogn"), "match sur la branche");
+assert(tqMatch(entry, "ux"), "match sur un tag");
+assert(!tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"), "champs nuls → pas de crash, rejet");
+console.log("✓ tqMatch (RM2315) : mots-clés, casse/accents, ET multi-mots");
+
+// — 5. nextAttentionId (RM2302) —
+const fa = />>> nextAttentionId[\s\S]*?(function nextAttentionId[\s\S]*?)\n\/\/ <<< nextAttentionId/.exec(html);
+assert(fa, "marqueurs >>> nextAttentionId / <<< nextAttentionId introuvables");
+const nextAttentionId = vm.runInNewContext("(" + fa[1] + ")");
+
+const flat = [
+  { rm_id: "1", state: "working" },
+  { rm_id: "2", state: "attention" },
+  { rm_id: "3", state: "idle" },
+  { rm_id: "4", state: "attention" },
+];
+assert.strictEqual(nextAttentionId([], null), null, "liste vide → null");
+assert.strictEqual(nextAttentionId([{ rm_id: "1", state: "idle" }], null), null, "aucune attention → null");
+assert.strictEqual(nextAttentionId(flat, null), "2", "rien d'attaché → première attention");
+assert.strictEqual(nextAttentionId(flat, "1"), "2", "attaché hors attention → première attention");
+assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attention → la suivante");
+assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
+console.log("✓ nextAttentionId (RM2302) : cycle sur les sessions en attention");
+
 console.log("OK — tous les tests cockpit passent");

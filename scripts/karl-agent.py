@@ -621,15 +621,11 @@ def op_send(payload: dict) -> dict:
     return {"rm_id": rm_id, "sent": True}
 
 
-def op_approve(payload: dict) -> dict:
-    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non
-    (menu numéroté claude ou prompt y/n). Re-capture le pane au moment de
-    l'appel et refuse (409) si aucune question n'est visible — l'état a pu
-    changer entre l'affichage UI et le clic. Chaque réponse envoyée est
-    journalisée dans answers.jsonl (socle historique Q/R — RM2305)."""
-    rm_id = _require_rm_id(payload)
-    if not _has_session(rm_id):
-        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+def _send_approval(rm_id: str, source: str = "manuel") -> str | None:
+    """RM2302/RM2327 : re-capture le pane et répond « oui » si une question y est
+    visible. Retourne la réponse envoyée ("1" menu / "y" prompt) ou None (pas de
+    question). Lève ApiError sur échec tmux. Journalise chaque réponse dans
+    answers.jsonl avec sa provenance (manuel / tout / auto) — socle RM2305."""
     name = _session_name(rm_id)
     rc, out, err = _tmux("capture-pane", "-p", "-t", name)
     if rc != 0:
@@ -637,7 +633,7 @@ def op_approve(payload: dict) -> dict:
     tail = "\n".join(out.rstrip().splitlines()[-15:])
     answer = _approve_answer(tail)
     if answer is None:
-        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
+        return None
     rc, _, err = _tmux("send-keys", "-t", name, "-l", "--", answer)
     if rc != 0:
         raise ApiError(500, f"send-keys a échoué : {err.strip()}")
@@ -647,11 +643,100 @@ def op_approve(payload: dict) -> dict:
         ANSWERS_LOG.parent.mkdir(parents=True, exist_ok=True)
         with ANSWERS_LOG.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "rm_id": rm_id,
-                                "sent": answer, "question": tail},
-                               ensure_ascii=False) + "\n")
+                                "sent": answer, "source": source,
+                                "question": tail}, ensure_ascii=False) + "\n")
     except OSError:
         pass
+    return answer
+
+
+def op_approve(payload: dict) -> dict:
+    """RM2302 : répond « Oui » à une session qui pose une question Oui/Non.
+    Refuse (409) si aucune question n'est visible — l'état a pu changer entre
+    l'affichage UI et le clic."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    answer = _send_approval(rm_id, source="manuel")
+    if answer is None:
+        raise ApiError(409, "la session ne pose pas (ou plus) de question — rien envoyé")
     return {"rm_id": rm_id, "approved": True, "sent": answer}
+
+
+def op_approve_all(payload: dict) -> dict:
+    """RM2327 : répond « Oui » d'un coup à TOUTES les sessions qui posent une
+    question. Best-effort par session (une session en échec tmux n'empêche pas
+    les autres) ; celles sans question sont simplement ignorées."""
+    sent, skipped = [], []
+    for s in _list_sessions():
+        rm_id = s["rm_id"]
+        try:
+            answer = _send_approval(rm_id, source="tout")
+        except ApiError:
+            answer = None
+        if answer:
+            sent.append({"rm_id": rm_id, "sent": answer})
+        else:
+            skipped.append(rm_id)
+    return {"approved": sent, "skipped": skipped}
+
+
+# ── Auto-oui par session (RM2327) ────────────────────────────────────────────
+# La session répond « oui » seule à ses questions, pour une durée limitée
+# (timeout obligatoire — pas d'auto-approbation permanente). Boucle de fond
+# côté serveur : fonctionne même navigateur fermé. _AUTO_YES : rm_id → epoch
+# d'expiration (dict, opérations atomiques sous GIL).
+_AUTO_YES: dict = {}
+AUTO_YES_POLL_SECONDS = int(os.environ.get("KARL_AGENT_AUTO_YES_POLL", "3"))
+AUTO_YES_MAX_MINUTES = 240
+
+
+def op_auto_yes(payload: dict) -> dict:
+    """Arme (minutes > 0) ou désarme (minutes = 0) l'auto-oui d'une session."""
+    rm_id = _require_rm_id(payload)
+    try:
+        minutes = float(payload.get("minutes"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "minutes requis (nombre ; 0 = désactiver)")
+    if minutes <= 0:
+        _AUTO_YES.pop(rm_id, None)
+        return {"rm_id": rm_id, "auto_yes_until": None}
+    if minutes > AUTO_YES_MAX_MINUTES:
+        raise ApiError(400, f"minutes > {AUTO_YES_MAX_MINUTES} — l'auto-oui est "
+                            f"volontairement borné (timeout obligatoire)")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    until = time.time() + minutes * 60
+    _AUTO_YES[rm_id] = until
+    return {"rm_id": rm_id, "auto_yes_until": until}
+
+
+def _auto_yes_tick(now=None) -> list:
+    """Une passe de la boucle auto-oui : purge les entrées expirées ou dont la
+    session a disparu, répond aux questions des autres. Retourne [(rm_id, réponse)].
+    Séparée de la boucle pour être testable sans thread ni horloge."""
+    now = time.time() if now is None else now
+    sent = []
+    for rm_id, until in list(_AUTO_YES.items()):
+        if until <= now or not _has_session(rm_id):
+            _AUTO_YES.pop(rm_id, None)
+            continue
+        try:
+            answer = _send_approval(rm_id, source="auto")
+        except ApiError:
+            continue        # tmux grognon : on retentera à la prochaine passe
+        if answer:
+            sent.append((rm_id, answer))
+    return sent
+
+
+def _auto_yes_loop():
+    while True:
+        time.sleep(AUTO_YES_POLL_SECONDS)
+        try:
+            _auto_yes_tick()
+        except Exception as e:  # noqa: BLE001 — la boucle ne meurt jamais
+            sys.stderr.write(f"auto-oui: passe en échec (non fatal) : {e}\n")
 
 
 def op_buffer() -> str:
@@ -1023,20 +1108,194 @@ def op_resume(payload: dict) -> dict:
 #   idle      : invite au repos (tour fini, ou en attente d'une consigne).
 _ATTENTION_MARKERS = ("Do you want", "Would you like", "(y/n)", "❯ 1.", "│ 1. Yes")
 _WORKING_MARKERS = ("esc to interrupt", "ctrl+b to run in background", "Compacting")
-# RM2302 : marqueurs d'un menu numéroté (dialogue TUI claude — la touche chiffre
-# sélectionne et valide seule, sans Enter), sous-ensemble des marqueurs attention.
-_YES_MENU_MARKERS = ("❯ 1.", "│ 1. Yes")
+# RM2302/RM2327 : marqueurs d'un menu numéroté dont l'option 1 est bien un OUI
+# (la touche chiffre sélectionne et valide seule, sans Enter). Un menu numéroté
+# SANS « 1. Yes/Oui » est un choix multiple → état "choice", jamais auto-répondu.
+_YES_MENU_MARKERS = ("1. Yes", "1. Oui")
+_MENU_MARKERS = ("❯ 1.", "│ 1.")
 
 
 def _approve_answer(tail: str) -> str | None:
     """RM2302 : réponse affirmative à envoyer au pane qui pose une question.
-    "1" = menu numéroté (envoyer le chiffre seul) ; "y" = prompt texte y/n
-    (Enter requis derrière) ; None = pas de question visible dans le tail."""
+    "1" = menu numéroté dont l'option 1 est Yes/Oui (chiffre seul) ; "y" =
+    prompt texte y/n ou question sans menu (Enter derrière) ; None = pas de
+    question OU choix multiple non Oui/Non (RM2327 — on ne choisit pas à
+    l'aveugle dans un menu)."""
     if any(m in tail for m in _YES_MENU_MARKERS):
         return "1"
+    if any(m in tail for m in _MENU_MARKERS):
+        return None     # menu numéroté ≠ oui/non → décision humaine
     if any(m in tail for m in _ATTENTION_MARKERS):
         return "y"
     return None
+
+
+# ── Outline de conversation + navigation dans l'historique (RM2330) ─────────
+# Le terminal est un tmux (servi par ttyd) : la « position de lecture » est donc
+# pilotée par le copy-mode tmux — history-top puis scroll-down N, déterministe
+# et visible par tous les clients attachés. L'outline est parsé du scrollback :
+# dans le TUI claude, un message utilisateur commence par « > », une réponse de
+# l'assistant par « ⏺ » (les lignes de suite sont indentées, sans marqueur).
+
+
+def _conversation_outline(text: str, max_items: int = 800) -> list:
+    """RM2330 : parse un scrollback en items [{line, kind, text}] — kind
+    user|assistant. Les lignes « > » consécutives forment UN item (message
+    multi-ligne). Pure (testable sans tmux) ; texte tronqué à 120 caractères."""
+    items = []
+    prev_user = False
+    for i, ln in enumerate(text.splitlines()):
+        s = ln.strip()
+        if s.startswith("> "):
+            body = s[2:].strip()
+            if prev_user and items and body:            # suite d'un message multi-ligne
+                cur = items[-1]
+                cur["text"] = (cur["text"] + " " + body)[:120]
+            elif body:
+                items.append({"line": i, "kind": "user", "text": body[:120]})
+            prev_user = True
+            continue
+        prev_user = False
+        if s.startswith("⏺"):
+            body = s.lstrip("⏺").strip()
+            if body:
+                items.append({"line": i, "kind": "assistant", "text": body[:120]})
+    if len(items) > max_items:                          # garde le plus récent
+        items = items[-max_items:]
+    return items
+
+
+def _transcript_outline(lines, max_items: int = 400) -> list:
+    """RM2330 : items de conversation depuis un transcript claude (JSONL).
+    Source de référence pour les sessions claude : leur TUI tourne en écran
+    alterné (history tmux VIDE — vérifié : alternate_on=1, history_size=0),
+    le scrollback ne contient donc PAS la conversation. Un item = un message
+    user|assistant (texte seul — tool_use/résultats/méta ignorés).
+    {n, kind, text (aperçu), full (lecture)} — pure (testable sans fichier)."""
+    items = []
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        kind = obj.get("type")
+        if kind not in ("user", "assistant") or obj.get("isMeta"):
+            continue
+        content = (obj.get("message") or {}).get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(b.get("text", "") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text")
+        else:
+            continue
+        text = text.strip()
+        # enveloppes techniques (<command-name>, <local-command-stdout>,
+        # <system-reminder>…) : pas des messages de conversation
+        if not text or text.startswith("<"):
+            continue
+        items.append({"n": len(items), "kind": kind,
+                      "text": " ".join(text.split())[:120], "full": text[:4000]})
+    if len(items) > max_items:
+        items = items[-max_items:]
+    return items
+
+
+def op_outline(rm_id: str) -> dict:
+    """RM2330 : outline de la conversation d'une session. Source primaire :
+    transcript claude (JSONL) résolu par le session_id de la clé tmux ; repli :
+    parse du scrollback tmux (moteurs shell/autres, où l'historique existe —
+    items alors positionnés par `line`, navigables via /scroll)."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    if k.get("engine") == "claude" and session_id:
+        jf = next((p for root in CLAUDE_STORES
+                   for p in root.glob(f"*/{session_id}.jsonl")), None)
+        if jf:
+            try:
+                with jf.open(encoding="utf-8", errors="replace") as fh:
+                    items = _transcript_outline(fh)
+                return {"rm_id": rm_id, "source": "transcript", "items": items}
+            except OSError as e:
+                raise ApiError(500, f"transcript illisible : {e}")
+    rc, out, err = _tmux("capture-pane", "-p", "-t", _session_name(rm_id),
+                         "-S", "-", timeout=30)
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    return {"rm_id": rm_id, "source": "tmux",
+            "total_lines": len(out.splitlines()),
+            "items": _conversation_outline(out)}
+
+
+def op_scroll(payload: dict) -> dict:
+    """RM2330 : positionne le pane sur une ligne du scrollback (copy-mode :
+    history-top + scroll-down N) ou revient au direct (bottom → cancel)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    name = _session_name(rm_id)
+    if payload.get("bottom"):
+        _tmux("send-keys", "-t", name, "-X", "cancel")   # hors copy-mode : sans effet
+        return {"rm_id": rm_id, "position": "live"}
+    try:
+        line = int(payload.get("line"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "line requis (entier) ou bottom: true")
+    if line < 0:
+        raise ApiError(400, "line ≥ 0 requis")
+    rc, _, err = _tmux("copy-mode", "-t", name)
+    if rc != 0:
+        raise ApiError(500, f"copy-mode a échoué : {err.strip()}")
+    _tmux("send-keys", "-t", name, "-X", "history-top")
+    if line > 0:
+        _tmux("send-keys", "-t", name, "-N", str(line), "-X", "scroll-down")
+    return {"rm_id": rm_id, "position": line}
+
+
+# RM2329 : caractères de décor TUI (bordures de boîtes claude) à ôter d'une
+# question avant lecture vocale — une ligne qui n'est QUE du décor est jetée.
+_TUI_DECOR = set("─│╭╮╰╯┌┐└┘├┤═║╔╗╚╝• ")
+
+
+def _extract_question(tail: str) -> str | None:
+    """RM2329 : texte lisible de la question posée dans un pane (pour la synthèse
+    vocale). Prend le bloc depuis la première ligne porteuse d'un marqueur
+    d'attention, nettoie bordures/curseur TUI, aplati en une phrase. None si
+    aucune question visible. Pure (testable sans tmux)."""
+    lines = tail.rstrip().splitlines()[-15:]
+    start = next((i for i, ln in enumerate(lines)
+                  if any(m in ln for m in _ATTENTION_MARKERS)), None)
+    if start is None:
+        return None
+    out = []
+    for ln in lines[start:start + 10]:
+        ln = ln.replace("❯", " ").strip()
+        ln = ln.strip("│║").strip()
+        if not ln or set(ln) <= _TUI_DECOR:
+            continue
+        out.append(ln)
+    text = " ".join(out).strip()
+    return text[:500] or None
+
+
+def op_question(rm_id: str) -> dict:
+    """RM2329 : question actuellement posée par une session (texte nettoyé,
+    prêt pour la synthèse vocale) — null si la session ne demande rien."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    rc, out, err = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    tail = "\n".join(out.rstrip().splitlines()[-15:])
+    return {"rm_id": rm_id, "question": _extract_question(tail)}
 
 
 def _session_state(rm_id: str, engine) -> str:
@@ -1045,7 +1304,10 @@ def _session_state(rm_id: str, engine) -> str:
         return "idle"
     tail = "\n".join(out.rstrip().splitlines()[-15:])
     if any(m in tail for m in _ATTENTION_MARKERS):
-        return "attention"
+        # RM2327 : question OUI/NON auto-répondable → "attention" ; menu à choix
+        # multiple (ou forme inconnue de réponse) → "choice" (en attente aussi,
+        # mais réponse humaine requise — icône distincte, hors auto-oui/✔ tout).
+        return "attention" if _approve_answer(tail) else "choice"
     if any(m in tail for m in _WORKING_MARKERS):
         return "working"
     if engine not in (None, "claude"):
@@ -1095,6 +1357,10 @@ def _sessions_view(qs: dict) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
+        au = _AUTO_YES.get(s["rm_id"])
+        if au and au > time.time():
+            s["auto_yes_until"] = au
         # RM2166 — encart session : branches/worktrees de la session (registre
         # pm_session) + conflits (un rm_id référencé par PLUSIEURS sessions).
         rec = reg_by_csid.get(s.get("session_id"))
@@ -2423,6 +2689,10 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 lines = int(qs["lines"][0]) if "lines" in qs else None
                 return self._send_text(200, op_capture(rm_id, lines))
+            if path.startswith("/outline/"):
+                return self._send_json(200, op_outline(path[len("/outline/"):]))
+            if path.startswith("/question/"):
+                return self._send_json(200, op_question(path[len("/question/"):]))
             if path == "/buffer":
                 return self._send_text(200, op_buffer())
             if path.startswith("/stream/"):
@@ -2463,6 +2733,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_send(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
+            if path == "/scroll":
+                return self._send_json(200, op_scroll(payload))
+            if path == "/approve-all":
+                return self._send_json(200, op_approve_all(payload))
+            if path == "/auto-yes":
+                return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":
@@ -2531,6 +2807,9 @@ def main():
 
     signal.signal(signal.SIGTERM, _shutdown)
     signal.signal(signal.SIGINT, _shutdown)
+
+    # RM2327 : boucle auto-oui (daemon — meurt avec le serveur)
+    threading.Thread(target=_auto_yes_loop, name="auto-yes", daemon=True).start()
 
     sys.stderr.write(
         f"karl-agent en écoute sur http://{HOST}:{PORT} "

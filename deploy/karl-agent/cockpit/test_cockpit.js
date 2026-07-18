@@ -41,8 +41,15 @@ assert.strictEqual(groups.get("divers")[0].rm_id, "4", "non résolu → divers")
 console.log("✓ groupement par client/projet (+ fallback, + divers)");
 
 // compteurs d'états
-assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, idle: 1, working: 2 }, "compteurs");
-console.log("✓ compteurs total/attention/idle/working");
+assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle: 1, working: 2 }, "compteurs");
+// RM2327 : l'état choice est compté à part et fait remonter son groupe
+const cg = computeGroups([
+  { rm_id: "9", client: "c", project: "p", state: "choice", created: 1 },
+  { rm_id: "8", client: "d", project: "q", state: "working", created: 999 },
+], {});
+assert.strictEqual(cg.counts.choice, 1, "compteur choice");
+assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
+console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
 
 // tri : le groupe avec attention passe devant, même plus ancien
 assert.strictEqual(keys[0], "beta/api", "groupe en attention en tête");
@@ -133,7 +140,11 @@ assert.strictEqual(nextAttentionId(flat, null), "2", "rien d'attaché → premi�
 assert.strictEqual(nextAttentionId(flat, "1"), "2", "attaché hors attention → première attention");
 assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attention → la suivante");
 assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
-console.log("✓ nextAttentionId (RM2302) : cycle sur les sessions en attention");
+// RM2327 : une session « choice » (choix multiple) fait partie du cycle d'attente
+assert.strictEqual(nextAttentionId([
+  { rm_id: "1", state: "working" }, { rm_id: "2", state: "choice" },
+], null), "2", "choice inclus dans le cycle");
+console.log("✓ nextAttentionId (RM2302/RM2327) : cycle sur les sessions en attente");
 
 // — 6. approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui —
 const fav = />>> approveShortcutVisible[\s\S]*?(function approveShortcutVisible[\s\S]*?)\n\/\/ <<< approveShortcutVisible/.exec(html);
@@ -146,5 +157,45 @@ assert.strictEqual(approveShortcutVisible("11", cache), false, "attachée au tra
 assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue du cache → masqué");
 assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
 console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
+
+// — 5. voiceQueue (RM2329) : file d'annonces vocales —
+const fv = />>> voiceQueue[\s\S]*?(function voiceQueue[\s\S]*?)\n\/\/ <<< voiceQueue/.exec(html);
+assert(fv, "marqueurs >>> voiceQueue / <<< voiceQueue introuvables");
+const voiceQueue = vm.runInNewContext("(" + fv[1] + ")");
+
+let spoken = {};
+const vs = [
+  { rm_id: "1", state: "attention" },
+  { rm_id: "2", state: "working" },
+  { rm_id: "3", state: "choice" },
+];
+assert.deepStrictEqual([...voiceQueue(vs, spoken)], ["1", "3"], "attention + choice à annoncer");
+spoken = { "1": "Question ?", "3": "Choix ?" };
+assert.deepStrictEqual([...voiceQueue(vs, spoken)], [], "déjà annoncées → rien");
+// la session 1 repart travailler → purgée du cache → ré-annonçable ensuite
+assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "working" }], spoken)], [], "plus en attente → rien");
+assert(!("1" in spoken), "sortie d'attente → purge du cache");
+assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "attention" }], spoken)], ["1"], "nouvelle question → ré-annonce");
+console.log("✓ voiceQueue (RM2329) : annonces sans doublon, ré-annonce après reprise");
+
+// — 6. outlineStep (RM2330) : sauts entre messages utilisateur —
+const fo = />>> outlineStep[\s\S]*?(function outlineStep[\s\S]*?)\n\/\/ <<< outlineStep/.exec(html);
+assert(fo, "marqueurs >>> outlineStep / <<< outlineStep introuvables");
+const outlineStep = vm.runInNewContext("(" + fo[1] + ")");
+
+const oi = [
+  { line: 2, kind: "user", text: "premier" },
+  { line: 5, kind: "assistant", text: "réponse" },
+  { line: 9, kind: "user", text: "deuxième" },
+  { line: 14, kind: "user", text: "troisième" },
+];
+assert.strictEqual(outlineStep(oi, null, -1).line, 14, "depuis le direct, ↑ = dernier message user");
+assert.strictEqual(outlineStep(oi, 14, -1).line, 9, "↑ = user précédent (l'assistant est sauté)");
+assert.strictEqual(outlineStep(oi, 2, -1), null, "au premier, ↑ = null");
+assert.strictEqual(outlineStep(oi, 9, 1).line, 14, "↓ = user suivant");
+assert.strictEqual(outlineStep(oi, 14, 1), null, "au dernier, ↓ = null (retour direct géré par l'appelant)");
+assert.strictEqual(outlineStep(oi, null, 1), null, "au direct, ↓ = null");
+assert.strictEqual(outlineStep([{ line: 1, kind: "assistant", text: "x" }], null, -1), null, "aucun message user → null");
+console.log("✓ outlineStep (RM2330) : sauts entre messages utilisateur");
 
 console.log("OK — tous les tests cockpit passent");

@@ -100,6 +100,10 @@ traceability:
 git:
   autocommit: true
   autopush: true
+  # RM2298 : branche d'intégration du repli d'auto-push — quand la branche
+  # courante est protégée (RM2030), pm_git pousse HEAD:<integration_branch> au
+  # lieu de différer indéfiniment ; promotion par lot via pm-promote.py.
+  integration_branch: dev
 
 # ── Runtime des envs de workspace (RM1834 / RM1947 F1) ─────────────────────
 # Ops privilégiées (vhost Apache, BDD, purge logs) déléguées au helper

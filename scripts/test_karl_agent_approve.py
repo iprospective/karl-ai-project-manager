@@ -36,6 +36,9 @@ check("prompt texte (y/n) → « y »",
 check("question sans forme de réponse → « y » (Enter validera le défaut)",
       ka._approve_answer("Would you like to continue?") == "y")
 check("pas de question → None", ka._approve_answer("$ build ok\n$ ") is None)
+check("menu à choix multiple (≠ oui/non) → None (RM2327 : pas de choix à l'aveugle)",
+      ka._approve_answer("Quel plan ?\n❯ 1. Conservateur\n  2. Agressif") is None)
+check("option 1 = Oui (fr) → « 1 »", ka._approve_answer("❯ 1. Oui\n  2. Non") == "1")
 check("le menu prime sur (y/n) dans le même tail",
       ka._approve_answer("proceed? (y/n)\n❯ 1. Yes") == "1")
 

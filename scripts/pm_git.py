@@ -44,12 +44,25 @@ def _warn(msg):
     print(f"  ⚠ auto-commit : {msg}", file=sys.stderr)
 
 
+def _push_error_kind(stderr):
+    """RM2298 — classe un échec de push pour un diagnostic honnête :
+    'protected' : branche protégée / pre-receive (ne se résoudra JAMAIS seul) ;
+    'non_ff'    : le remote a avancé (fédération) — un prochain push l'emportera ;
+    'other'     : réseau, auth, etc."""
+    s = stderr or ""
+    if "pre-receive hook declined" in s or "protected branch" in s.lower():
+        return "protected"
+    if "non-fast-forward" in s or "fetch first" in s or "Updates were rejected" in s:
+        return "non_ff"
+    return "other"
+
+
 def load_git_config():
     """Section `git` de pm.config.yml (+ override pm.config.local.yml)."""
     try:
         import yaml
     except ImportError:
-        return {"autocommit": True, "autopush": True}
+        return {"autocommit": True, "autopush": True, "integration_branch": "dev"}
     base = Path(__file__).resolve().parent.parent
     merged = {}
     for name in ("pm.config.yml", "pm.config.local.yml"):
@@ -60,7 +73,8 @@ def load_git_config():
             except (OSError, yaml.YAMLError):
                 pass
     return {"autocommit": bool(merged.get("autocommit", True)),
-            "autopush": bool(merged.get("autopush", True))}
+            "autopush": bool(merged.get("autopush", True)),
+            "integration_branch": str(merged.get("integration_branch", "dev") or "dev")}
 
 
 def repo_root(path):
@@ -137,11 +151,35 @@ def autocommit(paths, message, push=None, enabled=None):
         pushed = ""
         if cfg["autopush"] if push is None else push:
             p = _run(["git", "-C", str(root), "push"])
-            if p.returncode != 0:
-                _warn(f"push différé (remote a avancé ? {p.stderr.strip().splitlines()[-1] if p.stderr.strip() else 'raison inconnue'}) "
-                      f"— commit local {sha} conservé, le prochain auto-push l'emportera")
-            else:
+            if p.returncode == 0:
                 pushed = " + push"
+            else:
+                kind = _push_error_kind(p.stderr)
+                last = p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "raison inconnue"
+                if kind == "protected":
+                    # RM2298 : branche courante protégée (RM2030) — un push direct
+                    # ne passera JAMAIS ; « le prochain l'emportera » était un faux
+                    # diagnostic ici. Repli : pousser l'historique courant sur la
+                    # branche d'intégration ; la promotion vers la branche protégée
+                    # se fait par lot via pm-promote.py (MR auto-mergée).
+                    integ = cfg["integration_branch"]
+                    cur = _run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+                    if cur and cur != integ:
+                        p2 = _run(["git", "-C", str(root), "push", "origin", f"HEAD:{integ}"])
+                        if p2.returncode == 0:
+                            pushed = f" + push → {integ} ({cur} protégée ; promotion : pm-promote.py)"
+                        else:
+                            last2 = (p2.stderr or "").strip().splitlines()[-1] if (p2.stderr or "").strip() else "?"
+                            _warn(f"branche {cur} protégée ET repli {integ} refusé ({last2}) "
+                                  f"— commit local {sha} conservé ; lancer pm-promote.py")
+                    else:
+                        _warn(f"branche {cur or '?'} protégée ({last}) — commit local {sha} conservé ; "
+                              f"promotion requise : pm-promote.py")
+                elif kind == "non_ff":
+                    _warn(f"push différé (remote a avancé : non-fast-forward) — commit local {sha} "
+                          f"conservé, le prochain auto-push l'emportera")
+                else:
+                    _warn(f"push refusé ({last}) — commit local {sha} conservé")
         print(f"✓ auto-commit {sha} ({len(rel)} fichier(s)){pushed}")
         return sha
 

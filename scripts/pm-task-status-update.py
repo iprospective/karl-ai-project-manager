@@ -114,6 +114,69 @@ def count_unchecked(description):
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
+def _git_out(repo, *args, timeout=20):
+    """git dans <repo>, stdout strippé ('' si erreur) — jamais d'exception."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return ""
+
+
+def unmerged_ticket_branches(md_path, rm_id):
+    """RM2319 : branches du ticket non mergées dans la branche d'intégration.
+
+    Cherche par PRÉFIXE `<rm_id>-` (locales + distantes) dans le repo du
+    workspace co-localisé — le frontmatter git.branch peut être tronqué/périmé
+    (cas RM2238). Retourne (repo, integration, [branches non mergées]) ou None
+    si rien à vérifier (pas de workspace/repo résoluble, aucune branche).
+    Best-effort : toute résolution impossible ⇒ None (on ne bloque jamais sur
+    un problème d'infra), le réseau n'est pas requis (fetch tenté, non exigé).
+    """
+    try:
+        real = md_path.resolve()
+        ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
+        if ws is None:
+            return None
+        repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
+            encoding="utf-8")) or {}).get("repos") or []
+        if len(repos) != 1:   # multi-repo : ambigu → hors garde (comme le hook env)
+            return None
+        integration = repos[0].get("integration_branch") or "dev"
+        bare = ws / "repos" / f"{repos[0].get('name')}.git"
+        repo = bare if bare.is_dir() else (ws if (ws / ".git").exists() else None)
+        if repo is None:
+            return None
+        # refs fraîches si le réseau le permet (silencieux sinon)
+        _git_out(repo, "fetch", "origin", "--prune", timeout=25)
+        refs = _git_out(repo, "for-each-ref", "--format=%(refname:short)",
+                        f"refs/heads/{rm_id}-*", f"refs/remotes/origin/{rm_id}-*")
+        branches = [r for r in refs.splitlines() if r.strip()]
+        if not branches:
+            return None
+        target = (f"origin/{integration}"
+                  if _git_out(repo, "rev-parse", "--verify", "--quiet",
+                              f"refs/remotes/origin/{integration}") else integration)
+        unmerged = []
+        for br in branches:
+            ok = subprocess.run(
+                ["git", "-C", str(repo), "merge-base", "--is-ancestor", br, target],
+                capture_output=True, timeout=20).returncode == 0
+            if not ok:
+                unmerged.append(br)
+        # une même branche vue en local ET en origin/ : dédoublonner par nom court
+        seen, uniq = set(), []
+        for br in unmerged:
+            short = br.removeprefix("origin/")
+            if short not in seen:
+                seen.add(short)
+                uniq.append(br)
+        return (repo, integration, uniq) if uniq else None
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return None
+
+
 def env_session_hook(md_path, rm_id, new_status, old_status):
     """Hooks D1/D2 env de session (RM1834/RM1947) — best-effort, JAMAIS bloquant.
 
@@ -429,6 +492,10 @@ def main():
                     help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
                          "description contient des items de checklist non cochés (sinon bloqué — "
                          "NORMS § màj description : cocher au fil de l'eau).")
+    ap.add_argument("--allow-unmerged", action="store_true",
+                    help="Autorise a_mep / ferme:resolu même si une branche <id>-* du ticket "
+                         "n'est pas mergée dans la branche d'intégration (sinon bloqué — "
+                         "RM2319 : clore 'resolu' sans merger = code validé jamais livré).")
     ap.add_argument("--no-commit", action="store_true",
                     help="Pas d'auto-commit git des fichiers écrits (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
@@ -540,6 +607,26 @@ def main():
                 f"RM{args.rm_id}, refus de passer en '{args.status}'.\n"
                 f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
                 f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
+            )
+    # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
+    # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
+    # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde
+    # vit ICI (source unique des transitions), le cockpit en hérite via pm/run.
+    merge_gate = args.status == "a_mep" or (
+        args.status == "ferme" and args.close_reason == "resolu")
+    if merge_gate and not args.allow_unmerged:
+        found = unmerged_ticket_branches(md_path, args.rm_id)
+        if found:
+            repo, integration, branches = found
+            sys.exit(
+                f"ERREUR : branche(s) du ticket RM{args.rm_id} non mergée(s) dans "
+                f"'{integration}' : {', '.join(branches)} — passer en "
+                f"'{args.status}{':' + args.close_reason if args.close_reason else ''}' "
+                f"livrerait un code validé mais jamais déployé "
+                f"(incident RM2302 → RM2319).\n"
+                f"  → Livrer d'abord : pm-mr create {args.rm_id} && pm-mr merge <iid>\n"
+                f"  → Ou, si c'est volontaire (code abandonné / repris ailleurs) : "
+                f"relance avec --allow-unmerged."
             )
     # Protocole de test (RM2229) — WARNING non bloquant : une livraison en
     # vérification sans protocole rédigé (frontmatter test_protocol, miroir du

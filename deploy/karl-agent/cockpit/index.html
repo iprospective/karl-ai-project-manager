@@ -119,6 +119,8 @@
   .tdot.st-working { background: var(--ok); }
   .tdot.st-idle { background: var(--warn); }
   .tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
+  /* RM2327 : question à choix multiple (≠ oui/non) — en attente aussi, réponse humaine */
+  .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
   @keyframes kblink { 50% { opacity: .25; } }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
@@ -236,6 +238,15 @@
   <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
   <button class="mini" id="nextatt" style="display:none" onclick="gotoNextAttention()"
     title="Attacher la prochaine session en attente d'une réponse (⚠) — cycle si plusieurs">⚠ suivante ➜</button>
+  <!-- RM2332 : Oui sur la session AFFICHÉE, à côté de « suivante » — enchaîner suivante → Oui → suivante -->
+  <button class="mini" id="yesatt" style="display:none" onclick="approve(attached)"
+    title="Répondre Oui à la question de la session affichée — s'enchaîne avec « ⚠ suivante »">✔ Oui</button>
+  <!-- RM2327 : répondre Oui d'un coup à toutes les sessions qui posent une question -->
+  <button class="mini" id="yesall" style="display:none" onclick="approveAll(this)"
+    title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
+  <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
+  <button class="mini" id="voicebtn" onclick="toggleVoice()"
+    title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -423,6 +434,20 @@
       <div class="tabactions" id="tabactions" style="display:none">
         <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
           title="Répondre Oui à la question en attente de cette session (menu numéroté ou y/n)">✔ Oui</button>
+        <!-- RM2327 : auto-oui de la session (timeout obligatoire, boucle serveur) -->
+        <select class="mini" id="autoyes" onchange="setAutoYes(this.value)"
+          title="Auto-oui : la session répond Oui seule à ses questions pendant la durée choisie (puis se désarme)">
+          <option value="">⏱ auto-oui…</option>
+          <option value="15">15 min</option>
+          <option value="30">30 min</option>
+          <option value="60">1 h</option>
+          <option value="0">désactiver</option>
+        </select>
+        <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
+        <button class="mini" id="micbtn" onclick="dictate()"
+          title="Dicter une consigne (fr) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
+        <button class="mini" id="readbtn" onclick="readQuestion()"
+          title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
         <button class="mini" id="unmonbtn" onclick="removeMonitor()" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
@@ -549,7 +574,7 @@ function switchPanel(name) {
 // récente, puis alphabétique.
 function computeGroups(sessions, rcache) {
   const groups = new Map();
-  const counts = { total: sessions.length, attention: 0, idle: 0, working: 0 };
+  const counts = { total: sessions.length, attention: 0, choice: 0, idle: 0, working: 0 };
   for (const s of sessions) {
     let key = (s.client && s.project) ? s.client + "/" + s.project : null;
     if (!key) {
@@ -559,10 +584,11 @@ function computeGroups(sessions, rcache) {
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
     if (s.state === "attention") counts.attention++;
+    else if (s.state === "choice") counts.choice++;   // RM2327 : choix multiple
     else if (s.state === "idle") counts.idle++;
     else counts.working++;
   }
-  const att = g => g.some(s => s.state === "attention") ? 1 : 0;
+  const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
   const keys = [...groups.keys()].sort((a, b) =>
     att(groups.get(b)) - att(groups.get(a)) ||
@@ -573,11 +599,11 @@ function computeGroups(sessions, rcache) {
 // <<< computeGroups
 
 // >>> nextAttentionId — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2302 : prochaine session en état « attention » à attacher. `sessions` = liste
-// plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ; cycle à partir de `attached`
-// (si attaché à une session en attention, on prend la suivante) ; null si aucune.
+// RM2302/RM2327 : prochaine session EN ATTENTE (⚠ oui/non OU ❓ choix multiple) à
+// attacher. `sessions` = liste plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ;
+// cycle à partir de `attached` ; null si aucune.
 function nextAttentionId(sessions, attached) {
-  const att = sessions.filter(s => s.state === "attention").map(s => s.rm_id);
+  const att = sessions.filter(s => s.state === "attention" || s.state === "choice").map(s => s.rm_id);
   if (!att.length) return null;
   return att[(att.indexOf(attached) + 1) % att.length];
 }
@@ -609,8 +635,10 @@ async function refreshSessions() {
       const head = document.createElement("div");
       head.className = "rghead";
       const gAtt = sess.filter(s => s.state === "attention").length;
+      const gCho = sess.filter(s => s.state === "choice").length;
       head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
-        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') + '</span>';
+        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
+        (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
       head.title = key + "\n(clic : infos client/projet)";
       head.onclick = () => showProject(key);
       g.appendChild(head);
@@ -620,12 +648,15 @@ async function refreshSessions() {
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
+          : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
           : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
+        const auto = s.auto_yes_until
+          ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
         it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
-          badge +
+          badge + auto +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
           '<span class="tkill" title="Fermer la session">✕</span>';
         it.onclick = () => attach(s.rm_id);
@@ -656,19 +687,24 @@ async function refreshSessions() {
       }
       list.appendChild(g);
     }
+    announceWaiting(sessions);   // RM2329 : mode voix (fire-and-forget)
     // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
     document.getElementById("hcnt").innerHTML =
       '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
-      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="requièrent ton attention">⚠ ' + counts.attention + '</span>' +
+      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="questions OUI/NON en attente">⚠ ' + counts.attention + '</span>' +
+      (counts.choice ? '<span class="pill" style="color:var(--warn);border-color:var(--warn)" title="questions à choix multiple en attente (réponse dans le terminal)">❓ ' + counts.choice + '</span>' : '') +
       '<span class="pill" title="au repos">💤 ' + counts.idle + '</span>';
     const nc = document.getElementById("ln-count");
     nc.textContent = counts.total; nc.style.display = counts.total ? "" : "none";
     const na = document.getElementById("ln-att");
-    na.textContent = "⚠" + counts.attention; na.style.display = counts.attention ? "" : "none";
+    const waiting = counts.attention + counts.choice;   // RM2327 : ❓ compte aussi
+    na.textContent = "⚠" + waiting; na.style.display = waiting ? "" : "none";
     // RM2302 : bouton « ⚠ suivante » visible dès qu'une session attend une réponse
-    document.getElementById("nextatt").style.display = counts.attention ? "" : "none";
+    document.getElementById("nextatt").style.display = waiting ? "" : "none";
+    // RM2327 : « ✔ tout » visible dès 2 sessions en attention (1 seule = ✔ unitaire)
+    document.getElementById("yesall").style.display = counts.attention > 1 ? "" : "none";
     // titre navigateur : signale d'un coup d'œil les sessions qui attendent
-    document.title = (counts.attention ? "⚠" + counts.attention + " " : "") + "Cockpit karl-agent";
+    document.title = (waiting ? "⚠" + waiting + " " : "") + "Cockpit karl-agent";
     renderCurTitle();
   } catch (e) { /* health affiche déjà l'erreur de connexion */ }
 }
@@ -682,7 +718,11 @@ function renderCurTitle() {
     el.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
       (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
       '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : tmuxName(attached)) + '</span>' +
-      (s.state === "attention" ? '<span class="tbadge">⚠</span>' : "");
+      (s.state === "attention"
+        ? '<span class="tbadge">⚠</span><button class="mini" style="margin-left:8px" ' +
+          'onclick="approve(attached)" title="Répondre Oui à la question en attente de cette session">✔ Oui</button>'
+        : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
+        : "");   // RM2332 : Oui au titre · RM2327 : ❓ choix multiple
   } else if (currentReview) {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
@@ -690,9 +730,161 @@ function renderCurTitle() {
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
-  // RM2302 : « ✔ Oui » dans la barre du terminal quand la session attachée attend
-  const st = attached ? (sessCache[attached] || {}).state : null;
-  document.getElementById("yesbtn").style.display = st === "attention" ? "" : "none";
+  // RM2302/RM2332 : « ✔ Oui » (barre du terminal + header) quand la session
+  // affichée attend — la même décision pilote les deux emplacements.
+  const show = approveShortcutVisible(attached, sessCache) ? "" : "none";
+  document.getElementById("yesbtn").style.display = show;
+  document.getElementById("yesatt").style.display = show;
+  // RM2327 : état du sélecteur auto-oui (armé → durée restante en libellé)
+  const ay = document.getElementById("autoyes");
+  const until = attached ? (sessCache[attached] || {}).auto_yes_until : null;
+  ay.options[0].textContent = until ? "⏱✔ " + autoYesLeft(until) : "⏱ auto-oui…";
+  ay.style.color = until ? "var(--ok)" : "";
+  ay.value = "";
+}
+// RM2327 : durée restante lisible d'un auto-oui (epoch secondes → « 12 min »)
+function autoYesLeft(until) {
+  const s = Math.max(0, Math.round(until - Date.now() / 1000));
+  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round((s % 3600) / 60) + " min"
+    : Math.max(1, Math.round(s / 60)) + " min";
+}
+// RM2327 : répondre Oui à toutes les sessions en attente d'une question
+async function approveAll(btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/approve-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const n = (r.approved || []).length;
+    toast(n ? "✔ Oui envoyé à " + n + " session(s) : " +
+      r.approved.map(a => (/^\d+$/.test(a.rm_id) ? "RM" : "") + a.rm_id).join(", ")
+      : "Aucune session ne posait de question");
+    setTimeout(refreshSessions, 900);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+// RM2327 : armer/désarmer l'auto-oui de la session attachée (timeout serveur)
+async function setAutoYes(minutes) {
+  if (!attached || minutes === "") return;
+  try {
+    const r = await api("/auto-yes", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, minutes: Number(minutes) }),
+    });
+    toast(r.auto_yes_until
+      ? "⏱✔ auto-oui armé pour " + autoYesLeft(r.auto_yes_until) + " — la session répondra Oui seule"
+      : "auto-oui désarmé");
+    refreshSessions();
+  } catch (e) { toast(e.message, true); }
+}
+
+// >>> approveShortcutVisible — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2332 : les raccourcis « ✔ Oui » (header, à côté de « ⚠ suivante », et barre du
+// terminal) ne s'affichent que si la session ATTACHÉE attend un Oui/Non.
+function approveShortcutVisible(attached, cache) {
+  return !!attached && ((cache[attached] || {}).state === "attention");
+}
+// <<< approveShortcutVisible
+
+// ----- RM2329 : pilotage vocal (speechSynthesis + Web Speech API) -----
+let voiceMode = localStorage.getItem("karlVoice") === "1";
+const spokenCache = {};   // rm_id → dernière question annoncée (mode voix)
+
+// >>> voiceQueue — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2329 : sessions à annoncer vocalement = celles EN ATTENTE (⚠ oui/non ou
+// ❓ choix multiple) pas encore annoncées ; `spoken` est purgé quand une session
+// sort d'attente (une nouvelle question future sera ré-annoncée).
+function voiceQueue(sessions, spoken) {
+  const waiting = new Set(["attention", "choice"]);
+  const due = [];
+  for (const s of sessions) {
+    if (waiting.has(s.state)) { if (!spoken[s.rm_id]) due.push(s.rm_id); }
+    else delete spoken[s.rm_id];
+  }
+  return due;
+}
+// <<< voiceQueue
+
+function frVoice() {
+  return speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("fr")) || null;
+}
+function speak(text) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "fr-FR";
+    const v = frVoice(); if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+function renderVoiceBtn() {
+  const b = document.getElementById("voicebtn");
+  b.style.color = voiceMode ? "var(--ok)" : "";
+  b.style.borderColor = voiceMode ? "var(--ok)" : "";
+}
+function toggleVoice() {
+  voiceMode = !voiceMode;
+  try { localStorage.setItem("karlVoice", voiceMode ? "1" : "0"); } catch (e) { /* mode privé */ }
+  renderVoiceBtn();
+  toast(voiceMode ? "🔊 Mode voix : les sessions en attente seront annoncées" : "Mode voix coupé");
+  if (voiceMode) speak("Mode voix activé");
+  else speechSynthesis.cancel();
+}
+// Annonce des sessions nouvellement en attente (appelé à chaque refresh)
+async function announceWaiting(sessions) {
+  if (!voiceMode) return;
+  for (const rm of voiceQueue(sessions, spokenCache)) {
+    spokenCache[rm] = "…";              // réserve l'annonce (polls rapprochés)
+    let q = null;
+    try { q = (await api("/question/" + encodeURIComponent(rm))).question; } catch (e) { /* partie */ }
+    spokenCache[rm] = q || "?";
+    const r = resolveCache[rm];
+    const label = /^\d+$/.test(String(rm)) ? "Session R M " + rm : "Session " + rm;
+    speak(label + (r && r.found && r.title ? ", " + r.title : "") + ". " +
+      (q ? "Question : " + q : "attend une réponse."));
+  }
+}
+// Dicter une consigne à la session attachée (reconnaissance fr, confirmation avant envoi)
+let rec = null;
+function dictate() {
+  if (!attached) return;
+  if (rec) { try { rec.stop(); } catch (e) { } return; }   // re-clic = stop
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
+  rec = new SR();
+  rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+  const btn = document.getElementById("micbtn");
+  btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
+  const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
+  rec.onerror = (e) => {
+    done();
+    toast("Dictée : " + (e.error === "not-allowed" ? "micro refusé (HTTPS/localhost requis)" : e.error), true);
+  };
+  rec.onend = done;
+  rec.onresult = async (e) => {
+    const txt = (e.results[0][0].transcript || "").trim();
+    if (!txt) return;
+    const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
+    if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
+    try {
+      await api("/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
+      });
+      toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
+    } catch (err) { toast(err.message, true); }
+  };
+  try { rec.start(); } catch (e) { done(); toast("Dictée impossible : " + e.message, true); }
+}
+// Lire la question de la session attachée (repli : ses dernières lignes)
+async function readQuestion() {
+  if (!attached) return;
+  try {
+    const r = await api("/question/" + encodeURIComponent(attached));
+    if (r.question) { speak("Question : " + r.question); return; }
+    const cap = await fetch("/capture/" + encodeURIComponent(attached) + "?lines=8", { headers: headers() });
+    if (!cap.ok) throw new Error("capture : erreur " + cap.status);
+    const lastLines = (await cap.text()).split("\n").map(l => l.trim()).filter(Boolean).slice(-4);
+    toast("Pas de question en attente — lecture des dernières lignes");
+    speak(lastLines.length ? lastLines.join(". ") : "Le terminal est vide.");
+  } catch (e) { toast(e.message, true); }
 }
 
 // ----- RM2330 : outline de conversation + navigation dans l'historique -----
@@ -1037,7 +1229,8 @@ function tabTip(s) {
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
   if (s.attached) t += " · attaché";
-  if (s.state === "attention") t += "\n⚠ demande une réponse (permission/question)";
+  if (s.state === "attention") t += "\n⚠ demande une réponse OUI/NON (permission/question)";
+  else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";
   else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
   (s.registry_conflicts || []).forEach(c => {
     t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", ");
@@ -1951,6 +2144,7 @@ async function kill(rmId) {
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
+  renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

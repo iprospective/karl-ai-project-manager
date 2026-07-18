@@ -41,8 +41,15 @@ assert.strictEqual(groups.get("divers")[0].rm_id, "4", "non résolu → divers")
 console.log("✓ groupement par client/projet (+ fallback, + divers)");
 
 // compteurs d'états
-assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, idle: 1, working: 2 }, "compteurs");
-console.log("✓ compteurs total/attention/idle/working");
+assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle: 1, working: 2 }, "compteurs");
+// RM2327 : l'état choice est compté à part et fait remonter son groupe
+const cg = computeGroups([
+  { rm_id: "9", client: "c", project: "p", state: "choice", created: 1 },
+  { rm_id: "8", client: "d", project: "q", state: "working", created: 999 },
+], {});
+assert.strictEqual(cg.counts.choice, 1, "compteur choice");
+assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
+console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
 
 // tri : le groupe avec attention passe devant, même plus ancien
 assert.strictEqual(keys[0], "beta/api", "groupe en attention en tête");
@@ -133,7 +140,23 @@ assert.strictEqual(nextAttentionId(flat, null), "2", "rien d'attaché → premi�
 assert.strictEqual(nextAttentionId(flat, "1"), "2", "attaché hors attention → première attention");
 assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attention → la suivante");
 assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
-console.log("✓ nextAttentionId (RM2302) : cycle sur les sessions en attention");
+// RM2327 : une session « choice » (choix multiple) fait partie du cycle d'attente
+assert.strictEqual(nextAttentionId([
+  { rm_id: "1", state: "working" }, { rm_id: "2", state: "choice" },
+], null), "2", "choice inclus dans le cycle");
+console.log("✓ nextAttentionId (RM2302/RM2327) : cycle sur les sessions en attente");
+
+// — 6. approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui —
+const fav = />>> approveShortcutVisible[\s\S]*?(function approveShortcutVisible[\s\S]*?)\n\/\/ <<< approveShortcutVisible/.exec(html);
+assert(fav, "marqueurs >>> approveShortcutVisible / <<< approveShortcutVisible introuvables");
+const approveShortcutVisible = vm.runInNewContext("(" + fav[1] + ")");
+
+const cache = { "10": { state: "attention" }, "11": { state: "working" } };
+assert.strictEqual(approveShortcutVisible("10", cache), true, "attachée en attention → visible");
+assert.strictEqual(approveShortcutVisible("11", cache), false, "attachée au travail → masqué");
+assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue du cache → masqué");
+assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
+console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
 
 // — 5. voiceQueue (RM2329) : file d'annonces vocales —
 const fv = />>> voiceQueue[\s\S]*?(function voiceQueue[\s\S]*?)\n\/\/ <<< voiceQueue/.exec(html);

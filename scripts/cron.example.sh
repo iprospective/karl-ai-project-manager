@@ -43,3 +43,10 @@ LOG_DIR=/var/log/pm-ai-agents
 # normal passe par `pm-sync-push` à la publication ; ce cron rattrape les retouches
 # wiki hors activité git. Lock-file par projet → pas de chevauchement avec un push manuel.
 */10 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-wiki-sync.py --all --push >> "$LOG_DIR/wiki-sync.log" 2>&1
+
+# ── Promotion PM dev→main (RM2298) ───────────────────────────────
+# Toutes les heures : promeut par lot les auto-commits pm-* repliés sur `dev`
+# (branches protégées RM2030) vers `main` du repo de DONNÉES PM — MR auto-créée
+# et auto-mergée (PAT manager). Idempotent : sans lot en attente, no-op.
+# Adapter --repo au chemin du repo de données de l'instance.
+15 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-promote.py --repo "$PROJECTS_PATH" >> "$LOG_DIR/pm-promote.log" 2>&1

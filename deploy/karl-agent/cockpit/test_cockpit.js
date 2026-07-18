@@ -135,4 +135,24 @@ assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attenti
 assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
 console.log("✓ nextAttentionId (RM2302) : cycle sur les sessions en attention");
 
+// — 6. outlineStep (RM2330) : sauts entre messages utilisateur —
+const fo = />>> outlineStep[\s\S]*?(function outlineStep[\s\S]*?)\n\/\/ <<< outlineStep/.exec(html);
+assert(fo, "marqueurs >>> outlineStep / <<< outlineStep introuvables");
+const outlineStep = vm.runInNewContext("(" + fo[1] + ")");
+
+const oi = [
+  { line: 2, kind: "user", text: "premier" },
+  { line: 5, kind: "assistant", text: "réponse" },
+  { line: 9, kind: "user", text: "deuxième" },
+  { line: 14, kind: "user", text: "troisième" },
+];
+assert.strictEqual(outlineStep(oi, null, -1).line, 14, "depuis le direct, ↑ = dernier message user");
+assert.strictEqual(outlineStep(oi, 14, -1).line, 9, "↑ = user précédent (l'assistant est sauté)");
+assert.strictEqual(outlineStep(oi, 2, -1), null, "au premier, ↑ = null");
+assert.strictEqual(outlineStep(oi, 9, 1).line, 14, "↓ = user suivant");
+assert.strictEqual(outlineStep(oi, 14, 1), null, "au dernier, ↓ = null (retour direct géré par l'appelant)");
+assert.strictEqual(outlineStep(oi, null, 1), null, "au direct, ↓ = null");
+assert.strictEqual(outlineStep([{ line: 1, kind: "assistant", text: "x" }], null, -1), null, "aucun message user → null");
+console.log("✓ outlineStep (RM2330) : sauts entre messages utilisateur");
+
 console.log("OK — tous les tests cockpit passent");

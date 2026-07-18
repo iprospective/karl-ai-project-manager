@@ -1039,6 +1039,134 @@ def _approve_answer(tail: str) -> str | None:
     return None
 
 
+# ── Outline de conversation + navigation dans l'historique (RM2330) ─────────
+# Le terminal est un tmux (servi par ttyd) : la « position de lecture » est donc
+# pilotée par le copy-mode tmux — history-top puis scroll-down N, déterministe
+# et visible par tous les clients attachés. L'outline est parsé du scrollback :
+# dans le TUI claude, un message utilisateur commence par « > », une réponse de
+# l'assistant par « ⏺ » (les lignes de suite sont indentées, sans marqueur).
+
+
+def _conversation_outline(text: str, max_items: int = 800) -> list:
+    """RM2330 : parse un scrollback en items [{line, kind, text}] — kind
+    user|assistant. Les lignes « > » consécutives forment UN item (message
+    multi-ligne). Pure (testable sans tmux) ; texte tronqué à 120 caractères."""
+    items = []
+    prev_user = False
+    for i, ln in enumerate(text.splitlines()):
+        s = ln.strip()
+        if s.startswith("> "):
+            body = s[2:].strip()
+            if prev_user and items and body:            # suite d'un message multi-ligne
+                cur = items[-1]
+                cur["text"] = (cur["text"] + " " + body)[:120]
+            elif body:
+                items.append({"line": i, "kind": "user", "text": body[:120]})
+            prev_user = True
+            continue
+        prev_user = False
+        if s.startswith("⏺"):
+            body = s.lstrip("⏺").strip()
+            if body:
+                items.append({"line": i, "kind": "assistant", "text": body[:120]})
+    if len(items) > max_items:                          # garde le plus récent
+        items = items[-max_items:]
+    return items
+
+
+def _transcript_outline(lines, max_items: int = 400) -> list:
+    """RM2330 : items de conversation depuis un transcript claude (JSONL).
+    Source de référence pour les sessions claude : leur TUI tourne en écran
+    alterné (history tmux VIDE — vérifié : alternate_on=1, history_size=0),
+    le scrollback ne contient donc PAS la conversation. Un item = un message
+    user|assistant (texte seul — tool_use/résultats/méta ignorés).
+    {n, kind, text (aperçu), full (lecture)} — pure (testable sans fichier)."""
+    items = []
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        kind = obj.get("type")
+        if kind not in ("user", "assistant") or obj.get("isMeta"):
+            continue
+        content = (obj.get("message") or {}).get("content")
+        if isinstance(content, str):
+            text = content
+        elif isinstance(content, list):
+            text = "\n".join(b.get("text", "") for b in content
+                             if isinstance(b, dict) and b.get("type") == "text")
+        else:
+            continue
+        text = text.strip()
+        # enveloppes techniques (<command-name>, <local-command-stdout>,
+        # <system-reminder>…) : pas des messages de conversation
+        if not text or text.startswith("<"):
+            continue
+        items.append({"n": len(items), "kind": kind,
+                      "text": " ".join(text.split())[:120], "full": text[:4000]})
+    if len(items) > max_items:
+        items = items[-max_items:]
+    return items
+
+
+def op_outline(rm_id: str) -> dict:
+    """RM2330 : outline de la conversation d'une session. Source primaire :
+    transcript claude (JSONL) résolu par le session_id de la clé tmux ; repli :
+    parse du scrollback tmux (moteurs shell/autres, où l'historique existe —
+    items alors positionnés par `line`, navigables via /scroll)."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    if k.get("engine") == "claude" and session_id:
+        jf = next((p for root in CLAUDE_STORES
+                   for p in root.glob(f"*/{session_id}.jsonl")), None)
+        if jf:
+            try:
+                with jf.open(encoding="utf-8", errors="replace") as fh:
+                    items = _transcript_outline(fh)
+                return {"rm_id": rm_id, "source": "transcript", "items": items}
+            except OSError as e:
+                raise ApiError(500, f"transcript illisible : {e}")
+    rc, out, err = _tmux("capture-pane", "-p", "-t", _session_name(rm_id),
+                         "-S", "-", timeout=30)
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    return {"rm_id": rm_id, "source": "tmux",
+            "total_lines": len(out.splitlines()),
+            "items": _conversation_outline(out)}
+
+
+def op_scroll(payload: dict) -> dict:
+    """RM2330 : positionne le pane sur une ligne du scrollback (copy-mode :
+    history-top + scroll-down N) ou revient au direct (bottom → cancel)."""
+    rm_id = _require_rm_id(payload)
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    name = _session_name(rm_id)
+    if payload.get("bottom"):
+        _tmux("send-keys", "-t", name, "-X", "cancel")   # hors copy-mode : sans effet
+        return {"rm_id": rm_id, "position": "live"}
+    try:
+        line = int(payload.get("line"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "line requis (entier) ou bottom: true")
+    if line < 0:
+        raise ApiError(400, "line ≥ 0 requis")
+    rc, _, err = _tmux("copy-mode", "-t", name)
+    if rc != 0:
+        raise ApiError(500, f"copy-mode a échoué : {err.strip()}")
+    _tmux("send-keys", "-t", name, "-X", "history-top")
+    if line > 0:
+        _tmux("send-keys", "-t", name, "-N", str(line), "-X", "scroll-down")
+    return {"rm_id": rm_id, "position": line}
+
+
 def _session_state(rm_id: str, engine) -> str:
     rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
     if rc != 0:
@@ -2421,6 +2549,8 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 lines = int(qs["lines"][0]) if "lines" in qs else None
                 return self._send_text(200, op_capture(rm_id, lines))
+            if path.startswith("/outline/"):
+                return self._send_json(200, op_outline(path[len("/outline/"):]))
             if path == "/buffer":
                 return self._send_text(200, op_buffer())
             if path.startswith("/stream/"):
@@ -2461,6 +2591,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_send(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
+            if path == "/scroll":
+                return self._send_json(200, op_scroll(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
             if path == "/monitor":

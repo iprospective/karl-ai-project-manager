@@ -163,6 +163,22 @@
   /* chips longues (branches/worktrees RM2166) : ellipse au lieu de déborder */
   .metabody .rels .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .metapanel.collapsed .metabody { display: none; }
+  /* RM2330 : colonne outline de conversation (façon minimap d'éditeur) */
+  .outpanel { width: 270px; border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; }
+  .outpanel.collapsed { width: 34px; }
+  .outpanel.collapsed .outbody, .outpanel.collapsed .outnav { display: none; }
+  .outnav { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
+  .outnav .cnt { color: var(--muted); font-size: 11px; margin-left: auto; }
+  .outbody { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; overscroll-behavior: contain; }
+  .oline { padding: 3px 7px; margin-bottom: 2px; border-radius: 5px; font-size: 11.5px; line-height: 1.35;
+    color: var(--muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    border-left: 3px solid transparent; }
+  .oline:hover { background: var(--panel2); color: var(--fg); }
+  /* messages utilisateur : surlignés, nettement plus lisibles (demande RM2330) */
+  .oline.ouser { color: #eaf3ff; background: rgba(78,161,255,.16); border-left-color: var(--accent); font-weight: 600; }
+  .oline.ouser:hover { background: rgba(78,161,255,.28); }
+  .oline.ocur { outline: 1px solid var(--accent); }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
@@ -429,6 +445,19 @@
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
+      <!-- RM2330 : outline de la conversation — clic = aller à ce point du terminal -->
+      <aside class="outpanel collapsed" id="outpanel">
+        <button class="metatoggle" id="outtoggle" onclick="toggleOutline()"
+          title="Conversation de la session (replier/déplier) — clic sur une entrée : le terminal défile jusqu'à ce point.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺</button>
+        <div class="outnav">
+          <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
+          <button class="mini" onclick="jumpUser(1)" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
+          <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
+          <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
+          <span class="cnt" id="outcnt"></span>
+        </div>
+        <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
+      </aside>
       <aside class="metapanel collapsed" id="metapanel">
         <button class="metatoggle" id="metatoggle" onclick="toggleMeta()" title="Infos de la session (replier/déplier)">ℹ</button>
         <div class="metabody" id="metabody"></div>
@@ -664,6 +693,111 @@ function renderCurTitle() {
   // RM2302 : « ✔ Oui » dans la barre du terminal quand la session attachée attend
   const st = attached ? (sessCache[attached] || {}).state : null;
   document.getElementById("yesbtn").style.display = st === "attention" ? "" : "none";
+}
+
+// ----- RM2330 : outline de conversation + navigation dans l'historique -----
+let outline = { items: [], total: 0 };
+let outPos = null;      // dernière ligne atteinte (null = direct, en bas)
+
+// >>> outlineStep — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2330 : cible de saut parmi les messages UTILISATEUR de l'outline.
+// dir=-1 : dernier message user strictement AVANT pos (pos null = depuis la fin) ;
+// dir=+1 : premier strictement APRÈS pos (null si pos null — déjà au direct).
+function outlineStep(items, pos, dir) {
+  const users = items.filter(it => it.kind === "user");
+  if (!users.length) return null;
+  if (dir < 0) {
+    const before = users.filter(it => it.line < (pos == null ? Infinity : pos));
+    return before.length ? before[before.length - 1] : null;
+  }
+  if (pos == null) return null;
+  return users.find(it => it.line > pos) || null;
+}
+// <<< outlineStep
+
+function toggleOutline() {
+  const p = document.getElementById("outpanel");
+  p.classList.toggle("collapsed");
+  if (!p.classList.contains("collapsed") && attached) loadOutline(true);
+}
+async function loadOutline() {
+  if (!attached) return;
+  try {
+    const r = await api("/outline/" + encodeURIComponent(attached));
+    // normalise la clé de position : `line` (scrollback tmux) ou `n` (transcript)
+    (r.items || []).forEach(it => { if (it.line == null) it.line = it.n; });
+    outline = { items: r.items || [], total: r.total_lines || 0, source: r.source || "tmux" };
+    renderOutline();
+  } catch (e) {
+    document.getElementById("outbody").innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  }
+}
+function renderOutline() {
+  const body = document.getElementById("outbody");
+  document.getElementById("outcnt").textContent =
+    outline.items.filter(i => i.kind === "user").length + " msg";
+  if (!outline.items.length) {
+    body.innerHTML = '<div class="empty">conversation vide (ou moteur sans marqueurs « > » / « ⏺ »)</div>';
+    return;
+  }
+  body.innerHTML = "";
+  for (const it of outline.items) {
+    const d = document.createElement("div");
+    d.className = "oline" + (it.kind === "user" ? " ouser" : "") + (outPos === it.line ? " ocur" : "");
+    d.textContent = (it.kind === "user" ? "🗣 " : "⏺ ") + it.text;
+    d.title = (it.kind === "user" ? "Ton message" : "Assistant") +
+      (outline.source === "transcript" ? " — clic : lire ce message" : " — clic : faire défiler le terminal jusqu'ici");
+    d.onclick = () => jumpTo(it);
+    body.appendChild(d);
+  }
+}
+async function jumpTo(it) {
+  if (!attached) return;
+  outPos = it.line;
+  if (outline.source === "transcript") {
+    // sessions claude : TUI en écran alterné, pas de scrollback tmux à piloter —
+    // le point de conversation s'ouvre en lecture (modale), l'outline le marque.
+    showCaptureModal((it.kind === "user" ? "🗣 Ton message" : "⏺ Assistant") +
+      " — " + (/^\d+$/.test(String(attached)) ? "RM" + attached : attached),
+      it.full || it.text);
+    renderOutline();
+    // fait défiler l'OUTLINE jusqu'à l'entrée marquée
+    const cur = document.querySelector(".oline.ocur");
+    if (cur) cur.scrollIntoView({ block: "center" });
+    return;
+  }
+  try {
+    // -2 : deux lignes de contexte au-dessus de la cible
+    await api("/scroll", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, line: Math.max(0, it.line - 2) }),
+    });
+    renderOutline();
+  } catch (e) { toast(e.message, true); }
+}
+function jumpUser(dir) {
+  const go = () => {
+    const it = outlineStep(outline.items, outPos, dir);
+    if (it) { jumpTo(it); return; }
+    if (dir > 0) scrollLive();            // plus rien après → retour au direct
+    else toast("Pas de message utilisateur plus haut");
+  };
+  if (!outline.items.length) loadOutline().then(go); else go();
+}
+async function scrollLive() {
+  if (!attached) return;
+  outPos = null;
+  if (outline.source === "transcript") {  // pas de scrollback à replacer : on
+    closeDoc(); renderOutline(); return;  // referme juste la lecture en cours
+  }
+  try {
+    await api("/scroll", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, bottom: true }),
+    });
+    renderOutline();
+    toast("⤓ retour au direct");
+  } catch (e) { toast(e.message, true); }
 }
 
 // RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
@@ -1193,6 +1327,10 @@ function attach(rmId) {
     ensureResolved(metaTicket).then(() => { if (attached === String(rmId)) renderMeta(); });
     refreshWorkspace(metaTicket);
   }
+  // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
+  outline = { items: [], total: 0 }; outPos = null;
+  if (!document.getElementById("outpanel").classList.contains("collapsed")) loadOutline();
+  else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
   renderCurTitle();
@@ -1209,6 +1347,8 @@ function detach() {
   document.getElementById("tabactions").style.display = "none";
   document.getElementById("metapanel").classList.add("collapsed");
   document.getElementById("metabody").innerHTML = "";
+  outline = { items: [], total: 0 }; outPos = null;   // RM2330
+  document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
   document.getElementById("chipsrow").style.display = "none";
   renderCurTitle();
 }
@@ -1798,6 +1938,15 @@ async function kill(rmId) {
   rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
   rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
   document.getElementById("search").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
+  // RM2330 : navigation clavier dans l'historique de conversation. Ne prend que
+  // quand le focus est sur la page cockpit (l'iframe ttyd est cross-origin :
+  // impossible d'y intercepter les touches — cliquer hors du terminal d'abord).
+  document.addEventListener("keydown", e => {
+    if (!attached || !e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.key === "ArrowUp") { e.preventDefault(); jumpUser(-1); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); jumpUser(1); }
+    else if (e.key === "End") { e.preventDefault(); scrollLive(); }
+  });
   loadProjects();
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"

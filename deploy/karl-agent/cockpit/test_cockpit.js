@@ -158,4 +158,24 @@ assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue
 assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
 console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
 
+// — 5. voiceQueue (RM2329) : file d'annonces vocales —
+const fv = />>> voiceQueue[\s\S]*?(function voiceQueue[\s\S]*?)\n\/\/ <<< voiceQueue/.exec(html);
+assert(fv, "marqueurs >>> voiceQueue / <<< voiceQueue introuvables");
+const voiceQueue = vm.runInNewContext("(" + fv[1] + ")");
+
+let spoken = {};
+const vs = [
+  { rm_id: "1", state: "attention" },
+  { rm_id: "2", state: "working" },
+  { rm_id: "3", state: "choice" },
+];
+assert.deepStrictEqual([...voiceQueue(vs, spoken)], ["1", "3"], "attention + choice à annoncer");
+spoken = { "1": "Question ?", "3": "Choix ?" };
+assert.deepStrictEqual([...voiceQueue(vs, spoken)], [], "déjà annoncées → rien");
+// la session 1 repart travailler → purgée du cache → ré-annonçable ensuite
+assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "working" }], spoken)], [], "plus en attente → rien");
+assert(!("1" in spoken), "sortie d'attente → purge du cache");
+assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "attention" }], spoken)], ["1"], "nouvelle question → ré-annonce");
+console.log("✓ voiceQueue (RM2329) : annonces sans doublon, ré-annonce après reprise");
+
 console.log("OK — tous les tests cockpit passent");

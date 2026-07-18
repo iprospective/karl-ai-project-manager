@@ -228,6 +228,9 @@
   <!-- RM2327 : répondre Oui d'un coup à toutes les sessions qui posent une question -->
   <button class="mini" id="yesall" style="display:none" onclick="approveAll(this)"
     title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
+  <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
+  <button class="mini" id="voicebtn" onclick="toggleVoice()"
+    title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -424,6 +427,11 @@
           <option value="60">1 h</option>
           <option value="0">désactiver</option>
         </select>
+        <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
+        <button class="mini" id="micbtn" onclick="dictate()"
+          title="Dicter une consigne (fr) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
+        <button class="mini" id="readbtn" onclick="readQuestion()"
+          title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
         <button class="mini" id="unmonbtn" onclick="removeMonitor()" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
@@ -650,6 +658,7 @@ async function refreshSessions() {
       }
       list.appendChild(g);
     }
+    announceWaiting(sessions);   // RM2329 : mode voix (fire-and-forget)
     // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
     document.getElementById("hcnt").innerHTML =
       '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
@@ -745,6 +754,109 @@ function approveShortcutVisible(attached, cache) {
   return !!attached && ((cache[attached] || {}).state === "attention");
 }
 // <<< approveShortcutVisible
+
+// ----- RM2329 : pilotage vocal (speechSynthesis + Web Speech API) -----
+let voiceMode = localStorage.getItem("karlVoice") === "1";
+const spokenCache = {};   // rm_id → dernière question annoncée (mode voix)
+
+// >>> voiceQueue — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2329 : sessions à annoncer vocalement = celles EN ATTENTE (⚠ oui/non ou
+// ❓ choix multiple) pas encore annoncées ; `spoken` est purgé quand une session
+// sort d'attente (une nouvelle question future sera ré-annoncée).
+function voiceQueue(sessions, spoken) {
+  const waiting = new Set(["attention", "choice"]);
+  const due = [];
+  for (const s of sessions) {
+    if (waiting.has(s.state)) { if (!spoken[s.rm_id]) due.push(s.rm_id); }
+    else delete spoken[s.rm_id];
+  }
+  return due;
+}
+// <<< voiceQueue
+
+function frVoice() {
+  return speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("fr")) || null;
+}
+function speak(text) {
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = "fr-FR";
+    const v = frVoice(); if (v) u.voice = v;
+    speechSynthesis.speak(u);
+  } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+function renderVoiceBtn() {
+  const b = document.getElementById("voicebtn");
+  b.style.color = voiceMode ? "var(--ok)" : "";
+  b.style.borderColor = voiceMode ? "var(--ok)" : "";
+}
+function toggleVoice() {
+  voiceMode = !voiceMode;
+  try { localStorage.setItem("karlVoice", voiceMode ? "1" : "0"); } catch (e) { /* mode privé */ }
+  renderVoiceBtn();
+  toast(voiceMode ? "🔊 Mode voix : les sessions en attente seront annoncées" : "Mode voix coupé");
+  if (voiceMode) speak("Mode voix activé");
+  else speechSynthesis.cancel();
+}
+// Annonce des sessions nouvellement en attente (appelé à chaque refresh)
+async function announceWaiting(sessions) {
+  if (!voiceMode) return;
+  for (const rm of voiceQueue(sessions, spokenCache)) {
+    spokenCache[rm] = "…";              // réserve l'annonce (polls rapprochés)
+    let q = null;
+    try { q = (await api("/question/" + encodeURIComponent(rm))).question; } catch (e) { /* partie */ }
+    spokenCache[rm] = q || "?";
+    const r = resolveCache[rm];
+    const label = /^\d+$/.test(String(rm)) ? "Session R M " + rm : "Session " + rm;
+    speak(label + (r && r.found && r.title ? ", " + r.title : "") + ". " +
+      (q ? "Question : " + q : "attend une réponse."));
+  }
+}
+// Dicter une consigne à la session attachée (reconnaissance fr, confirmation avant envoi)
+let rec = null;
+function dictate() {
+  if (!attached) return;
+  if (rec) { try { rec.stop(); } catch (e) { } return; }   // re-clic = stop
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
+  rec = new SR();
+  rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+  const btn = document.getElementById("micbtn");
+  btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
+  const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
+  rec.onerror = (e) => {
+    done();
+    toast("Dictée : " + (e.error === "not-allowed" ? "micro refusé (HTTPS/localhost requis)" : e.error), true);
+  };
+  rec.onend = done;
+  rec.onresult = async (e) => {
+    const txt = (e.results[0][0].transcript || "").trim();
+    if (!txt) return;
+    const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
+    if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
+    try {
+      await api("/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
+      });
+      toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
+    } catch (err) { toast(err.message, true); }
+  };
+  try { rec.start(); } catch (e) { done(); toast("Dictée impossible : " + e.message, true); }
+}
+// Lire la question de la session attachée (repli : ses dernières lignes)
+async function readQuestion() {
+  if (!attached) return;
+  try {
+    const r = await api("/question/" + encodeURIComponent(attached));
+    if (r.question) { speak("Question : " + r.question); return; }
+    const cap = await fetch("/capture/" + encodeURIComponent(attached) + "?lines=8", { headers: headers() });
+    if (!cap.ok) throw new Error("capture : erreur " + cap.status);
+    const lastLines = (await cap.text()).split("\n").map(l => l.trim()).filter(Boolean).slice(-4);
+    toast("Pas de question en attente — lecture des dernières lignes");
+    speak(lastLines.length ? lastLines.join(". ") : "Le terminal est vide.");
+  } catch (e) { toast(e.message, true); }
+}
 
 // RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
 function gotoNextAttention() {
@@ -1883,6 +1995,7 @@ async function kill(rmId) {
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
+  renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

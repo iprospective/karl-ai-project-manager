@@ -1039,6 +1039,46 @@ def _approve_answer(tail: str) -> str | None:
     return None
 
 
+# RM2329 : caractères de décor TUI (bordures de boîtes claude) à ôter d'une
+# question avant lecture vocale — une ligne qui n'est QUE du décor est jetée.
+_TUI_DECOR = set("─│╭╮╰╯┌┐└┘├┤═║╔╗╚╝• ")
+
+
+def _extract_question(tail: str) -> str | None:
+    """RM2329 : texte lisible de la question posée dans un pane (pour la synthèse
+    vocale). Prend le bloc depuis la première ligne porteuse d'un marqueur
+    d'attention, nettoie bordures/curseur TUI, aplati en une phrase. None si
+    aucune question visible. Pure (testable sans tmux)."""
+    lines = tail.rstrip().splitlines()[-15:]
+    start = next((i for i, ln in enumerate(lines)
+                  if any(m in ln for m in _ATTENTION_MARKERS)), None)
+    if start is None:
+        return None
+    out = []
+    for ln in lines[start:start + 10]:
+        ln = ln.replace("❯", " ").strip()
+        ln = ln.strip("│║").strip()
+        if not ln or set(ln) <= _TUI_DECOR:
+            continue
+        out.append(ln)
+    text = " ".join(out).strip()
+    return text[:500] or None
+
+
+def op_question(rm_id: str) -> dict:
+    """RM2329 : question actuellement posée par une session (texte nettoyé,
+    prêt pour la synthèse vocale) — null si la session ne demande rien."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    rc, out, err = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
+    if rc != 0:
+        raise ApiError(500, f"capture-pane a échoué : {err.strip()}")
+    tail = "\n".join(out.rstrip().splitlines()[-15:])
+    return {"rm_id": rm_id, "question": _extract_question(tail)}
+
+
 def _session_state(rm_id: str, engine) -> str:
     rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
     if rc != 0:
@@ -2421,6 +2461,8 @@ class Handler(BaseHTTPRequestHandler):
                 qs = parse_qs(parsed.query)
                 lines = int(qs["lines"][0]) if "lines" in qs else None
                 return self._send_text(200, op_capture(rm_id, lines))
+            if path.startswith("/question/"):
+                return self._send_json(200, op_question(path[len("/question/"):]))
             if path == "/buffer":
                 return self._send_text(200, op_buffer())
             if path.startswith("/stream/"):

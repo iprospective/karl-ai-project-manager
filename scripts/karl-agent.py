@@ -1847,6 +1847,8 @@ _PM_COMMANDS_DEFAULT = [
           "flag": "--close-reason", "choices": _PM_CLOSE_REASONS},
          {"name": "allow_unchecked", "label": "Forcer malgré checklist non cochée",
           "type": "bool", "flag": "--allow-unchecked"},
+         {"name": "allow_unmerged", "label": "Forcer malgré branche non mergée (RM2319)",
+          "type": "bool", "flag": "--allow-unmerged"},
      ]},
     {"name": "task-comment", "label": "Commenter un ticket",
      "category": "ticket", "script": "pm-task-comment.py",

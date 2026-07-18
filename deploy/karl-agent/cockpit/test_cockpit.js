@@ -146,4 +146,16 @@ assert.strictEqual(nextAttentionId([
 ], null), "2", "choice inclus dans le cycle");
 console.log("✓ nextAttentionId (RM2302/RM2327) : cycle sur les sessions en attente");
 
+// — 6. approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui —
+const fav = />>> approveShortcutVisible[\s\S]*?(function approveShortcutVisible[\s\S]*?)\n\/\/ <<< approveShortcutVisible/.exec(html);
+assert(fav, "marqueurs >>> approveShortcutVisible / <<< approveShortcutVisible introuvables");
+const approveShortcutVisible = vm.runInNewContext("(" + fav[1] + ")");
+
+const cache = { "10": { state: "attention" }, "11": { state: "working" } };
+assert.strictEqual(approveShortcutVisible("10", cache), true, "attachée en attention → visible");
+assert.strictEqual(approveShortcutVisible("11", cache), false, "attachée au travail → masqué");
+assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue du cache → masqué");
+assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
+console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
+
 console.log("OK — tous les tests cockpit passent");

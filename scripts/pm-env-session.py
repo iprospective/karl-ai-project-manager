@@ -439,6 +439,23 @@ def cmd_teardown(args):
         if dirt and not args.force:
             die("worktree sale (modifs non commitées) — commit/stash d'abord, "
                 "ou --force pour perdre :\n" + "\n".join(dirt))
+        # 1bis. refuse une branche aux commits non poussés (sauf --force) — RM2319 :
+        # le worktree démonté, la branche reste dans le bare mais devient invisible ;
+        # des commits jamais poussés y seraient oubliés (variante de l'incident RM2302).
+        br = git(["-C", str(wt), "branch", "--show-current"], check=False).stdout.strip()
+        if br and not args.force:
+            git(["-C", str(wt), "fetch", "origin", br], check=False)
+            upstream = git(["-C", str(wt), "rev-parse", "--verify", "--quiet",
+                            f"refs/remotes/origin/{br}"], check=False).stdout.strip()
+            # poussé = derrière origin/<br> si elle existe, sinon derrière N'IMPORTE
+            # quelle branche origin (branche jamais poussée mais contenu déjà livré)
+            scope = [f"origin/{br}..HEAD"] if upstream else ["HEAD", "--not", "--remotes=origin"]
+            ahead = git(["-C", str(wt), "rev-list", "--count", *scope],
+                        check=False).stdout.strip()
+            if ahead and ahead != "0":
+                die(f"branche '{br}' : {ahead} commit(s) non poussé(s) sur origin — "
+                    f"pousse d'abord (git push -u origin {br}), ou --force pour "
+                    f"démonter quand même (les commits restent dans le bare, mais hors de vue).")
 
     # 2. runtime (privilégié) : vhost + logs php + clone BDD
     if runtime:

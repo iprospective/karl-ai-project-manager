@@ -222,6 +222,9 @@
   <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
   <button class="mini" id="nextatt" style="display:none" onclick="gotoNextAttention()"
     title="Attacher la prochaine session en attente d'une réponse (⚠) — cycle si plusieurs">⚠ suivante ➜</button>
+  <!-- RM2332 : Oui sur la session AFFICHÉE, à côté de « suivante » — enchaîner suivante → Oui → suivante -->
+  <button class="mini" id="yesatt" style="display:none" onclick="approve(attached)"
+    title="Répondre Oui à la question de la session affichée — s'enchaîne avec « ⚠ suivante »">✔ Oui</button>
   <!-- RM2327 : répondre Oui d'un coup à toutes les sessions qui posent une question -->
   <button class="mini" id="yesall" style="display:none" onclick="approveAll(this)"
     title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
@@ -677,8 +680,11 @@ function renderCurTitle() {
     el.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
       (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
       '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : tmuxName(attached)) + '</span>' +
-      (s.state === "attention" ? '<span class="tbadge">⚠</span>'
-        : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>' : "");
+      (s.state === "attention"
+        ? '<span class="tbadge">⚠</span><button class="mini" style="margin-left:8px" ' +
+          'onclick="approve(attached)" title="Répondre Oui à la question en attente de cette session">✔ Oui</button>'
+        : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
+        : "");   // RM2332 : Oui au titre · RM2327 : ❓ choix multiple
   } else if (currentReview) {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
@@ -686,9 +692,11 @@ function renderCurTitle() {
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
-  // RM2302 : « ✔ Oui » dans la barre du terminal quand la session attachée attend
-  const st = attached ? (sessCache[attached] || {}).state : null;
-  document.getElementById("yesbtn").style.display = st === "attention" ? "" : "none";
+  // RM2302/RM2332 : « ✔ Oui » (barre du terminal + header) quand la session
+  // affichée attend — la même décision pilote les deux emplacements.
+  const show = approveShortcutVisible(attached, sessCache) ? "" : "none";
+  document.getElementById("yesbtn").style.display = show;
+  document.getElementById("yesatt").style.display = show;
   // RM2327 : état du sélecteur auto-oui (armé → durée restante en libellé)
   const ay = document.getElementById("autoyes");
   const until = attached ? (sessCache[attached] || {}).auto_yes_until : null;
@@ -729,6 +737,14 @@ async function setAutoYes(minutes) {
     refreshSessions();
   } catch (e) { toast(e.message, true); }
 }
+
+// >>> approveShortcutVisible — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2332 : les raccourcis « ✔ Oui » (header, à côté de « ⚠ suivante », et barre du
+// terminal) ne s'affichent que si la session ATTACHÉE attend un Oui/Non.
+function approveShortcutVisible(attached, cache) {
+  return !!attached && ((cache[attached] || {}).state === "attention");
+}
+// <<< approveShortcutVisible
 
 // RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
 function gotoNextAttention() {

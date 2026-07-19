@@ -1023,7 +1023,9 @@ async function resolveRm() {
     resolved = r;
     if (r.found) {
       el.className = "resolved";
-      el.textContent = "✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "");
+      el.innerHTML = esc("✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "")) +
+        // RM2285 : un ticket fermé se rouvre (ferme→a_faire, note motivée obligatoire)
+        (r.status === "ferme" ? ' <button class="mini" onclick="reopenTicket(' + esc(rm) + ')" title="Rouvrir le ticket (ferme → a_faire, motif requis)">↻ Rouvrir</button>' : "");
       document.getElementById("cwd").value = r.cwd;
     } else {
       el.className = "resolved nf";
@@ -1355,7 +1357,8 @@ function renderMeta() {
       ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span></span></div>' +
       '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
       '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span></span></div>' +
+      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
+      (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
       '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
       '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
     // Consommation enregistrée par le PM (RM2173) — tokens / coût / temps
@@ -1588,6 +1591,27 @@ function showCaptureModal(title, txt) {
   el.className = "plain";   // RM2309 : captures/sorties = texte brut mono, jamais rendues
   el.textContent = txt;
   document.getElementById("docmodal").classList.add("show");
+}
+
+// ----- RM2285 : rouvrir un ticket fermé (ferme → a_faire, NORMS v1.57.0) -----
+async function reopenTicket(rm) {
+  rm = String(rm);
+  const note = window.prompt("RM" + rm + " → a_faire (réouverture)\nMotif de la réouverture (requis) :", "");
+  if (note === null) return;
+  if (!note.trim()) { toast("Motif requis", true); return; }
+  try {
+    const r = await pmRun("task-status", { rm_id: rm, status: "a_faire", note: note.trim() }, { confirm: true });
+    toast(r.ok ? "RM" + rm + " rouvert → a_faire" : "Échec réouverture (rc=" + r.rc + ")", !r.ok);
+    if (!r.ok) showCaptureModal("Réouverture RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
+  } catch (e) { toast(e.message, true); }
+  finally {
+    // re-résout partout : lanceur, encart ℹ, fiche revue (resolveCache périmé, cf. RM2229)
+    ensureResolved(rm, true).then(() => {
+      if (document.getElementById("rm").value.trim() === rm) resolveRm();
+      if (metaTicket === rm) renderMeta();
+      if (currentReview === rm) renderReviewPane();
+    });
+  }
 }
 
 // ----- RM2213 : réglages contrôlés (whitelist serveur) -----

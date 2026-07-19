@@ -5,6 +5,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.57.0] - 2026-07-18
+
+### Ajouté — réouverture d'un ticket fermé (RM2285)
+
+Le workflow n'offrait AUCUNE transition depuis `ferme` (constat RM2140 : ticket
+validé-clos impossible à reprendre proprement). Nouvelle transition
+`ferme → a_faire` (module status-workflow, § Transitions valides) : note motivée
+obligatoire, `close_reason` purgé, `status_history` conserve le cycle précédent.
+Outillage : `pm-task-status-update` (garde-fous cible/note) + bouton « Rouvrir »
+au cockpit. Nouveau périmètre sur le même sujet → préférer un nouveau ticket lié.
+
+---
+
 ## [1.56.0] - 2026-07-15
 
 ### Ajouté — format des livrables : portable et versionné (RM2301)

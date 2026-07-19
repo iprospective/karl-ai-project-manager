@@ -32,7 +32,7 @@ const sessions = [
   { rm_id: "4", is_ticket: false, state: "working", created: 300 }, // non PM-tracké
 ];
 const rcache = { "3": { found: true, client: "beta", project: "api" } };
-const { keys, groups, counts } = computeGroups(sessions, rcache);
+const { keys, groups, counts } = computeGroups(sessions, rcache, true);   // tri dynamique opt-in (RM2344)
 
 assert.deepStrictEqual(new Set(keys), new Set(["acme/shop", "beta/api", "divers"]), "clés de groupes");
 assert.strictEqual(groups.get("acme/shop").length, 2, "2 sessions acme/shop");
@@ -46,7 +46,7 @@ assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle:
 const cg = computeGroups([
   { rm_id: "9", client: "c", project: "p", state: "choice", created: 1 },
   { rm_id: "8", client: "d", project: "q", state: "working", created: 999 },
-], {});
+], {}, true);
 assert.strictEqual(cg.counts.choice, 1, "compteur choice");
 assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
 console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
@@ -62,9 +62,15 @@ console.log("✓ tri attention > activité récente > alpha");
 const eq = computeGroups([
   { rm_id: "10", client: "zeta", project: "z", state: "working", created: 10 },
   { rm_id: "11", client: "alpha", project: "a", state: "working", created: 10 },
-], {});
+], {}, true);
 assert.deepStrictEqual([...eq.keys], ["alpha/a", "zeta/z"], "alpha à égalité");
 console.log("✓ tri alphabétique à égalité");
+
+// RM2344 : SANS l'option (défaut), ordre STABLE — alphabétique pur, l'attention
+// et l'activité récente ne réordonnent plus rien.
+const stable = computeGroups(sessions, rcache);
+assert.deepStrictEqual([...stable.keys], ["acme/shop", "beta/api", "divers"], "défaut = alphabétique stable");
+console.log("✓ RM2344 : ordre stable par défaut (tri dynamique = opt-in)");
 
 // aucune session
 const empty = computeGroups([], {});

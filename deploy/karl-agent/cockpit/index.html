@@ -265,6 +265,11 @@
     <div class="lbody">
 
     <div class="lpanel" id="lp-running">
+      <!-- RM2344 : tri dynamique EN OPTION (désactivé par défaut — l'ordre stable ne bouge pas sous la souris) -->
+      <label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;font-size:11.5px;color:var(--muted);cursor:pointer">
+        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
+        tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
+      </label>
       <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
 
@@ -572,7 +577,7 @@ function switchPanel(name) {
 // enrichi RM1939 ; fallback /resolve ; « divers » pour les non PM-trackés),
 // compte les états, et trie les groupes : attention d'abord, puis activité
 // récente, puis alphabétique.
-function computeGroups(sessions, rcache) {
+function computeGroups(sessions, rcache, dynamic) {
   const groups = new Map();
   const counts = { total: sessions.length, attention: 0, choice: 0, idle: 0, working: 0 };
   for (const s of sessions) {
@@ -588,12 +593,16 @@ function computeGroups(sessions, rcache) {
     else if (s.state === "idle") counts.idle++;
     else counts.working++;
   }
+  // RM2344 : ordre STABLE par défaut (alphabétique pur — rien ne bouge sous la
+  // souris entre deux refreshs). Le tri dynamique historique (⚠/❓ en tête puis
+  // activité récente — RM2140/RM2283) ne s'applique QUE si `dynamic` est vrai.
   const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
-  const keys = [...groups.keys()].sort((a, b) =>
-    att(groups.get(b)) - att(groups.get(a)) ||
-    rec(groups.get(b)) - rec(groups.get(a)) ||
-    a.localeCompare(b));
+  const keys = [...groups.keys()].sort((a, b) => dynamic
+    ? (att(groups.get(b)) - att(groups.get(a)) ||
+       rec(groups.get(b)) - rec(groups.get(a)) ||
+       a.localeCompare(b))
+    : a.localeCompare(b));
   return { keys, groups, counts };
 }
 // <<< computeGroups
@@ -621,7 +630,7 @@ async function refreshSessions() {
     // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
     for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
-    const { keys, groups, counts } = computeGroups(sessions, resolveCache);
+    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort);
     orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
@@ -990,6 +999,15 @@ async function scrollLive() {
     renderOutline();
     toast("⤓ retour au direct");
   } catch (e) { toast(e.message, true); }
+}
+
+// RM2344 : préférence de tri de la liste « en cours » — stable par défaut
+let dynSort = localStorage.getItem("karlDynSort") === "1";
+function toggleDynSort(on) {
+  dynSort = !!on;
+  try { localStorage.setItem("karlDynSort", dynSort ? "1" : "0"); } catch (e) { /* mode privé */ }
+  toast(dynSort ? "Tri dynamique activé (⚠ et activité en tête)" : "Ordre stable (alphabétique) — rien ne bouge");
+  refreshSessions();
 }
 
 // RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
@@ -2145,6 +2163,7 @@ async function kill(rmId) {
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
+  document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

@@ -2868,13 +2868,16 @@ class Handler(BaseHTTPRequestHandler):
             raise ApiError(403, "réservé au superadmin")
 
     def _send_auth_required(self):
-        """401 ; le challenge Basic n'est émis que si le mode user/mdp est
-        configuré (en mode token seul, pas de prompt navigateur parasite)."""
+        """401 ; le challenge Basic n'est émis que si le CLIENT a lui-même
+        tenté un Basic (retry curl/API). Depuis RM2334 la page cockpit est
+        publique avec une carte de login : challenger les fetch 401 ferait
+        surgir le prompt Basic natif du navigateur par-dessus la carte."""
         body = json.dumps(
-            {"error": "authentification requise (Basic ou X-Karl-Token)"},
+            {"error": "authentification requise (login, Basic ou X-Karl-Token)"},
             ensure_ascii=False).encode("utf-8")
         self.send_response(401)
-        if BASIC_USER is not None and BASIC_PASS is not None:
+        if (BASIC_USER is not None and BASIC_PASS is not None
+                and (self.headers.get("Authorization") or "").startswith("Basic ")):
             self.send_header("WWW-Authenticate", 'Basic realm="karl-agent", charset="UTF-8"')
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))

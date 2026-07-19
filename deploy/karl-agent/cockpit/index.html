@@ -485,6 +485,8 @@
         </div>
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
+        <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
       <!-- RM2330 : outline de la conversation — clic = aller à ce point du terminal -->
       <aside class="outpanel collapsed" id="outpanel">
@@ -655,8 +657,8 @@ async function refreshSessions() {
       head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
         (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
         (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
-      head.title = key + "\n(clic : infos client/projet)";
-      head.onclick = () => showProject(key);
+      head.title = key + "\n(clic : fiche projet dans le panneau principal)";
+      head.onclick = () => openProjectView(key);   // RM2353
       g.appendChild(head);
       for (const s of sess) {
         const r = resolveCache[s.rm_id];
@@ -743,6 +745,9 @@ function renderCurTitle() {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
       '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : "") + '</span>';
+  } else if (currentProjectView) {
+    el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
+      '<span class="ttitle">fiche projet</span>';
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
@@ -1579,6 +1584,8 @@ function attach(rmId) {
   attached = String(rmId);
   currentReview = null;                       // la vue revue cède la place
   document.getElementById("reviewpane").style.display = "none";
+  currentProjectView = null;                  // RM2353 : la fiche projet aussi
+  document.getElementById("projpane").style.display = "none";
   document.getElementById("placeholder").style.display = "none";
   const f = document.getElementById("term");
   f.style.display = "block"; f.src = ttydUrl(rmId);
@@ -1813,10 +1820,103 @@ async function submitPmForm(name, btn) {
 let reviewTabs = [];        // rm_id (str) des onglets de revue ouverts
 let currentReview = null;   // onglet de revue actif
 let tqCache = {};           // rm_id (str) → entrée /pm/test-queue (env, branche…)
+// ----- RM2353 : fiche projet dans le panneau principal -----
+let currentProjectView = null;   // clé "client/projet" de la fiche affichée
+function closeProjectView() {
+  currentProjectView = null;
+  document.getElementById("projpane").style.display = "none";
+  if (!attached && !currentReview) document.getElementById("placeholder").style.display = "flex";
+  renderCurTitle();
+}
+async function openProjectView(key) {
+  if (attached) detach();               // une seule vue active à la fois
+  currentReview = null;
+  document.getElementById("reviewpane").style.display = "none";
+  currentProjectView = key;
+  document.getElementById("placeholder").style.display = "none";
+  const pane = document.getElementById("projpane");
+  pane.style.display = "block";
+  pane.innerHTML = '<div class="empty">chargement de la fiche projet…</div>';
+  renderCurTitle();
+  const [c, p] = key.split("/");
+  if (!c || !p || key === "divers") {
+    pane.innerHTML = '<div class="empty">groupe « divers » — sessions non rattachées à un projet PM.</div>' +
+      sessionPills(key);
+    return;
+  }
+  try {
+    const d = await api("/project/" + encodeURIComponent(c) + "/" + encodeURIComponent(p));
+    if (currentProjectView === key) renderProjectPane(key, d);
+  } catch (e) {
+    pane.innerHTML = '<div class="empty">fiche projet indisponible : ' + esc(e.message) + '</div>' + sessionPills(key);
+  }
+}
+function sessionPills(key) {
+  const sess = groupsCache[key] || [];
+  if (!sess.length) return "";
+  return '<div class="ms"><h4>Sessions en cours</h4><div class="rels">' +
+    sess.map(s => '<span class="pill" style="cursor:pointer" onclick="attach(\'' + esc(s.rm_id) + '\')">' +
+      '<span class="tdot st-' + esc(s.state || "idle") + '" style="margin-right:4px"></span>' +
+      (s.is_ticket === false ? esc(s.rm_id) : "RM" + esc(s.rm_id)) + '</span>').join(" ") + '</div></div>';
+}
+function tkRow(t) {
+  return '<div class="oline" style="white-space:normal" onclick="showTicket(' + esc(t.rm_id) + ')" ' +
+    'title="Détail dans l’encart ℹ">' +
+    '<span class="r-id">RM' + esc(t.rm_id) + '</span> ' +
+    '<span class="pill">' + esc(t.status || "?") + '</span> ' + esc(t.title || "") +
+    (t.mtime ? ' <span style="color:var(--muted)">· ' + ago(t.mtime) + '</span>' : "") + '</div>';
+}
+function renderProjectPane(key, d) {
+  const pane = document.getElementById("projpane");
+  let h = '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">' +
+    '<h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">📁 ' + esc(key) + '</h2>' +
+    (d.name ? '<span style="color:var(--muted)">' + esc(d.name) + '</span>' : "") +
+    '<span style="flex:1"></span><button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
+  // liens
+  h += '<div class="rels" style="margin:10px 0 14px">';
+  if (d.redmine_project_url) h += '<a class="pill" href="' + esc(d.redmine_project_url) + '" target="_blank">🎫 Projet Redmine ↗</a>';
+  if (d.redmine_issues_url) h += '<a class="pill" href="' + esc(d.redmine_issues_url) + '" target="_blank">📋 Liste des tickets ↗</a>';
+  if (d.gitlab_repo) h += '<span class="pill" title="repo GitLab' + (d.default_branch ? " · branche " + esc(d.default_branch) : "") + '">🗄 ' + esc(d.gitlab_repo) + '</span>';
+  h += '<span class="pill">' + d.total + ' tickets</span></div>';
+  // sessions du groupe (ce que l'encart ℹ montrait)
+  h += sessionPills(key);
+  // environnements
+  if ((d.environments || []).length) {
+    h += '<div class="ms"><h4>Environnements</h4>';
+    d.environments.forEach(e => {
+      h += '<div class="kv"><span class="k">' + esc(e.name || "?") + '</span><span class="v">' +
+        (e.url ? '<a href="' + esc(e.url) + '" target="_blank">' + esc(e.url) + ' ↗</a>' : "—") + '</span></div>';
+    });
+    h += '</div>';
+  }
+  // docs projet
+  if ((d.docs || []).length) {
+    h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
+    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doc.name) + '\')">📄 ' + esc(doc.name) + '</li>'; });
+    h += '</ul></div>';
+  }
+  // tickets ouverts par statut + récents
+  const bs = d.open_by_status || {};
+  if (Object.keys(bs).length) {
+    h += '<div class="ms"><h4>Tickets ouverts</h4><div class="rels" style="margin-bottom:8px">' +
+      Object.keys(bs).sort().map(st => '<span class="pill">' + esc(st) + " : " + bs[st] + '</span>').join(" ") + '</div>';
+    (d.open_recent || []).forEach(t => { h += tkRow(t); });
+    h += '</div>';
+  }
+  // derniers traités
+  if ((d.closed_recent || []).length) {
+    h += '<div class="ms"><h4>Derniers tickets traités</h4>';
+    d.closed_recent.forEach(t => { h += tkRow(t); });
+    h += '</div>';
+  }
+  pane.innerHTML = h;
+}
+
 function openReview(rm) {
   rm = String(rm);
   if (!reviewTabs.includes(rm)) reviewTabs.push(rm);
   if (attached) detach();               // une seule vue active à la fois
+  closeProjectView();                   // RM2353 : la fiche projet cède la place
   currentReview = rm;
   metaTicket = rm;
   document.getElementById("placeholder").style.display = "none";

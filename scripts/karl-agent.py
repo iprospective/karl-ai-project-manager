@@ -1867,6 +1867,96 @@ def _task_types() -> list:
     return _TASK_TYPES_CACHE
 
 
+# ── Vue projet (RM2353) ──────────────────────────────────────────────────────
+_PART_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
+
+
+def _project_tickets_summary(tasks: list) -> dict:
+    """RM2353 : agrège une liste de tickets [{rm_id, title, status, type, mtime}]
+    → derniers traités (fermés, plus récents d'abord), ouverts récents, compte
+    par statut. Pure (testable sans filesystem)."""
+    closed = sorted([t for t in tasks if t.get("status") == "ferme"],
+                    key=lambda t: -t.get("mtime", 0))
+    open_ = sorted([t for t in tasks if t.get("status") != "ferme"],
+                   key=lambda t: -t.get("mtime", 0))
+    by_status = {}
+    for t in open_:
+        st = t.get("status") or "?"
+        by_status[st] = by_status.get(st, 0) + 1
+    return {"closed_recent": closed[:12], "open_recent": open_[:15],
+            "open_by_status": by_status, "total": len(tasks)}
+
+
+def op_project(client: str, project: str) -> dict:
+    """RM2353 : fiche projet pour le panneau principal du cockpit — conf
+    pertinente (overview : redmine.project_id, repo gitlab), docs, environnements,
+    liens Redmine (projet + liste des tickets), derniers tickets traités et
+    ouverts par statut (MD locaux, récence = mtime des fichiers)."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        raise ApiError(400, "client/projet invalide")
+    pdir = PROJECTS_BASE / client / "projects" / project
+    if not pdir.is_dir():
+        raise ApiError(404, f"projet inconnu en local : {client}/{project}")
+    # conf : name + redmine.project_id + gitlab.repo — depuis meta.yml (layout
+    # co-localisé) ET le frontmatter de project/overview.md (l'un ou l'autre
+    # peut manquer selon le projet ; parse à plat, blocs à 1 niveau).
+    name = slug = repo = default_branch = None
+
+    def _flat(text):
+        nonlocal name, slug, repo, default_branch
+        block = None
+        for line in text.splitlines():
+            if line and not line[0].isspace():
+                block = line.split(":", 1)[0].strip() if ":" in line else None
+                if line.startswith("name:") and not name:
+                    name = _scalar(line)
+                continue
+            s = line.strip()
+            if block == "redmine" and s.startswith("project_id:") and not slug:
+                slug = s.split(":", 1)[1].strip().strip("'\"")
+            elif block == "gitlab" and s.startswith("repo:") and not repo:
+                repo = s.split(":", 1)[1].strip().strip("'\"")
+            elif block == "gitlab" and s.startswith("default_branch:") and not default_branch:
+                default_branch = s.split(":", 1)[1].strip().strip("'\"")
+
+    meta_yml = pdir / "meta.yml"
+    if meta_yml.is_file():
+        _flat(meta_yml.read_text(encoding="utf-8", errors="replace"))
+    ov = pdir / "project" / "overview.md"
+    if ov.is_file():
+        text = ov.read_text(encoding="utf-8", errors="replace")
+        if text.startswith("---"):
+            end = text.find("\n---", 3)
+            _flat(text[3:end] if end != -1 else text)
+    tasks = []
+    tdir = pdir / "tasks"
+    if tdir.is_dir():
+        for tf in tdir.glob("RM*_*.md"):
+            if tf.name.endswith(".log.md"):
+                continue
+            m = re.match(r"RM(\d+)_", tf.name)
+            if not m:
+                continue
+            meta = _read_task_meta(tf)
+            try:
+                mtime = int(tf.stat().st_mtime)
+            except OSError:
+                mtime = 0
+            tasks.append({"rm_id": m.group(1), "title": meta["title"],
+                          "status": meta["status"], "type": meta["type"],
+                          "mtime": mtime})
+    redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
+    return {
+        "client": client, "project": project, "name": name,
+        "redmine_project_url": f"{redmine}/projects/{slug}" if redmine and slug else "",
+        "redmine_issues_url": f"{redmine}/projects/{slug}/issues" if redmine and slug else "",
+        "gitlab_repo": repo, "default_branch": default_branch,
+        "docs": _project_docs(pdir),
+        "environments": _read_project_envs(pdir),
+        **_project_tickets_summary(tasks),
+    }
+
+
 def op_list_projects() -> list:
     out = []
     for cl in sorted(PROJECTS_BASE.glob("*")):
@@ -2691,6 +2781,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_capture(rm_id, lines))
             if path.startswith("/outline/"):
                 return self._send_json(200, op_outline(path[len("/outline/"):]))
+            if path.startswith("/project/"):
+                parts = path[len("/project/"):].split("/")
+                if len(parts) != 2:
+                    return self._send_json(400, {"error": "attendu : /project/<client>/<projet>"})
+                return self._send_json(200, op_project(parts[0], parts[1]))
             if path.startswith("/question/"):
                 return self._send_json(200, op_question(path[len("/question/"):]))
             if path == "/buffer":

@@ -19,6 +19,11 @@ Le repo cible est le dépôt de CODE du ticket (défaut : cwd). La branche de
 base doit être la branche d'intégration du projet (tripwire NORMS #3) — si
 --from est omis, la branche courante est utilisée avec un avertissement.
 
+Gardes de cible (RM2360) : un CORE (repo qui révisionne `.mmi-pm`) est refusé —
+le code se branche dans un worktree `envs/` tiré de `repos/`, pas dans le core ;
+et si la tâche a déjà enregistré son repo de code, un cwd pointant ailleurs est
+refusé (contournable par `--repo` explicite).
+
 NB : dans un workspace au layout RM1993 (`repos/` + `envs/`), l'env de session
 `envs/<repo>-rm<id>` (worktree + vhost + BDD) est géré par `pm-env-session.py`
 — créé automatiquement à la prise du ticket (hook en_cours de
@@ -55,11 +60,33 @@ def _git(repo, *args, check=True):
     return r
 
 
+def _is_core(root):
+    """Un dépôt est un CORE PM (structure/projet) s'il RÉVISIONNE un `.mmi-pm` /
+    `.mmi-pm-client` à sa racine — jamais une cible de branche de code (invariant NORMS
+    structure-reference, RM2348 : le code se branche dans un worktree `envs/` tiré de
+    `repos/`). On teste le suivi git plutôt que la simple présence : dans le modèle
+    legacy, `.mmi-pm` est un symlink gitignoré du workspace de CODE (non tracké) — il ne
+    doit donc PAS être pris pour un core."""
+    tracked = _git(root, "ls-files", "--", ".mmi-pm", ".mmi-pm-client",
+                   check=False).stdout.strip()
+    return bool(tracked)
+
+
+def peek_task_frontmatter(md_path):
+    """Frontmatter YAML de la tâche (dict), ou {} si illisible."""
+    try:
+        return yaml.safe_load(FM_RE.match(md_path.read_text(encoding="utf-8")).group(2)) or {}
+    except Exception:
+        return {}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("rm_id", type=int)
-    ap.add_argument("--repo", default=".", help="Dépôt de code cible (défaut : cwd)")
+    ap.add_argument("--repo", default=None,
+                    help="Dépôt de code cible (défaut : cwd). Passé explicitement, "
+                         "il contourne le cross-check du repo enregistré (RM2360).")
     ap.add_argument("--from", dest="base", help="Branche de base (défaut : branche courante)")
     ap.add_argument("--slug", help="Slug de branche (défaut : slug du fichier de tâche)")
     ap.add_argument("--take", action="store_true",
@@ -94,14 +121,34 @@ def main():
         slug = slug[:SLUG_MAX].rstrip("-")
     branch = f"{args.rm_id}-{slug}"
 
-    repo = Path(args.repo).resolve()
+    repo = Path(args.repo if args.repo is not None else ".").resolve()
     root_r = _git(repo, "rev-parse", "--show-toplevel", check=False)
     if root_r.returncode != 0:
         sys.exit(f"ERREUR : {repo} n'est pas dans un dépôt git")
     root = Path(root_r.stdout.strip())
     if root == cfg.projects_root:
-        sys.exit("ERREUR : le repo cible est ai-projects (données PM) — la branche de "
+        sys.exit("ERREUR : le repo cible est ai-projects (index PM) — la branche de "
                  "ticket se crée dans le dépôt de CODE du projet (--repo).")
+
+    # Garde structurelle (RM2360) : un CORE (repo qui révisionne .mmi-pm) n'est jamais
+    # une cible de branche de code. Sans ça, lancer depuis la racine d'un workspace
+    # projet branche le core au lieu du repo de code (bug RM2325).
+    if _is_core(root):
+        sys.exit(
+            f"ERREUR : le repo cible '{root.name}' est un CORE PM (il révisionne "
+            f".mmi-pm) — la branche de ticket se crée dans le dépôt de CODE, un "
+            f"worktree sous 'envs/' tiré de 'repos/'. Place-toi dans 'envs/<repo>' "
+            f"(ex. l'env d'intégration '<repo>-dev') ou passe --repo <chemin-du-code>.")
+
+    # Cross-check (RM2360) : si la tâche a déjà enregistré son repo de code, refuser un
+    # repo différent (empêche de polluer git.repo/CF depuis le mauvais endroit) — sauf
+    # --repo explicite (choix délibéré, ex. le code a changé de dépôt).
+    recorded = ((peek_task_frontmatter(md_path).get("git") or {}).get("repo"))
+    if recorded and recorded != root.name and args.repo is None:
+        sys.exit(
+            f"ERREUR : la tâche RM{args.rm_id} est enregistrée sur le repo de code "
+            f"'{recorded}', mais le cwd résout vers '{root.name}'. Place-toi dans "
+            f"'{recorded}', ou passe --repo explicitement si le repo a changé.")
 
     current = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     base = args.base or current
@@ -120,14 +167,10 @@ def main():
         # Idempotence indépendante du cwd (RM2240) : si le frontmatter porte déjà
         # le worktree de CETTE branche, le réutiliser — sinon une relance depuis
         # un autre worktree calcule un chemin imbriqué et plante.
-        try:
-            fm_peek = yaml.safe_load(FM_RE.match(md_path.read_text(encoding="utf-8")).group(2)) or {}
-            g_peek = fm_peek.get("git") or {}
-            if g_peek.get("branch") == branch and g_peek.get("worktree") \
-                    and Path(g_peek["worktree"]).is_dir():
-                wt = Path(g_peek["worktree"])
-        except Exception:
-            pass
+        g_peek = peek_task_frontmatter(md_path).get("git") or {}
+        if g_peek.get("branch") == branch and g_peek.get("worktree") \
+                and Path(g_peek["worktree"]).is_dir():
+            wt = Path(g_peek["worktree"])
 
     exists = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
                   check=False).returncode == 0

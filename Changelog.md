@@ -11,7 +11,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
-## [1.12.0] - 2026-07-12 — Cockpit web complet + boucle de recette
+## [1.12.1] - 2026-07-20 — Garde de cible pm-branch-start
+
+### Outillage
+- **`pm-branch-start` refuse un CORE comme cible de branche de code** (RM2360). La
+  cible n'était validée que contre `projects_root` (blocklist de taille 1) : lancé
+  depuis la racine d'un workspace projet — le core, porteur de `.mmi-pm` — le script
+  branchait le core au lieu du repo de code (bug RM2325). Garde structurelle : un repo
+  qui **révisionne `.mmi-pm`** (`git ls-files`) est un core → refus avec message
+  actionnable (le code se branche dans un worktree `envs/` tiré de `repos/`). S'appuie
+  sur l'invariant NORMS 1.58.0 (structure-reference, RM2348). Cross-check ajouté : un
+  cwd pointant sur un repo ≠ `git.repo` enregistré est refusé (contournable par `--repo`
+  explicite). Tests : `test_pm_branch_start_guard.py`.
 
 ### Gouvernance documentaire
 - Règle « **docs vivantes du repo PM** » (module governance, NORMS v1.54.0) :

@@ -1,5 +1,46 @@
-> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je crée/répare le lien workspace↔PM.
+> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je me demande dans quel dépôt committer (code vs structure) · je crée/répare le lien workspace↔PM.
 > **Outils :** `pm_paths.PMConfig`, `pm-sync-links`⚠ · **Préchargé par :** worker-infra.
+
+### Anatomie d'un projet — le core, `repos/` et `envs/`
+
+**Un projet est défini par un dossier `.mmi-pm`.** Ce dossier vit dans le **core** du
+projet : le dépôt git à la racine du workspace, qui ne **révisionne que `.mmi-pm/`** par
+défaut (tout le reste — code, données, démos — y est gitignoré). Le core porte donc la
+**définition du projet** (`project/`, `docs/`, `tasks/`, `memory/`) et rien d'autre.
+
+Autour du core, deux dossiers structurent le **code** :
+
+```
+<workspace>/                     # = CORE du projet — dépôt git, remote `<Projet>-core.git`
+  .mmi-pm/                       # LE projet : project/ docs/ tasks/ memory/  (seul révisionné par le core)
+  repos/
+    <repo>.git                   # dépôt de CODE, bare — la SOURCE
+  envs/
+    <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
+    <repo>-dev-<RMid>-s<seq>     # WORKTREE de ticket (pm-branch-start --worktree)
+  …                              # data/, démos, .claude/ … gitignoré par le core
+```
+
+Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
+`git-mep` pour le workflow branche/worktree par ticket).
+
+**Deux dépôts, deux destinations de commit — ne jamais les confondre :**
+
+| Ce que tu commites | Où | Dépôt / remote |
+|---|---|---|
+| **Travail / code** (src, tests, config appli) | un **worktree** sous `envs/` | dépôt de code (`repos/<repo>.git` → ex. `worm-web-orm`) |
+| **Structure / projet** (tâches, docs, overview, mémoire — tout `.mmi-pm/`) | le **core** (racine du workspace) | dépôt core (ex. `Worm-core.git`) |
+
+Les commits de code partent vers le remote du **code** ; les auto-commits PM (`pm-*`,
+qui ne touchent que `.mmi-pm/`) partent vers le remote du **core**. **Corollaires
+structurels** (invariants pour l'outillage) :
+
+- un dépôt porteur d'un `.mmi-pm` à sa racine **est un core**, **jamais** une cible de
+  branche de code — le code se branche dans un worktree `envs/` tiré de `repos/` ;
+- un worktree `envs/` n'est **jamais** l'endroit où l'on commite une tâche/doc PM.
+
+**Même motif au niveau entité/client** : une entité a son propre **`.mmi-pm-client`**
+(core client), porté par son dépôt dédié.
 
 ### Repo project-management (système, public)
 
@@ -36,11 +77,24 @@ project-management/                   # racine : pm.config.yml :: roots.pm_dir
     cron.example.sh
 ```
 
-### Repo projets (privé, gitignored dans le repo PM)
+### Repo projets (index centralisé)
 
 Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
 Structure interne définie par les patterns de `paths:` — la représentation
 ci-dessous montre la **résolution par défaut**.
+
+> **⚠ Sens du lien inversé — `projects_root` est un INDEX, plus le stockage.**
+> Historiquement cette arbo **contenait** les données PM et le `.mmi-pm` de chaque
+> workspace y **pointait** (symlink entrant). Le modèle canonique actuel est
+> **inversé** : la source de vérité est le **`.mmi-pm` du core** de chaque projet (cf.
+> « Anatomie d'un projet » ci-dessus), et chaque
+> `projects_root/{entity_projects_dir}/<P>` est un **symlink SORTANT** vers ce
+> `.mmi-pm`. `projects_root` est donc un **index** de liens vers les cores — maintenu
+> par `mmi-pm index add|rebuild` (reconstruit depuis les emplacements canoniques
+> `.mmi-pm` / `.mmi-pm-client`) —, pratique pour que l'orchestrateur scanne tous les
+> projets d'un coup (`cfg.iter_projects()`), mais ce **n'est plus** l'endroit où vivent
+> les tâches/docs. L'arbre par défaut ci-dessous décrit donc ce que chaque core expose
+> **à travers** son lien d'index, pas un stockage central.
 
 ```
 {projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
@@ -78,6 +132,14 @@ ci-dessous montre la **résolution par défaut**.
 ```
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+
+> **⚠ Section legacy — décrit l'ancien modèle (symlink `.mmi-pm` *entrant*).** Le
+> modèle canonique actuel est « Anatomie d'un projet » ci-dessus : `.mmi-pm` est un
+> **vrai dossier** dans le core, et c'est l'**index** `projects_root` qui porte le
+> symlink **sortant**. Le lien inverse `workspace` (côté core) survit sous une forme
+> triviale — `.mmi-pm/workspace → ..` (le core EST le workspace). On conserve cette
+> section pour les workspaces pas encore migrés et pour la mécanique de résolution
+> cross-tree en fin de section, toujours valable.
 
 Chaque projet a **deux emplacements** distincts mais liés :
 

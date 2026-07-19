@@ -17,6 +17,10 @@
 removed: []
 
 rewritten:
+  - reason: "RM2348 : sens du lien .mmi-pm inversé — projects_root n'est plus le stockage privé mais un index de symlinks sortants vers les cores. Titre réécrit « Repo projets (index centralisé) » dans structure-reference."
+    old: |
+      ### Repo projets (privé, gitignored dans le repo PM)
+
   - reason: "RM2229 (v1.53.0) : test_url tenu automatiquement par pm-env-session (create écrit, teardown vide) — la parenthèse de surcharge est étendue dans le module environments"
     old: |
       (sauf si `test_url` est explicitement surchargé).

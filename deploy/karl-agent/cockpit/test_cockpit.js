@@ -198,4 +198,22 @@ assert.strictEqual(outlineStep(oi, null, 1), null, "au direct, ↓ = null");
 assert.strictEqual(outlineStep([{ line: 1, kind: "assistant", text: "x" }], null, -1), null, "aucun message user → null");
 console.log("✓ outlineStep (RM2330) : sauts entre messages utilisateur");
 
+// — 8. pickVoice (RM2350) : choix de la voix de synthèse —
+const fpv = />>> pickVoice[\s\S]*?(function pickVoice[\s\S]*?)\n\/\/ <<< pickVoice/.exec(html);
+assert(fpv, "marqueurs >>> pickVoice / <<< pickVoice introuvables");
+const pickVoice = vm.runInNewContext("(" + fpv[1] + ")");
+
+const voices = [
+  { name: "eSpeak French", lang: "fr-FR", localService: true },
+  { name: "Google français", lang: "fr-FR", localService: false },
+  { name: "Google US English", lang: "en-US", localService: false },
+];
+assert.strictEqual(pickVoice(voices, "fr-FR", "").name, "Google français", "défaut = voix réseau (qualité)");
+assert.strictEqual(pickVoice(voices, "fr-FR", "eSpeak French").name, "eSpeak French", "choix explicite respecté");
+assert.strictEqual(pickVoice(voices, "fr-FR", "disparue").name, "Google français", "voix choisie absente → repli réseau");
+assert.strictEqual(pickVoice(voices, "en-US", "").name, "Google US English", "langue anglaise");
+assert.strictEqual(pickVoice([{ name: "L", lang: "fr-FR", localService: true }], "fr-FR", "").name, "L", "seule locale → prise quand même (nom)");
+assert.strictEqual(pickVoice(voices, "de-DE", ""), null, "aucune voix de la langue → null");
+console.log("✓ pickVoice (RM2350) : réseau prioritaire, choix explicite, replis");
+
 console.log("OK — tous les tests cockpit passent");

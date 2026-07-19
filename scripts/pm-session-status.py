@@ -76,6 +76,11 @@ def save(data, live=None):
     pour que l'effet de bord des scripts PM ne déclenche aucune résolution externe.
     """
     os.makedirs(WORKLOG_DIR, exist_ok=True)
+    if live:
+        # cache des documents (refs/outputs) pour les rendus snapshot ultérieurs
+        docs = {ref: lv["docs"] for ref, lv in live.items() if lv.get("docs")}
+        if docs:
+            data["docs"] = docs
     data["updated"] = now()
     jpath, mpath = paths(data["session_id"])
     with open(jpath, "w", encoding="utf-8") as f:
@@ -118,6 +123,37 @@ def _read_fm_field(path, field):
     return None
 
 
+def _read_fm_lists(path, fields):
+    """Lit des champs LISTE du frontmatter (`refs:`, `outputs:`) sans PyYAML.
+    Retourne {field: [valeurs]} ; `field: []` ou champ absent → liste vide."""
+    res = {f: [] for f in fields}
+    cur = None
+    try:
+        with open(path, encoding="utf-8") as f:
+            in_fm = False
+            for line in f:
+                s = line.rstrip("\n")
+                if s.strip() == "---":
+                    if in_fm:
+                        break
+                    in_fm = True
+                    continue
+                if not in_fm:
+                    continue
+                if cur is not None and s.startswith("- "):
+                    res[cur].append(s[2:].strip().strip("'\""))
+                    continue
+                cur = None
+                for fld in fields:
+                    if s == fld + ":":
+                        cur = fld
+                    elif s.startswith(fld + ":"):  # forme inline `refs: []`
+                        cur = None
+    except OSError:
+        pass
+    return res
+
+
 def resolve_live(items):
     """map ref→{status,title} depuis le frontmatter des tâches (best-effort).
 
@@ -142,7 +178,11 @@ def resolve_live(items):
             continue
         st = _read_fm_field(p, "status")
         if st:
-            live[ref] = {"status": st, "title": _read_fm_field(p, "title")}
+            lists = _read_fm_lists(p, ("refs", "outputs"))
+            docs = ([[d, "ref"] for d in lists["refs"]]
+                    + [[d, "output"] for d in lists["outputs"]])
+            live[ref] = {"status": st, "title": _read_fm_field(p, "title"),
+                         "docs": docs}
     return live
 
 
@@ -180,6 +220,23 @@ def render_md(data, live=None):
         if rec.get("worktrees"):
             out.append("\n## 🗂️ Worktrees")
             out += ["- `%s`" % w for w in rec["worktrees"]]
+        out.append("")
+
+    # Documents des tickets de la session (refs[] + outputs[] du frontmatter,
+    # RM2352) : résolution live si dispo, sinon cache du dernier rendu live.
+    doc_lines, seen = [], set()
+    for it in data["items"]:
+        lv = (live or {}).get(it["ref"]) or {}
+        entries = lv.get("docs")
+        if entries is None:
+            entries = (data.get("docs") or {}).get(it["ref"]) or []
+        for path_, kind in entries:
+            if (it["ref"], path_) not in seen:
+                seen.add((it["ref"], path_))
+                doc_lines.append("- **%s** · `%s` _(%s)_" % (it["ref"], path_, kind))
+    if doc_lines:
+        out.append("## 📄 Documents")
+        out += doc_lines
         out.append("")
 
     todo, wait, done = [], [], []

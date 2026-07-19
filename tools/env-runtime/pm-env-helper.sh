@@ -9,6 +9,9 @@
 #
 # Verbes :
 #   vhost-add <name> <docroot> <sock>   crée+active le vhost Apache <name>.lxc
+#   vhost-proxy-add <name> <port>       crée+active le vhost reverse proxy <name>.lxc
+#                                       → http://127.0.0.1:<port>/ (envs portés par un
+#                                       daemon HTTP — karl-agent, serveurs non-PHP ; RM2358)
 #   vhost-remove <name>                 désactive+supprime (si géré par nous) + purge logs apache
 #   db-clone <src> <dst> [motif ...]    CREATE DATABASE dst + copie (dst = *_rm<id> uniquement).
 #                                       motifs LIKE optionnels = tables EXCLUES des données
@@ -40,7 +43,9 @@ audit() { logger -t pm-env-helper -- "$SUDO_USER: $*" || true; }
 
 [ "$(id -u)" = 0 ] || die "doit tourner en root (via sudo)"
 
-vname_ok()  { [[ "$1" =~ ^[a-z0-9_.-]+-(rm[0-9]+|dev|test)$ ]]; }
+# Convention hostname (RM2358) : <project>-rm<id>[-s<seq>].lxc pour les envs de
+# ticket (suffixe session optionnel), <project>-dev/-test pour les envs stables.
+vname_ok()  { [[ "$1" =~ ^[a-z0-9_.-]+-(rm[0-9]+(-s[0-9]+)?|dev|test)$ ]]; }
 dbname_ok() { [[ "$1" =~ ^[a-z0-9_]+$ ]]; }
 db_ephemeral() { [[ "$1" =~ _rm[0-9]+$ ]]; }
 db_exists() { mysql -NBe "SHOW DATABASES LIKE '$1'" | grep -qx "$1"; }
@@ -98,6 +103,39 @@ EOF
     apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
     audit "vhost-add $name docroot=$real sock=$sock"
     echo "✓ vhost $name.lxc → $real (pool $(basename "$sock" .sock))"
+}
+
+cmd_vhost_proxy_add() {
+    # Vhost reverse proxy <name>.lxc → http://127.0.0.1:<port>/ (RM2358).
+    # Pour les envs servis par un daemon HTTP en loopback (karl-agent, serveurs
+    # de dev non-PHP). SSE ok via proxy_http ; WebSocket : ajouter un vhost
+    # dédié si besoin (cf. deploy/karl-agent/apache-vhost-setup.sh, ttyd).
+    local name="$1" port="$2" conf
+    vname_ok "$name" || die "nom de vhost invalide : $name"
+    [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] \
+        || die "port invalide (1024-65535 attendu) : $port"
+    conf="$SITES/$name.conf"
+    if [ -e "$conf" ]; then
+        grep -qF "$MARKER" "$conf" || die "$name.conf existe et n'est pas géré par pm-env-helper"
+    fi
+    cat > "$conf" <<EOF
+$MARKER
+<VirtualHost *:80>
+    ServerName $name.lxc
+
+    ProxyPreserveHost On
+    ProxyPass        / http://127.0.0.1:$port/ retry=0
+    ProxyPassReverse / http://127.0.0.1:$port/
+
+    ErrorLog  \${APACHE_LOG_DIR}/$name.error.log
+    CustomLog \${APACHE_LOG_DIR}/$name.access.log combined
+</VirtualHost>
+EOF
+    a2enmod -q proxy proxy_http >/dev/null 2>&1 || true
+    a2ensite -q "$name" >/dev/null
+    apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
+    audit "vhost-proxy-add $name port=$port"
+    echo "✓ vhost $name.lxc → 127.0.0.1:$port (reverse proxy)"
 }
 
 cmd_vhost_remove() {
@@ -207,10 +245,11 @@ cmd_phplog_purge() {
 verb="${1:-}"; shift || true
 case "$verb" in
     vhost-add)    [ $# -eq 3 ] || die "usage: vhost-add <name> <docroot> <sock>"; cmd_vhost_add "$@";;
+    vhost-proxy-add) [ $# -eq 2 ] || die "usage: vhost-proxy-add <name> <port>"; cmd_vhost_proxy_add "$@";;
     vhost-remove) [ $# -eq 1 ] || die "usage: vhost-remove <name>"; cmd_vhost_remove "$@";;
     db-clone)     [ $# -ge 2 ] || die "usage: db-clone <src> <dst> [motif-exclusion ...]"; cmd_db_clone "$@";;
     db-post-sql)  [ $# -eq 1 ] || die "usage: db-post-sql <db>  (SQL sur stdin)"; cmd_db_post_sql "$@";;
     db-drop)      [ $# -eq 1 ] || die "usage: db-drop <db>"; cmd_db_drop "$@";;
     phplog-purge) [ $# -eq 1 ] || die "usage: phplog-purge <basename>"; cmd_phplog_purge "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
 esac

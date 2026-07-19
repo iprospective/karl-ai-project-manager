@@ -419,6 +419,22 @@
       <input id="token" type="password" placeholder="token partagé">
       <button class="mini" style="margin-top:8px" onclick="saveToken()">Mémoriser</button>
     </div>
+    <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
+    <div class="card" id="voicecard">
+      <h2>🔊 Voix <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label for="vx-lang">Langue (dictée + lecture)</label>
+      <select id="vx-lang" onchange="setVoiceLang(this.value)">
+        <option value="fr-FR">français</option>
+        <option value="en-US">anglais</option>
+      </select>
+      <label for="vx-voice">Voix de synthèse</label>
+      <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
+        La liste dépend du navigateur — Chrome recommandé.
+      </div>
+      <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
+    </div>
     <div class="card" id="setcard">
       <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
       <div id="set-body" style="margin-top:8px"></div>
@@ -445,7 +461,7 @@
         </select>
         <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
         <button class="mini" id="micbtn" onclick="dictate()"
-          title="Dicter une consigne (fr) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
+          title="Dicter une consigne (langue : panneau 🔧 réglages, fr par défaut) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
         <button class="mini" id="readbtn" onclick="readQuestion()"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
@@ -803,16 +819,68 @@ function voiceQueue(sessions, spoken) {
 }
 // <<< voiceQueue
 
-function frVoice() {
-  return speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("fr")) || null;
+// RM2350 : préférences vocales — langue (dictée + lecture, fr par défaut) et
+// voix de synthèse choisie parmi celles du navigateur pour cette langue.
+let voiceLang = localStorage.getItem("karlVoiceLang") || "fr-FR";
+let voiceName = localStorage.getItem("karlVoiceName") || "";
+
+// >>> pickVoice — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2350 : meilleure voix pour `lang` parmi `voices` [{name, lang, localService}].
+// 1) la voix explicitement choisie (`wanted`) si toujours présente ; sinon
+// 2) une voix RÉSEAU (non locale — les « Google … » sonnent bien mieux que les
+//    voix locales type espeak, cause de la « qualité pourrie » constatée) ;
+// 3) à défaut, la première voix de la langue ; null si aucune.
+function pickVoice(voices, lang, wanted) {
+  const l = String(lang || "").toLowerCase().slice(0, 2);
+  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
+  if (!cand.length) return null;
+  if (wanted) { const w = cand.find(v => v.name === wanted); if (w) return w; }
+  return cand.find(v => v.localService === false) || cand[0];
 }
+// <<< pickVoice
+
 function speak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = "fr-FR";
-    const v = frVoice(); if (v) u.voice = v;
+    u.lang = voiceLang;
+    const v = pickVoice(speechSynthesis.getVoices(), voiceLang, voiceName);
+    if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+function setVoiceLang(lang) {
+  voiceLang = lang;
+  try { localStorage.setItem("karlVoiceLang", lang); } catch (e) { /* mode privé */ }
+  voiceName = "";                          // la voix suit la langue → re-sélection auto
+  try { localStorage.removeItem("karlVoiceName"); } catch (e) { /* mode privé */ }
+  renderVoicePrefs();
+  toast("Langue voix : " + (lang.startsWith("fr") ? "français" : "anglais"));
+}
+function setVoiceName(name) {
+  voiceName = name;
+  try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
+}
+function renderVoicePrefs() {
+  const langSel = document.getElementById("vx-lang");
+  if (!langSel) return;
+  langSel.value = voiceLang;
+  const sel = document.getElementById("vx-voice");
+  const voices = speechSynthesis.getVoices();
+  const l = voiceLang.toLowerCase().slice(0, 2);
+  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
+  sel.innerHTML = "";
+  if (!cand.length) {
+    sel.innerHTML = '<option value="">(aucune voix ' + l + ' dans ce navigateur)</option>';
+    return;
+  }
+  const best = pickVoice(voices, voiceLang, voiceName);
+  for (const v of cand) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = v.name + (v.localService === false ? " · réseau ★" : " · locale");
+    if (best && v.name === best.name) o.selected = true;
+    sel.appendChild(o);
+  }
 }
 function renderVoiceBtn() {
   const b = document.getElementById("voicebtn");
@@ -849,7 +917,7 @@ function dictate() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
   rec = new SR();
-  rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.lang = voiceLang; rec.interimResults = false; rec.maxAlternatives = 1;   // RM2350
   const btn = document.getElementById("micbtn");
   btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
   const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
@@ -2169,6 +2237,8 @@ async function kill(rmId) {
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
+  renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
+  try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

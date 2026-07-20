@@ -216,6 +216,11 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
             verb = "teardown"
         else:
             return
+        if verb == "teardown":
+            # RM2356 : une éventuelle instance cockpit de test se démonte aussi
+            cte = Path(__file__).resolve().parent / "pm-cockpit-test-env.py"
+            subprocess.run([sys.executable, str(cte), "teardown", str(rm_id), str(ws),
+                            "--if-exists"], capture_output=True, timeout=60)
         tool = Path(__file__).resolve().parent / "pm-env-session.py"
         # En TTY, passthrough : pm-env-session pose la question du clone BDD
         # (défaut projet db_clone_default) directement à l'utilisateur.

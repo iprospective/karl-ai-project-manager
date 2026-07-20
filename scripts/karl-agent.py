@@ -133,7 +133,7 @@ def _load_env_file(path: Path) -> None:
 _load_env_file(REPO_ROOT / ".env")
 
 # Bind localhost EN DUR — ne JAMAIS rendre configurable vers une adresse publique.
-HOST = "127.0.0.1"
+HOST = os.environ.get("KARL_AGENT_HOST", "127.0.0.1")   # RM2356 : instances de test liées ailleurs
 PORT = int(os.environ.get("KARL_AGENT_PORT", "9876"))
 
 # Nommage des sessions (RM2144) : l'ancrage TICKET est l'IDÉAL (karl-RM<id>,
@@ -2108,6 +2108,13 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "allow_unmerged", "label": "Forcer malgré branche non mergée (RM2319)",
           "type": "bool", "flag": "--allow-unmerged"},
      ]},
+    {"name": "cockpit-test-env", "label": "Instance cockpit de test (RM2356)",
+     "category": "ticket", "script": "pm-cockpit-test-env.py",
+     "mutate": True, "args": [
+         {"name": "action", "type": "enum", "required": True, "positional": True,
+          "choices": ["create", "teardown"]},
+         {"name": "rm_id", "label": "Ticket", "type": "rm_id", "required": True, "positional": True},
+     ]},
     {"name": "task-comment", "label": "Commenter un ticket",
      "category": "ticket", "script": "pm-task-comment.py",
      "mutate": True, "args": [
@@ -2285,6 +2292,9 @@ def op_test_queue(qs: dict) -> list:
             env = hits[0].name if hits else None
         e["env"] = env
         e["test_host"] = f"{env}.lxc" if env else None
+        # RM2356 : ticket cockpit-testable = son worktree embarque karl-agent
+        e["cockpit_testable"] = bool(
+            ws and env and (ws / "envs" / env / "scripts" / "karl-agent.py").is_file())
     # Sonde de vivacité en parallèle (RM2229) : un worktree présent n'est un
     # env de test QUE si son vhost sert bien ce worktree et que l'appli répond.
     to_probe = [e for e in out if e.get("env")]

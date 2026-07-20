@@ -53,6 +53,19 @@
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
     margin: 0 0 10px; font-weight: 600; }
   .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+  /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
+  #authgate { position: fixed; inset: 0; z-index: 1000; background: var(--bg);
+    display: none; align-items: center; justify-content: center; padding: 20px; }
+  #authgate.show { display: flex; }
+  #authgate .gatecard { background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 10px; padding: 26px 24px; width: 340px; max-width: 100%;
+    box-shadow: 0 12px 44px rgba(0,0,0,.45); }
+  #authgate h2 { margin: 0 0 2px; font-size: 18px; }
+  #authgate .gsub { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
+  #authgate label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+  #authgate input { width: 100%; box-sizing: border-box; }
+  #authgate button { width: 100%; margin-top: 14px; }
+  #authgate .gate-err { color: var(--danger); font-size: 12.5px; margin-top: 10px; min-height: 1em; }
   label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
   input, select, textarea { width: 100%; background: var(--bg); color: var(--fg);
     border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; font-size: 13px; font-family: inherit; }
@@ -230,6 +243,30 @@
 </style>
 </head>
 <body>
+<!-- RM2334 : écran de login dédié — recouvre l'interface tant qu'on n'est pas
+     authentifié (aucun panneau ni appel de données visible avant connexion). -->
+<div id="authgate">
+  <div class="gatecard">
+    <h2>🔒 Cockpit karl-agent</h2>
+    <div class="gsub">Connexion requise</div>
+    <label for="auth-user">Utilisateur</label>
+    <input id="auth-user" type="text" autocomplete="username" placeholder="utilisateur" autofocus>
+    <label for="auth-pass">Mot de passe</label>
+    <input id="auth-pass" type="password" autocomplete="current-password" placeholder="mot de passe">
+    <button class="mini" onclick="login()">Se connecter</button>
+    <div class="gate-err" id="gate-err"></div>
+    <div style="color:var(--muted);font-size:11px;margin-top:10px">
+      Le mot de passe n'est pas mémorisé : un token propre à cet appareil est
+      enregistré (révocable ensuite dans « réglages → appareils »).
+    </div>
+    <details style="margin-top:10px">
+      <summary style="cursor:pointer;color:var(--muted);font-size:12px">token partagé (mode historique)</summary>
+      <label for="token">X-Karl-Token</label>
+      <input id="token" type="password" placeholder="token partagé">
+      <button class="mini" onclick="saveToken()">Mémoriser</button>
+    </details>
+  </div>
+</div>
 <header>
   <span class="dot" id="health"></span>
   <h1>Cockpit karl-agent</h1>
@@ -418,11 +455,35 @@
     </div>
 
     <div class="lpanel" id="lp-settings">
-    <div class="card" id="tokencard" style="display:none">
+    <div class="card" id="authcard" style="display:none">
       <h2>Authentification</h2>
-      <label for="token">X-Karl-Token</label>
-      <input id="token" type="password" placeholder="token partagé">
-      <button class="mini" style="margin-top:8px" onclick="saveToken()">Mémoriser</button>
+      <!-- RM2334 : le login vit dans l'écran plein-cadre #authgate ; ici, seule
+           la gestion de session (une fois connecté). -->
+      <div id="auth-session">
+        <div id="auth-me" style="margin-bottom:8px"></div>
+        <button class="mini" onclick="logout()">Se déconnecter (révoque cet appareil)</button>
+        <div id="auth-devices" style="margin-top:10px"></div>
+      </div>
+    </div>
+    <div class="card" id="userscard" style="display:none">
+      <h2>👥 Utilisateurs <span style="color:var(--muted);font-weight:normal">(superadmin — RM2334)</span></h2>
+      <div id="users-list" style="margin-top:8px"></div>
+      <div class="row2" style="margin-top:8px">
+        <div>
+          <label for="nu-name">Nouveau compte</label>
+          <input id="nu-name" type="text" placeholder="login (a-z, 0-9, ._-)">
+        </div>
+        <div>
+          <label for="nu-pass">Mot de passe (≥ 8)</label>
+          <input id="nu-pass" type="password" autocomplete="new-password" placeholder="mot de passe">
+        </div>
+      </div>
+      <button class="mini" style="margin-top:8px" onclick="createUser()">Créer le compte</button>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        Le superadmin (fichier de conf .env) n'apparaît pas ici et ne peut pas
+        être supprimé. Désactiver ou changer le mot de passe d'un compte révoque
+        ses appareils.
+      </div>
     </div>
     <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
     <div class="card" id="voicecard">
@@ -533,7 +594,141 @@ let resolveTimer = null;
 function token() { return localStorage.getItem("karlToken") || ""; }
 function saveToken() {
   localStorage.setItem("karlToken", document.getElementById("token").value.trim());
-  toast("Token mémorisé"); refreshHealth(); refreshSessions();
+  localStorage.removeItem("karlDeviceId"); localStorage.removeItem("karlUser");
+  localStorage.removeItem("karlAdmin");
+  toast("Token mémorisé"); renderAuth(); refreshHealth(); refreshSessions();
+}
+
+// ── RM2334 : login identifiants → token d'appareil (jamais de mdp stocké) ───
+function authUser() { return localStorage.getItem("karlUser") || ""; }
+function authAdmin() { return localStorage.getItem("karlAdmin") === "1"; }
+async function login() {
+  const user = document.getElementById("auth-user").value.trim();
+  const pass = document.getElementById("auth-pass").value;
+  if (!user || !pass) { toast("utilisateur et mot de passe requis", true); return; }
+  try {
+    const r = await fetch("/auth/login", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: user, pass: pass, device_name: deviceName() })
+    });
+    const body = await r.json();
+    if (!r.ok) throw new Error(body.error || r.status);
+    localStorage.setItem("karlToken", body.token);
+    localStorage.setItem("karlDeviceId", body.device_id);
+    localStorage.setItem("karlUser", body.user);
+    localStorage.setItem("karlAdmin", body.admin ? "1" : "0");
+    document.getElementById("auth-pass").value = "";   // jamais conservé
+    document.getElementById("gate-err").textContent = "";
+    toast("Connecté : " + body.user);
+    renderAuth(); refreshHealth(); refreshSessions(); switchPanel("running");
+  } catch (e) {
+    document.getElementById("gate-err").textContent = e.message;
+    toast(e.message, true);
+  }
+}
+async function logout() {
+  const did = localStorage.getItem("karlDeviceId");
+  if (did) { try { await api("/auth/devices/" + did, { method: "DELETE" }); } catch (e) {} }
+  ["karlToken", "karlDeviceId", "karlUser", "karlAdmin"].forEach(k => localStorage.removeItem(k));
+  toast("Déconnecté — appareil révoqué");
+  renderAuth();
+}
+function deviceName() {
+  const ua = navigator.userAgent;
+  const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS"
+    : /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "macOS" : "Linux";
+  const nav = /Firefox/.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge"
+    : /Chrome/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "navigateur";
+  return nav + " / " + os;
+}
+function renderAuth() {
+  const gate = document.getElementById("authgate");
+  if (!CFG.auth_required) { gate.classList.remove("show"); return; }
+  const logged = !!(token() && authUser());
+  // écran de login plein-cadre tant qu'on n'est pas connecté (RM2334)
+  gate.classList.toggle("show", !logged);
+  if (!logged) { const u = document.getElementById("auth-user"); if (u) setTimeout(() => u.focus(), 0); }
+  document.getElementById("auth-session").style.display = logged ? "" : "none";
+  document.getElementById("lock").textContent =
+    logged ? "🔓 " + authUser() + (authAdmin() ? " (admin)" : "") : "🔒 auth requise";
+  document.getElementById("userscard").style.display =
+    (logged && authAdmin() && CFG.login_enabled) ? "" : "none";
+  if (logged) {
+    document.getElementById("auth-me").innerHTML =
+      'Connecté : <b>' + esc(authUser()) + '</b>' + (authAdmin() ? ' <span class="pill">superadmin</span>' : "");
+    loadDevices();
+    if (authAdmin() && CFG.login_enabled) loadUsers();
+  }
+}
+async function loadDevices() {
+  try {
+    const d = await api("/auth/devices");
+    const rows = (d.devices || []).map(x =>
+      '<div class="kv" style="align-items:center;gap:6px">' +
+      '<span class="v">' + esc(x.device_name || "appareil") + (x.current ? " ← celui-ci" : "") + '</span>' +
+      '<span class="k">' + esc(x.user || "") + ' · vu ' + esc((x.last_seen || "").slice(0, 16)) + '</span>' +
+      '<button class="mini" onclick="revokeDevice(\'' + x.device_id + '\',' + !!x.current + ')">révoquer</button>' +
+      '</div>').join("");
+    document.getElementById("auth-devices").innerHTML =
+      rows ? '<div style="color:var(--muted);font-size:12px;margin-bottom:4px">Appareils enregistrés</div>' + rows : "";
+  } catch (e) { /* silencieux : la carte reste utilisable */ }
+}
+async function revokeDevice(id, isCurrent) {
+  if (isCurrent) return logout();
+  try { await api("/auth/devices/" + id, { method: "DELETE" }); toast("Appareil révoqué"); loadDevices(); }
+  catch (e) { toast(e.message, true); }
+}
+async function loadUsers() {
+  try {
+    const d = await api("/auth/users");
+    const rows = (d.users || []).map(u =>
+      '<div class="kv" style="align-items:center;gap:6px">' +
+      '<span class="v">' + esc(u.user) + (u.disabled ? ' <span class="pill">désactivé</span>' : "") + '</span>' +
+      '<span class="k">' + (u.devices || 0) + ' appareil(s)</span>' +
+      '<button class="mini" onclick="toggleUser(\'' + esc(u.user) + '\',' + !u.disabled + ')">' +
+      (u.disabled ? "réactiver" : "désactiver") + '</button>' +
+      '<button class="mini" onclick="resetUserPw(\'' + esc(u.user) + '\')">mdp</button>' +
+      '<button class="mini" onclick="deleteUser(\'' + esc(u.user) + '\')">✕</button>' +
+      '</div>').join("");
+    document.getElementById("users-list").innerHTML =
+      rows || '<span style="color:var(--muted);font-size:12px">aucun compte normal — le superadmin vit dans le .env</span>';
+  } catch (e) { toast(e.message, true); }
+}
+async function createUser() {
+  const user = document.getElementById("nu-name").value.trim();
+  const pass = document.getElementById("nu-pass").value;
+  try {
+    await api("/auth/users", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user: user, pass: pass }) });
+    document.getElementById("nu-name").value = ""; document.getElementById("nu-pass").value = "";
+    toast("Compte créé : " + user); loadUsers();
+  } catch (e) { toast(e.message, true); }
+}
+async function toggleUser(user, disabled) {
+  if (disabled && !confirm("Désactiver " + user + " ? Ses appareils seront révoqués.")) return;
+  try {
+    await api("/auth/users/" + encodeURIComponent(user), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ disabled: disabled }) });
+    toast(user + (disabled ? " désactivé" : " réactivé")); loadUsers();
+  } catch (e) { toast(e.message, true); }
+}
+async function resetUserPw(user) {
+  const pass = prompt("Nouveau mot de passe pour " + user + " (≥ 8 car.) — ses appareils seront révoqués :");
+  if (!pass) return;
+  try {
+    await api("/auth/users/" + encodeURIComponent(user), {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pass: pass }) });
+    toast("Mot de passe changé pour " + user); loadUsers();
+  } catch (e) { toast(e.message, true); }
+}
+async function deleteUser(user) {
+  if (!confirm("Supprimer le compte " + user + " ? (appareils révoqués)")) return;
+  try {
+    await api("/auth/users/" + encodeURIComponent(user), { method: "DELETE" });
+    toast("Compte supprimé : " + user); loadUsers();
+  } catch (e) { toast(e.message, true); }
 }
 function headers(extra) {
   const h = Object.assign({}, extra || {});
@@ -546,7 +741,11 @@ async function api(path, opts) {
   const r = await fetch(path, opts);
   const ct = r.headers.get("content-type") || "";
   const body = ct.includes("json") ? await r.json() : await r.text();
-  if (!r.ok) throw new Error((body && body.error) || r.status + " " + r.statusText);
+  if (!r.ok) {
+    // token invalide/révoqué/expiré → re-présenter l'écran de login (RM2334)
+    if (r.status === 401 && CFG.auth_required) document.getElementById("authgate").classList.add("show");
+    throw new Error((body && body.error) || r.status + " " + r.statusText);
+  }
   return body;
 }
 function toast(msg, err) {
@@ -2333,9 +2532,21 @@ async function kill(rmId) {
 (async function init() {
   try { CFG = await (await fetch("/cockpit-config")).json(); } catch (e) {}
   if (CFG.auth_required) {
-    document.getElementById("tokencard").style.display = "";
-    document.getElementById("lock").textContent = "🔒 auth requise";
-    if (token()) document.getElementById("token").value = token();
+    document.getElementById("authcard").style.display = "";
+    if (token() && !authUser()) document.getElementById("token").value = token();
+    renderAuth();
+    // token présent mais session inconnue (legacy/localStorage restauré) :
+    // whoami re-synchronise user/admin sans re-login (token d'appareil)
+    if (token() && !authUser()) {
+      api("/auth/whoami").then(w => {
+        if (w && w.mode === "device") {
+          localStorage.setItem("karlUser", w.user || "");
+          localStorage.setItem("karlAdmin", w.admin ? "1" : "0");
+          if (w.device_id) localStorage.setItem("karlDeviceId", w.device_id);
+          renderAuth();
+        }
+      }).catch(() => {});
+    }
   }
   // peuple le sélecteur de moniteurs + les dispositions depuis la config serveur
   const mp = document.getElementById("monpreset");
@@ -2355,6 +2566,8 @@ async function kill(rmId) {
     if (pr === "normal") o.selected = true; ntPrio.appendChild(o);
   });
   // wiring
+  document.getElementById("auth-pass").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
+  document.getElementById("auth-user").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("auth-pass").focus(); });
   const rmIn = document.getElementById("rm");
   rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
   rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });

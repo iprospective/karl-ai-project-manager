@@ -5,6 +5,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.60.0] - 2026-07-20
+
+### Ajouté
+- Module `traceability` : § « Traces mécaniques templatées » (RM2365, CDC RM2316 § S4) —
+  les notes des événements mécaniques (transitions de statut : ancien→nouveau,
+  close_reason, assignation, branche/MR) sont générées par l'outillage depuis
+  `templates/notes/` ; `--note` devient un ajout sémantique appendé. Pas de nouvelles
+  notes pour estimation/liens (déjà portés par CF 21/22 et journal Redmine natif).
+
 ## [1.59.0] - 2026-07-20
 
 ### Ajouté — type de tâche `configuration` (RM2379)

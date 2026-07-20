@@ -1,10 +1,10 @@
 ---
-schema_version: "1.59.0"
+schema_version: "1.60.0"
 updated: 2026-07-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.59.0
+# Normes de gestion des tâches — v1.60.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 

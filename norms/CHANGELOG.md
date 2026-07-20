@@ -5,6 +5,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.61.0] - 2026-07-20
+
+### Ajouté
+- Module `status-workflow` : § « Flux court micro-tâches » (RM2369, CDC RM2316 § S8) —
+  tickets ≤ 30 min sans code : `pm-task-take --no-branch` → travail → `pm-task-deliver`,
+  mêmes statuts et traces, pas de branche/env ; `--retro` pour le travail déjà fait.
+  Ligne déclencheur ajoutée au KERNEL.
+
 ## [1.60.0] - 2026-07-20
 
 ### Ajouté

@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+import pm_reporting
 import pm_git
 import pm_scope
 import redmine_utils
@@ -593,16 +594,23 @@ def main():
     elif reopening:
         fm["close_reason"] = None
     fm["updated"] = now
-    hist = fm.get("status_history") or []
-    hist.append({
+    entry = {
         "status": args.status,
         "at": now,
         "by": args.by,
         "model": None,
         "tokens": None,
         "duration_minutes": None,
-    })
+    }
+    # RM2366 (S5) : l'historique complet vit dans le ledger annexe ; le
+    # frontmatter garde une QUEUE (dernière entrée = statut courant, exigé par
+    # validate-task). sweep() migre au passage les résidus (writers non migrés).
+    hist = (fm.get("status_history") or []) + [entry]
     fm["status_history"] = hist
+    try:
+        pm_reporting.sweep(fm, md_path)
+    except Exception as e:
+        out.warn(f"ledger reporting non mis à jour (non bloquant) : {e}")
 
     # 2. Push update Redmine via redmine-post-note.py
     norms_status = args.status
@@ -822,7 +830,7 @@ def main():
     # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
     # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).
     if not args.dry_run and not args.no_commit:
-        pm_git.autocommit([md_path, log_path],
+        pm_git.autocommit([md_path, log_path, pm_reporting.ledger_path(md_path)],
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
 
 

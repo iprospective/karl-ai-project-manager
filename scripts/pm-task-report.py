@@ -48,6 +48,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
 import pm_git
+import pm_reporting
 from redmine_utils import activity_for_type, cf_id_by_name, http_json, redmine_creds
 
 try:
@@ -314,9 +315,12 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
     reporting = fm.get("reporting") or {}
     cf_out_before = int(reporting.get("cf_out_total") or reporting.get("cf17_tokens") or 0)
     cf_in_before = int(reporting.get("cf_in_total") or 0)
-    ledger = reporting.get("time_entries") or []
+    # RM2366 (S5) : historique dans le ledger annexe <stem>.reporting.yml ;
+    # lecture FUSIONNÉE ledger + résidus frontmatter (writers non migrés).
+    _merged = pm_reporting.merged(fm, md_path)
+    ledger = _merged["time_entries"]
     pushed_keys = {te.get("key") for te in ledger}
-    notes_ledger = reporting.get("notes") or []
+    notes_ledger = _merged["notes"]
     pushed_note_keys = {n.get("key") for n in notes_ledger}
     note_key = None
     if note_text:
@@ -426,9 +430,13 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
             note_status = f"skip ({why})"
     res["note_status"] = note_status
 
-    # persister ledger + cumuls dans le frontmatter
-    reporting["time_entries"] = ledger
-    reporting["notes"] = notes_ledger
+    # persister : historique → ledger annexe ; frontmatter = cumuls + marqueur
+    led = pm_reporting.load_ledger(md_path)
+    led["time_entries"], led["notes"] = ledger, notes_ledger
+    pm_reporting.save_ledger(md_path, led)
+    reporting["time_entries"] = []
+    reporting["notes"] = []
+    reporting["ledger"] = pm_reporting.ledger_path(md_path).name
     if not cf_err:
         reporting["cf_out_total"] = out_total
         reporting["cf_in_total"] = in_total
@@ -569,7 +577,8 @@ def main():
             root = pm_git.repo_root(p)
             if root is None:
                 continue
-            by_root.setdefault(root, []).extend([p, p.parent / p.name.replace(".md", ".log.md")])
+            by_root.setdefault(root, []).extend([p, p.parent / p.name.replace(".md", ".log.md"),
+                                                  pm_reporting.ledger_path(p)])
         for root, paths in by_root.items():
             n = sum(1 for x in paths if not x.name.endswith(".log.md"))
             pm_git.autocommit(paths, f"pm(report): {n} ticket(s) -> Redmine "

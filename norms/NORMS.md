@@ -1,10 +1,10 @@
 ---
-schema_version: "1.59.0"
+schema_version: "1.60.0"
 updated: 2026-07-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.59.0
+# Normes de gestion des tâches — v1.60.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -2332,6 +2332,23 @@ la clôture. On journalise le *pourquoi* des décisions, pas seulement le code p
   la conversation d'origine.
 - N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
   sa place dans le journal.
+
+#### Traces mécaniques templatées — RM2365 (CDC RM2316 § S4)
+
+Les notes Redmine des **événements mécaniques** sont générées par l'outillage
+depuis `templates/notes/` (ex. `status_change.md` : ancien → nouveau statut,
+assignation, branche/MR) — **l'agent ne rédige plus cette partie**. La règle :
+
+- **Transition de statut** : ne passer `--note` à `pm-task-status-update` /
+  `pm-task-take` / `pm-task-deliver` **que pour un ajout sémantique** (décision,
+  contexte, résumé de livraison) — jamais pour paraphraser la transition,
+  l'assignation, la branche ou la MR (le template les porte déjà).
+- Les événements déjà journalisés ailleurs **n'appellent pas de note
+  supplémentaire** : estimation (CF 21/22 visibles sur le ticket), liens
+  (journal Redmine natif des relations), tick/report (déjà templatés).
+- Le **sémantique reste obligatoire** là où il l'a toujours été : prise en
+  charge avec plan, décisions/arbitrages, blocages, livraison (le
+  `--summary` de `pm-task-deliver`).
 
 #### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
 

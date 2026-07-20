@@ -5,6 +5,28 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.59.0] - 2026-07-20
+
+### Ajouté — type de tâche `configuration` (RM2379)
+
+Nouveau `type` canonique **`configuration`** (paramétrage applicatif / système —
+réglages back-office, modules, options ; distinct d'`infrastructure` qui couvre le
+sysadmin pur). Câblé de bout en bout comme `documentation` (RM1856) et `database`
+(RM2003) :
+
+- Énumération `type` du KERNEL : 13 → **14 valeurs**.
+- Routage worker (`collaboration.md`, `agents/worker-infra.md`) : `configuration`
+  → **worker-infra**.
+- Tracker coarse `Tâche` (4) ; taxonomie fine **CF 20 « Task type » = 22 « Config »**
+  (valeur d'énumération déjà existante côté Redmine — aucun changement admin).
+- Activité de temps **13 « SysAdmin/Conf/Debug »** (`type_to_activity`,
+  table `roi-pricing.md`).
+- Au passage : `database` reçoit une entrée `type_to_activity` **explicite**
+  (18 « Autre », codification du fallback historique — pas de changement de
+  comportement) ; invariant désormais testé par
+  `scripts/test_task_types_wiring.py` (chaque type valide a tracker + label +
+  activité ; CF 20 ne mappe que des types valides, bijectif).
+
 ## [1.58.2] - 2026-07-20
 
 ### Ajouté — le repli HTTPS+token se pose par `insteadOf` (RM2328)

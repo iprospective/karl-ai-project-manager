@@ -1,3 +1,3 @@
 
-# Normes de gestion des tâches — v1.58.2
+# Normes de gestion des tâches — v1.59.0
 

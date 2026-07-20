@@ -39,6 +39,20 @@ API (JSON, localhost:9876)
                                    engines, models}  (public en mode token seul ;
                                    gated dès que Basic est configuré, RM2139 ;
                                    models = clés du catalogue par moteur, RM1941)
+  POST /auth/login {user, pass, device_name?}
+                                → {token, device_id, user, admin} — identifiants
+                                  (superadmin .env OU compte var/karl-users.json)
+                                  → token d'appareil 256 bits, mémorisé côté
+                                  serveur en SHA-256 (RM2334). Sans auth préalable.
+  GET  /auth/whoami             → {user, admin, mode, device_id?}
+  GET  /auth/devices            → {devices:[…]} (les siens ; admin : tous)
+  DELETE /auth/devices/<id>     → révocation (soi-même ; admin : tous)
+  GET  /auth/users              → {users:[…]} (admin)
+  POST /auth/users {user, pass} → création compte normal (admin)
+  PUT  /auth/users/<name> {pass?, disabled?}
+                                → maj mdp / activation ; disabled révoque les
+                                  appareils du compte (admin)
+  DELETE /auth/users/<name>     → suppression + révocation appareils (admin)
   GET  /health                  → {status, sessions, tmux}
   GET  /sessions[?engine=&client=&project=]
                                 → [{rm_id, tmux, created, attached, engine?,
@@ -74,6 +88,9 @@ API (JSON, localhost:9876)
                                 → {rm_id, sent:true}
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
+  GET  /usage/<rm_id>           → {usage:{input,output,cache_read,cache_creation,
+                                  total,turns,context_last}} conso tokens live de
+                                  la session, entrée/sortie séparées (RM2373)
   GET  /buffer                  → text/plain — dernier buffer tmux (copies
                                   OSC52 faites dans les sessions, RM2168)
   GET  /pm/commands             → {commands} — catalogue déclaratif des
@@ -97,8 +114,10 @@ Lancement :
     KARL_AGENT_PORT=9999 python3 scripts/karl-agent.py
 """
 import base64
+import hashlib
 import hmac
 import json
+import secrets
 import os
 import re
 import shlex
@@ -284,6 +303,238 @@ AUTH_TOKEN = os.environ.get("KARL_AGENT_TOKEN") or None  # optionnel
 # pour les clients API non-navigateur.
 BASIC_USER = os.environ.get("KARL_WEB_USER") or None
 BASIC_PASS = os.environ.get("KARL_WEB_PASS") or None
+
+# ── Comptes utilisateurs + tokens d'appareil (RM2334) ────────────────────────
+# Modèle : le SUPERADMIN reste dans la conf (.env, couple KARL_WEB_USER/PASS
+# ci-dessus) — amorçage garanti, insupprimable via l'API. Les comptes normaux
+# vivent côté serveur (var/karl-users.json, hash PBKDF2 salé). Un login réussi
+# émet un token d'appareil aléatoire dont SEUL le SHA-256 est mémorisé serveur
+# (var/karl-devices.json) : le client garde le token, jamais le mot de passe.
+# Les deux fichiers sont instance-locaux (var/ gitignoré), écrits en 0600.
+AUTH_VAR_DIR = Path(os.environ.get("KARL_AGENT_AUTH_DIR") or (REPO_ROOT / "var"))
+USERS_FILE = AUTH_VAR_DIR / "karl-users.json"
+DEVICES_FILE = AUTH_VAR_DIR / "karl-devices.json"
+PBKDF2_ITERATIONS = 310_000  # recommandation OWASP pour PBKDF2-HMAC-SHA256
+_AUTH_LOCK = threading.Lock()          # ThreadingHTTPServer → sérialiser les I/O
+_LOGIN_FAILS: dict = {}                # ip → {"count": n, "until": ts} (mémoire)
+_LOGIN_LOCK_BASE_S = 2                 # 3 échecs → 2 s, puis ×2, plafonné
+_LOGIN_LOCK_MAX_S = 300
+
+
+def _auth_load(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def _auth_save(path: Path, data: dict) -> None:
+    """Écriture atomique (tmp + rename) en 0600 — jamais de secret en clair
+    dedans (hashes uniquement), mais autant restreindre quand même."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding="utf-8")
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+
+
+def _pbkdf2(password: str, salt_hex=None, iterations: int = PBKDF2_ITERATIONS) -> dict:
+    salt = bytes.fromhex(salt_hex) if salt_hex else secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iterations)
+    return {"salt": salt.hex(), "iterations": iterations, "hash": dk.hex()}
+
+
+def _password_ok(password: str, rec: dict) -> bool:
+    try:
+        ref = _pbkdf2(password, rec["salt"], int(rec["iterations"]))
+        return hmac.compare_digest(ref["hash"], rec["hash"])
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+_USERNAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{1,31}$")
+
+
+def _issue_device(user: str, admin: bool, device_name: str) -> dict:
+    """Émet un token d'appareil ; seul son SHA-256 est mémorisé serveur."""
+    token = secrets.token_urlsafe(32)  # 256 bits
+    device_id = uuid.uuid4().hex[:12]
+    with _AUTH_LOCK:
+        devices = _auth_load(DEVICES_FILE)
+        devices[device_id] = {
+            "user": user, "admin": bool(admin),
+            "device_name": (device_name or "appareil")[:80],
+            "token_sha256": hashlib.sha256(token.encode("utf-8")).hexdigest(),
+            "created": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "last_seen": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        }
+        _auth_save(DEVICES_FILE, devices)
+    return {"token": token, "device_id": device_id, "user": user, "admin": bool(admin)}
+
+
+def _device_auth(token: str):
+    """(device_id, record) si le token correspond à un appareil enregistré."""
+    if not token:
+        return None
+    want = hashlib.sha256(token.encode("utf-8")).hexdigest()
+    with _AUTH_LOCK:
+        devices = _auth_load(DEVICES_FILE)
+        for did, rec in devices.items():
+            if hmac.compare_digest(rec.get("token_sha256", ""), want):
+                # last_seen : maj throttlée (≤ 1 écriture / 5 min / appareil)
+                now = time.strftime("%Y-%m-%dT%H:%M:%S")
+                if rec.get("last_seen", "")[:15] != now[:15]:
+                    rec["last_seen"] = now
+                    _auth_save(DEVICES_FILE, devices)
+                return did, rec
+    return None
+
+
+def _revoke_devices(device_ids=None, user=None) -> int:
+    with _AUTH_LOCK:
+        devices = _auth_load(DEVICES_FILE)
+        doomed = [d for d, r in devices.items()
+                  if (device_ids and d in device_ids) or (user and r.get("user") == user)]
+        for d in doomed:
+            devices.pop(d, None)
+        if doomed:
+            _auth_save(DEVICES_FILE, devices)
+    return len(doomed)
+
+
+def _login_throttled(ip: str):
+    """Anti-bruteforce minimal : verrou progressif par IP. Renvoie le nombre de
+    secondes restantes si l'IP est verrouillée, sinon 0."""
+    rec = _LOGIN_FAILS.get(ip)
+    if rec and rec["until"] > time.time():
+        return int(rec["until"] - time.time()) + 1
+    return 0
+
+
+def _login_failed(ip: str) -> None:
+    rec = _LOGIN_FAILS.setdefault(ip, {"count": 0, "until": 0.0})
+    rec["count"] += 1
+    if rec["count"] >= 3:
+        lock = min(_LOGIN_LOCK_BASE_S * (2 ** (rec["count"] - 3)), _LOGIN_LOCK_MAX_S)
+        rec["until"] = time.time() + lock
+    # journalisation SANS le mot de passe (tripwire secrets)
+    sys.stderr.write(f"auth: échec login depuis {ip} (#{rec['count']})\n")
+
+
+def _login_succeeded(ip: str) -> None:
+    _LOGIN_FAILS.pop(ip, None)
+
+
+def op_auth_login(payload: dict, ip: str) -> dict:
+    wait = _login_throttled(ip)
+    if wait:
+        raise ApiError(429, f"trop d'échecs — réessayer dans {wait} s")
+    user = str(payload.get("user") or "").strip()
+    password = str(payload.get("pass") or "")
+    device_name = str(payload.get("device_name") or "")
+    if not user or not password:
+        raise ApiError(400, "user et pass requis")
+    if BASIC_USER is None and not _auth_load(USERS_FILE):
+        raise ApiError(400, "auth par identifiants non configurée "
+                            "(ni KARL_WEB_USER/PASS ni compte serveur)")
+    # 1) superadmin de la conf (.env) — toujours valide, insupprimable
+    if (BASIC_USER is not None and BASIC_PASS is not None
+            and hmac.compare_digest(user, BASIC_USER)
+            and hmac.compare_digest(password, BASIC_PASS)):
+        _login_succeeded(ip)
+        return _issue_device(user, admin=True, device_name=device_name)
+    # 2) comptes normaux (store serveur)
+    with _AUTH_LOCK:
+        rec = _auth_load(USERS_FILE).get(user)
+    if rec and not rec.get("disabled") and _password_ok(password, rec):
+        _login_succeeded(ip)
+        return _issue_device(user, admin=False, device_name=device_name)
+    _login_failed(ip)
+    raise ApiError(401, "identifiants invalides")
+
+
+def op_auth_users_list() -> dict:
+    with _AUTH_LOCK:
+        users = _auth_load(USERS_FILE)
+        devices = _auth_load(DEVICES_FILE)
+    per_user: dict = {}
+    for rec in devices.values():
+        per_user[rec.get("user")] = per_user.get(rec.get("user"), 0) + 1
+    out = [{"user": name, "disabled": bool(rec.get("disabled")),
+            "created": rec.get("created"), "devices": per_user.get(name, 0)}
+           for name, rec in sorted(users.items())]
+    return {"users": out, "superadmin": BASIC_USER}
+
+
+def op_auth_user_create(payload: dict) -> dict:
+    user = str(payload.get("user") or "").strip().lower()
+    password = str(payload.get("pass") or "")
+    if not _USERNAME_RE.match(user):
+        raise ApiError(400, "user : 2-32 car., [a-z0-9._-], commence par [a-z0-9]")
+    if BASIC_USER is not None and user == BASIC_USER.lower():
+        raise ApiError(400, "ce nom est réservé au superadmin (.env)")
+    if len(password) < 8:
+        raise ApiError(400, "pass : 8 caractères minimum")
+    with _AUTH_LOCK:
+        users = _auth_load(USERS_FILE)
+        if user in users:
+            raise ApiError(409, f"compte existant : {user}")
+        users[user] = {**_pbkdf2(password),
+                       "created": time.strftime("%Y-%m-%dT%H:%M:%S")}
+        _auth_save(USERS_FILE, users)
+    return {"user": user, "created": True}
+
+
+def op_auth_user_update(user: str, payload: dict) -> dict:
+    with _AUTH_LOCK:
+        users = _auth_load(USERS_FILE)
+        rec = users.get(user)
+        if not rec:
+            raise ApiError(404, f"compte inconnu : {user}")
+        changed = {}
+        if payload.get("pass"):
+            password = str(payload["pass"])
+            if len(password) < 8:
+                raise ApiError(400, "pass : 8 caractères minimum")
+            rec.update(_pbkdf2(password))
+            changed["pass"] = True
+        if "disabled" in payload:
+            rec["disabled"] = bool(payload["disabled"])
+            changed["disabled"] = rec["disabled"]
+        users[user] = rec
+        _auth_save(USERS_FILE, users)
+    # mdp changé ou compte désactivé ⇒ les appareils existants sont révoqués
+    if changed.get("disabled") or changed.get("pass"):
+        changed["devices_revoked"] = _revoke_devices(user=user)
+    if not changed:
+        raise ApiError(400, "rien à changer (pass et/ou disabled attendus)")
+    return {"user": user, **changed}
+
+
+def op_auth_user_delete(user: str) -> dict:
+    with _AUTH_LOCK:
+        users = _auth_load(USERS_FILE)
+        if user not in users:
+            raise ApiError(404, f"compte inconnu : {user}")
+        users.pop(user)
+        _auth_save(USERS_FILE, users)
+    return {"user": user, "deleted": True, "devices_revoked": _revoke_devices(user=user)}
+
+
+def op_auth_devices_list(ctx: dict) -> dict:
+    with _AUTH_LOCK:
+        devices = _auth_load(DEVICES_FILE)
+    out = []
+    for did, rec in sorted(devices.items(), key=lambda kv: kv[1].get("created", "")):
+        if ctx.get("admin") or rec.get("user") == ctx.get("user"):
+            out.append({"device_id": did, "user": rec.get("user"),
+                        "device_name": rec.get("device_name"),
+                        "admin": bool(rec.get("admin")),
+                        "created": rec.get("created"),
+                        "last_seen": rec.get("last_seen"),
+                        "current": did == ctx.get("device_id")})
+    return {"devices": out}
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
@@ -1203,6 +1454,70 @@ def _transcript_outline(lines, max_items: int = 400) -> list:
     return items
 
 
+def _transcript_usage(lines) -> dict:
+    """RM2373 : consommation tokens d'une session claude depuis son transcript
+    (JSONL), différenciée ENTRÉE / SORTIE. Somme les `message.usage` des tours
+    assistant — mêmes champs que pm-task-tick (input/output/cache_read/
+    cache_creation). Le dernier tour donne l'occupation de contexte courante
+    (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    turns = 0
+    context_last = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        usage = (obj.get("message") or {}).get("usage")
+        if not isinstance(usage, dict):
+            continue
+        i = usage.get("input_tokens", 0) or 0
+        o = usage.get("output_tokens", 0) or 0
+        cr = usage.get("cache_read_input_tokens", 0) or 0
+        cc = usage.get("cache_creation_input_tokens", 0) or 0
+        agg["input"] += i
+        agg["output"] += o
+        agg["cache_read"] += cr
+        agg["cache_creation"] += cc
+        ctx = i + cr + cc                   # occupation de contexte de ce tour
+        if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
+            context_last = ctx              # → dernier tour significatif = contexte courant
+        turns += 1
+    agg["total"] = agg["input"] + agg["output"] + agg["cache_read"] + agg["cache_creation"]
+    agg["turns"] = turns
+    agg["context_last"] = context_last
+    return agg
+
+
+def op_usage(rm_id: str) -> dict:
+    """RM2373 : consommation tokens EN DIRECT d'une session (entrée/sortie/cache),
+    lue du transcript claude (JSONL) — même résolution de session_id que /outline.
+    404 si session absente ; usage à zéro si moteur non-claude ou transcript
+    encore introuvable (session tout juste lancée)."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    empty = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0,
+             "total": 0, "turns": 0, "context_last": 0}
+    if k.get("engine") == "claude" and session_id:
+        jf = next((p for root in CLAUDE_STORES
+                   for p in root.glob(f"*/{session_id}.jsonl")), None)
+        if jf:
+            try:
+                with jf.open(encoding="utf-8", errors="replace") as fh:
+                    return {"rm_id": rm_id, "source": "transcript",
+                            "engine": "claude", "usage": _transcript_usage(fh)}
+            except OSError as e:
+                raise ApiError(500, f"transcript illisible : {e}")
+    return {"rm_id": rm_id, "source": "none",
+            "engine": k.get("engine"), "usage": empty}
+
+
 def op_outline(rm_id: str) -> dict:
     """RM2330 : outline de la conversation d'une session. Source primaire :
     transcript claude (JSONL) résolu par le session_id de la clé tmux ; repli :
@@ -1984,7 +2299,8 @@ def op_create_ticket(payload: dict) -> dict:
     if not project or "/" not in project:
         raise ApiError(400, "project requis (forme entity/project)")
     args = [sys.executable, str(REPO_ROOT / "scripts" / "pm-task-add.py"),
-            "--title", title, "--type", ttype, "--priority", prio, "--project", project]
+            "--title", title, "--type", ttype, "--priority", prio, "--project", project,
+            "--porcelain"]
     desc = (payload.get("description") or "").strip()
     if desc:
         args += ["--description", desc]
@@ -1997,7 +2313,11 @@ def op_create_ticket(payload: dict) -> dict:
     except subprocess.TimeoutExpired:
         raise ApiError(504, "pm-task-add : timeout")
     blob = (p.stdout or "") + "\n" + (p.stderr or "")
-    m = re.search(r"RM(\d+) créé", blob) or re.search(r"#(\d+) créé", blob)
+    # --porcelain (RM2362) : l'id seul sur stdout ; repli sur les anciens formats
+    # de sortie pour un core pas encore migré.
+    m = re.match(r"\s*(\d+)\s*$", (p.stdout or "").strip().splitlines()[0] if (p.stdout or "").strip() else "") \
+        or re.search(r"RM(\d+) créé", blob) or re.search(r"#(\d+) créé", blob) \
+        or re.search(r"✓ add RM(\d+)", blob)
     if not m:
         raise ApiError(500, "pm-task-add a échoué : " + blob.strip()[-400:])
     return {"created": True, "rm_id": m.group(1), "output": blob.strip()[-600:]}
@@ -2680,32 +3000,56 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _check_auth(self) -> bool:
-        """Vraie si le client présente le token partagé OU des credentials Basic
-        valides (RM2139). Sans aucune auth configurée → ouvert (usage local)."""
-        if AUTH_TOKEN is not None:
-            if hmac.compare_digest(self.headers.get("X-Karl-Token") or "", AUTH_TOKEN):
+        """Vraie si le client présente le token partagé, un TOKEN D'APPAREIL
+        (RM2334) ou des credentials Basic valides (RM2139). Sans aucune auth
+        configurée → ouvert (usage local). Pose self.auth_ctx {mode, user,
+        admin, device_id} pour les routes qui distinguent les rôles."""
+        self.auth_ctx = {"mode": "open", "user": None, "admin": True, "device_id": None}
+        presented = self.headers.get("X-Karl-Token") or ""
+        if AUTH_TOKEN is not None and presented:
+            if hmac.compare_digest(presented, AUTH_TOKEN):
+                # secret partagé historique = accès complet (rétrocompat)
+                self.auth_ctx = {"mode": "shared-token", "user": None,
+                                 "admin": True, "device_id": None}
+                return True
+        if presented:
+            hit = _device_auth(presented)
+            if hit:
+                did, rec = hit
+                self.auth_ctx = {"mode": "device", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did}
                 return True
         if BASIC_USER is not None and BASIC_PASS is not None:
             auth = self.headers.get("Authorization") or ""
-            if not auth.startswith("Basic "):
-                return False
-            try:
-                user, _, pwd = base64.b64decode(
-                    auth[6:], validate=True).decode("utf-8").partition(":")
-            except (ValueError, UnicodeDecodeError):
-                return False
-            return (hmac.compare_digest(user, BASIC_USER)
-                    and hmac.compare_digest(pwd, BASIC_PASS))
+            if auth.startswith("Basic "):
+                try:
+                    user, _, pwd = base64.b64decode(
+                        auth[6:], validate=True).decode("utf-8").partition(":")
+                except (ValueError, UnicodeDecodeError):
+                    return False
+                if (hmac.compare_digest(user, BASIC_USER)
+                        and hmac.compare_digest(pwd, BASIC_PASS)):
+                    self.auth_ctx = {"mode": "basic", "user": user,
+                                     "admin": True, "device_id": None}
+                    return True
+            return False
         return AUTH_TOKEN is None
 
+    def _require_admin(self):
+        if not self.auth_ctx.get("admin"):
+            raise ApiError(403, "réservé au superadmin")
+
     def _send_auth_required(self):
-        """401 ; le challenge Basic n'est émis que si le mode user/mdp est
-        configuré (en mode token seul, pas de prompt navigateur parasite)."""
+        """401 ; le challenge Basic n'est émis que si le CLIENT a lui-même
+        tenté un Basic (retry curl/API). Depuis RM2334 la page cockpit est
+        publique avec une carte de login : challenger les fetch 401 ferait
+        surgir le prompt Basic natif du navigateur par-dessus la carte."""
         body = json.dumps(
-            {"error": "authentification requise (Basic ou X-Karl-Token)"},
+            {"error": "authentification requise (login, Basic ou X-Karl-Token)"},
             ensure_ascii=False).encode("utf-8")
         self.send_response(401)
-        if BASIC_USER is not None and BASIC_PASS is not None:
+        if (BASIC_USER is not None and BASIC_PASS is not None
+                and (self.headers.get("Authorization") or "").startswith("Basic ")):
             self.send_header("WWW-Authenticate", 'Basic realm="karl-agent", charset="UTF-8"')
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
@@ -2729,14 +3073,13 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         path = parsed.path
-        # Basic configuré ⇒ AUCUNE route publique : la page cockpit elle-même est
-        # gated, le navigateur prompte nativement puis rejoue les credentials sur
-        # tous les fetch same-origin (RM2139).
-        if BASIC_USER is not None and not self._check_auth():
-            return self._send_auth_required()
-        # Routes publiques du cockpit (RM1873) — SANS auth en mode token : la page
-        # doit pouvoir se charger pour qu'on y saisisse le token, et elle ne
-        # divulgue rien de sensible (le ttyd_base est déjà déductible côté client).
+        # Routes publiques du cockpit (RM1873/RM2334) : la page et sa config se
+        # chargent SANS auth — nécessaire pour afficher la carte de login (mdp
+        # → token d'appareil) — et ne divulguent rien de sensible (le ttyd_base
+        # est déjà déductible côté client). Depuis RM2334, le mode Basic
+        # s'aligne sur le mode token : la page est publique, les DONNÉES sont
+        # gated (le Basic navigateur reste accepté en fallback API).
+        authed = self._check_auth()
         if path in ("/", "/cockpit"):
             try:
                 return self._send_html(200, (COCKPIT_DIR / "index.html").read_text(encoding="utf-8"))
@@ -2745,9 +3088,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
-                # En mode Basic, le navigateur a déjà été authentifié pour charger
-                # la page : le champ token du cockpit n'a pas lieu d'être.
-                "auth_required": AUTH_TOKEN is not None and BASIC_USER is None,
+                "auth_required": AUTH_TOKEN is not None or BASIC_USER is not None,
+                # la carte de login user/mdp n'a de sens que si des identifiants
+                # existent (superadmin .env et/ou comptes serveur)
+                "login_enabled": BASIC_USER is not None or bool(_auth_load(USERS_FILE)),
                 "monitors": list(_monitor_presets().keys()),
                 "layouts": sorted(LAYOUTS),
                 # chips d'actions (RM1893 §2) — texte en langage naturel injecté
@@ -2760,9 +3104,16 @@ class Handler(BaseHTTPRequestHandler):
                 # clés, le mapping vers les valeurs réelles reste côté serveur.
                 "models": {e: sorted(m) for e, m in _model_catalog().items()},
             })
-        if not self._check_auth():
+        if not authed:
             return self._send_auth_required()
         try:
+            if path == "/auth/whoami":
+                return self._send_json(200, {k: v for k, v in self.auth_ctx.items()})
+            if path == "/auth/devices":
+                return self._send_json(200, op_auth_devices_list(self.auth_ctx))
+            if path == "/auth/users":
+                self._require_admin()
+                return self._send_json(200, op_auth_users_list())
             if path == "/health":
                 return self._send_json(200, {
                     "status": "ok",
@@ -2791,6 +3142,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_capture(rm_id, lines))
             if path.startswith("/outline/"):
                 return self._send_json(200, op_outline(path[len("/outline/"):]))
+            if path.startswith("/usage/"):
+                return self._send_json(200, op_usage(path[len("/usage/"):]))
             if path.startswith("/project/"):
                 parts = path[len("/project/"):].split("/")
                 if len(parts) != 2:
@@ -2823,11 +3176,24 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        path = urlparse(self.path).path
+        # /auth/login est LA porte d'entrée : pas d'auth préalable (throttle
+        # progressif par IP dans op_auth_login).
+        if path == "/auth/login":
+            try:
+                return self._send_json(200, op_auth_login(
+                    self._read_json(), self.client_address[0]))
+            except ApiError as e:
+                return self._send_json(e.code, {"error": e.msg})
+            except Exception as e:  # noqa: BLE001
+                return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
         if not self._check_auth():
             return self._send_auth_required()
-        path = urlparse(self.path).path
         try:
             payload = self._read_json()
+            if path == "/auth/users":
+                self._require_admin()
+                return self._send_json(201, op_auth_user_create(payload))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":
@@ -2856,6 +3222,47 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_pm_run(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
+            return self._send_json(404, {"error": f"route inconnue : {path}"})
+        except ApiError as e:
+            return self._send_json(e.code, {"error": e.msg})
+        except Exception as e:  # noqa: BLE001
+            return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def do_PUT(self):
+        if not self._check_auth():
+            return self._send_auth_required()
+        path = urlparse(self.path).path
+        try:
+            if path.startswith("/auth/users/"):
+                self._require_admin()
+                return self._send_json(200, op_auth_user_update(
+                    path[len("/auth/users/"):], self._read_json()))
+            return self._send_json(404, {"error": f"route inconnue : {path}"})
+        except ApiError as e:
+            return self._send_json(e.code, {"error": e.msg})
+        except Exception as e:  # noqa: BLE001
+            return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
+
+    def do_DELETE(self):
+        if not self._check_auth():
+            return self._send_auth_required()
+        path = urlparse(self.path).path
+        try:
+            if path.startswith("/auth/devices/"):
+                did = path[len("/auth/devices/"):]
+                # un utilisateur normal ne révoque QUE ses propres appareils
+                if not self.auth_ctx.get("admin"):
+                    with _AUTH_LOCK:
+                        rec = _auth_load(DEVICES_FILE).get(did)
+                    if not rec or rec.get("user") != self.auth_ctx.get("user"):
+                        raise ApiError(403, "appareil d'un autre compte")
+                n = _revoke_devices(device_ids={did})
+                if not n:
+                    raise ApiError(404, f"appareil inconnu : {did}")
+                return self._send_json(200, {"device_id": did, "revoked": True})
+            if path.startswith("/auth/users/"):
+                self._require_admin()
+                return self._send_json(200, op_auth_user_delete(path[len("/auth/users/"):]))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

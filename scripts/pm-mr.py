@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # charge aussi .env
+from pm_output import out
 
 DEFAULT_HOST = "gitlab.iprospective.fr"
 
@@ -107,15 +108,15 @@ def list_projects_paged(token):
     """Énumération paginée de /projects (membership). Nécessaire car le `?search=`
     GitLab a des FAUX NÉGATIFS silencieux (rate des projets existants — RM2219,
     cf. knowledge/gitlab/api.md)."""
-    page, out = 1, []
+    page, acc = 1, []
     while True:
         st, data, raw = api("GET", f"/projects?membership=true&simple=true"
                                    f"&per_page=100&page={page}", token)
         if st != 200 or not isinstance(data, list):
             sys.exit(f"ERREUR énumération projets (HTTP {st}) : {raw[:200]}")
-        out += data
+        acc += data
         if len(data) < 100:
-            return out
+            return acc
         page += 1
 
 
@@ -158,7 +159,7 @@ def integration_branch(repo_path):
 # ── Commandes ────────────────────────────────────────────────────────────────
 def cmd_merge(args, token):
     pid, proj = resolve_project_id(token, repo_path_from_remote(args.repo))
-    print(f"→ projet {proj['path_with_namespace']} (id {pid})")
+    out.info(f"→ projet {proj['path_with_namespace']} (id {pid})")
     merge_mr(pid, args.iid, token, squash=args.squash, expect_rm=args.expect_rm)
 
 
@@ -175,14 +176,12 @@ def cmd_get(args, token):
 
 
 def cmd_create(args, token):
-    global _REAL_STDOUT
-    _REAL_STDOUT = sys.stdout
-    if getattr(args, "porcelain", False):
-        sys.stdout = sys.stderr        # logs → stderr ; seul l'iid ira sur stdout
+    # Mode --porcelain : géré par pm_output (out.configure) — ✓/info/⚠ partent
+    # sur stderr, seul out.value(iid) écrit sur stdout.
     repo = args.repo
     rpath = repo_path_from_remote(repo)
     pid, proj = resolve_project_id(token, rpath)
-    print(f"→ projet {proj['path_with_namespace']} (id {pid})")
+    out.info(f"→ projet {proj['path_with_namespace']} (id {pid})")
     src = current_branch(repo)
     if src in ("HEAD", ""):
         sys.exit("ERREUR : HEAD détaché — pas de branche courante.")
@@ -205,14 +204,14 @@ def cmd_create(args, token):
                            capture_output=True, text=True)
         if p.returncode != 0:
             sys.exit(f"ERREUR push : {(p.stderr or p.stdout).strip()}")
-        print(f"✓ push {src} → origin")
+        out.info(f"✓ push {src} → origin")
 
     # Idempotence : MR ouverte déjà existante ?
     st, lst, _ = api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
                             f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
     mr = lst[0] if (st == 200 and isinstance(lst, list) and lst) else None
     if mr:
-        print(f"↻ MR déjà ouverte : !{mr['iid']}")
+        out.info(f"↻ MR déjà ouverte : !{mr['iid']}")
     else:
         st, mr, raw = api("POST", f"/projects/{pid}/merge_requests", token, fields={
             "source_branch": src, "target_branch": tgt,
@@ -226,10 +225,10 @@ def cmd_create(args, token):
             mr = lst2[0] if (st2 == 200 and isinstance(lst2, list) and lst2) else None
         if not mr:
             sys.exit(f"ERREUR création MR (HTTP {st}) : {raw[:200]}")
-        print(f"✓ MR !{mr['iid']} créée : {src} → {tgt}")
-    print(f"  {mr['web_url']}")
+        out.info(f"✓ MR !{mr['iid']} créée : {src} → {tgt}")
+    out.op("mr", extra=f"!{mr['iid']} {src}→{tgt} {mr['web_url']}")
     if args.porcelain:
-        print(mr["iid"], file=_REAL_STDOUT, flush=True)
+        out.value(mr["iid"])
 
     # Garde RM2219 : une MR saine référence le sha de sa branche source. `sha:null`
     # = branche absente de CE projet ⇒ MR créée au mauvais endroit → rollback.
@@ -258,20 +257,20 @@ def cmd_create(args, token):
                        for c in issue.get("custom_fields", [])}
             missing = [c["id"] for c in cfs if present.get(c["id"]) != c["value"]]
             if missing:
-                print(f"  ⚠ CF Redmine NON écrits (ids {missing}) — CF absents du "
-                      f"tracker de #{args.rm_id} ? Poser le lien en note/manuel.",
-                      file=sys.stderr)
+                out.warn(f"CF Redmine NON écrits (ids {missing}) — CF absents du "
+                         f"tracker de #{args.rm_id} ? Poser le lien en note/manuel.")
             else:
-                print(f"✓ CF Redmine posés et vérifiés (GIT Branche / GIT PR) sur #{args.rm_id}")
+                out.info(f"✓ CF Redmine posés et vérifiés (GIT Branche / GIT PR) sur #{args.rm_id}")
     except Exception as e:
-        print(f"  ⚠ CF Redmine non posés : {e}", file=sys.stderr)
+        out.warn(f"CF Redmine non posés : {e}")
 
     if args.status:
         import subprocess
         scr = Path(__file__).resolve().parent / "pm-task-status-update.py"
         subprocess.run([sys.executable, str(scr), str(args.rm_id), args.status,
                         "--note", f"MR !{mr['iid']} ouverte vers {tgt} : {mr['web_url']}"],
-                       check=False)
+                       check=False,
+                       stdout=sys.stderr if getattr(args, "porcelain", False) else None)
 
 
     if getattr(args, "merge", False):
@@ -324,7 +323,8 @@ def merge_mr(pid, iid, token, squash=False, expect_rm=None):
                  f"de RM{expect_rm}. Iid prédit/erroné (tripwire #13) ? Capture l'iid via "
                  f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
     if mr["state"] == "merged":
-        print(f"↻ MR !{iid} déjà mergée ({mr['source_branch']} → {mr['target_branch']}).")
+        out.op("merge", extra=f"!{iid} → {mr['target_branch']} "
+                              f"(déjà mergée, branche {mr['source_branch']} conservée)")
         return
     if mr["state"] != "opened":
         sys.exit(f"ERREUR : MR !{iid} en état '{mr['state']}' (pas 'opened').")
@@ -339,7 +339,8 @@ def merge_mr(pid, iid, token, squash=False, expect_rm=None):
         st2, mr2, _ = api("GET", base, token)
         state = mr2.get("state") if mr2 else None
     if state == "merged":
-        print(f"✓ MR !{args.iid} mergée → {mr['target_branch']} (branche {mr['source_branch']} conservée).")
+        out.op("merge", extra=f"!{args.iid} → {mr['target_branch']} "
+                              f"(branche {mr['source_branch']} conservée)")
     else:
         sys.exit(f"ERREUR merge MR !{args.iid} (HTTP {st}, state={state}) : {raw[:200]}")
 
@@ -351,6 +352,7 @@ def main():
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    out.add_args(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     pc = sub.add_parser("create", help="push + crée/réutilise la MR + CF")
@@ -381,6 +383,7 @@ def main():
     pg.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
 
     args = ap.parse_args()
+    out.configure(args)
     # Token selon le rôle : worker (push/MR), manager (merge/gestion).
     role = {"create": "worker", "merge": "manager", "get": "worker"}[args.cmd]
     {"create": cmd_create, "merge": cmd_merge, "get": cmd_get}[args.cmd](args, token_for(role))

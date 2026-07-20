@@ -18,6 +18,8 @@ Filtres :
 
 Sortie :
   --json                  sortie JSON (pour scripting)
+  --limit N               tronque aux N tâches les plus récemment mises à jour
+                          (table uniquement ; 0 = tout)
   défaut                  table Rich (ou plain text si rich absent)
 """
 import argparse
@@ -29,6 +31,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 
 try:
     import yaml
@@ -139,6 +142,16 @@ def apply_filters(rows, args):
     return out
 
 
+def apply_limit(rows, limit):
+    """Tronque aux `limit` tâches les plus récemment mises à jour (frontmatter
+    `updated`). Retourne (rows_tronquées, nb_masquées). limit None/0 → tout."""
+    if not limit or limit < 0 or len(rows) <= limit:
+        return rows, 0
+    recent = sorted(rows, key=lambda r: str(r[3].get("updated") or ""), reverse=True)
+    keep = {id(r) for r in recent[:limit]}
+    return [r for r in rows if id(r) in keep], len(rows) - limit
+
+
 def sort_rows(rows):
     return sorted(
         rows,
@@ -226,7 +239,12 @@ def main():
     ap.add_argument("--all", action="store_true",
                     help="Ignore l'auto-détection cwd et liste TOUS les projets")
     ap.add_argument("--json", action="store_true", help="Sortie JSON")
+    ap.add_argument("--limit", type=int, default=None, metavar="N",
+                    help="Tronque aux N tâches les plus récemment mises à jour "
+                         "(0 = tout ; défaut : tout)")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     cfg = PMConfig.load()
 
@@ -254,7 +272,10 @@ def main():
     if args.json:
         render_json(rows)
     else:
+        rows, hidden = apply_limit(rows, args.limit)
         render_table(rows, scope_label, single_project)
+        if hidden:
+            print(f"… (+{hidden} autres — --limit 0 pour tout)")
 
 
 if __name__ == "__main__":

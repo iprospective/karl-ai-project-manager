@@ -139,10 +139,12 @@ type_to_activity:
   performance:    30   # Développement/Refacto/Clean  — optimisation
   maintenance:    30   # Développement/Refacto/Clean  — refacto, nettoyage, entretien
   infrastructure: 13   # SysAdmin/Conf/Debug          — déploiement, conteneurs, systemd, conf
+  configuration:  13   # SysAdmin/Conf/Debug          — paramétrage applicatif / système
   research:       10   # Audit/Analyse                — investigation, exploration
   audit:          10   # Audit/Analyse                — audit / analyse
   documentation:  10   # Audit/Analyse                — lecture/analyse + rédaction de doc (pas d'activité dédiée)
   design:         18   # Autre                        — conception (pas d'activité dédiée)
+  database:       18   # Autre                        — codifie le fallback historique (RM2003 n'avait pas câblé l'activité) ; à affiner si une activité dédiée apparaît
   assistance:     11   # Assistance                   — aide / support ponctuel
   autre:          18   # Autre                        — fourre-tout (défaut)
 
@@ -157,3 +159,4 @@ task_type_cf:
   values:
     documentation: 42  # "Documentation"
     database: 44       # "Database"
+    configuration: 22  # "Config"

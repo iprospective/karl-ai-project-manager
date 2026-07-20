@@ -27,8 +27,8 @@ REQUIRED_FIELDS = [
 
 VALID_TYPES = {
     "audit", "feature", "bugfix", "refactoring", "documentation",
-    "security", "performance", "infrastructure", "database", "design",
-    "research", "maintenance", "assistance",
+    "security", "performance", "infrastructure", "configuration", "database",
+    "design", "research", "maintenance", "assistance",
 }
 
 VALID_STATUSES = {

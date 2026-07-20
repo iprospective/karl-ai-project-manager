@@ -31,6 +31,8 @@ Gotcha scan : le mode `--all` itère les projets via `PMConfig.iter_projects` +
 `tasks_dir` (résolveur canonique, migration-aware) — PAS `os.walk(projects_root)` :
 depuis la co-localisation (RM1949), les tâches vivent dans `<ws>/.mmi-pm/tasks/` et ne
 sont plus sous `projects_root` (RM2038).
+
+Sortie dense par défaut (RM2362) : --verbose ou PM_VERBOSE=1 restaure le détail.
 """
 import argparse
 import fcntl
@@ -44,6 +46,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
 from redmine_utils import activity_for_type, cf_id_by_name, http_json, redmine_creds
 
@@ -492,7 +495,9 @@ def main():
                     "commit). Refusée si elle annonce de la conso (garde-fou). Requiert --rm-id.")
     ap.add_argument("--commit", help="hash du commit déclencheur (marqueur sur les time_entries "
                     "+ clé de dédup de la note)")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
     if args.note and not args.rm_id:
         ap.error("--note nécessite --rm-id (une note cible un ticket précis)")
 
@@ -517,8 +522,8 @@ def main():
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     scope = "cumuls seuls" if args.cf17_only else "time_entries + cumuls"
-    print(f"== pm-task-report — {scope} — {mode} (out=CF{cf_out_id}/in=CF{cf_in_id}, "
-          f"cumuls out=CF{cf_out_total_id}/in=CF{cf_in_total_id}) ==\n")
+    out.info(f"== pm-task-report — {scope} — {mode} (out=CF{cf_out_id}/in=CF{cf_in_id}, "
+             f"cumuls out=CF{cf_out_total_id}/in=CF{cf_in_total_id}) ==\n")
 
     results = [report_ticket(p, cf_out_id=cf_out_id, cf_in_id=cf_in_id,
                              cf_out_total_id=cf_out_total_id, cf_in_total_id=cf_in_total_id,
@@ -533,7 +538,15 @@ def main():
     for r in results:
         row = fmt_row(r)
         if row:
-            print(row)
+            out.info(row)
+        # dense (contrat T1 RM2316) : UNE ligne « ✓ report RM<id> te=<n> tokens=<n> »
+        # par ticket effectivement poussé ; les erreurs restent toujours visibles.
+        if r["status"] == "pushed":
+            out.op("report", rm=r.get("rm_id"),
+                   extra=f"te={r.get('new_te', 0)} tokens={r.get('te_tokens', 0)}")
+        elif r["status"] == "error":
+            out.warn(f"report RM{r.get('rm_id', '?')} en erreur : "
+                     f"{'; '.join(r.get('errors', []))} → relancer avec --verbose")
         st = r["status"]
         if st in ("pushed", "would-push"):
             sum_te += r.get("new_te", 0)
@@ -563,11 +576,11 @@ def main():
                                      f"(time_entries + CF17)")
 
     verb = "créées" if args.apply else "à créer"
-    print(f"\n-- {pushed} ticket(s) poussé(s), {would} à pousser, {skipped} à jour, "
-          f"{errors} erreur(s) ; {sum_te} time_entries {verb} "
-          f"({sum_tok:,} tokens) --")
+    out.info(f"\n-- {pushed} ticket(s) poussé(s), {would} à pousser, {skipped} à jour, "
+             f"{errors} erreur(s) ; {sum_te} time_entries {verb} "
+             f"({sum_tok:,} tokens) --")
     if not args.apply and (would or sum_te):
-        print("   (dry-run : relancer avec --apply pour exécuter)")
+        out.info("   (dry-run : relancer avec --apply pour exécuter)")
     sys.exit(1 if errors else 0)
 
 

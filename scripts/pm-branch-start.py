@@ -39,6 +39,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
 import pm_session
 import redmine_utils
@@ -100,7 +101,9 @@ def main():
                     help="N'émet QUE le chemin de travail final sur stdout (logs sur stderr) "
                          "— usage machine : cd \"$(pm-branch-start.py <id> --worktree --print-cd)\" (RM2240)")
     ap.add_argument("--dry-run", action="store_true")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     # --print-cd : stdout réservé au chemin final, tout le reste part sur stderr
     # (même mécanique que pm-task-add --porcelain, RM2224).
@@ -153,8 +156,8 @@ def main():
     current = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     base = args.base or current
     if not args.base:
-        print(f"  ⚠ --from omis : base = branche courante '{base}' (vérifie que c'est "
-              f"bien la branche d'intégration du projet)", file=sys.stderr)
+        out.warn(f"--from omis : base = branche courante '{base}' (vérifie que c'est "
+                 f"bien la branche d'intégration du projet)")
 
     # Mode worktree (RM2034) : branche discriminée par session + worktree dédié,
     # pour mener plusieurs tickets en parallèle sans se tromper de cible.
@@ -183,33 +186,35 @@ def main():
 
     if args.worktree:
         if wt.exists():
-            print(f"✓ worktree existant '{wt}' (branche '{branch}') réutilisé ({root.name})")
+            out.info(f"✓ worktree existant '{wt}' (branche '{branch}') réutilisé ({root.name})")
         elif exists:
             _git(root, "worktree", "add", str(wt), branch)
-            print(f"✓ worktree '{wt}' sur branche existante '{branch}' ({root.name})")
+            out.info(f"✓ worktree '{wt}' sur branche existante '{branch}' ({root.name})")
         else:
             _git(root, "worktree", "add", str(wt), "-b", branch, base)
-            print(f"✓ worktree '{wt}' + branche '{branch}' depuis '{base}' ({root.name})")
+            out.info(f"✓ worktree '{wt}' + branche '{branch}' depuis '{base}' ({root.name})")
         pm_session.record_branch(branch)
         pm_session.record_worktree(str(wt))
     elif exists:
         _git(root, "checkout", branch)
-        print(f"✓ branche existante '{branch}' checkée out ({root.name})")
+        out.info(f"✓ branche existante '{branch}' checkée out ({root.name})")
     else:
         _git(root, "checkout", "-b", branch, base)
-        print(f"✓ branche '{branch}' créée depuis '{base}' et checkée out ({root.name})")
+        out.info(f"✓ branche '{branch}' créée depuis '{base}' et checkée out ({root.name})")
 
     # CF Redmine « GIT Branche »
     cf_id = redmine_utils.cf_id_by_name(CF_BRANCH_NAME)
+    cf_ok = False
     if cf_id:
         ok, err = redmine_utils.update_issue_fields(
             args.rm_id, custom_fields=[{"id": cf_id, "value": branch}])
         if ok:
-            print(f"✓ CF{cf_id} ({CF_BRANCH_NAME}) = {branch}")
+            cf_ok = True
+            out.info(f"✓ CF{cf_id} ({CF_BRANCH_NAME}) = {branch}")
         else:
-            print(f"  ⚠ CF {CF_BRANCH_NAME} non poussé : {err}", file=sys.stderr)
+            out.warn(f"CF {CF_BRANCH_NAME} non poussé : {err}")
     else:
-        print(f"  ⚠ CF '{CF_BRANCH_NAME}' absent de redmine.reference.yml — skip", file=sys.stderr)
+        out.warn(f"CF '{CF_BRANCH_NAME}' absent de redmine.reference.yml — skip")
 
     # Frontmatter git.repo / git.branch + log
     content = md_path.read_text(encoding="utf-8")
@@ -232,7 +237,10 @@ def main():
                 f"Tokens : 0 | Durée : 0 min\n\n"
                 f"Branche `{branch}` ({'existante' if exists else f'créée depuis {base}'}) "
                 f"dans le repo `{root.name}` ; CF « {CF_BRANCH_NAME} » renseigné.\n")
-    print(f"✓ frontmatter git.repo/git.branch + log : {md_path.name}")
+    out.info(f"✓ frontmatter git.repo/git.branch + log : {md_path.name}")
+
+    # Ligne dense unique (contrat T1, CDC RM2316) — le détail est en --verbose / log.
+    out.op("branche", rm=args.rm_id, extra=branch + (" CF3=OK" if cf_ok else ""))
 
     if not args.no_commit:
         pm_git.autocommit([md_path, log_path], f"pm(branch): RM{args.rm_id} branche {branch}")
@@ -245,8 +253,8 @@ def main():
              "--note", f"Prise en charge — branche de travail `{branch}` créée (pm-branch-start)."],
             check=False, stdout=sys.stderr if args.print_cd else None)
         if r.returncode != 0:
-            print(f"  ⚠ transition en_cours échouée (exit {r.returncode}) — reprends : "
-                  f"pm-task-status-update.py {args.rm_id} en_cours", file=sys.stderr)
+            out.warn(f"transition en_cours échouée (exit {r.returncode}) — reprends : "
+                     f"pm-task-status-update.py {args.rm_id} en_cours")
 
     # Dernière ligne = action à exécuter : se PLACER dans le worktree du ticket
     # (RM2240 — un sous-processus ne change pas le cwd du shell parent ; sans ce

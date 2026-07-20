@@ -40,6 +40,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
 import pm_scope
 import redmine_utils
@@ -204,7 +205,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         if not repos:
             return
         if len(repos) > 1:
-            print(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
+            out.info(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
                   f"pm-env-session.py create {rm_id} --repo <name>", file=sys.stderr)
             return
         name = repos[0].get("name")
@@ -230,15 +231,15 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
             last = out.splitlines()[-1] if out else f"✓ {verb} ok"
-            print(f"  · env de session ({verb}) : {last}")
+            out.info(f"  · env de session ({verb}) : {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.
-            print(f"  ⚠ env de session ({verb}) non appliqué (non bloquant) :\n"
+            out.warn(f"env de session ({verb}) non appliqué (non bloquant) : "
                   + "\n".join(f"    {ln}" for ln in out.splitlines()[-4:]),
                   file=sys.stderr)
     except Exception as e:  # noqa: BLE001 — hook best-effort
-        print(f"  ⚠ hook env de session en échec (non bloquant) : {e}", file=sys.stderr)
+        out.warn(f"hook env de session en échec (non bloquant) : {e}")
 
 
 def fetch_issue_basic(rm_id):
@@ -308,7 +309,7 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
     un double appel à resolve_notif_target ; sinon résolu ici.
     """
     if not email_notifs_enabled():
-        print("  → notif mail désactivée (pm.config.yml : notifications.email_enabled=false)")
+        out.info("  → notif mail désactivée (pm.config.yml : notifications.email_enabled=false)")
         return
     if target is None:
         target = resolve_notif_target(issue)
@@ -331,7 +332,7 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
         "— Karl (notif automatique pm-task-status-update)",
     ]
     body = "\n".join(body_lines)
-    print(f"  → notif mail : {reason}")
+    out.info(f"  → notif mail : {reason}")
     if dry_run:
         print(f"  --dry-run : to={to_addr}, subject={subject!r}")
         return
@@ -341,11 +342,11 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
            "--body", body, "--rm-id", str(rm_id)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"  ⚠ Échec notif mail (non fatal) : {r.stderr.strip()[:200]}", file=sys.stderr)
+        out.warn(f"échec notif mail (non fatal) : {r.stderr.strip()[:200]}")
     else:
         # extraire le Message-ID de la sortie pour le log console
         mid = next((l for l in r.stdout.splitlines() if l.startswith("Mid")), "")
-        print(f"  ✓ Notif mail envoyée à {to_addr}  {mid}")
+        out.info(f"  ✓ notif mail envoyée à {to_addr}  {mid}")
 
 
 def resolve_assign_value(value, issue):
@@ -507,10 +508,12 @@ def main():
                     help="Autorise a_mep / ferme:resolu même si une branche <id>-* du ticket "
                          "n'est pas mergée dans la branche d'intégration (sinon bloqué — "
                          "RM2319 : clore 'resolu' sans merger = code validé jamais livré).")
+    out.add_args(ap)
     ap.add_argument("--no-commit", action="store_true",
                     help="Pas d'auto-commit git des fichiers écrits (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    out.configure(args)
 
     if args.list_next:
         list_next(args.rm_id)
@@ -524,7 +527,7 @@ def main():
     # que frontmatter, status_history et Redmine enregistrent la forme canonique.
     canon_status = redmine_utils.normalize_status(args.status)
     if canon_status != args.status:
-        print(f"  · statut déprécié '{args.status}' normalisé → '{canon_status}'", file=sys.stderr)
+        out.warn(f"statut déprécié '{args.status}' normalisé → '{canon_status}'")
         args.status = canon_status
     if args.status == "ferme" and not args.close_reason:
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
@@ -559,9 +562,9 @@ def main():
                                 "--apply", "--no-commit"],
                                capture_output=True, text=True, timeout=120)
             lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
-            print("  · report-on-close : " + (lines[-1].strip() if lines else "(rien à pousser)"))
+            out.info("  · report-on-close : " + (lines[-1].strip() if lines else "(rien à pousser)"))
         except Exception as e:
-            print(f"  ⚠ report-on-close échoué (non bloquant) : {e}", file=sys.stderr)
+            out.warn(f"report-on-close échoué (non bloquant) : {e}")
 
     # 1. Parse + update frontmatter
     content = md_path.read_text(encoding="utf-8")
@@ -583,7 +586,7 @@ def main():
         if not args.note:
             sys.exit("ERREUR : --note obligatoire pour rouvrir un ticket fermé "
                      "(motiver la réouverture)")
-        print("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
+        out.info("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
 
     fm["status"] = args.status
     if args.close_reason:
@@ -663,10 +666,7 @@ def main():
             _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
                 md_path.read_text(encoding="utf-8")).group(2)) or {}
             if str(_fm_now.get("test_protocol") or "").strip() in ("", "None"):
-                print(f"  ⚠ pas de protocole de test sur RM{args.rm_id} — le testeur n'a "
-                      f"pas de « quoi tester ».\n"
-                      f"    → pm-task-protocol.py {args.rm_id} --set -   (ou --append -)",
-                      file=sys.stderr)
+                out.warn(f"pas de protocole de test sur RM{args.rm_id} → pm-task-protocol.py {args.rm_id} --set -")
         except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
             pass
 
@@ -692,8 +692,7 @@ def main():
         assign_override_value = args.assign_to
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
-        print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
-              "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
+        out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
     elif args.status in ("a_tester_demandeur", "etude_chiffrage_a_valider", "a_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
         #         etude_chiffrage_a_valider   → demandeur (author) : l'étude/CDC + chiffrage
@@ -734,13 +733,21 @@ def main():
     main = env.get("REDMINE_USER_MAIN_API_KEY")
     if main:
         env["REDMINE_API_KEY"] = main
-    r = subprocess.run(cmd, env=env, check=False)
+    r = subprocess.run(cmd, env=env, check=False, capture_output=True, text=True)
+    out.info((r.stdout or "").rstrip())
     if r.returncode != 0:
-        sys.exit(f"ERREUR redmine-post-note (exit {r.returncode})")
+        detail = "\n".join(s.rstrip() for s in (r.stdout, r.stderr) if s and s.strip())
+        out.fail(f"redmine-post-note (exit {r.returncode}) :\n{detail}",
+                 remede="vérifier allowed_statuses (pm-task-blockers) ou relancer avec --verbose")
+    # ligne dense unique (contrat T1) — le détail est en --verbose / log / Redmine
+    out.op("statut", rm=args.rm_id,
+           extra=f"{old_status}→{args.status}"
+                 + (f" assign={assigned_to_id}" if assigned_to_id is not None else "")
+                 + (f" close={args.close_reason}" if args.close_reason else ""))
 
     # 3. Write MD
     md_path.write_text(new_content, encoding="utf-8")
-    print(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+    out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
 
     # 4. Append log
     log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
@@ -755,13 +762,13 @@ def main():
     entry_lines.extend(["", note, ""])
     with log_path.open("a", encoding="utf-8") as f:
         f.write("\n".join(entry_lines))
-    print(f"✓ Log appendé : {log_path.name}")
+    out.info(f"✓ log appendé : {log_path.name}")
 
     # 5. Notif mail au demandeur (résolu via resolve_notif_target ; Manager IA
     # par défaut si author=karl ou email inaccessible).
     if not args.no_mail:
         if issue is None:
-            print("  ⚠ Impossible de fetcher le ticket Redmine pour la notif mail (skip)", file=sys.stderr)
+            out.warn("ticket Redmine non fetchable pour la notif mail (skip)")
         else:
             send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target)
 
@@ -774,7 +781,7 @@ def main():
                 [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
                  "--rm-id", str(args.rm_id), "--estimate"], check=False)
             if r2.returncode != 0:
-                print(f"  ⚠ push estimation à la prise échoué (exit {r2.returncode})", file=sys.stderr)
+                out.warn(f"push estimation à la prise échoué (exit {r2.returncode})")
 
     # 6bis. Hooks D1/D2 env de session (RM1834/RM1947) : en_cours → create,
     # ferme → teardown. Best-effort, jamais bloquant.

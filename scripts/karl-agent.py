@@ -74,6 +74,9 @@ API (JSON, localhost:9876)
                                 → {rm_id, sent:true}
   GET  /capture/<rm_id>[?lines=N]
                                 → text/plain (snapshot du pane, + historique)
+  GET  /usage/<rm_id>           → {usage:{input,output,cache_read,cache_creation,
+                                  total,turns,context_last}} conso tokens live de
+                                  la session, entrée/sortie séparées (RM2373)
   GET  /buffer                  → text/plain — dernier buffer tmux (copies
                                   OSC52 faites dans les sessions, RM2168)
   GET  /pm/commands             → {commands} — catalogue déclaratif des
@@ -1201,6 +1204,70 @@ def _transcript_outline(lines, max_items: int = 400) -> list:
     if len(items) > max_items:
         items = items[-max_items:]
     return items
+
+
+def _transcript_usage(lines) -> dict:
+    """RM2373 : consommation tokens d'une session claude depuis son transcript
+    (JSONL), différenciée ENTRÉE / SORTIE. Somme les `message.usage` des tours
+    assistant — mêmes champs que pm-task-tick (input/output/cache_read/
+    cache_creation). Le dernier tour donne l'occupation de contexte courante
+    (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
+    turns = 0
+    context_last = 0
+    for line in lines:
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(obj, dict) or obj.get("type") != "assistant":
+            continue
+        usage = (obj.get("message") or {}).get("usage")
+        if not isinstance(usage, dict):
+            continue
+        i = usage.get("input_tokens", 0) or 0
+        o = usage.get("output_tokens", 0) or 0
+        cr = usage.get("cache_read_input_tokens", 0) or 0
+        cc = usage.get("cache_creation_input_tokens", 0) or 0
+        agg["input"] += i
+        agg["output"] += o
+        agg["cache_read"] += cr
+        agg["cache_creation"] += cc
+        ctx = i + cr + cc                   # occupation de contexte de ce tour
+        if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
+            context_last = ctx              # → dernier tour significatif = contexte courant
+        turns += 1
+    agg["total"] = agg["input"] + agg["output"] + agg["cache_read"] + agg["cache_creation"]
+    agg["turns"] = turns
+    agg["context_last"] = context_last
+    return agg
+
+
+def op_usage(rm_id: str) -> dict:
+    """RM2373 : consommation tokens EN DIRECT d'une session (entrée/sortie/cache),
+    lue du transcript claude (JSONL) — même résolution de session_id que /outline.
+    404 si session absente ; usage à zéro si moteur non-claude ou transcript
+    encore introuvable (session tout juste lancée)."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    empty = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0,
+             "total": 0, "turns": 0, "context_last": 0}
+    if k.get("engine") == "claude" and session_id:
+        jf = next((p for root in CLAUDE_STORES
+                   for p in root.glob(f"*/{session_id}.jsonl")), None)
+        if jf:
+            try:
+                with jf.open(encoding="utf-8", errors="replace") as fh:
+                    return {"rm_id": rm_id, "source": "transcript",
+                            "engine": "claude", "usage": _transcript_usage(fh)}
+            except OSError as e:
+                raise ApiError(500, f"transcript illisible : {e}")
+    return {"rm_id": rm_id, "source": "none",
+            "engine": k.get("engine"), "usage": empty}
 
 
 def op_outline(rm_id: str) -> dict:
@@ -2791,6 +2858,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_capture(rm_id, lines))
             if path.startswith("/outline/"):
                 return self._send_json(200, op_outline(path[len("/outline/"):]))
+            if path.startswith("/usage/"):
+                return self._send_json(200, op_usage(path[len("/usage/"):]))
             if path.startswith("/project/"):
                 parts = path[len("/project/"):].split("/")
                 if len(parts) != 2:

@@ -1314,6 +1314,41 @@ async function ensureResolved(rmId, force) {
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
   return resolveCache[rmId];
 }
+// RM2373 : conso tokens live de la session (entrée/sortie séparées), lue du
+// transcript via /usage. Rafraîchie à la demande + auto (20 s) tant que l'encart
+// est ouvert ; un verrou in-flight évite les rafales sur les renders répétés.
+const usageCache = {};     // rmId → {t, usage}
+const usageInFlight = {};
+function usageFresh(rmId) { const c = usageCache[rmId]; return c && (Date.now() - c.t < 20000); }
+async function ensureUsage(rmId, force) {
+  rmId = String(rmId);
+  if (!force && usageFresh(rmId)) return usageCache[rmId].usage;
+  if (usageInFlight[rmId]) return;
+  usageInFlight[rmId] = true;
+  try { const r = await api("/usage/" + encodeURIComponent(rmId)); usageCache[rmId] = { t: Date.now(), usage: r.usage || null }; }
+  catch (e) { usageCache[rmId] = { t: Date.now(), usage: null }; }
+  finally { usageInFlight[rmId] = false; }
+  return usageCache[rmId].usage;
+}
+function refreshUsage(rmId) { ensureUsage(rmId, true).then(() => renderMeta()); }
+function usageHtml(rmId) {
+  if (!usageFresh(rmId) && !usageInFlight[rmId]) ensureUsage(rmId).then(() => renderMeta());
+  const c = usageCache[rmId], u = c ? c.usage : undefined;
+  let inner;
+  if (u === undefined) inner = '<span style="color:var(--muted)">…</span>';
+  else if (u === null) inner = '<span style="color:var(--muted)">indisponible</span>';
+  else if (!u.turns) inner = '<span style="color:var(--muted)">transcript claude indisponible' +
+    (u.engine && u.engine !== "claude" ? " (moteur " + esc(u.engine) + ")" : "") + '</span>';
+  else inner =
+    '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(u.total) + '</span></div>' +
+    '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
+    '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
+    '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
+    '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + '</span></div>' +
+    '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>';
+  return '<div class="ms"><h4>Session en direct <span style="text-transform:none;color:var(--muted)">(tokens)</span> ' +
+    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span></h4>' + inner + '</div>';
+}
 function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
 function tabTip(s) {
   const r = resolveCache[s.rm_id];
@@ -1421,6 +1456,7 @@ function renderMeta() {
   // ── Session (tmux + registre pm_session RM2166) ──
   h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
     esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>';
+  h += usageHtml(attached);       // RM2373 : conso tokens live (entrée/sortie)
   // ── Tickets de la session (RM2173) : ancrage + registre, cliquables ──
   const tks = sessionTickets();
   if (tks.length) {
@@ -1452,14 +1488,18 @@ function renderMeta() {
       (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
       '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
       '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
-    // Consommation enregistrée par le PM (RM2173) — tokens / coût / temps
+    // Consommation enregistrée par le PM (RM2173) — tokens ventilés entrée/sortie (RM2373)
     const m = r.metrics || {};
     if (m.tokens_total != null || m.cost_total_usd != null) {
       const bd = m.tokens_breakdown || {};
-      const bdTip = "input " + fmtTokens(bd.input) + " · output " + fmtTokens(bd.output) +
-        " · cache read " + fmtTokens(bd.cache_read) + " · cache write " + fmtTokens(bd.cache_creation);
-      h += '<div class="ms"><h4>Consommation</h4>' +
-        '<div class="kv"><span class="k">tokens</span><span class="v" title="' + esc(bdTip) + '">' + fmtTokens(m.tokens_total) + '</span></div>' +
+      const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
+      h += '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
+        '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(m.tokens_total) + '</span></div>' +
+        (hasBd ?
+          '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
+          '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
+          '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
+          : '') +
         '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
         '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
         '<div class="kv"><span class="k">temps humain</span><span class="v">' + fmtMin(m.human_time_total_minutes) + '</span></div>' +

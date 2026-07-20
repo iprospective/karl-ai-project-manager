@@ -27,6 +27,15 @@ Tout env de test est joignable en `http://<project>-rm<id>[-s<seq>].lxc/` :
   est **dérivé du dossier d'env**, jamais saisi (suffixe `-s<seq>` conservé
   pour les worktrees de session).
 
+  Le proxy est émis sur **HTTP (:80) ET HTTPS (:443)** — les navigateurs
+  accèdent souvent aux `.lxc` en https (d'autres vhosts de l'instance ont du
+  SSL) ; sans le `:443`, la requête tombait sur le vhost SSL par défaut
+  (« Apache2 Ubuntu Default Page »). Le `:443` réutilise le certificat snakeoil
+  auto-signé (dev local → avertissement de certificat attendu, comme les autres
+  `.lxc`) ; override possible via `PM_ENV_SSL_CERT` / `PM_ENV_SSL_KEY`. Si le
+  cert est absent, le helper se rabat sur `:80` seul avec un avertissement
+  (fail-safe : jamais de configtest KO).
+
 Recette validée par le pilote manuel RM1834 du 2026-07-02 (matnat/site_sf7) :
 vhost `<repo>-rm<id>.lxc` + `.user.ini` `error_log` par worktree (surchargeable car
 `php_value[]` dans `common.conf.inc`, RM2081) + pool FPM partagé.

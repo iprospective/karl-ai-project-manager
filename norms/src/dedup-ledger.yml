@@ -17,6 +17,22 @@
 removed: []
 
 rewritten:
+  - reason: "RM2379 (v1.59.0) : ajout du type `configuration` — énumération `type` étendue à 14 valeurs (KERNEL)"
+    old: |
+      `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
+
+  - reason: "RM2379 (v1.59.0) : ajout du type `configuration` — paragraphe tracker coarse vs CF 20 réécrit (14 valeurs, `configuration` → val 22 « Config ») dans redmine-reference"
+    old: |
+      (13 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
+      `documentation`, `infrastructure`, `maintenance`, `autre` retombent tous sur
+      `Tâche`/4). Quand un type n'a pas de tracker dédié, son détail est porté par le
+      **CF 20 `Task type`** (enumeration) si une valeur correspond — mapping **source
+      unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42).
+
+  - reason: "RM2379 (v1.59.0) : ajout du type `configuration` — ligne de routage worker-infra étendue dans collaboration"
+    old: |
+      | `infrastructure` | worker-infra |
+
   - reason: "RM2348 : sens du lien .mmi-pm inversé — projects_root n'est plus le stockage privé mais un index de symlinks sortants vers les cores. Titre réécrit « Repo projets (index centralisé) » dans structure-reference."
     old: |
       ### Repo projets (privé, gitignored dans le repo PM)

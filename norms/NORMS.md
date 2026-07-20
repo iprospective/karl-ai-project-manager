@@ -1,10 +1,10 @@
 ---
-schema_version: "1.58.0"
-updated: 2026-07-19
+schema_version: "1.59.0"
+updated: 2026-07-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.58.0
+# Normes de gestion des tâches — v1.59.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -180,7 +180,7 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 ## Valeurs énumérées
 
 ### type
-`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
+`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
 `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
@@ -1598,12 +1598,13 @@ revalider lors du resync, ne pas présumer stables :
 | 20 | enum (issue) | `Task type` | taxonomie **fine** du `type` (cf. note ci-dessous) |
 
 **Tracker (coarse) vs CF `Task type` (fin).** Le `type` NORMS est plus riche
-(13 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
+(14 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
 `Tâche`). Le **tracker** porte la catégorie *coarse* (`TYPE_TO_TRACKER` :
-`documentation`, `infrastructure`, `maintenance`, `autre` retombent tous sur
-`Tâche`/4). Quand un type n'a pas de tracker dédié, son détail est porté par le
-**CF 20 `Task type`** (enumeration) si une valeur correspond — mapping **source
-unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42).
+`documentation`, `infrastructure`, `configuration`, `maintenance`, `autre`
+retombent tous sur `Tâche`/4). Quand un type n'a pas de tracker dédié, son détail
+est porté par le **CF 20 `Task type`** (enumeration) si une valeur correspond —
+mapping **source unique** `redmine.reference.yml :: task_type_cf`
+(ex. `documentation` → val 42, `configuration` → val 22 « Config »).
 `pm-task-add` le pose à la création, `redmine-fetch-task` le relit (il **prime**
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.
@@ -2181,6 +2182,7 @@ depuis le commit précédent, sous forme d'une **saisie de temps**
 | `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
 | `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
 | `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
+| `configuration` | `SysAdmin/Conf/Debug` | 13 | paramétrage applicatif / système |
 | `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
 | `assistance` | `Assistance` | 11 | aide / support ponctuel |
 | `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
@@ -2515,7 +2517,7 @@ référencés et leur rôle, pour audit humain.
 | `feature` / `bugfix` / `refactoring` / `security` / `performance` | worker-dev |
 | `audit` / `research` / `documentation` / `assistance` / `maintenance` | worker-analyst |
 | `database` | worker-db |
-| `infrastructure` | worker-infra |
+| `infrastructure` / `configuration` | worker-infra |
 | `design` | worker-design |
 
 - Propriétaire exclusif de leur fichier de tâche assignée

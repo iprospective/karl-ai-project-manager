@@ -132,6 +132,40 @@ def _result_text_len(block):
     return n
 
 
+_SCRIPT_NAME_RE = re.compile(r"((?:pm|redmine|karl)-[a-z][a-z-]*)\.py\b")
+
+
+def op_label(name, inp, cat):
+    """Étiquette d'opération PM pour le breakdown par script (RM2361/S0)."""
+    if name == "Bash":
+        m = _SCRIPT_NAME_RE.search(str(inp.get("command", "")))
+        if m:
+            return "bash:" + m.group(1)
+        return "bash:manip-fichiers-pm" if cat == "pm-ceremony" else "bash:contexte-pm"
+    if name == "Skill":
+        return "skill:" + str(inp.get("skill", ""))
+    path = str(inp.get("file_path", ""))
+    kind = "ticket-md" if _TICKET_FILE_RE.search(path) else "contexte-pm"
+    return "%s:%s" % (name.lower(), kind)
+
+
+def _sentinel_rm_id(cwd):
+    """RM-id du sentinel .mmi-pm/CURRENT_TASK le plus proche de cwd (≤ 6 niveaux)."""
+    p = Path(cwd)
+    for _ in range(6):
+        f = p / ".mmi-pm" / "CURRENT_TASK"
+        try:
+            if f.is_file():
+                m = re.search(r"(\d{2,6})", f.read_text(encoding="utf-8"))
+                return int(m.group(1)) if m else None
+        except OSError:
+            return None
+        if p.parent == p:
+            break
+        p = p.parent
+    return None
+
+
 def scan_session(path):
     """Analyse un transcript JSONL → dict session, ou None si vide/sans usage."""
     events = _tick._load_transcript(path)
@@ -140,15 +174,19 @@ def scan_session(path):
 
     calls = {}        # message.id → appel API (retries écrasés)
     order = []        # ids dans l'ordre de première apparition
-    tooluse_cat = {}  # tool_use id → catégorie
+    tooluse_cat = {}  # tool_use id → (catégorie, message.id, label d'opération)
     evidence = defaultdict(int)   # rm_id → poids cumulé
+    ops = defaultdict(lambda: [0, 0])   # label → [appels, octets injectés]
     ts_first = ts_last = None
+    last_cwd = None
 
     for evt in events:
         ts = evt.get("timestamp")
         if ts:
             ts_first = ts_first or ts
             ts_last = ts
+        if evt.get("cwd"):
+            last_cwd = evt["cwd"]
         for rid, strength in _tick._evidence_from_event(evt):
             evidence[rid] += strength
         etype = evt.get("type")
@@ -166,9 +204,13 @@ def scan_session(path):
             call["usage"] = _usage_tokens(usage)   # retry : le dernier gagne
             for b in msg.get("content") or []:
                 if isinstance(b, dict) and b.get("type") == "tool_use":
-                    cat = classify_tool_use(b.get("name") or "", b.get("input") or {})
+                    name, inp = b.get("name") or "", b.get("input") or {}
+                    cat = classify_tool_use(name, inp)
                     call["blocks"].append(cat)
-                    tooluse_cat[b.get("id")] = (cat, mid)
+                    label = op_label(name, inp, cat) if cat != "work" else None
+                    if label:
+                        ops[label][0] += 1
+                    tooluse_cat[b.get("id")] = (cat, mid, label)
         elif etype == "user" and isinstance(msg, dict):
             content = msg.get("content")
             if isinstance(content, list):
@@ -176,9 +218,11 @@ def scan_session(path):
                     if isinstance(b, dict) and b.get("type") == "tool_result":
                         ref = tooluse_cat.get(b.get("tool_use_id"))
                         if ref:
-                            cat, mid = ref
-                            calls[mid].setdefault("injected", defaultdict(int))[cat] += \
-                                _result_text_len(b)
+                            cat, mid, label = ref
+                            nbytes = _result_text_len(b)
+                            calls[mid].setdefault("injected", defaultdict(int))[cat] += nbytes
+                            if label:
+                                ops[label][1] += nbytes
 
     if not order:
         return None
@@ -223,11 +267,17 @@ def scan_session(path):
             inj_by_cat[cat] += tk
             marginal[cat] += tk * persist
 
+    attribution = "transcript"
     rm_id = max(evidence.items(), key=lambda kv: kv[1])[0] if evidence else None
+    if rm_id is None and last_cwd:
+        # signal FAIBLE (RM2361/S0) : sentinel projet du workspace de la session
+        rm_id = _sentinel_rm_id(last_cwd)
+        attribution = "sentinel" if rm_id is not None else "aucune"
     first = calls[order[0]]["usage"]
     return {
         "session": Path(path).stem,
         "rm_id": rm_id,
+        "attribution": attribution,
         "n_calls": n,
         "r_factor": round(r_factor, 1),
         "ts_first": ts_first,
@@ -238,6 +288,8 @@ def scan_session(path):
         "output_by_cat": {c: round(out_by_cat.get(c, 0)) for c in CATEGORIES},
         "injected_by_cat": {c: round(inj_by_cat.get(c, 0)) for c in CATEGORIES},
         "marginal_cost_by_cat": {c: round(marginal.get(c, 0), 4) for c in CATEGORIES},
+        "ops": {k: {"calls": v[0], "injected_tokens": round(v[1] / BYTES_PER_TOKEN)}
+                for k, v in ops.items()},
         "models": dict(models),
     }
 
@@ -276,6 +328,55 @@ def fmt_tk(n):
     return f"{n/1e6:.1f}M" if n >= 1e6 else (f"{n/1e3:.0f}k" if n >= 1000 else str(int(n)))
 
 
+def global_stats(sessions):
+    """Agrégats globaux d'une liste de sessions (part PM, catégories, ops)."""
+    marg = {c: sum(s["marginal_cost_by_cat"].get(c, 0) for s in sessions) for c in CATEGORIES}
+    pm = marg["pm-onboarding"] + marg["pm-ceremony"]
+    tot = pm + marg["work"]
+    ops = defaultdict(lambda: [0, 0])
+    for s in sessions:
+        for k, v in (s.get("ops") or {}).items():
+            ops[k][0] += v.get("calls", 0)
+            ops[k][1] += v.get("injected_tokens", 0)
+    return {
+        "sessions": len(sessions),
+        "billed_usd": round(sum(s["cost_usd"] for s in sessions), 2),
+        "pm_share_pct": round(100 * pm / tot, 1) if tot else 0.0,
+        "marginal_by_cat": {k: round(v, 2) for k, v in marg.items()},
+        "ops": {k: {"calls": v[0], "injected_tokens": v[1]} for k, v in ops.items()},
+    }
+
+
+COMPARE_ALERT_PTS = 2.0
+
+
+def render_compare(base, cur, base_name):
+    """Comparaison vs baseline (RM2361/S0). Retourne (texte, dérive_bool)."""
+    d = cur["pm_share_pct"] - base["pm_share_pct"]
+    lines = [
+        "== pm-bench-overhead --compare vs %s ==" % base_name,
+        "part PM : %.1f %% → %.1f %% (%+.1f pts)  [alerte : > +%.0f pts]"
+        % (base["pm_share_pct"], cur["pm_share_pct"], d, COMPARE_ALERT_PTS),
+        "coût marginal $ : onboarding %.2f→%.2f · cérémonie %.2f→%.2f · work %.2f→%.2f"
+        % (base["marginal_by_cat"]["pm-onboarding"], cur["marginal_by_cat"]["pm-onboarding"],
+           base["marginal_by_cat"]["pm-ceremony"], cur["marginal_by_cat"]["pm-ceremony"],
+           base["marginal_by_cat"]["work"], cur["marginal_by_cat"]["work"]),
+    ]
+    movers = []
+    for k in set(base["ops"]) | set(cur["ops"]):
+        b = (base["ops"].get(k) or {}).get("injected_tokens", 0)
+        c = (cur["ops"].get(k) or {}).get("injected_tokens", 0)
+        if b or c:
+            movers.append((abs(c - b), k, b, c))
+    movers.sort(reverse=True)
+    if movers:
+        lines.append("top mouvements (tokens injectés) : " + " · ".join(
+            "%s %s→%s" % (k, fmt_tk(b), fmt_tk(c)) for _, k, b, c in movers[:5]))
+    drift = d > COMPARE_ALERT_PTS
+    lines.append("⚠ DÉRIVE au-dessus du seuil" if drift else "✓ sous le seuil")
+    return "\n".join(lines), drift
+
+
 def main():
     ap = argparse.ArgumentParser(
         description="Benchmark de la surconsommation de la couche PM (RM2275).")
@@ -287,6 +388,10 @@ def main():
     ap.add_argument("--min-tokens", type=int, default=100_000,
                     help="Ignore les sessions plus petites (bruit)")
     ap.add_argument("--json", action="store_true")
+    ap.add_argument("--compare", metavar="BASELINE_JSON",
+                    help="Compare à une baseline (sortie --json) ; exit 1 si part PM > +2 pts")
+    ap.add_argument("--notify-rm", type=int, metavar="RM_ID",
+                    help="Avec --compare : poste le résumé en note Redmine sur ce ticket (cron)")
     args = ap.parse_args()
 
     root = Path(args.projects_dir)
@@ -308,10 +413,28 @@ def main():
 
     by_ticket = aggregate(sessions)
 
+    if args.compare:
+        with open(args.compare, encoding="utf-8") as f:
+            baseline = json.load(f)
+        base = global_stats(baseline.get("sessions") or [])
+        cur = global_stats(sessions)
+        text, drift = render_compare(base, cur, Path(args.compare).name)
+        print(text)
+        if args.notify_rm:
+            try:
+                sys.path.insert(0, str(_HERE))
+                import redmine_utils as ru
+                ru.add_issue_note(args.notify_rm, "**pm-bench-overhead (cron)**\n\n" + text)
+                print("✓ note postée sur #%d" % args.notify_rm)
+            except Exception as e:
+                print("⚠ note Redmine non postée : %s" % e)
+        sys.exit(1 if drift else 0)
+
     if args.json:
         print(json.dumps({
             "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             "params": vars(args),
+            "global": global_stats(sessions),
             "sessions": sessions,
             "by_ticket": {k: {
                 **{kk: (dict(vv) if isinstance(vv, defaultdict) else vv)

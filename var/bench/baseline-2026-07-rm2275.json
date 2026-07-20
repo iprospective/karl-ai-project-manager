@@ -1,0 +1,5381 @@
+{
+ "generated_at": "2026-07-20T10:38:00+00:00",
+ "params": {
+  "projects_dir": "/home/mathieu/.claude/projects",
+  "workspace": [],
+  "since": null,
+  "top": 20,
+  "min_tokens": 100000,
+  "json": true,
+  "compare": null,
+  "notify_rm": null
+ },
+ "global": {
+  "sessions": 38,
+  "billed_usd": 8140.6,
+  "pm_share_pct": 23.9,
+  "marginal_by_cat": {
+   "pm-onboarding": 48.16,
+   "pm-ceremony": 299.56,
+   "work": 1107.35
+  },
+  "ops": {
+   "bash:manip-fichiers-pm": {
+    "calls": 585,
+    "injected_tokens": 132777
+   },
+   "bash:karl-agent": {
+    "calls": 226,
+    "injected_tokens": 56218
+   },
+   "skill:mmi-pm-task-add": {
+    "calls": 18,
+    "injected_tokens": 162
+   },
+   "bash:pm-task-add": {
+    "calls": 411,
+    "injected_tokens": 65172
+   },
+   "bash:pm-task-status-update": {
+    "calls": 613,
+    "injected_tokens": 88357
+   },
+   "bash:pm-mr": {
+    "calls": 593,
+    "injected_tokens": 64993
+   },
+   "bash:redmine-post-note": {
+    "calls": 104,
+    "injected_tokens": 6550
+   },
+   "bash:pm-task-description-update": {
+    "calls": 192,
+    "injected_tokens": 25881
+   },
+   "bash:pm-task-show": {
+    "calls": 30,
+    "injected_tokens": 10496
+   },
+   "bash:pm-task-link": {
+    "calls": 108,
+    "injected_tokens": 16360
+   },
+   "bash:pm-session-status": {
+    "calls": 70,
+    "injected_tokens": 24969
+   },
+   "bash:pm-doctor": {
+    "calls": 27,
+    "injected_tokens": 4702
+   },
+   "skill:mmi-pm-task-status-update": {
+    "calls": 8,
+    "injected_tokens": 93
+   },
+   "bash:contexte-pm": {
+    "calls": 230,
+    "injected_tokens": 74427
+   },
+   "bash:pm-resolver-flip": {
+    "calls": 26,
+    "injected_tokens": 9954
+   },
+   "bash:pm-task-comment": {
+    "calls": 190,
+    "injected_tokens": 17335
+   },
+   "bash:pm-task-list": {
+    "calls": 68,
+    "injected_tokens": 33706
+   },
+   "bash:pm-corehist-backfill": {
+    "calls": 5,
+    "injected_tokens": 4075
+   },
+   "bash:pm-meta-migrate": {
+    "calls": 7,
+    "injected_tokens": 1956
+   },
+   "bash:redmine-fetch-task": {
+    "calls": 9,
+    "injected_tokens": 2271
+   },
+   "bash:pm-project-new": {
+    "calls": 47,
+    "injected_tokens": 12870
+   },
+   "bash:pm-session-relocate": {
+    "calls": 15,
+    "injected_tokens": 3330
+   },
+   "read:ticket-md": {
+    "calls": 91,
+    "injected_tokens": 67333
+   },
+   "skill:mmi-pm-task-comment": {
+    "calls": 4,
+    "injected_tokens": 40
+   },
+   "read:contexte-pm": {
+    "calls": 238,
+    "injected_tokens": 333422
+   },
+   "bash:pm-branch-start": {
+    "calls": 204,
+    "injected_tokens": 41092
+   },
+   "edit:ticket-md": {
+    "calls": 69,
+    "injected_tokens": 4460
+   },
+   "bash:pm-env-init": {
+    "calls": 22,
+    "injected_tokens": 8136
+   },
+   "bash:pm-env-migrate": {
+    "calls": 38,
+    "injected_tokens": 15285
+   },
+   "edit:contexte-pm": {
+    "calls": 200,
+    "injected_tokens": 9383
+   },
+   "bash:pm-norms-assemble": {
+    "calls": 87,
+    "injected_tokens": 21594
+   },
+   "bash:pm-norms-changes": {
+    "calls": 5,
+    "injected_tokens": 1499
+   },
+   "bash:pm-norms-doctor": {
+    "calls": 41,
+    "injected_tokens": 9593
+   },
+   "bash:pm-wiki-sync": {
+    "calls": 20,
+    "injected_tokens": 4508
+   },
+   "bash:pm-protect": {
+    "calls": 6,
+    "injected_tokens": 978
+   },
+   "bash:pm-task-sync": {
+    "calls": 18,
+    "injected_tokens": 8322
+   },
+   "bash:pm-env-session": {
+    "calls": 85,
+    "injected_tokens": 18021
+   },
+   "bash:pm-skills-sync": {
+    "calls": 10,
+    "injected_tokens": 1776
+   },
+   "bash:pm-claude-hooks-sync": {
+    "calls": 6,
+    "injected_tokens": 1369
+   },
+   "bash:pm-task-tick": {
+    "calls": 50,
+    "injected_tokens": 14907
+   },
+   "bash:pm-bench-overhead": {
+    "calls": 13,
+    "injected_tokens": 3618
+   },
+   "bash:pm-tick-backfill": {
+    "calls": 6,
+    "injected_tokens": 10228
+   },
+   "bash:pm-task-report": {
+    "calls": 35,
+    "injected_tokens": 5543
+   },
+   "bash:pm-turn-start": {
+    "calls": 1,
+    "injected_tokens": 28
+   },
+   "skill:mmi-pm-session-status": {
+    "calls": 12,
+    "injected_tokens": 130
+   },
+   "write:contexte-pm": {
+    "calls": 30,
+    "injected_tokens": 1371
+   },
+   "bash:pm-task-metrics-push": {
+    "calls": 25,
+    "injected_tokens": 6992
+   },
+   "bash:pm-context-budget": {
+    "calls": 12,
+    "injected_tokens": 2804
+   },
+   "bash:pm-workspace-coloc": {
+    "calls": 48,
+    "injected_tokens": 11179
+   },
+   "bash:pm-gitlab-rename": {
+    "calls": 8,
+    "injected_tokens": 767
+   },
+   "bash:pm-git-recable": {
+    "calls": 4,
+    "injected_tokens": 1538
+   },
+   "skill:mmi-pm-task-list": {
+    "calls": 5,
+    "injected_tokens": 45
+   },
+   "bash:pm-worktree": {
+    "calls": 7,
+    "injected_tokens": 893
+   },
+   "skill:mmi-pm-env-migrate": {
+    "calls": 3,
+    "injected_tokens": 30
+   },
+   "skill:mmi-pm-project-new": {
+    "calls": 5,
+    "injected_tokens": 50
+   },
+   "skill:mmi-pm-task-show": {
+    "calls": 2,
+    "injected_tokens": 18
+   },
+   "bash:pm-dashboard": {
+    "calls": 1,
+    "injected_tokens": 282
+   },
+   "bash:pm-conso-report": {
+    "calls": 8,
+    "injected_tokens": 1968
+   },
+   "bash:pm-task-blockers": {
+    "calls": 22,
+    "injected_tokens": 2340
+   },
+   "bash:pm-hooks-install": {
+    "calls": 16,
+    "injected_tokens": 3661
+   },
+   "bash:pm-client-new": {
+    "calls": 13,
+    "injected_tokens": 2203
+   },
+   "bash:pm-env-deploy": {
+    "calls": 6,
+    "injected_tokens": 1537
+   },
+   "bash:pm-task-cd": {
+    "calls": 5,
+    "injected_tokens": 377
+   },
+   "bash:pm-pre-commit": {
+    "calls": 4,
+    "injected_tokens": 675
+   },
+   "bash:pm-task-protocol": {
+    "calls": 29,
+    "injected_tokens": 3011
+   },
+   "bash:karl-agent-auth": {
+    "calls": 3,
+    "injected_tokens": 610
+   },
+   "bash:pm-env-expose": {
+    "calls": 7,
+    "injected_tokens": 858
+   },
+   "bash:pm-reporting-migrate": {
+    "calls": 1,
+    "injected_tokens": 31
+   },
+   "bash:pm-promote": {
+    "calls": 14,
+    "injected_tokens": 1425
+   },
+   "bash:pm-cockpit-test-env": {
+    "calls": 3,
+    "injected_tokens": 234
+   },
+   "bash:pm-token-check": {
+    "calls": 11,
+    "injected_tokens": 1651
+   },
+   "bash:pm-pricing-check": {
+    "calls": 4,
+    "injected_tokens": 711
+   },
+   "bash:redmine-log-time": {
+    "calls": 1,
+    "injected_tokens": 79
+   },
+   "bash:redmine-fetch-updates": {
+    "calls": 3,
+    "injected_tokens": 2562
+   },
+   "bash:pm-workspace-coloc-patched": {
+    "calls": 4,
+    "injected_tokens": 402
+   },
+   "write:ticket-md": {
+    "calls": 1,
+    "injected_tokens": 58
+   },
+   "bash:redmine-config-check": {
+    "calls": 1,
+    "injected_tokens": 168
+   },
+   "bash:pm-docs-migrate": {
+    "calls": 9,
+    "injected_tokens": 2423
+   }
+  }
+ },
+ "sessions": [
+  {
+   "session": "262b93b3-4064-4903-8ba9-877602d2762d",
+   "rm_id": 1939,
+   "attribution": "transcript",
+   "n_calls": 202,
+   "r_factor": 38.3,
+   "ts_first": "2026-07-06T16:22:03.117Z",
+   "ts_last": "2026-07-07T02:09:43.525Z",
+   "totals": {
+    "input": 12327,
+    "output": 211462,
+    "cache_read": 45288615,
+    "cache_creation": 1182143
+   },
+   "cost_usd": 70.7618,
+   "first_call": {
+    "input": 7664,
+    "output": 330,
+    "cache_read": 18341,
+    "cache_creation": 13445
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 59989,
+    "work": 151473
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 13402,
+    "work": 50473
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 6.7285,
+    "work": 17.8346
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 1,
+     "injected_tokens": 1007
+    },
+    "bash:karl-agent": {
+     "calls": 29,
+     "injected_tokens": 8557
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 5,
+     "injected_tokens": 265
+    },
+    "bash:pm-task-status-update": {
+     "calls": 9,
+     "injected_tokens": 524
+    },
+    "bash:pm-mr": {
+     "calls": 18,
+     "injected_tokens": 1501
+    },
+    "bash:redmine-post-note": {
+     "calls": 6,
+     "injected_tokens": 268
+    },
+    "bash:pm-task-description-update": {
+     "calls": 2,
+     "injected_tokens": 98
+    },
+    "bash:pm-task-show": {
+     "calls": 2,
+     "injected_tokens": 178
+    },
+    "bash:pm-task-link": {
+     "calls": 2,
+     "injected_tokens": 66
+    },
+    "bash:pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 930
+    }
+   },
+   "models": {
+    "claude-fable-5": 211462
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "5b7cb6d8-7d97-4d41-b181-af9ab5ebef4c",
+   "rm_id": 1947,
+   "attribution": "transcript",
+   "n_calls": 946,
+   "r_factor": 28.4,
+   "ts_first": "2026-06-15T01:20:33.736Z",
+   "ts_last": "2026-06-29T13:52:21.889Z",
+   "totals": {
+    "input": 128024,
+    "output": 1855643,
+    "cache_read": 237819051,
+    "cache_creation": 8363314
+   },
+   "cost_usd": 218.2114,
+   "first_call": {
+    "input": 7134,
+    "output": 289,
+    "cache_read": 15576,
+    "cache_creation": 11709
+   },
+   "output_by_cat": {
+    "pm-onboarding": 22103,
+    "pm-ceremony": 358231,
+    "work": 1475309
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 3571,
+    "pm-ceremony": 72486,
+    "work": 168338
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0781,
+    "pm-ceremony": 17.7717,
+    "work": 70.5249
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 36,
+     "injected_tokens": 11213
+    },
+    "bash:pm-doctor": {
+     "calls": 17,
+     "injected_tokens": 3246
+    },
+    "skill:mmi-pm-task-status-update": {
+     "calls": 2,
+     "injected_tokens": 23
+    },
+    "bash:pm-task-status-update": {
+     "calls": 21,
+     "injected_tokens": 3828
+    },
+    "bash:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 1615
+    },
+    "bash:pm-resolver-flip": {
+     "calls": 18,
+     "injected_tokens": 7106
+    },
+    "bash:pm-task-comment": {
+     "calls": 11,
+     "injected_tokens": 1009
+    },
+    "bash:pm-task-list": {
+     "calls": 2,
+     "injected_tokens": 614
+    },
+    "bash:pm-corehist-backfill": {
+     "calls": 5,
+     "injected_tokens": 4075
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 2,
+     "injected_tokens": 18
+    },
+    "bash:pm-task-add": {
+     "calls": 14,
+     "injected_tokens": 3327
+    },
+    "bash:pm-session-status": {
+     "calls": 14,
+     "injected_tokens": 4446
+    },
+    "bash:pm-task-description-update": {
+     "calls": 7,
+     "injected_tokens": 1685
+    },
+    "bash:pm-task-link": {
+     "calls": 12,
+     "injected_tokens": 2783
+    },
+    "bash:pm-meta-migrate": {
+     "calls": 7,
+     "injected_tokens": 1956
+    },
+    "bash:redmine-fetch-task": {
+     "calls": 1,
+     "injected_tokens": 1505
+    },
+    "bash:karl-agent": {
+     "calls": 4,
+     "injected_tokens": 405
+    },
+    "bash:pm-project-new": {
+     "calls": 2,
+     "injected_tokens": 464
+    },
+    "bash:pm-session-relocate": {
+     "calls": 9,
+     "injected_tokens": 2108
+    },
+    "read:ticket-md": {
+     "calls": 7,
+     "injected_tokens": 6230
+    },
+    "skill:mmi-pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 1859
+    },
+    "bash:pm-branch-start": {
+     "calls": 3,
+     "injected_tokens": 2823
+    },
+    "edit:ticket-md": {
+     "calls": 8,
+     "injected_tokens": 517
+    },
+    "bash:pm-env-init": {
+     "calls": 10,
+     "injected_tokens": 2971
+    },
+    "bash:pm-env-migrate": {
+     "calls": 9,
+     "injected_tokens": 2560
+    },
+    "edit:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 97
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 5,
+     "injected_tokens": 2731
+    },
+    "bash:pm-norms-changes": {
+     "calls": 4,
+     "injected_tokens": 1032
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 2,
+     "injected_tokens": 624
+    },
+    "bash:pm-wiki-sync": {
+     "calls": 1,
+     "injected_tokens": 703
+    },
+    "bash:pm-mr": {
+     "calls": 10,
+     "injected_tokens": 1413
+    },
+    "bash:pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 645
+    },
+    "bash:pm-protect": {
+     "calls": 1,
+     "injected_tokens": 41
+    },
+    "bash:pm-task-sync": {
+     "calls": 3,
+     "injected_tokens": 374
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 1855643,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "7c1a40ee-4353-4214-ba0b-18ef5e338dd6",
+   "rm_id": 2306,
+   "attribution": "transcript",
+   "n_calls": 130,
+   "r_factor": 25.4,
+   "ts_first": "2026-07-16T00:39:56.679Z",
+   "ts_last": "2026-07-17T20:07:22.404Z",
+   "totals": {
+    "input": 4699,
+    "output": 119438,
+    "cache_read": 18710095,
+    "cache_creation": 735568
+   },
+   "cost_usd": 33.9236,
+   "first_call": {
+    "input": 2,
+    "output": 312,
+    "cache_read": 20285,
+    "cache_creation": 24385
+   },
+   "output_by_cat": {
+    "pm-onboarding": 6796,
+    "pm-ceremony": 56970,
+    "work": 55672
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 2171,
+    "pm-ceremony": 26115,
+    "work": 14771
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.68,
+    "pm-ceremony": 6.0004,
+    "work": 5.4559
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 2171
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 5,
+     "injected_tokens": 381
+    },
+    "bash:pm-branch-start": {
+     "calls": 1,
+     "injected_tokens": 518
+    },
+    "bash:pm-env-session": {
+     "calls": 1,
+     "injected_tokens": 148
+    },
+    "bash:pm-task-status-update": {
+     "calls": 11,
+     "injected_tokens": 893
+    },
+    "bash:pm-skills-sync": {
+     "calls": 4,
+     "injected_tokens": 1105
+    },
+    "bash:pm-mr": {
+     "calls": 12,
+     "injected_tokens": 2436
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 2,
+     "injected_tokens": 988
+    },
+    "bash:pm-doctor": {
+     "calls": 2,
+     "injected_tokens": 205
+    },
+    "bash:pm-claude-hooks-sync": {
+     "calls": 6,
+     "injected_tokens": 1369
+    },
+    "bash:pm-task-tick": {
+     "calls": 6,
+     "injected_tokens": 6932
+    },
+    "bash:pm-bench-overhead": {
+     "calls": 1,
+     "injected_tokens": 208
+    },
+    "bash:pm-tick-backfill": {
+     "calls": 6,
+     "injected_tokens": 10228
+    },
+    "bash:pm-task-report": {
+     "calls": 2,
+     "injected_tokens": 226
+    },
+    "bash:pm-turn-start": {
+     "calls": 1,
+     "injected_tokens": 28
+    },
+    "bash:redmine-post-note": {
+     "calls": 2,
+     "injected_tokens": 13
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 3,
+     "injected_tokens": 418
+    }
+   },
+   "models": {
+    "claude-fable-5": 119438
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "7f14dc80-bc50-4538-9a96-fb385d825eef",
+   "rm_id": 2104,
+   "attribution": "transcript",
+   "n_calls": 67,
+   "r_factor": 25.4,
+   "ts_first": "2026-06-10T08:47:30.747Z",
+   "ts_last": "2026-07-04T21:10:37.699Z",
+   "totals": {
+    "input": 15313,
+    "output": 43030,
+    "cache_read": 5721133,
+    "cache_creation": 225608
+   },
+   "cost_usd": 10.2877,
+   "first_call": {
+    "input": 5796,
+    "output": 507,
+    "cache_read": 0,
+    "cache_creation": 27496
+   },
+   "output_by_cat": {
+    "pm-onboarding": 1795,
+    "pm-ceremony": 16489,
+    "work": 24746
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5425,
+    "pm-ceremony": 4567,
+    "work": 14648
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.3631,
+    "pm-ceremony": 1.6216,
+    "work": 2.4755
+   },
+   "ops": {
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 36
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 4,
+     "injected_tokens": 747
+    },
+    "read:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 5387
+    },
+    "bash:pm-task-add": {
+     "calls": 8,
+     "injected_tokens": 1167
+    },
+    "bash:pm-branch-start": {
+     "calls": 2,
+     "injected_tokens": 574
+    },
+    "bash:pm-mr": {
+     "calls": 8,
+     "injected_tokens": 1427
+    },
+    "bash:pm-task-status-update": {
+     "calls": 4,
+     "injected_tokens": 604
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 38
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 3493,
+    "claude-fable-5": 39537
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "b1dd7303-7b2f-4c9f-9df2-810711823c17",
+   "rm_id": 1942,
+   "attribution": "transcript",
+   "n_calls": 623,
+   "r_factor": 25.0,
+   "ts_first": "2026-06-11T12:42:58.763Z",
+   "ts_last": "2026-06-29T14:05:07.516Z",
+   "totals": {
+    "input": 66011,
+    "output": 940944,
+    "cache_read": 273181828,
+    "cache_creation": 10943567
+   },
+   "cost_usd": 276.9231,
+   "first_call": {
+    "input": 5796,
+    "output": 474,
+    "cache_read": 16877,
+    "cache_creation": 10755
+   },
+   "output_by_cat": {
+    "pm-onboarding": 100279,
+    "pm-ceremony": 227239,
+    "work": 613426
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 54044,
+    "pm-ceremony": 52919,
+    "work": 82344
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 6.0485,
+    "pm-ceremony": 14.0652,
+    "work": 36.0867
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 15,
+     "injected_tokens": 4567
+    },
+    "read:contexte-pm": {
+     "calls": 27,
+     "injected_tokens": 47058
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 18,
+     "injected_tokens": 2036
+    },
+    "bash:pm-task-link": {
+     "calls": 8,
+     "injected_tokens": 2301
+    },
+    "read:ticket-md": {
+     "calls": 6,
+     "injected_tokens": 3223
+    },
+    "bash:pm-task-status-update": {
+     "calls": 27,
+     "injected_tokens": 8030
+    },
+    "bash:pm-task-description-update": {
+     "calls": 2,
+     "injected_tokens": 208
+    },
+    "write:contexte-pm": {
+     "calls": 7,
+     "injected_tokens": 321
+    },
+    "bash:pm-task-comment": {
+     "calls": 15,
+     "injected_tokens": 3391
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 22,
+     "injected_tokens": 7499
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 14,
+     "injected_tokens": 2440
+    },
+    "edit:contexte-pm": {
+     "calls": 49,
+     "injected_tokens": 2097
+    },
+    "edit:ticket-md": {
+     "calls": 10,
+     "injected_tokens": 636
+    },
+    "bash:pm-task-tick": {
+     "calls": 1,
+     "injected_tokens": 477
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 5,
+     "injected_tokens": 3221
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 3,
+     "injected_tokens": 435
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 4788
+    },
+    "bash:pm-doctor": {
+     "calls": 5,
+     "injected_tokens": 817
+    },
+    "bash:pm-branch-start": {
+     "calls": 4,
+     "injected_tokens": 546
+    },
+    "bash:pm-context-budget": {
+     "calls": 4,
+     "injected_tokens": 1154
+    },
+    "bash:pm-task-list": {
+     "calls": 17,
+     "injected_tokens": 2772
+    },
+    "bash:pm-workspace-coloc": {
+     "calls": 28,
+     "injected_tokens": 4859
+    },
+    "bash:pm-project-new": {
+     "calls": 3,
+     "injected_tokens": 685
+    },
+    "bash:pm-gitlab-rename": {
+     "calls": 7,
+     "injected_tokens": 658
+    },
+    "bash:pm-session-relocate": {
+     "calls": 6,
+     "injected_tokens": 1222
+    },
+    "bash:pm-git-recable": {
+     "calls": 3,
+     "injected_tokens": 1514
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 718828,
+    "claude-fable-5": 222116,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "b43f4d0d-102a-4b29-bf44-27784d8c6540",
+   "rm_id": 2120,
+   "attribution": "transcript",
+   "n_calls": 72,
+   "r_factor": 20.6,
+   "ts_first": "2026-07-07T02:10:16.484Z",
+   "ts_last": "2026-07-07T16:48:59.954Z",
+   "totals": {
+    "input": 9236,
+    "output": 47572,
+    "cache_read": 6464747,
+    "cache_creation": 314478
+   },
+   "cost_usd": 12.8667,
+   "first_call": {
+    "input": 7664,
+    "output": 247,
+    "cache_read": 18341,
+    "cache_creation": 13702
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 13730,
+    "work": 33842
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 6832,
+    "work": 14059
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 1.3662,
+    "work": 3.2756
+   },
+   "ops": {
+    "skill:mmi-pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-list": {
+     "calls": 4,
+     "injected_tokens": 788
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 1,
+     "injected_tokens": 1297
+    },
+    "bash:pm-task-status-update": {
+     "calls": 3,
+     "injected_tokens": 928
+    },
+    "bash:pm-gitlab-rename": {
+     "calls": 1,
+     "injected_tokens": 109
+    },
+    "bash:pm-task-tick": {
+     "calls": 1,
+     "injected_tokens": 252
+    },
+    "bash:pm-mr": {
+     "calls": 9,
+     "injected_tokens": 1508
+    },
+    "bash:pm-task-add": {
+     "calls": 3,
+     "injected_tokens": 735
+    },
+    "bash:pm-task-link": {
+     "calls": 2,
+     "injected_tokens": 162
+    },
+    "bash:redmine-post-note": {
+     "calls": 1,
+     "injected_tokens": 6
+    },
+    "bash:pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 1038
+    }
+   },
+   "models": {
+    "claude-fable-5": 47572
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "b9ed59d9-dd31-4e4c-a183-7eb3a38af0bf",
+   "rm_id": 1834,
+   "attribution": "transcript",
+   "n_calls": 322,
+   "r_factor": 14.1,
+   "ts_first": "2026-06-08T13:36:47.930Z",
+   "ts_last": "2026-07-04T13:34:17.062Z",
+   "totals": {
+    "input": 45964,
+    "output": 362944,
+    "cache_read": 53462147,
+    "cache_creation": 3789626
+   },
+   "cost_usd": 88.1058,
+   "first_call": {
+    "input": 5600,
+    "output": 387,
+    "cache_read": 16873,
+    "cache_creation": 8973
+   },
+   "output_by_cat": {
+    "pm-onboarding": 4931,
+    "pm-ceremony": 76524,
+    "work": 281489
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 2726,
+    "pm-ceremony": 25203,
+    "work": 47487
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.271,
+    "pm-ceremony": 5.2622,
+    "work": 15.2727
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 2493
+    },
+    "bash:pm-task-status-update": {
+     "calls": 10,
+     "injected_tokens": 5114
+    },
+    "bash:pm-task-link": {
+     "calls": 5,
+     "injected_tokens": 261
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 8,
+     "injected_tokens": 491
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 7,
+     "injected_tokens": 3476
+    },
+    "bash:pm-task-comment": {
+     "calls": 11,
+     "injected_tokens": 677
+    },
+    "bash:pm-task-add": {
+     "calls": 4,
+     "injected_tokens": 1761
+    },
+    "bash:pm-mr": {
+     "calls": 19,
+     "injected_tokens": 2373
+    },
+    "bash:pm-env-init": {
+     "calls": 1,
+     "injected_tokens": 316
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 4704
+    },
+    "bash:pm-worktree": {
+     "calls": 2,
+     "injected_tokens": 323
+    },
+    "bash:pm-env-session": {
+     "calls": 20,
+     "injected_tokens": 2082
+    },
+    "read:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 233
+    },
+    "bash:pm-branch-start": {
+     "calls": 2,
+     "injected_tokens": 2438
+    },
+    "bash:karl-agent": {
+     "calls": 3,
+     "injected_tokens": 1179
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 220392,
+    "<synthetic>": 0,
+    "claude-fable-5": 142552
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "f253cdc6-482f-47d2-bf52-27237e849be1",
+   "rm_id": 2172,
+   "attribution": "transcript",
+   "n_calls": 248,
+   "r_factor": 16.6,
+   "ts_first": "2026-07-08T10:22:08.114Z",
+   "ts_last": "2026-07-11T20:51:51.932Z",
+   "totals": {
+    "input": 21230,
+    "output": 310367,
+    "cache_read": 45971747,
+    "cache_creation": 2766870
+   },
+   "cost_usd": 77.4144,
+   "first_call": {
+    "input": 10184,
+    "output": 158,
+    "cache_read": 18878,
+    "cache_creation": 8862
+   },
+   "output_by_cat": {
+    "pm-onboarding": 13188,
+    "pm-ceremony": 59020,
+    "work": 238159
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5206,
+    "pm-ceremony": 8362,
+    "work": 25262
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0166,
+    "pm-ceremony": 3.5074,
+    "work": 13.0617
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 20,
+     "injected_tokens": 3412
+    },
+    "bash:contexte-pm": {
+     "calls": 15,
+     "injected_tokens": 1491
+    },
+    "read:contexte-pm": {
+     "calls": 7,
+     "injected_tokens": 3430
+    },
+    "bash:pm-task-add": {
+     "calls": 4,
+     "injected_tokens": 1591
+    },
+    "edit:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 286
+    },
+    "bash:pm-mr": {
+     "calls": 9,
+     "injected_tokens": 1025
+    },
+    "bash:pm-task-status-update": {
+     "calls": 8,
+     "injected_tokens": 1512
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 377
+    },
+    "bash:pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 445
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 196978,
+    "claude-fable-5": 113389
+   },
+   "workspace": "-zfs-workspaces--mmi-pm-core"
+  },
+  {
+   "session": "00206688-3a97-46a6-8be6-bf60dda94a7d",
+   "rm_id": 1993,
+   "attribution": "transcript",
+   "n_calls": 14,
+   "r_factor": 20.4,
+   "ts_first": "2026-07-10T14:11:42.922Z",
+   "ts_last": "2026-07-10T16:54:12.612Z",
+   "totals": {
+    "input": 8414,
+    "output": 4836,
+    "cache_read": 563837,
+    "cache_creation": 27632
+   },
+   "cost_usd": 1.2352,
+   "first_call": {
+    "input": 8260,
+    "output": 140,
+    "cache_read": 18871,
+    "cache_creation": 10315
+   },
+   "output_by_cat": {
+    "pm-onboarding": 1740,
+    "pm-ceremony": 502,
+    "work": 2594
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 328,
+    "pm-ceremony": 163,
+    "work": 845
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.155,
+    "pm-ceremony": 0.047,
+    "work": 0.2429
+   },
+   "ops": {
+    "skill:mmi-pm-env-migrate": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 1,
+     "injected_tokens": 154
+    },
+    "bash:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 169
+    },
+    "read:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 112
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 46
+    }
+   },
+   "models": {
+    "claude-fable-5": 4836
+   },
+   "workspace": "-zfs-workspaces-calyclay-calymix"
+  },
+  {
+   "session": "6b85feb5-fee6-46e4-b2f8-0b6be65b5797",
+   "rm_id": 1936,
+   "attribution": "transcript",
+   "n_calls": 1163,
+   "r_factor": 40.6,
+   "ts_first": "2026-06-04T09:28:59.972Z",
+   "ts_last": "2026-07-11T18:55:35.919Z",
+   "totals": {
+    "input": 8786,
+    "output": 1301865,
+    "cache_read": 492133555,
+    "cache_creation": 12118432
+   },
+   "cost_usd": 356.3214,
+   "first_call": {
+    "input": 2,
+    "output": 176,
+    "cache_read": 0,
+    "cache_creation": 40393
+   },
+   "output_by_cat": {
+    "pm-onboarding": 10947,
+    "pm-ceremony": 33750,
+    "work": 1257168
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5911,
+    "pm-ceremony": 8648,
+    "work": 155907
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.7214,
+    "pm-ceremony": 2.0792,
+    "work": 69.5167
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 9,
+     "injected_tokens": 2075
+    },
+    "bash:pm-project-new": {
+     "calls": 3,
+     "injected_tokens": 1022
+    },
+    "skill:mmi-pm-project-new": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 652
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 3326
+    },
+    "bash:pm-task-comment": {
+     "calls": 6,
+     "injected_tokens": 845
+    },
+    "bash:pm-task-status-update": {
+     "calls": 4,
+     "injected_tokens": 945
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 4,
+     "injected_tokens": 984
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 742
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 3813
+    },
+    "edit:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 122
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 23
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 1290456,
+    "<synthetic>": 0,
+    "claude-fable-5": 11409
+   },
+   "workspace": "-zfs-workspaces-calyclay-calymix"
+  },
+  {
+   "session": "a0ade455-5a35-4af9-88e9-f8f76b76d93d",
+   "rm_id": 1960,
+   "attribution": "transcript",
+   "n_calls": 720,
+   "r_factor": 23.1,
+   "ts_first": "2026-06-13T18:40:57.513Z",
+   "ts_last": "2026-07-15T00:18:26.575Z",
+   "totals": {
+    "input": 16325,
+    "output": 835590,
+    "cache_read": 344994524,
+    "cache_creation": 14921169
+   },
+   "cost_usd": 497.5044,
+   "first_call": {
+    "input": 5802,
+    "output": 179,
+    "cache_read": 16905,
+    "cache_creation": 10255
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 50436,
+    "work": 785154
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 6880,
+    "work": 130732
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 4.3471,
+    "work": 53.7964
+   },
+   "ops": {
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 7,
+     "injected_tokens": 354
+    },
+    "bash:pm-task-comment": {
+     "calls": 15,
+     "injected_tokens": 405
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 7,
+     "injected_tokens": 3555
+    },
+    "bash:pm-task-status-update": {
+     "calls": 25,
+     "injected_tokens": 2500
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 58
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 400366,
+    "<synthetic>": 0,
+    "claude-fable-5": 435224
+   },
+   "workspace": "-zfs-workspaces-calyclay-calymix"
+  },
+  {
+   "session": "d881be4c-cdb0-4e62-b78b-b665e26f8bc3",
+   "rm_id": 1936,
+   "attribution": "transcript",
+   "n_calls": 342,
+   "r_factor": 34.9,
+   "ts_first": "2026-06-12T23:55:48.278Z",
+   "ts_last": "2026-07-11T10:59:14.297Z",
+   "totals": {
+    "input": 25486,
+    "output": 297328,
+    "cache_read": 96612382,
+    "cache_creation": 2769037
+   },
+   "cost_usd": 115.5431,
+   "first_call": {
+    "input": 5802,
+    "output": 491,
+    "cache_read": 0,
+    "cache_creation": 28183
+   },
+   "output_by_cat": {
+    "pm-onboarding": 8851,
+    "pm-ceremony": 43546,
+    "work": 244932
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5165,
+    "pm-ceremony": 11976,
+    "work": 93081
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.6472,
+    "pm-ceremony": 3.2359,
+    "work": 22.1587
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 2,
+     "injected_tokens": 1020
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 2919
+    },
+    "read:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 4933
+    },
+    "skill:mmi-pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-show": {
+     "calls": 3,
+     "injected_tokens": 1047
+    },
+    "bash:pm-task-status-update": {
+     "calls": 16,
+     "injected_tokens": 1858
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 655
+    },
+    "bash:redmine-fetch-task": {
+     "calls": 2,
+     "injected_tokens": 350
+    },
+    "bash:redmine-post-note": {
+     "calls": 2,
+     "injected_tokens": 388
+    },
+    "bash:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 150
+    },
+    "edit:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 82
+    },
+    "bash:pm-task-add": {
+     "calls": 4,
+     "injected_tokens": 901
+    },
+    "bash:pm-task-link": {
+     "calls": 3,
+     "injected_tokens": 167
+    },
+    "bash:pm-task-list": {
+     "calls": 2,
+     "injected_tokens": 2223
+    },
+    "bash:pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 69
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 221
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 138
+    }
+   },
+   "models": {
+    "claude-fable-5": 144686,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 152642
+   },
+   "workspace": "-zfs-workspaces-calyclay-calymix"
+  },
+  {
+   "session": "5d2f80e2-8b9d-42c0-9927-27fe6bafff7a",
+   "rm_id": 2210,
+   "attribution": "transcript",
+   "n_calls": 739,
+   "r_factor": 23.3,
+   "ts_first": "2026-07-06T19:07:14.935Z",
+   "ts_last": "2026-07-15T00:02:40.677Z",
+   "totals": {
+    "input": 59254,
+    "output": 562198,
+    "cache_read": 352566862,
+    "cache_creation": 15161619
+   },
+   "cost_usd": 526.3836,
+   "first_call": {
+    "input": 7664,
+    "output": 821,
+    "cache_read": 18341,
+    "cache_creation": 10569
+   },
+   "output_by_cat": {
+    "pm-onboarding": 13354,
+    "pm-ceremony": 254164,
+    "work": 294679
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10666,
+    "pm-ceremony": 75395,
+    "work": 60369
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.374,
+    "pm-ceremony": 22.743,
+    "work": 24.8695
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 14,
+     "injected_tokens": 5456
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 19,
+     "injected_tokens": 8478
+    },
+    "read:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 4653
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 3021
+    },
+    "bash:pm-env-migrate": {
+     "calls": 4,
+     "injected_tokens": 457
+    },
+    "skill:mmi-pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-list": {
+     "calls": 6,
+     "injected_tokens": 8321
+    },
+    "skill:mmi-pm-task-status-update": {
+     "calls": 1,
+     "injected_tokens": 12
+    },
+    "bash:pm-task-status-update": {
+     "calls": 24,
+     "injected_tokens": 2278
+    },
+    "bash:pm-task-report": {
+     "calls": 1,
+     "injected_tokens": 232
+    },
+    "bash:pm-task-add": {
+     "calls": 28,
+     "injected_tokens": 4076
+    },
+    "edit:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 141
+    },
+    "bash:pm-branch-start": {
+     "calls": 17,
+     "injected_tokens": 4034
+    },
+    "bash:pm-task-tick": {
+     "calls": 3,
+     "injected_tokens": 901
+    },
+    "bash:pm-mr": {
+     "calls": 76,
+     "injected_tokens": 8984
+    },
+    "bash:pm-task-link": {
+     "calls": 5,
+     "injected_tokens": 314
+    },
+    "bash:pm-env-session": {
+     "calls": 5,
+     "injected_tokens": 2089
+    },
+    "bash:redmine-post-note": {
+     "calls": 8,
+     "injected_tokens": 1026
+    },
+    "bash:pm-task-comment": {
+     "calls": 13,
+     "injected_tokens": 1536
+    },
+    "bash:karl-agent": {
+     "calls": 56,
+     "injected_tokens": 10607
+    },
+    "bash:pm-task-description-update": {
+     "calls": 23,
+     "injected_tokens": 2316
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 9,
+     "injected_tokens": 2969
+    },
+    "edit:contexte-pm": {
+     "calls": 10,
+     "injected_tokens": 557
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 3,
+     "injected_tokens": 538
+    },
+    "bash:pm-dashboard": {
+     "calls": 1,
+     "injected_tokens": 282
+    },
+    "bash:pm-conso-report": {
+     "calls": 7,
+     "injected_tokens": 1399
+    },
+    "bash:pm-task-blockers": {
+     "calls": 8,
+     "injected_tokens": 556
+    },
+    "bash:pm-hooks-install": {
+     "calls": 15,
+     "injected_tokens": 3598
+    },
+    "bash:pm-client-new": {
+     "calls": 2,
+     "injected_tokens": 175
+    },
+    "bash:pm-env-deploy": {
+     "calls": 5,
+     "injected_tokens": 633
+    },
+    "bash:pm-task-show": {
+     "calls": 2,
+     "injected_tokens": 1528
+    },
+    "bash:pm-task-sync": {
+     "calls": 7,
+     "injected_tokens": 2168
+    },
+    "bash:redmine-fetch-task": {
+     "calls": 3,
+     "injected_tokens": 315
+    },
+    "bash:pm-task-cd": {
+     "calls": 4,
+     "injected_tokens": 326
+    },
+    "bash:pm-pre-commit": {
+     "calls": 4,
+     "injected_tokens": 675
+    },
+    "bash:pm-task-protocol": {
+     "calls": 1,
+     "injected_tokens": 188
+    },
+    "bash:pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 1189
+    },
+    "bash:pm-git-recable": {
+     "calls": 1,
+     "injected_tokens": 24
+    }
+   },
+   "models": {
+    "claude-fable-5": 466624,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 95574
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "6c186db5-7154-4222-9b92-c2be185b26f5",
+   "rm_id": 2267,
+   "attribution": "transcript",
+   "n_calls": 263,
+   "r_factor": 11.6,
+   "ts_first": "2026-07-14T14:49:10.556Z",
+   "ts_last": "2026-07-20T10:35:18.295Z",
+   "totals": {
+    "input": 24461,
+    "output": 242003,
+    "cache_read": 53347395,
+    "cache_creation": 4610779
+   },
+   "cost_usd": 121.6869,
+   "first_call": {
+    "input": 0,
+    "output": 0,
+    "cache_read": 0,
+    "cache_creation": 0
+   },
+   "output_by_cat": {
+    "pm-onboarding": 12071,
+    "pm-ceremony": 114323,
+    "work": 115609
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10784,
+    "pm-ceremony": 20428,
+    "work": 23764
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.1537,
+    "pm-ceremony": 8.9596,
+    "work": 9.1227
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 50,
+     "injected_tokens": 5431
+    },
+    "read:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 1360
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 9709
+    },
+    "bash:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 967
+    },
+    "bash:pm-task-status-update": {
+     "calls": 4,
+     "injected_tokens": 1422
+    },
+    "write:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 107
+    },
+    "edit:ticket-md": {
+     "calls": 4,
+     "injected_tokens": 257
+    },
+    "bash:pm-env-migrate": {
+     "calls": 12,
+     "injected_tokens": 5502
+    },
+    "bash:pm-task-description-update": {
+     "calls": 6,
+     "injected_tokens": 1076
+    },
+    "bash:pm-mr": {
+     "calls": 4,
+     "injected_tokens": 530
+    },
+    "bash:pm-task-add": {
+     "calls": 4,
+     "injected_tokens": 270
+    },
+    "bash:pm-project-new": {
+     "calls": 12,
+     "injected_tokens": 2345
+    },
+    "bash:pm-task-comment": {
+     "calls": 3,
+     "injected_tokens": 155
+    },
+    "bash:pm-client-new": {
+     "calls": 11,
+     "injected_tokens": 2028
+    },
+    "bash:pm-task-cd": {
+     "calls": 1,
+     "injected_tokens": 51
+    }
+   },
+   "models": {
+    "<synthetic>": 0,
+    "claude-fable-5": 241685,
+    "claude-opus-4-8": 318
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "8ff13387-fbff-4e9e-bf10-4e5ea36176af",
+   "rm_id": 2334,
+   "attribution": "transcript",
+   "n_calls": 168,
+   "r_factor": 28.8,
+   "ts_first": "2026-07-18T17:25:35.837Z",
+   "ts_last": "2026-07-20T00:11:49.693Z",
+   "totals": {
+    "input": 1578,
+    "output": 155576,
+    "cache_read": 30478353,
+    "cache_creation": 1058397
+   },
+   "cost_usd": 51.5029,
+   "first_call": {
+    "input": 2,
+    "output": 485,
+    "cache_read": 20410,
+    "cache_creation": 16434
+   },
+   "output_by_cat": {
+    "pm-onboarding": 9490,
+    "pm-ceremony": 72550,
+    "work": 73536
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 18298,
+    "pm-ceremony": 16562,
+    "work": 25058
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.622,
+    "pm-ceremony": 7.3075,
+    "work": 7.7484
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 24,
+     "injected_tokens": 4434
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 682
+    },
+    "read:contexte-pm": {
+     "calls": 8,
+     "injected_tokens": 18009
+    },
+    "bash:karl-agent": {
+     "calls": 14,
+     "injected_tokens": 3160
+    },
+    "bash:pm-task-status-update": {
+     "calls": 13,
+     "injected_tokens": 2230
+    },
+    "bash:pm-task-description-update": {
+     "calls": 3,
+     "injected_tokens": 472
+    },
+    "write:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 56
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 3,
+     "injected_tokens": 452
+    },
+    "edit:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 168
+    },
+    "bash:pm-task-blockers": {
+     "calls": 1,
+     "injected_tokens": 260
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 35
+    },
+    "edit:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 233
+    },
+    "bash:pm-branch-start": {
+     "calls": 3,
+     "injected_tokens": 769
+    },
+    "bash:karl-agent-auth": {
+     "calls": 3,
+     "injected_tokens": 610
+    },
+    "bash:pm-task-protocol": {
+     "calls": 4,
+     "injected_tokens": 631
+    },
+    "bash:pm-mr": {
+     "calls": 2,
+     "injected_tokens": 396
+    },
+    "bash:pm-env-session": {
+     "calls": 5,
+     "injected_tokens": 1364
+    },
+    "bash:redmine-post-note": {
+     "calls": 2,
+     "injected_tokens": 41
+    },
+    "bash:pm-env-expose": {
+     "calls": 7,
+     "injected_tokens": 858
+    }
+   },
+   "models": {
+    "claude-fable-5": 155576
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "a92059d0-610b-46e8-8001-a13e1c159f1f",
+   "rm_id": 2275,
+   "attribution": "transcript",
+   "n_calls": 202,
+   "r_factor": 16.0,
+   "ts_first": "2026-07-14T17:36:27.113Z",
+   "ts_last": "2026-07-20T10:37:51.044Z",
+   "totals": {
+    "input": 378,
+    "output": 168184,
+    "cache_read": 35570014,
+    "cache_creation": 2229637
+   },
+   "cost_usd": 71.8535,
+   "first_call": {
+    "input": 2,
+    "output": 367,
+    "cache_read": 19295,
+    "cache_creation": 12735
+   },
+   "output_by_cat": {
+    "pm-onboarding": 13310,
+    "pm-ceremony": 88416,
+    "work": 66458
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 16483,
+    "pm-ceremony": 24031,
+    "work": 12392
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.5132,
+    "pm-ceremony": 7.6203,
+    "work": 5.5665
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 30,
+     "injected_tokens": 3298
+    },
+    "read:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 16262
+    },
+    "read:ticket-md": {
+     "calls": 5,
+     "injected_tokens": 1739
+    },
+    "bash:pm-task-status-update": {
+     "calls": 20,
+     "injected_tokens": 2177
+    },
+    "bash:pm-context-budget": {
+     "calls": 3,
+     "injected_tokens": 1246
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 5,
+     "injected_tokens": 962
+    },
+    "bash:pm-conso-report": {
+     "calls": 1,
+     "injected_tokens": 569
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 506
+    },
+    "edit:ticket-md": {
+     "calls": 6,
+     "injected_tokens": 372
+    },
+    "bash:pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 332
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 1535
+    },
+    "bash:pm-task-link": {
+     "calls": 5,
+     "injected_tokens": 655
+    },
+    "bash:pm-bench-overhead": {
+     "calls": 12,
+     "injected_tokens": 3410
+    },
+    "bash:pm-branch-start": {
+     "calls": 3,
+     "injected_tokens": 764
+    },
+    "bash:pm-env-session": {
+     "calls": 4,
+     "injected_tokens": 621
+    },
+    "bash:pm-task-tick": {
+     "calls": 2,
+     "injected_tokens": 464
+    },
+    "write:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 107
+    },
+    "bash:pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 50
+    },
+    "bash:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 59
+    },
+    "bash:pm-mr": {
+     "calls": 13,
+     "injected_tokens": 1522
+    },
+    "bash:pm-hooks-install": {
+     "calls": 1,
+     "injected_tokens": 63
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 55
+    },
+    "bash:pm-task-protocol": {
+     "calls": 2,
+     "injected_tokens": 126
+    },
+    "bash:pm-task-report": {
+     "calls": 2,
+     "injected_tokens": 136
+    },
+    "bash:pm-session-status": {
+     "calls": 7,
+     "injected_tokens": 1645
+    },
+    "bash:pm-task-list": {
+     "calls": 2,
+     "injected_tokens": 702
+    },
+    "bash:pm-worktree": {
+     "calls": 1,
+     "injected_tokens": 201
+    },
+    "bash:pm-env-deploy": {
+     "calls": 1,
+     "injected_tokens": 904
+    },
+    "bash:pm-reporting-migrate": {
+     "calls": 1,
+     "injected_tokens": 31
+    }
+   },
+   "models": {
+    "claude-fable-5": 168184
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "bc6e6855-ca20-40a3-b83e-7f4720ceda48",
+   "rm_id": 2140,
+   "attribution": "transcript",
+   "n_calls": 284,
+   "r_factor": 15.4,
+   "ts_first": "2026-07-14T18:26:27.496Z",
+   "ts_last": "2026-07-19T22:22:21.021Z",
+   "totals": {
+    "input": 530,
+    "output": 226076,
+    "cache_read": 66767084,
+    "cache_creation": 4340665
+   },
+   "cost_usd": 132.3345,
+   "first_call": {
+    "input": 2,
+    "output": 372,
+    "cache_read": 19295,
+    "cache_creation": 12588
+   },
+   "output_by_cat": {
+    "pm-onboarding": 5850,
+    "pm-ceremony": 99968,
+    "work": 120257
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10030,
+    "pm-ceremony": 24769,
+    "work": 44295
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.7353,
+    "pm-ceremony": 8.4763,
+    "work": 10.6009
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 14,
+     "injected_tokens": 1478
+    },
+    "read:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 1162
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 7231
+    },
+    "bash:contexte-pm": {
+     "calls": 3,
+     "injected_tokens": 2736
+    },
+    "bash:karl-agent": {
+     "calls": 33,
+     "injected_tokens": 6766
+    },
+    "bash:pm-task-status-update": {
+     "calls": 27,
+     "injected_tokens": 3701
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 2254
+    },
+    "bash:pm-task-comment": {
+     "calls": 3,
+     "injected_tokens": 342
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 138
+    },
+    "bash:pm-branch-start": {
+     "calls": 1,
+     "injected_tokens": 544
+    },
+    "bash:pm-env-session": {
+     "calls": 2,
+     "injected_tokens": 732
+    },
+    "bash:pm-task-description-update": {
+     "calls": 10,
+     "injected_tokens": 1199
+    },
+    "bash:pm-mr": {
+     "calls": 21,
+     "injected_tokens": 3232
+    },
+    "bash:pm-task-protocol": {
+     "calls": 3,
+     "injected_tokens": 317
+    },
+    "bash:pm-promote": {
+     "calls": 12,
+     "injected_tokens": 1284
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 6,
+     "injected_tokens": 1103
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 63
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 1,
+     "injected_tokens": 121
+    },
+    "bash:pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 311
+    },
+    "bash:pm-skills-sync": {
+     "calls": 1,
+     "injected_tokens": 84
+    }
+   },
+   "models": {
+    "claude-fable-5": 226076
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "e9aac9e6-528f-4eb5-be8c-d34656bbe490",
+   "rm_id": 2302,
+   "attribution": "transcript",
+   "n_calls": 387,
+   "r_factor": 24.3,
+   "ts_first": "2026-07-15T16:25:07.162Z",
+   "ts_last": "2026-07-20T10:37:23.447Z",
+   "totals": {
+    "input": 720,
+    "output": 352097,
+    "cache_read": 127279764,
+    "cache_creation": 5236792
+   },
+   "cost_usd": 210.3517,
+   "first_call": {
+    "input": 2,
+    "output": 397,
+    "cache_read": 19885,
+    "cache_creation": 11806
+   },
+   "output_by_cat": {
+    "pm-onboarding": 2558,
+    "pm-ceremony": 165327,
+    "work": 184212
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 23110,
+    "pm-ceremony": 33972,
+    "work": 56275
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0726,
+    "pm-ceremony": 15.6015,
+    "work": 18.0617
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 1143
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 19,
+     "injected_tokens": 3854
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 953
+    },
+    "read:contexte-pm": {
+     "calls": 7,
+     "injected_tokens": 21906
+    },
+    "bash:karl-agent": {
+     "calls": 70,
+     "injected_tokens": 17666
+    },
+    "bash:pm-branch-start": {
+     "calls": 8,
+     "injected_tokens": 1308
+    },
+    "bash:pm-task-status-update": {
+     "calls": 20,
+     "injected_tokens": 2699
+    },
+    "edit:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 62
+    },
+    "bash:pm-task-add": {
+     "calls": 16,
+     "injected_tokens": 2524
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 61
+    },
+    "bash:pm-task-protocol": {
+     "calls": 8,
+     "injected_tokens": 617
+    },
+    "bash:pm-task-tick": {
+     "calls": 7,
+     "injected_tokens": 677
+    },
+    "bash:pm-task-list": {
+     "calls": 4,
+     "injected_tokens": 1767
+    },
+    "bash:pm-mr": {
+     "calls": 15,
+     "injected_tokens": 1128
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 61
+    },
+    "bash:pm-task-comment": {
+     "calls": 2,
+     "injected_tokens": 103
+    },
+    "bash:pm-env-session": {
+     "calls": 1,
+     "injected_tokens": 321
+    },
+    "bash:pm-cockpit-test-env": {
+     "calls": 3,
+     "injected_tokens": 234
+    }
+   },
+   "models": {
+    "claude-fable-5": 352097
+   },
+   "workspace": "-zfs-workspaces-iprospective-ai-project-management"
+  },
+  {
+   "session": "66e6337b-3925-4fbc-aed9-9311f935d0c4",
+   "rm_id": 2004,
+   "attribution": "transcript",
+   "n_calls": 269,
+   "r_factor": 37.5,
+   "ts_first": "2026-06-16T11:23:11.448Z",
+   "ts_last": "2026-07-19T22:51:00.461Z",
+   "totals": {
+    "input": 21161,
+    "output": 342745,
+    "cache_read": 42035238,
+    "cache_creation": 1121942
+   },
+   "cost_usd": 36.7042,
+   "first_call": {
+    "input": 1555,
+    "output": 423,
+    "cache_read": 15840,
+    "cache_creation": 8137
+   },
+   "output_by_cat": {
+    "pm-onboarding": 6990,
+    "pm-ceremony": 40739,
+    "work": 295016
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 6946,
+    "pm-ceremony": 7571,
+    "work": 57939
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.5229,
+    "pm-ceremony": 2.2254,
+    "work": 16.1934
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 11,
+     "injected_tokens": 1101
+    },
+    "bash:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 6679
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 1809
+    },
+    "bash:pm-task-description-update": {
+     "calls": 5,
+     "injected_tokens": 802
+    },
+    "bash:pm-task-status-update": {
+     "calls": 11,
+     "injected_tokens": 1778
+    },
+    "write:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 45
+    },
+    "read:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 175
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 47
+    },
+    "bash:pm-task-comment": {
+     "calls": 5,
+     "injected_tokens": 363
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 196
+    },
+    "read:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 548
+    },
+    "bash:pm-mr": {
+     "calls": 7,
+     "injected_tokens": 912
+    },
+    "bash:pm-task-protocol": {
+     "calls": 1,
+     "injected_tokens": 61
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 342745,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-iprospective-audits"
+  },
+  {
+   "session": "9935bf46-9ce8-4122-829b-71f6709e5345",
+   "rm_id": 1984,
+   "attribution": "transcript",
+   "n_calls": 1309,
+   "r_factor": 25.1,
+   "ts_first": "2026-07-07T12:36:02.040Z",
+   "ts_last": "2026-07-20T00:11:06.041Z",
+   "totals": {
+    "input": 176310,
+    "output": 1242596,
+    "cache_read": 580939830,
+    "cache_creation": 23106422
+   },
+   "cost_usd": 642.4895,
+   "first_call": {
+    "input": 7664,
+    "output": 377,
+    "cache_read": 18454,
+    "cache_creation": 10432
+   },
+   "output_by_cat": {
+    "pm-onboarding": 79860,
+    "pm-ceremony": 194732,
+    "work": 968004
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 31552,
+    "pm-ceremony": 45291,
+    "work": 171124
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 4.7382,
+    "pm-ceremony": 12.7023,
+    "work": 58.0274
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 18,
+     "injected_tokens": 6649
+    },
+    "read:contexte-pm": {
+     "calls": 30,
+     "injected_tokens": 20663
+    },
+    "bash:contexte-pm": {
+     "calls": 37,
+     "injected_tokens": 9475
+    },
+    "read:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 2086
+    },
+    "bash:pm-env-migrate": {
+     "calls": 5,
+     "injected_tokens": 1860
+    },
+    "edit:contexte-pm": {
+     "calls": 23,
+     "injected_tokens": 1175
+    },
+    "bash:pm-env-init": {
+     "calls": 2,
+     "injected_tokens": 674
+    },
+    "bash:pm-task-add": {
+     "calls": 32,
+     "injected_tokens": 5172
+    },
+    "bash:pm-branch-start": {
+     "calls": 43,
+     "injected_tokens": 7981
+    },
+    "bash:pm-skills-sync": {
+     "calls": 4,
+     "injected_tokens": 516
+    },
+    "bash:pm-token-check": {
+     "calls": 1,
+     "injected_tokens": 117
+    },
+    "bash:pm-task-status-update": {
+     "calls": 15,
+     "injected_tokens": 2306
+    },
+    "bash:redmine-post-note": {
+     "calls": 42,
+     "injected_tokens": 2635
+    },
+    "bash:pm-task-tick": {
+     "calls": 4,
+     "injected_tokens": 672
+    },
+    "bash:pm-task-report": {
+     "calls": 10,
+     "injected_tokens": 1638
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 20
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 4,
+     "injected_tokens": 2170
+    },
+    "bash:pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 154
+    },
+    "bash:pm-task-list": {
+     "calls": 6,
+     "injected_tokens": 1990
+    },
+    "bash:pm-pricing-check": {
+     "calls": 4,
+     "injected_tokens": 711
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 164
+    },
+    "bash:pm-mr": {
+     "calls": 16,
+     "injected_tokens": 1837
+    },
+    "bash:pm-wiki-sync": {
+     "calls": 5,
+     "injected_tokens": 1184
+    },
+    "write:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 239
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 12,
+     "injected_tokens": 2703
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 474
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 2,
+     "injected_tokens": 1186
+    },
+    "bash:karl-agent": {
+     "calls": 1,
+     "injected_tokens": 380
+    }
+   },
+   "models": {
+    "claude-fable-5": 334342,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 908254
+   },
+   "workspace": "-zfs-workspaces-iprospective-dev-Worm"
+  },
+  {
+   "session": "85df06c1-9f78-477b-9e4e-ab1e513b0b0a",
+   "rm_id": null,
+   "attribution": "aucune",
+   "n_calls": 7,
+   "r_factor": 11.1,
+   "ts_first": "2026-07-16T00:32:39.413Z",
+   "ts_last": "2026-07-16T00:35:34.058Z",
+   "totals": {
+    "input": 14,
+    "output": 1804,
+    "cache_read": 265909,
+    "cache_creation": 23860
+   },
+   "cost_usd": 0.6545,
+   "first_call": {
+    "input": 2,
+    "output": 323,
+    "cache_read": 19661,
+    "cache_creation": 19828
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 1804
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 446
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 0.1434
+   },
+   "ops": {},
+   "models": {
+    "claude-fable-5": 1804
+   },
+   "workspace": "-zfs-workspaces-iprospective-dev-fad-framework"
+  },
+  {
+   "session": "e6c72ee7-ef13-42fb-b8d9-6f3fe1e9cb01",
+   "rm_id": 2228,
+   "attribution": "transcript",
+   "n_calls": 197,
+   "r_factor": 25.7,
+   "ts_first": "2026-07-09T15:57:41.287Z",
+   "ts_last": "2026-07-11T10:57:17.806Z",
+   "totals": {
+    "input": 25291,
+    "output": 198619,
+    "cache_read": 33714481,
+    "cache_creation": 1313392
+   },
+   "cost_usd": 53.0343,
+   "first_call": {
+    "input": 8260,
+    "output": 630,
+    "cache_read": 18878,
+    "cache_creation": 8850
+   },
+   "output_by_cat": {
+    "pm-onboarding": 16225,
+    "pm-ceremony": 53328,
+    "work": 129066
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 11116,
+    "pm-ceremony": 17807,
+    "work": 30635
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.4242,
+    "pm-ceremony": 4.7782,
+    "work": 9.2099
+   },
+   "ops": {
+    "read:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 7279
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 6,
+     "injected_tokens": 1841
+    },
+    "bash:pm-project-new": {
+     "calls": 9,
+     "injected_tokens": 2896
+    },
+    "bash:contexte-pm": {
+     "calls": 7,
+     "injected_tokens": 3737
+    },
+    "bash:pm-env-init": {
+     "calls": 1,
+     "injected_tokens": 1708
+    },
+    "bash:pm-workspace-coloc": {
+     "calls": 14,
+     "injected_tokens": 4903
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 3,
+     "injected_tokens": 537
+    },
+    "read:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 1258
+    },
+    "edit:ticket-md": {
+     "calls": 6,
+     "injected_tokens": 422
+    },
+    "bash:pm-task-status-update": {
+     "calls": 9,
+     "injected_tokens": 1016
+    },
+    "bash:pm-task-comment": {
+     "calls": 2,
+     "injected_tokens": 305
+    },
+    "bash:pm-resolver-flip": {
+     "calls": 4,
+     "injected_tokens": 2076
+    },
+    "write:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 51
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 50
+    },
+    "bash:pm-task-link": {
+     "calls": 2,
+     "injected_tokens": 260
+    },
+    "bash:pm-branch-start": {
+     "calls": 1,
+     "injected_tokens": 113
+    },
+    "bash:pm-task-description-update": {
+     "calls": 2,
+     "injected_tokens": 244
+    },
+    "bash:pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 221
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 90113,
+    "claude-fable-5": 108506
+   },
+   "workspace": "-zfs-workspaces-iprospective-dev-fad-framework"
+  },
+  {
+   "session": "266b37f7-ab23-43fb-9dfa-eca2403fd7a7",
+   "rm_id": 2249,
+   "attribution": "transcript",
+   "n_calls": 548,
+   "r_factor": 15.1,
+   "ts_first": "2026-07-09T15:49:45.339Z",
+   "ts_last": "2026-07-16T21:32:37.660Z",
+   "totals": {
+    "input": 47949,
+    "output": 999432,
+    "cache_read": 210150849,
+    "cache_creation": 13933694
+   },
+   "cost_usd": 217.3866,
+   "first_call": {
+    "input": 8260,
+    "output": 904,
+    "cache_read": 18878,
+    "cache_creation": 8847
+   },
+   "output_by_cat": {
+    "pm-onboarding": 8054,
+    "pm-ceremony": 125616,
+    "work": 865762
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5908,
+    "pm-ceremony": 18018,
+    "work": 92166
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.3939,
+    "pm-ceremony": 5.1213,
+    "work": 34.8549
+   },
+   "ops": {
+    "bash:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 1315
+    },
+    "skill:mmi-pm-project-new": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-project-new": {
+     "calls": 5,
+     "injected_tokens": 1459
+    },
+    "bash:pm-resolver-flip": {
+     "calls": 2,
+     "injected_tokens": 386
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 23,
+     "injected_tokens": 4024
+    },
+    "bash:pm-env-init": {
+     "calls": 1,
+     "injected_tokens": 404
+    },
+    "read:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 4593
+    },
+    "bash:pm-doctor": {
+     "calls": 2,
+     "injected_tokens": 352
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 1324
+    },
+    "bash:pm-task-description-update": {
+     "calls": 6,
+     "injected_tokens": 1136
+    },
+    "bash:pm-task-add": {
+     "calls": 8,
+     "injected_tokens": 1867
+    },
+    "bash:pm-task-comment": {
+     "calls": 7,
+     "injected_tokens": 445
+    },
+    "bash:pm-mr": {
+     "calls": 17,
+     "injected_tokens": 2724
+    },
+    "bash:pm-task-link": {
+     "calls": 1,
+     "injected_tokens": 217
+    },
+    "bash:pm-task-status-update": {
+     "calls": 7,
+     "injected_tokens": 1424
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 299
+    },
+    "edit:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 140
+    },
+    "bash:pm-branch-start": {
+     "calls": 4,
+     "injected_tokens": 956
+    },
+    "bash:pm-env-session": {
+     "calls": 3,
+     "injected_tokens": 476
+    },
+    "bash:pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 363
+    },
+    "skill:mmi-pm-task-status-update": {
+     "calls": 1,
+     "injected_tokens": 12
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 999432,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-iprospective-dev-framework-tiny"
+  },
+  {
+   "session": "378c68e9-87c5-4460-8ed5-0c6020ff33d8",
+   "rm_id": null,
+   "attribution": "aucune",
+   "n_calls": 6,
+   "r_factor": 9.4,
+   "ts_first": "2026-07-16T00:35:47.887Z",
+   "ts_last": "2026-07-16T00:37:46.822Z",
+   "totals": {
+    "input": 198,
+    "output": 2436,
+    "cache_read": 231469,
+    "cache_creation": 24590
+   },
+   "cost_usd": 0.6626,
+   "first_call": {
+    "input": 2,
+    "output": 746,
+    "cache_read": 20285,
+    "cache_creation": 19887
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 2436
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 462
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 0.1853
+   },
+   "ops": {},
+   "models": {
+    "claude-fable-5": 2436
+   },
+   "workspace": "-zfs-workspaces-iprospective-dev-framework-tiny"
+  },
+  {
+   "session": "f8ca3bb8-af57-407c-976d-4c3cbd6fd99a",
+   "rm_id": 1813,
+   "attribution": "transcript",
+   "n_calls": 1272,
+   "r_factor": 19.4,
+   "ts_first": "2026-06-02T14:41:31.778Z",
+   "ts_last": "2026-07-04T15:31:24.619Z",
+   "totals": {
+    "input": 175734,
+    "output": 1952079,
+    "cache_read": 442441172,
+    "cache_creation": 22860297
+   },
+   "cost_usd": 423.3091,
+   "first_call": {
+    "input": 4785,
+    "output": 1459,
+    "cache_read": 16814,
+    "cache_creation": 7321
+   },
+   "output_by_cat": {
+    "pm-onboarding": 26004,
+    "pm-ceremony": 338949,
+    "work": 1587127
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 11177,
+    "pm-ceremony": 50229,
+    "work": 189270
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.2423,
+    "pm-ceremony": 14.7011,
+    "work": 69.2745
+   },
+   "ops": {
+    "skill:mmi-pm-task-add": {
+     "calls": 2,
+     "injected_tokens": 18
+    },
+    "bash:pm-task-add": {
+     "calls": 27,
+     "injected_tokens": 4181
+    },
+    "skill:mmi-pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-task-comment": {
+     "calls": 18,
+     "injected_tokens": 1765
+    },
+    "bash:pm-task-link": {
+     "calls": 12,
+     "injected_tokens": 2330
+    },
+    "bash:pm-task-status-update": {
+     "calls": 44,
+     "injected_tokens": 7582
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 44,
+     "injected_tokens": 7702
+    },
+    "read:ticket-md": {
+     "calls": 12,
+     "injected_tokens": 9441
+    },
+    "edit:ticket-md": {
+     "calls": 7,
+     "injected_tokens": 457
+    },
+    "bash:pm-task-tick": {
+     "calls": 26,
+     "injected_tokens": 4532
+    },
+    "bash:redmine-log-time": {
+     "calls": 1,
+     "injected_tokens": 79
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 7,
+     "injected_tokens": 1110
+    },
+    "bash:redmine-post-note": {
+     "calls": 2,
+     "injected_tokens": 251
+    },
+    "bash:pm-task-description-update": {
+     "calls": 13,
+     "injected_tokens": 3001
+    },
+    "read:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 8606
+    },
+    "bash:pm-task-report": {
+     "calls": 3,
+     "injected_tokens": 338
+    },
+    "bash:contexte-pm": {
+     "calls": 11,
+     "injected_tokens": 2461
+    },
+    "bash:pm-branch-start": {
+     "calls": 6,
+     "injected_tokens": 1553
+    },
+    "edit:contexte-pm": {
+     "calls": 3,
+     "injected_tokens": 110
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 21
+    },
+    "bash:pm-session-status": {
+     "calls": 4,
+     "injected_tokens": 1617
+    },
+    "bash:pm-protect": {
+     "calls": 1,
+     "injected_tokens": 623
+    },
+    "bash:pm-task-blockers": {
+     "calls": 13,
+     "injected_tokens": 1524
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 3,
+     "injected_tokens": 337
+    },
+    "bash:pm-mr": {
+     "calls": 9,
+     "injected_tokens": 1292
+    },
+    "bash:redmine-fetch-updates": {
+     "calls": 1,
+     "injected_tokens": 464
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 1921164,
+    "<synthetic>": 0,
+    "claude-fable-5": 30915
+   },
+   "workspace": "-zfs-workspaces-iprospective-infra"
+  },
+  {
+   "session": "a4cae74d-700a-4a6b-ae05-97550caafaa3",
+   "rm_id": 2176,
+   "attribution": "transcript",
+   "n_calls": 121,
+   "r_factor": 18.6,
+   "ts_first": "2026-07-08T14:38:25.320Z",
+   "ts_last": "2026-07-09T19:05:32.356Z",
+   "totals": {
+    "input": 11352,
+    "output": 125085,
+    "cache_read": 12358875,
+    "cache_creation": 665409
+   },
+   "cost_usd": 20.1188,
+   "first_call": {
+    "input": 8260,
+    "output": 256,
+    "cache_read": 18871,
+    "cache_creation": 10139
+   },
+   "output_by_cat": {
+    "pm-onboarding": 3256,
+    "pm-ceremony": 27080,
+    "work": 94750
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 1654,
+    "pm-ceremony": 5524,
+    "work": 21774
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2657,
+    "pm-ceremony": 1.8928,
+    "work": 5.6787
+   },
+   "ops": {
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "skill:mmi-pm-project-new": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-project-new": {
+     "calls": 4,
+     "injected_tokens": 1305
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 1404
+    },
+    "bash:pm-task-add": {
+     "calls": 2,
+     "injected_tokens": 201
+    },
+    "skill:mmi-pm-env-migrate": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 4,
+     "injected_tokens": 803
+    },
+    "bash:redmine-post-note": {
+     "calls": 1,
+     "injected_tokens": 13
+    },
+    "edit:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 94
+    },
+    "bash:pm-task-comment": {
+     "calls": 5,
+     "injected_tokens": 406
+    },
+    "bash:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 155
+    },
+    "bash:pm-workspace-coloc": {
+     "calls": 4,
+     "injected_tokens": 1097
+    },
+    "bash:pm-resolver-flip": {
+     "calls": 2,
+     "injected_tokens": 386
+    },
+    "bash:pm-workspace-coloc-patched": {
+     "calls": 4,
+     "injected_tokens": 402
+    },
+    "bash:pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 357
+    },
+    "bash:pm-task-status-update": {
+     "calls": 5,
+     "injected_tokens": 526
+    }
+   },
+   "models": {
+    "claude-fable-5": 50245,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 74840
+   },
+   "workspace": "-zfs-workspaces-iprospective-sysadmin"
+  },
+  {
+   "session": "506bdce6-0ce7-4431-b3a1-802e7ed0543e",
+   "rm_id": 2328,
+   "attribution": "transcript",
+   "n_calls": 130,
+   "r_factor": 17.5,
+   "ts_first": "2026-06-17T11:42:01.107Z",
+   "ts_last": "2026-07-20T09:32:42.727Z",
+   "totals": {
+    "input": 9053,
+    "output": 198158,
+    "cache_read": 14281381,
+    "cache_creation": 817694
+   },
+   "cost_usd": 17.2505,
+   "first_call": {
+    "input": 7135,
+    "output": 539,
+    "cache_read": 15840,
+    "cache_creation": 8278
+   },
+   "output_by_cat": {
+    "pm-onboarding": 41662,
+    "pm-ceremony": 50461,
+    "work": 106036
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 9435,
+    "pm-ceremony": 12620,
+    "work": 19620
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.8071,
+    "pm-ceremony": 2.2066,
+    "work": 4.5336
+   },
+   "ops": {
+    "read:contexte-pm": {
+     "calls": 10,
+     "injected_tokens": 4078
+    },
+    "bash:contexte-pm": {
+     "calls": 15,
+     "injected_tokens": 5004
+    },
+    "bash:pm-env-migrate": {
+     "calls": 3,
+     "injected_tokens": 2319
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 3,
+     "injected_tokens": 654
+    },
+    "bash:pm-task-link": {
+     "calls": 2,
+     "injected_tokens": 106
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 14,
+     "injected_tokens": 5581
+    },
+    "bash:pm-branch-start": {
+     "calls": 2,
+     "injected_tokens": 649
+    },
+    "bash:pm-task-status-update": {
+     "calls": 3,
+     "injected_tokens": 1144
+    },
+    "bash:pm-norms-changes": {
+     "calls": 1,
+     "injected_tokens": 467
+    },
+    "edit:contexte-pm": {
+     "calls": 7,
+     "injected_tokens": 353
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 3,
+     "injected_tokens": 1016
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 2,
+     "injected_tokens": 371
+    },
+    "bash:pm-mr": {
+     "calls": 1,
+     "injected_tokens": 132
+    },
+    "bash:pm-task-description-update": {
+     "calls": 1,
+     "injected_tokens": 80
+    },
+    "bash:pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 92
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 198158,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-matnat"
+  },
+  {
+   "session": "77818024-db7e-4da2-80d4-87681308c1b8",
+   "rm_id": 2304,
+   "attribution": "transcript",
+   "n_calls": 62,
+   "r_factor": 19.8,
+   "ts_first": "2026-07-15T17:35:38.273Z",
+   "ts_last": "2026-07-16T00:44:31.965Z",
+   "totals": {
+    "input": 116,
+    "output": 40410,
+    "cache_read": 5527890,
+    "cache_creation": 279087
+   },
+   "cost_usd": 11.0381,
+   "first_call": {
+    "input": 2,
+    "output": 356,
+    "cache_read": 19885,
+    "cache_creation": 11491
+   },
+   "output_by_cat": {
+    "pm-onboarding": 1229,
+    "pm-ceremony": 17401,
+    "work": 21780
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 14234,
+    "pm-ceremony": 5419,
+    "work": 6245
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.5611,
+    "pm-ceremony": 1.6073,
+    "work": 1.9944
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 9,
+     "injected_tokens": 1435
+    },
+    "read:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 14156
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 608
+    },
+    "bash:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 79
+    },
+    "bash:pm-task-status-update": {
+     "calls": 5,
+     "injected_tokens": 1081
+    },
+    "bash:pm-task-report": {
+     "calls": 3,
+     "injected_tokens": 476
+    },
+    "bash:pm-task-description-update": {
+     "calls": 6,
+     "injected_tokens": 1036
+    },
+    "bash:pm-mr": {
+     "calls": 4,
+     "injected_tokens": 544
+    },
+    "bash:pm-task-sync": {
+     "calls": 1,
+     "injected_tokens": 186
+    },
+    "bash:pm-task-protocol": {
+     "calls": 1,
+     "injected_tokens": 54
+    }
+   },
+   "models": {
+    "claude-fable-5": 40410
+   },
+   "workspace": "-zfs-workspaces-matnat-infra"
+  },
+  {
+   "session": "b40b6e4a-ba96-4794-bffa-49adc43e33b7",
+   "rm_id": 2124,
+   "attribution": "transcript",
+   "n_calls": 275,
+   "r_factor": 38.2,
+   "ts_first": "2026-07-04T13:52:02.205Z",
+   "ts_last": "2026-07-19T00:34:36.029Z",
+   "totals": {
+    "input": 15010,
+    "output": 235915,
+    "cache_read": 52095492,
+    "cache_creation": 1363076
+   },
+   "cost_usd": 81.0798,
+   "first_call": {
+    "input": 7643,
+    "output": 570,
+    "cache_read": 18341,
+    "cache_creation": 9427
+   },
+   "output_by_cat": {
+    "pm-onboarding": 6318,
+    "pm-ceremony": 54026,
+    "work": 175572
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 8845,
+    "pm-ceremony": 12271,
+    "work": 36368
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.085,
+    "pm-ceremony": 6.0638,
+    "work": 19.528
+   },
+   "ops": {
+    "read:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 8046
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 4,
+     "injected_tokens": 1516
+    },
+    "bash:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 750
+    },
+    "bash:pm-env-migrate": {
+     "calls": 5,
+     "injected_tokens": 2587
+    },
+    "read:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 1989
+    },
+    "bash:pm-env-init": {
+     "calls": 1,
+     "injected_tokens": 304
+    },
+    "skill:mmi-pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-task-comment": {
+     "calls": 8,
+     "injected_tokens": 492
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 360
+    },
+    "bash:pm-task-status-update": {
+     "calls": 9,
+     "injected_tokens": 899
+    },
+    "bash:pm-task-description-update": {
+     "calls": 10,
+     "injected_tokens": 986
+    },
+    "bash:pm-task-link": {
+     "calls": 6,
+     "injected_tokens": 835
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 4,
+     "injected_tokens": 791
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 50
+    },
+    "bash:pm-env-session": {
+     "calls": 4,
+     "injected_tokens": 801
+    },
+    "bash:pm-branch-start": {
+     "calls": 3,
+     "injected_tokens": 510
+    },
+    "bash:pm-token-check": {
+     "calls": 1,
+     "injected_tokens": 171
+    }
+   },
+   "models": {
+    "claude-fable-5": 235915,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-matnat-infra"
+  },
+  {
+   "session": "e3d2542a-852a-41f0-9f42-0ea4103fa9f3",
+   "rm_id": 2280,
+   "attribution": "transcript",
+   "n_calls": 68,
+   "r_factor": 10.9,
+   "ts_first": "2026-07-14T18:17:23.497Z",
+   "ts_last": "2026-07-16T00:43:37.350Z",
+   "totals": {
+    "input": 128,
+    "output": 47502,
+    "cache_read": 5800874,
+    "cache_creation": 530540
+   },
+   "cost_usd": 14.809,
+   "first_call": {
+    "input": 2,
+    "output": 452,
+    "cache_read": 19295,
+    "cache_creation": 18109
+   },
+   "output_by_cat": {
+    "pm-onboarding": 903,
+    "pm-ceremony": 24798,
+    "work": 21802
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 7376,
+    "pm-ceremony": 11491,
+    "work": 4789
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2392,
+    "pm-ceremony": 2.0903,
+    "work": 1.7132
+   },
+   "ops": {
+    "read:ticket-md": {
+     "calls": 4,
+     "injected_tokens": 4714
+    },
+    "read:contexte-pm": {
+     "calls": 5,
+     "injected_tokens": 7310
+    },
+    "bash:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 66
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 6,
+     "injected_tokens": 869
+    },
+    "bash:pm-task-status-update": {
+     "calls": 6,
+     "injected_tokens": 1521
+    },
+    "bash:pm-mr": {
+     "calls": 13,
+     "injected_tokens": 1717
+    },
+    "bash:pm-task-report": {
+     "calls": 6,
+     "injected_tokens": 1814
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 460
+    },
+    "bash:pm-task-add": {
+     "calls": 2,
+     "injected_tokens": 396
+    }
+   },
+   "models": {
+    "claude-fable-5": 47502
+   },
+   "workspace": "-zfs-workspaces-matnat-infra"
+  },
+  {
+   "session": "86736170-6ac9-4e1d-af9d-41736983f912",
+   "rm_id": null,
+   "attribution": "aucune",
+   "n_calls": 233,
+   "r_factor": 8.5,
+   "ts_first": "2026-06-29T13:04:26.601Z",
+   "ts_last": "2026-07-04T17:53:41.708Z",
+   "totals": {
+    "input": 20353,
+    "output": 291189,
+    "cache_read": 39823226,
+    "cache_creation": 4694304
+   },
+   "cost_usd": 56.6325,
+   "first_call": {
+    "input": 7166,
+    "output": 479,
+    "cache_read": 15840,
+    "cache_creation": 8271
+   },
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 291189
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 21151
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 10.5567
+   },
+   "ops": {},
+   "models": {
+    "claude-opus-4-8": 291189,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-perso-Manoe"
+  },
+  {
+   "session": "b2efbcbd-38e9-4e94-9d09-706f6986dfb4",
+   "rm_id": 2263,
+   "attribution": "transcript",
+   "n_calls": 365,
+   "r_factor": 13.0,
+   "ts_first": "2026-07-13T06:23:28.295Z",
+   "ts_last": "2026-07-19T18:22:35.141Z",
+   "totals": {
+    "input": 2190,
+    "output": 445079,
+    "cache_read": 121831873,
+    "cache_creation": 9381030
+   },
+   "cost_usd": 261.3706,
+   "first_call": {
+    "input": 2,
+    "output": 252,
+    "cache_read": 19234,
+    "cache_creation": 19848
+   },
+   "output_by_cat": {
+    "pm-onboarding": 29880,
+    "pm-ceremony": 118140,
+    "work": 297058
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 8062,
+    "pm-ceremony": 15170,
+    "work": 20263
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 2.461,
+    "pm-ceremony": 9.3047,
+    "work": 22.9405
+   },
+   "ops": {
+    "skill:mmi-pm-project-new": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-project-new": {
+     "calls": 7,
+     "injected_tokens": 1907
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 28,
+     "injected_tokens": 2109
+    },
+    "skill:mmi-pm-env-migrate": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-workspace-coloc": {
+     "calls": 1,
+     "injected_tokens": 122
+    },
+    "read:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 7692
+    },
+    "bash:pm-env-init": {
+     "calls": 1,
+     "injected_tokens": 146
+    },
+    "edit:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 46
+    },
+    "bash:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 152
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 6,
+     "injected_tokens": 2823
+    },
+    "read:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 757
+    },
+    "bash:pm-task-status-update": {
+     "calls": 25,
+     "injected_tokens": 1523
+    },
+    "write:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 172
+    },
+    "edit:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 157
+    },
+    "bash:redmine-post-note": {
+     "calls": 6,
+     "injected_tokens": 140
+    },
+    "bash:pm-wiki-sync": {
+     "calls": 10,
+     "injected_tokens": 1671
+    },
+    "bash:pm-branch-start": {
+     "calls": 2,
+     "injected_tokens": 301
+    },
+    "bash:pm-env-session": {
+     "calls": 6,
+     "injected_tokens": 779
+    },
+    "bash:pm-mr": {
+     "calls": 21,
+     "injected_tokens": 1984
+    },
+    "bash:pm-task-list": {
+     "calls": 2,
+     "injected_tokens": 581
+    },
+    "bash:pm-promote": {
+     "calls": 2,
+     "injected_tokens": 141
+    }
+   },
+   "models": {
+    "claude-fable-5": 445079,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-perso-genealogie"
+  },
+  {
+   "session": "aff465d4-30ba-4265-85ae-5a553663054f",
+   "rm_id": 2128,
+   "attribution": "transcript",
+   "n_calls": 1043,
+   "r_factor": 18.5,
+   "ts_first": "2026-07-05T12:16:13.452Z",
+   "ts_last": "2026-07-19T22:48:20.093Z",
+   "totals": {
+    "input": 96492,
+    "output": 994842,
+    "cache_read": 487442544,
+    "cache_creation": 26296020
+   },
+   "cost_usd": 812.1244,
+   "first_call": {
+    "input": 2,
+    "output": 114,
+    "cache_read": 18341,
+    "cache_creation": 9423
+   },
+   "output_by_cat": {
+    "pm-onboarding": 28597,
+    "pm-ceremony": 226109,
+    "work": 740136
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 28326,
+    "pm-ceremony": 36630,
+    "work": 157131
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 3.1966,
+    "pm-ceremony": 18.7634,
+    "work": 61.1133
+   },
+   "ops": {
+    "bash:manip-fichiers-pm": {
+     "calls": 62,
+     "injected_tokens": 9140
+    },
+    "read:contexte-pm": {
+     "calls": 16,
+     "injected_tokens": 22958
+    },
+    "read:ticket-md": {
+     "calls": 6,
+     "injected_tokens": 3106
+    },
+    "skill:mmi-pm-task-status-update": {
+     "calls": 2,
+     "injected_tokens": 23
+    },
+    "bash:pm-task-status-update": {
+     "calls": 36,
+     "injected_tokens": 4054
+    },
+    "write:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 246
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 2,
+     "injected_tokens": 18
+    },
+    "bash:pm-task-add": {
+     "calls": 56,
+     "injected_tokens": 4047
+    },
+    "edit:contexte-pm": {
+     "calls": 26,
+     "injected_tokens": 1099
+    },
+    "bash:contexte-pm": {
+     "calls": 16,
+     "injected_tokens": 4023
+    },
+    "bash:pm-task-link": {
+     "calls": 6,
+     "injected_tokens": 844
+    },
+    "bash:pm-branch-start": {
+     "calls": 40,
+     "injected_tokens": 3477
+    },
+    "bash:pm-mr": {
+     "calls": 117,
+     "injected_tokens": 10091
+    },
+    "bash:redmine-post-note": {
+     "calls": 15,
+     "injected_tokens": 484
+    },
+    "bash:pm-task-show": {
+     "calls": 8,
+     "injected_tokens": 912
+    },
+    "bash:redmine-fetch-task": {
+     "calls": 2,
+     "injected_tokens": 26
+    },
+    "edit:ticket-md": {
+     "calls": 4,
+     "injected_tokens": 260
+    },
+    "bash:pm-task-sync": {
+     "calls": 2,
+     "injected_tokens": 147
+    }
+   },
+   "models": {
+    "claude-fable-5": 896209,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 98633
+   },
+   "workspace": "-zfs-workspaces-perso-mathematicians-db"
+  },
+  {
+   "session": "030a2876-98b0-4e2a-87c5-d0baf8f103ea",
+   "rm_id": 2024,
+   "attribution": "transcript",
+   "n_calls": 1315,
+   "r_factor": 24.9,
+   "ts_first": "2026-07-06T19:12:01.272Z",
+   "ts_last": "2026-07-15T00:28:32.779Z",
+   "totals": {
+    "input": 150965,
+    "output": 1051254,
+    "cache_read": 604876011,
+    "cache_creation": 24339455
+   },
+   "cost_usd": 879.4813,
+   "first_call": {
+    "input": 8019,
+    "output": 268,
+    "cache_read": 18343,
+    "cache_creation": 13125
+   },
+   "output_by_cat": {
+    "pm-onboarding": 18372,
+    "pm-ceremony": 273656,
+    "work": 759226
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 21261,
+    "pm-ceremony": 66519,
+    "work": 232333
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 2.0675,
+    "pm-ceremony": 24.2309,
+    "work": 69.7401
+   },
+   "ops": {
+    "skill:mmi-pm-task-list": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-list": {
+     "calls": 15,
+     "injected_tokens": 9017
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 36,
+     "injected_tokens": 9826
+    },
+    "read:contexte-pm": {
+     "calls": 10,
+     "injected_tokens": 16688
+    },
+    "bash:pm-token-check": {
+     "calls": 2,
+     "injected_tokens": 217
+    },
+    "read:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 2574
+    },
+    "bash:contexte-pm": {
+     "calls": 9,
+     "injected_tokens": 4428
+    },
+    "bash:redmine-post-note": {
+     "calls": 9,
+     "injected_tokens": 271
+    },
+    "bash:pm-task-status-update": {
+     "calls": 38,
+     "injected_tokens": 6498
+    },
+    "bash:pm-task-description-update": {
+     "calls": 22,
+     "injected_tokens": 2232
+    },
+    "bash:pm-task-show": {
+     "calls": 6,
+     "injected_tokens": 1181
+    },
+    "bash:pm-task-add": {
+     "calls": 11,
+     "injected_tokens": 2024
+    },
+    "bash:pm-mr": {
+     "calls": 59,
+     "injected_tokens": 5190
+    },
+    "bash:pm-task-comment": {
+     "calls": 19,
+     "injected_tokens": 2064
+    },
+    "bash:pm-branch-start": {
+     "calls": 9,
+     "injected_tokens": 1331
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 4,
+     "injected_tokens": 2296
+    },
+    "bash:pm-task-link": {
+     "calls": 10,
+     "injected_tokens": 1646
+    },
+    "bash:pm-env-session": {
+     "calls": 30,
+     "injected_tokens": 8106
+    },
+    "bash:pm-env-init": {
+     "calls": 5,
+     "injected_tokens": 1613
+    },
+    "edit:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 145
+    },
+    "bash:karl-agent": {
+     "calls": 16,
+     "injected_tokens": 7498
+    },
+    "bash:pm-task-protocol": {
+     "calls": 8,
+     "injected_tokens": 944
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 8,
+     "injected_tokens": 1450
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 4,
+     "injected_tokens": 254
+    },
+    "bash:pm-skills-sync": {
+     "calls": 1,
+     "injected_tokens": 71
+    },
+    "bash:pm-workspace-coloc": {
+     "calls": 1,
+     "injected_tokens": 198
+    }
+   },
+   "models": {
+    "claude-fable-5": 885282,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 165972
+   },
+   "workspace": "-zfs-workspaces-perso-maths"
+  },
+  {
+   "session": "1b5d0273-4d84-4f6e-9831-93f55b8255d7",
+   "rm_id": 1998,
+   "attribution": "transcript",
+   "n_calls": 171,
+   "r_factor": 36.4,
+   "ts_first": "2026-07-19T09:04:22.033Z",
+   "ts_last": "2026-07-20T10:23:23.383Z",
+   "totals": {
+    "input": 323,
+    "output": 140459,
+    "cache_read": 35219998,
+    "cache_creation": 967105
+   },
+   "cost_usd": 54.335,
+   "first_call": {
+    "input": 2,
+    "output": 187,
+    "cache_read": 20410,
+    "cache_creation": 23173
+   },
+   "output_by_cat": {
+    "pm-onboarding": 1560,
+    "pm-ceremony": 31072,
+    "work": 107827
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 19499,
+    "pm-ceremony": 13643,
+    "work": 20625
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.1082,
+    "pm-ceremony": 3.7409,
+    "work": 11.675
+   },
+   "ops": {
+    "skill:mmi-pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-show": {
+     "calls": 1,
+     "injected_tokens": 1764
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 7,
+     "injected_tokens": 1938
+    },
+    "read:contexte-pm": {
+     "calls": 4,
+     "injected_tokens": 19499
+    },
+    "read:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 1748
+    },
+    "bash:redmine-fetch-task": {
+     "calls": 1,
+     "injected_tokens": 75
+    },
+    "bash:redmine-fetch-updates": {
+     "calls": 2,
+     "injected_tokens": 2098
+    },
+    "bash:pm-task-description-update": {
+     "calls": 4,
+     "injected_tokens": 911
+    },
+    "bash:pm-token-check": {
+     "calls": 1,
+     "injected_tokens": 89
+    },
+    "bash:pm-task-add": {
+     "calls": 3,
+     "injected_tokens": 1385
+    },
+    "bash:pm-task-link": {
+     "calls": 2,
+     "injected_tokens": 101
+    },
+    "bash:pm-task-status-update": {
+     "calls": 13,
+     "injected_tokens": 1402
+    },
+    "bash:pm-branch-start": {
+     "calls": 2,
+     "injected_tokens": 773
+    },
+    "bash:pm-env-session": {
+     "calls": 4,
+     "injected_tokens": 502
+    },
+    "bash:pm-task-protocol": {
+     "calls": 1,
+     "injected_tokens": 73
+    },
+    "bash:pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 67
+    },
+    "bash:pm-mr": {
+     "calls": 4,
+     "injected_tokens": 541
+    },
+    "bash:pm-worktree": {
+     "calls": 2,
+     "injected_tokens": 98
+    },
+    "edit:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 70
+    }
+   },
+   "models": {
+    "claude-fable-5": 140459
+   },
+   "workspace": "-zfs-workspaces-perso-maths"
+  },
+  {
+   "session": "55416f54-5685-4edc-b875-f56ee822e8d4",
+   "rm_id": 2054,
+   "attribution": "transcript",
+   "n_calls": 479,
+   "r_factor": 52.6,
+   "ts_first": "2026-06-18T14:55:27.237Z",
+   "ts_last": "2026-06-20T23:01:45.761Z",
+   "totals": {
+    "input": 46638,
+    "output": 649361,
+    "cache_read": 219246968,
+    "cache_creation": 4169976
+   },
+   "cost_usd": 152.153,
+   "first_call": {
+    "input": 7134,
+    "output": 2,
+    "cache_read": 15840,
+    "cache_creation": 11915
+   },
+   "output_by_cat": {
+    "pm-onboarding": 1698,
+    "pm-ceremony": 138259,
+    "work": 509404
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 3877,
+    "pm-ceremony": 13373,
+    "work": 86617
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2238,
+    "pm-ceremony": 8.3904,
+    "work": 32.1289
+   },
+   "ops": {
+    "read:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 3847
+    },
+    "read:ticket-md": {
+     "calls": 9,
+     "injected_tokens": 2958
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 12,
+     "injected_tokens": 3029
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 12,
+     "injected_tokens": 898
+    },
+    "bash:pm-task-link": {
+     "calls": 6,
+     "injected_tokens": 587
+    },
+    "bash:pm-task-status-update": {
+     "calls": 22,
+     "injected_tokens": 1741
+    },
+    "bash:pm-branch-start": {
+     "calls": 5,
+     "injected_tokens": 1176
+    },
+    "bash:pm-task-description-update": {
+     "calls": 9,
+     "injected_tokens": 1174
+    },
+    "bash:pm-task-comment": {
+     "calls": 17,
+     "injected_tokens": 965
+    },
+    "edit:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 173
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 2,
+     "injected_tokens": 605
+    },
+    "bash:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 29
+    },
+    "write:ticket-md": {
+     "calls": 1,
+     "injected_tokens": 58
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 649361,
+    "<synthetic>": 0
+   },
+   "workspace": "-zfs-workspaces-perso-maths"
+  },
+  {
+   "session": "c3ec2e15-f583-4f4d-924a-c02b90dbf686",
+   "rm_id": 2082,
+   "attribution": "transcript",
+   "n_calls": 1205,
+   "r_factor": 41.3,
+   "ts_first": "2026-06-23T00:36:41.102Z",
+   "ts_last": "2026-07-05T22:53:33.942Z",
+   "totals": {
+    "input": 115964,
+    "output": 936108,
+    "cache_read": 460286565,
+    "cache_creation": 11149025
+   },
+   "cost_usd": 557.6411,
+   "first_call": {
+    "input": 7156,
+    "output": 1023,
+    "cache_read": 15840,
+    "cache_creation": 11321
+   },
+   "output_by_cat": {
+    "pm-onboarding": 5042,
+    "pm-ceremony": 219819,
+    "work": 711246
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 6928,
+    "pm-ceremony": 41569,
+    "work": 163971
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.6593,
+    "pm-ceremony": 20.5646,
+    "work": 66.1188
+   },
+   "ops": {
+    "read:contexte-pm": {
+     "calls": 3,
+     "injected_tokens": 5725
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-add": {
+     "calls": 36,
+     "injected_tokens": 3414
+    },
+    "read:ticket-md": {
+     "calls": 7,
+     "injected_tokens": 6375
+    },
+    "bash:pm-task-link": {
+     "calls": 10,
+     "injected_tokens": 1025
+    },
+    "bash:pm-task-status-update": {
+     "calls": 37,
+     "injected_tokens": 2637
+    },
+    "bash:pm-task-description-update": {
+     "calls": 21,
+     "injected_tokens": 2001
+    },
+    "bash:pm-task-metrics-push": {
+     "calls": 3,
+     "injected_tokens": 642
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 39,
+     "injected_tokens": 9417
+    },
+    "edit:ticket-md": {
+     "calls": 6,
+     "injected_tokens": 372
+    },
+    "bash:contexte-pm": {
+     "calls": 6,
+     "injected_tokens": 1112
+    },
+    "bash:pm-branch-start": {
+     "calls": 24,
+     "injected_tokens": 3412
+    },
+    "bash:pm-task-report": {
+     "calls": 8,
+     "injected_tokens": 683
+    },
+    "bash:pm-mr": {
+     "calls": 65,
+     "injected_tokens": 6914
+    },
+    "bash:pm-token-check": {
+     "calls": 1,
+     "injected_tokens": 89
+    },
+    "bash:redmine-post-note": {
+     "calls": 2,
+     "injected_tokens": 38
+    },
+    "bash:pm-task-comment": {
+     "calls": 5,
+     "injected_tokens": 158
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 21
+    },
+    "bash:pm-session-status": {
+     "calls": 2,
+     "injected_tokens": 4362
+    },
+    "edit:contexte-pm": {
+     "calls": 2,
+     "injected_tokens": 91
+    }
+   },
+   "models": {
+    "claude-opus-4-8": 370574,
+    "<synthetic>": 0,
+    "claude-fable-5": 565534
+   },
+   "workspace": "-zfs-workspaces-perso-maths"
+  },
+  {
+   "session": "dd27360e-b70d-47d3-804d-31e8fd9b99f9",
+   "rm_id": 2043,
+   "attribution": "transcript",
+   "n_calls": 4034,
+   "r_factor": 55.1,
+   "ts_first": "2026-05-10T07:10:06.827Z",
+   "ts_last": "2026-07-06T19:11:49.863Z",
+   "totals": {
+    "input": 186238,
+    "output": 3817101,
+    "cache_read": 1432667951,
+    "cache_creation": 25987052
+   },
+   "cost_usd": 975.1118,
+   "first_call": {
+    "input": 6,
+    "output": 186,
+    "cache_read": 16556,
+    "cache_creation": 14296
+   },
+   "output_by_cat": {
+    "pm-onboarding": 103253,
+    "pm-ceremony": 377298,
+    "work": 3336550
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 48490,
+    "pm-ceremony": 66406,
+    "work": 882258
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 7.7125,
+    "pm-ceremony": 24.4363,
+    "work": 226.0729
+   },
+   "ops": {
+    "skill:mmi-pm-project-new": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-project-new": {
+     "calls": 2,
+     "injected_tokens": 787
+    },
+    "bash:pm-task-add": {
+     "calls": 60,
+     "injected_tokens": 8901
+    },
+    "bash:pm-task-list": {
+     "calls": 4,
+     "injected_tokens": 3338
+    },
+    "skill:mmi-pm-task-list": {
+     "calls": 2,
+     "injected_tokens": 18
+    },
+    "skill:mmi-pm-task-status-update": {
+     "calls": 2,
+     "injected_tokens": 23
+    },
+    "bash:pm-task-status-update": {
+     "calls": 82,
+     "injected_tokens": 9982
+    },
+    "skill:mmi-pm-task-comment": {
+     "calls": 1,
+     "injected_tokens": 10
+    },
+    "bash:pm-task-comment": {
+     "calls": 21,
+     "injected_tokens": 1631
+    },
+    "bash:manip-fichiers-pm": {
+     "calls": 18,
+     "injected_tokens": 10536
+    },
+    "skill:mmi-pm-task-add": {
+     "calls": 1,
+     "injected_tokens": 9
+    },
+    "bash:pm-task-description-update": {
+     "calls": 20,
+     "injected_tokens": 2752
+    },
+    "read:ticket-md": {
+     "calls": 3,
+     "injected_tokens": 1112
+    },
+    "bash:redmine-post-note": {
+     "calls": 6,
+     "injected_tokens": 976
+    },
+    "bash:pm-task-link": {
+     "calls": 4,
+     "injected_tokens": 1250
+    },
+    "bash:contexte-pm": {
+     "calls": 23,
+     "injected_tokens": 9870
+    },
+    "read:contexte-pm": {
+     "calls": 41,
+     "injected_tokens": 36108
+    },
+    "bash:redmine-config-check": {
+     "calls": 1,
+     "injected_tokens": 168
+    },
+    "skill:mmi-pm-session-status": {
+     "calls": 1,
+     "injected_tokens": 11
+    },
+    "bash:pm-session-status": {
+     "calls": 9,
+     "injected_tokens": 2563
+    },
+    "bash:pm-branch-start": {
+     "calls": 19,
+     "injected_tokens": 4542
+    },
+    "edit:ticket-md": {
+     "calls": 2,
+     "injected_tokens": 134
+    },
+    "edit:contexte-pm": {
+     "calls": 50,
+     "injected_tokens": 2485
+    },
+    "bash:pm-norms-assemble": {
+     "calls": 23,
+     "injected_tokens": 2982
+    },
+    "bash:pm-worktree": {
+     "calls": 2,
+     "injected_tokens": 271
+    },
+    "bash:pm-mr": {
+     "calls": 44,
+     "injected_tokens": 3640
+    },
+    "bash:pm-token-check": {
+     "calls": 5,
+     "injected_tokens": 968
+    },
+    "bash:pm-context-budget": {
+     "calls": 5,
+     "injected_tokens": 404
+    },
+    "bash:pm-norms-doctor": {
+     "calls": 9,
+     "injected_tokens": 2863
+    },
+    "bash:pm-protect": {
+     "calls": 4,
+     "injected_tokens": 314
+    },
+    "bash:pm-task-show": {
+     "calls": 5,
+     "injected_tokens": 2755
+    },
+    "bash:pm-docs-migrate": {
+     "calls": 9,
+     "injected_tokens": 2423
+    },
+    "bash:pm-wiki-sync": {
+     "calls": 4,
+     "injected_tokens": 950
+    },
+    "write:contexte-pm": {
+     "calls": 1,
+     "injected_tokens": 27
+    },
+    "bash:pm-doctor": {
+     "calls": 1,
+     "injected_tokens": 82
+    }
+   },
+   "models": {
+    "claude-opus-4-7": 1863918,
+    "<synthetic>": 0,
+    "claude-opus-4-8": 1953183
+   },
+   "workspace": "-zfs-workspaces-perso-maths"
+  }
+ ],
+ "by_ticket": {
+  "RM1939": {
+   "sessions": 1,
+   "n_calls": 202,
+   "tokens": 46694547,
+   "cost_usd": 70.7618,
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 59989,
+    "work": 151473
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 13402,
+    "work": 50473
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.0,
+    "pm-ceremony": 6.7285,
+    "work": 17.8346
+   },
+   "pm_share_pct": 27.4
+  },
+  "RM1947": {
+   "sessions": 1,
+   "n_calls": 946,
+   "tokens": 248166032,
+   "cost_usd": 218.2114,
+   "output_by_cat": {
+    "pm-onboarding": 22103,
+    "pm-ceremony": 358231,
+    "work": 1475309
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 3571,
+    "pm-ceremony": 72486,
+    "work": 168338
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0781,
+    "pm-ceremony": 17.7717,
+    "work": 70.5249
+   },
+   "pm_share_pct": 21.1
+  },
+  "RM2306": {
+   "sessions": 1,
+   "n_calls": 130,
+   "tokens": 19569800,
+   "cost_usd": 33.9236,
+   "output_by_cat": {
+    "pm-onboarding": 6796,
+    "pm-ceremony": 56970,
+    "work": 55672
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 2171,
+    "pm-ceremony": 26115,
+    "work": 14771
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.68,
+    "pm-ceremony": 6.0004,
+    "work": 5.4559
+   },
+   "pm_share_pct": 55.0
+  },
+  "RM2104": {
+   "sessions": 1,
+   "n_calls": 67,
+   "tokens": 6005084,
+   "cost_usd": 10.2877,
+   "output_by_cat": {
+    "pm-onboarding": 1795,
+    "pm-ceremony": 16489,
+    "work": 24746
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5425,
+    "pm-ceremony": 4567,
+    "work": 14648
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.3631,
+    "pm-ceremony": 1.6216,
+    "work": 2.4755
+   },
+   "pm_share_pct": 44.5
+  },
+  "RM1942": {
+   "sessions": 1,
+   "n_calls": 623,
+   "tokens": 285132350,
+   "cost_usd": 276.9231,
+   "output_by_cat": {
+    "pm-onboarding": 100279,
+    "pm-ceremony": 227239,
+    "work": 613426
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 54044,
+    "pm-ceremony": 52919,
+    "work": 82344
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 6.0485,
+    "pm-ceremony": 14.0652,
+    "work": 36.0867
+   },
+   "pm_share_pct": 35.8
+  },
+  "RM2120": {
+   "sessions": 1,
+   "n_calls": 72,
+   "tokens": 6836033,
+   "cost_usd": 12.8667,
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 13730,
+    "work": 33842
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 6832,
+    "work": 14059
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.0,
+    "pm-ceremony": 1.3662,
+    "work": 3.2756
+   },
+   "pm_share_pct": 29.4
+  },
+  "RM1834": {
+   "sessions": 1,
+   "n_calls": 322,
+   "tokens": 57660681,
+   "cost_usd": 88.1058,
+   "output_by_cat": {
+    "pm-onboarding": 4931,
+    "pm-ceremony": 76524,
+    "work": 281489
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 2726,
+    "pm-ceremony": 25203,
+    "work": 47487
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.271,
+    "pm-ceremony": 5.2622,
+    "work": 15.2727
+   },
+   "pm_share_pct": 26.6
+  },
+  "RM2172": {
+   "sessions": 1,
+   "n_calls": 248,
+   "tokens": 49070214,
+   "cost_usd": 77.4144,
+   "output_by_cat": {
+    "pm-onboarding": 13188,
+    "pm-ceremony": 59020,
+    "work": 238159
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5206,
+    "pm-ceremony": 8362,
+    "work": 25262
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0166,
+    "pm-ceremony": 3.5074,
+    "work": 13.0617
+   },
+   "pm_share_pct": 25.7
+  },
+  "RM1993": {
+   "sessions": 1,
+   "n_calls": 14,
+   "tokens": 604719,
+   "cost_usd": 1.2352,
+   "output_by_cat": {
+    "pm-onboarding": 1740,
+    "pm-ceremony": 502,
+    "work": 2594
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 328,
+    "pm-ceremony": 163,
+    "work": 845
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.155,
+    "pm-ceremony": 0.047,
+    "work": 0.2429
+   },
+   "pm_share_pct": 45.4
+  },
+  "RM1936": {
+   "sessions": 2,
+   "n_calls": 1505,
+   "tokens": 605266871,
+   "cost_usd": 471.86449999999996,
+   "output_by_cat": {
+    "pm-onboarding": 19798,
+    "pm-ceremony": 77296,
+    "work": 1502100
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 11076,
+    "pm-ceremony": 20624,
+    "work": 248988
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.3686,
+    "pm-ceremony": 5.3151,
+    "work": 91.6754
+   },
+   "pm_share_pct": 6.8
+  },
+  "RM1960": {
+   "sessions": 1,
+   "n_calls": 720,
+   "tokens": 360767608,
+   "cost_usd": 497.5044,
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 50436,
+    "work": 785154
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 6880,
+    "work": 130732
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.0,
+    "pm-ceremony": 4.3471,
+    "work": 53.7964
+   },
+   "pm_share_pct": 7.5
+  },
+  "RM2210": {
+   "sessions": 1,
+   "n_calls": 739,
+   "tokens": 368349933,
+   "cost_usd": 526.3836,
+   "output_by_cat": {
+    "pm-onboarding": 13354,
+    "pm-ceremony": 254164,
+    "work": 294679
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10666,
+    "pm-ceremony": 75395,
+    "work": 60369
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.374,
+    "pm-ceremony": 22.743,
+    "work": 24.8695
+   },
+   "pm_share_pct": 49.2
+  },
+  "RM2267": {
+   "sessions": 1,
+   "n_calls": 263,
+   "tokens": 58224638,
+   "cost_usd": 121.6869,
+   "output_by_cat": {
+    "pm-onboarding": 12071,
+    "pm-ceremony": 114323,
+    "work": 115609
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10784,
+    "pm-ceremony": 20428,
+    "work": 23764
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.1537,
+    "pm-ceremony": 8.9596,
+    "work": 9.1227
+   },
+   "pm_share_pct": 52.6
+  },
+  "RM2334": {
+   "sessions": 1,
+   "n_calls": 168,
+   "tokens": 31693904,
+   "cost_usd": 51.5029,
+   "output_by_cat": {
+    "pm-onboarding": 9490,
+    "pm-ceremony": 72550,
+    "work": 73536
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 18298,
+    "pm-ceremony": 16562,
+    "work": 25058
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.622,
+    "pm-ceremony": 7.3075,
+    "work": 7.7484
+   },
+   "pm_share_pct": 53.5
+  },
+  "RM2275": {
+   "sessions": 1,
+   "n_calls": 202,
+   "tokens": 37968213,
+   "cost_usd": 71.8535,
+   "output_by_cat": {
+    "pm-onboarding": 13310,
+    "pm-ceremony": 88416,
+    "work": 66458
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 16483,
+    "pm-ceremony": 24031,
+    "work": 12392
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.5132,
+    "pm-ceremony": 7.6203,
+    "work": 5.5665
+   },
+   "pm_share_pct": 62.1
+  },
+  "RM2140": {
+   "sessions": 1,
+   "n_calls": 284,
+   "tokens": 71334355,
+   "cost_usd": 132.3345,
+   "output_by_cat": {
+    "pm-onboarding": 5850,
+    "pm-ceremony": 99968,
+    "work": 120257
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 10030,
+    "pm-ceremony": 24769,
+    "work": 44295
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.7353,
+    "pm-ceremony": 8.4763,
+    "work": 10.6009
+   },
+   "pm_share_pct": 46.5
+  },
+  "RM2302": {
+   "sessions": 1,
+   "n_calls": 387,
+   "tokens": 132869373,
+   "cost_usd": 210.3517,
+   "output_by_cat": {
+    "pm-onboarding": 2558,
+    "pm-ceremony": 165327,
+    "work": 184212
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 23110,
+    "pm-ceremony": 33972,
+    "work": 56275
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.0726,
+    "pm-ceremony": 15.6015,
+    "work": 18.0617
+   },
+   "pm_share_pct": 48.0
+  },
+  "RM2004": {
+   "sessions": 1,
+   "n_calls": 269,
+   "tokens": 43521086,
+   "cost_usd": 36.7042,
+   "output_by_cat": {
+    "pm-onboarding": 6990,
+    "pm-ceremony": 40739,
+    "work": 295016
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 6946,
+    "pm-ceremony": 7571,
+    "work": 57939
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.5229,
+    "pm-ceremony": 2.2254,
+    "work": 16.1934
+   },
+   "pm_share_pct": 14.5
+  },
+  "RM1984": {
+   "sessions": 1,
+   "n_calls": 1309,
+   "tokens": 605465158,
+   "cost_usd": 642.4895,
+   "output_by_cat": {
+    "pm-onboarding": 79860,
+    "pm-ceremony": 194732,
+    "work": 968004
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 31552,
+    "pm-ceremony": 45291,
+    "work": 171124
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 4.7382,
+    "pm-ceremony": 12.7023,
+    "work": 58.0274
+   },
+   "pm_share_pct": 23.1
+  },
+  "(untracked)": {
+   "sessions": 3,
+   "n_calls": 246,
+   "tokens": 45379352,
+   "cost_usd": 57.949600000000004,
+   "output_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 295429
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 0,
+    "pm-ceremony": 0,
+    "work": 22059
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.0,
+    "pm-ceremony": 0.0,
+    "work": 10.885399999999999
+   },
+   "pm_share_pct": 0.0
+  },
+  "RM2228": {
+   "sessions": 1,
+   "n_calls": 197,
+   "tokens": 35251783,
+   "cost_usd": 53.0343,
+   "output_by_cat": {
+    "pm-onboarding": 16225,
+    "pm-ceremony": 53328,
+    "work": 129066
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 11116,
+    "pm-ceremony": 17807,
+    "work": 30635
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.4242,
+    "pm-ceremony": 4.7782,
+    "work": 9.2099
+   },
+   "pm_share_pct": 40.2
+  },
+  "RM2249": {
+   "sessions": 1,
+   "n_calls": 548,
+   "tokens": 225131924,
+   "cost_usd": 217.3866,
+   "output_by_cat": {
+    "pm-onboarding": 8054,
+    "pm-ceremony": 125616,
+    "work": 865762
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 5908,
+    "pm-ceremony": 18018,
+    "work": 92166
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.3939,
+    "pm-ceremony": 5.1213,
+    "work": 34.8549
+   },
+   "pm_share_pct": 13.7
+  },
+  "RM1813": {
+   "sessions": 1,
+   "n_calls": 1272,
+   "tokens": 467429282,
+   "cost_usd": 423.3091,
+   "output_by_cat": {
+    "pm-onboarding": 26004,
+    "pm-ceremony": 338949,
+    "work": 1587127
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 11177,
+    "pm-ceremony": 50229,
+    "work": 189270
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.2423,
+    "pm-ceremony": 14.7011,
+    "work": 69.2745
+   },
+   "pm_share_pct": 18.7
+  },
+  "RM2176": {
+   "sessions": 1,
+   "n_calls": 121,
+   "tokens": 13160721,
+   "cost_usd": 20.1188,
+   "output_by_cat": {
+    "pm-onboarding": 3256,
+    "pm-ceremony": 27080,
+    "work": 94750
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 1654,
+    "pm-ceremony": 5524,
+    "work": 21774
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2657,
+    "pm-ceremony": 1.8928,
+    "work": 5.6787
+   },
+   "pm_share_pct": 27.5
+  },
+  "RM2328": {
+   "sessions": 1,
+   "n_calls": 130,
+   "tokens": 15306286,
+   "cost_usd": 17.2505,
+   "output_by_cat": {
+    "pm-onboarding": 41662,
+    "pm-ceremony": 50461,
+    "work": 106036
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 9435,
+    "pm-ceremony": 12620,
+    "work": 19620
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.8071,
+    "pm-ceremony": 2.2066,
+    "work": 4.5336
+   },
+   "pm_share_pct": 47.0
+  },
+  "RM2304": {
+   "sessions": 1,
+   "n_calls": 62,
+   "tokens": 5847503,
+   "cost_usd": 11.0381,
+   "output_by_cat": {
+    "pm-onboarding": 1229,
+    "pm-ceremony": 17401,
+    "work": 21780
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 14234,
+    "pm-ceremony": 5419,
+    "work": 6245
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.5611,
+    "pm-ceremony": 1.6073,
+    "work": 1.9944
+   },
+   "pm_share_pct": 52.1
+  },
+  "RM2124": {
+   "sessions": 1,
+   "n_calls": 275,
+   "tokens": 53709493,
+   "cost_usd": 81.0798,
+   "output_by_cat": {
+    "pm-onboarding": 6318,
+    "pm-ceremony": 54026,
+    "work": 175572
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 8845,
+    "pm-ceremony": 12271,
+    "work": 36368
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.085,
+    "pm-ceremony": 6.0638,
+    "work": 19.528
+   },
+   "pm_share_pct": 26.8
+  },
+  "RM2280": {
+   "sessions": 1,
+   "n_calls": 68,
+   "tokens": 6379044,
+   "cost_usd": 14.809,
+   "output_by_cat": {
+    "pm-onboarding": 903,
+    "pm-ceremony": 24798,
+    "work": 21802
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 7376,
+    "pm-ceremony": 11491,
+    "work": 4789
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2392,
+    "pm-ceremony": 2.0903,
+    "work": 1.7132
+   },
+   "pm_share_pct": 57.6
+  },
+  "RM2263": {
+   "sessions": 1,
+   "n_calls": 365,
+   "tokens": 131660172,
+   "cost_usd": 261.3706,
+   "output_by_cat": {
+    "pm-onboarding": 29880,
+    "pm-ceremony": 118140,
+    "work": 297058
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 8062,
+    "pm-ceremony": 15170,
+    "work": 20263
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 2.461,
+    "pm-ceremony": 9.3047,
+    "work": 22.9405
+   },
+   "pm_share_pct": 33.9
+  },
+  "RM2128": {
+   "sessions": 1,
+   "n_calls": 1043,
+   "tokens": 514829898,
+   "cost_usd": 812.1244,
+   "output_by_cat": {
+    "pm-onboarding": 28597,
+    "pm-ceremony": 226109,
+    "work": 740136
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 28326,
+    "pm-ceremony": 36630,
+    "work": 157131
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 3.1966,
+    "pm-ceremony": 18.7634,
+    "work": 61.1133
+   },
+   "pm_share_pct": 26.4
+  },
+  "RM2024": {
+   "sessions": 1,
+   "n_calls": 1315,
+   "tokens": 630417685,
+   "cost_usd": 879.4813,
+   "output_by_cat": {
+    "pm-onboarding": 18372,
+    "pm-ceremony": 273656,
+    "work": 759226
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 21261,
+    "pm-ceremony": 66519,
+    "work": 232333
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 2.0675,
+    "pm-ceremony": 24.2309,
+    "work": 69.7401
+   },
+   "pm_share_pct": 27.4
+  },
+  "RM1998": {
+   "sessions": 1,
+   "n_calls": 171,
+   "tokens": 36327885,
+   "cost_usd": 54.335,
+   "output_by_cat": {
+    "pm-onboarding": 1560,
+    "pm-ceremony": 31072,
+    "work": 107827
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 19499,
+    "pm-ceremony": 13643,
+    "work": 20625
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 1.1082,
+    "pm-ceremony": 3.7409,
+    "work": 11.675
+   },
+   "pm_share_pct": 29.3
+  },
+  "RM2054": {
+   "sessions": 1,
+   "n_calls": 479,
+   "tokens": 224112943,
+   "cost_usd": 152.153,
+   "output_by_cat": {
+    "pm-onboarding": 1698,
+    "pm-ceremony": 138259,
+    "work": 509404
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 3877,
+    "pm-ceremony": 13373,
+    "work": 86617
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.2238,
+    "pm-ceremony": 8.3904,
+    "work": 32.1289
+   },
+   "pm_share_pct": 21.1
+  },
+  "RM2082": {
+   "sessions": 1,
+   "n_calls": 1205,
+   "tokens": 472487662,
+   "cost_usd": 557.6411,
+   "output_by_cat": {
+    "pm-onboarding": 5042,
+    "pm-ceremony": 219819,
+    "work": 711246
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 6928,
+    "pm-ceremony": 41569,
+    "work": 163971
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 0.6593,
+    "pm-ceremony": 20.5646,
+    "work": 66.1188
+   },
+   "pm_share_pct": 24.3
+  },
+  "RM2043": {
+   "sessions": 1,
+   "n_calls": 4034,
+   "tokens": 1462658342,
+   "cost_usd": 975.1118,
+   "output_by_cat": {
+    "pm-onboarding": 103253,
+    "pm-ceremony": 377298,
+    "work": 3336550
+   },
+   "injected_by_cat": {
+    "pm-onboarding": 48490,
+    "pm-ceremony": 66406,
+    "work": 882258
+   },
+   "marginal_cost_by_cat": {
+    "pm-onboarding": 7.7125,
+    "pm-ceremony": 24.4363,
+    "work": 226.0729
+   },
+   "pm_share_pct": 12.5
+  }
+ }
+}

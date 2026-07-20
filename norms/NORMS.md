@@ -1,10 +1,10 @@
 ---
-schema_version: "1.60.0"
+schema_version: "1.61.0"
 updated: 2026-07-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.60.0
+# Normes de gestion des tâches — v1.61.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -48,6 +48,7 @@ updated: 2026-07-20
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
+| micro-tâche (≤ 30 min, sans code) | `modules/status-workflow.md` § flux court | `pm-task-take --no-branch`, `pm-task-add --retro` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
 | je suis l'orchestrateur (assignation, sous-tâches, propagation) | `modules/collaboration.md` | — |
 | je génère les fichiers auto (Changelog/Pistes/Remarques) | `modules/summarizer.md` | — |
@@ -1075,6 +1076,25 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+
+### Flux court micro-tâches — v1.61.0 (RM2369, CDC RM2316 § S8)
+
+**Critère** : `estimate.time_minutes ≤ 30` **et** pas de livrable code (audit
+éclair, doc courte, correction de données, assistance). Constat d'audit
+(RM2275) : sur ces tickets la cérémonie atteignait 40–59 % du coût.
+
+**Séquence** — mêmes statuts, mêmes notes (templatées § traceability), zéro
+infrastructure inutile :
+
+1. `pm-task-take <id> --no-branch` — en_cours + assignation, PAS de branche ni
+   d'env de session ;
+2. travail + entrée `.log.md` (le sémantique reste obligatoire) ;
+3. `pm-task-deliver <id> --summary -` — critères/protocole/routage inchangés.
+
+Travail déjà fait au moment de la création → `pm-task-add --retro` (le ticket
+traverse la machine d'états en un appel). Un micro-ticket qui grossit en cours
+de route (code nécessaire) repasse au flux standard : `pm-task-take <id>`
+(idempotent) crée branche + env à ce moment-là.
 
 ### Transitions « assignee-only » — v1.31.0
 

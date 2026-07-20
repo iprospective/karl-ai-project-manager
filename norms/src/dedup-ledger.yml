@@ -17,6 +17,13 @@
 removed: []
 
 rewritten:
+  - reason: "RM2328 (v1.58.1) : § Remote canonique explicite le SSH-first (transport = alias gitlab:, clé dédiée sans passphrase RM2158, HTTPS=repli) + distinction transport/API. Marqueur de section v1.20.4→v1.58.1 ; puce 'GitLab est le remote canonique' reflowée et étendue à l'alias gitlab: ; contenu (par défaut pour push/branches/MR, traque la branche d'intégration) conservé dans la même section."
+    old: |
+      #### Remote canonique GitLab, MR, et gotchas API — v1.20.4
+      (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
+      qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
+      traque la branche d'intégration locale.
+
   - reason: "RM2348 : sens du lien .mmi-pm inversé — projects_root n'est plus le stockage privé mais un index de symlinks sortants vers les cores. Titre réécrit « Repo projets (index centralisé) » dans structure-reference."
     old: |
       ### Repo projets (privé, gitignored dans le repo PM)

@@ -128,12 +128,13 @@ revalider lors du resync, ne pas présumer stables :
 | 20 | enum (issue) | `Task type` | taxonomie **fine** du `type` (cf. note ci-dessous) |
 
 **Tracker (coarse) vs CF `Task type` (fin).** Le `type` NORMS est plus riche
-(13 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
+(14 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
 `Tâche`). Le **tracker** porte la catégorie *coarse* (`TYPE_TO_TRACKER` :
-`documentation`, `infrastructure`, `maintenance`, `autre` retombent tous sur
-`Tâche`/4). Quand un type n'a pas de tracker dédié, son détail est porté par le
-**CF 20 `Task type`** (enumeration) si une valeur correspond — mapping **source
-unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42).
+`documentation`, `infrastructure`, `configuration`, `maintenance`, `autre`
+retombent tous sur `Tâche`/4). Quand un type n'a pas de tracker dédié, son détail
+est porté par le **CF 20 `Task type`** (enumeration) si une valeur correspond —
+mapping **source unique** `redmine.reference.yml :: task_type_cf`
+(ex. `documentation` → val 42, `configuration` → val 22 « Config »).
 `pm-task-add` le pose à la création, `redmine-fetch-task` le relit (il **prime**
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.

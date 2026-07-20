@@ -179,6 +179,7 @@ depuis le commit précédent, sous forme d'une **saisie de temps**
 | `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
 | `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
 | `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
+| `configuration` | `SysAdmin/Conf/Debug` | 13 | paramétrage applicatif / système |
 | `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
 | `assistance` | `Assistance` | 11 | aide / support ponctuel |
 | `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |

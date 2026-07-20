@@ -46,7 +46,7 @@ ID=$(./pm-task-add.py --title "Nouvelle tâche" --type feature --porcelain)
 
 ## Notes
 
-Types : bugfix, feature, assistance, infrastructure, maintenance, autre. Priorities : low, normal, high, urgent. Mapping vers Redmine tracker/priority géré automatiquement.
+Types : liste canonique via `pm-task-add.py --list-types` (bugfix, feature, configuration, infrastructure, maintenance, …). Priorities : low, normal, high, urgent. Mapping vers Redmine tracker/priority géré automatiquement.
 
 **`--start-branch [--branch-repo PATH]`** : verbe atomique (RM2224) — crée le ticket PUIS enchaîne `pm-branch-start --take` (branche + prise en_cours) avec l'id capturé en interne : zéro manipulation d'id par l'agent. À préférer dès qu'on va coder le ticket. Incompatible avec `--retro`/`--status`.
 

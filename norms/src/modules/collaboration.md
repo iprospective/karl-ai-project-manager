@@ -19,7 +19,7 @@
 | `feature` / `bugfix` / `refactoring` / `security` / `performance` | worker-dev |
 | `audit` / `research` / `documentation` / `assistance` / `maintenance` | worker-analyst |
 | `database` | worker-db |
-| `infrastructure` | worker-infra |
+| `infrastructure` / `configuration` | worker-infra |
 | `design` | worker-design |
 
 - Propriétaire exclusif de leur fichier de tâche assignée

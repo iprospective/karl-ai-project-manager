@@ -194,7 +194,7 @@ git approprié. La règle s'applique à **deux périmètres** :
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
 
-#### Remote canonique GitLab, MR, et gotchas API — v1.58.1
+#### Remote canonique GitLab, MR, et gotchas API — v1.58.2
 
 - **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
   (typiquement `origin`, alias SSH `git:`/`gitlab:` → `gitlab.iprospective.fr`),
@@ -209,6 +209,26 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   agent ne survit pas au reboot et personne ne peut le déverrouiller en session
   autonome (**RM2158**). HTTPS + credential-helper token n'est qu'un **repli** quand
   cette clé n'est pas disponible sur la machine ; ce n'est **pas** la cible.
+- **Ce repli HTTPS+token se pose par `url.…insteadOf`, PAS par conversion de remote
+  (RM2328, PoC)** : sur une machine **sans** la clé `karl-dev` (ou pour forcer le token
+  — agent d'automatisation tiers, ou submodules à tirer sans clé), **ne convertis pas**
+  les remotes. Pose un `url.…insteadOf` **global** dans le `~/.gitconfig` de l'agent : il
+  réécrit `gitlab:` / `git@gitlab.iprospective.fr:` / `ssh://git@…` →
+  `https://gitlab.iprospective.fr/` **au moment de l'op**, servi par le credential-helper
+  token. Push, fetch **et submodules** passent alors en token **sans muter aucun remote
+  ni `.gitmodules`** (le remote stocké reste `gitlab:` ; démontré : PoC RM2328). Une
+  config **par machine**, réversible, **par-utilisateur** (n'affecte que l'environnement
+  où elle est posée).
+
+  ```bash
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "gitlab:"
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "git@gitlab.iprospective.fr:"
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "ssh://git@gitlab.iprospective.fr/"
+  git config --global credential.helper <helper-token>   # worker (code) / manager (PM & protégés)
+  ```
+
+  ⚠ Ne **pas** faire `git remote set-url … https` par repo — ça casse les configs SSH
+  partagées (submodules) ; l'`insteadOf` global obtient le même transport token sans y toucher.
 - **Pourquoi ça compte — panne silencieuse si l'auth SSH casse** : si la clé/config
   est absente ou le membership GitLab manquant, deux effets sournois — (1) le **push
   se reporte** (« push différé » qui s'accumule) ; (2) `git fetch` peut **échouer en

@@ -20,11 +20,22 @@ ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héri
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout)
 4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
-5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md`
-6. `paths.task_file` — la tâche assignée
+5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` ;
+   côté `{docs_dir}` : lire **`docs/INDEX.md`** (1 ligne par doc), puis ouvrir
+   les docs **à la demande** — jamais le dossier entier (budget
+   `context.budget_tokens.project_docs`, vérifié par `pm-context-budget --check`)
+6. **`pm-task-brief.py <id>`** — le pack contexte de la tâche en ≤ 30 lignes
+   (statut, estimé vs réel, critères, liens/sous-tâches, dernières entrées de
+   journal, journaux Redmine non lus). C'est le point d'entrée par défaut ;
+   n'ouvre le MD complet que si le brief ne suffit pas (description longue,
+   CDC dans le corps).
 7. Fichiers dans `refs[]` — documents de référence liés à la tâche
-8. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
-9. Dernières 50 lignes de `paths.task_log_file` — état courant
+8. Tâches dans `depends_on` — contexte amont : `pm-task-brief.py <dep-id>`
+   (lecture seule ; MD complet à la demande)
+9. Journal : couvert par le brief ; pour approfondir, `pm-task-log.py <id>
+   --tail N [--grep RX] [--full]` (jamais de `cat` du `.log.md` entier).
+   Lecture ciblée d'un champ : `pm-task-show.py <id> --field a,b.c` (jamais de
+   `grep` manuel du frontmatter).
 
 (Les patterns `{entity_client_dir}`, `{project_dir}`, `paths.task_file` etc. sont
 définis dans `pm.config.yml` ; la résolution par défaut donne

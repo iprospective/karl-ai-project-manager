@@ -5,6 +5,31 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.62.0] - 2026-07-20
+
+### Ajouté
+- Module `session-tooling` : § « Cheatsheet outillage » (RM2367, CDC RM2316 § S6) —
+  `norms/CHEATSHEET.md` généré (`pm-norms-assemble.py cheatsheet`, budget ≤ 1 200 tokens),
+  lu une fois par session à la place des `--help` répétés ; `--help` court par défaut
+  partout, `--help-full` pour l'aide complète (mutualisé dans pm_output).
+
+## [1.61.0] - 2026-07-20
+
+### Ajouté
+- Module `status-workflow` : § « Flux court micro-tâches » (RM2369, CDC RM2316 § S8) —
+  tickets ≤ 30 min sans code : `pm-task-take --no-branch` → travail → `pm-task-deliver`,
+  mêmes statuts et traces, pas de branche/env ; `--retro` pour le travail déjà fait.
+  Ligne déclencheur ajoutée au KERNEL.
+
+## [1.60.0] - 2026-07-20
+
+### Ajouté
+- Module `traceability` : § « Traces mécaniques templatées » (RM2365, CDC RM2316 § S4) —
+  les notes des événements mécaniques (transitions de statut : ancien→nouveau,
+  close_reason, assignation, branche/MR) sont générées par l'outillage depuis
+  `templates/notes/` ; `--note` devient un ajout sémantique appendé. Pas de nouvelles
+  notes pour estimation/liens (déjà portés par CF 21/22 et journal Redmine natif).
+
 ## [1.59.0] - 2026-07-20
 
 ### Ajouté — type de tâche `configuration` (RM2379)

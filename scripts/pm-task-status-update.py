@@ -41,6 +41,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+import pm_reporting
 import pm_git
 import pm_scope
 import redmine_utils
@@ -228,16 +229,15 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         tty = sys.stdin.isatty() and sys.stderr.isatty()
         r = subprocess.run([sys.executable, str(tool), verb, str(rm_id), str(ws)],
                            capture_output=not tty, text=True, timeout=600)
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        hook_out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
-            last = out.splitlines()[-1] if out else f"✓ {verb} ok"
+            last = hook_out.splitlines()[-1] if hook_out else f"✓ {verb} ok"
             out.info(f"  · env de session ({verb}) : {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.
             out.warn(f"env de session ({verb}) non appliqué (non bloquant) : "
-                  + "\n".join(f"    {ln}" for ln in out.splitlines()[-4:]),
-                  file=sys.stderr)
+                     + " | ".join(hook_out.splitlines()[-4:]))
     except Exception as e:  # noqa: BLE001 — hook best-effort
         out.warn(f"hook env de session en échec (non bloquant) : {e}")
 
@@ -594,16 +594,23 @@ def main():
     elif reopening:
         fm["close_reason"] = None
     fm["updated"] = now
-    hist = fm.get("status_history") or []
-    hist.append({
+    entry = {
         "status": args.status,
         "at": now,
         "by": args.by,
         "model": None,
         "tokens": None,
         "duration_minutes": None,
-    })
+    }
+    # RM2366 (S5) : l'historique complet vit dans le ledger annexe ; le
+    # frontmatter garde une QUEUE (dernière entrée = statut courant, exigé par
+    # validate-task). sweep() migre au passage les résidus (writers non migrés).
+    hist = (fm.get("status_history") or []) + [entry]
     fm["status_history"] = hist
+    try:
+        pm_reporting.sweep(fm, md_path)
+    except Exception as e:
+        out.warn(f"ledger reporting non mis à jour (non bloquant) : {e}")
 
     # 2. Push update Redmine via redmine-post-note.py
     norms_status = args.status
@@ -615,7 +622,10 @@ def main():
     # `.log.md`, donc invisibles de la fiche cockpit (protocole de test).
     if args.note == "-":
         args.note = sys.stdin.read().strip()
-    note = args.note or f"Statut → {args.status}" + (f" ({args.close_reason})" if args.close_reason else "")
+    # Note = bloc MÉCANIQUE templaté (RM2365, CDC RM2316 § S4 — templates/notes/
+    # status_change.md) + éventuel AJOUT SÉMANTIQUE (--note). L'agent ne rédige
+    # plus la partie mécanique ; assemblage final après résolution d'assignation.
+    semantic_note = args.note
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).
@@ -716,6 +726,22 @@ def main():
     new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
 
+    tpl_path = Path(__file__).resolve().parent.parent / "templates" / "notes" / "status_change.md"
+    try:
+        tpl = tpl_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        tpl = "Statut : {old} → {new}{close}{assign}{git}"
+    git_fm = fm.get("git") or {}
+    mech = tpl.format(
+        old=old_status, new=args.status,
+        close=f" ({args.close_reason})" if args.close_reason else "",
+        assign=f" · assigné → {assigned_to_id}" if assigned_to_id is not None else "",
+        git=(f"\nGit : branche={git_fm.get('branch')}"
+             + (f" · MR {git_fm.get('mr_url')}" if git_fm.get("mr_url") else ""))
+            if git_fm.get("branch") else "",
+    ).strip()
+    note = mech + (f"\n\n{semantic_note}" if semantic_note else "")
+
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")
         print(f"--dry-run : Redmine note = {note!r}, norms-status = {norms_status}")
@@ -804,7 +830,7 @@ def main():
     # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
     # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).
     if not args.dry_run and not args.no_commit:
-        pm_git.autocommit([md_path, log_path],
+        pm_git.autocommit([md_path, log_path, pm_reporting.ledger_path(md_path)],
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
 
 

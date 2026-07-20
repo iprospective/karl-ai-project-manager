@@ -202,6 +202,25 @@ ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `m
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
 
+### Flux court micro-tâches — v1.61.0 (RM2369, CDC RM2316 § S8)
+
+**Critère** : `estimate.time_minutes ≤ 30` **et** pas de livrable code (audit
+éclair, doc courte, correction de données, assistance). Constat d'audit
+(RM2275) : sur ces tickets la cérémonie atteignait 40–59 % du coût.
+
+**Séquence** — mêmes statuts, mêmes notes (templatées § traceability), zéro
+infrastructure inutile :
+
+1. `pm-task-take <id> --no-branch` — en_cours + assignation, PAS de branche ni
+   d'env de session ;
+2. travail + entrée `.log.md` (le sémantique reste obligatoire) ;
+3. `pm-task-deliver <id> --summary -` — critères/protocole/routage inchangés.
+
+Travail déjà fait au moment de la création → `pm-task-add --retro` (le ticket
+traverse la machine d'états en un appel). Un micro-ticket qui grossit en cours
+de route (code nécessaire) repasse au flux standard : `pm-task-take <id>`
+(idempotent) crée branche + env à ce moment-là.
+
 ### Transitions « assignee-only » — v1.31.0
 
 Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket

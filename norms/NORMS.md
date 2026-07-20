@@ -1,10 +1,10 @@
 ---
-schema_version: "1.59.0"
+schema_version: "1.62.0"
 updated: 2026-07-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.59.0
+# Normes de gestion des tâches — v1.62.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -48,6 +48,7 @@ updated: 2026-07-20
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
+| micro-tâche (≤ 30 min, sans code) | `modules/status-workflow.md` § flux court | `pm-task-take --no-branch`, `pm-task-add --retro` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
 | je suis l'orchestrateur (assignation, sous-tâches, propagation) | `modules/collaboration.md` | — |
 | je génère les fichiers auto (Changelog/Pistes/Remarques) | `modules/summarizer.md` | — |
@@ -490,6 +491,14 @@ référence humaine.
 
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
+
+## Cheatsheet outillage (RM2367, CDC RM2316 § S6)
+
+**`norms/CHEATSHEET.md`** (généré : `pm-norms-assemble.py cheatsheet`, ≤ 1 200
+tokens) : 1 ligne par outil du quotidien + les flux nominaux (take → deliver,
+porcelain, lectures ciblées). **Le lire UNE fois en début de session** remplace
+les `--help` répétés (300–600 tokens chacun) ; `--help` reste court par défaut,
+`--help-full` donne le pavé complet.
 
 > **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
 > `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
@@ -1075,6 +1084,25 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+
+### Flux court micro-tâches — v1.61.0 (RM2369, CDC RM2316 § S8)
+
+**Critère** : `estimate.time_minutes ≤ 30` **et** pas de livrable code (audit
+éclair, doc courte, correction de données, assistance). Constat d'audit
+(RM2275) : sur ces tickets la cérémonie atteignait 40–59 % du coût.
+
+**Séquence** — mêmes statuts, mêmes notes (templatées § traceability), zéro
+infrastructure inutile :
+
+1. `pm-task-take <id> --no-branch` — en_cours + assignation, PAS de branche ni
+   d'env de session ;
+2. travail + entrée `.log.md` (le sémantique reste obligatoire) ;
+3. `pm-task-deliver <id> --summary -` — critères/protocole/routage inchangés.
+
+Travail déjà fait au moment de la création → `pm-task-add --retro` (le ticket
+traverse la machine d'états en un appel). Un micro-ticket qui grossit en cours
+de route (code nécessaire) repasse au flux standard : `pm-task-take <id>`
+(idempotent) crée branche + env à ce moment-là.
 
 ### Transitions « assignee-only » — v1.31.0
 
@@ -2332,6 +2360,23 @@ la clôture. On journalise le *pourquoi* des décisions, pas seulement le code p
   la conversation d'origine.
 - N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
   sa place dans le journal.
+
+#### Traces mécaniques templatées — RM2365 (CDC RM2316 § S4)
+
+Les notes Redmine des **événements mécaniques** sont générées par l'outillage
+depuis `templates/notes/` (ex. `status_change.md` : ancien → nouveau statut,
+assignation, branche/MR) — **l'agent ne rédige plus cette partie**. La règle :
+
+- **Transition de statut** : ne passer `--note` à `pm-task-status-update` /
+  `pm-task-take` / `pm-task-deliver` **que pour un ajout sémantique** (décision,
+  contexte, résumé de livraison) — jamais pour paraphraser la transition,
+  l'assignation, la branche ou la MR (le template les porte déjà).
+- Les événements déjà journalisés ailleurs **n'appellent pas de note
+  supplémentaire** : estimation (CF 21/22 visibles sur le ticket), liens
+  (journal Redmine natif des relations), tick/report (déjà templatés).
+- Le **sémantique reste obligatoire** là où il l'a toujours été : prise en
+  charge avec plan, décisions/arbitrages, blocages, livraison (le
+  `--summary` de `pm-task-deliver`).
 
 #### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
 

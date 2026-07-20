@@ -80,13 +80,12 @@ tf.write_text("---\nredmine_id: 77\ngit:\n  worktree: null\ntest_url: null\n"
 
 calls = []
 mod.PMConfig = SimpleNamespace(load=lambda: SimpleNamespace(projects_root=tmp / "projects"))
-mod.load_env_runtime = lambda: {"helper": "/fake/helper"}
-mod.run_helper = lambda helper, args, dry: calls.append((helper, tuple(args), dry))
+mod.run_vhost = lambda args, dry: calls.append((tuple(args), dry))
 mod.push_cf14 = lambda rmid, value, dry: calls.append(("cf14", rmid, value))
 
 mod.cmd_expose(SimpleNamespace(rmid=77, port=None, workspace=None, dry_run=False))
-check("helper appelé : vhost-proxy-add demo-rm77 21000",
-      ("/fake/helper", ("vhost-proxy-add", "demo-rm77", "21000"), False) in calls)
+check("run_vhost appelé : vhost-proxy-add demo-rm77 21000",
+      (("vhost-proxy-add", "demo-rm77", "21000"), False) in calls)
 check("CF14 poussé avec l'URL", ("cf14", 77, "http://demo-rm77.lxc/") in calls)
 reg2 = json.loads((ws / "var" / "env-expose.json").read_text())
 check("registre écrit", reg2.get("77", {}).get("name") == "demo-rm77"
@@ -98,12 +97,12 @@ calls.clear()
 mod.cmd_expose(SimpleNamespace(rmid=77, port=None, workspace=None, dry_run=False))
 reg3 = json.loads((ws / "var" / "env-expose.json").read_text())
 check("re-expose idempotent : même port depuis le registre",
-      reg3["77"]["port"] == 21000 and ("/fake/helper",
-      ("vhost-proxy-add", "demo-rm77", "21000"), False) in calls)
+      reg3["77"]["port"] == 21000 and
+      (("vhost-proxy-add", "demo-rm77", "21000"), False) in calls)
 
 calls.clear()
 mod.cmd_unexpose(SimpleNamespace(rmid=77, port=None, workspace=None, dry_run=False))
-check("helper appelé : vhost-remove", ("/fake/helper", ("vhost-remove", "demo-rm77"), False) in calls)
+check("run_vhost appelé : vhost-remove", (("vhost-remove", "demo-rm77"), False) in calls)
 check("registre nettoyé", "77" not in json.loads((ws / "var" / "env-expose.json").read_text()))
 check("test_url nettoyé", "test_url: null" in tf.read_text())
 check("CF14 vidé", ("cf14", 77, "") in calls)

@@ -39,6 +39,10 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm env vhost <verbe> [args]    vhost du helper via mmi-pm                   [helper]
+                                     (add <name> <docroot> <sock> |
+                                      proxy-add <name> <port> | remove <name> ;
+                                      passe par pm-env-helper NOPASSWD, RM2372)
   mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
                                      (post-commit, pre-push, pre-commit ;
                                      --repo <path> pour un seul repo ;
@@ -51,6 +55,7 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
 Légende : [priv]=re-exec sudo ROOT  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
+          [karl]=KARL_USER  [helper]=pm-env-helper NOPASSWD (privilège confiné au helper)
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
 Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
           KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
@@ -289,6 +294,40 @@ cmd_norms(){
 
 # `env init` (RM1947, P1a) : layout git d'un workspace. Non privilégié (git/fs en
 # KARL_USER dans le workspace). --dry-run propagé tel quel à pm-env-init.
+# Chemin du helper privilégié (RM2372) : source unique = pm.config.yml ::
+# env_runtime.helper (+ override local), défaut historique sinon.
+resolve_env_helper(){
+  local h
+  h="$(python3 - "$CORE_DIR" <<'PY' 2>/dev/null || true
+import sys, pathlib, yaml
+core = pathlib.Path(sys.argv[1]); helper = ""
+for name in ("pm.config.yml", "pm.config.local.yml"):
+    p = core / name
+    if p.is_file():
+        d = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("env_runtime") or {}
+        helper = d.get("helper") or helper
+print(helper)
+PY
+)"
+  echo "${h:-/usr/local/sbin/pm-env-helper}"
+}
+
+# `mmi-pm env vhost <add|proxy-add|remove> [args]` (RM2372) — façade CLI unique
+# sur les verbes vhost du helper. Le PRIVILÈGE vit dans pm-env-helper (règle
+# sudoers NOPASSWD dédiée, invoquée non-interactivement par pm-env-session /
+# pm-env-expose) : mmi-pm route via `sudo -n <helper>` SANS re-exec mot de passe
+# et SANS nouvelle règle sudoers → surface de confiance inchangée (la seule op
+# privilégiée « mot de passe » de mmi-pm reste `core update`, cf. is_privileged).
+cmd_env_vhost(){
+  local verb="${1:-}"; shift || true
+  case "$verb" in add|proxy-add|remove) :;; *)
+    die "env vhost: verbe inconnu '${verb:-}' (add|proxy-add|remove)";; esac
+  local helper; helper="$(resolve_env_helper)"
+  local hargs=("vhost-$verb" "$@")
+  if [ "$DRY" = 1 ]; then log "[dry] sudo -n $helper ${hargs[*]}"; return 0; fi
+  sudo -n "$helper" "${hargs[@]}"
+}
+
 cmd_env(){
   # --dry-run est capté par le parsing global (→ $DRY, retiré des positionnels) :
   # on le réinjecte pour pm-env-init.
@@ -296,7 +335,8 @@ cmd_env(){
   case "${1:-}" in
     init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
     migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init|migrate)";;
+    vhost)   shift; cmd_env_vhost "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost)";;
   esac
 }
 

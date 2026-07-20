@@ -39,6 +39,10 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm env vhost <verbe> [args]    vhost du helper via mmi-pm                   [helper]
+                                     (add <name> <docroot> <sock> |
+                                      proxy-add <name> <port> | remove <name> ;
+                                      passe par pm-env-helper NOPASSWD, RM2372)
   mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
                                      (post-commit, pre-push, pre-commit ;
                                      --repo <path> pour un seul repo ;
@@ -51,6 +55,7 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
 Légende : [priv]=re-exec sudo ROOT  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
+          [karl]=KARL_USER  [helper]=pm-env-helper NOPASSWD (privilège confiné au helper)
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
 Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
           KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
@@ -100,7 +105,7 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308)"
+    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308) ; install pm-env-helper si modifié (RM2358)"
     return
   fi
   # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
@@ -182,6 +187,19 @@ cmd_core_update(){
         log "⚠ karl-agent.py modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user $_ku)"
       fi
     fi
+  fi
+  # ── Helper privilégié pm-env-helper (RM2358) : il vit HORS du repo
+  #    (/usr/local/sbin, root:root) → son déploiement relève du même canal root
+  #    que le code du core. Install idempotente : copie seulement si le contenu
+  #    installé diffère du repo (source unique tools/env-runtime). Remplace le
+  #    scp manuel du README (conservé comme bootstrap d'une box neuve).
+  #    NB auto-update : ce bloc s'exécute depuis l'ANCIEN bin/mmi-pm — un helper
+  #    fraîchement pullé est bien posé par CE run, mais une évolution de ce
+  #    bloc lui-même ne prend effet qu'au run suivant.
+  local _hsrc="$CORE_DIR/tools/env-runtime/pm-env-helper.sh" _hdst="/usr/local/sbin/pm-env-helper"
+  if [ -f "$_hsrc" ] && ! cmp -s "$_hsrc" "$_hdst" 2>/dev/null; then
+    install -o root -g root -m 755 "$_hsrc" "$_hdst"
+    log "pm-env-helper déployé → $_hdst (source tools/env-runtime, RM2358)"
   fi
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
@@ -276,6 +294,40 @@ cmd_norms(){
 
 # `env init` (RM1947, P1a) : layout git d'un workspace. Non privilégié (git/fs en
 # KARL_USER dans le workspace). --dry-run propagé tel quel à pm-env-init.
+# Chemin du helper privilégié (RM2372) : source unique = pm.config.yml ::
+# env_runtime.helper (+ override local), défaut historique sinon.
+resolve_env_helper(){
+  local h
+  h="$(python3 - "$CORE_DIR" <<'PY' 2>/dev/null || true
+import sys, pathlib, yaml
+core = pathlib.Path(sys.argv[1]); helper = ""
+for name in ("pm.config.yml", "pm.config.local.yml"):
+    p = core / name
+    if p.is_file():
+        d = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("env_runtime") or {}
+        helper = d.get("helper") or helper
+print(helper)
+PY
+)"
+  echo "${h:-/usr/local/sbin/pm-env-helper}"
+}
+
+# `mmi-pm env vhost <add|proxy-add|remove> [args]` (RM2372) — façade CLI unique
+# sur les verbes vhost du helper. Le PRIVILÈGE vit dans pm-env-helper (règle
+# sudoers NOPASSWD dédiée, invoquée non-interactivement par pm-env-session /
+# pm-env-expose) : mmi-pm route via `sudo -n <helper>` SANS re-exec mot de passe
+# et SANS nouvelle règle sudoers → surface de confiance inchangée (la seule op
+# privilégiée « mot de passe » de mmi-pm reste `core update`, cf. is_privileged).
+cmd_env_vhost(){
+  local verb="${1:-}"; shift || true
+  case "$verb" in add|proxy-add|remove) :;; *)
+    die "env vhost: verbe inconnu '${verb:-}' (add|proxy-add|remove)";; esac
+  local helper; helper="$(resolve_env_helper)"
+  local hargs=("vhost-$verb" "$@")
+  if [ "$DRY" = 1 ]; then log "[dry] sudo -n $helper ${hargs[*]}"; return 0; fi
+  sudo -n "$helper" "${hargs[@]}"
+}
+
 cmd_env(){
   # --dry-run est capté par le parsing global (→ $DRY, retiré des positionnels) :
   # on le réinjecte pour pm-env-init.
@@ -283,7 +335,8 @@ cmd_env(){
   case "${1:-}" in
     init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
     migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init|migrate)";;
+    vhost)   shift; cmd_env_vhost "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost)";;
   esac
 }
 

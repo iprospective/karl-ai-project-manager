@@ -27,6 +27,37 @@ sysadmin pur). Câblé de bout en bout comme `documentation` (RM1856) et `databa
   `scripts/test_task_types_wiring.py` (chaque type valide a tracker + label +
   activité ; CF 20 ne mappe que des types valides, bijectif).
 
+## [1.58.2] - 2026-07-20
+
+### Ajouté — le repli HTTPS+token se pose par `insteadOf` (RM2328)
+
+Complément à la norme SSH-first (v1.58.1), sans la contredire : SSH + alias `gitlab:`
+reste le **premier choix** (clé dédiée sans passphrase, RM2158). On documente **comment**
+faire le **repli HTTPS+token** quand la clé n'est pas disponible (machine tierce, agent
+d'automatisation) ou pour tirer des **submodules sans clé** :
+
+- un `url.…insteadOf` **global** (gitconfig de l'agent) réécrit `gitlab:` /
+  `git@gitlab.iprospective.fr:` / `ssh://git@…` → `https://gitlab.iprospective.fr/` au
+  moment de l'op → push, fetch **et submodules** en token **sans muter aucun remote ni
+  `.gitmodules`** (démontré : PoC RM2328) ;
+- **interdit** : `git remote set-url … https` par repo (casse les configs SSH partagées) ;
+- transport ≠ API : l'API GitLab reste sur les PAT (`pm-mr`), inchangé.
+
+## [1.58.1] - 2026-07-20
+
+### Clarifié — transport git = SSH + alias en premier choix partout (RM2328)
+
+`git-mep` § *Remote canonique* : le push/fetch des repos PM passe par l'**alias
+SSH** (`gitlab:`), forme canonique et préférée ; **HTTPS + token = simple repli**.
+Explicité que l'auth repose sur la **clé GitLab dédiée sans passphrase** de `karl-dev`
+(`id_ed25519_gitlab`, **RM2158**), toujours disponible sans ssh-agent — on ne convertit
+pas les remotes en HTTPS. Panne silencieuse pointée : auth SSH cassée → push différé
+**et** `git fetch` menteur (refs périmées → anti-collision faussée), d'où le watchdog
+cockpit **RM2376**. Distinction posée : **transport (SSH)** vs **API GitLab (PAT,
+HTTPS)** via `pm-mr`.
+
+---
+
 ## [1.58.0] - 2026-07-19
 
 ### Ajouté / corrigé — layout canonique de workspace (RM2348)

@@ -1,2 +1,2 @@
-schema_version: "1.58.1"
+schema_version: "1.58.2"
 updated: 2026-07-20

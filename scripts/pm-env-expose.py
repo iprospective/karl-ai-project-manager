@@ -55,7 +55,6 @@ def load_env_runtime() -> dict:
         if p.is_file():
             data = yaml.safe_load(p.read_text(encoding="utf-8")) or {}
             cfg.update(data.get("env_runtime") or {})
-    cfg.get("helper") or die("pm.config.yml :: env_runtime.helper manquant")
     return cfg
 
 
@@ -134,20 +133,30 @@ def save_registry(ws: Path, reg: dict) -> None:
     tmp.replace(p)
 
 
-def run_helper(helper: str, args: list, dry: bool) -> None:
-    cmd = ["sudo", "-n", helper, *args]
+MMI_PM = SCRIPTS.parent / "bin" / "mmi-pm"
+
+
+def run_vhost(args: list, dry: bool) -> None:
+    """Verbes vhost du helper, routés par la CLI unique `mmi-pm env vhost`
+    (RM2372). mmi-pm appelle en interne pm-env-helper (NOPASSWD) — pas de
+    mot de passe, surface de confiance inchangée. `args` = ["vhost-<verbe>", …]
+    (forme helper) ; on dérive le sous-verbe mmi-pm en retirant le préfixe."""
+    helper_verb = args[0]
+    verb = helper_verb[len("vhost-"):] if helper_verb.startswith("vhost-") else helper_verb
+    cmd = [str(MMI_PM), "env", "vhost", verb, *args[1:]]
     if dry:
+        cmd.insert(1, "--dry-run")
         print(f"  [dry-run] {' '.join(cmd)}")
         return
     r = subprocess.run(cmd, capture_output=True, text=True)
     sys.stdout.write(r.stdout)
     if r.returncode != 0:
         err = (r.stderr or "").strip()
-        if "verbe inconnu" in err and args and args[0] == "vhost-proxy-add":
-            die(f"{err}\n  → le helper déployé est antérieur à RM2358 ; redéployer "
-                "(en root) :\n    scp tools/env-runtime/pm-env-helper.sh "
-                "root@dev.lxc:/usr/local/sbin/pm-env-helper")
-        die(f"pm-env-helper a échoué : {err}")
+        if "verbe inconnu" in err and "vhost" in err:
+            die(f"{err}\n  → le `mmi-pm` déployé est antérieur à RM2372, ou le "
+                "helper à RM2358 ; déployer :\n    sudo mmi-pm core update  (×2 : "
+                "le 1er pose le nouveau bin, le 2e le helper)")
+        die(f"mmi-pm env vhost a échoué : {err}")
 
 
 def update_test_url(task_file: Path, url: str | None, expect: str | None) -> bool:
@@ -206,7 +215,6 @@ def pick_port(reg: dict, asked: int | None) -> int:
 
 def cmd_expose(a) -> None:
     cfg = PMConfig.load()
-    rt = load_env_runtime()
     task_file = find_task_file(cfg, a.rmid)
     fm = read_frontmatter(task_file)
     ws = resolve_workspace(task_file, a.workspace)
@@ -218,7 +226,7 @@ def cmd_expose(a) -> None:
     port = pick_port(reg, port)
     url = f"http://{name}.lxc/"
     print(f"RM{a.rmid} : env {env_dir.name} → {url} (proxy 127.0.0.1:{port})")
-    run_helper(rt["helper"], ["vhost-proxy-add", name, str(port)], a.dry_run)
+    run_vhost(["vhost-proxy-add", name, str(port)], a.dry_run)
     if not a.dry_run:
         reg[str(a.rmid)] = {"name": name, "port": port, "env_dir": str(env_dir),
                             "created": (prev or {}).get("created")
@@ -236,7 +244,6 @@ def cmd_expose(a) -> None:
 
 def cmd_unexpose(a) -> None:
     cfg = PMConfig.load()
-    rt = load_env_runtime()
     task_file = find_task_file(cfg, a.rmid)
     ws = resolve_workspace(task_file, a.workspace)
     reg = load_registry(ws)
@@ -248,7 +255,7 @@ def cmd_unexpose(a) -> None:
         entry = {"name": derive_name(env_dir, a.rmid)}
     name = entry["name"]
     print(f"RM{a.rmid} : retrait de {name}.lxc")
-    run_helper(rt["helper"], ["vhost-remove", name], a.dry_run)
+    run_vhost(["vhost-remove", name], a.dry_run)
     if not a.dry_run:
         if reg.pop(str(a.rmid), None):
             save_registry(ws, reg)

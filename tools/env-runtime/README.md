@@ -58,6 +58,26 @@ Toute la sécurité repose sur le helper (whitelist de verbes, validation strict
 marqueur « managed-by » sur les vhosts, drop limité aux BDD `*_rm<id>`, configtest
 Apache avant reload, audit syslog `pm-env-helper`).
 
+## Façade CLI `mmi-pm env vhost` (RM2372)
+
+Les verbes vhost du helper sont exposés par la **CLI unique** `mmi-pm`, plutôt
+qu'en `sudo pm-env-helper` brut :
+
+```bash
+mmi-pm env vhost proxy-add <name> <port>     # reverse proxy <name>.lxc → 127.0.0.1:<port>
+mmi-pm env vhost add <name> <docroot> <sock> # vhost PHP
+mmi-pm env vhost remove <name>               # retrait
+mmi-pm env vhost proxy-add … --dry-run       # prévisualise sans muter
+```
+
+`mmi-pm env vhost` est une **façade mince** : le privilège reste **confiné au
+helper** (règle sudoers NOPASSWD dédiée), mmi-pm route via `sudo -n <helper>`
+**sans re-exec mot de passe** et **sans nouvelle règle sudoers**. La seule op
+« mot de passe » de mmi-pm demeure `core update`. Automation préservée :
+`pm-env-session` (host-side, ssh+sudo -n) et `pm-env-expose` passent par cette
+voie NOPASSWD. `pm-env-expose.py` appelle `mmi-pm env vhost` en interne (front
+door unique).
+
 ## Config côté PM
 
 `pm.config.yml :: env_runtime` (ssh_host, helper, log_dir, workspace_map) ;

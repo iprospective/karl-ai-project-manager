@@ -32,8 +32,22 @@ Invariant NORMS (CDC § I1) : ce module ne supprime aucune information — le
 détail masqué en mode dense est déjà porté par le .log.md, le commit ou la
 note Redmine, et reste accessible via --verbose.
 """
+import argparse
 import os
 import sys
+
+
+class _HelpFullAction(argparse.Action):
+    """--help-full : aide complète (docstring entière) — RM2367, CDC § S6."""
+
+    def __init__(self, option_strings, dest, **kw):
+        super().__init__(option_strings, dest, nargs=0,
+                         help="Aide complète (docstring entière)")
+
+    def __call__(self, parser, namespace, values, option_string=None):
+        parser.description = getattr(parser, "_pm_full_desc", parser.description)
+        parser.print_help()
+        parser.exit()
 
 
 class _Out:
@@ -43,12 +57,18 @@ class _Out:
 
     # ── configuration ──────────────────────────────────────────────────────
     def add_args(self, parser):
-        """Ajoute --verbose au parser (idempotent si déjà présent)."""
+        """Ajoute --verbose et --help-full (idempotent si déjà présents), et
+        raccourcit l'aide par défaut : `--help` = 1er paragraphe de la
+        docstring, `--help-full` = pavé complet (RM2367, CDC § S6)."""
         try:
             parser.add_argument("--verbose", action="store_true",
                                 help="Sortie détaillée historique (défaut : dense)")
+            parser.add_argument("--help-full", action=_HelpFullAction, dest="help_full")
         except Exception:
             pass
+        if parser.description and "\n\n" in parser.description:
+            parser._pm_full_desc = parser.description
+            parser.description = parser.description.split("\n\n")[0].strip()
         return parser
 
     def configure(self, args=None, porcelain=None, verbose=None):

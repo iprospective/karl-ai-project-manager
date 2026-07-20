@@ -5,6 +5,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.62.0] - 2026-07-20
+
+### Ajouté
+- Module `session-tooling` : § « Cheatsheet outillage » (RM2367, CDC RM2316 § S6) —
+  `norms/CHEATSHEET.md` généré (`pm-norms-assemble.py cheatsheet`, budget ≤ 1 200 tokens),
+  lu une fois par session à la place des `--help` répétés ; `--help` court par défaut
+  partout, `--help-full` pour l'aide complète (mutualisé dans pm_output).
+
 ## [1.61.0] - 2026-07-20
 
 ### Ajouté

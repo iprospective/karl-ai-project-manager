@@ -2132,8 +2132,10 @@ function renderTQ() {
       h += '<button class="chip" onclick="openReview(' + e.rm_id + ')">🧪 revue</button>';
       if (e.env && e.env_live) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
       else if (e.env) h += '<button class="chip" title="' + esc(e.env_reason || 'env indisponible') + '" onclick="tqDeploy(' + e.rm_id + ', this)">🔁 re-déployer</button>';
+      else if (e.cockpit_testable) h += '<button class="chip" title="Lance une instance karl-agent de la BRANCHE du ticket (port dédié) et pose test_url" onclick="tqCockpitEnv(' + e.rm_id + ', \'create\', this)">🚀 instance cockpit de test</button>';
       else if (e.deployable) h += '<button class="chip" onclick="tqDeploy(' + e.rm_id + ', this)">🚀 déployer</button>';
       else h += '<span class="pill" title="workspace hors layout repos/+envs/ — normaliser d\'abord (mmi-pm env migrate)" style="opacity:.5">🚀 indisponible</span>';
+      if (e.cockpit_testable) h += '<button class="chip" onclick="tqCockpitEnv(' + e.rm_id + ', \'teardown\', this)">🧹 instance test</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'valider\', this)">✅ testé OK → fermer</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'mep\', this)">🚧 testé OK → MEP</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'renvoyer\', this)">↩ KO → corriger</button>';
@@ -2142,6 +2144,22 @@ function renderTQ() {
       ul.appendChild(li);
     }
   }
+}
+// RM2356 : instance karl-agent de test de la branche du ticket (create/teardown)
+async function tqCockpitEnv(rm, action, btn) {
+  btn.disabled = true; const old = btn.textContent;
+  btn.textContent = action === "create" ? "🚀 lancement…" : "🧹 démontage…";
+  try {
+    const r = await pmRun("cockpit-test-env", { action, rm_id: String(rm) }, { confirm: true });
+    if (r.ok) {
+      toast(action === "create" ? "Instance de test RM" + rm + " prête — lien dans la fiche" : "Instance de test démontée");
+      showCaptureModal("Instance cockpit de test RM" + rm, r.stdout || "(ok)");
+    } else {
+      toast("Échec (rc=" + r.rc + ")", true);
+      showCaptureModal("Instance cockpit RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
+    }
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = old; ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 async function tqDeploy(rm, btn) {
   const clone = window.confirm("Cloner la BDD pour cet env de test ?\nOK = clone dédié (" + rm + ") · Annuler = BDD partagée");

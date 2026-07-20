@@ -5,6 +5,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.58.1] - 2026-07-20
+
+### Clarifié — transport git = SSH + alias en premier choix partout (RM2328)
+
+`git-mep` § *Remote canonique* : le push/fetch des repos PM passe par l'**alias
+SSH** (`gitlab:`), forme canonique et préférée ; **HTTPS + token = simple repli**.
+Explicité que l'auth repose sur la **clé GitLab dédiée sans passphrase** de `karl-dev`
+(`id_ed25519_gitlab`, **RM2158**), toujours disponible sans ssh-agent — on ne convertit
+pas les remotes en HTTPS. Panne silencieuse pointée : auth SSH cassée → push différé
+**et** `git fetch` menteur (refs périmées → anti-collision faussée), d'où le watchdog
+cockpit **RM2376**. Distinction posée : **transport (SSH)** vs **API GitLab (PAT,
+HTTPS)** via `pm-mr`.
+
+---
+
 ## [1.58.0] - 2026-07-19
 
 ### Ajouté / corrigé — layout canonique de workspace (RM2348)

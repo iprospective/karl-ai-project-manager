@@ -194,12 +194,33 @@ git approprié. La règle s'applique à **deux périmètres** :
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
 
-#### Remote canonique GitLab, MR, et gotchas API — v1.20.4
+#### Remote canonique GitLab, MR, et gotchas API — v1.58.1
 
 - **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
-  (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
-  qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
-  traque la branche d'intégration locale.
+  (typiquement `origin`, alias SSH `git:`/`gitlab:` → `gitlab.iprospective.fr`),
+  c'est lui qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui
+  que traque la branche d'intégration locale.
+- **Transport git = SSH + alias, premier choix partout** : le push/fetch passe par
+  l'**alias SSH** (`gitlab:<chemin>.git`, résolu via `~/.ssh/config`). C'est la forme
+  **canonique et préférée** du remote sur **tous** les repos PM — on ne convertit
+  **pas** les remotes en HTTPS. L'auth repose sur une **clé GitLab dédiée sans
+  passphrase** (`~/.ssh/id_ed25519_gitlab`, `IdentitiesOnly yes` ; clé sur `karl-dev`,
+  identité worker), donc **toujours disponible sans ssh-agent** — choix délibéré : un
+  agent ne survit pas au reboot et personne ne peut le déverrouiller en session
+  autonome (**RM2158**). HTTPS + credential-helper token n'est qu'un **repli** quand
+  cette clé n'est pas disponible sur la machine ; ce n'est **pas** la cible.
+- **Pourquoi ça compte — panne silencieuse si l'auth SSH casse** : si la clé/config
+  est absente ou le membership GitLab manquant, deux effets sournois — (1) le **push
+  se reporte** (« push différé » qui s'accumule) ; (2) `git fetch` peut **échouer en
+  silence** → la ref `origin/*` reste **périmée** et annonce la branche « à jour »
+  alors qu'elle a divergé, ce qui fait **mentir l'anti-collision** de `governance`
+  (elle raisonne sur `git fetch`). ⇒ toujours `git fetch` **et vérifier son succès**
+  avant un bump de version ; la santé « karl peut pousser » (`ssh -T gitlab`) est
+  surveillée au cockpit (watchdog **RM2376**, cf. **RM2158** / **RM2328**).
+- **Ne pas confondre transport et API** : l'**API GitLab** (création/merge de MR,
+  `pm-protect`, résolution de projet) utilise **toujours les PAT** (`pm-mr`, tokens
+  worker/manager du `.env`), en **HTTPS**, indépendamment du choix SSH pour le
+  transport git. SSH-first ne concerne que push/fetch, pas les appels API.
 - **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
   générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
   Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout

@@ -100,7 +100,7 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308)"
+    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308) ; install pm-env-helper si modifié (RM2358)"
     return
   fi
   # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
@@ -182,6 +182,19 @@ cmd_core_update(){
         log "⚠ karl-agent.py modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user $_ku)"
       fi
     fi
+  fi
+  # ── Helper privilégié pm-env-helper (RM2358) : il vit HORS du repo
+  #    (/usr/local/sbin, root:root) → son déploiement relève du même canal root
+  #    que le code du core. Install idempotente : copie seulement si le contenu
+  #    installé diffère du repo (source unique tools/env-runtime). Remplace le
+  #    scp manuel du README (conservé comme bootstrap d'une box neuve).
+  #    NB auto-update : ce bloc s'exécute depuis l'ANCIEN bin/mmi-pm — un helper
+  #    fraîchement pullé est bien posé par CE run, mais une évolution de ce
+  #    bloc lui-même ne prend effet qu'au run suivant.
+  local _hsrc="$CORE_DIR/tools/env-runtime/pm-env-helper.sh" _hdst="/usr/local/sbin/pm-env-helper"
+  if [ -f "$_hsrc" ] && ! cmp -s "$_hsrc" "$_hdst" 2>/dev/null; then
+    install -o root -g root -m 755 "$_hsrc" "$_hdst"
+    log "pm-env-helper déployé → $_hdst (source tools/env-runtime, RM2358)"
   fi
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."

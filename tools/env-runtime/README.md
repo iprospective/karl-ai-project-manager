@@ -12,12 +12,35 @@ briques C4/C5 de RM1947) relève des provisionneurs framework (`tools/env-provis
 |---|---|---|
 | `pm-env-helper.sh` | helper **privilégié** fail-closed (vhost/BDD/logs) — brique F1 RM1947 | box de dev (root, via sudo) |
 | `scripts/pm-env-session.py` | orchestre worktree + `.user.ini` + appels helper — RM1834 | host (user) |
+| `scripts/pm-env-expose.py` | expose un env porté par un **daemon HTTP** (reverse proxy `vhost-proxy-add`) — RM2358 | box de dev (user) |
+
+## Convention hostname (RM2358)
+
+Tout env de test est joignable en `http://<project>-rm<id>[-s<seq>].lxc/` :
+
+- env **PHP** (DocumentRoot) : vhost posé par `pm-env-session` (verbe `vhost-add`) ;
+- env porté par un **daemon HTTP** en loopback (karl-agent, serveur non-PHP) :
+  `pm-env-expose.py expose <rmid> --port <p>` crée le vhost reverse proxy
+  (verbe `vhost-proxy-add`), enregistre l'allocation (`var/env-expose.json` du
+  workspace), synchronise `test_url` + CF 14 « Environnement de test », et
+  journalise dans le `.log.md` du ticket. `unexpose` défait tout. Le hostname
+  est **dérivé du dossier d'env**, jamais saisi (suffixe `-s<seq>` conservé
+  pour les worktrees de session).
 
 Recette validée par le pilote manuel RM1834 du 2026-07-02 (matnat/site_sf7) :
 vhost `<repo>-rm<id>.lxc` + `.user.ini` `error_log` par worktree (surchargeable car
 `php_value[]` dans `common.conf.inc`, RM2081) + pool FPM partagé.
 
 ## Déploiement du helper (box de dev)
+
+**Canal normal (RM2358)** : `sudo mmi-pm core update` installe/rafraîchit le
+helper automatiquement (copie idempotente `tools/env-runtime/pm-env-helper.sh`
+→ `/usr/local/sbin/pm-env-helper`, root:root 755) — même canal root que le
+code du core, barrière mot de passe sudoers. NB : `core update` s'exécutant
+depuis l'ancien `bin/mmi-pm`, une évolution du bloc d'install lui-même ne prend
+effet qu'au run suivant.
+
+**Bootstrap d'une box neuve** (avant le premier `core update`) :
 
 ```bash
 scp tools/env-runtime/pm-env-helper.sh root@dev.lxc:/usr/local/sbin/pm-env-helper

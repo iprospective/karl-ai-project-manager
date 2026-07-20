@@ -20,7 +20,10 @@ ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héri
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout)
 4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
-5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md`
+5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` ;
+   côté `{docs_dir}` : lire **`docs/INDEX.md`** (1 ligne par doc), puis ouvrir
+   les docs **à la demande** — jamais le dossier entier (budget
+   `context.budget_tokens.project_docs`, vérifié par `pm-context-budget --check`)
 6. **`pm-task-brief.py <id>`** — le pack contexte de la tâche en ≤ 30 lignes
    (statut, estimé vs réel, critères, liens/sous-tâches, dernières entrées de
    journal, journaux Redmine non lus). C'est le point d'entrée par défaut ;

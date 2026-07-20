@@ -163,6 +163,17 @@ def main():
         print(f"  {t:>7,}  {label}")
     print(f"  {total:>7,}  TOTAL (≈ tokens, octets/{BYTES_PER_TOKEN})")
 
+    # Garde-fou cascade docs (RM2368, CDC RM2316 § S7) : le dossier docs/ d'un
+    # projet ne doit pas dépasser context.budget_tokens.project_docs (les docs
+    # se lisent à la demande via docs/INDEX.md — pas en lecture intégrale).
+    if args.entity and args.project:
+        docs_budget = load_budget().get("project_docs")
+        docs_total = sum(t for label, _, t in comp if label.startswith("cascade docs/"))
+        if docs_budget and docs_total > docs_budget:
+            print(f"✗ cascade docs : {docs_total:,} tokens > budget project_docs "
+                  f"{docs_budget:,} — découper/archiver, et lecture via docs/INDEX.md")
+            sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

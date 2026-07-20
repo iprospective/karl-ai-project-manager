@@ -100,7 +100,7 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
+    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308)"
     return
   fi
   # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
@@ -157,6 +157,32 @@ cmd_core_update(){
     ln -sfn "$_src" "$_hkdir/$_name"
   done
   log "hooks PM du core posés/rafraîchis (post-commit, pre-push, pre-commit)"
+  # ── Services résidents (RM2308) : un démon garde l'ANCIEN code en mémoire tant
+  #    qu'on ne le redémarre pas (vécu RM2303 : correctif déployé mais 403 fantôme,
+  #    2 core update + une recette perdus avant diagnostic). Détection des fichiers
+  #    de démons modifiés par le pull → restart du service USER (sûr par conception :
+  #    KillMode=process, les sessions tmux survivent — RM1873), sinon signalement
+  #    explicite. Les fichiers relus à chaque requête (cockpit/index.html, scripts
+  #    pm-* invoqués à l'appel) ne nécessitent PAS de restart.
+  if [ "$old" != "?" ] && [ "$old" != "$new" ]; then
+    local _changed; _changed="$(git -C "$CORE_DIR" diff --name-only "$old" "$new" 2>/dev/null || true)"
+    if printf '%s\n' "$_changed" | grep -qx "scripts/karl-agent.py"; then
+      local _ku _uid; _ku="$(sed -n 's/^KARL_USER=//p' "$CORE_DIR/.env" 2>/dev/null | head -1)"
+      _uid="$(id -u "${_ku:-__aucun__}" 2>/dev/null || true)"
+      if [ -n "$_ku" ] && [ -n "$_uid" ] \
+         && runuser -u "$_ku" -- env "XDG_RUNTIME_DIR=/run/user/$_uid" \
+              systemctl --user is-active --quiet karl-agent.service 2>/dev/null; then
+        if runuser -u "$_ku" -- env "XDG_RUNTIME_DIR=/run/user/$_uid" \
+             systemctl --user restart karl-agent.service 2>/dev/null; then
+          log "karl-agent.py modifié → karl-agent.service redémarré (KillMode=process : sessions tmux intactes)"
+        else
+          log "⚠ karl-agent.py modifié mais restart ÉCHOUÉ — l'agent sert l'ancien code ; relancer en tant que $_ku : systemctl --user restart karl-agent"
+        fi
+      else
+        log "⚠ karl-agent.py modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user $_ku)"
+      fi
+    fi
+  fi
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }

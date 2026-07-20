@@ -93,6 +93,21 @@ développement → test → mise en production*.
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
+| `ferme` | `a_faire` | **réouverture** (RM2285) : note obligatoire motivant la réouverture ; `close_reason` purgé |
+
+**Réouverture d'un ticket fermé (RM2285).** Un ticket `ferme` peut être rouvert
+**uniquement vers `a_faire`** (retour au backlog — la reprise suit ensuite le flow
+normal `a_faire → en_cours → …`, jamais de saut direct en réalisation). Conditions,
+imposées par `pm-task-status-update` :
+- **note obligatoire** motivant la réouverture (elle part en note Redmine et au journal) ;
+- `close_reason` est **purgé** (`null`) — un ticket rouvert n'est plus « résolu » ;
+- `status_history` **conserve le cycle précédent** (append-only) : l'historique
+  fermeture(s)/réouverture(s) reste lisible.
+
+Rouvrir n'est PAS le chemin pour « corriger une livraison qui régresse » — ça, c'est
+`a_corriger` avant fermeture. On rouvre quand un ticket **déjà validé et clos** doit
+reprendre du service (nouveau périmètre sur le même sujet → préférer un **nouveau
+ticket lié** `relates` ; même périmètre non terminé en réalité → réouverture).
 
 **Livraison en vérification — protocole de test + URL de test (RM2229).** Le
 **protocole de test** (CF Redmine « Protocole de test », miroir frontmatter

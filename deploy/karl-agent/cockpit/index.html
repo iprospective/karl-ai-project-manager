@@ -424,6 +424,22 @@
       <input id="token" type="password" placeholder="token partagé">
       <button class="mini" style="margin-top:8px" onclick="saveToken()">Mémoriser</button>
     </div>
+    <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
+    <div class="card" id="voicecard">
+      <h2>🔊 Voix <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label for="vx-lang">Langue (dictée + lecture)</label>
+      <select id="vx-lang" onchange="setVoiceLang(this.value)">
+        <option value="fr-FR">français</option>
+        <option value="en-US">anglais</option>
+      </select>
+      <label for="vx-voice">Voix de synthèse</label>
+      <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
+        La liste dépend du navigateur — Chrome recommandé.
+      </div>
+      <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
+    </div>
     <div class="card" id="setcard">
       <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
       <div id="set-body" style="margin-top:8px"></div>
@@ -450,7 +466,7 @@
         </select>
         <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
         <button class="mini" id="micbtn" onclick="dictate()"
-          title="Dicter une consigne (fr) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
+          title="Dicter une consigne (langue : panneau 🔧 réglages, fr par défaut) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
         <button class="mini" id="readbtn" onclick="readQuestion()"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
@@ -474,6 +490,8 @@
         </div>
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
+        <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
       <!-- RM2330 : outline de la conversation — clic = aller à ce point du terminal -->
       <aside class="outpanel collapsed" id="outpanel">
@@ -648,8 +666,8 @@ async function refreshSessions() {
       head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
         (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
         (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
-      head.title = key + "\n(clic : infos client/projet)";
-      head.onclick = () => showProject(key);
+      head.title = key + "\n(clic : fiche projet dans le panneau principal)";
+      head.onclick = () => openProjectView(key);   // RM2353
       g.appendChild(head);
       for (const s of sess) {
         const r = resolveCache[s.rm_id];
@@ -736,6 +754,9 @@ function renderCurTitle() {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
       '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : "") + '</span>';
+  } else if (currentProjectView) {
+    el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
+      '<span class="ttitle">fiche projet</span>';
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
@@ -812,16 +833,68 @@ function voiceQueue(sessions, spoken) {
 }
 // <<< voiceQueue
 
-function frVoice() {
-  return speechSynthesis.getVoices().find(v => (v.lang || "").toLowerCase().startsWith("fr")) || null;
+// RM2350 : préférences vocales — langue (dictée + lecture, fr par défaut) et
+// voix de synthèse choisie parmi celles du navigateur pour cette langue.
+let voiceLang = localStorage.getItem("karlVoiceLang") || "fr-FR";
+let voiceName = localStorage.getItem("karlVoiceName") || "";
+
+// >>> pickVoice — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2350 : meilleure voix pour `lang` parmi `voices` [{name, lang, localService}].
+// 1) la voix explicitement choisie (`wanted`) si toujours présente ; sinon
+// 2) une voix RÉSEAU (non locale — les « Google … » sonnent bien mieux que les
+//    voix locales type espeak, cause de la « qualité pourrie » constatée) ;
+// 3) à défaut, la première voix de la langue ; null si aucune.
+function pickVoice(voices, lang, wanted) {
+  const l = String(lang || "").toLowerCase().slice(0, 2);
+  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
+  if (!cand.length) return null;
+  if (wanted) { const w = cand.find(v => v.name === wanted); if (w) return w; }
+  return cand.find(v => v.localService === false) || cand[0];
 }
+// <<< pickVoice
+
 function speak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
-    u.lang = "fr-FR";
-    const v = frVoice(); if (v) u.voice = v;
+    u.lang = voiceLang;
+    const v = pickVoice(speechSynthesis.getVoices(), voiceLang, voiceName);
+    if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+function setVoiceLang(lang) {
+  voiceLang = lang;
+  try { localStorage.setItem("karlVoiceLang", lang); } catch (e) { /* mode privé */ }
+  voiceName = "";                          // la voix suit la langue → re-sélection auto
+  try { localStorage.removeItem("karlVoiceName"); } catch (e) { /* mode privé */ }
+  renderVoicePrefs();
+  toast("Langue voix : " + (lang.startsWith("fr") ? "français" : "anglais"));
+}
+function setVoiceName(name) {
+  voiceName = name;
+  try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
+}
+function renderVoicePrefs() {
+  const langSel = document.getElementById("vx-lang");
+  if (!langSel) return;
+  langSel.value = voiceLang;
+  const sel = document.getElementById("vx-voice");
+  const voices = speechSynthesis.getVoices();
+  const l = voiceLang.toLowerCase().slice(0, 2);
+  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
+  sel.innerHTML = "";
+  if (!cand.length) {
+    sel.innerHTML = '<option value="">(aucune voix ' + l + ' dans ce navigateur)</option>';
+    return;
+  }
+  const best = pickVoice(voices, voiceLang, voiceName);
+  for (const v of cand) {
+    const o = document.createElement("option");
+    o.value = v.name;
+    o.textContent = v.name + (v.localService === false ? " · réseau ★" : " · locale");
+    if (best && v.name === best.name) o.selected = true;
+    sel.appendChild(o);
+  }
 }
 function renderVoiceBtn() {
   const b = document.getElementById("voicebtn");
@@ -858,7 +931,7 @@ function dictate() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
   rec = new SR();
-  rec.lang = "fr-FR"; rec.interimResults = false; rec.maxAlternatives = 1;
+  rec.lang = voiceLang; rec.interimResults = false; rec.maxAlternatives = 1;   // RM2350
   const btn = document.getElementById("micbtn");
   btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
   const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
@@ -1041,7 +1114,9 @@ async function resolveRm() {
     resolved = r;
     if (r.found) {
       el.className = "resolved";
-      el.textContent = "✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "");
+      el.innerHTML = esc("✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "")) +
+        // RM2285 : un ticket fermé se rouvre (ferme→a_faire, note motivée obligatoire)
+        (r.status === "ferme" ? ' <button class="mini" onclick="reopenTicket(' + esc(rm) + ')" title="Rouvrir le ticket (ferme → a_faire, motif requis)">↻ Rouvrir</button>' : "");
       document.getElementById("cwd").value = r.cwd;
     } else {
       el.className = "resolved nf";
@@ -1373,7 +1448,8 @@ function renderMeta() {
       ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span></span></div>' +
       '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
       '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span></span></div>' +
+      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
+      (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
       '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
       '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
     // Consommation enregistrée par le PM (RM2173) — tokens / coût / temps
@@ -1526,6 +1602,8 @@ function attach(rmId) {
   attached = String(rmId);
   currentReview = null;                       // la vue revue cède la place
   document.getElementById("reviewpane").style.display = "none";
+  currentProjectView = null;                  // RM2353 : la fiche projet aussi
+  document.getElementById("projpane").style.display = "none";
   document.getElementById("placeholder").style.display = "none";
   const f = document.getElementById("term");
   f.style.display = "block"; f.src = ttydUrl(rmId);
@@ -1606,6 +1684,27 @@ function showCaptureModal(title, txt) {
   el.className = "plain";   // RM2309 : captures/sorties = texte brut mono, jamais rendues
   el.textContent = txt;
   document.getElementById("docmodal").classList.add("show");
+}
+
+// ----- RM2285 : rouvrir un ticket fermé (ferme → a_faire, NORMS v1.57.0) -----
+async function reopenTicket(rm) {
+  rm = String(rm);
+  const note = window.prompt("RM" + rm + " → a_faire (réouverture)\nMotif de la réouverture (requis) :", "");
+  if (note === null) return;
+  if (!note.trim()) { toast("Motif requis", true); return; }
+  try {
+    const r = await pmRun("task-status", { rm_id: rm, status: "a_faire", note: note.trim() }, { confirm: true });
+    toast(r.ok ? "RM" + rm + " rouvert → a_faire" : "Échec réouverture (rc=" + r.rc + ")", !r.ok);
+    if (!r.ok) showCaptureModal("Réouverture RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
+  } catch (e) { toast(e.message, true); }
+  finally {
+    // re-résout partout : lanceur, encart ℹ, fiche revue (resolveCache périmé, cf. RM2229)
+    ensureResolved(rm, true).then(() => {
+      if (document.getElementById("rm").value.trim() === rm) resolveRm();
+      if (metaTicket === rm) renderMeta();
+      if (currentReview === rm) renderReviewPane();
+    });
+  }
 }
 
 // ----- RM2213 : réglages contrôlés (whitelist serveur) -----
@@ -1739,10 +1838,103 @@ async function submitPmForm(name, btn) {
 let reviewTabs = [];        // rm_id (str) des onglets de revue ouverts
 let currentReview = null;   // onglet de revue actif
 let tqCache = {};           // rm_id (str) → entrée /pm/test-queue (env, branche…)
+// ----- RM2353 : fiche projet dans le panneau principal -----
+let currentProjectView = null;   // clé "client/projet" de la fiche affichée
+function closeProjectView() {
+  currentProjectView = null;
+  document.getElementById("projpane").style.display = "none";
+  if (!attached && !currentReview) document.getElementById("placeholder").style.display = "flex";
+  renderCurTitle();
+}
+async function openProjectView(key) {
+  if (attached) detach();               // une seule vue active à la fois
+  currentReview = null;
+  document.getElementById("reviewpane").style.display = "none";
+  currentProjectView = key;
+  document.getElementById("placeholder").style.display = "none";
+  const pane = document.getElementById("projpane");
+  pane.style.display = "block";
+  pane.innerHTML = '<div class="empty">chargement de la fiche projet…</div>';
+  renderCurTitle();
+  const [c, p] = key.split("/");
+  if (!c || !p || key === "divers") {
+    pane.innerHTML = '<div class="empty">groupe « divers » — sessions non rattachées à un projet PM.</div>' +
+      sessionPills(key);
+    return;
+  }
+  try {
+    const d = await api("/project/" + encodeURIComponent(c) + "/" + encodeURIComponent(p));
+    if (currentProjectView === key) renderProjectPane(key, d);
+  } catch (e) {
+    pane.innerHTML = '<div class="empty">fiche projet indisponible : ' + esc(e.message) + '</div>' + sessionPills(key);
+  }
+}
+function sessionPills(key) {
+  const sess = groupsCache[key] || [];
+  if (!sess.length) return "";
+  return '<div class="ms"><h4>Sessions en cours</h4><div class="rels">' +
+    sess.map(s => '<span class="pill" style="cursor:pointer" onclick="attach(\'' + esc(s.rm_id) + '\')">' +
+      '<span class="tdot st-' + esc(s.state || "idle") + '" style="margin-right:4px"></span>' +
+      (s.is_ticket === false ? esc(s.rm_id) : "RM" + esc(s.rm_id)) + '</span>').join(" ") + '</div></div>';
+}
+function tkRow(t) {
+  return '<div class="oline" style="white-space:normal" onclick="showTicket(' + esc(t.rm_id) + ')" ' +
+    'title="Détail dans l’encart ℹ">' +
+    '<span class="r-id">RM' + esc(t.rm_id) + '</span> ' +
+    '<span class="pill">' + esc(t.status || "?") + '</span> ' + esc(t.title || "") +
+    (t.mtime ? ' <span style="color:var(--muted)">· ' + ago(t.mtime) + '</span>' : "") + '</div>';
+}
+function renderProjectPane(key, d) {
+  const pane = document.getElementById("projpane");
+  let h = '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">' +
+    '<h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">📁 ' + esc(key) + '</h2>' +
+    (d.name ? '<span style="color:var(--muted)">' + esc(d.name) + '</span>' : "") +
+    '<span style="flex:1"></span><button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
+  // liens
+  h += '<div class="rels" style="margin:10px 0 14px">';
+  if (d.redmine_project_url) h += '<a class="pill" href="' + esc(d.redmine_project_url) + '" target="_blank">🎫 Projet Redmine ↗</a>';
+  if (d.redmine_issues_url) h += '<a class="pill" href="' + esc(d.redmine_issues_url) + '" target="_blank">📋 Liste des tickets ↗</a>';
+  if (d.gitlab_repo) h += '<span class="pill" title="repo GitLab' + (d.default_branch ? " · branche " + esc(d.default_branch) : "") + '">🗄 ' + esc(d.gitlab_repo) + '</span>';
+  h += '<span class="pill">' + d.total + ' tickets</span></div>';
+  // sessions du groupe (ce que l'encart ℹ montrait)
+  h += sessionPills(key);
+  // environnements
+  if ((d.environments || []).length) {
+    h += '<div class="ms"><h4>Environnements</h4>';
+    d.environments.forEach(e => {
+      h += '<div class="kv"><span class="k">' + esc(e.name || "?") + '</span><span class="v">' +
+        (e.url ? '<a href="' + esc(e.url) + '" target="_blank">' + esc(e.url) + ' ↗</a>' : "—") + '</span></div>';
+    });
+    h += '</div>';
+  }
+  // docs projet
+  if ((d.docs || []).length) {
+    h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
+    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doc.name) + '\')">📄 ' + esc(doc.name) + '</li>'; });
+    h += '</ul></div>';
+  }
+  // tickets ouverts par statut + récents
+  const bs = d.open_by_status || {};
+  if (Object.keys(bs).length) {
+    h += '<div class="ms"><h4>Tickets ouverts</h4><div class="rels" style="margin-bottom:8px">' +
+      Object.keys(bs).sort().map(st => '<span class="pill">' + esc(st) + " : " + bs[st] + '</span>').join(" ") + '</div>';
+    (d.open_recent || []).forEach(t => { h += tkRow(t); });
+    h += '</div>';
+  }
+  // derniers traités
+  if ((d.closed_recent || []).length) {
+    h += '<div class="ms"><h4>Derniers tickets traités</h4>';
+    d.closed_recent.forEach(t => { h += tkRow(t); });
+    h += '</div>';
+  }
+  pane.innerHTML = h;
+}
+
 function openReview(rm) {
   rm = String(rm);
   if (!reviewTabs.includes(rm)) reviewTabs.push(rm);
   if (attached) detach();               // une seule vue active à la fois
+  closeProjectView();                   // RM2353 : la fiche projet cède la place
   currentReview = rm;
   metaTicket = rm;
   document.getElementById("placeholder").style.display = "none";
@@ -2164,6 +2356,8 @@ async function kill(rmId) {
     : (localStorage.getItem("karlPanel") || "running"));
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
+  renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
+  try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   refreshHealth(); refreshSessions();
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

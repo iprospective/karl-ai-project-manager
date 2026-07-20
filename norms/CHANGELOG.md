@@ -5,6 +5,42 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.58.0] - 2026-07-19
+
+### Ajouté / corrigé — layout canonique de workspace (RM2348)
+
+`structure-reference` ne documentait que l'**ancien** modèle : `.mmi-pm` symlink
+*entrant* vers un repo central `projects_root` qui **contenait** les données PM. La
+réalité a évolué en sens inverse et n'était écrite nulle part — surfacé en
+diagnostiquant un bug de `pm-branch-start` (branche créée dans le core PM au lieu du
+repo de code).
+
+Documenté :
+- **Anatomie d'un projet** : un projet = un dossier `.mmi-pm` porté par le **core**
+  (dépôt à la racine du workspace, ne révisionne que `.mmi-pm/`) ; autour, `repos/`
+  (dépôts de code bare) et `envs/` (worktrees tirés de `repos/`).
+- **Deux dépôts, deux destinations de commit** : le code se commite dans un worktree
+  `envs/` (→ remote du code) ; la structure/projet (tout `.mmi-pm/`) dans le core
+  (→ remote `-core`). Corollaire : un repo porteur de `.mmi-pm` est un core, jamais une
+  cible de branche de code (invariant pour l'outillage).
+- **`projects_root` = index** : le lien est **inversé**, `projects_root/…/<P>` est un
+  symlink *sortant* vers le `.mmi-pm` du core (maintenu par `mmi-pm index rebuild`),
+  plus l'emplacement de stockage. Ancienne section symlink marquée legacy.
+- Analogue entité : `.mmi-pm-client` (core client).
+
+## [1.57.0] - 2026-07-18
+
+### Ajouté — réouverture d'un ticket fermé (RM2285)
+
+Le workflow n'offrait AUCUNE transition depuis `ferme` (constat RM2140 : ticket
+validé-clos impossible à reprendre proprement). Nouvelle transition
+`ferme → a_faire` (module status-workflow, § Transitions valides) : note motivée
+obligatoire, `close_reason` purgé, `status_history` conserve le cycle précédent.
+Outillage : `pm-task-status-update` (garde-fous cible/note) + bouton « Rouvrir »
+au cockpit. Nouveau périmètre sur le même sujet → préférer un nouveau ticket lié.
+
+---
+
 ## [1.56.0] - 2026-07-15
 
 ### Ajouté — format des livrables : portable et versionné (RM2301)

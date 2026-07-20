@@ -408,6 +408,12 @@ NORMS_TRANSITIONS = {
     "a_corriger": [
         ("en_cours", "reprise du dev"),
     ],
+    # RM2285 : réouverture d'un ticket fermé — retour au backlog uniquement
+    # (a_faire), note motivée obligatoire, close_reason purgé ; status_history
+    # conserve le cycle précédent (append-only).
+    "ferme": [
+        ("a_faire", "réouverture : note obligatoire motivant la réouverture ; close_reason purgé"),
+    ],
 }
 INACTIVE_STATUSES = {"ferme", "en_pause"}
 
@@ -561,9 +567,24 @@ def main():
     old_status = fm.get("status")
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
+    # RM2285 : réouverture d'un ticket fermé — uniquement vers a_faire (retour
+    # backlog, la reprise suit le flow normal), note motivée obligatoire,
+    # close_reason purgé. status_history conserve le cycle précédent.
+    reopening = (old_status == "ferme" and args.status != "ferme")
+    if reopening:
+        if args.status != "a_faire":
+            sys.exit("ERREUR : réouverture d'un ticket fermé uniquement vers 'a_faire' "
+                     "(NORMS § Transitions valides — la reprise suit ensuite le flow normal)")
+        if not args.note:
+            sys.exit("ERREUR : --note obligatoire pour rouvrir un ticket fermé "
+                     "(motiver la réouverture)")
+        print("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
+
     fm["status"] = args.status
     if args.close_reason:
         fm["close_reason"] = args.close_reason
+    elif reopening:
+        fm["close_reason"] = None
     fm["updated"] = now
     hist = fm.get("status_history") or []
     hist.append({

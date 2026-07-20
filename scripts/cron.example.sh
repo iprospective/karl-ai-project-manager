@@ -50,3 +50,9 @@ LOG_DIR=/var/log/pm-ai-agents
 # et auto-mergée (PAT manager). Idempotent : sans lot en attente, no-op.
 # Adapter --repo au chemin du repo de données de l'instance.
 15 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-promote.py --repo "$PROJECTS_PATH" >> "$LOG_DIR/pm-promote.log" 2>&1
+
+# ── Bench surconsommation couche PM (RM2361/S0) ──────────────────
+# Mensuel : mesure la part PM vs baseline (audit RM2275) ; poste le résumé
+# en note sur le ticket de suivi et alerte (exit 1) si dérive > +2 pts.
+# Adapter BENCH_NOTIFY_RM au ticket de suivi de l'instance.
+# 0 7 1 * * $PM_DIR/scripts/pm-bench-overhead.py --compare $PM_DIR/var/bench/baseline-2026-07-rm2275.json --notify-rm ${BENCH_NOTIFY_RM:-2316} >> $LOG_DIR/bench-overhead.log 2>&1

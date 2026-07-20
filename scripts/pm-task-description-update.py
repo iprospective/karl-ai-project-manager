@@ -38,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git  # auto-commit scopé des écritures (RM2095)
 import pm_scope
 
@@ -148,7 +149,9 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cross-project", action="store_true",
                     help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     cfg = PMConfig.load()  # charge aussi .env
     md_path = cfg.find_task(args.rm_id)
@@ -234,12 +237,21 @@ def main():
     if not fields:
         sys.exit("Rien à pousser (ni description, ni done_ratio, ni note).")
     put_issue(args.rm_id, fields)
-    bits = []
-    if desc_changed:
-        bits.append("description")
+    # ligne dense unique (contrat T1, CDC RM2316) : ✓ desc RM<id> [check=<n,…>|set] done=<pct>%
+    if args.set_from_file:
+        extra = "set" if desc_changed else ""
+    else:
+        parts = []
+        cocheds = [str(n) for n, v in changed if v]
+        unchecks = [str(n) for n, v in changed if not v]
+        if cocheds:
+            parts.append("check=" + ",".join(cocheds))
+        if unchecks:
+            parts.append("uncheck=" + ",".join(unchecks))
+        extra = " ".join(parts)
     if done_ratio is not None:
-        bits.append(f"done_ratio={done_ratio}")
-    print(f"✓ RM{args.rm_id} mis à jour ({', '.join(bits)})")
+        extra = (extra + " " if extra else "") + f"done={done_ratio}%"
+    out.op("desc", rm=args.rm_id, extra=extra)
 
     # 2. Sync MD : applique la même transfo à la checklist du corps + completion_pct
     content = md_path.read_text(encoding="utf-8")
@@ -256,7 +268,7 @@ def main():
         fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
         new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
         md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}", encoding="utf-8")
-        print(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+        out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
 
     # 3. Append log local (notre historique ; peut mentionner le % même si Redmine le journalise nativement).
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
@@ -267,7 +279,7 @@ def main():
     summary = "; ".join(summary_bits) if summary_bits else "mise à jour description"
     with log_path.open("a", encoding="utf-8") as f:
         f.write(f"\n## {now} — Description : {summary}\n\n" + (args.note + "\n" if args.note else ""))
-    print(f"✓ Log appendé : {log_path.name}")
+    out.info(f"✓ Log appendé : {log_path.name}")
 
     # Auto-commit scopé (RM2095) : la MAJ de description modifiait le MD sans committer.
     pm_git.autocommit([md_path, log_path], f"pm(desc): RM{args.rm_id} description/done_ratio")

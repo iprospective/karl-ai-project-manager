@@ -1984,7 +1984,8 @@ def op_create_ticket(payload: dict) -> dict:
     if not project or "/" not in project:
         raise ApiError(400, "project requis (forme entity/project)")
     args = [sys.executable, str(REPO_ROOT / "scripts" / "pm-task-add.py"),
-            "--title", title, "--type", ttype, "--priority", prio, "--project", project]
+            "--title", title, "--type", ttype, "--priority", prio, "--project", project,
+            "--porcelain"]
     desc = (payload.get("description") or "").strip()
     if desc:
         args += ["--description", desc]
@@ -1997,7 +1998,11 @@ def op_create_ticket(payload: dict) -> dict:
     except subprocess.TimeoutExpired:
         raise ApiError(504, "pm-task-add : timeout")
     blob = (p.stdout or "") + "\n" + (p.stderr or "")
-    m = re.search(r"RM(\d+) créé", blob) or re.search(r"#(\d+) créé", blob)
+    # --porcelain (RM2362) : l'id seul sur stdout ; repli sur les anciens formats
+    # de sortie pour un core pas encore migré.
+    m = re.match(r"\s*(\d+)\s*$", (p.stdout or "").strip().splitlines()[0] if (p.stdout or "").strip() else "") \
+        or re.search(r"RM(\d+) créé", blob) or re.search(r"#(\d+) créé", blob) \
+        or re.search(r"✓ add RM(\d+)", blob)
     if not m:
         raise ApiError(500, "pm-task-add a échoué : " + blob.strip()[-400:])
     return {"created": True, "rm_id": m.group(1), "output": blob.strip()[-600:]}

@@ -228,16 +228,15 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         tty = sys.stdin.isatty() and sys.stderr.isatty()
         r = subprocess.run([sys.executable, str(tool), verb, str(rm_id), str(ws)],
                            capture_output=not tty, text=True, timeout=600)
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        hook_out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
-            last = out.splitlines()[-1] if out else f"✓ {verb} ok"
+            last = hook_out.splitlines()[-1] if hook_out else f"✓ {verb} ok"
             out.info(f"  · env de session ({verb}) : {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.
             out.warn(f"env de session ({verb}) non appliqué (non bloquant) : "
-                  + "\n".join(f"    {ln}" for ln in out.splitlines()[-4:]),
-                  file=sys.stderr)
+                     + " | ".join(hook_out.splitlines()[-4:]))
     except Exception as e:  # noqa: BLE001 — hook best-effort
         out.warn(f"hook env de session en échec (non bloquant) : {e}")
 

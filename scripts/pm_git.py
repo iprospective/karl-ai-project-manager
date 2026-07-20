@@ -41,7 +41,11 @@ def _run(args, cwd=None):
 
 
 def _warn(msg):
-    print(f"  ⚠ auto-commit : {msg}", file=sys.stderr)
+    try:
+        from pm_output import out
+        out.warn(f"auto-commit : {msg}")
+    except Exception:
+        print(f"  ⚠ auto-commit : {msg}", file=sys.stderr)
 
 
 def _push_error_kind(stderr):
@@ -180,7 +184,11 @@ def autocommit(paths, message, push=None, enabled=None):
                           f"conservé, le prochain auto-push l'emportera")
                 else:
                     _warn(f"push refusé ({last}) — commit local {sha} conservé")
-        print(f"✓ auto-commit {sha} ({len(rel)} fichier(s)){pushed}")
+        try:
+            from pm_output import out
+            out.op("commit", extra=f"{sha} ({len(rel)} fichier(s)){pushed}")
+        except Exception:
+            print(f"✓ auto-commit {sha} ({len(rel)} fichier(s)){pushed}")
         return sha
 
 

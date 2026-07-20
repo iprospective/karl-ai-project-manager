@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_output import out as pmout
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -287,7 +288,7 @@ def cmd_refresh(data, args):
         return
     live = resolve_live(data["items"])
     save(data, live=live)
-    print("✓ worklog rafraîchi (%d item(s), statut live)" % len(data["items"]))
+    pmout.op("worklog", extra="rafraîchi (%d item(s), statut live)" % len(data["items"]))
 
 
 def cmd_add(data, args):
@@ -324,13 +325,14 @@ def cmd_add(data, args):
         })
         action = "ajouté"
     save(data)
-    print("✓ %s : %s" % (action, args.ref))
+    pmout.op("worklog", extra="%s %s" % (args.ref, action))
+    pmout.info("  · %s" % paths(data["session_id"])[1])
 
 
 def cmd_set(data, args):
     it = find(data, args.ref)
     if not it:
-        sys.exit("✗ introuvable : %s" % args.ref)
+        pmout.fail("introuvable : %s" % args.ref)
     it["status"] = args.status
     if args.note is not None:
         it["note"] = args.note
@@ -338,27 +340,29 @@ def cmd_set(data, args):
         it["next"] = args.next
     it["ts"] = now()
     save(data)
-    print("✓ %s → %s" % (it["ref"], it["status"]))
+    pmout.op("worklog", extra="%s → %s" % (it["ref"], it["status"]))
+    pmout.info("  · %s" % paths(data["session_id"])[1])
 
 
 def cmd_rm(data, args):
     before = len(data["items"])
     data["items"] = [i for i in data["items"] if i["ref"].lower() != args.ref.lower()]
     if len(data["items"]) == before:
-        sys.exit("✗ introuvable : %s" % args.ref)
+        pmout.fail("introuvable : %s" % args.ref)
     save(data)
-    print("✓ supprimé : %s" % args.ref)
+    pmout.op("worklog", extra="%s supprimé" % args.ref)
 
 
 def cmd_title(data, args):
     data["title"] = args.title
     save(data)
-    print("✓ titre : %s" % args.title)
+    pmout.op("worklog", extra="titre : %s" % args.title)
 
 
 def main():
     p = argparse.ArgumentParser(description="Suivi d'avancement par session")
     p.add_argument("--session", help="override session id (défaut: $CLAUDE_CODE_SESSION_ID)")
+    pmout.add_args(p)
     sub = p.add_subparsers(dest="cmd")
 
     sh = sub.add_parser("show", help="afficher l'état (statut live + dérive)")
@@ -389,6 +393,7 @@ def main():
     t.add_argument("title")
 
     args = p.parse_args()
+    pmout.configure(args)
     data = load(session_id(args.session))
 
     cmd = args.cmd or "show"

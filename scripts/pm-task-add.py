@@ -25,6 +25,8 @@ Mapping NORMS → Redmine tracker (par défaut) :
     vient de finir (« ticket de suivi »). Évite l'oubli récurrent des
     transitions de statut documenté dans NORMS v1.12.0 § « Prise en charge
     d'une tâche ».
+
+Sortie dense par défaut (RM2362) : --verbose ou PM_VERBOSE=1 restaure le détail.
 """
 import argparse
 import re
@@ -36,6 +38,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 from redmine_utils import create_redmine_issue
 import pm_git
 import pm_hierarchy
@@ -199,14 +202,12 @@ def main():
                          "de façon fiable dans un pipeline (ID=$(pm-task-add … --porcelain)) "
                          "sans jamais le PRÉDIRE — la séquence Redmine est globale à "
                          "l'instance, le prochain id n'est pas prévisible.")
+    out.add_args(ap)
     args = ap.parse_args()
-
-    # --porcelain : bascule tous les messages informatifs (print → stdout par
-    # défaut) vers stderr ; seul l'id nu sera émis sur le vrai stdout après
-    # création. Aucun autre print à modifier grâce à ce swap global.
-    _real_stdout = sys.stdout
-    if args.porcelain:
-        sys.stdout = sys.stderr
+    # Configuré AVANT toute émission : en --porcelain, pm_output route op/info/warn
+    # vers stderr et réserve stdout à out.value(id) — fix RM2307 (l'ancien swap
+    # global sys.stdout→stderr ne couvrait pas les subprocess, qui héritent des fd).
+    out.configure(args)
 
     # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
     # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
@@ -273,15 +274,15 @@ def main():
         parent_issue_id=args.parent,
         extra_custom_fields=extra_cf or None,
     )
-    # Id nu sur le vrai stdout dès que le ticket existe côté Redmine (RM2170) :
+    # Id nu sur stdout dès que le ticket existe côté Redmine (RM2170) :
     # le caller le capture même si une étape de post-traitement échoue ensuite.
     if args.porcelain:
-        print(rm_id, file=_real_stdout, flush=True)
+        out.value(rm_id)
 
     if extra_cf:
-        print(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+        out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
     if target_author is not None:
-        print(f"  · author_id → {target_author}")
+        out.info(f"  · author_id → {target_author}")
 
     # CF27 « AI Test par agent » : poussé seulement si ≠ default (vide côté Redmine = default).
     if args.agent_test != "default":
@@ -289,10 +290,12 @@ def main():
         enum_id = (load_reference().get("agent_test_values") or {}).get(args.agent_test)
         if enum_id:
             ok, err = update_issue_fields(rm_id, custom_fields=[{"id": 27, "value": str(enum_id)}])
-            print(f"  · CF27 agent-test → {args.agent_test}" if ok
-                  else f"  ⚠ push CF27 échoué : {err}")
+            if ok:
+                out.info(f"  · CF27 agent-test → {args.agent_test}")
+            else:
+                out.warn(f"push CF27 échoué : {err}")
         else:
-            print(f"  ⚠ CF27 non poussé : valeur {args.agent_test!r} absente de agent_test_values")
+            out.warn(f"CF27 non poussé : valeur {args.agent_test!r} absente de agent_test_values")
 
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
@@ -360,8 +363,10 @@ def main():
     md_path.write_text(md, encoding="utf-8")
     log_path.write_text(f"# Journal RM{rm_id}\n\n## {now} — Création (pm-task-add)\nTokens : 0 | Durée : 0 min\n\nTâche créée via pm-task-add.py.\n", encoding="utf-8")
 
-    print(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
-    print(f"  {md_path.relative_to(cfg.projects_root)}")
+    # ligne dense unique (contrat T1 RM2316) : ✓ add RM<id> <slug>
+    out.op("add", rm=rm_id, extra=slug)
+    out.info(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
+    out.info(f"  {md_path.relative_to(cfg.projects_root)}")
 
     # Worklog de session (best-effort, no-op hors session Claude Code) : enregistre
     # le ticket comme `nouveau`. Si --status transitionne ensuite, pm-task-status-update
@@ -370,15 +375,18 @@ def main():
     pm_session_hook.log_to_session(f"RM{rm_id}", label=args.title,
                                    status="nouveau", project=project)
 
-    # Validate
+    # Validate — agrégé en 1 warning dense ; le détail complet reste en --verbose.
     try:
         import subprocess
         r = subprocess.run([sys.executable, str(Path(__file__).parent / "validate-task.py"), str(md_path)],
                            capture_output=True, text=True, check=False)
         if r.returncode != 0:
-            print(f"⚠ validate-task.py warnings :\n{r.stdout}{r.stderr}", file=sys.stderr)
+            detail = f"{r.stdout}{r.stderr}".rstrip()
+            n = sum(1 for ln in detail.splitlines() if ln.lstrip().startswith("✗")) or "?"
+            out.warn(f"{n} warning(s) validate → pm-doctor RM{rm_id}")
+            out.info(f"⚠ validate-task.py warnings :\n{detail}")
     except Exception as e:
-        print(f"⚠ validate-task.py non exécuté : {e}", file=sys.stderr)
+        out.warn(f"validate-task.py non exécuté : {e}")
 
     # Push estimation → Redmine (CF21/22/25 + estimated_hours) si estimation
     # explicite fournie. NORMS § ROI « Documentation dans Redmine » : estimer à
@@ -391,10 +399,14 @@ def main():
         r = subprocess.run(
             [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
              "--rm-id", str(rm_id), "--estimate"],
-            check=False)
+            check=False, capture_output=True, text=True)
+        for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+            if (stream or "").strip():
+                out.info(stream.rstrip())
         if r.returncode != 0:
-            print(f"⚠ push estimation échoué (exit {r.returncode}) — relance : "
-                  f"pm-task-metrics-push.py --rm-id {rm_id} --estimate", file=sys.stderr)
+            err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+            out.warn(f"push estimation échoué (exit {r.returncode}){' : ' + err1 if err1 else ''}"
+                     f" — relance : pm-task-metrics-push.py --rm-id {rm_id} --estimate")
 
     # --parent : le MD enfant porte déjà parent_task (cf. fm). Maintenir le côté
     # parent (sub_tasks du parent) + tracer dans les deux logs.
@@ -404,10 +416,10 @@ def main():
         sub = pm_hierarchy.maintain_parent_subtasks(
             cfg, rm_id, old_parent=None, new_parent=args.parent, source="pm-task-add")
         if sub["added_to"]:
-            print(f"  · parent RM{args.parent} : sub_tasks += RM{rm_id}")
+            out.info(f"  · parent RM{args.parent} : sub_tasks += RM{rm_id}")
         else:
-            print(f"  ⚠ parent RM{args.parent} : MD non trouvé localement — "
-                  f"sub_tasks non maintenu (parent côté Redmine OK)")
+            out.warn(f"parent RM{args.parent} : MD non trouvé localement — "
+                     f"sub_tasks non maintenu (parent côté Redmine OK)")
 
     # Auto-commit atomique des fichiers écrits (RM1834 piste A) : la tâche créée
     # (+ le MD/log du parent si --parent les a modifiés). Placé AVANT --status /
@@ -429,8 +441,8 @@ def main():
             cmd += ["--repo", args.branch_repo]
         r = subprocess.run(cmd)
         if r.returncode != 0:
-            print(f"⚠ pm-branch-start a échoué (exit {r.returncode}) — relance : "
-                  f"pm-branch-start.py {rm_id} --take", file=sys.stderr)
+            out.warn(f"pm-branch-start a échoué (exit {r.returncode}) — relance : "
+                     f"pm-branch-start.py {rm_id} --take")
 
     # --status <statut> : le ticket est créé en `nouveau` (défaut tracker Redmine) ;
     # si un autre statut est demandé, on transitionne via pm-task-status-update
@@ -439,16 +451,20 @@ def main():
     if not args.retro and args.status != "nouveau":
         import subprocess
         status_script = Path(__file__).parent / "pm-task-status-update.py"
-        print(f"  → statut initial demandé : {args.status} (transition depuis nouveau)")
+        out.info(f"  → statut initial demandé : {args.status} (transition depuis nouveau)")
         r = subprocess.run(
             [sys.executable, str(status_script), str(rm_id), args.status,
              "--note", "Statut initial posé à la création (pm-task-add --status)"],
-            check=False,
+            check=False, capture_output=True, text=True,
         )
+        for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+            if (stream or "").strip():
+                out.info(stream.rstrip())
         if r.returncode != 0:
-            print(f"⚠ Transition initiale vers {args.status} échouée (exit {r.returncode}). "
-                  f"Reprends : pm-task-status-update.py {rm_id} {args.status}",
-                  file=sys.stderr)
+            err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+            out.warn(f"Transition initiale vers {args.status} échouée (exit {r.returncode})"
+                     f"{' : ' + err1 if err1 else ''}. "
+                     f"Reprends : pm-task-status-update.py {rm_id} {args.status}")
 
     # --retro : enchaîne en_cours puis a_tester_verifier via pm-task-status-update.
     # Le ticket Redmine doit déjà être indexable (POST ci-dessus a renvoyé rm_id),
@@ -460,15 +476,19 @@ def main():
             ("en_cours", "Prise en charge (ticket rétroactif, travail déjà livré)"),
             ("a_tester_verifier", "Travail livré au moment de la création du ticket — prêt à vérifier"),
         ]:
-            print(f"  → transition --retro : {status}")
+            out.info(f"  → transition --retro : {status}")
             r = subprocess.run(
                 [sys.executable, str(status_script), str(rm_id), status, "--note", note],
-                check=False,
+                check=False, capture_output=True, text=True,
             )
+            for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+                if (stream or "").strip():
+                    out.info(stream.rstrip())
             if r.returncode != 0:
-                print(f"⚠ Transition --retro {status} a échoué (exit {r.returncode}). "
-                      f"Reprends manuellement : pm-task-status-update.py {rm_id} {status}",
-                      file=sys.stderr)
+                err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+                out.warn(f"Transition --retro {status} a échoué (exit {r.returncode})"
+                         f"{' : ' + err1 if err1 else ''}. "
+                         f"Reprends manuellement : pm-task-status-update.py {rm_id} {status}")
                 break
 
 

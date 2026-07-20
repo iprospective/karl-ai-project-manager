@@ -22,6 +22,8 @@ datées du `.log.md`, dédup par ledger `reporting.time_entries[]`). Les anciens
 modes `--commit`/`--cumul` de ce script sont retirés ; les marqueurs
 `metrics.reported_*` du frontmatter sont obsolètes (laissés en place, plus
 jamais écrits).
+
+Sortie dense par défaut (RM2362) : --verbose ou PM_VERBOSE=1 restaure le détail.
 """
 import argparse
 import re
@@ -31,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
 import redmine_utils
 
@@ -81,16 +84,14 @@ def _verify_pushed(rm_id, cfs, est_hours):
     for c in (cfs or []):
         cid = c["id"]
         if cid not in present:
-            print(f"  ⚠ CF{cid} non présent sur le ticket (champ non associé au tracker "
-                  f"'{(iss.get('tracker') or {}).get('name')}' ?) — valeur ignorée par Redmine.",
-                  file=sys.stderr)
+            out.warn(f"CF{cid} non présent sur le ticket (champ non associé au tracker "
+                     f"'{(iss.get('tracker') or {}).get('name')}' ?) — valeur ignorée par Redmine.")
         elif str(live[cid]) != str(c["value"]):
-            print(f"  ⚠ CF{cid} = {live[cid]!r} après push (attendu {c['value']!r}) — drop probable.",
-                  file=sys.stderr)
+            out.warn(f"CF{cid} = {live[cid]!r} après push (attendu {c['value']!r}) — drop probable.")
     if est_hours is not None:
         got = iss.get("estimated_hours")
         if got is None or abs(float(got) - float(est_hours)) > 0.001:
-            print(f"  ⚠ estimated_hours = {got!r} après push (attendu {est_hours}).", file=sys.stderr)
+            out.warn(f"estimated_hours = {got!r} après push (attendu {est_hours}).")
 
 
 def resolve_llm_tier(estimated_model):
@@ -128,11 +129,11 @@ def do_estimate(rm_id, fm, md_path, m, dry_run):
         if tier_id:
             cfs.append({"id": cf25, "value": tier_id})
         elif est.get("estimated_model"):
-            print(f"  ⚠ LLM prévu : modèle {est['estimated_model']!r} non mappé "
-                  f"(llm_tiers.model_match) → CF{cf25} non poussé.", file=sys.stderr)
+            out.warn(f"LLM prévu : modèle {est['estimated_model']!r} non mappé "
+                     f"(llm_tiers.model_match) → CF{cf25} non poussé.")
 
     if not cfs and est_hours is None:
-        print("  · estimation : rien à pousser (estimate vide)")
+        out.info("  · estimation : rien à pousser (estimate vide)")
         return False
     desc = [f"CF{c['id']}={c['value']}" for c in cfs]
     if est_hours is not None:
@@ -143,8 +144,10 @@ def do_estimate(rm_id, fm, md_path, m, dry_run):
     ok, err = redmine_utils.update_issue_fields(rm_id, custom_fields=cfs or None,
                                                 estimated_hours=est_hours)
     if not ok:
-        sys.exit(f"ERREUR push estimation : {err}")
-    print(f"✓ estimation poussée : {', '.join(desc)}")
+        out.fail(f"push estimation : {err}")
+    # ligne dense unique (contrat T1 RM2316) : ✓ estimation RM<id> CF21=… CF22=… h=…
+    out.op("estimation", rm=rm_id,
+           extra=" ".join(d.replace("estimated_hours=", "h=") for d in desc))
     # Vérification : Redmine renvoie 204 même quand il *drop* un CF non associé au
     # tracker ou interdit par permissions (cf. knowledge/redmine/api.md). On re-GET
     # pour confirmer que chaque valeur a bien pris.
@@ -175,7 +178,9 @@ def main():
     ap.add_argument("--cumul", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     if args.commit:
         sys.exit(REMOVED_MODES_MSG.format(mode="--commit"))
@@ -189,7 +194,7 @@ def main():
 
     if dirty and not args.dry_run:
         write_task_fm(md_path, fm, m)
-        print(f"✓ frontmatter métriques mis à jour : {md_path.name}")
+        out.info(f"✓ frontmatter métriques mis à jour : {md_path.name}")
         if not args.no_commit:
             pm_git.autocommit([md_path], f"pm(metrics): RM{args.rm_id} estimation poussée")
 

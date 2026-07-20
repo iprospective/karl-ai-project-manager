@@ -124,13 +124,62 @@ def cmd_check(_args):
     return 0
 
 
+CHEATSHEET_FILE = Path(__file__).resolve().parent.parent / "norms" / "CHEATSHEET.md"
+CHEATSHEET_BUDGET_TOKENS = 1200
+
+_FLOWS = """## Flux nominaux
+
+- **prendre un ticket** : `pm-task-take.py <id> [--no-branch]` → affiche le brief
+- **livrer** : `pm-task-deliver.py <id> --summary -` (résumé rédigé sur stdin)
+- **créer un ticket** : `ID=$(pm-task-add.py --title … --porcelain)` — jamais d'id prédit
+- **MR** : `pm-mr.py create <RMid>` puis `pm-mr.py merge <iid> --expect-rm <RMid>`
+- **lire** : `pm-task-brief.py <id>` · `pm-task-log.py <id> --tail N [--grep RX]` ·
+  `pm-task-show.py <id> --field a,b.c`
+- partout : sortie dense par défaut, `--verbose` = détail, `--help-full` = aide complète
+"""
+
+
+def cmd_cheatsheet(_args):
+    """Génère norms/CHEATSHEET.md : 1 ligne par outil (docstring), + flux nominaux."""
+    lines = ["# CHEATSHEET outillage PM — généré, ne pas éditer",
+             "", "> `pm-norms-assemble.py cheatsheet` (RM2367, CDC RM2316 § S6). "
+             "Détail d'un outil : `<script> --help` (court) / `--help-full`.", "",
+             _FLOWS, "## Outils", ""]
+    scripts_dir = Path(__file__).resolve().parent
+    # outils du QUOTIDIEN agent uniquement — l'infra/migrations/one-shots restent
+    # accessibles via --help, pas besoin d'occuper le contexte de chaque session
+    exclude = re.compile(
+        r"^karl-|-migrate|-backfill|-recable|-rename|-coloc|-flip|test|"
+        r"^pm-(norms|meta|docs|turn|pre|post|zfs|hooks|protect|provision|env-init)")
+    for p in sorted(scripts_dir.glob("*.py")):
+        if not re.match(r"(pm|redmine|karl)-", p.name) or exclude.search(p.name):
+            continue
+        first = ""
+        m = re.search(r'"""(.+?)(?:\n|""")', p.read_text(encoding="utf-8"))
+        if m:
+            first = m.group(1).strip()
+            first = re.sub(r"^[\w.-]+\s+—\s+", "", first)  # retire le préfixe « nom — »
+            first = re.sub(r"\s*\((?:RM|CDC)[^)]*\)\.?$", "", first)  # réfs tickets
+            if len(first) > 48:
+                first = first[:45].rstrip() + "…"
+        lines.append(f"- `{p.name[:-3]}` — {first}")
+    text = "\n".join(lines) + "\n"
+    CHEATSHEET_FILE.write_text(text, encoding="utf-8")
+    tokens = int(len(text.encode("utf-8")) / 3.6)
+    status = "✓" if tokens <= CHEATSHEET_BUDGET_TOKENS else "✗ BUDGET DÉPASSÉ"
+    print(f"{status} CHEATSHEET.md généré : {len(lines)} lignes, ≈{tokens} tokens "
+          f"(budget {CHEATSHEET_BUDGET_TOKENS})")
+    return 0 if tokens <= CHEATSHEET_BUDGET_TOKENS else 1
+
+
 def main():
     p = argparse.ArgumentParser(description="Assemble NORMS.md depuis norms/src/")
     sub = p.add_subparsers(dest="cmd", required=True)
-    for name in ("init", "build", "check"):
+    for name in ("init", "build", "check", "cheatsheet"):
         sub.add_parser(name)
     args = p.parse_args()
-    return {"init": cmd_init, "build": cmd_build, "check": cmd_check}[args.cmd](args)
+    return {"init": cmd_init, "build": cmd_build, "check": cmd_check,
+            "cheatsheet": cmd_cheatsheet}[args.cmd](args)
 
 
 if __name__ == "__main__":

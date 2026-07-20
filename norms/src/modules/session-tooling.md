@@ -1,6 +1,14 @@
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
 
+## Cheatsheet outillage (RM2367, CDC RM2316 § S6)
+
+**`norms/CHEATSHEET.md`** (généré : `pm-norms-assemble.py cheatsheet`, ≤ 1 200
+tokens) : 1 ligne par outil du quotidien + les flux nominaux (take → deliver,
+porcelain, lectures ciblées). **Le lire UNE fois en début de session** remplace
+les `--help` répétés (300–600 tokens chacun) ; `--help` reste court par défaut,
+`--help-full` donne le pavé complet.
+
 > **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
 > `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
 > autre projet que le workspace courant si l'id n'a jamais été vu dans la session —

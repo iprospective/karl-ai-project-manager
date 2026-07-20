@@ -136,3 +136,4 @@ env_runtime:
 context:
   budget_tokens:
     default: 32768
+    project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md

@@ -13,11 +13,13 @@ const vm = require("vm");
 
 const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 
-// — 1. syntaxe du script inline —
-const m = /<script>([\s\S]*?)<\/script>/.exec(html);
-assert(m, "bloc <script> introuvable dans index.html");
-new vm.Script(m[1], { filename: "index.html<script>" });   // jette si erreur de syntaxe
-console.log("✓ syntaxe du <script> inline");
+// — 1. syntaxe de TOUS les blocs <script> inline (RM2386 : le boot de thème
+//      vit dans un <script id="theme-boot"> du <head> ; une erreur de syntaxe
+//      dedans casserait la page sans que rien ne l'attrape) —
+const blocks = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
+assert(blocks.length >= 2, "attendu au moins 2 blocs <script> (theme-boot + principal)");
+blocks.forEach((b, i) => new vm.Script(b[1], { filename: `index.html<script#${i}>` }));
+console.log(`✓ syntaxe des ${blocks.length} blocs <script> inline`);
 
 // — 2. computeGroups —
 const fm = />>> computeGroups[\s\S]*?(function computeGroups[\s\S]*?)\n\/\/ <<< computeGroups/.exec(html);
@@ -221,5 +223,128 @@ assert.strictEqual(pickVoice(voices, "en-US", "").name, "Google US English", "la
 assert.strictEqual(pickVoice([{ name: "L", lang: "fr-FR", localService: true }], "fr-FR", "").name, "L", "seule locale → prise quand même (nom)");
 assert.strictEqual(pickVoice(voices, "de-DE", ""), null, "aucune voix de la langue → null");
 console.log("✓ pickVoice (RM2350) : réseau prioritaire, choix explicite, replis");
+
+// — 9. resolveTheme (RM2386) : priorité surcharge locale > conf serveur > auto —
+const frt = />>> resolveTheme[\s\S]*?(function resolveTheme[\s\S]*?)\n\/\/ <<< resolveTheme/.exec(html);
+assert(frt, "marqueurs >>> resolveTheme / <<< resolveTheme introuvables");
+const resolveTheme = vm.runInNewContext("(" + frt[1] + ")");
+
+// pas de surcharge locale → la conf serveur décide
+assert.strictEqual(resolveTheme("", "dark", true), "dark", "conf serveur dark");
+assert.strictEqual(resolveTheme("", "light", true), "light", "conf serveur light (ignore le système)");
+// mode auto → préférence système
+assert.strictEqual(resolveTheme("", "auto", true), "dark", "auto + système sombre");
+assert.strictEqual(resolveTheme("", "auto", false), "light", "auto + système clair");
+// surcharge locale prioritaire sur la conf serveur
+assert.strictEqual(resolveTheme("light", "dark", true), "light", "surcharge locale > conf serveur");
+assert.strictEqual(resolveTheme("auto", "dark", false), "light", "surcharge locale auto > conf serveur");
+// "server" = pas de surcharge (valeur du <select>, jamais stockée mais tolérée)
+assert.strictEqual(resolveTheme("server", "dark", false), "dark", "'server' = suivre la conf serveur");
+// défauts / robustesse : rien de connu → auto ; valeur inconnue → auto
+assert.strictEqual(resolveTheme("", "", true), "dark", "rien de connu → auto (système sombre)");
+assert.strictEqual(resolveTheme("", "", false), "light", "rien de connu → auto (système clair)");
+assert.strictEqual(resolveTheme("", "solarized", true), "dark", "conf inconnue → auto");
+console.log("✓ resolveTheme (RM2386) : local > serveur > auto, valeurs inconnues tolérées");
+
+// — 10. palette : les deux thèmes définissent EXACTEMENT les mêmes tokens —
+// (un token oublié dans :root[data-theme="light"] hériterait de la valeur dark
+//  et passerait inaperçu à l'œil sur une zone peu visitée)
+const css = /<style>([\s\S]*?)<\/style>/.exec(html)[1];
+const tokensOf = (sel) => {
+  const blk = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(css);
+  assert(blk, "bloc CSS introuvable : " + sel);
+  return new Set([...blk[1].matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
+};
+const dark = tokensOf(':root, :root[data-theme="dark"]');
+const light = tokensOf(':root[data-theme="light"]');
+assert(dark.size >= 15, "palette dark trop maigre (" + dark.size + " tokens)");
+assert.deepStrictEqual([...dark].sort(), [...light].sort(), "tokens dark/light désynchronisés");
+console.log(`✓ palette : ${dark.size} tokens définis à l'identique en dark et en light`);
+
+// — 11. theme-boot (RM2386) : le bloc du <head> pose data-theme dès son exécution —
+// (c'est CE point qui garantit l'absence de flash : l'attribut doit être posé
+//  par le simple fait d'évaluer le script, sans attendre le moindre événement)
+const boot = /<script id="theme-boot">([\s\S]*?)<\/script>/.exec(html);
+assert(boot, "bloc <script id=\"theme-boot\"> introuvable");
+
+function runBoot(store, systemLight) {
+  const listeners = [];
+  const root = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, getAttribute(k) { return this.attrs[k]; } };
+  const ctx = {
+    document: { documentElement: root },
+    localStorage: {
+      getItem: (k) => (k in store ? store[k] : null),
+      setItem: (k, v) => { store[k] = v; },
+      removeItem: (k) => { delete store[k]; },
+    },
+    window: {
+      matchMedia: (q) => ({
+        matches: q.includes("light") ? systemLight : !systemLight,
+        addEventListener: (_ev, fn) => listeners.push(fn),
+      }),
+    },
+  };
+  ctx.window.localStorage = ctx.localStorage;
+  vm.runInNewContext(boot[1], ctx);
+  return { theme: () => root.getAttribute("data-theme"), fire: (light) => { systemLight = light; listeners.forEach(f => f()); }, listeners };
+}
+
+// rien en cache + système clair → clair, posé immédiatement (pas de flash)
+assert.strictEqual(runBoot({}, true).theme(), "light", "boot : auto + système clair");
+assert.strictEqual(runBoot({}, false).theme(), "dark", "boot : auto + système sombre");
+// défaut d'instance en cache
+assert.strictEqual(runBoot({ karlThemeServer: "dark" }, true).theme(), "dark", "boot : conf serveur dark");
+// surcharge « ce navigateur » prioritaire
+assert.strictEqual(runBoot({ karlThemeServer: "dark", karlThemeLocal: "light" }, false).theme(), "light",
+  "boot : surcharge locale > conf serveur");
+// mode auto : réaction à chaud au changement de thème système
+const hot = runBoot({ karlThemeServer: "auto" }, false);
+assert.strictEqual(hot.listeners.length, 1, "boot : écouteur prefers-color-scheme posé");
+assert.strictEqual(hot.theme(), "dark", "boot : état initial sombre");
+hot.fire(true);
+assert.strictEqual(hot.theme(), "light", "boot : bascule à chaud vers clair");
+// ...mais un thème explicite ignore le système
+const fixed = runBoot({ karlThemeServer: "dark" }, false);
+fixed.fire(true);
+assert.strictEqual(fixed.theme(), "dark", "boot : thème explicite insensible au système");
+console.log("✓ theme-boot (RM2386) : data-theme posé sans flash, auto réactif à chaud");
+
+// — 12. contrastes WCAG AA (RM2386) : le thème clair doit rester lisible —
+const hexOf = (sel) => {
+  const blk = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(css)[1];
+  return Object.fromEntries([...blk.matchAll(/(--[a-z0-9-]+)\s*:\s*(#[0-9a-fA-F]{3,6})/g)].map(m => [m[1], m[2]]));
+};
+const lum = (h) => {
+  h = h.replace("#", "");
+  if (h.length === 3) h = [...h].map(c => c + c).join("");
+  const ch = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const [r, g, b] = [0, 2, 4].map(i => ch(parseInt(h.slice(i, i + 2), 16)));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+};
+const contrast = (a, b) => {
+  const [x, y] = [lum(a), lum(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+const PAIRS = [["--fg", "--bg"], ["--fg", "--panel"], ["--fg", "--panel2"],
+  ["--muted", "--bg"], ["--muted", "--panel"], ["--muted", "--panel2"],
+  ["--accent", "--bg"], ["--accent", "--panel"], ["--accent", "--panel2"],
+  ["--ok", "--panel"], ["--warn", "--panel"], ["--danger", "--panel"],
+  ["--fg-strong", "--bg"], ["--on-accent", "--accent"]];
+// Le thème clair est neuf : il doit être AA (4.5:1) partout, sans exception.
+const lightHex = hexOf(':root[data-theme="light"]');
+for (const [fg, bg] of PAIRS) {
+  const r = contrast(lightHex[fg], lightHex[bg]);
+  assert(r >= 4.5, `light : ${fg} sur ${bg} = ${r.toFixed(2)}:1 < 4.5 (WCAG AA)`);
+}
+// Le thème sombre est historique : --muted y est à ~3.9-4.4:1 (sous AA) depuis
+// toujours. On NE régresse pas au-delà de cet existant, sans le corriger ici
+// (changer la teinte du thème par défaut n'est pas le périmètre de RM2386).
+const darkHex = hexOf(':root, :root[data-theme="dark"]');
+for (const [fg, bg] of PAIRS) {
+  const r = contrast(darkHex[fg], darkHex[bg]);
+  const floor = fg === "--muted" ? 3.9 : 4.5;
+  assert(r >= floor, `dark : ${fg} sur ${bg} = ${r.toFixed(2)}:1 < ${floor} (régression)`);
+}
+console.log(`✓ contrastes : thème clair AA sur ${PAIRS.length} paires, thème sombre sans régression`);
 
 console.log("OK — tous les tests cockpit passent");

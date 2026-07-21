@@ -2649,6 +2649,12 @@ _PM_SETTINGS_CONF = [
      "group": "Conf PM", "type": "bool", "path": ["git", "autopush"]},
     {"key": "conf:env_runtime.auto_session", "label": "Env de session auto à la prise de ticket",
      "group": "Conf PM", "type": "bool", "path": ["env_runtime", "auto_session"]},
+    # RM2386 — rubrique « Design front » : apparence du cockpit web. Le type
+    # `enum` est générique (options[] + défaut), pas ad hoc au thème : les
+    # prochains réglages de mise en page s'ajoutent ici sans toucher au rendu.
+    {"key": "conf:ui.theme", "label": "Thème",
+     "group": "Design front", "type": "enum", "path": ["ui", "theme"],
+     "options": ["dark", "light", "auto"], "default": "auto"},
 ]
 _PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
                  "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
@@ -2688,7 +2694,12 @@ def _pm_settings() -> list:
             cur = cur.get(part) if isinstance(cur, dict) else None
             if cur is None:
                 break
-        out.append({**e, "value": bool(cur)})
+        if e["type"] == "enum":
+            # valeur hors options (conf éditée à la main) → on retombe sur le défaut
+            val = cur if cur in e["options"] else e.get("default", e["options"][0])
+        else:
+            val = bool(cur)
+        out.append({**e, "value": val})
     try:
         pricing = yaml_safe_load(_pricing_file().read_text(encoding="utf-8")) or {}
     except OSError:
@@ -2706,6 +2717,12 @@ def _pm_settings() -> list:
     return out
 
 
+def _ui_theme() -> str:
+    """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
+    spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
+    return spec["value"] if spec else "auto"
+
+
 def op_pm_settings_set(payload: dict) -> dict:
     key = str(payload.get("key") or "")
     spec = next((e for e in _pm_settings() if e["key"] == key), None)
@@ -2716,6 +2733,10 @@ def op_pm_settings_set(payload: dict) -> dict:
     raw = payload.get("value")
     if spec["type"] == "bool":
         val = raw in (True, "1", "true", "on")
+    elif spec["type"] == "enum":
+        val = str(raw)
+        if val not in spec["options"]:
+            raise ApiError(400, f"{key} : valeur hors options {spec['options']}")
     else:
         try:
             val = float(raw)
@@ -3103,6 +3124,10 @@ class Handler(BaseHTTPRequestHandler):
                 # clés du catalogue par moteur (RM1941) — le client ne voit que les
                 # clés, le mapping vers les valeurs réelles reste côté serveur.
                 "models": {e: sorted(m) for e, m in _model_catalog().items()},
+                # RM2386 — défaut d'apparence de l'instance (dark|light|auto).
+                # Route publique : une préférence de thème n'est pas sensible, et
+                # le front en a besoin AVANT l'authentification (écran de login).
+                "ui_theme": _ui_theme(),
             })
         if not authed:
             return self._send_auth_required()

@@ -96,6 +96,88 @@ check("save : groupe nommé coexiste avec default",
 g = ka.op_session_set_get({"group": "vide"}, {"user": None})
 check("get : jeu absent → exists False", g["exists"] is False and g["entries"] == [])
 
+# — relance en lot (op_session_set_relaunch) : idempotence + fallback opt-in —
+ka.SESSION_SET_RELAUNCH_DELAY = 0            # pas d'attente en test
+ka._model_catalog = lambda: {"claude": {"opus": "claude-opus-4-8"}}
+
+ALIVE = set()
+ka._has_session = lambda sid: sid in ALIVE
+
+RESUME = {}   # sid → "ok" | code d'erreur
+
+
+def fake_resume(payload):
+    sid = payload["rm_id"]
+    beh = RESUME.get(sid, "ok")
+    if beh == "ok":
+        ALIVE.add(sid)
+        return {"rm_id": sid, "resumed": True}
+    raise ka.ApiError(beh, f"resume {sid} → {beh}")
+
+
+SPAWNED = []
+
+
+def fake_spawn(payload):
+    SPAWNED.append(payload)
+    ALIVE.add(payload["rm_id"])
+    return {"rm_id": payload["rm_id"], "created": True}
+
+
+ka.op_resume = fake_resume
+ka.op_spawn = fake_spawn
+
+# reverse-map modèle (RM1941) : le store garde la valeur, op_spawn veut la clé
+check("model : valeur connue → clé de catalogue", ka._model_key_for_value("claude", "claude-opus-4-8") == "opus")
+check("model : valeur inconnue → défaut ''", ka._model_key_for_value("claude", "zzz") == "")
+check("model : None → défaut ''", ka._model_key_for_value("claude", None) == "")
+
+# jeu « relance » : 3001 vivante, 3002 reprenable, 3003 transcript perdu (410),
+# 3004 transcript perdu + modèle connu (pour le reverse-map au spawn)
+store = ka._session_set_load()
+ka._session_set_put(store, "superadmin", "relance", {"saved_at": 1, "autostart": False, "entries": [
+    {"sid": "3001", "engine": "claude", "session_id": "sa", "cwd": "/x", "model": None},
+    {"sid": "3002", "engine": "claude", "session_id": "sb", "cwd": "/x", "model": None},
+    {"sid": "3003", "engine": "claude", "session_id": "sc", "cwd": "/x", "model": None},
+    {"sid": "3004", "engine": "claude", "session_id": "sd", "cwd": "/zfs/d", "model": "claude-opus-4-8"},
+]})
+ka._write_json_atomic(ka.SESSION_SET_FILE, store)
+
+# — resume seul (spawn NON demandé) : perdus → failed, pas de spawn —
+ALIVE.clear(); ALIVE.add("3001")
+RESUME.clear(); RESUME.update({"3003": 410, "3004": 410})
+SPAWNED.clear()
+r = ka.op_session_set_relaunch({"group": "relance"}, {"user": None})
+by = {x["sid"]: x["action"] for x in r["report"]}
+check("relance : déjà vivante → skipped (idempotent)", by["3001"] == "skipped")
+check("relance : reprenable → resumed", by["3002"] == "resumed")
+check("relance : transcript perdu sans opt-in → failed", by["3003"] == "failed" and by["3004"] == "failed")
+check("relance : aucun spawn sans opt-in", SPAWNED == [])
+check("relance : counts agrégés", r["counts"] == {"skipped": 1, "resumed": 1, "failed": 2})
+
+# — re-jouée : les reprises restent skipped (pas de doublon ni de kill), seuls
+#   les cassés (transcript perdu, sans opt-in) refont failed — idempotence —
+r2 = ka.op_session_set_relaunch({"group": "relance"}, {"user": None})
+check("relance : rejeu → vivantes skipped, cassées re-failed",
+      r2["counts"] == {"skipped": 2, "failed": 2})
+
+# — avec opt-in spawn : les perdus sont recréés, modèle reverse-mappé —
+ALIVE.clear(); ALIVE.add("3001")
+SPAWNED.clear()
+r3 = ka.op_session_set_relaunch({"group": "relance", "spawn": True}, {"user": None})
+by = {x["sid"]: x["action"] for x in r3["report"]}
+check("relance+spawn : perdus recréés", by["3003"] == "spawned" and by["3004"] == "spawned")
+spawned_models = {p["rm_id"]: p["model"] for p in SPAWNED}
+check("relance+spawn : modèle connu reverse-mappé en clé", spawned_models.get("3004") == "opus")
+check("relance+spawn : modèle None → clé vide", spawned_models.get("3003") == "")
+
+# — jeu absent → 404 —
+try:
+    ka.op_session_set_relaunch({"group": "fantome"}, {"user": None})
+    check("relance : jeu absent → 404", False)
+except ka.ApiError as e:
+    check("relance : jeu absent → 404", e.code == 404)
+
 # — plafond : un instantané trop gros est refusé —
 LIVE.clear()
 LIVE.update({str(i): {"engine": "claude", "session_id": f"u{i}", "cwd": "/x", "model": None}

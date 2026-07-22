@@ -1237,6 +1237,70 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
             "count": len(entries), "entries": entries}
 
 
+# Temporisation entre deux démarrages d'une relance en lot : chaque entrée ouvre
+# un TUI complet ; on espace les tmux new-session pour ne pas les bousculer.
+SESSION_SET_RELAUNCH_DELAY = float(os.environ.get("KARL_AGENT_RELAUNCH_DELAY", "0.6"))
+
+
+def _model_key_for_value(engine: str, value: str | None) -> str:
+    """Le store garde la VALEUR de modèle résolue (RM1941), mais op_spawn attend
+    une CLÉ de catalogue. Reverse-map value → key pour le fallback spawn ; clé
+    inconnue du catalogue courant → "" (défaut moteur, jamais une valeur brute)."""
+    if not value:
+        return ""
+    for k, v in _model_catalog().get(engine, {}).items():
+        if v == value:
+            return k
+    return ""
+
+
+def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — relance en lot le jeu (user, group). Idempotent : une entrée déjà
+    vivante est `skipped` (jamais dupliquée ni tuée). Sinon resume natif du moteur
+    (`resumed`) ; si le transcript ou le cwd a disparu (410/404), spawn neuf
+    UNIQUEMENT si `spawn` est demandé (opt-in, défaut off) et SANS prompt initial —
+    sinon `failed` avec le motif. Séquentiel + temporisé (chaque entrée = un TUI)."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    allow_spawn = bool(payload.get("spawn"))
+    rec = _session_set_get(_session_set_load(), user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    entries = rec.get("entries", [])[:SESSION_SET_MAX]
+    report, started = [], 0
+    for e in entries:
+        sid = e.get("sid")
+        if not sid or not _valid_sid(sid):
+            report.append({"sid": sid, "action": "failed", "error": "sid invalide"})
+            continue
+        if _has_session(sid):
+            report.append({"sid": sid, "action": "skipped"})
+            continue
+        engine = e.get("engine") or "claude"
+        if started:
+            time.sleep(SESSION_SET_RELAUNCH_DELAY)
+        started += 1
+        try:
+            op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine})
+            report.append({"sid": sid, "action": "resumed"})
+        except ApiError as ex:
+            if ex.code == 409:   # course : devenue vivante entre le check et le resume
+                report.append({"sid": sid, "action": "skipped"})
+            elif ex.code in (404, 410) and allow_spawn and e.get("cwd"):
+                try:
+                    op_spawn({"rm_id": sid, "engine": engine, "cwd": e.get("cwd"),
+                              "model": _model_key_for_value(engine, e.get("model"))})
+                    report.append({"sid": sid, "action": "spawned"})
+                except ApiError as ex2:
+                    report.append({"sid": sid, "action": "failed", "error": ex2.msg})
+            else:
+                report.append({"sid": sid, "action": "failed", "error": ex.msg})
+    counts = {}
+    for r in report:
+        counts[r["action"]] = counts.get(r["action"], 0) + 1
+    return {"user": user, "group": group, "counts": counts, "report": report}
+
+
 def _auto_slug(title: str | None, session_id: str) -> str:
     """Slug d'ancrage automatique pour une reprise sans ticket (RM2144) :
     dérivé du titre de la session (marqueur [WIP]/[DONE] retiré), unique parmi
@@ -3322,6 +3386,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_auth_user_create(payload))
             if path == "/session-set":
                 return self._send_json(200, op_session_set_save(payload, self.auth_ctx))
+            if path == "/session-set/relaunch":
+                return self._send_json(200, op_session_set_relaunch(payload, self.auth_ctx))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":

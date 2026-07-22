@@ -47,6 +47,9 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/sessions` | `?engine=&client=&project=` | `{sessions:[{rm_id, tmux, created, attached, engine?, session_id?, client?, project?, state}]}` — enrichi via l'index sessions⇄tickets (RM1939) ; `state` ∈ `working|attention|idle` (heuristique capture-pane, intérim RM1874 — RM2140) |
 | GET | `/resumable` | `?engine=&client=&project=&status=wip\|done\|not-done&q=&limit=` | `{resumable:[{engine, session_id, title, mark, cwd, mtime, client, project, tickets, live}]}` — sessions reprenables découvertes dans les stores claude (`KARL_AGENT_CLAUDE_STORES`, défaut `~/.claude/projects`) ; `mark` = marqueur `[WIP]`/`[DONE]` posé par `/session-mark` ; projet déduit du `.mmi-pm` du cwd (RM1939) |
 | POST | `/resume` | `{session_id?, rm_id?, n?, prompt?}` | `201 {rm_id, tmux, engine, session_id, cwd, resumed}` — relance `claude --resume <sid>` dans un tmux neuf au cwd d'origine ; ancrage : ticket `RM<id>` = idéal (jonction écrite), slug accepté, ABSENT = dernier ticket lié sinon slug auto dérivé du titre (RM2144). 409 si tmux vivant, 410 si transcript purgé/cwd invalide (RM1939) |
+| POST | `/session-set` | `{group?="default"}` | `{user, group, count, saved_at, entries}` — enregistre un **instantané des sessions vivantes** dans le jeu (user, groupe) ; écrase le groupe en préservant `autostart` ; plafond `SESSION_SET_MAX` (RM2395) |
+| GET | `/session-set` | `?group=default` | `{user, group, exists, saved_at, autostart, count, entries:[{sid, engine, session_id, cwd, model, alive}]}` — relit le jeu + état `alive` par entrée (RM2395) |
+| POST | `/session-set/relaunch` | `{group?="default", spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance en lot **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. Séquentiel + temporisé (RM2395) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
@@ -106,6 +109,31 @@ plusieurs sessions ; `n` = occurrence de prise en charge). Le même couple
 Itération 1 : moteur **claude** uniquement (session-id fixé au spawn) ; la
 découverte scanne aussi les sessions HORS karl-agent (interactives) via leurs
 transcripts, avec leurs marqueurs `[WIP]`/`[DONE]` (`/session-mark`).
+
+### Jeux de sessions enregistrés (RM2395)
+
+Un **jeu** = un instantané des sessions vivantes qu'on veut pouvoir relancer d'un
+clic après un redémarrage. Store instance-local (jamais committé)
+`~/.local/state/karl-agent/session-set.json` — un `session_id` n'a de sens que sur
+cette machine. Schéma **user + groupe** (anticipe le multi-utilisateur et les
+groupes nommés) :
+
+```json
+{"version": 1, "users": {"superadmin": {"groups": {"default": {
+    "saved_at": 1753, "autostart": false,
+    "entries": [{"sid": "2395", "engine": "claude",
+                 "session_id": "<uuid>", "cwd": "/zfs/…", "model": null}]}}}}}
+```
+
+Résolution des clés : **user** = `auth_ctx["user"]` (RM2334) sinon `superadmin`
+(auth ouverte / secret partagé) ; **groupe** = param `group` sinon `default`. v1
+n'exerce que le couple par défaut, mais la clé transite de bout en bout → le
+multi-jeux / multi-utilisateur est une extension sans migration. La relance
+(`/session-set/relaunch`) s'appuie sur `/resume` (donc claude ; `skipped` pour une
+entrée déjà vivante — idempotent) ; le fallback **spawn neuf** est **opt-in** (pas
+d'agent vierge qui consomme des tokens sans qu'on l'ait demandé). Le modèle choisi
+au spawn est mémorisé par entrée (`_record_key`, RM1941) pour un fallback fidèle.
+Autostart au démarrage : `resume` seul, jamais spawn — *à venir* (carte de gestion).
 
 ### Exemples
 

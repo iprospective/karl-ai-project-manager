@@ -307,6 +307,13 @@
         <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
         tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
       </label>
+      <!-- RM2395 : enregistrer / relancer le jeu de sessions (superadmin/default) -->
+      <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap">
+        <button onclick="saveSessionSet(this)"
+                title="Enregistre les sessions vivantes dans le jeu « default » — pour pouvoir les relancer après un redémarrage">💾 Enregistrer les sessions</button>
+        <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
+                title="Relance les sessions enregistrées (reprise de conversation ; celles déjà actives sont ignorées, les conversations perdues sont signalées)">▶ Relancer les sessions enregistrées</button>
+      </div>
       <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
 
@@ -987,6 +994,44 @@ async function approveAll(btn) {
       r.approved.map(a => (/^\d+$/.test(a.rm_id) ? "RM" : "") + a.rm_id).join(", ")
       : "Aucune session ne posait de question");
     setTimeout(refreshSessions, 900);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+// RM2395 : enregistre l'instantané des sessions vivantes dans le jeu superadmin/default
+async function saveSessionSet(btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    toast(r.count ? "💾 " + r.count + " session(s) enregistrée(s)" : "Aucune session vivante à enregistrer");
+    refreshSessionSet();
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+// RM2395 : relit le jeu enregistré → met à jour le bouton Relancer (compteur + visibilité)
+async function refreshSessionSet() {
+  const btn = document.getElementById("btn-relaunch");
+  if (!btn) return;
+  try {
+    const r = await api("/session-set");
+    if (r.exists && r.count) {
+      btn.textContent = "▶ Relancer les sessions enregistrées (" + r.count + ")";
+      btn.style.display = "";
+    } else { btn.style.display = "none"; }
+  } catch (e) { btn.style.display = "none"; }
+}
+// RM2395 : relance en lot le jeu enregistré (resume ; déjà actives ignorées).
+// Le fallback « recréer une session neuve » (spawn) reste opt-in → carte de gestion.
+async function relaunchSessionSet(btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/session-set/relaunch", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const c = r.counts || {}, parts = [];
+    if (c.resumed) parts.push(c.resumed + " reprise(s)");
+    if (c.skipped) parts.push(c.skipped + " déjà active(s)");
+    if (c.spawned) parts.push(c.spawned + " recréée(s)");
+    if (c.failed) parts.push(c.failed + " échec(s)");
+    toast("▶ " + (parts.join(" · ") || "rien à relancer"), !!c.failed);
+    setTimeout(refreshSessions, 1200);
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
@@ -2633,6 +2678,7 @@ async function kill(rmId) {
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   refreshHealth(); refreshSessions();
+  refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);
 })();

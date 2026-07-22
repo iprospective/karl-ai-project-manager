@@ -799,7 +799,7 @@ def op_spawn(payload: dict) -> dict:
     if session_id:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
-        _record_key(rm_id, engine, session_id, str(cwd))
+        _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
@@ -1094,24 +1094,211 @@ def _record_run(rm_id: str, engine: str, session_id: str, cwd: str) -> dict:
     return run
 
 
-def _record_key(sid: str, engine: str, session_id: str, cwd: str) -> None:
+def _record_key(sid: str, engine: str, session_id: str, cwd: str,
+                model: str | None = None) -> None:
     """Index clé-tmux → (engine, session_id, cwd) — RM2144. Couvre AUSSI les
     sessions slug (sans jonction ticket) : sert à l'enrichissement /sessions
-    (moteur, projet via cwd) et à la reprise. Touche l'entité session au passage."""
+    (moteur, projet via cwd) et à la reprise. Touche l'entité session au passage.
+
+    `model` (RM1941/RM2395) : la valeur de modèle résolue au spawn, mémorisée
+    pour qu'un instantané de jeu (RM2395) puisse relancer avec le bon modèle
+    (None = défaut moteur). Préservée sur une reprise (qui appelle sans model)."""
     now = int(time.time())
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
-    _write_json_atomic(LOG_DIR / "keys" / f"{key}.json",
-                       {"sid": sid, "engine": engine, "session_id": session_id,
-                        "cwd": cwd, "last_seen": now})
+    keyf = LOG_DIR / "keys" / f"{key}.json"
+    if model is None:  # reprise / enrichissement : ne pas perdre le modèle déjà connu
+        model = (_read_json_file(keyf) or {}).get("model")
+    rec = {"sid": sid, "engine": engine, "session_id": session_id,
+           "cwd": cwd, "last_seen": now}
+    if model:
+        rec["model"] = model
+    _write_json_atomic(keyf, rec)
     sf = SESS_DIR / engine / f"{session_id}.json"
     meta = _read_json_file(sf) or {"engine": engine, "session_id": session_id, "created": now}
     meta.update({"cwd": cwd, "last_seen": now})
+    if model:
+        meta["model"] = model
     _write_json_atomic(sf, meta)
 
 
 def _key_info(sid: str) -> dict | None:
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
     return _read_json_file(LOG_DIR / "keys" / f"{key}.json")
+
+
+# ── Jeux de sessions enregistrés (RM2395) — instance-local, JAMAIS committé ───
+# Un « jeu » = un instantané des sessions vivantes qu'on veut pouvoir relancer
+# d'un clic après un reboot. Rangé sous LOG_DIR (à côté de keys/sessions/tasks) :
+# instance-local, hors git — un session_id n'a de sens que sur cette machine.
+#
+# Le schéma anticipe DÉLIBÉRÉMENT le multi-utilisateur et les groupes NOMMÉS :
+#   {"version":1, "users": {"<user>": {"groups": {"<group>": {saved_at, autostart,
+#                                                              entries:[…]}}}}}
+# Cette première étape (RM2395) n'exerce que le couple par défaut — user
+# « superadmin » (l'utilisateur amorcé par la conf, cf. RM2334), groupe
+# « default » — mais la clé user+groupe est portée de bout en bout pour que le
+# multi-jeux et le multi-utilisateur soient une simple extension, sans migration.
+SESSION_SET_FILE = LOG_DIR / "session-set.json"
+DEFAULT_SET_USER = "superadmin"    # auth ouverte / secret partagé → superadmin
+DEFAULT_SET_GROUP = "default"
+SESSION_SET_MAX = 24               # garde-fou : un instantané ne dépasse pas ça
+_SET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")  # user ET group
+
+
+def _session_set_user(auth_ctx: dict | None) -> str:
+    """Utilisateur porteur du jeu. En auth ouverte ou via secret partagé,
+    auth_ctx['user'] vaut None → on retombe sur le superadmin par défaut. Le nom
+    est normalisé/validé (c'est une clé de dict) ; à défaut, superadmin."""
+    user = str((auth_ctx or {}).get("user") or DEFAULT_SET_USER).lower()
+    return user if _SET_NAME_RE.match(user) else DEFAULT_SET_USER
+
+
+def _session_set_group(name) -> str:
+    name = str(name or DEFAULT_SET_GROUP).lower()
+    if not _SET_NAME_RE.match(name):
+        raise ApiError(400, f"nom de groupe invalide : {name!r}")
+    return name
+
+
+def _session_set_load() -> dict:
+    store = _read_json_file(SESSION_SET_FILE)
+    if not isinstance(store, dict) or not isinstance(store.get("users"), dict):
+        return {"version": 1, "users": {}}
+    return store
+
+
+def _session_set_get(store: dict, user: str, group: str) -> dict | None:
+    return (store.get("users", {}).get(user, {}).get("groups") or {}).get(group)
+
+
+def _session_set_put(store: dict, user: str, group: str, rec: dict) -> None:
+    store.setdefault("version", 1)
+    (store.setdefault("users", {}).setdefault(user, {})
+        .setdefault("groups", {}))[group] = rec
+
+
+def _snapshot_live_sessions() -> list:
+    """Instantané des sessions tmux vivantes, réduit aux champs nécessaires à une
+    relance ultérieure (sid, engine, session_id, cwd, model). Les champs manquants
+    (session non indexée en clé) restent à None — l'entrée est enregistrée mais
+    sera signalée non reprenable au moment de la relance (étape suivante)."""
+    entries = []
+    for s in _list_sessions():
+        sid = s["rm_id"]
+        k = _key_info(sid) or {}
+        entries.append({
+            "sid": sid,
+            "engine": k.get("engine"),
+            "session_id": k.get("session_id"),
+            "cwd": k.get("cwd"),
+            "model": k.get("model"),
+        })
+    return entries
+
+
+def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — enregistre l'instantané des sessions vivantes dans le jeu
+    (user, group). v1 : couple par défaut superadmin/default ; `group` peut déjà
+    être passé (anticipation multi-jeux). L'écrasement préserve le drapeau
+    `autostart` du jeu précédent (il se règle à une étape ultérieure)."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    entries = _snapshot_live_sessions()
+    if len(entries) > SESSION_SET_MAX:
+        raise ApiError(409, f"trop de sessions vivantes ({len(entries)} > "
+                            f"{SESSION_SET_MAX}) pour un instantané")
+    store = _session_set_load()
+    prev = _session_set_get(store, user, group) or {}
+    rec = {
+        "saved_at": int(time.time()),
+        "saved_by": (auth_ctx or {}).get("user"),   # user réel (None si auth ouverte)
+        "autostart": bool(prev.get("autostart", False)),
+        "entries": entries,
+    }
+    _session_set_put(store, user, group, rec)
+    _write_json_atomic(SESSION_SET_FILE, store)
+    return {"user": user, "group": group, "count": len(entries),
+            "saved_at": rec["saved_at"], "entries": entries}
+
+
+def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — relit le jeu (user, group) et marque chaque entrée `alive` selon
+    l'état tmux courant. `exists=False` si aucun jeu enregistré."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(qs.get("group"))
+    rec = _session_set_get(_session_set_load(), user, group)
+    if not rec:
+        return {"user": user, "group": group, "exists": False, "entries": [], "count": 0}
+    live = {s["rm_id"] for s in _list_sessions()}
+    entries = [dict(e, alive=(e.get("sid") in live)) for e in rec.get("entries", [])]
+    return {"user": user, "group": group, "exists": True,
+            "saved_at": rec.get("saved_at"), "saved_by": rec.get("saved_by"),
+            "autostart": bool(rec.get("autostart", False)),
+            "count": len(entries), "entries": entries}
+
+
+# Temporisation entre deux démarrages d'une relance en lot : chaque entrée ouvre
+# un TUI complet ; on espace les tmux new-session pour ne pas les bousculer.
+SESSION_SET_RELAUNCH_DELAY = float(os.environ.get("KARL_AGENT_RELAUNCH_DELAY", "0.6"))
+
+
+def _model_key_for_value(engine: str, value: str | None) -> str:
+    """Le store garde la VALEUR de modèle résolue (RM1941), mais op_spawn attend
+    une CLÉ de catalogue. Reverse-map value → key pour le fallback spawn ; clé
+    inconnue du catalogue courant → "" (défaut moteur, jamais une valeur brute)."""
+    if not value:
+        return ""
+    for k, v in _model_catalog().get(engine, {}).items():
+        if v == value:
+            return k
+    return ""
+
+
+def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — relance en lot le jeu (user, group). Idempotent : une entrée déjà
+    vivante est `skipped` (jamais dupliquée ni tuée). Sinon resume natif du moteur
+    (`resumed`) ; si le transcript ou le cwd a disparu (410/404), spawn neuf
+    UNIQUEMENT si `spawn` est demandé (opt-in, défaut off) et SANS prompt initial —
+    sinon `failed` avec le motif. Séquentiel + temporisé (chaque entrée = un TUI)."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    allow_spawn = bool(payload.get("spawn"))
+    rec = _session_set_get(_session_set_load(), user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    entries = rec.get("entries", [])[:SESSION_SET_MAX]
+    report, started = [], 0
+    for e in entries:
+        sid = e.get("sid")
+        if not sid or not _valid_sid(sid):
+            report.append({"sid": sid, "action": "failed", "error": "sid invalide"})
+            continue
+        if _has_session(sid):
+            report.append({"sid": sid, "action": "skipped"})
+            continue
+        engine = e.get("engine") or "claude"
+        if started:
+            time.sleep(SESSION_SET_RELAUNCH_DELAY)
+        started += 1
+        try:
+            op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine})
+            report.append({"sid": sid, "action": "resumed"})
+        except ApiError as ex:
+            if ex.code == 409:   # course : devenue vivante entre le check et le resume
+                report.append({"sid": sid, "action": "skipped"})
+            elif ex.code in (404, 410) and allow_spawn and e.get("cwd"):
+                try:
+                    op_spawn({"rm_id": sid, "engine": engine, "cwd": e.get("cwd"),
+                              "model": _model_key_for_value(engine, e.get("model"))})
+                    report.append({"sid": sid, "action": "spawned"})
+                except ApiError as ex2:
+                    report.append({"sid": sid, "action": "failed", "error": ex2.msg})
+            else:
+                report.append({"sid": sid, "action": "failed", "error": ex.msg})
+    counts = {}
+    for r in report:
+        counts[r["action"]] = counts.get(r["action"], 0) + 1
+    return {"user": user, "group": group, "counts": counts, "report": report}
 
 
 def _auto_slug(title: str | None, session_id: str) -> str:
@@ -3134,6 +3321,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"sessions": _sessions_view(qs)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
+            if path == "/session-set":
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_session_set_get(qs, self.auth_ctx))
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
@@ -3203,6 +3393,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/auth/users":
                 self._require_admin()
                 return self._send_json(201, op_auth_user_create(payload))
+            if path == "/session-set":
+                return self._send_json(200, op_session_set_save(payload, self.auth_ctx))
+            if path == "/session-set/relaunch":
+                return self._send_json(200, op_session_set_relaunch(payload, self.auth_ctx))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":

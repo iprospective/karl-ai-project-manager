@@ -23,6 +23,7 @@ scripts/karl-agent.py (ce n'est pas un ticket cockpit-testable).
 import argparse
 import importlib.util
 import json
+import os
 import re
 import subprocess
 import sys
@@ -46,6 +47,15 @@ PORT_SPAN = 90
 def port_for(rm_id: int) -> int:
     """Port déterministe du ticket — stable entre create/teardown/répétitions."""
     return PORT_BASE + (rm_id % PORT_SPAN)
+
+
+def prod_state_dir() -> Path:
+    """État de session prod partagé (RM2385) — MIROIR du défaut `STATE_DIR`/
+    `LOG_DIR` de karl-agent : `$XDG_STATE_HOME/karl-agent` sinon
+    `~/.local/state/karl-agent`. C'est là que vivent keys/, sessions/, tasks/
+    que l'instance de test doit lire pour résoudre les sessions live."""
+    base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
+    return Path(base) / "karl-agent"
 
 
 def container_ip() -> str:
@@ -119,11 +129,18 @@ def cmd_create(args):
                    capture_output=True, timeout=30)
     subprocess.run(["systemctl", "--user", "reset-failed", unit, bridge],
                    capture_output=True, timeout=30)
-    state_dir = REGISTRY.parent / f"logdir-{args.rmid}"
+    # LOG_DIR isolé par instance (logs HTTP/pipe/pm-runs propres au test) MAIS
+    # STATE_DIR pointé sur l'état de session PARTAGÉ de la prod (keys/sessions/
+    # tasks) : sans ça l'instance de test ne résout aucune session live → /usage
+    # et /outline vides (RM2385). karl-agent : STATE_DIR défaut = LOG_DIR, donc
+    # on l'override explicitement ici vers le défaut prod.
+    log_dir = REGISTRY.parent / f"logdir-{args.rmid}"
+    shared_state = prod_state_dir()
     run(["systemd-run", "--user", f"--unit={unit}",
          f"--working-directory={wt}",
          f"--setenv=KARL_AGENT_PORT={port}",
-         f"--setenv=KARL_AGENT_LOG_DIR={state_dir}",
+         f"--setenv=KARL_AGENT_LOG_DIR={log_dir}",
+         f"--setenv=KARL_AGENT_STATE_DIR={shared_state}",
          "/usr/bin/python3", "scripts/karl-agent.py"])
     run(["systemd-run", "--user", f"--unit={bridge}",
          "/usr/bin/socat", f"TCP-LISTEN:{port},bind={ip},fork,reuseaddr",

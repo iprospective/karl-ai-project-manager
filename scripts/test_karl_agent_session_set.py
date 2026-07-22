@@ -227,6 +227,7 @@ except ka.ApiError as e:
 LIVE.clear()
 KLOG = TMP / "state"
 ka.LOG_DIR = KLOG
+ka.STATE_DIR = KLOG            # RM2385 : keys/ suit STATE_DIR (défaut = LOG_DIR)
 ka.SESS_DIR = KLOG / "sessions"
 ka._record_key("2395", "claude", "uuid-z", "/zfs/z", model="sonnet")
 key = json.loads((KLOG / "keys" / "RM2395.json").read_text())

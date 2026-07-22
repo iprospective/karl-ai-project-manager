@@ -274,14 +274,23 @@ LOG_DIR = Path(
     or (Path(os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")) / "karl-agent")
 )
 
+# État de session partageable (RM2385) — distinct des logs d'instance. Le store
+# sessions⇄tickets (keys/, sessions/, tasks/) est une donnée d'ÉTAT que plusieurs
+# instances karl-agent du même utilisateur peuvent vouloir partager (p. ex. une
+# instance de test de branche qui doit résoudre les sessions live pour /usage et
+# /outline — cf. pm-cockpit-test-env). Les LOGS d'instance (pipe-pane, pm-runs,
+# answers) restent, eux, sous LOG_DIR. Défaut : STATE_DIR = LOG_DIR ⇒ comportement
+# prod strictement inchangé.
+STATE_DIR = Path(os.environ.get("KARL_AGENT_STATE_DIR") or LOG_DIR)
+
 # ── Store sessions ⇄ tickets (RM1939) — instance-local, JAMAIS committé ──────
 # Modèle n-m : une session traverse plusieurs tickets, un ticket est repris dans
 # plusieurs sessions. Deux dimensions + jonction :
 #   sessions/<engine>/<session_id>.json      entité SESSION (projet-agnostique)
 #   tasks/<client>/<projet>/RM<id>-<n>.json  jonction (n = occurrence, max+1)
 # Un session-id n'a de sens que sur CETTE machine (fédération : jamais en git).
-SESS_DIR = LOG_DIR / "sessions"
-RUNS_DIR = LOG_DIR / "tasks"
+SESS_DIR = STATE_DIR / "sessions"
+RUNS_DIR = STATE_DIR / "tasks"
 # Stores claude scannés pour la DÉCOUVERTE des sessions reprenables (l'historique
 # reste chez le moteur ; karl-agent n'en garde qu'un index). Multi-racines ':' —
 # permet de monter le store d'une autre machine en lecture (listing seulement :
@@ -1105,7 +1114,7 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
     (None = défaut moteur). Préservée sur une reprise (qui appelle sans model)."""
     now = int(time.time())
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
-    keyf = LOG_DIR / "keys" / f"{key}.json"
+    keyf = STATE_DIR / "keys" / f"{key}.json"   # RM2385 : état partagé, pas LOG_DIR
     if model is None:  # reprise / enrichissement : ne pas perdre le modèle déjà connu
         model = (_read_json_file(keyf) or {}).get("model")
     rec = {"sid": sid, "engine": engine, "session_id": session_id,
@@ -1123,7 +1132,7 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
 
 def _key_info(sid: str) -> dict | None:
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
-    return _read_json_file(LOG_DIR / "keys" / f"{key}.json")
+    return _read_json_file(STATE_DIR / "keys" / f"{key}.json")
 
 
 # ── Jeux de sessions enregistrés (RM2395) — instance-local, JAMAIS committé ───

@@ -70,6 +70,22 @@ _verbs = [c[0][0] for c in calls if c and c[0]]
 check("dry-run : `ip route` sondé", "ip" in _verbs)
 check("dry-run : aucune unité systemd", not any(v in ("systemd-run", "systemctl") for v in _verbs))
 
+# — create réel : STATE_DIR partagé + LOG_DIR isolé sur l'unité karl (RM2385) —
+calls.clear()
+cte.urllib.request.urlopen = lambda *a, **k: types.SimpleNamespace()   # /health « vivant »
+cte._pes.set_test_url = lambda *a, **k: None                          # pas d'écriture frontmatter
+cte.cmd_create(types.SimpleNamespace(rmid=42, workspace=str(ws), dry_run=False))
+karl_unit = next((c[0] for c in calls
+                  if c[0][0] == "systemd-run" and "--unit=karl-test-42" in c[0]), None)
+check("create : unité karl lancée", karl_unit is not None)
+state_flag = next((a for a in (karl_unit or []) if a.startswith("--setenv=KARL_AGENT_STATE_DIR=")), "")
+log_flag = next((a for a in (karl_unit or []) if a.startswith("--setenv=KARL_AGENT_LOG_DIR=")), "")
+check("STATE_DIR pointé sur l'état prod partagé (…/karl-agent)",
+      state_flag.endswith("/karl-agent"))
+check("LOG_DIR isolé par instance (logdir-42)", "logdir-42" in log_flag)
+check("STATE_DIR ≠ LOG_DIR (état partagé, logs isolés)",
+      state_flag.split("=", 1)[-1] != log_flag.split("=", 1)[-1])
+
 # — registre : écriture/lecture atomiques —
 cte._save_registry({"42": {"port": 9942, "url": "http://x/"}})
 check("registre relu", cte._registry()["42"]["port"] == 9942)

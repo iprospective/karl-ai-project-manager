@@ -405,6 +405,12 @@
       <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
       <ul class="results" id="rs-list"></ul>
     </div>
+
+    <!-- RM2395 : gestion du jeu de sessions enregistré -->
+    <div class="card" id="setcard">
+      <h2>Sessions enregistrées <span style="color:var(--muted);font-weight:normal">(RM2395)</span></h2>
+      <div id="set-body"><div class="empty">chargement…</div></div>
+    </div>
     </div>
 
     <div class="lpanel" id="lp-test">
@@ -786,7 +792,7 @@ async function refreshHealth() {
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
 // première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => loadResumable(), test: () => loadTestQueue(), pm: () => loadPmCommands(), settings: () => loadSettings() };
+const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), pm: () => loadPmCommands(), settings: () => loadSettings() };
 const _panelLoaded = {};
 function switchPanel(name) {
   if (!document.getElementById("lp-" + name)) name = "running";
@@ -997,17 +1003,22 @@ async function approveAll(btn) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
-// RM2395 : enregistre l'instantané des sessions vivantes dans le jeu superadmin/default
+// RM2395 : jeux de sessions enregistrés (enregistrer / relancer / autostart / effacer)
+// Le fallback spawn « recréer une session neuve si la conversation est perdue »
+// est une préférence client (opt-in) : cochée → la relance envoie spawn:true.
+let sessionSetSpawn = false;
+try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e) { /* pas de storage */ }
+
 async function saveSessionSet(btn) {
   btn.disabled = true;
   try {
     const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
     toast(r.count ? "💾 " + r.count + " session(s) enregistrée(s)" : "Aucune session vivante à enregistrer");
-    refreshSessionSet();
+    refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
-// RM2395 : relit le jeu enregistré → met à jour le bouton Relancer (compteur + visibilité)
+// relit le jeu → met à jour le bouton Relancer de la barre « en cours » (compteur + visibilité)
 async function refreshSessionSet() {
   const btn = document.getElementById("btn-relaunch");
   if (!btn) return;
@@ -1019,19 +1030,68 @@ async function refreshSessionSet() {
     } else { btn.style.display = "none"; }
   } catch (e) { btn.style.display = "none"; }
 }
-// RM2395 : relance en lot le jeu enregistré (resume ; déjà actives ignorées).
-// Le fallback « recréer une session neuve » (spawn) reste opt-in → carte de gestion.
 async function relaunchSessionSet(btn) {
   btn.disabled = true;
   try {
-    const r = await api("/session-set/relaunch", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    const r = await api("/session-set/relaunch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ spawn: sessionSetSpawn }),
+    });
     const c = r.counts || {}, parts = [];
     if (c.resumed) parts.push(c.resumed + " reprise(s)");
     if (c.skipped) parts.push(c.skipped + " déjà active(s)");
     if (c.spawned) parts.push(c.spawned + " recréée(s)");
     if (c.failed) parts.push(c.failed + " échec(s)");
     toast("▶ " + (parts.join(" · ") || "rien à relancer"), !!c.failed);
-    setTimeout(refreshSessions, 1200);
+    setTimeout(() => { refreshSessions(); loadSessionSet(); }, 1200);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+// carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
+async function loadSessionSet() {
+  const el = document.getElementById("set-body");
+  if (!el) return;
+  try {
+    const r = await api("/session-set");
+    if (!r.exists || !r.count) {
+      el.innerHTML = '<div class="empty">Aucun jeu enregistré — bouton « 💾 Enregistrer les sessions » dans « ▶ en cours ».</div>';
+      return;
+    }
+    const rows = r.entries.map(e => {
+      const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
+      const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
+      return '<li><b>' + label + '</b> <span style="color:var(--muted)">' + esc(e.engine || "?") + '</span> ' + st +
+        '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
+    }).join("");
+    el.innerHTML =
+      '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' + r.count +
+        ' session(s) · enregistré il y a ' + ago(r.saved_at) + '</div>' +
+      '<ul class="results">' + rows + '</ul>' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer"><input type="checkbox" style="width:auto"' +
+        (r.autostart ? " checked" : "") + ' onchange="toggleAutostart(this.checked)"> Relancer au démarrage de karl-agent</label>' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
+        (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)">▶ Relancer</button>' +
+        '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>';
+  } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+async function toggleAutostart(on) {
+  try {
+    await api("/session-set/autostart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autostart: !!on }) });
+    toast(on ? "⏻ relance au démarrage activée" : "relance au démarrage désactivée");
+  } catch (e) { toast(e.message, true); loadSessionSet(); }
+}
+function setSpawnPref(on) {
+  sessionSetSpawn = !!on;
+  try { localStorage.setItem("karlSetSpawn", on ? "1" : ""); } catch (e) { /* pas de storage */ }
+}
+async function deleteSessionSet(btn) {
+  if (!window.confirm("Effacer le jeu de sessions enregistré ?")) return;
+  btn.disabled = true;
+  try {
+    await api("/session-set", { method: "DELETE" });
+    toast("🗑 jeu effacé");
+    refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }

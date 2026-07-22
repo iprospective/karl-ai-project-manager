@@ -50,6 +50,8 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | POST | `/session-set` | `{group?="default"}` | `{user, group, count, saved_at, entries}` — enregistre un **instantané des sessions vivantes** dans le jeu (user, groupe) ; écrase le groupe en préservant `autostart` ; plafond `SESSION_SET_MAX` (RM2395) |
 | GET | `/session-set` | `?group=default` | `{user, group, exists, saved_at, autostart, count, entries:[{sid, engine, session_id, cwd, model, alive}]}` — relit le jeu + état `alive` par entrée (RM2395) |
 | POST | `/session-set/relaunch` | `{group?="default", spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance en lot **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. Séquentiel + temporisé (RM2395) |
+| POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour relance au démarrage ; ne re-snapshote pas (RM2395) |
+| DELETE | `/session-set` | `?group=default` | `{user, group, deleted}` — efface le jeu (RM2395) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
@@ -133,7 +135,15 @@ multi-jeux / multi-utilisateur est une extension sans migration. La relance
 entrée déjà vivante — idempotent) ; le fallback **spawn neuf** est **opt-in** (pas
 d'agent vierge qui consomme des tokens sans qu'on l'ait demandé). Le modèle choisi
 au spawn est mémorisé par entrée (`_record_key`, RM1941) pour un fallback fidèle.
-Autostart au démarrage : `resume` seul, jamais spawn — *à venir* (carte de gestion).
+
+**Autostart au démarrage** (`autostart` par jeu, posé via `/session-set/autostart`) :
+au lancement du daemon, un thread de fond rejoue les jeux marqués — **`resume` seul,
+jamais spawn, jamais de prompt** (arbitrage : pas d'agent lancé sans opérateur).
+Ne mord qu'après un **reboot** / `tmux kill-server` (`KillMode=process` fait
+survivre les tmux au simple redémarrage du daemon) ; l'idempotence rend le rejeu à
+chaque démarrage inoffensif. Coupe-circuit : `KARL_AGENT_AUTOSTART=0`. Gestion depuis
+la **carte « Sessions enregistrées »** du panneau 🚀 sessions (liste + état par
+entrée, cases autostart & fallback spawn, Effacer).
 
 ### Exemples
 
@@ -222,7 +232,8 @@ Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.
 | `KARL_AGENT_ALLOWED_ROOTS` | `/zfs/workspaces` | Racines autorisées pour `cwd` (`:`-séparées). |
 | `KARL_AGENT_DEFAULT_CWD` | _(repo)_ | cwd si non fourni au spawn. |
 | `KARL_AGENT_WIDTH` / `_HEIGHT` | `200` / `50` | Géométrie du pane tmux. |
-| `KARL_AGENT_LOG_DIR` | `~/.local/state/karl-agent` | Logs pipe-pane (alimente `/stream`). |
+| `KARL_AGENT_LOG_DIR` | `~/.local/state/karl-agent` | Logs pipe-pane (alimente `/stream`) + store des jeux (`session-set.json`, RM2395). |
+| `KARL_AGENT_AUTOSTART` | `1` | `0` = coupe la relance auto des jeux marqués `autostart` au démarrage (RM2395). |
 | `KARL_AGENT_TTYD_URL` | _(vide)_ | Base URL du ttyd du cockpit ; vide → le client la déduit (`location.hostname:7681`). |
 
 ## Installation (sur le LXC `dev`)

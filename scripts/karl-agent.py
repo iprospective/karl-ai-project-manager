@@ -1301,6 +1301,74 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
     return {"user": user, "group": group, "counts": counts, "report": report}
 
 
+def op_session_set_autostart(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — (dé)marque le jeu (user, group) pour relance au démarrage. Ne
+    re-snapshote pas : ne touche que le drapeau `autostart`."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    if "autostart" not in payload:
+        raise ApiError(400, "autostart (booléen) requis")
+    store = _session_set_load()
+    rec = _session_set_get(store, user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    rec["autostart"] = bool(payload["autostart"])
+    _session_set_put(store, user, group, rec)
+    _write_json_atomic(SESSION_SET_FILE, store)
+    return {"user": user, "group": group, "autostart": rec["autostart"]}
+
+
+def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2395 — efface le jeu (user, group)."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(qs.get("group"))
+    store = _session_set_load()
+    groups = store.get("users", {}).get(user, {}).get("groups", {})
+    if group not in groups:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    del groups[group]
+    _write_json_atomic(SESSION_SET_FILE, store)
+    return {"user": user, "group": group, "deleted": True}
+
+
+# ── Relance automatique au démarrage (RM2395) ────────────────────────────────
+# Rejoue les jeux marqués `autostart` — RESUME SEUL, jamais spawn, jamais de
+# prompt initial (arbitrage 4 : pas d'agent lancé sans opérateur devant). Ne mord
+# qu'après un reboot / `tmux kill-server` : `KillMode=process` (RM1873) fait
+# survivre les tmux au simple redémarrage du daemon → l'idempotence de la relance
+# (entrée déjà vivante = skipped) rend le rejeu à chaque démarrage inoffensif.
+AUTOSTART_ENABLED = os.environ.get("KARL_AGENT_AUTOSTART", "1") != "0"
+AUTOSTART_DELAY = float(os.environ.get("KARL_AGENT_AUTOSTART_DELAY", "4"))
+
+
+def _autostart_replay() -> list:
+    """Une passe : rejoue en `resume` seul tous les jeux marqués autostart.
+    Best-effort (un jeu en échec n'empêche pas les autres). Séparée du thread
+    pour être testable sans horloge."""
+    out = []
+    store = _session_set_load()
+    for user, u in (store.get("users") or {}).items():
+        for group, rec in (u.get("groups") or {}).items():
+            if not rec.get("autostart"):
+                continue
+            try:
+                r = op_session_set_relaunch({"group": group, "spawn": False}, {"user": user})
+                out.append({"user": user, "group": group, "counts": r["counts"]})
+            except ApiError as e:
+                out.append({"user": user, "group": group, "error": e.msg})
+    return out
+
+
+def _autostart_thread() -> None:
+    time.sleep(AUTOSTART_DELAY)   # laisse tmux / le daemon se stabiliser après un boot
+    try:
+        for r in _autostart_replay():
+            sys.stderr.write(f"autostart {r.get('user')}/{r.get('group')} : "
+                             f"{r.get('counts') or r.get('error')}\n")
+    except Exception as e:  # noqa: BLE001 — best-effort, ne tue jamais le démarrage
+        sys.stderr.write(f"autostart: passe en échec (non fatal) : {e}\n")
+
+
 def _auto_slug(title: str | None, session_id: str) -> str:
     """Slug d'ancrage automatique pour une reprise sans ticket (RM2144) :
     dérivé du titre de la session (marqueur [WIP]/[DONE] retiré), unique parmi
@@ -3388,6 +3456,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_save(payload, self.auth_ctx))
             if path == "/session-set/relaunch":
                 return self._send_json(200, op_session_set_relaunch(payload, self.auth_ctx))
+            if path == "/session-set/autostart":
+                return self._send_json(200, op_session_set_autostart(payload, self.auth_ctx))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":
@@ -3442,6 +3512,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_auth_required()
         path = urlparse(self.path).path
         try:
+            if path == "/session-set":
+                qs = {k: v[0] for k, v in parse_qs(urlparse(self.path).query).items()}
+                return self._send_json(200, op_session_set_delete(qs, self.auth_ctx))
             if path.startswith("/auth/devices/"):
                 did = path[len("/auth/devices/"):]
                 # un utilisateur normal ne révoque QUE ses propres appareils
@@ -3516,6 +3589,10 @@ def main():
 
     # RM2327 : boucle auto-oui (daemon — meurt avec le serveur)
     threading.Thread(target=_auto_yes_loop, name="auto-yes", daemon=True).start()
+
+    # RM2395 : relance auto des jeux marqués autostart (resume seul, en arrière-plan)
+    if AUTOSTART_ENABLED:
+        threading.Thread(target=_autostart_thread, name="autostart", daemon=True).start()
 
     sys.stderr.write(
         f"karl-agent en écoute sur http://{HOST}:{PORT} "

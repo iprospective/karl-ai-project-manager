@@ -178,6 +178,41 @@ try:
 except ka.ApiError as e:
     check("relance : jeu absent → 404", e.code == 404)
 
+# — autostart : drapeau sans re-snapshot ; _autostart_replay = resume seul, ciblé —
+ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})  # isole « relance »
+ka.op_session_set_autostart({"group": "relance", "autostart": True}, {"user": None})
+g = ka.op_session_set_get({"group": "relance"}, {"user": None})
+check("autostart : drapeau posé", g["autostart"] is True)
+check("autostart : pas de re-snapshot (entrées inchangées)", g["count"] == 4)
+
+ALIVE.clear(); ALIVE.add("3001")
+RESUME.clear(); RESUME.update({"3003": 410, "3004": 410})
+SPAWNED.clear()
+res = ka._autostart_replay()
+check("autostart : seul le groupe marqué est rejoué", {r["group"] for r in res} == {"relance"})
+check("autostart : resume seul, aucun spawn (fallback jamais activé)", SPAWNED == [])
+
+try:
+    ka.op_session_set_autostart({"group": "fantome", "autostart": True}, {"user": None})
+    check("autostart : jeu absent → 404", False)
+except ka.ApiError as e:
+    check("autostart : jeu absent → 404", e.code == 404)
+try:
+    ka.op_session_set_autostart({"group": "relance"}, {"user": None})
+    check("autostart : champ requis → 400", False)
+except ka.ApiError as e:
+    check("autostart : champ requis → 400", e.code == 400)
+
+# — delete : efface le groupe, 404 si déjà absent —
+check("delete : groupe effacé", ka.op_session_set_delete({"group": "nuit"}, {"user": None})["deleted"] is True)
+check("delete : groupe retiré du store",
+      "nuit" not in ka._session_set_load()["users"]["superadmin"]["groups"])
+try:
+    ka.op_session_set_delete({"group": "nuit"}, {"user": None})
+    check("delete : déjà absent → 404", False)
+except ka.ApiError as e:
+    check("delete : déjà absent → 404", e.code == 404)
+
 # — plafond : un instantané trop gros est refusé —
 LIVE.clear()
 LIVE.update({str(i): {"engine": "claude", "session_id": f"u{i}", "cwd": "/x", "model": None}

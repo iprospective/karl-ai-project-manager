@@ -222,6 +222,47 @@ def helper(cfg: dict, args: list[str], dry: bool, check=True, stdin: str | None 
 
 # ---------------------------------------------------------------------- create
 
+def list_worktrees(bare: Path) -> list[tuple[Path, str | None]]:
+    """(chemin, branche courte|None) de chaque worktree enregistré du bare —
+    parse `git worktree list --porcelain`. Le bare lui-même et les worktrees
+    détachés ressortent avec branche=None (pas de ligne `branch`)."""
+    # check=False : un bare non initialisé (ou pas encore un repo git) => aucun
+    # worktree, pas une erreur fatale — le résolveur retombe sur le chemin canonique.
+    out = git(["-C", str(bare), "worktree", "list", "--porcelain"], check=False).stdout
+    res: list[tuple[Path, str | None]] = []
+    cur, br = None, None
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            if cur is not None:
+                res.append((Path(cur), br))
+            cur, br = line[len("worktree "):], None
+        elif line.startswith("branch "):
+            ref = line[len("branch "):]
+            br = ref.split("refs/heads/", 1)[-1] if "refs/heads/" in ref else ref
+    if cur is not None:
+        res.append((Path(cur), br))
+    return res
+
+
+def worktree_for_branch(bare: Path, name: str, rmid: int) -> tuple[Path, str] | None:
+    """Worktree où la branche du ticket (`<rmid>-*`) est déjà checkoutée, quel
+    que soit le NOM du worktree : canonique `<repo>-rm<id>` OU discriminé par
+    session `<repo>-dev-<id>-s<seq>` (RM2034), OU créé/renommé à la main.
+
+    Résolution par BRANCHE via `git worktree list` — jamais par chemin deviné
+    (RM2394) : c'est la seule façon qui survive au nommage discriminé, aux
+    renommages (`git worktree move`) et au multi-session. À égalité, le worktree
+    au nom canonique l'emporte (chemin stable pour l'URL/vhost).
+    Retourne (chemin, branche) ou None si le ticket n'a aucun worktree monté."""
+    canonical = f"{name}-rm{rmid}"
+    hits = [(p, b) for p, b in list_worktrees(bare)
+            if b and b.startswith(f"{rmid}-")]
+    if not hits:
+        return None
+    hits.sort(key=lambda pb: (pb[0].name != canonical, pb[0].name))
+    return hits[0]
+
+
 def resolve_base(bare: Path, integration_branch: str | None) -> str:
     """Point de départ de la branche ticket : branche d'intégration locale
     (têtes des worktrees) sinon tracking remote."""
@@ -251,15 +292,31 @@ def cmd_create(args):
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
 
+    # env_name = identité STABLE du ticket (vhost `<repo>-rm<id>.lxc`, canari,
+    # nom des logs). Le worktree, lui, est résolu PAR BRANCHE (RM2394) : il peut
+    # déjà être monté sous un nom discriminé par session (RM2034) ou canonique.
     env_name = f"{name}-rm{rmid}"
-    wt = ws / "envs" / env_name
+    canonical = ws / "envs" / env_name
     slug = args.slug or task_slug(ws, rmid) or "session"
     branch = f"{rmid}-{slug}"
-    print(f"workspace : {ws}\nenv       : envs/{env_name}  (branche {branch})")
+
+    # Réutilise le worktree du ticket s'il existe déjà (quel que soit son nom),
+    # sinon on le créera au chemin canonique. On pose alors le vhost/runtime
+    # PAR-DESSUS l'existant (idempotent) au lieu d'échouer sur `worktree add`.
+    reused = worktree_for_branch(bare, name, rmid)  # lecture seule (dry inclus)
+    if reused is not None:
+        wt, branch = reused
+    else:
+        wt = canonical
+    print(f"workspace : {ws}\nenv       : envs/{wt.name}  (branche {branch})")
 
     # 1. worktree + branche ticket
     if wt.exists():
-        print(f"  · worktree déjà monté")
+        if wt != canonical:
+            print(f"  · worktree du ticket réutilisé : envs/{wt.name} "
+                  f"(résolu par branche, RM2394)")
+        else:
+            print(f"  · worktree déjà monté")
     else:
         lheads = git(["-C", str(bare), "for-each-ref", "--format=%(refname:short)",
                       "refs/heads"]).stdout.split()

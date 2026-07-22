@@ -77,7 +77,15 @@ def resolve_worktree(ws: Path, rm_id: int) -> Path:
     repos = _pes.load_repos(ws)
     if len(repos) != 1:
         sys.exit(f"ERREUR : {len(repos)} repo(s) au manifeste — mono-repo requis")
-    wt = ws / "envs" / f"{repos[0]['name']}-rm{rm_id}"
+    name = repos[0]["name"]
+    # Résolution PAR BRANCHE (RM2394, partagée avec pm-env-session) : le worktree
+    # du ticket peut être monté sous un nom discriminé par session (RM2034) ou
+    # canonique — on le trouve par sa branche `<id>-*`, jamais par chemin deviné.
+    # Repli sur le chemin canonique si un worktree y est mais sans branche `<id>-*`
+    # (état atypique) — préserve le message d'erreur historique.
+    bare = ws / "repos" / f"{name}.git"
+    found = _pes.worktree_for_branch(bare, name, rm_id) if bare.is_dir() else None
+    wt = found[0] if found else ws / "envs" / f"{name}-rm{rm_id}"
     if not wt.is_dir():
         sys.exit(f"ERreur : worktree absent : {wt}\n"
                  f"  → prendre le ticket (en_cours) crée l'env de session, ou pm-env-session create {rm_id}"

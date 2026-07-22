@@ -64,7 +64,11 @@ cte.subprocess.run = lambda *a, **k: calls.append(a) or types.SimpleNamespace(
     returncode=0, stdout="1.1.1.1 via 10.0.3.1 dev eth0 src 10.0.3.99 uid 1000", stderr="")
 args = types.SimpleNamespace(rmid=42, workspace=str(ws), dry_run=True)
 cte.cmd_create(args)
-check("dry-run : seul `ip route` exécuté", len(calls) == 1 and calls[0][0][0] == "ip")
+# dry-run : aucune unité systemd lancée (le résolveur de worktree RM2394 peut
+# faire des lectures git en plus — on vérifie l'absence d'effet, pas le compte).
+_verbs = [c[0][0] for c in calls if c and c[0]]
+check("dry-run : `ip route` sondé", "ip" in _verbs)
+check("dry-run : aucune unité systemd", not any(v in ("systemd-run", "systemctl") for v in _verbs))
 
 # — registre : écriture/lecture atomiques —
 cte._save_registry({"42": {"port": 9942, "url": "http://x/"}})

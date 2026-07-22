@@ -307,6 +307,11 @@
         <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
         tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
       </label>
+      <!-- RM2395 : enregistrer l'instantané des sessions vivantes (jeu superadmin/default) -->
+      <div style="margin:0 0 8px">
+        <button onclick="saveSessionSet(this)"
+                title="Enregistre les sessions vivantes dans le jeu « default » — pour pouvoir les relancer après un redémarrage">💾 Enregistrer les sessions</button>
+      </div>
       <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
 
@@ -987,6 +992,15 @@ async function approveAll(btn) {
       r.approved.map(a => (/^\d+$/.test(a.rm_id) ? "RM" : "") + a.rm_id).join(", ")
       : "Aucune session ne posait de question");
     setTimeout(refreshSessions, 900);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+// RM2395 : enregistre l'instantané des sessions vivantes dans le jeu superadmin/default
+async function saveSessionSet(btn) {
+  btn.disabled = true;
+  try {
+    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    toast(r.count ? "💾 " + r.count + " session(s) enregistrée(s)" : "Aucune session vivante à enregistrer");
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }

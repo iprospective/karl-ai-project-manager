@@ -1468,7 +1468,10 @@ async function resumeSession(s) {
       body: JSON.stringify(body),
     });
     toast("Session reprise dans " + r.tmux);
-    await refreshSessions(); refreshHealth();
+    // RM2396 : recharger AUSSI le panneau de reprise, sinon il reste périmé (la
+    // session qu'on vient de reprendre garde son état « pas de tmux vivant ») et
+    // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
+    await refreshSessions(); refreshHealth(); loadResumable();
     setTimeout(() => attach(r.rm_id), 400);
   } catch (e) { toast(e.message, true); }
 }

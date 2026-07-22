@@ -1229,7 +1229,16 @@ def op_resumable(qs: dict) -> list:
     if f_engine not in (None, "claude"):
         return []  # itération 1 : découverte claude uniquement
     runs_idx = _runs_by_session()
-    live_rm = {s["rm_id"] for s in _list_sessions()}
+    sessions = _list_sessions()
+    live_rm = {s["rm_id"] for s in sessions}
+    # RM2396 : une session reprise doit passer « tmux vivant » DE SUITE, y compris
+    # ancrée sur un slug (sans jonction ticket, donc absente de runs_idx). L'index
+    # clé-tmux (RM2144, écrit à chaque spawn ET resume) donne le session_id
+    # réellement servi par chaque tmux vivant → match direct par session_id, sans
+    # dépendre d'une jonction. La jonction reste un repli (ticket re-spawné sur un
+    # autre session_id).
+    live_sids = {ki["session_id"] for s in sessions
+                 if (ki := _key_info(s["rm_id"])) and ki.get("session_id")}
     out, seen = [], set()
     for root in CLAUDE_STORES:
         if not root.is_dir():
@@ -1256,7 +1265,7 @@ def op_resumable(qs: dict) -> list:
                 "cwd": meta["cwd"], "mtime": meta["mtime"],
                 "client": client, "project": project,
                 "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
-                "live": any(r["rm_id"] in live_rm for r in runs),
+                "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
             })
 
     def keep(e):

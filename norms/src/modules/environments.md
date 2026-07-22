@@ -75,6 +75,19 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
 `teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
 
+> **Résolution du worktree : PAR BRANCHE, jamais par chemin deviné (RM2394).**
+> Le vhost et l'`env_name` restent l'**identité stable** du ticket
+> (`<repo>-rm<id>.lxc`), mais le **worktree** est trouvé via sa branche `<id>-*`
+> (`git worktree list`), quel que soit le nom du dossier : canonique
+> `envs/<repo>-rm<id>` **ou** discriminé par session `envs/<repo>-dev-<id>-s<seq>`
+> (RM2034), **ou** renommé/créé à la main. C'est la seule convention qui survit au
+> multi-session et aux `git worktree move` — l'alternative (forcer un nom canonique
+> à la création) casserait la discrimination RM2034. Conséquence : `pm-env-session
+> create` et `pm-cockpit-test-env create` **réutilisent** le worktree déjà monté
+> (pris avec `pm-branch-start --worktree`) et posent le vhost/runtime **par-dessus**
+> (idempotent, le helper réécrit le `DocumentRoot`), au lieu d'échouer en `rc=128`.
+> Résolveur partagé : `pm-env-session.worktree_for_branch()`.
+
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
 soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.

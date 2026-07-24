@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.8.0] - 2026-08-24
+
+### Modifié
+- Module `traceability` : § « Niveau de note par commit » (RM2409) — le niveau
+  `commit_note_level` est désormais **effectif** dans le hook `pm-post-commit` :
+  `work` (défaut) exclut de la note les commits d'outillage (`pm(*):`, `chore(…):`,
+  conso reportée sans note) ; **override par projet** via `meta.yml`
+  (`traceability: { commit_note_level: work|all|none }`), priorité projet >
+  config locale > config core. Purge du bruit historique :
+  `scripts/redmine-purge-commit-notes.py` (dry-run par défaut, backup JSONL).
+  (Entrée rebasée : bump initial 1.63.0 du 2026-07-24, rejoué au-dessus du jalon v2.)
+
 ## [2.7.1] - 2026-08-21
 
 ### Corrigé

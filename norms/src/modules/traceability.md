@@ -72,8 +72,15 @@ granularités, l'agent produit :
 **Niveau de note par commit — configurable** (`pm.config.yml :: traceability.commit_note_level`,
 pour calibrer le bruit à l'usage) :
 - `work` (défaut) — note pour les commits de travail/livraison/structurants uniquement.
+  Concrètement (RM2409) : les commits d'**outillage** — sujet préfixé `pm(<verbe>):`
+  (auto-commits des scripts `pm-*`) ou `chore(…):` — reportent la conso **sans note** ;
+  tout autre commit rattaché à une tâche est co-posté en note avec sa réf `— commit sha`.
 - `all` — note pour **tout** commit rattaché à une tâche (mode test : mesurer le bruit réel).
 - `none` — pas de note auto par commit (on conserve `.log.md` + time_entry).
+
+**Override par projet** : `meta.yml` du projet (dossier `.mmi-pm`) peut porter la même
+clé `traceability: { commit_note_level: … }` — priorité : projet > `pm.config.local.yml`
+> `pm.config.yml` > défaut `work`. Appliqué par le hook `pm-post-commit`.
 
 #### Référencer un commit dans une entrée
 

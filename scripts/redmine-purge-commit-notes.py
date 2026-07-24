@@ -13,8 +13,9 @@ Une note substantielle (message de commit de travail) ne matche pas → conserv�
 
 Suppression = PUT /journals/<id>.json avec notes vide (Redmine supprime le
 journal s'il ne porte pas d'autres changements ; sinon il garde les détails de
-propriétés et vide juste le texte). AVANT toute suppression, dump JSON complet
-des notes visées (--backup, défaut ~/.local/state/pm-purge-notes/<ts>.json).
+propriétés et vide juste le texte). AVANT chaque suppression, la note est dumpée
+en JSONL (--backup, défaut ~/.local/state/pm-purge-notes/<ts>.jsonl) — un crash
+à mi-course ne perd rien. Erreurs réseau non fatales (ticket signalé, on continue).
 
 Dry-run par défaut ; --apply pour exécuter.
 
@@ -68,11 +69,20 @@ def iter_rm_ids(cfg, only_rm=None):
                     yield rid
 
 
+def _http(method, url, key, payload=None):
+    """http_json blindé : les erreurs réseau (URLError…) deviennent un code 0,
+    jamais une exception — une purge ne doit pas planter à mi-course."""
+    try:
+        return http_json(method, url, key, payload)
+    except Exception as e:
+        return 0, {"_error": str(e)}
+
+
 def noise_journals(url, key, issue_id):
     """Journaux « bruit outillage » d'une issue : liste de dicts journal Redmine."""
-    code, body = http_json("GET", f"{url}/issues/{issue_id}.json?include=journals", key, None)
+    code, body = _http("GET", f"{url}/issues/{issue_id}.json?include=journals", key)
     if code != 200:
-        return None, f"HTTP {code}"
+        return None, f"HTTP {code} {str(body.get('_error', ''))[:80]}"
     hits = []
     for j in body.get("issue", {}).get("journals", []):
         notes = (j.get("notes") or "").strip()
@@ -97,9 +107,14 @@ def main():
     url, key = redmine_creds()
     cfg = PMConfig.load()
 
+    backup = Path(args.backup) if args.backup else (
+        Path.home() / ".local/state/pm-purge-notes"
+        / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.jsonl")
+    if args.apply:
+        backup.parent.mkdir(parents=True, exist_ok=True)
+
     scanned = purged = failed = 0
     tickets_hit = 0
-    backup_entries = []
     for rid in iter_rm_ids(cfg, args.rm_id):
         scanned += 1
         hits, err = noise_journals(url, key, rid)
@@ -111,18 +126,21 @@ def main():
         tickets_hit += 1
         out.info(f"RM{rid} : {len(hits)} note(s) bruit — "
                  + " ; ".join((j.get("notes") or "").splitlines()[0][:60] for j in hits[:3]))
-        for j in hits:
-            backup_entries.append({
-                "issue_id": rid, "journal_id": j.get("id"),
-                "user": (j.get("user") or {}).get("name"),
-                "created_on": j.get("created_on"), "notes": j.get("notes"),
-            })
         if not args.apply:
             purged += len(hits)
             continue
+        # Backup AVANT suppression (JSONL append) : un crash à mi-course ne perd
+        # jamais le texte d'une note déjà supprimée.
+        with backup.open("a", encoding="utf-8") as bf:
+            for j in hits:
+                bf.write(json.dumps({
+                    "issue_id": rid, "journal_id": j.get("id"),
+                    "user": (j.get("user") or {}).get("name"),
+                    "created_on": j.get("created_on"), "notes": j.get("notes"),
+                }, ensure_ascii=False) + "\n")
         for j in hits:
-            code, body = http_json("PUT", f"{url}/journals/{j['id']}.json", key,
-                                   {"journal": {"notes": ""}})
+            code, body = _http("PUT", f"{url}/journals/{j['id']}.json", key,
+                               {"journal": {"notes": ""}})
             if code in (200, 204):
                 purged += 1
             else:
@@ -131,16 +149,7 @@ def main():
                          f"{str(body.get('_error', ''))[:120]}")
             time.sleep(0.05)   # ménage l'instance
 
-    if args.apply and backup_entries:
-        backup = Path(args.backup) if args.backup else (
-            Path.home() / ".local/state/pm-purge-notes"
-            / f"{datetime.now().strftime('%Y%m%d-%H%M%S')}.json")
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        backup.write_text(json.dumps(backup_entries, ensure_ascii=False, indent=1),
-                          encoding="utf-8")
-        out.info(f"backup : {backup}")
-
-    mode = "purgée(s)" if args.apply else "à purger (dry-run)"
+    mode = f"purgée(s), backup {backup}" if args.apply else "à purger (dry-run)"
     extra = f"{purged} note(s) {mode} sur {tickets_hit} ticket(s) ({scanned} scannés)"
     if failed:
         out.fail(f"{extra} — {failed} échec(s) PUT", code=1)

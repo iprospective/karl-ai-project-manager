@@ -116,7 +116,12 @@
   .results li:hover { border-color: var(--accent); }
   .results .r-top { display: flex; gap: 6px; align-items: baseline; }
   .results .r-id { font-family: var(--mono); color: var(--accent); font-weight: 600; font-size: 12px; }
-  .results .r-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .results .r-title { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+  .results .r-move { flex: none; border: 1px solid var(--line); background: var(--panel);
+    color: var(--muted); border-radius: 4px; font-size: 12px; line-height: 1; padding: 2px 5px;
+    cursor: pointer; opacity: 0; transition: opacity .12s; }
+  .results li:hover .r-move { opacity: 1; }
+  .results .r-move:hover { border-color: var(--accent); color: var(--accent); }
   .results .r-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
   .resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
   .resolved.nf { color: var(--warn); }
@@ -1500,10 +1505,12 @@ async function search() {
 }
 
 // ----- §8 : création de ticket -----
+let allProjects = [];   // cache client/projet (RM2418 : cible de déplacement)
 async function loadProjects() {
   const sel = document.getElementById("nt-project");
   try {
     const { projects } = await api("/projects");
+    allProjects = projects;
     sel.innerHTML = "";
     const rsSel = document.getElementById("rs-project");
     for (const p of projects) {
@@ -1541,12 +1548,15 @@ async function loadResumable() {
       const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
       li.innerHTML =
         '<div class="r-top">' + markPill +
-        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span></div>' +
+        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span>' +
+        '<button class="r-move" title="Déplacer cette session vers un autre projet">⇄</button>' +
+        '</div>' +
         '<div class="r-meta">' + (s.client ? esc(s.client + "/" + s.project) : esc(s.cwd || "?")) +
         (tk ? " · " + tk : "") + " · " + ago(s.mtime) +
         (s.live ? ' · <span class="pill ok">tmux vivant</span>' : "") + '</div>';
       li.title = (s.title || "") + "\n" + (s.cwd || "") + "\nsession " + s.session_id;
       li.onclick = () => resumeSession(s);
+      li.querySelector(".r-move").onclick = (ev) => { ev.stopPropagation(); moveSession(s); };
       ul.appendChild(li);
     }
   } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + esc(e.message) + '</div>'; }
@@ -1578,6 +1588,30 @@ async function resumeSession(s) {
     // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
     await refreshSessions(); refreshHealth(); loadResumable();
     setTimeout(() => attach(r.rm_id), 400);
+  } catch (e) { toast(e.message, true); }
+}
+// RM2418 : déplacer une session (à l'arrêt) vers un autre projet — corrige
+// transcript + cwd internes + store per-session côté serveur (/move-session).
+async function moveSession(s) {
+  if (s.live) { toast("Session à tmux vivant : ferme-la d'abord", true); return; }
+  const opts = allProjects.map(p => p.value);
+  if (!opts.length) { toast("Liste des projets non chargée", true); return; }
+  const cur = document.getElementById("rs-project").value
+    || (s.client ? s.client + "/" + s.project : "");
+  const target = prompt(
+    "Déplacer cette session vers quel projet ? (client/projet)\n"
+    + "ex. iprospective/pm-ai-agents", cur);
+  if (target === null) return;
+  const val = target.trim();
+  if (!opts.includes(val)) { toast("Projet inconnu : " + val, true); return; }
+  const [c, p] = val.split("/");
+  try {
+    const r = await api("/move-session", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ session_id: s.session_id, client: c, project: p }),
+    });
+    toast("Session déplacée → " + (r.client ? r.client + "/" + r.project : r.new_slug));
+    await loadResumable();
   } catch (e) { toast(e.message, true); }
 }
 async function createTicket() {

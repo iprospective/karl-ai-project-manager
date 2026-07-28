@@ -258,6 +258,23 @@ try:
 except ka.ApiError as e:
     check("autostart : champ requis → 400", e.code == 400)
 
+# — RM2427 : retrait d'UNE entrée (session terminée par /exit) sans toucher au reste —
+before = ka.op_session_set_get({"group": "relance"}, {"user": None})["count"]
+d = ka.op_session_set_delete({"group": "relance", "sid": "3003"}, {"user": None})
+check("delete sid : entrée retirée, compte décrémenté",
+      d["deleted"] is True and d["count"] == before - 1)
+g = ka.op_session_set_get({"group": "relance"}, {"user": None})
+check("delete sid : les autres entrées conservées",
+      {e["sid"] for e in g["entries"]} == {"3001", "3002", "3004"})
+check("delete sid : le jeu (et ses réglages) survit", g["exists"] and g["autostart"] is True)
+check("delete sid : plus de fantôme pour l'entrée retirée",
+      "3003" not in {x["rm_id"] for x in ka._ghost_sessions({"user": None})})
+try:
+    ka.op_session_set_delete({"group": "relance", "sid": "3003"}, {"user": None})
+    check("delete sid : entrée déjà retirée → 404", False)
+except ka.ApiError as e:
+    check("delete sid : entrée déjà retirée → 404", e.code == 404)
+
 # — delete : efface le groupe, 404 si déjà absent —
 check("delete : groupe effacé", ka.op_session_set_delete({"group": "nuit"}, {"user": None})["deleted"] is True)
 check("delete : groupe retiré du store",

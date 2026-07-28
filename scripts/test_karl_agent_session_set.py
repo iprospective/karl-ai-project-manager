@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Tests RM2395 — jeux de sessions enregistrés (1re étape : store + save/get).
+"""Tests RM2395/RM2427 — jeux de sessions enregistrés (store, reprise en idle).
 
 Unitaire (sans tmux ni réseau) : résolution user/group (défauts superadmin/
 default), op_session_set_save (instantané), op_session_set_get (relecture +
 état alive), préservation d'autostart à l'écrasement, coexistence des groupes
 nommés, plafond, et correctif RM1941 (_record_key mémorise/préserve le modèle).
+
+RM2427 — reprise « en idle » : `_ghost_sessions` (entrées enregistrées non
+vivantes exposées en fantômes), leur intégration dans `_sessions_view`, la
+relance UNITAIRE (`op_session_set_relaunch {sid}`) et l'autostart par défaut
+d'un jeu neuf.
 Lancer : python3 scripts/test_karl_agent_session_set.py
 """
 import importlib.util
@@ -70,6 +75,8 @@ check("disque : version posée", store.get("version") == 1)
 # — get : relit + marque alive selon l'état tmux courant —
 g = ka.op_session_set_get({}, {"user": None})
 check("get : exists + count", g["exists"] and g["count"] == 2)
+# RM2427 : un jeu NEUF est repris d'office — la reprise n'ouvre plus rien
+check("save : jeu neuf → autostart activé par défaut (RM2427)", g["autostart"] is True)
 check("get : toutes vivantes", all(e["alive"] for e in g["entries"]))
 del LIVE["worm-x"]   # une session disparaît
 g = ka.op_session_set_get({}, {"user": None})
@@ -178,19 +185,67 @@ try:
 except ka.ApiError as e:
     check("relance : jeu absent → 404", e.code == 404)
 
-# — autostart : drapeau sans re-snapshot ; _autostart_replay = resume seul, ciblé —
+# — RM2427 : relance UNITAIRE (clic sur une tuile grise) —
+ALIVE.clear(); ALIVE.add("3001")
+RESUME.clear(); SPAWNED.clear()
+r = ka.op_session_set_relaunch({"group": "relance", "sid": "3002"}, {"user": None})
+check("relance unitaire : une seule entrée traitée",
+      r["counts"] == {"resumed": 1} and [x["sid"] for x in r["report"]] == ["3002"])
+check("relance unitaire : les autres entrées restent intouchées", ALIVE == {"3001", "3002"})
+r = ka.op_session_set_relaunch({"group": "relance", "sid": "3001"}, {"user": None})
+check("relance unitaire : entrée déjà vivante → skipped", r["counts"] == {"skipped": 1})
+try:
+    ka.op_session_set_relaunch({"group": "relance", "sid": "9999"}, {"user": None})
+    check("relance unitaire : sid hors du jeu → 404", False)
+except ka.ApiError as e:
+    check("relance unitaire : sid hors du jeu → 404", e.code == 404)
+
+# — autostart : drapeau sans re-snapshot ; RM2427 = reprise EN IDLE (aucun TUI) —
 ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})  # isole « relance »
 ka.op_session_set_autostart({"group": "relance", "autostart": True}, {"user": None})
 g = ka.op_session_set_get({"group": "relance"}, {"user": None})
 check("autostart : drapeau posé", g["autostart"] is True)
 check("autostart : pas de re-snapshot (entrées inchangées)", g["count"] == 4)
+check("RM2427 : plus aucune relance automatique au démarrage",
+      not hasattr(ka, "_autostart_replay") and not hasattr(ka, "_autostart_thread"))
 
+# — RM2427 : fantômes = entrées enregistrées NON vivantes du jeu autostart —
+# « relance » est le seul jeu repris ici (default/nuit désactivés) ; LIVE reste la
+# source des sessions tmux simulées (mock posé en tête, jamais remplacé).
+ka.op_session_set_autostart({"group": "nuit", "autostart": False}, {"user": None})
 ALIVE.clear(); ALIVE.add("3001")
-RESUME.clear(); RESUME.update({"3003": 410, "3004": 410})
+LIVE.clear(); LIVE["3001"] = {"engine": "claude", "session_id": "sa", "cwd": "/x", "model": None}
+ka._pm_project_of_cwd = lambda cwd: (("acme", "shop") if cwd == "/zfs/d" else (None, None))
 SPAWNED.clear()
-res = ka._autostart_replay()
-check("autostart : seul le groupe marqué est rejoué", {r["group"] for r in res} == {"relance"})
-check("autostart : resume seul, aucun spawn (fallback jamais activé)", SPAWNED == [])
+ghosts = ka._ghost_sessions({"user": None})
+by = {g["rm_id"]: g for g in ghosts}
+check("fantômes : les entrées non vivantes du jeu autostart", set(by) == {"3002", "3003", "3004"})
+check("fantômes : la session vivante n'en produit pas", "3001" not in by)
+check("fantômes : marqués ghost/state pour le cockpit",
+      all(g["ghost"] is True and g["state"] == "ghost" for g in ghosts))
+check("fantômes : aucun processus démarré", SPAWNED == [] and ALIVE == {"3001"})
+check("fantômes : contexte de relance conservé (moteur, transcript, cwd, groupe)",
+      by["3004"]["engine"] == "claude" and by["3004"]["session_id"] == "sd"
+      and by["3004"]["cwd"] == "/zfs/d" and by["3004"]["group"] == "relance")
+check("fantômes : resumable suit la présence d'un transcript", by["3002"]["resumable"] is True)
+check("fantômes : client/projet résolus depuis le cwd (groupement cockpit)",
+      (by["3004"].get("client"), by["3004"].get("project")) == ("acme", "shop"))
+
+# — RM2427 : les fantômes rejoignent la vue /sessions (et l'opt-out ghosts=0) —
+ka._runs_by_session = lambda: {}
+ka._session_registry = lambda: {}
+ka._session_state = lambda sid, engine: "idle"
+view = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None})}
+check("vue : vivantes + fantômes", set(view) == {"3001", "3002", "3003", "3004"})
+check("vue : la vivante n'est pas un fantôme", not view["3001"].get("ghost"))
+check("vue : ghosts=0 rend la vue historique",
+      [s["rm_id"] for s in ka._sessions_view({"ghosts": "0"}, {"user": None})] == ["3001"])
+check("vue : filtre projet appliqué aussi aux fantômes",
+      [s["rm_id"] for s in ka._sessions_view({"client": "acme", "project": "shop"},
+                                             {"user": None})] == ["3004"])
+LIVE.clear(); ALIVE.clear()
+check("vue : sans aucune session vivante, les fantômes restent servis",
+      {s["rm_id"] for s in ka._sessions_view({}, {"user": None})} == {"3001", "3002", "3003", "3004"})
 
 try:
     ka.op_session_set_autostart({"group": "fantome", "autostart": True}, {"user": None})
@@ -239,4 +294,4 @@ check("record_key : modèle préservé à la reprise", key.get("model") == "sonn
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — tests jeux de sessions RM2395 passent")
+print("OK — tests jeux de sessions RM2395/RM2427 passent")

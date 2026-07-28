@@ -51,7 +51,7 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/session-set` | `?group=default` | `{user, group, exists, saved_at, autostart, count, entries:[{sid, engine, session_id, cwd, model, alive}]}` — relit le jeu + état `alive` par entrée (RM2395) |
 | POST | `/session-set/relaunch` | `{group?="default", sid?, spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance **réelle**, **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. **`sid`** ⇒ relance **unitaire** de cette entrée (clic sur sa tuile grise — chemin normal depuis RM2427) ; sans `sid` ⇒ lot complet, séquentiel + temporisé (RM2395/RM2427) |
 | POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour reprise au démarrage — **en idle** depuis RM2427 (tuiles grises, aucun TUI) ; ne re-snapshote pas (RM2395) |
-| DELETE | `/session-set` | `?group=default` | `{user, group, deleted}` — efface le jeu (RM2395) |
+| DELETE | `/session-set` | `?group=default&sid=` | `{user, group, deleted}` — efface le jeu (RM2395). **`sid`** ⇒ retire **une seule** entrée (`{sid, deleted, count}`) : une session terminée par `/exit` sort du jeu sans effacer les autres ; le jeu et ses réglages survivent (RM2427) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
 | GET | `/projects` | — | `{projects:[{client, project, value}]}` (RM1893 §8) |
@@ -146,7 +146,9 @@ pointillée, aucun processus derrière. **Un clic sur la tuile** demande
 confirmation (moteur, dossier, modèle, conversation mémorisée ou non) puis
 déclenche la relance **réelle** de cette seule session
 (`POST /session-set/relaunch {sid}`) et l'attache. Le fantôme disparaît dès que la
-session existe ; une entrée déjà vivante n'en produit jamais. La relance **en
+session existe ; une entrée déjà vivante n'en produit jamais. Le **✕ de la tuile
+grise** (et de chaque ligne de la carte) **retire l'entrée du jeu** — une session
+close par `/exit` s'oublie sans effacer les autres. La relance **en
 lot** reste offerte par le bouton « ▶ Tout relancer » (carte « Sessions
 enregistrées » du panneau 🚀 sessions, ou barre du panneau « ▶ en cours »), avec
 les cases *reprise au démarrage* et *fallback spawn*.

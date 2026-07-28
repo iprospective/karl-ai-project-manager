@@ -1079,9 +1079,24 @@ function renderGhostItem(s, r, it) {
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' +
     '<span class="rmeta">' + esc(title) +
       (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
-    '<span class="tbadge" style="opacity:.55" title="enregistrée, non démarrée">⏸</span>';
+    '<span class="tbadge" style="opacity:.55" title="enregistrée, non démarrée">⏸</span>' +
+    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">✕</span>';
   it.onclick = () => relaunchGhost(s);
+  it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
   return it;
+}
+// RM2427 : retire UNE entrée du jeu enregistré (session terminée par /exit : sa
+// tuile grise doit pouvoir disparaître sans effacer tout le jeu).
+async function forgetGhost(s) {
+  const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
+  if (!window.confirm("Retirer " + label + " du jeu de sessions enregistrées ?\n\n" +
+      "La tuile grise disparaît ; les autres sessions du jeu sont conservées.")) return;
+  try {
+    const q = "?sid=" + encodeURIComponent(s.rm_id) + (s.group ? "&group=" + encodeURIComponent(s.group) : "");
+    const r = await api("/session-set" + q, { method: "DELETE" });
+    toast("🗑 " + label + " retirée du jeu (" + r.count + " restante(s))");
+    refreshSessions(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
 async function relaunchGhost(s) {
@@ -1125,7 +1140,10 @@ async function loadSessionSet() {
     const rows = r.entries.map(e => {
       const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
       const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
+      // RM2427 : ✕ par entrée — retirer du jeu sans effacer les autres
       return '<li><b>' + label + '</b> <span style="color:var(--muted)">' + esc(e.engine || "?") + '</span> ' + st +
+        '<span class="tkill" style="float:right" title="Retirer cette session du jeu" ' +
+          'onclick="event.stopPropagation();forgetSetEntry(\'' + esc(e.sid) + '\')">✕</span>' +
         '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
@@ -1152,6 +1170,10 @@ async function toggleAutostart(on) {
 function setSpawnPref(on) {
   sessionSetSpawn = !!on;
   try { localStorage.setItem("karlSetSpawn", on ? "1" : ""); } catch (e) { /* pas de storage */ }
+}
+// RM2427 : retire une entrée depuis la carte « Sessions enregistrées »
+function forgetSetEntry(sid) {
+  forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid) });
 }
 async function deleteSessionSet(btn) {
   if (!window.confirm("Effacer le jeu de sessions enregistré ?")) return;

@@ -24,6 +24,9 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   fiable, matcher le path complet — cf. RM2219), MR
 - [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
   (`agent refused operation`), bascule vers un vrai ssh-agent
+- [karl-agent](./karl-agent/) — sessions Claude Code du cockpit : stockage
+  (transcript partagé hôte↔conteneur, store per-session NON partagé), les 3 ancrages
+  d'une session à un projet, déplacer une session (`/move-session`, `karl-move-session`)
 
 ## Règles transverses
 

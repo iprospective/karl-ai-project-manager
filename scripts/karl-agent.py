@@ -1037,6 +1037,13 @@ def _write_json_atomic(path: Path, obj: dict) -> None:
     tmp.replace(path)
 
 
+def _slug_of(cwd) -> str:
+    """Nom du dossier projet claude pour un cwd — schéma observé du CLI :
+    '/' et '.' → '-'. Sert à recouper le cwd d'un store avec l'emplacement RÉEL
+    du transcript (RM2418)."""
+    return re.sub(r"[/.]", "-", str(cwd).rstrip("/")) or str(cwd)
+
+
 def _read_json_file(path: Path) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -1279,6 +1286,25 @@ def op_resumable(qs: dict) -> list:
     return out[:limit]
 
 
+def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
+    """cwd de relance pour `claude --resume` (RM2418). Le store per-session
+    (figé au spawn) pouvait pointer un ANCIEN projet après un déplacement manuel
+    du transcript → relance au mauvais cwd et « No conversation found ».
+    Correctif : on retient le premier candidat — store per-session, puis cwd
+    interne du transcript — dont le slug == dossier où vit RÉELLEMENT le .jsonl.
+    Aucun ne colle → comportement historique (store, sinon transcript)."""
+    smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
+    try:
+        tail = _jsonl_tail_meta(jf)["cwd"]
+    except OSError:
+        tail = None
+    slug = jf.parent.name
+    for c in (smeta.get("cwd"), tail):
+        if c and _slug_of(c) == slug:
+            return c
+    return smeta.get("cwd") or tail
+
+
 def op_resume(payload: dict) -> dict:
     """Reprend une conversation TERMINÉE côté process (tmux mort) via le resume
     natif du moteur, dans une session tmux karl-RM<id> neuve. Cible : session_id
@@ -1326,9 +1352,8 @@ def op_resume(payload: dict) -> dict:
     if jf is None:
         raise ApiError(410, f"transcript introuvable pour {session_id} "
                             "(session purgée ou store non monté) — lancer un spawn neuf")
-    smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
     try:
-        cwd = _resolve_cwd(smeta.get("cwd") or _jsonl_tail_meta(jf)["cwd"])
+        cwd = _resolve_cwd(_resume_cwd(jf, engine, session_id))
     except (ValueError, TypeError) as e:
         raise ApiError(410, f"cwd de la session invalide ({e}) — lancer un spawn neuf")
 
@@ -1349,6 +1374,104 @@ def op_resume(payload: dict) -> dict:
 
     return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": "claude",
             "session_id": session_id, "cwd": str(cwd), "resumed": True}
+
+
+def _session_live(session_id: str, engine: str = "claude") -> bool:
+    """Vrai si un tmux karl-* ancré à cette session tourne, ou si un process
+    `<engine> --resume <session_id>` vit encore. Garde de op_move_session : ne
+    jamais déplacer une session vivante (elle ré-estampille sa queue / peut
+    recréer le transcript — RM2418)."""
+    for r in _runs_by_session().get(session_id, []):
+        if _has_session(r["rm_id"]):
+            return True
+    try:
+        out = subprocess.run(["pgrep", "-af", engine],
+                             capture_output=True, text=True, timeout=5).stdout
+        if any(session_id in ln and "--resume" in ln for ln in out.splitlines()):
+            return True
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return False
+
+
+def op_move_session(payload: dict) -> dict:
+    """Déplace une session claude d'un projet vers un autre (RM2418). Corrige les
+    TROIS ancrages qui, ensemble, lient une session à un projet :
+      1. le transcript  ~/.claude/projects/<slug>/<sid>.jsonl        → déplacé
+      2. ses `cwd` internes (pilotent le regroupement d'affichage)    → réécrits
+      3. le store per-session SESS_DIR/<engine>/<sid>.json (`cwd`)    → réécrit
+    (+ les jonctions ticket éventuelles). N'en corriger qu'un ou deux ne suffit
+    pas : la session repart au mauvais projet ou disparaît de la liste.
+
+    ⚠ karl-agent tourne DANS le conteneur dev : ~/.claude/projects est partagé
+    hôte↔conteneur, mais SESS_DIR (~/.local/state) NON — l'endpoint agit sur le
+    store local au conteneur, ce qui est le bon (celui que lit op_resume)."""
+    engine = payload.get("engine", "claude")
+    session_id = str(payload.get("session_id") or "").strip()
+    if not _SID_RE.match(session_id):
+        raise ApiError(400, "session_id invalide")
+    if engine != "claude":
+        raise ApiError(501, "move-session : itération 1 = claude uniquement")
+    # Destination : cwd explicite, ou (client, projet) → workspace résolu via le
+    # `.mmi-pm` (voie canonique, plus sûre qu'un chemin fourni par le client).
+    to_cwd = str(payload.get("to_cwd") or "").strip() or None
+    client_in, project_in = payload.get("client"), payload.get("project")
+    if not to_cwd and client_in and project_in:
+        pdir = PROJECTS_BASE / client_in / "projects" / project_in
+        ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+        if not ws:
+            raise ApiError(404, f"pas de workspace de code pour {client_in}/{project_in}")
+        to_cwd = str(ws)
+    target = _resolve_cwd(to_cwd)
+
+    if _session_live(session_id, engine) and not payload.get("force"):
+        raise ApiError(409, "session vivante (tmux ou claude --resume) — "
+                            "ferme-la avant de la déplacer")
+
+    jf = next((p for root in CLAUDE_STORES
+               for p in root.glob(f"*/{session_id}.jsonl")), None)
+    if jf is None:
+        raise ApiError(404, f"transcript introuvable pour {session_id}")
+
+    old_slug = jf.parent.name
+    new_slug = _slug_of(str(target))
+    new_jf = jf.parent.parent / new_slug / f"{session_id}.jsonl"
+
+    # 1+2. déplacer le transcript et réécrire ses cwd internes
+    text = jf.read_text(encoding="utf-8", errors="replace")
+    cwds = re.findall(r'"cwd"\s*:\s*"([^"]*)"', text)  # transcripts claude = compacts
+    old_cwd = max(set(cwds), key=cwds.count) if cwds else None
+    if old_cwd:
+        text = re.sub(r'("cwd"\s*:\s*")' + re.escape(old_cwd) + r'(")',
+                      lambda m: m.group(1) + str(target) + m.group(2), text)
+    new_jf.parent.mkdir(parents=True, exist_ok=True)
+    new_jf.write_text(text, encoding="utf-8")
+    if new_jf != jf:
+        jf.unlink()
+    # purge d'éventuels doublons du sid restés dans d'autres dossiers projet
+    for root in CLAUDE_STORES:
+        for dup in root.glob(f"*/{session_id}.jsonl"):
+            if dup != new_jf:
+                dup.unlink()
+    _tail_cache.pop(str(jf), None)
+    _tail_cache.pop(str(new_jf), None)
+
+    # 3. store per-session (le cwd que lit op_resume)
+    sf = SESS_DIR / engine / f"{session_id}.json"
+    smeta = _read_json_file(sf) or {"engine": engine, "session_id": session_id}
+    smeta["cwd"] = str(target)
+    _write_json_atomic(sf, smeta)
+    # jonctions ticket éventuelles (cwd conservé pour l'affichage /sessions)
+    for run in _runs_by_session().get(session_id, []):
+        rf = Path(run.pop("_file"))
+        run.pop("client", None), run.pop("project", None)
+        run["cwd"] = str(target)
+        _write_json_atomic(rf, run)
+
+    client, project = _pm_project_of_cwd(str(target))
+    return {"session_id": session_id, "engine": engine,
+            "old_slug": old_slug, "new_slug": new_slug, "cwd": str(target),
+            "client": client, "project": project, "moved": True}
 
 
 # État heuristique d'une session (RM2140) — INTÉRIM avant le bus de hooks
@@ -3198,6 +3321,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":
                 return self._send_json(201, op_resume(payload))
+            if path == "/move-session":
+                return self._send_json(200, op_move_session(payload))
             if path == "/tickets":
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":

@@ -41,7 +41,18 @@ assert.strictEqual(groups.get("divers")[0].rm_id, "4", "non résolu → divers")
 console.log("✓ groupement par client/projet (+ fallback, + divers)");
 
 // compteurs d'états
-assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle: 1, working: 2 }, "compteurs");
+assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle: 1, working: 2, ghost: 0 }, "compteurs");
+// RM2427 : les sessions ENREGISTRÉES non démarrées s'affichent (groupées comme les
+// autres) mais ne comptent ni dans `total` ni dans les états d'activité.
+const gh = computeGroups([
+  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100 },
+  { rm_id: "2", client: "acme", project: "shop", state: "ghost", ghost: true, created: null },
+  { rm_id: "3", ghost: true, state: "ghost" },
+], {}, true);
+assert.deepStrictEqual({ ...gh.counts }, { total: 1, attention: 0, choice: 0, idle: 0, working: 1, ghost: 2 }, "compteurs fantômes");
+assert.strictEqual(gh.groups.get("acme/shop").length, 2, "le fantôme est groupé avec sa session vivante");
+assert.strictEqual(gh.groups.get("divers")[0].rm_id, "3", "fantôme non résolu → divers");
+console.log("✓ RM2427 : fantômes affichés, comptés à part, hors compteurs d'activité");
 // RM2327 : l'état choice est compté à part et fait remonter son groupe
 const cg = computeGroups([
   { rm_id: "9", client: "c", project: "p", state: "choice", created: 1 },

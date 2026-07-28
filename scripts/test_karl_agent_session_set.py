@@ -62,9 +62,9 @@ r = ka.op_session_set_save({}, {"user": None})
 check("save : couple par défaut superadmin/default", r["user"] == "superadmin" and r["group"] == "default")
 check("save : 2 entrées instantanées", r["count"] == 2)
 e2395 = next(e for e in r["entries"] if e["sid"] == "2395")
-check("save : champs capturés (engine/session_id/cwd/model)",
+check("save : champs capturés (engine/session_id/cwd/model) + politique de reprise",
       e2395 == {"sid": "2395", "engine": "claude", "session_id": "uuid-2395",
-                "cwd": "/zfs/a", "model": "opus"})
+                "cwd": "/zfs/a", "model": "opus", "restart": "idle"})
 
 # — persistance disque : schéma users → groups (anticipation multi-user/jeux) —
 store = json.loads(ka.SESSION_SET_FILE.read_text())
@@ -206,8 +206,44 @@ ka.op_session_set_autostart({"group": "relance", "autostart": True}, {"user": No
 g = ka.op_session_set_get({"group": "relance"}, {"user": None})
 check("autostart : drapeau posé", g["autostart"] is True)
 check("autostart : pas de re-snapshot (entrées inchangées)", g["count"] == 4)
-check("RM2427 : plus aucune relance automatique au démarrage",
-      not hasattr(ka, "_autostart_replay") and not hasattr(ka, "_autostart_thread"))
+# — RM2427 : politique de reprise PAR SESSION (auto = redémarre seule) —
+check("restart : défaut idle hors marqueur", ka._default_restart("uuid-x") == "idle")
+MARKS = {}
+ka._session_mark = lambda sid: MARKS.get(sid)
+ka._is_marked_done = lambda sid: MARKS.get(sid) == "done"
+MARKS["sb"] = "wip"
+check("restart : une session [WIP] redémarre seule par défaut", ka._default_restart("sb") == "auto")
+
+r = ka.op_session_set_restart({"group": "relance", "sid": "3001", "restart": "auto"}, {"user": None})
+check("restart : réglage posé sur une session", r["restart"] == "auto")
+check("restart : persisté dans le jeu",
+      next(e for e in ka.op_session_set_get({"group": "relance"}, {"user": None})["entries"]
+           if e["sid"] == "3001").get("restart") == "auto")
+for bad, code in (({"sid": "3001", "restart": "zzz"}, 400),
+                  ({"sid": "9999", "restart": "auto"}, 404)):
+    try:
+        ka.op_session_set_restart({"group": "relance", **bad}, {"user": None})
+        check(f"restart : payload invalide → {code}", False)
+    except ka.ApiError as e:
+        check(f"restart : payload invalide → {code}", e.code == code)
+
+# rejeu au démarrage : SEULES les entrées `auto` non vivantes sont relancées
+ALIVE.clear(); LIVE.clear()
+RESUME.clear(); SPAWNED.clear()
+ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})
+res = ka._autostart_replay()
+check("démarrage : relance la session réglée auto ET la [WIP] (défaut auto)",
+      {(x["sid"], x["action"]) for x in res} == {("3001", "resumed"), ("3002", "resumed")})
+check("démarrage : les sessions idle restent en tuile grise (aucun TUI)",
+      {"3003", "3004"} <= {g["rm_id"] for g in ka._ghost_sessions({"user": None})})
+check("démarrage : jamais de spawn (resume seul)", SPAWNED == [])
+check("démarrage : rejeu idempotent (sessions déjà vivantes → rien à relancer)",
+      ka._autostart_replay() == [])
+ka.op_session_set_restart({"group": "relance", "sid": "3001", "restart": "idle"}, {"user": None})
+MARKS.clear()                      # 3002 n'est plus [WIP] → repasse en idle
+ALIVE.clear(); LIVE.clear()
+check("démarrage : repassées en idle → plus rien n'est relancé", ka._autostart_replay() == [])
+MARKS.clear()
 
 # — RM2427 : fantômes = entrées enregistrées NON vivantes du jeu autostart —
 # « relance » est le seul jeu repris ici (default/nuit désactivés) ; LIVE reste la
@@ -258,14 +294,34 @@ try:
 except ka.ApiError as e:
     check("autostart : champ requis → 400", e.code == 400)
 
+# — RM2427 : une session TERMINÉE marquée [DONE] sort du jeu toute seule —
+DONE = set()                      # session_id marqués [DONE] (transcript simulé)
+ka._is_marked_done = lambda sid: sid in DONE
+DONE.add("sb")                    # 3002 est [DONE] mais VIVANTE → conservée
+ALIVE.clear(); ALIVE.update({"3001", "3002"})
+LIVE.clear(); LIVE.update({s: {} for s in ALIVE})
+ghosts = {g["rm_id"] for g in ka._ghost_sessions({"user": None})}
+check("[DONE] : une session vivante n'est jamais retirée",
+      {e["sid"] for e in ka.op_session_set_get({"group": "relance"}, {"user": None})["entries"]}
+      == {"3001", "3002", "3003", "3004"})
+ALIVE.discard("3002"); LIVE.pop("3002", None)   # /exit sur la session [DONE]
+ghosts = {g["rm_id"] for g in ka._ghost_sessions({"user": None})}
+check("[DONE] : /exit → entrée retirée du jeu (pas de tuile grise)", "3002" not in ghosts)
+g = ka.op_session_set_get({"group": "relance"}, {"user": None})
+check("[DONE] : retrait persisté, les autres conservées",
+      {e["sid"] for e in g["entries"]} == {"3001", "3003", "3004"})
+check("[DONE] : une session close NON marquée reste (fantôme)",
+      {"3003", "3004"} <= ghosts)
+DONE.clear()
+
 # — RM2427 : retrait d'UNE entrée (session terminée par /exit) sans toucher au reste —
 before = ka.op_session_set_get({"group": "relance"}, {"user": None})["count"]
 d = ka.op_session_set_delete({"group": "relance", "sid": "3003"}, {"user": None})
 check("delete sid : entrée retirée, compte décrémenté",
       d["deleted"] is True and d["count"] == before - 1)
 g = ka.op_session_set_get({"group": "relance"}, {"user": None})
-check("delete sid : les autres entrées conservées",
-      {e["sid"] for e in g["entries"]} == {"3001", "3002", "3004"})
+check("delete sid : les autres entrées conservées",   # 3002 est partie avec le [DONE]
+      {e["sid"] for e in g["entries"]} == {"3001", "3004"})
 check("delete sid : le jeu (et ses réglages) survit", g["exists"] and g["autostart"] is True)
 check("delete sid : plus de fantôme pour l'entrée retirée",
       "3003" not in {x["rm_id"] for x in ka._ghost_sessions({"user": None})})

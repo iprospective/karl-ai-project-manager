@@ -1079,11 +1079,33 @@ function renderGhostItem(s, r, it) {
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' +
     '<span class="rmeta">' + esc(title) +
       (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
-    '<span class="tbadge" style="opacity:.55" title="enregistrée, non démarrée">⏸</span>' +
+    '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
+      (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
     '<span class="tkill" title="Retirer du jeu de sessions enregistrées">✕</span>';
   it.onclick = () => relaunchGhost(s);
   it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
+  it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
   return it;
+}
+// RM2427 : politique de reprise par session — `auto` (redémarre seule au
+// lancement de karl-agent, défaut des sessions [WIP]) ou `idle` (tuile grise).
+function restartTip(policy) {
+  return policy === "auto"
+    ? "Redémarre toute seule au lancement de karl-agent (clic : la mettre en attente)"
+    : "Attend un clic pour démarrer (clic : la faire redémarrer toute seule)";
+}
+async function toggleRestart(s) {
+  const next = s.restart === "auto" ? "idle" : "auto";
+  try {
+    await api("/session-set/restart", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sid: s.rm_id, group: s.group, restart: next }),
+    });
+    const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
+    toast(next === "auto" ? "⟳ " + label + " redémarrera toute seule"
+                          : "⏸ " + label + " attendra un clic");
+    refreshSessions(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 // RM2427 : retire UNE entrée du jeu enregistré (session terminée par /exit : sa
 // tuile grise doit pouvoir disparaître sans effacer tout le jeu).
@@ -1140,10 +1162,13 @@ async function loadSessionSet() {
     const rows = r.entries.map(e => {
       const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
       const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
-      // RM2427 : ✕ par entrée — retirer du jeu sans effacer les autres
+      // RM2427 : par entrée — ⟳/⏸ règle la reprise, ✕ retire du jeu
       return '<li><b>' + label + '</b> <span style="color:var(--muted)">' + esc(e.engine || "?") + '</span> ' + st +
         '<span class="tkill" style="float:right" title="Retirer cette session du jeu" ' +
           'onclick="event.stopPropagation();forgetSetEntry(\'' + esc(e.sid) + '\')">✕</span>' +
+        '<span style="float:right;margin-right:8px;cursor:pointer" title="' + esc(restartTip(e.restart)) + '" ' +
+          'onclick="event.stopPropagation();toggleSetEntryRestart(\'' + esc(e.sid) + '\',\'' + esc(e.restart || "idle") + '\')">' +
+          (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +
         '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
@@ -1171,9 +1196,12 @@ function setSpawnPref(on) {
   sessionSetSpawn = !!on;
   try { localStorage.setItem("karlSetSpawn", on ? "1" : ""); } catch (e) { /* pas de storage */ }
 }
-// RM2427 : retire une entrée depuis la carte « Sessions enregistrées »
+// RM2427 : depuis la carte « Sessions enregistrées » — retirer / régler la reprise
 function forgetSetEntry(sid) {
   forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid) });
+}
+function toggleSetEntryRestart(sid, restart) {
+  toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart });
 }
 async function deleteSessionSet(btn) {
   if (!window.confirm("Effacer le jeu de sessions enregistré ?")) return;

@@ -50,7 +50,8 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | POST | `/session-set` | `{group?="default"}` | `{user, group, count, saved_at, entries}` — enregistre un **instantané des sessions vivantes** dans le jeu (user, groupe) ; écrase le groupe en préservant `autostart` ; plafond `SESSION_SET_MAX` (RM2395) |
 | GET | `/session-set` | `?group=default` | `{user, group, exists, saved_at, autostart, count, entries:[{sid, engine, session_id, cwd, model, alive}]}` — relit le jeu + état `alive` par entrée (RM2395) |
 | POST | `/session-set/relaunch` | `{group?="default", sid?, spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance **réelle**, **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. **`sid`** ⇒ relance **unitaire** de cette entrée (clic sur sa tuile grise — chemin normal depuis RM2427) ; sans `sid` ⇒ lot complet, séquentiel + temporisé (RM2395/RM2427) |
-| POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour reprise au démarrage — **en idle** depuis RM2427 (tuiles grises, aucun TUI) ; ne re-snapshote pas (RM2395) |
+| POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour reprise au démarrage ; ne re-snapshote pas (RM2395) |
+| POST | `/session-set/restart` | `{group?="default", sid, restart}` | `{user, group, sid, restart}` — politique de reprise **par session** : `auto` (redémarre vraiment au lancement) ou `idle` (tuile grise, relance au clic). 400 si valeur inconnue, 404 si `sid` hors du jeu. Réglage explicite → survit aux ré-enregistrements (RM2427) |
 | DELETE | `/session-set` | `?group=default&sid=` | `{user, group, deleted}` — efface le jeu (RM2395). **`sid`** ⇒ retire **une seule** entrée (`{sid, deleted, count}`) : une session terminée par `/exit` sort du jeu sans effacer les autres ; le jeu et ses réglages survivent (RM2427) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
@@ -123,8 +124,8 @@ groupes nommés) :
 ```json
 {"version": 1, "users": {"superadmin": {"groups": {"default": {
     "saved_at": 1753, "autostart": true,
-    "entries": [{"sid": "2395", "engine": "claude",
-                 "session_id": "<uuid>", "cwd": "/zfs/…", "model": null}]}}}}}
+    "entries": [{"sid": "2395", "engine": "claude", "session_id": "<uuid>",
+                 "cwd": "/zfs/…", "model": null, "restart": "auto"}]}}}}}
 ```
 
 Résolution des clés : **user** = `auth_ctx["user"]` (RM2334) sinon `superadmin`
@@ -136,11 +137,25 @@ entrée déjà vivante — idempotent) ; le fallback **spawn neuf** est **opt-in
 d'agent vierge qui consomme des tokens sans qu'on l'ait demandé). Le modèle choisi
 au spawn est mémorisé par entrée (`_record_key`, RM1941) pour un fallback fidèle.
 
-**Reprise « en idle » (RM2427)** — `autostart` par jeu, posé via
-`/session-set/autostart`, **activé d'office sur un jeu neuf**. Un jeu marqué
-n'ouvre **plus aucun tmux** au démarrage (RM2395 rejouait un `resume` par entrée :
-N TUI et N réhydratations de contexte pour une ou deux sessions réellement
-pilotées). Ses entrées non vivantes sont servies par `GET /sessions` comme
+**Reprise par session (RM2427)** — `autostart` par jeu, posé via
+`/session-set/autostart`, **activé d'office sur un jeu neuf** ; puis **une
+politique par entrée**, champ `restart` :
+
+| `restart` | Au lancement de karl-agent | Défaut pour |
+|---|---|---|
+| `auto` | la session est **vraiment relancée** (`resume` seul, jamais spawn, jamais de prompt, temporisé) | les sessions marquées **`[WIP]`** (`/session-mark wip`) — un travail en cours reprend tout seul |
+| `idle` | **rien n'est lancé** — tuile grise en attente d'un clic | tout le reste |
+
+Réglage à la volée par `POST /session-set/restart {sid, restart}` (bouton **⟳/⏸**
+sur la tuile grise et sur chaque ligne de la carte) ; un réglage explicite
+**survit au ré-enregistrement** du jeu, alors que les entrées non réglées suivent
+le marqueur courant. Une session marquée **`[DONE]`** qui se **termine** (`/exit`,
+plus aucun tmux) est **retirée du jeu automatiquement** — travail fini, pas de
+tuile.
+
+RM2395 relançait toutes les entrées (N TUI et N réhydratations de contexte pour
+une ou deux sessions réellement pilotées) ; désormais seules les `auto` le sont.
+Les entrées non vivantes restantes sont servies par `GET /sessions` comme
 **fantômes** : mêmes tuiles dans « ▶ en cours », **pastille grise**, bordure
 pointillée, aucun processus derrière. **Un clic sur la tuile** demande
 confirmation (moteur, dossier, modèle, conversation mémorisée ou non) puis
@@ -241,7 +256,9 @@ Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.
 | `KARL_AGENT_DEFAULT_CWD` | _(repo)_ | cwd si non fourni au spawn. |
 | `KARL_AGENT_WIDTH` / `_HEIGHT` | `200` / `50` | Géométrie du pane tmux. |
 | `KARL_AGENT_LOG_DIR` | `~/.local/state/karl-agent` | Logs pipe-pane (alimente `/stream`) + store des jeux (`session-set.json`, RM2395). |
-| ~~`KARL_AGENT_AUTOSTART`~~ | — | **Retirée (RM2427)** : il n'y a plus de relance auto à couper — un jeu `autostart` est repris **en idle** (tuiles grises, aucun TUI). |
+| ~~`KARL_AGENT_AUTOSTART`~~ | — | **Retirée (RM2427)** : la relance au démarrage ne se coupe plus globalement — elle se règle **par session** (`restart: auto\|idle`, défaut `auto` pour les `[WIP]`). |
+| `KARL_AGENT_AUTOSTART_DELAY` | `4` | Délai (s) avant la passe de relance des sessions `restart:auto` — laisse tmux/le daemon se stabiliser après un boot. |
+| `KARL_AGENT_RELAUNCH_DELAY` | `0.6` | Temporisation entre deux démarrages d'une relance (chaque entrée ouvre un TUI). |
 | `KARL_AGENT_TTYD_URL` | _(vide)_ | Base URL du ttyd du cockpit ; vide → le client la déduit (`location.hostname:7681`). |
 
 ## Installation (sur le LXC `dev`)

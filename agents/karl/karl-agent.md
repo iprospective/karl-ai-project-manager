@@ -44,13 +44,13 @@ quoi lancer (à terme, dispatcher RM1824). Il exécute des ordres `spawn/send/..
 | GET | `/` `/cockpit` | — | `text/html` (cockpit web v0) — **public** |
 | GET | `/cockpit-config` | — | `{ttyd_base, auth_required}` — **public** |
 | GET | `/health` | — | `{status, sessions, tmux}` |
-| GET | `/sessions` | `?engine=&client=&project=` | `{sessions:[{rm_id, tmux, created, attached, engine?, session_id?, client?, project?, state}]}` — enrichi via l'index sessions⇄tickets (RM1939) ; `state` ∈ `working|attention|idle` (heuristique capture-pane, intérim RM1874 — RM2140) |
+| GET | `/sessions` | `?engine=&client=&project=&ghosts=0` | `{sessions:[{rm_id, tmux, created, attached, engine?, session_id?, client?, project?, state}]}` — enrichi via l'index sessions⇄tickets (RM1939) ; `state` ∈ `working|attention|idle` (heuristique capture-pane, intérim RM1874 — RM2140). **RM2427** : s'y ajoutent les **fantômes** des jeux enregistrés (`ghost:true`, `state:"ghost"`, `resumable`, `group`, `cwd`) — sessions reprises **en idle**, sans aucun processus ; `ghosts=0` rend la vue historique |
 | GET | `/resumable` | `?engine=&client=&project=&status=wip\|done\|not-done&q=&limit=` | `{resumable:[{engine, session_id, title, mark, cwd, mtime, client, project, tickets, live}]}` — sessions reprenables découvertes dans les stores claude (`KARL_AGENT_CLAUDE_STORES`, défaut `~/.claude/projects`) ; `mark` = marqueur `[WIP]`/`[DONE]` posé par `/session-mark` ; projet déduit du `.mmi-pm` du cwd (RM1939) |
 | POST | `/resume` | `{session_id?, rm_id?, n?, prompt?}` | `201 {rm_id, tmux, engine, session_id, cwd, resumed}` — relance `claude --resume <sid>` dans un tmux neuf au cwd d'origine ; ancrage : ticket `RM<id>` = idéal (jonction écrite), slug accepté, ABSENT = dernier ticket lié sinon slug auto dérivé du titre (RM2144). 409 si tmux vivant, 410 si transcript purgé/cwd invalide (RM1939) |
 | POST | `/session-set` | `{group?="default"}` | `{user, group, count, saved_at, entries}` — enregistre un **instantané des sessions vivantes** dans le jeu (user, groupe) ; écrase le groupe en préservant `autostart` ; plafond `SESSION_SET_MAX` (RM2395) |
 | GET | `/session-set` | `?group=default` | `{user, group, exists, saved_at, autostart, count, entries:[{sid, engine, session_id, cwd, model, alive}]}` — relit le jeu + état `alive` par entrée (RM2395) |
-| POST | `/session-set/relaunch` | `{group?="default", spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance en lot **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. Séquentiel + temporisé (RM2395) |
-| POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour relance au démarrage ; ne re-snapshote pas (RM2395) |
+| POST | `/session-set/relaunch` | `{group?="default", sid?, spawn?=false}` | `{user, group, counts, report:[{sid, action, error?}]}` — relance **réelle**, **idempotente** : `skipped` (déjà vivante) / `resumed` (reprise native) / `spawned` (fallback neuf, **opt-in** `spawn:true` seulement) / `failed`. **`sid`** ⇒ relance **unitaire** de cette entrée (clic sur sa tuile grise — chemin normal depuis RM2427) ; sans `sid` ⇒ lot complet, séquentiel + temporisé (RM2395/RM2427) |
+| POST | `/session-set/autostart` | `{group?="default", autostart}` | `{user, group, autostart}` — (dé)marque le jeu pour reprise au démarrage — **en idle** depuis RM2427 (tuiles grises, aucun TUI) ; ne re-snapshote pas (RM2395) |
 | DELETE | `/session-set` | `?group=default` | `{user, group, deleted}` — efface le jeu (RM2395) |
 | GET | `/resolve/<rm_id>` | — | `{found, client, project, cwd, prompt, title, status, task_file}` — résout depuis le MD local (RM1893 §1) |
 | GET | `/tickets/search` | `?q=&status=&client=&project=&tag=` | `{results:[…]}` — recherche sur les MD locaux (RM1893 §7) |
@@ -122,7 +122,7 @@ groupes nommés) :
 
 ```json
 {"version": 1, "users": {"superadmin": {"groups": {"default": {
-    "saved_at": 1753, "autostart": false,
+    "saved_at": 1753, "autostart": true,
     "entries": [{"sid": "2395", "engine": "claude",
                  "session_id": "<uuid>", "cwd": "/zfs/…", "model": null}]}}}}}
 ```
@@ -136,14 +136,20 @@ entrée déjà vivante — idempotent) ; le fallback **spawn neuf** est **opt-in
 d'agent vierge qui consomme des tokens sans qu'on l'ait demandé). Le modèle choisi
 au spawn est mémorisé par entrée (`_record_key`, RM1941) pour un fallback fidèle.
 
-**Autostart au démarrage** (`autostart` par jeu, posé via `/session-set/autostart`) :
-au lancement du daemon, un thread de fond rejoue les jeux marqués — **`resume` seul,
-jamais spawn, jamais de prompt** (arbitrage : pas d'agent lancé sans opérateur).
-Ne mord qu'après un **reboot** / `tmux kill-server` (`KillMode=process` fait
-survivre les tmux au simple redémarrage du daemon) ; l'idempotence rend le rejeu à
-chaque démarrage inoffensif. Coupe-circuit : `KARL_AGENT_AUTOSTART=0`. Gestion depuis
-la **carte « Sessions enregistrées »** du panneau 🚀 sessions (liste + état par
-entrée, cases autostart & fallback spawn, Effacer).
+**Reprise « en idle » (RM2427)** — `autostart` par jeu, posé via
+`/session-set/autostart`, **activé d'office sur un jeu neuf**. Un jeu marqué
+n'ouvre **plus aucun tmux** au démarrage (RM2395 rejouait un `resume` par entrée :
+N TUI et N réhydratations de contexte pour une ou deux sessions réellement
+pilotées). Ses entrées non vivantes sont servies par `GET /sessions` comme
+**fantômes** : mêmes tuiles dans « ▶ en cours », **pastille grise**, bordure
+pointillée, aucun processus derrière. **Un clic sur la tuile** demande
+confirmation (moteur, dossier, modèle, conversation mémorisée ou non) puis
+déclenche la relance **réelle** de cette seule session
+(`POST /session-set/relaunch {sid}`) et l'attache. Le fantôme disparaît dès que la
+session existe ; une entrée déjà vivante n'en produit jamais. La relance **en
+lot** reste offerte par le bouton « ▶ Tout relancer » (carte « Sessions
+enregistrées » du panneau 🚀 sessions, ou barre du panneau « ▶ en cours »), avec
+les cases *reprise au démarrage* et *fallback spawn*.
 
 ### Exemples
 
@@ -233,7 +239,7 @@ Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.
 | `KARL_AGENT_DEFAULT_CWD` | _(repo)_ | cwd si non fourni au spawn. |
 | `KARL_AGENT_WIDTH` / `_HEIGHT` | `200` / `50` | Géométrie du pane tmux. |
 | `KARL_AGENT_LOG_DIR` | `~/.local/state/karl-agent` | Logs pipe-pane (alimente `/stream`) + store des jeux (`session-set.json`, RM2395). |
-| `KARL_AGENT_AUTOSTART` | `1` | `0` = coupe la relance auto des jeux marqués `autostart` au démarrage (RM2395). |
+| ~~`KARL_AGENT_AUTOSTART`~~ | — | **Retirée (RM2427)** : il n'y a plus de relance auto à couper — un jeu `autostart` est repris **en idle** (tuiles grises, aucun TUI). |
 | `KARL_AGENT_TTYD_URL` | _(vide)_ | Base URL du ttyd du cockpit ; vide → le client la déduit (`location.hostname:7681`). |
 
 ## Installation (sur le LXC `dev`)

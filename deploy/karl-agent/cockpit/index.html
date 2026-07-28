@@ -139,6 +139,10 @@
   .tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
   /* RM2327 : question à choix multiple (≠ oui/non) — en attente aussi, réponse humaine */
   .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
+  /* RM2427 : session ENREGISTRÉE non démarrée (« fantôme ») — pastille grise, tuile éteinte */
+  .tdot.st-ghost { background: var(--muted); opacity: .5; }
+  .runitem.ghost { opacity: .6; border-style: dashed; }
+  .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
@@ -317,7 +321,7 @@
         <button onclick="saveSessionSet(this)"
                 title="Enregistre les sessions vivantes dans le jeu « default » — pour pouvoir les relancer après un redémarrage">💾 Enregistrer les sessions</button>
         <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
-                title="Relance les sessions enregistrées (reprise de conversation ; celles déjà actives sont ignorées, les conversations perdues sont signalées)">▶ Relancer les sessions enregistrées</button>
+                title="Relance d'un coup TOUTES les sessions enregistrées (un TUI par session). Au quotidien : clique la tuile grise de celle que tu veux réveiller (RM2427)">▶ Tout relancer</button>
       </div>
       <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
@@ -814,7 +818,7 @@ function switchPanel(name) {
 // récente, puis alphabétique.
 function computeGroups(sessions, rcache, dynamic) {
   const groups = new Map();
-  const counts = { total: sessions.length, attention: 0, choice: 0, idle: 0, working: 0 };
+  const counts = { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 };
   for (const s of sessions) {
     let key = (s.client && s.project) ? s.client + "/" + s.project : null;
     if (!key) {
@@ -823,6 +827,10 @@ function computeGroups(sessions, rcache, dynamic) {
     }
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
+    // RM2427 : une session ENREGISTRÉE non démarrée s'affiche mais ne tourne pas —
+    // elle est comptée à part et ne pèse dans aucun compteur d'activité.
+    if (s.ghost) { counts.ghost++; continue; }
+    counts.total++;
     if (s.state === "attention") counts.attention++;
     else if (s.state === "choice") counts.choice++;   // RM2327 : choix multiple
     else if (s.state === "idle") counts.idle++;
@@ -861,7 +869,8 @@ async function refreshSessions() {
     // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
     // si la session affichée a disparu (kill externe) → on détache la vue
-    if (attached && !sessions.some(s => s.rm_id === attached)) detach();
+    // (RM2427 : un fantôme du même id ne compte pas — il ne tourne pas)
+    if (attached && !sessions.some(s => s.rm_id === attached && !s.ghost)) detach();
     // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
     for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
@@ -889,6 +898,8 @@ async function refreshSessions() {
       for (const s of sess) {
         const r = resolveCache[s.rm_id];
         const it = document.createElement("div");
+        // RM2427 : session enregistrée non démarrée — tuile grise, clic = relancer
+        if (s.ghost) { g.appendChild(renderGhostItem(s, r, it)); continue; }
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
@@ -935,6 +946,7 @@ async function refreshSessions() {
     // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
     document.getElementById("hcnt").innerHTML =
       '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
+      (counts.ghost ? '<span class="pill" style="opacity:.6" title="sessions enregistrées, non démarrées — clic sur la tuile pour relancer">⏸ ' + counts.ghost + '</span>' : '') +
       '<span class="pill' + (counts.attention ? ' att' : '') + '" title="questions OUI/NON en attente">⚠ ' + counts.attention + '</span>' +
       (counts.choice ? '<span class="pill" style="color:var(--warn);border-color:var(--warn)" title="questions à choix multiple en attente (réponse dans le terminal)">❓ ' + counts.choice + '</span>' : '') +
       '<span class="pill" title="au repos">💤 ' + counts.idle + '</span>';
@@ -1030,7 +1042,7 @@ async function refreshSessionSet() {
   try {
     const r = await api("/session-set");
     if (r.exists && r.count) {
-      btn.textContent = "▶ Relancer les sessions enregistrées (" + r.count + ")";
+      btn.textContent = "▶ Tout relancer (" + r.count + ")";
       btn.style.display = "";
     } else { btn.style.display = "none"; }
   } catch (e) { btn.style.display = "none"; }
@@ -1052,6 +1064,54 @@ async function relaunchSessionSet(btn) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
+// RM2427 : tuile d'une session ENREGISTRÉE non démarrée (« fantôme »). Rien ne
+// tourne derrière — pastille grise, tuile en pointillés ; le clic propose de la
+// relancer pour de bon (aucun agent ne démarre sans ce geste).
+function renderGhostItem(s, r, it) {
+  it.className = "runitem ghost";
+  const title = r && r.found ? (r.title || "") : "";
+  it.title = "Session enregistrée — non démarrée\n" +
+    (s.engine ? "moteur : " + s.engine + "\n" : "") +
+    (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
+    (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
+    "\n(clic : relancer cette session)";
+  it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
+    (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' +
+    '<span class="rmeta">' + esc(title) +
+      (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
+    '<span class="tbadge" style="opacity:.55" title="enregistrée, non démarrée">⏸</span>';
+  it.onclick = () => relaunchGhost(s);
+  return it;
+}
+// RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
+async function relaunchGhost(s) {
+  const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
+  const lines = ["Relancer la session " + label + " ?", ""];
+  if (s.engine) lines.push("moteur : " + s.engine);
+  if (s.cwd) lines.push("dossier : " + s.cwd);
+  if (s.model) lines.push("modèle : " + s.model);
+  lines.push("", s.resumable
+    ? "La conversation enregistrée sera reprise."
+    : "Aucune conversation mémorisée : sans l'option « recréer une session neuve », la relance échouera.");
+  if (!window.confirm(lines.join("\n"))) return;
+  toast("▶ relance de " + label + "…");
+  try {
+    const r = await api("/session-set/relaunch", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sid: s.rm_id, group: s.group, spawn: sessionSetSpawn }),
+    });
+    const a = (r.report || [])[0] || {};
+    if (a.action === "resumed" || a.action === "spawned") {
+      toast(a.action === "resumed" ? "▶ " + label + " reprise" : "▶ " + label + " recréée (session neuve)");
+      setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
+    } else if (a.action === "skipped") {
+      toast(label + " est déjà active");
+      refreshSessions();
+    } else {
+      toast("relance impossible : " + (a.error || "erreur inconnue"), true);
+    }
+  } catch (e) { toast(e.message, true); }
+}
 // carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
 async function loadSessionSet() {
   const el = document.getElementById("set-body");
@@ -1072,11 +1132,14 @@ async function loadSessionSet() {
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' + r.count +
         ' session(s) · enregistré il y a ' + ago(r.saved_at) + '</div>' +
       '<ul class="results">' + rows + '</ul>' +
-      '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer"><input type="checkbox" style="width:auto"' +
-        (r.autostart ? " checked" : "") + ' onchange="toggleAutostart(this.checked)"> Relancer au démarrage de karl-agent</label>' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer" ' +
+        'title="Les sessions du jeu apparaissent en tuiles grises dans « ▶ en cours » — aucune n\'est lancée tant qu\'on ne clique pas dessus (RM2427)">' +
+        '<input type="checkbox" style="width:auto"' +
+        (r.autostart ? " checked" : "") + ' onchange="toggleAutostart(this.checked)"> Reprendre ce jeu au démarrage (en idle)</label>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)">▶ Relancer</button>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
+        'title="Relance VRAIMENT toutes les sessions du jeu d\'un coup (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ Tout relancer</button>' +
         '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>';
   } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
 }
@@ -1786,7 +1849,8 @@ function showProject(key) {
   if (!r) h += '<div class="ms" style="color:var(--muted)">docs projet : attache une session du groupe pour les charger</div>';
   document.getElementById("metabody").innerHTML = h;
 }
-function attachIfRunning(id) { api("/sessions").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
+// RM2427 : `ghosts=0` — une session seulement ENREGISTRÉE ne tourne pas, il n'y a rien à attacher.
+function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
 function renderMeta() {
   const b = document.getElementById("metabody");
   // Le détail d'un ticket s'affiche AUSSI sans session attachée (RM2210 :

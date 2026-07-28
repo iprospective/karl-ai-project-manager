@@ -54,12 +54,16 @@ API (JSON, localhost:9876)
                                   appareils du compte (admin)
   DELETE /auth/users/<name>     → suppression + révocation appareils (admin)
   GET  /health                  → {status, sessions, tmux}
-  GET  /sessions[?engine=&client=&project=]
+  GET  /sessions[?engine=&client=&project=&ghosts=0]
                                 → [{rm_id, tmux, created, attached, engine?,
                                    session_id?, client?, project?,
                                    registry?{seq, machine, created, branches[],
                                    worktrees[]}, registry_conflicts?[]}]
                                   (RM1939 ; registre pm_session RM2166)
+                                  + entrées « fantômes » des jeux enregistrés
+                                  (ghost:true, state:"ghost", resumable) : des
+                                  sessions reprises EN IDLE, sans processus —
+                                  `ghosts=0` les exclut  (RM2427)
   GET  /session-registry        → {records, rm_map} — registre pm_session brut
                                   (var/sessions/index.json, RM2034/RM2166)
   GET  /resumable[?engine=&client=&project=&status=wip|done&q=&limit=]
@@ -1216,7 +1220,8 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
     """RM2395 — enregistre l'instantané des sessions vivantes dans le jeu
     (user, group). v1 : couple par défaut superadmin/default ; `group` peut déjà
     être passé (anticipation multi-jeux). L'écrasement préserve le drapeau
-    `autostart` du jeu précédent (il se règle à une étape ultérieure)."""
+    `autostart` du jeu précédent ; un jeu NEUF naît `autostart=True` (RM2427 :
+    la reprise ne coûte plus rien — elle n'affiche que des tuiles grises)."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(payload.get("group"))
     entries = _snapshot_live_sessions()
@@ -1228,7 +1233,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
     rec = {
         "saved_at": int(time.time()),
         "saved_by": (auth_ctx or {}).get("user"),   # user réel (None si auth ouverte)
-        "autostart": bool(prev.get("autostart", False)),
+        "autostart": bool(prev.get("autostart", True)),
         "entries": entries,
     }
     _session_set_put(store, user, group, rec)
@@ -1270,12 +1275,44 @@ def _model_key_for_value(engine: str, value: str | None) -> str:
     return ""
 
 
+def _relaunch_entry(e: dict, allow_spawn: bool) -> dict:
+    """RM2427 — relance RÉELLE d'UNE entrée de jeu ; renvoie sa ligne de rapport
+    ({sid, action, error?}). Cœur partagé par la relance unitaire (clic sur une
+    tuile grise) et la relance en lot. Idempotent : entrée déjà vivante =
+    `skipped` (jamais dupliquée ni tuée)."""
+    sid = e.get("sid")
+    if not sid or not _valid_sid(sid):
+        return {"sid": sid, "action": "failed", "error": "sid invalide"}
+    if _has_session(sid):
+        return {"sid": sid, "action": "skipped"}
+    engine = e.get("engine") or "claude"
+    try:
+        op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine})
+        return {"sid": sid, "action": "resumed"}
+    except ApiError as ex:
+        if ex.code == 409:   # course : devenue vivante entre le check et le resume
+            return {"sid": sid, "action": "skipped"}
+        if ex.code in (404, 410) and allow_spawn and e.get("cwd"):
+            try:
+                op_spawn({"rm_id": sid, "engine": engine, "cwd": e.get("cwd"),
+                          "model": _model_key_for_value(engine, e.get("model"))})
+                return {"sid": sid, "action": "spawned"}
+            except ApiError as ex2:
+                return {"sid": sid, "action": "failed", "error": ex2.msg}
+        return {"sid": sid, "action": "failed", "error": ex.msg}
+
+
 def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2395 — relance en lot le jeu (user, group). Idempotent : une entrée déjà
-    vivante est `skipped` (jamais dupliquée ni tuée). Sinon resume natif du moteur
-    (`resumed`) ; si le transcript ou le cwd a disparu (410/404), spawn neuf
-    UNIQUEMENT si `spawn` est demandé (opt-in, défaut off) et SANS prompt initial —
-    sinon `failed` avec le motif. Séquentiel + temporisé (chaque entrée = un TUI)."""
+    """RM2395/RM2427 — relance RÉELLE des entrées du jeu (user, group).
+
+    `sid` fourni ⇒ relance UNITAIRE de cette seule entrée (c'est le chemin normal
+    depuis RM2427 : la reprise n'ouvre plus rien, l'opérateur clique la tuile
+    grise qu'il veut réveiller). Sans `sid` ⇒ lot complet (bouton « tout
+    relancer », séquentiel + temporisé : chaque entrée ouvre un TUI).
+
+    Dans les deux cas : resume natif du moteur (`resumed`) ; si le transcript ou
+    le cwd a disparu (410/404), spawn neuf UNIQUEMENT si `spawn` est demandé
+    (opt-in, défaut off) et SANS prompt initial — sinon `failed` avec le motif."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(payload.get("group"))
     allow_spawn = bool(payload.get("spawn"))
@@ -1283,34 +1320,21 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
     if not rec:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
     entries = rec.get("entries", [])[:SESSION_SET_MAX]
+    sid = str(payload.get("sid") or "").strip()
+    if sid:
+        entries = [e for e in entries if e.get("sid") == sid]
+        if not entries:
+            raise ApiError(404, f"sid absent du jeu {user}/{group} : {sid}")
     report, started = [], 0
     for e in entries:
-        sid = e.get("sid")
-        if not sid or not _valid_sid(sid):
-            report.append({"sid": sid, "action": "failed", "error": "sid invalide"})
-            continue
-        if _has_session(sid):
-            report.append({"sid": sid, "action": "skipped"})
-            continue
-        engine = e.get("engine") or "claude"
-        if started:
+        # temporisation entre deux DÉMARRAGES seulement (une entrée déjà vivante
+        # n'ouvre rien : elle ne doit pas ralentir le lot)
+        if started and not _has_session(e.get("sid") or ""):
             time.sleep(SESSION_SET_RELAUNCH_DELAY)
-        started += 1
-        try:
-            op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine})
-            report.append({"sid": sid, "action": "resumed"})
-        except ApiError as ex:
-            if ex.code == 409:   # course : devenue vivante entre le check et le resume
-                report.append({"sid": sid, "action": "skipped"})
-            elif ex.code in (404, 410) and allow_spawn and e.get("cwd"):
-                try:
-                    op_spawn({"rm_id": sid, "engine": engine, "cwd": e.get("cwd"),
-                              "model": _model_key_for_value(engine, e.get("model"))})
-                    report.append({"sid": sid, "action": "spawned"})
-                except ApiError as ex2:
-                    report.append({"sid": sid, "action": "failed", "error": ex2.msg})
-            else:
-                report.append({"sid": sid, "action": "failed", "error": ex.msg})
+        r = _relaunch_entry(e, allow_spawn)
+        if r["action"] != "skipped":
+            started += 1
+        report.append(r)
     counts = {}
     for r in report:
         counts[r["action"]] = counts.get(r["action"], 0) + 1
@@ -1318,8 +1342,10 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
 
 
 def op_session_set_autostart(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2395 — (dé)marque le jeu (user, group) pour relance au démarrage. Ne
-    re-snapshote pas : ne touche que le drapeau `autostart`."""
+    """RM2395/RM2427 — (dé)marque le jeu (user, group) pour reprise automatique.
+    Depuis RM2427 la reprise est « en idle » : le jeu marqué est exposé en tuiles
+    grises (cf. `_ghost_sessions`), aucun TUI n'est ouvert. Ne re-snapshote pas :
+    ne touche que le drapeau `autostart`."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(payload.get("group"))
     if "autostart" not in payload:
@@ -1347,42 +1373,47 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
     return {"user": user, "group": group, "deleted": True}
 
 
-# ── Relance automatique au démarrage (RM2395) ────────────────────────────────
-# Rejoue les jeux marqués `autostart` — RESUME SEUL, jamais spawn, jamais de
-# prompt initial (arbitrage 4 : pas d'agent lancé sans opérateur devant). Ne mord
-# qu'après un reboot / `tmux kill-server` : `KillMode=process` (RM1873) fait
-# survivre les tmux au simple redémarrage du daemon → l'idempotence de la relance
-# (entrée déjà vivante = skipped) rend le rejeu à chaque démarrage inoffensif.
-AUTOSTART_ENABLED = os.environ.get("KARL_AGENT_AUTOSTART", "1") != "0"
-AUTOSTART_DELAY = float(os.environ.get("KARL_AGENT_AUTOSTART_DELAY", "4"))
+# ── Reprise « en idle » des jeux enregistrés (RM2427, ex-autostart RM2395) ────
+# Un jeu marqué `autostart` n'ouvre PLUS de tmux au démarrage (RM2395 rejouait un
+# `resume` par entrée : N TUI, N réhydratations de contexte, pour une ou deux
+# sessions réellement pilotées derrière). Ses entrées non vivantes sont exposées
+# telles quelles dans GET /sessions — des « fantômes » : mêmes tuiles, pastille
+# grise, aucun processus. Un clic sur l'une d'elles déclenche la relance réelle
+# (POST /session-set/relaunch {sid}). Le lot d'un coup reste possible (bouton
+# « tout relancer »), mais il n'est plus le comportement par défaut.
 
 
-def _autostart_replay() -> list:
-    """Une passe : rejoue en `resume` seul tous les jeux marqués autostart.
-    Best-effort (un jeu en échec n'empêche pas les autres). Séparée du thread
-    pour être testable sans horloge."""
-    out = []
-    store = _session_set_load()
-    for user, u in (store.get("users") or {}).items():
-        for group, rec in (u.get("groups") or {}).items():
-            if not rec.get("autostart"):
+def _ghost_sessions(auth_ctx: dict | None = None) -> list:
+    """Entrées ENREGISTRÉES et non vivantes des jeux `autostart` de l'utilisateur,
+    au format d'une entrée /sessions (`ghost: True`, `state: "ghost"`). Un sid déjà
+    vivant n'en produit jamais (le fantôme disparaît dès que la session existe) ;
+    `resumable` dit si un transcript est mémorisé (sinon la relance exigera le
+    fallback spawn). client/projet sont résolus depuis le cwd enregistré pour que
+    la tuile se range dans le bon groupe."""
+    user = _session_set_user(auth_ctx)
+    live = {s["rm_id"] for s in _list_sessions()}
+    out, seen = [], set()
+    groups = ((_session_set_load().get("users") or {}).get(user, {}).get("groups") or {})
+    for group, rec in groups.items():
+        if not rec.get("autostart"):
+            continue
+        for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
+            sid = e.get("sid")
+            if not sid or sid in live or sid in seen or not _valid_sid(sid):
                 continue
-            try:
-                r = op_session_set_relaunch({"group": group, "spawn": False}, {"user": user})
-                out.append({"user": user, "group": group, "counts": r["counts"]})
-            except ApiError as e:
-                out.append({"user": user, "group": group, "error": e.msg})
+            seen.add(sid)
+            g = {
+                "rm_id": sid, "is_ticket": _is_ticket_sid(sid), "ghost": True,
+                "state": "ghost", "group": group, "attached": False, "created": None,
+                "engine": e.get("engine"), "session_id": e.get("session_id"),
+                "cwd": e.get("cwd"), "model": e.get("model"),
+                "resumable": bool(e.get("session_id")), "saved_at": rec.get("saved_at"),
+            }
+            client, project = _pm_project_of_cwd(e.get("cwd"))
+            if client:
+                g["client"], g["project"] = client, project
+            out.append(g)
     return out
-
-
-def _autostart_thread() -> None:
-    time.sleep(AUTOSTART_DELAY)   # laisse tmux / le daemon se stabiliser après un boot
-    try:
-        for r in _autostart_replay():
-            sys.stderr.write(f"autostart {r.get('user')}/{r.get('group')} : "
-                             f"{r.get('counts') or r.get('error')}\n")
-    except Exception as e:  # noqa: BLE001 — best-effort, ne tue jamais le démarrage
-        sys.stderr.write(f"autostart: passe en échec (non fatal) : {e}\n")
 
 
 def _auto_slug(title: str | None, session_id: str) -> str:
@@ -2031,13 +2062,16 @@ def _session_state(rm_id: str, engine) -> str:
     return "idle"
 
 
-def _sessions_view(qs: dict) -> list:
+def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     """Sessions tmux vivantes, enrichies (moteur, session_id, client/projet via
     la jonction la plus récente, état heuristique RM2140) + filtres
-    engine/client/project (RM1939)."""
+    engine/client/project (RM1939).
+
+    RM2427 : s'y ajoutent les « fantômes » — sessions enregistrées d'un jeu
+    `autostart` qui ne tournent pas (aucun processus). `ghosts=0` les exclut."""
     sessions = _list_sessions()
     if not sessions:
-        return []
+        return _keep_sessions(_ghosts_for(qs, auth_ctx), qs)
     latest = {}
     for runs in _runs_by_session().values():
         for r in runs:
@@ -2097,6 +2131,16 @@ def _sessions_view(qs: dict) -> list:
         if conflicts:
             s["registry_conflicts"] = conflicts
 
+    return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
+
+
+def _ghosts_for(qs: dict, auth_ctx: dict | None) -> list:
+    """RM2427 — fantômes à joindre à la vue, sauf opt-out explicite `ghosts=0`."""
+    return [] if str(qs.get("ghosts", "")) == "0" else _ghost_sessions(auth_ctx)
+
+
+def _keep_sessions(sessions: list, qs: dict) -> list:
+    """Filtres engine/client/project (RM1939) — vivantes comme fantômes."""
     f_engine, f_client, f_project = qs.get("engine"), qs.get("client"), qs.get("project")
 
     def keep(s):
@@ -3518,7 +3562,7 @@ class Handler(BaseHTTPRequestHandler):
                 })
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, {"sessions": _sessions_view(qs)})
+                return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
             if path == "/session-set":
@@ -3733,9 +3777,12 @@ def main():
     # RM2327 : boucle auto-oui (daemon — meurt avec le serveur)
     threading.Thread(target=_auto_yes_loop, name="auto-yes", daemon=True).start()
 
-    # RM2395 : relance auto des jeux marqués autostart (resume seul, en arrière-plan)
-    if AUTOSTART_ENABLED:
-        threading.Thread(target=_autostart_thread, name="autostart", daemon=True).start()
+    # RM2427 : plus AUCUNE relance au démarrage — les jeux marqués `autostart`
+    # sont repris « en idle » (tuiles grises servies par GET /sessions, aucun TUI).
+    ghosts = len(_ghost_sessions(None))
+    if ghosts:
+        sys.stderr.write(f"sessions enregistrées : {ghosts} reprise(s) en idle "
+                         f"(clic sur la tuile pour relancer)\n")
 
     sys.stderr.write(
         f"karl-agent en écoute sur http://{HOST}:{PORT} "

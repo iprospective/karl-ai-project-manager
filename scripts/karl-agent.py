@@ -1361,16 +1361,30 @@ def op_session_set_autostart(payload: dict, auth_ctx: dict | None = None) -> dic
 
 
 def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2395 — efface le jeu (user, group)."""
+    """RM2395 — efface le jeu (user, group). RM2427 : avec `sid`, n'efface QUE
+    cette entrée — une session terminée volontairement (`/exit`) doit pouvoir
+    sortir du jeu sans effacer les 14 autres. Le jeu vidé de ses entrées est
+    conservé (ses réglages aussi) ; c'est `sid` absent qui le supprime."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(qs.get("group"))
     store = _session_set_load()
     groups = store.get("users", {}).get(user, {}).get("groups", {})
     if group not in groups:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
-    del groups[group]
+    sid = str(qs.get("sid") or "").strip()
+    if not sid:
+        del groups[group]
+        _write_json_atomic(SESSION_SET_FILE, store)
+        return {"user": user, "group": group, "deleted": True}
+    rec = groups[group]
+    entries = rec.get("entries") or []
+    kept = [e for e in entries if e.get("sid") != sid]
+    if len(kept) == len(entries):
+        raise ApiError(404, f"sid absent du jeu {user}/{group} : {sid}")
+    rec["entries"] = kept
     _write_json_atomic(SESSION_SET_FILE, store)
-    return {"user": user, "group": group, "deleted": True}
+    return {"user": user, "group": group, "sid": sid, "deleted": True,
+            "count": len(kept)}
 
 
 # ── Reprise « en idle » des jeux enregistrés (RM2427, ex-autostart RM2395) ────

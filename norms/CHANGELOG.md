@@ -5,6 +5,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [1.63.0] - 2026-07-29
+
+### Ajouté
+- Module `git-mep` : § « Point de restauration avant MEP — infra opensvc / LXC / ZFS »
+  (RM2432, demandé par Mathieu pendant RM2429) — sur une infra opensvc + LXC sur
+  datasets ZFS, snapshot ZFS du conteneur **obligatoire avant toute MEP**, pris depuis
+  l'hôte (`om <svc> sync update --rid sync#root_hour`, ou `sync all`). Le snapshot
+  **tient lieu de sauvegarde préalable** : pas de dump applicatif ad hoc en plus. Nom du
+  snapshot + procédure de rollback à loguer dans le `.log.md`. Vigilance : `keep = 8` sur
+  la ressource horaire (filet ~8 h) — cadences `day`/`week` ou snapshot nommé pour un
+  point de retour durable. Trou d'outillage noté : pas encore de `pm-snapshot-pre-mep`.
+- Tripwire #10 du KERNEL (« Sécurité prod ») étendu à cette obligation de point de
+  restauration, pour qu'elle ne dépende pas de l'ouverture du module.
+
 ## [1.62.0] - 2026-07-20
 
 ### Ajouté

@@ -1215,6 +1215,9 @@ def _snapshot_live_sessions() -> list:
             "session_id": k.get("session_id"),
             "cwd": k.get("cwd"),
             "model": k.get("model"),
+            # RM2439 : nom de la session, pour que l'entrée soit identifiable
+            # autrement que par son sid (cf. `_transcript_title`)
+            "title": _transcript_title(k.get("session_id")),
             # RM2427 : politique de reprise par session — `[WIP]` ⇒ redémarre
             # seule, sinon tuile grise (réglable ensuite, cf. RESTART_POLICIES)
             "restart": _default_restart(k.get("session_id")),
@@ -1223,26 +1226,67 @@ def _snapshot_live_sessions() -> list:
 
 
 def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2395 — enregistre l'instantané des sessions vivantes dans le jeu
-    (user, group). v1 : couple par défaut superadmin/default ; `group` peut déjà
-    être passé (anticipation multi-jeux). L'écrasement préserve le drapeau
-    `autostart` du jeu précédent ; un jeu NEUF naît `autostart=True` (RM2427 :
-    la reprise ne coûte plus rien — elle n'affiche que des tuiles grises)."""
+    """RM2395/RM2439 — enregistre les sessions dans le jeu (user, group) par
+    UNION, jamais par remplacement. v1 : couple par défaut superadmin/default ;
+    `group` peut déjà être passé (anticipation multi-jeux). L'écrasement préserve
+    le drapeau `autostart` du jeu précédent ; un jeu NEUF naît `autostart=True`
+    (RM2427 : la reprise ne coûte plus rien — elle n'affiche que des tuiles
+    grises).
+
+    RM2439 — la sauvegarde ne DÉTRUIT rien. Elle rafraîchit les entrées dont la
+    session tourne, ajoute les vivantes qui manquaient, et **conserve les autres
+    telles quelles**. Avant, l'instantané des seules sessions vivantes remplaçait
+    `entries[]` : un clic sur « Enregistrer les sessions » effaçait toutes les
+    tuiles grises (sessions enregistrées non lancées) que l'opérateur croyait
+    justement enregistrer. Le retrait d'une entrée reste un geste explicite :
+    `DELETE /session-set?sid=…` (✕ sur la tuile) ou l'éviction automatique des
+    sessions terminées marquées `[DONE]` (`_forget_done_entries`).
+
+    `sids` (optionnel) = les sid que le cockpit AFFICHE. C'est un sélecteur
+    **additif** : il restreint les sessions vivantes à enregistrer, il ne retire
+    jamais une entrée en place. Un remplacement piloté par le client rejouerait
+    le bug sous une autre forme, le panneau pouvant être filtré (client/projet)
+    et donc n'afficher qu'un sous-ensemble du jeu. Vide ou absent ⇒ toutes les
+    vivantes."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(payload.get("group"))
-    entries = _snapshot_live_sessions()
-    if len(entries) > SESSION_SET_MAX:
-        raise ApiError(409, f"trop de sessions vivantes ({len(entries)} > "
-                            f"{SESSION_SET_MAX}) pour un instantané")
+    only = payload.get("sids")
+    if only is not None and not isinstance(only, list):
+        raise ApiError(400, "sids doit être une liste de sid")
+    live = _snapshot_live_sessions()
+    wanted = {str(s) for s in only} if only else set()
+    if wanted:
+        live = [e for e in live if e["sid"] in wanted]
+    live_by_sid = {e["sid"]: e for e in live}
+
     store = _session_set_load()
     prev = _session_set_get(store, user, group) or {}
-    # RM2427 : un réglage de reprise posé à la main sur une session survit au
-    # ré-enregistrement du jeu (sinon il serait réécrit par le défaut [WIP]/idle).
-    kept_policy = {e.get("sid"): e.get("restart") for e in (prev.get("entries") or [])
-                   if e.get("restart") in RESTART_POLICIES}
-    for e in entries:
-        if e["sid"] in kept_policy:
-            e["restart"] = kept_policy[e["sid"]]
+    prev_entries = list(prev.get("entries") or [])
+
+    entries = []
+    for old in prev_entries:
+        fresh = live_by_sid.pop(old.get("sid"), None)
+        e = dict(fresh) if fresh else dict(old)
+        # RM2427 : un réglage de reprise posé à la main sur une session survit au
+        # ré-enregistrement du jeu (sinon il serait réécrit par le défaut
+        # [WIP]/idle).
+        if old.get("restart") in RESTART_POLICIES:
+            e["restart"] = old["restart"]
+        # RM2439 : le nom mémorisé ne se perd pas si le transcript a disparu ;
+        # et une entrée ancienne (enregistrée avant ce correctif, ou déjà éteinte)
+        # se fait nommer au passage — c'est le seul moment où on la relit.
+        if not e.get("title"):
+            e["title"] = old.get("title") or _transcript_title(e.get("session_id"))
+        entries.append(e)
+    added = list(live_by_sid)                    # vivantes encore jamais vues
+    entries.extend(live_by_sid.values())
+
+    # Le plafond porte désormais sur l'UNION : refus AVANT toute écriture, pour
+    # que le jeu déjà en place survive intact au dépassement.
+    if len(entries) > SESSION_SET_MAX:
+        raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
+                            f"({len(entries)}) — retire des tuiles (✕) avant "
+                            f"d'enregistrer")
     rec = {
         "saved_at": int(time.time()),
         "saved_by": (auth_ctx or {}).get("user"),   # user réel (None si auth ouverte)
@@ -1251,8 +1295,12 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
     }
     _session_set_put(store, user, group, rec)
     _write_json_atomic(SESSION_SET_FILE, store)
+    known = {e["sid"] for e in entries}
     return {"user": user, "group": group, "count": len(entries),
-            "saved_at": rec["saved_at"], "entries": entries}
+            "saved_at": rec["saved_at"], "added": added,
+            "kept": len(prev_entries),
+            "ignored": [s for s in sorted(wanted) if s not in known],
+            "entries": entries}
 
 
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
@@ -1445,6 +1493,32 @@ _DONE_CACHE: dict = {"at": 0.0, "map": {}}
 _DONE_CACHE_TTL = 30.0
 
 
+def _transcript_jsonl(session_id: str | None):
+    """Transcript d'une session dans les stores claude, ou None (id invalide,
+    session inconnue, store absent). Point d'entrée unique de la recherche —
+    partagé par le marqueur `[WIP]`/`[DONE]` et le titre (RM2439)."""
+    if not session_id or not _SID_RE.match(session_id):
+        return None
+    return next((p for root in CLAUDE_STORES if root.is_dir()
+                 for p in root.glob(f"*/{session_id}.jsonl")), None)
+
+
+def _transcript_title(session_id: str | None) -> str | None:
+    """RM2439 — titre du transcript, marqueur `[WIP]`/`[DONE]` ôté ; None si
+    absent ou illisible. Sert à NOMMER une entrée de jeu enregistré : un sid nu
+    ne dit pas de quelle session il s'agit, et le sujet Redmine du ticket (seul
+    libellé qu'affichait la tuile grise) n'existe pas pour une session ancrée
+    sur un slug."""
+    jf = _transcript_jsonl(session_id)
+    if not jf:
+        return None
+    try:
+        raw = _jsonl_tail_meta(jf)["title"] or ""
+    except OSError:
+        return None
+    return _MARK_RE.sub("", raw).strip() or None
+
+
 def _session_mark(session_id: str | None) -> str | None:
     """RM2427 — marqueur `[WIP]` / `[DONE]` du transcript de cette session (posé
     par /session-mark), en minuscules ; None si absent, introuvable ou illisible
@@ -1457,8 +1531,7 @@ def _session_mark(session_id: str | None) -> str | None:
     if session_id in _DONE_CACHE["map"]:
         return _DONE_CACHE["map"][session_id]
     mark = None
-    jf = next((p for root in CLAUDE_STORES if root.is_dir()
-               for p in root.glob(f"*/{session_id}.jsonl")), None)
+    jf = _transcript_jsonl(session_id)
     if jf:
         try:
             m = _MARK_RE.match(_jsonl_tail_meta(jf)["title"] or "")
@@ -1535,6 +1608,9 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
                 "state": "ghost", "group": group, "attached": False, "created": None,
                 "engine": e.get("engine"), "session_id": e.get("session_id"),
                 "cwd": e.get("cwd"), "model": e.get("model"),
+                # RM2439 : nom mémorisé de la session — la tuile grise d'une
+                # session ancrée sur un slug n'a aucun sujet Redmine à afficher
+                "title": e.get("title"),
                 "resumable": bool(e.get("session_id")), "saved_at": rec.get("saved_at"),
             }
             g["restart"] = e.get("restart") if e.get("restart") in RESTART_POLICIES \

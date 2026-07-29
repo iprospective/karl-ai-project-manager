@@ -10,6 +10,11 @@ RM2427 — reprise « en idle » : `_ghost_sessions` (entrées enregistrées non
 vivantes exposées en fantômes), leur intégration dans `_sessions_view`, la
 relance UNITAIRE (`op_session_set_relaunch {sid}`) et l'autostart par défaut
 d'un jeu neuf.
+
+RM2439 — la sauvegarde ne DÉTRUIT plus : union au lieu du remplacement (une
+tuile grise survit au ré-enregistrement), `sids` comme sélecteur additif, refus
+atomique au plafond, et titre de session mémorisé dans l'entrée (un sid nu ne
+dit pas de quelle session il s'agit).
 Lancer : python3 scripts/test_karl_agent_session_set.py
 """
 import importlib.util
@@ -64,7 +69,10 @@ check("save : 2 entrées instantanées", r["count"] == 2)
 e2395 = next(e for e in r["entries"] if e["sid"] == "2395")
 check("save : champs capturés (engine/session_id/cwd/model) + politique de reprise",
       e2395 == {"sid": "2395", "engine": "claude", "session_id": "uuid-2395",
-                "cwd": "/zfs/a", "model": "opus", "restart": "idle"})
+                "cwd": "/zfs/a", "model": "opus", "restart": "idle",
+                # RM2439 : le nom est capturé aussi ; None ici (aucun transcript
+                # réel derrière ces sessions simulées)
+                "title": None})
 
 # — persistance disque : schéma users → groups (anticipation multi-user/jeux) —
 store = json.loads(ka.SESSION_SET_FILE.read_text())
@@ -84,14 +92,76 @@ alive = {e["sid"]: e["alive"] for e in g["entries"]}
 check("get : session disparue → alive False, entrée conservée",
       alive == {"2395": True, "worm-x": False})
 
-# — écrasement : re-save préserve autostart et rafraîchit l'instantané —
+# — écrasement : re-save préserve autostart —
 store = ka._session_set_load()
 store["users"]["superadmin"]["groups"]["default"]["autostart"] = True
 ka._write_json_atomic(ka.SESSION_SET_FILE, store)
-ka.op_session_set_save({}, {"user": None})
+r = ka.op_session_set_save({}, {"user": None})
 g = ka.op_session_set_get({}, {"user": None})
 check("save : autostart préservé à l'écrasement", g["autostart"] is True)
-check("save : instantané rafraîchi (worm-x parti)", g["count"] == 1)
+
+# — RM2439 : le ré-enregistrement n'ÉCRASE plus les entrées non vivantes —
+# Avant : l'instantané des seules vivantes REMPLAÇAIT entries[] ⇒ un clic sur
+# « 💾 Enregistrer les sessions » effaçait toutes les tuiles grises (sessions
+# enregistrées non lancées) sans le moindre geste de retrait de l'opérateur.
+# Le retrait reste explicite : ✕ sur la tuile (delete sid) ou éviction [DONE].
+check("RM2439 : l'entrée non vivante (worm-x) survit au ré-enregistrement",
+      {e["sid"] for e in g["entries"]} == {"2395", "worm-x"})
+check("RM2439 : compte-rendu du save (rien de neuf, rien de perdu)",
+      r["count"] == 2 and r["added"] == [] and r["kept"] == 2)
+
+# — RM2439 : une nouvelle vivante s'AJOUTE, les entrées en place ne bougent pas —
+LIVE["3999"] = {"engine": "claude", "session_id": "uuid-3999", "cwd": "/zfs/c", "model": None}
+r = ka.op_session_set_save({}, {"user": None})
+check("RM2439 : nouvelle session vivante ajoutée au jeu",
+      r["added"] == ["3999"] and r["count"] == 3)
+
+# — RM2439 : `sids` (ce que le cockpit AFFICHE) est un sélecteur ADDITIF —
+# jamais un remplacement : un panneau filtré (par client/projet) afficherait un
+# sous-ensemble, et un remplacement y viderait le jeu — le bug d'origine déguisé.
+LIVE["4000"] = {"engine": "claude", "session_id": "uuid-4000", "cwd": "/zfs/e", "model": None}
+r = ka.op_session_set_save({"sids": ["4000"]}, {"user": None})
+check("RM2439 : sids n'ajoute que les sid demandés", r["added"] == ["4000"])
+check("RM2439 : sids ne retire rien de ce qui était en jeu",
+      {e["sid"] for e in r["entries"]} == {"2395", "worm-x", "3999", "4000"})
+r = ka.op_session_set_save({"sids": []}, {"user": None})
+check("RM2439 : sids vide ⇒ traité comme absent (union), jamais un retrait",
+      r["count"] == 4 and r["added"] == [])
+r = ka.op_session_set_save({"sids": ["inconnu-9"]}, {"user": None})
+check("RM2439 : sid inconnu signalé (ignored), jeu intact",
+      r["ignored"] == ["inconnu-9"] and r["count"] == 4)
+try:
+    ka.op_session_set_save({"sids": "2395"}, {"user": None})
+    check("RM2439 : sids non-liste refusé", False)
+except ka.ApiError as e:
+    check("RM2439 : sids non-liste refusé (400)", e.code == 400)
+
+# — RM2427/RM2439 : un réglage de reprise posé à la main survit au re-save —
+ka.op_session_set_restart({"sid": "worm-x", "restart": "auto"}, {"user": None})
+r = ka.op_session_set_save({}, {"user": None})
+check("RM2439 : politique de reprise explicite préservée au re-save",
+      next(e for e in r["entries"] if e["sid"] == "worm-x")["restart"] == "auto")
+
+# — RM2439 : l'entrée porte le NOM de la session (un sid ne dit pas laquelle) —
+TITLES = {"uuid-2395": "chantier cockpit", "uuid-worm": "session worm"}
+ka._transcript_title = lambda sid: TITLES.get(sid)
+r = ka.op_session_set_save({}, {"user": None})
+by_sid = {e["sid"]: e for e in r["entries"]}
+check("RM2439 : titre de la session vivante mémorisé", by_sid["2395"].get("title") == "chantier cockpit")
+check("RM2439 : titre récupéré aussi pour une entrée déjà non vivante",
+      by_sid["worm-x"].get("title") == "session worm")
+gh = {x["rm_id"]: x for x in ka._ghost_sessions({"user": None})}
+check("RM2439 : la tuile grise expose le nom de la session",
+      gh["worm-x"].get("title") == "session worm")
+TITLES.clear()                     # transcript devenu illisible / effacé
+r = ka.op_session_set_save({}, {"user": None})
+check("RM2439 : titre mémorisé conservé si le transcript ne répond plus",
+      next(e for e in r["entries"] if e["sid"] == "2395").get("title") == "chantier cockpit")
+ka._transcript_title = lambda sid: None
+LIVE.pop("3999", None); LIVE.pop("4000", None)
+for sid in ("3999", "4000"):
+    ka.op_session_set_delete({"sid": sid}, {"user": None})
+ka.op_session_set_restart({"sid": "worm-x", "restart": "idle"}, {"user": None})
 
 # — anticipation multi-jeux : un groupe nommé coexiste avec default —
 ka.op_session_set_save({"group": "nuit"}, {"user": None})
@@ -350,6 +420,9 @@ try:
     check("save : plafond dépassé refusé", False)
 except ka.ApiError as e:
     check("save : plafond dépassé refusé (409)", e.code == 409)
+# RM2439 : le refus est ATOMIQUE — l'union qui déborde ne doit rien réécrire
+check("RM2439 : plafond franchi ⇒ jeu inchangé sur disque",
+      {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]} == {"2395", "worm-x"})
 
 # — correctif RM1941 : _record_key mémorise le modèle et le préserve à la reprise —
 LIVE.clear()

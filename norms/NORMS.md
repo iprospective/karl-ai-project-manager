@@ -1,10 +1,10 @@
 ---
-schema_version: "1.62.0"
-updated: 2026-07-20
+schema_version: "1.63.0"
+updated: 2026-07-29
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.62.0
+# Normes de gestion des tâches — v1.63.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -70,7 +70,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 7. **Filtrage IA.** Tout ticket créé depuis le système PM porte le CF `IA = "IA"` (posé par les outils au POST). Pas de MD local sans CF IA. → `modules/redmine-reference.md`
 8. **Estimation.** Estimer (tokens + temps) **à la création** d'une tâche, et **à la prise** si l'estimation manque. → `modules/roi-pricing.md`
 9. **Description vivante.** Si le ticket a une **checklist** ou un état décrit en prose : la tenir à jour **dans la description** (pas seulement en note), + `done_ratio` au fil de l'eau. → `modules/redmine-hygiene.md`
-10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. → `modules/git-mep.md`
+10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. **Point de restauration préalable** : si la cible tourne sur une infra **opensvc / LXC / ZFS**, prendre le **snapshot ZFS du conteneur depuis l'hôte AVANT la MEP** (`om <svc> sync update --rid sync#root_hour`) — il tient lieu de sauvegarde préalable (pas de dump applicatif ad hoc en plus), et son nom se logue avec la procédure de rollback. → `modules/git-mep.md`
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
@@ -1771,6 +1771,39 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 > serveur** (branche suivie, remote source réel, propreté de l'arbre) : un arbre de prod
 > sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
 > à l'humain plutôt qu'à forcer.
+
+#### Point de restauration avant MEP — infra opensvc / LXC / ZFS (obligatoire)
+
+Quand la cible tourne sur une infra **opensvc + conteneurs LXC sur datasets ZFS**
+(cas du parc iProspective), **prendre un snapshot ZFS du conteneur AVANT toute mise
+en production** — upgrade applicatif, migration, changement de conf, recréation de
+conteneur. Le snapshot est pris **depuis l'hôte** (nœud sur lequel le service tourne,
+cf. `om <svc> print status`), pas depuis le conteneur :
+
+```bash
+om <svc> sync update --rid sync#root_hour     # déclenche la ressource zfssnap "hourly"
+om <svc> sync all    --rid sync#root_hour     # variante : toutes les actions de sync de la ressource
+```
+
+Vérifier que le snapshot existe avant de continuer :
+`zfs list -t snapshot -o name,creation -s creation | grep '<dataset>@hourly'`.
+
+**Ce snapshot tient lieu de sauvegarde préalable** : il couvre le rollback complet du
+conteneur (données + configuration + état applicatif), donc **inutile d'empiler un
+dump applicatif ad hoc** (mysqldump & co) « au cas où ». Le régime de snapshots
+multi-cadence + réplication assure par ailleurs la conservation longue.
+
+Points de vigilance :
+- La ressource `sync#root_hour` a une **rétention courte** (`keep = 8` sur le parc,
+  soit ~8 h) : le snapshot pré-MEP n'est un filet **que sur la fenêtre d'intervention**.
+  Pour une MEP dont on veut garder le point de retour plus longtemps, s'appuyer sur les
+  cadences `sync#root_day` / `sync#root_week`, ou créer un snapshot nommé dédié.
+- Le nom du snapshot créé est **loggué dans le `.log.md`** du ticket, avec la procédure
+  de rollback (cf. `modules/traceability.md`) — un point de restauration non tracé ne
+  sert à rien le jour où il faut revenir en arrière.
+
+> **Trou d'outillage** (à combler) : pas encore de script PM dédié
+> (`pm-snapshot-pre-mep`) — la commande `om` est passée à la main pour l'instant.
 
 > Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
 > à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`

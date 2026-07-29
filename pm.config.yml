@@ -137,3 +137,12 @@ context:
   budget_tokens:
     default: 32768
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
+
+# ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
+# Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés
+# pilotent l'apparence du cockpit web, pas le comportement du système PM.
+# Surcharge par instance dans pm.config.local.yml (posée depuis le cockpit) ;
+# surcharge par navigateur via l'encart « ce navigateur » (localStorage).
+ui:
+  # dark | light | auto (auto = prefers-color-scheme du navigateur)
+  theme: auto

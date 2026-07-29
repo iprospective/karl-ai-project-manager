@@ -116,6 +116,39 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 > sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
 > à l'humain plutôt qu'à forcer.
 
+#### Point de restauration avant MEP — infra opensvc / LXC / ZFS (obligatoire)
+
+Quand la cible tourne sur une infra **opensvc + conteneurs LXC sur datasets ZFS**
+(cas du parc iProspective), **prendre un snapshot ZFS du conteneur AVANT toute mise
+en production** — upgrade applicatif, migration, changement de conf, recréation de
+conteneur. Le snapshot est pris **depuis l'hôte** (nœud sur lequel le service tourne,
+cf. `om <svc> print status`), pas depuis le conteneur :
+
+```bash
+om <svc> sync update --rid sync#root_hour     # déclenche la ressource zfssnap "hourly"
+om <svc> sync all    --rid sync#root_hour     # variante : toutes les actions de sync de la ressource
+```
+
+Vérifier que le snapshot existe avant de continuer :
+`zfs list -t snapshot -o name,creation -s creation | grep '<dataset>@hourly'`.
+
+**Ce snapshot tient lieu de sauvegarde préalable** : il couvre le rollback complet du
+conteneur (données + configuration + état applicatif), donc **inutile d'empiler un
+dump applicatif ad hoc** (mysqldump & co) « au cas où ». Le régime de snapshots
+multi-cadence + réplication assure par ailleurs la conservation longue.
+
+Points de vigilance :
+- La ressource `sync#root_hour` a une **rétention courte** (`keep = 8` sur le parc,
+  soit ~8 h) : le snapshot pré-MEP n'est un filet **que sur la fenêtre d'intervention**.
+  Pour une MEP dont on veut garder le point de retour plus longtemps, s'appuyer sur les
+  cadences `sync#root_day` / `sync#root_week`, ou créer un snapshot nommé dédié.
+- Le nom du snapshot créé est **loggué dans le `.log.md`** du ticket, avec la procédure
+  de rollback (cf. `modules/traceability.md`) — un point de restauration non tracé ne
+  sert à rien le jour où il faut revenir en arrière.
+
+> **Trou d'outillage** (à combler) : pas encore de script PM dédié
+> (`pm-snapshot-pre-mep`) — la commande `om` est passée à la main pour l'instant.
+
 > Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
 > à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
 > manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »

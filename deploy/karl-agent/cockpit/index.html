@@ -489,9 +489,9 @@ if (window.matchMedia) {
     </div>
 
     <!-- RM2395 : gestion du jeu de sessions enregistré -->
-    <div class="card" id="setcard">
+    <div class="card" id="sessions-set-card">
       <h2>Sessions enregistrées <span style="color:var(--muted);font-weight:normal">(RM2395)</span></h2>
-      <div id="set-body"><div class="empty">chargement…</div></div>
+      <div id="sessions-set-body"><div class="empty">chargement…</div></div>
     </div>
     </div>
 
@@ -609,9 +609,9 @@ if (window.matchMedia) {
       </select>
       <div id="th-hint" style="color:var(--muted);font-size:11.5px;margin-top:6px"></div>
     </div>
-    <div class="card" id="setcard">
+    <div class="card" id="reglages-card">
       <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
-      <div id="set-body" style="margin-top:8px"></div>
+      <div id="reglages-body" style="margin-top:8px"></div>
     </div>
     </div>
 
@@ -1237,7 +1237,7 @@ async function relaunchGhost(s) {
 }
 // carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
 async function loadSessionSet() {
-  const el = document.getElementById("set-body");
+  const el = document.getElementById("sessions-set-body");
   if (!el) return;
   try {
     const r = await api("/session-set");
@@ -2320,7 +2320,7 @@ function refreshThemeCard() {
 
 // ----- RM2213 : réglages contrôlés (whitelist serveur) -----
 async function loadSettings() {
-  const b = document.getElementById("set-body");
+  const b = document.getElementById("reglages-body");
   b.innerHTML = '<div style="color:var(--muted)">chargement…</div>';
   try {
     const { settings } = await api("/pm/settings");

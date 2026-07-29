@@ -325,13 +325,17 @@ def git_merge3(local, base, remote, labels=("local (git)", "base (dernier sync)"
 
 
 # ── Helpers projet / git ─────────────────────────────────────────────────
-def resolve_project(cfg, slug):
-    for ent, proj, proj_path in cfg.iter_projects():
-        if proj == slug:
-            return (ent, proj, proj_path,
-                    cfg.path("project_dir", entity=ent, project=proj),
-                    cfg.path("docs_dir", entity=ent, project=proj))
-    sys.exit(f"ERREUR : projet '{slug}' introuvable dans l'arbo PM")
+def resolve_project(cfg, ref):
+    # RM2430 : résolution PRÉCISE (client/slug ou redmine.project_id), jamais par
+    # match de slug silencieux. require_redmine=True → refuse un projet sans
+    # redmine.project_id en conf (« pas de projet Redmine précis → on n'avance pas »).
+    try:
+        ent, proj, proj_path = cfg.resolve_project_ref(ref, require_redmine=True)
+    except ValueError as e:
+        sys.exit(f"ERREUR : {e}")
+    return (ent, proj, proj_path,
+            cfg.path("project_dir", entity=ent, project=proj),
+            cfg.path("docs_dir", entity=ent, project=proj))
 
 
 def read_overview_meta(project_dir):
@@ -747,9 +751,9 @@ def discover_wiki_projects(cfg):
     quoi le cron `--all` prend le projet en charge. Retourne une liste de slugs triés.
     """
     out = []
-    for _ent, proj, proj_path in cfg.iter_projects():
+    for ent, proj, proj_path in cfg.iter_projects():
         if (Path(proj_path) / ".wiki-sync" / "state.json").is_file():
-            out.append(proj)
+            out.append(f"{ent}/{proj}")   # RM2430 : réf non ambiguë (client/slug)
     return sorted(out)
 
 
@@ -842,7 +846,9 @@ def sync_one_project(cfg, url, key, slug, args):
 
 def main():
     ap = argparse.ArgumentParser(description="Sync docs PM ⇄ Wiki Redmine (RM1821, P1→P4)")
-    ap.add_argument("project", nargs="?", help="slug du projet PM (ex: pm-ai-agents)")
+    ap.add_argument("project", nargs="?",
+                    help="réf projet PRÉCISE : client/slug (ex. matnat/infra) ou "
+                         "redmine.project_id (ex. matnat-infra) — RM2430, plus de slug ambigu")
     ap.add_argument("--all", action="store_true",
                     help="tous les projets wiki-sync-enabled (.wiki-sync/state.json présent)")
     ap.add_argument("--push", action="store_true",

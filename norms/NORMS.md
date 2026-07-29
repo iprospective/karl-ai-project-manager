@@ -74,6 +74,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
+14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -1498,6 +1499,31 @@ faire passer le `done_ratio` de 50 à 75 → pas de note.
 
 > 📂 **Module `redmine-reference` — quand lire ceci :** avant une session touchant l'intégration Redmine / périodiquement · ids CF/statuts/activités · filtrage IA.
 > **Outils :** `redmine-config-check` · **Préchargé par :** —.
+
+## Résolution projet → Redmine (précise, jamais par slug nu)
+
+**Règle (tripwire #14).** Toute opération Redmine ciblant un projet (sync wiki,
+note, description, stats…) résout le projet par référence **non ambiguë** :
+
+- `client/slug` — ex. `matnat/infra` (désambiguïsation explicite) ;
+- ou le `redmine.project_id` **unique** — ex. `matnat-infra`.
+
+**Jamais par match de slug nu.** Plusieurs clients partagent un même slug — ex.
+`infra` chez `abatik`, `calicote`, `calyclay`, `matnat`, `pisceen`. Un résolveur
+« premier slug trouvé » écrit **silencieusement dans le mauvais projet Redmine**
+(incident RM2410 : `pm-wiki-sync infra` ciblait `abatik` au lieu de `matnat`).
+
+**Conf = source de vérité, bloquante.** Chaque `meta.yml` de projet **doit**
+déclarer un `redmine.project_id` **unique**. Absence ⇒ opération Redmine
+**bloquée** (« pas de projet Redmine précis en conf → on n'avance pas »). Un slug
+**ambigu** ⇒ **erreur** listant les candidats (`client/slug (redmine.project_id)`),
+jamais de choix implicite.
+
+**Outillage.** `PMConfig.resolve_project_ref(ref, require_redmine=True)` (lib
+partagé `pm_paths`) : accepte `client/slug` ou `redmine.project_id`, lève sur
+ambiguïté / introuvable / `redmine.project_id` absent. Tous les scripts qui
+résolvent un projet pour une opération Redmine passent par lui (fin des boucles
+`for … if proj == slug` locales).
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 

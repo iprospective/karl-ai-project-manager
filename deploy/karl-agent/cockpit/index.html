@@ -8,10 +8,44 @@
      Source éditable : cockpit/karl-icon.svg (régénérer l'URI si modifiée). -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230b0e14'/%3E%3Crect%20x='2'%20y='2'%20width='60'%20height='60'%20rx='12'%20fill='none'%20stroke='%23233044'%20stroke-width='2'/%3E%3Cpath%20d='M21%2015v34M21%2032l16-16M23%2034l17%2015'%20stroke='%234ea1ff'%20stroke-width='7'%20stroke-linecap='round'%20fill='none'/%3E%3Ccircle%20cx='48'%20cy='18'%20r='5'%20fill='%233ad29f'/%3E%3C/svg%3E">
 <style>
-  :root {
+  /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
+     Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
+  :root, :root[data-theme="dark"] {
+    color-scheme: dark;
     --bg: #0b0e14; --panel: #11161f; --panel2: #161c28; --line: #233044;
     --fg: #c8d3e0; --muted: #6b7a90; --accent: #4ea1ff; --ok: #3ad29f;
-    --warn: #f5a742; --danger: #ff5d6c; --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    --warn: #f5a742; --danger: #ff5d6c;
+    --fg-strong: #eaf3ff;          /* texte survalorisé (messages utilisateur) */
+    --on-accent: #04101f;          /* texte posé SUR --accent */
+    --on-danger: #fff;             /* texte posé SUR --danger */
+    --shadow: rgba(0,0,0,.45);
+    --overlay: rgba(0,0,0,.6);
+    --accent-soft: rgba(78,161,255,.16);
+    --accent-soft-hover: rgba(78,161,255,.28);
+    --ok-soft: rgba(58,210,159,.16);
+    --danger-soft: rgba(255,93,108,.14);
+  }
+  :root[data-theme="light"] {
+    color-scheme: light;
+    --bg: #eceff4; --panel: #ffffff; --panel2: #f5f7fa; --line: #cfd8e3;
+    --fg: #1c2430; --muted: #5f6b7d; --accent: #1560b8; --ok: #0f7350;
+    --warn: #a35c06; --danger: #c62839;
+    --fg-strong: #0a1018;
+    --on-accent: #ffffff;
+    --on-danger: #fff;
+    --shadow: rgba(15,23,42,.18);
+    --overlay: rgba(15,23,42,.45);
+    --accent-soft: rgba(21,96,184,.13);
+    --accent-soft-hover: rgba(21,96,184,.22);
+    --ok-soft: rgba(15,115,80,.14);
+    --danger-soft: rgba(198,40,57,.12);
+  }
+  :root {
+    /* invariants (hors thème) */
+    --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+    /* le terminal ttyd garde son propre thème sombre (ttyd.service) et l'iframe
+       est cross-origin : son fond reste noir quel que soit le thème du cockpit. */
+    --term-bg: #000;
   }
   * { box-sizing: border-box; }
   /* RM1893 (retour test) : layout verrouillé à la hauteur du viewport — la page
@@ -44,7 +78,7 @@
   .lnav button.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
   .nbadge { font-size: 10px; font-family: var(--mono); padding: 1px 5px; border-radius: 8px;
     background: var(--panel2); border: 1px solid var(--line); color: var(--fg); line-height: 1.4; }
-  .nbadge.att { color: #fff; background: var(--danger); border-color: var(--danger);
+  .nbadge.att { color: var(--on-danger); background: var(--danger); border-color: var(--danger);
     animation: kblink 1s ease-in-out infinite; }
   /* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */
   .hcnt { display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: var(--mono); }
@@ -59,7 +93,7 @@
   #authgate.show { display: flex; }
   #authgate .gatecard { background: var(--panel2); border: 1px solid var(--line);
     border-radius: 10px; padding: 26px 24px; width: 340px; max-width: 100%;
-    box-shadow: 0 12px 44px rgba(0,0,0,.45); }
+    box-shadow: 0 12px 44px var(--shadow); }
   #authgate h2 { margin: 0 0 2px; font-size: 18px; }
   #authgate .gsub { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
   #authgate label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
@@ -74,7 +108,7 @@
   button { cursor: pointer; border: 1px solid var(--line); background: var(--panel2); color: var(--fg);
     border-radius: 6px; padding: 7px 12px; font-size: 13px; font-family: inherit; transition: .12s; }
   button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); border-color: var(--accent); color: #04101f; font-weight: 600; width: 100%; margin-top: 14px; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; width: 100%; margin-top: 14px; }
   button.primary:hover { filter: brightness(1.08); }
   button.mini { padding: 4px 9px; font-size: 12px; }
   button.danger:hover { border-color: var(--danger); color: var(--danger); }
@@ -91,7 +125,7 @@
   .termbar { display: flex; align-items: center; gap: 10px; padding: 8px 14px;
     background: var(--panel); border-bottom: 1px solid var(--line); }
   .termbar .title { font-family: var(--mono); font-size: 13px; }
-  iframe { border: 0; flex: 1; width: 100%; background: #000; }
+  iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
   .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
@@ -160,10 +194,10 @@
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .tbadge { font-size: 11px; line-height: 1; flex: none; }
   .tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; flex: none; }
-  .tkill:hover { color: var(--danger); background: rgba(255,93,108,.14); }
+  .tkill:hover { color: var(--danger); background: var(--danger-soft); }
   /* RM2302 : bouton « répondre Oui » d'un item en attention */
   .tyes { font-size: 12px; line-height: 1; color: var(--ok); border-radius: 4px; padding: 2px 4px; flex: none; }
-  .tyes:hover { background: rgba(58,210,159,.16); }
+  .tyes:hover { background: var(--ok-soft); }
   .tabactions { display: flex; align-items: center; gap: 6px; }
   .termwrap { flex: 1; display: flex; min-height: 0; }
   /* RM1893 §2 — chips d'actions en un clic sous le terminal */
@@ -200,8 +234,8 @@
     border-left: 3px solid transparent; }
   .oline:hover { background: var(--panel2); color: var(--fg); }
   /* messages utilisateur : surlignés, nettement plus lisibles (demande RM2330) */
-  .oline.ouser { color: #eaf3ff; background: rgba(78,161,255,.16); border-left-color: var(--accent); font-weight: 600; }
-  .oline.ouser:hover { background: rgba(78,161,255,.28); }
+  .oline.ouser { color: var(--fg-strong); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
+  .oline.ouser:hover { background: var(--accent-soft-hover); }
   .oline.ocur { outline: 1px solid var(--accent); }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
@@ -218,7 +252,7 @@
   .logtail { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 130px; overflow: auto; white-space: pre; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
   .rels { display: flex; flex-wrap: wrap; gap: 4px; }
   .rels .pill { cursor: pointer; }
-  .docmodal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.6); z-index: 20; align-items: center; justify-content: center; }
+  .docmodal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 20; align-items: center; justify-content: center; }
   .docmodal.show { display: flex; }
   .docbox { width: min(900px, 92vw); height: min(80vh, 800px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; }
   .docbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
@@ -250,6 +284,45 @@
   .mdview a { color: var(--accent); }
   .mdview hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
 </style>
+<!-- RM2386 : le thème est posé sur <html> AVANT le premier paint (pas de flash).
+     Deux préférences, dans cet ordre de priorité :
+       karlThemeLocal  — surcharge « ce navigateur » : dark|light|auto, ou "server"
+                         (= vide) pour suivre le défaut d'instance ;
+       karlThemeServer — copie locale du défaut d'instance (conf ui.theme), rafraîchie
+                         au boot depuis /cockpit-config (le fetch arrive trop tard pour
+                         le premier paint, d'où le cache).
+     Ce bloc est séparé du script principal (chargé en fin de body) : test_cockpit.js
+     vérifie la syntaxe des DEUX. -->
+<script id="theme-boot">
+"use strict";
+// >>> resolveTheme
+// Résout la préférence en thème effectif. Pure : testée par test_cockpit.js.
+function resolveTheme(localPref, serverPref, prefersDark) {
+  var want = (localPref && localPref !== "server") ? localPref : (serverPref || "auto");
+  if (want === "dark" || want === "light") return want;   // valeur inconnue → auto
+  return prefersDark ? "dark" : "light";
+}
+// <<< resolveTheme
+function themePrefersDark() {
+  // pas de matchMedia (ou pas de préférence système) → dark, comportement historique
+  return !(window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches);
+}
+function applyTheme() {
+  var loc = "", srv = "";
+  try {
+    loc = localStorage.getItem("karlThemeLocal") || "";
+    srv = localStorage.getItem("karlThemeServer") || "";
+  } catch (e) { /* stockage bloqué (mode privé) → défauts */ }
+  var t = resolveTheme(loc, srv, themePrefersDark());
+  document.documentElement.setAttribute("data-theme", t);
+  return t;
+}
+applyTheme();
+// mode auto : suivre un changement de thème système à chaud
+if (window.matchMedia) {
+  window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", applyTheme);
+}
+</script>
 </head>
 <body>
 <!-- RM2334 : écran de login dédié — recouvre l'interface tant qu'on n'est pas
@@ -522,6 +595,19 @@
         La liste dépend du navigateur — Chrome recommandé.
       </div>
       <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
+    </div>
+    <!-- RM2386 : surcharge de thème locale à CE navigateur (localStorage) —
+         le défaut d'instance reste piloté par la rubrique « Design front ». -->
+    <div class="card" id="themecard">
+      <h2>🎨 Thème <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label for="th-local">Apparence</label>
+      <select id="th-local" onchange="setLocalTheme(this.value)">
+        <option value="server">suivre la conf serveur</option>
+        <option value="auto">auto (thème système)</option>
+        <option value="dark">sombre</option>
+        <option value="light">clair</option>
+      </select>
+      <div id="th-hint" style="color:var(--muted);font-size:11.5px;margin-top:6px"></div>
     </div>
     <div class="card" id="setcard">
       <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
@@ -2202,6 +2288,36 @@ async function reopenTicket(rm) {
   }
 }
 
+// ----- RM2386 : thème (défaut serveur ui.theme + surcharge « ce navigateur ») -----
+// applyTheme/resolveTheme vivent dans le <script id="theme-boot"> du <head> :
+// ils doivent tourner avant le premier paint. Ici, seulement le pilotage UI.
+function setServerTheme(v) {
+  try { localStorage.setItem("karlThemeServer", v || "auto"); } catch (e) {}
+  applyTheme(); refreshThemeCard();
+}
+function setLocalTheme(v) {
+  // "server" = pas de surcharge locale → on efface la clé
+  try {
+    if (v === "server") localStorage.removeItem("karlThemeLocal");
+    else localStorage.setItem("karlThemeLocal", v);
+  } catch (e) {}
+  applyTheme(); refreshThemeCard();
+}
+function refreshThemeCard() {
+  const sel = document.getElementById("th-local"), hint = document.getElementById("th-hint");
+  if (!sel) return;
+  let loc = "", srv = "";
+  try {
+    loc = localStorage.getItem("karlThemeLocal") || "";
+    srv = localStorage.getItem("karlThemeServer") || "auto";
+  } catch (e) {}
+  sel.value = loc || "server";
+  const eff = document.documentElement.getAttribute("data-theme");
+  hint.textContent = loc
+    ? "Surcharge locale active (effectif : " + eff + "). Conf serveur : " + srv + "."
+    : "Suit la conf serveur « " + srv + " » (effectif : " + eff + ").";
+}
+
 // ----- RM2213 : réglages contrôlés (whitelist serveur) -----
 async function loadSettings() {
   const b = document.getElementById("set-body");
@@ -2213,7 +2329,7 @@ async function loadSettings() {
     settings.forEach(e => { (groups[e.group] = groups[e.group] || []).push(e); });
     for (const g of Object.keys(groups)) {
       const d = document.createElement("details");
-      if (g === "Conf PM") d.open = true;
+      if (g === "Conf PM" || g === "Design front") d.open = true;
       d.innerHTML = '<summary style="cursor:pointer;font-size:11px;text-transform:uppercase;color:var(--muted);margin:6px 0">' + esc(g) + ' (' + groups[g].length + ')</summary>';
       for (const e of groups[g]) {
         const row = document.createElement("div");
@@ -2222,6 +2338,13 @@ async function loadSettings() {
           row.innerHTML = '<input type="checkbox" style="width:auto"' + (e.value ? " checked" : "") + '>' +
             '<span style="font-size:12px;flex:1">' + esc(e.label) + '</span>';
           row.querySelector("input").onchange = ev => saveSetting(e, ev.target.checked, ev.target);
+        } else if (e.type === "enum") {
+          // RM2386 : type générique — les options viennent du serveur
+          row.innerHTML = '<span style="font-size:12px;flex:1">' + esc(e.label) + '</span>' +
+            '<select style="width:110px">' + (e.options || []).map(o =>
+              '<option value="' + esc(o) + '"' + (o === e.value ? " selected" : "") + '>' + esc(o) + '</option>'
+            ).join("") + '</select>';
+          row.querySelector("select").onchange = ev => saveSetting(e, ev.target.value, ev.target);
         } else {
           row.innerHTML = '<span style="font-size:12px;flex:1">' + esc(e.label) + '</span>' +
             '<input type="number" step="0.01" value="' + (e.value != null ? e.value : "") + '" style="width:90px">' +
@@ -2240,6 +2363,8 @@ async function saveSetting(e, value, el) {
   try {
     await api("/pm/settings", { method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ key: e.key, value, confirm: true }) });
+    // RM2386 : le thème s'applique immédiatement, sans rechargement
+    if (e.key === "conf:ui.theme") { setServerTheme(value); }
     toast("✓ " + e.label + " → " + value);
   } catch (err) { toast(err.message, true); }
   finally { el.disabled = false; loadSettings(); }
@@ -2827,6 +2952,9 @@ async function kill(rmId) {
 
 (async function init() {
   try { CFG = await (await fetch("/cockpit-config")).json(); } catch (e) {}
+  // RM2386 : réconcilie le thème du premier paint (cache localStorage) avec le
+  // défaut d'instance qu'on vient d'apprendre. No-op si identique.
+  setServerTheme(CFG.ui_theme);
   if (CFG.auth_required) {
     document.getElementById("authcard").style.display = "";
     if (token() && !authUser()) document.getElementById("token").value = token();

@@ -281,6 +281,67 @@ class PMConfig:
                 return ent_path, proj_path
         return None, None
 
+    def resolve_project_ref(
+        self, ref, *, require_redmine: bool = False
+    ) -> Tuple[str, str, Path]:
+        """Résout une référence de projet **non ambiguë** → `(entity, project, path)`.
+
+        RM2430 — fin du match de slug silencieux (plusieurs clients partagent un
+        même slug, ex. `infra`). Formes acceptées :
+          - `client/slug` (ex. `matnat/infra`) — désambiguïsation explicite ;
+          - un `redmine.project_id` unique (ex. `matnat-infra`) ;
+          - un slug **non ambigu** (présent chez un seul client).
+
+        Lève `ValueError` si : référence introuvable ; slug nu **ambigu** (message
+        listant les candidats) ; ou `require_redmine=True` alors que le projet
+        résolu n'a pas de `redmine.project_id` (« pas de projet Redmine précis en
+        conf → on n'avance pas »).
+        """
+        ref = str(ref).strip()
+
+        # 1. Forme explicite « client/slug »
+        if "/" in ref:
+            ent, slug = ref.split("/", 1)
+            for e, p, path in self.iter_projects():
+                if e == ent and p == slug:
+                    return self._finalize_project_ref(e, p, path, require_redmine)
+            raise ValueError(f"projet '{ref}' introuvable (forme client/slug)")
+
+        # 2. redmine.project_id (unique par construction)
+        for e, p, path in self.iter_projects():
+            rid = (self.project_meta(e, p).get("redmine") or {}).get("project_id")
+            if rid and rid == ref:
+                return self._finalize_project_ref(e, p, path, require_redmine)
+
+        # 3. slug nu → doit être NON ambigu
+        matches = [(e, p, path) for e, p, path in self.iter_projects() if p == ref]
+        if len(matches) == 1:
+            return self._finalize_project_ref(*matches[0], require_redmine)
+        if len(matches) > 1:
+            cands = []
+            for e, p, _ in matches:
+                rid = (self.project_meta(e, p).get("redmine") or {}).get("project_id")
+                cands.append(f"{e}/{p}" + (f" ({rid})" if rid else ""))
+            raise ValueError(
+                f"référence de projet ambiguë : le slug '{ref}' existe chez "
+                f"plusieurs clients. Précise `client/slug` ou le `redmine.project_id`. "
+                f"Candidats : {', '.join(sorted(cands))}"
+            )
+        raise ValueError(f"projet '{ref}' introuvable")
+
+    def _finalize_project_ref(
+        self, ent: str, proj: str, path: Path, require_redmine: bool
+    ) -> Tuple[str, str, Path]:
+        if require_redmine:
+            rid = (self.project_meta(ent, proj).get("redmine") or {}).get("project_id")
+            if not rid:
+                raise ValueError(
+                    f"projet '{ent}/{proj}' sans `redmine.project_id` en conf "
+                    f"(meta.yml) — opération Redmine bloquée (RM2430 : pas de "
+                    f"projet Redmine précis → on n'avance pas)."
+                )
+        return ent, proj, path
+
     def detect_project_from_cwd(
         self, start: Optional[Path] = None
     ) -> Optional[Tuple[str, str]]:

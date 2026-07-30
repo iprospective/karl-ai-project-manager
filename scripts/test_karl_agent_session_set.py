@@ -1205,6 +1205,40 @@ try:
 except ka.ApiError as e:
     check("RM2452 : poser une règle sur un jeu MANUEL → 400", e.code == 400)
 
+# ── RM2452 : hygiène des dérivés — [DONE] écartées, troncature annoncée ──────
+# Une vue client affichait 12 sessions CLOSES sur 25 : les jeux manuels les
+# évincent depuis RM2427, le chemin dérivé contournait la règle.
+KEYS.clear()
+KEYS.update({s: {"engine": "claude", "session_id": "u" + s, "cwd": "/zfs/cal", "model": None}
+             for s in ("7501", "7502", "7503")})
+ka._all_keys = lambda: list(KEYS.items())
+MARKS2.clear(); MARKS2["u7502"] = "done"
+# `_is_marked_done` a été doublé plus haut par le scénario [DONE] : on le
+# raccorde à la même source que `_session_mark` pour ce bloc
+ka._is_marked_done = lambda sid: MARKS2.get(sid) == "done"
+LIVE.clear()
+check("RM2452 : une session [DONE] et éteinte est écartée d'un dérivé",
+      {e["sid"] for e in ka._derived_entries({"client": "calicote"})} == {"7501", "7503"})
+LIVE["7502"] = KEYS["7502"]            # la [DONE] se remet à tourner
+check("RM2452 : mais une [DONE] VIVANTE reste listée (on n'escamote pas un processus)",
+      "7502" in {e["sid"] for e in ka._derived_entries({"client": "calicote"})})
+LIVE.clear()
+
+# le plafond ne tronque plus en silence
+KEYS.update({str(7600 + i): {"engine": "claude", "session_id": f"u{7600+i}",
+                             "cwd": "/zfs/cal", "model": None} for i in range(30)})
+ents, total = ka._derived_entries({"client": "calicote"}, with_total=True)
+check("RM2452 : le plafond s'applique toujours", len(ents) == ka.SESSION_SET_MAX)
+check("RM2452 : mais le total RÉEL est rendu (plus de troncature muette)", total > len(ents))
+ka.op_session_set_create({"group": "gros-der", "rule": {"client": "calicote"}}, {"user": None})
+g = ka.op_session_set_get({"group": "gros-der"}, {"user": None})
+check("RM2452 : le jeu annonce sa troncature",
+      g["truncated"] is True and g["total"] == total and len(g["entries"]) == ka.SESSION_SET_MAX)
+l = ka.op_session_sets_list({}, {"user": None})
+cv = {c["view"]: c["count"] for c in l["client_views"]}
+check("RM2452 : le compteur du méta-jeu compte ce qu'on VERRA (hors [DONE])",
+      cv["client:calicote"] == len(ents))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

@@ -392,7 +392,7 @@ if (window.matchMedia) {
       <!-- RM2395 : enregistrer / relancer le jeu de sessions (superadmin/default) -->
       <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap">
         <button onclick="saveSessionSet(this)"
-                title="Enregistre les sessions vivantes dans le jeu « default » — pour pouvoir les relancer après un redémarrage">💾 Enregistrer les sessions</button>
+                title="Enregistre dans le jeu « default » les sessions affichées ici — pour pouvoir les relancer après un redémarrage. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ✕ sur sa tuile">💾 Enregistrer les sessions</button>
         <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
                 title="Relance d'un coup TOUTES les sessions enregistrées (un TUI par session). Au quotidien : clique la tuile grise de celle que tu veux réveiller (RM2427)">▶ Tout relancer</button>
       </div>
@@ -1112,11 +1112,20 @@ async function approveAll(btn) {
 let sessionSetSpawn = false;
 try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e) { /* pas de storage */ }
 
+// RM2439 : on envoie les sid RÉELLEMENT AFFICHÉS dans le panneau (orderedCache =
+// l'ordre de rendu, fantômes compris) — « j'enregistre ce que je vois ». Côté
+// serveur c'est un sélecteur ADDITIF : rien de ce qui est déjà enregistré n'est
+// retiré (le panneau peut être filtré), le retrait se fait au ✕ sur la tuile.
 async function saveSessionSet(btn) {
   btn.disabled = true;
   try {
-    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    toast(r.count ? "💾 " + r.count + " session(s) enregistrée(s)" : "Aucune session vivante à enregistrer");
+    const sids = (orderedCache || []).map(s => s.rm_id);
+    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ sids }) });
+    const n = (r.added || []).length;
+    toast(r.count
+      ? "💾 " + r.count + " session(s) dans le jeu" + (n ? " (+" + n + " nouvelle" + (n > 1 ? "s" : "") + ")" : " (rien de neuf)")
+      : "Aucune session à enregistrer");
     refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
@@ -1155,7 +1164,9 @@ async function relaunchSessionSet(btn) {
 // relancer pour de bon (aucun agent ne démarre sans ce geste).
 function renderGhostItem(s, r, it) {
   it.className = "runitem ghost";
-  const title = r && r.found ? (r.title || "") : "";
+  // RM2439 : sujet Redmine du ticket si connu, sinon le NOM de session mémorisé
+  // dans le jeu (seul libellé disponible pour une session ancrée sur un slug)
+  const title = (r && r.found ? (r.title || "") : "") || s.title || "";
   it.title = "Session enregistrée — non démarrée\n" +
     (s.engine ? "moteur : " + s.engine + "\n" : "") +
     (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
@@ -1255,6 +1266,8 @@ async function loadSessionSet() {
         '<span style="float:right;margin-right:8px;cursor:pointer" title="' + esc(restartTip(e.restart)) + '" ' +
           'onclick="event.stopPropagation();toggleSetEntryRestart(\'' + esc(e.sid) + '\',\'' + esc(e.restart || "idle") + '\')">' +
           (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +
+        // RM2439 : le NOM de la session, sans quoi la liste n'est qu'une suite de sid
+        '<br><span style="font-size:11px">' + (e.title ? esc(e.title) : '<i style="opacity:.5">sans titre</i>') + '</span>' +
         '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =

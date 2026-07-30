@@ -395,6 +395,8 @@ if (window.matchMedia) {
                 title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
         <button class="mini" onclick="createSet()"
                 title="Créer un jeu — vide par défaut, ou avec les sessions affichées (un chantier = un jeu)">＋ jeu</button>
+        <button class="mini" onclick="openRuleForm('__new__')"
+                title="Créer un jeu DÉRIVÉ : son contenu est calculé par une règle (client, projet, marque, tickets) — rien à curer, il ne dérive jamais">＋ règle</button>
         <button class="mini" onclick="deleteSessionSet(this)" id="btn-set-del"
                 title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
         <button class="mini" onclick="toggleSelMode()" id="btn-sel"
@@ -868,6 +870,20 @@ async function api(path, opts) {
   }
   return body;
 }
+// RM2451 : toast porteur d'une ACTION — « annuler » vaut mieux qu'une
+// confirmation préalable sur un geste courant : zéro friction quand tout va bien,
+// vrai filet quand on s'est trompé.
+function toastAction(msg, label, fn, ms) {
+  const t = document.getElementById("toast");
+  t.textContent = msg + "  ";
+  const a = document.createElement("span");
+  a.textContent = label;
+  a.style.cssText = "text-decoration:underline;cursor:pointer;font-weight:600";
+  a.onclick = () => { t.className = "toast"; fn(); };
+  t.appendChild(a);
+  t.className = "toast show";
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", ms || 8000);
+}
 function toast(msg, err) {
   const t = document.getElementById("toast");
   t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
@@ -1166,14 +1182,23 @@ try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /
 // RM2446 : le groupe recueille les vivantes hors du jeu courant — y compris
 // celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
 const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
-let currentView = "set";                        // RM2446 : set | live | all
+let currentView = "set";                        // RM2446 : set | live | all | client:<slug>
+let setFacets = { clients: [], marks: [] };     // RM2452 : clients/projets connus
+let ruleFormFor = null;                         // jeu dont on édite la règle ("__new__" = création)
 // RM2448 : groupes repliés (persistés) et mode sélection
-let collapsedGroups = new Set();
-try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("karlCollapsed") || "[]")); } catch (e) { /* pas de storage */ }
+// RM2452 : « hors du jeu courant » est REPLIÉ par défaut — c'est un rappel de
+// sécurité (ne jamais escamoter un processus qui tourne), pas le sujet du
+// moment. On ne le force qu'à la PREMIÈRE visite : dès que l'opérateur a plié ou
+// déplié quoi que ce soit, sa liste fait foi et le groupe reste comme il l'a
+// laissé.
+let collapsedGroups = new Set([OTHER_SETS_GROUP]);
+try {
+  const raw = localStorage.getItem("karlCollapsed");
+  if (raw !== null) collapsedGroups = new Set(JSON.parse(raw));
+} catch (e) { /* pas de storage */ }
 let selMode = false;
 const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
-let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
 const setBody = (o) => JSON.stringify(Object.assign({ group: currentSet }, o || {}));
 const setLabel = (name) => (setsCache.find(s => s.name === name) || {}).label || name;
@@ -1226,32 +1251,46 @@ async function refreshSessionSets() {
       currentSet = r.current;
       try { localStorage.setItem("karlSet", currentSet); } catch (e) { /* pas de storage */ }
     }
-    autostartSets = setsCache.filter(s => s.autostart).length;
+    // RM2450 : `autostart` ne gouverne plus rien ; c'est la VUE « tous les jeux »
+    // qui mélange des fantômes d'origines diverses, donc qui justifie le badge.
     // le jeu courant a pu être effacé ailleurs → on retombe sur le premier connu
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
       switchSet(setsCache[0].name, true);
     currentView = r.view || "set";
+    setFacets = r.facets || { clients: [], marks: [] };
     if (!sel) return;
     // RM2446 : les VUES d'abord (elles ne s'enregistrent pas), les jeux ensuite
     const vopt = (v, txt) => '<option value="view:' + v + '"' +
       (currentView === v ? " selected" : "") + '>' + txt + "</option>";
+    // RM2452 : un méta-jeu par client AYANT des sessions — offert d'office, rien
+    // à créer ni à curer : c'est l'index des sessions qui le dit.
+    const cviews = (r.client_views || []).map(c =>
+      '<option value="view:' + esc(c.view) + '"' + (currentView === c.view ? " selected" : "") +
+      '>👤 ' + esc(c.label) + " (" + c.count + ")</option>").join("");
     sel.innerHTML =
       '<optgroup label="vues">' +
         vopt("live", "▶ sessions ouvertes (" + (r.live_count || 0) + ")") +
         vopt("all", "⧉ tous les jeux (" + (r.all_count || 0) + ")") +
       '</optgroup>' +
+      (cviews ? '<optgroup label="clients">' + cviews + '</optgroup>' : "") +
       '<optgroup label="jeux">' + (setsCache.length
         ? setsCache.map(s => '<option value="set:' + esc(s.name) + '"' +
             (currentView === "set" && s.name === currentSet ? " selected" : "") + '>' +
             // RM2447 : « ouvertes / enregistrées » — savoir ce qui tourne dans chaque
             // jeu sans avoir à basculer dedans
-            esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
+            esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + ")</option>").join("")
         : '<option value="set:default">default (0)</option>') + '</optgroup>';
     sel.style.display = "";     // toujours utile : il porte aussi les deux vues
     // RM2448 : un bouton qui ÉCRIT doit dire OÙ — en vue « sessions ouvertes » ou
     // « tous les jeux », le jeu courant disparaissait de l'écran alors qu'il
     // restait la cible de l'adhésion automatique, du ⊖ et de l'enregistrement.
+    // RM2452 : sur un jeu dérivé, « ajouter l'affichage » n'a aucun sens — la
+    // règle décide, et le serveur refuse (400). On masque plutôt que d'offrir un
+    // bouton qui échoue.
+    const curSet = setsCache.find(s => s.name === currentSet);
+    const derivedNow = !!(curSet && curSet.derived) && currentView === "set";
     const save = document.getElementById("btn-set-save");
+    if (save) save.style.display = (derivedNow && !selMode) ? "none" : "";
     if (save) save.textContent = selMode
       ? "＋ jeu depuis la sélection (" + selected.size + ")"
       : "💾 ajouter l'affichage à « " + setLabel(currentSet) + " »";
@@ -1339,6 +1378,102 @@ async function moveSelection() {
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
+// RM2452 : la règle s'édite dans un FORMULAIRE, pas dans deux `prompt` — on ne
+// saisit pas un slug à la main quand le système connaît la liste des clients et
+// de leurs projets, et une règle qu'on ne peut pas corriger oblige à supprimer
+// puis recréer le jeu.
+function openRuleForm(group) { ruleFormFor = group; loadSessionSet(); }
+function closeRuleForm() { ruleFormFor = null; loadSessionSet(); }
+
+function ruleFormHtml(rule, isNew) {
+  rule = rule || {};
+  const clients = setFacets.clients || [];
+  const projects = [...new Set(clients.flatMap(c => c.projects || []))].sort();
+  const opt = (v, cur, lbl) => '<option value="' + esc(v) + '"' +
+    (String(cur || "") === v ? " selected" : "") + '>' + esc(lbl || v || "— indifférent —") + '</option>';
+  return '<div style="border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0">' +
+    '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>' +
+      (isNew ? "Nouveau jeu dérivé" : "Règle du jeu") + '</b> — son contenu se calcule, ' +
+      'toute session qui satisfait la règle y entre d\'elle-même</div>' +
+    (isNew ? '<input id="rf-name" placeholder="Nom du jeu (ex. Chantier Calicote)" ' +
+             'style="width:100%;margin-bottom:6px">' : "") +
+    '<label style="font-size:11px">client<select id="rf-client" style="width:100%">' +
+      opt("", rule.client) + clients.map(c => opt(c.slug, rule.client, c.slug + " (" + c.count + ")")).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">projet<select id="rf-project" style="width:100%">' +
+      opt("", rule.project) + projects.map(pr => opt(pr, rule.project)).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">marque<select id="rf-mark" style="width:100%">' +
+      opt("", rule.mark) + ["wip", "done", "none"].map(m => opt(m, rule.mark)).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">tickets (séparés par des virgules)' +
+      '<input id="rf-tickets" style="width:100%" value="' + esc((rule.tickets || []).join(",")) + '"></label>' +
+    '<div style="display:flex;gap:6px;margin-top:8px">' +
+      '<button class="mini" onclick="applyRuleForm(' + (isNew ? "true" : "false") + ')">' +
+        (isNew ? "Créer" : "Appliquer") + '</button>' +
+      '<button class="mini" onclick="closeRuleForm()">Annuler</button></div></div>';
+}
+
+function readRuleForm() {
+  const g = id => (document.getElementById(id) || {}).value || "";
+  const rule = {};
+  if (g("rf-client")) rule.client = g("rf-client");
+  if (g("rf-project")) rule.project = g("rf-project");
+  if (g("rf-mark")) rule.mark = g("rf-mark");
+  const tk = g("rf-tickets").split(",").map(x => x.trim()).filter(Boolean);
+  if (tk.length) rule.tickets = tk;
+  return rule;
+}
+
+async function applyRuleForm(isNew) {
+  const rule = readRuleForm();
+  if (!Object.keys(rule).length) {
+    toast("règle vide : elle désignerait toutes les sessions", true); return;
+  }
+  try {
+    if (isNew) {
+      const label = ((document.getElementById("rf-name") || {}).value || "").trim();
+      if (!label) { toast("donne un nom au jeu", true); return; }
+      const name = slugifySet(label);
+      if (!name) { toast("nom inexploitable", true); return; }
+      const r = await api("/session-set/create", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group: name, label: label, rule: rule }) });
+      toast("＋ jeu dérivé « " + label + " » — " + r.count + " session(s)");
+      currentSet = name; currentView = "set";
+      try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    } else {
+      const r = await api("/session-set/rule", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: setBody({ rule }) });
+      toast("règle appliquée — " + r.count + " session(s)");
+    }
+    ruleFormFor = null;
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// fige un jeu dérivé en jeu manuel : on part d'une règle pour constituer
+// l'ensemble sans effort, puis on l'amende à la main
+async function materializeSet() {
+  if (!window.confirm("Figer « " + setLabel(currentSet) + " » en jeu manuel ?\n\n" +
+      "Son contenu actuel est conservé, mais il cessera d'absorber les nouvelles " +
+      "sessions qui satisfont la règle.")) return;
+  try {
+    const r = await api("/session-set/materialize", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({}) });
+    toast("jeu figé — " + r.count + " session(s)");
+    await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// rétention d'AFFICHAGE : masquer les inactives ; jamais de suppression
+async function setRetention(days) {
+  try {
+    await api("/session-set/retention", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({ days: Number(days) || 0 }) });
+    toast(Number(days) ? "les sessions inactives depuis " + days + " j sont masquées (jamais supprimées)"
+                       : "plus rien n'est masqué");
+    refreshSessions(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
 async function createSetFromSelection() {
   if (!selected.size) { toast("aucune session sélectionnée", true); return; }
   const label = (window.prompt("Nom du nouveau jeu (" + selected.size + " session(s) retenue(s)) :") || "").trim();
@@ -1365,6 +1500,15 @@ async function createSetFromSelection() {
     if (b) { b.textContent = "☑ sélection"; b.classList.remove("active"); }
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
+}
+// RM2450 : l'adhésion au jeu courant peut échouer parce que le jeu est PLEIN
+// (SESSION_SET_MAX). Le message n'existait que sur stderr du service : la session
+// démarrait, l'opérateur la croyait enregistrée, et ne le découvrait qu'au reboot.
+function warnSetFull(r) {
+  const s = r && r.set;
+  if (s && s.joined === false && s.reason === "plein")
+    toast("⚠ le jeu « " + setLabel(s.group) + " » est plein (" + s.max +
+          ") : la session tourne mais n'y a PAS été enregistrée", true);
 }
 function onSetPick(v) {
   if (!v) return;
@@ -1407,6 +1551,19 @@ async function renameSet() {
   } catch (e) { toast(e.message, true); }
 }
 async function relaunchSessionSet(btn) {
+  // RM2451 : dire le prix AVANT. Douze sessions relancées, ce sont douze
+  // réhydratations de contexte — un geste à plusieurs euros, jusqu'ici invisible.
+  try {
+    const e = await api("/session-set/estimate" + setQ());
+    if (!e.relaunchable) { toast("rien à relancer dans « " + setLabel(currentSet) + " »"); return; }
+    const kt = Math.round(e.tokens_est / 1000);
+    if (!window.confirm(
+        "Relancer " + e.relaunchable + " session(s) de « " + setLabel(currentSet) + " » ?\n\n" +
+        "Chacune rouvre un TUI et relit sa conversation : ~" + kt + " k tokens de contexte" +
+        (e.usd_est ? ", de l'ordre de " + e.usd_est + " $" : "") + ".\n" +
+        (e.already_live ? e.already_live + " déjà active(s), ignorée(s). " : "") +
+        (e.lost ? e.lost + " sans conversation mémorisée (échouera). " : ""))) return;
+  } catch (err) { /* estimation indisponible : on n'empêche pas le geste */ }
   btn.disabled = true;
   try {
     const r = await api("/session-set/relaunch", {
@@ -1437,19 +1594,35 @@ function renderGhostItem(s, r, it) {
     (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
     "\n(clic : relancer cette session)";
   // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
-  const gtag = (autostartSets > 1 && s.group_label)
+  const gtag = (currentView === "all" && s.group_label)
     ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
       esc(s.group_label.slice(0, 10)) + '</span>' : "";
+  // RM2451 : l'âge de la SESSION prime sur la date d'enregistrement du jeu —
+  // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
+  const age = s.last_active ? "inactive depuis " + ago(s.last_active)
+                            : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
-    '<span class="rmeta">' + esc(title) +
-      (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
+    '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
+      ? ' style="opacity:.55"' : '') + '>' + esc(title) +
+      (age ? (title ? " · " : "") + age : "") + '</span>' +
     '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
     '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
-  it.onclick = () => relaunchGhost(s);
+  // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
+  // lieu de relancer la session. Sans cela, déplacer ou scinder une session
+  // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
+  if (selMode) {
+    if (selected.has(s.rm_id)) it.style.outline = "1px solid var(--accent)";
+    it.onclick = () => { selected.has(s.rm_id) ? selected.delete(s.rm_id) : selected.add(s.rm_id);
+                         refreshSessions(); };
+  } else {
+    it.onclick = () => relaunchGhost(s);
+  }
   it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
   it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
+                      : "") + it.title;
   return it;
 }
 // RM2427 : politique de reprise par session — `auto` (redémarre seule au
@@ -1474,28 +1647,41 @@ async function toggleRestart(s) {
 }
 // RM2427 : retire UNE entrée du jeu enregistré (session terminée par /exit : sa
 // tuile grise doit pouvoir disparaître sans effacer tout le jeu).
+// RM2451 : plus de confirmation préalable — on retire, et on propose d'annuler.
+// L'état d'avant vient d'être archivé (RM2443), le jeton `undo` le désigne.
 async function forgetGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  if (!window.confirm("Retirer " + label + " du jeu de sessions enregistrées ?\n\n" +
-      "La tuile grise disparaît ; les autres sessions du jeu sont conservées.")) return;
+  const grp = s.group || currentSet;
   try {
-    const q = "?sid=" + encodeURIComponent(s.rm_id) + "&group=" + encodeURIComponent(s.group || currentSet);
+    const q = "?sid=" + encodeURIComponent(s.rm_id) + "&group=" + encodeURIComponent(grp);
     const r = await api("/session-set" + q, { method: "DELETE" });
-    toast("🗑 " + label + " retirée du jeu (" + r.count + " restante(s))");
     refreshSessions(); refreshSessionSet(); loadSessionSet();
+    if (r.undo) toastAction("⊖ " + label + " retirée de « " + setLabel(grp) + " »", "annuler",
+                            () => undoSetChange(grp, r.undo));
+    else toast("⊖ " + label + " retirée (" + r.count + " restante(s))");
+  } catch (e) { toast(e.message, true); }
+}
+// rétablit l'état archivé juste avant le geste — restauration chirurgicale du
+// seul jeu concerné (RM2443), les autres ne bougent pas
+async function undoSetChange(group, id) {
+  try {
+    await api("/session-set/restore", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group, id }) });
+    toast("↩ rétabli");
+    refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
 // RM2446 : retire une session VIVANTE du jeu courant sans la fermer. Le pendant
 // de `kill()` : l'une sort du jeu, l'autre tue le tmux — jamais les deux.
 async function dropFromSet(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  if (!window.confirm("Retirer " + label + " du jeu « " + setLabel(currentSet) + "\u00a0» ?\n\n" +
-      "La session CONTINUE de tourner — elle n'est plus qu'absente de ce jeu.")) return;
   try {
     const r = await api("/session-set?sid=" + encodeURIComponent(s.rm_id) +
                         "&group=" + encodeURIComponent(currentSet), { method: "DELETE" });
-    toast("⊖ " + label + " retirée du jeu (" + r.count + " restante(s)) — elle tourne toujours");
     refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+    const msg = "⊖ " + label + " retirée de « " + setLabel(currentSet) + " » — elle tourne toujours";
+    if (r.undo) toastAction(msg, "annuler", () => undoSetChange(currentSet, r.undo));
+    else toast(msg);
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
@@ -1534,8 +1720,10 @@ async function loadSessionSet() {
   try {
     const r = await api("/session-set" + setQ());
     if (!r.exists || !r.count) {
-      el.innerHTML = '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
-        ' » vide — bouton « 💾 Enregistrer les sessions » dans « ▶ en cours ».</div>';
+      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+        '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
+        ' » vide — bouton « 💾 ajouter l\'affichage » dans « ▶ en cours », ' +
+        'ou « ＋ règle » pour un jeu qui se remplit tout seul.</div>';
       return;
     }
     const rows = r.entries.map(e => {
@@ -1550,19 +1738,40 @@ async function loadSessionSet() {
           (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +
         // RM2439 : le NOM de la session, sans quoi la liste n'est qu'une suite de sid
         '<br><span style="font-size:11px">' + (e.title ? esc(e.title) : '<i style="opacity:.5">sans titre</i>') + '</span>' +
-        '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
+        '<br><span style="color:var(--muted);font-size:11px">' +
+        (e.last_active ? "inactive depuis " + ago(e.last_active) + " · " : "") +
+        esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
+      (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+      (r.derived && ruleFormFor === currentSet ? ruleFormHtml(r.rule, false) : "") +
+      (r.derived && ruleFormFor !== currentSet ?
+        '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
+          esc(Object.entries(r.rule || {}).map(([k, v]) => k + "=" + (Array.isArray(v) ? v.join(",") : v)).join(" ")) +
+          ' <span style="cursor:pointer;text-decoration:underline" onclick="openRuleForm(currentSet)">modifier</span>' +
+          ' · <span style="cursor:pointer;text-decoration:underline" onclick="materializeSet()">figer</span>' +
+          '<br><span style="color:var(--muted)">contenu calculé : rien à curer, ' +
+          'et toute session satisfaisant la règle y entre d\'elle-même</span></div>' : "") +
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +
         '<b>' + esc(r.label || currentSet) + '</b> · ' + r.count +
+        // RM2452 : dire la troncature plutôt que de mentir par omission
+        (r.truncated ? ' affichée(s) sur <b>' + r.total + '</b>' : '') +
         ' session(s) · enregistré il y a ' + ago(r.saved_at) +
         ' <span style="cursor:pointer" title="Renommer ce jeu (le libellé seul ; la clé interne ne bouge pas)" ' +
         'onclick="renameSet()">✎</span></div>' +
       '<ul class="results">' + rows + '</ul>' +
-      '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer" ' +
-        'title="Les sessions du jeu apparaissent en tuiles grises dans « ▶ en cours » — aucune n\'est lancée tant qu\'on ne clique pas dessus (RM2427)">' +
-        '<input type="checkbox" style="width:auto"' +
-        (r.autostart ? " checked" : "") + ' onchange="toggleAutostart(this.checked)"> Reprendre ce jeu au démarrage (en idle)</label>' +
+      // RM2450 : la case « Reprendre ce jeu au démarrage (en idle) » est retirée —
+      // elle promettait des tuiles grises alors qu'elle commandait de VRAIS
+      // relancements, et faisait doublon avec la politique par entrée (⟳/⏸).
+      '<div style="color:var(--muted);font-size:11px;margin:8px 0 4px">' +
+        'Au lancement de karl-agent, seules les sessions réglées ⟳ de ce jeu ' +
+        'redémarrent — et seulement s\'il est le jeu courant.</div>' +
+      // RM2452 : rétention d'affichage — option, désactivée par défaut
+      '<label style="display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:11.5px">' +
+        'Masquer les sessions inactives depuis <input type="number" min="0" max="3650" ' +
+        'style="width:60px" value="' + (r.hide_idle_days || 0) + '" ' +
+        'onchange="setRetention(this.value)"> jour(s) — 0 = ne rien masquer ' +
+        '<span style="color:var(--muted)">(masquées, jamais supprimées)</span></label>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
@@ -1609,13 +1818,6 @@ async function restoreSet(id) {
     const el = document.getElementById("set-history"); if (el) el.innerHTML = "";
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
-}
-async function toggleAutostart(on) {
-  try {
-    await api("/session-set/autostart", { method: "POST", headers: { "Content-Type": "application/json" }, body: setBody({ autostart: !!on }) });
-    toast(on ? "⏻ relance au démarrage activée" : "relance au démarrage désactivée");
-    refreshSessionSets();
-  } catch (e) { toast(e.message, true); loadSessionSet(); }
 }
 function setSpawnPref(on) {
   sessionSetSpawn = !!on;
@@ -2122,6 +2324,7 @@ async function resumeSession(s) {
       body: JSON.stringify(body),
     });
     toast("Session reprise dans " + r.tmux);
+    warnSetFull(r);    // RM2450 : idem à la reprise
     // RM2396 : recharger AUSSI le panneau de reprise, sinon il reste périmé (la
     // session qu'on vient de reprendre garde son état « pas de tmux vivant ») et
     // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
@@ -3269,8 +3472,9 @@ async function spawn() {
   const btn = document.getElementById("spawnbtn");
   btn.disabled = true; btn.textContent = "Lancement…";
   try {
-    await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
+    warnSetFull(sp);   // RM2450 : un jeu plein ne doit plus échouer en silence
     document.getElementById("prompt").value = "";
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(rm), 400);

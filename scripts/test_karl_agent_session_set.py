@@ -44,6 +44,20 @@ RM2449 — DÉPLACER vers un jeu EXISTANT (`move`) : union côté cible, retrait
 source (ou `copy`), une seule écriture, plafond vérifié avant toute modification,
 et archivage du seul déplacement.
 
+RM2450 — une seule notion de reprise : le drapeau `autostart` par jeu ne
+gouverne plus rien, `_autostart_replay` relance les entrées `auto` du JEU
+COURANT ; et l'échec d'adhésion pour cause de jeu plein remonte à l'appelant au
+lieu de finir sur stderr.
+
+RM2451 — lisibilité : âge de la SESSION (transcript) et non du jeu, estimation
+du coût d'un « tout relancer » (volume de contexte à réhydrater), et retrait
+ANNULABLE via le jeton d'archivage rendu par la suppression.
+
+RM2452 — jeux DÉRIVÉS : contenu calculé par une règle (client, projet, marque,
+tickets), lecture unifiée par `_set_entries`, écriture refusée sur un dérivé,
+matérialisation en jeu manuel, et rétention d'AFFICHAGE optionnelle (masquer les
+inactives, jamais supprimer — désactivée par défaut).
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -55,6 +69,7 @@ import json
 import pathlib
 import sys
 import tempfile
+import time
 
 HERE = pathlib.Path(__file__).resolve().parent
 spec = importlib.util.spec_from_file_location("karl_agent", HERE / "karl-agent.py")
@@ -330,14 +345,23 @@ for bad, code in (({"sid": "3001", "restart": "zzz"}, 400),
     except ka.ApiError as e:
         check(f"restart : payload invalide → {code}", e.code == code)
 
-# rejeu au démarrage : SEULES les entrées `auto` non vivantes sont relancées
+# rejeu au démarrage : SEULES les entrées `auto` non vivantes du JEU COURANT
+# (RM2450 : le drapeau `autostart` par jeu ne gouverne plus rien — la politique
+# par entrée suffit, et le périmètre est le jeu courant comme partout ailleurs)
 ALIVE.clear(); LIVE.clear()
 RESUME.clear(); SPAWNED.clear()
-ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})
+ka.op_session_set_current({"group": "relance"}, {"user": None})   # le jeu observé
 res = ka._autostart_replay()
 check("démarrage : relance la session réglée auto ET la [WIP] (défaut auto)",
       {(x["sid"], x["action"]) for x in res} == {("3001", "resumed"), ("3002", "resumed")})
-ka.op_session_set_current({"group": "relance"}, {"user": None})   # RM2445 : on observe CE jeu
+# RM2450 : une entrée `auto` d'un AUTRE jeu ne doit pas rouvrir le chantier d'à côté
+ka.op_session_set_current({"group": "default"}, {"user": None})
+ALIVE.clear(); RESUME.clear()
+check("RM2450 : les entrées `auto` d'un autre jeu ne sont pas relancées",
+      ka._autostart_replay() == [])
+ka.op_session_set_current({"group": "relance"}, {"user": None})
+ALIVE.clear(); RESUME.clear()
+ka._autostart_replay()   # remet 3001/3002 vivantes pour la suite du scénario
 check("démarrage : les sessions idle restent en tuile grise (aucun TUI)",
       {"3003", "3004"} <= {g["rm_id"] for g in ka._ghost_sessions({"user": None})})
 check("démarrage : jamais de spawn (resume seul)", SPAWNED == [])
@@ -947,6 +971,293 @@ check("RM2449 : après le refus, source ET cible sont intacts",
       {e["sid"] for e in ka.op_session_set_get({"group": "src-jeu"}, {"user": None})["entries"]} == src_avant
       and {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]} == dst_avant)
 ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_SAVE
+
+# ── RM2450 : le jeu PLEIN remonte à l'appelant (il finissait sur stderr) ──────
+LIVE.clear()
+ka.op_session_set_create({"group": "plein", "label": "Plein"}, {"user": None})
+ka.SESSION_SET_MAX_KEEP = ka.SESSION_SET_MAX
+ka.SESSION_SET_MAX = 2
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/u", "model": None}
+             for s in ("9201", "9202", "9203")})
+for s in ("9201", "9202"):
+    check(f"RM2450 : {s} rejoint le jeu courant", ka._auto_join_current_set(s, {"user": None})["joined"] is True)
+r = ka._auto_join_current_set("9203", {"user": None})
+check("RM2450 : jeu plein ⇒ refus EXPLICITE remonté (plus de stderr muet)",
+      r["joined"] is False and r["reason"] == "plein" and r["max"] == 2)
+check("RM2450 : et la session n'est pas entrée dans le jeu",
+      "9203" not in {e["sid"] for e in ka.op_session_set_get({"group": "plein"}, {"user": None})["entries"]})
+r = ka._auto_join_current_set("9201", {"user": None})
+check("RM2450 : une session déjà présente est signalée comme telle",
+      r["joined"] is False and r["reason"] == "deja")
+ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_KEEP
+
+# ── RM2451 : âge, coût annoncé, retrait annulable ────────────────────────────
+LIVE.clear()
+TR = {}          # session_id → méta de transcript simulée
+ka._transcript_info = lambda sid: TR.get(sid, {})
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/v", "model": None}
+             for s in ("9301", "9302", "9303")})
+TR["uuid-9301"] = {"mark": None, "title": "vieille", "mtime": 1_000_000, "bytes": 400_000}
+TR["uuid-9302"] = {"mark": None, "title": "récente", "mtime": 2_000_000, "bytes": 200_000}
+# 9303 : aucun transcript → relance vouée à l'échec, ne doit rien coûter
+ka.op_session_set_create({"group": "cout", "label": "Coût",
+                          "sids": ["9301", "9302", "9303"]}, {"user": None})
+
+g = ka.op_session_set_get({"group": "cout"}, {"user": None})
+check("RM2451 : l'âge rendu est celui de la SESSION, pas du jeu",
+      {e["sid"]: e["last_active"] for e in g["entries"]}
+      == {"9301": 1_000_000, "9302": 2_000_000, "9303": None})
+
+LIVE.pop("9301"); LIVE.pop("9303")          # deux se sont arrêtées
+est = ka.op_session_set_estimate({"group": "cout"}, {"user": None})
+check("RM2451 : l'estimation ne compte que les entrées RELANÇABLES",
+      est["relaunchable"] == 1 and est["already_live"] == 1 and est["lost"] == 1)
+check("RM2451 : volume estimé depuis la taille du transcript",
+      est["bytes"] == 400_000 and est["tokens_est"] == 400_000 // ka.BYTES_PER_TOKEN)
+try:
+    ka.op_session_set_estimate({"group": "jamais-vu"}, {"user": None})
+    check("RM2451 : estimation d'un jeu absent → 404", False)
+except ka.ApiError as e:
+    check("RM2451 : estimation d'un jeu absent → 404", e.code == 404)
+
+# retrait annulable : le jeton désigne l'état d'avant
+r = ka.op_session_set_delete({"group": "cout", "sid": "9302"}, {"user": None})
+check("RM2451 : le retrait rend un jeton d'annulation", bool(r.get("undo")))
+check("RM2451 : l'entrée est bien partie",
+      "9302" not in {e["sid"] for e in ka.op_session_set_get({"group": "cout"}, {"user": None})["entries"]})
+ka.op_session_set_restore({"group": "cout", "id": r["undo"]}, {"user": None})
+check("RM2451 : annuler rétablit exactement l'entrée",
+      {e["sid"] for e in ka.op_session_set_get({"group": "cout"}, {"user": None})["entries"]}
+      == {"9301", "9302", "9303"})
+ka._transcript_info = lambda sid: {}
+
+# ── RM2452 : jeux DÉRIVÉS (règle) + rétention optionnelle ────────────────────
+# Le contenu se CALCULE : rien à curer, et une session neuve qui satisfait la
+# règle y entre sans geste.
+LIVE.clear()
+KEYS = {}        # sid → info de clé (simule l'index keys/)
+ka._all_keys = lambda: list(KEYS.items())
+MARKS2 = {}
+ka._session_mark = lambda sid: MARKS2.get(sid)
+ka._transcript_title = lambda sid: None
+ka._transcript_age = lambda sid: AGES.get(sid)
+AGES = {}
+ka._pm_project_of_cwd = lambda cwd: {"/zfs/cal": ("calicote", "prestashop"),
+                                     "/zfs/inf": ("iprospective", "infra")}.get(cwd, (None, None))
+KEYS.update({
+    "7101": {"engine": "claude", "session_id": "u7101", "cwd": "/zfs/cal", "model": None},
+    "7102": {"engine": "claude", "session_id": "u7102", "cwd": "/zfs/cal", "model": None},
+    "7103": {"engine": "claude", "session_id": "u7103", "cwd": "/zfs/inf", "model": None},
+})
+MARKS2["u7102"] = "wip"
+
+r = ka.op_session_set_create({"group": "der-cal", "label": "Calicote (dérivé)",
+                              "rule": {"client": "calicote"}}, {"user": None})
+check("RM2452 : un jeu dérivé rend le contenu de sa RÈGLE",
+      r["derived"] is True and {e["sid"] for e in r["entries"]} == {"7101", "7102"})
+check("RM2452 : le contenu n'est PAS stocké (seule la règle l'est)",
+      "entries" not in ka._session_set_get(ka._session_set_load(), "superadmin", "der-cal"))
+
+# une session neuve qui satisfait la règle entre sans geste
+KEYS["7104"] = {"engine": "claude", "session_id": "u7104", "cwd": "/zfs/cal", "model": None}
+check("RM2452 : une session neuve satisfaisant la règle y entre d'elle-même",
+      {e["sid"] for e in ka.op_session_set_get({"group": "der-cal"}, {"user": None})["entries"]}
+      == {"7101", "7102", "7104"})
+
+ka.op_session_set_create({"group": "der-wip", "rule": {"mark": "wip"}}, {"user": None})
+check("RM2452 : règle sur la marque [WIP]",
+      {e["sid"] for e in ka.op_session_set_get({"group": "der-wip"}, {"user": None})["entries"]} == {"7102"})
+ka.op_session_set_create({"group": "der-tick", "rule": {"tickets": ["7103"]}}, {"user": None})
+check("RM2452 : règle sur une liste de tickets",
+      {e["sid"] for e in ka.op_session_set_get({"group": "der-tick"}, {"user": None})["entries"]} == {"7103"})
+
+for bad, why in (({}, "règle vide"), ({"client": ""}, "critères tous vides"),
+                 ({"mark": "peut-etre"}, "marque inconnue"), ({"inconnu": "x"}, "critère inconnu"),
+                 ({"tickets": "7103"}, "tickets non-liste")):
+    try:
+        ka.op_session_set_create({"group": "der-bad", "rule": bad}, {"user": None})
+        check(f"RM2452 : {why} → 400", False)
+    except ka.ApiError as e:
+        check(f"RM2452 : {why} → 400", e.code == 400)
+try:
+    ka.op_session_set_create({"group": "der-mix", "rule": {"client": "calicote"},
+                              "sids": ["7101"]}, {"user": None})
+    check("RM2452 : règle ET liste ⇒ 400", False)
+except ka.ApiError as e:
+    check("RM2452 : règle ET liste ⇒ 400", e.code == 400)
+
+# on ne modifie pas à la main un ensemble CALCULÉ
+ka.op_session_set_current({"group": "der-cal"}, {"user": None})
+for call, why in (
+        (lambda: ka.op_session_set_save({"group": "der-cal"}, {"user": None}), "enregistrer"),
+        (lambda: ka.op_session_set_delete({"group": "der-cal", "sid": "7101"}, {"user": None}), "retirer"),
+        (lambda: ka.op_session_set_move({"sids": ["7101"], "to": "der-cal", "from": "der-wip"}, {"user": None}), "déplacer vers"),
+        (lambda: ka.op_session_set_create({"group": "issu", "sids": ["7101"], "move_from": "der-cal"}, {"user": None}), "scinder depuis")):
+    try:
+        call()
+        check(f"RM2452 : {why} sur un jeu dérivé → 400", False)
+    except ka.ApiError as e:
+        check(f"RM2452 : {why} sur un jeu dérivé → 400", e.code == 400)
+check("RM2452 : l'adhésion automatique ne touche pas un jeu dérivé",
+      ka._auto_join_current_set("7103", {"user": None})["reason"] == "derive")
+
+# matérialiser : le meilleur des deux
+m = ka.op_session_set_materialize({"group": "der-cal"}, {"user": None})
+check("RM2452 : matérialiser fige le contenu en jeu manuel",
+      m["derived"] is False and {e["sid"] for e in m["entries"]} == {"7101", "7102", "7104"})
+KEYS["7105"] = {"engine": "claude", "session_id": "u7105", "cwd": "/zfs/cal", "model": None}
+check("RM2452 : une fois figé, il n'absorbe plus les nouvelles venues",
+      "7105" not in {e["sid"] for e in ka.op_session_set_get({"group": "der-cal"}, {"user": None})["entries"]})
+try:
+    ka.op_session_set_materialize({"group": "der-cal"}, {"user": None})
+    check("RM2452 : matérialiser un jeu déjà manuel → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : matérialiser un jeu déjà manuel → 400", e.code == 400)
+
+# rétention : OPTION, jamais par défaut, et masque sans supprimer
+LIVE.clear()
+AGES.update({"u7101": time.time() - 40 * 86400, "u7102": time.time() - 1 * 86400,
+             "u7104": time.time() - 60 * 86400})
+g = ka.op_session_set_get({"group": "der-cal"}, {"user": None})
+check("RM2452 : par défaut, aucune rétention", g["hide_idle_days"] == 0)
+check("RM2452 : par défaut, rien n'est masqué",
+      len(ka._ghost_sessions({"user": None})) == 3)
+ka.op_session_set_retention({"group": "der-cal", "days": 30}, {"user": None})
+check("RM2452 : rétention activée ⇒ les inactives sortent de l'AFFICHAGE",
+      {x["rm_id"] for x in ka._ghost_sessions({"user": None})} == {"7102"})
+check("RM2452 : mais elles RESTENT dans le jeu (masquer ≠ supprimer)",
+      len(ka.op_session_set_get({"group": "der-cal"}, {"user": None})["entries"]) == 3)
+check("RM2452 : on les revoit à la demande",
+      len(ka._ghost_sessions({"user": None}, show_old=True)) == 3)
+ka.op_session_set_retention({"group": "der-cal", "days": 0}, {"user": None})
+check("RM2452 : rétention désactivable",
+      len(ka._ghost_sessions({"user": None})) == 3)
+for bad in (-1, "beaucoup", None):
+    try:
+        ka.op_session_set_retention({"group": "der-cal", "days": bad}, {"user": None})
+        check(f"RM2452 : rétention invalide ({bad!r}) → 400", False)
+    except ka.ApiError as e:
+        check(f"RM2452 : rétention invalide ({bad!r}) → 400", e.code == 400)
+
+# RM2452 : une sélection de tuiles GRISES doit produire un vrai jeu (l'instantané
+# tmux ne connaît que les vivantes — un jeu vide aurait été le résultat)
+LIVE.clear()
+ka._all_keys = lambda: []
+ka._transcript_title = lambda sid: None
+ka._key_info = lambda sid: LIVE.get(sid) or KEYS.get(sid)
+ka.op_session_set_create({"group": "src-gris", "sids": []}, {"user": None})
+ka.op_session_set_current({"group": "src-gris"}, {"user": None})
+store = ka._session_set_load()
+rec = ka._session_set_get(store, "superadmin", "src-gris")
+rec["entries"] = [{"sid": "7301", "engine": "claude", "session_id": "u7301",
+                   "cwd": "/zfs/g", "model": None, "title": "éteinte", "restart": "idle"}]
+ka._write_session_set(store, archive=False)
+r = ka.op_session_set_create({"group": "depuis-gris", "sids": ["7301"]}, {"user": None})
+check("RM2452 : un jeu créé depuis une session ÉTEINTE n'est pas vide",
+      [e["sid"] for e in r["entries"]] == ["7301"] and r["entries"][0]["title"] == "éteinte")
+
+# ── RM2452 (suite) : méta-jeux par client, édition de règle ──────────────────
+KEYS.clear()
+KEYS.update({
+    "7401": {"engine": "claude", "session_id": "u7401", "cwd": "/zfs/cal", "model": None},
+    "7402": {"engine": "claude", "session_id": "u7402", "cwd": "/zfs/cal", "model": None},
+    "7403": {"engine": "claude", "session_id": "u7403", "cwd": "/zfs/inf", "model": None},
+})
+ka._all_keys = lambda: list(KEYS.items())
+LIVE.clear()
+l = ka.op_session_sets_list({}, {"user": None})
+cv = {c["view"]: c for c in l["client_views"]}
+check("RM2452 : un méta-jeu par client AYANT des sessions",
+      set(cv) == {"client:calicote", "client:iprospective"})
+check("RM2452 : le méta-jeu porte son compte", cv["client:calicote"]["count"] == 2)
+check("RM2452 : les facettes listent clients et projets",
+      [c["slug"] for c in l["facets"]["clients"]] == ["calicote", "iprospective"]
+      and l["facets"]["clients"][0]["projects"] == ["prestashop"])
+
+ka.op_session_set_current({"view": "client:calicote"}, {"user": None})
+check("RM2452 : la vue par client se résout sans rien créer",
+      {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"7401", "7402"})
+check("RM2452 : la tuile dit de quel méta-jeu elle vient",
+      all(g["group_label"] == "calicote" for g in ka._ghost_sessions({"user": None})))
+check("RM2452 : aucun jeu n'a été créé au passage",
+      "client:calicote" not in {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]})
+try:
+    ka.op_session_set_current({"view": "client:PAS UN SLUG"}, {"user": None})
+    check("RM2452 : vue client invalide → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : vue client invalide → 400", e.code == 400)
+ka.op_session_set_current({"view": "set"}, {"user": None})
+
+# éditer la règle d'un jeu dérivé
+ka.op_session_set_create({"group": "edit-der", "rule": {"client": "calicote"}}, {"user": None})
+r = ka.op_session_set_rule({"group": "edit-der", "rule": {"client": "iprospective"}}, {"user": None})
+check("RM2452 : la règle se modifie, le contenu suit",
+      r["rule"] == {"client": "iprospective"} and {e["sid"] for e in r["entries"]} == {"7403"})
+try:
+    ka.op_session_set_rule({"group": "edit-der", "rule": {}}, {"user": None})
+    check("RM2452 : règle vide au remplacement → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : règle vide au remplacement → 400", e.code == 400)
+ka.op_session_set_create({"group": "manuel-x", "sids": []}, {"user": None})
+try:
+    ka.op_session_set_rule({"group": "manuel-x", "rule": {"client": "calicote"}}, {"user": None})
+    check("RM2452 : poser une règle sur un jeu MANUEL → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : poser une règle sur un jeu MANUEL → 400", e.code == 400)
+
+# ── RM2452 : hygiène des dérivés — [DONE] écartées, troncature annoncée ──────
+# Une vue client affichait 12 sessions CLOSES sur 25 : les jeux manuels les
+# évincent depuis RM2427, le chemin dérivé contournait la règle.
+KEYS.clear()
+KEYS.update({s: {"engine": "claude", "session_id": "u" + s, "cwd": "/zfs/cal", "model": None}
+             for s in ("7501", "7502", "7503")})
+ka._all_keys = lambda: list(KEYS.items())
+MARKS2.clear(); MARKS2["u7502"] = "done"
+# `_is_marked_done` a été doublé plus haut par le scénario [DONE] : on le
+# raccorde à la même source que `_session_mark` pour ce bloc
+ka._is_marked_done = lambda sid: MARKS2.get(sid) == "done"
+LIVE.clear()
+check("RM2452 : une session [DONE] et éteinte est écartée d'un dérivé",
+      {e["sid"] for e in ka._derived_entries({"client": "calicote"})} == {"7501", "7503"})
+LIVE["7502"] = KEYS["7502"]            # la [DONE] se remet à tourner
+check("RM2452 : mais une [DONE] VIVANTE reste listée (on n'escamote pas un processus)",
+      "7502" in {e["sid"] for e in ka._derived_entries({"client": "calicote"})})
+LIVE.clear()
+
+# le plafond ne tronque plus en silence
+KEYS.update({str(7600 + i): {"engine": "claude", "session_id": f"u{7600+i}",
+                             "cwd": "/zfs/cal", "model": None} for i in range(30)})
+ents, total = ka._derived_entries({"client": "calicote"}, with_total=True)
+check("RM2452 : le plafond s'applique toujours", len(ents) == ka.SESSION_SET_MAX)
+check("RM2452 : mais le total RÉEL est rendu (plus de troncature muette)", total > len(ents))
+ka.op_session_set_create({"group": "gros-der", "rule": {"client": "calicote"}}, {"user": None})
+g = ka.op_session_set_get({"group": "gros-der"}, {"user": None})
+check("RM2452 : le jeu annonce sa troncature",
+      g["truncated"] is True and g["total"] == total and len(g["entries"]) == ka.SESSION_SET_MAX)
+l = ka.op_session_sets_list({}, {"user": None})
+cv = {c["view"]: c["count"] for c in l["client_views"]}
+check("RM2452 : le compteur du méta-jeu compte ce qu'on VERRA (hors [DONE])",
+      cv["client:calicote"] == len(ents))
+
+# RM2452 : une vue par CLIENT ne s'approprie pas les vivantes des autres clients
+KEYS.clear()
+KEYS.update({"7701": {"engine": "claude", "session_id": "u7701", "cwd": "/zfs/cal", "model": None},
+             "7702": {"engine": "claude", "session_id": "u7702", "cwd": "/zfs/inf", "model": None}})
+ka._all_keys = lambda: list(KEYS.items())
+MARKS2.clear()
+LIVE.clear(); LIVE.update(KEYS)          # les deux tournent
+ka.op_session_set_current({"view": "client:iprospective"}, {"user": None})
+vue = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")}
+check("RM2452 : la vivante du client regardé appartient à la vue",
+      vue["7702"]["in_current"] is True)
+check("RM2452 : celle d'un AUTRE client est rangée hors de la vue (et badgée)",
+      vue["7701"]["in_current"] is False)
+check("RM2452 : mais elle reste VISIBLE (jamais de processus escamoté)",
+      set(vue) == {"7701", "7702"})
+ka.op_session_set_current({"view": "all"}, {"user": None})
+check("RM2452 : en vue « tous les jeux », tout ce qui est affiché appartient à la vue",
+      all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
+ka.op_session_set_current({"view": "set"}, {"user": None})
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

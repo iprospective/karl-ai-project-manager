@@ -1200,6 +1200,73 @@ def _session_set_put(store: dict, user: str, group: str, rec: dict) -> None:
         .setdefault("groups", {}))[group] = rec
 
 
+# ── Historique du store des jeux (RM2443) ────────────────────────────────────
+# Le store est réécrit à chaque geste (enregistrement, réglage de reprise, retrait
+# d'une entrée, éviction [DONE]) — ~9 écritures/semaine mesurées, pour 1,6 Ko :
+# en garder les N derniers états ne coûte rien et rend réversible le seul chemin
+# de suppression SILENCIEUX qui subsiste (l'éviction [DONE] automatique).
+#
+# Nuance de conception : on historise le FICHIER (point d'écriture unique, donc
+# sûr et complet) mais on restaure un JEU. Le store contient tous les users et
+# tous les groupes : rétablir « calicote d'hier » en rembobinant le fichier
+# entier rendrait AUSSI les autres jeux dans leur état d'hier — rendre ce qu'on
+# ne demande pas est un piège, pas un filet.
+SESSION_SET_KEEP = max(1, int(os.environ.get("KARL_AGENT_SET_HISTORY_KEEP", "10")))
+
+
+def _history_dir() -> Path:
+    """Dossier d'archives, DÉRIVÉ du store courant (et non d'un LOG_DIR figé à
+    l'import) : une instance de test qui rebind `SESSION_SET_FILE` obtient un
+    historique isolé, sans jamais toucher celui de la prod."""
+    return SESSION_SET_FILE.with_name(SESSION_SET_FILE.name + ".history")
+
+
+def _history_versions() -> list:
+    """(stamp, chemin) des versions archivées, de la plus RÉCENTE à la plus
+    ancienne. Le stamp est un `time.time_ns()` — unique même si deux écritures
+    tombent dans la même seconde."""
+    d = _history_dir()
+    if not d.is_dir():
+        return []
+    out = []
+    for p in d.glob("session-set-*.json"):
+        stamp = p.stem[len("session-set-"):]
+        if stamp.isdigit():
+            out.append((int(stamp), p))
+    out.sort(reverse=True)
+    return out
+
+
+def _archive_session_set(payload: str) -> None:
+    """Archive l'état COURANT — celui que l'écriture qui suit va écraser — puis
+    purge au-delà de `SESSION_SET_KEEP`. Si le nouveau contenu est identique,
+    il n'y a rien à perdre : rien n'est empilé (deux gestes sans effet ne
+    consomment pas l'historique). Best-effort : un historique en échec ne doit
+    JAMAIS empêcher d'écrire le store."""
+    try:
+        current = SESSION_SET_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return                      # pas encore de store : rien à sauvegarder
+    if current == payload:
+        return
+    try:
+        d = _history_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"session-set-{time.time_ns()}.json").write_text(current, encoding="utf-8")
+        for _, old in _history_versions()[SESSION_SET_KEEP:]:
+            old.unlink(missing_ok=True)
+    except OSError as e:
+        sys.stderr.write(f"historique du jeu de sessions ignoré : {e}\n")
+
+
+def _write_session_set(store: dict) -> None:
+    """Seul point d'écriture du store des jeux : archive l'état courant, puis
+    écrit. La sérialisation doit être IDENTIQUE à celle de `_write_json_atomic`,
+    sans quoi la comparaison de dédoublonnage serait toujours fausse."""
+    _archive_session_set(json.dumps(store, ensure_ascii=False, indent=1))
+    _write_json_atomic(SESSION_SET_FILE, store)
+
+
 def _snapshot_live_sessions() -> list:
     """Instantané des sessions tmux vivantes, réduit aux champs nécessaires à une
     relance ultérieure (sid, engine, session_id, cwd, model). Les champs manquants
@@ -1299,7 +1366,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
     if label:
         rec["label"] = label[:SET_LABEL_MAX]
     _session_set_put(store, user, group, rec)
-    _write_json_atomic(SESSION_SET_FILE, store)
+    _write_session_set(store)
     known = {e["sid"] for e in entries}
     return {"user": user, "group": group, "count": len(entries),
             "saved_at": rec["saved_at"], "added": added,
@@ -1348,8 +1415,60 @@ def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
     if not rec:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
     rec["label"] = label
-    _write_json_atomic(SESSION_SET_FILE, store)
+    _write_session_set(store)
     return {"user": user, "group": group, "label": label}
+
+
+def op_session_set_history(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2443 — versions archivées du store, de la plus récente à la plus
+    ancienne, réduites aux jeux de CET utilisateur (on n'expose pas ceux des
+    autres). Une version illisible est ignorée, jamais remontée en erreur :
+    l'historique est un confort, il ne doit pas casser la lecture."""
+    user = _session_set_user(auth_ctx)
+    versions = []
+    for stamp, path in _history_versions():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            groups = ((data.get("users") or {}).get(user, {}).get("groups") or {})
+        except (OSError, ValueError):
+            continue
+        versions.append({
+            "id": str(stamp), "at": stamp // 1_000_000_000,
+            "sets": [{"name": g, "label": r.get("label") or g,
+                      "count": len(r.get("entries") or [])}
+                     for g, r in sorted(groups.items())],
+        })
+    return {"user": user, "versions": versions, "count": len(versions),
+            "keep": SESSION_SET_KEEP}
+
+
+def op_session_set_restore(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2443 — rétablit UN jeu depuis une version archivée. La restauration est
+    chirurgicale : les autres jeux ne bougent pas (cf. § historique — le fichier
+    porte tous les jeux, le geste n'en vise qu'un). L'état courant est archivé au
+    passage par `_write_session_set`, donc la restauration est elle-même
+    annulable. Un jeu supprimé depuis est recréé tel quel."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    vid = str(payload.get("id") or payload.get("at") or "").strip()
+    if not vid.isdigit():
+        raise ApiError(400, "id de version requis (cf. GET /session-set/history)")
+    path = next((p for stamp, p in _history_versions() if str(stamp) == vid), None)
+    if not path:
+        raise ApiError(404, f"version inconnue : {vid}")
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise ApiError(422, f"version illisible : {e}")
+    rec = ((data.get("users") or {}).get(user, {}).get("groups") or {}).get(group)
+    if not rec:
+        raise ApiError(404, f"le jeu « {group} » n'existe pas dans cette version")
+    store = _session_set_load()
+    _session_set_put(store, user, group, rec)
+    _write_session_set(store)
+    return {"user": user, "group": group, "restored_from": vid,
+            "at": int(vid) // 1_000_000_000,
+            "count": len(rec.get("entries") or [])}
 
 
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
@@ -1473,7 +1592,7 @@ def op_session_set_autostart(payload: dict, auth_ctx: dict | None = None) -> dic
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
     rec["autostart"] = bool(payload["autostart"])
     _session_set_put(store, user, group, rec)
-    _write_json_atomic(SESSION_SET_FILE, store)
+    _write_session_set(store)
     return {"user": user, "group": group, "autostart": rec["autostart"]}
 
 
@@ -1496,7 +1615,7 @@ def op_session_set_restart(payload: dict, auth_ctx: dict | None = None) -> dict:
     if not entry:
         raise ApiError(404, f"sid absent du jeu {user}/{group} : {sid}")
     entry["restart"] = policy
-    _write_json_atomic(SESSION_SET_FILE, store)
+    _write_session_set(store)
     return {"user": user, "group": group, "sid": sid, "restart": policy}
 
 
@@ -1514,7 +1633,7 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
     sid = str(qs.get("sid") or "").strip()
     if not sid:
         del groups[group]
-        _write_json_atomic(SESSION_SET_FILE, store)
+        _write_session_set(store)
         return {"user": user, "group": group, "deleted": True}
     rec = groups[group]
     entries = rec.get("entries") or []
@@ -1522,7 +1641,7 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
     if len(kept) == len(entries):
         raise ApiError(404, f"sid absent du jeu {user}/{group} : {sid}")
     rec["entries"] = kept
-    _write_json_atomic(SESSION_SET_FILE, store)
+    _write_session_set(store)
     return {"user": user, "group": group, "sid": sid, "deleted": True,
             "count": len(kept)}
 
@@ -1645,7 +1764,7 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
     store = _session_set_load()
     groups = ((store.get("users") or {}).get(user, {}).get("groups") or {})
     if _forget_done_entries(user, groups):
-        _write_json_atomic(SESSION_SET_FILE, store)
+        _write_session_set(store)
     for group, rec in groups.items():
         if not rec.get("autostart"):
             continue
@@ -3891,6 +4010,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
+            if path == "/session-set/history":   # RM2443 : versions archivées
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_session_set_history(qs, self.auth_ctx))
             if path == "/session-sets":       # RM2442 : liste des jeux nommés
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_session_sets_list(qs, self.auth_ctx))
@@ -3976,6 +4098,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/restore":  # RM2443 : rétablir un jeu archivé
+                return self._send_json(200, op_session_set_restore(payload, self.auth_ctx))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":

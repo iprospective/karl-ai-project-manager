@@ -1368,8 +1368,48 @@ async function loadSessionSet() {
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
         'title="Relance VRAIMENT toutes les sessions du jeu d\'un coup (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ Tout relancer</button>' +
-        '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>';
+        '<button class="mini" onclick="toggleSetHistory()">↩ versions</button>' +
+        '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>' +
+      '<div id="set-history"></div>';
   } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+// RM2443 : versions archivées du store. On historise le FICHIER à chaque
+// écriture, mais on RESTAURE un jeu : rembobiner le fichier entier rendrait aussi
+// les jeux qu'on n'a pas demandés.
+async function toggleSetHistory() {
+  const el = document.getElementById("set-history");
+  if (!el) return;
+  if (el.innerHTML) { el.innerHTML = ""; return; }        // second clic : on replie
+  el.innerHTML = '<div class="empty">chargement…</div>';
+  try {
+    const r = await api("/session-set/history");
+    const mine = (r.versions || []).filter(v => (v.sets || []).some(s => s.name === currentSet));
+    if (!mine.length) {
+      el.innerHTML = '<div class="empty">Aucune version archivée pour « ' +
+        esc(setLabel(currentSet)) + ' » (max ' + r.keep + ' conservées).</div>';
+      return;
+    }
+    el.innerHTML = '<div style="color:var(--muted);font-size:11.5px;margin:8px 0 4px">' +
+      'Rétablir « ' + esc(setLabel(currentSet)) + ' » dans un état précédent :</div>' +
+      '<ul class="results">' + mine.map(v => {
+        const s = (v.sets || []).find(x => x.name === currentSet) || {};
+        return '<li style="cursor:pointer" title="Rétablir cet état — l\'état actuel sera lui-même archivé" ' +
+          'onclick="restoreSet(\'' + esc(v.id) + '\')">↩ il y a ' + ago(v.at) +
+          ' <span style="color:var(--muted)">— ' + s.count + ' session(s)</span></li>';
+      }).join("") + '</ul>';
+  } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+async function restoreSet(id) {
+  if (!window.confirm("Rétablir « " + setLabel(currentSet) + " » dans cet état ?\n\n" +
+      "Les autres jeux ne sont pas touchés, et l'état actuel est archivé : " +
+      "l'opération est annulable.")) return;
+  try {
+    const r = await api("/session-set/restore", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({ id }) });
+    toast("↩ « " + setLabel(currentSet) + " » rétabli — " + r.count + " session(s)");
+    const el = document.getElementById("set-history"); if (el) el.innerHTML = "";
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 async function toggleAutostart(on) {
   try {

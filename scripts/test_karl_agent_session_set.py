@@ -19,6 +19,11 @@ dit pas de quelle session il s'agit).
 RM2442 — jeux NOMMÉS : découverte (`op_session_sets_list`), libellé humain à
 côté du slug immuable, renommage, indépendance des jeux entre eux, et
 dédoublonnage des tuiles grises quand une session appartient à deux jeux repris.
+
+RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
+dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
+depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
+archive corrompue ignorée, historique en échec non bloquant pour le store.
 Lancer : python3 scripts/test_karl_agent_session_set.py
 """
 import importlib.util
@@ -512,6 +517,83 @@ check("RM2442 : la tuile grise dit de quel jeu elle vient",
       all(g.get("group") and g.get("group_label") for g in ghosts))
 ka.op_session_set_autostart({"group": "infra", "autostart": False}, {"user": None})
 ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})
+
+# ── RM2443 : historique du store + restauration PAR JEU ──────────────────────
+# On historise le FICHIER (point d'écriture unique, sûr) mais on restaure un JEU :
+# rembobiner le fichier entier rendrait AUSSI les jeux qu'on n'a pas demandés.
+HIST = ka._history_dir()
+check("RM2443 : l'historique s'est rempli au fil des écritures",
+      len(ka._history_versions()) > 0)
+
+# dédoublonnage : deux écritures de contenu IDENTIQUE n'empilent rien
+n0 = len(ka._history_versions())
+store = ka._session_set_load()
+ka._write_session_set(store)
+ka._write_session_set(store)
+check("RM2443 : une écriture sans changement n'empile aucune version",
+      len(ka._history_versions()) == n0)
+
+# rotation : au-delà de `keep`, les plus anciennes sont purgées
+ka.SESSION_SET_KEEP = 3
+for i in range(6):
+    ka.op_session_set_rename({"group": "infra", "label": f"Infra v{i}"}, {"user": None})
+vers = ka._history_versions()
+check("RM2443 : rotation — jamais plus de `keep` versions", len(vers) == 3)
+check("RM2443 : ce sont les plus RÉCENTES qui restent",
+      [s for s, _ in vers] == sorted([s for s, _ in vers], reverse=True))
+
+# le point dur : restaurer UN jeu laisse les autres intacts
+ka.SESSION_SET_KEEP = 10
+ka.op_session_set_rename({"group": "infra", "label": "AVANT"}, {"user": None})
+avant_infra = {e["sid"] for e in ka.op_session_set_get({"group": "infra"}, {"user": None})["entries"]}
+h = ka.op_session_set_history({}, {"user": None})
+check("RM2443 : l'historique liste les jeux de chaque version",
+      h["count"] > 0 and all({"id", "at", "sets"} <= set(v) for v in h["versions"]))
+ka.op_session_set_rename({"group": "infra", "label": "APRÈS"}, {"user": None})   # nouvel état
+vid = ka.op_session_set_history({}, {"user": None})["versions"][0]["id"]          # = l'état AVANT
+
+# on abîme les DEUX jeux, puis on ne restaure QUE `infra`
+ka.op_session_set_delete({"group": "infra", "sid": sorted(avant_infra)[0]}, {"user": None})
+ka.op_session_set_rename({"group": "default", "label": "témoin default"}, {"user": None})
+temoin = ka.op_session_set_get({}, {"user": None})
+r = ka.op_session_set_restore({"group": "infra", "id": vid}, {"user": None})
+infra = ka.op_session_set_get({"group": "infra"}, {"user": None})
+check("RM2443 : le jeu visé est rétabli (entrées ET libellé)",
+      {e["sid"] for e in infra["entries"]} == avant_infra
+      and infra["label"] == "AVANT" and r["count"] == len(avant_infra))
+apres = ka.op_session_set_get({}, {"user": None})
+check("RM2443 : les AUTRES jeux ne bougent pas (restauration chirurgicale)",
+      apres["label"] == temoin["label"]
+      and {e["sid"] for e in apres["entries"]} == {e["sid"] for e in temoin["entries"]})
+
+# la restauration est elle-même annulable : elle a archivé ce qu'elle a remplacé
+h2 = ka.op_session_set_history({}, {"user": None})
+check("RM2443 : la restauration archive l'état qu'elle remplace (annulable)",
+      h2["versions"][0]["id"] != vid)
+
+for payload, code, why in (({"group": "jamais-vu", "id": vid}, 404, "jeu absent de la version"),
+                           ({"group": "infra", "id": "1"}, 404, "version inconnue"),
+                           ({"group": "infra"}, 400, "identifiant de version manquant")):
+    try:
+        ka.op_session_set_restore(payload, {"user": None})
+        check(f"RM2443 : {why} → {code}", False)
+    except ka.ApiError as e:
+        check(f"RM2443 : {why} → {code}", e.code == code)
+check("RM2443 : après un refus, le jeu reste tel quel",
+      {e["sid"] for e in ka.op_session_set_get({"group": "infra"}, {"user": None})["entries"]} == avant_infra)
+
+# archive corrompue : ignorée en lecture, jamais fatale
+(HIST / "session-set-1.json").write_text("{ pas du json", encoding="utf-8")
+check("RM2443 : une archive corrompue est ignorée, pas remontée en erreur",
+      all(v["id"] != "1" for v in ka.op_session_set_history({}, {"user": None})["versions"]))
+# et le store reste écrivable même si l'historique devient inutilisable
+HIST.chmod(0o500)
+try:
+    ka.op_session_set_rename({"group": "infra", "label": "malgré tout"}, {"user": None})
+    check("RM2443 : historique en échec ⇒ l'écriture du store passe quand même",
+          ka.op_session_set_get({"group": "infra"}, {"user": None})["label"] == "malgré tout")
+finally:
+    HIST.chmod(0o700)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

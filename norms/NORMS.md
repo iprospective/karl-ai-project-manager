@@ -1,10 +1,10 @@
 ---
-schema_version: "1.63.0"
+schema_version: "1.64.0"
 updated: 2026-07-29
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.63.0
+# Normes de gestion des tâches — v1.64.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -1757,6 +1757,32 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
+
+#### Ticket d'INTERFACE : éprouver sur la branche, promouvoir une seule fois
+
+Un ticket qui touche une **interface** (cockpit karl-agent, et par extension toute
+UI) se valide dans une **instance de test montée sur la branche**, **avant** toute
+promotion — puis **une seule** promotion vers la prod et **une seule** MEP pour le
+lot de tickets éprouvés ensemble.
+
+**Outil canonique : `pm-cockpit-test-env.py create <RMid>`** — instance dédiée sur
+le worktree de la branche (port propre, `test_url` posée sur le ticket) ;
+`teardown <RMid>` pour l'arrêter.
+
+**Pourquoi** : une interface produit des défauts que le test unitaire ne peut pas
+voir — ils ne se manifestent qu'à l'usage. Promouvoir ticket par ticket fait alors
+du **demandeur l'environnement de test** : chaque retour coûte un cycle complet
+(snapshot, MEP, redémarrage, rechargement). Constat RM2453 : sept tickets cockpit
+promus un par un, puis trois chantiers groupés absorbant six retours d'usage sans
+qu'un octet ne bouge en production — dont trois vrais défauts invisibles aux tests
+(une tuile non sélectionnable, des sessions closes listées, une vue s'appropriant
+les sessions d'un autre client).
+
+Deux propriétés de l'instance de test à connaître : son **état d'instance**
+(`LOG_DIR`) est **isolé** — on peut tout y casser —, mais l'**état de session**
+(`STATE_DIR`) est **partagé** avec la prod : les sessions manipulées sont les
+vraies. Et l'auth y étant ouverte, l'utilisateur courant y est le superadmin, non
+le compte nommé.
 
 ### Workflow de mise en production (MEP)
 

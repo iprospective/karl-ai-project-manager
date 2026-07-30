@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [1.64.0] - 2026-07-30
+
+### Ajouté
+- **git-mep** — ticket d'INTERFACE : l'éprouver dans une instance de test montée
+  sur la branche (`pm-cockpit-test-env create <RMid>`) AVANT promotion, puis une
+  seule promotion et une seule MEP pour le lot. Motif : une UI produit des défauts
+  que le test unitaire ne voit pas ; promouvoir ticket par ticket fait du demandeur
+  l'environnement de test. Précise aussi les deux propriétés de l'instance de test
+  (LOG_DIR isolé, STATE_DIR partagé, auth ouverte ⇒ superadmin). (RM2453)
+
 Toutes les évolutions notables sont documentées ici.
 Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 

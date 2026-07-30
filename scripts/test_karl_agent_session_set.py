@@ -49,6 +49,10 @@ gouverne plus rien, `_autostart_replay` relance les entrées `auto` du JEU
 COURANT ; et l'échec d'adhésion pour cause de jeu plein remonte à l'appelant au
 lieu de finir sur stderr.
 
+RM2451 — lisibilité : âge de la SESSION (transcript) et non du jeu, estimation
+du coût d'un « tout relancer » (volume de contexte à réhydrater), et retrait
+ANNULABLE via le jeton d'archivage rendu par la suppression.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -980,6 +984,46 @@ r = ka._auto_join_current_set("9201", {"user": None})
 check("RM2450 : une session déjà présente est signalée comme telle",
       r["joined"] is False and r["reason"] == "deja")
 ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_KEEP
+
+# ── RM2451 : âge, coût annoncé, retrait annulable ────────────────────────────
+LIVE.clear()
+TR = {}          # session_id → méta de transcript simulée
+ka._transcript_info = lambda sid: TR.get(sid, {})
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/v", "model": None}
+             for s in ("9301", "9302", "9303")})
+TR["uuid-9301"] = {"mark": None, "title": "vieille", "mtime": 1_000_000, "bytes": 400_000}
+TR["uuid-9302"] = {"mark": None, "title": "récente", "mtime": 2_000_000, "bytes": 200_000}
+# 9303 : aucun transcript → relance vouée à l'échec, ne doit rien coûter
+ka.op_session_set_create({"group": "cout", "label": "Coût",
+                          "sids": ["9301", "9302", "9303"]}, {"user": None})
+
+g = ka.op_session_set_get({"group": "cout"}, {"user": None})
+check("RM2451 : l'âge rendu est celui de la SESSION, pas du jeu",
+      {e["sid"]: e["last_active"] for e in g["entries"]}
+      == {"9301": 1_000_000, "9302": 2_000_000, "9303": None})
+
+LIVE.pop("9301"); LIVE.pop("9303")          # deux se sont arrêtées
+est = ka.op_session_set_estimate({"group": "cout"}, {"user": None})
+check("RM2451 : l'estimation ne compte que les entrées RELANÇABLES",
+      est["relaunchable"] == 1 and est["already_live"] == 1 and est["lost"] == 1)
+check("RM2451 : volume estimé depuis la taille du transcript",
+      est["bytes"] == 400_000 and est["tokens_est"] == 400_000 // ka.BYTES_PER_TOKEN)
+try:
+    ka.op_session_set_estimate({"group": "jamais-vu"}, {"user": None})
+    check("RM2451 : estimation d'un jeu absent → 404", False)
+except ka.ApiError as e:
+    check("RM2451 : estimation d'un jeu absent → 404", e.code == 404)
+
+# retrait annulable : le jeton désigne l'état d'avant
+r = ka.op_session_set_delete({"group": "cout", "sid": "9302"}, {"user": None})
+check("RM2451 : le retrait rend un jeton d'annulation", bool(r.get("undo")))
+check("RM2451 : l'entrée est bien partie",
+      "9302" not in {e["sid"] for e in ka.op_session_set_get({"group": "cout"}, {"user": None})["entries"]})
+ka.op_session_set_restore({"group": "cout", "id": r["undo"]}, {"user": None})
+check("RM2451 : annuler rétablit exactement l'entrée",
+      {e["sid"] for e in ka.op_session_set_get({"group": "cout"}, {"user": None})["entries"]}
+      == {"9301", "9302", "9303"})
+ka._transcript_info = lambda sid: {}
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

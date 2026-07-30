@@ -868,6 +868,20 @@ async function api(path, opts) {
   }
   return body;
 }
+// RM2451 : toast porteur d'une ACTION — « annuler » vaut mieux qu'une
+// confirmation préalable sur un geste courant : zéro friction quand tout va bien,
+// vrai filet quand on s'est trompé.
+function toastAction(msg, label, fn, ms) {
+  const t = document.getElementById("toast");
+  t.textContent = msg + "  ";
+  const a = document.createElement("span");
+  a.textContent = label;
+  a.style.cssText = "text-decoration:underline;cursor:pointer;font-weight:600";
+  a.onclick = () => { t.className = "toast"; fn(); };
+  t.appendChild(a);
+  t.className = "toast show";
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", ms || 8000);
+}
 function toast(msg, err) {
   const t = document.getElementById("toast");
   t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
@@ -1416,6 +1430,19 @@ async function renameSet() {
   } catch (e) { toast(e.message, true); }
 }
 async function relaunchSessionSet(btn) {
+  // RM2451 : dire le prix AVANT. Douze sessions relancées, ce sont douze
+  // réhydratations de contexte — un geste à plusieurs euros, jusqu'ici invisible.
+  try {
+    const e = await api("/session-set/estimate" + setQ());
+    if (!e.relaunchable) { toast("rien à relancer dans « " + setLabel(currentSet) + " »"); return; }
+    const kt = Math.round(e.tokens_est / 1000);
+    if (!window.confirm(
+        "Relancer " + e.relaunchable + " session(s) de « " + setLabel(currentSet) + " » ?\n\n" +
+        "Chacune rouvre un TUI et relit sa conversation : ~" + kt + " k tokens de contexte" +
+        (e.usd_est ? ", de l'ordre de " + e.usd_est + " $" : "") + ".\n" +
+        (e.already_live ? e.already_live + " déjà active(s), ignorée(s). " : "") +
+        (e.lost ? e.lost + " sans conversation mémorisée (échouera). " : ""))) return;
+  } catch (err) { /* estimation indisponible : on n'empêche pas le geste */ }
   btn.disabled = true;
   try {
     const r = await api("/session-set/relaunch", {
@@ -1449,10 +1476,15 @@ function renderGhostItem(s, r, it) {
   const gtag = (currentView === "all" && s.group_label)
     ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
       esc(s.group_label.slice(0, 10)) + '</span>' : "";
+  // RM2451 : l'âge de la SESSION prime sur la date d'enregistrement du jeu —
+  // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
+  const age = s.last_active ? "inactive depuis " + ago(s.last_active)
+                            : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
-    '<span class="rmeta">' + esc(title) +
-      (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
+    '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
+      ? ' style="opacity:.55"' : '') + '>' + esc(title) +
+      (age ? (title ? " · " : "") + age : "") + '</span>' +
     '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
     '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
@@ -1483,28 +1515,41 @@ async function toggleRestart(s) {
 }
 // RM2427 : retire UNE entrée du jeu enregistré (session terminée par /exit : sa
 // tuile grise doit pouvoir disparaître sans effacer tout le jeu).
+// RM2451 : plus de confirmation préalable — on retire, et on propose d'annuler.
+// L'état d'avant vient d'être archivé (RM2443), le jeton `undo` le désigne.
 async function forgetGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  if (!window.confirm("Retirer " + label + " du jeu de sessions enregistrées ?\n\n" +
-      "La tuile grise disparaît ; les autres sessions du jeu sont conservées.")) return;
+  const grp = s.group || currentSet;
   try {
-    const q = "?sid=" + encodeURIComponent(s.rm_id) + "&group=" + encodeURIComponent(s.group || currentSet);
+    const q = "?sid=" + encodeURIComponent(s.rm_id) + "&group=" + encodeURIComponent(grp);
     const r = await api("/session-set" + q, { method: "DELETE" });
-    toast("🗑 " + label + " retirée du jeu (" + r.count + " restante(s))");
     refreshSessions(); refreshSessionSet(); loadSessionSet();
+    if (r.undo) toastAction("⊖ " + label + " retirée de « " + setLabel(grp) + " »", "annuler",
+                            () => undoSetChange(grp, r.undo));
+    else toast("⊖ " + label + " retirée (" + r.count + " restante(s))");
+  } catch (e) { toast(e.message, true); }
+}
+// rétablit l'état archivé juste avant le geste — restauration chirurgicale du
+// seul jeu concerné (RM2443), les autres ne bougent pas
+async function undoSetChange(group, id) {
+  try {
+    await api("/session-set/restore", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group, id }) });
+    toast("↩ rétabli");
+    refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
 // RM2446 : retire une session VIVANTE du jeu courant sans la fermer. Le pendant
 // de `kill()` : l'une sort du jeu, l'autre tue le tmux — jamais les deux.
 async function dropFromSet(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  if (!window.confirm("Retirer " + label + " du jeu « " + setLabel(currentSet) + "\u00a0» ?\n\n" +
-      "La session CONTINUE de tourner — elle n'est plus qu'absente de ce jeu.")) return;
   try {
     const r = await api("/session-set?sid=" + encodeURIComponent(s.rm_id) +
                         "&group=" + encodeURIComponent(currentSet), { method: "DELETE" });
-    toast("⊖ " + label + " retirée du jeu (" + r.count + " restante(s)) — elle tourne toujours");
     refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+    const msg = "⊖ " + label + " retirée de « " + setLabel(currentSet) + " » — elle tourne toujours";
+    if (r.undo) toastAction(msg, "annuler", () => undoSetChange(currentSet, r.undo));
+    else toast(msg);
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
@@ -1559,7 +1604,9 @@ async function loadSessionSet() {
           (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +
         // RM2439 : le NOM de la session, sans quoi la liste n'est qu'une suite de sid
         '<br><span style="font-size:11px">' + (e.title ? esc(e.title) : '<i style="opacity:.5">sans titre</i>') + '</span>' +
-        '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
+        '<br><span style="color:var(--muted);font-size:11px">' +
+        (e.last_active ? "inactive depuis " + ago(e.last_active) + " · " : "") +
+        esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +

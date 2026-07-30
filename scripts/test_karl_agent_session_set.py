@@ -25,6 +25,11 @@ RM2445 — jeu COURANT côté serveur : bascule qui change réellement la vue
 d'une session lancée/reprise au jeu courant (le statut fait ENTRER, jamais
 SORTIR), appartenance multiple, et écritures additives non archivées.
 
+RM2446 — VUES (« sessions ouvertes », « tous les jeux ») distinctes du jeu
+courant : une vue n'affiche, elle ne reçoit rien — le jeu courant reste la cible
+des écritures. Plus la séparation ⊖ (retirer du jeu, la session tourne toujours)
+vs ✕ (fermer la session), et le marquage des sessions hors de tout jeu.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -701,6 +706,75 @@ ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
 ka.op_session_set_delete({"group": "chantier-b"}, {"user": None})
 check("RM2445 : jeu courant effacé → retour à `default`",
       ka._current_set("superadmin") == "default")
+
+# ── RM2446 : vues (« sessions ouvertes », « tous les jeux ») + hors jeu ───────
+# Une VUE n'est pas un jeu : elle ne reçoit rien. Le jeu courant reste la cible
+# des écritures, la vue ne décide que de l'affichage.
+LIVE.clear()
+LIVE.update({
+    "7001": {"engine": "claude", "session_id": "uuid-7001", "cwd": "/zfs/p", "model": None},
+    "7002": {"engine": "claude", "session_id": "uuid-7002", "cwd": "/zfs/q", "model": None},
+    "7003": {"engine": "claude", "session_id": "uuid-7003", "cwd": "/zfs/r", "model": None},
+})
+ka.op_session_set_save({"group": "vue-a", "label": "Vue A", "sids": ["7001"]}, {"user": None})
+ka.op_session_set_save({"group": "vue-b", "label": "Vue B", "sids": ["7002"]}, {"user": None})
+ka.op_session_set_current({"group": "vue-a"}, {"user": None})
+LIVE.clear()                                    # tout s'arrête → que des fantômes
+
+check("RM2446 : vue par défaut = le jeu courant", ka._current_view("superadmin") == "set")
+check("RM2446 : vue `set` — fantômes du seul jeu courant",
+      {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"7001"})
+ka.op_session_set_current({"view": "live"}, {"user": None})
+check("RM2446 : vue `live` — aucune tuile grise (on ne voit que ce qui tourne)",
+      ka._ghost_sessions({"user": None}) == [])
+ka.op_session_set_current({"view": "all"}, {"user": None})
+tous = {g["rm_id"]: g for g in ka._ghost_sessions({"user": None})}
+check("RM2446 : vue `all` — fantômes de TOUS les jeux",
+      {"7001", "7002"} <= set(tous))
+check("RM2446 : vue `all` — chaque fantôme dit son jeu",
+      tous["7001"]["group"] == "vue-a" and tous["7002"]["group"] == "vue-b")
+check("RM2446 : vue `all` — aucun doublon",
+      len(tous) == len({g["rm_id"] for g in ka._ghost_sessions({"user": None})}))
+
+# le jeu courant NE CHANGE PAS quand on change de vue : une vue n'est pas une cible
+check("RM2446 : changer de vue ne déplace pas le jeu courant",
+      ka._current_set("superadmin") == "vue-a")
+LIVE["7003"] = {"engine": "claude", "session_id": "uuid-7003", "cwd": "/zfs/r", "model": None}
+ka._auto_join_current_set("7003", {"user": None})
+check("RM2446 : une session lancée depuis une vue rejoint le JEU courant",
+      "7003" in {e["sid"] for e in ka.op_session_set_get({"group": "vue-a"}, {"user": None})["entries"]})
+
+# choisir un jeu, c'est vouloir le regarder → retour en vue `set`
+ka.op_session_set_current({"group": "vue-b"}, {"user": None})
+check("RM2446 : choisir un jeu rebascule en vue `set`",
+      ka._current_view("superadmin") == "set" and ka._current_set("superadmin") == "vue-b")
+
+for bad in ("perspective", ""):
+    try:
+        ka.op_session_set_current({"view": bad}, {"user": None})
+        check(f"RM2446 : vue invalide ({bad!r}) → 400", False)
+    except ka.ApiError as e:
+        check(f"RM2446 : vue invalide ({bad!r}) → 400", e.code == 400)
+try:
+    ka.op_session_set_current({}, {"user": None})
+    check("RM2446 : ni group ni view → 400", False)
+except ka.ApiError as e:
+    check("RM2446 : ni group ni view → 400", e.code == 400)
+
+# ⊖ retirer du jeu ≠ ✕ fermer : la session RESTE vivante après un retrait
+LIVE.clear(); LIVE.update({"7002": {"engine": "claude", "session_id": "uuid-7002",
+                                    "cwd": "/zfs/q", "model": None}})
+ka.op_session_set_delete({"group": "vue-b", "sid": "7002"}, {"user": None})
+check("RM2446 : retirer du jeu ne ferme pas la session (elle tourne toujours)",
+      "7002" in LIVE and "7002" in {s["rm_id"] for s in ka._sessions_view({}, {"user": None})})
+check("RM2446 : retirée de tout jeu, elle est signalée « hors jeu » (sets vide)",
+      next(s for s in ka._sessions_view({}, {"user": None}) if s["rm_id"] == "7002")["sets"] == [])
+
+# en vue `live` / `all`, tout ce qui est affiché appartient à la vue
+ka.op_session_set_current({"view": "live"}, {"user": None})
+check("RM2446 : en vue `live`, aucune vivante n'est reléguée « hors du jeu courant »",
+      all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
+ka.op_session_set_current({"view": "set"}, {"user": None})
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

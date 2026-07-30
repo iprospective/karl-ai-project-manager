@@ -40,6 +40,10 @@ source dans la même écriture que la création du nouveau (atomicité), avec
 archivage puisqu'un split retire quelque chose ; les réglages de l'entrée
 suivent la session, et les sid absents du source sont ignorés sans erreur.
 
+RM2449 — DÉPLACER vers un jeu EXISTANT (`move`) : union côté cible, retrait du
+source (ou `copy`), une seule écriture, plafond vérifié avant toute modification,
+et archivage du seul déplacement.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -884,6 +888,65 @@ check("RM2448 : sid absent du source ignoré sans erreur",
       r["moved"] == ["9001"] and {e["sid"] for e in r["entries"]} == {"9001", "9002"})
 check("RM2448 : le jeu source vidé de sa part, sans casse",
       ka.op_session_set_get({"group": "fourre-tout"}, {"user": None})["count"] == 0)
+
+# ── RM2449 : DÉPLACER vers un jeu EXISTANT ───────────────────────────────────
+LIVE.clear()
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/t", "model": None}
+             for s in ("9101", "9102", "9103")})
+ka.op_session_set_create({"group": "src-jeu", "label": "Source",
+                          "sids": ["9101", "9102", "9103"]}, {"user": None})
+ka.op_session_set_create({"group": "dst-jeu", "label": "Cible", "sids": ["9103"]}, {"user": None})
+ka.op_session_set_restart({"group": "src-jeu", "sid": "9101", "restart": "auto"}, {"user": None})
+ka.op_session_set_current({"group": "src-jeu"}, {"user": None})
+v0 = ka._history_versions()[0][0] if ka._history_versions() else None
+
+r = ka.op_session_set_move({"sids": ["9101", "9103"], "to": "dst-jeu"}, {"user": None})
+dst = ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})
+src = ka.op_session_set_get({"group": "src-jeu"}, {"user": None})
+check("RM2449 : la cible gagne la sélection, sans doublon (9103 y était déjà)",
+      [e["sid"] for e in dst["entries"]] == ["9103", "9101"])
+check("RM2449 : le source perd la sélection et garde le reste",
+      {e["sid"] for e in src["entries"]} == {"9102"})
+check("RM2449 : `from` vaut le jeu courant par défaut", r["from"] == "src-jeu")
+check("RM2449 : les réglages suivent la session (entrée reprise du source)",
+      next(e for e in dst["entries"] if e["sid"] == "9101")["restart"] == "auto")
+check("RM2449 : un déplacement archive", ka._history_versions()[0][0] != v0)
+check("RM2449 : les sessions déplacées tournent toujours", {"9101", "9103"} <= set(LIVE))
+
+# copie : la cible gagne, le source garde
+v1 = ka._history_versions()[0][0]
+r = ka.op_session_set_move({"sids": ["9102"], "to": "dst-jeu", "copy": True}, {"user": None})
+check("RM2449 : `copy` ajoute à la cible sans retirer du source",
+      r["copied"] is True
+      and "9102" in {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]}
+      and "9102" in {e["sid"] for e in ka.op_session_set_get({"group": "src-jeu"}, {"user": None})["entries"]})
+check("RM2449 : une copie n'archive pas", ka._history_versions()[0][0] == v1)
+
+for bad, code, why in (
+        ({"sids": ["9102"], "to": "jamais-vu"}, 404, "cible inexistante"),
+        ({"sids": ["9102"], "to": "src-jeu"}, 400, "cible == source"),
+        ({"sids": [], "to": "dst-jeu"}, 400, "sélection vide"),
+        ({"sids": ["9999"], "to": "dst-jeu"}, 404, "aucun sid présent dans le source")):
+    try:
+        ka.op_session_set_move(bad, {"user": None})
+        check(f"RM2449 : {why} → {code}", False)
+    except ka.ApiError as e:
+        check(f"RM2449 : {why} → {code}", e.code == code)
+
+# plafond de la cible : refus AVANT écriture, ni source ni cible touchés
+ka.SESSION_SET_MAX_SAVE = ka.SESSION_SET_MAX
+ka.SESSION_SET_MAX = 2
+src_avant = {e["sid"] for e in ka.op_session_set_get({"group": "src-jeu"}, {"user": None})["entries"]}
+dst_avant = {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]}
+try:
+    ka.op_session_set_move({"sids": ["9102"], "to": "dst-jeu"}, {"user": None})
+    check("RM2449 : plafond de la cible → 409", False)
+except ka.ApiError as e:
+    check("RM2449 : plafond de la cible → 409", e.code == 409)
+check("RM2449 : après le refus, source ET cible sont intacts",
+      {e["sid"] for e in ka.op_session_set_get({"group": "src-jeu"}, {"user": None})["entries"]} == src_avant
+      and {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]} == dst_avant)
+ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_SAVE
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

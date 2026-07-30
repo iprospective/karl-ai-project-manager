@@ -399,6 +399,10 @@ if (window.matchMedia) {
                 title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
         <button class="mini" onclick="toggleSelMode()" id="btn-sel"
                 title="Choisir des sessions une à une — pour en faire un nouveau jeu, ou scinder le jeu courant">☑ sélection</button>
+        <select id="sel-target" style="display:none;width:auto;max-width:150px"
+                title="Jeu de destination des sessions sélectionnées (RM2449)"></select>
+        <button class="mini" id="btn-sel-move" style="display:none" onclick="moveSelection()"
+                title="Déplacer les sessions sélectionnées vers le jeu choisi">→ déplacer</button>
         <button id="btn-set-save" onclick="saveSessionSet(this)"
                 title="Ajoute les sessions AFFICHÉES au jeu courant. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ⊖ sur sa tuile">💾 Enregistrer</button>
         <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
@@ -1254,6 +1258,17 @@ async function refreshSessionSets() {
     if (save) save.onclick = selMode ? () => createSetFromSelection() : (e) => saveSessionSet(save);
     const del = document.getElementById("btn-set-del");
     if (del) del.title = "Supprimer le jeu « " + setLabel(currentSet) + " » (les sessions continuent de tourner)";
+    // RM2449 : destinations possibles = les autres jeux (créer un jeu neuf reste
+    // le rôle de « ＋ jeu depuis la sélection »)
+    const tgt = document.getElementById("sel-target");
+    const mv = document.getElementById("btn-sel-move");
+    const others = setsCache.filter(s => s.name !== currentSet);
+    if (tgt) {
+      tgt.innerHTML = others.map(s => '<option value="' + esc(s.name) + '">vers ' +
+        esc(s.label) + " (" + s.count + ")</option>").join("");
+      tgt.style.display = (selMode && others.length) ? "" : "none";
+    }
+    if (mv) mv.style.display = (selMode && others.length) ? "" : "none";
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
 // RM2445 : le jeu courant est un état SERVEUR (le cockpit ne faisait que le
@@ -1302,6 +1317,27 @@ function toggleSelMode() {
   if (b) { b.textContent = selMode ? "✓ terminer" : "☑ sélection"; b.classList.toggle("active", selMode); }
   refreshSessionSets();      // le bouton d'écriture change de rôle et de libellé
   refreshSessions();
+}
+// RM2449 : verser la sélection dans un jeu EXISTANT. Déplacer ou copier — une
+// session peut appartenir à plusieurs jeux (RM2445), le retrait n'est pas implicite.
+async function moveSelection() {
+  const tgt = document.getElementById("sel-target");
+  const to = tgt && tgt.value;
+  if (!to) { toast("aucun jeu de destination", true); return; }
+  if (!selected.size) { toast("aucune session sélectionnée", true); return; }
+  const move = window.confirm(
+    selected.size + " session(s) → « " + setLabel(to) + " »\n\n" +
+    "OK = les DÉPLACER (retirées de « " + setLabel(currentSet) + " »)\n" +
+    "Annuler = les COPIER (elles restent dans les deux jeux)");
+  try {
+    const r = await api("/session-set/move", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sids: [...selected], to: to, from: currentSet, copy: !move }) });
+    toast((move ? "→ " : "⧉ ") + (r.moved || []).length + " session(s) " +
+          (move ? "déplacée(s) vers « " : "copiée(s) vers « ") + setLabel(to) + " »");
+    selected.clear();
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 async function createSetFromSelection() {
   if (!selected.size) { toast("aucune session sélectionnée", true); return; }

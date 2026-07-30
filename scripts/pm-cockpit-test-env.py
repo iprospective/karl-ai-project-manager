@@ -21,6 +21,7 @@ Capability-based : refuse un ticket dont le worktree ne contient pas
 scripts/karl-agent.py (ce n'est pas un ticket cockpit-testable).
 """
 import argparse
+import pathlib
 import importlib.util
 import json
 import os
@@ -49,13 +50,25 @@ def port_for(rm_id: int) -> int:
     return PORT_BASE + (rm_id % PORT_SPAN)
 
 
-def prod_projects_base() -> str:
+def prod_projects_base(ws) -> str:
     """Arbre `projects/clients` de l'instance DÉPLOYÉE (RM2452) : un worktree de
     code n'en a pas, les données PM vivant dans l'autre dépôt."""
-    # l'instance déployée est celle qui porte les scripts en cours d'exécution
-    # quand on lance l'outil depuis le cœur ; à défaut, le lien `.mmi-pm` du
-    # workspace PM la désigne. On reste sur un chemin RÉSOLU, jamais deviné.
-    return str((HERE.parent / "projects" / "clients").resolve())
+    # Deux fausses pistes écartées : l'emplacement de l'OUTIL (lancé depuis une
+    # branche, il vit dans un worktree de code, précisément dépourvu de
+    # `projects/`) et le `.mmi-pm` du workspace (répertoire co-localisé —
+    # `resolve()` ne traverse pas le bind mount). On lit donc le chemin de
+    # l'instance RÉELLEMENT déployée, dans l'unité systemd qui la fait tourner.
+    unit = pathlib.Path.home() / ".config/systemd/user/karl-agent.service"
+    try:
+        for line in unit.read_text(encoding="utf-8").splitlines():
+            if line.startswith("ExecStart="):
+                for tok in line.split():
+                    if tok.endswith("/scripts/karl-agent.py"):
+                        base = pathlib.Path(tok).parent.parent / "projects" / "clients"
+                        return str(base) if base.is_dir() else ""
+    except OSError:
+        pass
+    return ""
 
 
 def prod_state_dir() -> Path:
@@ -153,7 +166,7 @@ def cmd_create(args):
          # RM2452 : l'arbre `projects/` n'existe pas dans un worktree de code —
          # sans lui, client/projet ne se résolvent pas et les jeux dérivés sont
          # vides. On pointe celui de l'instance déployée, en lecture seule.
-         f"--setenv=KARL_AGENT_PROJECTS_BASE={prod_projects_base()}",
+         f"--setenv=KARL_AGENT_PROJECTS_BASE={prod_projects_base(ws)}",
          "/usr/bin/python3", "scripts/karl-agent.py"])
     run(["systemd-run", "--user", f"--unit={bridge}",
          "/usr/bin/socat", f"TCP-LISTEN:{port},bind={ip},fork,reuseaddr",

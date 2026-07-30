@@ -816,7 +816,7 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
         _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
-        _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
+        joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
@@ -835,7 +835,8 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
 
     return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
             "model": model_value, "model_source": model_source,
-            "session_id": session_id, "created": True}
+            "session_id": session_id, "created": True,
+            "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
 def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
@@ -1330,7 +1331,7 @@ def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
             "view": _current_view(user, store)}
 
 
-def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> None:
+def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | None:
     """RM2445 — une session qui démarre (spawn) ou qui est reprise (resume)
     REJOINT le jeu courant, sans geste manuel. Union stricte : le statut fait
     ENTRER, jamais SORTIR (invariant RM2439 — une session qui s'arrête devient
@@ -1346,11 +1347,15 @@ def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> None:
                    "autostart": True, "entries": []}
         entries = rec.setdefault("entries", [])
         if any(e.get("sid") == sid for e in entries):
-            return                     # déjà dans le jeu : rien à faire
+            return {"group": group, "joined": False, "reason": "deja"}
         if len(entries) >= SESSION_SET_MAX:
+            # RM2450 : ce refus finissait sur stderr — invisible pour l'opérateur,
+            # qui croyait sa session enregistrée. Il remonte à l'appelant, qui le
+            # renvoie dans la réponse de /spawn et /resume.
             sys.stderr.write(f"jeu {user}/{group} plein ({SESSION_SET_MAX}) : "
                              f"{sid} n'y a pas été ajoutée\n")
-            return
+            return {"group": group, "joined": False, "reason": "plein",
+                    "max": SESSION_SET_MAX}
         k = _key_info(sid) or {}
         entries.append({
             "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
@@ -1361,8 +1366,10 @@ def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> None:
         rec["saved_at"] = int(time.time())
         _session_set_put(store, user, group, rec)
         _write_session_set(store, archive=False)
+        return {"group": group, "joined": True}
     except (OSError, ValueError) as e:
         sys.stderr.write(f"adhésion au jeu courant ignorée pour {sid} : {e}\n")
+        return {"group": None, "joined": False, "reason": "erreur"}
 
 
 def _snapshot_live_sessions() -> list:
@@ -1799,7 +1806,12 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
 
 
 def op_session_set_autostart(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2395/RM2427 — (dé)marque le jeu (user, group) pour reprise automatique.
+    """DÉPRÉCIÉ (RM2450) — le drapeau `autostart` ne gouverne plus rien : la
+    reprise au démarrage suit la politique `restart` PAR ENTRÉE, sur le jeu
+    courant (`_autostart_replay`). L'endpoint est conservé pour ne pas casser un
+    client ancien, et le drapeau reste stocké, sans effet.
+
+    RM2395/RM2427 — (dé)marque le jeu (user, group) pour reprise automatique.
     Depuis RM2427 la reprise est « en idle » : le jeu marqué est exposé en tuiles
     grises (cf. `_ghost_sessions`), aucun TUI n'est ouvert. Ne re-snapshote pas :
     ne touche que le drapeau `autostart`."""
@@ -2037,15 +2049,23 @@ AUTOSTART_DELAY = float(os.environ.get("KARL_AGENT_AUTOSTART_DELAY", "4"))
 
 
 def _autostart_replay() -> list:
-    """Une passe : relance les entrées `auto` des jeux marqués `autostart`.
-    Best-effort (un jeu en échec n'empêche pas les autres). Séparée du thread
-    pour être testable sans horloge."""
+    """Une passe : relance les entrées `auto` du JEU COURANT de chaque
+    utilisateur. Best-effort (un jeu en échec n'empêche pas les autres). Séparée
+    du thread pour être testable sans horloge.
+
+    RM2450 — le drapeau `autostart` PAR JEU est abandonné : il ne servait plus
+    qu'à autoriser la politique `restart:auto` par entrée, soit deux réglages
+    pour une seule question — d'où la case dont le libellé promettait des tuiles
+    grises alors qu'elle ouvrait de vrais TUI. Le périmètre devient le jeu
+    courant, cohérent avec tout le reste depuis RM2445 (fantômes, adhésion, ⊖).
+    Conséquence assumée : une entrée `auto` d'un autre jeu n'est plus relancée —
+    on ne rouvre pas le chantier d'à côté."""
     out = []
     store = _session_set_load()
     for user, u in (store.get("users") or {}).items():
-        for group, rec in (u.get("groups") or {}).items():
-            if not rec.get("autostart"):
-                continue
+        group = _current_set(user, store)
+        rec = (u.get("groups") or {}).get(group)
+        if rec:
             for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
                 policy = e.get("restart") if e.get("restart") in RESTART_POLICIES \
                     else _default_restart(e.get("session_id"))
@@ -2321,7 +2341,7 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     if _is_ticket_sid(rm_id):
         _record_run(rm_id, "claude", session_id, str(cwd))
     _record_key(rm_id, "claude", session_id, str(cwd))
-    _auto_join_current_set(rm_id, auth_ctx)       # RM2445 : rejoint le jeu courant
+    joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
     if prompt:
@@ -2331,7 +2351,8 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
         _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
 
     return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": "claude",
-            "session_id": session_id, "cwd": str(cwd), "resumed": True}
+            "session_id": session_id, "cwd": str(cwd), "resumed": True,
+            "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
 def _session_live(session_id: str, engine: str = "claude") -> bool:

@@ -1239,7 +1239,7 @@ def _history_versions() -> list:
     return out
 
 
-def _archive_session_set(payload: str) -> None:
+def _archive_session_set(payload: str):
     """Archive l'état COURANT — celui que l'écriture qui suit va écraser — puis
     purge au-delà de `SESSION_SET_KEEP`. Si le nouveau contenu est identique,
     il n'y a rien à perdre : rien n'est empilé (deux gestes sans effet ne
@@ -1248,20 +1248,23 @@ def _archive_session_set(payload: str) -> None:
     try:
         current = SESSION_SET_FILE.read_text(encoding="utf-8")
     except OSError:
-        return                      # pas encore de store : rien à sauvegarder
+        return None                 # pas encore de store : rien à sauvegarder
     if current == payload:
-        return
+        return None
     try:
         d = _history_dir()
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"session-set-{time.time_ns()}.json").write_text(current, encoding="utf-8")
+        stamp = time.time_ns()      # RM2451 : rendu à l'appelant → « annuler »
+        (d / f"session-set-{stamp}.json").write_text(current, encoding="utf-8")
         for _, old in _history_versions()[SESSION_SET_KEEP:]:
             old.unlink(missing_ok=True)
+        return str(stamp)
     except OSError as e:
         sys.stderr.write(f"historique du jeu de sessions ignoré : {e}\n")
+        return None
 
 
-def _write_session_set(store: dict, archive: bool = True) -> None:
+def _write_session_set(store: dict, archive: bool = True):
     """Seul point d'écriture du store des jeux : archive l'état courant, puis
     écrit. La sérialisation doit être IDENTIQUE à celle de `_write_json_atomic`,
     sans quoi la comparaison de dédoublonnage serait toujours fausse.
@@ -1271,9 +1274,10 @@ def _write_session_set(store: dict, archive: bool = True) -> None:
     existe pour rattraper une PERTE, et rien n'est perdu ici. Sans ce garde-fou,
     lancer dix sessions chasserait les dix versions conservées, c'est-à-dire
     l'historique tout entier au moment où il servirait le plus."""
-    if archive:
-        _archive_session_set(json.dumps(store, ensure_ascii=False, indent=1))
+    stamp = _archive_session_set(json.dumps(store, ensure_ascii=False, indent=1)) \
+        if archive else None
     _write_json_atomic(SESSION_SET_FILE, store)
+    return stamp                    # RM2451 : identifiant de l'état d'AVANT
 
 
 def _current_set(user: str, store: dict | None = None) -> str:
@@ -1699,6 +1703,54 @@ def op_session_set_move(payload: dict, auth_ctx: dict | None = None) -> dict:
             "to_count": len(dst_entries), "from_count": len(src_rec.get("entries") or [])}
 
 
+# Réhydrater un transcript, c'est le relire dans le contexte. On estime le volume
+# par la taille du fichier (~4 octets par token, ordre de grandeur assumé) et on
+# le valorise au tarif de lecture de cache du modèle — la moins chère des entrées,
+# donc un plancher honnête plutôt qu'un chiffre flatteur.
+BYTES_PER_TOKEN = 4
+
+
+def _cache_read_usd_per_mtok() -> float | None:
+    try:
+        pricing = yaml_safe_load(_pricing_file().read_text(encoding="utf-8")) or {}
+    except (OSError, ValueError):
+        return None
+    vals = [f.get("cache_read_per_mtok_usd") for f in (pricing.get("models") or {}).values()
+            if isinstance(f, dict) and f.get("cache_read_per_mtok_usd")]
+    return min(vals) if vals else None
+
+
+def op_session_set_estimate(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2451 — ce que coûterait un « Tout relancer » : nombre d'entrées
+    réellement relançables et volume de contexte à réhydrater. Douze sessions
+    relancées, ce sont douze réhydratations — le bouton doit l'annoncer AVANT,
+    pas le facturer après. Ordre de grandeur assumé (taille du transcript /
+    ~4 octets par token, tarif de lecture de cache le plus bas)."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(qs.get("group") or _current_set(user))
+    rec = _session_set_get(_session_set_load(), user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    live = {s["rm_id"] for s in _list_sessions()}
+    relaunchable, already, lost, total = 0, 0, 0, 0
+    for e in (rec.get("entries") or []):
+        if e.get("sid") in live:
+            already += 1
+            continue
+        info = _transcript_info(e.get("session_id"))
+        if not info.get("bytes"):
+            lost += 1                      # transcript perdu : la relance échouera
+            continue
+        relaunchable += 1
+        total += info["bytes"]
+    tokens = total // BYTES_PER_TOKEN
+    rate = _cache_read_usd_per_mtok()
+    return {"user": user, "group": group, "relaunchable": relaunchable,
+            "already_live": already, "lost": lost, "bytes": total,
+            "tokens_est": tokens,
+            "usd_est": round(tokens / 1_000_000 * rate, 2) if rate else None}
+
+
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2395 — relit le jeu (user, group) et marque chaque entrée `alive` selon
     l'état tmux courant. `exists=False` si aucun jeu enregistré."""
@@ -1712,6 +1764,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     # RM2427 : `restart` EFFECTIF (réglage explicite, sinon défaut [WIP]/idle) —
     # l'UI affiche et bascule cette valeur sans avoir à rejouer la règle.
     entries = [dict(e, alive=(e.get("sid") in live),
+                    last_active=_transcript_age(e.get("session_id")),   # RM2451
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
                for e in rec.get("entries", [])]
@@ -1874,9 +1927,11 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
     if len(kept) == len(entries):
         raise ApiError(404, f"sid absent du jeu {user}/{group} : {sid}")
     rec["entries"] = kept
-    _write_session_set(store)
+    undo = _write_session_set(store)
+    # RM2451 : de quoi proposer « annuler » plutôt qu'une confirmation préalable —
+    # l'état d'avant vient d'être archivé, il suffit de le désigner (RM2443).
     return {"user": user, "group": group, "sid": sid, "deleted": True,
-            "count": len(kept)}
+            "count": len(kept), "undo": undo}
 
 
 # ── Reprise « en idle » des jeux enregistrés (RM2427, ex-autostart RM2395) ────
@@ -1906,43 +1961,56 @@ def _transcript_jsonl(session_id: str | None):
                  for p in root.glob(f"*/{session_id}.jsonl")), None)
 
 
-def _transcript_title(session_id: str | None) -> str | None:
-    """RM2439 — titre du transcript, marqueur `[WIP]`/`[DONE]` ôté ; None si
-    absent ou illisible. Sert à NOMMER une entrée de jeu enregistré : un sid nu
-    ne dit pas de quelle session il s'agit, et le sujet Redmine du ticket (seul
-    libellé qu'affichait la tuile grise) n'existe pas pour une session ancrée
-    sur un slug."""
-    jf = _transcript_jsonl(session_id)
-    if not jf:
-        return None
-    try:
-        raw = _jsonl_tail_meta(jf)["title"] or ""
-    except OSError:
-        return None
-    return _MARK_RE.sub("", raw).strip() or None
-
-
-def _session_mark(session_id: str | None) -> str | None:
-    """RM2427 — marqueur `[WIP]` / `[DONE]` du transcript de cette session (posé
-    par /session-mark), en minuscules ; None si absent, introuvable ou illisible
-    (dans le doute : rien de marqué, donc rien de jeté ni de relancé d'office)."""
+def _transcript_info(session_id: str | None) -> dict:
+    """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes}.
+    `/sessions` est polled en continu et chaque entrée de jeu demandait déjà son
+    marqueur puis son titre — soit deux globs par session et par appel. Une
+    lecture unique, mise en cache 30 s, sert les trois usages (marqueur, nom,
+    âge). Un transcript absent ou illisible rend un dict vide : dans le doute,
+    rien de marqué, rien de daté."""
     if not session_id or not _SID_RE.match(session_id):
-        return None
+        return {}
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
     if session_id in _DONE_CACHE["map"]:
         return _DONE_CACHE["map"][session_id]
-    mark = None
+    info: dict = {}
     jf = _transcript_jsonl(session_id)
     if jf:
         try:
-            m = _MARK_RE.match(_jsonl_tail_meta(jf)["title"] or "")
-            mark = m.group(1).lower() if m else None
+            meta = _jsonl_tail_meta(jf)
+            raw = meta.get("title") or ""
+            m = _MARK_RE.match(raw)
+            info = {"mark": m.group(1).lower() if m else None,
+                    "title": _MARK_RE.sub("", raw).strip() or None,
+                    "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
         except OSError:
-            mark = None
-    _DONE_CACHE["map"][session_id] = mark
-    return mark
+            info = {}
+    _DONE_CACHE["map"][session_id] = info
+    return info
+
+
+def _transcript_title(session_id: str | None) -> str | None:
+    """RM2439 — titre du transcript, marqueur `[WIP]`/`[DONE]` ôté. Sert à NOMMER
+    une entrée de jeu : un sid nu ne dit pas de quelle session il s'agit, et le
+    sujet Redmine du ticket (seul libellé qu'affichait la tuile grise) n'existe
+    pas pour une session ancrée sur un slug."""
+    return _transcript_info(session_id).get("title")
+
+
+def _transcript_age(session_id: str | None):
+    """RM2451 — dernier mouvement du transcript (epoch), ou None. Une tuile grise
+    d'il y a une heure et une du mois dernier étaient indiscernables, alors que
+    reprendre l'une ou l'autre n'a pas le même sens : contexte périmé, et
+    réhydratation à payer."""
+    return _transcript_info(session_id).get("mtime")
+
+
+def _session_mark(session_id: str | None) -> str | None:
+    """RM2427 — marqueur `[WIP]` / `[DONE]` posé par /session-mark, en minuscules
+    (None si absent, introuvable ou illisible)."""
+    return _transcript_info(session_id).get("mark")
 
 
 def _is_marked_done(session_id: str | None) -> bool:
@@ -2030,6 +2098,9 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
                 # RM2439 : nom mémorisé de la session — la tuile grise d'une
                 # session ancrée sur un slug n'a aucun sujet Redmine à afficher
                 "title": e.get("title"),
+                # RM2451 : âge de la SESSION (dernier mouvement du transcript),
+                # à ne pas confondre avec `saved_at` qui date le JEU
+                "last_active": _transcript_age(e.get("session_id")),
                 "resumable": bool(e.get("session_id")), "saved_at": rec.get("saved_at"),
             }
             g["restart"] = e.get("restart") if e.get("restart") in RESTART_POLICIES \
@@ -4285,6 +4356,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
+            if path == "/session-set/estimate":  # RM2451 : coût d'un « tout relancer »
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_session_set_estimate(qs, self.auth_ctx))
             if path == "/session-set/history":   # RM2443 : versions archivées
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_session_set_history(qs, self.auth_ctx))

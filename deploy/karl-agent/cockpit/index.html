@@ -1173,7 +1173,6 @@ try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("karlCollapsed")
 let selMode = false;
 const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
-let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
 const setBody = (o) => JSON.stringify(Object.assign({ group: currentSet }, o || {}));
 const setLabel = (name) => (setsCache.find(s => s.name === name) || {}).label || name;
@@ -1226,7 +1225,8 @@ async function refreshSessionSets() {
       currentSet = r.current;
       try { localStorage.setItem("karlSet", currentSet); } catch (e) { /* pas de storage */ }
     }
-    autostartSets = setsCache.filter(s => s.autostart).length;
+    // RM2450 : `autostart` ne gouverne plus rien ; c'est la VUE « tous les jeux »
+    // qui mélange des fantômes d'origines diverses, donc qui justifie le badge.
     // le jeu courant a pu être effacé ailleurs → on retombe sur le premier connu
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
       switchSet(setsCache[0].name, true);
@@ -1245,7 +1245,7 @@ async function refreshSessionSets() {
             (currentView === "set" && s.name === currentSet ? " selected" : "") + '>' +
             // RM2447 : « ouvertes / enregistrées » — savoir ce qui tourne dans chaque
             // jeu sans avoir à basculer dedans
-            esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
+            esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + ")</option>").join("")
         : '<option value="set:default">default (0)</option>') + '</optgroup>';
     sel.style.display = "";     // toujours utile : il porte aussi les deux vues
     // RM2448 : un bouton qui ÉCRIT doit dire OÙ — en vue « sessions ouvertes » ou
@@ -1366,6 +1366,15 @@ async function createSetFromSelection() {
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
+// RM2450 : l'adhésion au jeu courant peut échouer parce que le jeu est PLEIN
+// (SESSION_SET_MAX). Le message n'existait que sur stderr du service : la session
+// démarrait, l'opérateur la croyait enregistrée, et ne le découvrait qu'au reboot.
+function warnSetFull(r) {
+  const s = r && r.set;
+  if (s && s.joined === false && s.reason === "plein")
+    toast("⚠ le jeu « " + setLabel(s.group) + " » est plein (" + s.max +
+          ") : la session tourne mais n'y a PAS été enregistrée", true);
+}
 function onSetPick(v) {
   if (!v) return;
   if (v.startsWith("view:")) switchView(v.slice(5));
@@ -1437,7 +1446,7 @@ function renderGhostItem(s, r, it) {
     (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
     "\n(clic : relancer cette session)";
   // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
-  const gtag = (autostartSets > 1 && s.group_label)
+  const gtag = (currentView === "all" && s.group_label)
     ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
       esc(s.group_label.slice(0, 10)) + '</span>' : "";
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
@@ -1559,10 +1568,12 @@ async function loadSessionSet() {
         ' <span style="cursor:pointer" title="Renommer ce jeu (le libellé seul ; la clé interne ne bouge pas)" ' +
         'onclick="renameSet()">✎</span></div>' +
       '<ul class="results">' + rows + '</ul>' +
-      '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer" ' +
-        'title="Les sessions du jeu apparaissent en tuiles grises dans « ▶ en cours » — aucune n\'est lancée tant qu\'on ne clique pas dessus (RM2427)">' +
-        '<input type="checkbox" style="width:auto"' +
-        (r.autostart ? " checked" : "") + ' onchange="toggleAutostart(this.checked)"> Reprendre ce jeu au démarrage (en idle)</label>' +
+      // RM2450 : la case « Reprendre ce jeu au démarrage (en idle) » est retirée —
+      // elle promettait des tuiles grises alors qu'elle commandait de VRAIS
+      // relancements, et faisait doublon avec la politique par entrée (⟳/⏸).
+      '<div style="color:var(--muted);font-size:11px;margin:8px 0 4px">' +
+        'Au lancement de karl-agent, seules les sessions réglées ⟳ de ce jeu ' +
+        'redémarrent — et seulement s\'il est le jeu courant.</div>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
@@ -1609,13 +1620,6 @@ async function restoreSet(id) {
     const el = document.getElementById("set-history"); if (el) el.innerHTML = "";
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
-}
-async function toggleAutostart(on) {
-  try {
-    await api("/session-set/autostart", { method: "POST", headers: { "Content-Type": "application/json" }, body: setBody({ autostart: !!on }) });
-    toast(on ? "⏻ relance au démarrage activée" : "relance au démarrage désactivée");
-    refreshSessionSets();
-  } catch (e) { toast(e.message, true); loadSessionSet(); }
 }
 function setSpawnPref(on) {
   sessionSetSpawn = !!on;
@@ -2122,6 +2126,7 @@ async function resumeSession(s) {
       body: JSON.stringify(body),
     });
     toast("Session reprise dans " + r.tmux);
+    warnSetFull(r);    // RM2450 : idem à la reprise
     // RM2396 : recharger AUSSI le panneau de reprise, sinon il reste périmé (la
     // session qu'on vient de reprendre garde son état « pas de tmux vivant ») et
     // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
@@ -3269,8 +3274,9 @@ async function spawn() {
   const btn = document.getElementById("spawnbtn");
   btn.disabled = true; btn.textContent = "Lancement…";
   try {
-    await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
+    warnSetFull(sp);   // RM2450 : un jeu plein ne doit plus échouer en silence
     document.getElementById("prompt").value = "";
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(rm), 400);

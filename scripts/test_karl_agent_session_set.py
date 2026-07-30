@@ -44,6 +44,11 @@ RM2449 — DÉPLACER vers un jeu EXISTANT (`move`) : union côté cible, retrait
 source (ou `copy`), une seule écriture, plafond vérifié avant toute modification,
 et archivage du seul déplacement.
 
+RM2450 — une seule notion de reprise : le drapeau `autostart` par jeu ne
+gouverne plus rien, `_autostart_replay` relance les entrées `auto` du JEU
+COURANT ; et l'échec d'adhésion pour cause de jeu plein remonte à l'appelant au
+lieu de finir sur stderr.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -330,14 +335,23 @@ for bad, code in (({"sid": "3001", "restart": "zzz"}, 400),
     except ka.ApiError as e:
         check(f"restart : payload invalide → {code}", e.code == code)
 
-# rejeu au démarrage : SEULES les entrées `auto` non vivantes sont relancées
+# rejeu au démarrage : SEULES les entrées `auto` non vivantes du JEU COURANT
+# (RM2450 : le drapeau `autostart` par jeu ne gouverne plus rien — la politique
+# par entrée suffit, et le périmètre est le jeu courant comme partout ailleurs)
 ALIVE.clear(); LIVE.clear()
 RESUME.clear(); SPAWNED.clear()
-ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})
+ka.op_session_set_current({"group": "relance"}, {"user": None})   # le jeu observé
 res = ka._autostart_replay()
 check("démarrage : relance la session réglée auto ET la [WIP] (défaut auto)",
       {(x["sid"], x["action"]) for x in res} == {("3001", "resumed"), ("3002", "resumed")})
-ka.op_session_set_current({"group": "relance"}, {"user": None})   # RM2445 : on observe CE jeu
+# RM2450 : une entrée `auto` d'un AUTRE jeu ne doit pas rouvrir le chantier d'à côté
+ka.op_session_set_current({"group": "default"}, {"user": None})
+ALIVE.clear(); RESUME.clear()
+check("RM2450 : les entrées `auto` d'un autre jeu ne sont pas relancées",
+      ka._autostart_replay() == [])
+ka.op_session_set_current({"group": "relance"}, {"user": None})
+ALIVE.clear(); RESUME.clear()
+ka._autostart_replay()   # remet 3001/3002 vivantes pour la suite du scénario
 check("démarrage : les sessions idle restent en tuile grise (aucun TUI)",
       {"3003", "3004"} <= {g["rm_id"] for g in ka._ghost_sessions({"user": None})})
 check("démarrage : jamais de spawn (resume seul)", SPAWNED == [])
@@ -947,6 +961,25 @@ check("RM2449 : après le refus, source ET cible sont intacts",
       {e["sid"] for e in ka.op_session_set_get({"group": "src-jeu"}, {"user": None})["entries"]} == src_avant
       and {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]} == dst_avant)
 ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_SAVE
+
+# ── RM2450 : le jeu PLEIN remonte à l'appelant (il finissait sur stderr) ──────
+LIVE.clear()
+ka.op_session_set_create({"group": "plein", "label": "Plein"}, {"user": None})
+ka.SESSION_SET_MAX_KEEP = ka.SESSION_SET_MAX
+ka.SESSION_SET_MAX = 2
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/u", "model": None}
+             for s in ("9201", "9202", "9203")})
+for s in ("9201", "9202"):
+    check(f"RM2450 : {s} rejoint le jeu courant", ka._auto_join_current_set(s, {"user": None})["joined"] is True)
+r = ka._auto_join_current_set("9203", {"user": None})
+check("RM2450 : jeu plein ⇒ refus EXPLICITE remonté (plus de stderr muet)",
+      r["joined"] is False and r["reason"] == "plein" and r["max"] == 2)
+check("RM2450 : et la session n'est pas entrée dans le jeu",
+      "9203" not in {e["sid"] for e in ka.op_session_set_get({"group": "plein"}, {"user": None})["entries"]})
+r = ka._auto_join_current_set("9201", {"user": None})
+check("RM2450 : une session déjà présente est signalée comme telle",
+      r["joined"] is False and r["reason"] == "deja")
+ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_KEEP
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

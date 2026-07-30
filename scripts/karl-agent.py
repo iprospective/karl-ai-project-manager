@@ -3212,7 +3212,15 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         names = _member.get(s["rm_id"], [])
         s["sets"] = names
         s["set_labels"] = [(_groups[n].get("label") or n) for n in names if n in _groups]
-        s["in_current"] = True if _view != "set" else (_cur in names)
+        # RM2452 : dans une vue par CLIENT, une vivante n'appartient à la vue que
+        # si elle est de ce client — sinon elle s'y rangeait sans badge, et en
+        # tête par ordre alphabétique (des sessions calicote ouvraient la vue
+        # pisceen). Les vues `live`/`all` embrassent tout, elles.
+        _mv = _VIEW_CLIENT_RE.match(_view)
+        if _mv:
+            s["in_current"] = s.get("client") == _mv.group(1)
+        else:
+            s["in_current"] = True if _view != "set" else (_cur in names)
     return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
 
 

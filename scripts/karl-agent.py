@@ -1287,18 +1287,47 @@ def _current_set(user: str, store: dict | None = None) -> str:
     return name if name in (u.get("groups") or {}) else DEFAULT_SET_GROUP
 
 
+# RM2446 — VUES. Un pseudo-jeu (« sessions ouvertes », « tous les jeux ») n'est pas
+# un jeu : on n'y enregistre rien, on ne le renomme pas, on ne l'efface pas. D'où
+# deux états distincts : le JEU COURANT (`current`, toujours un vrai jeu) reste la
+# cible de toutes les écritures — adhésion automatique, bouton « Enregistrer », ⊖ —,
+# tandis que la VUE (`view`) décide seulement de ce qu'on affiche. Une vue ne peut
+# donc jamais devenir une destination par accident.
+SESSION_SET_VIEWS = ("set", "live", "all")
+
+
+def _current_view(user: str, store: dict | None = None) -> str:
+    store = _session_set_load() if store is None else store
+    v = ((store.get("users") or {}).get(user) or {}).get("view")
+    return v if v in SESSION_SET_VIEWS else "set"
+
+
 def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
-    """RM2445 — change le jeu courant. C'est une bascule de CONTEXTE : aucun tmux
-    n'est tué ni lancé, une session peut appartenir à plusieurs jeux."""
+    """RM2445/RM2446 — change le jeu courant et/ou la vue. C'est une bascule de
+    CONTEXTE : aucun tmux n'est tué ni lancé, une session peut appartenir à
+    plusieurs jeux. `group` fixe le jeu courant (et rebascule en `view=set`) ;
+    `view` seul ne change que l'affichage, le jeu courant restant la cible des
+    écritures."""
     user = _session_set_user(auth_ctx)
-    group = _session_set_group(payload.get("group"))
     store = _session_set_load()
-    groups = (store.get("users") or {}).get(user, {}).get("groups") or {}
-    if group not in groups and group != DEFAULT_SET_GROUP:
-        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
-    store.setdefault("users", {}).setdefault(user, {})["current"] = group
+    u = store.setdefault("users", {}).setdefault(user, {})
+    groups = u.get("groups") or {}
+    if payload.get("group") is not None:
+        group = _session_set_group(payload.get("group"))
+        if group not in groups and group != DEFAULT_SET_GROUP:
+            raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+        u["current"] = group
+        u["view"] = "set"          # choisir un jeu, c'est vouloir le regarder
+    if payload.get("view") is not None:
+        view = str(payload.get("view") or "").strip().lower()
+        if view not in SESSION_SET_VIEWS:
+            raise ApiError(400, f"view doit valoir {' ou '.join(SESSION_SET_VIEWS)}")
+        u["view"] = view
+    if payload.get("group") is None and payload.get("view") is None:
+        raise ApiError(400, "group ou view requis")
     _write_session_set(store, archive=False)
-    return {"user": user, "current": group}
+    return {"user": user, "current": _current_set(user, store),
+            "view": _current_view(user, store)}
 
 
 def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> None:
@@ -1464,8 +1493,12 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
         "autostart": bool(rec.get("autostart", False)),
     } for name, rec in groups.items()]
     sets.sort(key=lambda s: (s["name"] != DEFAULT_SET_GROUP, s["name"]))
+    store = _session_set_load()
+    # RM2446 : de quoi libeller les pseudo-jeux sans un second aller-retour
+    known = {e.get("sid") for rec in groups.values() for e in (rec.get("entries") or [])}
     return {"user": user, "sets": sets, "count": len(sets),
-            "current": _current_set(user)}
+            "current": _current_set(user, store), "view": _current_view(user, store),
+            "live_count": len(live), "all_count": len(known | live)}
 
 
 def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -1841,8 +1874,15 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
     groups = ((store.get("users") or {}).get(user, {}).get("groups") or {})
     if _forget_done_entries(user, groups):
         _write_session_set(store)
+    # RM2446 : le périmètre suit la VUE — le jeu courant (`set`), aucun fantôme
+    # (`live` : on ne regarde que ce qui tourne), ou tous les jeux (`all`).
+    view = _current_view(user, store)
+    if view == "live":
+        return []
     group = _current_set(user, store)
-    for rec in ([groups[group]] if group in groups else []):
+    picked = groups.items() if view == "all" else \
+        ([(group, groups[group])] if group in groups else [])
+    for group, rec in picked:
         for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
             sid = e.get("sid")
             if not sid or sid in live or sid in seen or not _valid_sid(sid):
@@ -2635,6 +2675,9 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     _groups = ((_store.get("users") or {}).get(_session_set_user(auth_ctx), {})
                .get("groups") or {})
     _cur = _current_set(_session_set_user(auth_ctx), _store)
+    # RM2446 : en vue `live` ou `all`, tout ce qui est affiché fait partie de la
+    # vue — `in_current` ne doit pas y reléguer des sessions dans « hors du jeu ».
+    _view = _current_view(_session_set_user(auth_ctx), _store)
     _member: dict = {}
     for _g, _rec in _groups.items():
         for _e in (_rec.get("entries") or []):
@@ -2643,7 +2686,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         names = _member.get(s["rm_id"], [])
         s["sets"] = names
         s["set_labels"] = [(_groups[n].get("label") or n) for n in names if n in _groups]
-        s["in_current"] = _cur in names
+        s["in_current"] = True if _view in ("live", "all") else (_cur in names)
     return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
 
 

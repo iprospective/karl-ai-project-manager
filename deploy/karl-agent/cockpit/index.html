@@ -389,8 +389,12 @@ if (window.matchMedia) {
         <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
         tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
       </label>
-      <!-- RM2395 : enregistrer / relancer le jeu de sessions (superadmin/default) -->
-      <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap">
+      <!-- RM2395 : enregistrer / relancer le jeu de sessions ; RM2442 : jeux nommés -->
+      <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
+                title="Jeu de sessions courant — « ⏻ » = repris au démarrage (RM2442)"></select>
+        <button class="mini" onclick="createSet()"
+                title="Créer un jeu nommé à partir des sessions affichées (un chantier = un jeu)">＋ jeu</button>
         <button onclick="saveSessionSet(this)"
                 title="Enregistre dans le jeu « default » les sessions affichées ici — pour pouvoir les relancer après un redémarrage. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ✕ sur sa tuile">💾 Enregistrer les sessions</button>
         <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
@@ -1112,6 +1116,23 @@ async function approveAll(btn) {
 let sessionSetSpawn = false;
 try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e) { /* pas de storage */ }
 
+// RM2442 : jeux NOMMÉS. Le store porte le multi-groupes depuis RM2395, mais le
+// cockpit ne parlait qu'à `default` : tout passe désormais par le jeu COURANT,
+// persisté pour retrouver son chantier d'une session de navigateur à l'autre.
+let currentSet = "default";
+try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /* pas de storage */ }
+let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
+let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
+const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
+const setBody = (o) => JSON.stringify(Object.assign({ group: currentSet }, o || {}));
+const setLabel = (name) => (setsCache.find(s => s.name === name) || {}).label || name;
+// slug = clé du store (immuable, ^[a-z0-9][a-z0-9._-]{0,31}$) ; le libellé reste libre
+function slugifySet(label) {
+  const s = label.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9._-]+/g, "-").replace(/^[^a-z0-9]+/, "").replace(/-+$/, "").slice(0, 32);
+  return s;
+}
+
 // RM2439 : on envoie les sid RÉELLEMENT AFFICHÉS dans le panneau (orderedCache =
 // l'ordre de rendu, fantômes compris) — « j'enregistre ce que je vois ». Côté
 // serveur c'est un sélecteur ADDITIF : rien de ce qui est déjà enregistré n'est
@@ -1121,12 +1142,13 @@ async function saveSessionSet(btn) {
   try {
     const sids = (orderedCache || []).map(s => s.rm_id);
     const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ sids }) });
+                                          body: setBody({ sids }) });
     const n = (r.added || []).length;
     toast(r.count
-      ? "💾 " + r.count + " session(s) dans le jeu" + (n ? " (+" + n + " nouvelle" + (n > 1 ? "s" : "") + ")" : " (rien de neuf)")
+      ? "💾 " + r.count + " session(s) dans « " + setLabel(currentSet) + " »" +
+        (n ? " (+" + n + " nouvelle" + (n > 1 ? "s" : "") + ")" : " (rien de neuf)")
       : "Aucune session à enregistrer");
-    refreshSessionSet(); loadSessionSet();
+    refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
@@ -1135,19 +1157,75 @@ async function refreshSessionSet() {
   const btn = document.getElementById("btn-relaunch");
   if (!btn) return;
   try {
-    const r = await api("/session-set");
+    const r = await api("/session-set" + setQ());
     if (r.exists && r.count) {
       btn.textContent = "▶ Tout relancer (" + r.count + ")";
       btn.style.display = "";
     } else { btn.style.display = "none"; }
   } catch (e) { btn.style.display = "none"; }
 }
+// RM2442 : liste des jeux → alimente le sélecteur de la barre « en cours » et
+// compte les jeux repris (au-delà d'un seul, la tuile grise doit dire d'où elle vient).
+async function refreshSessionSets() {
+  const sel = document.getElementById("set-picker");
+  try {
+    const r = await api("/session-sets");
+    setsCache = r.sets || [];
+    autostartSets = setsCache.filter(s => s.autostart).length;
+    // le jeu courant a pu être effacé ailleurs → on retombe sur le premier connu
+    if (setsCache.length && !setsCache.some(s => s.name === currentSet))
+      switchSet(setsCache[0].name, true);
+    if (!sel) return;
+    sel.innerHTML = setsCache.length
+      ? setsCache.map(s => '<option value="' + esc(s.name) + '"' +
+          (s.name === currentSet ? " selected" : "") + '>' +
+          esc(s.label) + " (" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
+      : '<option value="default" selected>default (0)</option>';
+    sel.style.display = setsCache.length > 1 ? "" : "none";   // discret tant qu'il n'y a qu'un jeu
+  } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
+}
+function switchSet(name, silent) {
+  currentSet = name;
+  try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+  if (!silent) toast("jeu courant : " + setLabel(name));
+  refreshSessionSet(); loadSessionSet();
+}
+function onSetPick(v) { if (v) switchSet(v); }
+// crée un jeu nommé À PARTIR des sessions affichées — il n'existe pas de jeu vide :
+// un jeu naît d'un enregistrement, comme `default`
+async function createSet() {
+  const label = (window.prompt("Nom du nouveau jeu (ex. « Chantier Calicote ») :") || "").trim();
+  if (!label) return;
+  const name = slugifySet(label);
+  if (!name) { toast("nom inexploitable — il faut au moins une lettre ou un chiffre", true); return; }
+  if (setsCache.some(s => s.name === name)) { toast("le jeu « " + name + " » existe déjà", true); return; }
+  const sids = (orderedCache || []).map(s => s.rm_id);
+  try {
+    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" },
+                                          body: JSON.stringify({ group: name, label: label, sids: sids }) });
+    toast("💾 jeu « " + label + " » créé — " + r.count + " session(s)");
+    currentSet = name;
+    try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// renomme le LIBELLÉ du jeu courant ; le slug reste la clé du store
+async function renameSet() {
+  const label = (window.prompt("Nouveau libellé du jeu :", setLabel(currentSet)) || "").trim();
+  if (!label) return;
+  try {
+    await api("/session-set/rename", { method: "POST", headers: { "Content-Type": "application/json" },
+                                       body: setBody({ label }) });
+    toast("jeu renommé : " + label);
+    await refreshSessionSets(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
 async function relaunchSessionSet(btn) {
   btn.disabled = true;
   try {
     const r = await api("/session-set/relaunch", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ spawn: sessionSetSpawn }),
+      body: setBody({ spawn: sessionSetSpawn }),
     });
     const c = r.counts || {}, parts = [];
     if (c.resumed) parts.push(c.resumed + " reprise(s)");
@@ -1172,8 +1250,12 @@ function renderGhostItem(s, r, it) {
     (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
     (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
     "\n(clic : relancer cette session)";
+  // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
+  const gtag = (autostartSets > 1 && s.group_label)
+    ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
+      esc(s.group_label.slice(0, 10)) + '</span>' : "";
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
-    (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' +
+    (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
     '<span class="rmeta">' + esc(title) +
       (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
     '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
@@ -1196,7 +1278,7 @@ async function toggleRestart(s) {
   try {
     await api("/session-set/restart", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid: s.rm_id, group: s.group, restart: next }),
+      body: JSON.stringify({ sid: s.rm_id, group: s.group || currentSet, restart: next }),
     });
     const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
     toast(next === "auto" ? "⟳ " + label + " redémarrera toute seule"
@@ -1211,7 +1293,7 @@ async function forgetGhost(s) {
   if (!window.confirm("Retirer " + label + " du jeu de sessions enregistrées ?\n\n" +
       "La tuile grise disparaît ; les autres sessions du jeu sont conservées.")) return;
   try {
-    const q = "?sid=" + encodeURIComponent(s.rm_id) + (s.group ? "&group=" + encodeURIComponent(s.group) : "");
+    const q = "?sid=" + encodeURIComponent(s.rm_id) + "&group=" + encodeURIComponent(s.group || currentSet);
     const r = await api("/session-set" + q, { method: "DELETE" });
     toast("🗑 " + label + " retirée du jeu (" + r.count + " restante(s))");
     refreshSessions(); refreshSessionSet(); loadSessionSet();
@@ -1232,7 +1314,7 @@ async function relaunchGhost(s) {
   try {
     const r = await api("/session-set/relaunch", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid: s.rm_id, group: s.group, spawn: sessionSetSpawn }),
+      body: JSON.stringify({ sid: s.rm_id, group: s.group || currentSet, spawn: sessionSetSpawn }),
     });
     const a = (r.report || [])[0] || {};
     if (a.action === "resumed" || a.action === "spawned") {
@@ -1251,9 +1333,10 @@ async function loadSessionSet() {
   const el = document.getElementById("sessions-set-body");
   if (!el) return;
   try {
-    const r = await api("/session-set");
+    const r = await api("/session-set" + setQ());
     if (!r.exists || !r.count) {
-      el.innerHTML = '<div class="empty">Aucun jeu enregistré — bouton « 💾 Enregistrer les sessions » dans « ▶ en cours ».</div>';
+      el.innerHTML = '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
+        ' » vide — bouton « 💾 Enregistrer les sessions » dans « ▶ en cours ».</div>';
       return;
     }
     const rows = r.entries.map(e => {
@@ -1271,8 +1354,11 @@ async function loadSessionSet() {
         '<br><span style="color:var(--muted);font-size:11px">' + esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
-      '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' + r.count +
-        ' session(s) · enregistré il y a ' + ago(r.saved_at) + '</div>' +
+      '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +
+        '<b>' + esc(r.label || currentSet) + '</b> · ' + r.count +
+        ' session(s) · enregistré il y a ' + ago(r.saved_at) +
+        ' <span style="cursor:pointer" title="Renommer ce jeu (le libellé seul ; la clé interne ne bouge pas)" ' +
+        'onclick="renameSet()">✎</span></div>' +
       '<ul class="results">' + rows + '</ul>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:8px 0 4px;cursor:pointer" ' +
         'title="Les sessions du jeu apparaissent en tuiles grises dans « ▶ en cours » — aucune n\'est lancée tant qu\'on ne clique pas dessus (RM2427)">' +
@@ -1282,13 +1368,54 @@ async function loadSessionSet() {
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
         'title="Relance VRAIMENT toutes les sessions du jeu d\'un coup (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ Tout relancer</button>' +
-        '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>';
+        '<button class="mini" onclick="toggleSetHistory()">↩ versions</button>' +
+        '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>' +
+      '<div id="set-history"></div>';
   } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+// RM2443 : versions archivées du store. On historise le FICHIER à chaque
+// écriture, mais on RESTAURE un jeu : rembobiner le fichier entier rendrait aussi
+// les jeux qu'on n'a pas demandés.
+async function toggleSetHistory() {
+  const el = document.getElementById("set-history");
+  if (!el) return;
+  if (el.innerHTML) { el.innerHTML = ""; return; }        // second clic : on replie
+  el.innerHTML = '<div class="empty">chargement…</div>';
+  try {
+    const r = await api("/session-set/history");
+    const mine = (r.versions || []).filter(v => (v.sets || []).some(s => s.name === currentSet));
+    if (!mine.length) {
+      el.innerHTML = '<div class="empty">Aucune version archivée pour « ' +
+        esc(setLabel(currentSet)) + ' » (max ' + r.keep + ' conservées).</div>';
+      return;
+    }
+    el.innerHTML = '<div style="color:var(--muted);font-size:11.5px;margin:8px 0 4px">' +
+      'Rétablir « ' + esc(setLabel(currentSet)) + ' » dans un état précédent :</div>' +
+      '<ul class="results">' + mine.map(v => {
+        const s = (v.sets || []).find(x => x.name === currentSet) || {};
+        return '<li style="cursor:pointer" title="Rétablir cet état — l\'état actuel sera lui-même archivé" ' +
+          'onclick="restoreSet(\'' + esc(v.id) + '\')">↩ il y a ' + ago(v.at) +
+          ' <span style="color:var(--muted)">— ' + s.count + ' session(s)</span></li>';
+      }).join("") + '</ul>';
+  } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+async function restoreSet(id) {
+  if (!window.confirm("Rétablir « " + setLabel(currentSet) + " » dans cet état ?\n\n" +
+      "Les autres jeux ne sont pas touchés, et l'état actuel est archivé : " +
+      "l'opération est annulable.")) return;
+  try {
+    const r = await api("/session-set/restore", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({ id }) });
+    toast("↩ « " + setLabel(currentSet) + " » rétabli — " + r.count + " session(s)");
+    const el = document.getElementById("set-history"); if (el) el.innerHTML = "";
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 async function toggleAutostart(on) {
   try {
-    await api("/session-set/autostart", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ autostart: !!on }) });
+    await api("/session-set/autostart", { method: "POST", headers: { "Content-Type": "application/json" }, body: setBody({ autostart: !!on }) });
     toast(on ? "⏻ relance au démarrage activée" : "relance au démarrage désactivée");
+    refreshSessionSets();
   } catch (e) { toast(e.message, true); loadSessionSet(); }
 }
 function setSpawnPref(on) {
@@ -1297,18 +1424,19 @@ function setSpawnPref(on) {
 }
 // RM2427 : depuis la carte « Sessions enregistrées » — retirer / régler la reprise
 function forgetSetEntry(sid) {
-  forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid) });
+  forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid), group: currentSet });
 }
 function toggleSetEntryRestart(sid, restart) {
-  toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart });
+  toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart, group: currentSet });
 }
 async function deleteSessionSet(btn) {
-  if (!window.confirm("Effacer le jeu de sessions enregistré ?")) return;
+  if (!window.confirm("Effacer le jeu « " + setLabel(currentSet) + " » ?\n\n" +
+      "Les autres jeux enregistrés ne sont pas touchés.")) return;
   btn.disabled = true;
   try {
-    await api("/session-set", { method: "DELETE" });
-    toast("🗑 jeu effacé");
-    refreshSessionSet(); loadSessionSet();
+    await api("/session-set" + setQ(), { method: "DELETE" });
+    toast("🗑 jeu « " + setLabel(currentSet) + " » effacé");
+    await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
@@ -3027,6 +3155,7 @@ async function kill(rmId) {
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   refreshHealth(); refreshSessions();
+  refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);

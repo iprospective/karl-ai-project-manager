@@ -1004,17 +1004,28 @@ async function refreshSessions() {
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
         // RM2445 : vivante d'un autre jeu — on dit LEQUEL, sinon la tuile paraît égarée
-        const stag = (s.in_current === false && (s.set_labels || []).length)
-          ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
-            esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>' : "";
+        // RM2446 : dire à quel jeu elle appartient — ou qu'elle n'est dans AUCUN
+        const stag = s.in_current !== false ? ""
+          : (s.set_labels || []).length
+            ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
+              esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>'
+            : '<span class="tbadge" style="opacity:.5" title="cette session ne figure dans aucun jeu enregistré">hors jeu</span>';
         it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + auto +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
-          '<span class="tkill" title="Fermer la session">✕</span>';
+          // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
+          // la session du jeu SANS la fermer ; ✕ ferme le tmux (l'entrée reste
+          // dans le jeu, en tuile grise — invariant RM2439).
+          ((s.sets || []).includes(currentSet)
+            ? '<span class="tkill tdrop" title="Retirer du jeu « ' + esc(setLabel(currentSet)) +
+              ' » — la session continue de tourner">⊖</span>' : "") +
+          '<span class="tkill" title="Fermer la session (le tmux est tué ; l\'entrée reste dans le jeu, en tuile grise)">✕</span>';
         it.onclick = () => attach(s.rm_id);
-        it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
+        const drop = it.querySelector(".tdrop");
+        if (drop) drop.onclick = (e) => { e.stopPropagation(); dropFromSet(s); };
+        it.querySelector(".tkill:not(.tdrop)").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
         const ty = it.querySelector(".tyes");     // RM2302 : « Oui » direct depuis la liste
         if (ty) ty.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
         g.appendChild(it);
@@ -1130,7 +1141,10 @@ try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e
 // persisté pour retrouver son chantier d'une session de navigateur à l'autre.
 let currentSet = "default";
 try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /* pas de storage */ }
-const OTHER_SETS_GROUP = "⋯ tourne ailleurs";   // RM2445 : vivantes des autres jeux
+// RM2446 : le groupe recueille les vivantes hors du jeu courant — y compris
+// celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
+const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
+let currentView = "set";                        // RM2446 : set | live | all
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
 let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
@@ -1189,13 +1203,22 @@ async function refreshSessionSets() {
     // le jeu courant a pu être effacé ailleurs → on retombe sur le premier connu
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
       switchSet(setsCache[0].name, true);
+    currentView = r.view || "set";
     if (!sel) return;
-    sel.innerHTML = setsCache.length
-      ? setsCache.map(s => '<option value="' + esc(s.name) + '"' +
-          (s.name === currentSet ? " selected" : "") + '>' +
-          esc(s.label) + " (" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
-      : '<option value="default" selected>default (0)</option>';
-    sel.style.display = setsCache.length > 1 ? "" : "none";   // discret tant qu'il n'y a qu'un jeu
+    // RM2446 : les VUES d'abord (elles ne s'enregistrent pas), les jeux ensuite
+    const vopt = (v, txt) => '<option value="view:' + v + '"' +
+      (currentView === v ? " selected" : "") + '>' + txt + "</option>";
+    sel.innerHTML =
+      '<optgroup label="vues">' +
+        vopt("live", "▶ sessions ouvertes (" + (r.live_count || 0) + ")") +
+        vopt("all", "⧉ tous les jeux (" + (r.all_count || 0) + ")") +
+      '</optgroup>' +
+      '<optgroup label="jeux">' + (setsCache.length
+        ? setsCache.map(s => '<option value="set:' + esc(s.name) + '"' +
+            (currentView === "set" && s.name === currentSet ? " selected" : "") + '>' +
+            esc(s.label) + " (" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
+        : '<option value="set:default">default (0)</option>') + '</optgroup>';
+    sel.style.display = "";     // toujours utile : il porte aussi les deux vues
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
 // RM2445 : le jeu courant est un état SERVEUR (le cockpit ne faisait que le
@@ -1208,13 +1231,32 @@ async function switchSet(name, silent) {
   try {
     await api("/session-set/current", { method: "POST",
       headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group: name }) });
+    currentView = "set";
     if (!silent) toast("jeu courant : " + setLabel(name));
   } catch (e) {
     currentSet = prev; toast(e.message, true); return;
   }
-  refreshSessions(); refreshSessionSet(); loadSessionSet();
+  refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
 }
-function onSetPick(v) { if (v) switchSet(v); }
+// RM2446 : une VUE ne change que l'affichage — le jeu courant reste la cible des
+// écritures (adhésion automatique, ⊖, « Enregistrer »).
+async function switchView(view) {
+  const prev = currentView;
+  currentView = view;
+  try {
+    await api("/session-set/current", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ view }) });
+    toast(view === "live" ? "vue : sessions ouvertes"
+        : view === "all" ? "vue : tous les jeux"
+        : "vue : jeu « " + setLabel(currentSet) + " »");
+  } catch (e) { currentView = prev; toast(e.message, true); return; }
+  refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+}
+function onSetPick(v) {
+  if (!v) return;
+  if (v.startsWith("view:")) switchView(v.slice(5));
+  else switchSet(v.slice(4));
+}
 // crée un jeu nommé À PARTIR des sessions affichées — il n'existe pas de jeu vide :
 // un jeu naît d'un enregistrement, comme `default`
 async function createSet() {
@@ -1284,7 +1326,7 @@ function renderGhostItem(s, r, it) {
       (s.saved_at ? (title ? " · " : "") + "enregistrée " + ago(s.saved_at) : "") + '</span>' +
     '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
-    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">✕</span>';
+    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
   it.onclick = () => relaunchGhost(s);
   it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
   it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
@@ -1321,6 +1363,19 @@ async function forgetGhost(s) {
     const r = await api("/session-set" + q, { method: "DELETE" });
     toast("🗑 " + label + " retirée du jeu (" + r.count + " restante(s))");
     refreshSessions(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// RM2446 : retire une session VIVANTE du jeu courant sans la fermer. Le pendant
+// de `kill()` : l'une sort du jeu, l'autre tue le tmux — jamais les deux.
+async function dropFromSet(s) {
+  const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
+  if (!window.confirm("Retirer " + label + " du jeu « " + setLabel(currentSet) + "\u00a0» ?\n\n" +
+      "La session CONTINUE de tourner — elle n'est plus qu'absente de ce jeu.")) return;
+  try {
+    const r = await api("/session-set?sid=" + encodeURIComponent(s.rm_id) +
+                        "&group=" + encodeURIComponent(currentSet), { method: "DELETE" });
+    toast("⊖ " + label + " retirée du jeu (" + r.count + " restante(s)) — elle tourne toujours");
+    refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
@@ -1369,7 +1424,7 @@ async function loadSessionSet() {
       // RM2427 : par entrée — ⟳/⏸ règle la reprise, ✕ retire du jeu
       return '<li><b>' + label + '</b> <span style="color:var(--muted)">' + esc(e.engine || "?") + '</span> ' + st +
         '<span class="tkill" style="float:right" title="Retirer cette session du jeu" ' +
-          'onclick="event.stopPropagation();forgetSetEntry(\'' + esc(e.sid) + '\')">✕</span>' +
+          'onclick="event.stopPropagation();forgetSetEntry(\'' + esc(e.sid) + '\')">⊖</span>' +
         '<span style="float:right;margin-right:8px;cursor:pointer" title="' + esc(restartTip(e.restart)) + '" ' +
           'onclick="event.stopPropagation();toggleSetEntryRestart(\'' + esc(e.sid) + '\',\'' + esc(e.restart || "idle") + '\')">' +
           (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +

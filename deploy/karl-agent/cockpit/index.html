@@ -395,6 +395,8 @@ if (window.matchMedia) {
                 title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
         <button class="mini" onclick="createSet()"
                 title="Créer un jeu — vide par défaut, ou avec les sessions affichées (un chantier = un jeu)">＋ jeu</button>
+        <button class="mini" onclick="createDerivedSet()"
+                title="Créer un jeu DÉRIVÉ : son contenu est calculé par une règle (client, projet, marque, tickets) — rien à curer, il ne dérive jamais">＋ règle</button>
         <button class="mini" onclick="deleteSessionSet(this)" id="btn-set-del"
                 title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
         <button class="mini" onclick="toggleSelMode()" id="btn-sel"
@@ -1353,6 +1355,61 @@ async function moveSelection() {
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
+// RM2452 : un jeu DÉRIVÉ est défini par une règle, pas par une liste. Saisie
+// compacte « client=calicote projet=prestashop marque=wip tickets=2440,2441 ».
+async function createDerivedSet() {
+  const label = (window.prompt("Nom du jeu dérivé :") || "").trim();
+  if (!label) return;
+  const name = slugifySet(label);
+  if (!name) { toast("nom inexploitable", true); return; }
+  const raw = (window.prompt(
+    "Règle — critères séparés par des espaces :\n\n" +
+    "client=calicote   projet=prestashop\n" +
+    "marque=wip|done|none   tickets=2440,2441", "client=") || "").trim();
+  if (!raw) return;
+  const rule = {};
+  for (const part of raw.split(/\s+/)) {
+    const [k, v] = part.split("=");
+    if (!v) continue;
+    if (k === "client") rule.client = v;
+    else if (k === "projet" || k === "project") rule.project = v;
+    else if (k === "marque" || k === "mark") rule.mark = v;
+    else if (k === "tickets") rule.tickets = v.split(",").filter(Boolean);
+  }
+  if (!Object.keys(rule).length) { toast("règle vide ou incomprise", true); return; }
+  try {
+    const r = await api("/session-set/create", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ group: name, label: label, rule: rule }) });
+    toast("＋ jeu dérivé « " + label + " » — " + r.count + " session(s), tenu à jour par sa règle");
+    currentSet = name; currentView = "set";
+    try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// fige un jeu dérivé en jeu manuel : on part d'une règle pour constituer
+// l'ensemble sans effort, puis on l'amende à la main
+async function materializeSet() {
+  if (!window.confirm("Figer « " + setLabel(currentSet) + " » en jeu manuel ?\n\n" +
+      "Son contenu actuel est conservé, mais il cessera d'absorber les nouvelles " +
+      "sessions qui satisfont la règle.")) return;
+  try {
+    const r = await api("/session-set/materialize", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({}) });
+    toast("jeu figé — " + r.count + " session(s)");
+    await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
+// rétention d'AFFICHAGE : masquer les inactives ; jamais de suppression
+async function setRetention(days) {
+  try {
+    await api("/session-set/retention", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: setBody({ days: Number(days) || 0 }) });
+    toast(Number(days) ? "les sessions inactives depuis " + days + " j sont masquées (jamais supprimées)"
+                       : "plus rien n'est masqué");
+    refreshSessions(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
+}
 async function createSetFromSelection() {
   if (!selected.size) { toast("aucune session sélectionnée", true); return; }
   const label = (window.prompt("Nom du nouveau jeu (" + selected.size + " session(s) retenue(s)) :") || "").trim();
@@ -1488,9 +1545,20 @@ function renderGhostItem(s, r, it) {
     '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
     '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
-  it.onclick = () => relaunchGhost(s);
+  // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
+  // lieu de relancer la session. Sans cela, déplacer ou scinder une session
+  // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
+  if (selMode) {
+    if (selected.has(s.rm_id)) it.style.outline = "1px solid var(--accent)";
+    it.onclick = () => { selected.has(s.rm_id) ? selected.delete(s.rm_id) : selected.add(s.rm_id);
+                         refreshSessions(); };
+  } else {
+    it.onclick = () => relaunchGhost(s);
+  }
   it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
   it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
+                      : "") + it.title;
   return it;
 }
 // RM2427 : politique de reprise par session — `auto` (redémarre seule au
@@ -1609,6 +1677,11 @@ async function loadSessionSet() {
         esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
+      (r.derived ? '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
+          esc(Object.entries(r.rule || {}).map(([k, v]) => k + "=" + v).join(" ")) +
+          ' <span style="cursor:pointer;text-decoration:underline" onclick="materializeSet()">figer</span>' +
+          '<br><span style="color:var(--muted)">contenu calculé : rien à curer, ' +
+          'et toute session satisfaisant la règle y entre d\'elle-même</span></div>' : "") +
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +
         '<b>' + esc(r.label || currentSet) + '</b> · ' + r.count +
         ' session(s) · enregistré il y a ' + ago(r.saved_at) +
@@ -1621,6 +1694,12 @@ async function loadSessionSet() {
       '<div style="color:var(--muted);font-size:11px;margin:8px 0 4px">' +
         'Au lancement de karl-agent, seules les sessions réglées ⟳ de ce jeu ' +
         'redémarrent — et seulement s\'il est le jeu courant.</div>' +
+      // RM2452 : rétention d'affichage — option, désactivée par défaut
+      '<label style="display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:11.5px">' +
+        'Masquer les sessions inactives depuis <input type="number" min="0" max="3650" ' +
+        'style="width:60px" value="' + (r.hide_idle_days || 0) + '" ' +
+        'onchange="setRetention(this.value)"> jour(s) — 0 = ne rien masquer ' +
+        '<span style="color:var(--muted)">(masquées, jamais supprimées)</span></label>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +

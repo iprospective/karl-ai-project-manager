@@ -759,7 +759,7 @@ def _anchor_context(rm_id: str) -> str:
             f"Applique le protocole PM correspondant.]")
 
 
-def op_spawn(payload: dict) -> dict:
+def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     rm_id = _require_rm_id(payload)
     if _has_session(rm_id):
         raise ApiError(409, f"session déjà active : {_session_name(rm_id)}")
@@ -816,6 +816,7 @@ def op_spawn(payload: dict) -> dict:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
         _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
+        _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
@@ -1259,12 +1260,80 @@ def _archive_session_set(payload: str) -> None:
         sys.stderr.write(f"historique du jeu de sessions ignoré : {e}\n")
 
 
-def _write_session_set(store: dict) -> None:
+def _write_session_set(store: dict, archive: bool = True) -> None:
     """Seul point d'écriture du store des jeux : archive l'état courant, puis
     écrit. La sérialisation doit être IDENTIQUE à celle de `_write_json_atomic`,
-    sans quoi la comparaison de dédoublonnage serait toujours fausse."""
-    _archive_session_set(json.dumps(store, ensure_ascii=False, indent=1))
+    sans quoi la comparaison de dédoublonnage serait toujours fausse.
+
+    RM2445 — `archive=False` pour une écriture strictement ADDITIVE (adhésion
+    d'une session au jeu courant, changement de jeu courant) : l'historique
+    existe pour rattraper une PERTE, et rien n'est perdu ici. Sans ce garde-fou,
+    lancer dix sessions chasserait les dix versions conservées, c'est-à-dire
+    l'historique tout entier au moment où il servirait le plus."""
+    if archive:
+        _archive_session_set(json.dumps(store, ensure_ascii=False, indent=1))
     _write_json_atomic(SESSION_SET_FILE, store)
+
+
+def _current_set(user: str, store: dict | None = None) -> str:
+    """RM2445 — jeu COURANT de l'utilisateur, état SERVEUR. Il vivait dans le
+    localStorage du cockpit : le serveur l'ignorait, donc ni les fantômes ni
+    l'adhésion automatique ne pouvaient en tenir compte, et basculer de jeu
+    n'avait aucun effet. Un jeu courant effacé entre-temps retombe sur `default`
+    (jamais de contexte orphelin)."""
+    store = _session_set_load() if store is None else store
+    u = (store.get("users") or {}).get(user) or {}
+    name = u.get("current") or DEFAULT_SET_GROUP
+    return name if name in (u.get("groups") or {}) else DEFAULT_SET_GROUP
+
+
+def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2445 — change le jeu courant. C'est une bascule de CONTEXTE : aucun tmux
+    n'est tué ni lancé, une session peut appartenir à plusieurs jeux."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    store = _session_set_load()
+    groups = (store.get("users") or {}).get(user, {}).get("groups") or {}
+    if group not in groups and group != DEFAULT_SET_GROUP:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    store.setdefault("users", {}).setdefault(user, {})["current"] = group
+    _write_session_set(store, archive=False)
+    return {"user": user, "current": group}
+
+
+def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> None:
+    """RM2445 — une session qui démarre (spawn) ou qui est reprise (resume)
+    REJOINT le jeu courant, sans geste manuel. Union stricte : le statut fait
+    ENTRER, jamais SORTIR (invariant RM2439 — une session qui s'arrête devient
+    une tuile grise, elle ne quitte pas le jeu). Best-effort : l'échec de
+    l'adhésion ne doit jamais faire échouer le lancement d'une session."""
+    try:
+        user = _session_set_user(auth_ctx)
+        store = _session_set_load()
+        group = _current_set(user, store)
+        rec = _session_set_get(store, user, group)
+        if rec is None:
+            rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
+                   "autostart": True, "entries": []}
+        entries = rec.setdefault("entries", [])
+        if any(e.get("sid") == sid for e in entries):
+            return                     # déjà dans le jeu : rien à faire
+        if len(entries) >= SESSION_SET_MAX:
+            sys.stderr.write(f"jeu {user}/{group} plein ({SESSION_SET_MAX}) : "
+                             f"{sid} n'y a pas été ajoutée\n")
+            return
+        k = _key_info(sid) or {}
+        entries.append({
+            "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
+            "cwd": k.get("cwd"), "model": k.get("model"),
+            "title": _transcript_title(k.get("session_id")),
+            "restart": _default_restart(k.get("session_id")),
+        })
+        rec["saved_at"] = int(time.time())
+        _session_set_put(store, user, group, rec)
+        _write_session_set(store, archive=False)
+    except (OSError, ValueError) as e:
+        sys.stderr.write(f"adhésion au jeu courant ignorée pour {sid} : {e}\n")
 
 
 def _snapshot_live_sessions() -> list:
@@ -1395,7 +1464,8 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
         "autostart": bool(rec.get("autostart", False)),
     } for name, rec in groups.items()]
     sets.sort(key=lambda s: (s["name"] != DEFAULT_SET_GROUP, s["name"]))
-    return {"user": user, "sets": sets, "count": len(sets)}
+    return {"user": user, "sets": sets, "count": len(sets),
+            "current": _current_set(user)}
 
 
 def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -1511,7 +1581,7 @@ def _model_key_for_value(engine: str, value: str | None) -> str:
     return ""
 
 
-def _relaunch_entry(e: dict, allow_spawn: bool) -> dict:
+def _relaunch_entry(e: dict, allow_spawn: bool, auth_ctx: dict | None = None) -> dict:
     """RM2427 — relance RÉELLE d'UNE entrée de jeu ; renvoie sa ligne de rapport
     ({sid, action, error?}). Cœur partagé par la relance unitaire (clic sur une
     tuile grise) et la relance en lot. Idempotent : entrée déjà vivante =
@@ -1523,7 +1593,7 @@ def _relaunch_entry(e: dict, allow_spawn: bool) -> dict:
         return {"sid": sid, "action": "skipped"}
     engine = e.get("engine") or "claude"
     try:
-        op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine})
+        op_resume({"session_id": e.get("session_id"), "rm_id": sid, "engine": engine}, auth_ctx)
         return {"sid": sid, "action": "resumed"}
     except ApiError as ex:
         if ex.code == 409:   # course : devenue vivante entre le check et le resume
@@ -1531,7 +1601,7 @@ def _relaunch_entry(e: dict, allow_spawn: bool) -> dict:
         if ex.code in (404, 410) and allow_spawn and e.get("cwd"):
             try:
                 op_spawn({"rm_id": sid, "engine": engine, "cwd": e.get("cwd"),
-                          "model": _model_key_for_value(engine, e.get("model"))})
+                          "model": _model_key_for_value(engine, e.get("model"))}, auth_ctx)
                 return {"sid": sid, "action": "spawned"}
             except ApiError as ex2:
                 return {"sid": sid, "action": "failed", "error": ex2.msg}
@@ -1567,7 +1637,7 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
         # n'ouvre rien : elle ne doit pas ralentir le lot)
         if started and not _has_session(e.get("sid") or ""):
             time.sleep(SESSION_SET_RELAUNCH_DELAY)
-        r = _relaunch_entry(e, allow_spawn)
+        r = _relaunch_entry(e, allow_spawn, auth_ctx)
         if r["action"] != "skipped":
             started += 1
         report.append(r)
@@ -1748,12 +1818,18 @@ def _forget_done_entries(user: str, groups: dict) -> bool:
 
 
 def _ghost_sessions(auth_ctx: dict | None = None) -> list:
-    """Entrées ENREGISTRÉES et non vivantes des jeux `autostart` de l'utilisateur,
+    """Entrées ENREGISTRÉES et non vivantes du JEU COURANT de l'utilisateur,
     au format d'une entrée /sessions (`ghost: True`, `state: "ghost"`). Un sid déjà
     vivant n'en produit jamais (le fantôme disparaît dès que la session existe) ;
     `resumable` dit si un transcript est mémorisé (sinon la relance exigera le
     fallback spawn). client/projet sont résolus depuis le cwd enregistré pour que
     la tuile se range dans le bon groupe.
+
+    RM2445 — le périmètre est le **jeu courant**, plus l'union des jeux
+    `autostart` : sélectionner un jeu doit CHANGER ce qu'on voit, sinon la
+    bascule n'a aucun effet observable. `autostart` garde son rôle propre — le
+    rejeu des entrées `restart:auto` au démarrage de karl-agent
+    (`_autostart_replay`), qui n'a rien à voir avec l'affichage.
 
     Passe d'entretien au vol : les sessions TERMINÉES marquées `[DONE]` sortent
     du jeu (cf. `_forget_done_entries`) — pas de tuile grise pour un travail
@@ -1765,9 +1841,8 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
     groups = ((store.get("users") or {}).get(user, {}).get("groups") or {})
     if _forget_done_entries(user, groups):
         _write_session_set(store)
-    for group, rec in groups.items():
-        if not rec.get("autostart"):
-            continue
+    group = _current_set(user, store)
+    for rec in ([groups[group]] if group in groups else []):
         for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
             sid = e.get("sid")
             if not sid or sid in live or sid in seen or not _valid_sid(sid):
@@ -2029,7 +2104,7 @@ def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
     return smeta.get("cwd") or tail
 
 
-def op_resume(payload: dict) -> dict:
+def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     """Reprend une conversation TERMINÉE côté process (tmux mort) via le resume
     natif du moteur, dans une session tmux karl-RM<id> neuve. Cible : session_id
     direct, ou rm_id (+ n) → jonction la plus récente. Itération 1 : claude."""
@@ -2088,6 +2163,7 @@ def op_resume(payload: dict) -> dict:
     if _is_ticket_sid(rm_id):
         _record_run(rm_id, "claude", session_id, str(cwd))
     _record_key(rm_id, "claude", session_id, str(cwd))
+    _auto_join_current_set(rm_id, auth_ctx)       # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
     if prompt:
@@ -2551,6 +2627,23 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if conflicts:
             s["registry_conflicts"] = conflicts
 
+    # RM2445 : appartenance aux jeux. Une session VIVANTE n'est jamais masquée,
+    # même quand elle relève d'un autre jeu que le courant — un agent qui attend
+    # une réponse (⚠) doit rester visible ; l'UI la range à part et la badge de
+    # son jeu (`sets`/`set_labels`), au lieu de la faire disparaître.
+    _store = _session_set_load()
+    _groups = ((_store.get("users") or {}).get(_session_set_user(auth_ctx), {})
+               .get("groups") or {})
+    _cur = _current_set(_session_set_user(auth_ctx), _store)
+    _member: dict = {}
+    for _g, _rec in _groups.items():
+        for _e in (_rec.get("entries") or []):
+            _member.setdefault(_e.get("sid"), []).append(_g)
+    for s in sessions:
+        names = _member.get(s["rm_id"], [])
+        s["sets"] = names
+        s["set_labels"] = [(_groups[n].get("label") or n) for n in names if n in _groups]
+        s["in_current"] = _cur in names
     return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
 
 
@@ -4098,12 +4191,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/current":  # RM2445 : bascule de jeu courant
+                return self._send_json(200, op_session_set_current(payload, self.auth_ctx))
             if path == "/session-set/restore":  # RM2443 : rétablir un jeu archivé
                 return self._send_json(200, op_session_set_restore(payload, self.auth_ctx))
             if path == "/spawn":
-                return self._send_json(201, op_spawn(payload))
+                return self._send_json(201, op_spawn(payload, self.auth_ctx))
             if path == "/resume":
-                return self._send_json(201, op_resume(payload))
+                return self._send_json(201, op_resume(payload, self.auth_ctx))
             if path == "/move-session":
                 return self._send_json(200, op_move_session(payload))
             if path == "/tickets":

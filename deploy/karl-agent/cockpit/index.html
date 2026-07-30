@@ -910,7 +910,11 @@ function computeGroups(sessions, rcache, dynamic) {
   const groups = new Map();
   const counts = { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 };
   for (const s of sessions) {
-    let key = (s.client && s.project) ? s.client + "/" + s.project : null;
+    // RM2445 : une session VIVANTE d'un autre jeu n'est jamais masquée — elle est
+    // rangée à part (et badgée de son jeu) pour qu'un agent qui attend une réponse
+    // reste visible, sans polluer la vue du chantier courant.
+    let key = (!s.ghost && s.in_current === false) ? OTHER_SETS_GROUP : null;
+    if (!key) key = (s.client && s.project) ? s.client + "/" + s.project : null;
     if (!key) {
       const r = rcache[s.rm_id];
       key = (r && r.found) ? r.client + "/" + r.project : "divers";
@@ -931,11 +935,12 @@ function computeGroups(sessions, rcache, dynamic) {
   // activité récente — RM2140/RM2283) ne s'applique QUE si `dynamic` est vrai.
   const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
-  const keys = [...groups.keys()].sort((a, b) => dynamic
+  const last = k => k === OTHER_SETS_GROUP ? 1 : 0;
+  const keys = [...groups.keys()].sort((a, b) => (last(a) - last(b)) || (dynamic
     ? (att(groups.get(b)) - att(groups.get(a)) ||
        rec(groups.get(b)) - rec(groups.get(a)) ||
        a.localeCompare(b))
-    : a.localeCompare(b));
+    : a.localeCompare(b)));
   return { keys, groups, counts };
 }
 // <<< computeGroups
@@ -998,8 +1003,12 @@ async function refreshSessions() {
         const auto = s.auto_yes_until
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
+        // RM2445 : vivante d'un autre jeu — on dit LEQUEL, sinon la tuile paraît égarée
+        const stag = (s.in_current === false && (s.set_labels || []).length)
+          ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
+            esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>' : "";
         it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
-          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
+          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + auto +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
@@ -1121,6 +1130,7 @@ try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e
 // persisté pour retrouver son chantier d'une session de navigateur à l'autre.
 let currentSet = "default";
 try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /* pas de storage */ }
+const OTHER_SETS_GROUP = "⋯ tourne ailleurs";   // RM2445 : vivantes des autres jeux
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
 let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
@@ -1171,6 +1181,10 @@ async function refreshSessionSets() {
   try {
     const r = await api("/session-sets");
     setsCache = r.sets || [];
+    if (r.current) {                       // RM2445 : le serveur fait foi
+      currentSet = r.current;
+      try { localStorage.setItem("karlSet", currentSet); } catch (e) { /* pas de storage */ }
+    }
     autostartSets = setsCache.filter(s => s.autostart).length;
     // le jeu courant a pu être effacé ailleurs → on retombe sur le premier connu
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
@@ -1184,11 +1198,21 @@ async function refreshSessionSets() {
     sel.style.display = setsCache.length > 1 ? "" : "none";   // discret tant qu'il n'y a qu'un jeu
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
-function switchSet(name, silent) {
+// RM2445 : le jeu courant est un état SERVEUR (le cockpit ne faisait que le
+// mémoriser localement, d'où une bascule sans le moindre effet visible). Basculer
+// = changer de contexte : aucun tmux n'est tué ni lancé, et le panneau se re-rend.
+async function switchSet(name, silent) {
+  const prev = currentSet;
   currentSet = name;
   try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
-  if (!silent) toast("jeu courant : " + setLabel(name));
-  refreshSessionSet(); loadSessionSet();
+  try {
+    await api("/session-set/current", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify({ group: name }) });
+    if (!silent) toast("jeu courant : " + setLabel(name));
+  } catch (e) {
+    currentSet = prev; toast(e.message, true); return;
+  }
+  refreshSessions(); refreshSessionSet(); loadSessionSet();
 }
 function onSetPick(v) { if (v) switchSet(v); }
 // crée un jeu nommé À PARTIR des sessions affichées — il n'existe pas de jeu vide :

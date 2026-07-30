@@ -392,7 +392,7 @@ if (window.matchMedia) {
       <!-- RM2395 : enregistrer / relancer le jeu de sessions ; RM2442 : jeux nommés -->
       <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
-                title="Jeu de sessions courant — « ⏻ » = repris au démarrage (RM2442)"></select>
+                title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
         <button class="mini" onclick="createSet()"
                 title="Créer un jeu nommé à partir des sessions affichées (un chantier = un jeu)">＋ jeu</button>
         <button onclick="saveSessionSet(this)"
@@ -1216,7 +1216,9 @@ async function refreshSessionSets() {
       '<optgroup label="jeux">' + (setsCache.length
         ? setsCache.map(s => '<option value="set:' + esc(s.name) + '"' +
             (currentView === "set" && s.name === currentSet ? " selected" : "") + '>' +
-            esc(s.label) + " (" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
+            // RM2447 : « ouvertes / enregistrées » — savoir ce qui tourne dans chaque
+            // jeu sans avoir à basculer dedans
+            esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
         : '<option value="set:default">default (0)</option>') + '</optgroup>';
     sel.style.display = "";     // toujours utile : il porte aussi les deux vues
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
@@ -1257,22 +1259,28 @@ function onSetPick(v) {
   if (v.startsWith("view:")) switchView(v.slice(5));
   else switchSet(v.slice(4));
 }
-// crée un jeu nommé À PARTIR des sessions affichées — il n'existe pas de jeu vide :
-// un jeu naît d'un enregistrement, comme `default`
+// RM2447 : un jeu naît VIDE par défaut ; y verser les sessions affichées est une
+// OPTION explicite (Annuler ou Échap ⇒ jeu vide). Le jeu créé devient courant.
 async function createSet() {
   const label = (window.prompt("Nom du nouveau jeu (ex. « Chantier Calicote ») :") || "").trim();
   if (!label) return;
   const name = slugifySet(label);
   if (!name) { toast("nom inexploitable — il faut au moins une lettre ou un chiffre", true); return; }
   if (setsCache.some(s => s.name === name)) { toast("le jeu « " + name + " » existe déjà", true); return; }
-  const sids = (orderedCache || []).map(s => s.rm_id);
+  const shown = (orderedCache || []).map(s => s.rm_id);
+  const seed = shown.length && window.confirm(
+    "Y placer les " + shown.length + " session(s) affichée(s) ?\n\n" +
+    "OK = les inclure · Annuler = jeu vide");
   try {
-    const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ group: name, label: label, sids: sids }) });
-    toast("💾 jeu « " + label + " » créé — " + r.count + " session(s)");
-    currentSet = name;
+    const r = await api("/session-set/create", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(seed ? { group: name, label: label, sids: shown }
+                                : { group: name, label: label }) });
+    toast(r.count ? "＋ jeu « " + label + " » créé — " + r.count + " session(s)"
+                  : "＋ jeu « " + label + " » créé (vide) — il est courant, « 💾 Enregistrer » y versera l\'affichage");
+    currentSet = name; currentView = "set";
     try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
-    await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
 // renomme le LIBELLÉ du jeu courant ; le slug reste la clé du store

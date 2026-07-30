@@ -15,6 +15,10 @@ RM2439 — la sauvegarde ne DÉTRUIT plus : union au lieu du remplacement (une
 tuile grise survit au ré-enregistrement), `sids` comme sélecteur additif, refus
 atomique au plafond, et titre de session mémorisé dans l'entrée (un sid nu ne
 dit pas de quelle session il s'agit).
+
+RM2442 — jeux NOMMÉS : découverte (`op_session_sets_list`), libellé humain à
+côté du slug immuable, renommage, indépendance des jeux entre eux, et
+dédoublonnage des tuiles grises quand une session appartient à deux jeux repris.
 Lancer : python3 scripts/test_karl_agent_session_set.py
 """
 import importlib.util
@@ -436,6 +440,78 @@ check("record_key : modèle mémorisé au spawn", key.get("model") == "sonnet")
 ka._record_key("2395", "claude", "uuid-z", "/zfs/z")   # reprise, sans model
 key = json.loads((KLOG / "keys" / "RM2395.json").read_text())
 check("record_key : modèle préservé à la reprise", key.get("model") == "sonnet")
+
+# ── RM2442 : jeux NOMMÉS, multiples et indépendants ──────────────────────────
+# Le store portait déjà le multi-groupes (RM2395) sans qu'aucun endpoint ne
+# permette de les DÉCOUVRIR, ni de leur donner un intitulé lisible.
+LIVE.clear()
+LIVE.update({
+    "5001": {"engine": "claude", "session_id": "uuid-5001", "cwd": "/zfs/cal", "model": None},
+    "5002": {"engine": "claude", "session_id": "uuid-5002", "cwd": "/zfs/inf", "model": None},
+})
+ka.op_session_set_save({"group": "calicote", "label": "Chantier Calicote",
+                        "sids": ["5001"]}, {"user": None})
+ka.op_session_set_save({"group": "infra", "sids": ["5002"]}, {"user": None})
+
+lst = ka.op_session_sets_list({}, {"user": None})
+names = [s["name"] for s in lst["sets"]]
+check("RM2442 : les jeux sont listables (endpoint de découverte)",
+      set(names) == {"default", "calicote", "infra", "relance"})
+check("RM2442 : `default` en tête, le reste alphabétique",
+      names == ["default", "calicote", "infra", "relance"])
+by_name = {s["name"]: s for s in lst["sets"]}
+check("RM2442 : libellé humain rendu quand il existe",
+      by_name["calicote"]["label"] == "Chantier Calicote")
+check("RM2442 : à défaut de libellé, le slug fait office",
+      by_name["infra"]["label"] == "infra")
+check("RM2442 : compte et vivantes par jeu",
+      by_name["calicote"]["count"] == 1 and by_name["calicote"]["alive"] == 1)
+
+# le libellé survit à un ré-enregistrement (il n'est pas dans l'instantané)
+ka.op_session_set_save({"group": "calicote"}, {"user": None})
+check("RM2442 : libellé conservé au ré-enregistrement",
+      ka.op_session_set_get({"group": "calicote"}, {"user": None})["label"] == "Chantier Calicote")
+
+# renommage : le LIBELLÉ change, le slug (clé du store) est immuable
+ka.op_session_set_rename({"group": "infra", "label": "Infra iProspective"}, {"user": None})
+store = ka._session_set_load()
+check("RM2442 : renommage = libellé seul, slug intact",
+      "infra" in store["users"]["superadmin"]["groups"]
+      and ka.op_session_set_get({"group": "infra"}, {"user": None})["label"] == "Infra iProspective")
+for bad, why in ((""," vide"), ("x" * (ka.SET_LABEL_MAX + 1), " trop long")):
+    try:
+        ka.op_session_set_rename({"group": "infra", "label": bad}, {"user": None})
+        check(f"RM2442 : libellé{why} refusé", False)
+    except ka.ApiError as e:
+        check(f"RM2442 : libellé{why} refusé (400)", e.code == 400)
+try:
+    ka.op_session_set_rename({"group": "fantome", "label": "X"}, {"user": None})
+    check("RM2442 : renommage d'un jeu absent → 404", False)
+except ka.ApiError as e:
+    check("RM2442 : renommage d'un jeu absent → 404", e.code == 404)
+
+# indépendance : agir sur un jeu ne touche pas les autres
+ka.op_session_set_delete({"group": "calicote"}, {"user": None})
+check("RM2442 : supprimer un jeu laisse les autres intacts",
+      {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]}
+      == {"default", "infra", "relance"})
+check("RM2442 : le jeu voisin garde ses entrées",
+      ka.op_session_set_get({"group": "infra"}, {"user": None})["count"] == 1)
+
+# une MÊME session dans DEUX jeux repris ⇒ UNE seule tuile grise (dédoublonnage)
+ka.op_session_set_save({"group": "infra", "sids": ["5001", "5002"]}, {"user": None})
+ka.op_session_set_autostart({"group": "infra", "autostart": True}, {"user": None})
+ka.op_session_set_autostart({"group": "default", "autostart": True}, {"user": None})
+ka.op_session_set_save({"sids": ["5001"]}, {"user": None})       # 5001 aussi dans default
+LIVE.clear()                                                     # toutes éteintes
+ghosts = ka._ghost_sessions({"user": None})
+sids = [g["rm_id"] for g in ghosts]
+check("RM2442 : session présente dans deux jeux ⇒ une seule tuile grise",
+      sids.count("5001") == 1)
+check("RM2442 : la tuile grise dit de quel jeu elle vient",
+      all(g.get("group") and g.get("group_label") for g in ghosts))
+ka.op_session_set_autostart({"group": "infra", "autostart": False}, {"user": None})
+ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": None})
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

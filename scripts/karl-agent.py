@@ -1287,12 +1287,17 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)}) — retire des tuiles (✕) avant "
                             f"d'enregistrer")
+    # RM2442 : le libellé humain se pose à la création du jeu (« enregistrer ces
+    # sessions sous “Chantier Calicote” ») et survit aux ré-enregistrements.
+    label = str(payload.get("label") or prev.get("label") or "").strip()
     rec = {
         "saved_at": int(time.time()),
         "saved_by": (auth_ctx or {}).get("user"),   # user réel (None si auth ouverte)
         "autostart": bool(prev.get("autostart", True)),
         "entries": entries,
     }
+    if label:
+        rec["label"] = label[:SET_LABEL_MAX]
     _session_set_put(store, user, group, rec)
     _write_json_atomic(SESSION_SET_FILE, store)
     known = {e["sid"] for e in entries}
@@ -1303,6 +1308,50 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
             "entries": entries}
 
 
+SET_LABEL_MAX = 64
+
+
+def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2442 — liste les jeux de l'utilisateur. Sans cet endpoint, on ne pouvait
+    interroger qu'un groupe dont on connaissait DÉJÀ le nom : le multi-jeux vivait
+    dans le store (RM2395) sans être découvrable. `default` en tête, le reste par
+    ordre alphabétique — l'UI affiche la liste telle quelle."""
+    user = _session_set_user(auth_ctx)
+    groups = ((_session_set_load().get("users") or {}).get(user, {}).get("groups") or {})
+    live = {s["rm_id"] for s in _list_sessions()}
+    sets = [{
+        "name": name,
+        "label": rec.get("label") or name,
+        "count": len(rec.get("entries") or []),
+        "alive": sum(1 for e in (rec.get("entries") or []) if e.get("sid") in live),
+        "saved_at": rec.get("saved_at"),
+        "autostart": bool(rec.get("autostart", False)),
+    } for name, rec in groups.items()]
+    sets.sort(key=lambda s: (s["name"] != DEFAULT_SET_GROUP, s["name"]))
+    return {"user": user, "sets": sets, "count": len(sets)}
+
+
+def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2442 — pose le LIBELLÉ humain d'un jeu (« Chantier Calicote »). Le slug
+    reste immuable : c'est la clé du store, le renommer casserait les références
+    (réglages par entrée, jeux repris au démarrage, historique à venir). Slug =
+    clé stable, label = affichage."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    label = str(payload.get("label") or "").strip()
+    if not label:
+        raise ApiError(400, "label requis")
+    if len(label) > SET_LABEL_MAX:
+        raise ApiError(400, f"label trop long ({len(label)} > {SET_LABEL_MAX})")
+    store = _session_set_load()
+    rec = _session_set_get(store, user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    rec["label"] = label
+    _write_json_atomic(SESSION_SET_FILE, store)
+    return {"user": user, "group": group, "label": label}
+
+
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2395 — relit le jeu (user, group) et marque chaque entrée `alive` selon
     l'état tmux courant. `exists=False` si aucun jeu enregistré."""
@@ -1310,7 +1359,8 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     group = _session_set_group(qs.get("group"))
     rec = _session_set_get(_session_set_load(), user, group)
     if not rec:
-        return {"user": user, "group": group, "exists": False, "entries": [], "count": 0}
+        return {"user": user, "group": group, "label": group,
+                "exists": False, "entries": [], "count": 0}
     live = {s["rm_id"] for s in _list_sessions()}
     # RM2427 : `restart` EFFECTIF (réglage explicite, sinon défaut [WIP]/idle) —
     # l'UI affiche et bascule cette valeur sans avoir à rejouer la règle.
@@ -1318,7 +1368,8 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
                for e in rec.get("entries", [])]
-    return {"user": user, "group": group, "exists": True,
+    return {"user": user, "group": group, "label": rec.get("label") or group,
+            "exists": True,
             "saved_at": rec.get("saved_at"), "saved_by": rec.get("saved_by"),
             "autostart": bool(rec.get("autostart", False)),
             "count": len(entries), "entries": entries}
@@ -1605,7 +1656,11 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
             seen.add(sid)
             g = {
                 "rm_id": sid, "is_ticket": _is_ticket_sid(sid), "ghost": True,
-                "state": "ghost", "group": group, "attached": False, "created": None,
+                # RM2442 : le libellé suit le groupe — quand plusieurs jeux sont
+                # repris, la tuile doit dire de QUEL jeu elle vient
+                "state": "ghost", "group": group,
+                "group_label": rec.get("label") or group,
+                "attached": False, "created": None,
                 "engine": e.get("engine"), "session_id": e.get("session_id"),
                 "cwd": e.get("cwd"), "model": e.get("model"),
                 # RM2439 : nom mémorisé de la session — la tuile grise d'une
@@ -3836,6 +3891,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
+            if path == "/session-sets":       # RM2442 : liste des jeux nommés
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_session_sets_list(qs, self.auth_ctx))
             if path == "/session-set":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_session_set_get(qs, self.auth_ctx))
@@ -3916,6 +3974,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_autostart(payload, self.auth_ctx))
             if path == "/session-set/restart":
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
+            if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
+                return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
             if path == "/spawn":
                 return self._send_json(201, op_spawn(payload))
             if path == "/resume":

@@ -1574,6 +1574,45 @@ def op_session_set_restore(payload: dict, auth_ctx: dict | None = None) -> dict:
             "count": len(rec.get("entries") or [])}
 
 
+def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2447 — CRÉE un jeu et le rend courant. Verbe distinct de `save`, et à
+    dessein : dans `save`, un `sids` vide signifie « toutes les vivantes » (le
+    garde-fou anti-écrasement de RM2439, qu'un client ancien ne doit pas
+    contourner) ; ici l'absence de `sids` veut dire **VIDE**. Un même champ ne
+    pouvait pas porter les deux sens sans rendre les deux illisibles — d'où deux
+    verbes plutôt qu'un drapeau.
+
+    Créer n'est pas écraser : un jeu déjà présent ⇒ 409, l'existant intact."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    label = str(payload.get("label") or "").strip()
+    if len(label) > SET_LABEL_MAX:
+        raise ApiError(400, f"label trop long ({len(label)} > {SET_LABEL_MAX})")
+    store = _session_set_load()
+    if _session_set_get(store, user, group):
+        raise ApiError(409, f"le jeu « {group} » existe déjà")
+    sids = payload.get("sids")
+    if sids is not None and not isinstance(sids, list):
+        raise ApiError(400, "sids doit être une liste de sid")
+    wanted = {str(s) for s in (sids or [])}
+    entries = [e for e in _snapshot_live_sessions() if e["sid"] in wanted]
+    if len(entries) > SESSION_SET_MAX:
+        raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
+                            f"({len(entries)})")
+    rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
+           "autostart": True, "entries": entries}
+    if label:
+        rec["label"] = label
+    _session_set_put(store, user, group, rec)
+    # on vient de le créer pour y travailler : il devient courant, et l'on
+    # rebascule en vue « jeu » (une vue ne reçoit rien — RM2446)
+    u = store.setdefault("users", {}).setdefault(user, {})
+    u["current"], u["view"] = group, "set"
+    _write_session_set(store, archive=False)     # création : rien n'est perdu
+    return {"user": user, "group": group, "label": rec.get("label") or group,
+            "count": len(entries), "current": group, "entries": entries}
+
+
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2395 — relit le jeu (user, group) et marque chaque entrée `alive` selon
     l'état tmux courant. `exists=False` si aucun jeu enregistré."""
@@ -4234,6 +4273,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/create":   # RM2447 : nouveau jeu (vide par défaut)
+                return self._send_json(201, op_session_set_create(payload, self.auth_ctx))
             if path == "/session-set/current":  # RM2445 : bascule de jeu courant
                 return self._send_json(200, op_session_set_current(payload, self.auth_ctx))
             if path == "/session-set/restore":  # RM2443 : rétablir un jeu archivé

@@ -1146,6 +1146,140 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
     _write_json_atomic(sf, meta)
 
 
+# ── Jeux DÉRIVÉS (RM2452) ────────────────────────────────────────────────────
+# Les jeux manuels dupliquent une connaissance que le système possède déjà :
+# chaque session porte son cwd → client/projet (.mmi-pm), souvent un RM-id, son
+# titre et sa marque [WIP]/[DONE]. Cette duplication se paie en gestes — créer,
+# verser, scinder, retirer — et le jeu dérive dès qu'on oublie.
+#
+# Un jeu DÉRIVÉ est défini par une RÈGLE, pas par une liste : il ne dérive jamais,
+# rien à curer, et une session neuve qui satisfait la règle y entre sans geste.
+# La résolution se fait à la LECTURE : rien n'est stocké, donc rien à synchroniser.
+RULE_KEYS = ("client", "project", "mark", "tickets")
+
+
+def _rule_norm(rule) -> dict:
+    """Valide et normalise une règle. Une règle vide n'a pas de sens (elle
+    désignerait tout) : 400 plutôt qu'un jeu fourre-tout silencieux."""
+    if not isinstance(rule, dict):
+        raise ApiError(400, "rule doit être un objet")
+    out = {}
+    for k in RULE_KEYS:
+        v = rule.get(k)
+        if v in (None, "", []):
+            continue
+        if k == "tickets":
+            if not isinstance(v, list):
+                raise ApiError(400, "rule.tickets doit être une liste d'id")
+            out[k] = [str(x) for x in v]
+        elif k == "mark":
+            m = str(v).lower()
+            if m not in ("wip", "done", "none"):
+                raise ApiError(400, "rule.mark doit valoir wip, done ou none")
+            out[k] = m
+        else:
+            out[k] = str(v)
+    if not out:
+        raise ApiError(400, "règle vide : elle désignerait toutes les sessions")
+    unknown = set(rule) - set(RULE_KEYS)
+    if unknown:
+        raise ApiError(400, f"critère(s) inconnu(s) : {', '.join(sorted(unknown))}")
+    return out
+
+
+def _all_keys() -> list:
+    """Toutes les sessions que karl-agent a ancrées un jour (index `keys/`) :
+    la seule source qui donne à la fois un `sid` (nom tmux, donc relançable) et
+    le contexte de la session. `op_resumable` part des transcripts et n'a pas
+    toujours de sid — un jeu dérivé doit pouvoir produire des tuiles grises."""
+    out = []
+    d = STATE_DIR / "keys"
+    if not d.is_dir():
+        return out
+    for f in sorted(d.glob("*.json")):
+        k = _read_json_file(f) or {}
+        stem = f.stem
+        sid = stem[2:] if stem.startswith("RM") and stem[2:].isdigit() else stem
+        if _valid_sid(sid):
+            out.append((sid, k))
+    return out
+
+
+def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
+    client, project = _pm_project_of_cwd(k.get("cwd"))
+    if "client" in rule and client != rule["client"]:
+        return False
+    if "project" in rule and project != rule["project"]:
+        return False
+    if "tickets" in rule and sid not in rule["tickets"]:
+        return False
+    if "mark" in rule:
+        mark = _session_mark(k.get("session_id"))
+        if rule["mark"] == "none":
+            if mark:
+                return False
+        elif mark != rule["mark"]:
+            return False
+    return True
+
+
+def _derived_entries(rule: dict) -> list:
+    """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
+    l'aval (fantômes, relance, estimation) l'ignore et le traite pareil."""
+    out = []
+    for sid, k in _all_keys():
+        if not _rule_matches(rule, sid, k):
+            continue
+        out.append({
+            "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
+            "cwd": k.get("cwd"), "model": k.get("model"),
+            "title": _transcript_title(k.get("session_id")),
+            "restart": _default_restart(k.get("session_id")),
+        })
+    return out[:SESSION_SET_MAX]
+
+
+def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
+    """RM2452 — entrées correspondant à des sid, qu'ils soient VIVANTS ou non.
+    L'instantané tmux ne connaît que les sessions qui tournent : une sélection de
+    tuiles grises aurait produit un jeu vide. On résout donc dans l'ordre :
+    l'instantané (état frais), puis le jeu courant (titre et politique déjà
+    réglés), puis l'index des clés (toute session jamais ancrée)."""
+    out, seen = [], set()
+    for e in _snapshot_live_sessions():
+        if e["sid"] in wanted:
+            out.append(e); seen.add(e["sid"])
+    cur = _session_set_get(store, user, _current_set(user, store)) or {}
+    for e in _set_entries(cur):
+        if e.get("sid") in wanted and e["sid"] not in seen:
+            out.append(dict(e)); seen.add(e["sid"])
+    for sid in wanted - seen:
+        k = _key_info(sid)
+        if not k:
+            continue
+        out.append({"sid": sid, "engine": k.get("engine"),
+                    "session_id": k.get("session_id"), "cwd": k.get("cwd"),
+                    "model": k.get("model"),
+                    "title": _transcript_title(k.get("session_id")),
+                    "restart": _default_restart(k.get("session_id"))})
+    return out
+
+
+def _set_entries(rec: dict) -> list:
+    """Contenu d'un jeu, dérivé ou manuel. Point de passage unique : l'aval n'a
+    pas à savoir de quelle nature est le jeu qu'il lit."""
+    rule = rec.get("rule")
+    return _derived_entries(rule) if rule else (rec.get("entries") or [])
+
+
+def _reject_if_derived(rec: dict, what: str) -> None:
+    """On ne retire pas à la main d'un ensemble CALCULÉ : la règle décide. Le
+    geste existe quand même — « matérialiser » fige le jeu dérivé en jeu manuel."""
+    if rec.get("rule"):
+        raise ApiError(400, f"{what} : ce jeu est dérivé (défini par une règle). "
+                            f"Matérialise-le d'abord pour le modifier à la main.")
+
+
 def _key_info(sid: str) -> dict | None:
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
     return _read_json_file(STATE_DIR / "keys" / f"{key}.json")
@@ -1346,6 +1480,10 @@ def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | Non
         store = _session_set_load()
         group = _current_set(user, store)
         rec = _session_set_get(store, user, group)
+        if rec is not None and rec.get("rule"):
+            # RM2452 : dans un jeu dérivé, c'est la RÈGLE qui décide — la session
+            # y figurera si elle la satisfait, sans qu'on l'y « ajoute ».
+            return {"group": group, "joined": False, "reason": "derive"}
         if rec is None:
             rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
                    "autostart": True, "entries": []}
@@ -1437,6 +1575,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
 
     store = _session_set_load()
     prev = _session_set_get(store, user, group) or {}
+    _reject_if_derived(prev, "enregistrement impossible")     # RM2452
     prev_entries = list(prev.get("entries") or [])
 
     entries = []
@@ -1498,8 +1637,9 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     sets = [{
         "name": name,
         "label": rec.get("label") or name,
-        "count": len(rec.get("entries") or []),
-        "alive": sum(1 for e in (rec.get("entries") or []) if e.get("sid") in live),
+        "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
+        "count": len(_set_entries(rec)),
+        "alive": sum(1 for e in _set_entries(rec) if e.get("sid") in live),
         "saved_at": rec.get("saved_at"),
         "autostart": bool(rec.get("autostart", False)),
     } for name, rec in groups.items()]
@@ -1608,11 +1748,16 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     store = _session_set_load()
     if _session_set_get(store, user, group):
         raise ApiError(409, f"le jeu « {group} » existe déjà")
+    rule = payload.get("rule")
+    if rule is not None:                       # RM2452 : jeu DÉRIVÉ
+        rule = _rule_norm(rule)
     sids = payload.get("sids")
     if sids is not None and not isinstance(sids, list):
         raise ApiError(400, "sids doit être une liste de sid")
+    if rule and sids:
+        raise ApiError(400, "un jeu dérivé n'a pas de liste : sa règle la produit")
     wanted = {str(s) for s in (sids or [])}
-    entries = [e for e in _snapshot_live_sessions() if e["sid"] in wanted]
+    entries = _entries_for_sids(wanted, user, store) if wanted else []
     if len(entries) > SESSION_SET_MAX:
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)})")
@@ -1626,6 +1771,7 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
         src_rec = _session_set_get(store, user, src)
         if not src_rec:
             raise ApiError(404, f"aucun jeu enregistré ({user}/{src})")
+        _reject_if_derived(src_rec, "scission impossible depuis un jeu dérivé")
         kept = [e for e in (src_rec.get("entries") or []) if e.get("sid") not in wanted]
         moved = [e.get("sid") for e in (src_rec.get("entries") or []) if e.get("sid") in wanted]
         # les entrées du SOURCE font foi : elles portent titre et politique de
@@ -1636,6 +1782,9 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
         src_rec["entries"] = kept
     rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
            "autostart": True, "entries": entries}
+    if rule:
+        rec["rule"] = rule
+        rec.pop("entries")                     # le contenu se calcule, il ne se stocke pas
     if label:
         rec["label"] = label
     _session_set_put(store, user, group, rec)
@@ -1645,9 +1794,54 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     u["current"], u["view"] = group, "set"
     # une création n'ôte rien (archive=False) ; un split, si (RM2443)
     _write_session_set(store, archive=bool(moved))
+    resolved = _set_entries(rec)
     return {"user": user, "group": group, "label": rec.get("label") or group,
-            "count": len(entries), "current": group, "entries": entries,
+            "derived": bool(rule), "rule": rule,
+            "count": len(resolved), "current": group, "entries": resolved,
             "moved_from": src if moved else None, "moved": moved}
+
+
+def op_session_set_materialize(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2452 — FIGE un jeu dérivé en jeu manuel, avec son contenu du moment. Le
+    meilleur des deux : on part d'une règle pour constituer l'ensemble sans
+    effort, puis on le fige pour l'amender à la main."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    store = _session_set_load()
+    rec = _session_set_get(store, user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    if not rec.get("rule"):
+        raise ApiError(400, f"le jeu « {group} » est déjà manuel")
+    rec["entries"] = _set_entries(rec)
+    rec.pop("rule")
+    rec["saved_at"] = int(time.time())
+    _session_set_put(store, user, group, rec)
+    _write_session_set(store, archive=False)   # rien n'est perdu : on fige
+    return {"user": user, "group": group, "derived": False,
+            "count": len(rec["entries"]), "entries": rec["entries"]}
+
+
+def op_session_set_retention(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2452 — rétention d'affichage d'un jeu : masquer les entrées inactives
+    depuis N jours. `0` (défaut) = rien n'est masqué. MASQUER, jamais supprimer :
+    l'entrée reste dans le jeu et revient d'un clic. Aucun nettoyage automatique
+    — décision explicite : un jeu ne doit pas perdre de session tout seul."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    try:
+        days = int(payload.get("days"))
+    except (TypeError, ValueError):
+        raise ApiError(400, "days (entier de jours, 0 = désactivé) requis")
+    if days < 0 or days > 3650:
+        raise ApiError(400, "days doit être compris entre 0 et 3650")
+    store = _session_set_load()
+    rec = _session_set_get(store, user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    rec["hide_idle_days"] = days
+    _write_session_set(store, archive=False)   # réglage d'affichage : rien perdu
+    return {"user": user, "group": group, "hide_idle_days": days}
 
 
 def op_session_set_move(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -1679,6 +1873,8 @@ def op_session_set_move(payload: dict, auth_ctx: dict | None = None) -> dict:
     src_rec = _session_set_get(store, user, src)
     if not src_rec:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{src})")
+    _reject_if_derived(dst_rec, "déplacement impossible vers un jeu dérivé")
+    _reject_if_derived(src_rec, "déplacement impossible depuis un jeu dérivé")
     src_entries = src_rec.get("entries") or []
     taken = [e for e in src_entries if e.get("sid") in wanted]
     if not taken:
@@ -1733,7 +1929,7 @@ def op_session_set_estimate(qs: dict, auth_ctx: dict | None = None) -> dict:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
     live = {s["rm_id"] for s in _list_sessions()}
     relaunchable, already, lost, total = 0, 0, 0, 0
-    for e in (rec.get("entries") or []):
+    for e in _set_entries(rec):
         if e.get("sid") in live:
             already += 1
             continue
@@ -1767,8 +1963,10 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
                     last_active=_transcript_age(e.get("session_id")),   # RM2451
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
-               for e in rec.get("entries", [])]
+               for e in _set_entries(rec)]
     return {"user": user, "group": group, "label": rec.get("label") or group,
+            "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
+            "hide_idle_days": rec.get("hide_idle_days") or 0,
             "exists": True,
             "saved_at": rec.get("saved_at"), "saved_by": rec.get("saved_by"),
             "autostart": bool(rec.get("autostart", False)),
@@ -1836,7 +2034,7 @@ def op_session_set_relaunch(payload: dict, auth_ctx: dict | None = None) -> dict
     rec = _session_set_get(_session_set_load(), user, group)
     if not rec:
         raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
-    entries = rec.get("entries", [])[:SESSION_SET_MAX]
+    entries = _set_entries(rec)[:SESSION_SET_MAX]
     sid = str(payload.get("sid") or "").strip()
     if sid:
         entries = [e for e in entries if e.get("sid") == sid]
@@ -1922,6 +2120,7 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
         _write_session_set(store)
         return {"user": user, "group": group, "deleted": True}
     rec = groups[group]
+    _reject_if_derived(rec, "retrait impossible")             # RM2452
     entries = rec.get("entries") or []
     kept = [e for e in entries if e.get("sid") != sid]
     if len(kept) == len(entries):
@@ -2036,6 +2235,8 @@ def _forget_done_entries(user: str, groups: dict) -> bool:
     live = {s["rm_id"] for s in _list_sessions()}
     changed = False
     for group, rec in groups.items():
+        if rec.get("rule"):
+            continue                      # RM2452 : rien à curer dans un dérivé
         entries = rec.get("entries") or []
         kept = [e for e in entries
                 if e.get("sid") in live or not _is_marked_done(e.get("session_id"))]
@@ -2048,7 +2249,7 @@ def _forget_done_entries(user: str, groups: dict) -> bool:
     return changed
 
 
-def _ghost_sessions(auth_ctx: dict | None = None) -> list:
+def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> list:
     """Entrées ENREGISTRÉES et non vivantes du JEU COURANT de l'utilisateur,
     au format d'une entrée /sessions (`ghost: True`, `state: "ghost"`). Un sid déjà
     vivant n'en produit jamais (le fantôme disparaît dès que la session existe) ;
@@ -2081,10 +2282,19 @@ def _ghost_sessions(auth_ctx: dict | None = None) -> list:
     picked = groups.items() if view == "all" else \
         ([(group, groups[group])] if group in groups else [])
     for group, rec in picked:
-        for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
+        # RM2452 : rétention OPTIONNELLE — masquer (jamais supprimer) les entrées
+        # inactives depuis N jours. Désactivée par défaut : aucun nettoyage
+        # automatique, aucune perte ; l'entrée reste dans le jeu et revient d'un
+        # clic (`show_old=1`).
+        hide_days = 0 if show_old else int(rec.get("hide_idle_days") or 0)
+        for e in _set_entries(rec)[:SESSION_SET_MAX]:
             sid = e.get("sid")
             if not sid or sid in live or sid in seen or not _valid_sid(sid):
                 continue
+            if hide_days:
+                seen_at = _transcript_age(e.get("session_id"))
+                if seen_at and (time.time() - seen_at) > hide_days * 86400:
+                    continue
             seen.add(sid)
             g = {
                 "rm_id": sid, "is_ticket": _is_ticket_sid(sid), "ghost": True,
@@ -2137,7 +2347,7 @@ def _autostart_replay() -> list:
         group = _current_set(user, store)
         rec = (u.get("groups") or {}).get(group)
         if rec:
-            for e in (rec.get("entries") or [])[:SESSION_SET_MAX]:
+            for e in _set_entries(rec)[:SESSION_SET_MAX]:
                 policy = e.get("restart") if e.get("restart") in RESTART_POLICIES \
                     else _default_restart(e.get("session_id"))
                 if policy != "auto" or _has_session(e.get("sid") or ""):
@@ -2925,7 +3135,12 @@ def _keep_sessions(sessions: list, qs: dict) -> list:
 # Lecture des MD de tâches synchronisés en local. Stdlib-only (pas d'import des
 # modules du repo, pour rester runnable sur un dev bare). Aucun credential : tout
 # vient du filesystem. Arbo : projects/clients/<C>/projects/<P>/tasks/RM<id>_*.md
-PROJECTS_BASE = REPO_ROOT / "projects" / "clients"
+# RM2452 : surchargeable. Une instance lancée sur un WORKTREE de code n'a pas
+# d'arbre `projects/` (les données PM vivent dans l'autre dépôt) : sans override,
+# client/projet ne se résolvent pas — le panneau retombe sur « divers » et une
+# règle de jeu dérivé ne désigne plus rien.
+PROJECTS_BASE = Path(os.environ.get("KARL_AGENT_PROJECTS_BASE")
+                     or (REPO_ROOT / "projects" / "clients"))
 _TASK_GLOB = "*/projects/*/tasks/RM{}_*.md"
 LAYOUTS = {"even-horizontal", "even-vertical", "main-vertical", "main-horizontal", "tiled"}
 
@@ -4447,6 +4662,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/materialize":  # RM2452 : dérivé → manuel
+                return self._send_json(200, op_session_set_materialize(payload, self.auth_ctx))
+            if path == "/session-set/retention":    # RM2452 : masquer les inactives
+                return self._send_json(200, op_session_set_retention(payload, self.auth_ctx))
             if path == "/session-set/move":     # RM2449 : vers un jeu EXISTANT
                 return self._send_json(200, op_session_set_move(payload, self.auth_ctx))
             if path == "/session-set/create":   # RM2447 : nouveau jeu (vide par défaut)

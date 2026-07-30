@@ -394,9 +394,13 @@ if (window.matchMedia) {
         <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
                 title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
         <button class="mini" onclick="createSet()"
-                title="Créer un jeu nommé à partir des sessions affichées (un chantier = un jeu)">＋ jeu</button>
-        <button onclick="saveSessionSet(this)"
-                title="Enregistre dans le jeu « default » les sessions affichées ici — pour pouvoir les relancer après un redémarrage. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ✕ sur sa tuile">💾 Enregistrer les sessions</button>
+                title="Créer un jeu — vide par défaut, ou avec les sessions affichées (un chantier = un jeu)">＋ jeu</button>
+        <button class="mini" onclick="deleteSessionSet(this)" id="btn-set-del"
+                title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
+        <button class="mini" onclick="toggleSelMode()" id="btn-sel"
+                title="Choisir des sessions une à une — pour en faire un nouveau jeu, ou scinder le jeu courant">☑ sélection</button>
+        <button id="btn-set-save" onclick="saveSessionSet(this)"
+                title="Ajoute les sessions AFFICHÉES au jeu courant. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ⊖ sur sa tuile">💾 Enregistrer</button>
         <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
                 title="Relance d'un coup TOUTES les sessions enregistrées (un TUI par session). Au quotidien : clique la tuile grise de celle que tu veux réveiller (RM2427)">▶ Tout relancer</button>
       </div>
@@ -984,12 +988,19 @@ async function refreshSessions() {
       head.className = "rghead";
       const gAtt = sess.filter(s => s.state === "attention").length;
       const gCho = sess.filter(s => s.state === "choice").length;
-      head.innerHTML = '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
+      // RM2448 : le chevron replie le groupe ; l'en-tête garde son clic « fiche
+      // projet » (RM2353), d'où un `stopPropagation` sur le chevron seul.
+      const folded = collapsedGroups.has(key);
+      head.innerHTML = '<span class="gfold" style="cursor:pointer;opacity:.6;margin-right:4px" ' +
+          'title="' + (folded ? "Déplier" : "Replier") + ' ce groupe">' + (folded ? "▸" : "▾") + '</span>' +
+        '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
         (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
         (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
       head.title = key + "\n(clic : fiche projet dans le panneau principal)";
       head.onclick = () => openProjectView(key);   // RM2353
+      head.querySelector(".gfold").onclick = (e) => { e.stopPropagation(); toggleGroup(key); };
       g.appendChild(head);
+      if (folded) { list.appendChild(g); continue; }
       for (const s of sess) {
         const r = resolveCache[s.rm_id];
         const it = document.createElement("div");
@@ -1022,7 +1033,14 @@ async function refreshSessions() {
             ? '<span class="tkill tdrop" title="Retirer du jeu « ' + esc(setLabel(currentSet)) +
               ' » — la session continue de tourner">⊖</span>' : "") +
           '<span class="tkill" title="Fermer la session (le tmux est tué ; l\'entrée reste dans le jeu, en tuile grise)">✕</span>';
-        it.onclick = () => attach(s.rm_id);
+        // RM2448 : en mode sélection, le clic choisit la session au lieu de l'attacher
+        if (selMode) {
+          if (selected.has(s.rm_id)) it.style.outline = "1px solid var(--accent)";
+          it.onclick = () => { selected.has(s.rm_id) ? selected.delete(s.rm_id) : selected.add(s.rm_id);
+                               refreshSessions(); };
+        } else {
+          it.onclick = () => attach(s.rm_id);
+        }
         const drop = it.querySelector(".tdrop");
         if (drop) drop.onclick = (e) => { e.stopPropagation(); dropFromSet(s); };
         it.querySelector(".tkill:not(.tdrop)").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
@@ -1145,6 +1163,11 @@ try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /
 // celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
 const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
 let currentView = "set";                        // RM2446 : set | live | all
+// RM2448 : groupes repliés (persistés) et mode sélection
+let collapsedGroups = new Set();
+try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("karlCollapsed") || "[]")); } catch (e) { /* pas de storage */ }
+let selMode = false;
+const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
 let autostartSets = 0;     // nb de jeux repris : > 1 ⇒ la tuile grise badge son jeu
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
@@ -1221,6 +1244,16 @@ async function refreshSessionSets() {
             esc(s.label) + " (" + (s.alive || 0) + "/" + s.count + (s.autostart ? " ⏻" : "") + ")</option>").join("")
         : '<option value="set:default">default (0)</option>') + '</optgroup>';
     sel.style.display = "";     // toujours utile : il porte aussi les deux vues
+    // RM2448 : un bouton qui ÉCRIT doit dire OÙ — en vue « sessions ouvertes » ou
+    // « tous les jeux », le jeu courant disparaissait de l'écran alors qu'il
+    // restait la cible de l'adhésion automatique, du ⊖ et de l'enregistrement.
+    const save = document.getElementById("btn-set-save");
+    if (save) save.textContent = selMode
+      ? "＋ jeu depuis la sélection (" + selected.size + ")"
+      : "💾 ajouter l'affichage à « " + setLabel(currentSet) + " »";
+    if (save) save.onclick = selMode ? () => createSetFromSelection() : (e) => saveSessionSet(save);
+    const del = document.getElementById("btn-set-del");
+    if (del) del.title = "Supprimer le jeu « " + setLabel(currentSet) + " » (les sessions continuent de tourner)";
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
 // RM2445 : le jeu courant est un état SERVEUR (le cockpit ne faisait que le
@@ -1253,6 +1286,49 @@ async function switchView(view) {
         : "vue : jeu « " + setLabel(currentSet) + " »");
   } catch (e) { currentView = prev; toast(e.message, true); return; }
   refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+}
+// RM2448 : repli d'un groupe, mémorisé d'une session de navigateur à l'autre
+function toggleGroup(key) {
+  collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key);
+  try { localStorage.setItem("karlCollapsed", JSON.stringify([...collapsedGroups])); } catch (e) { /* pas de storage */ }
+  refreshSessions();
+}
+// RM2448 : mode sélection — choisir précisément des sessions, pour en faire un
+// jeu ou pour SCINDER le jeu courant.
+function toggleSelMode() {
+  selMode = !selMode;
+  if (!selMode) selected.clear();
+  const b = document.getElementById("btn-sel");
+  if (b) { b.textContent = selMode ? "✓ terminer" : "☑ sélection"; b.classList.toggle("active", selMode); }
+  refreshSessionSets();      // le bouton d'écriture change de rôle et de libellé
+  refreshSessions();
+}
+async function createSetFromSelection() {
+  if (!selected.size) { toast("aucune session sélectionnée", true); return; }
+  const label = (window.prompt("Nom du nouveau jeu (" + selected.size + " session(s) retenue(s)) :") || "").trim();
+  if (!label) return;
+  const name = slugifySet(label);
+  if (!name) { toast("nom inexploitable — il faut au moins une lettre ou un chiffre", true); return; }
+  if (setsCache.some(s => s.name === name)) { toast("le jeu « " + name + " » existe déjà", true); return; }
+  // scinder = les retirer du jeu courant ; sinon elles y restent AUSSI (une session
+  // peut appartenir à plusieurs jeux — RM2445)
+  const split = window.confirm(
+    "Les RETIRER du jeu « " + setLabel(currentSet) + " » (scinder) ?\n\n" +
+    "OK = scinder · Annuler = les garder dans les deux jeux");
+  const body = { group: name, label: label, sids: [...selected] };
+  if (split) body.move_from = currentSet;
+  try {
+    const r = await api("/session-set/create", { method: "POST",
+      headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    toast("＋ « " + label + " » — " + r.count + " session(s)" +
+          ((r.moved || []).length ? ", retirée(s) de « " + setLabel(currentSet) + " »" : ""));
+    currentSet = name; currentView = "set";
+    try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    selMode = false; selected.clear();
+    const b = document.getElementById("btn-sel");
+    if (b) { b.textContent = "☑ sélection"; b.classList.remove("active"); }
+    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
+  } catch (e) { toast(e.message, true); }
 }
 function onSetPick(v) {
   if (!v) return;
@@ -1517,8 +1593,8 @@ function toggleSetEntryRestart(sid, restart) {
   toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart, group: currentSet });
 }
 async function deleteSessionSet(btn) {
-  if (!window.confirm("Effacer le jeu « " + setLabel(currentSet) + " » ?\n\n" +
-      "Les autres jeux enregistrés ne sont pas touchés.")) return;
+  if (!window.confirm("Supprimer le jeu « " + setLabel(currentSet) + " » ?\n\n" +
+      "Les sessions CONTINUENT de tourner ; les autres jeux ne sont pas touchés.")) return;
   btn.disabled = true;
   try {
     await api("/session-set" + setQ(), { method: "DELETE" });

@@ -1639,6 +1639,59 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
             "moved_from": src if moved else None, "moved": moved}
 
 
+def op_session_set_move(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2449 — DÉPLACE des sessions vers un jeu EXISTANT. `create {move_from}`
+    (RM2448) fabrique un jeu neuf et refuse un nom déjà pris : verser dans un jeu
+    existant n'avait donc aucun chemin.
+
+    Verbe dédié plutôt qu'une extension de `save` : `save` est une UNION, elle
+    n'ôte jamais rien (garde-fou RM2439), tandis qu'un déplacement retire du jeu
+    source. Les mélanger rendrait `save` destructeur selon un paramètre.
+
+    `from` vaut le jeu courant ; `copy` ajoute sans retirer (une session peut
+    appartenir à plusieurs jeux, RM2445). Source et cible changent dans la MÊME
+    écriture — jamais l'une sans l'autre. Un déplacement retire : il archive
+    (RM2443) ; une copie, non."""
+    user = _session_set_user(auth_ctx)
+    store = _session_set_load()
+    to = _session_set_group(payload.get("to"))
+    src = _session_set_group(payload.get("from") or _current_set(user, store))
+    if to == src:
+        raise ApiError(400, "le jeu de destination est le jeu d'origine")
+    sids = payload.get("sids")
+    if not isinstance(sids, list) or not sids:
+        raise ApiError(400, "sids (liste non vide) requis")
+    wanted = {str(s) for s in sids}
+    dst_rec = _session_set_get(store, user, to)
+    if not dst_rec:                       # créer est le travail de `create`
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{to})")
+    src_rec = _session_set_get(store, user, src)
+    if not src_rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{src})")
+    src_entries = src_rec.get("entries") or []
+    taken = [e for e in src_entries if e.get("sid") in wanted]
+    if not taken:
+        raise ApiError(404, f"aucune des sessions demandées n'est dans « {src} »")
+    dst_entries = list(dst_rec.get("entries") or [])
+    present = {e.get("sid") for e in dst_entries}
+    # union côté cible : une session déjà là n'y entre pas deux fois
+    dst_entries += [dict(e) for e in taken if e.get("sid") not in present]
+    if len(dst_entries) > SESSION_SET_MAX:
+        raise ApiError(409, f"le jeu « {to} » dépasserait {SESSION_SET_MAX} entrées "
+                            f"({len(dst_entries)}) — rien n'a été déplacé")
+    copy = bool(payload.get("copy"))
+    dst_rec["entries"] = dst_entries
+    dst_rec["saved_at"] = int(time.time())
+    if not copy:
+        src_rec["entries"] = [e for e in src_entries if e.get("sid") not in wanted]
+    _session_set_put(store, user, to, dst_rec)
+    _session_set_put(store, user, src, src_rec)
+    _write_session_set(store, archive=not copy)
+    return {"user": user, "to": to, "from": src, "copied": copy,
+            "moved": [e.get("sid") for e in taken],
+            "to_count": len(dst_entries), "from_count": len(src_rec.get("entries") or [])}
+
+
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2395 — relit le jeu (user, group) et marque chaque entrée `alive` selon
     l'état tmux courant. `exists=False` si aucun jeu enregistré."""
@@ -4299,6 +4352,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/move":     # RM2449 : vers un jeu EXISTANT
+                return self._send_json(200, op_session_set_move(payload, self.auth_ctx))
             if path == "/session-set/create":   # RM2447 : nouveau jeu (vide par défaut)
                 return self._send_json(201, op_session_set_create(payload, self.auth_ctx))
             if path == "/session-set/current":  # RM2445 : bascule de jeu courant

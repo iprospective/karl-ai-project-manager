@@ -1223,12 +1223,28 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     return True
 
 
-def _derived_entries(rule: dict) -> list:
+def _derived_entries(rule: dict, with_total: bool = False):
     """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
-    l'aval (fantômes, relance, estimation) l'ignore et le traite pareil."""
+    l'aval (fantômes, relance, estimation) l'ignore et le traite pareil.
+
+    Deux règles d'hygiène, alignées sur les jeux manuels :
+
+    - une session TERMINÉE marquée `[DONE]` et qui ne tourne plus est écartée,
+      exactement comme `_forget_done_entries` l'évince d'un jeu manuel (RM2427) :
+      un travail fini n'a pas de tuile grise. Sans cela une vue client affichait
+      12 sessions closes sur 25 — d'où l'impression, justifiée, d'en voir
+      « beaucoup plus » ;
+    - le plafond `SESSION_SET_MAX` ne tronque plus en SILENCE : le total réel est
+      rendu à l'appelant, qui le dit (`truncated`).
+
+    Une session `[DONE]` mais VIVANTE reste listée : on n'escamote jamais un
+    processus qui tourne."""
+    live = {s["rm_id"] for s in _list_sessions()}
     out = []
     for sid, k in _all_keys():
         if not _rule_matches(rule, sid, k):
+            continue
+        if sid not in live and _is_marked_done(k.get("session_id")):
             continue
         out.append({
             "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
@@ -1236,7 +1252,7 @@ def _derived_entries(rule: dict) -> list:
             "title": _transcript_title(k.get("session_id")),
             "restart": _default_restart(k.get("session_id")),
         })
-    return out[:SESSION_SET_MAX]
+    return (out[:SESSION_SET_MAX], len(out)) if with_total else out[:SESSION_SET_MAX]
 
 
 def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
@@ -1294,6 +1310,15 @@ def _set_entries(rec: dict) -> list:
     pas à savoir de quelle nature est le jeu qu'il lit."""
     rule = rec.get("rule")
     return _derived_entries(rule) if rule else (rec.get("entries") or [])
+
+
+def _set_total(rec: dict) -> int:
+    """Nombre RÉEL de sessions désignées, avant plafonnement — pour que l'UI
+    puisse dire « 24 affichées sur 31 » au lieu de mentir par omission."""
+    rule = rec.get("rule")
+    if not rule:
+        return len(rec.get("entries") or [])
+    return _derived_entries(rule, with_total=True)[1]
 
 
 def _reject_if_derived(rec: dict, what: str) -> None:
@@ -1669,6 +1694,7 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
         "label": rec.get("label") or name,
         "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
         "count": len(_set_entries(rec)),
+        "total": _set_total(rec),          # RM2452 : réel, même si tronqué
         "alive": sum(1 for e in _set_entries(rec) if e.get("sid") in live),
         "saved_at": rec.get("saved_at"),
         "autostart": bool(rec.get("autostart", False)),
@@ -1685,7 +1711,8 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
             # des sessions — rien à créer, rien à curer
             "facets": facets,
             "client_views": [{"view": f"client:{c['slug']}", "label": c["slug"],
-                              "count": c["count"]} for c in facets["clients"]]}
+                              "count": len(_derived_entries({"client": c["slug"]}))}
+                             for c in facets["clients"]]}
 
 
 def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -2015,6 +2042,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     if not rec:
         return {"user": user, "group": group, "label": group,
                 "exists": False, "entries": [], "count": 0}
+    total = _set_total(rec)
     live = {s["rm_id"] for s in _list_sessions()}
     # RM2427 : `restart` EFFECTIF (réglage explicite, sinon défaut [WIP]/idle) —
     # l'UI affiche et bascule cette valeur sans avoir à rejouer la règle.
@@ -2026,6 +2054,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     return {"user": user, "group": group, "label": rec.get("label") or group,
             "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
             "hide_idle_days": rec.get("hide_idle_days") or 0,
+            "total": total, "truncated": total > len(entries),
             "exists": True,
             "saved_at": rec.get("saved_at"), "saved_by": rec.get("saved_by"),
             "autostart": bool(rec.get("autostart", False)),

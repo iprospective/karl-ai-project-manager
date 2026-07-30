@@ -1746,6 +1746,8 @@ async function loadSessionSet() {
           'et toute session satisfaisant la règle y entre d\'elle-même</span></div>' : "") +
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +
         '<b>' + esc(r.label || currentSet) + '</b> · ' + r.count +
+        // RM2452 : dire la troncature plutôt que de mentir par omission
+        (r.truncated ? ' affichée(s) sur <b>' + r.total + '</b>' : '') +
         ' session(s) · enregistré il y a ' + ago(r.saved_at) +
         ' <span style="cursor:pointer" title="Renommer ce jeu (le libellé seul ; la clé interne ne bouge pas)" ' +
         'onclick="renameSet()">✎</span></div>' +

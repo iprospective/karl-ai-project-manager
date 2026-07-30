@@ -1239,6 +1239,26 @@ cv = {c["view"]: c["count"] for c in l["client_views"]}
 check("RM2452 : le compteur du méta-jeu compte ce qu'on VERRA (hors [DONE])",
       cv["client:calicote"] == len(ents))
 
+# RM2452 : une vue par CLIENT ne s'approprie pas les vivantes des autres clients
+KEYS.clear()
+KEYS.update({"7701": {"engine": "claude", "session_id": "u7701", "cwd": "/zfs/cal", "model": None},
+             "7702": {"engine": "claude", "session_id": "u7702", "cwd": "/zfs/inf", "model": None}})
+ka._all_keys = lambda: list(KEYS.items())
+MARKS2.clear()
+LIVE.clear(); LIVE.update(KEYS)          # les deux tournent
+ka.op_session_set_current({"view": "client:iprospective"}, {"user": None})
+vue = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")}
+check("RM2452 : la vivante du client regardé appartient à la vue",
+      vue["7702"]["in_current"] is True)
+check("RM2452 : celle d'un AUTRE client est rangée hors de la vue (et badgée)",
+      vue["7701"]["in_current"] is False)
+check("RM2452 : mais elle reste VISIBLE (jamais de processus escamoté)",
+      set(vue) == {"7701", "7702"})
+ka.op_session_set_current({"view": "all"}, {"user": None})
+check("RM2452 : en vue « tous les jeux », tout ce qui est affiché appartient à la vue",
+      all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
+ka.op_session_set_current({"view": "set"}, {"user": None})
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

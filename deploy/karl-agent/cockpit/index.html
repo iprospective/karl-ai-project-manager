@@ -395,7 +395,7 @@ if (window.matchMedia) {
                 title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
         <button class="mini" onclick="createSet()"
                 title="Créer un jeu — vide par défaut, ou avec les sessions affichées (un chantier = un jeu)">＋ jeu</button>
-        <button class="mini" onclick="createDerivedSet()"
+        <button class="mini" onclick="openRuleForm('__new__')"
                 title="Créer un jeu DÉRIVÉ : son contenu est calculé par une règle (client, projet, marque, tickets) — rien à curer, il ne dérive jamais">＋ règle</button>
         <button class="mini" onclick="deleteSessionSet(this)" id="btn-set-del"
                 title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
@@ -1182,7 +1182,9 @@ try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /
 // RM2446 : le groupe recueille les vivantes hors du jeu courant — y compris
 // celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
 const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
-let currentView = "set";                        // RM2446 : set | live | all
+let currentView = "set";                        // RM2446 : set | live | all | client:<slug>
+let setFacets = { clients: [], marks: [] };     // RM2452 : clients/projets connus
+let ruleFormFor = null;                         // jeu dont on édite la règle ("__new__" = création)
 // RM2448 : groupes repliés (persistés) et mode sélection
 let collapsedGroups = new Set();
 try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("karlCollapsed") || "[]")); } catch (e) { /* pas de storage */ }
@@ -1247,15 +1249,22 @@ async function refreshSessionSets() {
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
       switchSet(setsCache[0].name, true);
     currentView = r.view || "set";
+    setFacets = r.facets || { clients: [], marks: [] };
     if (!sel) return;
     // RM2446 : les VUES d'abord (elles ne s'enregistrent pas), les jeux ensuite
     const vopt = (v, txt) => '<option value="view:' + v + '"' +
       (currentView === v ? " selected" : "") + '>' + txt + "</option>";
+    // RM2452 : un méta-jeu par client AYANT des sessions — offert d'office, rien
+    // à créer ni à curer : c'est l'index des sessions qui le dit.
+    const cviews = (r.client_views || []).map(c =>
+      '<option value="view:' + esc(c.view) + '"' + (currentView === c.view ? " selected" : "") +
+      '>👤 ' + esc(c.label) + " (" + c.count + ")</option>").join("");
     sel.innerHTML =
       '<optgroup label="vues">' +
         vopt("live", "▶ sessions ouvertes (" + (r.live_count || 0) + ")") +
         vopt("all", "⧉ tous les jeux (" + (r.all_count || 0) + ")") +
       '</optgroup>' +
+      (cviews ? '<optgroup label="clients">' + cviews + '</optgroup>' : "") +
       '<optgroup label="jeux">' + (setsCache.length
         ? setsCache.map(s => '<option value="set:' + esc(s.name) + '"' +
             (currentView === "set" && s.name === currentSet ? " selected" : "") + '>' +
@@ -1267,7 +1276,13 @@ async function refreshSessionSets() {
     // RM2448 : un bouton qui ÉCRIT doit dire OÙ — en vue « sessions ouvertes » ou
     // « tous les jeux », le jeu courant disparaissait de l'écran alors qu'il
     // restait la cible de l'adhésion automatique, du ⊖ et de l'enregistrement.
+    // RM2452 : sur un jeu dérivé, « ajouter l'affichage » n'a aucun sens — la
+    // règle décide, et le serveur refuse (400). On masque plutôt que d'offrir un
+    // bouton qui échoue.
+    const curSet = setsCache.find(s => s.name === currentSet);
+    const derivedNow = !!(curSet && curSet.derived) && currentView === "set";
     const save = document.getElementById("btn-set-save");
+    if (save) save.style.display = (derivedNow && !selMode) ? "none" : "";
     if (save) save.textContent = selMode
       ? "＋ jeu depuis la sélection (" + selected.size + ")"
       : "💾 ajouter l'affichage à « " + setLabel(currentSet) + " »";
@@ -1355,35 +1370,76 @@ async function moveSelection() {
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
-// RM2452 : un jeu DÉRIVÉ est défini par une règle, pas par une liste. Saisie
-// compacte « client=calicote projet=prestashop marque=wip tickets=2440,2441 ».
-async function createDerivedSet() {
-  const label = (window.prompt("Nom du jeu dérivé :") || "").trim();
-  if (!label) return;
-  const name = slugifySet(label);
-  if (!name) { toast("nom inexploitable", true); return; }
-  const raw = (window.prompt(
-    "Règle — critères séparés par des espaces :\n\n" +
-    "client=calicote   projet=prestashop\n" +
-    "marque=wip|done|none   tickets=2440,2441", "client=") || "").trim();
-  if (!raw) return;
+// RM2452 : la règle s'édite dans un FORMULAIRE, pas dans deux `prompt` — on ne
+// saisit pas un slug à la main quand le système connaît la liste des clients et
+// de leurs projets, et une règle qu'on ne peut pas corriger oblige à supprimer
+// puis recréer le jeu.
+function openRuleForm(group) { ruleFormFor = group; loadSessionSet(); }
+function closeRuleForm() { ruleFormFor = null; loadSessionSet(); }
+
+function ruleFormHtml(rule, isNew) {
+  rule = rule || {};
+  const clients = setFacets.clients || [];
+  const projects = [...new Set(clients.flatMap(c => c.projects || []))].sort();
+  const opt = (v, cur, lbl) => '<option value="' + esc(v) + '"' +
+    (String(cur || "") === v ? " selected" : "") + '>' + esc(lbl || v || "— indifférent —") + '</option>';
+  return '<div style="border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0">' +
+    '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>' +
+      (isNew ? "Nouveau jeu dérivé" : "Règle du jeu") + '</b> — son contenu se calcule, ' +
+      'toute session qui satisfait la règle y entre d\'elle-même</div>' +
+    (isNew ? '<input id="rf-name" placeholder="Nom du jeu (ex. Chantier Calicote)" ' +
+             'style="width:100%;margin-bottom:6px">' : "") +
+    '<label style="font-size:11px">client<select id="rf-client" style="width:100%">' +
+      opt("", rule.client) + clients.map(c => opt(c.slug, rule.client, c.slug + " (" + c.count + ")")).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">projet<select id="rf-project" style="width:100%">' +
+      opt("", rule.project) + projects.map(pr => opt(pr, rule.project)).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">marque<select id="rf-mark" style="width:100%">' +
+      opt("", rule.mark) + ["wip", "done", "none"].map(m => opt(m, rule.mark)).join("") +
+    '</select></label>' +
+    '<label style="font-size:11px">tickets (séparés par des virgules)' +
+      '<input id="rf-tickets" style="width:100%" value="' + esc((rule.tickets || []).join(",")) + '"></label>' +
+    '<div style="display:flex;gap:6px;margin-top:8px">' +
+      '<button class="mini" onclick="applyRuleForm(' + (isNew ? "true" : "false") + ')">' +
+        (isNew ? "Créer" : "Appliquer") + '</button>' +
+      '<button class="mini" onclick="closeRuleForm()">Annuler</button></div></div>';
+}
+
+function readRuleForm() {
+  const g = id => (document.getElementById(id) || {}).value || "";
   const rule = {};
-  for (const part of raw.split(/\s+/)) {
-    const [k, v] = part.split("=");
-    if (!v) continue;
-    if (k === "client") rule.client = v;
-    else if (k === "projet" || k === "project") rule.project = v;
-    else if (k === "marque" || k === "mark") rule.mark = v;
-    else if (k === "tickets") rule.tickets = v.split(",").filter(Boolean);
+  if (g("rf-client")) rule.client = g("rf-client");
+  if (g("rf-project")) rule.project = g("rf-project");
+  if (g("rf-mark")) rule.mark = g("rf-mark");
+  const tk = g("rf-tickets").split(",").map(x => x.trim()).filter(Boolean);
+  if (tk.length) rule.tickets = tk;
+  return rule;
+}
+
+async function applyRuleForm(isNew) {
+  const rule = readRuleForm();
+  if (!Object.keys(rule).length) {
+    toast("règle vide : elle désignerait toutes les sessions", true); return;
   }
-  if (!Object.keys(rule).length) { toast("règle vide ou incomprise", true); return; }
   try {
-    const r = await api("/session-set/create", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ group: name, label: label, rule: rule }) });
-    toast("＋ jeu dérivé « " + label + " » — " + r.count + " session(s), tenu à jour par sa règle");
-    currentSet = name; currentView = "set";
-    try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    if (isNew) {
+      const label = ((document.getElementById("rf-name") || {}).value || "").trim();
+      if (!label) { toast("donne un nom au jeu", true); return; }
+      const name = slugifySet(label);
+      if (!name) { toast("nom inexploitable", true); return; }
+      const r = await api("/session-set/create", { method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ group: name, label: label, rule: rule }) });
+      toast("＋ jeu dérivé « " + label + " » — " + r.count + " session(s)");
+      currentSet = name; currentView = "set";
+      try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+    } else {
+      const r = await api("/session-set/rule", { method: "POST",
+        headers: { "Content-Type": "application/json" }, body: setBody({ rule }) });
+      toast("règle appliquée — " + r.count + " session(s)");
+    }
+    ruleFormFor = null;
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
@@ -1656,8 +1712,10 @@ async function loadSessionSet() {
   try {
     const r = await api("/session-set" + setQ());
     if (!r.exists || !r.count) {
-      el.innerHTML = '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
-        ' » vide — bouton « 💾 Enregistrer les sessions » dans « ▶ en cours ».</div>';
+      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+        '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
+        ' » vide — bouton « 💾 ajouter l\'affichage » dans « ▶ en cours », ' +
+        'ou « ＋ règle » pour un jeu qui se remplit tout seul.</div>';
       return;
     }
     const rows = r.entries.map(e => {
@@ -1677,9 +1735,13 @@ async function loadSessionSet() {
         esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
-      (r.derived ? '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
-          esc(Object.entries(r.rule || {}).map(([k, v]) => k + "=" + v).join(" ")) +
-          ' <span style="cursor:pointer;text-decoration:underline" onclick="materializeSet()">figer</span>' +
+      (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+      (r.derived && ruleFormFor === currentSet ? ruleFormHtml(r.rule, false) : "") +
+      (r.derived && ruleFormFor !== currentSet ?
+        '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
+          esc(Object.entries(r.rule || {}).map(([k, v]) => k + "=" + (Array.isArray(v) ? v.join(",") : v)).join(" ")) +
+          ' <span style="cursor:pointer;text-decoration:underline" onclick="openRuleForm(currentSet)">modifier</span>' +
+          ' · <span style="cursor:pointer;text-decoration:underline" onclick="materializeSet()">figer</span>' +
           '<br><span style="color:var(--muted)">contenu calculé : rien à curer, ' +
           'et toute session satisfaisant la règle y entre d\'elle-même</span></div>' : "") +
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +

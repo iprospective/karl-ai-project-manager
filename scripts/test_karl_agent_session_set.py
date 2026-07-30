@@ -1156,6 +1156,55 @@ r = ka.op_session_set_create({"group": "depuis-gris", "sids": ["7301"]}, {"user"
 check("RM2452 : un jeu créé depuis une session ÉTEINTE n'est pas vide",
       [e["sid"] for e in r["entries"]] == ["7301"] and r["entries"][0]["title"] == "éteinte")
 
+# ── RM2452 (suite) : méta-jeux par client, édition de règle ──────────────────
+KEYS.clear()
+KEYS.update({
+    "7401": {"engine": "claude", "session_id": "u7401", "cwd": "/zfs/cal", "model": None},
+    "7402": {"engine": "claude", "session_id": "u7402", "cwd": "/zfs/cal", "model": None},
+    "7403": {"engine": "claude", "session_id": "u7403", "cwd": "/zfs/inf", "model": None},
+})
+ka._all_keys = lambda: list(KEYS.items())
+LIVE.clear()
+l = ka.op_session_sets_list({}, {"user": None})
+cv = {c["view"]: c for c in l["client_views"]}
+check("RM2452 : un méta-jeu par client AYANT des sessions",
+      set(cv) == {"client:calicote", "client:iprospective"})
+check("RM2452 : le méta-jeu porte son compte", cv["client:calicote"]["count"] == 2)
+check("RM2452 : les facettes listent clients et projets",
+      [c["slug"] for c in l["facets"]["clients"]] == ["calicote", "iprospective"]
+      and l["facets"]["clients"][0]["projects"] == ["prestashop"])
+
+ka.op_session_set_current({"view": "client:calicote"}, {"user": None})
+check("RM2452 : la vue par client se résout sans rien créer",
+      {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"7401", "7402"})
+check("RM2452 : la tuile dit de quel méta-jeu elle vient",
+      all(g["group_label"] == "calicote" for g in ka._ghost_sessions({"user": None})))
+check("RM2452 : aucun jeu n'a été créé au passage",
+      "client:calicote" not in {s["name"] for s in ka.op_session_sets_list({}, {"user": None})["sets"]})
+try:
+    ka.op_session_set_current({"view": "client:PAS UN SLUG"}, {"user": None})
+    check("RM2452 : vue client invalide → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : vue client invalide → 400", e.code == 400)
+ka.op_session_set_current({"view": "set"}, {"user": None})
+
+# éditer la règle d'un jeu dérivé
+ka.op_session_set_create({"group": "edit-der", "rule": {"client": "calicote"}}, {"user": None})
+r = ka.op_session_set_rule({"group": "edit-der", "rule": {"client": "iprospective"}}, {"user": None})
+check("RM2452 : la règle se modifie, le contenu suit",
+      r["rule"] == {"client": "iprospective"} and {e["sid"] for e in r["entries"]} == {"7403"})
+try:
+    ka.op_session_set_rule({"group": "edit-der", "rule": {}}, {"user": None})
+    check("RM2452 : règle vide au remplacement → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : règle vide au remplacement → 400", e.code == 400)
+ka.op_session_set_create({"group": "manuel-x", "sids": []}, {"user": None})
+try:
+    ka.op_session_set_rule({"group": "manuel-x", "rule": {"client": "calicote"}}, {"user": None})
+    check("RM2452 : poser une règle sur un jeu MANUEL → 400", False)
+except ka.ApiError as e:
+    check("RM2452 : poser une règle sur un jeu MANUEL → 400", e.code == 400)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

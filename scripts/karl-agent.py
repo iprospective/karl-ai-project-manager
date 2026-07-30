@@ -1265,6 +1265,30 @@ def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
     return out
 
 
+def _session_facets() -> dict:
+    """RM2452 — ce que l'index des clés sait déjà, agrégé : clients ayant au moins
+    une session, leurs projets, et les marques présentes. Sert à DEUX choses —
+    proposer des vues par client sans que l'opérateur ait rien à créer, et
+    peupler les listes du formulaire de règle (on ne saisit pas un slug à la
+    main quand le système connaît la liste)."""
+    clients: dict = {}
+    marks = set()
+    for sid, k in _all_keys():
+        client, project = _pm_project_of_cwd(k.get("cwd"))
+        if client:
+            c = clients.setdefault(client, {"slug": client, "count": 0, "projects": set()})
+            c["count"] += 1
+            if project:
+                c["projects"].add(project)
+        m = _session_mark(k.get("session_id"))
+        if m:
+            marks.add(m)
+    out = [{"slug": c["slug"], "count": c["count"], "projects": sorted(c["projects"])}
+           for c in clients.values()]
+    out.sort(key=lambda c: (-c["count"], c["slug"]))
+    return {"clients": out, "marks": sorted(marks)}
+
+
 def _set_entries(rec: dict) -> list:
     """Contenu d'un jeu, dérivé ou manuel. Point de passage unique : l'aval n'a
     pas à savoir de quelle nature est le jeu qu'il lit."""
@@ -1433,12 +1457,17 @@ def _current_set(user: str, store: dict | None = None) -> str:
 # tandis que la VUE (`view`) décide seulement de ce qu'on affiche. Une vue ne peut
 # donc jamais devenir une destination par accident.
 SESSION_SET_VIEWS = ("set", "live", "all")
+_VIEW_CLIENT_RE = re.compile(r"^client:([a-z0-9][a-z0-9._-]{0,31})$")
+
+
+def _view_valid(v: str) -> bool:
+    return v in SESSION_SET_VIEWS or bool(_VIEW_CLIENT_RE.match(v or ""))
 
 
 def _current_view(user: str, store: dict | None = None) -> str:
     store = _session_set_load() if store is None else store
     v = ((store.get("users") or {}).get(user) or {}).get("view")
-    return v if v in SESSION_SET_VIEWS else "set"
+    return v if _view_valid(v or "") else "set"
 
 
 def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -1459,8 +1488,9 @@ def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
         u["view"] = "set"          # choisir un jeu, c'est vouloir le regarder
     if payload.get("view") is not None:
         view = str(payload.get("view") or "").strip().lower()
-        if view not in SESSION_SET_VIEWS:
-            raise ApiError(400, f"view doit valoir {' ou '.join(SESSION_SET_VIEWS)}")
+        if not _view_valid(view):
+            raise ApiError(400, f"view doit valoir {' ou '.join(SESSION_SET_VIEWS)} "
+                                f"ou client:<slug>")
         u["view"] = view
     if payload.get("group") is None and payload.get("view") is None:
         raise ApiError(400, "group ou view requis")
@@ -1647,9 +1677,15 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     store = _session_set_load()
     # RM2446 : de quoi libeller les pseudo-jeux sans un second aller-retour
     known = {e.get("sid") for rec in groups.values() for e in (rec.get("entries") or [])}
+    facets = _session_facets()
     return {"user": user, "sets": sets, "count": len(sets),
             "current": _current_set(user, store), "view": _current_view(user, store),
-            "live_count": len(live), "all_count": len(known | live)}
+            "live_count": len(live), "all_count": len(known | live),
+            # RM2452 : vues par client, offertes d'office pour les clients qui ONT
+            # des sessions — rien à créer, rien à curer
+            "facets": facets,
+            "client_views": [{"view": f"client:{c['slug']}", "label": c["slug"],
+                              "count": c["count"]} for c in facets["clients"]]}
 
 
 def op_session_set_rename(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -1799,6 +1835,29 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
             "derived": bool(rule), "rule": rule,
             "count": len(resolved), "current": group, "entries": resolved,
             "moved_from": src if moved else None, "moved": moved}
+
+
+def op_session_set_rule(payload: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2452 — remplace la RÈGLE d'un jeu dérivé. Créer une règle sans pouvoir la
+    corriger obligeait à supprimer puis recréer le jeu. Refusé sur un jeu manuel :
+    lui poser une règle jetterait silencieusement ses entrées — qu'il le devienne
+    est une décision à part entière, pas un effet de bord d'une édition."""
+    user = _session_set_user(auth_ctx)
+    group = _session_set_group(payload.get("group"))
+    rule = _rule_norm(payload.get("rule"))
+    store = _session_set_load()
+    rec = _session_set_get(store, user, group)
+    if not rec:
+        raise ApiError(404, f"aucun jeu enregistré ({user}/{group})")
+    if not rec.get("rule"):
+        raise ApiError(400, f"le jeu « {group} » est manuel : une règle jetterait "
+                            f"ses {len(rec.get('entries') or [])} entrée(s)")
+    rec["rule"] = rule
+    rec["saved_at"] = int(time.time())
+    _write_session_set(store, archive=False)   # la règle change, rien n'est perdu
+    entries = _set_entries(rec)
+    return {"user": user, "group": group, "rule": rule, "derived": True,
+            "count": len(entries), "entries": entries}
 
 
 def op_session_set_materialize(payload: dict, auth_ctx: dict | None = None) -> dict:
@@ -2278,6 +2337,24 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     view = _current_view(user, store)
     if view == "live":
         return []
+    m = _VIEW_CLIENT_RE.match(view)
+    if m:
+        # RM2452 : vue par client — un jeu dérivé qu'on n'a même pas eu à créer.
+        for e in _derived_entries({"client": m.group(1)}):
+            sid = e.get("sid")
+            if not sid or sid in live or sid in seen:
+                continue
+            seen.add(sid)
+            g = dict(e, rm_id=sid, is_ticket=_is_ticket_sid(sid), ghost=True,
+                     state="ghost", group=view, group_label=m.group(1),
+                     attached=False, created=None,
+                     last_active=_transcript_age(e.get("session_id")),
+                     resumable=bool(e.get("session_id")), saved_at=None)
+            client, project = _pm_project_of_cwd(e.get("cwd"))
+            if client:
+                g["client"], g["project"] = client, project
+            out.append(g)
+        return out
     group = _current_set(user, store)
     picked = groups.items() if view == "all" else \
         ([(group, groups[group])] if group in groups else [])
@@ -3106,7 +3183,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         names = _member.get(s["rm_id"], [])
         s["sets"] = names
         s["set_labels"] = [(_groups[n].get("label") or n) for n in names if n in _groups]
-        s["in_current"] = True if _view in ("live", "all") else (_cur in names)
+        s["in_current"] = True if _view != "set" else (_cur in names)
     return _keep_sessions(sessions + _ghosts_for(qs, auth_ctx), qs)
 
 
@@ -4662,6 +4739,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_session_set_restart(payload, self.auth_ctx))
             if path == "/session-set/rename":   # RM2442 : libellé humain du jeu
                 return self._send_json(200, op_session_set_rename(payload, self.auth_ctx))
+            if path == "/session-set/rule":         # RM2452 : modifier la règle
+                return self._send_json(200, op_session_set_rule(payload, self.auth_ctx))
             if path == "/session-set/materialize":  # RM2452 : dérivé → manuel
                 return self._send_json(200, op_session_set_materialize(payload, self.auth_ctx))
             if path == "/session-set/retention":    # RM2452 : masquer les inactives

@@ -20,6 +20,11 @@ RM2442 — jeux NOMMÉS : découverte (`op_session_sets_list`), libellé humain 
 côté du slug immuable, renommage, indépendance des jeux entre eux, et
 dédoublonnage des tuiles grises quand une session appartient à deux jeux repris.
 
+RM2445 — jeu COURANT côté serveur : bascule qui change réellement la vue
+(fantômes du jeu courant, plus l'union des `autostart`), adhésion automatique
+d'une session lancée/reprise au jeu courant (le statut fait ENTRER, jamais
+SORTIR), appartenance multiple, et écritures additives non archivées.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -192,7 +197,7 @@ ka._has_session = lambda sid: sid in ALIVE
 RESUME = {}   # sid → "ok" | code d'erreur
 
 
-def fake_resume(payload):
+def fake_resume(payload, auth_ctx=None):   # RM2445 : op_resume porte le contexte d'auth
     sid = payload["rm_id"]
     beh = RESUME.get(sid, "ok")
     if beh == "ok":
@@ -204,7 +209,7 @@ def fake_resume(payload):
 SPAWNED = []
 
 
-def fake_spawn(payload):
+def fake_spawn(payload, auth_ctx=None):     # RM2445 : idem pour op_spawn
     SPAWNED.append(payload)
     ALIVE.add(payload["rm_id"])
     return {"rm_id": payload["rm_id"], "created": True}
@@ -313,6 +318,7 @@ ka.op_session_set_autostart({"group": "default", "autostart": False}, {"user": N
 res = ka._autostart_replay()
 check("démarrage : relance la session réglée auto ET la [WIP] (défaut auto)",
       {(x["sid"], x["action"]) for x in res} == {("3001", "resumed"), ("3002", "resumed")})
+ka.op_session_set_current({"group": "relance"}, {"user": None})   # RM2445 : on observe CE jeu
 check("démarrage : les sessions idle restent en tuile grise (aucun TUI)",
       {"3003", "3004"} <= {g["rm_id"] for g in ka._ghost_sessions({"user": None})})
 check("démarrage : jamais de spawn (resume seul)", SPAWNED == [])
@@ -324,9 +330,10 @@ ALIVE.clear(); LIVE.clear()
 check("démarrage : repassées en idle → plus rien n'est relancé", ka._autostart_replay() == [])
 MARKS.clear()
 
-# — RM2427 : fantômes = entrées enregistrées NON vivantes du jeu autostart —
-# « relance » est le seul jeu repris ici (default/nuit désactivés) ; LIVE reste la
-# source des sessions tmux simulées (mock posé en tête, jamais remplacé).
+# — RM2427/RM2445 : fantômes = entrées enregistrées NON vivantes du JEU COURANT —
+# « relance » est le jeu courant ici ; LIVE reste la source des sessions tmux
+# simulées (mock posé en tête, jamais remplacé). Depuis RM2445 le périmètre des
+# fantômes est le jeu courant, plus l'union des jeux `autostart`.
 ka.op_session_set_autostart({"group": "nuit", "autostart": False}, {"user": None})
 ALIVE.clear(); ALIVE.add("3001")
 LIVE.clear(); LIVE["3001"] = {"engine": "claude", "session_id": "sa", "cwd": "/x", "model": None}
@@ -334,7 +341,7 @@ ka._pm_project_of_cwd = lambda cwd: (("acme", "shop") if cwd == "/zfs/d" else (N
 SPAWNED.clear()
 ghosts = ka._ghost_sessions({"user": None})
 by = {g["rm_id"]: g for g in ghosts}
-check("fantômes : les entrées non vivantes du jeu autostart", set(by) == {"3002", "3003", "3004"})
+check("fantômes : les entrées non vivantes du jeu courant", set(by) == {"3002", "3003", "3004"})
 check("fantômes : la session vivante n'en produit pas", "3001" not in by)
 check("fantômes : marqués ghost/state pour le cockpit",
       all(g["ghost"] is True and g["state"] == "ghost" for g in ghosts))
@@ -509,10 +516,11 @@ ka.op_session_set_autostart({"group": "infra", "autostart": True}, {"user": None
 ka.op_session_set_autostart({"group": "default", "autostart": True}, {"user": None})
 ka.op_session_set_save({"sids": ["5001"]}, {"user": None})       # 5001 aussi dans default
 LIVE.clear()                                                     # toutes éteintes
+ka.op_session_set_current({"group": "infra"}, {"user": None})     # RM2445 : jeu observé
 ghosts = ka._ghost_sessions({"user": None})
 sids = [g["rm_id"] for g in ghosts]
-check("RM2442 : session présente dans deux jeux ⇒ une seule tuile grise",
-      sids.count("5001") == 1)
+check("RM2442 : session appartenant à deux jeux ⇒ une seule tuile grise",
+      sids.count("5001") == 1 and sorted(sids) == ["5001", "5002"])
 check("RM2442 : la tuile grise dit de quel jeu elle vient",
       all(g.get("group") and g.get("group_label") for g in ghosts))
 ka.op_session_set_autostart({"group": "infra", "autostart": False}, {"user": None})
@@ -594,6 +602,105 @@ try:
           ka.op_session_set_get({"group": "infra"}, {"user": None})["label"] == "malgré tout")
 finally:
     HIST.chmod(0o700)
+
+# ── RM2445 : jeu COURANT côté serveur — bascule réelle, adhésion automatique ──
+# Le jeu courant vivait dans le localStorage du cockpit : le serveur l'ignorait,
+# donc basculer ne changeait rien à l'affichage (les fantômes venaient de l'union
+# des jeux `autostart`). Il devient un état serveur, et tout en découle.
+LIVE.clear()
+LIVE.update({
+    "6001": {"engine": "claude", "session_id": "uuid-6001", "cwd": "/zfs/x", "model": None},
+    "6002": {"engine": "claude", "session_id": "uuid-6002", "cwd": "/zfs/y", "model": None},
+})
+ka.op_session_set_save({"group": "chantier-a", "label": "Chantier A", "sids": ["6001"]}, {"user": None})
+ka.op_session_set_save({"group": "chantier-b", "label": "Chantier B", "sids": ["6002"]}, {"user": None})
+
+check("RM2445 : jeu courant par défaut pour qui n'en a jamais choisi",
+      ka._current_set("utilisateur-vierge") == "default")
+ka.op_session_set_current({"group": "chantier-a"}, {"user": None})
+check("RM2445 : le jeu courant est un état SERVEUR (persisté)",
+      ka._current_set("superadmin") == "chantier-a"
+      and ka.op_session_sets_list({}, {"user": None})["current"] == "chantier-a")
+try:
+    ka.op_session_set_current({"group": "jamais-vu"}, {"user": None})
+    check("RM2445 : jeu courant inconnu → 404", False)
+except ka.ApiError as e:
+    check("RM2445 : jeu courant inconnu → 404", e.code == 404)
+try:
+    ka.op_session_set_current({"group": "PAS UN SLUG"}, {"user": None})
+    check("RM2445 : slug invalide → 400", False)
+except ka.ApiError as e:
+    check("RM2445 : slug invalide → 400", e.code == 400)
+
+# les fantômes SUIVENT le jeu courant (c'est tout l'objet de la bascule)
+LIVE.clear()                                   # les deux sessions s'arrêtent
+check("RM2445 : fantômes du jeu courant (A)",
+      {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"6001"})
+ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
+check("RM2445 : bascule ⇒ les fantômes changent (B)",
+      {g["rm_id"] for g in ka._ghost_sessions({"user": None})} == {"6002"})
+
+# une bascule ne touche AUCUN tmux : rien n'est tué, rien n'est lancé
+SPAWNED.clear(); ALIVE.clear(); ALIVE.update({"6001"})
+LIVE.update({"6001": {"engine": "claude", "session_id": "uuid-6001", "cwd": "/zfs/x", "model": None}})
+ka.op_session_set_current({"group": "chantier-a"}, {"user": None})
+ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
+check("RM2445 : basculer ne tue ni ne lance aucune session",
+      SPAWNED == [] and ALIVE == {"6001"} and set(LIVE) == {"6001"})
+
+# une session VIVANTE d'un autre jeu reste visible, marquée de son appartenance
+view = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None})}
+check("RM2445 : la vivante d'un autre jeu n'est pas masquée", "6001" in view)
+check("RM2445 : elle porte ses jeux et le fait qu'elle est hors du courant",
+      view["6001"]["sets"] == ["chantier-a"]
+      and view["6001"]["set_labels"] == ["Chantier A"]
+      and view["6001"]["in_current"] is False)
+
+# une session peut appartenir à PLUSIEURS jeux ; la retirer d'un jeu la laisse dans l'autre
+ka.op_session_set_save({"group": "chantier-b", "sids": ["6001"]}, {"user": None})
+check("RM2445 : une session peut être dans deux jeux",
+      set(ka._sessions_view({}, {"user": None})[0]["sets"]) == {"chantier-a", "chantier-b"})
+ka.op_session_set_delete({"group": "chantier-b", "sid": "6001"}, {"user": None})
+check("RM2445 : retirée d'un jeu, elle reste dans l'autre",
+      ka._sessions_view({}, {"user": None})[0]["sets"] == ["chantier-a"])
+
+# adhésion automatique : le statut fait ENTRER, jamais SORTIR (invariant RM2439)
+ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
+avant_b = {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]}
+LIVE["6003"] = {"engine": "claude", "session_id": "uuid-6003", "cwd": "/zfs/z", "model": None}
+ka._auto_join_current_set("6003", {"user": None})
+apres_b = {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]}
+check("RM2445 : une session lancée rejoint le jeu courant", apres_b == avant_b | {"6003"})
+ka._auto_join_current_set("6003", {"user": None})
+check("RM2445 : adhésion idempotente (pas de doublon)",
+      len(ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]) == len(apres_b))
+del LIVE["6003"]                                   # la session s'arrête
+check("RM2445 : une session arrêtée RESTE dans le jeu (tuile grise, RM2439)",
+      "6003" in {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]})
+check("RM2445 : le jeu voisin n'a pas bougé",
+      {e["sid"] for e in ka.op_session_set_get({"group": "chantier-a"}, {"user": None})["entries"]} == {"6001"})
+
+# une écriture ADDITIVE n'archive pas (sinon lancer 10 sessions viderait l'historique)
+def _derniere_version():
+    v = ka._history_versions()
+    return v[0][0] if v else None
+
+avant = _derniere_version()
+LIVE["6004"] = {"engine": "claude", "session_id": "uuid-6004", "cwd": "/zfs/w", "model": None}
+ka._auto_join_current_set("6004", {"user": None})
+ka.op_session_set_current({"group": "chantier-a"}, {"user": None})
+check("RM2445 : adhésion et bascule n'entament pas l'historique",
+      _derniere_version() == avant)
+ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
+ka.op_session_set_delete({"group": "chantier-b", "sid": "6004"}, {"user": None})
+check("RM2445 : une écriture DESTRUCTRICE archive toujours",
+      _derniere_version() != avant)
+
+# jeu courant effacé ⇒ retombée sur `default`, jamais de contexte orphelin
+ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
+ka.op_session_set_delete({"group": "chantier-b"}, {"user": None})
+check("RM2445 : jeu courant effacé → retour à `default`",
+      ka._current_set("superadmin") == "default")
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

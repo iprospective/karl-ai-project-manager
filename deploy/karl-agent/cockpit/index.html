@@ -1186,8 +1186,16 @@ let currentView = "set";                        // RM2446 : set | live | all | c
 let setFacets = { clients: [], marks: [] };     // RM2452 : clients/projets connus
 let ruleFormFor = null;                         // jeu dont on édite la règle ("__new__" = création)
 // RM2448 : groupes repliés (persistés) et mode sélection
-let collapsedGroups = new Set();
-try { collapsedGroups = new Set(JSON.parse(localStorage.getItem("karlCollapsed") || "[]")); } catch (e) { /* pas de storage */ }
+// RM2452 : « hors du jeu courant » est REPLIÉ par défaut — c'est un rappel de
+// sécurité (ne jamais escamoter un processus qui tourne), pas le sujet du
+// moment. On ne le force qu'à la PREMIÈRE visite : dès que l'opérateur a plié ou
+// déplié quoi que ce soit, sa liste fait foi et le groupe reste comme il l'a
+// laissé.
+let collapsedGroups = new Set([OTHER_SETS_GROUP]);
+try {
+  const raw = localStorage.getItem("karlCollapsed");
+  if (raw !== null) collapsedGroups = new Set(JSON.parse(raw));
+} catch (e) { /* pas de storage */ }
 let selMode = false;
 const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]

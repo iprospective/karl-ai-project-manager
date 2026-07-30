@@ -35,6 +35,11 @@ l'absence de `sids` veut dire « rien » (et non « toutes les vivantes », sens
 `save` conserve depuis RM2439) ; 409 sur jeu existant ; compteur de sessions
 ouvertes par jeu.
 
+RM2448 — SCINDER un jeu : `create {move_from}` retire les sid retenus du jeu
+source dans la même écriture que la création du nouveau (atomicité), avec
+archivage puisqu'un split retire quelque chose ; les réglages de l'entrée
+suivent la session, et les sid absents du source sont ignorés sans erreur.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -832,6 +837,53 @@ del LIVE["8002"]
 s = next(x for x in ka.op_session_sets_list({}, {"user": None})["sets"] if x["name"] == "neuf-vide")
 check("RM2447 : le jeu expose ses sessions ouvertes et son total",
       s["alive"] == 1 and s["count"] == 2)
+
+# ── RM2448 : SCINDER un jeu (create + move_from), atomique ───────────────────
+LIVE.clear()
+LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/s", "model": None}
+             for s in ("9001", "9002", "9003")})
+ka.op_session_set_create({"group": "fourre-tout", "label": "Fourre-tout",
+                          "sids": ["9001", "9002", "9003"]}, {"user": None})
+ka.op_session_set_restart({"group": "fourre-tout", "sid": "9002", "restart": "auto"}, {"user": None})
+avant = ka._derniere_version() if hasattr(ka, "_derniere_version") else None
+v_avant = ka._history_versions()[0][0] if ka._history_versions() else None
+
+r = ka.op_session_set_create({"group": "scission", "label": "Scission",
+                              "sids": ["9002", "9003"], "move_from": "fourre-tout"},
+                             {"user": None})
+check("RM2448 : le nouveau jeu contient exactement la sélection",
+      {e["sid"] for e in r["entries"]} == {"9002", "9003"} and sorted(r["moved"]) == ["9002", "9003"])
+check("RM2448 : le jeu source ne les a plus, et garde le reste",
+      {e["sid"] for e in ka.op_session_set_get({"group": "fourre-tout"}, {"user": None})["entries"]} == {"9001"})
+check("RM2448 : les réglages de l'entrée suivent la session (pas un instantané neuf)",
+      next(e for e in r["entries"] if e["sid"] == "9002")["restart"] == "auto")
+check("RM2448 : un split ARCHIVE (il retire quelque chose)",
+      ka._history_versions() and ka._history_versions()[0][0] != v_avant)
+check("RM2448 : les sessions scindées tournent toujours",
+      {"9002", "9003"} <= set(LIVE))
+
+# création simple : n'archive pas
+v = ka._history_versions()[0][0]
+ka.op_session_set_create({"group": "sans-split", "sids": ["9001"]}, {"user": None})
+check("RM2448 : une création SANS split n'archive pas",
+      ka._history_versions()[0][0] == v)
+
+for bad, code, why in (
+        ({"group": "x1", "sids": ["9001"], "move_from": "jamais-vu"}, 404, "source inconnue"),
+        ({"group": "x2", "sids": ["9001"], "move_from": "x2"}, 400, "source == jeu créé")):
+    try:
+        ka.op_session_set_create(bad, {"user": None})
+        check(f"RM2448 : {why} → {code}", False)
+    except ka.ApiError as e:
+        check(f"RM2448 : {why} → {code}", e.code == code)
+
+# un sid absent du jeu source est ignoré (il peut être vivant hors jeu)
+r = ka.op_session_set_create({"group": "tolerant", "sids": ["9001", "9002"],
+                              "move_from": "fourre-tout"}, {"user": None})
+check("RM2448 : sid absent du source ignoré sans erreur",
+      r["moved"] == ["9001"] and {e["sid"] for e in r["entries"]} == {"9001", "9002"})
+check("RM2448 : le jeu source vidé de sa part, sans casse",
+      ka.op_session_set_get({"group": "fourre-tout"}, {"user": None})["count"] == 0)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

@@ -1582,7 +1582,13 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     pouvait pas porter les deux sens sans rendre les deux illisibles — d'où deux
     verbes plutôt qu'un drapeau.
 
-    Créer n'est pas écraser : un jeu déjà présent ⇒ 409, l'existant intact."""
+    Créer n'est pas écraser : un jeu déjà présent ⇒ 409, l'existant intact.
+
+    RM2448 — `move_from` SCINDE : les `sids` retenus quittent le jeu source dans
+    la MÊME écriture que la création du nouveau. Un split à mi-chemin (nouveau
+    jeu créé mais source pas nettoyée, ou l'inverse) laisserait un état
+    incohérent. Un split retire quelque chose : il ARCHIVE (RM2443), là où une
+    création simple ne le fait pas."""
     user = _session_set_user(auth_ctx)
     group = _session_set_group(payload.get("group"))
     label = str(payload.get("label") or "").strip()
@@ -1599,6 +1605,24 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     if len(entries) > SESSION_SET_MAX:
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)})")
+    # RM2448 — split : retrait des sid retenus du jeu source, dans cette écriture
+    src = payload.get("move_from")
+    moved = []
+    if src is not None:
+        src = _session_set_group(src)
+        if src == group:
+            raise ApiError(400, "move_from ne peut pas être le jeu créé lui-même")
+        src_rec = _session_set_get(store, user, src)
+        if not src_rec:
+            raise ApiError(404, f"aucun jeu enregistré ({user}/{src})")
+        kept = [e for e in (src_rec.get("entries") or []) if e.get("sid") not in wanted]
+        moved = [e.get("sid") for e in (src_rec.get("entries") or []) if e.get("sid") in wanted]
+        # les entrées du SOURCE font foi : elles portent titre et politique de
+        # reprise déjà réglés, que l'instantané des vivantes ne connaît pas
+        by_sid = {e["sid"]: e for e in entries}
+        entries = [dict(e) for e in (src_rec.get("entries") or []) if e.get("sid") in wanted]
+        entries += [e for sid, e in by_sid.items() if sid not in set(moved)]
+        src_rec["entries"] = kept
     rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
            "autostart": True, "entries": entries}
     if label:
@@ -1608,9 +1632,11 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     # rebascule en vue « jeu » (une vue ne reçoit rien — RM2446)
     u = store.setdefault("users", {}).setdefault(user, {})
     u["current"], u["view"] = group, "set"
-    _write_session_set(store, archive=False)     # création : rien n'est perdu
+    # une création n'ôte rien (archive=False) ; un split, si (RM2443)
+    _write_session_set(store, archive=bool(moved))
     return {"user": user, "group": group, "label": rec.get("label") or group,
-            "count": len(entries), "current": group, "entries": entries}
+            "count": len(entries), "current": group, "entries": entries,
+            "moved_from": src if moved else None, "moved": moved}
 
 
 def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:

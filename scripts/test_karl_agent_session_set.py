@@ -30,6 +30,11 @@ courant : une vue n'affiche, elle ne reçoit rien — le jeu courant reste la ci
 des écritures. Plus la séparation ⊖ (retirer du jeu, la session tourne toujours)
 vs ✕ (fermer la session), et le marquage des sessions hors de tout jeu.
 
+RM2447 — création d'un jeu VIDE : verbe `create` distinct de `save`, où
+l'absence de `sids` veut dire « rien » (et non « toutes les vivantes », sens que
+`save` conserve depuis RM2439) ; 409 sur jeu existant ; compteur de sessions
+ouvertes par jeu.
+
 RM2443 — historique : archivage de l'état courant avant chaque écriture (avec
 dédoublonnage et rotation `keep`), et restauration CHIRURGICALE d'un seul jeu
 depuis une version — les autres jeux ne bougent pas. Dégradations couvertes :
@@ -775,6 +780,58 @@ ka.op_session_set_current({"view": "live"}, {"user": None})
 check("RM2446 : en vue `live`, aucune vivante n'est reléguée « hors du jeu courant »",
       all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
 ka.op_session_set_current({"view": "set"}, {"user": None})
+
+# ── RM2447 : créer un jeu VIDE par défaut (verbe distinct de `save`) ──────────
+# `save` traite `sids` vide comme « toutes les vivantes » (garde-fou RM2439) :
+# aucun chemin ne permettait donc de créer un jeu vide. Le verbe `create` donne à
+# l'absence de `sids` le sens INVERSE — rien — sans toucher à celui de `save`.
+LIVE.clear()
+LIVE.update({
+    "8001": {"engine": "claude", "session_id": "uuid-8001", "cwd": "/zfs/m", "model": None},
+    "8002": {"engine": "claude", "session_id": "uuid-8002", "cwd": "/zfs/n", "model": None},
+})
+r = ka.op_session_set_create({"group": "neuf-vide", "label": "Jeu neuf"}, {"user": None})
+check("RM2447 : sans `sids`, le jeu naît VIDE", r["count"] == 0 and r["entries"] == [])
+check("RM2447 : le jeu créé devient courant, en vue `jeu`",
+      ka._current_set("superadmin") == "neuf-vide" and ka._current_view("superadmin") == "set")
+check("RM2447 : il est bien listé, à zéro entrée",
+      next(s for s in ka.op_session_sets_list({}, {"user": None})["sets"]
+           if s["name"] == "neuf-vide")["count"] == 0)
+check("RM2447 : un jeu vide n'expose aucune tuile grise",
+      ka._ghost_sessions({"user": None}) == [])
+
+r = ka.op_session_set_create({"group": "neuf-plein", "sids": ["8001"]}, {"user": None})
+check("RM2447 : avec `sids`, le jeu naît avec exactement ces sessions",
+      [e["sid"] for e in r["entries"]] == ["8001"])
+check("RM2447 : à défaut de libellé, le slug fait office", r["label"] == "neuf-plein")
+
+try:
+    ka.op_session_set_create({"group": "neuf-plein", "sids": ["8002"]}, {"user": None})
+    check("RM2447 : jeu déjà existant → 409", False)
+except ka.ApiError as e:
+    check("RM2447 : jeu déjà existant → 409", e.code == 409)
+check("RM2447 : et l'existant n'a pas bougé",
+      [e["sid"] for e in ka.op_session_set_get({"group": "neuf-plein"}, {"user": None})["entries"]] == ["8001"])
+for bad, code, why in (({"group": "PAS UN SLUG"}, 400, "slug invalide"),
+                       ({"group": "libelle-long", "label": "x" * (ka.SET_LABEL_MAX + 1)}, 400, "libellé trop long"),
+                       ({"group": "sids-pas-liste", "sids": "8001"}, 400, "sids non-liste")):
+    try:
+        ka.op_session_set_create(bad, {"user": None})
+        check(f"RM2447 : {why} → {code}", False)
+    except ka.ApiError as e:
+        check(f"RM2447 : {why} → {code}", e.code == code)
+
+# non-régression RM2439 : `save` garde le sens INVERSE pour un `sids` vide
+ka.op_session_set_current({"group": "neuf-vide"}, {"user": None})
+r = ka.op_session_set_save({"group": "neuf-vide", "sids": []}, {"user": None})
+check("RM2447 : `save` avec sids vide enregistre toujours toutes les vivantes (RM2439)",
+      {e["sid"] for e in r["entries"]} == {"8001", "8002"})
+
+# RM2447 : la liste dit, par jeu, combien de sessions sont OUVERTES
+del LIVE["8002"]
+s = next(x for x in ka.op_session_sets_list({}, {"user": None})["sets"] if x["name"] == "neuf-vide")
+check("RM2447 : le jeu expose ses sessions ouvertes et son total",
+      s["alive"] == 1 and s["count"] == 2)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

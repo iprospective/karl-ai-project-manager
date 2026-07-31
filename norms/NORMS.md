@@ -1,10 +1,10 @@
 ---
-schema_version: "1.64.0"
+schema_version: "1.65.0"
 updated: 2026-07-29
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.64.0
+# Normes de gestion des tâches — v1.65.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -44,6 +44,7 @@ updated: 2026-07-29
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
+| je diagnostique un incident / il me faut l'historique de charge d'une machine du parc | **tripwire #15** + `knowledge/zabbix/api.md` | API JSON-RPC, `ZABBIX_API_TOKEN` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
@@ -75,6 +76,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
 14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
+15. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : historique CPU/charge/réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident à partir des seuls logs de la machine** — les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être : un service engorgé cesse d'écrire (Apache journalise en **fin** de requête ; rsyslog affamé n'écrit plus), ce qui **imite une panne réseau**. Un agent local qui « mesure » quelque chose n'est pas une source fiable tant que Zabbix ne le corrobore pas. (incident RM2455, 2026-07-30 : deux diagnostics successifs — coupure amont OVH, puis saturation CPU sur la foi d'un agent local annonçant 97,51 % — **tous deux réfutés** par Zabbix, qui mesurait 14,2 % de CPU max ; la vraie cause — pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers` — a été obtenue en **trois requêtes** Zabbix.) → `knowledge/zabbix/api.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 

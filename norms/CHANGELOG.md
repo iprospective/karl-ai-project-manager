@@ -1,5 +1,22 @@
 # Changelog des normes
 
+## [1.65.0] - 2026-07-31
+
+### Ajouté
+- **KERNEL — tripwire #15 « Métriques avant conclusion (incidents) »** + ligne de
+  déclencheur associée renvoyant à `knowledge/zabbix/api.md`. Le parc est supervisé par
+  Zabbix (API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) mais **rien dans le KERNEL n'y
+  renvoyait** : un agent diagnostiquant un incident n'avait aucune raison de savoir que
+  des métriques historiques existaient, et concluait sur les seuls logs de la machine.
+  Principe posé : les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu**
+  l'être — un service engorgé cesse d'écrire (Apache journalise en fin de requête,
+  rsyslog affamé n'écrit plus), ce qui imite une panne réseau ; et un agent local qui
+  « mesure » quelque chose n'est pas fiable tant que Zabbix ne le corrobore pas.
+  Motif : **RM2455** (2026-07-30) — deux diagnostics successifs publiés puis réfutés
+  (coupure amont OVH ; puis saturation CPU sur la foi d'un agent local annonçant 97,51 %,
+  quand Zabbix mesurait 14,2 % max), avant que trois requêtes Zabbix ne donnent la cause
+  réelle (pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers`). (RM2463)
+
 ## [1.64.0] - 2026-07-30
 
 ### Ajouté

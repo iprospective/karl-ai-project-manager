@@ -110,6 +110,11 @@ API (JSON, localhost:9876)
                                   commande du catalogue (allowlist, args
                                   validés par type, argv sans shell,
                                   runs mutants journalisés pm-runs.jsonl)
+  POST /mr/deliver {rm_id, confirm}
+                                → {rc, ok, branch, target, stdout, stderr} —
+                                  livre la branche du ticket (MR + merge → dev)
+                                  pour débloquer un verdict bloqué par la merge
+                                  gate RM2319 (RM2355)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
   POST /monitor   {rm_id, preset, orientation?} → split-window moniteur (RM1893 §3)
   POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
@@ -4449,6 +4454,74 @@ def op_pm_run(payload: dict) -> dict:
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
 
 
+def _mr_deliver_context(rm_id: str):
+    """Résout (bare_code, branche_source, intégration) d'un ticket pour livrer sa
+    MR SANS dépendre d'un worktree (RM2355) : projet de code depuis le bare
+    `repos/<name>.git` du workspace, branche depuis le frontmatter `git.branch`,
+    cible depuis `integration_branch` du manifeste (défaut dev). Pur API : la
+    branche est déjà sur origin (poussée pendant le travail), aucun checkout requis."""
+    if not rm_id.isdigit():
+        raise ApiError(400, "rm_id invalide")
+    tf = _find_task_file(rm_id)
+    if not tf:
+        raise ApiError(404, f"RM{rm_id} : ticket inconnu en local")
+    ws = _resolve_workspace(tf.parent.parent)
+    if not ws:
+        raise ApiError(400, f"RM{rm_id} : workspace de code introuvable")
+    fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+    git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+    branch = git.get("branch")
+    if not branch:
+        raise ApiError(400, f"RM{rm_id} : aucune branche au frontmatter (git.branch) — "
+                            "ticket jamais démarré (pm-branch-start) ?")
+    try:
+        meta = yaml_safe_load((ws / ".mmi-pm" / "meta.yml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        meta = {}
+    repos = meta.get("repos") or []
+    if len(repos) != 1:
+        raise ApiError(400, f"RM{rm_id} : livraison auto réservée au mono-repo "
+                            f"({len(repos)} repo(s) au manifeste)")
+    name = repos[0].get("name")
+    integration = repos[0].get("integration_branch") or "dev"
+    bare = ws / "repos" / f"{name}.git"
+    if not bare.is_dir():
+        raise ApiError(400, f"RM{rm_id} : bare de code introuvable ({bare})")
+    return bare, str(branch), str(integration)
+
+
+def op_mr_deliver(payload: dict) -> dict:
+    """RM2355 : livre la branche d'un ticket — crée la MR <branche>→intégration et
+    la merge — pour débloquer un verdict « testé OK » que la merge gate RM2319
+    refuse (branche non mergée dans dev). Enchaîne `pm-mr create --merge` en pur
+    API (aucun checkout de la branche) ; la transition de statut du verdict reste
+    au JS appelant, qui la rejoue une fois la branche mergée (RM2319 la laisse
+    alors passer). single-writer : sous-process pm-mr, jamais de shell."""
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    rm_id = str(payload.get("rm_id") or "")
+    bare, branch, integration = _mr_deliver_context(rm_id)
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    argv = [sys.executable, str(script), "create", rm_id,
+            "--repo", str(bare), "--source", branch, "--target", integration, "--merge"]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=180,
+                           cwd=str(REPO_ROOT))
+    except subprocess.TimeoutExpired:
+        raise ApiError(500, "mr-deliver : timeout (180 s)")
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-deliver",
+                                "args": {"rm_id": rm_id, "branch": branch, "target": integration},
+                                "rc": r.returncode}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # le journal ne doit jamais faire échouer le run
+    return {"name": "mr-deliver", "rc": r.returncode, "ok": r.returncode == 0,
+            "branch": branch, "target": integration,
+            "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -4818,6 +4891,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/mr/deliver":
+                return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})

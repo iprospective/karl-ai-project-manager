@@ -182,9 +182,9 @@ def cmd_create(args, token):
     rpath = repo_path_from_remote(repo)
     pid, proj = resolve_project_id(token, rpath)
     out.info(f"→ projet {proj['path_with_namespace']} (id {pid})")
-    src = current_branch(repo)
+    src = args.source or current_branch(repo)
     if src in ("HEAD", ""):
-        sys.exit("ERREUR : HEAD détaché — pas de branche courante.")
+        sys.exit("ERREUR : HEAD détaché — pas de branche courante (ou --source vide).")
     # Garde anti-prédiction d'id (RM2224, tripwire #13) : une MR de ticket doit
     # partir d'une branche `<RMid>-…` du MÊME id. Une branche préfixée d'un autre
     # id = id deviné/erroné (incident RM2222 sur branche 2219-*) → refus.
@@ -358,6 +358,10 @@ def main():
     pc = sub.add_parser("create", help="push + crée/réutilise la MR + CF")
     pc.add_argument("rm_id", type=int)
     pc.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pc.add_argument("--source", help="branche source explicite (défaut : branche courante "
+                                     "du --repo). Permet de créer la MR d'un ticket sans "
+                                     "checkout de sa branche — ex. depuis le bare + --no-push "
+                                     "(la branche est déjà sur origin). RM2355.")
     pc.add_argument("--target", help="branche cible (défaut : intégration / dev)")
     pc.add_argument("--title")
     pc.add_argument("--description")

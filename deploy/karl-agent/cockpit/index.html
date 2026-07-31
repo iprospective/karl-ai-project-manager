@@ -3215,6 +3215,13 @@ async function pmRun(name, args, opts) {
   if (opts && opts.confirm) body.confirm = true;
   return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
+// RM2355 : livre la branche du ticket (MR + merge → dev) pour débloquer un
+// verdict refusé par la merge gate RM2319. La transition de statut reste au
+// verdict appelant, rejoué ensuite (la gate laisse alors passer).
+async function mrDeliver(rm) {
+  return api("/mr/deliver", { method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ rm_id: String(rm), confirm: true }) });
+}
 let tqAll = [];   // file brute (le rendu applique filtres + tri, RM2210)
 let tqLoaded = false; // RM2238 : la file /pm/test-queue a-t-elle été chargée au moins une fois ?
 async function loadTestQueue() {
@@ -3379,6 +3386,20 @@ async function tqVerdict(rm, kind, btn) {
           "Forcer quand même " + v.status + " (items hors périmètre / différés) ?")) {
         args.allow_unchecked = true;
         r = await pmRun("task-status", args, { confirm: true });
+      }
+    }
+    // Merge gate RM2319 : branche non livrée dans dev → livrer (MR + merge) puis
+    // rejouer le verdict, au lieu d'un échec sec à recopier en CLI (RM2355).
+    if (!r.ok && /non mergée|RM2319/.test((r.stdout || "") + (r.stderr || ""))) {
+      if (window.confirm("RM" + rm + " : la branche du ticket n'est pas mergée dans dev.\n" +
+          "Livrer maintenant (MR + merge dans dev) puis passer " + v.status + " ?")) {
+        toast("RM" + rm + " : livraison (MR + merge)…");
+        const d = await mrDeliver(rm);
+        if (d.ok) {
+          r = await pmRun("task-status", args, { confirm: true });   // gate franchie
+        } else {
+          showCaptureModal("Livraison RM" + rm + " — ÉCHEC", (d.stdout || "") + "\n" + (d.stderr || ""));
+        }
       }
     }
     toast(r.ok ? "RM" + rm + " → " + v.status : "Échec (rc=" + r.rc + ")", !r.ok);

@@ -66,6 +66,24 @@ def _secrets_env(pm_dir: Path) -> Optional[Path]:
     return None
 
 
+def _user_env() -> Optional[Path]:
+    """`.env` de secrets PROPRE à l'utilisateur courant — identité par dev (T1/RM2497).
+
+    Porte la clé API Redmine perso (`REDMINE_API_KEY`) et les tokens forge du dev.
+    Il est chargé AVANT le `.env` d'instance et le prime donc (car `_load_env_file`
+    n'écrase pas l'existant → priorité : env de session > user > instance).
+    Résolution : override `PM_USER_ENV`, sinon `$XDG_CONFIG_HOME/mmi-pm/.env`,
+    sinon `~/.config/mmi-pm/.env`. `None` si absent (→ fallback karl, rétrocompat)."""
+    override = os.environ.get("PM_USER_ENV")
+    if override:
+        cand = Path(override).expanduser()
+        return cand if cand.is_file() else None
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    cand = base / "mmi-pm" / ".env"
+    return cand if cand.is_file() else None
+
+
 def _expand_env(value: str) -> str:
     """Résout `${VAR}` et `${VAR:-default}` dans une chaîne."""
     if not isinstance(value, str):
@@ -103,7 +121,12 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge le .env de secrets (pm_dir si présent, sinon core via PM_CORE_DIR)
+        # 2. Charge les secrets. D'ABORD le .env utilisateur (identité par dev,
+        #    RM2497) — prioritaire car _load_env_file n'écrase pas l'existant —,
+        #    PUIS le .env d'instance (fallback : compte de service karl).
+        user_env = _user_env()
+        if user_env:
+            _load_env_file(user_env)
         env_file = _secrets_env(pm_dir)
         if env_file:
             _load_env_file(env_file)

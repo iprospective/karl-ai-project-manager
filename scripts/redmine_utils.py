@@ -160,11 +160,19 @@ def valid_statuses():
 
 
 def redmine_creds():
-    """Retourne (url, key). Sys.exit si manquants."""
+    """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
+
+    Identité par utilisateur (T1/RM2497) : préfère la clé perso du dev
+    (`REDMINE_API_KEY`, typiquement dans `~/.config/mmi-pm/.env`) ; à défaut,
+    retombe sur le compte de service karl (`REDMINE_USER_MAIN_API_KEY`) — pour les
+    tâches de fond (cron, promote) et la rétrocompat. Résolveur CANONIQUE unique :
+    tout script doit l'importer plutôt que relire les variables lui-même."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
-        sys.exit("ERREUR : REDMINE_URL et REDMINE_USER_MAIN_API_KEY requis (.env)")
+        sys.exit("ERREUR : REDMINE_URL + une clé API requis "
+                 "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
+                 "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
     return url, key
 
 

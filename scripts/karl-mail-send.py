@@ -17,7 +17,7 @@ Usage :
 
 Pré-requis :
 - vault-agentd actif (lance unlock-vault.sh sinon)
-- Item Vaultwarden : vaultwarden://iprospective/iprospective-agents/mail.iprospective.net
+- Item Vaultwarden : vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net
   (username = karl@iprospective.fr, password = mot de passe Postfix)
   Surchargeable par la variable KARL_MAIL_SECRET_URI.
   (username = karl@iprospective.fr, password = mot de passe Postfix)
@@ -38,13 +38,16 @@ from pm_paths import PMConfig
 
 SMTP_HOST = "mail.iprospective.net"
 SMTP_PORT = 465
-# Item Vaultwarden portant les identifiants SMTP. L'item s'appelle "mail.iprospective.net"
-# (son username est karl@iprospective.fr) — il n'existe PAS d'item nommé "karl" : bw
-# basculerait en recherche floue et échouerait sur "More than one result was found".
+# Item Vaultwarden portant les identifiants SMTP. Nom EXACT de l'item :
+# "karl@mail.iprospective.net" (convention <compte>@<service>)
+# Viser le nom EXACT est impératif : si le nom ne correspond a aucun item, bw bascule
+# en recherche FLOUE. Tant qu'un seul item correspond ca passe — et masque le probleme —
+# mais des qu'un second item contient la meme sous-chaine (ex. atlas@mail.iprospective.net),
+# l'appel echoue sur "More than one result was found". Vecu deux fois le 2026-08-01.
 # Surchargeable par KARL_MAIL_SECRET_URI (ex. dans le .env du repo PM).
 VAULT_URI = os.environ.get(
     "KARL_MAIL_SECRET_URI",
-    "vaultwarden://iprospective/iprospective-agents/mail.iprospective.net",
+    "vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net",
 )
 FROM_NAME = "Karl (iProspective Agent)"
 

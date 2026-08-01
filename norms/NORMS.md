@@ -2121,6 +2121,38 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
   courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
 
+#### Base de dev partagée entre worktrees : ne pas confondre avec une anomalie
+
+En layout worktrees (RM1993/RM2267), **les fichiers sont par branche mais la base
+de données de dev est partagée** par tous les worktrees du projet. Un module, une
+entité ou une configuration peut donc être **enregistré et actif en base** alors
+que **ses fichiers sont absents du worktree courant** — parce qu'ils vivent sur la
+branche d'un autre ticket, pas encore mergée.
+
+Cas réel (2026-08-01, `calicote/prestashop`) : un module apparaissait « installé,
+actif, 6 hooks » en base, avec **0 fichier sur disque**. Diagnostic tentant :
+module fantôme, enregistrement à nettoyer. **Faux** — ses fichiers étaient dans
+deux autres worktrees, sur des branches en cours.
+
+Le risque n'est pas la perte de temps : c'est de **« corriger » une fausse
+anomalie** en désinstallant un enregistrement légitime, et de casser le travail
+d'une autre session.
+
+> **Règle.** Avant de qualifier d'anomalie un écart **base ↔ fichiers**, chercher
+> les fichiers **dans les autres worktrees du projet** :
+>
+> ```bash
+> for d in <workspace>/envs/*/; do
+>   printf '%-34s %-40s %3s fichiers\n' "$(basename "$d")" \
+>     "$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)" \
+>     "$(find "$d/<chemin>" -type f 2>/dev/null | wc -l)"
+> done
+> ```
+>
+> S'ils y sont : ce n'est **pas** une anomalie, c'est du travail en cours sur une
+> autre branche. Ne rien toucher, et vérifier qu'aucun ticket n'est ouvert dessus
+> avant d'intervenir.
+
 #### Projets versionnés : branche de version active (base de branchement) — v1.20.0
 
 Certains projets ne suivent pas un simple modèle `prod`/`dev` mais une **famille

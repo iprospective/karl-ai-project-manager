@@ -245,7 +245,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
 def fetch_issue_basic(rm_id):
     """Récupère subject + author (id, name) du ticket. Retourne dict ou None."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -262,7 +262,7 @@ def fetch_issue_basic(rm_id):
 def fetch_user_email(user_id):
     """Récupère l'email d'un user Redmine via API. None si inaccessible (droits, 404…)."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -451,7 +451,7 @@ def list_next(rm_id):
     # Côté Redmine : statuts réellement posables par CE compte API sur CE ticket.
     allowed_ids = None
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if url and key:
         try:
             req = urllib.request.Request(

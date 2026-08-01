@@ -61,7 +61,7 @@ def push_cf(rm_id: int, text: str) -> bool:
               "(miroir frontmatter seul).", file=sys.stderr)
         return False
     base = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not base or not key:
         print("⚠ REDMINE_URL / clé API absents — CF non poussé.", file=sys.stderr)
         return False

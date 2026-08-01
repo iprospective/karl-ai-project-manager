@@ -17,7 +17,9 @@ Usage :
 
 Pré-requis :
 - vault-agentd actif (lance unlock-vault.sh sinon)
-- Item Vaultwarden : vaultwarden://iprospective/iprospective-agents/karl
+- Item Vaultwarden : vaultwarden://iprospective/iprospective-agents/mail.iprospective.net
+  (username = karl@iprospective.fr, password = mot de passe Postfix)
+  Surchargeable par la variable KARL_MAIL_SECRET_URI.
   (username = karl@iprospective.fr, password = mot de passe Postfix)
 """
 import argparse
@@ -25,6 +27,7 @@ import email.utils
 import smtplib
 import ssl
 import subprocess
+import os
 import sys
 from datetime import datetime
 from email.message import EmailMessage
@@ -35,7 +38,14 @@ from pm_paths import PMConfig
 
 SMTP_HOST = "mail.iprospective.net"
 SMTP_PORT = 465
-VAULT_URI = "vaultwarden://iprospective/iprospective-agents/karl"
+# Item Vaultwarden portant les identifiants SMTP. L'item s'appelle "mail.iprospective.net"
+# (son username est karl@iprospective.fr) — il n'existe PAS d'item nommé "karl" : bw
+# basculerait en recherche floue et échouerait sur "More than one result was found".
+# Surchargeable par KARL_MAIL_SECRET_URI (ex. dans le .env du repo PM).
+VAULT_URI = os.environ.get(
+    "KARL_MAIL_SECRET_URI",
+    "vaultwarden://iprospective/iprospective-agents/mail.iprospective.net",
+)
 FROM_NAME = "Karl (iProspective Agent)"
 
 
@@ -50,7 +60,12 @@ def resolve_secret(uri, field):
     if r.returncode == 3:
         sys.exit("ERREUR : vault-agentd non actif. Lance `scripts/unlock-vault.sh`.")
     if r.returncode != 0:
-        sys.exit(f"ERREUR resolve-secret ({r.returncode}) : {r.stderr.strip()}")
+        sys.exit(
+            f"ERREUR resolve-secret ({r.returncode}) sur {uri} : {r.stderr.strip()}\n"
+            f"  → si 'More than one result': l'item n'existe pas sous ce nom exact,\n"
+            f"    bw bascule en recherche floue. Vérifier le nom dans Vaultwarden ou\n"
+            f"    surcharger KARL_MAIL_SECRET_URI."
+        )
     return r.stdout.rstrip("\n")
 
 

@@ -90,3 +90,45 @@ mysql_local_init() {
 }
 mysql_local()    { mysql "${MYSQL_AUTH_ARGS[@]}" "$@"; }
 mysql_local_db() { mysql "${MYSQL_AUTH_ARGS[@]}" "$DB_TO" "$@"; }
+
+# run_post_adapt_hook → exécute le script d'adaptations propres au site, s'il est déclaré.
+#
+# Pourquoi : <type>_adapt_db couvre ce qui vaut pour tous les sites d'un même type (domaine,
+# SSL, mails, maintenance). Certains sites ont en plus des correctifs qui leur sont propres et
+# sans lesquels l'environnement local est inutilisable — chez Calicote, une valeur de
+# configuration corrompue d'un module fait tomber tout le front en 500 dès que le mode debug
+# est actif. Ces correctifs n'ont rien à faire dans une lib partagée, et la conf
+# d'environnement ne peut pas surcharger <type>_adapt_db (sync.sh la source AVANT la lib).
+#
+# Déclaration, dans la conf d'environnement :
+#   POST_ADAPT_HOOK="/home/workspaces/<projet>/tools/sync/post-sync-dev.sh"
+#
+# Le hook reçoit dans son environnement : DB_TO, DB_PREFIX, DOMAIN, EMAIL, WEBSITE_TYPE,
+# WEBSITE_PATH, SITE_DIR (= $WORKSPACE_ROOT/$WEBSITE_PATH), MYSQL_HOST, WORKSPACE_ROOT.
+# Il doit être idempotent : une synchro peut être relancée à tout moment.
+#
+# Un hook déclaré mais introuvable, ou qui échoue, produit un avertissement et n'interrompt
+# PAS la synchro : les données sont déjà importées et adaptées, mieux vaut un environnement
+# partiellement ajusté qu'un script qui s'arrête au milieu.
+run_post_adapt_hook() {
+  [ -n "${POST_ADAPT_HOOK:-}" ] || return 0
+
+  if [ ! -f "$POST_ADAPT_HOOK" ]; then
+    warn "POST_ADAPT_HOOK introuvable : $POST_ADAPT_HOOK — adaptations spécifiques NON appliquées."
+    return 0
+  fi
+
+  log "Adaptations spécifiques au site ($POST_ADAPT_HOOK)"
+
+  DB_TO="$DB_TO" \
+  DB_PREFIX="${DB_PREFIX:-}" \
+  DOMAIN="${DOMAIN:-}" \
+  EMAIL="${EMAIL:-}" \
+  WEBSITE_TYPE="$WEBSITE_TYPE" \
+  WEBSITE_PATH="${WEBSITE_PATH:-}" \
+  SITE_DIR="$WORKSPACE_ROOT/${WEBSITE_PATH:-}" \
+  MYSQL_HOST="$MYSQL_HOST" \
+  WORKSPACE_ROOT="$WORKSPACE_ROOT" \
+    bash "$POST_ADAPT_HOOK" \
+      || warn "POST_ADAPT_HOOK a échoué (code $?) — la synchro est terminée, mais vérifie l'environnement."
+}

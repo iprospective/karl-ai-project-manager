@@ -312,7 +312,11 @@ def update_task_fm(rm_id, deltas, model_used, log_entry=None):
     for k in ("input", "output", "cache_read", "cache_creation"):
         br[k] = (br.get(k) or 0) + int(deltas.get(k, 0) or 0)
     fm["tokens_breakdown"] = br
-    fm["tokens_total"] = sum(br.values())
+    # RM2519 : total = entrée + sortie uniquement. Le cache (lu/écrit) reste dans
+    # tokens_breakdown comme info complémentaire, mais HORS total (sinon la
+    # relecture de contexte, souvent >90 %, écrase la métrique). cost_total_usd
+    # reste calculé par catégorie (compute_cost_usd) — non impacté.
+    fm["tokens_total"] = (br.get("input") or 0) + (br.get("output") or 0)
     fm["cost_total_usd"] = round((fm.get("cost_total_usd") or 0) + float(deltas.get("cost_usd", 0) or 0), 6)
     fm["ai_time_total_minutes"] = (fm.get("ai_time_total_minutes") or 0) + float(deltas.get("ai_minutes", 0) or 0)
     fm["human_time_total_minutes"] = (fm.get("human_time_total_minutes") or 0) + float(deltas.get("human_minutes", 0) or 0)

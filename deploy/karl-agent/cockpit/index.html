@@ -2423,10 +2423,10 @@ function usageHtml(rmId) {
   else if (!u.turns) inner = '<span style="color:var(--muted)">transcript claude indisponible' +
     (u.engine && u.engine !== "claude" ? " (moteur " + esc(u.engine) + ")" : "") + '</span>';
   else inner =
-    '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(u.total) + '</span></div>' +
+    '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
     '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
     '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
-    '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
+    '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
     '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + '</span></div>' +
     '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>';
   return '<div class="ms"><h4>Session en direct <span style="text-transform:none;color:var(--muted)">(tokens)</span> ' +
@@ -2577,12 +2577,16 @@ function renderMeta() {
     if (m.tokens_total != null || m.cost_total_usd != null) {
       const bd = m.tokens_breakdown || {};
       const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
+      // RM2519 : total = entrée + sortie (le cache est complémentaire, hors total).
+      // Calculé depuis le breakdown → correct même sur les anciens tickets dont le
+      // tokens_total stocké incluait encore le cache (pas de recalcul rétroactif).
+      const tokTot = hasBd ? ((bd.input || 0) + (bd.output || 0)) : m.tokens_total;
       h += '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
-        '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(m.tokens_total) + '</span></div>' +
+        '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">' + fmtTokens(tokTot) + '</span></div>' +
         (hasBd ?
           '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
           '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
-          '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
+          '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
           : '') +
         '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
         '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +

@@ -175,6 +175,20 @@
   .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
   /* RM2427 : session ENREGISTRÉE non démarrée (« fantôme ») — pastille grise, tuile éteinte */
   .tdot.st-ghost { background: var(--muted); opacity: .5; }
+  /* RM2515 : disposition manuelle (ne s'applique visuellement que sur `idle`) —
+     couleur + icône (badge), jamais la couleur seule. « à traiter » = défaut orange. */
+  .tdot.disp-parke { background: var(--accent); }             /* parké : bleu */
+  .tdot.disp-termine { background: var(--muted); box-shadow: none; }  /* terminé : éteint */
+  .tdot.tdisp { cursor: pointer; }
+  .tdot.tdisp:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dispmenu { position: fixed; z-index: 60; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 3px; display: flex; flex-direction: column; min-width: 150px;
+    box-shadow: 0 6px 18px var(--shadow); }
+  .dispmenu button { text-align: left; background: none; border: 0; color: var(--fg);
+    font: inherit; padding: 6px 11px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .dispmenu button:hover { background: var(--accent-soft); }
+  .dispmenu button.on { color: var(--accent); font-weight: 600; }
+  .dispmenu .sep { border-top: 1px solid var(--line); margin: 3px 2px; }
   .runitem.ghost { opacity: .6; border-style: dashed; }
   .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
@@ -984,7 +998,9 @@ async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
     const { sessions } = await api("/sessions");
-    sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
+    // RM2515 : « terminé » (idle marqué à fermer) coule en bas ; sinon ordre stable par id.
+    const done = s => (s.state === "idle" && s.disposition === "termine") ? 1 : 0;
+    sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
     // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
     // si la session affichée a disparu (kill externe) → on détache la vue
@@ -1028,9 +1044,15 @@ async function refreshSessions() {
         if (s.ghost) { g.appendChild(renderGhostItem(s, r, it)); continue; }
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
+        // RM2515 : la disposition raffine `idle` (et CÈDE au live : nulle hors idle).
+        const disp = s.state === "idle" ? (s.disposition || "a_traiter") : null;
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
           : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
-          : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
+          : s.state === "idle"
+            ? (disp === "parke" ? '<span class="tbadge" title="parké — j\'y reviens">🔖</span>'
+               : disp === "termine" ? '<span class="tbadge" style="color:var(--ok)" title="terminé — rien à faire, à fermer">✅</span>'
+               : '<span class="tbadge" style="opacity:.55" title="à traiter">💤</span>')
+          : "";
         const auto = s.auto_yes_until
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
@@ -1041,7 +1063,9 @@ async function refreshSessions() {
             ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
               esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>'
             : '<span class="tbadge" style="opacity:.5" title="cette session ne figure dans aucun jeu enregistré">hors jeu</span>';
-        it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
+        it.innerHTML = '<span class="tdot tdisp st-' + esc(s.state || "idle") +
+          (disp && disp !== "a_traiter" ? " disp-" + disp : "") +
+          '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + auto +
@@ -1066,6 +1090,8 @@ async function refreshSessions() {
         it.querySelector(".tkill:not(.tdrop)").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
         const ty = it.querySelector(".tyes");     // RM2302 : « Oui » direct depuis la liste
         if (ty) ty.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
+        const dd = it.querySelector(".tdisp");    // RM2515 : clic pastille → menu disposition (n'attache pas)
+        if (dd) dd.onclick = (e) => { e.stopPropagation(); openDispositionMenu(s, dd); };
         g.appendChild(it);
       }
       list.appendChild(g);
@@ -3508,6 +3534,36 @@ async function spawn() {
   } finally {
     btn.disabled = false; btn.textContent = "▶ Lancer & attacher";
   }
+}
+// RM2515 : menu de disposition d'une session (à traiter / parké / terminé) + raccourci
+// fermer. Popover ancré sur la pastille ; clic ailleurs (ou choix) le referme.
+function closeDispMenu() { const m = document.getElementById("dispmenu"); if (m) m.remove(); }
+function openDispositionMenu(s, anchor) {
+  closeDispMenu();
+  const cur = s.disposition || "a_traiter";
+  const opts = [["a_traiter", "🟠 à traiter"], ["parke", "🔖 parké"], ["termine", "✅ terminé"]];
+  const m = document.createElement("div");
+  m.className = "dispmenu"; m.id = "dispmenu";
+  m.innerHTML = opts.map(([v, l]) => '<button data-v="' + v + '"' + (v === cur ? ' class="on"' : '') +
+    '>' + l + '</button>').join("") +
+    '<div class="sep"></div><button data-kill="1">✕ fermer la session</button>';
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px";
+  m.style.top = Math.round(r.bottom + 4) + "px";
+  m.querySelectorAll("button").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    if (b.dataset.kill) { closeDispMenu(); kill(s.rm_id); return; }
+    setDisposition(s.rm_id, b.dataset.v); closeDispMenu();
+  });
+  setTimeout(() => document.addEventListener("click", closeDispMenu, { once: true }), 0);
+}
+async function setDisposition(rmId, disposition) {
+  try {
+    await api("/disposition", { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ rm_id: String(rmId), disposition }) });
+  } catch (e) { toast(e.message, true); }
+  refreshSessions();
 }
 async function kill(rmId) {
   if (!confirm("Fermer la session " + tmuxName(rmId) + " ? (le travail non sauvé est perdu)")) return;

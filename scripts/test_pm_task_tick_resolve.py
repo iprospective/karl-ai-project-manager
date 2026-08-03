@@ -17,6 +17,13 @@ _spec = importlib.util.spec_from_file_location("pm_task_tick", str(_HERE / "pm-t
 tick = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tick)
 
+# Hermétique (RM2524) : `_pick_from_events` écarte les tickets FERMÉS via `_is_closed`,
+# qui lit le statut LIVE réel (PMConfig.find_task). Sans ça le test dérive au fil des
+# fermetures (un id ouvert à l'écriture devient fermé → cas cassé). On pilote donc
+# l'ensemble des « fermés » localement — défaut : aucun (tous ouverts).
+_CLOSED = set()
+tick._is_closed = lambda rm_id: rm_id in _CLOSED
+
 
 # ── Helpers de construction de transcript synthétique ───────────────────────
 def human(text):
@@ -116,6 +123,28 @@ def _():
     rid, _r = resolve([human("crée"),
                        a_bash("pm-task-add.py --project iprospective/pm-ai-agents --title 'Setup CI 2024'")])
     assert rid is None, rid
+
+
+@case("RM2053 : tour touchant fermé + ouvert → ticke l'ouvert")
+def _():
+    _CLOSED.add(3333)
+    try:
+        rid, _r = resolve([human("x"),
+                           a_bash("pm-task-comment.py 3333 --note ferme"),
+                           a_bash("pm-task-comment.py 4444 --note ouvert"), tool_result()])
+        assert rid == 4444, rid
+    finally:
+        _CLOSED.discard(3333)
+
+
+@case("RM2053 : tour ne touchant que du fermé → aucune attribution")
+def _():
+    _CLOSED.add(3333)
+    try:
+        rid, _r = resolve([human("x"), a_bash("pm-task-comment.py 3333 --note ferme"), tool_result()])
+        assert rid is None, rid
+    finally:
+        _CLOSED.discard(3333)
 
 
 if __name__ == "__main__":

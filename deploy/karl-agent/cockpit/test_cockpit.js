@@ -374,4 +374,14 @@ assert.strictEqual(effDisposition("attention", "parke"), null, "attention → nu
 assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
 console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
 
+// — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
+const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
+assert(fmFrz, "marqueurs >>> sortFrozen / <<< sortFrozen introuvables");
+const sortFrozen = vm.runInNewContext("(" + fmFrz[1] + ")");
+assert.strictEqual(sortFrozen(false, true, 0), false, "ordre stable → jamais gelé");
+assert.strictEqual(sortFrozen(true, true, 99999), true, "dynamique + survol → gelé");
+assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement récent (<2s) → gelé");
+assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
+console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
+
 console.log("OK — tous les tests cockpit passent");

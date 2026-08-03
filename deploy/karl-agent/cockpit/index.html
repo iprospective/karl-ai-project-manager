@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
+<!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
+     cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
+     terminal doit être prêt avant le premier attach. -->
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/addon-fit.js"></script>
+<script src="/static/vendor/addon-unicode11.js"></script>
+<script src="/static/karl-term.js"></script>
 <!-- icône inline (data-URI) : karl-agent ne sert que index.html, pas de statique.
      Source éditable : cockpit/karl-icon.svg (régénérer l'URI si modifiée). -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230b0e14'/%3E%3Crect%20x='2'%20y='2'%20width='60'%20height='60'%20rx='12'%20fill='none'%20stroke='%23233044'%20stroke-width='2'/%3E%3Cpath%20d='M21%2015v34M21%2032l16-16M23%2034l17%2015'%20stroke='%234ea1ff'%20stroke-width='7'%20stroke-linecap='round'%20fill='none'/%3E%3Ccircle%20cx='48'%20cy='18'%20r='5'%20fill='%233ad29f'/%3E%3C/svg%3E">
@@ -126,6 +134,11 @@
     background: var(--panel); border-bottom: 1px solid var(--line); }
   .termbar .title { font-family: var(--mono); font-size: 13px; }
   iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
+  /* RM2522 : hôte du client terminal maison (remplace l'iframe ttyd). L'iframe
+     reste dans le DOM comme repli si le bundle xterm ne charge pas. */
+  #termhost { flex: 1; width: 100%; min-height: 0; background: var(--term-bg);
+    padding: 4px 0 0 6px; box-sizing: border-box; }
+  #termhost .xterm { height: 100%; }
   .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
@@ -685,6 +698,8 @@ if (window.matchMedia) {
           Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
           ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
         </div>
+        <div id="termhost" style="display:none"></div>
+        <!-- repli si le bundle xterm ne charge pas (RM2522) -->
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
@@ -2761,6 +2776,35 @@ async function openDoc(path, name) {
 }
 function closeDoc() { document.getElementById("docmodal").classList.remove("show"); }
 
+// ----- RM2522 : montage du terminal (client maison, repli iframe) -----
+// Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
+// cockpit la MAIN sur la surface du terminal — condition des lots suivants de
+// RM2467 — et corrige la saisie des accents (RM2323). Si le bundle n'a pas
+// chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
+let termSession = null;                 // { term, fit, dispose } du client maison
+function termAvailable() { return !!(window.KarlTerm && window.Terminal); }
+function termBase() {
+  return CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
+}
+function mountTerm(rmId) {
+  const host = document.getElementById("termhost"), f = document.getElementById("term");
+  if (!termAvailable()) {                                  // repli : iframe ttyd
+    host.style.display = "none";
+    f.style.display = "block"; f.src = ttydUrl(rmId);
+    return;
+  }
+  unmountTerm();
+  host.style.display = "block";
+  termSession = window.KarlTerm.attach(host, String(rmId), { base: termBase() });
+  setTimeout(() => { if (termSession) termSession.fit(); }, 0);   // après le 1er rendu
+}
+function unmountTerm() {
+  const host = document.getElementById("termhost"), f = document.getElementById("term");
+  if (termSession) { try { termSession.dispose(); } catch (e) {} termSession = null; }
+  host.innerHTML = ""; host.style.display = "none";
+  f.src = "about:blank"; f.style.display = "none";
+}
+
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
@@ -2769,8 +2813,7 @@ function attach(rmId) {
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
   document.getElementById("projpane").style.display = "none";
   document.getElementById("placeholder").style.display = "none";
-  const f = document.getElementById("term");
-  f.style.display = "block"; f.src = ttydUrl(rmId);
+  mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
   document.getElementById("metapanel").classList.remove("collapsed");
   // RM2173 : le ticket affiché = l'ancrage de la session (changeable via les chips Tickets)
@@ -2794,8 +2837,7 @@ function detach() {
   attached = null;
   metaTicket = null;
   document.getElementById("reviewpane").style.display = "none";
-  const f = document.getElementById("term");
-  f.src = "about:blank"; f.style.display = "none";
+  unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
   document.getElementById("tabactions").style.display = "none";
   document.getElementById("metapanel").classList.add("collapsed");

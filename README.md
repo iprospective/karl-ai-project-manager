@@ -132,6 +132,7 @@ partagés avec l'arbo centrale). `pm-workspace-coloc` gère la conversion.
 ## Références
 
 - Normes courantes : [norms/NORMS.md](norms/NORMS.md) (version : `norms/VERSION`)
+- Profil dev CLI-seul (sans cockpit) : [docs/guides/travailler-le-pm-en-cli-sans-cockpit.md](docs/guides/travailler-le-pm-en-cli-sans-cockpit.md)
 - Config des chemins : [pm.config.yml](pm.config.yml)
 - Lib : [scripts/pm_paths.py](scripts/pm_paths.py)
 - Redmine : défini globalement dans `.env`, surchargeable dans `project/overview.md`

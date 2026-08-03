@@ -24,7 +24,10 @@ console.log(`✓ syntaxe des ${blocks.length} blocs <script> inline`);
 // — 2. computeGroups —
 const fm = />>> computeGroups[\s\S]*?(function computeGroups[\s\S]*?)\n\/\/ <<< computeGroups/.exec(html);
 assert(fm, "marqueurs >>> computeGroups / <<< computeGroups introuvables");
-const computeGroups = vm.runInNewContext("(" + fm[1] + ")");
+// computeGroups référence la constante module OTHER_SETS_GROUP (RM2445) : la fournir
+// au contexte isolé (sinon ReferenceError). Extraite du source pour éviter la dérive.
+const otherGrp = /const OTHER_SETS_GROUP = "([^"]*)"/.exec(html)[1];
+const computeGroups = vm.runInNewContext("(" + fm[1] + ")", { OTHER_SETS_GROUP: otherGrp });
 
 // groupement : jonction directe, fallback /resolve, divers
 const sessions = [
@@ -357,5 +360,18 @@ for (const [fg, bg] of PAIRS) {
   assert(r >= floor, `dark : ${fg} sur ${bg} = ${r.toFixed(2)}:1 < ${floor} (régression)`);
 }
 console.log(`✓ contrastes : thème clair AA sur ${PAIRS.length} paires, thème sombre sans régression`);
+
+// — effDisposition (RM2515) : disposition effective, ne vaut que sur idle, cède au live —
+const fmDisp = />>> effDisposition[\s\S]*?(function effDisposition[\s\S]*?)\n\/\/ <<< effDisposition/.exec(html);
+assert(fmDisp, "marqueurs >>> effDisposition / <<< effDisposition introuvables");
+const effDisposition = vm.runInNewContext("(" + fmDisp[1] + ")");
+assert.strictEqual(effDisposition("idle", "parke"), "parke", "idle+parké → parké");
+assert.strictEqual(effDisposition("idle", "termine"), "termine", "idle+terminé → terminé");
+assert.strictEqual(effDisposition("idle", null), "a_traiter", "idle sans marque → à traiter (défaut)");
+assert.strictEqual(effDisposition("idle", ""), "a_traiter", "idle vide → à traiter");
+assert.strictEqual(effDisposition("working", "termine"), null, "working → null (cède au live)");
+assert.strictEqual(effDisposition("attention", "parke"), null, "attention → null (cède au live)");
+assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
+console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
 
 console.log("OK — tous les tests cockpit passent");

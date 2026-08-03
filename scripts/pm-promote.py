@@ -28,21 +28,20 @@ import argparse
 import importlib.util
 import subprocess
 import sys
-import urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-# pm-mr.py (nom à tiret) porte déjà l'auth GitLab, la résolution de projet par
-# match EXACT de path_with_namespace (RM2219) et le merge idempotent — réutilisé.
+# Primitives forge (résolution projet RM2219, create/get/merge PR) via pm_forge
+# (RM2498). La POLITIQUE de merge (_merge_with_policy : idempotence déjà-mergée,
+# gardes d'état) est réutilisée de pm-mr.py (nom à tiret → import dynamique).
 _spec = importlib.util.spec_from_file_location("pm_mr", HERE / "pm-mr.py")
 pmmr = importlib.util.module_from_spec(_spec)
 sys.modules["pm_mr"] = pmmr
 _spec.loader.exec_module(pmmr)
-# API_BASE est une globale posée par le main() de pm-mr — requise par pmmr.api().
-pmmr.API_BASE = pmmr.base_url() + "/api/v4"
 
+import pm_forge
 import pm_git
 
 
@@ -72,10 +71,12 @@ def main():
     if src == tgt:
         sys.exit(f"ERREUR : source == cible ({src}).")
 
-    rp = pmmr.repo_path_from_remote(repo)
-    token = pmmr.token_for("manager")
-    pid, proj = pmmr.resolve_project_id(token, rp)
-    print(f"→ projet {proj['path_with_namespace']} (id {pid}) : {src} → {tgt}")
+    forge = pm_forge.get_forge(repo)
+    if not forge.capabilities.pull_request_api:
+        sys.exit("ERREUR : pm-promote nécessite une forge avec API PR (GitLab).")
+    token = forge.token("manager")
+    project = forge.resolve_project(token)
+    print(f"→ projet {project.path} (id {project.id}) : {src} → {tgt}")
 
     # 1. Pousser les commits locaux en attente vers la branche d'intégration
     #    (repli pm_git déjà fait en temps normal — ceci rattrape les différés).
@@ -121,26 +122,15 @@ def main():
         return
 
     # 3. MR idempotente + merge (PAT manager).
-    st, lst, _ = pmmr.api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                                 f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-    mr = lst[0] if (st == 200 and isinstance(lst, list) and lst) else None
-    if mr:
-        print(f"↻ MR déjà ouverte : !{mr['iid']}")
+    pr = forge.find_open_pr(project, src, tgt, token)
+    if pr:
+        print(f"↻ MR déjà ouverte : !{pr.iid}")
     else:
         title = args.title or f"Promotion PM {src}→{tgt} (lot auto-push, {delta} commit(s))"
-        st, mr, raw = pmmr.api("POST", f"/projects/{pid}/merge_requests", token, fields={
-            "source_branch": src, "target_branch": tgt, "title": title,
-            "description": "Promotion automatique du lot d'auto-commits pm-* (RM2298).",
-            "remove_source_branch": "false",
-        })
-        if not mr:
-            st2, lst2, _ = pmmr.api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                                           f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-            mr = lst2[0] if (st2 == 200 and isinstance(lst2, list) and lst2) else None
-        if not mr:
-            sys.exit(f"ERREUR création MR (HTTP {st}) : {str(raw)[:200]}")
-        print(f"✓ MR !{mr['iid']} créée")
-    pmmr.merge_mr(pid, mr["iid"], token)
+        pr = forge.create_pr(project, src, tgt, title,
+                             "Promotion automatique du lot d'auto-commits pm-* (RM2298).", token)
+        print(f"✓ MR !{pr.iid} créée")
+    pmmr._merge_with_policy(forge, project, pr.iid, token)
 
 
 if __name__ == "__main__":

@@ -120,6 +120,10 @@ API (JSON, localhost:9876)
   POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
   POST /layout    {rm_id, layout}                → réarrange les panes (RM1893 §3)
   POST /kill   {rm_id}          → {rm_id, killed:true}
+  POST /disposition {rm_id, disposition}
+                                → {rm_id, disposition} — marque manuelle d'une
+                                  session (a_traiter|parke|termine ; vide = efface).
+                                  Raffine `idle` côté UI, persistée keys/ (RM2515)
 
 Lancement :
     python3 scripts/karl-agent.py            # bind 127.0.0.1:9876
@@ -1048,6 +1052,35 @@ def op_kill(payload: dict) -> dict:
     return {"rm_id": rm_id, "killed": True}
 
 
+# RM2515 : disposition manuelle d'une session — raffine l'état heuristique `idle`
+# (l'humain sait ce que la machine ne peut pas déduire : « j'en ai fini » vs « j'y
+# reviens »). Défaut « à traiter » = pas de marque stockée. Ne s'affiche que sur
+# `idle` côté UI : elle CÈDE aux évènements live (working/attention/choice).
+_DISPOSITIONS = ("a_traiter", "parke", "termine")
+
+
+def op_disposition(payload: dict, auth_ctx=None) -> dict:
+    """Pose/efface la disposition d'une session (à traiter / parké / terminé).
+    Persistée dans keys/<sid>.json (STATE_DIR, RM2385) → survit au reload et
+    cohérente entre fenêtres attachées. « a_traiter » (ou vide) efface la marque."""
+    rm_id = _require_rm_id(payload)
+    disp = str(payload.get("disposition") or "").strip()
+    if disp and disp not in _DISPOSITIONS:
+        raise ApiError(400, f"disposition invalide : {disp!r} "
+                            f"(attendu {'/'.join(_DISPOSITIONS)} ou vide)")
+    key = f"RM{rm_id}" if _is_ticket_sid(rm_id) else rm_id
+    keyf = STATE_DIR / "keys" / f"{key}.json"
+    rec = _read_json_file(keyf)
+    if rec is None:
+        raise ApiError(404, f"session inconnue : {rm_id} (pas d'entrée keys/ — jamais ancrée)")
+    if disp and disp != "a_traiter":
+        rec["disposition"] = disp
+    else:
+        rec.pop("disposition", None)   # défaut → pas de marque stockée
+    _write_json_atomic(keyf, rec)
+    return {"rm_id": rm_id, "disposition": disp or "a_traiter"}
+
+
 # ── Sessions ⇄ tickets : store, découverte, reprise (RM1939, itér.1 claude) ──
 _SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")
 _MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
@@ -1136,12 +1169,15 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
     now = int(time.time())
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
     keyf = STATE_DIR / "keys" / f"{key}.json"   # RM2385 : état partagé, pas LOG_DIR
+    prev = _read_json_file(keyf) or {}
     if model is None:  # reprise / enrichissement : ne pas perdre le modèle déjà connu
-        model = (_read_json_file(keyf) or {}).get("model")
+        model = prev.get("model")
     rec = {"sid": sid, "engine": engine, "session_id": session_id,
            "cwd": cwd, "last_seen": now}
     if model:
         rec["model"] = model
+    if prev.get("disposition"):  # RM2515 : préserver la disposition manuelle (idem model)
+        rec["disposition"] = prev["disposition"]
     _write_json_atomic(keyf, rec)
     sf = SESS_DIR / engine / f"{session_id}.json"
     meta = _read_json_file(sf) or {"engine": engine, "session_id": session_id, "created": now}
@@ -2952,8 +2988,9 @@ def _transcript_usage(lines) -> dict:
     """RM2373 : consommation tokens d'une session claude depuis son transcript
     (JSONL), différenciée ENTRÉE / SORTIE. Somme les `message.usage` des tours
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
-    cache_creation). Le dernier tour donne l'occupation de contexte courante
-    (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    cache_creation). `total` = entrée + sortie (RM2519 : le cache est
+    complémentaire, hors total). Le dernier tour donne l'occupation de contexte
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
     turns = 0
     context_last = 0
@@ -2979,7 +3016,11 @@ def _transcript_usage(lines) -> dict:
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
         turns += 1
-    agg["total"] = agg["input"] + agg["output"] + agg["cache_read"] + agg["cache_creation"]
+    # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
+    # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
+    # relecture de contexte (souvent >90 %) et mélangerait des catégories aux
+    # taux distincts. `context_last` reste, lui, entrée+cache (occupation réelle).
+    agg["total"] = agg["input"] + agg["output"]
     agg["turns"] = turns
     agg["context_last"] = context_last
     return agg
@@ -3158,6 +3199,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if k:
             s["engine"] = k.get("engine")
             s["session_id"] = k.get("session_id")
+            s["disposition"] = k.get("disposition")   # RM2515 : marque manuelle (idle uniquement, côté UI)
         r = latest.get(s["rm_id"]) if s.get("is_ticket") else None
         if r:
             s.setdefault("engine", r.get("engine"))
@@ -4883,6 +4925,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
+            if path == "/disposition":
+                return self._send_json(200, op_disposition(payload, self.auth_ctx))
             if path == "/monitor":
                 return self._send_json(201, op_monitor(payload))
             if path == "/unmonitor":

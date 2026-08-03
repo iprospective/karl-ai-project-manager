@@ -360,9 +360,18 @@ class GogsForge(Forge):
         raise ForgeError("Gogs n'a pas d'API de merge de PR — merge web manuel.")
 
 
-# ── GitHub (vraie API PR — squelette, implémenté en T5/RM2501) ────────────────
+# ── GitHub (vraie API pull request — RM2501/T5) ───────────────────────────────
 class GithubForge(Forge):
+    """GitHub — vraie API PR. Adressage par owner/repo (pas d'id numérique, comme
+    Gogs). Auth Bearer, corps JSON (≠ GitLab en form-urlencoded). États GitHub
+    (open/closed + booléen merged) normalisés en opened/closed/merged (comme GitLab),
+    pour que la politique PM de pm-mr reste inchangée."""
     name = "github"
+
+    def __init__(self, repo_path):
+        super().__init__(repo_path)
+        self.api_base = (os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
+        self.web_base = (os.environ.get("GITHUB_URL") or "https://github.com").rstrip("/")
 
     @property
     def capabilities(self):
@@ -372,10 +381,91 @@ class GithubForge(Forge):
     def token(self, role):
         tok = os.environ.get("GITHUB_TOKEN")
         if not tok:
-            raise ForgeError("GITHUB_TOKEN absent.")
+            raise ForgeError("GITHUB_TOKEN absent (PAT GitHub, scope repo).")
         return tok
 
-    def _todo(self, *a, **k):
-        raise ForgeError("GithubForge : à implémenter (T5/RM2501).")
+    def api(self, method, path, token, fields=None):
+        """(status, parsed_json|None, raw). Corps JSON, auth Bearer. Jamais d'exception sur 4xx/5xx."""
+        url = path if path.startswith("http") else self.api_base + path
+        data = json.dumps(fields).encode() if fields is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", "replace")
+                status = r.status
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            status = e.code
+        except Exception as e:
+            return 0, None, str(e)
+        try:
+            return status, json.loads(raw), raw
+        except Exception:
+            return status, None, raw
 
-    resolve_project = find_open_pr = get_pr = create_pr = merge_pr = compare_url = _todo
+    def resolve_project(self, token):
+        # GitHub adresse par owner/repo ; on vérifie l'existence (et le droit d'accès).
+        st, data, _ = self.api("GET", f"/repos/{self.repo_path}", token)
+        if st != 200 or not isinstance(data, dict):
+            raise ForgeError(f"projet GitHub '{self.repo_path}' introuvable (HTTP {st}).")
+        return ProjectRef(None, self.repo_path, data)
+
+    @staticmethod
+    def _state(pr):
+        if pr.get("merged") or pr.get("merged_at"):
+            return "merged"
+        return "opened" if pr.get("state") == "open" else "closed"
+
+    def _pr_from(self, pr):
+        return PrRef(pr.get("number"), (pr.get("head") or {}).get("ref"),
+                     (pr.get("base") or {}).get("ref"), pr.get("html_url"),
+                     state=self._state(pr), sha=(pr.get("head") or {}).get("sha"), raw=pr)
+
+    def find_open_pr(self, project, source, target, token):
+        st, lst, _ = self.api("GET",
+            f"/repos/{project.path}/pulls?state=open&base={urllib.parse.quote(target)}", token)
+        # Le filtre `head` de GitHub attend `owner:branch` (cross-repo) → on filtre
+        # en Python sur la branche source pour rester robuste en same-repo.
+        if isinstance(lst, list):
+            for pr in lst:
+                if (pr.get("head") or {}).get("ref") == source \
+                        and (pr.get("base") or {}).get("ref") == target:
+                    return self._pr_from(pr)
+        return None
+
+    def get_pr(self, project, iid, token):
+        st, pr, _ = self.api("GET", f"/repos/{project.path}/pulls/{iid}", token)
+        if st != 200 or not pr:
+            raise ForgeError(f"PR #{iid} introuvable (HTTP {st}).")
+        return self._pr_from(pr)
+
+    def create_pr(self, project, source, target, title, description, token):
+        st, pr, raw = self.api("POST", f"/repos/{project.path}/pulls", token, fields={
+            "head": source, "base": target, "title": title, "body": description or "",
+        })
+        if st in (200, 201) and isinstance(pr, dict) and pr.get("number"):
+            return self._pr_from(pr)
+        existing = self.find_open_pr(project, source, target, token)  # déjà ouverte ?
+        if existing:
+            return existing
+        raise ForgeError(f"création PR (HTTP {st}) : {raw[:200]}")
+
+    def merge_pr(self, project, iid, token, squash=False, keep_source=True):
+        # GitHub ne supprime PAS la branche source au merge (suppression séparée) →
+        # keep_source respecté par défaut. (Mergeabilité async non pollée en v1.)
+        st, res, raw = self.api("PUT", f"/repos/{project.path}/pulls/{iid}/merge", token,
+                                fields={"merge_method": "squash" if squash else "merge"})
+        if st == 200 and isinstance(res, dict) and res.get("merged"):
+            return "merged"
+        raise ForgeError(f"merge PR #{iid} (HTTP {st}) : {raw[:200]}")
+
+    def close_pr(self, project, iid, token):
+        self.api("PATCH", f"/repos/{project.path}/pulls/{iid}", token, fields={"state": "closed"})
+
+    def compare_url(self, source, target):
+        return f"{self.web_base}/{self.repo_path}/compare/{target}...{source}"

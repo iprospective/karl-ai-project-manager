@@ -113,6 +113,39 @@ def test_get_forge_git_config():
         assert f.repo_path == "Materiaux-Naturels/matnat_old", f.repo_path
 
 
+def test_github_detection_and_caps():
+    f = pm_forge.get_forge(url="github:octo/hello.git")
+    assert isinstance(f, pm_forge.GithubForge) and f.repo_path == "octo/hello"
+    assert pm_forge.forge_name("github.com") == "github"
+    caps = f.capabilities
+    assert caps.pull_request_api is True and caps.access_level_model == "github"
+
+
+def test_github_state_normalization():
+    S = pm_forge.GithubForge._state
+    assert S({"merged": True, "state": "closed"}) == "merged"
+    assert S({"merged_at": "2026-01-01", "state": "closed"}) == "merged"
+    assert S({"merged": False, "state": "open"}) == "opened"
+    assert S({"merged": False, "state": "closed"}) == "closed"
+
+
+def test_github_pr_from():
+    f = pm_forge.GithubForge("octo/hello")
+    pr = f._pr_from({
+        "number": 42, "state": "open", "merged": False,
+        "html_url": "https://github.com/octo/hello/pull/42",
+        "head": {"ref": "42-fix", "sha": "abc123"}, "base": {"ref": "main"},
+    })
+    assert pr.iid == 42 and pr.source == "42-fix" and pr.target == "main"
+    assert pr.state == "opened" and pr.sha == "abc123"
+    assert pr.web_url.endswith("/pull/42")
+
+
+def test_github_compare_url():
+    f = pm_forge.GithubForge("octo/hello")
+    assert f.compare_url("42-fix", "main") == "https://github.com/octo/hello/compare/main...42-fix"
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

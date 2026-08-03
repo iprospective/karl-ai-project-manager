@@ -87,6 +87,17 @@ Attention aussi au piège inverse : lancer `pm-branch-start --worktree` **depuis
 le worktree d'un autre ticket** base la nouvelle branche dessus — se placer
 d'abord dans l'env d'intégration (`envs/<repo>-dev`).
 
+## Restitution : la plomberie des données PM est transparente (RM2440)
+
+La mécanique git des dépôts de **données PM** (`*-core` : auto-commits `pm(...)`,
+push) **ne figure jamais dans ta restitution** — ni hash, ni branche, ni MR, ni
+« ✓ commité ». Tu parles du **fond du ticket** et du **code livré** (une MR de
+code, elle, se raconte : c'est une livraison).
+
+**Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne** —
+sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est
+muet sur le chemin nominal (`git.verbose: true`).
+
 ## Travail itératif
 
 À chaque étape significative :

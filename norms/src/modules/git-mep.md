@@ -196,6 +196,14 @@ Points de vigilance :
 > ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
 > libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
 
+> **Destination (RM2440).** Sur un **core**, le push va **directement sur la branche
+> de prod** — ni repli `dev`, ni promotion, donc pas d'arriéré. Un rejet
+> **non-fast-forward** y est rattrapé par `pm_git` (fetch + `rebase --autostash` sous
+> verrou, puis re-push) ; sur **conflit** : `rebase --abort` + warning. Levée **ciblée**
+> de l'invariant « pas de rebase dans l'arbre partagé » — cores seulement ; **code**
+> inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
+> déboguer), cf. `worker-common` § Restitution.
+
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
 git approprié. La règle s'applique à **deux périmètres** :
@@ -308,24 +316,26 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   une merge request de la branche de ticket vers la branche de base (version
   active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
   distante conservée** (cf. KERNEL #3).
-- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
-  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
-  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
-  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
-  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
-  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048).
-- **Enforcement GitLab — outil `pm-protect` (RM2052)** : `pm-protect [--repo PATH |
-  --project-id N]` applique la **politique de protection standard** (idempotent,
-  `allow_force_push=false`, branche absente ignorée), token *manager* :
+- **Aucun commit/push direct sur une branche protégée d'un dépôt de CODE** (KERNEL #3)
+  — dès le flux 2 branches : `dev` **et** prod ne reçoivent que des **merges de MR**,
+  promotion comprise. Un commit direct sur `main` court-circuite la promotion →
+  divergences et **collisions de version NORMS** (vécu : RM2035/2038/2048). Les **cores**
+  ont leur propre régime (tableau ci-dessous).
+- **Enforcement GitLab — outil `pm-protect` (RM2052, étendu RM2440)** : `pm-protect
+  [--repo PATH | --project-id N | --all-cores]` applique la politique de protection
+  (idempotent, `allow_force_push=false`, branche absente ignorée), token *manager*.
+  **Deux politiques**, selon la nature du dépôt :
 
-  | Branche | Allowed to push | Allowed to merge |
+  | Branche | Dépôt de **code** | Dépôt **core** |
   |---|---|---|
-  | prod (`main`, ou `master` si elle existe) | **personne** | Maintainer |
-  | intégration (`dev`) | **Maintainer** (restructuration assumée) | Maintainer |
-  | `preprod` (flux 3 branches) | **personne** | Maintainer |
+  | prod (`main`, ou `master`) | push **personne** / merge Maintainer | push **Developer** / merge Maintainer |
+  | intégration (`dev`) | push Maintainer / merge Maintainer | idem — conservée, sans trafic |
+  | `preprod` (flux 3 branches) | push **personne** / merge Maintainer | — |
 
-  `merge=Maintainer` laisse `pm-mr merge` (karl manager) fonctionner ; `push=personne`
-  sur prod force la promotion **par MR**. À (ré)appliquer sur chaque repo PM-piloté.
+  Core : `push=Developer` = le niveau de l'identité qui pousse (`karl-dev`, *worker*).
+  ⚠ **`push=Maintainer` y équivaut à `push=personne`** — piège à l'origine de l'arriéré
+  de juillet 2026. **Prérequis** : le compte *manager* doit être
+  **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer

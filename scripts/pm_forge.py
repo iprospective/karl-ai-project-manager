@@ -146,6 +146,9 @@ class Forge:
     def merge_pr(self, project, iid, token, squash=False, keep_source=True):
         raise NotImplementedError
 
+    def close_pr(self, project, iid, token):
+        raise NotImplementedError
+
     def compare_url(self, source, target):
         raise NotImplementedError
 
@@ -292,6 +295,10 @@ class GitlabForge(Forge):
         if state != "merged":
             raise ForgeError(f"merge MR !{iid} (HTTP {st}, state={state}) : {raw[:200]}")
         return state
+
+    def close_pr(self, project, iid, token):
+        self.api("PUT", f"/projects/{project.id}/merge_requests/{iid}", token,
+                 fields={"state_event": "close"})
 
     def compare_url(self, source, target):
         # GitLab a une API PR ; le compare web reste dispo mais inutilisé ici.

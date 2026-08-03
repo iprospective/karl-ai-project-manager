@@ -994,12 +994,22 @@ function nextAttentionId(sessions, attached) {
 }
 // <<< nextAttentionId
 
+// >>> effDisposition — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2515 : disposition EFFECTIVE d'une session. Elle ne vaut que sur `idle` (elle
+// CÈDE aux évènements live : working/attention/choice → null) ; « a_traiter » est
+// le défaut (idle sans marque). Utilisée pour le badge, la teinte et le tri.
+function effDisposition(state, disposition) {
+  if (state !== "idle") return null;
+  return disposition || "a_traiter";
+}
+// <<< effDisposition
+
 async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
     const { sessions } = await api("/sessions");
     // RM2515 : « terminé » (idle marqué à fermer) coule en bas ; sinon ordre stable par id.
-    const done = s => (s.state === "idle" && s.disposition === "termine") ? 1 : 0;
+    const done = s => effDisposition(s.state, s.disposition) === "termine" ? 1 : 0;
     sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
     // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
@@ -1045,7 +1055,7 @@ async function refreshSessions() {
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
         // RM2515 : la disposition raffine `idle` (et CÈDE au live : nulle hors idle).
-        const disp = s.state === "idle" ? (s.disposition || "a_traiter") : null;
+        const disp = effDisposition(s.state, s.disposition);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
           : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
           : s.state === "idle"

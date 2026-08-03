@@ -2952,8 +2952,9 @@ def _transcript_usage(lines) -> dict:
     """RM2373 : consommation tokens d'une session claude depuis son transcript
     (JSONL), différenciée ENTRÉE / SORTIE. Somme les `message.usage` des tours
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
-    cache_creation). Le dernier tour donne l'occupation de contexte courante
-    (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    cache_creation). `total` = entrée + sortie (RM2519 : le cache est
+    complémentaire, hors total). Le dernier tour donne l'occupation de contexte
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
     turns = 0
     context_last = 0
@@ -2979,7 +2980,11 @@ def _transcript_usage(lines) -> dict:
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
         turns += 1
-    agg["total"] = agg["input"] + agg["output"] + agg["cache_read"] + agg["cache_creation"]
+    # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
+    # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
+    # relecture de contexte (souvent >90 %) et mélangerait des catégories aux
+    # taux distincts. `context_last` reste, lui, entrée+cache (occupation réelle).
+    agg["total"] = agg["input"] + agg["output"]
     agg["turns"] = turns
     agg["context_last"] = context_last
     return agg

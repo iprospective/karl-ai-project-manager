@@ -36,7 +36,7 @@ def _asst(i, o, cr=0, cc=0):
         "cache_read_input_tokens": cr, "cache_creation_input_tokens": cc}}})
 
 
-# — _transcript_usage : somme input/output/cache, dernier tour = contexte —
+# — _transcript_usage : total = entrée+sortie ; cache complémentaire ; dernier tour = contexte —
 jsonl = [
     _l({"type": "user", "message": {"content": "va"}}),          # pas de usage
     _asst(100, 20, 5, 3),
@@ -48,9 +48,9 @@ jsonl = [
 u = ka._transcript_usage(jsonl)
 check("entrée sommée", u["input"] == 300)
 check("sortie sommée", u["output"] == 60)
-check("cache lu sommé", u["cache_read"] == 15)
-check("cache écrit sommé", u["cache_creation"] == 3)
-check("total = entrée+sortie+cache", u["total"] == 300 + 60 + 15 + 3)
+check("cache lu sommé (complémentaire)", u["cache_read"] == 15)
+check("cache écrit sommé (complémentaire)", u["cache_creation"] == 3)
+check("total = entrée+sortie (cache HORS total — RM2519)", u["total"] == 300 + 60)
 check("tours comptés (assistant avec usage seulement)", u["turns"] == 2)
 check("contexte courant = dernier tour (input+cache)", u["context_last"] == 200 + 10 + 0)
 check("entrée ≠ sortie (différenciées)", u["input"] != u["output"])

@@ -4702,15 +4702,25 @@ class Handler(BaseHTTPRequestHandler):
         if target is None:
             return self._send_json(404, {"error": "asset non servi"})
         try:
+            st = target.stat()
             body = target.read_bytes()
         except OSError:
             return self._send_json(404, {"error": f"asset absent : {rel}"})
-        ctype = ASSET_TYPES[target.suffix]
+        # Revalidation systématique plutôt que cache long : ces fichiers sont
+        # ÉDITÉS pendant le développement du cockpit, et un cache d'un jour
+        # oblige à des rechargements forcés pour voir ses propres correctifs.
+        # L'ETag garde le coût réseau nul quand rien n'a changé (304).
+        etag = f'"{int(st.st_mtime)}-{st.st_size}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
         self.send_response(200)
-        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Type", ASSET_TYPES[target.suffix])
         self.send_header("Content-Length", str(len(body)))
-        # contenu figé et versionné (cf. cockpit/vendor/PROVENANCE.md)
-        self.send_header("Cache-Control", "public, max-age=86400")
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 

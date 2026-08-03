@@ -415,4 +415,31 @@ assert.strictEqual(ttydDecode(new Uint8Array([0x31])).payload.length, 0,
   "decode : commande sans charge utile");
 console.log("✓ protocole ttyd (handshake, input, resize, decode)");
 
+// — 6. palette ANSI du terminal (RM2522) —
+// Retour de test : le fond était repris de --term-bg (#000, un invariant qui ne
+// décrivait que le CADRE de l'ancienne iframe) et la palette ANSI était celle,
+// implicite, de xterm — les gris du TUI devenaient illisibles. On vérifie
+// désormais que CHAQUE couleur tient sur le fond de son thème.
+const termPalette = pick("termPalette");
+const termBg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-bg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-bg"] };
+const termFg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-fg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-fg"] };
+for (const mode of ["dark", "light"]) {
+  assert(termBg[mode] && termFg[mode], `tokens --term-bg/--term-fg définis en ${mode}`);
+  // le texte courant doit être confortable (AA)
+  const rFg = contrast(termFg[mode], termBg[mode]);
+  assert(rFg >= 4.5, `${mode} : --term-fg sur --term-bg = ${rFg.toFixed(2)}:1 < 4.5`);
+  // les 16 couleurs ANSI sont décoratives : plancher 3:1 (AA « gros texte » /
+  // éléments non textuels), sauf `black`/`brightBlack` qui servent de FOND à du
+  // texte dans certains TUI — on exige seulement qu'ils se distinguent du fond.
+  const pal = termPalette(mode === "light");
+  for (const [name, hex] of Object.entries(pal)) {
+    const r = contrast(hex, termBg[mode]);
+    const floor = name === "black" ? 1.15 : 3;
+    assert(r >= floor, `${mode} : ANSI ${name} (${hex}) sur fond = ${r.toFixed(2)}:1 < ${floor}`);
+  }
+}
+console.log("✓ palette ANSI du terminal : contrastes tenus en dark et en light");
+
 console.log("OK — tous les tests cockpit passent");

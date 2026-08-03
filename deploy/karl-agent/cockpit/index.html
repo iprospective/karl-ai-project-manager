@@ -23,6 +23,12 @@
     --bg: #0b0e14; --panel: #11161f; --panel2: #161c28; --line: #233044;
     --fg: #c8d3e0; --muted: #6b7a90; --accent: #4ea1ff; --ok: #3ad29f;
     --warn: #f5a742; --danger: #ff5d6c;
+    /* RM2522 : fond/texte du terminal. Ils suivent le thème depuis que le
+       cockpit possède la surface (avant : iframe cross-origin, --term-bg ne
+       décrivait que le CADRE et valait #000 — repris tel quel pour le vrai
+       fond, il rendait les gris du TUI illisibles). La palette ANSI vit dans
+       karl-term.js (termPalette), ses contrastes sont testés. */
+    --term-bg: #0b0e14; --term-fg: #c8d3e0;
     --fg-strong: #eaf3ff;          /* texte survalorisé (messages utilisateur) */
     --on-accent: #04101f;          /* texte posé SUR --accent */
     --on-danger: #fff;             /* texte posé SUR --danger */
@@ -38,6 +44,7 @@
     --bg: #eceff4; --panel: #ffffff; --panel2: #f5f7fa; --line: #cfd8e3;
     --fg: #1c2430; --muted: #5f6b7d; --accent: #1560b8; --ok: #0f7350;
     --warn: #a35c06; --danger: #c62839;
+    --term-bg: #fbfcfe; --term-fg: #1c2430;      /* RM2522 — cf. bloc dark */
     --fg-strong: #0a1018;
     --on-accent: #ffffff;
     --on-danger: #fff;
@@ -51,9 +58,6 @@
   :root {
     /* invariants (hors thème) */
     --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-    /* le terminal ttyd garde son propre thème sombre (ttyd.service) et l'iframe
-       est cross-origin : son fond reste noir quel que soit le thème du cockpit. */
-    --term-bg: #000;
   }
   * { box-sizing: border-box; }
   /* RM1893 (retour test) : layout verrouillé à la hauteur du viewport — la page

@@ -88,6 +88,31 @@ def test_get_forge_detects_and_overrides():
         pass
 
 
+def test_get_forge_explicit_arg():
+    f = pm_forge.get_forge(url="ssh://gogs@localhost:28022/o/r.git", forge="gogs")
+    assert isinstance(f, pm_forge.GogsForge) and f.repo_path == "o/r"
+
+
+def test_get_forge_git_config():
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory() as d:
+        run = lambda *a: subprocess.run(["git", "-C", d, *a], capture_output=True)
+        run("init", "-q")
+        run("remote", "add", "origin", "ssh://gogs@localhost:28022/Materiaux-Naturels/matnat_old.git")
+        # sans signal : host 'localhost' non détectable → erreur
+        try:
+            pm_forge.get_forge(repo=d)
+            raise AssertionError("attendu ForgeError (localhost non détectable)")
+        except pm_forge.ForgeError:
+            pass
+        # avec git config pm.forge gogs → GogsForge
+        run("config", "pm.forge", "gogs")
+        f = pm_forge.get_forge(repo=d)
+        assert isinstance(f, pm_forge.GogsForge), type(f)
+        assert f.repo_path == "Materiaux-Naturels/matnat_old", f.repo_path
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

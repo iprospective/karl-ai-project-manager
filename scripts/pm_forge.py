@@ -101,18 +101,32 @@ def _git_remote_url(repo, remote="origin"):
     return r.stdout.strip()
 
 
-def get_forge(repo=".", remote="origin", url=None):
-    """Fabrique : instancie la bonne forge d'après le remote du dépôt.
-    L'override `PM_FORGE` (gitlab|gogs|github) force le choix (tests / cas limites)."""
+def _git_config_forge(repo):
+    """Lit `pm.forge` (git config local du dépôt). '' si absent."""
+    r = subprocess.run(["git", "-C", str(repo), "config", "--get", "pm.forge"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def get_forge(repo=".", remote="origin", url=None, forge=None):
+    """Fabrique : instancie la bonne forge pour le dépôt.
+
+    Priorité de sélection (nécessaire car un remote Gogs tunnelé en
+    `ssh://gogs@localhost:28022/…` n'est PAS détectable par son host) :
+      1. `forge=` explicite (appelant) ;
+      2. env `PM_FORGE` (gitlab|gogs|github) ;
+      3. `git config pm.forge` du dépôt (signal persistant, posé au clonage) ;
+      4. détection d'après le host/alias du remote (défaut : GitLab, inchangé)."""
     if url is None:
         url = _git_remote_url(repo, remote)
     hint, repo_path = parse_remote(url)
-    name = (os.environ.get("PM_FORGE") or forge_name(hint) or "").lower()
+    name = (forge or os.environ.get("PM_FORGE") or _git_config_forge(repo)
+            or forge_name(hint) or "").lower()
     impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
     if name not in impls:
         raise ForgeError(
             f"forge non reconnue depuis le remote '{url}' (hint '{hint}'). "
-            f"Force via PM_FORGE=gitlab|gogs|github.")
+            f"Précise-la : `git config pm.forge gogs`, ou PM_FORGE=gitlab|gogs|github.")
     return impls[name](repo_path)
 
 
@@ -320,10 +334,9 @@ class GogsForge(Forge):
                             access_level_model="gitea")
 
     def token(self, role):
-        tok = os.environ.get("GOGS_TOKEN")
-        if not tok:
-            raise ForgeError("GOGS_TOKEN absent (token Gogs du dev).")
-        return tok
+        # Optionnel : le flux « lien-compare » n'appelle aucune API Gogs (pas d'API
+        # PR) et le push utilise l'auth git du dépôt (clé SSH / helper), pas ce token.
+        return os.environ.get("GOGS_TOKEN", "")
 
     def resolve_project(self, token):
         # Gogs adresse par owner/repo directement (ni id numérique, ni %2F).

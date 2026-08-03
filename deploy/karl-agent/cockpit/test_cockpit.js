@@ -373,5 +373,46 @@ assert.strictEqual(effDisposition("working", "termine"), null, "working → null
 assert.strictEqual(effDisposition("attention", "parke"), null, "attention → null (cède au live)");
 assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
 console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
+// — 5. protocole ttyd du client terminal maison (RM2522) —
+// karl-term.js est un fichier séparé (première dépendance front du cockpit) :
+// on vérifie sa syntaxe, puis ses fonctions pures de framing, extraites par les
+// mêmes marqueurs >>> / <<<.
+const termSrc = fs.readFileSync(path.join(__dirname, "karl-term.js"), "utf8");
+new vm.Script(termSrc, { filename: "karl-term.js" });
+
+const pick = (name) => {
+  const m = new RegExp(`>>> ${name}[\\s\\S]*?(function ${name}[\\s\\S]*?)\\n  // <<< ${name}`).exec(termSrc);
+  assert(m, `marqueurs >>> ${name} / <<< ${name} introuvables dans karl-term.js`);
+  return vm.runInNewContext("(" + m[1] + ")");
+};
+const ttydHandshake    = pick("ttydHandshake");
+const ttydEncodeResize = pick("ttydEncodeResize");
+const ttydEncodeInput  = pick("ttydEncodeInput");
+const ttydDecode       = pick("ttydDecode");
+
+// handshake : ttyd attend exactement ces trois clés
+assert.deepStrictEqual(JSON.parse(ttydHandshake("tok", 80, 24)),
+  { AuthToken: "tok", columns: 80, rows: 24 }, "handshake ttyd");
+assert.strictEqual(JSON.parse(ttydHandshake(null, 80, 24)).AuthToken, "",
+  "handshake sans token → chaîne vide (pas null)");
+
+// resize : commande '1' suivie du JSON des dimensions
+assert.strictEqual(ttydEncodeResize(120, 40), '1{"columns":120,"rows":40}', "framing resize");
+
+// input : commande '0' (0x30) suivie du texte en UTF-8
+const enc = (s) => new Uint8Array(Buffer.from(s, "utf8"));
+const frame = ttydEncodeInput("é", enc);
+assert.strictEqual(frame[0], 0x30, "input : premier octet = '0'");
+assert.deepStrictEqual(Array.from(frame.slice(1)), [0xc3, 0xa9], "input : « é » en UTF-8 (2 octets)");
+assert.strictEqual(ttydEncodeInput("", enc).length, 1, "input vide = commande seule");
+
+// décodage : premier octet = commande, reste = charge utile
+const dec = ttydDecode(new Uint8Array([0x30, 0x41, 0x42]));
+assert.strictEqual(dec.cmd, "0", "decode : commande OUTPUT");
+assert.deepStrictEqual(Array.from(dec.payload), [0x41, 0x42], "decode : charge utile");
+assert.strictEqual(ttydDecode(new Uint8Array([])), null, "decode : message vide → null");
+assert.strictEqual(ttydDecode(new Uint8Array([0x31])).payload.length, 0,
+  "decode : commande sans charge utile");
+console.log("✓ protocole ttyd (handshake, input, resize, decode)");
 
 console.log("OK — tous les tests cockpit passent");

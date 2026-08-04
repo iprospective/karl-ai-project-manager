@@ -67,3 +67,7 @@ dossier (collision de nom → averti et ignoré).
 - [`session-mark`](./session-mark/) — marquer le titre de la session Claude Code courante
   `[DONE]`/`[WIP]` (visible dans `claude --resume`) ; imprime la ligne `/rename` à coller.
   Rapatrié du repo perso `claude-skills` (RM2310) — utilisé exclusivement dans le PM.
+- [`mmi-zabbix`](./mmi-zabbix/) — interroger/piloter Zabbix (monitoring du parc) depuis le PM
+  en **déléguant à atlas** (canal orchestrateur RM2516 → catalogue RM2496 → client RM2454) ;
+  **aucun secret Zabbix côté PM** (frontière D3, RM2421). Lecture (état hôte, items, problèmes,
+  LLD) + actions sûres (ack, LLD execute-now). Livré par RM2398.

@@ -9,6 +9,10 @@ Sous-commandes :
       Idempotent : PR déjà ouverte ⇒ renvoyée.
   merge <iid> [--repo PATH] [--squash]
       merge la PR `iid`. **Conserve la branche source** (règle NORMS). Idempotent.
+  close <iid> [--repo PATH] [--expect-rm ID]
+      ferme la PR `iid` SANS merger (PR ouverte par erreur : mauvais repo courant
+      donc mauvais projet résolu, doublon, branche abandonnée). **Conserve la
+      branche source.** Idempotent ; refuse une PR déjà mergée.
   get <iid> [--repo PATH]
       état (state + web_url + branches) de la PR.
 
@@ -65,15 +69,24 @@ def _post_git_cf(rm_id, branch, pr_url):
         out.warn(f"CF Redmine non posés : {e}")
 
 
+def _guard_expect_rm(pr, iid, expect_rm):
+    """Garde RM2232 (tripwire #13 étendu) : la PR visée doit porter la branche du
+    ticket annoncé, sinon un iid prédit ou mal recopié agirait sur la PR d'autrui.
+    Les branches de flux (dev, preprod — promotions) sont admises."""
+    if expect_rm is None:
+        return
+    if str(pr.source or "").startswith(f"{expect_rm}-") or pr.source in ("dev", "preprod"):
+        return
+    sys.exit(f"ERREUR : MR !{iid} porte la branche `{pr.source}` — pas celle de "
+             f"RM{expect_rm}. Iid prédit/erroné (tripwire #13) ? Capture l'iid via "
+             f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
+
+
 def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None):
     """Merge le cœur d'une PR avec les gardes PM. `expect_rm` (RM2232, tripwire #13
     étendu) : refuse si la branche source n'est pas préfixée `<expect_rm>-`."""
     pr = forge.get_pr(project, iid, token)
-    if expect_rm is not None and not str(pr.source or "").startswith(f"{expect_rm}-") \
-            and pr.source not in ("dev", "preprod"):
-        sys.exit(f"ERREUR : MR !{iid} porte la branche `{pr.source}` — pas celle de "
-                 f"RM{expect_rm}. Iid prédit/erroné (tripwire #13) ? Capture l'iid via "
-                 f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
+    _guard_expect_rm(pr, iid, expect_rm)
     if pr.state == "merged":
         out.op("merge", extra=f"!{iid} → {pr.target} "
                               f"(déjà mergée, branche {pr.source} conservée)")
@@ -90,6 +103,30 @@ def cmd_merge(args, forge, token):
     out.info(f"→ projet {project.path} (id {project.id})")
     _merge_with_policy(forge, project, args.iid, token,
                        squash=args.squash, expect_rm=args.expect_rm)
+
+
+def cmd_close(args, forge, token):
+    """Ferme une PR sans la merger. Cas d'usage vécu (RM2522) : une MR ouverte
+    depuis le mauvais répertoire courant, donc sur le mauvais projet — jusqu'ici
+    il fallait un script jetable autour de `pm_forge.close_pr()`."""
+    if not forge.capabilities.pull_request_api:
+        sys.exit("ERREUR : cette forge n'a pas d'API PR (Gogs) — la fermeture est "
+                 "un geste web humain.")
+    project = forge.resolve_project(token)
+    out.info(f"→ projet {project.path} (id {project.id})")
+    pr = forge.get_pr(project, args.iid, token)
+    _guard_expect_rm(pr, args.iid, args.expect_rm)
+    if pr.state == "merged":
+        sys.exit(f"ERREUR : MR !{args.iid} ({pr.source} → {pr.target}) est déjà MERGÉE — "
+                 f"la fermer n'annulerait rien. Pour défaire un merge, révèrte-le par "
+                 f"une branche dédiée.")
+    if pr.state != "opened":
+        # Idempotence : refermer une PR déjà fermée n'est pas une erreur.
+        out.op("close", extra=f"!{args.iid} (déjà '{pr.state}', branche {pr.source} conservée)")
+        return
+    forge.close_pr(project, args.iid, token)
+    out.op("close", extra=f"!{args.iid} {pr.source}→{pr.target} fermée "
+                          f"(branche {pr.source} conservée)")
 
 
 def cmd_get(args, forge, token):
@@ -201,6 +238,13 @@ def main():
                     help="refuse si la branche source de la PR n'est pas préfixée <id>- "
                          "(protège d'un iid prédit/erroné — RM2232)")
 
+    pcl = sub.add_parser("close", help="ferme une PR sans merger (conserve la branche)")
+    pcl.add_argument("iid", type=int)
+    pcl.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pcl.add_argument("--expect-rm", type=int, default=None,
+                     help="refuse si la branche source de la PR n'est pas préfixée <id>- "
+                          "(protège d'un iid prédit/erroné — RM2232)")
+
     pg = sub.add_parser("get", help="état d'une PR")
     pg.add_argument("iid", type=int)
     pg.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
@@ -210,9 +254,11 @@ def main():
     try:
         forge = get_forge(args.repo)
         # Token selon le rôle : worker (push/PR), manager (merge/gestion).
-        role = {"create": "worker", "merge": "manager", "get": "worker"}[args.cmd]
+        role = {"create": "worker", "merge": "manager",
+                "close": "manager", "get": "worker"}[args.cmd]
         token = forge.token(role)
-        {"create": cmd_create, "merge": cmd_merge, "get": cmd_get}[args.cmd](args, forge, token)
+        {"create": cmd_create, "merge": cmd_merge,
+         "close": cmd_close, "get": cmd_get}[args.cmd](args, forge, token)
     except ForgeError as e:
         sys.exit(f"ERREUR forge : {e}")
 

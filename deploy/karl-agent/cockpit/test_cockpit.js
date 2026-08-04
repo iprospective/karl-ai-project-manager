@@ -67,6 +67,26 @@ assert.strictEqual(cg.counts.choice, 1, "compteur choice");
 assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
 console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
 
+
+// RM2537 : « hors du jeu courant » garde le chantier. Une vivante hors jeu était
+// versée dans un groupe unique, perdant son en-tête client/projet — « hors du
+// jeu » ne veut pas dire « sans projet ». Elle reste rangée en fin de liste.
+const oc = computeGroups([
+  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100, in_current: true },
+  { rm_id: "2", client: "beta", project: "api", state: "idle", created: 200, in_current: false },
+  { rm_id: "3", client: "gamma", project: "web", state: "idle", created: 300, in_current: false },
+  { rm_id: "4", ghost: true, state: "ghost", client: "beta", project: "api", in_current: false },
+], {}, true);
+assert(oc.keys.includes(otherGrp + " · beta/api"), "hors jeu : un groupe par chantier");
+assert(oc.keys.includes(otherGrp + " · gamma/web"), "hors jeu : chantiers distincts non fusionnés");
+assert.strictEqual(oc.keys[0], "acme/shop", "le jeu courant reste en tête");
+assert(oc.keys.indexOf(otherGrp + " · beta/api") > 0 &&
+       oc.keys.indexOf(otherGrp + " · gamma/web") > 0, "les hors-jeu restent en fin de liste");
+assert.strictEqual(oc.groups.get("beta/api").length, 1,
+  "un FANTÔME n'est jamais relégué hors du jeu (il est déjà éteint)");
+assert.strictEqual(oc.groups.get(otherGrp + " · beta/api")[0].rm_id, "2", "la vivante hors jeu, elle, l'est");
+console.log("✓ RM2537 : hors du jeu courant, mais toujours rangé par chantier");
+
 // tri : le groupe avec attention passe devant, même plus ancien
 assert.strictEqual(keys[0], "beta/api", "groupe en attention en tête");
 // puis activité récente : divers (created 300) avant acme/shop (200)

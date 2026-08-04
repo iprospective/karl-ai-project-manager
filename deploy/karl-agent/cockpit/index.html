@@ -1002,12 +1002,13 @@ function computeGroups(sessions, rcache, dynamic) {
     // RM2445 : une session VIVANTE d'un autre jeu n'est jamais masquée — elle est
     // rangée à part (et badgée de son jeu) pour qu'un agent qui attend une réponse
     // reste visible, sans polluer la vue du chantier courant.
-    let key = (!s.ghost && s.in_current === false) ? OTHER_SETS_GROUP : null;
-    if (!key) key = (s.client && s.project) ? s.client + "/" + s.project : null;
-    if (!key) {
-      const r = rcache[s.rm_id];
-      key = (r && r.found) ? r.client + "/" + r.project : "divers";
-    }
+    // RM2537 : « hors du jeu » ≠ « sans projet ». On garde le client/projet dans
+    // la clé pour que ces sessions restent rangées par chantier au lieu d'être
+    // aplaties en un tas indistinct (elles restent en fin de liste, cf. `last`).
+    const r = rcache[s.rm_id];
+    let key = (s.client && s.project) ? s.client + "/" + s.project
+            : (r && r.found) ? r.client + "/" + r.project : "divers";
+    if (!s.ghost && s.in_current === false) key = OTHER_SETS_GROUP + " · " + key;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
     // RM2427 : une session ENREGISTRÉE non démarrée s'affiche mais ne tourne pas —
@@ -1024,7 +1025,7 @@ function computeGroups(sessions, rcache, dynamic) {
   // activité récente — RM2140/RM2283) ne s'applique QUE si `dynamic` est vrai.
   const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
-  const last = k => k === OTHER_SETS_GROUP ? 1 : 0;
+  const last = k => k.startsWith(OTHER_SETS_GROUP) ? 1 : 0;   // RM2537 : un groupe par chantier
   const keys = [...groups.keys()].sort((a, b) => (last(a) - last(b)) || (dynamic
     ? (att(groups.get(b)) - att(groups.get(a)) ||
        rec(groups.get(b)) - rec(groups.get(a)) ||
@@ -1128,7 +1129,7 @@ async function refreshSessions() {
       const gCho = sess.filter(s => s.state === "choice").length;
       // RM2448 : le chevron replie le groupe ; l'en-tête garde son clic « fiche
       // projet » (RM2353), d'où un `stopPropagation` sur le chevron seul.
-      const folded = collapsedGroups.has(key);
+      const folded = isCollapsed(key);
       head.innerHTML = '<span class="gfold" style="cursor:pointer;opacity:.6;margin-right:4px" ' +
           'title="' + (folded ? "Déplier" : "Replier") + ' ce groupe">' + (folded ? "▸" : "▾") + '</span>' +
         '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
@@ -1319,6 +1320,9 @@ let ruleFormFor = null;                         // jeu dont on édite la règle 
 // moment. On ne le force qu'à la PREMIÈRE visite : dès que l'opérateur a plié ou
 // déplié quoi que ce soit, sa liste fait foi et le groupe reste comme il l'a
 // laissé.
+// RM2537 : le groupe « hors du jeu » est désormais éclaté par chantier — le pli
+// par défaut porte donc sur le PRÉFIXE, et chaque sous-groupe reste repliable
+// individuellement (un pli explicite, dans un sens ou dans l'autre, fait foi).
 let collapsedGroups = new Set([OTHER_SETS_GROUP]);
 try {
   const raw = localStorage.getItem("karlCollapsed");
@@ -1469,9 +1473,19 @@ async function switchView(view) {
   } catch (e) { currentView = prev; toast(e.message, true); return; }
   refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
 }
+// RM2537 : un groupe est replié s'il l'est explicitement, ou par héritage du
+// pli de « ⋯ hors du jeu courant » — sauf dépli explicite (marqueur « ! »).
+function isCollapsed(key) {
+  if (collapsedGroups.has("!" + key)) return false;
+  return collapsedGroups.has(key) ||
+    (key.startsWith(OTHER_SETS_GROUP) && collapsedGroups.has(OTHER_SETS_GROUP));
+}
 // RM2448 : repli d'un groupe, mémorisé d'une session de navigateur à l'autre
 function toggleGroup(key) {
-  collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key);
+  // RM2537 : déplier un sous-groupe « hors du jeu » doit vaincre le pli par
+  // défaut du préfixe — on mémorise l'état explicite du sous-groupe.
+  isCollapsed(key) ? (collapsedGroups.delete(key), collapsedGroups.add("!" + key))
+                   : (collapsedGroups.delete("!" + key), collapsedGroups.add(key));
   try { localStorage.setItem("karlCollapsed", JSON.stringify([...collapsedGroups])); } catch (e) { /* pas de storage */ }
   refreshSessions();
 }

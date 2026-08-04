@@ -3325,9 +3325,14 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     # RM2446 : en vue `live` ou `all`, tout ce qui est affiché fait partie de la
     # vue — `in_current` ne doit pas y reléguer des sessions dans « hors du jeu ».
     _view = _current_view(_session_set_user(auth_ctx), _store)
+    # RM2537 : appartenance lue par `_set_entries` — le point de passage unique
+    # qui sait CALCULER le contenu d'un jeu dérivé (RM2452). Lire `entries` en
+    # dur rendait vide tout jeu à règle : ses propres sessions se voyaient
+    # `in_current: False` et le cockpit les reléguait dans « hors du jeu
+    # courant », sans en-tête client/projet ni badge de jeu.
     _member: dict = {}
     for _g, _rec in _groups.items():
-        for _e in (_rec.get("entries") or []):
+        for _e in _set_entries(_rec):
             _member.setdefault(_e.get("sid"), []).append(_g)
     for s in sessions:
         names = _member.get(s["rm_id"], [])

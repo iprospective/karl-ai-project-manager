@@ -1259,6 +1259,34 @@ check("RM2452 : en vue « tous les jeux », tout ce qui est affiché appartient 
       all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
 ka.op_session_set_current({"view": "set"}, {"user": None})
 
+# ── RM2537 : un jeu DÉRIVÉ courant ne relègue pas ses propres sessions ────────
+# L'appartenance aux jeux était lue sur `rec["entries"]` en dur : vide pour un
+# jeu à règle, donc `in_current: False` pour ses propres sessions — le cockpit
+# les rangeait dans « hors du jeu courant », sans en-tête client/projet.
+KEYS.clear()
+KEYS.update({"7901": {"engine": "claude", "session_id": "u7901", "cwd": "/zfs/inf", "model": None},
+             "7902": {"engine": "claude", "session_id": "u7902", "cwd": "/zfs/cal", "model": None}})
+ka._all_keys = lambda: list(KEYS.items())
+LIVE.clear(); LIVE.update(KEYS)
+MARKS2.clear()
+ka.op_session_set_create({"group": "der-courant", "rule": {"client": "iprospective"}}, {"user": None})
+ka.op_session_set_current({"group": "der-courant"}, {"user": None})
+vue = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")}
+check("RM2537 : une session du jeu dérivé COURANT lui appartient",
+      vue["7901"]["in_current"] is True)
+check("RM2537 : et elle porte le badge de son jeu (plus de tuile orpheline)",
+      "der-courant" in vue["7901"]["sets"])
+check("RM2537 : une session hors de la règle reste hors du jeu",
+      vue["7902"]["in_current"] is False and "der-courant" not in vue["7902"]["sets"])
+# non-régression : un jeu MANUEL courant se comporte comme avant
+ka.op_session_set_create({"group": "manuel-courant", "sids": ["7902"]}, {"user": None})
+ka.op_session_set_current({"group": "manuel-courant"}, {"user": None})
+vue = {s["rm_id"]: s for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")}
+check("RM2537 : jeu manuel courant — comportement inchangé",
+      vue["7902"]["in_current"] is True and vue["7901"]["in_current"] is False)
+ka.op_session_set_current({"group": "default"}, {"user": None})
+
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

@@ -39,6 +39,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+import pm_markdown
+from pm_markdown import checklist_lines
 import pm_git  # auto-commit scopé des écritures (RM2095)
 import pm_scope
 
@@ -49,7 +51,9 @@ except ImportError:
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 # Ligne de checklist Markdown : "- [ ] ...", "* [x] ...", indentée ou non.
-CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
+# Source unique de vérité pour « qu'est-ce qu'une ligne de checklist » : les
+# cases citées dans un bloc de code n'en sont pas (RM2540).
+CHECK_LINE_RE = pm_markdown.CHECK_LINE_RE
 
 
 def redmine_creds():
@@ -97,17 +101,16 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
     """Applique coche/décoche aux lignes de checklist. Retourne (texte, total, checked, changed).
 
     check_idx / uncheck_idx : ensembles d'index 1-based parmi les lignes de checklist.
+
+    Les cases situées dans un bloc de code sont ignorées (RM2540) : une
+    description qui CITE du markdown en exemple ne doit pas voir sa citation
+    réécrite — et ces cases ne sont pas des critères.
     """
     lines = text.split("\n")
-    item_no = 0
-    total = 0
+    items = checklist_lines(text)
+    total = len(items)
     changed = []
-    for i, line in enumerate(lines):
-        m = CHECK_LINE_RE.match(line)
-        if not m:
-            continue
-        item_no += 1
-        total += 1
+    for item_no, (i, m) in enumerate(items, start=1):
         cur = m.group(2).lower() == "x"
         new = cur
         if check_all or item_no in check_idx:
@@ -117,13 +120,9 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
         if new != cur:
             lines[i] = m.group(1) + ("x" if new else " ") + m.group(3)
             changed.append((item_no, new))
-    checked = 0
-    item_no = 0
-    for line in lines:
-        m = CHECK_LINE_RE.match(line)
-        if m:
-            checked += 1 if m.group(2).lower() == "x" else 0
-    return "\n".join(lines), total, checked, changed
+    text = "\n".join(lines)
+    checked = sum(1 for _, m in checklist_lines(text) if m.group(2).lower() == "x")
+    return text, total, checked, changed
 
 
 def parse_idx(spec):

@@ -10,8 +10,9 @@ WorkingDirectory=/zfs/workspaces/ai/project-management
 # faster-whisper. %h = home user. Le sidecar bind 127.0.0.1 EN DUR (invariant sécu) ;
 # karl-agent l'appelle en localhost et publie stt:true dans /voice/caps quand il répond.
 ExecStart=%h/.local/share/karl-agent/voice/venv/bin/python /zfs/workspaces/ai/project-management/scripts/karl-whisper-sidecar.py
-# Modèle par défaut « small » (bench L3 RM2534 tranchera). Surcharge possible :
-# small → int8 ≈ 0,5 Go RAM ; medium ≈ 1,5 Go. RTF ~0,35 sur CPU (spike RM2533).
+# Modèle par défaut « small » — retenu au bench L3 (RM2534) : RTF ~0,42 sur CPU
+# (medium : 1,10, soit 2,6× plus lent, gain de précision marginal, surtout du
+# formatage de nombres). Surcharge : small → int8 ≈ 0,5 Go RAM ; medium ≈ 1,5 Go.
 Environment=KARL_WHISPER_MODEL=small
 Environment=KARL_WHISPER_DEVICE=cpu
 Environment=KARL_WHISPER_COMPUTE=int8

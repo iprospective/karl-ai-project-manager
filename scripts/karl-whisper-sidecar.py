@@ -18,7 +18,9 @@ Endpoints (bind 127.0.0.1 EN DUR — invariant sécu, comme karl-agent) :
 
 Config (env, posée par l'unité systemd) :
   KARL_WHISPER_PORT     (défaut 9877)
-  KARL_WHISPER_MODEL    (défaut « small » — voir bench L3 RM2534)
+  KARL_WHISPER_MODEL    (défaut « small » — bench L3 RM2534 : small retenu, RTF
+                         ~0,42 sur CPU vs 1,10 pour medium ; medium en override si
+                         précision > latence et RAM ~1,5 Go dispo)
   KARL_WHISPER_DEVICE   (défaut « cpu »)
   KARL_WHISPER_COMPUTE  (défaut « int8 »)
   KARL_WHISPER_LANG     (défaut « fr » ; vide = auto-détection)

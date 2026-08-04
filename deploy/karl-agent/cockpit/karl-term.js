@@ -81,43 +81,76 @@
    *
    * On écoute donc sur le CONTENEUR en phase de capture : l'évènement y descend
    * AVANT d'atteindre la .xterm-helper-textarea, donc avant le listener de
-   * xterm. Quand on prend la main, stopImmediatePropagation() garantit que
-   * xterm ne le verra pas — pas de risque de double saisie.
+   * xterm, et stopImmediatePropagation() l'empêche de le voir.
+   *
+   * Attention : couper l'`input` ne suffit PAS à éviter la double saisie. Sur un
+   * caractère ordinaire, xterm a déjà émis depuis le KEYDOWN, bien avant que
+   * l'`input` n'arrive — c'est ce qui a doublé les espaces en prod. La décision
+   * se prend donc sur ce qu'xterm a réellement émis (cf. shouldTakeOverInput),
+   * pas sur l'identité de la touche.
    */
   // >>> shouldTakeOverInput
-  // Faut-il envoyer NOUS-MÊMES ce caractère ? Oui uniquement sur le chemin que
-  // xterm abandonne : Firefox/GTK signale un caractère « composé » par un
-  // keydown key="Process" (keyCode 229) suivi d'un `input` séparé.
+  // Faut-il envoyer NOUS-MÊMES ce caractère, ou xterm l'a-t-il déjà fait ?
   //
-  // Sur un caractère ordinaire — y compris l'espace et « [ » — Firefox émet un
-  // keydown NORMAL, que xterm consomme, ET un évènement `input`. Prendre la
-  // main dans ce cas envoie le caractère deux fois : c'est le défaut remonté en
-  // prod (« tous les espaces sont doublés »). D'où la garde sur lastProcess.
-  function shouldTakeOverInput(ev, lastProcess) {
+  // On NE discrimine PAS sur le nom de la touche (key="Process", keyCode 229) :
+  // c'est une propriété du clavier et de la version de Firefox, pas du fait qui
+  // nous intéresse. Une première version le faisait et doublait tous les espaces.
+  //
+  // Le fait décisif est observable directement : xterm a-t-il émis des données
+  // depuis le keydown en cours ? Mesuré dans le navigateur (RM2522) —
+  //   espace :  keydown " "       → xterm émet "0 "  → input {data:" "}
+  //   « é »  :  keydown "Process" → xterm n'émet rien → input {data:"é"}
+  // Un `input` qui suit une émission d'xterm est donc un doublon à ignorer ;
+  // un `input` sans émission est un caractère que xterm a abandonné, et que
+  // personne n'enverra si nous ne le faisons pas.
+  function shouldTakeOverInput(ev, xtermEmitted) {
     if (!ev || !ev.data || ev.inputType !== "insertText") return false;
     // vraie composition (IME japonais/chinois…) : xterm a un chemin dédié
     // (compositionstart/update/end) qui fonctionne — ne pas interférer.
     if (ev.isComposing) return false;
-    return !!lastProcess;
+    return !xtermEmitted;
   }
   // <<< shouldTakeOverInput
 
+  // Retourne la fonction de désinstallation — À APPELER dans dispose(). Les
+  // écouteurs sont posés sur le conteneur, qui SURVIT aux remontages (le
+  // cockpit se contente de vider son innerHTML) : sans ça, chaque changement de
+  // session en empile un de plus. Le plus ancien s'exécute en premier, coupe la
+  // propagation et réémet sur un terminal déjà disposé dont la socket est
+  // fermée — le caractère disparaît en silence (défaut constaté en prod).
+  // >>> installAccentFix
   function installAccentFix(container, term) {
-    var lastProcess = false;
-    container.addEventListener("keydown", function (ev) {
-      lastProcess = (ev.key === "Process" || ev.keyCode === 229);
-    }, true);
-    container.addEventListener("input", function (ev) {
+    var xtermEmitted = false, selfSend = false;
+
+    // Notre propre réémission repasse par onData : ne pas la compter comme une
+    // émission d'xterm, sinon deux accents de suite perdraient le second.
+    var sub = term.onData(function () { if (!selfSend) xtermEmitted = true; });
+
+    function onKeyDown() { xtermEmitted = false; }
+
+    function onInput(ev) {
       var ta = ev.target;
       if (!ta || ta.classList === undefined) return;
       if (!ta.classList.contains("xterm-helper-textarea")) return;
-      if (!shouldTakeOverInput(ev, lastProcess)) return;   // xterm s'en charge
-      lastProcess = false;
+      if (!shouldTakeOverInput(ev, xtermEmitted)) return;   // xterm s'en charge
       ev.stopImmediatePropagation();
       ta.value = "";                 // xterm ne le fera pas : il ne voit rien
-      term.input(ev.data, true);
-    }, true);
+      selfSend = true;
+      try { term.input(ev.data, true); } finally { selfSend = false; }
+    }
+
+    // Capture : l'évènement descend par le conteneur AVANT d'atteindre la
+    // .xterm-helper-textarea, donc avant le listener de xterm.
+    container.addEventListener("keydown", onKeyDown, true);
+    container.addEventListener("input", onInput, true);
+
+    return function uninstallAccentFix() {
+      container.removeEventListener("keydown", onKeyDown, true);
+      container.removeEventListener("input", onInput, true);
+      try { sub.dispose(); } catch (e) { /* xterm déjà libéré */ }
+    };
   }
+  // <<< installAccentFix
 
   // >>> termPalette
   // Palette ANSI 16 couleurs du terminal. xterm n'en fournit une par défaut que
@@ -174,7 +207,7 @@
     } catch (e) { /* addon absent : largeurs de caractères par défaut */ }
 
     term.open(container);
-    installAccentFix(container, term);
+    var uninstallAccentFix = installAccentFix(container, term);
     fit.fit();
 
     var socket = null, closed = false, retry = 0, retryTimer = null;
@@ -243,6 +276,7 @@
         closed = true;
         clearTimeout(retryTimer);
         global.removeEventListener("resize", refit);
+        uninstallAccentFix();          // le conteneur survit au démontage
         if (ro) ro.disconnect();
         mo.disconnect();
         if (socket) { try { socket.close(); } catch (e) {} }

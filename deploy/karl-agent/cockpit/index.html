@@ -657,6 +657,16 @@ if (window.matchMedia) {
           Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
         </div>
       </div>
+      <!-- RM2533 : bascule STT serveur (Whisper) — n'apparaît que si le sidecar répond -->
+      <div id="vx-stt-row" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="vx-stt" onchange="setSttServer(this.checked)">
+          <span>Dictée serveur haute précision (Whisper) <span style="color:var(--ok)">★</span></span>
+        </label>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+          Transcription locale, tout navigateur (pas de verrou Chrome). Décochez pour la reconnaissance du navigateur.
+        </div>
+      </div>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
         La liste dépend du navigateur — Chrome recommandé.
@@ -1733,14 +1743,21 @@ function renderGhostItem(s, r, it) {
   // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
   const age = s.last_active ? "inactive depuis " + ago(s.last_active)
                             : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
+  // RM2536 : dans une vue par CLIENT, la tuile ne vient d'aucun jeu enregistré
+  // (le contenu est calculé par le client, comme un jeu dérivé). Or ⊖ « retirer
+  // du jeu » et ⟳ « politique de reprise » agissent tous deux SUR un jeu : sans
+  // jeu, ils ne peuvent qu'échouer. On ne les propose donc pas — même parti-pris
+  // que « 💾 ajouter l'affichage », masqué sur un jeu dérivé. La relance, elle,
+  // ne dépend plus d'aucun jeu et reste offerte.
+  const inSet = !/^client:/.test(currentView);
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
     '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
       ? ' style="opacity:.55"' : '') + '>' + esc(title) +
       (age ? (title ? " · " : "") + age : "") + '</span>' +
-    '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
+    (inSet ? '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
-    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
+    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>' : "");
   // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
   // lieu de relancer la session. Sans cela, déplacer ou scinder une session
   // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
@@ -1751,8 +1768,10 @@ function renderGhostItem(s, r, it) {
   } else {
     it.onclick = () => relaunchGhost(s);
   }
-  it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
-  it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  if (inSet) {
+    it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
+    it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  }
   it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
                       : "") + it.title;
   return it;
@@ -1817,6 +1836,11 @@ async function dropFromSet(s) {
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
+// RM2536 : la relance passe par l'IDENTITÉ de la session — le couple
+// (engine, session_id) — et non plus par le jeu qui l'affiche. L'ancien appel
+// portait `group`, qui vaut la clé de VUE dans une vue client (« client:matnat »)
+// : le serveur la refusait comme nom de jeu (400) et rien ne démarrait. Le
+// serveur retrouve seul rm_id / cwd / modèle ; on ne les lui dicte plus.
 async function relaunchGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
   const lines = ["Relancer la session " + label + " ?", ""];
@@ -1829,21 +1853,14 @@ async function relaunchGhost(s) {
   if (!window.confirm(lines.join("\n"))) return;
   toast("▶ relance de " + label + "…");
   try {
-    const r = await api("/session-set/relaunch", {
+    const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid: s.rm_id, group: s.group || currentSet, spawn: sessionSetSpawn }),
+      body: JSON.stringify({ engine: s.engine || undefined, session_id: s.session_id || undefined,
+                             rm_id: s.rm_id, spawn: sessionSetSpawn }),
     });
-    const a = (r.report || [])[0] || {};
-    if (a.action === "resumed" || a.action === "spawned") {
-      toast(a.action === "resumed" ? "▶ " + label + " reprise" : "▶ " + label + " recréée (session neuve)");
-      setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
-    } else if (a.action === "skipped") {
-      toast(label + " est déjà active");
-      refreshSessions();
-    } else {
-      toast("relance impossible : " + (a.error || "erreur inconnue"), true);
-    }
-  } catch (e) { toast(e.message, true); }
+    toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
+    setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
+  } catch (e) { toast("relance impossible : " + e.message, true); }
 }
 // carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
 async function loadSessionSet() {
@@ -2037,7 +2054,8 @@ function pickVoice(voices, lang, wanted) {
 
 // RM2532 (vocal V2 L1) : TTS serveur Piper si dispo + préféré, sinon navigateur.
 let voiceCaps = null;                                    // {tts, stt, tts_langs} ou null
-let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le serveur
+let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le TTS serveur
+let sttServer = localStorage.getItem("karlSttServer") !== "0";       // préférer le STT serveur (RM2533)
 
 // >>> ttsMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2532 : « server » si le serveur sait faire du TTS ET que l'utilisateur le préfère ;
@@ -2046,6 +2064,14 @@ function ttsMode(caps, pref) {
   return (pref && caps && caps.tts) ? "server" : "browser";
 }
 // <<< ttsMode
+
+// >>> sttMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2533 : « server » si le sidecar Whisper est joignable ET préféré ; sinon
+// « browser » (Web Speech API, repli — verrouillé Chrome+HTTPS mais sans régression).
+function sttMode(caps, pref) {
+  return (pref && caps && caps.stt) ? "server" : "browser";
+}
+// <<< sttMode
 
 function browserSpeak(text) {
   try {
@@ -2095,6 +2121,11 @@ function setVoiceServer(on) {          // RM2532 : préférer la voix serveur (P
   toast(voiceServer ? "Voix serveur (Piper) activée" : "Voix du navigateur");
   speak("Test de la voix.");          // aperçu immédiat
 }
+function setSttServer(on) {            // RM2533 : préférer la dictée serveur (Whisper) ou le navigateur
+  sttServer = !!on;
+  try { localStorage.setItem("karlSttServer", sttServer ? "1" : "0"); } catch (e) { /* privé */ }
+  toast(sttServer ? "Dictée serveur (Whisper) activée" : "Dictée du navigateur");
+}
 function renderVoicePrefs() {
   const langSel = document.getElementById("vx-lang");
   if (!langSel) return;
@@ -2105,6 +2136,14 @@ function renderVoicePrefs() {
     srow.style.display = has ? "" : "none";
     const cb = document.getElementById("vx-server");
     if (cb) cb.checked = has && voiceServer;
+  }
+  // RM2533 : ligne « dictée serveur (Whisper) » — visible si le sidecar répond.
+  const strow = document.getElementById("vx-stt-row");
+  if (strow) {
+    const hasStt = !!(voiceCaps && voiceCaps.stt);
+    strow.style.display = hasStt ? "" : "none";
+    const cbs = document.getElementById("vx-stt");
+    if (cbs) cbs.checked = hasStt && sttServer;
   }
   langSel.value = voiceLang;
   const sel = document.getElementById("vx-voice");
@@ -2152,36 +2191,102 @@ async function announceWaiting(sessions) {
       (q ? "Question : " + q : "attend une réponse."));
   }
 }
-// Dicter une consigne à la session attachée (reconnaissance fr, confirmation avant envoi)
-let rec = null;
+// Dicter une consigne à la session attachée. Deux moteurs : STT serveur (Whisper,
+// RM2533 — quel que soit le navigateur, précision fr) ou Web Speech API (repli
+// V1, verrouillé Chrome+HTTPS). Confirmation avant envoi dans les deux cas.
+let rec = null;          // instance Web Speech (repli navigateur)
+let mediaRec = null;     // MediaRecorder (capture pour le STT serveur)
+let sttBusy = false;     // 1-à-la-fois : transcription serveur en cours
+
+function micBtn() { return document.getElementById("micbtn"); }
+function micIdle() { const b = micBtn(); if (b) { b.style.color = ""; b.textContent = "🎤 dicter"; } }
+function micRec() { const b = micBtn(); if (b) { b.style.color = "var(--danger)"; b.textContent = "🎤 écoute…"; } }
+function micWork() { const b = micBtn(); if (b) { b.style.color = "var(--warn)"; b.textContent = "⏳ transcription…"; } }
+
+// Envoi factorisé (confirmation → /send), partagé par les deux moteurs.
+async function sendDictated(txt) {
+  txt = (txt || "").trim();
+  if (!txt) { toast("Dictée : rien compris"); return; }
+  const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
+  if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
+  try {
+    await api("/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
+    });
+    toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
+  } catch (err) { toast(err.message, true); }
+}
+
+function abToB64(buf) {                       // ArrayBuffer → base64 (par blocs : pas de débordement de pile)
+  const bytes = new Uint8Array(buf); let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
+// Point d'entrée : re-clic = stop. Choisit le moteur selon les capacités serveur.
 function dictate() {
   if (!attached) return;
-  if (rec) { try { rec.stop(); } catch (e) { } return; }   // re-clic = stop
+  if (mediaRec && mediaRec.state === "recording") { try { mediaRec.stop(); } catch (e) { } return; }
+  if (rec) { try { rec.stop(); } catch (e) { } return; }
+  if (sttBusy) { toast("Transcription en cours…"); return; }
+  if (sttMode(voiceCaps, sttServer) === "server") serverDictate();
+  else browserDictate();
+}
+
+// STT serveur : capture MediaRecorder → POST /stt → transcription Whisper.
+// Tout échec (micro refusé, MediaRecorder absent, erreur serveur) retombe sur le
+// moteur navigateur — sauf si le serveur a déjà rendu un texte (pas de double envoi).
+async function serverDictate() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { browserDictate(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) { toast("Micro refusé — repli reconnaissance navigateur"); browserDictate(); return; }
+  const chunks = [];
+  try { mediaRec = new MediaRecorder(stream); }
+  catch (e) { stream.getTracks().forEach(t => t.stop()); browserDictate(); return; }
+  micRec();
+  mediaRec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mediaRec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    mediaRec = null;
+    const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || "audio/webm" });
+    if (!blob.size) { micIdle(); toast("Dictée vide"); return; }
+    sttBusy = true; micWork();
+    try {
+      const b64 = abToB64(await blob.arrayBuffer());
+      const r = await api("/stt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio_b64: b64, lang: voiceLang.slice(0, 2) }),
+      });
+      sttBusy = false; micIdle();
+      await sendDictated(r.text);
+    } catch (err) {
+      sttBusy = false; micIdle();
+      toast("STT serveur indisponible — repli reconnaissance navigateur");
+      browserDictate();                       // dégradation gracieuse
+    }
+  };
+  try { mediaRec.start(); }
+  catch (e) { stream.getTracks().forEach(t => t.stop()); mediaRec = null; micIdle(); browserDictate(); }
+}
+
+// Repli navigateur : Web Speech API (RM2350). Verrouillé Chrome+HTTPS/localhost.
+function browserDictate() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
+  if (!SR) { micIdle(); toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
   rec = new SR();
   rec.lang = voiceLang; rec.interimResults = false; rec.maxAlternatives = 1;   // RM2350
-  const btn = document.getElementById("micbtn");
-  btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
-  const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
+  micRec();
+  const done = () => { rec = null; micIdle(); };
   rec.onerror = (e) => {
     done();
     toast("Dictée : " + (e.error === "not-allowed" ? "micro refusé (HTTPS/localhost requis)" : e.error), true);
   };
   rec.onend = done;
-  rec.onresult = async (e) => {
-    const txt = (e.results[0][0].transcript || "").trim();
-    if (!txt) return;
-    const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
-    if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
-    try {
-      await api("/send", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
-      });
-      toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
-    } catch (err) { toast(err.message, true); }
-  };
+  rec.onresult = async (e) => { await sendDictated((e.results[0][0].transcript || "").trim()); };
   try { rec.start(); } catch (e) { done(); toast("Dictée impossible : " + e.message, true); }
 }
 // Lire la question de la session attachée (repli : ses dernières lignes)

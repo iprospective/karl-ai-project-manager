@@ -43,9 +43,40 @@ echo "==> Modèles (fr, en)"
 fetch_model "$FR"
 fetch_model "$EN"
 
+# ── STT — sidecar Whisper (RM2533, vocal V2 L2) ──────────────────────────────
+# faster-whisper dans LE MÊME venv + unité systemd user karl-whisper (modèle chaud).
+# Absent → /voice/caps annonce stt:false et le cockpit reste sur la Web Speech API.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO="$(dirname "$SCRIPT_DIR")"
+UNIT_DST="$HOME/.config/systemd/user"
+WHISPER_MODEL="${KARL_WHISPER_MODEL:-small}"
+
+echo "==> STT : faster-whisper (venv partagé)"
+"$VENV/bin/pip" install -q faster-whisper
+
+echo "==> STT : préchauffe du modèle « $WHISPER_MODEL » (download au 1er coup, ~0,5 Go RAM à l'usage)"
+"$VENV/bin/python" - "$WHISPER_MODEL" <<'PY' || echo "  (préchauffe non bloquante ignorée)"
+import sys
+from faster_whisper import WhisperModel
+WhisperModel(sys.argv[1], device="cpu", compute_type="int8")   # download + cache HF
+print("  modèle prêt")
+PY
+
+if [ -f "$REPO/deploy/karl-agent/karl-whisper.service" ]; then
+  echo "==> STT : unité systemd user karl-whisper"
+  mkdir -p "$UNIT_DST"
+  cp "$REPO/deploy/karl-agent/karl-whisper.service" "$UNIT_DST/"
+  systemctl --user daemon-reload
+  systemctl --user enable --now karl-whisper.service || true
+fi
+
 echo
-echo "OK — TTS serveur installé. Modèles :"
-ls -1 "$MODELS"/*.onnx 2>/dev/null | sed 's#.*/#  #'
+echo "OK — voix serveur installée."
+echo "  TTS (Piper) :"
+ls -1 "$MODELS"/*.onnx 2>/dev/null | sed 's#.*/#    #'
+echo "  STT (Whisper) : sidecar karl-whisper.service, modèle $WHISPER_MODEL"
 echo
-echo "Active-le :  systemctl --user restart karl-agent"
-echo "Vérifie   :  curl -s http://127.0.0.1:9876/voice/caps   (avec auth) → {\"tts\": true, ...}"
+echo "Active/rafraîchit :  systemctl --user restart karl-agent"
+echo "Vérifie          :  curl -s http://127.0.0.1:9876/voice/caps  (avec auth)"
+echo "                    → {\"tts\": true, \"stt\": true, \"stt_engine\": \"whisper\", ...}"
+echo "Sidecar STT      :  systemctl --user status karl-whisper   ·   curl -s http://127.0.0.1:9877/health"

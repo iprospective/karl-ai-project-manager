@@ -569,4 +569,14 @@ assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts �
 assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
 console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
 
+// — sttMode (RM2533) : bascule STT serveur (Whisper) ↔ navigateur —
+const fmStt = />>> sttMode[\s\S]*?(function sttMode[\s\S]*?)\n\/\/ <<< sttMode/.exec(html);
+assert(fmStt, "marqueurs >>> sttMode / <<< sttMode introuvables");
+const sttMode = vm.runInNewContext("(" + fmStt[1] + ")");
+assert.strictEqual(sttMode({ stt: true }, true), "server", "sidecar dispo + préféré → server");
+assert.strictEqual(sttMode({ stt: true }, false), "browser", "sidecar dispo mais non préféré → browser");
+assert.strictEqual(sttMode({ stt: false }, true), "browser", "serveur sans stt → browser");
+assert.strictEqual(sttMode(null, true), "browser", "pas de caps (sidecar muet) → browser");
+console.log("✓ sttMode (RM2533) : serveur si sidecar dispo ET préféré, sinon repli navigateur");
+
 console.log("OK — tous les tests cockpit passent");

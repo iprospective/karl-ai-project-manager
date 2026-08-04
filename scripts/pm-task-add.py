@@ -113,6 +113,23 @@ def slugify(s: str, maxlen: int = 50) -> str:
     return s[:maxlen].rstrip("-")
 
 
+# Titre markdown « Critères d'acceptation » : niveau libre, casse et accents
+# indifférents, apostrophe droite ou typographique, suffixe toléré (« … (DoD) »).
+# Jusqu'à 3 espaces d'indentation — au-delà, markdown y voit un bloc de code.
+CRITERIA_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s*crit[eè]res?\s+d['’]acceptation\b",
+                                 re.M | re.I)
+CODE_FENCE_RE = re.compile(r"^ {0,3}(```|~~~).*?^ {0,3}\1", re.M | re.S)
+
+
+def has_acceptance_criteria(desc: str) -> bool:
+    """La description fournit-elle déjà sa section de critères ?
+
+    Les blocs de code sont retirés d'abord : un titre qui s'y trouve est un
+    exemple cité, pas une section du ticket.
+    """
+    return bool(CRITERIA_HEADING_RE.search(CODE_FENCE_RE.sub("", desc or "")))
+
+
 def detect_project_from_cwd(cfg):
     """Détection du projet courant — déléguée à PMConfig (overview-based,
     gère `.mmi-pm` symlink OU dossier co-localisé, RM1942)."""
@@ -354,7 +371,14 @@ def main():
     }
     fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False).rstrip()
     desc = args.description or "_(pas de description fournie au moment de la création)_"
-    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
+    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
+    # Le gabarit n'est ajouté que si la description n'apporte pas déjà ses
+    # critères — sinon le ticket en portait DEUX sections, dont un « (à
+    # compléter) » que personne ne coche : done_ratio plafonné et pm-task-deliver
+    # qui refuse la livraison (RM2540, défaut vu sur tous les tickets créés avec
+    # --description-file).
+    if not has_acceptance_criteria(desc):
+        md += "\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
 
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)

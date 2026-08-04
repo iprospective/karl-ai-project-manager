@@ -443,24 +443,92 @@ for (const mode of ["dark", "light"]) {
 console.log("✓ palette ANSI du terminal : contrastes tenus en dark et en light");
 
 // — 7. hook de saisie : ne prendre la main QUE sur le chemin que xterm perd —
-// Régression vécue en prod (RM2522) : le hook prenait la main sur tout `input`
-// insertText, donc AUSSI sur les caractères que xterm venait déjà d'envoyer
-// depuis le keydown — espaces et « [ » arrivaient en double.
+// Deux régressions vécues en prod (RM2522), de sens opposé :
+//   a) le hook prenait la main sur tout `input` insertText, donc aussi sur les
+//      caractères qu'xterm venait d'envoyer depuis le keydown → espaces et
+//      « [ » en double ;
+//   b) ses écouteurs, posés sur un conteneur qui survit aux remontages,
+//      n'étaient jamais retirés : le hook d'une session précédente coupait la
+//      propagation et réémettait sur un terminal disposé → plus AUCUN accent.
+// Le second paramètre n'est donc pas l'identité de la touche mais un fait :
+// xterm a-t-il émis depuis le keydown en cours ?
 const shouldTakeOverInput = pick("shouldTakeOverInput");
 const evt = (o) => Object.assign({ data: "a", inputType: "insertText", isComposing: false }, o);
 
-// le cas à corriger : keydown key="Process" puis input séparé (Firefox/GTK)
-assert.strictEqual(shouldTakeOverInput(evt({ data: "é" }), true), true, "accent après key=Process → on prend la main");
-// le cas à NE PAS toucher : caractère ordinaire, keydown normal déjà consommé
-assert.strictEqual(shouldTakeOverInput(evt({ data: " " }), false), false, "espace ordinaire → xterm s'en charge");
-assert.strictEqual(shouldTakeOverInput(evt({ data: "[" }), false), false, "crochet ordinaire → xterm s'en charge");
+// mesuré dans Firefox : « é » → keydown "Process", xterm n'émet rien, puis input
+assert.strictEqual(shouldTakeOverInput(evt({ data: "é" }), false), true, "accent abandonné par xterm → on prend la main");
+// mesuré dans Firefox : espace et « [ » → xterm émet dès le keydown, puis input
+assert.strictEqual(shouldTakeOverInput(evt({ data: " " }), true), false, "espace déjà émis par xterm → ne pas doubler");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "[" }), true), false, "crochet déjà émis par xterm → ne pas doubler");
 // composition IME réelle : chemin dédié de xterm, on ne s'en mêle pas
-assert.strictEqual(shouldTakeOverInput(evt({ data: "あ", isComposing: true }), true), false, "IME → laisser xterm");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "あ", isComposing: true }), false), false, "IME → laisser xterm");
 // autres types d'input (suppression, collage) : hors périmètre du hook
-assert.strictEqual(shouldTakeOverInput(evt({ inputType: "deleteContentBackward" }), true), false, "suppression ignorée");
-assert.strictEqual(shouldTakeOverInput(evt({ inputType: "insertFromPaste" }), true), false, "collage ignoré");
-assert.strictEqual(shouldTakeOverInput(evt({ data: "" }), true), false, "data vide ignorée");
-console.log("✓ hook de saisie : accents repris, caractères ordinaires laissés à xterm (pas de doublon)");
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "deleteContentBackward" }), false), false, "suppression ignorée");
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "insertFromPaste" }), false), false, "collage ignoré");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "" }), false), false, "data vide ignorée");
+
+// installAccentFix lui-même, contre un conteneur et un terminal simulés : c'est
+// là que se jouent le cycle de vie des écouteurs et la non-réentrance.
+const mIAF = />>> installAccentFix[\s\S]*?(function installAccentFix[\s\S]*?)\n  \/\/ <<< installAccentFix/.exec(termSrc);
+assert(mIAF, "marqueurs >>> installAccentFix / <<< installAccentFix introuvables");
+const installAccentFix = vm.runInNewContext("(" + mIAF[1] + ")", { shouldTakeOverInput });
+
+function fakeContainer() {
+  const ls = { keydown: [], input: [] };
+  return {
+    addEventListener: (t, f) => ls[t].push(f),
+    removeEventListener: (t, f) => { const i = ls[t].indexOf(f); if (i >= 0) ls[t].splice(i, 1); },
+    count: (t) => ls[t].length,
+    fire(t, ev) {                       // respecte stopImmediatePropagation
+      let stop = false;
+      const e = Object.assign({ stopImmediatePropagation: () => { stop = true; } }, ev);
+      for (const f of ls[t].slice()) { f(e); if (stop) break; }
+    },
+  };
+}
+function fakeTerm(sent) {
+  let cb = null;
+  return {
+    onData(f) { cb = f; return { dispose() { cb = null; } }; },
+    input(d) { sent.push(d); if (cb) cb(d); },        // réémission par le hook
+    keyEmit(d) { sent.push(d); if (cb) cb(d); },      // ce qu'xterm fait au keydown
+  };
+}
+const ta = { classList: { contains: (c) => c === "xterm-helper-textarea" }, value: "" };
+const key = (data) => ({ target: ta, data, inputType: "insertText", isComposing: false });
+
+// espace : xterm émet au keydown, l'`input` qui suit ne doit rien ajouter
+let sent = [], term = fakeTerm(sent), box = fakeContainer();
+let uninstall = installAccentFix(box, term);
+box.fire("keydown", {}); term.keyEmit(" "); box.fire("input", key(" "));
+assert.deepStrictEqual(sent, [" "], "espace envoyé une seule fois");
+
+// accent : xterm n'émet rien, le hook doit suppléer
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, [" ", "é"], "accent repris par le hook");
+
+// deux accents de suite : la réémission du hook ne doit pas passer pour une
+// émission d'xterm, sinon le second serait avalé
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, [" ", "é", "é"], "deux accents consécutifs passent tous les deux");
+
+// désinstallation : plus un seul écouteur ne subsiste sur le conteneur
+uninstall();
+assert.strictEqual(box.count("keydown") + box.count("input"), 0, "écouteurs retirés au dispose");
+box.fire("keydown", {}); box.fire("input", key("è"));
+assert.deepStrictEqual(sent, [" ", "é", "é"], "hook désinstallé : plus aucune émission");
+
+// le défaut de prod : un hook de session précédente laissé en place mange le
+// caractère (il coupe la propagation et réémet dans le vide)
+sent = []; box = fakeContainer();
+const zombieSent = [], zombie = fakeTerm(zombieSent);
+const uninstallZombie = installAccentFix(box, zombie);       // session 1
+uninstallZombie();                                           // … proprement démontée
+term = fakeTerm(sent); installAccentFix(box, term);          // session 2
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, ["é"], "la session vivante reçoit l'accent");
+assert.deepStrictEqual(zombieSent, [], "la session démontée ne capte plus rien");
+console.log("✓ hook de saisie : accents repris, pas de doublon, écouteurs libérés au démontage");
 // — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
 const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
 assert(fmFrz, "marqueurs >>> sortFrozen / <<< sortFrozen introuvables");

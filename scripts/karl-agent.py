@@ -315,6 +315,11 @@ VOICE_DIR = Path(os.environ.get("KARL_VOICE_DIR") or (
 PIPER_BIN = Path(os.environ.get("KARL_PIPER_BIN") or (VOICE_DIR / "venv" / "bin" / "piper"))
 PIPER_MODELS = Path(os.environ.get("KARL_PIPER_MODELS") or (VOICE_DIR / "models"))
 _TTS_PREFIX = {"fr": "fr_", "en": "en_"}   # préfixe de nom de modèle Piper par langue
+# RM2533 (vocal V2 L2) : STT via le sidecar karl-whisper (faster-whisper chaud,
+# service systemd user dédié — cf. scripts/karl-whisper-sidecar.py). Injoignable →
+# /voice/caps annonce stt:false et le cockpit reste sur la Web Speech API (repli).
+WHISPER_URL = (os.environ.get("KARL_WHISPER_URL") or "http://127.0.0.1:9877").rstrip("/")
+STT_MAX_BYTES = int(float(os.environ.get("KARL_STT_MAX_MB") or 25) * 1024 * 1024)
 # Stores claude scannés pour la DÉCOUVERTE des sessions reprenables (l'historique
 # reste chez le moteur ; karl-agent n'en garde qu'un index). Multi-racines ':' —
 # permet de monter le store d'une autre machine en lecture (listing seulement :
@@ -1079,12 +1084,13 @@ def _piper_ready() -> bool:
 
 
 def op_voice_caps() -> dict:
-    """RM2532 : capacités vocales SERVEUR, pour la bascule navigateur↔serveur du
-    cockpit. tts=Piper si installé ; stt réservé au lot 2 (RM2533)."""
+    """Capacités vocales SERVEUR, pour la bascule navigateur↔serveur du cockpit.
+    tts=Piper si installé (RM2532) ; stt=sidecar karl-whisper joignable (RM2533)."""
     langs = sorted(_piper_models().keys())
     ready = _piper_ready()
-    return {"tts": ready, "stt": False, "engine": "piper" if ready else None,
-            "tts_langs": langs}
+    stt = _whisper_ready()
+    return {"tts": ready, "stt": stt, "engine": "piper" if ready else None,
+            "stt_engine": "whisper" if stt else None, "tts_langs": langs}
 
 
 def op_tts_wav(payload: dict) -> bytes:
@@ -1124,6 +1130,61 @@ def op_tts_wav(payload: dict) -> bytes:
             os.unlink(tmp)
         except OSError:
             pass
+
+
+# ── Vocal V2 L2 : STT sidecar karl-whisper (RM2533) ──────────────────────────
+def _whisper_health(timeout: float = 0.4):
+    """État du sidecar STT, ou None s'il est injoignable / froid. Timeout court :
+    op_voice_caps est appelé au chargement du cockpit — on ne bloque pas l'UI si
+    le sidecar est absent (cas nominal tant que L2 n'est pas activé en prod)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(WHISPER_URL + "/health", timeout=timeout) as r:
+            if r.status != 200:
+                return None
+            data = json.loads(r.read().decode("utf-8"))
+            return data if (data.get("ok") and data.get("warm")) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _whisper_ready() -> bool:
+    return _whisper_health() is not None
+
+
+def op_stt(payload: dict) -> dict:
+    """RM2533 : transcrit un clip audio (base64) via le sidecar karl-whisper. Le
+    cockpit envoie {audio_b64, lang} (blob MediaRecorder, webm/opus). ApiError si
+    audio absent/trop gros/sidecar injoignable → le cockpit retombe sur la Web
+    Speech API du navigateur (repli, aucune régression V1)."""
+    import urllib.error
+    import urllib.request
+    b64 = str(payload.get("audio_b64") or "")
+    if not b64:
+        raise ApiError(400, "audio vide")
+    try:
+        audio = base64.b64decode(b64, validate=True)
+    except Exception:
+        raise ApiError(400, "audio_b64 invalide")
+    if not audio:
+        raise ApiError(400, "audio vide")
+    if len(audio) > STT_MAX_BYTES:
+        raise ApiError(413, f"audio trop volumineux (> {STT_MAX_BYTES // (1024 * 1024)} Mo)")
+    lang = str(payload.get("lang") or "fr")[:2].lower()
+    req = urllib.request.Request(
+        WHISPER_URL + "/stt?lang=" + lang, data=audio, method="POST",
+        headers={"Content-Type": "application/octet-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            out = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:200]
+        raise ApiError(502, "STT sidecar : " + (body or str(e.code)))
+    except Exception:  # noqa: BLE001
+        raise ApiError(503, "STT serveur indisponible (sidecar karl-whisper absent) — "
+                            "cockpit sur reconnaissance navigateur")
+    return {"text": out.get("text") or "", "lang": out.get("lang"),
+            "duration": out.get("duration")}
 
 
 # RM2515 : disposition manuelle d'une session — raffine l'état heuristique `idle`
@@ -5067,6 +5128,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_kill(payload))
             if path == "/tts":
                 return self._send_bytes(200, "audio/wav", op_tts_wav(payload))
+            if path == "/stt":                        # RM2533 : dictée → sidecar Whisper
+                return self._send_json(200, op_stt(payload))
             if path == "/disposition":
                 return self._send_json(200, op_disposition(payload, self.auth_ctx))
             if path == "/monitor":

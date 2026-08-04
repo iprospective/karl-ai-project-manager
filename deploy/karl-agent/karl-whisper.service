@@ -1,0 +1,26 @@
+[Unit]
+Description=karl-whisper — sidecar STT (faster-whisper, modèle chaud) du cockpit (RM2533)
+Documentation=file:///zfs/workspaces/ai/project-management/scripts/karl-whisper-sidecar.py
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/zfs/workspaces/ai/project-management
+# Interpréteur = le venv voix (installé par scripts/karl-voice-setup.sh) : il porte
+# faster-whisper. %h = home user. Le sidecar bind 127.0.0.1 EN DUR (invariant sécu) ;
+# karl-agent l'appelle en localhost et publie stt:true dans /voice/caps quand il répond.
+ExecStart=%h/.local/share/karl-agent/voice/venv/bin/python /zfs/workspaces/ai/project-management/scripts/karl-whisper-sidecar.py
+# Modèle par défaut « small » (bench L3 RM2534 tranchera). Surcharge possible :
+# small → int8 ≈ 0,5 Go RAM ; medium ≈ 1,5 Go. RTF ~0,35 sur CPU (spike RM2533).
+Environment=KARL_WHISPER_MODEL=small
+Environment=KARL_WHISPER_DEVICE=cpu
+Environment=KARL_WHISPER_COMPUTE=int8
+Environment=KARL_WHISPER_LANG=fr
+# Le chargement du modèle prend ~1–13 s au démarrage (download au 1er lancement) :
+# on ne coupe pas le service pour lenteur de boot.
+TimeoutStartSec=0
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

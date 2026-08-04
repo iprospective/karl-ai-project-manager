@@ -17,12 +17,24 @@ Autour du core, deux dossiers structurent le **code** :
     <repo>.git                   # dépôt de CODE, bare — la SOURCE
   envs/
     <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
-    <repo>-dev-<RMid>-s<seq>     # WORKTREE de ticket (pm-branch-start --worktree)
+    <repo>-rm<RMid>              # WORKTREE de ticket (pm-branch-start --worktree, pm-env-session create)
+    <repo>-rm<RMid>-s<seq>       # … suffixé UNIQUEMENT si le canonique sert déjà une autre branche
   …                              # data/, démos, .claude/ … gitignoré par le core
 ```
 
 Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
 `git-mep` pour le workflow branche/worktree par ticket).
+
+**Nommage des worktrees — convention unique `<repo>-rm<RMid>` (RM2523).** Le nom
+dérive du **dépôt** (`repos/<repo>.git`), jamais du worktree depuis lequel on
+lance la commande. Le faire dériver du worktree courant — ce que faisait
+`pm-branch-start` — concatène son nom à chaque création en cascade et produit des
+`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…` (7 cas sur le workspace PM en 2026-08).
+Même règle pour le champ `git.repo` du frontmatter : il porte le nom canonique du
+dépôt, pas celui d'un worktree ; les valeurs héritées sont normalisées à
+l'écriture. Le suffixe `-s<seq>` ne sert qu'à départager deux sessions sur un même
+ticket. Un worktree se **résout par sa branche** (`<RMid>-<slug>`), jamais par son
+nom deviné — c'est ce qui rend le nommage indifférent à l'outillage.
 
 **Deux dépôts, deux destinations de commit — ne jamais les confondre :**
 

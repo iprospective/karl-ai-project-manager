@@ -206,6 +206,18 @@
   .dispmenu button:hover { background: var(--accent-soft); }
   .dispmenu button.on { color: var(--accent); font-weight: 600; }
   .dispmenu .sep { border-top: 1px solid var(--line); margin: 3px 2px; }
+  /* RM2346 : bandeau « à traiter » — les sessions en attention/choix remontent ici,
+     à place FIXE, pour que la liste principale n'ait plus à se réordonner pour les montrer. */
+  .attnband { border: 1px solid var(--danger); border-radius: 7px; margin: 0 0 8px;
+    background: var(--danger-soft); padding: 4px; }
+  .attnband-h { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--danger); padding: 2px 4px 4px; font-weight: 600; }
+  .attnchip { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px;
+    cursor: pointer; }
+  .attnchip:hover { background: var(--accent-soft); }
+  .attnchip .tid { font-family: var(--mono); font-size: 12px; }
+  .attnchip .rmeta { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: 1; }
   .runitem.ghost { opacity: .6; border-style: dashed; }
   .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
@@ -635,6 +647,16 @@ if (window.matchMedia) {
       </select>
       <label for="vx-voice">Voix de synthèse</label>
       <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+      <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
+      <div id="vx-server-row" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
+          <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
+        </label>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+          Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
+        </div>
+      </div>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
         La liste dépend du navigateur — Chrome recommandé.
@@ -1023,6 +1045,41 @@ function effDisposition(state, disposition) {
 }
 // <<< effDisposition
 
+// >>> sortFrozen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2346 : en tri dynamique, gèle le réordonnancement tant que l'utilisateur interagit
+// avec la liste (survol) ou vient de bouger la souris (< 2 s) → elle ne saute pas sous
+// le curseur. En ordre stable (défaut), rien n'est jamais réordonné → jamais gelé.
+function sortFrozen(dynSort, hot, msSinceMove) {
+  return !!dynSort && (hot || msSinceMove < 2000);
+}
+// <<< sortFrozen
+
+// RM2346 : bandeau « à traiter » — les sessions qui ATTENDENT une action (attention
+// oui/non, choix multiple) sont listées à place fixe en tête de la liste, pour qu'on
+// les voie sans que la liste principale ait à se réordonner. Elles restent AUSSI dans
+// leur groupe projet en dessous (le bandeau est un raccourci, pas un déplacement).
+function renderAttnBand(list, sessions) {
+  const waiting = sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice"));
+  if (!waiting.length) return;
+  const band = document.createElement("div");
+  band.className = "attnband";
+  band.innerHTML = '<div class="attnband-h">à traiter (' + waiting.length + ')</div>';
+  for (const s of waiting) {
+    const r = resolveCache[s.rm_id];
+    const chip = document.createElement("div");
+    chip.className = "attnchip";
+    chip.innerHTML = '<span class="tdot st-' + esc(s.state) + '"></span>' +
+      '<span class="tid">' + (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
+      '<span class="rmeta">' + esc((r && r.found ? r.title : "") || tmuxName(s.rm_id)) + '</span>' +
+      (s.state === "attention" ? '<span class="tyes" title="Répondre Oui (sans attacher)">✔</span>' : '');
+    chip.onclick = () => attach(s.rm_id);
+    const y = chip.querySelector(".tyes");
+    if (y) y.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
+    band.appendChild(chip);
+  }
+  list.prepend(band);
+}
+
 async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
@@ -1038,12 +1095,18 @@ async function refreshSessions() {
     // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
     for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
-    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort);
+    // RM2346 : GEL du réordonnancement dynamique pendant l'interaction (survol de la
+    // liste, ou < 2 s après un mouvement de souris dessus) → la liste ne saute pas
+    // sous le curseur. Sans effet en ordre stable (défaut) ; ne concerne que dynSort.
+    const frozen = sortFrozen(dynSort, listHot, Date.now() - lastListMove);
+    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort && !frozen);
     orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
     if (!sessions.length && !reviewTabs.length)
       list.innerHTML = '<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>';
+    // RM2346 : bandeau « à traiter » — attention/choix à place fixe, en tête.
+    renderAttnBand(list, sessions);
     for (const key of keys) {
       const sess = groups.get(key);
       groupsCache[key] = sess;
@@ -1958,7 +2021,19 @@ function pickVoice(voices, lang, wanted) {
 }
 // <<< pickVoice
 
-function speak(text) {
+// RM2532 (vocal V2 L1) : TTS serveur Piper si dispo + préféré, sinon navigateur.
+let voiceCaps = null;                                    // {tts, stt, tts_langs} ou null
+let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le serveur
+
+// >>> ttsMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2532 : « server » si le serveur sait faire du TTS ET que l'utilisateur le préfère ;
+// sinon « browser » (synthèse navigateur, repli sans régression).
+function ttsMode(caps, pref) {
+  return (pref && caps && caps.tts) ? "server" : "browser";
+}
+// <<< ttsMode
+
+function browserSpeak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = voiceLang;
@@ -1966,6 +2041,27 @@ function speak(text) {
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+async function serverSpeak(text) {
+  try {
+    const r = await fetch("/tts", { method: "POST", headers: headers({ "Content-Type": "application/json" }),
+                                    body: JSON.stringify({ text, lang: voiceLang.slice(0, 2) }) });
+    if (!r.ok) throw new Error("tts " + r.status);
+    const blob = await r.blob();
+    let a = document.getElementById("tts-audio");
+    if (!a) { a = document.createElement("audio"); a.id = "tts-audio"; document.body.appendChild(a); }
+    if (a.src) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(blob);
+    await a.play();
+  } catch (e) { browserSpeak(text); }        // repli navigateur sur toute erreur serveur
+}
+function speak(text) {
+  if (ttsMode(voiceCaps, voiceServer) === "server") serverSpeak(text);
+  else browserSpeak(text);
+}
+async function loadVoiceCaps() {
+  try { voiceCaps = await api("/voice/caps"); } catch (e) { voiceCaps = null; }
+  renderVoicePrefs();
 }
 function setVoiceLang(lang) {
   voiceLang = lang;
@@ -1979,9 +2075,23 @@ function setVoiceName(name) {
   voiceName = name;
   try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
 }
+function setVoiceServer(on) {          // RM2532 : préférer la voix serveur (Piper) ou le navigateur
+  voiceServer = !!on;
+  try { localStorage.setItem("karlVoiceServer", voiceServer ? "1" : "0"); } catch (e) { /* privé */ }
+  toast(voiceServer ? "Voix serveur (Piper) activée" : "Voix du navigateur");
+  speak("Test de la voix.");          // aperçu immédiat
+}
 function renderVoicePrefs() {
   const langSel = document.getElementById("vx-lang");
   if (!langSel) return;
+  // RM2532 : ligne « voix serveur (Piper) » — visible seulement si le serveur sait faire.
+  const srow = document.getElementById("vx-server-row");
+  if (srow) {
+    const has = !!(voiceCaps && voiceCaps.tts);
+    srow.style.display = has ? "" : "none";
+    const cb = document.getElementById("vx-server");
+    if (cb) cb.checked = has && voiceServer;
+  }
   langSel.value = voiceLang;
   const sel = document.getElementById("vx-voice");
   const voices = speechSynthesis.getVoices();
@@ -2181,6 +2291,7 @@ async function scrollLive() {
 
 // RM2344 : préférence de tri de la liste « en cours » — stable par défaut
 let dynSort = localStorage.getItem("karlDynSort") === "1";
+let listHot = false, lastListMove = 0;   // RM2346 : gel du réordonnancement pendant l'interaction
 function toggleDynSort(on) {
   dynSort = !!on;
   try { localStorage.setItem("karlDynSort", dynSort ? "1" : "0"); } catch (e) { /* mode privé */ }
@@ -3692,8 +3803,14 @@ async function kill(rmId) {
     : (localStorage.getItem("karlPanel") || "running"));
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
+  // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
+  const _rl = document.getElementById("runlist");
+  _rl.addEventListener("mouseenter", () => { listHot = true; });
+  _rl.addEventListener("mouseleave", () => { listHot = false; });
+  _rl.addEventListener("mousemove", () => { lastListMove = Date.now(); });
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
+  loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
   refreshHealth(); refreshSessions();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »

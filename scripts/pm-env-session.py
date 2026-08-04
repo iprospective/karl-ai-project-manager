@@ -477,12 +477,27 @@ def cmd_teardown(args):
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     repo = pick_repo(load_repos(ws), args.repo)
     name, rmid = repo["name"], args.rmid
+    # `env_name` = identité STABLE du ticket (vhost, logs, clone BDD) — elle ne
+    # dépend PAS du nom du worktree et reste canonique.
     env_name = f"{name}-rm{rmid}"
-    wt = ws / "envs" / env_name
     bare = ws / "repos" / f"{name}.git"
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
-    print(f"workspace : {ws}\nteardown  : envs/{env_name}")
+
+    # RM2523 — le worktree se résout PAR BRANCHE, comme dans `create` (RM2394).
+    # Deviner `envs/<repo>-rm<id>` ratait tous ceux créés par
+    # `pm-branch-start --worktree`, nommés `<repo>-dev-<id>-s<seq>` : teardown
+    # annonçait « worktree déjà absent » et sortait en succès alors que le
+    # worktree était bien monté. Repli sur le chemin canonique quand le ticket
+    # n'a aucune branche checkoutée (worktree déjà démonté, ou jamais créé).
+    found = worktree_for_branch(bare, name, rmid)
+    wt = found[0] if found else ws / "envs" / env_name
+    try:
+        shown = wt.relative_to(ws)
+    except ValueError:
+        shown = wt
+    print(f"workspace : {ws}\nteardown  : {shown}"
+          + (f"  [branche {found[1]}]" if found else ""))
 
     # 1. refuse un worktree sale (sauf --force) — les commits restent sur la branche.
     # Les fichiers posés par create (.user.ini, canari pm-env.txt) ne comptent
@@ -535,12 +550,21 @@ def cmd_teardown(args):
                 f.is_file() and f.unlink()
         cmd = ["-C", str(bare), "worktree", "remove"]
         args.force and cmd.append("--force")
-        print(f"  git worktree remove envs/{env_name}")
+        print(f"  git worktree remove {shown}")
         if not dry:
             git([*cmd, str(wt)])
             pm_session.forget_worktree(str(wt))
     else:
-        print("  · worktree déjà absent")
+        # RM2523 — distinguer « rien à démonter » (cas normal) de « un worktree
+        # existe mais n'a pas été reconnu » (anomalie). L'ancien message unique
+        # « worktree déjà absent » décrivait un succès dans les deux cas.
+        orphans = [p for p, b in list_worktrees(bare)
+                   if b and b.startswith(f"{rmid}-") and Path(p).is_dir()]
+        if orphans:
+            die("un worktree du ticket est monté mais n'a pas pu être résolu :\n  "
+                + "\n  ".join(str(p) for p in orphans)
+                + f"\n(bare : {bare}) — signaler, ne pas démonter à la main.")
+        print(f"  · aucun worktree monté pour RM{rmid} — rien à démonter")
 
     # 4. test_url du ticket (RM2229) : on VIDE frontmatter + CF — une URL
     # morte affichée est exactement le bug d'origine.
@@ -553,18 +577,44 @@ def cmd_teardown(args):
 # ------------------------------------------------------------------------ list
 
 def cmd_list(args):
+    """Envs de session du workspace.
+
+    RM2523 — la liste part des worktrees RÉELLEMENT enregistrés dans les bares,
+    pas d'un glob `*-rm<id>` sur les noms de dossier : ce glob ne voyait pas les
+    worktrees créés par `pm-branch-start --worktree` (`<repo>-dev-<id>-s<seq>`),
+    qui sont pourtant la majorité en pratique. Le RM-id vient de la BRANCHE
+    (`<id>-<slug>`), seule source fiable quel que soit le nom du dossier.
+    """
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     envs = ws / "envs"
-    found = sorted(p.name for p in envs.glob("*-rm[0-9]*") if p.is_dir()) \
-        if envs.is_dir() else []
-    if not found:
+    rows: dict[str, tuple[str, str]] = {}   # chemin → (rm, branche)
+
+    for repo in load_repos(ws):
+        bare = ws / "repos" / f"{repo['name']}.git"
+        for p, br in list_worktrees(bare):
+            if not Path(p).is_dir() or Path(p).resolve() == bare.resolve():
+                continue
+            m = re.match(r"(\d+)-", br or "")
+            rows[str(p)] = (m.group(1) if m else "?", br or "?")
+
+    # Filet : un dossier `envs/*-rm<id>` dont le worktree n'est plus enregistré
+    # (bare recréé, .git cassé) reste signalé — sinon il disparaîtrait du radar.
+    if envs.is_dir():
+        for p in sorted(envs.glob("*-rm[0-9]*")):
+            if p.is_dir() and str(p) not in rows:
+                m = re.search(r"-rm(\d+)$", p.name)
+                rows[str(p)] = (m.group(1) if m else "?", "non enregistré")
+
+    if not rows:
         print(f"(aucun env de session dans {ws}/envs/)")
         return
-    for n in found:
-        m = re.search(r"-rm(\d+)$", n)
-        br = git(["-C", str(envs / n), "branch", "--show-current"],
-                 check=False).stdout.strip()
-        print(f"  envs/{n}  RM{m.group(1) if m else '?'}  branche={br or '?'}")
+    for path in sorted(rows):
+        rm, br = rows[path]
+        try:
+            shown = Path(path).relative_to(ws)
+        except ValueError:
+            shown = Path(path)
+        print(f"  {shown}  RM{rm}  branche={br}")
 
 
 # ------------------------------------------------------------------------ main

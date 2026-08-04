@@ -461,5 +461,24 @@ assert.strictEqual(shouldTakeOverInput(evt({ inputType: "deleteContentBackward" 
 assert.strictEqual(shouldTakeOverInput(evt({ inputType: "insertFromPaste" }), true), false, "collage ignoré");
 assert.strictEqual(shouldTakeOverInput(evt({ data: "" }), true), false, "data vide ignorée");
 console.log("✓ hook de saisie : accents repris, caractères ordinaires laissés à xterm (pas de doublon)");
+// — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
+const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
+assert(fmFrz, "marqueurs >>> sortFrozen / <<< sortFrozen introuvables");
+const sortFrozen = vm.runInNewContext("(" + fmFrz[1] + ")");
+assert.strictEqual(sortFrozen(false, true, 0), false, "ordre stable → jamais gelé");
+assert.strictEqual(sortFrozen(true, true, 99999), true, "dynamique + survol → gelé");
+assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement récent (<2s) → gelé");
+assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
+console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
+
+// — ttsMode (RM2532) : bascule TTS serveur (Piper) ↔ navigateur —
+const fmTts = />>> ttsMode[\s\S]*?(function ttsMode[\s\S]*?)\n\/\/ <<< ttsMode/.exec(html);
+assert(fmTts, "marqueurs >>> ttsMode / <<< ttsMode introuvables");
+const ttsMode = vm.runInNewContext("(" + fmTts[1] + ")");
+assert.strictEqual(ttsMode({ tts: true }, true), "server", "serveur dispo + préféré → server");
+assert.strictEqual(ttsMode({ tts: true }, false), "browser", "serveur dispo mais non préféré → browser");
+assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts → browser");
+assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
+console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
 
 console.log("OK — tous les tests cockpit passent");

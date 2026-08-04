@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+from pm_markdown import checklist_lines
 
 try:
     import yaml
@@ -37,7 +38,6 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n(.*)$", re.DOTALL)
-CHECK_RE = re.compile(r"^- \[( |x)\] (.+)$", re.M)
 
 
 def run_step(label, cmd, stdin_text=None, required=True):
@@ -99,7 +99,11 @@ def main():
         cmd += ["--check-all"] if args.check_all else ["--check", args.check]
         run_step("pm-task-description-update", cmd)
         md, fm, body = load(cfg, args.rm_id)
-    unchecked = [t for st, t in CHECK_RE.findall(body) if st == " "]
+    # Mêmes règles que le cochage (RM2540) : une case citée dans un bloc de code
+    # n'est pas un critère, et bloquerait la livraison sans que personne puisse
+    # la cocher.
+    unchecked = [m.group(3)[1:].strip()          # group(3) = « ]texte »
+                 for _, m in checklist_lines(body) if m.group(2) == " "]
     if unchecked:
         out.fail(f"{len(unchecked)} critère(s) non coché(s) : "
                  + " ; ".join(t[:50] for t in unchecked[:3]),

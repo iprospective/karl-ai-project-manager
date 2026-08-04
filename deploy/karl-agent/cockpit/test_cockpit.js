@@ -442,4 +442,24 @@ for (const mode of ["dark", "light"]) {
 }
 console.log("✓ palette ANSI du terminal : contrastes tenus en dark et en light");
 
+// — 7. hook de saisie : ne prendre la main QUE sur le chemin que xterm perd —
+// Régression vécue en prod (RM2522) : le hook prenait la main sur tout `input`
+// insertText, donc AUSSI sur les caractères que xterm venait déjà d'envoyer
+// depuis le keydown — espaces et « [ » arrivaient en double.
+const shouldTakeOverInput = pick("shouldTakeOverInput");
+const evt = (o) => Object.assign({ data: "a", inputType: "insertText", isComposing: false }, o);
+
+// le cas à corriger : keydown key="Process" puis input séparé (Firefox/GTK)
+assert.strictEqual(shouldTakeOverInput(evt({ data: "é" }), true), true, "accent après key=Process → on prend la main");
+// le cas à NE PAS toucher : caractère ordinaire, keydown normal déjà consommé
+assert.strictEqual(shouldTakeOverInput(evt({ data: " " }), false), false, "espace ordinaire → xterm s'en charge");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "[" }), false), false, "crochet ordinaire → xterm s'en charge");
+// composition IME réelle : chemin dédié de xterm, on ne s'en mêle pas
+assert.strictEqual(shouldTakeOverInput(evt({ data: "あ", isComposing: true }), true), false, "IME → laisser xterm");
+// autres types d'input (suppression, collage) : hors périmètre du hook
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "deleteContentBackward" }), true), false, "suppression ignorée");
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "insertFromPaste" }), true), false, "collage ignoré");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "" }), true), false, "data vide ignorée");
+console.log("✓ hook de saisie : accents repris, caractères ordinaires laissés à xterm (pas de doublon)");
+
 console.log("OK — tous les tests cockpit passent");

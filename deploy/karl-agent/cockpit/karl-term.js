@@ -84,16 +84,35 @@
    * xterm. Quand on prend la main, stopImmediatePropagation() garantit que
    * xterm ne le verra pas — pas de risque de double saisie.
    */
+  // >>> shouldTakeOverInput
+  // Faut-il envoyer NOUS-MÊMES ce caractère ? Oui uniquement sur le chemin que
+  // xterm abandonne : Firefox/GTK signale un caractère « composé » par un
+  // keydown key="Process" (keyCode 229) suivi d'un `input` séparé.
+  //
+  // Sur un caractère ordinaire — y compris l'espace et « [ » — Firefox émet un
+  // keydown NORMAL, que xterm consomme, ET un évènement `input`. Prendre la
+  // main dans ce cas envoie le caractère deux fois : c'est le défaut remonté en
+  // prod (« tous les espaces sont doublés »). D'où la garde sur lastProcess.
+  function shouldTakeOverInput(ev, lastProcess) {
+    if (!ev || !ev.data || ev.inputType !== "insertText") return false;
+    // vraie composition (IME japonais/chinois…) : xterm a un chemin dédié
+    // (compositionstart/update/end) qui fonctionne — ne pas interférer.
+    if (ev.isComposing) return false;
+    return !!lastProcess;
+  }
+  // <<< shouldTakeOverInput
+
   function installAccentFix(container, term) {
+    var lastProcess = false;
+    container.addEventListener("keydown", function (ev) {
+      lastProcess = (ev.key === "Process" || ev.keyCode === 229);
+    }, true);
     container.addEventListener("input", function (ev) {
       var ta = ev.target;
       if (!ta || ta.classList === undefined) return;
       if (!ta.classList.contains("xterm-helper-textarea")) return;
-      // mêmes conditions que xterm, SANS la garde qui perd le caractère
-      if (!ev.data || ev.inputType !== "insertText") return;
-      // vraie composition en cours (IME japonais/chinois…) : ne pas interférer,
-      // xterm a un chemin dédié (compositionstart/update/end) qui fonctionne.
-      if (ev.isComposing) return;
+      if (!shouldTakeOverInput(ev, lastProcess)) return;   // xterm s'en charge
+      lastProcess = false;
       ev.stopImmediatePropagation();
       ta.value = "";                 // xterm ne le fera pas : il ne voit rien
       term.input(ev.data, true);

@@ -452,4 +452,14 @@ assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement r�
 assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
 console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
 
+// — ttsMode (RM2532) : bascule TTS serveur (Piper) ↔ navigateur —
+const fmTts = />>> ttsMode[\s\S]*?(function ttsMode[\s\S]*?)\n\/\/ <<< ttsMode/.exec(html);
+assert(fmTts, "marqueurs >>> ttsMode / <<< ttsMode introuvables");
+const ttsMode = vm.runInNewContext("(" + fmTts[1] + ")");
+assert.strictEqual(ttsMode({ tts: true }, true), "server", "serveur dispo + préféré → server");
+assert.strictEqual(ttsMode({ tts: true }, false), "browser", "serveur dispo mais non préféré → browser");
+assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts → browser");
+assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
+console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
+
 console.log("OK — tous les tests cockpit passent");

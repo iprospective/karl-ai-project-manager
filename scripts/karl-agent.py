@@ -4639,6 +4639,33 @@ def op_layout(payload: dict) -> dict:
 
 
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
+# ── Assets statiques du cockpit (RM2522) ────────────────────────────────────
+# Jusqu'ici le serveur ne servait QUE index.html ; le client terminal maison
+# (xterm.js vendoré + karl-term.js) a besoin de fichiers séparés. Liste blanche
+# d'extensions et confinement strict sous COCKPIT_DIR.
+ASSET_TYPES = {
+    ".js":  "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+}
+
+
+def _resolve_asset(rel: str):
+    """Chemin absolu d'un asset servable du cockpit, ou None. Refuse un type
+    hors liste blanche ET toute évasion hors de COCKPIT_DIR (`..`, chemin
+    absolu, symlink sortant) — le chemin est résolu AVANT d'être comparé.
+    Pure et testable (test_karl_agent_asset.py)."""
+    if not rel or os.path.splitext(rel)[1] not in ASSET_TYPES:
+        return None
+    try:
+        root = COCKPIT_DIR.resolve()
+        target = (root / rel).resolve()
+        target.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return target
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
 
@@ -4667,6 +4694,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_asset(self, rel: str):
+        target = _resolve_asset(rel)
+        if target is None:
+            return self._send_json(404, {"error": "asset non servi"})
+        try:
+            st = target.stat()
+            body = target.read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": f"asset absent : {rel}"})
+        # Revalidation systématique plutôt que cache long : ces fichiers sont
+        # ÉDITÉS pendant le développement du cockpit, et un cache d'un jour
+        # oblige à des rechargements forcés pour voir ses propres correctifs.
+        # L'ETag garde le coût réseau nul quand rien n'a changé (304).
+        etag = f'"{int(st.st_mtime)}-{st.st_size}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ASSET_TYPES[target.suffix])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -4756,6 +4810,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_html(200, (COCKPIT_DIR / "index.html").read_text(encoding="utf-8"))
             except FileNotFoundError:
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
+        if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
+            return self._send_asset(path[len("/static/"):])
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,

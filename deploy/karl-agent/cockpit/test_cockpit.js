@@ -373,6 +373,74 @@ assert.strictEqual(effDisposition("working", "termine"), null, "working → null
 assert.strictEqual(effDisposition("attention", "parke"), null, "attention → null (cède au live)");
 assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
 console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
+// — 5. protocole ttyd du client terminal maison (RM2522) —
+// karl-term.js est un fichier séparé (première dépendance front du cockpit) :
+// on vérifie sa syntaxe, puis ses fonctions pures de framing, extraites par les
+// mêmes marqueurs >>> / <<<.
+const termSrc = fs.readFileSync(path.join(__dirname, "karl-term.js"), "utf8");
+new vm.Script(termSrc, { filename: "karl-term.js" });
+
+const pick = (name) => {
+  const m = new RegExp(`>>> ${name}[\\s\\S]*?(function ${name}[\\s\\S]*?)\\n  // <<< ${name}`).exec(termSrc);
+  assert(m, `marqueurs >>> ${name} / <<< ${name} introuvables dans karl-term.js`);
+  return vm.runInNewContext("(" + m[1] + ")");
+};
+const ttydHandshake    = pick("ttydHandshake");
+const ttydEncodeResize = pick("ttydEncodeResize");
+const ttydEncodeInput  = pick("ttydEncodeInput");
+const ttydDecode       = pick("ttydDecode");
+
+// handshake : ttyd attend exactement ces trois clés
+assert.deepStrictEqual(JSON.parse(ttydHandshake("tok", 80, 24)),
+  { AuthToken: "tok", columns: 80, rows: 24 }, "handshake ttyd");
+assert.strictEqual(JSON.parse(ttydHandshake(null, 80, 24)).AuthToken, "",
+  "handshake sans token → chaîne vide (pas null)");
+
+// resize : commande '1' suivie du JSON des dimensions
+assert.strictEqual(ttydEncodeResize(120, 40), '1{"columns":120,"rows":40}', "framing resize");
+
+// input : commande '0' (0x30) suivie du texte en UTF-8
+const enc = (s) => new Uint8Array(Buffer.from(s, "utf8"));
+const frame = ttydEncodeInput("é", enc);
+assert.strictEqual(frame[0], 0x30, "input : premier octet = '0'");
+assert.deepStrictEqual(Array.from(frame.slice(1)), [0xc3, 0xa9], "input : « é » en UTF-8 (2 octets)");
+assert.strictEqual(ttydEncodeInput("", enc).length, 1, "input vide = commande seule");
+
+// décodage : premier octet = commande, reste = charge utile
+const dec = ttydDecode(new Uint8Array([0x30, 0x41, 0x42]));
+assert.strictEqual(dec.cmd, "0", "decode : commande OUTPUT");
+assert.deepStrictEqual(Array.from(dec.payload), [0x41, 0x42], "decode : charge utile");
+assert.strictEqual(ttydDecode(new Uint8Array([])), null, "decode : message vide → null");
+assert.strictEqual(ttydDecode(new Uint8Array([0x31])).payload.length, 0,
+  "decode : commande sans charge utile");
+console.log("✓ protocole ttyd (handshake, input, resize, decode)");
+
+// — 6. palette ANSI du terminal (RM2522) —
+// Retour de test : le fond était repris de --term-bg (#000, un invariant qui ne
+// décrivait que le CADRE de l'ancienne iframe) et la palette ANSI était celle,
+// implicite, de xterm — les gris du TUI devenaient illisibles. On vérifie
+// désormais que CHAQUE couleur tient sur le fond de son thème.
+const termPalette = pick("termPalette");
+const termBg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-bg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-bg"] };
+const termFg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-fg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-fg"] };
+for (const mode of ["dark", "light"]) {
+  assert(termBg[mode] && termFg[mode], `tokens --term-bg/--term-fg définis en ${mode}`);
+  // le texte courant doit être confortable (AA)
+  const rFg = contrast(termFg[mode], termBg[mode]);
+  assert(rFg >= 4.5, `${mode} : --term-fg sur --term-bg = ${rFg.toFixed(2)}:1 < 4.5`);
+  // les 16 couleurs ANSI sont décoratives : plancher 3:1 (AA « gros texte » /
+  // éléments non textuels), sauf `black`/`brightBlack` qui servent de FOND à du
+  // texte dans certains TUI — on exige seulement qu'ils se distinguent du fond.
+  const pal = termPalette(mode === "light");
+  for (const [name, hex] of Object.entries(pal)) {
+    const r = contrast(hex, termBg[mode]);
+    const floor = name === "black" ? 1.15 : 3;
+    assert(r >= floor, `${mode} : ANSI ${name} (${hex}) sur fond = ${r.toFixed(2)}:1 < ${floor}`);
+  }
+}
+console.log("✓ palette ANSI du terminal : contrastes tenus en dark et en light");
 
 // — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
 const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
@@ -383,5 +451,15 @@ assert.strictEqual(sortFrozen(true, true, 99999), true, "dynamique + survol → 
 assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement récent (<2s) → gelé");
 assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
 console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
+
+// — ttsMode (RM2532) : bascule TTS serveur (Piper) ↔ navigateur —
+const fmTts = />>> ttsMode[\s\S]*?(function ttsMode[\s\S]*?)\n\/\/ <<< ttsMode/.exec(html);
+assert(fmTts, "marqueurs >>> ttsMode / <<< ttsMode introuvables");
+const ttsMode = vm.runInNewContext("(" + fmTts[1] + ")");
+assert.strictEqual(ttsMode({ tts: true }, true), "server", "serveur dispo + préféré → server");
+assert.strictEqual(ttsMode({ tts: true }, false), "browser", "serveur dispo mais non préféré → browser");
+assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts → browser");
+assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
+console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
 
 console.log("OK — tous les tests cockpit passent");

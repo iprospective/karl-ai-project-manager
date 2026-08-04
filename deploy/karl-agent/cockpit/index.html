@@ -647,6 +647,16 @@ if (window.matchMedia) {
       </select>
       <label for="vx-voice">Voix de synthèse</label>
       <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+      <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
+      <div id="vx-server-row" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
+          <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
+        </label>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+          Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
+        </div>
+      </div>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
         La liste dépend du navigateur — Chrome recommandé.
@@ -2011,7 +2021,19 @@ function pickVoice(voices, lang, wanted) {
 }
 // <<< pickVoice
 
-function speak(text) {
+// RM2532 (vocal V2 L1) : TTS serveur Piper si dispo + préféré, sinon navigateur.
+let voiceCaps = null;                                    // {tts, stt, tts_langs} ou null
+let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le serveur
+
+// >>> ttsMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2532 : « server » si le serveur sait faire du TTS ET que l'utilisateur le préfère ;
+// sinon « browser » (synthèse navigateur, repli sans régression).
+function ttsMode(caps, pref) {
+  return (pref && caps && caps.tts) ? "server" : "browser";
+}
+// <<< ttsMode
+
+function browserSpeak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = voiceLang;
@@ -2019,6 +2041,27 @@ function speak(text) {
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+async function serverSpeak(text) {
+  try {
+    const r = await fetch("/tts", { method: "POST", headers: headers({ "Content-Type": "application/json" }),
+                                    body: JSON.stringify({ text, lang: voiceLang.slice(0, 2) }) });
+    if (!r.ok) throw new Error("tts " + r.status);
+    const blob = await r.blob();
+    let a = document.getElementById("tts-audio");
+    if (!a) { a = document.createElement("audio"); a.id = "tts-audio"; document.body.appendChild(a); }
+    if (a.src) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(blob);
+    await a.play();
+  } catch (e) { browserSpeak(text); }        // repli navigateur sur toute erreur serveur
+}
+function speak(text) {
+  if (ttsMode(voiceCaps, voiceServer) === "server") serverSpeak(text);
+  else browserSpeak(text);
+}
+async function loadVoiceCaps() {
+  try { voiceCaps = await api("/voice/caps"); } catch (e) { voiceCaps = null; }
+  renderVoicePrefs();
 }
 function setVoiceLang(lang) {
   voiceLang = lang;
@@ -2032,9 +2075,23 @@ function setVoiceName(name) {
   voiceName = name;
   try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
 }
+function setVoiceServer(on) {          // RM2532 : préférer la voix serveur (Piper) ou le navigateur
+  voiceServer = !!on;
+  try { localStorage.setItem("karlVoiceServer", voiceServer ? "1" : "0"); } catch (e) { /* privé */ }
+  toast(voiceServer ? "Voix serveur (Piper) activée" : "Voix du navigateur");
+  speak("Test de la voix.");          // aperçu immédiat
+}
 function renderVoicePrefs() {
   const langSel = document.getElementById("vx-lang");
   if (!langSel) return;
+  // RM2532 : ligne « voix serveur (Piper) » — visible seulement si le serveur sait faire.
+  const srow = document.getElementById("vx-server-row");
+  if (srow) {
+    const has = !!(voiceCaps && voiceCaps.tts);
+    srow.style.display = has ? "" : "none";
+    const cb = document.getElementById("vx-server");
+    if (cb) cb.checked = has && voiceServer;
+  }
   langSel.value = voiceLang;
   const sel = document.getElementById("vx-voice");
   const voices = speechSynthesis.getVoices();
@@ -3753,6 +3810,7 @@ async function kill(rmId) {
   _rl.addEventListener("mousemove", () => { lastListMove = Date.now(); });
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
+  loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
   refreshHealth(); refreshSessions();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »

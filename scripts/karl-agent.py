@@ -307,6 +307,14 @@ STATE_DIR = Path(os.environ.get("KARL_AGENT_STATE_DIR") or LOG_DIR)
 # Un session-id n'a de sens que sur CETTE machine (fédération : jamais en git).
 SESS_DIR = STATE_DIR / "sessions"
 RUNS_DIR = STATE_DIR / "tasks"
+# RM2532 (vocal V2 L1) : TTS serveur Piper. Détecté via un venv runtime + modèles
+# (installés par scripts/karl-voice-setup.sh). Absent → /voice/caps annonce tts:false
+# et le cockpit reste sur la synthèse navigateur (repli, aucune régression).
+VOICE_DIR = Path(os.environ.get("KARL_VOICE_DIR") or (
+    Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "karl-agent" / "voice"))
+PIPER_BIN = Path(os.environ.get("KARL_PIPER_BIN") or (VOICE_DIR / "venv" / "bin" / "piper"))
+PIPER_MODELS = Path(os.environ.get("KARL_PIPER_MODELS") or (VOICE_DIR / "models"))
+_TTS_PREFIX = {"fr": "fr_", "en": "en_"}   # préfixe de nom de modèle Piper par langue
 # Stores claude scannés pour la DÉCOUVERTE des sessions reprenables (l'historique
 # reste chez le moteur ; karl-agent n'en garde qu'un index). Multi-racines ':' —
 # permet de monter le store d'une autre machine en lecture (listing seulement :
@@ -1050,6 +1058,72 @@ def op_kill(payload: dict) -> dict:
     if rc != 0:
         raise ApiError(500, f"kill-session a échoué : {err.strip()}")
     return {"rm_id": rm_id, "killed": True}
+
+
+# ── Vocal V2 L1 : TTS serveur Piper (RM2532) ─────────────────────────────────
+def _piper_models() -> dict:
+    """{lang: chemin_onnx} des modèles Piper présents (paire .onnx + .onnx.json).
+    Langue déduite du préfixe de nom (`fr_FR-…` → fr, `en_US-…` → en)."""
+    out = {}
+    if PIPER_MODELS.is_dir():
+        for onnx in sorted(PIPER_MODELS.glob("*.onnx")):
+            if not onnx.with_suffix(".onnx.json").is_file():
+                continue
+            lang = onnx.name[:2].lower()
+            out.setdefault(lang, onnx)
+    return out
+
+
+def _piper_ready() -> bool:
+    return PIPER_BIN.is_file() and bool(_piper_models())
+
+
+def op_voice_caps() -> dict:
+    """RM2532 : capacités vocales SERVEUR, pour la bascule navigateur↔serveur du
+    cockpit. tts=Piper si installé ; stt réservé au lot 2 (RM2533)."""
+    langs = sorted(_piper_models().keys())
+    ready = _piper_ready()
+    return {"tts": ready, "stt": False, "engine": "piper" if ready else None,
+            "tts_langs": langs}
+
+
+def op_tts_wav(payload: dict) -> bytes:
+    """RM2532 : synthèse Piper d'un texte → octets WAV. Sous-process sans état
+    (`piper -m <modèle>` lit stdin, écrit le WAV sur stdout). ApiError sinon."""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise ApiError(400, "texte vide")
+    if len(text) > 4000:
+        raise ApiError(400, "texte trop long (max 4000 caractères)")
+    models = _piper_models()
+    if not PIPER_BIN.is_file() or not models:
+        raise ApiError(503, "TTS serveur indisponible (Piper non installé) — "
+                            "cockpit sur synthèse navigateur")
+    lang = str(payload.get("lang") or "fr")[:2].lower()
+    model = models.get(lang) or next(iter(models.values()))
+    # Piper écrit le WAV via `-f <fichier>` (le stdout n'est pas fiable selon la
+    # version : sans -f il tente ffplay puis retombe sur output.wav). Fichier temp.
+    import tempfile
+    tf = tempfile.NamedTemporaryFile(prefix="karl-tts-", suffix=".wav", delete=False)
+    tmp = tf.name
+    tf.close()
+    try:
+        r = subprocess.run([str(PIPER_BIN), "-m", str(model), "-f", tmp],
+                           input=text.encode("utf-8"), capture_output=True, timeout=30)
+        if r.returncode != 0:
+            raise ApiError(500, "TTS : échec Piper — "
+                                + (r.stderr.decode("utf-8", "replace")[:200] or "?"))
+        wav = Path(tmp).read_bytes()
+        if not wav:
+            raise ApiError(500, "TTS : WAV vide")
+        return wav
+    except subprocess.TimeoutExpired:
+        raise ApiError(500, "TTS : timeout Piper (30 s)")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
 
 
 # RM2515 : disposition manuelle d'une session — raffine l'état heuristique `idle`
@@ -4681,6 +4755,14 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_bytes(self, code: int, ctype: str, body: bytes):
+        # RM2532 : réponse binaire (WAV du TTS) — pas de charset.
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _send_text(self, code: int, text: str):
         body = text.encode("utf-8")
         self.send_response(code)
@@ -4854,6 +4936,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
+            if path == "/voice/caps":
+                return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
             if path == "/session-set/estimate":  # RM2451 : coût d'un « tout relancer »
@@ -4981,6 +5065,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
+            if path == "/tts":
+                return self._send_bytes(200, "audio/wav", op_tts_wav(payload))
             if path == "/disposition":
                 return self._send_json(200, op_disposition(payload, self.auth_ctx))
             if path == "/monitor":

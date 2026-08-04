@@ -1719,14 +1719,21 @@ function renderGhostItem(s, r, it) {
   // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
   const age = s.last_active ? "inactive depuis " + ago(s.last_active)
                             : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
+  // RM2536 : dans une vue par CLIENT, la tuile ne vient d'aucun jeu enregistré
+  // (le contenu est calculé par le client, comme un jeu dérivé). Or ⊖ « retirer
+  // du jeu » et ⟳ « politique de reprise » agissent tous deux SUR un jeu : sans
+  // jeu, ils ne peuvent qu'échouer. On ne les propose donc pas — même parti-pris
+  // que « 💾 ajouter l'affichage », masqué sur un jeu dérivé. La relance, elle,
+  // ne dépend plus d'aucun jeu et reste offerte.
+  const inSet = !/^client:/.test(currentView);
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
     '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
       ? ' style="opacity:.55"' : '') + '>' + esc(title) +
       (age ? (title ? " · " : "") + age : "") + '</span>' +
-    '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
+    (inSet ? '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
-    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
+    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>' : "");
   // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
   // lieu de relancer la session. Sans cela, déplacer ou scinder une session
   // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
@@ -1737,8 +1744,10 @@ function renderGhostItem(s, r, it) {
   } else {
     it.onclick = () => relaunchGhost(s);
   }
-  it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
-  it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  if (inSet) {
+    it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
+    it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  }
   it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
                       : "") + it.title;
   return it;
@@ -1803,6 +1812,11 @@ async function dropFromSet(s) {
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
+// RM2536 : la relance passe par l'IDENTITÉ de la session — le couple
+// (engine, session_id) — et non plus par le jeu qui l'affiche. L'ancien appel
+// portait `group`, qui vaut la clé de VUE dans une vue client (« client:matnat »)
+// : le serveur la refusait comme nom de jeu (400) et rien ne démarrait. Le
+// serveur retrouve seul rm_id / cwd / modèle ; on ne les lui dicte plus.
 async function relaunchGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
   const lines = ["Relancer la session " + label + " ?", ""];
@@ -1815,21 +1829,14 @@ async function relaunchGhost(s) {
   if (!window.confirm(lines.join("\n"))) return;
   toast("▶ relance de " + label + "…");
   try {
-    const r = await api("/session-set/relaunch", {
+    const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid: s.rm_id, group: s.group || currentSet, spawn: sessionSetSpawn }),
+      body: JSON.stringify({ engine: s.engine || undefined, session_id: s.session_id || undefined,
+                             rm_id: s.rm_id, spawn: sessionSetSpawn }),
     });
-    const a = (r.report || [])[0] || {};
-    if (a.action === "resumed" || a.action === "spawned") {
-      toast(a.action === "resumed" ? "▶ " + label + " reprise" : "▶ " + label + " recréée (session neuve)");
-      setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
-    } else if (a.action === "skipped") {
-      toast(label + " est déjà active");
-      refreshSessions();
-    } else {
-      toast("relance impossible : " + (a.error || "erreur inconnue"), true);
-    }
-  } catch (e) { toast(e.message, true); }
+    toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
+    setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
+  } catch (e) { toast("relance impossible : " + e.message, true); }
 }
 // carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
 async function loadSessionSet() {

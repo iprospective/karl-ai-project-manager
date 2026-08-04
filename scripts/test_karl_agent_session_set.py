@@ -225,6 +225,10 @@ check("get : jeu absent → exists False", g["exists"] is False and g["entries"]
 ka.SESSION_SET_RELAUNCH_DELAY = 0            # pas d'attente en test
 ka._model_catalog = lambda: {"claude": {"opus": "claude-opus-4-8"}}
 
+# RM2536 : les vraies op_resume/op_spawn, avant que le harnais ne les remplace
+# par des doublures (les tests RM2536 exercent la VRAIE relance, en bas de fichier)
+REAL_OP_RESUME, REAL_OP_SPAWN = ka.op_resume, ka.op_spawn
+
 ALIVE = set()
 ka._has_session = lambda sid: sid in ALIVE
 
@@ -397,6 +401,7 @@ check("fantômes : client/projet résolus depuis le cwd (groupement cockpit)",
       (by["3004"].get("client"), by["3004"].get("project")) == ("acme", "shop"))
 
 # — RM2427 : les fantômes rejoignent la vue /sessions (et l'opt-out ghosts=0) —
+REAL_RUNS_BY_SESSION = ka._runs_by_session   # RM2536 : réutilisée en bas de fichier
 ka._runs_by_session = lambda: {}
 ka._session_registry = lambda: {}
 ka._session_state = lambda sid, engine: "idle"
@@ -1258,6 +1263,117 @@ ka.op_session_set_current({"view": "all"}, {"user": None})
 check("RM2452 : en vue « tous les jeux », tout ce qui est affiché appartient à la vue",
       all(s["in_current"] for s in ka._sessions_view({}, {"user": None}) if not s.get("ghost")))
 ka.op_session_set_current({"view": "set"}, {"user": None})
+
+# ── RM2536 : la relance ne dépend plus du contexte d'affichage ────────────────
+# Le clic sur une tuile envoyait le `group` de son contexte ; dans une vue par
+# client, ce champ vaut la clé de VUE (« client:matnat »), refusée comme nom de
+# jeu (400 « nom de groupe invalide ») — rien ne démarrait. La relance passe
+# désormais par l'IDENTITÉ de la session : le couple (engine, session_id).
+
+# la clé de vue n'est toujours PAS un nom de jeu (on ne relâche pas la grammaire
+# des jeux persistés — c'est l'appelant qui n'a plus à parler de jeu)
+try:
+    ka._session_set_group("client:matnat")
+    check("RM2536 : la clé de vue reste un nom de jeu invalide", False)
+except ka.ApiError as e:
+    check("RM2536 : la clé de vue reste un nom de jeu invalide (400)", e.code == 400)
+
+ka.op_resume, ka.op_spawn = REAL_OP_RESUME, REAL_OP_SPAWN   # fin des doublures
+ka._runs_by_session = REAL_RUNS_BY_SESSION                   # vraies jonctions sur disque
+SESS = TMP / "sessions"; RUNS = TMP / "tasks"; STORE = TMP / "claude-store"
+ka.SESS_DIR, ka.RUNS_DIR, ka.CLAUDE_STORES = SESS, RUNS, [STORE]
+(SESS / "claude").mkdir(parents=True, exist_ok=True)
+(SESS / "opencode").mkdir(parents=True, exist_ok=True)
+ka._write_json_atomic(SESS / "claude" / "aaaa1111-2222-3333-4444-555566667777.json",
+                      {"engine": "claude", "session_id": "aaaa1111-2222-3333-4444-555566667777", "cwd": "/zfs/matnat/infra"})
+ka._write_json_atomic(SESS / "opencode" / "bbbb1111-2222-3333-4444-555566667777.json",
+                      {"engine": "opencode", "session_id": "bbbb1111-2222-3333-4444-555566667777", "cwd": "/zfs/x"})
+
+# — moteur : l'index fait foi, jamais le client —
+check("RM2536 : moteur retrouvé depuis le store par session",
+      ka._engine_of_session("aaaa1111-2222-3333-4444-555566667777") == "claude" and ka._engine_of_session("bbbb1111-2222-3333-4444-555566667777") == "opencode")
+check("RM2536 : session inconnue de l'index → moteur inconnu (pas de défaut inventé)",
+      ka._engine_of_session("eeee1111-2222-3333-4444-555566667777") is None)
+try:
+    ka.op_resume({"session_id": "bbbb1111-2222-3333-4444-555566667777", "engine": "claude"}, {"user": None})
+    check("RM2536 : moteur du client contredisant l'index → refus", False)
+except ka.ApiError as e:
+    check("RM2536 : moteur du client contredisant l'index → refus (409)", e.code == 409)
+
+# — ancrage rm_id : le PROJET du cwd prime sur la récence (modèle n-m) —
+for client, project, rid, n, seen in (("matnat", "infra", "2410", 1, 100),
+                                      ("matnat", "infra", "2411", 2, 200),
+                                      ("iprospective", "pm-ai-agents", "2536", 3, 900)):
+    d = RUNS / client / project
+    d.mkdir(parents=True, exist_ok=True)
+    ka._write_json_atomic(d / f"RM{rid}-{n}.json",
+                          {"rm_id": rid, "n": n, "session_id": "aaaa1111-2222-3333-4444-555566667777",
+                           "engine": "claude", "created": seen, "last_seen": seen})
+_PROJ = {"/zfs/matnat/infra": ("matnat", "infra"),
+         "/zfs/iprospective/pm": ("iprospective", "pm-ai-agents")}
+ka._pm_project_of_cwd = lambda cwd: _PROJ.get(cwd or "", (None, None))
+check("RM2536 : ancrage sur le ticket du projet du cwd, pas sur le plus récent d'un autre projet",
+      ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/matnat/infra") == "2411")
+check("RM2536 : cwd d'un autre projet → jonction la plus récente (comportement historique)",
+      ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/iprospective/pm") == "2536")
+check("RM2536 : cwd inconnu du PM → comportement historique",
+      ka._anchor_rm_id("aaaa1111-2222-3333-4444-555566667777", "/zfs/ailleurs") == "2536")
+check("RM2536 : aucune jonction → pas d'ancrage (le slug prendra le relais)",
+      ka._anchor_rm_id("uuid-inconnue", "/zfs/matnat/infra") is None)
+# jonctions du bon projet SANS récence connue → l'initiale (n minimal)
+d = RUNS / "calyclay" / "site"; d.mkdir(parents=True, exist_ok=True)
+for rid, n in (("7801", 1), ("7802", 2)):
+    ka._write_json_atomic(d / f"RM{rid}-{n}.json",
+                          {"rm_id": rid, "n": n, "session_id": "cccc1111-2222-3333-4444-555566667777", "engine": "claude"})
+_PROJ["/zfs/calyclay/site"] = ("calyclay", "site")
+check("RM2536 : sans récence, on retient la jonction INITIALE du projet",
+      ka._anchor_rm_id("cccc1111-2222-3333-4444-555566667777", "/zfs/calyclay/site") == "7801")
+
+# — relance NUE : ni jeu, ni vue, ni cwd fourni ; le serveur retrouve le reste —
+STARTED = []
+ka._has_session = lambda sid: False
+ka._start_session_tmux = lambda sid, cmd, cwd, w, h, extra: STARTED.append((sid, cmd, str(cwd)))
+ka._record_run = lambda *a, **k: None
+ka._record_key = lambda *a, **k: None
+ka._auto_join_current_set = lambda sid, ctx=None: None
+ka._resolve_cwd = lambda cwd: pathlib.Path(cwd or "/")
+(STORE / "slug").mkdir(parents=True, exist_ok=True)
+(STORE / "slug" / "aaaa1111-2222-3333-4444-555566667777.jsonl").write_text('{"cwd":"/zfs/matnat/infra"}\n', encoding="utf-8")
+ka.op_session_set_current({"view": "client:matnat"}, {"user": None})
+r = ka.op_resume({"session_id": "aaaa1111-2222-3333-4444-555566667777", "engine": "claude"}, {"user": None})
+check("RM2536 : relance depuis une vue client, sans aucun contexte de jeu",
+      r["resumed"] is True and r["session_id"] == "aaaa1111-2222-3333-4444-555566667777")
+check("RM2536 : elle s'ancre sur le ticket du projet de la session",
+      r["rm_id"] == "2411" and STARTED and STARTED[-1][0] == "2411")
+check("RM2536 : le resume natif porte bien le session_id",
+      "--resume" in STARTED[-1][1] and "aaaa1111-2222-3333-4444-555566667777" in STARTED[-1][1])
+ka.op_session_set_current({"view": "set"}, {"user": None})
+
+# — repli « session neuve » : opt-in, et alimenté par l'index des clés —
+LIVE["2410"] = {"engine": "claude", "session_id": "dd001111-2222-3333-4444-555566667777",
+                "cwd": "/zfs/matnat/infra", "model": None}
+ka._write_json_atomic(SESS / "claude" / "dd001111-2222-3333-4444-555566667777.json",
+                      {"engine": "claude", "session_id": "dd001111-2222-3333-4444-555566667777", "cwd": "/zfs/matnat/infra"})
+try:
+    ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id": "2410"}, {"user": None})
+    check("RM2536 : transcript perdu sans opt-in → refus motivé", False)
+except ka.ApiError as e:
+    check("RM2536 : transcript perdu sans opt-in → refus motivé (410)",
+          e.code == 410 and "transcript introuvable" in e.msg)
+SPAWNED_2536 = []
+ka.op_spawn = lambda payload, ctx=None: (SPAWNED_2536.append(payload) or {"rm_id": payload["rm_id"]})
+r = ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id": "2410", "spawn": True}, {"user": None})
+check("RM2536 : avec l'opt-in, session neuve annoncée comme telle",
+      r.get("spawned") is True and r.get("resumed") is False)
+check("RM2536 : son dossier vient de l'index des clés, pas du client",
+      SPAWNED_2536 and SPAWNED_2536[-1]["cwd"] == "/zfs/matnat/infra")
+LIVE["sans-cwd"] = {"engine": "claude", "session_id": "dd002222-2222-3333-4444-555566667777", "cwd": None, "model": None}
+try:
+    ka.op_resume({"session_id": "dd002222-2222-3333-4444-555566667777", "rm_id": "sans-cwd", "spawn": True}, {"user": None})
+    check("RM2536 : rien de mémorisé à rouvrir → refus explicite", False)
+except ka.ApiError as e:
+    check("RM2536 : rien de mémorisé à rouvrir → refus explicite (410)", e.code == 410)
+
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

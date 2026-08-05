@@ -155,6 +155,36 @@ check("RM2539 : un jeu mixte n'impose donc aucun moteur unique",
       {c[1] for c in CALLS} == {"claude", "opencode"})
 
 
+# ── RM2539 (correctif) : DÉCOUVERTE aussi, pas seulement la reprise ──────────
+# Le panneau « reprendre une session » ne montrait ni opencode ni vibe : la
+# reprise était multi-moteur, l'énumération des conversations était restée
+# claude-only (op_resumable refusait tout autre moteur et ne scannait que les
+# transcripts). Une reprise qu'on ne peut pas ATTEINDRE n'existe pas.
+check("RM2539 : les moteurs proposés sont ceux qu'on sait reprendre ET découvrir",
+      set(ka.resume_engines()) == {"claude", "opencode", "vibe"})
+check("RM2539 : shell n'y figure pas (aucune conversation à reprendre)",
+      "shell" not in ka.resume_engines())
+
+ka._runs_by_session = lambda: {}
+ka._list_sessions = lambda: []
+ka._key_info = lambda sid: None
+ka._pm_project_of_cwd = lambda cwd: (None, None)
+ka.CLAUDE_STORES = [TMP / "claude-store-vide"]
+
+listed = ka.op_resumable({})
+by_engine = {e["engine"] for e in listed}
+check("RM2539 : une session opencode est DÉCOUVERTE (elle apparaît au panneau)",
+      "opencode" in by_engine)
+oc = next(e for e in listed if e["engine"] == "opencode")
+check("RM2539 : avec son titre, son marqueur et son dossier",
+      oc["session_id"] == SID_OPENCODE and oc["title"] == "Migration ERP"
+      and oc["mark"] == "wip" and oc["cwd"] == "/zfs/workspaces/matnat/infra")
+check("RM2539 : le filtre par moteur retient ce moteur…",
+      {e["engine"] for e in ka.op_resumable({"engine": "opencode"})} == {"opencode"})
+check("RM2539 : …et un moteur sans découverte ne rend rien plutôt que du claude",
+      ka.op_resumable({"engine": "shell"}) == [])
+
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

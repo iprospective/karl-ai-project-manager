@@ -36,7 +36,7 @@ SÉCURITÉ
 API (JSON, localhost:9876)
   GET  /                        → text/html (cockpit web, RM1873)
   GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities,
-                                   engines, models}  (public en mode token seul ;
+                                   engines, resume_engines, models}  (public en mode token seul ;
                                    gated dès que Basic est configuré, RM2139 ;
                                    models = clés du catalogue par moteur, RM1941)
   POST /auth/login {user, pass, device_name?}
@@ -2909,6 +2909,66 @@ def _pm_project_of_cwd(cwd: str | None):
     return None, None
 
 
+def _list_opencode_sessions() -> list:
+    """RM2539 (correctif) — conversations opencode connues : (session_id, méta).
+    Source : la base du moteur, en lecture seule."""
+    if not OPENCODE_DB.is_file():
+        return []
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute("SELECT id, title, directory, time_updated, time_created "
+                               "FROM session").fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return []
+    out = []
+    for sid, title, directory, updated, created in rows:
+        ms = updated or created or 0
+        out.append((sid, {"title": title or None, "cwd": directory or None,
+                          "mtime": int(ms) // 1000 if ms else None}))
+    return out
+
+
+def _list_vibe_sessions() -> list:
+    """RM2547 (correctif) — conversations vibe connues : (session_id, méta).
+    Source : les meta.json des dossiers de session (l'id du meta fait foi)."""
+    if not VIBE_SESSIONS.is_dir():
+        return []
+    out = []
+    for d in VIBE_SESSIONS.glob("session_*"):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        sid = meta.get("session_id")
+        if not sid:
+            continue
+        m = _vibe_session_meta(sid)
+        if m:
+            out.append((sid, m))
+    return out
+
+
+# Énumération par moteur — pendant « découverte » de `_ENGINE_META` (lecture
+# d'UNE session). Un moteur absent d'ici n'apparaît pas au panneau de reprise.
+_ENGINE_LIST = {
+    "opencode": _list_opencode_sessions,
+    "vibe": _list_vibe_sessions,
+}
+
+
+def resume_engines() -> list:
+    """Moteurs dont on sait ET reprendre ET découvrir les conversations — c'est
+    la liste que le cockpit doit proposer, plutôt qu'un « claude » codé en dur
+    (RM2539 : la reprise multi-moteur était livrée sans que le panneau ne
+    permette d'en choisir un autre)."""
+    return [n for n in ENGINES
+            if _resume_support(n) and (n == "claude" or n in _ENGINE_LIST)]
+
+
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
@@ -2920,8 +2980,8 @@ def op_resumable(qs: dict) -> list:
     f_q = (qs.get("q") or "").lower() or None
     limit = max(1, min(int(qs.get("limit") or 100), 500))
 
-    if f_engine not in (None, "claude"):
-        return []  # itération 1 : découverte claude uniquement
+    if f_engine and f_engine not in resume_engines():
+        return []      # moteur inconnu, ou sans découverte : rien à proposer
     runs_idx = _runs_by_session()
     sessions = _list_sessions()
     live_rm = {s["rm_id"] for s in sessions}
@@ -2933,8 +2993,38 @@ def op_resumable(qs: dict) -> list:
     # autre session_id).
     live_sids = {ki["session_id"] for s in sessions
                  if (ki := _key_info(s["rm_id"])) and ki.get("session_id")}
+    def _entry(engine, sid, title_raw, cwd, mtime):
+        """Ligne du panneau de reprise, commune à tous les moteurs."""
+        m = _MARK_RE.match(title_raw or "")
+        runs = runs_idx.get(sid, [])
+        client, project = _pm_project_of_cwd(cwd)
+        if not client and runs:
+            client, project = runs[-1]["client"], runs[-1]["project"]
+        return {
+            "engine": engine, "session_id": sid,
+            "title": _MARK_RE.sub("", title_raw or "") or None,
+            "mark": m.group(1).lower() if m else None,
+            "cwd": cwd, "mtime": mtime,
+            "client": client, "project": project,
+            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
+            "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
+        }
+
     out, seen = [], set()
-    for root in CLAUDE_STORES:
+    # RM2539 (correctif) : les moteurs tiers énumèrent leurs conversations par
+    # leur propre store — la découverte était restée claude-only alors que la
+    # reprise, elle, était déjà multi-moteur : le panneau ne montrait donc
+    # jamais une session opencode ou vibe.
+    for engine_name, lister in _ENGINE_LIST.items():
+        if f_engine and f_engine != engine_name:
+            continue
+        for sid, meta in lister():
+            if sid in seen:
+                continue
+            seen.add(sid)
+            out.append(_entry(engine_name, sid, meta.get("title"),
+                              meta.get("cwd"), meta.get("mtime")))
+    for root in (CLAUDE_STORES if f_engine in (None, "claude") else []):
         if not root.is_dir():
             continue
         for jf in root.glob("*/*.jsonl"):
@@ -2946,21 +3036,7 @@ def op_resumable(qs: dict) -> list:
                 meta = _jsonl_tail_meta(jf)
             except OSError:
                 continue
-            raw_title = meta["title"] or ""
-            m = _MARK_RE.match(raw_title)
-            runs = runs_idx.get(sid, [])
-            client, project = _pm_project_of_cwd(meta["cwd"])
-            if not client and runs:
-                client, project = runs[-1]["client"], runs[-1]["project"]
-            out.append({
-                "engine": "claude", "session_id": sid,
-                "title": _MARK_RE.sub("", raw_title) or None,
-                "mark": m.group(1).lower() if m else None,
-                "cwd": meta["cwd"], "mtime": meta["mtime"],
-                "client": client, "project": project,
-                "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
-                "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
-            })
+            out.append(_entry("claude", sid, meta["title"], meta["cwd"], meta["mtime"]))
 
     def keep(e):
         # status=not-done : tout sauf les [DONE] (défaut du panneau de reprise)
@@ -2978,7 +3054,7 @@ def op_resumable(qs: dict) -> list:
         return True
 
     out = [e for e in out if keep(e)]
-    out.sort(key=lambda e: e["mtime"], reverse=True)
+    out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
     return out[:limit]
 
 
@@ -5237,6 +5313,11 @@ class Handler(BaseHTTPRequestHandler):
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
                 "engines": list(ENGINES),
+                # RM2539 (correctif) : moteurs dont les conversations sont à la
+                # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les
+                # proposait en dur (« claude »), et les sessions opencode/vibe
+                # restaient invisibles alors que la reprise savait les traiter.
+                "resume_engines": resume_engines(),
                 # clés du catalogue par moteur (RM1941) — le client ne voit que les
                 # clés, le mapping vers les valeurs réelles reste côté serveur.
                 "models": {e: sorted(m) for e, m in _model_catalog().items()},

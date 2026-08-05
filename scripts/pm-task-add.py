@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
-from redmine_utils import create_redmine_issue
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
 
@@ -281,7 +281,7 @@ def main():
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
     target_author = None if args.initiator_agent else load_ia_manager_id()
-    rm_id = create_redmine_issue(
+    rm_id = get_task_provider().create_issue(
         project_id=rm_proj_id,
         tracker_id=tracker_id,
         priority_id=priority_id,

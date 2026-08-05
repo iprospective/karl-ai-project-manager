@@ -36,6 +36,7 @@ from pm_paths import PMConfig
 from pm_output import out
 import pm_git
 import redmine_utils
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 try:
     import yaml
@@ -78,7 +79,7 @@ def get_metrics(fm):
 
 def _verify_pushed(rm_id, cfs, est_hours):
     """Re-GET et avertit si un CF/estimated_hours poussé n'a pas pris (silent drop)."""
-    iss = redmine_utils.fetch_issue(rm_id)
+    iss = get_task_provider().fetch_issue(rm_id)
     live = {c["id"]: (c.get("value") or "") for c in iss.get("custom_fields", [])}
     present = set(live)
     for c in (cfs or []):

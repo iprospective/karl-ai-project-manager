@@ -47,8 +47,8 @@ from pathlib import Path
 import requests
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from redmine_utils import (add_issue_note, fetch_issue, find_users, get_ia_cf_id,
-                           list_issues, list_time_entries, search_issues)
+from redmine_utils import find_users, get_ia_cf_id, list_time_entries
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 from pm_paths import PMConfig
 
 TG_API = "https://api.telegram.org/bot{token}/{method}"
@@ -172,7 +172,7 @@ def _trunc(s, n):
 
 def fmt_ticket(rm_id):
     """Réponse HTML détaillée pour /rm <id>."""
-    issue = fetch_issue(rm_id, include="journals")
+    issue = get_task_provider().fetch_issue(rm_id, include="journals")
     if not issue:
         return f"RM{rm_id} introuvable."
     subj = html.escape(issue.get("subject", "?"))
@@ -215,7 +215,7 @@ def fmt_mine():
     """Tickets ouverts assignés à karl (l'owner de la clé API), récents d'abord."""
     params = {"assigned_to_id": "me", "status_id": "open",
               "sort": "updated_on:desc", **_ia_filter()}
-    issues = list_issues(params, limit=15)
+    issues = get_task_provider().list_issues(params, limit=15)
     if not issues:
         return "Aucun ticket en cours assigné à karl. 🎉"
     lines = "\n".join(_fmt_issue_line(i) for i in issues)
@@ -225,7 +225,7 @@ def fmt_mine():
 def fmt_recent():
     """Derniers tickets modifiés (tous statuts), IA-trackés."""
     params = {"status_id": "*", "sort": "updated_on:desc", **_ia_filter()}
-    issues = list_issues(params, limit=10)
+    issues = get_task_provider().list_issues(params, limit=10)
     if not issues:
         return "Aucun ticket récent."
     lines = "\n".join(_fmt_issue_line(i) for i in issues)
@@ -233,7 +233,7 @@ def fmt_recent():
 
 
 def fmt_search(query):
-    results = search_issues(query, limit=12)
+    results = get_task_provider().search_issues(query, limit=12)
     if not results:
         return f"Aucun résultat pour « {html.escape(query)} »."
     lines = []
@@ -267,7 +267,7 @@ def _append_note_log(cfg_pm, rm_id, who, note):
 def cmd_note(cfg_pm, who, rm_id, note):
     """Poste la note sur Redmine + append .log.md local. Retourne le message HTML."""
     body = f"[Telegram via {who}] {note}"
-    add_issue_note(rm_id, body)
+    get_task_provider().add_note(rm_id, body)
     logged = _append_note_log(cfg_pm, rm_id, who, note)
     suffix = " (+ .log.md)" if logged else ""
     return f"✅ Note ajoutée à <b>RM{rm_id}</b>{suffix}."

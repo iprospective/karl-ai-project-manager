@@ -26,7 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
-from redmine_utils import create_redmine_issue
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 try:
     import yaml
@@ -175,14 +175,15 @@ def interactive_picker(selectable):
 def create_redmine_ticket(project_id, tpl):
     """Crée le ticket Redmine pour un template bootstrap.
 
-    Délègue à `redmine_utils.create_redmine_issue()` (source unique) qui
-    set automatiquement le CF IA (cf. NORMS « Filtrage IA »). Le bootstrap
+    Passe par le seam `get_task_provider().create_issue()` (P1/RM2543 ;
+    backend Redmine → `create_redmine_issue`, source unique) qui set
+    automatiquement le CF IA (cf. NORMS « Filtrage IA »). Le bootstrap
     est exécuté par karl (agent) → POST author=karl OK, pas de PUT
     author_id nécessaire.
     """
     tracker_id = NORMS_TYPE_TO_TRACKER.get(tpl["type"], 4)
     priority_id = NORMS_PRIORITY_TO_REDMINE.get(tpl["priority"], 2)
-    return create_redmine_issue(
+    return get_task_provider().create_issue(
         project_id=project_id,
         tracker_id=tracker_id,
         priority_id=priority_id,

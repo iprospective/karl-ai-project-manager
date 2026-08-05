@@ -54,6 +54,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
 
 try:
     import yaml
@@ -737,7 +738,7 @@ def notify_conflict(a, conflict_path, rproj, url, key, dry=False):
         return
     if rm_ticket:
         try:
-            rm.add_issue_note(int(rm_ticket), msg)
+            get_task_provider().add_note(int(rm_ticket), msg)
             print(f"     → notif postée sur RM{rm_ticket}")
         except SystemExit:
             print(f"     ⚠ notif RM{rm_ticket} échouée (note non postée)", file=sys.stderr)

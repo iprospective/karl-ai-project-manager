@@ -17,7 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
-from redmine_utils import get_ia_cf_id, set_issue_ia_tag, fetch_issue, issue_is_ia_tagged
+from redmine_utils import get_ia_cf_id, set_issue_ia_tag, issue_is_ia_tagged
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 
 def main():
@@ -35,7 +36,7 @@ def main():
                  "Créer le custom field 'IA' en UI Redmine puis renseigner l'id.")
 
     # État courant
-    issue = fetch_issue(args.rm_id)
+    issue = get_task_provider().fetch_issue(args.rm_id)
     was_tagged = issue_is_ia_tagged(issue)
     subject = (issue.get("subject") or "").strip()
 

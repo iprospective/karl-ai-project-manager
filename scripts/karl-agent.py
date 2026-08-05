@@ -204,16 +204,32 @@ DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 # d'attente, simple délai). Le prompt initial est TOUJOURS livré par send-keys APRÈS
 # le spawn (jamais concaténé dans la cmd — invariant sécu #4 : pas d'entrée client en
 # argv), bien qu'opencode/vibe sachent le prendre à l'invocation.
+# RM2539 — CONTRAT DE REPRISE, par moteur. La reprise était codée en dur sur
+# claude (`--resume <uuid>` + transcripts JSONL) ; un moteur la déclare ici ou
+# n'en a pas (refus explicite, jamais un 501 opaque) :
+#   resume_flag : drapeau qui reprend une conversation existante
+#   sid_re      : grammaire des identifiants de CE moteur — claude émet des UUID,
+#                 opencode des `ses_…` que la regex UUID rejetait en amont
+#   store       : d'où viennent la conversation et ses méta ("claude_jsonl" =
+#                 transcripts ; "opencode_db" = base SQLite du moteur)
 ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
         "model_flag": "--model",
+        "resume_flag": "--resume",
+        "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
+        "store": "claude_jsonl",
     },
     "opencode": {
         "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
         "ready_markers": ("Ask anything", "tab agents", "ctrl+p commands"),
         "model_flag": "--model",          # format provider/model
+        # `opencode --session <id>` reprend la conversation (vérifié v1.18.13) ;
+        # `--continue` reprend la dernière — sans intérêt ici, on vise un id précis.
+        "resume_flag": "--session",
+        "sid_re": r"^ses_[A-Za-z0-9]{6,64}$",
+        "store": "opencode_db",
     },
     "vibe": {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
@@ -1217,7 +1233,63 @@ def op_disposition(payload: dict, auth_ctx=None) -> dict:
 
 
 # ── Sessions ⇄ tickets : store, découverte, reprise (RM1939, itér.1 claude) ──
-_SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")
+_SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")   # claude (historique)
+
+# RM2539 — la grammaire d'un identifiant de conversation appartient au MOTEUR.
+# `_SID_RE` (UUID) restait le seul filtre : un id opencode `ses_14301a3ddff…`
+# était rejeté en `400 session_id invalide` bien avant d'atteindre le routage.
+_ENGINE_SID_RES = {name: re.compile(e["sid_re"])
+                   for name, e in ENGINES.items() if e.get("sid_re")}
+
+
+def _valid_session_id(session_id: str | None, engine: str | None = None) -> bool:
+    """Un id de conversation est valide pour SON moteur. `engine` inconnu ou
+    absent : on accepte ce qu'accepte au moins un moteur (l'appelant recoupera
+    le moteur réel via `_engine_of_session`)."""
+    if not session_id:
+        return False
+    rx = _ENGINE_SID_RES.get(engine or "")
+    if rx:
+        return bool(rx.match(session_id))
+    return any(r.match(session_id) for r in _ENGINE_SID_RES.values())
+
+
+def _resume_support(engine: str | None) -> dict | None:
+    """Contrat de reprise du moteur, ou None s'il n'en déclare pas (vibe, shell).
+    Un moteur sans contrat n'est pas une anomalie : c'est un refus à formuler
+    clairement, pas un plantage."""
+    e = ENGINES.get(engine or "", {})
+    return e if e.get("resume_flag") and e.get("store") else None
+
+
+# Base SQLite d'opencode : une ligne `session` porte id, titre, dossier et dates —
+# soit, déjà structuré, ce que karl-agent extrait des transcripts claude en les
+# parsant. Lecture SEULE (uri mode=ro) : le moteur en est propriétaire.
+OPENCODE_DB = Path(os.environ.get("KARL_AGENT_OPENCODE_DB") or (
+    Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    / "opencode" / "opencode.db"))
+
+
+def _opencode_session_meta(session_id: str) -> dict:
+    """{title, mtime, cwd} d'une conversation opencode, ou {} si introuvable."""
+    if not OPENCODE_DB.is_file():
+        return {}
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            row = con.execute("SELECT title, directory, time_updated, time_created "
+                              "FROM session WHERE id = ?", (session_id,)).fetchone()
+        finally:
+            con.close()
+    except Exception:            # base absente, verrouillée, schéma changé…
+        return {}
+    if not row:
+        return {}
+    title, directory, updated, created = row
+    ms = updated or created or 0
+    return {"title": (title or None), "cwd": (directory or None),
+            "mtime": (int(ms) // 1000 if ms else None)}   # epoch ms → s
 _MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
 
 
@@ -2430,14 +2502,30 @@ def _transcript_info(session_id: str | None) -> dict:
     marqueur puis son titre — soit deux globs par session et par appel. Une
     lecture unique, mise en cache 30 s, sert les trois usages (marqueur, nom,
     âge). Un transcript absent ou illisible rend un dict vide : dans le doute,
-    rien de marqué, rien de daté."""
-    if not session_id or not _SID_RE.match(session_id):
+    rien de marqué, rien de daté.
+
+    RM2539 — la SOURCE dépend du moteur : transcripts JSONL pour claude, base
+    du moteur pour opencode. Le cache et le contrat de sortie sont communs."""
+    if not session_id or not _valid_session_id(session_id):
         return {}
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
     if session_id in _DONE_CACHE["map"]:
         return _DONE_CACHE["map"][session_id]
+    if not _SID_RE.match(session_id):
+        # Pas un id claude → moteur tiers ; aujourd'hui seul opencode expose ses
+        # méta (table `session`). Le marqueur [WIP]/[DONE] y est porté par le
+        # titre, comme côté claude : même extraction.
+        meta = (_opencode_session_meta(session_id)
+                if _ENGINE_SID_RES.get("opencode", _SID_RE).match(session_id) else {})
+        raw = meta.get("title") or ""
+        m = _MARK_RE.match(raw)
+        info = {"mark": m.group(1).lower() if m else None,
+                "title": _MARK_RE.sub("", raw).strip() or None,
+                "mtime": meta.get("mtime"), "cwd": meta.get("cwd")} if meta else {}
+        _DONE_CACHE["map"][session_id] = info
+        return info
     info: dict = {}
     jf = _transcript_jsonl(session_id)
     if jf:
@@ -2924,7 +3012,9 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     session_id = str(payload.get("session_id") or "").strip() or None
     rm_id = str(payload.get("rm_id") or "").strip() or None
     n = payload.get("n")
-    if session_id and not _SID_RE.match(session_id):
+    # RM2539 : la grammaire de l'id suit le MOTEUR (claude : UUID ; opencode :
+    # `ses_…`). L'ancien filtre UUID unique rejetait toute session opencode ici.
+    if session_id and not _valid_session_id(session_id):
         raise ApiError(400, "session_id invalide")
     if rm_id and not _valid_sid(rm_id):
         raise ApiError(400, "rm_id invalide (id de ticket ou slug)")
@@ -2952,53 +3042,70 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
                                 + " — lancer un spawn neuf")
         last = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))
         session_id, engine = last["session_id"], last.get("engine", engine)
-    if engine != "claude":
-        raise ApiError(501, f"resume : itération 1 = claude uniquement (session {engine})")
+    # RM2539 : le moteur déclare (ou non) son contrat de reprise. Un moteur sans
+    # contrat n'est pas un bug du serveur : c'est un refus à formuler, avec la
+    # sortie de secours (spawn neuf) plutôt qu'un 501 sec.
+    support = _resume_support(engine)
+    if not support:
+        capables = ", ".join(sorted(n for n in ENGINES if _resume_support(n)))
+        raise ApiError(501, f"le moteur {engine} ne sait pas reprendre une conversation "
+                            f"(moteurs capables : {capables}) — lancer une session neuve.")
+    if not _valid_session_id(session_id, engine):
+        raise ApiError(400, f"session_id {session_id!r} n'a pas la forme attendue "
+                            f"par le moteur {engine}")
 
-    jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
+    # Conversation présente ? La SOURCE dépend du moteur : transcript JSONL
+    # (claude) ou base du moteur (opencode). `conv` porte le cwd de reprise.
+    jf = None
+    if support["store"] == "claude_jsonl":
+        jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
+        conv = {"cwd": _resume_cwd(jf, engine, session_id)} if jf else None
+    else:
+        meta = _opencode_session_meta(session_id)
+        conv = {"cwd": meta.get("cwd")} if meta else None
+
     if not rm_id:
         # Ancrage automatique (RM2144, affiné RM2536 : le projet du cwd prime
         # sur la récence) ; à défaut de jonction, SLUG dérivé du titre de la
         # session — plus d'obligation de fournir un ticket à la reprise.
         smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
-        rm_id = _anchor_rm_id(session_id, smeta.get("cwd"))
+        rm_id = _anchor_rm_id(session_id, smeta.get("cwd") or (conv or {}).get("cwd"))
         if not rm_id:
-            title = _jsonl_tail_meta(jf)["title"] if jf else None
-            rm_id = _auto_slug(title, session_id)
+            rm_id = _auto_slug(_transcript_info(session_id).get("title"), session_id)
 
     if _has_session(rm_id):
         raise ApiError(409, f"session déjà active : {_session_name(rm_id)}")
 
-    # Garde-fous : transcript présent ? cwd toujours valide ? RM2536 : `spawn`
+    # Garde-fous : conversation présente ? cwd toujours valide ? RM2536 : `spawn`
     # autorise le repli en session NEUVE (cwd/model repris de l'index des clés,
     # jamais du client) — l'appelant n'a donc plus à porter ces valeurs.
-    if jf is None:
+    if conv is None:
         return _spawn_fallback(rm_id, engine, payload, auth_ctx,
-                               f"transcript introuvable pour {session_id} "
-                               "(session purgée ou store non monté)")
+                               f"conversation {session_id} introuvable côté {engine} "
+                               "(purgée ou store non monté)")
     try:
-        cwd = _resolve_cwd(_resume_cwd(jf, engine, session_id))
+        cwd = _resolve_cwd(conv.get("cwd"))
     except (ValueError, TypeError) as e:
         return _spawn_fallback(rm_id, engine, payload, auth_ctx,
                                f"cwd de la session invalide ({e})")
 
-    cmd = f"{ENGINES['claude']['cmd']} --resume {shlex.quote(session_id)}"
+    cmd = f"{support['cmd']} {support['resume_flag']} {shlex.quote(session_id)}"
     width = int(payload.get("width", DEFAULT_WIDTH))
     height = int(payload.get("height", DEFAULT_HEIGHT))
     _start_session_tmux(rm_id, cmd, cwd, width, height, [])
     if _is_ticket_sid(rm_id):
-        _record_run(rm_id, "claude", session_id, str(cwd))
-    _record_key(rm_id, "claude", session_id, str(cwd))
+        _record_run(rm_id, engine, session_id, str(cwd))
+    _record_key(rm_id, engine, session_id, str(cwd))
     joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
     if prompt:
-        _wait_engine_ready(rm_id, "claude")
+        _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
 
-    return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": "claude",
+    return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": engine,
             "session_id": session_id, "cwd": str(cwd), "resumed": True,
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
@@ -3014,7 +3121,9 @@ def _session_live(session_id: str, engine: str = "claude") -> bool:
     try:
         out = subprocess.run(["pgrep", "-af", engine],
                              capture_output=True, text=True, timeout=5).stdout
-        if any(session_id in ln and "--resume" in ln for ln in out.splitlines()):
+        # RM2539 : `--resume` (claude) ou `--session` (opencode) selon le moteur
+        flag = (_resume_support(engine) or {}).get("resume_flag", "--resume")
+        if any(session_id in ln and flag in ln for ln in out.splitlines()):
             return True
     except (OSError, subprocess.SubprocessError):
         pass

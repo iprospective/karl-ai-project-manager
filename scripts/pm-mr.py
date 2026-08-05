@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # charge aussi .env
 from pm_output import out
 from pm_forge import get_forge, get_forge_from_pr_url, ForgeError
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 # ── RM2541 : désigner une PR sans dépendre du répertoire courant ─────────────
 # Une PR se désigne par son URL — auto-portante (hôte → forge, chemin → projet,
@@ -120,7 +121,7 @@ def _post_git_cf(rm_id, branch, pr_url):
                 cfs.append({"id": cid, "value": val})
         if cfs:
             redmine_utils.update_issue_fields(rm_id, custom_fields=cfs)
-            issue = redmine_utils.fetch_issue(rm_id)
+            issue = get_task_provider().fetch_issue(rm_id)
             present = {c.get("id"): c.get("value") for c in issue.get("custom_fields", [])}
             missing = [c["id"] for c in cfs if present.get(c["id"]) != c["value"]]
             if missing:

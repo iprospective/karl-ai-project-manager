@@ -146,6 +146,82 @@ def test_github_compare_url():
     assert f.compare_url("42-fix", "main") == "https://github.com/octo/hello/compare/main...42-fix"
 
 
+
+# ── RM2541 : une PR se désigne par son URL, pas par le répertoire courant ────
+def _with_hosts(fn):
+    """Exécute avec des forges déclarées (l'allow-list lit l'environnement)."""
+    old = {k: os.environ.get(k) for k in ("GITLAB_URL", "GOGS_URL", "GITHUB_URL")}
+    os.environ["GITLAB_URL"] = "https://gitlab.iprospective.fr"
+    os.environ["GOGS_URL"] = "https://gogs.iprospective.fr"
+    os.environ["GITHUB_URL"] = "https://github.com"
+    try:
+        fn()
+    finally:
+        for k, v in old.items():
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+
+
+def test_parse_pr_url_les_trois_forges():
+    def go():
+        cases = [
+            # GitLab : sous-groupes imbriqués, séparateur /-/
+            ("https://gitlab.iprospective.fr/iprospective/ai-artificial-intelligence/"
+             "ai-project-management/-/merge_requests/333",
+             ("gitlab", "iprospective/ai-artificial-intelligence/ai-project-management", 333)),
+            # GitLab : forme ancienne, sans /-/
+            ("https://gitlab.iprospective.fr/grp/repo/merge_requests/7",
+             ("gitlab", "grp/repo", 7)),
+            # suffixe d'onglet (diffs, commits) : l'iid s'arrête au premier segment
+            ("https://gitlab.iprospective.fr/grp/repo/-/merge_requests/7/diffs",
+             ("gitlab", "grp/repo", 7)),
+            ("https://github.com/owner/repo/pull/12", ("github", "owner/repo", 12)),
+            ("https://gogs.iprospective.fr/Materiaux-Naturels/matnat/pulls/3",
+             ("gogs", "Materiaux-Naturels/matnat", 3)),
+        ]
+        for url, want in cases:
+            got = pm_forge.parse_pr_url(url)
+            assert got == want, (url, got, want)
+    _with_hosts(go)
+
+
+def test_parse_pr_url_refuse_hote_non_declare():
+    """Sécurité : une URL fournie ne doit jamais faire présenter un PAT à un
+    hôte arbitraire. Le refus tombe AVANT tout appel réseau."""
+    def go():
+        for url in ("https://evil.example.com/a/b/-/merge_requests/1",
+                    "https://gitlab.iprospective.fr.evil.tld/a/b/-/merge_requests/1"):
+            try:
+                pm_forge.parse_pr_url(url)
+                assert False, f"hôte non déclaré accepté : {url}"
+            except pm_forge.ForgeError as e:
+                assert "inconnu des forges configur" in str(e), str(e)
+    _with_hosts(go)
+
+
+def test_parse_pr_url_formes_invalides():
+    def go():
+        for url in ("gitlab:grp/repo/-/merge_requests/1",            # pas une URL web
+                    "https://gitlab.iprospective.fr/grp/repo",        # pas une PR
+                    "https://gitlab.iprospective.fr/grp/repo/-/merge_requests/abc",
+                    "https://gitlab.iprospective.fr/-/merge_requests/5"):  # dépôt absent
+            try:
+                pm_forge.parse_pr_url(url)
+                assert False, f"URL invalide acceptée : {url}"
+            except pm_forge.ForgeError:
+                pass
+    _with_hosts(go)
+
+
+def test_get_forge_from_pr_url_sans_depot_local():
+    """Le gain d'usage : plus besoin d'un checkout ni d'un cwd — l'URL suffit."""
+    def go():
+        forge, iid = pm_forge.get_forge_from_pr_url(
+            "https://gitlab.iprospective.fr/grp/sub/repo/-/merge_requests/42")
+        assert forge.name == "gitlab" and iid == 42
+        assert forge.repo_path == "grp/sub/repo", forge.repo_path
+    _with_hosts(go)
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

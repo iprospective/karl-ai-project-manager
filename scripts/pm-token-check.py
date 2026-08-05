@@ -14,53 +14,21 @@ seuil et **réécrit la nouvelle valeur dans le `.env` canonique** de façon ato
 La valeur d'un token n'est **jamais** imprimée, logguée ni écrite ailleurs que dans
 le `.env` (tripwire NORMS #11). La rotation révoque immédiatement l'ancienne valeur.
 
-Vérification recommandée en **début de session PM** (cf. NORMS `git-mep`). Doit être
-lancé depuis le runtime (`.mmi-pm-core`, via le symlink) pour viser le `.env`
-canonique ; en dev, sourcer le `.env` canonique et passer --env-file pour la rotation.
+L'accès API GitLab passe par `pm_forge.GitlabForge` (RM2498). Doit être lancé depuis
+le runtime (`.mmi-pm-core`, via le symlink) pour viser le `.env` canonique.
 """
 import argparse
 import datetime
-import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # charge aussi .env
+from pm_forge import GitlabForge
 
-DEFAULT_HOST = "gitlab.iprospective.fr"
 DEFAULT_THRESHOLD = 7        # jours : rotation déclenchée une semaine avant péremption
 DEFAULT_ROTATE_DAYS = 365    # durée de vie demandée pour le token roté
-
-
-def base_url():
-    return (os.environ.get("GITLAB_URL") or f"https://{DEFAULT_HOST}").rstrip("/")
-
-
-def api(method, path, token, fields=None):
-    """REST GitLab. Retourne (status, parsed_json|None, raw). Pas d'exception sur 4xx/5xx."""
-    url = path if path.startswith("http") else API_BASE + path
-    data = urllib.parse.urlencode(fields, doseq=True).encode() if fields else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("PRIVATE-TOKEN", token)
-    if data:
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read().decode("utf-8", "replace")
-            status = r.status
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace")
-        status = e.code
-    except Exception as e:
-        return 0, None, str(e)
-    try:
-        return status, json.loads(raw), raw
-    except Exception:
-        return status, None, raw
 
 
 def discover_token_vars():
@@ -79,9 +47,9 @@ def days_until(exp):
     return (d - datetime.date.today()).days
 
 
-def inspect(var):
+def inspect(forge, var):
     """État du token porté par `var` : dict {var,name,expires_at,days,active,revoked,error}."""
-    st, data, raw = api("GET", "/personal_access_tokens/self", os.environ[var])
+    st, data, raw = forge.api("GET", "/personal_access_tokens/self", os.environ[var])
     if st != 200 or not isinstance(data, dict):
         msg = (data or {}).get("message") if isinstance(data, dict) else None
         return {"var": var, "error": msg or f"HTTP {st}"}
@@ -135,13 +103,13 @@ def rewrite_env_value(env_path, key, new_value):
     os.replace(tmp, env_path)
 
 
-def rotate(var, env_path, expiry_days, dry_run):
+def rotate(forge, var, env_path, expiry_days, dry_run):
     new_exp = (datetime.date.today() + datetime.timedelta(days=expiry_days)).isoformat()
     if dry_run:
         print(f"  → [dry-run] roterait {var} (nouvelle expiration demandée : {new_exp})")
         return True
-    st, data, _raw = api("POST", "/personal_access_tokens/self/rotate",
-                         os.environ[var], fields={"expires_at": new_exp})
+    st, data, _raw = forge.api("POST", "/personal_access_tokens/self/rotate",
+                               os.environ[var], fields={"expires_at": new_exp})
     # NE JAMAIS imprimer _raw : sur succès il contient la nouvelle valeur du token.
     if not isinstance(data, dict) or not data.get("token"):
         print(f"  ✗ rotation {var} échouée (HTTP {st}"
@@ -159,8 +127,7 @@ def rotate(var, env_path, expiry_days, dry_run):
 
 def main():
     cfg = PMConfig.load()  # charge le .env (GITLAB_*)
-    global API_BASE
-    API_BASE = base_url() + "/api/v4"
+    forge = GitlabForge("")  # accès API GitLab (base/api) ; pas de repo à résoudre ici
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -183,8 +150,8 @@ def main():
               file=sys.stderr)
         sys.exit(1)
 
-    print(f"Tokens GitLab ({base_url()}) — seuil rotation J-{args.threshold} :")
-    infos = [inspect(v) for v in token_vars]
+    print(f"Tokens GitLab ({forge.base}) — seuil rotation J-{args.threshold} :")
+    infos = [inspect(forge, v) for v in token_vars]
     for info in infos:
         print(fmt(info, args.threshold))
 
@@ -198,7 +165,7 @@ def main():
         print(f"\n{len(due)} token(s) à roter (≤ J-{args.threshold}) : "
               + ", ".join(i["var"] for i in due))
         if args.rotate_due:
-            ok = all(rotate(i["var"], env_path, args.rotate_expiry_days, args.dry_run)
+            ok = all(rotate(forge, i["var"], env_path, args.rotate_expiry_days, args.dry_run)
                      for i in due)
             if args.dry_run:
                 rc = max(rc, 2)            # rien de réellement roté

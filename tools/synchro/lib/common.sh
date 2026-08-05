@@ -27,3 +27,10 @@ export PHP_USER="${PHP_USER:-mathieu}"
 
 # IP du client (host LXC) à whitelister en maintenance PrestaShop
 export CLIENT_USER_IP="10.0.3.1"
+
+# Options passées à ssh et rsync par lib/db.sh et lib/<type>.sh. Vides par défaut :
+# le framework tourne sous `set -u`, sans ces défauts toute conf d'environnement qui
+# omet de les déclarer échoue sur « SSH_OPTS: unbound variable » avant même de
+# contacter la production. Une conf reste libre de les surcharger.
+export SSH_OPTS="${SSH_OPTS:-}"
+export RSYNC_OPTS="${RSYNC_OPTS:-}"

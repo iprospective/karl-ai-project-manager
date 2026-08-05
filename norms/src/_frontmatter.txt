@@ -1,2 +1,2 @@
-schema_version: "1.64.0"
-updated: 2026-07-29
+schema_version: "1.66.0"
+updated: 2026-08-03

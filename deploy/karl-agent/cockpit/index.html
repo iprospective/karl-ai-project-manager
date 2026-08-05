@@ -4,6 +4,14 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
+<!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
+     cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
+     terminal doit être prêt avant le premier attach. -->
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<script src="/static/vendor/xterm.js"></script>
+<script src="/static/vendor/addon-fit.js"></script>
+<script src="/static/vendor/addon-unicode11.js"></script>
+<script src="/static/karl-term.js"></script>
 <!-- icône inline (data-URI) : karl-agent ne sert que index.html, pas de statique.
      Source éditable : cockpit/karl-icon.svg (régénérer l'URI si modifiée). -->
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230b0e14'/%3E%3Crect%20x='2'%20y='2'%20width='60'%20height='60'%20rx='12'%20fill='none'%20stroke='%23233044'%20stroke-width='2'/%3E%3Cpath%20d='M21%2015v34M21%2032l16-16M23%2034l17%2015'%20stroke='%234ea1ff'%20stroke-width='7'%20stroke-linecap='round'%20fill='none'/%3E%3Ccircle%20cx='48'%20cy='18'%20r='5'%20fill='%233ad29f'/%3E%3C/svg%3E">
@@ -15,6 +23,12 @@
     --bg: #0b0e14; --panel: #11161f; --panel2: #161c28; --line: #233044;
     --fg: #c8d3e0; --muted: #6b7a90; --accent: #4ea1ff; --ok: #3ad29f;
     --warn: #f5a742; --danger: #ff5d6c;
+    /* RM2522 : fond/texte du terminal. Ils suivent le thème depuis que le
+       cockpit possède la surface (avant : iframe cross-origin, --term-bg ne
+       décrivait que le CADRE et valait #000 — repris tel quel pour le vrai
+       fond, il rendait les gris du TUI illisibles). La palette ANSI vit dans
+       karl-term.js (termPalette), ses contrastes sont testés. */
+    --term-bg: #0b0e14; --term-fg: #c8d3e0;
     --fg-strong: #eaf3ff;          /* texte survalorisé (messages utilisateur) */
     --on-accent: #04101f;          /* texte posé SUR --accent */
     --on-danger: #fff;             /* texte posé SUR --danger */
@@ -30,6 +44,7 @@
     --bg: #eceff4; --panel: #ffffff; --panel2: #f5f7fa; --line: #cfd8e3;
     --fg: #1c2430; --muted: #5f6b7d; --accent: #1560b8; --ok: #0f7350;
     --warn: #a35c06; --danger: #c62839;
+    --term-bg: #fbfcfe; --term-fg: #1c2430;      /* RM2522 — cf. bloc dark */
     --fg-strong: #0a1018;
     --on-accent: #ffffff;
     --on-danger: #fff;
@@ -43,9 +58,6 @@
   :root {
     /* invariants (hors thème) */
     --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
-    /* le terminal ttyd garde son propre thème sombre (ttyd.service) et l'iframe
-       est cross-origin : son fond reste noir quel que soit le thème du cockpit. */
-    --term-bg: #000;
   }
   * { box-sizing: border-box; }
   /* RM1893 (retour test) : layout verrouillé à la hauteur du viewport — la page
@@ -126,6 +138,40 @@
     background: var(--panel); border-bottom: 1px solid var(--line); }
   .termbar .title { font-family: var(--mono); font-size: 13px; }
   iframe { border: 0; flex: 1; width: 100%; background: var(--term-bg); }
+  /* RM2522 : hôte du client terminal maison (remplace l'iframe ttyd). L'iframe
+     reste dans le DOM comme repli si le bundle xterm ne charge pas. */
+  #termhost { flex: 1; width: 100%; min-height: 0; background: var(--term-bg);
+    padding: 4px 0 0 6px; box-sizing: border-box; }
+  #termhost .xterm { height: 100%; }
+  /* RM2527 : composer — barre de saisie permanente sous le terminal. `flex: none`
+     pour qu'il garde sa hauteur : c'est le terminal qui cède (min-height: 0). */
+  #composer { flex: none; border-top: 1px solid var(--line); background: var(--panel2);
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  #cmptext { width: 100%; box-sizing: border-box; resize: vertical; min-height: 42px;
+    max-height: 40vh; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 13px;
+    line-height: 1.45; }
+  #cmptext:focus { outline: none; border-color: var(--accent); }
+  #cmptext:disabled { opacity: .55; cursor: not-allowed; }
+  .cmpbar { display: flex; align-items: center; gap: 8px; }
+  .cmphint { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .mini.primary { border-color: var(--accent); color: var(--accent); }
+  .mini.primary:disabled { opacity: .5; cursor: not-allowed; border-color: var(--line);
+    color: var(--muted); }
+  /* Avertissement de garde d'état : un envoi texte pendant un menu SÉLECTIONNE
+     une option au lieu d'écrire (RM2527). */
+  .cmpwarn { border: 1px solid var(--warn); border-left-width: 3px; border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; color: var(--warn); background: var(--panel); }
+  .cmpwarn b { color: var(--fg); }
+  .cmphist { max-height: 30vh; overflow-y: auto; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--panel); }
+  .cmphist .hitem { padding: 6px 10px; font-size: 12px; font-family: var(--mono);
+    color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--line);
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cmphist .hitem:last-child { border-bottom: 0; }
+  .cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
+  .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
   .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
@@ -175,6 +221,32 @@
   .tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
   /* RM2427 : session ENREGISTRÉE non démarrée (« fantôme ») — pastille grise, tuile éteinte */
   .tdot.st-ghost { background: var(--muted); opacity: .5; }
+  /* RM2515 : disposition manuelle (ne s'applique visuellement que sur `idle`) —
+     couleur + icône (badge), jamais la couleur seule. « à traiter » = défaut orange. */
+  .tdot.disp-parke { background: var(--accent); }             /* parké : bleu */
+  .tdot.disp-termine { background: var(--muted); box-shadow: none; }  /* terminé : éteint */
+  .tdot.tdisp { cursor: pointer; }
+  .tdot.tdisp:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .dispmenu { position: fixed; z-index: 60; background: var(--panel2); border: 1px solid var(--line);
+    border-radius: 7px; padding: 3px; display: flex; flex-direction: column; min-width: 150px;
+    box-shadow: 0 6px 18px var(--shadow); }
+  .dispmenu button { text-align: left; background: none; border: 0; color: var(--fg);
+    font: inherit; padding: 6px 11px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+  .dispmenu button:hover { background: var(--accent-soft); }
+  .dispmenu button.on { color: var(--accent); font-weight: 600; }
+  .dispmenu .sep { border-top: 1px solid var(--line); margin: 3px 2px; }
+  /* RM2346 : bandeau « à traiter » — les sessions en attention/choix remontent ici,
+     à place FIXE, pour que la liste principale n'ait plus à se réordonner pour les montrer. */
+  .attnband { border: 1px solid var(--danger); border-radius: 7px; margin: 0 0 8px;
+    background: var(--danger-soft); padding: 4px; }
+  .attnband-h { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--danger); padding: 2px 4px 4px; font-weight: 600; }
+  .attnchip { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px;
+    cursor: pointer; }
+  .attnchip:hover { background: var(--accent-soft); }
+  .attnchip .tid { font-family: var(--mono); font-size: 12px; }
+  .attnchip .rmeta { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; flex: 1; }
   .runitem.ghost { opacity: .6; border-style: dashed; }
   .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
@@ -495,8 +567,11 @@ if (window.matchMedia) {
         </div>
       </div>
       <label for="rs-engine">Moteur</label>
+      <!-- RM2539 : peuplé depuis /cockpit-config (resume_engines). En dur sur
+           « claude », il cachait les sessions opencode et vibe alors même que
+           le serveur savait les reprendre. -->
       <select id="rs-engine" onchange="loadResumable()">
-        <option value="claude">claude</option>
+        <option value="">tous</option>
       </select>
       <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
       <ul class="results" id="rs-list"></ul>
@@ -604,6 +679,26 @@ if (window.matchMedia) {
       </select>
       <label for="vx-voice">Voix de synthèse</label>
       <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+      <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
+      <div id="vx-server-row" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
+          <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
+        </label>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+          Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
+        </div>
+      </div>
+      <!-- RM2533 : bascule STT serveur (Whisper) — n'apparaît que si le sidecar répond -->
+      <div id="vx-stt-row" style="display:none;margin-top:8px">
+        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+          <input type="checkbox" id="vx-stt" onchange="setSttServer(this.checked)">
+          <span>Dictée serveur haute précision (Whisper) <span style="color:var(--ok)">★</span></span>
+        </label>
+        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+          Transcription locale, tout navigateur (pas de verrou Chrome). Décochez pour la reconnaissance du navigateur.
+        </div>
+      </div>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
         La liste dépend du navigateur — Chrome recommandé.
@@ -671,6 +766,24 @@ if (window.matchMedia) {
           Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
           ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
         </div>
+        <div id="termhost" style="display:none"></div>
+        <!-- RM2527 : composer — écrire sans passer par le clavier du terminal.
+             Reste sous le terminal, ne prend le focus que si on clique dedans. -->
+        <div id="composer" style="display:none">
+          <div class="cmpwarn" id="cmpwarn" style="display:none"></div>
+          <textarea id="cmptext" rows="2" spellcheck="false"
+            placeholder="Écris ton message — Entrée envoie, Maj+Entrée saute la ligne"
+            aria-label="Message à envoyer à la session attachée"></textarea>
+          <div class="cmpbar">
+            <button class="mini" id="cmphistbtn" onclick="composerHistoryToggle()"
+              title="Messages déjà envoyés dans cette session (↑ / ↓ dans le champ vide)">historique ▾</button>
+            <span class="cmphint" id="cmphint"></span>
+            <button class="mini primary" id="cmpsend" onclick="composerSend()"
+              title="Envoyer à la session attachée (Entrée)">Envoyer ⏎</button>
+          </div>
+          <div class="cmphist" id="cmphist" style="display:none"></div>
+        </div>
+        <!-- repli si le bundle xterm ne charge pas (RM2522) -->
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
@@ -937,12 +1050,13 @@ function computeGroups(sessions, rcache, dynamic) {
     // RM2445 : une session VIVANTE d'un autre jeu n'est jamais masquée — elle est
     // rangée à part (et badgée de son jeu) pour qu'un agent qui attend une réponse
     // reste visible, sans polluer la vue du chantier courant.
-    let key = (!s.ghost && s.in_current === false) ? OTHER_SETS_GROUP : null;
-    if (!key) key = (s.client && s.project) ? s.client + "/" + s.project : null;
-    if (!key) {
-      const r = rcache[s.rm_id];
-      key = (r && r.found) ? r.client + "/" + r.project : "divers";
-    }
+    // RM2537 : « hors du jeu » ≠ « sans projet ». On garde le client/projet dans
+    // la clé pour que ces sessions restent rangées par chantier au lieu d'être
+    // aplaties en un tas indistinct (elles restent en fin de liste, cf. `last`).
+    const r = rcache[s.rm_id];
+    let key = (s.client && s.project) ? s.client + "/" + s.project
+            : (r && r.found) ? r.client + "/" + r.project : "divers";
+    if (!s.ghost && s.in_current === false) key = OTHER_SETS_GROUP + " · " + key;
     if (!groups.has(key)) groups.set(key, []);
     groups.get(key).push(s);
     // RM2427 : une session ENREGISTRÉE non démarrée s'affiche mais ne tourne pas —
@@ -959,7 +1073,7 @@ function computeGroups(sessions, rcache, dynamic) {
   // activité récente — RM2140/RM2283) ne s'applique QUE si `dynamic` est vrai.
   const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
   const rec = g => Math.max(0, ...g.map(s => s.created || 0));
-  const last = k => k === OTHER_SETS_GROUP ? 1 : 0;
+  const last = k => k.startsWith(OTHER_SETS_GROUP) ? 1 : 0;   // RM2537 : un groupe par chantier
   const keys = [...groups.keys()].sort((a, b) => (last(a) - last(b)) || (dynamic
     ? (att(groups.get(b)) - att(groups.get(a)) ||
        rec(groups.get(b)) - rec(groups.get(a)) ||
@@ -980,25 +1094,79 @@ function nextAttentionId(sessions, attached) {
 }
 // <<< nextAttentionId
 
+// >>> effDisposition — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2515 : disposition EFFECTIVE d'une session. Elle ne vaut que sur `idle` (elle
+// CÈDE aux évènements live : working/attention/choice → null) ; « a_traiter » est
+// le défaut (idle sans marque). Utilisée pour le badge, la teinte et le tri.
+function effDisposition(state, disposition) {
+  if (state !== "idle") return null;
+  return disposition || "a_traiter";
+}
+// <<< effDisposition
+
+// >>> sortFrozen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2346 : en tri dynamique, gèle le réordonnancement tant que l'utilisateur interagit
+// avec la liste (survol) ou vient de bouger la souris (< 2 s) → elle ne saute pas sous
+// le curseur. En ordre stable (défaut), rien n'est jamais réordonné → jamais gelé.
+function sortFrozen(dynSort, hot, msSinceMove) {
+  return !!dynSort && (hot || msSinceMove < 2000);
+}
+// <<< sortFrozen
+
+// RM2346 : bandeau « à traiter » — les sessions qui ATTENDENT une action (attention
+// oui/non, choix multiple) sont listées à place fixe en tête de la liste, pour qu'on
+// les voie sans que la liste principale ait à se réordonner. Elles restent AUSSI dans
+// leur groupe projet en dessous (le bandeau est un raccourci, pas un déplacement).
+function renderAttnBand(list, sessions) {
+  const waiting = sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice"));
+  if (!waiting.length) return;
+  const band = document.createElement("div");
+  band.className = "attnband";
+  band.innerHTML = '<div class="attnband-h">à traiter (' + waiting.length + ')</div>';
+  for (const s of waiting) {
+    const r = resolveCache[s.rm_id];
+    const chip = document.createElement("div");
+    chip.className = "attnchip";
+    chip.innerHTML = '<span class="tdot st-' + esc(s.state) + '"></span>' +
+      '<span class="tid">' + (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
+      '<span class="rmeta">' + esc((r && r.found ? r.title : "") || tmuxName(s.rm_id)) + '</span>' +
+      (s.state === "attention" ? '<span class="tyes" title="Répondre Oui (sans attacher)">✔</span>' : '');
+    chip.onclick = () => attach(s.rm_id);
+    const y = chip.querySelector(".tyes");
+    if (y) y.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
+    band.appendChild(chip);
+  }
+  list.prepend(band);
+}
+
 async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
     const { sessions } = await api("/sessions");
-    sessions.sort((a, b) => Number(a.rm_id) - Number(b.rm_id));
+    // RM2515 : « terminé » (idle marqué à fermer) coule en bas ; sinon ordre stable par id.
+    const done = s => effDisposition(s.state, s.disposition) === "termine" ? 1 : 0;
+    sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
     // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
+    composerRefresh();                     // RM2527 : la garde suit l'état live
     // si la session affichée a disparu (kill externe) → on détache la vue
     // (RM2427 : un fantôme du même id ne compte pas — il ne tourne pas)
     if (attached && !sessions.some(s => s.rm_id === attached && !s.ghost)) detach();
     // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
     for (const s of sessions)
       if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
-    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort);
+    // RM2346 : GEL du réordonnancement dynamique pendant l'interaction (survol de la
+    // liste, ou < 2 s après un mouvement de souris dessus) → la liste ne saute pas
+    // sous le curseur. Sans effet en ordre stable (défaut) ; ne concerne que dynSort.
+    const frozen = sortFrozen(dynSort, listHot, Date.now() - lastListMove);
+    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort && !frozen);
     orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
     if (!sessions.length && !reviewTabs.length)
       list.innerHTML = '<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>';
+    // RM2346 : bandeau « à traiter » — attention/choix à place fixe, en tête.
+    renderAttnBand(list, sessions);
     for (const key of keys) {
       const sess = groups.get(key);
       groupsCache[key] = sess;
@@ -1010,7 +1178,7 @@ async function refreshSessions() {
       const gCho = sess.filter(s => s.state === "choice").length;
       // RM2448 : le chevron replie le groupe ; l'en-tête garde son clic « fiche
       // projet » (RM2353), d'où un `stopPropagation` sur le chevron seul.
-      const folded = collapsedGroups.has(key);
+      const folded = isCollapsed(key);
       head.innerHTML = '<span class="gfold" style="cursor:pointer;opacity:.6;margin-right:4px" ' +
           'title="' + (folded ? "Déplier" : "Replier") + ' ce groupe">' + (folded ? "▸" : "▾") + '</span>' +
         '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
@@ -1028,9 +1196,15 @@ async function refreshSessions() {
         if (s.ghost) { g.appendChild(renderGhostItem(s, r, it)); continue; }
         it.className = "runitem" + (attached === s.rm_id ? " active" : "");
         it.title = tabTip(s);
+        // RM2515 : la disposition raffine `idle` (et CÈDE au live : nulle hors idle).
+        const disp = effDisposition(s.state, s.disposition);
         const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
           : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
-          : s.state === "idle" ? '<span class="tbadge" style="opacity:.55">💤</span>' : "";
+          : s.state === "idle"
+            ? (disp === "parke" ? '<span class="tbadge" title="parké — j\'y reviens">🔖</span>'
+               : disp === "termine" ? '<span class="tbadge" style="color:var(--ok)" title="terminé — rien à faire, à fermer">✅</span>'
+               : '<span class="tbadge" style="opacity:.55" title="à traiter">💤</span>')
+          : "";
         const auto = s.auto_yes_until
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
@@ -1041,7 +1215,9 @@ async function refreshSessions() {
             ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
               esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>'
             : '<span class="tbadge" style="opacity:.5" title="cette session ne figure dans aucun jeu enregistré">hors jeu</span>';
-        it.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
+        it.innerHTML = '<span class="tdot tdisp st-' + esc(s.state || "idle") +
+          (disp && disp !== "a_traiter" ? " disp-" + disp : "") +
+          '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + auto +
@@ -1066,6 +1242,8 @@ async function refreshSessions() {
         it.querySelector(".tkill:not(.tdrop)").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
         const ty = it.querySelector(".tyes");     // RM2302 : « Oui » direct depuis la liste
         if (ty) ty.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
+        const dd = it.querySelector(".tdisp");    // RM2515 : clic pastille → menu disposition (n'attache pas)
+        if (dd) dd.onclick = (e) => { e.stopPropagation(); openDispositionMenu(s, dd); };
         g.appendChild(it);
       }
       list.appendChild(g);
@@ -1191,6 +1369,9 @@ let ruleFormFor = null;                         // jeu dont on édite la règle 
 // moment. On ne le force qu'à la PREMIÈRE visite : dès que l'opérateur a plié ou
 // déplié quoi que ce soit, sa liste fait foi et le groupe reste comme il l'a
 // laissé.
+// RM2537 : le groupe « hors du jeu » est désormais éclaté par chantier — le pli
+// par défaut porte donc sur le PRÉFIXE, et chaque sous-groupe reste repliable
+// individuellement (un pli explicite, dans un sens ou dans l'autre, fait foi).
 let collapsedGroups = new Set([OTHER_SETS_GROUP]);
 try {
   const raw = localStorage.getItem("karlCollapsed");
@@ -1341,9 +1522,19 @@ async function switchView(view) {
   } catch (e) { currentView = prev; toast(e.message, true); return; }
   refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
 }
+// RM2537 : un groupe est replié s'il l'est explicitement, ou par héritage du
+// pli de « ⋯ hors du jeu courant » — sauf dépli explicite (marqueur « ! »).
+function isCollapsed(key) {
+  if (collapsedGroups.has("!" + key)) return false;
+  return collapsedGroups.has(key) ||
+    (key.startsWith(OTHER_SETS_GROUP) && collapsedGroups.has(OTHER_SETS_GROUP));
+}
 // RM2448 : repli d'un groupe, mémorisé d'une session de navigateur à l'autre
 function toggleGroup(key) {
-  collapsedGroups.has(key) ? collapsedGroups.delete(key) : collapsedGroups.add(key);
+  // RM2537 : déplier un sous-groupe « hors du jeu » doit vaincre le pli par
+  // défaut du préfixe — on mémorise l'état explicite du sous-groupe.
+  isCollapsed(key) ? (collapsedGroups.delete(key), collapsedGroups.add("!" + key))
+                   : (collapsedGroups.delete("!" + key), collapsedGroups.add(key));
   try { localStorage.setItem("karlCollapsed", JSON.stringify([...collapsedGroups])); } catch (e) { /* pas de storage */ }
   refreshSessions();
 }
@@ -1601,14 +1792,21 @@ function renderGhostItem(s, r, it) {
   // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
   const age = s.last_active ? "inactive depuis " + ago(s.last_active)
                             : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
+  // RM2536 : dans une vue par CLIENT, la tuile ne vient d'aucun jeu enregistré
+  // (le contenu est calculé par le client, comme un jeu dérivé). Or ⊖ « retirer
+  // du jeu » et ⟳ « politique de reprise » agissent tous deux SUR un jeu : sans
+  // jeu, ils ne peuvent qu'échouer. On ne les propose donc pas — même parti-pris
+  // que « 💾 ajouter l'affichage », masqué sur un jeu dérivé. La relance, elle,
+  // ne dépend plus d'aucun jeu et reste offerte.
+  const inSet = !/^client:/.test(currentView);
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
     '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
       ? ' style="opacity:.55"' : '') + '>' + esc(title) +
       (age ? (title ? " · " : "") + age : "") + '</span>' +
-    '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
+    (inSet ? '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
       (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
-    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>';
+    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>' : "");
   // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
   // lieu de relancer la session. Sans cela, déplacer ou scinder une session
   // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
@@ -1619,8 +1817,10 @@ function renderGhostItem(s, r, it) {
   } else {
     it.onclick = () => relaunchGhost(s);
   }
-  it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
-  it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  if (inSet) {
+    it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
+    it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
+  }
   it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
                       : "") + it.title;
   return it;
@@ -1685,6 +1885,11 @@ async function dropFromSet(s) {
   } catch (e) { toast(e.message, true); }
 }
 // RM2427 : relance RÉELLE d'une seule session enregistrée (clic sur sa tuile).
+// RM2536 : la relance passe par l'IDENTITÉ de la session — le couple
+// (engine, session_id) — et non plus par le jeu qui l'affiche. L'ancien appel
+// portait `group`, qui vaut la clé de VUE dans une vue client (« client:matnat »)
+// : le serveur la refusait comme nom de jeu (400) et rien ne démarrait. Le
+// serveur retrouve seul rm_id / cwd / modèle ; on ne les lui dicte plus.
 async function relaunchGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
   const lines = ["Relancer la session " + label + " ?", ""];
@@ -1697,21 +1902,14 @@ async function relaunchGhost(s) {
   if (!window.confirm(lines.join("\n"))) return;
   toast("▶ relance de " + label + "…");
   try {
-    const r = await api("/session-set/relaunch", {
+    const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ sid: s.rm_id, group: s.group || currentSet, spawn: sessionSetSpawn }),
+      body: JSON.stringify({ engine: s.engine || undefined, session_id: s.session_id || undefined,
+                             rm_id: s.rm_id, spawn: sessionSetSpawn }),
     });
-    const a = (r.report || [])[0] || {};
-    if (a.action === "resumed" || a.action === "spawned") {
-      toast(a.action === "resumed" ? "▶ " + label + " reprise" : "▶ " + label + " recréée (session neuve)");
-      setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
-    } else if (a.action === "skipped") {
-      toast(label + " est déjà active");
-      refreshSessions();
-    } else {
-      toast("relance impossible : " + (a.error || "erreur inconnue"), true);
-    }
-  } catch (e) { toast(e.message, true); }
+    toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
+    setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
+  } catch (e) { toast("relance impossible : " + e.message, true); }
 }
 // carte « Sessions enregistrées » (panneau 🚀 sessions) : liste + état + réglages
 async function loadSessionSet() {
@@ -1903,7 +2101,28 @@ function pickVoice(voices, lang, wanted) {
 }
 // <<< pickVoice
 
-function speak(text) {
+// RM2532 (vocal V2 L1) : TTS serveur Piper si dispo + préféré, sinon navigateur.
+let voiceCaps = null;                                    // {tts, stt, tts_langs} ou null
+let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le TTS serveur
+let sttServer = localStorage.getItem("karlSttServer") !== "0";       // préférer le STT serveur (RM2533)
+
+// >>> ttsMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2532 : « server » si le serveur sait faire du TTS ET que l'utilisateur le préfère ;
+// sinon « browser » (synthèse navigateur, repli sans régression).
+function ttsMode(caps, pref) {
+  return (pref && caps && caps.tts) ? "server" : "browser";
+}
+// <<< ttsMode
+
+// >>> sttMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2533 : « server » si le sidecar Whisper est joignable ET préféré ; sinon
+// « browser » (Web Speech API, repli — verrouillé Chrome+HTTPS mais sans régression).
+function sttMode(caps, pref) {
+  return (pref && caps && caps.stt) ? "server" : "browser";
+}
+// <<< sttMode
+
+function browserSpeak(text) {
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.lang = voiceLang;
@@ -1911,6 +2130,27 @@ function speak(text) {
     if (v) u.voice = v;
     speechSynthesis.speak(u);
   } catch (e) { /* synthèse indisponible : silencieux */ }
+}
+async function serverSpeak(text) {
+  try {
+    const r = await fetch("/tts", { method: "POST", headers: headers({ "Content-Type": "application/json" }),
+                                    body: JSON.stringify({ text, lang: voiceLang.slice(0, 2) }) });
+    if (!r.ok) throw new Error("tts " + r.status);
+    const blob = await r.blob();
+    let a = document.getElementById("tts-audio");
+    if (!a) { a = document.createElement("audio"); a.id = "tts-audio"; document.body.appendChild(a); }
+    if (a.src) URL.revokeObjectURL(a.src);
+    a.src = URL.createObjectURL(blob);
+    await a.play();
+  } catch (e) { browserSpeak(text); }        // repli navigateur sur toute erreur serveur
+}
+function speak(text) {
+  if (ttsMode(voiceCaps, voiceServer) === "server") serverSpeak(text);
+  else browserSpeak(text);
+}
+async function loadVoiceCaps() {
+  try { voiceCaps = await api("/voice/caps"); } catch (e) { voiceCaps = null; }
+  renderVoicePrefs();
 }
 function setVoiceLang(lang) {
   voiceLang = lang;
@@ -1924,9 +2164,36 @@ function setVoiceName(name) {
   voiceName = name;
   try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
 }
+function setVoiceServer(on) {          // RM2532 : préférer la voix serveur (Piper) ou le navigateur
+  voiceServer = !!on;
+  try { localStorage.setItem("karlVoiceServer", voiceServer ? "1" : "0"); } catch (e) { /* privé */ }
+  toast(voiceServer ? "Voix serveur (Piper) activée" : "Voix du navigateur");
+  speak("Test de la voix.");          // aperçu immédiat
+}
+function setSttServer(on) {            // RM2533 : préférer la dictée serveur (Whisper) ou le navigateur
+  sttServer = !!on;
+  try { localStorage.setItem("karlSttServer", sttServer ? "1" : "0"); } catch (e) { /* privé */ }
+  toast(sttServer ? "Dictée serveur (Whisper) activée" : "Dictée du navigateur");
+}
 function renderVoicePrefs() {
   const langSel = document.getElementById("vx-lang");
   if (!langSel) return;
+  // RM2532 : ligne « voix serveur (Piper) » — visible seulement si le serveur sait faire.
+  const srow = document.getElementById("vx-server-row");
+  if (srow) {
+    const has = !!(voiceCaps && voiceCaps.tts);
+    srow.style.display = has ? "" : "none";
+    const cb = document.getElementById("vx-server");
+    if (cb) cb.checked = has && voiceServer;
+  }
+  // RM2533 : ligne « dictée serveur (Whisper) » — visible si le sidecar répond.
+  const strow = document.getElementById("vx-stt-row");
+  if (strow) {
+    const hasStt = !!(voiceCaps && voiceCaps.stt);
+    strow.style.display = hasStt ? "" : "none";
+    const cbs = document.getElementById("vx-stt");
+    if (cbs) cbs.checked = hasStt && sttServer;
+  }
   langSel.value = voiceLang;
   const sel = document.getElementById("vx-voice");
   const voices = speechSynthesis.getVoices();
@@ -1973,36 +2240,102 @@ async function announceWaiting(sessions) {
       (q ? "Question : " + q : "attend une réponse."));
   }
 }
-// Dicter une consigne à la session attachée (reconnaissance fr, confirmation avant envoi)
-let rec = null;
+// Dicter une consigne à la session attachée. Deux moteurs : STT serveur (Whisper,
+// RM2533 — quel que soit le navigateur, précision fr) ou Web Speech API (repli
+// V1, verrouillé Chrome+HTTPS). Confirmation avant envoi dans les deux cas.
+let rec = null;          // instance Web Speech (repli navigateur)
+let mediaRec = null;     // MediaRecorder (capture pour le STT serveur)
+let sttBusy = false;     // 1-à-la-fois : transcription serveur en cours
+
+function micBtn() { return document.getElementById("micbtn"); }
+function micIdle() { const b = micBtn(); if (b) { b.style.color = ""; b.textContent = "🎤 dicter"; } }
+function micRec() { const b = micBtn(); if (b) { b.style.color = "var(--danger)"; b.textContent = "🎤 écoute…"; } }
+function micWork() { const b = micBtn(); if (b) { b.style.color = "var(--warn)"; b.textContent = "⏳ transcription…"; } }
+
+// Envoi factorisé (confirmation → /send), partagé par les deux moteurs.
+async function sendDictated(txt) {
+  txt = (txt || "").trim();
+  if (!txt) { toast("Dictée : rien compris"); return; }
+  const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
+  if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
+  try {
+    await api("/send", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
+    });
+    toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
+  } catch (err) { toast(err.message, true); }
+}
+
+function abToB64(buf) {                       // ArrayBuffer → base64 (par blocs : pas de débordement de pile)
+  const bytes = new Uint8Array(buf); let bin = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
+// Point d'entrée : re-clic = stop. Choisit le moteur selon les capacités serveur.
 function dictate() {
   if (!attached) return;
-  if (rec) { try { rec.stop(); } catch (e) { } return; }   // re-clic = stop
+  if (mediaRec && mediaRec.state === "recording") { try { mediaRec.stop(); } catch (e) { } return; }
+  if (rec) { try { rec.stop(); } catch (e) { } return; }
+  if (sttBusy) { toast("Transcription en cours…"); return; }
+  if (sttMode(voiceCaps, sttServer) === "server") serverDictate();
+  else browserDictate();
+}
+
+// STT serveur : capture MediaRecorder → POST /stt → transcription Whisper.
+// Tout échec (micro refusé, MediaRecorder absent, erreur serveur) retombe sur le
+// moteur navigateur — sauf si le serveur a déjà rendu un texte (pas de double envoi).
+async function serverDictate() {
+  if (!navigator.mediaDevices || !window.MediaRecorder) { browserDictate(); return; }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) { toast("Micro refusé — repli reconnaissance navigateur"); browserDictate(); return; }
+  const chunks = [];
+  try { mediaRec = new MediaRecorder(stream); }
+  catch (e) { stream.getTracks().forEach(t => t.stop()); browserDictate(); return; }
+  micRec();
+  mediaRec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+  mediaRec.onstop = async () => {
+    stream.getTracks().forEach(t => t.stop());
+    mediaRec = null;
+    const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || "audio/webm" });
+    if (!blob.size) { micIdle(); toast("Dictée vide"); return; }
+    sttBusy = true; micWork();
+    try {
+      const b64 = abToB64(await blob.arrayBuffer());
+      const r = await api("/stt", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ audio_b64: b64, lang: voiceLang.slice(0, 2) }),
+      });
+      sttBusy = false; micIdle();
+      await sendDictated(r.text);
+    } catch (err) {
+      sttBusy = false; micIdle();
+      toast("STT serveur indisponible — repli reconnaissance navigateur");
+      browserDictate();                       // dégradation gracieuse
+    }
+  };
+  try { mediaRec.start(); }
+  catch (e) { stream.getTracks().forEach(t => t.stop()); mediaRec = null; micIdle(); browserDictate(); }
+}
+
+// Repli navigateur : Web Speech API (RM2350). Verrouillé Chrome+HTTPS/localhost.
+function browserDictate() {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
+  if (!SR) { micIdle(); toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
   rec = new SR();
   rec.lang = voiceLang; rec.interimResults = false; rec.maxAlternatives = 1;   // RM2350
-  const btn = document.getElementById("micbtn");
-  btn.style.color = "var(--danger)"; btn.textContent = "🎤 écoute…";
-  const done = () => { rec = null; btn.style.color = ""; btn.textContent = "🎤 dicter"; };
+  micRec();
+  const done = () => { rec = null; micIdle(); };
   rec.onerror = (e) => {
     done();
     toast("Dictée : " + (e.error === "not-allowed" ? "micro refusé (HTTPS/localhost requis)" : e.error), true);
   };
   rec.onend = done;
-  rec.onresult = async (e) => {
-    const txt = (e.results[0][0].transcript || "").trim();
-    if (!txt) return;
-    const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
-    if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
-    try {
-      await api("/send", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
-      });
-      toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
-    } catch (err) { toast(err.message, true); }
-  };
+  rec.onresult = async (e) => { await sendDictated((e.results[0][0].transcript || "").trim()); };
   try { rec.start(); } catch (e) { done(); toast("Dictée impossible : " + e.message, true); }
 }
 // Lire la question de la session attachée (repli : ses dernières lignes)
@@ -2126,6 +2459,7 @@ async function scrollLive() {
 
 // RM2344 : préférence de tri de la liste « en cours » — stable par défaut
 let dynSort = localStorage.getItem("karlDynSort") === "1";
+let listHot = false, lastListMove = 0;   // RM2346 : gel du réordonnancement pendant l'interaction
 function toggleDynSort(on) {
   dynSort = !!on;
   try { localStorage.setItem("karlDynSort", dynSort ? "1" : "0"); } catch (e) { /* mode privé */ }
@@ -2175,6 +2509,18 @@ async function resolveRm() {
     applyTemplate();
     populateModels();   // rafraîchit le libellé « défini dans le ticket (…) »
   } catch (e) { resolved = null; el.textContent = ""; el.className = "resolved"; }
+}
+// RM2539 : le panneau de reprise ne propose que les moteurs dont le serveur sait
+// ET reprendre ET découvrir les conversations (`resume_engines`) — inutile
+// d'offrir un moteur qui ne rendrait jamais rien. « tous » reste le défaut.
+function populateResumeEngines() {
+  const sel = document.getElementById("rs-engine");
+  if (!sel) return;
+  const engines = CFG.resume_engines || ["claude"];
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">tous</option>' +
+    engines.map(e => '<option value="' + esc(e) + '">' + esc(e) + "</option>").join("");
+  if (engines.includes(prev)) sel.value = prev;
 }
 // ----- RM1941 : sélecteur de modèle dépendant du moteur -----
 function populateModels() {
@@ -2423,10 +2769,10 @@ function usageHtml(rmId) {
   else if (!u.turns) inner = '<span style="color:var(--muted)">transcript claude indisponible' +
     (u.engine && u.engine !== "claude" ? " (moteur " + esc(u.engine) + ")" : "") + '</span>';
   else inner =
-    '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(u.total) + '</span></div>' +
+    '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
     '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
     '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
-    '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
+    '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
     '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + '</span></div>' +
     '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>';
   return '<div class="ms"><h4>Session en direct <span style="text-transform:none;color:var(--muted)">(tokens)</span> ' +
@@ -2577,12 +2923,16 @@ function renderMeta() {
     if (m.tokens_total != null || m.cost_total_usd != null) {
       const bd = m.tokens_breakdown || {};
       const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
+      // RM2519 : total = entrée + sortie (le cache est complémentaire, hors total).
+      // Calculé depuis le breakdown → correct même sur les anciens tickets dont le
+      // tokens_total stocké incluait encore le cache (pas de recalcul rétroactif).
+      const tokTot = hasBd ? ((bd.input || 0) + (bd.output || 0)) : m.tokens_total;
       h += '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
-        '<div class="kv"><span class="k">tokens</span><span class="v">' + fmtTokens(m.tokens_total) + '</span></div>' +
+        '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">' + fmtTokens(tokTot) + '</span></div>' +
         (hasBd ?
           '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
           '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
-          '<div class="kv"><span class="k">↳ cache lu / écrit</span><span class="v">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
+          '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
           : '') +
         '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
         '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
@@ -2721,6 +3071,203 @@ async function openDoc(path, name) {
 }
 function closeDoc() { document.getElementById("docmodal").classList.remove("show"); }
 
+// ----- RM2522 : montage du terminal (client maison, repli iframe) -----
+// Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
+// cockpit la MAIN sur la surface du terminal — condition des lots suivants de
+// RM2467 — et corrige la saisie des accents (RM2323). Si le bundle n'a pas
+// chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
+let termSession = null;                 // { term, fit, dispose } du client maison
+function termAvailable() { return !!(window.KarlTerm && window.Terminal); }
+function termBase() {
+  return CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
+}
+function mountTerm(rmId) {
+  const host = document.getElementById("termhost"), f = document.getElementById("term");
+  if (!termAvailable()) {                                  // repli : iframe ttyd
+    host.style.display = "none";
+    f.style.display = "block"; f.src = ttydUrl(rmId);
+    composerShow(true);                                          // RM2527 : repli via POST /send
+    return;
+  }
+  unmountTerm();
+  host.style.display = "block";
+  termSession = window.KarlTerm.attach(host, String(rmId), { base: termBase() });
+  composerShow(true);                                            // RM2527
+  setTimeout(() => { if (termSession) termSession.fit(); }, 0);   // après le 1er rendu
+}
+function unmountTerm() {
+  const host = document.getElementById("termhost"), f = document.getElementById("term");
+  if (termSession) { try { termSession.dispose(); } catch (e) {} termSession = null; }
+  host.innerHTML = ""; host.style.display = "none";
+  f.src = "about:blank"; f.style.display = "none";
+  composerShow(false);                                           // RM2527
+}
+
+/* ── RM2527 : composer ─────────────────────────────────────────────────────
+   Écrire un message sans passer par le clavier du terminal. L'envoi emprunte
+   la socket ttyd du client maison (L0/RM2522), donc le même PTY : le TUI ne
+   fait aucune différence avec une frappe. */
+
+// >>> composerGuard
+// Un envoi texte pendant qu'un menu est ouvert ne s'écrit pas : chaque caractère
+// SÉLECTIONNE une option, et le retour valide ce qui se trouve sous le curseur.
+// On refuse donc l'envoi au clavier dans ces états et on exige un geste explicite.
+//   attention : question oui/non en attente
+//   choice    : menu à choix multiple ouvert
+function composerGuard(state) {
+  if (state === "choice") {
+    return { allow: false, warn: "Un menu de choix est ouvert dans la session : "
+      + "ton texte sélectionnerait des options au lieu de s'écrire." };
+  }
+  if (state === "attention") {
+    return { allow: false, warn: "La session attend une réponse à une question : "
+      + "ton texte pourrait valider une option au lieu de s'écrire." };
+  }
+  return { allow: true, warn: null };
+}
+// <<< composerGuard
+
+// >>> composerHistoryAdd
+// Historique des envois de la session : le plus récent en tête, sans doublon
+// consécutif ni répétition ailleurs dans la liste, plafonné.
+function composerHistoryAdd(list, text, max) {
+  const t = String(text == null ? "" : text).trim();
+  if (!t) return (list || []).slice();
+  const out = (list || []).filter(x => x !== t);
+  out.unshift(t);
+  return out.slice(0, max || 30);
+}
+// <<< composerHistoryAdd
+
+const CMP_HIST_MAX = 30;
+let cmpHistPos = -1;          // navigation ↑/↓ dans le champ vide
+let cmpDraft = "";            // brouillon mis de côté pendant la navigation
+
+const cmpHistKey = (rmId) => "karlComposerHist:" + rmId;
+function composerHistory(rmId) {
+  try { return JSON.parse(localStorage.getItem(cmpHistKey(rmId)) || "[]") || []; }
+  catch (e) { return []; }
+}
+function composerHistorySave(rmId, list) {
+  try { localStorage.setItem(cmpHistKey(rmId), JSON.stringify(list)); } catch (e) {}
+}
+
+function composerShow(on) {
+  document.getElementById("composer").style.display = on ? "flex" : "none";
+  if (!on) {
+    document.getElementById("cmphist").style.display = "none";
+    document.getElementById("cmptext").value = "";
+  }
+  cmpHistPos = -1; cmpDraft = "";
+  composerRefresh();
+  if (termSession) setTimeout(() => termSession.fit(), 0);   // le terminal cède la hauteur
+}
+
+// État courant de la session attachée → garde + libellés. Appelée à chaque
+// rafraîchissement de /sessions : l'avertissement suit l'état en direct.
+function composerRefresh() {
+  const box = document.getElementById("composer");
+  if (!box || box.style.display === "none") return;
+  const g = composerGuard((sessCache[attached] || {}).state);
+  const warn = document.getElementById("cmpwarn");
+  warn.style.display = g.warn ? "block" : "none";
+  if (g.warn) warn.innerHTML = "<b>Envoi retenu.</b> " + esc(g.warn);
+  const btn = document.getElementById("cmpsend");
+  btn.textContent = g.allow ? "Envoyer ⏎" : "Envoyer quand même";
+  btn.title = g.allow ? "Envoyer à la session attachée (Entrée)"
+    : "La touche Entrée est neutralisée tant qu'un menu est ouvert — ce bouton force l'envoi";
+  document.getElementById("cmphint").textContent = g.allow
+    ? "Entrée envoie · Maj+Entrée saute la ligne · ↑ historique · Échap rend la main au terminal"
+    : "Entrée neutralisée — réponds dans le terminal, ou force l'envoi";
+}
+
+async function composerSend(force) {
+  const ta = document.getElementById("cmptext");
+  const text = ta.value;
+  if (!text.trim()) return;
+  if (!attached) { toast("Aucune session attachée", true); return; }
+  const g = composerGuard((sessCache[attached] || {}).state);
+  if (!g.allow && !force) { composerRefresh(); toast(g.warn, true); return; }
+
+  let ok = false;
+  if (termSession && termSession.send) {
+    ok = termSession.send(text);                       // collage encadré + Entrée
+    if (!ok) toast("Terminal déconnecté — message conservé dans le champ", true);
+  } else {
+    // repli : pas de client maison (iframe ttyd) → passer par le serveur
+    try {
+      await api("/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rm_id: attached, msg: text, enter: true }),
+      });
+      ok = true;
+    } catch (e) { toast(e.message, true); }
+  }
+  if (!ok) return;
+  composerHistorySave(attached, composerHistoryAdd(composerHistory(attached), text, CMP_HIST_MAX));
+  ta.value = ""; cmpHistPos = -1; cmpDraft = "";
+  composerHistoryRender();
+  toast("Envoyé : " + (text.length > 60 ? text.slice(0, 60) + "…" : text));
+}
+
+function composerHistoryToggle() {
+  const box = document.getElementById("cmphist");
+  const on = box.style.display === "none";
+  box.style.display = on ? "block" : "none";
+  document.getElementById("cmphistbtn").textContent = on ? "historique ▴" : "historique ▾";
+  if (on) composerHistoryRender();
+}
+function composerHistoryRender() {
+  const box = document.getElementById("cmphist");
+  if (box.style.display === "none") return;
+  const list = composerHistory(attached);
+  if (!list.length) { box.innerHTML = '<div class="hempty">Aucun message envoyé dans cette session.</div>'; return; }
+  box.innerHTML = list.map((t, i) =>
+    '<div class="hitem" data-i="' + i + '" title="Cliquer pour reprendre ce message">'
+    + esc(t.length > 300 ? t.slice(0, 300) + "…" : t) + "</div>").join("");
+  box.querySelectorAll(".hitem").forEach(el => {
+    el.onclick = () => {
+      const ta = document.getElementById("cmptext");
+      ta.value = list[Number(el.dataset.i)];
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    };
+  });
+}
+
+// Navigation ↑/↓ : seulement dans un champ VIDE (ou déjà en cours de navigation),
+// pour ne pas piéger le déplacement du curseur pendant la composition.
+function composerHistoryStep(dir) {
+  const ta = document.getElementById("cmptext");
+  const list = composerHistory(attached);
+  if (!list.length) return false;
+  if (cmpHistPos === -1) {
+    if (ta.value.trim()) return false;
+    cmpDraft = ta.value;
+  }
+  const next = cmpHistPos + dir;
+  if (next < -1 || next >= list.length) return true;
+  cmpHistPos = next;
+  ta.value = next === -1 ? cmpDraft : list[next];
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  return true;
+}
+
+function composerKey(ev) {
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {
+    ev.preventDefault();
+    composerSend();                       // la garde décide ; jamais forcé au clavier
+    return;
+  }
+  if (ev.key === "Escape") {              // rendre la main au terminal
+    ev.preventDefault();
+    if (termSession && termSession.term) termSession.term.focus();
+    return;
+  }
+  if (ev.key === "ArrowUp" && composerHistoryStep(1)) { ev.preventDefault(); return; }
+  if (ev.key === "ArrowDown" && composerHistoryStep(-1)) { ev.preventDefault(); return; }
+}
+
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
@@ -2729,8 +3276,7 @@ function attach(rmId) {
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
   document.getElementById("projpane").style.display = "none";
   document.getElementById("placeholder").style.display = "none";
-  const f = document.getElementById("term");
-  f.style.display = "block"; f.src = ttydUrl(rmId);
+  mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
   document.getElementById("metapanel").classList.remove("collapsed");
   // RM2173 : le ticket affiché = l'ancrage de la session (changeable via les chips Tickets)
@@ -2754,8 +3300,7 @@ function detach() {
   attached = null;
   metaTicket = null;
   document.getElementById("reviewpane").style.display = "none";
-  const f = document.getElementById("term");
-  f.src = "about:blank"; f.style.display = "none";
+  unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
   document.getElementById("tabactions").style.display = "none";
   document.getElementById("metapanel").classList.add("collapsed");
@@ -3215,6 +3760,13 @@ async function pmRun(name, args, opts) {
   if (opts && opts.confirm) body.confirm = true;
   return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
+// RM2355 : livre la branche du ticket (MR + merge → dev) pour débloquer un
+// verdict refusé par la merge gate RM2319. La transition de statut reste au
+// verdict appelant, rejoué ensuite (la gate laisse alors passer).
+async function mrDeliver(rm) {
+  return api("/mr/deliver", { method: "POST", headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ rm_id: String(rm), confirm: true }) });
+}
 let tqAll = [];   // file brute (le rendu applique filtres + tri, RM2210)
 let tqLoaded = false; // RM2238 : la file /pm/test-queue a-t-elle été chargée au moins une fois ?
 async function loadTestQueue() {
@@ -3381,6 +3933,20 @@ async function tqVerdict(rm, kind, btn) {
         r = await pmRun("task-status", args, { confirm: true });
       }
     }
+    // Merge gate RM2319 : branche non livrée dans dev → livrer (MR + merge) puis
+    // rejouer le verdict, au lieu d'un échec sec à recopier en CLI (RM2355).
+    if (!r.ok && /non mergée|RM2319/.test((r.stdout || "") + (r.stderr || ""))) {
+      if (window.confirm("RM" + rm + " : la branche du ticket n'est pas mergée dans dev.\n" +
+          "Livrer maintenant (MR + merge dans dev) puis passer " + v.status + " ?")) {
+        toast("RM" + rm + " : livraison (MR + merge)…");
+        const d = await mrDeliver(rm);
+        if (d.ok) {
+          r = await pmRun("task-status", args, { confirm: true });   // gate franchie
+        } else {
+          showCaptureModal("Livraison RM" + rm + " — ÉCHEC", (d.stdout || "") + "\n" + (d.stderr || ""));
+        }
+      }
+    }
     toast(r.ok ? "RM" + rm + " → " + v.status : "Échec (rc=" + r.rc + ")", !r.ok);
     if (!r.ok) showCaptureModal("Verdict RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }
@@ -3484,6 +4050,36 @@ async function spawn() {
     btn.disabled = false; btn.textContent = "▶ Lancer & attacher";
   }
 }
+// RM2515 : menu de disposition d'une session (à traiter / parké / terminé) + raccourci
+// fermer. Popover ancré sur la pastille ; clic ailleurs (ou choix) le referme.
+function closeDispMenu() { const m = document.getElementById("dispmenu"); if (m) m.remove(); }
+function openDispositionMenu(s, anchor) {
+  closeDispMenu();
+  const cur = s.disposition || "a_traiter";
+  const opts = [["a_traiter", "🟠 à traiter"], ["parke", "🔖 parké"], ["termine", "✅ terminé"]];
+  const m = document.createElement("div");
+  m.className = "dispmenu"; m.id = "dispmenu";
+  m.innerHTML = opts.map(([v, l]) => '<button data-v="' + v + '"' + (v === cur ? ' class="on"' : '') +
+    '>' + l + '</button>').join("") +
+    '<div class="sep"></div><button data-kill="1">✕ fermer la session</button>';
+  document.body.appendChild(m);
+  const r = anchor.getBoundingClientRect();
+  m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px";
+  m.style.top = Math.round(r.bottom + 4) + "px";
+  m.querySelectorAll("button").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    if (b.dataset.kill) { closeDispMenu(); kill(s.rm_id); return; }
+    setDisposition(s.rm_id, b.dataset.v); closeDispMenu();
+  });
+  setTimeout(() => document.addEventListener("click", closeDispMenu, { once: true }), 0);
+}
+async function setDisposition(rmId, disposition) {
+  try {
+    await api("/disposition", { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ rm_id: String(rmId), disposition }) });
+  } catch (e) { toast(e.message, true); }
+  refreshSessions();
+}
 async function kill(rmId) {
   if (!confirm("Fermer la session " + tmuxName(rmId) + " ? (le travail non sauvé est perdu)")) return;
   try {
@@ -3499,6 +4095,7 @@ async function kill(rmId) {
   // RM2386 : réconcilie le thème du premier paint (cache localStorage) avec le
   // défaut d'instance qu'on vient d'apprendre. No-op si identique.
   setServerTheme(CFG.ui_theme);
+  populateResumeEngines();   // RM2539 : moteurs réellement reprenables
   if (CFG.auth_required) {
     document.getElementById("authcard").style.display = "";
     if (token() && !authUser()) document.getElementById("token").value = token();
@@ -3548,15 +4145,30 @@ async function kill(rmId) {
     if (e.key === "ArrowUp") { e.preventDefault(); jumpUser(-1); }
     else if (e.key === "ArrowDown") { e.preventDefault(); jumpUser(1); }
     else if (e.key === "End") { e.preventDefault(); scrollLive(); }
+    // RM2527 : Alt+C donne le focus au composer. Le terminal capte tout le
+    // clavier une fois qu'il l'a — il faut un raccourci pour en sortir, et
+    // Échap dans le composer le rend.
+    else if (e.key === "c" || e.key === "C") {
+      const ta = document.getElementById("cmptext");
+      if (ta && ta.offsetParent) { e.preventDefault(); ta.focus(); }
+    }
   });
+  // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap)
+  document.getElementById("cmptext").addEventListener("keydown", composerKey);
   loadProjects();
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
+  // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
+  const _rl = document.getElementById("runlist");
+  _rl.addEventListener("mouseenter", () => { listHot = true; });
+  _rl.addEventListener("mouseleave", () => { listHot = false; });
+  _rl.addEventListener("mousemove", () => { lastListMove = Date.now(); });
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
+  loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
   refreshHealth(); refreshSessions();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »

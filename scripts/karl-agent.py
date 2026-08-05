@@ -36,7 +36,7 @@ SÉCURITÉ
 API (JSON, localhost:9876)
   GET  /                        → text/html (cockpit web, RM1873)
   GET  /cockpit-config          → {ttyd_base, auth_required, monitors, layouts, task_types, priorities,
-                                   engines, models}  (public en mode token seul ;
+                                   engines, resume_engines, models}  (public en mode token seul ;
                                    gated dès que Basic est configuré, RM2139 ;
                                    models = clés du catalogue par moteur, RM1941)
   POST /auth/login {user, pass, device_name?}
@@ -110,11 +110,20 @@ API (JSON, localhost:9876)
                                   commande du catalogue (allowlist, args
                                   validés par type, argv sans shell,
                                   runs mutants journalisés pm-runs.jsonl)
+  POST /mr/deliver {rm_id, confirm}
+                                → {rc, ok, branch, target, stdout, stderr} —
+                                  livre la branche du ticket (MR + merge → dev)
+                                  pour débloquer un verdict bloqué par la merge
+                                  gate RM2319 (RM2355)
   GET  /stream/<rm_id>          → text/event-stream (SSE, tail du pipe-pane)
   POST /monitor   {rm_id, preset, orientation?} → split-window moniteur (RM1893 §3)
   POST /unmonitor {rm_id}                        → ferme le pane moniteur actif/dernier
   POST /layout    {rm_id, layout}                → réarrange les panes (RM1893 §3)
   POST /kill   {rm_id}          → {rm_id, killed:true}
+  POST /disposition {rm_id, disposition}
+                                → {rm_id, disposition} — marque manuelle d'une
+                                  session (a_traiter|parke|termine ; vide = efface).
+                                  Raffine `idle` côté UI, persistée keys/ (RM2515)
 
 Lancement :
     python3 scripts/karl-agent.py            # bind 127.0.0.1:9876
@@ -195,16 +204,32 @@ DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 # d'attente, simple délai). Le prompt initial est TOUJOURS livré par send-keys APRÈS
 # le spawn (jamais concaténé dans la cmd — invariant sécu #4 : pas d'entrée client en
 # argv), bien qu'opencode/vibe sachent le prendre à l'invocation.
+# RM2539 — CONTRAT DE REPRISE, par moteur. La reprise était codée en dur sur
+# claude (`--resume <uuid>` + transcripts JSONL) ; un moteur la déclare ici ou
+# n'en a pas (refus explicite, jamais un 501 opaque) :
+#   resume_flag : drapeau qui reprend une conversation existante
+#   sid_re      : grammaire des identifiants de CE moteur — claude émet des UUID,
+#                 opencode des `ses_…` que la regex UUID rejetait en amont
+#   store       : d'où viennent la conversation et ses méta ("claude_jsonl" =
+#                 transcripts ; "opencode_db" = base SQLite du moteur)
 ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
         "model_flag": "--model",
+        "resume_flag": "--resume",
+        "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
+        "store": "claude_jsonl",
     },
     "opencode": {
         "cmd": os.environ.get("KARL_AGENT_OPENCODE_CMD", "opencode"),
         "ready_markers": ("Ask anything", "tab agents", "ctrl+p commands"),
         "model_flag": "--model",          # format provider/model
+        # `opencode --session <id>` reprend la conversation (vérifié v1.18.13) ;
+        # `--continue` reprend la dernière — sans intérêt ici, on vise un id précis.
+        "resume_flag": "--session",
+        "sid_re": r"^ses_[A-Za-z0-9]{6,64}$",
+        "store": "opencode_db",
     },
     "vibe": {
         # --trust : confie le cwd (déjà realpath-é sous les racines autorisées) pour
@@ -217,6 +242,14 @@ ENGINES = {
         # vibe n'a pas de flag modèle : override par env du champ active_model
         # du ~/.vibe/config.toml (le modèle doit y être déclaré dans [[models]]).
         "model_env": "VIBE_ACTIVE_MODEL",
+        # RM2547 : `vibe --resume <id>` reprend (vérifié v2.23.3) — SANS id, il
+        # ouvre un sélecteur interactif, que le cockpit ne doit jamais déclencher
+        # (il vise toujours une session précise). ⚠ vibe émet des UUID, comme
+        # claude : la forme de l'id NE distingue pas les deux moteurs — c'est le
+        # store par session (`_engine_of_session`, RM2536) qui tranche.
+        "resume_flag": "--resume",
+        "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
+        "store": "vibe_files",
     },
     "shell": {
         "cmd": "bash -l",
@@ -298,6 +331,19 @@ STATE_DIR = Path(os.environ.get("KARL_AGENT_STATE_DIR") or LOG_DIR)
 # Un session-id n'a de sens que sur CETTE machine (fédération : jamais en git).
 SESS_DIR = STATE_DIR / "sessions"
 RUNS_DIR = STATE_DIR / "tasks"
+# RM2532 (vocal V2 L1) : TTS serveur Piper. Détecté via un venv runtime + modèles
+# (installés par scripts/karl-voice-setup.sh). Absent → /voice/caps annonce tts:false
+# et le cockpit reste sur la synthèse navigateur (repli, aucune régression).
+VOICE_DIR = Path(os.environ.get("KARL_VOICE_DIR") or (
+    Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share")) / "karl-agent" / "voice"))
+PIPER_BIN = Path(os.environ.get("KARL_PIPER_BIN") or (VOICE_DIR / "venv" / "bin" / "piper"))
+PIPER_MODELS = Path(os.environ.get("KARL_PIPER_MODELS") or (VOICE_DIR / "models"))
+_TTS_PREFIX = {"fr": "fr_", "en": "en_"}   # préfixe de nom de modèle Piper par langue
+# RM2533 (vocal V2 L2) : STT via le sidecar karl-whisper (faster-whisper chaud,
+# service systemd user dédié — cf. scripts/karl-whisper-sidecar.py). Injoignable →
+# /voice/caps annonce stt:false et le cockpit reste sur la Web Speech API (repli).
+WHISPER_URL = (os.environ.get("KARL_WHISPER_URL") or "http://127.0.0.1:9877").rstrip("/")
+STT_MAX_BYTES = int(float(os.environ.get("KARL_STT_MAX_MB") or 25) * 1024 * 1024)
 # Stores claude scannés pour la DÉCOUVERTE des sessions reprenables (l'historique
 # reste chez le moteur ; karl-agent n'en garde qu'un index). Multi-racines ':' —
 # permet de monter le store d'une autre machine en lecture (listing seulement :
@@ -1043,8 +1089,257 @@ def op_kill(payload: dict) -> dict:
     return {"rm_id": rm_id, "killed": True}
 
 
+# ── Vocal V2 L1 : TTS serveur Piper (RM2532) ─────────────────────────────────
+def _piper_models() -> dict:
+    """{lang: chemin_onnx} des modèles Piper présents (paire .onnx + .onnx.json).
+    Langue déduite du préfixe de nom (`fr_FR-…` → fr, `en_US-…` → en)."""
+    out = {}
+    if PIPER_MODELS.is_dir():
+        for onnx in sorted(PIPER_MODELS.glob("*.onnx")):
+            if not onnx.with_suffix(".onnx.json").is_file():
+                continue
+            lang = onnx.name[:2].lower()
+            out.setdefault(lang, onnx)
+    return out
+
+
+def _piper_ready() -> bool:
+    return PIPER_BIN.is_file() and bool(_piper_models())
+
+
+def op_voice_caps() -> dict:
+    """Capacités vocales SERVEUR, pour la bascule navigateur↔serveur du cockpit.
+    tts=Piper si installé (RM2532) ; stt=sidecar karl-whisper joignable (RM2533)."""
+    langs = sorted(_piper_models().keys())
+    ready = _piper_ready()
+    stt = _whisper_ready()
+    return {"tts": ready, "stt": stt, "engine": "piper" if ready else None,
+            "stt_engine": "whisper" if stt else None, "tts_langs": langs}
+
+
+def op_tts_wav(payload: dict) -> bytes:
+    """RM2532 : synthèse Piper d'un texte → octets WAV. Sous-process sans état
+    (`piper -m <modèle>` lit stdin, écrit le WAV sur stdout). ApiError sinon."""
+    text = str(payload.get("text") or "").strip()
+    if not text:
+        raise ApiError(400, "texte vide")
+    if len(text) > 4000:
+        raise ApiError(400, "texte trop long (max 4000 caractères)")
+    models = _piper_models()
+    if not PIPER_BIN.is_file() or not models:
+        raise ApiError(503, "TTS serveur indisponible (Piper non installé) — "
+                            "cockpit sur synthèse navigateur")
+    lang = str(payload.get("lang") or "fr")[:2].lower()
+    model = models.get(lang) or next(iter(models.values()))
+    # Piper écrit le WAV via `-f <fichier>` (le stdout n'est pas fiable selon la
+    # version : sans -f il tente ffplay puis retombe sur output.wav). Fichier temp.
+    import tempfile
+    tf = tempfile.NamedTemporaryFile(prefix="karl-tts-", suffix=".wav", delete=False)
+    tmp = tf.name
+    tf.close()
+    try:
+        r = subprocess.run([str(PIPER_BIN), "-m", str(model), "-f", tmp],
+                           input=text.encode("utf-8"), capture_output=True, timeout=30)
+        if r.returncode != 0:
+            raise ApiError(500, "TTS : échec Piper — "
+                                + (r.stderr.decode("utf-8", "replace")[:200] or "?"))
+        wav = Path(tmp).read_bytes()
+        if not wav:
+            raise ApiError(500, "TTS : WAV vide")
+        return wav
+    except subprocess.TimeoutExpired:
+        raise ApiError(500, "TTS : timeout Piper (30 s)")
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+# ── Vocal V2 L2 : STT sidecar karl-whisper (RM2533) ──────────────────────────
+def _whisper_health(timeout: float = 0.4):
+    """État du sidecar STT, ou None s'il est injoignable / froid. Timeout court :
+    op_voice_caps est appelé au chargement du cockpit — on ne bloque pas l'UI si
+    le sidecar est absent (cas nominal tant que L2 n'est pas activé en prod)."""
+    import urllib.request
+    try:
+        with urllib.request.urlopen(WHISPER_URL + "/health", timeout=timeout) as r:
+            if r.status != 200:
+                return None
+            data = json.loads(r.read().decode("utf-8"))
+            return data if (data.get("ok") and data.get("warm")) else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _whisper_ready() -> bool:
+    return _whisper_health() is not None
+
+
+def op_stt(payload: dict) -> dict:
+    """RM2533 : transcrit un clip audio (base64) via le sidecar karl-whisper. Le
+    cockpit envoie {audio_b64, lang} (blob MediaRecorder, webm/opus). ApiError si
+    audio absent/trop gros/sidecar injoignable → le cockpit retombe sur la Web
+    Speech API du navigateur (repli, aucune régression V1)."""
+    import urllib.error
+    import urllib.request
+    b64 = str(payload.get("audio_b64") or "")
+    if not b64:
+        raise ApiError(400, "audio vide")
+    try:
+        audio = base64.b64decode(b64, validate=True)
+    except Exception:
+        raise ApiError(400, "audio_b64 invalide")
+    if not audio:
+        raise ApiError(400, "audio vide")
+    if len(audio) > STT_MAX_BYTES:
+        raise ApiError(413, f"audio trop volumineux (> {STT_MAX_BYTES // (1024 * 1024)} Mo)")
+    lang = str(payload.get("lang") or "fr")[:2].lower()
+    req = urllib.request.Request(
+        WHISPER_URL + "/stt?lang=" + lang, data=audio, method="POST",
+        headers={"Content-Type": "application/octet-stream"})
+    try:
+        with urllib.request.urlopen(req, timeout=60) as r:
+            out = json.loads(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", "replace")[:200]
+        raise ApiError(502, "STT sidecar : " + (body or str(e.code)))
+    except Exception:  # noqa: BLE001
+        raise ApiError(503, "STT serveur indisponible (sidecar karl-whisper absent) — "
+                            "cockpit sur reconnaissance navigateur")
+    return {"text": out.get("text") or "", "lang": out.get("lang"),
+            "duration": out.get("duration")}
+
+
+# RM2515 : disposition manuelle d'une session — raffine l'état heuristique `idle`
+# (l'humain sait ce que la machine ne peut pas déduire : « j'en ai fini » vs « j'y
+# reviens »). Défaut « à traiter » = pas de marque stockée. Ne s'affiche que sur
+# `idle` côté UI : elle CÈDE aux évènements live (working/attention/choice).
+_DISPOSITIONS = ("a_traiter", "parke", "termine")
+
+
+def op_disposition(payload: dict, auth_ctx=None) -> dict:
+    """Pose/efface la disposition d'une session (à traiter / parké / terminé).
+    Persistée dans keys/<sid>.json (STATE_DIR, RM2385) → survit au reload et
+    cohérente entre fenêtres attachées. « a_traiter » (ou vide) efface la marque."""
+    rm_id = _require_rm_id(payload)
+    disp = str(payload.get("disposition") or "").strip()
+    if disp and disp not in _DISPOSITIONS:
+        raise ApiError(400, f"disposition invalide : {disp!r} "
+                            f"(attendu {'/'.join(_DISPOSITIONS)} ou vide)")
+    key = f"RM{rm_id}" if _is_ticket_sid(rm_id) else rm_id
+    keyf = STATE_DIR / "keys" / f"{key}.json"
+    rec = _read_json_file(keyf)
+    if rec is None:
+        raise ApiError(404, f"session inconnue : {rm_id} (pas d'entrée keys/ — jamais ancrée)")
+    if disp and disp != "a_traiter":
+        rec["disposition"] = disp
+    else:
+        rec.pop("disposition", None)   # défaut → pas de marque stockée
+    _write_json_atomic(keyf, rec)
+    return {"rm_id": rm_id, "disposition": disp or "a_traiter"}
+
+
 # ── Sessions ⇄ tickets : store, découverte, reprise (RM1939, itér.1 claude) ──
-_SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")
+_SID_RE = re.compile(r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$")   # claude (historique)
+
+# RM2539 — la grammaire d'un identifiant de conversation appartient au MOTEUR.
+# `_SID_RE` (UUID) restait le seul filtre : un id opencode `ses_14301a3ddff…`
+# était rejeté en `400 session_id invalide` bien avant d'atteindre le routage.
+_ENGINE_SID_RES = {name: re.compile(e["sid_re"])
+                   for name, e in ENGINES.items() if e.get("sid_re")}
+
+
+def _valid_session_id(session_id: str | None, engine: str | None = None) -> bool:
+    """Un id de conversation est valide pour SON moteur. `engine` inconnu ou
+    absent : on accepte ce qu'accepte au moins un moteur (l'appelant recoupera
+    le moteur réel via `_engine_of_session`)."""
+    if not session_id:
+        return False
+    rx = _ENGINE_SID_RES.get(engine or "")
+    if rx:
+        return bool(rx.match(session_id))
+    return any(r.match(session_id) for r in _ENGINE_SID_RES.values())
+
+
+def _resume_support(engine: str | None) -> dict | None:
+    """Contrat de reprise du moteur, ou None s'il n'en déclare pas (vibe, shell).
+    Un moteur sans contrat n'est pas une anomalie : c'est un refus à formuler
+    clairement, pas un plantage."""
+    e = ENGINES.get(engine or "", {})
+    return e if e.get("resume_flag") and e.get("store") else None
+
+
+# Base SQLite d'opencode : une ligne `session` porte id, titre, dossier et dates —
+# soit, déjà structuré, ce que karl-agent extrait des transcripts claude en les
+# parsant. Lecture SEULE (uri mode=ro) : le moteur en est propriétaire.
+OPENCODE_DB = Path(os.environ.get("KARL_AGENT_OPENCODE_DB") or (
+    Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
+    / "opencode" / "opencode.db"))
+
+
+# Sessions vibe : un dossier par session sous ~/.vibe/logs/session/, nommé
+# `session_<date>_<8 premiers hexa de l'id>`, contenant meta.json (id complet,
+# titre déjà extrait par le moteur, working_directory, dates) et messages.jsonl.
+VIBE_SESSIONS = Path(os.environ.get("KARL_AGENT_VIBE_SESSIONS") or (
+    Path.home() / ".vibe" / "logs" / "session"))
+
+
+def _vibe_session_meta(session_id: str) -> dict:
+    """{title, mtime, cwd} d'une conversation vibe, ou {} si introuvable.
+
+    Le suffixe du dossier ne porte que les 8 premiers hexa de l'id : il sert de
+    filtre, jamais de preuve — c'est le `session_id` de meta.json qui fait foi
+    (deux sessions peuvent partager un préfixe, et un dossier renommé mentirait)."""
+    if not VIBE_SESSIONS.is_dir() or "-" not in session_id:
+        return {}
+    prefix = session_id.split("-")[0]
+    for d in sorted(VIBE_SESSIONS.glob(f"session_*_{prefix}"), reverse=True):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if meta.get("session_id") != session_id:
+            continue        # préfixe partagé : ce n'est pas la bonne session
+        end = meta.get("end_time") or meta.get("start_time")
+        mtime = None
+        if end:
+            try:
+                from datetime import datetime as _dt
+                mtime = int(_dt.fromisoformat(end).timestamp())
+            except ValueError:
+                mtime = None
+        if mtime is None:
+            try:
+                mtime = int((d / "meta.json").stat().st_mtime)
+            except OSError:
+                mtime = None
+        return {"title": (meta.get("title") or None),
+                "cwd": (meta.get("environment") or {}).get("working_directory"),
+                "mtime": mtime}
+    return {}
+
+
+def _opencode_session_meta(session_id: str) -> dict:
+    """{title, mtime, cwd} d'une conversation opencode, ou {} si introuvable."""
+    if not OPENCODE_DB.is_file():
+        return {}
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            row = con.execute("SELECT title, directory, time_updated, time_created "
+                              "FROM session WHERE id = ?", (session_id,)).fetchone()
+        finally:
+            con.close()
+    except Exception:            # base absente, verrouillée, schéma changé…
+        return {}
+    if not row:
+        return {}
+    title, directory, updated, created = row
+    ms = updated or created or 0
+    return {"title": (title or None), "cwd": (directory or None),
+            "mtime": (int(ms) // 1000 if ms else None)}   # epoch ms → s
 _MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
 
 
@@ -1131,12 +1426,15 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
     now = int(time.time())
     key = f"RM{sid}" if _is_ticket_sid(sid) else sid
     keyf = STATE_DIR / "keys" / f"{key}.json"   # RM2385 : état partagé, pas LOG_DIR
+    prev = _read_json_file(keyf) or {}
     if model is None:  # reprise / enrichissement : ne pas perdre le modèle déjà connu
-        model = (_read_json_file(keyf) or {}).get("model")
+        model = prev.get("model")
     rec = {"sid": sid, "engine": engine, "session_id": session_id,
            "cwd": cwd, "last_seen": now}
     if model:
         rec["model"] = model
+    if prev.get("disposition"):  # RM2515 : préserver la disposition manuelle (idem model)
+        rec["disposition"] = prev["disposition"]
     _write_json_atomic(keyf, rec)
     sf = SESS_DIR / engine / f"{session_id}.json"
     meta = _read_json_file(sf) or {"engine": engine, "session_id": session_id, "created": now}
@@ -2238,6 +2536,15 @@ _DONE_CACHE: dict = {"at": 0.0, "map": {}}
 _DONE_CACHE_TTL = 30.0
 
 
+# RM2539/RM2547 — lecteur de métadonnées par STORE déclaré dans ENGINES. Ajouter
+# un moteur, c'est déclarer son contrat et poser sa fonction ici : le reste du
+# code (cache, marqueurs, tuiles, reprise) ne bouge pas.
+_ENGINE_META = {
+    "opencode_db": _opencode_session_meta,
+    "vibe_files": _vibe_session_meta,
+}
+
+
 def _transcript_jsonl(session_id: str | None):
     """Transcript d'une session dans les stores claude, ou None (id invalide,
     session inconnue, store absent). Point d'entrée unique de la recherche —
@@ -2248,20 +2555,45 @@ def _transcript_jsonl(session_id: str | None):
                  for p in root.glob(f"*/{session_id}.jsonl")), None)
 
 
-def _transcript_info(session_id: str | None) -> dict:
+def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes}.
     `/sessions` est polled en continu et chaque entrée de jeu demandait déjà son
     marqueur puis son titre — soit deux globs par session et par appel. Une
     lecture unique, mise en cache 30 s, sert les trois usages (marqueur, nom,
     âge). Un transcript absent ou illisible rend un dict vide : dans le doute,
-    rien de marqué, rien de daté."""
-    if not session_id or not _SID_RE.match(session_id):
+    rien de marqué, rien de daté.
+
+    RM2539 — la SOURCE dépend du moteur : transcripts JSONL pour claude, base
+    du moteur pour opencode. Le cache et le contrat de sortie sont communs."""
+    if not session_id or not _valid_session_id(session_id, engine):
         return {}
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
-    if session_id in _DONE_CACHE["map"]:
-        return _DONE_CACHE["map"][session_id]
+    ckey = f"{engine or ''}:{session_id}"      # RM2547 : même UUID, moteurs distincts
+    if ckey in _DONE_CACHE["map"]:
+        return _DONE_CACHE["map"][ckey]
+    if not _SID_RE.match(session_id) or engine:
+        # Moteur tiers (ou moteur imposé par l'appelant) : les méta viennent de
+        # SON store. Le marqueur [WIP]/[DONE] y est porté par le titre, comme
+        # côté claude : même extraction.
+        # ⚠ vibe émet des UUID comme claude (RM2547) : sans `engine`, une telle
+        # session est traitée en claude — c'est l'appelant qui lève l'ambiguïté,
+        # via `_engine_of_session` ou l'`engine` transmis (RM2536).
+        store = (ENGINES.get(engine or "", {}) or {}).get("store")
+        reader = _ENGINE_META.get(store or "")
+        if reader is None and not _SID_RE.match(session_id):
+            reader = next((_ENGINE_META[ENGINES[n]["store"]] for n in ENGINES
+                           if ENGINES.get(n, {}).get("store") in _ENGINE_META
+                           and _ENGINE_SID_RES.get(n, _SID_RE).match(session_id)), None)
+        meta = reader(session_id) if reader else {}
+        raw = meta.get("title") or ""
+        m = _MARK_RE.match(raw)
+        info = {"mark": m.group(1).lower() if m else None,
+                "title": _MARK_RE.sub("", raw).strip() or None,
+                "mtime": meta.get("mtime"), "cwd": meta.get("cwd")} if meta else {}
+        _DONE_CACHE["map"][ckey] = info
+        return info
     info: dict = {}
     jf = _transcript_jsonl(session_id)
     if jf:
@@ -2274,7 +2606,7 @@ def _transcript_info(session_id: str | None) -> dict:
                     "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
         except OSError:
             info = {}
-    _DONE_CACHE["map"][session_id] = info
+    _DONE_CACHE["map"][ckey] = info
     return info
 
 
@@ -2577,6 +2909,66 @@ def _pm_project_of_cwd(cwd: str | None):
     return None, None
 
 
+def _list_opencode_sessions() -> list:
+    """RM2539 (correctif) — conversations opencode connues : (session_id, méta).
+    Source : la base du moteur, en lecture seule."""
+    if not OPENCODE_DB.is_file():
+        return []
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute("SELECT id, title, directory, time_updated, time_created "
+                               "FROM session").fetchall()
+        finally:
+            con.close()
+    except Exception:
+        return []
+    out = []
+    for sid, title, directory, updated, created in rows:
+        ms = updated or created or 0
+        out.append((sid, {"title": title or None, "cwd": directory or None,
+                          "mtime": int(ms) // 1000 if ms else None}))
+    return out
+
+
+def _list_vibe_sessions() -> list:
+    """RM2547 (correctif) — conversations vibe connues : (session_id, méta).
+    Source : les meta.json des dossiers de session (l'id du meta fait foi)."""
+    if not VIBE_SESSIONS.is_dir():
+        return []
+    out = []
+    for d in VIBE_SESSIONS.glob("session_*"):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        sid = meta.get("session_id")
+        if not sid:
+            continue
+        m = _vibe_session_meta(sid)
+        if m:
+            out.append((sid, m))
+    return out
+
+
+# Énumération par moteur — pendant « découverte » de `_ENGINE_META` (lecture
+# d'UNE session). Un moteur absent d'ici n'apparaît pas au panneau de reprise.
+_ENGINE_LIST = {
+    "opencode": _list_opencode_sessions,
+    "vibe": _list_vibe_sessions,
+}
+
+
+def resume_engines() -> list:
+    """Moteurs dont on sait ET reprendre ET découvrir les conversations — c'est
+    la liste que le cockpit doit proposer, plutôt qu'un « claude » codé en dur
+    (RM2539 : la reprise multi-moteur était livrée sans que le panneau ne
+    permette d'en choisir un autre)."""
+    return [n for n in ENGINES
+            if _resume_support(n) and (n == "claude" or n in _ENGINE_LIST)]
+
+
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
@@ -2588,8 +2980,8 @@ def op_resumable(qs: dict) -> list:
     f_q = (qs.get("q") or "").lower() or None
     limit = max(1, min(int(qs.get("limit") or 100), 500))
 
-    if f_engine not in (None, "claude"):
-        return []  # itération 1 : découverte claude uniquement
+    if f_engine and f_engine not in resume_engines():
+        return []      # moteur inconnu, ou sans découverte : rien à proposer
     runs_idx = _runs_by_session()
     sessions = _list_sessions()
     live_rm = {s["rm_id"] for s in sessions}
@@ -2601,8 +2993,38 @@ def op_resumable(qs: dict) -> list:
     # autre session_id).
     live_sids = {ki["session_id"] for s in sessions
                  if (ki := _key_info(s["rm_id"])) and ki.get("session_id")}
+    def _entry(engine, sid, title_raw, cwd, mtime):
+        """Ligne du panneau de reprise, commune à tous les moteurs."""
+        m = _MARK_RE.match(title_raw or "")
+        runs = runs_idx.get(sid, [])
+        client, project = _pm_project_of_cwd(cwd)
+        if not client and runs:
+            client, project = runs[-1]["client"], runs[-1]["project"]
+        return {
+            "engine": engine, "session_id": sid,
+            "title": _MARK_RE.sub("", title_raw or "") or None,
+            "mark": m.group(1).lower() if m else None,
+            "cwd": cwd, "mtime": mtime,
+            "client": client, "project": project,
+            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
+            "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
+        }
+
     out, seen = [], set()
-    for root in CLAUDE_STORES:
+    # RM2539 (correctif) : les moteurs tiers énumèrent leurs conversations par
+    # leur propre store — la découverte était restée claude-only alors que la
+    # reprise, elle, était déjà multi-moteur : le panneau ne montrait donc
+    # jamais une session opencode ou vibe.
+    for engine_name, lister in _ENGINE_LIST.items():
+        if f_engine and f_engine != engine_name:
+            continue
+        for sid, meta in lister():
+            if sid in seen:
+                continue
+            seen.add(sid)
+            out.append(_entry(engine_name, sid, meta.get("title"),
+                              meta.get("cwd"), meta.get("mtime")))
+    for root in (CLAUDE_STORES if f_engine in (None, "claude") else []):
         if not root.is_dir():
             continue
         for jf in root.glob("*/*.jsonl"):
@@ -2614,21 +3036,7 @@ def op_resumable(qs: dict) -> list:
                 meta = _jsonl_tail_meta(jf)
             except OSError:
                 continue
-            raw_title = meta["title"] or ""
-            m = _MARK_RE.match(raw_title)
-            runs = runs_idx.get(sid, [])
-            client, project = _pm_project_of_cwd(meta["cwd"])
-            if not client and runs:
-                client, project = runs[-1]["client"], runs[-1]["project"]
-            out.append({
-                "engine": "claude", "session_id": sid,
-                "title": _MARK_RE.sub("", raw_title) or None,
-                "mark": m.group(1).lower() if m else None,
-                "cwd": meta["cwd"], "mtime": meta["mtime"],
-                "client": client, "project": project,
-                "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
-                "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
-            })
+            out.append(_entry("claude", sid, meta["title"], meta["cwd"], meta["mtime"]))
 
     def keep(e):
         # status=not-done : tout sauf les [DONE] (défaut du panneau de reprise)
@@ -2646,7 +3054,7 @@ def op_resumable(qs: dict) -> list:
         return True
 
     out = [e for e in out if keep(e)]
-    out.sort(key=lambda e: e["mtime"], reverse=True)
+    out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
     return out[:limit]
 
 
@@ -2669,18 +3077,102 @@ def _resume_cwd(jf: Path, engine: str, session_id: str) -> str | None:
     return smeta.get("cwd") or tail
 
 
+def _engine_of_session(session_id: str) -> str | None:
+    """RM2536 — moteur MÉMORISÉ d'une conversation, depuis les sources du
+    serveur : store par session (`sessions/<engine>/<sid>.json`, dont le
+    répertoire EST le moteur) puis jonctions. `None` = inconnu de l'index.
+
+    C'est cette valeur qui fait foi face à un `engine` reçu du client : le
+    moteur ne discrimine pas seulement deux conversations, il décide du binaire
+    à lancer et du store où chercher le transcript."""
+    if not session_id:
+        return None
+    try:
+        for d in SESS_DIR.iterdir():
+            if d.is_dir() and (d / f"{session_id}.json").is_file():
+                return d.name
+    except OSError:
+        pass
+    runs = _runs_by_session().get(session_id, [])
+    return runs[0].get("engine") if runs else None
+
+
+def _anchor_rm_id(session_id: str, cwd: str | None) -> str | None:
+    """RM2536 — ticket d'ancrage d'une conversation reprise (nom du tmux).
+
+    Le modèle jonction est n-m PAR CONCEPTION (`tasks/<client>/<projet>/RM<id>-<n>`
+    : « une session traverse plusieurs tickets ») : une session ouverte sur le
+    projet A peut porter des jonctions vers des tickets du projet B. Prendre la
+    plus récente TOUS PROJETS confondus (comportement ≤ RM2144) nommait alors le
+    tmux d'après un ticket étranger au projet de la session.
+
+    Ordre de préférence : jonctions du projet du `cwd` — la plus récente, à
+    défaut de récence connue l'INITIALE (`n` minimal, le ticket qui a ouvert la
+    session) — puis, si le projet ne dit rien, le comportement historique."""
+    runs = _runs_by_session().get(session_id, [])
+    if not runs:
+        return None
+    client, project = _pm_project_of_cwd(cwd)
+    same = [r for r in runs if client and r.get("client") == client
+            and r.get("project") == project]
+    pool = same or runs
+    if same and not any(r.get("last_seen") or r.get("created") for r in same):
+        return min(pool, key=lambda r: r.get("n", 0))["rm_id"]
+    return max(pool, key=lambda r: r.get("last_seen", r.get("created", 0)))["rm_id"]
+
+
+def _spawn_fallback(rm_id: str, engine: str, payload: dict,
+                    auth_ctx: dict | None, why: str) -> dict:
+    """RM2536 — repli « session neuve » d'une relance dont le transcript ou le
+    cwd a disparu. Opt-in strict (`spawn: true`) : sans lui, on refuse en 410
+    avec le motif, jamais de session muette à la place de la conversation
+    attendue.
+
+    `cwd` et `model` viennent de l'INDEX DES CLÉS (`_key_info`), pas du client :
+    c'est le serveur qui sait où vivait la session, et le navigateur n'a plus à
+    dicter un chemin. Sans cwd mémorisé, il n'y a rien à rouvrir → 410."""
+    if not payload.get("spawn"):
+        raise ApiError(410, f"{why} — relancer une session neuve ?")
+    k = _key_info(rm_id) or {}
+    if not k.get("cwd"):
+        raise ApiError(410, f"{why}, et aucun dossier mémorisé pour {rm_id} "
+                            "— lancer un spawn explicite")
+    out = op_spawn({"rm_id": rm_id, "engine": engine, "cwd": k["cwd"],
+                    "model": _model_key_for_value(engine, k.get("model"))}, auth_ctx)
+    out["resumed"], out["spawned"], out["reason"] = False, True, why
+    return out
+
+
 def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     """Reprend une conversation TERMINÉE côté process (tmux mort) via le resume
     natif du moteur, dans une session tmux karl-RM<id> neuve. Cible : session_id
-    direct, ou rm_id (+ n) → jonction la plus récente. Itération 1 : claude."""
-    engine = payload.get("engine", "claude")
+    direct, ou rm_id (+ n) → jonction la plus récente. Itération 1 : claude.
+
+    RM2536 — c'est le chemin de relance du cockpit : une tuile envoie l'IDENTITÉ
+    de sa session — le couple (`engine`, `session_id`) — et rien du contexte
+    d'affichage (jeu, vue). Tout le reste (`rm_id`, `cwd`, `model`) est retrouvé
+    ici, à partir des sources du serveur. `spawn: true` autorise le repli en
+    session neuve quand le transcript a disparu (opt-in, ex-`_relaunch_entry`)."""
     session_id = str(payload.get("session_id") or "").strip() or None
     rm_id = str(payload.get("rm_id") or "").strip() or None
     n = payload.get("n")
-    if session_id and not _SID_RE.match(session_id):
+    # RM2539 : la grammaire de l'id suit le MOTEUR (claude : UUID ; opencode :
+    # `ses_…`). L'ancien filtre UUID unique rejetait toute session opencode ici.
+    if session_id and not _valid_session_id(session_id):
         raise ApiError(400, "session_id invalide")
     if rm_id and not _valid_sid(rm_id):
         raise ApiError(400, "rm_id invalide (id de ticket ou slug)")
+
+    # RM2536 : moteur EXPLICITE, recoupé avec l'index — un `engine` absent ne
+    # retombe plus silencieusement sur claude quand le serveur sait faire mieux,
+    # et un `engine` contredisant l'index est refusé (jamais de reprise tentée
+    # avec le mauvais binaire, qui échouerait en « transcript introuvable »).
+    engine_in = str(payload.get("engine") or "").strip() or None
+    known = _engine_of_session(session_id) if session_id else None
+    if engine_in and known and engine_in != known:
+        raise ApiError(409, f"moteur incohérent pour {session_id} : "
+                            f"reçu {engine_in!r}, mémorisé {known!r}")
+    engine = engine_in or known or "claude"
 
     if not session_id:
         if not rm_id or not _is_ticket_sid(rm_id):
@@ -2694,50 +3186,70 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
                                 + " — lancer un spawn neuf")
         last = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))
         session_id, engine = last["session_id"], last.get("engine", engine)
-    if engine != "claude":
-        raise ApiError(501, f"resume : itération 1 = claude uniquement (session {engine})")
+    # RM2539 : le moteur déclare (ou non) son contrat de reprise. Un moteur sans
+    # contrat n'est pas un bug du serveur : c'est un refus à formuler, avec la
+    # sortie de secours (spawn neuf) plutôt qu'un 501 sec.
+    support = _resume_support(engine)
+    if not support:
+        capables = ", ".join(sorted(n for n in ENGINES if _resume_support(n)))
+        raise ApiError(501, f"le moteur {engine} ne sait pas reprendre une conversation "
+                            f"(moteurs capables : {capables}) — lancer une session neuve.")
+    if not _valid_session_id(session_id, engine):
+        raise ApiError(400, f"session_id {session_id!r} n'a pas la forme attendue "
+                            f"par le moteur {engine}")
 
-    jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
+    # Conversation présente ? La SOURCE dépend du moteur : transcript JSONL
+    # (claude) ou base du moteur (opencode). `conv` porte le cwd de reprise.
+    jf = None
+    if support["store"] == "claude_jsonl":
+        jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
+        conv = {"cwd": _resume_cwd(jf, engine, session_id)} if jf else None
+    else:
+        meta = _ENGINE_META[support["store"]](session_id)
+        conv = {"cwd": meta.get("cwd")} if meta else None
+
     if not rm_id:
-        # Ancrage automatique (RM2144) : ticket idéal (dernière jonction), sinon
-        # SLUG dérivé du titre de la session — plus d'obligation de fournir un
-        # ticket à la reprise.
-        runs = _runs_by_session().get(session_id, [])
-        if runs:
-            rm_id = max(runs, key=lambda r: r.get("last_seen", r.get("created", 0)))["rm_id"]
-        else:
-            title = _jsonl_tail_meta(jf)["title"] if jf else None
-            rm_id = _auto_slug(title, session_id)
+        # Ancrage automatique (RM2144, affiné RM2536 : le projet du cwd prime
+        # sur la récence) ; à défaut de jonction, SLUG dérivé du titre de la
+        # session — plus d'obligation de fournir un ticket à la reprise.
+        smeta = _read_json_file(SESS_DIR / engine / f"{session_id}.json") or {}
+        rm_id = _anchor_rm_id(session_id, smeta.get("cwd") or (conv or {}).get("cwd"))
+        if not rm_id:
+            rm_id = _auto_slug(_transcript_info(session_id).get("title"), session_id)
 
     if _has_session(rm_id):
         raise ApiError(409, f"session déjà active : {_session_name(rm_id)}")
 
-    # Garde-fous : transcript présent ? cwd toujours valide ?
-    if jf is None:
-        raise ApiError(410, f"transcript introuvable pour {session_id} "
-                            "(session purgée ou store non monté) — lancer un spawn neuf")
+    # Garde-fous : conversation présente ? cwd toujours valide ? RM2536 : `spawn`
+    # autorise le repli en session NEUVE (cwd/model repris de l'index des clés,
+    # jamais du client) — l'appelant n'a donc plus à porter ces valeurs.
+    if conv is None:
+        return _spawn_fallback(rm_id, engine, payload, auth_ctx,
+                               f"conversation {session_id} introuvable côté {engine} "
+                               "(purgée ou store non monté)")
     try:
-        cwd = _resolve_cwd(_resume_cwd(jf, engine, session_id))
+        cwd = _resolve_cwd(conv.get("cwd"))
     except (ValueError, TypeError) as e:
-        raise ApiError(410, f"cwd de la session invalide ({e}) — lancer un spawn neuf")
+        return _spawn_fallback(rm_id, engine, payload, auth_ctx,
+                               f"cwd de la session invalide ({e})")
 
-    cmd = f"{ENGINES['claude']['cmd']} --resume {shlex.quote(session_id)}"
+    cmd = f"{support['cmd']} {support['resume_flag']} {shlex.quote(session_id)}"
     width = int(payload.get("width", DEFAULT_WIDTH))
     height = int(payload.get("height", DEFAULT_HEIGHT))
     _start_session_tmux(rm_id, cmd, cwd, width, height, [])
     if _is_ticket_sid(rm_id):
-        _record_run(rm_id, "claude", session_id, str(cwd))
-    _record_key(rm_id, "claude", session_id, str(cwd))
+        _record_run(rm_id, engine, session_id, str(cwd))
+    _record_key(rm_id, engine, session_id, str(cwd))
     joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
     if prompt:
-        _wait_engine_ready(rm_id, "claude")
+        _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
 
-    return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": "claude",
+    return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": engine,
             "session_id": session_id, "cwd": str(cwd), "resumed": True,
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
@@ -2753,7 +3265,9 @@ def _session_live(session_id: str, engine: str = "claude") -> bool:
     try:
         out = subprocess.run(["pgrep", "-af", engine],
                              capture_output=True, text=True, timeout=5).stdout
-        if any(session_id in ln and "--resume" in ln for ln in out.splitlines()):
+        # RM2539 : `--resume` (claude) ou `--session` (opencode) selon le moteur
+        flag = (_resume_support(engine) or {}).get("resume_flag", "--resume")
+        if any(session_id in ln and flag in ln for ln in out.splitlines()):
             return True
     except (OSError, subprocess.SubprocessError):
         pass
@@ -2947,8 +3461,9 @@ def _transcript_usage(lines) -> dict:
     """RM2373 : consommation tokens d'une session claude depuis son transcript
     (JSONL), différenciée ENTRÉE / SORTIE. Somme les `message.usage` des tours
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
-    cache_creation). Le dernier tour donne l'occupation de contexte courante
-    (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    cache_creation). `total` = entrée + sortie (RM2519 : le cache est
+    complémentaire, hors total). Le dernier tour donne l'occupation de contexte
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
     turns = 0
     context_last = 0
@@ -2974,7 +3489,11 @@ def _transcript_usage(lines) -> dict:
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
         turns += 1
-    agg["total"] = agg["input"] + agg["output"] + agg["cache_read"] + agg["cache_creation"]
+    # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
+    # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
+    # relecture de contexte (souvent >90 %) et mélangerait des catégories aux
+    # taux distincts. `context_last` reste, lui, entrée+cache (occupation réelle).
+    agg["total"] = agg["input"] + agg["output"]
     agg["turns"] = turns
     agg["context_last"] = context_last
     return agg
@@ -3153,6 +3672,7 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         if k:
             s["engine"] = k.get("engine")
             s["session_id"] = k.get("session_id")
+            s["disposition"] = k.get("disposition")   # RM2515 : marque manuelle (idle uniquement, côté UI)
         r = latest.get(s["rm_id"]) if s.get("is_ticket") else None
         if r:
             s.setdefault("engine", r.get("engine"))
@@ -3204,9 +3724,14 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
     # RM2446 : en vue `live` ou `all`, tout ce qui est affiché fait partie de la
     # vue — `in_current` ne doit pas y reléguer des sessions dans « hors du jeu ».
     _view = _current_view(_session_set_user(auth_ctx), _store)
+    # RM2537 : appartenance lue par `_set_entries` — le point de passage unique
+    # qui sait CALCULER le contenu d'un jeu dérivé (RM2452). Lire `entries` en
+    # dur rendait vide tout jeu à règle : ses propres sessions se voyaient
+    # `in_current: False` et le cockpit les reléguait dans « hors du jeu
+    # courant », sans en-tête client/projet ni badge de jeu.
     _member: dict = {}
     for _g, _rec in _groups.items():
-        for _e in (_rec.get("entries") or []):
+        for _e in _set_entries(_rec):
             _member.setdefault(_e.get("sid"), []).append(_g)
     for s in sessions:
         names = _member.get(s["rm_id"], [])
@@ -4449,6 +4974,74 @@ def op_pm_run(payload: dict) -> dict:
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
 
 
+def _mr_deliver_context(rm_id: str):
+    """Résout (bare_code, branche_source, intégration) d'un ticket pour livrer sa
+    MR SANS dépendre d'un worktree (RM2355) : projet de code depuis le bare
+    `repos/<name>.git` du workspace, branche depuis le frontmatter `git.branch`,
+    cible depuis `integration_branch` du manifeste (défaut dev). Pur API : la
+    branche est déjà sur origin (poussée pendant le travail), aucun checkout requis."""
+    if not rm_id.isdigit():
+        raise ApiError(400, "rm_id invalide")
+    tf = _find_task_file(rm_id)
+    if not tf:
+        raise ApiError(404, f"RM{rm_id} : ticket inconnu en local")
+    ws = _resolve_workspace(tf.parent.parent)
+    if not ws:
+        raise ApiError(400, f"RM{rm_id} : workspace de code introuvable")
+    fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+    git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+    branch = git.get("branch")
+    if not branch:
+        raise ApiError(400, f"RM{rm_id} : aucune branche au frontmatter (git.branch) — "
+                            "ticket jamais démarré (pm-branch-start) ?")
+    try:
+        meta = yaml_safe_load((ws / ".mmi-pm" / "meta.yml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        meta = {}
+    repos = meta.get("repos") or []
+    if len(repos) != 1:
+        raise ApiError(400, f"RM{rm_id} : livraison auto réservée au mono-repo "
+                            f"({len(repos)} repo(s) au manifeste)")
+    name = repos[0].get("name")
+    integration = repos[0].get("integration_branch") or "dev"
+    bare = ws / "repos" / f"{name}.git"
+    if not bare.is_dir():
+        raise ApiError(400, f"RM{rm_id} : bare de code introuvable ({bare})")
+    return bare, str(branch), str(integration)
+
+
+def op_mr_deliver(payload: dict) -> dict:
+    """RM2355 : livre la branche d'un ticket — crée la MR <branche>→intégration et
+    la merge — pour débloquer un verdict « testé OK » que la merge gate RM2319
+    refuse (branche non mergée dans dev). Enchaîne `pm-mr create --merge` en pur
+    API (aucun checkout de la branche) ; la transition de statut du verdict reste
+    au JS appelant, qui la rejoue une fois la branche mergée (RM2319 la laisse
+    alors passer). single-writer : sous-process pm-mr, jamais de shell."""
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    rm_id = str(payload.get("rm_id") or "")
+    bare, branch, integration = _mr_deliver_context(rm_id)
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    argv = [sys.executable, str(script), "create", rm_id,
+            "--repo", str(bare), "--source", branch, "--target", integration, "--merge"]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=180,
+                           cwd=str(REPO_ROOT))
+    except subprocess.TimeoutExpired:
+        raise ApiError(500, "mr-deliver : timeout (180 s)")
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-deliver",
+                                "args": {"rm_id": rm_id, "branch": branch, "target": integration},
+                                "rc": r.returncode}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass  # le journal ne doit jamais faire échouer le run
+    return {"name": "mr-deliver", "rc": r.returncode, "ok": r.returncode == 0,
+            "branch": branch, "target": integration,
+            "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -4524,6 +5117,33 @@ def op_layout(payload: dict) -> dict:
 
 
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
+# ── Assets statiques du cockpit (RM2522) ────────────────────────────────────
+# Jusqu'ici le serveur ne servait QUE index.html ; le client terminal maison
+# (xterm.js vendoré + karl-term.js) a besoin de fichiers séparés. Liste blanche
+# d'extensions et confinement strict sous COCKPIT_DIR.
+ASSET_TYPES = {
+    ".js":  "application/javascript; charset=utf-8",
+    ".css": "text/css; charset=utf-8",
+    ".svg": "image/svg+xml",
+}
+
+
+def _resolve_asset(rel: str):
+    """Chemin absolu d'un asset servable du cockpit, ou None. Refuse un type
+    hors liste blanche ET toute évasion hors de COCKPIT_DIR (`..`, chemin
+    absolu, symlink sortant) — le chemin est résolu AVANT d'être comparé.
+    Pure et testable (test_karl_agent_asset.py)."""
+    if not rel or os.path.splitext(rel)[1] not in ASSET_TYPES:
+        return None
+    try:
+        root = COCKPIT_DIR.resolve()
+        target = (root / rel).resolve()
+        target.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    return target
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "karl-agent/1.0"
 
@@ -4535,6 +5155,14 @@ class Handler(BaseHTTPRequestHandler):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_bytes(self, code: int, ctype: str, body: bytes):
+        # RM2532 : réponse binaire (WAV du TTS) — pas de charset.
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -4552,6 +5180,33 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(code)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _send_asset(self, rel: str):
+        target = _resolve_asset(rel)
+        if target is None:
+            return self._send_json(404, {"error": "asset non servi"})
+        try:
+            st = target.stat()
+            body = target.read_bytes()
+        except OSError:
+            return self._send_json(404, {"error": f"asset absent : {rel}"})
+        # Revalidation systématique plutôt que cache long : ces fichiers sont
+        # ÉDITÉS pendant le développement du cockpit, et un cache d'un jour
+        # oblige à des rechargements forcés pour voir ses propres correctifs.
+        # L'ETag garde le coût réseau nul quand rien n'a changé (304).
+        etag = f'"{int(st.st_mtime)}-{st.st_size}"'
+        if self.headers.get("If-None-Match") == etag:
+            self.send_response(304)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", ASSET_TYPES[target.suffix])
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("ETag", etag)
+        self.send_header("Cache-Control", "no-cache")
         self.end_headers()
         self.wfile.write(body)
 
@@ -4641,6 +5296,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_html(200, (COCKPIT_DIR / "index.html").read_text(encoding="utf-8"))
             except FileNotFoundError:
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
+        if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
+            return self._send_asset(path[len("/static/"):])
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
@@ -4656,6 +5313,11 @@ class Handler(BaseHTTPRequestHandler):
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
                 "engines": list(ENGINES),
+                # RM2539 (correctif) : moteurs dont les conversations sont à la
+                # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les
+                # proposait en dur (« claude »), et les sessions opencode/vibe
+                # restaient invisibles alors que la reprise savait les traiter.
+                "resume_engines": resume_engines(),
                 # clés du catalogue par moteur (RM1941) — le client ne voit que les
                 # clés, le mapping vers les valeurs réelles reste côté serveur.
                 "models": {e: sorted(m) for e, m in _model_catalog().items()},
@@ -4683,6 +5345,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
+            if path == "/voice/caps":
+                return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
                 return self._send_json(200, _registry_view())
             if path == "/session-set/estimate":  # RM2451 : coût d'un « tout relancer »
@@ -4810,6 +5474,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_auto_yes(payload))
             if path == "/kill":
                 return self._send_json(200, op_kill(payload))
+            if path == "/tts":
+                return self._send_bytes(200, "audio/wav", op_tts_wav(payload))
+            if path == "/stt":                        # RM2533 : dictée → sidecar Whisper
+                return self._send_json(200, op_stt(payload))
+            if path == "/disposition":
+                return self._send_json(200, op_disposition(payload, self.auth_ctx))
             if path == "/monitor":
                 return self._send_json(201, op_monitor(payload))
             if path == "/unmonitor":
@@ -4818,6 +5488,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/mr/deliver":
+                return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})

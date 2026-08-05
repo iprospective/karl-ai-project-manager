@@ -78,6 +78,7 @@ if [ "$DO_DB" = "1" ]; then
   db_dump_from_prod
   db_import
   "${WEBSITE_TYPE}_adapt_db"
+  run_post_adapt_hook
 fi
 
 echo

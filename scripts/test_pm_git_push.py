@@ -4,6 +4,18 @@
 Sans réseau : la « protection » est un hook pre-receive local sur un repo bare
 qui refuse refs/heads/main (même message « pre-receive hook declined » que
 GitLab). Lancer : python3 scripts/test_pm_git_push.py
+
+MISE À JOUR RM2440 — les dépôts montés ici n'ont pas de `.mmi-pm/` : ils sont
+donc traités comme des dépôts de **CODE**, dont le comportement est inchangé
+(repli sur la branche d'intégration, pas de rebase). Deux ajustements :
+  - le **succès est silencieux** : on ne cherche plus une ligne « + push » dans
+    la sortie, on vérifie l'effet réel sur le remote — ce qui est de toute façon
+    l'assertion utile ;
+  - le message de la branche protégée ne renvoie plus vers `pm-promote`
+    (déprécié) mais vers la livraison par MR.
+Les assertions de sortie lisent `out + err` : `_warn` passe par `pm_output`
+quand il est importable, qui écrit sur stdout — chercher dans `err` seul rendait
+le test rouge indépendamment du code testé.
 """
 import contextlib
 import io
@@ -78,21 +90,21 @@ check("classement : autre → other", pm_git._push_error_kind("fatal: unable to 
 with tempfile.TemporaryDirectory() as td:
     tmp = pathlib.Path(td)
 
-    # — nominal : push direct OK —
+    # — nominal : push direct OK, et SILENCIEUX (RM2440) —
     bare, work = seed(tmp, "nominal")
     sha, out, err = autocommit(work, "v2\n")
-    check("nominal : commit + push", sha is not None and "+ push" in out, out + err)
+    check("nominal : commit créé", sha is not None, out + err)
     check("nominal : main distante avancée", git("rev-parse", "main", cwd=bare) == git("rev-parse", "HEAD", cwd=work))
+    check("nominal : aucune sortie (RM2440)", (out + err).strip() == "", out + err)
 
-    # — main protégée : repli sur la branche d'intégration —
+    # — main protégée (dépôt de CODE) : repli sur la branche d'intégration —
     bare, work = seed(tmp, "protected")
     protect_main(bare)
     main_before = git("rev-parse", "main", cwd=bare)
     sha, out, err = autocommit(work, "v2\n")
-    check("protégée : repli push → dev annoncé", sha is not None and "push → dev" in out, out + err)
+    check("protégée : commit créé", sha is not None, out + err)
     check("protégée : dev distante = HEAD local", git("rev-parse", "dev", cwd=bare) == git("rev-parse", "HEAD", cwd=work))
     check("protégée : main distante intacte", git("rev-parse", "main", cwd=bare) == main_before)
-    check("protégée : promotion mentionnée", "pm-promote" in (out + err), out + err)
     check("protégée : plus de faux « l'emportera »", "l'emportera" not in (out + err), out + err)
 
     # — non-fast-forward (une autre instance a poussé) : différé, diagnostic dédié —
@@ -106,8 +118,11 @@ with tempfile.TemporaryDirectory() as td:
     git("commit", "-m", "concurrent", cwd=other)
     git("push", "origin", "HEAD:main", cwd=other)
     sha, out, err = autocommit(work, "v2\n")
-    check("non-FF : commit conservé, pas de repli", sha is not None and "push → dev" not in out, out + err)
-    check("non-FF : diagnostic « remote a avancé »", "remote a avancé" in err and "l'emportera" in err, out + err)
+    check("non-FF : commit conservé, pas de repli",
+          sha is not None and git("rev-parse", "dev", cwd=bare) != git("rev-parse", "HEAD", cwd=work),
+          out + err)
+    check("non-FF : diagnostic « remote a avancé »",
+          "remote a avancé" in (out + err) and "l'emportera" in (out + err), out + err)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

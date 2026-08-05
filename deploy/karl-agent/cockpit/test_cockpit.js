@@ -24,7 +24,10 @@ console.log(`✓ syntaxe des ${blocks.length} blocs <script> inline`);
 // — 2. computeGroups —
 const fm = />>> computeGroups[\s\S]*?(function computeGroups[\s\S]*?)\n\/\/ <<< computeGroups/.exec(html);
 assert(fm, "marqueurs >>> computeGroups / <<< computeGroups introuvables");
-const computeGroups = vm.runInNewContext("(" + fm[1] + ")");
+// computeGroups référence la constante module OTHER_SETS_GROUP (RM2445) : la fournir
+// au contexte isolé (sinon ReferenceError). Extraite du source pour éviter la dérive.
+const otherGrp = /const OTHER_SETS_GROUP = "([^"]*)"/.exec(html)[1];
+const computeGroups = vm.runInNewContext("(" + fm[1] + ")", { OTHER_SETS_GROUP: otherGrp });
 
 // groupement : jonction directe, fallback /resolve, divers
 const sessions = [
@@ -63,6 +66,26 @@ const cg = computeGroups([
 assert.strictEqual(cg.counts.choice, 1, "compteur choice");
 assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
 console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
+
+
+// RM2537 : « hors du jeu courant » garde le chantier. Une vivante hors jeu était
+// versée dans un groupe unique, perdant son en-tête client/projet — « hors du
+// jeu » ne veut pas dire « sans projet ». Elle reste rangée en fin de liste.
+const oc = computeGroups([
+  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100, in_current: true },
+  { rm_id: "2", client: "beta", project: "api", state: "idle", created: 200, in_current: false },
+  { rm_id: "3", client: "gamma", project: "web", state: "idle", created: 300, in_current: false },
+  { rm_id: "4", ghost: true, state: "ghost", client: "beta", project: "api", in_current: false },
+], {}, true);
+assert(oc.keys.includes(otherGrp + " · beta/api"), "hors jeu : un groupe par chantier");
+assert(oc.keys.includes(otherGrp + " · gamma/web"), "hors jeu : chantiers distincts non fusionnés");
+assert.strictEqual(oc.keys[0], "acme/shop", "le jeu courant reste en tête");
+assert(oc.keys.indexOf(otherGrp + " · beta/api") > 0 &&
+       oc.keys.indexOf(otherGrp + " · gamma/web") > 0, "les hors-jeu restent en fin de liste");
+assert.strictEqual(oc.groups.get("beta/api").length, 1,
+  "un FANTÔME n'est jamais relégué hors du jeu (il est déjà éteint)");
+assert.strictEqual(oc.groups.get(otherGrp + " · beta/api")[0].rm_id, "2", "la vivante hors jeu, elle, l'est");
+console.log("✓ RM2537 : hors du jeu courant, mais toujours rangé par chantier");
 
 // tri : le groupe avec attention passe devant, même plus ancien
 assert.strictEqual(keys[0], "beta/api", "groupe en attention en tête");
@@ -357,5 +380,259 @@ for (const [fg, bg] of PAIRS) {
   assert(r >= floor, `dark : ${fg} sur ${bg} = ${r.toFixed(2)}:1 < ${floor} (régression)`);
 }
 console.log(`✓ contrastes : thème clair AA sur ${PAIRS.length} paires, thème sombre sans régression`);
+
+// — effDisposition (RM2515) : disposition effective, ne vaut que sur idle, cède au live —
+const fmDisp = />>> effDisposition[\s\S]*?(function effDisposition[\s\S]*?)\n\/\/ <<< effDisposition/.exec(html);
+assert(fmDisp, "marqueurs >>> effDisposition / <<< effDisposition introuvables");
+const effDisposition = vm.runInNewContext("(" + fmDisp[1] + ")");
+assert.strictEqual(effDisposition("idle", "parke"), "parke", "idle+parké → parké");
+assert.strictEqual(effDisposition("idle", "termine"), "termine", "idle+terminé → terminé");
+assert.strictEqual(effDisposition("idle", null), "a_traiter", "idle sans marque → à traiter (défaut)");
+assert.strictEqual(effDisposition("idle", ""), "a_traiter", "idle vide → à traiter");
+assert.strictEqual(effDisposition("working", "termine"), null, "working → null (cède au live)");
+assert.strictEqual(effDisposition("attention", "parke"), null, "attention → null (cède au live)");
+assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
+console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
+// — 5. protocole ttyd du client terminal maison (RM2522) —
+// karl-term.js est un fichier séparé (première dépendance front du cockpit) :
+// on vérifie sa syntaxe, puis ses fonctions pures de framing, extraites par les
+// mêmes marqueurs >>> / <<<.
+const termSrc = fs.readFileSync(path.join(__dirname, "karl-term.js"), "utf8");
+new vm.Script(termSrc, { filename: "karl-term.js" });
+
+const pick = (name) => {
+  const m = new RegExp(`>>> ${name}[\\s\\S]*?(function ${name}[\\s\\S]*?)\\n  // <<< ${name}`).exec(termSrc);
+  assert(m, `marqueurs >>> ${name} / <<< ${name} introuvables dans karl-term.js`);
+  return vm.runInNewContext("(" + m[1] + ")");
+};
+const ttydHandshake    = pick("ttydHandshake");
+const ttydEncodeResize = pick("ttydEncodeResize");
+const ttydEncodeInput  = pick("ttydEncodeInput");
+const ttydDecode       = pick("ttydDecode");
+
+// handshake : ttyd attend exactement ces trois clés
+assert.deepStrictEqual(JSON.parse(ttydHandshake("tok", 80, 24)),
+  { AuthToken: "tok", columns: 80, rows: 24 }, "handshake ttyd");
+assert.strictEqual(JSON.parse(ttydHandshake(null, 80, 24)).AuthToken, "",
+  "handshake sans token → chaîne vide (pas null)");
+
+// resize : commande '1' suivie du JSON des dimensions
+assert.strictEqual(ttydEncodeResize(120, 40), '1{"columns":120,"rows":40}', "framing resize");
+
+// input : commande '0' (0x30) suivie du texte en UTF-8
+const enc = (s) => new Uint8Array(Buffer.from(s, "utf8"));
+const frame = ttydEncodeInput("é", enc);
+assert.strictEqual(frame[0], 0x30, "input : premier octet = '0'");
+assert.deepStrictEqual(Array.from(frame.slice(1)), [0xc3, 0xa9], "input : « é » en UTF-8 (2 octets)");
+assert.strictEqual(ttydEncodeInput("", enc).length, 1, "input vide = commande seule");
+
+// décodage : premier octet = commande, reste = charge utile
+const dec = ttydDecode(new Uint8Array([0x30, 0x41, 0x42]));
+assert.strictEqual(dec.cmd, "0", "decode : commande OUTPUT");
+assert.deepStrictEqual(Array.from(dec.payload), [0x41, 0x42], "decode : charge utile");
+assert.strictEqual(ttydDecode(new Uint8Array([])), null, "decode : message vide → null");
+assert.strictEqual(ttydDecode(new Uint8Array([0x31])).payload.length, 0,
+  "decode : commande sans charge utile");
+console.log("✓ protocole ttyd (handshake, input, resize, decode)");
+
+// — 6. palette ANSI du terminal (RM2522) —
+// Retour de test : le fond était repris de --term-bg (#000, un invariant qui ne
+// décrivait que le CADRE de l'ancienne iframe) et la palette ANSI était celle,
+// implicite, de xterm — les gris du TUI devenaient illisibles. On vérifie
+// désormais que CHAQUE couleur tient sur le fond de son thème.
+const termPalette = pick("termPalette");
+const termBg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-bg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-bg"] };
+const termFg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-fg"],
+                 light: hexOf(':root[data-theme="light"]')["--term-fg"] };
+for (const mode of ["dark", "light"]) {
+  assert(termBg[mode] && termFg[mode], `tokens --term-bg/--term-fg définis en ${mode}`);
+  // le texte courant doit être confortable (AA)
+  const rFg = contrast(termFg[mode], termBg[mode]);
+  assert(rFg >= 4.5, `${mode} : --term-fg sur --term-bg = ${rFg.toFixed(2)}:1 < 4.5`);
+  // les 16 couleurs ANSI sont décoratives : plancher 3:1 (AA « gros texte » /
+  // éléments non textuels), sauf `black`/`brightBlack` qui servent de FOND à du
+  // texte dans certains TUI — on exige seulement qu'ils se distinguent du fond.
+  const pal = termPalette(mode === "light");
+  for (const [name, hex] of Object.entries(pal)) {
+    const r = contrast(hex, termBg[mode]);
+    const floor = name === "black" ? 1.15 : 3;
+    assert(r >= floor, `${mode} : ANSI ${name} (${hex}) sur fond = ${r.toFixed(2)}:1 < ${floor}`);
+  }
+}
+console.log("✓ palette ANSI du terminal : contrastes tenus en dark et en light");
+
+// — 7. hook de saisie : ne prendre la main QUE sur le chemin que xterm perd —
+// Deux régressions vécues en prod (RM2522), de sens opposé :
+//   a) le hook prenait la main sur tout `input` insertText, donc aussi sur les
+//      caractères qu'xterm venait d'envoyer depuis le keydown → espaces et
+//      « [ » en double ;
+//   b) ses écouteurs, posés sur un conteneur qui survit aux remontages,
+//      n'étaient jamais retirés : le hook d'une session précédente coupait la
+//      propagation et réémettait sur un terminal disposé → plus AUCUN accent.
+// Le second paramètre n'est donc pas l'identité de la touche mais un fait :
+// xterm a-t-il émis depuis le keydown en cours ?
+const shouldTakeOverInput = pick("shouldTakeOverInput");
+const evt = (o) => Object.assign({ data: "a", inputType: "insertText", isComposing: false }, o);
+
+// mesuré dans Firefox : « é » → keydown "Process", xterm n'émet rien, puis input
+assert.strictEqual(shouldTakeOverInput(evt({ data: "é" }), false), true, "accent abandonné par xterm → on prend la main");
+// mesuré dans Firefox : espace et « [ » → xterm émet dès le keydown, puis input
+assert.strictEqual(shouldTakeOverInput(evt({ data: " " }), true), false, "espace déjà émis par xterm → ne pas doubler");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "[" }), true), false, "crochet déjà émis par xterm → ne pas doubler");
+// composition IME réelle : chemin dédié de xterm, on ne s'en mêle pas
+assert.strictEqual(shouldTakeOverInput(evt({ data: "あ", isComposing: true }), false), false, "IME → laisser xterm");
+// autres types d'input (suppression, collage) : hors périmètre du hook
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "deleteContentBackward" }), false), false, "suppression ignorée");
+assert.strictEqual(shouldTakeOverInput(evt({ inputType: "insertFromPaste" }), false), false, "collage ignoré");
+assert.strictEqual(shouldTakeOverInput(evt({ data: "" }), false), false, "data vide ignorée");
+
+// installAccentFix lui-même, contre un conteneur et un terminal simulés : c'est
+// là que se jouent le cycle de vie des écouteurs et la non-réentrance.
+const mIAF = />>> installAccentFix[\s\S]*?(function installAccentFix[\s\S]*?)\n  \/\/ <<< installAccentFix/.exec(termSrc);
+assert(mIAF, "marqueurs >>> installAccentFix / <<< installAccentFix introuvables");
+const installAccentFix = vm.runInNewContext("(" + mIAF[1] + ")", { shouldTakeOverInput });
+
+function fakeContainer() {
+  const ls = { keydown: [], input: [] };
+  return {
+    addEventListener: (t, f) => ls[t].push(f),
+    removeEventListener: (t, f) => { const i = ls[t].indexOf(f); if (i >= 0) ls[t].splice(i, 1); },
+    count: (t) => ls[t].length,
+    fire(t, ev) {                       // respecte stopImmediatePropagation
+      let stop = false;
+      const e = Object.assign({ stopImmediatePropagation: () => { stop = true; } }, ev);
+      for (const f of ls[t].slice()) { f(e); if (stop) break; }
+    },
+  };
+}
+function fakeTerm(sent) {
+  let cb = null;
+  return {
+    onData(f) { cb = f; return { dispose() { cb = null; } }; },
+    input(d) { sent.push(d); if (cb) cb(d); },        // réémission par le hook
+    keyEmit(d) { sent.push(d); if (cb) cb(d); },      // ce qu'xterm fait au keydown
+  };
+}
+const ta = { classList: { contains: (c) => c === "xterm-helper-textarea" }, value: "" };
+const key = (data) => ({ target: ta, data, inputType: "insertText", isComposing: false });
+
+// espace : xterm émet au keydown, l'`input` qui suit ne doit rien ajouter
+let sent = [], term = fakeTerm(sent), box = fakeContainer();
+let uninstall = installAccentFix(box, term);
+box.fire("keydown", {}); term.keyEmit(" "); box.fire("input", key(" "));
+assert.deepStrictEqual(sent, [" "], "espace envoyé une seule fois");
+
+// accent : xterm n'émet rien, le hook doit suppléer
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, [" ", "é"], "accent repris par le hook");
+
+// deux accents de suite : la réémission du hook ne doit pas passer pour une
+// émission d'xterm, sinon le second serait avalé
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, [" ", "é", "é"], "deux accents consécutifs passent tous les deux");
+
+// désinstallation : plus un seul écouteur ne subsiste sur le conteneur
+uninstall();
+assert.strictEqual(box.count("keydown") + box.count("input"), 0, "écouteurs retirés au dispose");
+box.fire("keydown", {}); box.fire("input", key("è"));
+assert.deepStrictEqual(sent, [" ", "é", "é"], "hook désinstallé : plus aucune émission");
+
+// le défaut de prod : un hook de session précédente laissé en place mange le
+// caractère (il coupe la propagation et réémet dans le vide)
+sent = []; box = fakeContainer();
+const zombieSent = [], zombie = fakeTerm(zombieSent);
+const uninstallZombie = installAccentFix(box, zombie);       // session 1
+uninstallZombie();                                           // … proprement démontée
+term = fakeTerm(sent); installAccentFix(box, term);          // session 2
+box.fire("keydown", {}); box.fire("input", key("é"));
+assert.deepStrictEqual(sent, ["é"], "la session vivante reçoit l'accent");
+assert.deepStrictEqual(zombieSent, [], "la session démontée ne capte plus rien");
+console.log("✓ hook de saisie : accents repris, pas de doublon, écouteurs libérés au démontage");
+// — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
+const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
+assert(fmFrz, "marqueurs >>> sortFrozen / <<< sortFrozen introuvables");
+const sortFrozen = vm.runInNewContext("(" + fmFrz[1] + ")");
+assert.strictEqual(sortFrozen(false, true, 0), false, "ordre stable → jamais gelé");
+assert.strictEqual(sortFrozen(true, true, 99999), true, "dynamique + survol → gelé");
+assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement récent (<2s) → gelé");
+assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
+console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
+
+// — ttsMode (RM2532) : bascule TTS serveur (Piper) ↔ navigateur —
+const fmTts = />>> ttsMode[\s\S]*?(function ttsMode[\s\S]*?)\n\/\/ <<< ttsMode/.exec(html);
+assert(fmTts, "marqueurs >>> ttsMode / <<< ttsMode introuvables");
+const ttsMode = vm.runInNewContext("(" + fmTts[1] + ")");
+assert.strictEqual(ttsMode({ tts: true }, true), "server", "serveur dispo + préféré → server");
+assert.strictEqual(ttsMode({ tts: true }, false), "browser", "serveur dispo mais non préféré → browser");
+assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts → browser");
+assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
+console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
+
+// — sttMode (RM2533) : bascule STT serveur (Whisper) ↔ navigateur —
+const fmStt = />>> sttMode[\s\S]*?(function sttMode[\s\S]*?)\n\/\/ <<< sttMode/.exec(html);
+assert(fmStt, "marqueurs >>> sttMode / <<< sttMode introuvables");
+const sttMode = vm.runInNewContext("(" + fmStt[1] + ")");
+assert.strictEqual(sttMode({ stt: true }, true), "server", "sidecar dispo + préféré → server");
+assert.strictEqual(sttMode({ stt: true }, false), "browser", "sidecar dispo mais non préféré → browser");
+assert.strictEqual(sttMode({ stt: false }, true), "browser", "serveur sans stt → browser");
+assert.strictEqual(sttMode(null, true), "browser", "pas de caps (sidecar muet) → browser");
+console.log("✓ sttMode (RM2533) : serveur si sidecar dispo ET préféré, sinon repli navigateur");
+
+// — 8. composer (RM2527) : collage encadré, garde d'état, historique —
+// Le collage encadré est le cœur du lot : un texte multi-ligne envoyé frappe par
+// frappe fait soumettre le TUI à CHAQUE saut de ligne (un prompt de cinq lignes
+// part en cinq messages tronqués). Encadré par ESC[200~ … ESC[201~, il arrive en
+// une fois, et le retour de validation est émis SÉPARÉMENT.
+const bracketedPaste = pick("bracketedPaste");
+// composerFrames appelle bracketedPaste : le contexte d'évaluation doit la lui fournir
+const mCf = />>> composerFrames[\s\S]*?(function composerFrames[\s\S]*?)\n  \/\/ <<< composerFrames/.exec(termSrc);
+assert(mCf, "marqueurs >>> composerFrames / <<< composerFrames introuvables");
+const composerFrames = vm.runInNewContext("(" + mCf[1] + ")", { bracketedPaste });
+
+assert.strictEqual(bracketedPaste("bonjour"), "\x1b[200~bonjour\x1b[201~", "encadrement simple");
+assert.strictEqual(bracketedPaste("a\nb"), "\x1b[200~a\nb\x1b[201~", "multi-ligne encadré d'un bloc");
+// un \r à l'intérieur du collage vaut validation pour certains TUI → normalisé
+assert.strictEqual(bracketedPaste("a\r\nb"), "\x1b[200~a\nb\x1b[201~", "CRLF normalisé en LF");
+assert.strictEqual(bracketedPaste("a\rb"), "\x1b[200~a\nb\x1b[201~", "CR seul normalisé en LF");
+assert.strictEqual(bracketedPaste(null), "\x1b[200~\x1b[201~", "null toléré");
+
+const fr = composerFrames("ligne 1\nligne 2");
+assert.strictEqual(fr.length, 2, "un collage + un retour de validation");
+assert.strictEqual(fr[0], "\x1b[200~ligne 1\nligne 2\x1b[201~", "le texte part encadré");
+assert.strictEqual(fr[1], "\r", "la validation est HORS du collage");
+assert(!fr[0].includes("\r"), "aucun retour chariot à l'intérieur du collage");
+assert.deepStrictEqual(Array.from(composerFrames("x", false)), ["\x1b[200~x\x1b[201~"], "submit=false : pas de validation");
+assert.deepStrictEqual(Array.from(composerFrames("")), [], "texte vide : rien n'est émis (pas même un Entrée)");
+assert.deepStrictEqual(Array.from(composerFrames(null)), [], "null : rien n'est émis");
+console.log("✓ composer (RM2527) : collage encadré en un bloc, validation émise à part");
+
+// — garde d'état : taper du texte dans un menu SÉLECTIONNE des options —
+const fmCg = />>> composerGuard[\s\S]*?(function composerGuard[\s\S]*?)\n\/\/ <<< composerGuard/.exec(html);
+assert(fmCg, "marqueurs >>> composerGuard / <<< composerGuard introuvables");
+const composerGuard = vm.runInNewContext("(" + fmCg[1] + ")");
+assert.strictEqual(composerGuard("idle").allow, true, "idle → envoi permis");
+assert.strictEqual(composerGuard("working").allow, true, "working → envoi permis");
+assert.strictEqual(composerGuard(undefined).allow, true, "état inconnu → on ne bloque pas");
+assert.strictEqual(composerGuard("choice").allow, false, "menu ouvert → envoi retenu");
+assert.strictEqual(composerGuard("attention").allow, false, "question en attente → envoi retenu");
+assert(/menu/i.test(composerGuard("choice").warn), "le refus explique le menu");
+assert(/question/i.test(composerGuard("attention").warn), "le refus explique la question");
+assert.strictEqual(composerGuard("idle").warn, null, "aucun avertissement quand c'est permis");
+console.log("✓ composer (RM2527) : garde d'état sur les menus (attention / choice)");
+
+// — historique des envois —
+const fmCh = />>> composerHistoryAdd[\s\S]*?(function composerHistoryAdd[\s\S]*?)\n\/\/ <<< composerHistoryAdd/.exec(html);
+assert(fmCh, "marqueurs >>> composerHistoryAdd / <<< composerHistoryAdd introuvables");
+const composerHistoryAdd = vm.runInNewContext("(" + fmCh[1] + ")");
+assert.deepStrictEqual(Array.from(composerHistoryAdd([], "a")), ["a"], "premier message");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "b")), ["b", "a"], "le plus récent en tête");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["b", "a"], "a")), ["a", "b"], "un renvoi remonte, sans doublon");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "  a  ")), ["a"], "espaces de bord ignorés");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "   ")), ["a"], "message vide non retenu");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(null, "a")), ["a"], "liste absente tolérée");
+assert.strictEqual(composerHistoryAdd(["a", "b", "c"], "d", 3).length, 3, "plafond respecté");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a", "b", "c"], "d", 3)), ["d", "a", "b"], "le plus ancien tombe");
+console.log("✓ composer (RM2527) : historique sans doublon, récent en tête, plafonné");
 
 console.log("OK — tous les tests cockpit passent");

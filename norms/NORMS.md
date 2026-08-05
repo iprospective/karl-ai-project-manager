@@ -1,10 +1,10 @@
 ---
-schema_version: "1.64.0"
-updated: 2026-07-29
+schema_version: "1.66.0"
+updated: 2026-08-03
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.64.0
+# Normes de gestion des tâches — v1.66.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -63,7 +63,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
-3. **Branche par ticket + livraison par MR.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé). → `modules/git-mep.md`
+3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé).
+   **Exception — dépôts de DONNÉES PM (`*-core`), RM2440 :** un dépôt portant un `.mmi-pm/` ou `.mmi-pm-client/` **réel** à sa racine (*symlink* = workspace de code, **pas** un core) n'a ni code ni revue possible — l'historique git **est** l'audit. Sa branche de prod accepte le **push direct** (`push=Developer`) : les scripts pm-* y écrivent sans branche ni MR. Pas un contournement : `allow_force_push=false` reste posé, l'historique ne peut que **croître**. → `modules/git-mep.md`
 4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
 6. **redmine_id obligatoire.** Toute tâche/projet MD est reliée à son équivalent Redmine ; nom de fichier `RM{id}_…` cohérent avec `redmine_id`. → `modules/status-workflow.md`
@@ -249,19 +250,31 @@ Autour du core, deux dossiers structurent le **code** :
     <repo>.git                   # dépôt de CODE, bare — la SOURCE
   envs/
     <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
-    <repo>-dev-<RMid>-s<seq>     # WORKTREE de ticket (pm-branch-start --worktree)
+    <repo>-rm<RMid>              # WORKTREE de ticket (pm-branch-start --worktree, pm-env-session create)
+    <repo>-rm<RMid>-s<seq>       # … suffixé UNIQUEMENT si le canonique sert déjà une autre branche
   …                              # data/, démos, .claude/ … gitignoré par le core
 ```
 
 Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
 `git-mep` pour le workflow branche/worktree par ticket).
 
+**Nommage des worktrees — convention unique `<repo>-rm<RMid>` (RM2523).** Le nom
+dérive du **dépôt** (`repos/<repo>.git`), jamais du worktree depuis lequel on
+lance la commande. Le faire dériver du worktree courant — ce que faisait
+`pm-branch-start` — concatène son nom à chaque création en cascade et produit des
+`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…` (7 cas sur le workspace PM en 2026-08).
+Même règle pour le champ `git.repo` du frontmatter : il porte le nom canonique du
+dépôt, pas celui d'un worktree ; les valeurs héritées sont normalisées à
+l'écriture. Le suffixe `-s<seq>` ne sert qu'à départager deux sessions sur un même
+ticket. Un worktree se **résout par sa branche** (`<RMid>-<slug>`), jamais par son
+nom deviné — c'est ce qui rend le nommage indifférent à l'outillage.
+
 **Deux dépôts, deux destinations de commit — ne jamais les confondre :**
 
-| Ce que tu commites | Où | Dépôt / remote |
-|---|---|---|
-| **Travail / code** (src, tests, config appli) | un **worktree** sous `envs/` | dépôt de code (`repos/<repo>.git` → ex. `worm-web-orm`) |
-| **Structure / projet** (tâches, docs, overview, mémoire — tout `.mmi-pm/`) | le **core** (racine du workspace) | dépôt core (ex. `Worm-core.git`) |
+| Ce que tu commites | Où | Dépôt / remote | Protection de la branche de prod |
+|---|---|---|---|
+| **Travail / code** (src, tests, config appli) | un **worktree** sous `envs/` | dépôt de code (`repos/<repo>.git` → ex. `worm-web-orm`) | push **personne** → branche de ticket + **MR** |
+| **Structure / projet** (tâches, docs, overview, mémoire — tout `.mmi-pm/`) | le **core** (racine du workspace) | dépôt core (ex. `Worm-core.git`) | push **Developer** → écriture **directe** des scripts pm-* |
 
 Les commits de code partent vers le remote du **code** ; les auto-commits PM (`pm-*`,
 qui ne touchent que `.mmi-pm/`) partent vers le remote du **core**. **Corollaires
@@ -269,7 +282,16 @@ structurels** (invariants pour l'outillage) :
 
 - un dépôt porteur d'un `.mmi-pm` à sa racine **est un core**, **jamais** une cible de
   branche de code — le code se branche dans un worktree `envs/` tiré de `repos/` ;
-- un worktree `envs/` n'est **jamais** l'endroit où l'on commite une tâche/doc PM.
+- un worktree `envs/` n'est **jamais** l'endroit où l'on commite une tâche/doc PM ;
+- le marqueur doit être un **dossier réel** : dans un workspace de code, `.mmi-pm` est
+  un **symlink** vers le dossier PM centralisé — ce workspace n'est **pas** un core et
+  sa branche de prod reste protégée comme du code (RM2440). C'est le test qui distingue
+  les deux régimes de protection ci-dessus, implémenté une seule fois dans
+  `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
+
+La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
+GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
+régime, l'historique ne peut que croître.
 
 **Même motif au niveau entité/client** : une entité a son propre **`.mmi-pm-client`**
 (core client), porté par son dépôt dédié.
@@ -534,7 +556,9 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
-| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
+| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
+| Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
+| Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |
 | Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
 | Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
 | Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
@@ -1878,6 +1902,14 @@ Points de vigilance :
 > ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
 > libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
 
+> **Destination (RM2440).** Sur un **core**, le push va **directement sur la branche
+> de prod** — ni repli `dev`, ni promotion, donc pas d'arriéré. Un rejet
+> **non-fast-forward** y est rattrapé par `pm_git` (fetch + `rebase --autostash` sous
+> verrou, puis re-push) ; sur **conflit** : `rebase --abort` + warning. Levée **ciblée**
+> de l'invariant « pas de rebase dans l'arbre partagé » — cores seulement ; **code**
+> inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
+> déboguer), cf. `worker-common` § Restitution.
+
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
 git approprié. La règle s'applique à **deux périmètres** :
@@ -1990,24 +2022,26 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   une merge request de la branche de ticket vers la branche de base (version
   active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
   distante conservée** (cf. KERNEL #3).
-- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
-  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
-  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
-  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
-  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
-  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048).
-- **Enforcement GitLab — outil `pm-protect` (RM2052)** : `pm-protect [--repo PATH |
-  --project-id N]` applique la **politique de protection standard** (idempotent,
-  `allow_force_push=false`, branche absente ignorée), token *manager* :
+- **Aucun commit/push direct sur une branche protégée d'un dépôt de CODE** (KERNEL #3)
+  — dès le flux 2 branches : `dev` **et** prod ne reçoivent que des **merges de MR**,
+  promotion comprise. Un commit direct sur `main` court-circuite la promotion →
+  divergences et **collisions de version NORMS** (vécu : RM2035/2038/2048). Les **cores**
+  ont leur propre régime (tableau ci-dessous).
+- **Enforcement GitLab — outil `pm-protect` (RM2052, étendu RM2440)** : `pm-protect
+  [--repo PATH | --project-id N | --all-cores]` applique la politique de protection
+  (idempotent, `allow_force_push=false`, branche absente ignorée), token *manager*.
+  **Deux politiques**, selon la nature du dépôt :
 
-  | Branche | Allowed to push | Allowed to merge |
+  | Branche | Dépôt de **code** | Dépôt **core** |
   |---|---|---|
-  | prod (`main`, ou `master` si elle existe) | **personne** | Maintainer |
-  | intégration (`dev`) | **Maintainer** (restructuration assumée) | Maintainer |
-  | `preprod` (flux 3 branches) | **personne** | Maintainer |
+  | prod (`main`, ou `master`) | push **personne** / merge Maintainer | push **Developer** / merge Maintainer |
+  | intégration (`dev`) | push Maintainer / merge Maintainer | idem — conservée, sans trafic |
+  | `preprod` (flux 3 branches) | push **personne** / merge Maintainer | — |
 
-  `merge=Maintainer` laisse `pm-mr merge` (karl manager) fonctionner ; `push=personne`
-  sur prod force la promotion **par MR**. À (ré)appliquer sur chaque repo PM-piloté.
+  Core : `push=Developer` = le niveau de l'identité qui pousse (`karl-dev`, *worker*).
+  ⚠ **`push=Maintainer` y équivaut à `push=personne`** — piège à l'origine de l'arriéré
+  de juillet 2026. **Prérequis** : le compte *manager* doit être
+  **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
@@ -2120,6 +2154,38 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   ticket ne se marchent pas dessus**. Le registre `var/sessions/` mémorise les
   branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
   courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
+
+#### Base de dev partagée entre worktrees : ne pas confondre avec une anomalie
+
+En layout worktrees (RM1993/RM2267), **les fichiers sont par branche mais la base
+de données de dev est partagée** par tous les worktrees du projet. Un module, une
+entité ou une configuration peut donc être **enregistré et actif en base** alors
+que **ses fichiers sont absents du worktree courant** — parce qu'ils vivent sur la
+branche d'un autre ticket, pas encore mergée.
+
+Cas réel (2026-08-01, `calicote/prestashop`) : un module apparaissait « installé,
+actif, 6 hooks » en base, avec **0 fichier sur disque**. Diagnostic tentant :
+module fantôme, enregistrement à nettoyer. **Faux** — ses fichiers étaient dans
+deux autres worktrees, sur des branches en cours.
+
+Le risque n'est pas la perte de temps : c'est de **« corriger » une fausse
+anomalie** en désinstallant un enregistrement légitime, et de casser le travail
+d'une autre session.
+
+> **Règle.** Avant de qualifier d'anomalie un écart **base ↔ fichiers**, chercher
+> les fichiers **dans les autres worktrees du projet** :
+>
+> ```bash
+> for d in <workspace>/envs/*/; do
+>   printf '%-34s %-40s %3s fichiers\n' "$(basename "$d")" \
+>     "$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)" \
+>     "$(find "$d/<chemin>" -type f 2>/dev/null | wc -l)"
+> done
+> ```
+>
+> S'ils y sont : ce n'est **pas** une anomalie, c'est du travail en cours sur une
+> autre branche. Ne rien toucher, et vérifier qu'aucun ticket n'est ouvert dessus
+> avant d'intervenir.
 
 #### Projets versionnés : branche de version active (base de branchement) — v1.20.0
 

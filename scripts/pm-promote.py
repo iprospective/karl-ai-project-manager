@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """pm-promote — promotion par lot intégration → branche protégée (RM2298).
 
-Depuis la protection des branches (RM2030), l'auto-push des scripts pm-* replie
-les commits sur la branche d'intégration (`dev`, cf. pm_git). Ce script promeut
-le lot vers la branche protégée : MR `dev→main` créée (ou réutilisée si déjà
-ouverte) puis mergée avec le PAT *manager* — les données PM ne passent pas par
-une revue humaine. Idempotent ; ne touche JAMAIS l'arbre de travail local (pas
-de rebase/merge local — invariant pm_git sur arbre partagé dirty).
+⚠ **OUTIL DE TRANSITION (RM2440).** Depuis que les dépôts core acceptent le push
+direct sur leur branche de prod (`pm-protect` pose push=Developer ; `pm_git`
+pousse directement et rattrape les non-fast-forward), plus aucun commit de
+données PM ne transite par `dev` : ce script n'a plus de rôle dans le flux
+nominal. Il reste pour deux usages :
+  - **résorber l'arriéré** hérité de l'ancien mécanisme (les commits déjà
+    présents sur `dev` avant la bascule) ;
+  - promouvoir un dépôt de **code** dont on veut merger l'intégration par MR.
+Les branches `dev` des cores sont conservées (elles peuvent servir à dénouer un
+merge ponctuel), mais elles ne reçoivent plus de trafic automatique.
+
+Fonctionnement : MR `dev→main` créée (ou réutilisée si déjà ouverte) puis mergée
+avec le PAT *manager* — les données PM ne passent pas par une revue humaine.
+Idempotent ; ne touche JAMAIS l'arbre de travail local (pas de rebase/merge
+local — invariant pm_git sur arbre partagé dirty).
 
 Usage :
     pm-promote.py [--repo PATH] [--source dev] [--target main]
@@ -19,26 +28,29 @@ import argparse
 import importlib.util
 import subprocess
 import sys
-import urllib.parse
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-# pm-mr.py (nom à tiret) porte déjà l'auth GitLab, la résolution de projet par
-# match EXACT de path_with_namespace (RM2219) et le merge idempotent — réutilisé.
+# Primitives forge (résolution projet RM2219, create/get/merge PR) via pm_forge
+# (RM2498). La POLITIQUE de merge (_merge_with_policy : idempotence déjà-mergée,
+# gardes d'état) est réutilisée de pm-mr.py (nom à tiret → import dynamique).
 _spec = importlib.util.spec_from_file_location("pm_mr", HERE / "pm-mr.py")
 pmmr = importlib.util.module_from_spec(_spec)
 sys.modules["pm_mr"] = pmmr
 _spec.loader.exec_module(pmmr)
-# API_BASE est une globale posée par le main() de pm-mr — requise par pmmr.api().
-pmmr.API_BASE = pmmr.base_url() + "/api/v4"
 
+import pm_forge
 import pm_git
 
 
 def _git(repo, *a):
     return subprocess.run(["git", "-C", str(repo), *a], capture_output=True, text=True)
+
+
+def origin_range(tgt, src):
+    return f"origin/{tgt}..origin/{src}"
 
 
 def main():
@@ -59,10 +71,12 @@ def main():
     if src == tgt:
         sys.exit(f"ERREUR : source == cible ({src}).")
 
-    rp = pmmr.repo_path_from_remote(repo)
-    token = pmmr.token_for("manager")
-    pid, proj = pmmr.resolve_project_id(token, rp)
-    print(f"→ projet {proj['path_with_namespace']} (id {pid}) : {src} → {tgt}")
+    forge = pm_forge.get_forge(repo)
+    if not forge.capabilities.pull_request_api:
+        sys.exit("ERREUR : pm-promote nécessite une forge avec API PR (GitLab).")
+    token = forge.token("manager")
+    project = forge.resolve_project(token)
+    print(f"→ projet {project.path} (id {project.id}) : {src} → {tgt}")
 
     # 1. Pousser les commits locaux en attente vers la branche d'intégration
     #    (repli pm_git déjà fait en temps normal — ceci rattrape les différés).
@@ -75,38 +89,48 @@ def main():
             print(f"  ⚠ flush local → {src} impossible ({last}) — promotion du lot déjà distant seulement")
 
     # 2. Delta réel à promouvoir (côté remote).
-    _git(repo, "fetch", "origin")
+    f = _git(repo, "fetch", "origin")
+    if f.returncode != 0:
+        last = (f.stderr or "").strip().splitlines()
+        sys.exit(f"ERREUR : git fetch origin a échoué ({last[-1] if last else '?'}) — "
+                 f"un comptage sur des refs périmées serait trompeur.")
+
+    # RM2440 — un `rev-list` sur une ref inexistante échoue, ce qui affichait
+    # « ? commit(s) » sans dire pourquoi. Or c'est le cas le plus fréquent : 44
+    # des 66 cores n'ont tout simplement pas de branche `dev` distante. On
+    # distingue donc « ref absente » (rien à faire, sortie normale) de « le
+    # comptage a échoué » (anomalie à signaler).
+    for ref in (f"origin/{src}", f"origin/{tgt}"):
+        if _git(repo, "rev-parse", "--verify", "--quiet", ref).returncode != 0:
+            which = "source" if ref.endswith(f"/{src}") else "cible"
+            print(f"✓ rien à promouvoir : la branche {which} '{ref}' n'existe pas "
+                  f"sur le remote.")
+            return
+
     d = _git(repo, "rev-list", "--count", f"origin/{tgt}..origin/{src}")
-    delta = int(d.stdout.strip() or 0) if d.returncode == 0 else -1
+    if d.returncode != 0:
+        last = (d.stderr or "").strip().splitlines()
+        sys.exit(f"ERREUR : comptage {origin_range(tgt, src)} impossible "
+                 f"({last[-1] if last else 'raison inconnue'}).")
+    delta = int(d.stdout.strip() or 0)
     if delta == 0:
         print(f"✓ rien à promouvoir ({tgt} contient déjà {src}).")
         return
-    print(f"  {delta if delta >= 0 else '?'} commit(s) à promouvoir")
+    print(f"  {delta} commit(s) à promouvoir")
     if args.dry_run:
         print("  (dry-run : ni MR ni merge)")
         return
 
     # 3. MR idempotente + merge (PAT manager).
-    st, lst, _ = pmmr.api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                                 f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-    mr = lst[0] if (st == 200 and isinstance(lst, list) and lst) else None
-    if mr:
-        print(f"↻ MR déjà ouverte : !{mr['iid']}")
+    pr = forge.find_open_pr(project, src, tgt, token)
+    if pr:
+        print(f"↻ MR déjà ouverte : !{pr.iid}")
     else:
         title = args.title or f"Promotion PM {src}→{tgt} (lot auto-push, {delta} commit(s))"
-        st, mr, raw = pmmr.api("POST", f"/projects/{pid}/merge_requests", token, fields={
-            "source_branch": src, "target_branch": tgt, "title": title,
-            "description": "Promotion automatique du lot d'auto-commits pm-* (RM2298).",
-            "remove_source_branch": "false",
-        })
-        if not mr:
-            st2, lst2, _ = pmmr.api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                                           f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-            mr = lst2[0] if (st2 == 200 and isinstance(lst2, list) and lst2) else None
-        if not mr:
-            sys.exit(f"ERREUR création MR (HTTP {st}) : {str(raw)[:200]}")
-        print(f"✓ MR !{mr['iid']} créée")
-    pmmr.merge_mr(pid, mr["iid"], token)
+        pr = forge.create_pr(project, src, tgt, title,
+                             "Promotion automatique du lot d'auto-commits pm-* (RM2298).", token)
+        print(f"✓ MR !{pr.iid} créée")
+    pmmr._merge_with_policy(forge, project, pr.iid, token)
 
 
 if __name__ == "__main__":

@@ -130,7 +130,7 @@ def main():
     core_repo = f"{workspace.name}-core"
 
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : REDMINE_URL + REDMINE_USER_MAIN_API_KEY requis (.env)")
 

@@ -567,8 +567,11 @@ if (window.matchMedia) {
         </div>
       </div>
       <label for="rs-engine">Moteur</label>
+      <!-- RM2539 : peuplé depuis /cockpit-config (resume_engines). En dur sur
+           « claude », il cachait les sessions opencode et vibe alors même que
+           le serveur savait les reprendre. -->
       <select id="rs-engine" onchange="loadResumable()">
-        <option value="claude">claude</option>
+        <option value="">tous</option>
       </select>
       <button class="mini" style="margin-top:8px" onclick="loadResumable()">⟳ Rafraîchir</button>
       <ul class="results" id="rs-list"></ul>
@@ -2507,6 +2510,18 @@ async function resolveRm() {
     populateModels();   // rafraîchit le libellé « défini dans le ticket (…) »
   } catch (e) { resolved = null; el.textContent = ""; el.className = "resolved"; }
 }
+// RM2539 : le panneau de reprise ne propose que les moteurs dont le serveur sait
+// ET reprendre ET découvrir les conversations (`resume_engines`) — inutile
+// d'offrir un moteur qui ne rendrait jamais rien. « tous » reste le défaut.
+function populateResumeEngines() {
+  const sel = document.getElementById("rs-engine");
+  if (!sel) return;
+  const engines = CFG.resume_engines || ["claude"];
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">tous</option>' +
+    engines.map(e => '<option value="' + esc(e) + '">' + esc(e) + "</option>").join("");
+  if (engines.includes(prev)) sel.value = prev;
+}
 // ----- RM1941 : sélecteur de modèle dépendant du moteur -----
 function populateModels() {
   const engine = document.getElementById("engine").value;
@@ -4080,6 +4095,7 @@ async function kill(rmId) {
   // RM2386 : réconcilie le thème du premier paint (cache localStorage) avec le
   // défaut d'instance qu'on vient d'apprendre. No-op si identique.
   setServerTheme(CFG.ui_theme);
+  populateResumeEngines();   // RM2539 : moteurs réellement reprenables
   if (CFG.auth_required) {
     document.getElementById("authcard").style.display = "";
     if (token() && !authUser()) document.getElementById("token").value = token();

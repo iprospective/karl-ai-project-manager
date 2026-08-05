@@ -98,6 +98,75 @@ def test_delegation_set_parent():
         pm_task._ru.set_issue_parent = orig
 
 
+class _FakeForge:
+    """Faux GitlabForge : renvoie des réponses canned, aucun réseau."""
+    def __init__(self, responses):
+        self._responses = responses  # list de (status, data, raw), consommée en ordre
+        self.calls = []
+
+    def api(self, method, path, token, fields=None):
+        self.calls.append((method, path))
+        return self._responses.pop(0)
+
+
+def _gl_provider(responses):
+    p = pm_task.GitlabIssuesTaskProvider(repo="grp/repo")  # GitlabForge réel, pas d'appel réseau
+    p._forge = _FakeForge(list(responses))
+    p._token_cache = "tok"
+    p._pid = 79
+    return p
+
+
+def test_gitlab_issues_capabilities():
+    caps = pm_task.GitlabIssuesTaskProvider(repo="grp/repo").capabilities
+    assert caps.full_text_search is True
+    assert caps.custom_fields is False and caps.time_tracking is False and caps.ia_tag is False
+
+
+def test_factory_gitlab_issues_via_instance():
+    inst = Instance("gl-issues", "task", "gitlab_issues", "https://gl.example",
+                    options={"repo": "grp/repo"})
+    p = pm_task.get_task_provider(instance=inst)
+    assert isinstance(p, pm_task.GitlabIssuesTaskProvider) and p.instance is inst
+
+
+def test_gitlab_issues_requires_repo():
+    inst = Instance("gl-issues", "task", "gitlab_issues", "https://gl.example")  # pas de repo
+    try:
+        pm_task.get_task_provider(instance=inst)
+        raise AssertionError("attendu TaskProviderError (repo requis)")
+    except pm_task.TaskProviderError:
+        pass
+
+
+def test_gitlab_issues_list_and_fetch():
+    p = _gl_provider([(200, [{"iid": 1}, {"iid": 2}], "")])
+    issues = p.list_issues(limit=5)
+    assert [i["iid"] for i in issues] == [1, 2]
+    assert p._forge.calls[0][0] == "GET" and "/projects/79/issues" in p._forge.calls[0][1]
+    p2 = _gl_provider([(200, {"iid": 7, "title": "x"}, "")])
+    assert p2.fetch_issue(7)["iid"] == 7
+
+
+def test_gitlab_issues_http_error_raises():
+    p = _gl_provider([(403, None, "forbidden")])
+    try:
+        p.list_issues()
+        raise AssertionError("attendu TaskProviderError (HTTP 403)")
+    except pm_task.TaskProviderError:
+        pass
+
+
+def test_gitlab_issues_write_out_of_scope():
+    p = pm_task.GitlabIssuesTaskProvider(repo="grp/repo")
+    for call in (lambda: p.add_note(1, "x"), lambda: p.create_issue(), lambda: p.set_parent(1, 2)):
+        try:
+            call()
+            raise AssertionError("attendu TaskProviderError (lecture seule)")
+        except pm_task.TaskProviderError:
+            pass
+
+
 def test_generic_contract_not_implemented():
     base = pm_task.TaskProvider()
     for call in (lambda: base.fetch_issue(1), lambda: base.add_note(1, "x"),

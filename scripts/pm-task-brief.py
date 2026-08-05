@@ -103,8 +103,8 @@ def unread_redmine(fm, rm_id, live):
     if not live:
         return None if last is None else {"since": last}
     try:
-        import redmine_utils as ru
-        issue = ru.fetch_issue(rm_id, include="journals")
+        from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
+        issue = get_task_provider().fetch_issue(rm_id, include="journals")
         journals = issue.get("journals") or []
         new = [j for j in journals if last is None or j["id"] > last]
         return {"since": last, "unread": len(new)}

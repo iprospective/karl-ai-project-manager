@@ -242,6 +242,14 @@ ENGINES = {
         # vibe n'a pas de flag modèle : override par env du champ active_model
         # du ~/.vibe/config.toml (le modèle doit y être déclaré dans [[models]]).
         "model_env": "VIBE_ACTIVE_MODEL",
+        # RM2547 : `vibe --resume <id>` reprend (vérifié v2.23.3) — SANS id, il
+        # ouvre un sélecteur interactif, que le cockpit ne doit jamais déclencher
+        # (il vise toujours une session précise). ⚠ vibe émet des UUID, comme
+        # claude : la forme de l'id NE distingue pas les deux moteurs — c'est le
+        # store par session (`_engine_of_session`, RM2536) qui tranche.
+        "resume_flag": "--resume",
+        "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
+        "store": "vibe_files",
     },
     "shell": {
         "cmd": "bash -l",
@@ -1268,6 +1276,48 @@ def _resume_support(engine: str | None) -> dict | None:
 OPENCODE_DB = Path(os.environ.get("KARL_AGENT_OPENCODE_DB") or (
     Path(os.environ.get("XDG_DATA_HOME") or (Path.home() / ".local" / "share"))
     / "opencode" / "opencode.db"))
+
+
+# Sessions vibe : un dossier par session sous ~/.vibe/logs/session/, nommé
+# `session_<date>_<8 premiers hexa de l'id>`, contenant meta.json (id complet,
+# titre déjà extrait par le moteur, working_directory, dates) et messages.jsonl.
+VIBE_SESSIONS = Path(os.environ.get("KARL_AGENT_VIBE_SESSIONS") or (
+    Path.home() / ".vibe" / "logs" / "session"))
+
+
+def _vibe_session_meta(session_id: str) -> dict:
+    """{title, mtime, cwd} d'une conversation vibe, ou {} si introuvable.
+
+    Le suffixe du dossier ne porte que les 8 premiers hexa de l'id : il sert de
+    filtre, jamais de preuve — c'est le `session_id` de meta.json qui fait foi
+    (deux sessions peuvent partager un préfixe, et un dossier renommé mentirait)."""
+    if not VIBE_SESSIONS.is_dir() or "-" not in session_id:
+        return {}
+    prefix = session_id.split("-")[0]
+    for d in sorted(VIBE_SESSIONS.glob(f"session_*_{prefix}"), reverse=True):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if meta.get("session_id") != session_id:
+            continue        # préfixe partagé : ce n'est pas la bonne session
+        end = meta.get("end_time") or meta.get("start_time")
+        mtime = None
+        if end:
+            try:
+                from datetime import datetime as _dt
+                mtime = int(_dt.fromisoformat(end).timestamp())
+            except ValueError:
+                mtime = None
+        if mtime is None:
+            try:
+                mtime = int((d / "meta.json").stat().st_mtime)
+            except OSError:
+                mtime = None
+        return {"title": (meta.get("title") or None),
+                "cwd": (meta.get("environment") or {}).get("working_directory"),
+                "mtime": mtime}
+    return {}
 
 
 def _opencode_session_meta(session_id: str) -> dict:
@@ -2486,6 +2536,15 @@ _DONE_CACHE: dict = {"at": 0.0, "map": {}}
 _DONE_CACHE_TTL = 30.0
 
 
+# RM2539/RM2547 — lecteur de métadonnées par STORE déclaré dans ENGINES. Ajouter
+# un moteur, c'est déclarer son contrat et poser sa fonction ici : le reste du
+# code (cache, marqueurs, tuiles, reprise) ne bouge pas.
+_ENGINE_META = {
+    "opencode_db": _opencode_session_meta,
+    "vibe_files": _vibe_session_meta,
+}
+
+
 def _transcript_jsonl(session_id: str | None):
     """Transcript d'une session dans les stores claude, ou None (id invalide,
     session inconnue, store absent). Point d'entrée unique de la recherche —
@@ -2496,7 +2555,7 @@ def _transcript_jsonl(session_id: str | None):
                  for p in root.glob(f"*/{session_id}.jsonl")), None)
 
 
-def _transcript_info(session_id: str | None) -> dict:
+def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     """RM2451 — méta du transcript, MÉMORISÉE : {mark, title, mtime, bytes}.
     `/sessions` est polled en continu et chaque entrée de jeu demandait déjà son
     marqueur puis son titre — soit deux globs par session et par appel. Une
@@ -2506,25 +2565,34 @@ def _transcript_info(session_id: str | None) -> dict:
 
     RM2539 — la SOURCE dépend du moteur : transcripts JSONL pour claude, base
     du moteur pour opencode. Le cache et le contrat de sortie sont communs."""
-    if not session_id or not _valid_session_id(session_id):
+    if not session_id or not _valid_session_id(session_id, engine):
         return {}
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
-    if session_id in _DONE_CACHE["map"]:
-        return _DONE_CACHE["map"][session_id]
-    if not _SID_RE.match(session_id):
-        # Pas un id claude → moteur tiers ; aujourd'hui seul opencode expose ses
-        # méta (table `session`). Le marqueur [WIP]/[DONE] y est porté par le
-        # titre, comme côté claude : même extraction.
-        meta = (_opencode_session_meta(session_id)
-                if _ENGINE_SID_RES.get("opencode", _SID_RE).match(session_id) else {})
+    ckey = f"{engine or ''}:{session_id}"      # RM2547 : même UUID, moteurs distincts
+    if ckey in _DONE_CACHE["map"]:
+        return _DONE_CACHE["map"][ckey]
+    if not _SID_RE.match(session_id) or engine:
+        # Moteur tiers (ou moteur imposé par l'appelant) : les méta viennent de
+        # SON store. Le marqueur [WIP]/[DONE] y est porté par le titre, comme
+        # côté claude : même extraction.
+        # ⚠ vibe émet des UUID comme claude (RM2547) : sans `engine`, une telle
+        # session est traitée en claude — c'est l'appelant qui lève l'ambiguïté,
+        # via `_engine_of_session` ou l'`engine` transmis (RM2536).
+        store = (ENGINES.get(engine or "", {}) or {}).get("store")
+        reader = _ENGINE_META.get(store or "")
+        if reader is None and not _SID_RE.match(session_id):
+            reader = next((_ENGINE_META[ENGINES[n]["store"]] for n in ENGINES
+                           if ENGINES.get(n, {}).get("store") in _ENGINE_META
+                           and _ENGINE_SID_RES.get(n, _SID_RE).match(session_id)), None)
+        meta = reader(session_id) if reader else {}
         raw = meta.get("title") or ""
         m = _MARK_RE.match(raw)
         info = {"mark": m.group(1).lower() if m else None,
                 "title": _MARK_RE.sub("", raw).strip() or None,
                 "mtime": meta.get("mtime"), "cwd": meta.get("cwd")} if meta else {}
-        _DONE_CACHE["map"][session_id] = info
+        _DONE_CACHE["map"][ckey] = info
         return info
     info: dict = {}
     jf = _transcript_jsonl(session_id)
@@ -2538,7 +2606,7 @@ def _transcript_info(session_id: str | None) -> dict:
                     "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
         except OSError:
             info = {}
-    _DONE_CACHE["map"][session_id] = info
+    _DONE_CACHE["map"][ckey] = info
     return info
 
 
@@ -3061,7 +3129,7 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
         jf = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{session_id}.jsonl")), None)
         conv = {"cwd": _resume_cwd(jf, engine, session_id)} if jf else None
     else:
-        meta = _opencode_session_meta(session_id)
+        meta = _ENGINE_META[support["store"]](session_id)
         conv = {"cwd": meta.get("cwd")} if meta else None
 
     if not rm_id:

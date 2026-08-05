@@ -55,6 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
+from pm_doc import get_doc_provider, DocProviderError  # seam DocProvider (P3/RM2545)  # noqa: E402
 
 try:
     import yaml
@@ -207,42 +208,41 @@ def canonicalize_remote(text, human_title):
 
 
 # ── Accès Wiki Redmine ───────────────────────────────────────────────────
+# Les 4 primitives d'I/O documentaire délèguent au seam DocProvider (P3/RM2545,
+# backend wiki Redmine) tout en gardant leur contrat historique (mêmes retours,
+# sys.exit sur erreur). `url`/`key` restent dans la signature des appelants mais
+# le provider résout les creds lui-même (globaux — iso ; par instance = P4).
 def wiki_get(url, key, proj, title):
     """GET d'une page wiki. Retourne (exists, text, version)."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}/wiki/{title}.json", key)
-    if code == 200:
-        wp = body.get("wiki_page", {})
-        return True, wp.get("text", ""), wp.get("version")
-    if code == 404:
-        return False, "", None
-    sys.exit(f"ERREUR Redmine HTTP {code} sur GET wiki/{title} : {body.get('_error', '')}")
+    try:
+        return get_doc_provider().get_doc(proj, title)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def wiki_put(url, key, proj, title, text):
     """PUT (create/update) d'une page wiki. Retourne le code HTTP (200/201/204)."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}/wiki/{title}.json", key,
-                              {"wiki_page": {"text": text}})
-    if code not in (200, 201, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT wiki/{title} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_doc(proj, title, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 # ── Description native du projet (cible P3) ──────────────────────────────
 def proj_desc_get(url, key, proj):
     """Description native du projet Redmine (str, '' si vide). Sys.exit si HTTP≠200."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}.json", key)
-    if code != 200:
-        sys.exit(f"ERREUR Redmine HTTP {code} sur GET projet {proj} : {body.get('_error', '')}")
-    return (body.get("project", {}).get("description") or "")
+    try:
+        return get_doc_provider().get_project_description(proj)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def proj_desc_put(url, key, proj, text):
     """PUT partiel de la description du projet. Sys.exit si échec."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}.json", key,
-                              {"project": {"description": text}})
-    if code not in (200, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT projet {proj} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_project_description(proj, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def canonicalize_desc(text):

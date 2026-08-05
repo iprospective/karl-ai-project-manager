@@ -81,6 +81,78 @@ def parse_remote(url):
     return "", s.lstrip("/")
 
 
+# RM2541 — formes d'URL de PR, par forge. Le chemin du dépôt est ce qui précède
+# le séparateur ; l'iid ce qui suit. GitLab intercale `/-/` (et supporte la forme
+# ancienne sans tiret) ; GitHub dit `pull`, Gogs/Gitea `pulls`.
+_PR_URL_SEPS = (("/-/merge_requests/", "gitlab"), ("/merge_requests/", "gitlab"),
+                ("/pull/", "github"), ("/pulls/", "gogs"))
+
+
+def _known_hosts():
+    """Hôtes de forge CONFIGURÉS (dict host → nom de forge). Sert de liste blanche
+    aux URL fournies par l'appelant : un PAT ne part jamais vers un hôte inconnu.
+
+    Source : les mêmes variables que les implémentations (`GITLAB_URL`,
+    `GOGS_URL`, `GITHUB_URL`), plus les défauts qu'elles appliquent."""
+    hosts = {}
+    for var, default, name in (("GITLAB_URL", f"https://{GitlabForge.DEFAULT_HOST}", "gitlab"),
+                               ("GOGS_URL", "", "gogs"),
+                               ("GITHUB_URL", "https://github.com", "github")):
+        base = (os.environ.get(var) or default).strip()
+        if not base:
+            continue
+        h = urllib.parse.urlparse(base if "//" in base else f"https://{base}").hostname
+        if h:
+            hosts[h.lower()] = name
+    return hosts
+
+
+def parse_pr_url(url):
+    """(nom_de_forge, repo_path, iid) depuis l'URL WEB d'une PR/MR — RM2541.
+
+    L'URL est auto-portante : hôte → forge, chemin → projet, fin → iid. C'est
+    l'identifiant canonique d'une PR, là où un iid nu n'a de sens que rapporté à
+    un dépôt (que le cwd décidait en silence : merger depuis le mauvais dossier
+    visait le mauvais projet).
+
+    L'hôte doit figurer parmi les forges CONFIGURÉES : sinon on refuse AVANT tout
+    appel, pour ne pas présenter un PAT à un hôte arbitraire."""
+    s = (url or "").strip()
+    if not s.startswith(("http://", "https://")):
+        raise ForgeError(f"URL de PR attendue (http[s]://…), reçu : {url!r}")
+    u = urllib.parse.urlparse(s)
+    host = (u.hostname or "").lower()
+    known = _known_hosts()
+    if host not in known:
+        raise ForgeError(
+            f"hôte '{host}' inconnu des forges configurées ({', '.join(sorted(known)) or 'aucune'}) "
+            f"— refus d'émettre un token vers un hôte non déclaré. "
+            f"Déclare-le (GITLAB_URL / GOGS_URL / GITHUB_URL) si la forge est légitime.")
+    path = u.path.rstrip("/")
+    for sep, name in _PR_URL_SEPS:
+        if sep in path:
+            repo_path, _, tail = path.partition(sep)
+            iid = tail.split("/")[0]
+            if not iid.isdigit():
+                raise ForgeError(f"numéro de PR illisible dans l'URL : {url!r}")
+            repo_path = repo_path.strip("/")
+            if not repo_path:
+                raise ForgeError(f"chemin de dépôt absent dans l'URL : {url!r}")
+            # L'hôte fait foi sur la forge (un GitLab auto-hébergé peut porter
+            # n'importe quel nom) ; la forme du chemin ne sert qu'à découper.
+            return known[host], repo_path, int(iid)
+    raise ForgeError(
+        f"URL non reconnue comme une PR : {url!r} — formes attendues : "
+        f".../-/merge_requests/<n> (GitLab), .../pull/<n> (GitHub), .../pulls/<n> (Gogs).")
+
+
+def get_forge_from_pr_url(url):
+    """(forge, iid) depuis l'URL d'une PR — sans dépôt local NI cwd. RM2541."""
+    name, repo_path, iid = parse_pr_url(url)
+    impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
+    return impls[name](repo_path), iid
+
+
 def forge_name(hint):
     """Nom de forge depuis un hint (alias ou hostname). None si indéterminé."""
     h = (hint or "").lower()

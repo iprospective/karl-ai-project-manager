@@ -91,10 +91,14 @@ def _deep_merge(base: dict, override: dict) -> dict:
 class PMConfig:
     """Résolveur de chemins du système PM (lecture seule)."""
 
-    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict):
+    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict,
+                 providers: Optional[dict] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
+        # Registre de providers (RM2542/P0) — section `providers:` de pm.config.yml
+        # (servers + defaults). Vide si absente. Consommé par pm_registry.
+        self.providers = providers or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -153,7 +157,7 @@ class PMConfig:
         if not patterns:
             sys.exit("ERREUR : pm.config.yml :: paths est vide")
 
-        return cls(pm_dir_final, projects_root, patterns)
+        return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}))
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:

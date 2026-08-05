@@ -138,6 +138,36 @@ context:
     default: 32768
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
+# ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────
+# Fondation de la généralisation forge → 3 axes (task / forge / doc).
+# INERTE par défaut : les défauts reproduisent l'état actuel (Redmine global +
+# GitLab), aucun script existant ne consomme encore ce bloc (câblage = P1+).
+#
+#   servers.<nom> : une instance déclarée — { axis, type, url, <options…> }
+#                   AUCUN secret ici (URLs + type seulement) ; les identifiants
+#                   sont résolus par instance/dev (P4/RM2546). url accepte
+#                   l'interpolation ${VAR} / ${VAR:-defaut} (comme roots).
+#   defaults.<axe>: instance retenue quand un projet ne surcharge pas
+#                   (via son meta.yml : bloc `providers:` ou legacy redmine:/gitlab:).
+#
+# Résolution : scripts/pm_registry.py :: resolve_instance(project_meta, axis).
+providers:
+  defaults:
+    task:  redmine-ipro
+    forge: gitlab-ipro
+    doc:   redmine-wiki
+  servers:
+    # — axe forge —
+    gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}" }
+    gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022 }
+    github-public:  { axis: forge, type: github, url: "https://github.com" }
+    # — axe task —
+    redmine-ipro:   { axis: task,  type: redmine, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
+    redmine-matnat: { axis: task,  type: redmine, url: "https://tasks.materiaux-naturels.fr" }
+    # — axe doc —
+    redmine-wiki:   { axis: doc,   type: redmine_wiki, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
+    nc-ipro:        { axis: doc,   type: nextcloud, url: "https://cloud.iprospective.fr" }
+
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés
 # pilotent l'apparence du cockpit web, pas le comportement du système PM.

@@ -7,14 +7,27 @@ Sous-commandes :
       (défaut : `integration_branch`, sinon `dev`), pose les CF Redmine GIT
       Branche / GIT PR, option : passe le ticket à `--status` (note auto).
       Idempotent : PR déjà ouverte ⇒ renvoyée.
-  merge <iid> [--repo PATH] [--squash]
-      merge la PR `iid`. **Conserve la branche source** (règle NORMS). Idempotent.
-  close <iid> [--repo PATH] [--expect-rm ID]
-      ferme la PR `iid` SANS merger (PR ouverte par erreur : mauvais repo courant
-      donc mauvais projet résolu, doublon, branche abandonnée). **Conserve la
-      branche source.** Idempotent ; refuse une PR déjà mergée.
-  get <iid> [--repo PATH]
+  merge <URL|iid> [--rm-id ID] [--repo PATH] [--squash]
+      merge la PR. **Conserve la branche source** (règle NORMS). Idempotent.
+  close <URL|iid> [--rm-id ID] [--repo PATH] [--expect-rm ID]
+      ferme la PR SANS merger (PR ouverte par erreur, doublon, branche
+      abandonnée). **Conserve la branche source.** Idempotent ; refuse une PR
+      déjà mergée.
+  get <URL|iid> [--rm-id ID] [--repo PATH]
       état (state + web_url + branches) de la PR.
+
+DÉSIGNER une PR (RM2541) — `merge`, `close`, `get` :
+  1. son **URL** : forme canonique, auto-portante (hôte → forge, chemin →
+     projet, fin → iid). Aucun dépôt local requis, aucun cwd consulté ;
+  2. `--rm-id <ticket>` : raccourci, si et seulement si le ticket porte UNE
+     seule PR mémorisée (sinon refus qui liste les candidates) ;
+  3. un **iid nu**, qui exige alors `--repo` EXPLICITE.
+Un iid n'a de sens que rapporté à un dépôt. Ce dépôt venait du répertoire
+courant, en silence : d'où une MR ouverte sur le mauvais projet (RM2522) et un
+`merge` lancé depuis le dépôt de DONNÉES, échouant en 404 opaque (RM2537).
+Sécurité : une URL dont l'hôte n'est pas une forge déclarée (GITLAB_URL /
+GOGS_URL / GITHUB_URL) est refusée AVANT tout appel — un PAT ne part jamais
+vers un hôte inconnu.
 
 Depuis RM2498 (T2), les primitives forge (résolution projet, create/merge/get PR,
 tokens, API) sont fournies par `pm_forge` : `GitlabForge` reproduit le comportement
@@ -31,7 +44,57 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # charge aussi .env
 from pm_output import out
-from pm_forge import get_forge, ForgeError
+from pm_forge import get_forge, get_forge_from_pr_url, ForgeError
+
+# ── RM2541 : désigner une PR sans dépendre du répertoire courant ─────────────
+# Une PR se désigne par son URL — auto-portante (hôte → forge, chemin → projet,
+# fin → iid). Un iid NU n'a de sens que rapporté à un dépôt : jusqu'ici le cwd
+# le fournissait en silence, et lancer `merge <iid>` depuis le mauvais dossier
+# visait un autre projet (RM2522 : MR ouverte sur le mauvais projet ; RM2537 :
+# merge lancé depuis le dépôt de DONNÉES → 404 opaque). Il l'exige désormais
+# EXPLICITEMENT (`--repo`).
+
+
+def _pr_urls_of_task(rm_id):
+    """URL(s) de PR mémorisées dans le frontmatter d'un ticket (`git.mr_urls[]`,
+    ou l'ancien scalaire `git.mr_url`). Commodité du raccourci `--rm-id` — pas
+    une identité : un ticket porte 0, 1 ou N PR, et ça évolue."""
+    import yaml
+    md = PMConfig.load().find_task(int(rm_id))
+    if not md:
+        sys.exit(f"ERREUR : ticket RM{rm_id} introuvable en local.")
+    m = re.match(r"^(---\n)(.*?)(\n---\n)", md.read_text(encoding="utf-8"), re.S)
+    git = ((yaml.safe_load(m.group(2)) if m else None) or {}).get("git") or {}
+    urls = git.get("mr_urls") or ([git["mr_url"]] if git.get("mr_url") else [])
+    return [u for u in urls if u]
+
+
+def _resolve_pr(args, role):
+    """(forge, token, iid, origine) pour merge/get/close. Ordre : URL explicite,
+    puis raccourci `--rm-id`, puis iid nu — qui EXIGE `--repo`."""
+    target = getattr(args, "target_pr", None)
+    if target and not str(target).isdigit():
+        forge, iid = get_forge_from_pr_url(str(target))
+        return forge, forge.token(role), iid, f"URL {target}"
+    if getattr(args, "rm_id", None):
+        urls = _pr_urls_of_task(args.rm_id)
+        if not urls:
+            sys.exit(f"ERREUR : aucune PR mémorisée sur RM{args.rm_id} "
+                     f"(frontmatter git.mr_urls) — passe l'URL de la PR.")
+        if len(urls) > 1:
+            sys.exit(f"ERREUR : RM{args.rm_id} porte {len(urls)} PR — désigne-la par son URL :\n  "
+                     + "\n  ".join(urls))
+        forge, iid = get_forge_from_pr_url(urls[0])
+        return forge, forge.token(role), iid, f"RM{args.rm_id} → {urls[0]}"
+    if not target:
+        sys.exit("ERREUR : indique l'URL de la PR (recommandé), un --rm-id, "
+                 "ou un iid avec --repo explicite.")
+    if not args.repo:
+        sys.exit(f"ERREUR : iid nu ({target}) sans --repo : le dépôt cible serait déduit du "
+                 f"répertoire courant, qui n'est pas une désignation fiable (RM2541). "
+                 f"Passe l'URL de la PR, ou --repo <chemin du dépôt de code>.")
+    forge = get_forge(args.repo)
+    return forge, forge.token(role), int(target), f"--repo {args.repo}"
 
 
 def current_branch(repo):
@@ -69,6 +132,47 @@ def _post_git_cf(rm_id, branch, pr_url):
         out.warn(f"CF Redmine non posés : {e}")
 
 
+def _record_pr_url(rm_id, pr_url):
+    """Mémorise l'URL de la PR dans le frontmatter du ticket (`git.mr_urls[]`).
+
+    RM2541 : `create` posait le CF Redmine « GIT PR » mais laissait `git.mr_url`
+    à null côté MD — le PM ne savait donc pas quelle PR appartenait à quel
+    ticket (rupture de parité MD↔Redmine). LISTE et non scalaire : un ticket
+    porte parfois plusieurs PR (repos distincts, reprise après abandon).
+    `git.mr_url` est tenu à jour pour l'existant (dernière PR en date)."""
+    if not pr_url:
+        return
+    try:
+        import yaml
+        from datetime import datetime
+        md = PMConfig.load().find_task(int(rm_id))
+        if not md:
+            out.warn(f"frontmatter git.mr_urls non écrit : RM{rm_id} introuvable en local.")
+            return
+        raw = md.read_text(encoding="utf-8")
+        m = re.match(r"^(---\n)(.*?)(\n---\n)(.*)$", raw, re.S)
+        if not m:
+            out.warn(f"frontmatter git.mr_urls non écrit : pas de frontmatter dans {md.name}.")
+            return
+        fm = yaml.safe_load(m.group(2)) or {}
+        git = fm.get("git") or {}
+        urls = list(git.get("mr_urls") or [])
+        if git.get("mr_url") and git["mr_url"] not in urls:
+            urls.append(git["mr_url"])          # reprise de l'ancien scalaire
+        if pr_url not in urls:
+            urls.append(pr_url)
+        git["mr_urls"], git["mr_url"] = urls, pr_url
+        fm["git"] = git
+        fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False,
+                                default_flow_style=False)
+        md.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}",
+                      encoding="utf-8")
+        out.info(f"✓ frontmatter git.mr_urls ({len(urls)}) : {md.name}")
+    except Exception as e:                       # jamais bloquant : la PR existe déjà
+        out.warn(f"frontmatter git.mr_urls non écrit : {e}")
+
+
 def _guard_expect_rm(pr, iid, expect_rm):
     """Garde RM2232 (tripwire #13 étendu) : la PR visée doit porter la branche du
     ticket annoncé, sinon un iid prédit ou mal recopié agirait sur la PR d'autrui.
@@ -97,10 +201,23 @@ def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None)
     out.op("merge", extra=f"!{iid} → {pr.target} (branche {pr.source} conservée)")
 
 
+def _resolved_project(forge, token, args):
+    """Projet forge + trace de l'origine. Sur échec de résolution, le message dit
+    QUOI on a cherché et D'OÙ vient la cible — sans ça, un `404 MR introuvable`
+    laisse croire à un problème de droits alors qu'on interroge le mauvais dépôt."""
+    origin = getattr(args, "_origin", "?")
+    try:
+        project = forge.resolve_project(token)
+    except ForgeError as e:
+        sys.exit(f"ERREUR forge : {e}\n  → dépôt visé : {forge.repo_path} "
+                 f"(résolu depuis {origin})")
+    out.info(f"→ projet {project.path} (id {project.id}) [depuis {origin}]")
+    return project
+
+
 # ── Commandes ────────────────────────────────────────────────────────────────
 def cmd_merge(args, forge, token):
-    project = forge.resolve_project(token)
-    out.info(f"→ projet {project.path} (id {project.id})")
+    project = _resolved_project(forge, token, args)
     _merge_with_policy(forge, project, args.iid, token,
                        squash=args.squash, expect_rm=args.expect_rm)
 
@@ -112,8 +229,7 @@ def cmd_close(args, forge, token):
     if not forge.capabilities.pull_request_api:
         sys.exit("ERREUR : cette forge n'a pas d'API PR (Gogs) — la fermeture est "
                  "un geste web humain.")
-    project = forge.resolve_project(token)
-    out.info(f"→ projet {project.path} (id {project.id})")
+    project = _resolved_project(forge, token, args)
     pr = forge.get_pr(project, args.iid, token)
     _guard_expect_rm(pr, args.iid, args.expect_rm)
     if pr.state == "merged":
@@ -130,8 +246,7 @@ def cmd_close(args, forge, token):
 
 
 def cmd_get(args, forge, token):
-    project = forge.resolve_project(token)
-    print(f"→ projet {project.path} (id {project.id})")
+    project = _resolved_project(forge, token, args)
     pr = forge.get_pr(project, args.iid, token)
     print(f"MR !{pr.iid} [{pr.state}] {pr.source} → {pr.target}"
           f" | {pr.raw.get('detailed_merge_status')}"
@@ -191,6 +306,7 @@ def cmd_create(args, forge, token):
         out.op("mr", extra=f"compare {src}→{tgt} {pr.web_url}")
 
     _post_git_cf(args.rm_id, src, pr.web_url)
+    _record_pr_url(args.rm_id, pr.web_url)
 
     if args.status:
         scr = Path(__file__).resolve().parent / "pm-task-status-update.py"
@@ -231,32 +347,49 @@ def main():
                     help="merge la PR créée dans la foulée (atomique ; forge avec API PR)")
 
     pm = sub.add_parser("merge", help="merge une PR (conserve la branche)")
-    pm.add_argument("iid", type=int)
-    pm.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pm.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                    help="URL de la PR (recommandé : auto-portante) ou iid nu, "
+                         "qui exige alors --repo explicite (RM2541)")
+    pm.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                              "si elle est unique (RM2541)")
+    pm.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
     pm.add_argument("--squash", action="store_true")
     pm.add_argument("--expect-rm", type=int, default=None,
                     help="refuse si la branche source de la PR n'est pas préfixée <id>- "
                          "(protège d'un iid prédit/erroné — RM2232)")
 
     pcl = sub.add_parser("close", help="ferme une PR sans merger (conserve la branche)")
-    pcl.add_argument("iid", type=int)
-    pcl.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pcl.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                     help="URL de la PR (recommandé) ou iid nu + --repo explicite")
+    pcl.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                               "si elle est unique (RM2541)")
+    pcl.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
     pcl.add_argument("--expect-rm", type=int, default=None,
                      help="refuse si la branche source de la PR n'est pas préfixée <id>- "
                           "(protège d'un iid prédit/erroné — RM2232)")
 
     pg = sub.add_parser("get", help="état d'une PR")
-    pg.add_argument("iid", type=int)
-    pg.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pg.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                    help="URL de la PR (recommandé) ou iid nu + --repo explicite")
+    pg.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                              "si elle est unique (RM2541)")
+    pg.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
 
     args = ap.parse_args()
     out.configure(args)
     try:
-        forge = get_forge(args.repo)
         # Token selon le rôle : worker (push/PR), manager (merge/gestion).
         role = {"create": "worker", "merge": "manager",
                 "close": "manager", "get": "worker"}[args.cmd]
-        token = forge.token(role)
+        if args.cmd == "create":
+            # `create` PRODUIT la PR : il lui faut le dépôt local (branche
+            # courante, push) — le cwd y est une source légitime.
+            forge = get_forge(args.repo)
+            token = forge.token(role)
+            args._origin = f"--repo {args.repo}"
+        else:
+            # RM2541 : URL > raccourci --rm-id > iid nu + --repo EXPLICITE.
+            forge, token, args.iid, args._origin = _resolve_pr(args, role)
         {"create": cmd_create, "merge": cmd_merge,
          "close": cmd_close, "get": cmd_get}[args.cmd](args, forge, token)
     except ForgeError as e:

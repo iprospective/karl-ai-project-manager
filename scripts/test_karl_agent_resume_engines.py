@@ -40,8 +40,12 @@ check("RM2539 : claude déclare son contrat de reprise",
       (ka._resume_support("claude") or {}).get("resume_flag") == "--resume")
 check("RM2539 : opencode aussi (--session, vérifié sur v1.18.13)",
       (ka._resume_support("opencode") or {}).get("resume_flag") == "--session")
-check("RM2539 : vibe et shell n'en déclarent pas (refus, pas plantage)",
-      ka._resume_support("vibe") is None and ka._resume_support("shell") is None)
+# RM2547 : vibe a rejoint le contrat (moteur installé, `--resume` vérifié) ;
+# `shell` reste le cas « pas de reprise » — un bash n'a pas de conversation.
+check("RM2547 : vibe déclare son contrat de reprise",
+      (ka._resume_support("vibe") or {}).get("resume_flag") == "--resume")
+check("RM2539 : shell n'en déclare pas (refus, pas plantage)",
+      ka._resume_support("shell") is None)
 check("RM2539 : moteur inconnu → pas de contrat", ka._resume_support("zzz") is None)
 
 # — grammaire des identifiants : elle appartient au moteur —
@@ -112,12 +116,12 @@ check("RM2539 : le dossier de reprise vient de la base du moteur",
 try:
     # session non mémorisée : sans quoi le recoupement RM2536 refuserait d'abord
     # le moteur (409 incohérent) avant d'arriver au contrat de reprise.
-    ka.op_resume({"session_id": "ses_inconnueDeToutStore9", "engine": "vibe",
+    ka.op_resume({"session_id": "ses_inconnueDeToutStore9", "engine": "shell",
                   "rm_id": "2410"}, {"user": None})
     check("RM2539 : moteur sans reprise → refus explicite", False)
 except ka.ApiError as e:
     check("RM2539 : moteur sans reprise → refus explicite (501 + moteurs capables)",
-          e.code == 501 and "claude" in e.msg and "opencode" in e.msg)
+          e.code == 501 and "claude" in e.msg and "opencode" in e.msg and "vibe" in e.msg)
 
 try:
     ka.op_resume({"session_id": UUID_CLAUDE, "engine": "opencode"}, {"user": None})

@@ -42,6 +42,12 @@ for sid in (SID_SLUG, SID_TICK, SID_DEAD):
     (store / f"{sid}.jsonl").write_text(
         '{"type":"user","cwd":"/tmp","message":{"content":"go"}}\n', encoding="utf-8")
 ka.CLAUDE_STORES = [tmp]
+# RM2539 : la découverte n'est plus claude-only — `op_resumable` énumère aussi
+# les conversations opencode et vibe. Ce test porte sur le marquage « tmux
+# vivant » ; on isole donc les stores tiers, sinon les VRAIES sessions de la
+# machine entreraient dans le résultat et le rendraient non reproductible.
+ka.OPENCODE_DB = tmp / "aucune-base-opencode.db"
+ka.VIBE_SESSIONS = tmp / "aucun-dossier-vibe"
 
 # tmux vivants : un slug (karl-ma-session) + un ticket (karl-RM4242). Pas de tmux
 # pour SID_DEAD.

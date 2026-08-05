@@ -1384,8 +1384,10 @@ try:
     ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id": "2410"}, {"user": None})
     check("RM2536 : transcript perdu sans opt-in → refus motivé", False)
 except ka.ApiError as e:
+    # RM2539 : le libellé nomme la CONVERSATION et son moteur (« transcript »
+    # ne veut rien dire pour un moteur qui range ses sessions en base).
     check("RM2536 : transcript perdu sans opt-in → refus motivé (410)",
-          e.code == 410 and "transcript introuvable" in e.msg)
+          e.code == 410 and "introuvable côté claude" in e.msg)
 SPAWNED_2536 = []
 ka.op_spawn = lambda payload, ctx=None: (SPAWNED_2536.append(payload) or {"rm_id": payload["rm_id"]})
 r = ka.op_resume({"session_id": "dd001111-2222-3333-4444-555566667777", "rm_id": "2410", "spawn": True}, {"user": None})

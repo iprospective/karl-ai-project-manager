@@ -63,6 +63,33 @@
   }
   // <<< ttydDecode
 
+  // >>> bracketedPaste
+  // Encadre un texte en « collage entre crochets » (mode 2004 : ESC[200~ … ESC[201~).
+  // Sans ça, un texte multi-ligne envoyé frappe par frappe fait soumettre le TUI à
+  // CHAQUE saut de ligne : un prompt de cinq lignes part en cinq messages tronqués.
+  // Encadré, le TUI le reçoit comme UN collage et n'y voit aucune validation.
+  //
+  // Les fins de ligne sont normalisées en \n : un \r à l'intérieur d'un collage est
+  // interprété par certains TUI comme une validation malgré l'encadrement.
+  function bracketedPaste(text) {
+    return "\x1b[200~" + String(text == null ? "" : text).replace(/\r\n?/g, "\n") + "\x1b[201~";
+  }
+  // <<< bracketedPaste
+
+  // >>> composerFrames
+  // Les trames à émettre pour envoyer `text` au TUI. Le retour chariot de
+  // validation est émis SÉPARÉMENT, hors du collage : à l'intérieur il serait
+  // du texte, et le message resterait dans la zone de saisie du TUI.
+  // Un texte vide ne produit rien — pas même un Entrée à vide.
+  function composerFrames(text, submit) {
+    var body = String(text == null ? "" : text);
+    if (!body) return [];
+    var frames = [bracketedPaste(body)];
+    if (submit !== false) frames.push("\r");
+    return frames;
+  }
+  // <<< composerFrames
+
   /* ── Le correctif des accents (RM2323) ─────────────────────────────────────
    *
    * Mécanisme, prouvé en comparant les sources extraites des sourcemaps de
@@ -272,6 +299,18 @@
     return {
       term: term,
       fit: refit,
+      // Envoi d'un message composé hors du terminal (RM2527). Passe par la même
+      // socket que la frappe, donc par le même PTY : le TUI ne fait aucune
+      // différence. Retourne false si la socket n'est pas prête — l'appelant en
+      // avertit l'utilisateur plutôt que de perdre le message en silence.
+      send: function (text, submit) {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return false;
+        var frames = composerFrames(text, submit);
+        for (var i = 0; i < frames.length; i++) {
+          send(ttydEncodeInput(frames[i], function (s) { return ENC.encode(s); }));
+        }
+        return frames.length > 0;
+      },
       dispose: function () {
         closed = true;
         clearTimeout(retryTimer);
@@ -309,10 +348,12 @@
 
   global.KarlTerm = {
     attach: attach,
-    // exposés pour les tests et le futur composer (L1 de RM2467)
+    // exposés pour les tests et le composer (L1 de RM2467)
     ttydHandshake: ttydHandshake,
     ttydEncodeInput: ttydEncodeInput,
     ttydEncodeResize: ttydEncodeResize,
     ttydDecode: ttydDecode,
+    bracketedPaste: bracketedPaste,
+    composerFrames: composerFrames,
   };
 })(window);

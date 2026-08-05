@@ -579,4 +579,60 @@ assert.strictEqual(sttMode({ stt: false }, true), "browser", "serveur sans stt �
 assert.strictEqual(sttMode(null, true), "browser", "pas de caps (sidecar muet) → browser");
 console.log("✓ sttMode (RM2533) : serveur si sidecar dispo ET préféré, sinon repli navigateur");
 
+// — 8. composer (RM2527) : collage encadré, garde d'état, historique —
+// Le collage encadré est le cœur du lot : un texte multi-ligne envoyé frappe par
+// frappe fait soumettre le TUI à CHAQUE saut de ligne (un prompt de cinq lignes
+// part en cinq messages tronqués). Encadré par ESC[200~ … ESC[201~, il arrive en
+// une fois, et le retour de validation est émis SÉPARÉMENT.
+const bracketedPaste = pick("bracketedPaste");
+// composerFrames appelle bracketedPaste : le contexte d'évaluation doit la lui fournir
+const mCf = />>> composerFrames[\s\S]*?(function composerFrames[\s\S]*?)\n  \/\/ <<< composerFrames/.exec(termSrc);
+assert(mCf, "marqueurs >>> composerFrames / <<< composerFrames introuvables");
+const composerFrames = vm.runInNewContext("(" + mCf[1] + ")", { bracketedPaste });
+
+assert.strictEqual(bracketedPaste("bonjour"), "\x1b[200~bonjour\x1b[201~", "encadrement simple");
+assert.strictEqual(bracketedPaste("a\nb"), "\x1b[200~a\nb\x1b[201~", "multi-ligne encadré d'un bloc");
+// un \r à l'intérieur du collage vaut validation pour certains TUI → normalisé
+assert.strictEqual(bracketedPaste("a\r\nb"), "\x1b[200~a\nb\x1b[201~", "CRLF normalisé en LF");
+assert.strictEqual(bracketedPaste("a\rb"), "\x1b[200~a\nb\x1b[201~", "CR seul normalisé en LF");
+assert.strictEqual(bracketedPaste(null), "\x1b[200~\x1b[201~", "null toléré");
+
+const fr = composerFrames("ligne 1\nligne 2");
+assert.strictEqual(fr.length, 2, "un collage + un retour de validation");
+assert.strictEqual(fr[0], "\x1b[200~ligne 1\nligne 2\x1b[201~", "le texte part encadré");
+assert.strictEqual(fr[1], "\r", "la validation est HORS du collage");
+assert(!fr[0].includes("\r"), "aucun retour chariot à l'intérieur du collage");
+assert.deepStrictEqual(Array.from(composerFrames("x", false)), ["\x1b[200~x\x1b[201~"], "submit=false : pas de validation");
+assert.deepStrictEqual(Array.from(composerFrames("")), [], "texte vide : rien n'est émis (pas même un Entrée)");
+assert.deepStrictEqual(Array.from(composerFrames(null)), [], "null : rien n'est émis");
+console.log("✓ composer (RM2527) : collage encadré en un bloc, validation émise à part");
+
+// — garde d'état : taper du texte dans un menu SÉLECTIONNE des options —
+const fmCg = />>> composerGuard[\s\S]*?(function composerGuard[\s\S]*?)\n\/\/ <<< composerGuard/.exec(html);
+assert(fmCg, "marqueurs >>> composerGuard / <<< composerGuard introuvables");
+const composerGuard = vm.runInNewContext("(" + fmCg[1] + ")");
+assert.strictEqual(composerGuard("idle").allow, true, "idle → envoi permis");
+assert.strictEqual(composerGuard("working").allow, true, "working → envoi permis");
+assert.strictEqual(composerGuard(undefined).allow, true, "état inconnu → on ne bloque pas");
+assert.strictEqual(composerGuard("choice").allow, false, "menu ouvert → envoi retenu");
+assert.strictEqual(composerGuard("attention").allow, false, "question en attente → envoi retenu");
+assert(/menu/i.test(composerGuard("choice").warn), "le refus explique le menu");
+assert(/question/i.test(composerGuard("attention").warn), "le refus explique la question");
+assert.strictEqual(composerGuard("idle").warn, null, "aucun avertissement quand c'est permis");
+console.log("✓ composer (RM2527) : garde d'état sur les menus (attention / choice)");
+
+// — historique des envois —
+const fmCh = />>> composerHistoryAdd[\s\S]*?(function composerHistoryAdd[\s\S]*?)\n\/\/ <<< composerHistoryAdd/.exec(html);
+assert(fmCh, "marqueurs >>> composerHistoryAdd / <<< composerHistoryAdd introuvables");
+const composerHistoryAdd = vm.runInNewContext("(" + fmCh[1] + ")");
+assert.deepStrictEqual(Array.from(composerHistoryAdd([], "a")), ["a"], "premier message");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "b")), ["b", "a"], "le plus récent en tête");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["b", "a"], "a")), ["a", "b"], "un renvoi remonte, sans doublon");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "  a  ")), ["a"], "espaces de bord ignorés");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "   ")), ["a"], "message vide non retenu");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(null, "a")), ["a"], "liste absente tolérée");
+assert.strictEqual(composerHistoryAdd(["a", "b", "c"], "d", 3).length, 3, "plafond respecté");
+assert.deepStrictEqual(Array.from(composerHistoryAdd(["a", "b", "c"], "d", 3)), ["d", "a", "b"], "le plus ancien tombe");
+console.log("✓ composer (RM2527) : historique sans doublon, récent en tête, plafonné");
+
 console.log("OK — tous les tests cockpit passent");

@@ -143,6 +143,35 @@
   #termhost { flex: 1; width: 100%; min-height: 0; background: var(--term-bg);
     padding: 4px 0 0 6px; box-sizing: border-box; }
   #termhost .xterm { height: 100%; }
+  /* RM2527 : composer — barre de saisie permanente sous le terminal. `flex: none`
+     pour qu'il garde sa hauteur : c'est le terminal qui cède (min-height: 0). */
+  #composer { flex: none; border-top: 1px solid var(--line); background: var(--panel2);
+    padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+  #cmptext { width: 100%; box-sizing: border-box; resize: vertical; min-height: 42px;
+    max-height: 40vh; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 13px;
+    line-height: 1.45; }
+  #cmptext:focus { outline: none; border-color: var(--accent); }
+  #cmptext:disabled { opacity: .55; cursor: not-allowed; }
+  .cmpbar { display: flex; align-items: center; gap: 8px; }
+  .cmphint { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .mini.primary { border-color: var(--accent); color: var(--accent); }
+  .mini.primary:disabled { opacity: .5; cursor: not-allowed; border-color: var(--line);
+    color: var(--muted); }
+  /* Avertissement de garde d'état : un envoi texte pendant un menu SÉLECTIONNE
+     une option au lieu d'écrire (RM2527). */
+  .cmpwarn { border: 1px solid var(--warn); border-left-width: 3px; border-radius: 6px;
+    padding: 6px 10px; font-size: 12px; color: var(--warn); background: var(--panel); }
+  .cmpwarn b { color: var(--fg); }
+  .cmphist { max-height: 30vh; overflow-y: auto; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--panel); }
+  .cmphist .hitem { padding: 6px 10px; font-size: 12px; font-family: var(--mono);
+    color: var(--muted); cursor: pointer; border-bottom: 1px solid var(--line);
+    white-space: pre-wrap; overflow-wrap: anywhere; }
+  .cmphist .hitem:last-child { border-bottom: 0; }
+  .cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
+  .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
   .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
@@ -735,6 +764,22 @@ if (window.matchMedia) {
           ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
         </div>
         <div id="termhost" style="display:none"></div>
+        <!-- RM2527 : composer — écrire sans passer par le clavier du terminal.
+             Reste sous le terminal, ne prend le focus que si on clique dedans. -->
+        <div id="composer" style="display:none">
+          <div class="cmpwarn" id="cmpwarn" style="display:none"></div>
+          <textarea id="cmptext" rows="2" spellcheck="false"
+            placeholder="Écris ton message — Entrée envoie, Maj+Entrée saute la ligne"
+            aria-label="Message à envoyer à la session attachée"></textarea>
+          <div class="cmpbar">
+            <button class="mini" id="cmphistbtn" onclick="composerHistoryToggle()"
+              title="Messages déjà envoyés dans cette session (↑ / ↓ dans le champ vide)">historique ▾</button>
+            <span class="cmphint" id="cmphint"></span>
+            <button class="mini primary" id="cmpsend" onclick="composerSend()"
+              title="Envoyer à la session attachée (Entrée)">Envoyer ⏎</button>
+          </div>
+          <div class="cmphist" id="cmphist" style="display:none"></div>
+        </div>
         <!-- repli si le bundle xterm ne charge pas (RM2522) -->
         <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
@@ -1100,6 +1145,7 @@ async function refreshSessions() {
     sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
     // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
     sessions.forEach(s => { sessCache[s.rm_id] = s; });
+    composerRefresh();                     // RM2527 : la garde suit l'état live
     // si la session affichée a disparu (kill externe) → on détache la vue
     // (RM2427 : un fantôme du même id ne compte pas — il ne tourne pas)
     if (attached && !sessions.some(s => s.rm_id === attached && !s.ghost)) detach();
@@ -3025,11 +3071,13 @@ function mountTerm(rmId) {
   if (!termAvailable()) {                                  // repli : iframe ttyd
     host.style.display = "none";
     f.style.display = "block"; f.src = ttydUrl(rmId);
+    composerShow(true);                                          // RM2527 : repli via POST /send
     return;
   }
   unmountTerm();
   host.style.display = "block";
   termSession = window.KarlTerm.attach(host, String(rmId), { base: termBase() });
+  composerShow(true);                                            // RM2527
   setTimeout(() => { if (termSession) termSession.fit(); }, 0);   // après le 1er rendu
 }
 function unmountTerm() {
@@ -3037,6 +3085,172 @@ function unmountTerm() {
   if (termSession) { try { termSession.dispose(); } catch (e) {} termSession = null; }
   host.innerHTML = ""; host.style.display = "none";
   f.src = "about:blank"; f.style.display = "none";
+  composerShow(false);                                           // RM2527
+}
+
+/* ── RM2527 : composer ─────────────────────────────────────────────────────
+   Écrire un message sans passer par le clavier du terminal. L'envoi emprunte
+   la socket ttyd du client maison (L0/RM2522), donc le même PTY : le TUI ne
+   fait aucune différence avec une frappe. */
+
+// >>> composerGuard
+// Un envoi texte pendant qu'un menu est ouvert ne s'écrit pas : chaque caractère
+// SÉLECTIONNE une option, et le retour valide ce qui se trouve sous le curseur.
+// On refuse donc l'envoi au clavier dans ces états et on exige un geste explicite.
+//   attention : question oui/non en attente
+//   choice    : menu à choix multiple ouvert
+function composerGuard(state) {
+  if (state === "choice") {
+    return { allow: false, warn: "Un menu de choix est ouvert dans la session : "
+      + "ton texte sélectionnerait des options au lieu de s'écrire." };
+  }
+  if (state === "attention") {
+    return { allow: false, warn: "La session attend une réponse à une question : "
+      + "ton texte pourrait valider une option au lieu de s'écrire." };
+  }
+  return { allow: true, warn: null };
+}
+// <<< composerGuard
+
+// >>> composerHistoryAdd
+// Historique des envois de la session : le plus récent en tête, sans doublon
+// consécutif ni répétition ailleurs dans la liste, plafonné.
+function composerHistoryAdd(list, text, max) {
+  const t = String(text == null ? "" : text).trim();
+  if (!t) return (list || []).slice();
+  const out = (list || []).filter(x => x !== t);
+  out.unshift(t);
+  return out.slice(0, max || 30);
+}
+// <<< composerHistoryAdd
+
+const CMP_HIST_MAX = 30;
+let cmpHistPos = -1;          // navigation ↑/↓ dans le champ vide
+let cmpDraft = "";            // brouillon mis de côté pendant la navigation
+
+const cmpHistKey = (rmId) => "karlComposerHist:" + rmId;
+function composerHistory(rmId) {
+  try { return JSON.parse(localStorage.getItem(cmpHistKey(rmId)) || "[]") || []; }
+  catch (e) { return []; }
+}
+function composerHistorySave(rmId, list) {
+  try { localStorage.setItem(cmpHistKey(rmId), JSON.stringify(list)); } catch (e) {}
+}
+
+function composerShow(on) {
+  document.getElementById("composer").style.display = on ? "flex" : "none";
+  if (!on) {
+    document.getElementById("cmphist").style.display = "none";
+    document.getElementById("cmptext").value = "";
+  }
+  cmpHistPos = -1; cmpDraft = "";
+  composerRefresh();
+  if (termSession) setTimeout(() => termSession.fit(), 0);   // le terminal cède la hauteur
+}
+
+// État courant de la session attachée → garde + libellés. Appelée à chaque
+// rafraîchissement de /sessions : l'avertissement suit l'état en direct.
+function composerRefresh() {
+  const box = document.getElementById("composer");
+  if (!box || box.style.display === "none") return;
+  const g = composerGuard((sessCache[attached] || {}).state);
+  const warn = document.getElementById("cmpwarn");
+  warn.style.display = g.warn ? "block" : "none";
+  if (g.warn) warn.innerHTML = "<b>Envoi retenu.</b> " + esc(g.warn);
+  const btn = document.getElementById("cmpsend");
+  btn.textContent = g.allow ? "Envoyer ⏎" : "Envoyer quand même";
+  btn.title = g.allow ? "Envoyer à la session attachée (Entrée)"
+    : "La touche Entrée est neutralisée tant qu'un menu est ouvert — ce bouton force l'envoi";
+  document.getElementById("cmphint").textContent = g.allow
+    ? "Entrée envoie · Maj+Entrée saute la ligne · ↑ historique · Échap rend la main au terminal"
+    : "Entrée neutralisée — réponds dans le terminal, ou force l'envoi";
+}
+
+async function composerSend(force) {
+  const ta = document.getElementById("cmptext");
+  const text = ta.value;
+  if (!text.trim()) return;
+  if (!attached) { toast("Aucune session attachée", true); return; }
+  const g = composerGuard((sessCache[attached] || {}).state);
+  if (!g.allow && !force) { composerRefresh(); toast(g.warn, true); return; }
+
+  let ok = false;
+  if (termSession && termSession.send) {
+    ok = termSession.send(text);                       // collage encadré + Entrée
+    if (!ok) toast("Terminal déconnecté — message conservé dans le champ", true);
+  } else {
+    // repli : pas de client maison (iframe ttyd) → passer par le serveur
+    try {
+      await api("/send", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rm_id: attached, msg: text, enter: true }),
+      });
+      ok = true;
+    } catch (e) { toast(e.message, true); }
+  }
+  if (!ok) return;
+  composerHistorySave(attached, composerHistoryAdd(composerHistory(attached), text, CMP_HIST_MAX));
+  ta.value = ""; cmpHistPos = -1; cmpDraft = "";
+  composerHistoryRender();
+  toast("Envoyé : " + (text.length > 60 ? text.slice(0, 60) + "…" : text));
+}
+
+function composerHistoryToggle() {
+  const box = document.getElementById("cmphist");
+  const on = box.style.display === "none";
+  box.style.display = on ? "block" : "none";
+  document.getElementById("cmphistbtn").textContent = on ? "historique ▴" : "historique ▾";
+  if (on) composerHistoryRender();
+}
+function composerHistoryRender() {
+  const box = document.getElementById("cmphist");
+  if (box.style.display === "none") return;
+  const list = composerHistory(attached);
+  if (!list.length) { box.innerHTML = '<div class="hempty">Aucun message envoyé dans cette session.</div>'; return; }
+  box.innerHTML = list.map((t, i) =>
+    '<div class="hitem" data-i="' + i + '" title="Cliquer pour reprendre ce message">'
+    + esc(t.length > 300 ? t.slice(0, 300) + "…" : t) + "</div>").join("");
+  box.querySelectorAll(".hitem").forEach(el => {
+    el.onclick = () => {
+      const ta = document.getElementById("cmptext");
+      ta.value = list[Number(el.dataset.i)];
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    };
+  });
+}
+
+// Navigation ↑/↓ : seulement dans un champ VIDE (ou déjà en cours de navigation),
+// pour ne pas piéger le déplacement du curseur pendant la composition.
+function composerHistoryStep(dir) {
+  const ta = document.getElementById("cmptext");
+  const list = composerHistory(attached);
+  if (!list.length) return false;
+  if (cmpHistPos === -1) {
+    if (ta.value.trim()) return false;
+    cmpDraft = ta.value;
+  }
+  const next = cmpHistPos + dir;
+  if (next < -1 || next >= list.length) return true;
+  cmpHistPos = next;
+  ta.value = next === -1 ? cmpDraft : list[next];
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+  return true;
+}
+
+function composerKey(ev) {
+  if (ev.key === "Enter" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {
+    ev.preventDefault();
+    composerSend();                       // la garde décide ; jamais forcé au clavier
+    return;
+  }
+  if (ev.key === "Escape") {              // rendre la main au terminal
+    ev.preventDefault();
+    if (termSession && termSession.term) termSession.term.focus();
+    return;
+  }
+  if (ev.key === "ArrowUp" && composerHistoryStep(1)) { ev.preventDefault(); return; }
+  if (ev.key === "ArrowDown" && composerHistoryStep(-1)) { ev.preventDefault(); return; }
 }
 
 // ----- attach / detach (onglets + barre d'actions) -----
@@ -3915,7 +4129,16 @@ async function kill(rmId) {
     if (e.key === "ArrowUp") { e.preventDefault(); jumpUser(-1); }
     else if (e.key === "ArrowDown") { e.preventDefault(); jumpUser(1); }
     else if (e.key === "End") { e.preventDefault(); scrollLive(); }
+    // RM2527 : Alt+C donne le focus au composer. Le terminal capte tout le
+    // clavier une fois qu'il l'a — il faut un raccourci pour en sortir, et
+    // Échap dans le composer le rend.
+    else if (e.key === "c" || e.key === "C") {
+      const ta = document.getElementById("cmptext");
+      if (ta && ta.offsetParent) { e.preventDefault(); ta.focus(); }
+    }
   });
+  // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap)
+  document.getElementById("cmptext").addEventListener("keydown", composerKey);
   loadProjects();
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"

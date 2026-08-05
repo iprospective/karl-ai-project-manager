@@ -121,7 +121,76 @@ class RedmineTaskProvider(TaskProvider):
         return _ru.set_issue_ia_tag(issue_id, value)
 
 
-_BACKENDS = {"redmine": RedmineTaskProvider}
+class GitlabIssuesTaskProvider(TaskProvider):
+    """Backend GitLab Issues — PoC **lecture seule** (P2/RM2544).
+
+    Éprouve l'abstraction face à un backend SANS champs perso ni time-entries : les
+    capabilities sont dégradées (custom_fields/time_tracking/ia_tag = False). Réutilise
+    `pm_forge.GitlabForge` pour le transport (token + api /api/v4). Un ticket est
+    identifié par son **iid dans le projet** (scope projet ≠ id global Redmine) — ce
+    décalage de modèle est précisément ce que le PoC met en lumière. Le projet vient
+    de `instance.options['repo']` (path_with_namespace) ou de l'argument `repo=`.
+    """
+    name = "gitlab_issues"
+    capabilities = TaskCapabilities(full_text_search=True)  # pas de CF/time/wiki/ia/parent natif
+
+    def __init__(self, instance=None, repo=None, role="worker"):
+        super().__init__(instance)
+        from pm_forge import GitlabForge
+        opts = (instance.options if instance and instance.options else {}) or {}
+        repo_path = repo or opts.get("repo") or ""
+        if not repo_path:
+            raise TaskProviderError(
+                "gitlab_issues : 'repo' requis (instance.options.repo ou argument repo=)")
+        self._forge = GitlabForge(repo_path)
+        self._role = role
+        self._token_cache = None
+        self._pid = None
+
+    def _token(self):
+        if self._token_cache is None:
+            self._token_cache = self._forge.token(self._role)
+        return self._token_cache
+
+    def _project_id(self):
+        if self._pid is None:
+            self._pid = self._forge.resolve_project(self._token()).id
+        return self._pid
+
+    # ── contrat générique (lecture) ──────────────────────────────────────
+    def fetch_issue(self, issue_id, include=None):
+        pid = self._project_id()
+        st, data, raw = self._forge.api("GET", f"/projects/{pid}/issues/{issue_id}", self._token())
+        if st != 200 or not isinstance(data, dict):
+            raise TaskProviderError(f"GitLab issue !{issue_id} (projet {pid}) : HTTP {st}")
+        return data
+
+    def list_issues(self, params=None, limit=25):
+        import urllib.parse
+        pid = self._project_id()
+        qp = dict(params or {})
+        qp.setdefault("per_page", limit)
+        qs = urllib.parse.urlencode(qp, doseq=True)
+        st, data, raw = self._forge.api("GET", f"/projects/{pid}/issues?{qs}", self._token())
+        if st != 200 or not isinstance(data, list):
+            raise TaskProviderError(f"GitLab issues (projet {pid}) : HTTP {st}")
+        return data
+
+    def search_issues(self, query, limit=15):
+        return self.list_issues({"search": query}, limit=limit)
+
+    # ── écriture : hors périmètre PoC (lecture seule) ─────────────────────
+    def add_note(self, issue_id, note):
+        raise TaskProviderError("gitlab_issues : écriture hors périmètre PoC (P2)")
+
+    def create_issue(self, **kw):
+        raise TaskProviderError("gitlab_issues : écriture hors périmètre PoC (P2)")
+
+    def set_parent(self, issue_id, parent_id):
+        raise TaskProviderError("gitlab_issues : parent non modélisé (liens GitLab)")
+
+
+_BACKENDS = {"redmine": RedmineTaskProvider, "gitlab_issues": GitlabIssuesTaskProvider}
 
 
 def get_task_provider(project_meta=None, registry=None, instance=None):

@@ -1012,6 +1012,9 @@ function toast(msg, err) {
   t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
   clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 3200);
 }
+// URL de l'UI ttyd native — utilisée par le SEUL repli iframe (bundle xterm.js
+// absent). Reste sur le port 7681 : l'UI ttyd fetch « /token » en absolu, elle ne
+// survit pas au préfixe /ttyd/ du proxy même-origine que prend termBase().
 function ttydUrl(rmId) {
   const base = CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
   return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId);
@@ -3142,9 +3145,21 @@ function closeDoc() { document.getElementById("docmodal").classList.remove("show
 // chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
 let termSession = null;                 // { term, fit, dispose } du client maison
 function termAvailable() { return !!(window.KarlTerm && window.Terminal); }
+// Origine du WebSocket ttyd pour le client maison (RM2561). Servi par le vhost
+// Apache (port implicite 80/443), on passe par le proxy de MÊME ORIGINE
+// « /ttyd/ws » : sous HTTPS le cert auto-signé n'est accepté que pour le
+// host:port visité, et un wss:// vers un autre port échoue SANS interstitiel —
+// terminal noir et muet. En même origine, l'exception déjà accordée au cockpit
+// suffit. En accès direct au port du cockpit (dev sans Apache : :9876), aucun
+// proxy ne monte /ttyd → repli sur le port 7681 du même hôte.
+// >>> termBase
 function termBase() {
-  return CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
+  if (CFG.ttyd_base) return CFG.ttyd_base;
+  const proxied = location.port === "" || location.port === "80" || location.port === "443";
+  return proxied ? location.origin + "/ttyd"
+                 : location.protocol + "//" + location.hostname + ":7681";
 }
+// <<< termBase
 function mountTerm(rmId) {
   const host = document.getElementById("termhost"), f = document.getElementById("term");
   if (!termAvailable()) {                                  // repli : iframe ttyd

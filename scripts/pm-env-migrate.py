@@ -383,6 +383,87 @@ def verify(ctx, ws, groups):
     return ok
 
 
+# ------------------------------------------------------------- garde-fou vhosts
+
+APACHE_SITES = Path("/etc/apache2/sites-available")
+# Alias fs connus : un vhost peut référencer le workspace par un chemin symlinké
+# (ex. /home/workspaces → /zfs/workspaces). On teste les deux écritures.
+WS_ALIASES = [("/zfs/workspaces", "/home/workspaces")]
+
+
+def _path_variants(p: str) -> list[str]:
+    """Toutes les écritures d'un chemin via les alias fs connus."""
+    out = {p}
+    for a, b in WS_ALIASES:
+        for s in list(out):
+            if s.startswith(a):
+                out.add(b + s[len(a):])
+            if s.startswith(b):
+                out.add(a + s[len(b):])
+    return sorted(out)
+
+
+def _ref_in_line(line: str, prefixes: list[str]) -> str | None:
+    """Le chemin (ou une de ses variantes) apparaît-il dans `line`, suivi d'une
+    frontière (/, guillemet, espace, fin) ? Évite dev↔development."""
+    for v in prefixes:
+        i = line.find(v)
+        while i != -1:
+            after = line[i + len(v):i + len(v) + 1]
+            if after in ("", "/", '"', "'", " ", "\t", ">"):
+                return v
+            i = line.find(v, i + 1)
+    return None
+
+
+def apache_vhost_reminder(ws, groups):
+    """RM2436 — la migration déplace les checkouts sous envs/ mais ne touche PAS
+    Apache. Read-only, best-effort : rappelle de repointer les DocumentRoot vers
+    les nouveaux worktrees et signale les vhosts référençant encore l'ancien
+    emplacement. Ne mute JAMAIS les confs."""
+    moves = [(str(ws / c["usage"]), str(ws / "envs" / f"{code}-{c['usage']}"))
+             for code, clones in groups.items() for c in clones]
+    if not moves:
+        return
+    hits = []  # (conf_name, line)
+    try:
+        confs = sorted(APACHE_SITES.glob("*.conf")) if APACHE_SITES.is_dir() else []
+    except OSError:
+        confs = []
+    for conf in confs:
+        try:
+            text = conf.read_text(errors="replace")
+        except OSError:
+            continue
+        for raw in text.splitlines():
+            s = raw.strip()
+            if not (s.startswith("DocumentRoot") or s.startswith("<Directory")
+                    or s.startswith("Alias") or s.startswith("ProxyPass")):
+                continue
+            for old, _new in moves:
+                if _ref_in_line(raw, _path_variants(old)):
+                    hits.append((conf.name, s))
+                    break
+
+    print("\n— APACHE / VHOSTS (RM2436) —")
+    print("  Le code a été déplacé sous envs/ ; Apache n'a PAS été touché. "
+          "Repointe chaque DocumentRoot/Directory/Alias vers son worktree :")
+    for old, new in moves:
+        print(f"    {old}  →  {new}")
+    if hits:
+        print("  Vhosts référençant encore l'ancien emplacement :")
+        for name, line in hits:
+            print(f"    {name}: {line}")
+        print("  → corrige ces confs (chemins → envs/…), `apache2ctl configtest`, "
+              "puis `systemctl reload apache2`.")
+    elif confs:
+        print("  (aucun vhost détecté sur l'ancien emplacement — vérifie tout de "
+              "même reverse-proxy / autres services servant ce workspace.)")
+    else:
+        print("  (confs Apache non lisibles ici — vérifie sur l'hôte qui sert "
+              "ces vhosts.)")
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -420,6 +501,7 @@ def main():
             migrate_group(ctx, ws, code, clones)
         rewrite_gitignore(ctx, ws)
         print(f"\n[dry-run] {ctx.changed} action(s) prévues.")
+        apache_vhost_reminder(ws, groups)
         return
 
     if not args.yes:
@@ -437,6 +519,7 @@ def main():
     if not ok:
         sys.stderr.write("pm-env-migrate: VERIFY a échoué — envisage un rollback du snapshot.\n")
         sys.exit(2)
+    apache_vhost_reminder(ws, groups)
 
 
 if __name__ == "__main__":

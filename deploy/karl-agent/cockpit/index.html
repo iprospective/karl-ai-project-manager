@@ -283,21 +283,34 @@
   .chip:hover { border-color: var(--accent); color: var(--accent); }
   .chip:disabled { opacity: .45; cursor: default; }
   .termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  .metapanel { width: 320px; border-left: 1px solid var(--line); background: var(--panel);
-    display: flex; flex-direction: column; transition: width .15s; overflow: hidden; }
-  .metapanel.collapsed { width: 34px; }
-  .metatoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
+  /* RM2466 volet 3 : colonne de DROITE à panneaux commutables — un seul actif à
+     la fois, sur le modèle de la gauche (.lnav), au lieu de deux asides empilés
+     qui mangeaient chacun leur largeur. Se replie vers SON bord : la droite. */
+  .rpanel { width: 330px; border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; }
+  .rpanel.collapsed { width: 34px; }
+  .rpanel.collapsed .rnav, .rpanel.collapsed .rbody { display: none; }
+  .rtoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
+    border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
+  .rnav { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; flex: none;
+    background: var(--panel); border-bottom: 1px solid var(--line); }
+  .rnav button { display: flex; align-items: center; gap: 5px; padding: 4px 9px; font-size: 12px;
+    border-radius: 6px; border: 1px solid transparent; background: transparent; color: var(--muted); }
+  .rnav button:hover { color: var(--fg); border-color: var(--line); }
+  .rnav button.active { background: var(--bg); color: var(--accent); border-color: var(--line); font-weight: 600; }
+  .rbody { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .rp { display: none; flex: 1; min-height: 0; flex-direction: column; }
+  .rp.active { display: flex; }
+  /* RM2466 : la colonne de gauche se replie vers la gauche, symétriquement */
+  main.lcollapsed { grid-template-columns: 34px 1fr; }
+  main.lcollapsed .lnav, main.lcollapsed .lbody { display: none; }
+  .ltoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
     border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
   .metabody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; font-size: 12.5px;
     overscroll-behavior: contain; }
   /* chips longues (branches/worktrees RM2166) : ellipse au lieu de déborder */
   .metabody .rels .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .metapanel.collapsed .metabody { display: none; }
-  /* RM2330 : colonne outline de conversation (façon minimap d'éditeur) */
-  .outpanel { width: 270px; border-left: 1px solid var(--line); background: var(--panel);
-    display: flex; flex-direction: column; min-height: 0; }
-  .outpanel.collapsed { width: 34px; }
-  .outpanel.collapsed .outbody, .outpanel.collapsed .outnav { display: none; }
+  /* RM2330 : outline de conversation (façon minimap d'éditeur) */
   .outnav { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
   .outnav .cnt { color: var(--muted); font-size: 11px; margin-left: auto; }
   .outbody { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; overscroll-behavior: contain; }
@@ -453,6 +466,9 @@ if (window.matchMedia) {
 
 <main>
   <section class="left">
+    <!-- RM2466 volet 3 : repli de la colonne, vers SON bord (la gauche) -->
+    <button class="ltoggle" id="ltoggle" onclick="toggleLeft()"
+      title="Replier / déplier la colonne de gauche (vers la gauche)">◨</button>
     <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
     <nav class="lnav">
       <button data-panel="running" onclick="switchPanel('running')">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
@@ -798,23 +814,33 @@ if (window.matchMedia) {
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
         <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
-      <!-- RM2330 : outline de la conversation — clic = aller à ce point du terminal -->
-      <aside class="outpanel collapsed" id="outpanel">
-        <button class="metatoggle" id="outtoggle" onclick="toggleOutline()"
-          title="Conversation de la session (replier/déplier) — clic sur une entrée : le terminal défile jusqu'à ce point.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺</button>
-        <div class="outnav">
-          <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
-          <button class="mini" onclick="jumpUser(1)" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
-          <button class="mini" onclick="jumpUnresolved()" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
-          <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
-          <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
-          <span class="cnt" id="outcnt"></span>
+      <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
+      <aside class="rpanel collapsed" id="rpanel">
+        <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
+          title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
+        <nav class="rnav">
+          <button data-rpanel="outline" onclick="switchRight('outline')"
+            title="Conversation de la session — clic sur une entrée : lecture du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
+          <button data-rpanel="meta" onclick="switchRight('meta')"
+            title="Infos de la session : ticket, projet, branches, worktrees">ℹ infos</button>
+        </nav>
+        <div class="rbody">
+          <!-- RM2330 : outline de la conversation -->
+          <div class="rp" id="rp-outline">
+            <div class="outnav">
+              <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
+              <button class="mini" onclick="jumpUser(1)" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
+              <button class="mini" onclick="jumpUnresolved()" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
+              <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
+              <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
+              <span class="cnt" id="outcnt"></span>
+            </div>
+            <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
+          </div>
+          <div class="rp" id="rp-meta">
+            <div class="metabody" id="metabody"></div>
+          </div>
         </div>
-        <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
-      </aside>
-      <aside class="metapanel collapsed" id="metapanel">
-        <button class="metatoggle" id="metatoggle" onclick="toggleMeta()" title="Infos de la session (replier/déplier)">ℹ</button>
-        <div class="metabody" id="metabody"></div>
       </aside>
     </div>
     <div class="chipsrow" id="chipsrow" style="display:none"></div>
@@ -2419,13 +2445,72 @@ function outlineNextUnresolved(items, pos) {
 }
 // <<< outlineNextUnresolved
 
-function toggleOutline() {
-  const p = document.getElementById("outpanel");
-  p.classList.toggle("collapsed");
-  if (!p.classList.contains("collapsed") && attached) loadOutline(true);
+// ----- RM2466 volet 3 : colonne de droite à onglets (un seul actif) -----
+
+// >>> rightPanelReduce — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// État de la colonne de droite. « select » sur l'onglet DÉJÀ actif replie : le
+// même geste ouvre et ferme, comme une barre d'onglets d'éditeur. « show » sans
+// onglet déplie sans changer d'onglet — attacher une session ne doit pas
+// arracher la vue de qui travaille dans la conversation.
+function rightPanelReduce(state, action) {
+  const cur = {
+    tab: (state && state.tab) || "outline",
+    collapsed: !state || state.collapsed !== false,
+  };
+  const a = action || {};
+  if (a.type === "show") return { tab: a.tab || cur.tab, collapsed: false };
+  if (a.type === "collapse") return { tab: cur.tab, collapsed: true };
+  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed };
+  if (a.type === "select") {
+    const tab = a.tab || cur.tab;
+    return { tab, collapsed: cur.collapsed ? false : tab === cur.tab };
+  }
+  return cur;
 }
+// <<< rightPanelReduce
+
+let rightState = { tab: "outline", collapsed: true };
+function applyRight() {
+  document.getElementById("rpanel").classList.toggle("collapsed", rightState.collapsed);
+  document.querySelectorAll(".rnav button").forEach(b =>
+    b.classList.toggle("active", b.dataset.rpanel === rightState.tab));
+  document.querySelectorAll(".rp").forEach(el =>
+    el.classList.toggle("active", el.id === "rp-" + rightState.tab));
+  try { localStorage.setItem("karlRight", JSON.stringify(rightState)); } catch (e) { /* mode privé */ }
+  // RM2330 : l'outline ne se charge qu'une fois réellement visible
+  if (rightVisible("outline") && attached && !outline.items.length) loadOutline();
+}
+function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
+function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
+function showRight(tab) { dispatchRight({ type: "show", tab: tab }); }
+function toggleRight() { dispatchRight({ type: "toggle" }); }
+function collapseRight() { dispatchRight({ type: "collapse" }); }
+function rightVisible(tab) { return !rightState.collapsed && rightState.tab === tab; }
+
+// RM2466 volet 3 : la colonne de gauche se replie vers la gauche, symétriquement
+let leftCollapsed = false;
+function applyLeft() {
+  document.querySelector("main").classList.toggle("lcollapsed", leftCollapsed);
+  try { localStorage.setItem("karlLeftCollapsed", leftCollapsed ? "1" : "0"); } catch (e) { /* mode privé */ }
+}
+function toggleLeft() { leftCollapsed = !leftCollapsed; applyLeft(); }
+
+// restauration des préférences de disposition (repli + onglet actif)
+function restorePanels() {
+  try {
+    const saved = JSON.parse(localStorage.getItem("karlRight") || "null");
+    if (saved) rightState = rightPanelReduce(saved, {});
+    leftCollapsed = localStorage.getItem("karlLeftCollapsed") === "1";
+  } catch (e) { /* mode privé ou valeur corrompue : on garde les défauts */ }
+  applyRight(); applyLeft();
+}
+// RM2466 : garde de réentrance — déplier la colonne ET attacher une session
+// déclenchent tous deux un chargement ; sans ça, deux requêtes concurrentes
+// partent pour le même outline (et le ⟳ cliqué en rafale en lance autant).
+let outlineLoading = false;
 async function loadOutline() {
-  if (!attached) return;
+  if (!attached || outlineLoading) return;
+  outlineLoading = true;
   try {
     const r = await api("/outline/" + encodeURIComponent(attached));
     // normalise la clé de position : `line` (scrollback tmux) ou `n` (transcript)
@@ -2434,6 +2519,8 @@ async function loadOutline() {
     renderOutline();
   } catch (e) {
     document.getElementById("outbody").innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
+  } finally {
+    outlineLoading = false;
   }
 }
 function renderOutline() {
@@ -2861,7 +2948,6 @@ function tabTip(s) {
   });
   return t;
 }
-function toggleMeta() { document.getElementById("metapanel").classList.toggle("collapsed"); }
 // RM2166 : branches/worktrees de la session (registre pm_session) + conflits
 function wtName(p) { const seg = String(p).split("/").filter(Boolean); return seg[seg.length - 1] || p; }
 function registryHtml(rmId) {
@@ -2893,7 +2979,7 @@ async function refreshWorkspace(rmId) {
 function rmLink(id) { return '<span class="pill" onclick="showTicket(' + id + ')">RM' + id + '</span>'; }
 function showTicket(id) {
   metaTicket = String(id);
-  document.getElementById("metapanel").classList.remove("collapsed");
+  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
   renderMeta();
   ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
   if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
@@ -2922,7 +3008,7 @@ function fmtMin(m) {
 // Panneau Projet (RM2173) : clic sur le libellé d'un groupe d'onglets.
 function showProject(key) {
   metaTicket = null;
-  document.getElementById("metapanel").classList.remove("collapsed");
+  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
   const sess = groupsCache[key] || [];
   let r = null;
   for (const s of sess) { const c = resolveCache[s.rm_id]; if (c && c.found) { r = c; break; } }
@@ -3357,7 +3443,7 @@ function attach(rmId) {
   document.getElementById("placeholder").style.display = "none";
   mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
-  document.getElementById("metapanel").classList.remove("collapsed");
+  showRight();                      // RM2466 : déplie, sans changer d'onglet actif
   // RM2173 : le ticket affiché = l'ancrage de la session (changeable via les chips Tickets)
   metaTicket = /^\d+$/.test(String(rmId)) ? String(rmId) : null;
   renderMeta();                                      // affiche le cache (ou « chargement »)
@@ -3367,7 +3453,7 @@ function attach(rmId) {
   }
   // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
   outline = { items: [], total: 0 }; outPos = null;
-  if (!document.getElementById("outpanel").classList.contains("collapsed")) loadOutline();
+  if (rightVisible("outline")) loadOutline();
   else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
@@ -3382,7 +3468,7 @@ function detach() {
   unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
   document.getElementById("tabactions").style.display = "none";
-  document.getElementById("metapanel").classList.add("collapsed");
+  collapseRight();                  // RM2466 : plus de session → la colonne se replie
   document.getElementById("metabody").innerHTML = "";
   outline = { items: [], total: 0 }; outPos = null;   // RM2330
   document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
@@ -3726,7 +3812,7 @@ function openReview(rm) {
   metaTicket = rm;
   document.getElementById("placeholder").style.display = "none";
   document.getElementById("reviewpane").style.display = "block";
-  document.getElementById("metapanel").classList.remove("collapsed");
+  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
   ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
@@ -4238,6 +4324,7 @@ async function kill(rmId) {
   // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
+  restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer

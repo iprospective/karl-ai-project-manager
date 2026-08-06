@@ -635,4 +635,57 @@ assert.strictEqual(composerHistoryAdd(["a", "b", "c"], "d", 3).length, 3, "plafo
 assert.deepStrictEqual(Array.from(composerHistoryAdd(["a", "b", "c"], "d", 3)), ["d", "a", "b"], "le plus ancien tombe");
 console.log("✓ composer (RM2527) : historique sans doublon, récent en tête, plafonné");
 
+// — 9. outline enrichi (RM2549) : décor des entrées + saut aux non résolues —
+const foD = />>> outlineDecor[\s\S]*?(function outlineDecor[\s\S]*?)\n\/\/ <<< outlineDecor/.exec(html);
+assert(foD, "marqueurs >>> outlineDecor / <<< outlineDecor introuvables");
+const outlineDecor = vm.runInNewContext("(" + foD[1] + ")");
+
+const dUnres = outlineDecor({ kind: "question", resolved: false });
+const dRes = outlineDecor({ kind: "question", resolved: true, answer: "Option A" });
+const dAns = outlineDecor({ kind: "answer" });
+// le critère du ticket : couleur ET icône ET libellé — jamais l'un des trois seul
+assert(dUnres.cls.includes("ounres"), "non résolue : classe de couleur dédiée");
+assert.strictEqual(dUnres.icon, "⚠", "non résolue : icône distincte");
+assert(/sans réponse/i.test(dUnres.tag), "non résolue : libellé en toutes lettres");
+assert(dRes.cls !== dUnres.cls && dRes.icon !== dUnres.icon && dRes.tag !== dUnres.tag,
+  "résolue et non résolue diffèrent sur les TROIS canaux, pas seulement la couleur");
+assert(/Option A/.test(dRes.title), "une question répondue expose la réponse retenue");
+assert(dAns.cls.includes("oans") && dAns.icon && /réponse/i.test(dAns.tag),
+  "la réponse a son propre décor");
+assert.strictEqual(outlineDecor({ kind: "user" }).cls, "ouser", "message utilisateur inchangé");
+assert.strictEqual(outlineDecor({ kind: "assistant" }).icon, "⏺", "message assistant inchangé");
+assert.strictEqual(outlineDecor(null).icon, "⏺", "entrée absente tolérée");
+assert.strictEqual(outlineDecor({ kind: "question" }).cls, dUnres.cls,
+  "resolved manquant = non résolu (on ne suppose pas une réponse)");
+console.log("✓ outline (RM2549) : couleur ET icône ET libellé sur chaque état");
+
+const foU = />>> outlineNextUnresolved[\s\S]*?(function outlineNextUnresolved[\s\S]*?)\n\/\/ <<< outlineNextUnresolved/.exec(html);
+assert(foU, "marqueurs >>> outlineNextUnresolved / <<< outlineNextUnresolved introuvables");
+const outlineNextUnresolved = vm.runInNewContext("(" + foU[1] + ")");
+const qi = [
+  { line: 0, kind: "user" },
+  { line: 1, kind: "question", resolved: true },
+  { line: 2, kind: "question", resolved: false },
+  { line: 3, kind: "assistant" },
+  { line: 4, kind: "question", resolved: false },
+];
+assert.strictEqual(outlineNextUnresolved(qi, null).line, 2, "depuis le direct : la première sans réponse");
+assert.strictEqual(outlineNextUnresolved(qi, 2).line, 4, "puis la suivante");
+assert.strictEqual(outlineNextUnresolved(qi, 4).line, 2, "après la dernière, on reboucle");
+assert.strictEqual(outlineNextUnresolved(qi.filter(i => i.resolved !== false), null), null,
+  "tout est répondu → rien à signaler");
+assert.strictEqual(outlineNextUnresolved([], null), null, "outline vide toléré");
+assert.strictEqual(outlineNextUnresolved(null, null), null, "outline absent toléré");
+console.log("✓ outline (RM2549) : saut à la prochaine question sans réponse");
+
+// la navigation en source transcript ne doit RIEN envoyer à tmux : la vue des
+// autres clients attachés ne bouge pas (critère du ticket).
+const mJump = /async function jumpTo\(it\) \{[\s\S]*?\n\}/.exec(html);
+assert(mJump, "jumpTo introuvable");
+const branche = /if \(outline\.source === "transcript"\) \{[\s\S]*?return;/.exec(mJump[0]);
+assert(branche, "branche transcript de jumpTo introuvable");
+assert(!/\/scroll/.test(branche[0]),
+  "source transcript : aucun appel /scroll — la vue des autres clients ne doit pas bouger");
+console.log("✓ outline (RM2549) : lecture ancrée dans le cockpit, sans piloter tmux");
+
 console.log("OK — tous les tests cockpit passent");

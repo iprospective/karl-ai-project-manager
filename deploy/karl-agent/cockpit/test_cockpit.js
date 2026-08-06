@@ -688,4 +688,25 @@ assert(!/\/scroll/.test(branche[0]),
   "source transcript : aucun appel /scroll — la vue des autres clients ne doit pas bouger");
 console.log("✓ outline (RM2549) : lecture ancrée dans le cockpit, sans piloter tmux");
 
+// — origine du WebSocket du terminal (RM2561) —
+// Le cert auto-signé ne vaut que pour le host:port visité et un wss:// vers un
+// autre port meurt SANS interstitiel : derrière le vhost, le terminal doit rester
+// en même origine. Régression déjà vécue (terminal noir, cockpit intact).
+const fTB = />>> termBase[\s\S]*?(function termBase[\s\S]*?)\n\/\/ <<< termBase/.exec(html);
+assert(fTB, "marqueurs >>> termBase / <<< termBase introuvables");
+const mkTermBase = (cfg, loc) => vm.runInNewContext("(" + fTB[1] + ")", { CFG: cfg, location: loc });
+
+const https443 = { port: "", protocol: "https:", hostname: "karl.lxc", origin: "https://karl.lxc" };
+assert.strictEqual(mkTermBase({ ttyd_base: "" }, https443)(), "https://karl.lxc/ttyd",
+  "derrière le vhost : même origine (une seule exception de cert)");
+assert.strictEqual(mkTermBase({ ttyd_base: "" }, { ...https443, port: "443" })(), "https://karl.lxc/ttyd",
+  "port 443 explicite : même origine aussi");
+assert.strictEqual(
+  mkTermBase({ ttyd_base: "" },
+    { port: "9876", protocol: "http:", hostname: "dev.local", origin: "http://dev.local:9876" })(),
+  "http://dev.local:7681", "accès direct au port du cockpit (sans Apache) : repli sur :7681");
+assert.strictEqual(mkTermBase({ ttyd_base: "https://ailleurs:1234" }, https443)(), "https://ailleurs:1234",
+  "KARL_AGENT_TTYD_URL reste prioritaire");
+console.log("✓ termBase (RM2561) : WebSocket en même origine derrière le vhost, repli :7681 sinon");
+
 console.log("OK — tous les tests cockpit passent");

@@ -3,10 +3,11 @@
 # Idempotent. À lancer EN ROOT dans le conteneur `dev` (ssh root@dev.lxc).
 #
 # Expose (HTTPS — RM2561) :
-#   https://<KARL_WEB_HOST>/       → API + cockpit karl-agent (127.0.0.1:<KARL_AGENT_PORT>)
-#   https://<KARL_WEB_HOST>:7681/  → terminal web ttyd (WebSocket wss://, 127.0.0.1:7681)
-#   http://<KARL_WEB_HOST>/        → redirige (302) vers https://
-#     (le cockpit calcule <hostname>:7681 par défaut → aucun réglage
+#   https://<KARL_WEB_HOST>/         → API + cockpit karl-agent (127.0.0.1:<KARL_AGENT_PORT>)
+#   https://<KARL_WEB_HOST>/ttyd/ws  → WebSocket du terminal (wss://, 127.0.0.1:7681)
+#   https://<KARL_WEB_HOST>:7681/    → même ttyd, port dédié (repli iframe seulement)
+#   http://<KARL_WEB_HOST>/          → redirige (302) vers https://
+#     (le cockpit calcule ces URL depuis location → aucun réglage
 #      KARL_AGENT_TTYD_URL nécessaire ; ttyd et karl-agent restent en loopback,
 #      seuls les proxys Apache sont exposés)
 #
@@ -14,7 +15,14 @@
 # Whisper, RM2533) qui n'est autorisé qu'en contexte sécurisé — sur http:// le
 # navigateur refuse l'accès micro. Cert auto-signé snakeoil par défaut (comme les
 # autres vhosts .lxc/.local du conteneur) : le navigateur affiche un avertissement
-# à accepter une fois par host:port (donc aussi pour :7681, cert distinct).
+# à accepter une fois par host:port.
+#
+# Pourquoi le WebSocket est en MÊME ORIGINE (/ttyd/ws) : le cert auto-signé ne
+# vaut que pour le host:port dont on a accepté l'avertissement. Un wss:// vers
+# :7681 échoue alors en silence — un WebSocket n'a pas d'interstitiel « continuer
+# quand même », le terminal reste noir sans que rien ne le dise. Servi sous
+# https://<HOST>/ttyd/ws, il réutilise l'exception déjà accordée au cockpit :
+# une seule acceptation, plus de terminal mort après un changement de profil.
 #
 # Config : KARL_WEB_HOST dans le .env du repo PM (défaut karl.lxc — résolu par
 # le dnsmasq de l'host vers ce conteneur). La ligne est ajoutée au .env si absente.
@@ -103,18 +111,27 @@ cat > "$NEW" <<EOF
     SSLCertificateKeyFile $SSL_KEY
 
     ProxyPreserveHost On
-    ProxyPass        / http://127.0.0.1:$PORT/ retry=0
-    ProxyPassReverse / http://127.0.0.1:$PORT/
+    # Terminal (RM2561) : ttyd en même origine que le cockpit → le wss réutilise
+    # l'exception de cert déjà accordée ici. Les règles spécifiques d'abord :
+    # Apache retient le PREMIER ProxyPass qui matche, et « / » matche tout.
+    ProxyPass        /ttyd/ws ws://127.0.0.1:7681/ws retry=0
+    ProxyPassReverse /ttyd/ws ws://127.0.0.1:7681/ws
+    ProxyPass        /ttyd/   http://127.0.0.1:7681/ retry=0
+    ProxyPassReverse /ttyd/   http://127.0.0.1:7681/
+    ProxyPass        /        http://127.0.0.1:$PORT/ retry=0
+    ProxyPassReverse /        http://127.0.0.1:$PORT/
 
     ErrorLog  \${APACHE_LOG_DIR}/karl.error.log
     CustomLog \${APACHE_LOG_DIR}/karl-ssl.access.log combined
 </VirtualHost>
 
-# Terminal web ttyd du cockpit : le client se connecte sur $HOST:7681 en wss://
-# (karl-term.js dérive le schéma de location.protocol → wss sous HTTPS ; en http
-# le proxy SSL refuserait un ws:// en clair → mixed-content). ttyd n'écoute qu'en
-# 127.0.0.1:7681 → proxy WebSocket SSL sur l'IP du conteneur.
-# ⚠ cert auto-signé propre à ce host:port → à accepter une fois pour :7681 aussi.
+# Port dédié ttyd — conservé pour le SEUL repli iframe du cockpit (bundle
+# xterm.js non chargé : le cockpit affiche alors l'UI ttyd native, qui exige la
+# racine du serveur ttyd — elle fetch « /token » en absolu, donc ne survit pas au
+# préfixe /ttyd/). Le chemin normal (client maison karl-term.js) passe par le
+# vhost :443 ci-dessus et n'a plus besoin de ce port.
+# ⚠ cert auto-signé propre à ce host:port → ce repli-là demande sa propre
+# acceptation sur https://$HOST:7681/.
 Listen $IP:7681
 <VirtualHost $IP:7681>
     ServerName $HOST
@@ -138,7 +155,7 @@ EOF
 if [ -f "$CONF" ] && cmp -s "$NEW" "$CONF"; then
     a2ensite -q karl >/dev/null 2>&1 || true
     apache2ctl configtest >/dev/null 2>&1 || die "configtest KO (conf inchangée mais invalide ?)"
-    echo "· karl.conf déjà à jour (https://$HOST/ → :$PORT, ttyd wss $IP:7681) — rien à faire"
+    echo "· karl.conf déjà à jour (https://$HOST/ → :$PORT, ttyd wss /ttyd/ws + $IP:7681) — rien à faire"
     exit 0
 fi
 
@@ -153,5 +170,6 @@ if ! apache2ctl configtest >/dev/null 2>&1; then
 fi
 systemctl reload apache2
 [ -n "$OLD" ] && rm -f "$OLD"
-echo "✓ vhost $HOST actif : cockpit https://$HOST/ (→ 127.0.0.1:$PORT), ttyd wss://$HOST:7681/ (→ 127.0.0.1:7681), :80 → https"
-echo "  ⚠ cert auto-signé : accepter l'avertissement du navigateur une fois pour https://$HOST/ ET pour :7681 (le terminal)"
+echo "✓ vhost $HOST actif : cockpit https://$HOST/ (→ 127.0.0.1:$PORT), terminal wss://$HOST/ttyd/ws (→ 127.0.0.1:7681), :80 → https"
+echo "  ⚠ cert auto-signé : accepter l'avertissement du navigateur une fois pour https://$HOST/ — le terminal passe par la même origine, rien de plus à accepter"
+echo "  · port :7681 conservé pour le repli iframe (cert à accepter séparément si ce repli est utilisé)"

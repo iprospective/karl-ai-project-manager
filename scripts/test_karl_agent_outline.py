@@ -81,6 +81,89 @@ check("transcript : n séquentiel", [i["n"] for i in ti] == [0, 1, 2, 3])
 check("transcript : cap max_items (plus récents)",
       len(ka._transcript_outline(jsonl * 300, max_items=100)) == 100)
 
+# — RM2549 : questions / réponses typées, état résolu —
+
+
+def _ask(uid, *questions):
+    """Un tool_use AskUserQuestion, tel qu'écrit dans le transcript."""
+    return _l({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Deux façons de faire."},
+        {"type": "tool_use", "id": uid, "name": "AskUserQuestion", "input": {"questions": [
+            {"question": q, "options": [{"label": "Option A"}, {"label": "Option B"}]}
+            for q in questions]}}]}})
+
+
+def _res(uid, content):
+    return _l({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": uid, "content": content}]}})
+
+
+qa = ka._transcript_outline([
+    _ask("t1", "Où placer le composer ?"),
+    _res("t1", 'Your questions have been answered: "Où placer le composer ?"='
+               '"Barre permanente" selected preview:\n┌──┐. You can now continue.'),
+])
+check("RM2549 : texte assistant AVANT sa question (ordre chronologique)",
+      [i["kind"] for i in qa] == ["assistant", "question", "answer"])
+check("RM2549 : la question porte le texte posé",
+      qa[1]["text"] == "Où placer le composer ?")
+check("RM2549 : le détail liste les options proposées",
+      "Option A" in qa[1]["full"] and "Option B" in qa[1]["full"])
+check("RM2549 : question répondue → resolved + réponse retenue",
+      qa[1]["resolved"] is True and qa[1]["answer"] == "Barre permanente")
+check("RM2549 : la réponse est un item distinct, avec le choix retenu",
+      qa[2]["kind"] == "answer" and qa[2]["text"] == "Barre permanente")
+check("RM2549 : n séquentiel avec les nouveaux items",
+      [i["n"] for i in qa] == [0, 1, 2])
+
+multi = ka._transcript_outline([
+    _ask("t2", "Quel emplacement ?", "Quel geste d'envoi ?"),
+    _res("t2", 'Your questions have been answered: "Quel emplacement ?"="Sous le terminal", '
+               '"Quel geste d\'envoi ?"="Entrée envoie". You can now continue.'),
+])
+check("RM2549 : questions multiples jointes, réponses multiples jointes",
+      multi[1]["text"] == "Quel emplacement ? / Quel geste d'envoi ?"
+      and multi[1]["answer"] == "Sous le terminal / Entrée envoie")
+
+# une question posée dont le transcript s'arrête là : la session ATTEND encore
+attente = ka._transcript_outline([_ask("t3", "On continue malgré l'écart ?")])
+check("RM2549 : question sans résultat → non résolue, sans item réponse",
+      [i["kind"] for i in attente] == ["assistant", "question"]
+      and attente[1]["resolved"] is False and attente[1]["answer"] is None)
+
+for cas, contenu in (
+        ("rejet", "The user doesn't want to proceed with this tool use. The tool use was rejected"),
+        ("interruption", "[Request interrupted by user for tool use]")):
+    ko = ka._transcript_outline([_ask("t4", "On garde ce nom ?"), _res("t4", contenu)])
+    check(f"RM2549 : {cas} → la question reste non résolue, aucune réponse inventée",
+          [i["kind"] for i in ko] == ["assistant", "question"]
+          and ko[1]["resolved"] is False and ko[1]["answer"] is None)
+
+plan = ka._transcript_outline([
+    _l({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "t5", "name": "ExitPlanMode",
+         "input": {"plan": "1. lire\n2. corriger"}}]}}),
+    _res("t5", "User has approved your plan."),
+])
+check("RM2549 : ExitPlanMode = question, plan conservé en détail",
+      plan[0]["kind"] == "question" and "Plan proposé" in plan[0]["text"]
+      and "2. corriger" in plan[0]["full"] and plan[0]["resolved"] is True)
+
+# non-régression : les tool_result ORDINAIRES restent hors de l'outline
+ordinaire = ka._transcript_outline([
+    _l({"type": "assistant", "message": {"content": [
+        {"type": "tool_use", "id": "b1", "name": "Bash", "input": {"command": "ls"}}]}}),
+    _res("b1", "fichier1\nfichier2"),
+])
+check("RM2549 : un appel d'outil ordinaire n'entre pas dans l'outline", ordinaire == [])
+
+# aucune divination : une question POSÉE EN PROSE n'est pas typée
+prose = ka._transcript_outline([
+    _l({"type": "assistant", "message": {"content": [
+        {"type": "text", "text": "Faut-il garder l'ancien nom ? Dis-moi."}]}})])
+check("RM2549 : question en prose → message assistant ordinaire, pas 'question'",
+      [i["kind"] for i in prose] == ["assistant"] and prose[0]["resolved"] is None)
+
 # — op_scroll : séquence copy-mode déterministe —
 calls = []
 

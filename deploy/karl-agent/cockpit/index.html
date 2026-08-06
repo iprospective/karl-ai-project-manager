@@ -309,6 +309,15 @@
   .oline.ouser { color: var(--fg-strong); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
   .oline.ouser:hover { background: var(--accent-soft-hover); }
   .oline.ocur { outline: 1px solid var(--accent); }
+  /* RM2549 : questions posées / réponses retenues. Un état n'est JAMAIS porté
+     par la seule couleur — icône et libellé en toutes lettres l'accompagnent
+     (sinon l'information disparaît en capture d'écran, ou pour qui ne
+     distingue pas les teintes). */
+  .oline.oq { color: var(--fg-strong); border-left-color: var(--muted); }
+  .oline.oq.ounres { color: var(--warn); border-left-color: var(--warn); font-weight: 600; }
+  .oline.oans { color: var(--ok); border-left-color: var(--ok); }
+  .oline .otag { font-size: 9px; text-transform: uppercase; letter-spacing: .5px;
+    border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
@@ -796,6 +805,7 @@ if (window.matchMedia) {
         <div class="outnav">
           <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
           <button class="mini" onclick="jumpUser(1)" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
+          <button class="mini" onclick="jumpUnresolved()" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
           <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
           <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
           <span class="cnt" id="outcnt"></span>
@@ -2372,6 +2382,40 @@ function outlineStep(items, pos, dir) {
 }
 // <<< outlineStep
 
+// >>> outlineDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2549 : décor d'une entrée d'outline. Un état n'est jamais porté par la
+// SEULE couleur : icône + libellé en toutes lettres l'accompagnent toujours.
+function outlineDecor(it) {
+  const kind = it && it.kind;
+  if (kind === "question") {
+    return (it && it.resolved)
+      ? { icon: "❓", tag: "question", cls: "oq",
+          label: "Question posée", title: "Question posée — réponse retenue : " + (it.answer || "?") }
+      : { icon: "⚠", tag: "sans réponse", cls: "oq ounres",
+          label: "Question sans réponse", title: "Question restée SANS RÉPONSE" };
+  }
+  if (kind === "answer") {
+    return { icon: "↩", tag: "réponse", cls: "oans",
+             label: "Réponse retenue", title: "La réponse que tu as retenue" };
+  }
+  if (kind === "user") {
+    return { icon: "🗣", tag: "", cls: "ouser", label: "Ton message", title: "Ton message" };
+  }
+  return { icon: "⏺", tag: "", cls: "", label: "Assistant", title: "Assistant" };
+}
+// <<< outlineDecor
+
+// >>> outlineNextUnresolved — pur (testé par test_cockpit.js)
+// RM2549 : question suivante restée sans réponse. Reboucle au début une fois la
+// dernière dépassée — le geste doit toujours aboutir tant qu'il en reste une.
+function outlineNextUnresolved(items, pos) {
+  const pending = (items || []).filter(it => it.kind === "question" && !it.resolved);
+  if (!pending.length) return null;
+  if (pos == null) return pending[0];
+  return pending.find(it => it.line > pos) || pending[0];
+}
+// <<< outlineNextUnresolved
+
 function toggleOutline() {
   const p = document.getElementById("outpanel");
   p.classList.toggle("collapsed");
@@ -2391,18 +2435,24 @@ async function loadOutline() {
 }
 function renderOutline() {
   const body = document.getElementById("outbody");
+  // RM2549 : le compte des questions en souffrance vaut le compte des messages
+  const unres = outline.items.filter(i => i.kind === "question" && !i.resolved).length;
   document.getElementById("outcnt").textContent =
-    outline.items.filter(i => i.kind === "user").length + " msg";
+    outline.items.filter(i => i.kind === "user").length + " msg"
+    + (unres ? " · ⚠ " + unres + " sans réponse" : "");
   if (!outline.items.length) {
     body.innerHTML = '<div class="empty">conversation vide (ou moteur sans marqueurs « > » / « ⏺ »)</div>';
     return;
   }
   body.innerHTML = "";
   for (const it of outline.items) {
+    const dec = outlineDecor(it);
     const d = document.createElement("div");
-    d.className = "oline" + (it.kind === "user" ? " ouser" : "") + (outPos === it.line ? " ocur" : "");
-    d.textContent = (it.kind === "user" ? "🗣 " : "⏺ ") + it.text;
-    d.title = (it.kind === "user" ? "Ton message" : "Assistant") +
+    d.className = "oline" + (dec.cls ? " " + dec.cls : "") + (outPos === it.line ? " ocur" : "");
+    d.innerHTML = esc(dec.icon) + " "
+      + (dec.tag ? '<span class="otag">' + esc(dec.tag) + "</span>" : "")
+      + esc(it.text);
+    d.title = dec.title +
       (outline.source === "transcript" ? " — clic : lire ce message" : " — clic : faire défiler le terminal jusqu'ici");
     d.onclick = () => jumpTo(it);
     body.appendChild(d);
@@ -2413,10 +2463,15 @@ async function jumpTo(it) {
   outPos = it.line;
   if (outline.source === "transcript") {
     // sessions claude : TUI en écran alterné, pas de scrollback tmux à piloter —
-    // le point de conversation s'ouvre en lecture (modale), l'outline le marque.
-    showCaptureModal((it.kind === "user" ? "🗣 Ton message" : "⏺ Assistant") +
+    // le point de conversation s'ouvre en lecture (modale) DANS le cockpit,
+    // l'outline le marque. Rien n'est envoyé à tmux : la vue des autres clients
+    // attachés à la session ne bouge pas (RM2549).
+    const dec = outlineDecor(it);
+    showCaptureModal(dec.icon + " " + dec.label +
       " — " + (/^\d+$/.test(String(attached)) ? "RM" + attached : attached),
-      it.full || it.text);
+      (it.full || it.text)
+      + (it.kind === "question" && it.resolved ? "\n\n→ Réponse retenue : " + it.answer : "")
+      + (it.kind === "question" && !it.resolved ? "\n\n⚠ Cette question est restée SANS RÉPONSE." : ""));
     renderOutline();
     // fait défiler l'OUTLINE jusqu'à l'entrée marquée
     const cur = document.querySelector(".oline.ocur");
@@ -2438,6 +2493,15 @@ function jumpUser(dir) {
     if (it) { jumpTo(it); return; }
     if (dir > 0) scrollLive();            // plus rien après → retour au direct
     else toast("Pas de message utilisateur plus haut");
+  };
+  if (!outline.items.length) loadOutline().then(go); else go();
+}
+// RM2549 : aller à la prochaine question restée sans réponse.
+function jumpUnresolved() {
+  const go = () => {
+    const it = outlineNextUnresolved(outline.items, outPos);
+    if (it) jumpTo(it);
+    else toast("Aucune question sans réponse dans cette conversation");
   };
   if (!outline.items.length) loadOutline().then(go); else go();
 }

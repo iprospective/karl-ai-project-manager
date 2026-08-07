@@ -552,7 +552,22 @@ def cmd_teardown(args):
         args.force and cmd.append("--force")
         print(f"  git worktree remove {shown}")
         if not dry:
-            git([*cmd, str(wt)])
+            r = git([*cmd, str(wt)], check=False)
+            # RM2572 — git refuse CATÉGORIQUEMENT de retirer un worktree contenant
+            # des submodules, même parfaitement propre. Les projets dont les modules
+            # sont en submodules (convention RM2110) tombent tous dans ce cas : sans
+            # ce repli, aucun de leurs envs de session n'est démontable.
+            # Forcer est sûr ICI, et seulement ici : les deux garde-fous qui
+            # protègent quelque chose ont déjà été franchis plus haut — worktree
+            # propre (étape 1) et branche sans commit non poussé (étape 1bis).
+            # Le repli reste ciblé sur ce refus : tout autre échec de git (worktree
+            # verrouillé, chemin introuvable) doit continuer de remonter.
+            if r.returncode != 0 and "submodules" in (r.stderr or ""):
+                print("  · worktree à submodules : git refuse le retrait simple, "
+                      "on force (worktree propre et branche poussée déjà vérifiés)")
+                r = git([*cmd, "--force", str(wt)], check=False)
+            if r.returncode != 0:
+                die("git worktree remove a échoué :\n" + (r.stderr or "").strip())
             pm_session.forget_worktree(str(wt))
     else:
         # RM2523 — distinguer « rien à démonter » (cas normal) de « un worktree

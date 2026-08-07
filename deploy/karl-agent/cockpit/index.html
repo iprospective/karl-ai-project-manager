@@ -156,9 +156,15 @@
   .cmpbar { display: flex; align-items: center; gap: 8px; }
   .cmphint { color: var(--muted); font-size: 11px; flex: 1; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
-  .mini.primary { border-color: var(--accent); color: var(--accent); }
-  .mini.primary:disabled { opacity: .5; cursor: not-allowed; border-color: var(--line);
-    color: var(--muted); }
+  /* Bouton d'envoi : `.primary` pour l'accent, mais `button.primary` est le GROS
+     bouton de formulaire du lanceur (width:100%, margin-top, fond accent). Il
+     faut donc annuler sa géométrie, et surtout reposer le fond : `.mini.primary`
+     n'écrasait que `color`, ce qui donnait du texte accent SUR fond accent —
+     bouton pleine largeur et libellé invisible. */
+  .mini.primary { width: auto; margin-top: 0; background: var(--accent);
+    border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+  .mini.primary:disabled { opacity: .5; cursor: not-allowed; background: var(--panel2);
+    border-color: var(--line); color: var(--muted); }
   /* Avertissement de garde d'état : un envoi texte pendant un menu SÉLECTIONNE
      une option au lieu d'écrire (RM2527). */
   .cmpwarn { border: 1px solid var(--warn); border-left-width: 3px; border-radius: 6px;

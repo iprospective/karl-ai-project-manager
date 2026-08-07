@@ -755,4 +755,29 @@ assert(/\.rpanel\.collapsed \{ width: 34px; \}/.test(html),
   "la colonne droite se replie vers la droite");
 console.log("✓ colonnes (RM2466) : structure fusionnée, chaque colonne repliable vers son bord");
 
+// — 11. bouton d'envoi du composer (RM2527) : lisible, et pas pleine largeur —
+// Il porte `.primary` pour l'accent, mais `button.primary` est le GROS bouton de
+// formulaire du lanceur. Sans surcharge il s'étale sur toute la largeur, et
+// redéfinir `color` SANS `background` donne du texte accent sur fond accent.
+const blocOf = (sel) => {
+  const m = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(css);
+  assert(m, `règle CSS ${sel} introuvable`);
+  return m[1];
+};
+const base = blocOf("button.primary");
+assert(/width:\s*100%/.test(base) && /background:\s*var\(--accent\)/.test(base),
+  "prérequis du test : button.primary reste le gros bouton pleine largeur à fond accent");
+const mp = blocOf(".mini.primary");
+assert(/width:\s*auto/.test(mp) && /margin-top:\s*0/.test(mp),
+  "le bouton d'envoi doit annuler la géométrie du gros bouton (sinon : pleine largeur)");
+// ancré sur un début de déclaration : sinon `border-color:` passe pour `color:`
+const mpFg = /(?:^|;)\s*color:\s*var\((--[a-z0-9-]+)\)/.exec(mp);
+const mpBg = /(?:^|;)\s*background:\s*var\((--[a-z0-9-]+)\)/.exec(mp);
+assert(mpFg && mpBg, "le bouton d'envoi doit poser SON fond avec sa couleur de texte");
+for (const [nom, hex] of [["light", lightHex], ["dark", darkHex]]) {
+  const r = contrast(hex[mpFg[1]], hex[mpBg[1]]);
+  assert(r >= 4.5, `${nom} : libellé du bouton d'envoi ${mpFg[1]} sur ${mpBg[1]} = ${r.toFixed(2)}:1 < 4.5 (illisible)`);
+}
+console.log("✓ composer (RM2527) : bouton d'envoi compact et lisible sur son fond");
+
 console.log("OK — tous les tests cockpit passent");

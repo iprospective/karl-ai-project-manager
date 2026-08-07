@@ -5241,6 +5241,68 @@ def op_layout(payload: dict) -> dict:
     return {"rm_id": rm_id, "layout": layout}
 
 
+# ── Détection des mises à jour du core (RM2571) ──────────────────────────────
+# NON privilégié, par construction. `git fetch` est IMPOSSIBLE ici : le `.git`
+# du core est root-owned (verrou 3-couches RM2032) et le fetch veut écrire
+# FETCH_HEAD — il échoue en « Permission denied ». En revanche `git ls-remote`
+# ne fait que lire la conf et interroger le remote, sans écrire un octet dans
+# `.git` : il passe en KARL_USER. C'est ce qui permet de sonder les MAJ sans le
+# moindre privilège. Seule l'APPLICATION de la mise à jour est privilégiée.
+_CORE_UPD_TTL = 600          # s — le cockpit sonde souvent, ls-remote sort sur le réseau
+_core_upd_cache: dict = {}   # dernier état connu, servi tant qu'il est frais
+
+
+def _core_branch() -> str:
+    p = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "--abbrev-ref", "HEAD"],
+                       capture_output=True, text=True, timeout=10)
+    return (p.stdout.strip() or "main") if p.returncode == 0 else "main"
+
+
+def op_core_update_status(qs: dict | None = None) -> dict:
+    """État de mise à jour du core : HEAD local vs tête du remote.
+
+    Ne fait JAMAIS échouer la route : un remote injoignable (réseau, auth) rend
+    `error` et le dernier état connu, marqué périmé. Un cockpit ne doit pas
+    s'allumer en rouge parce que le réseau a hoqueté.
+    """
+    force = str((qs or {}).get("force", "")).lower() in ("1", "true", "oui")
+    now = time.time()
+    cached = _core_upd_cache.get("data")
+    if cached and not force and (now - _core_upd_cache.get("at", 0)) < _CORE_UPD_TTL:
+        return {**cached, "cached": True}
+
+    branch = _core_branch()
+    out = {"branch": branch, "local": None, "remote": None,
+           "available": False, "error": None, "cached": False, "stale": False}
+    try:
+        p = subprocess.run(["git", "-C", str(REPO_ROOT), "rev-parse", "HEAD"],
+                           capture_output=True, text=True, timeout=10)
+        if p.returncode == 0:
+            out["local"] = p.stdout.strip()
+        # ls-remote : lecture seule, aucun octet écrit dans .git (cf. en-tête).
+        p = subprocess.run(["git", "-C", str(REPO_ROOT), "ls-remote", "origin",
+                            f"refs/heads/{branch}"],
+                           capture_output=True, text=True, timeout=45)
+        if p.returncode != 0:
+            out["error"] = (p.stderr or "").strip()[:400] or "ls-remote a échoué"
+        else:
+            line = (p.stdout or "").strip().split("\n")[0]
+            out["remote"] = line.split("\t")[0].strip() if line else None
+    except subprocess.TimeoutExpired:
+        out["error"] = "remote injoignable (délai dépassé)"
+    except Exception as e:  # noqa: BLE001 — la route doit toujours rendre
+        out["error"] = f"{type(e).__name__}: {e}"
+
+    out["available"] = bool(out["local"] and out["remote"] and out["local"] != out["remote"])
+    out["checked_at"] = (time.strftime("%Y-%m-%dT%H:%M:%S") if out["error"] is None
+                         else (cached or {}).get("checked_at"))
+    if out["error"] and cached:
+        # Échec transitoire : on garde l'état connu, en le marquant périmé.
+        return {**cached, "cached": True, "stale": True, "error": out["error"]}
+    _core_upd_cache["data"], _core_upd_cache["at"] = out, now
+    return out
+
+
 # ── Serveur HTTP ─────────────────────────────────────────────────────────────
 # ── Assets statiques du cockpit (RM2522) ────────────────────────────────────
 # Jusqu'ici le serveur ne servait QUE index.html ; le client terminal maison
@@ -5486,6 +5548,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/session-set":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_session_set_get(qs, self.auth_ctx))
+            if path == "/core/update-status":   # RM2571 — non privilégié (ls-remote)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_core_update_status(qs))
             if path == "/pm/commands":
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":

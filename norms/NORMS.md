@@ -1,10 +1,10 @@
 ---
-schema_version: "1.66.0"
-updated: 2026-08-03
+schema_version: "1.66.1"
+updated: 2026-08-07
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.66.0
+# Normes de gestion des tâches — v1.66.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -2042,10 +2042,17 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
   ⚠ **`push=Maintainer` y équivaut à `push=personne`** — piège à l'origine de l'arriéré
   de juillet 2026. **Prérequis** : le compte *manager* doit être
   **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
+  ⚠ **Dépôt neuf : l'appliquer aussitôt** — il n'hérite que du défaut GitLab (`main` :
+  push *Maintainer*), qui ressemble à une protection conforme sans en être une. (RM2568)
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
   au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
+  Il vaut pour **tout** dépôt, **même hors conf PM** (module en
+  submodule, dépôt neuf) : lui passer l'**URL de la MR** ou `--repo`. Ne pas conclure
+  qu'il « ne couvre pas ce cas » sans essayer — le repli par API inline perd les
+  gotchas **et** peut être refusé par le **harnais de l'agent**, refus qu'on prend
+  pour un refus GitLab. (RM2568)
 - **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
   rôles GitLab.
   - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
@@ -2075,21 +2082,10 @@ agents pilotés interactivement par l'utilisateur via Claude Code).
 - **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
   - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
     utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
-  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN: <pat>` ; un token OAuth
-    `glab` en `Authorization: Bearer …` (sinon non-authentifié → 404 sur repo
-    `internal`).
+  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN:` (un token OAuth `glab`
+    en `Authorization: Bearer` ; sinon 404 sur repo `internal`).
   - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
   - **Conserver la branche** au merge : `should_remove_source_branch=false`.
-
-  ```bash
-  # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
-  glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
-  glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
-    -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
-    -f remove_source_branch=false
-  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
-    -f should_remove_source_branch=false
-  ```
 - **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
   `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
 

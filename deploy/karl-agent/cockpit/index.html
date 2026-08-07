@@ -466,6 +466,11 @@ if (window.matchMedia) {
   <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
   <button class="mini" id="voicebtn" onclick="toggleVoice()"
     title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
+  <!-- RM2571 : une MAJ du core est disponible. Purement INFORMATIF — l'application
+       reste un geste humain au terminal (mot de passe sudo), et ce qui atteint
+       `main` est lui-même une décision humaine. -->
+  <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
+    title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -1069,6 +1074,38 @@ async function refreshHealth() {
   } catch (e) {
     el.className = "dot ko"; tx.textContent = "injoignable — " + e.message;
   }
+}
+// ── MAJ du core (RM2571) ────────────────────────────────────────────────────
+// Détection SEULE : le serveur sonde le remote en lecture (`git ls-remote`, sans
+// privilège) et met son résultat en cache. Appliquer la MAJ reste un geste
+// humain — décision assumée : la barrière humaine est au merge vers `main`, et
+// `mmi-pm core update` mute du code root-owned.
+let _coreUpd = null;
+async function refreshCoreUpdate(force) {
+  const b = document.getElementById("updbtn");
+  try {
+    _coreUpd = await api("/core/update-status" + (force ? "?force=1" : ""));
+  } catch (e) { return; }          // silencieux : un cockpit ne crie pas pour ça
+  const on = !!_coreUpd.available;
+  b.style.display = on ? "" : "none";
+  if (!on) return;
+  const l = (_coreUpd.local || "").slice(0, 7), r = (_coreUpd.remote || "").slice(0, 7);
+  b.textContent = "⬆ MAJ dispo";
+  b.title = "Mise à jour du code PM disponible sur « " + _coreUpd.branch + " » : "
+    + l + " → " + r + (_coreUpd.stale ? " (état périmé : " + _coreUpd.error + ")" : "")
+    + " — clic pour la commande à lancer";
+}
+function showCoreUpdate() {
+  if (!_coreUpd) return;
+  const l = (_coreUpd.local || "?").slice(0, 7), r = (_coreUpd.remote || "?").slice(0, 7);
+  alert("Mise à jour du code PM disponible\n\n"
+    + "branche : " + _coreUpd.branch + "\n"
+    + "installé : " + l + "\ndisponible : " + r + "\n"
+    + (_coreUpd.checked_at ? "vérifié : " + _coreUpd.checked_at + "\n" : "")
+    + "\nÀ lancer dans un terminal (mot de passe sudo demandé) :\n\n"
+    + "  sudo /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update\n\n"
+    + "Note : karl-agent redémarre si son propre code a changé — le cockpit se "
+    + "reconnecte tout seul.");
 }
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
@@ -4424,8 +4461,12 @@ async function kill(rmId) {
   refreshHealth(); refreshSessions();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
+  refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);
+  // Cadence lente et volontairement désalignée du cache serveur (TTL 600 s) :
+  // une MAJ du PM n'est pas une urgence, et ls-remote sort sur le réseau.
+  setInterval(refreshCoreUpdate, 300000);
 })();
 </script>
 </body>

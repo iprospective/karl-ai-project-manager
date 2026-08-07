@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [1.66.1] - 2026-08-07
+
+### Précisé
+- **git-mep** — `pm-mr` vaut pour **tout** dépôt GitLab de l'instance, y compris un
+  dépôt hors conf PM (module en submodule, dépôt neuf) : lui passer l'URL de la MR ou
+  `--repo`. Ne pas supposer qu'il « ne couvre pas ce cas » sans essayer : le repli par
+  appel API inline perd les gotchas encapsulés et peut être refusé par le harnais de
+  l'agent — refus qu'on confond alors avec un refus de GitLab, d'où un faux diagnostic
+  « intervention humaine requise ». (RM2568, vécu en RM2558)
+- **git-mep** — un dépôt GitLab créé en cours de ticket n'hérite que du défaut GitLab
+  (`main` : push *Maintainer*), qui **ressemble** à une protection conforme sans en
+  être une : enchaîner `pm-protect --project-id <id> --no-core` juste après la
+  création. (RM2568)
+
 ## [1.64.0] - 2026-07-30
 
 ### Ajouté

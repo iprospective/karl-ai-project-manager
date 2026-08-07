@@ -61,6 +61,54 @@ def _git(repo, *args, check=True):
     return r
 
 
+def _resolve_base(root, base, fetch=True):
+    """Résout la base de branchement sur le REMOTE plutôt que sur le ref local (RM2574).
+
+    `git checkout -b <br> dev` résout `dev` en `refs/heads/dev` — la branche LOCALE du
+    clone, que rien ne rafraîchit. Sur un clone où l'on ne travaille jamais `dev`
+    directement, elle décroche silencieusement : la branche du ticket part alors d'un
+    code périmé (vécu RM2574 : 500 lignes de retard sur `scripts/karl-agent.py`), sans
+    le moindre signal.
+
+    On fetch, puis on branche depuis `origin/<base>` dès que ce ref existe. Le fetch
+    seul ne suffirait pas : il rafraîchit `origin/*` mais laisse le ref local — et donc
+    la base retenue — au même endroit.
+
+    Repli sur le ref local : pas de remote, `origin/<base>` inexistant (branche locale
+    seulement), ou `--from` désignant déjà un ref distant.
+    """
+    if "/" in base:            # --from origin/dev, upstream/main… déjà distant
+        return base
+    remote = "origin"
+    if _git(root, "remote", "get-url", remote, check=False).returncode != 0:
+        return base            # pas de remote : rien à rafraîchir
+    if fetch:
+        # Un fetch qui échoue EN SILENCE est le pire cas : la ref origin/* reste périmée
+        # et annonce la base « à jour » alors qu'elle a divergé (cf. NORMS git-mep).
+        r = _git(root, "fetch", "--quiet", remote, check=False)
+        if r.returncode != 0:
+            out.warn(f"git fetch {remote} a ÉCHOUÉ ({(r.stderr or r.stdout).strip()[:200]}) — "
+                     f"la base '{base}' peut être périmée, et rien ne le dira ensuite")
+    else:
+        # --dry-run : un essai à blanc n'écrit pas dans .git, fetch compris. On
+        # résout donc sur les refs origin/* telles qu'elles sont déjà.
+        out.warn(f"--dry-run : pas de fetch, base résolue sur les refs '{remote}/*' "
+                 f"déjà présentes (possiblement périmées)")
+    tracked = f"{remote}/{base}"
+    if _git(root, "rev-parse", "--verify", "--quiet", tracked,
+            check=False).returncode != 0:
+        return base            # branche purement locale (version, wip…) : légitime
+    local = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{base}",
+                 check=False)
+    if local.returncode == 0:
+        behind = _git(root, "rev-list", "--count", f"refs/heads/{base}..{tracked}",
+                      check=False).stdout.strip()
+        if behind.isdigit() and int(behind) > 0:
+            out.warn(f"base locale '{base}' en retard de {behind} commit(s) sur "
+                     f"'{tracked}' → branchement depuis '{tracked}'")
+    return tracked
+
+
 def _is_core(root):
     """Un dépôt est un CORE PM (structure/projet) s'il RÉVISIONNE un `.mmi-pm` /
     `.mmi-pm-client` à sa racine — jamais une cible de branche de code (invariant NORMS
@@ -212,6 +260,7 @@ def main():
     if not args.base:
         out.warn(f"--from omis : base = branche courante '{base}' (vérifie que c'est "
                  f"bien la branche d'intégration du projet)")
+    base = _resolve_base(root, base, fetch=not args.dry_run)
 
     # Mode worktree (RM2034) : branche discriminée par session + worktree dédié,
     # pour mener plusieurs tickets en parallèle sans se tromper de cible.
@@ -239,7 +288,10 @@ def main():
     exists = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
                   check=False).returncode == 0
     if args.dry_run:
-        action = (f"worktree add {wt}" if args.worktree
+        # La base retenue figure dans TOUS les cas de création (RM2574) : c'est
+        # l'information que l'essai à blanc doit permettre de vérifier.
+        action = (f"worktree add {wt}" + ("" if exists else f" (branche depuis {base})")
+                  if args.worktree
                   else ("checkout" if exists else f"création depuis {base} +checkout"))
         print(f"--dry-run : {action} pour '{branch}' dans {root} ; CF '{CF_BRANCH_NAME}'={branch} ; "
               f"frontmatter git.repo={canonical_repo}, git.branch={branch}")

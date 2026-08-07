@@ -3719,6 +3719,7 @@ let currentReview = null;   // onglet de revue actif
 let tqCache = {};           // rm_id (str) → entrée /pm/test-queue (env, branche…)
 // ----- RM2353 : fiche projet dans le panneau principal -----
 let currentProjectView = null;   // clé "client/projet" de la fiche affichée
+let projectData = null;          // RM2531 : dernière fiche chargée (préremplit le formulaire de conf)
 function closeProjectView() {
   currentProjectView = null;
   document.getElementById("projpane").style.display = "none";
@@ -3765,10 +3766,15 @@ function tkRow(t) {
 }
 function renderProjectPane(key, d) {
   const pane = document.getElementById("projpane");
+  projectData = d;                                  // RM2531 : préremplissage du formulaire de conf
+  const [ck] = key.split("/");
   let h = '<div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap">' +
     '<h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">📁 ' + esc(key) + '</h2>' +
     (d.name ? '<span style="color:var(--muted)">' + esc(d.name) + '</span>' : "") +
-    '<span style="flex:1"></span><button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
+    '<span style="flex:1"></span>' +
+    '<button class="mini" onclick="openConfigForm(\'project\')" title="Modifier la conf du projet (meta.yml)">✎ conf projet</button>' +
+    '<button class="mini" onclick="openConfigForm(\'client\')" title="Modifier la conf du client ' + esc(ck) + ' (meta.yml)">✎ conf client</button>' +
+    '<button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
   // liens
   h += '<div class="rels" style="margin:10px 0 14px">';
   if (d.redmine_project_url) h += '<a class="pill" href="' + esc(d.redmine_project_url) + '" target="_blank">🎫 Projet Redmine ↗</a>';
@@ -3807,6 +3813,80 @@ function renderProjectPane(key, d) {
     h += '</div>';
   }
   pane.innerHTML = h;
+}
+
+// ── RM2531 : édition de la conf structurée (meta.yml) projet / client ─────────
+// Formulaire prérempli depuis la fiche (projectData) ; enregistre via le runner
+// générique POST /pm/run (commandes project-config / client-config du catalogue
+// RM2209 → single-writer pm-project-config.py). Les champs vides ne modifient rien.
+
+// >>> configArgs  (pur — testé par test_cockpit.js)
+// Construit les args pour /pm/run : client (+ project si projet), et chaque champ
+// NON VIDE. Renvoie null si aucun champ conf n'est fourni (rien à faire).
+function configArgs(scope, key, fields) {
+  const parts = String(key || "").split("/");
+  const args = { client: parts[0] };
+  if (scope === "project") args.project = parts[1];
+  let n = 0;
+  const put = (k, v) => {
+    if (v != null && String(v).trim() !== "") { args[k] = String(v).trim(); n++; }
+  };
+  put("name", fields.name);
+  put("redmine_project_id", fields.redmine);
+  if (scope === "project") { put("gitlab_repo", fields.repo); put("default_branch", fields.branch); }
+  return n ? args : null;
+}
+// <<< configArgs
+
+function openConfigForm(scope) {
+  const d = projectData, key = currentProjectView;
+  if (!d || !key) return;
+  const isP = scope === "project";
+  const pre = isP
+    ? { name: d.name, redmine: d.redmine_project_id, repo: d.gitlab_repo, branch: d.default_branch }
+    : { name: d.client_name, redmine: d.client_redmine_project_id };
+  const row = (id, lbl, val, hint) =>
+    '<label for="' + id + '" style="display:block;margin-top:10px;font-size:12px;color:var(--muted)">' + esc(lbl) +
+    (hint ? ' <span style="opacity:.7">' + esc(hint) + '</span>' : '') + '</label>' +
+    '<input id="' + id + '" type="text" value="' + esc(val == null ? "" : val) + '" ' +
+    'style="width:100%;box-sizing:border-box;padding:7px 9px;border:1px solid var(--line);border-radius:6px;' +
+    'background:var(--bg);color:var(--fg);font-family:var(--mono);font-size:13px">';
+  let h = '<div style="display:flex;align-items:baseline;gap:12px">' +
+    '<h2 style="font-size:16px;text-transform:none;letter-spacing:0;color:var(--fg)">✎ Conf ' +
+    (isP ? 'projet' : 'client') + ' — ' + esc(isP ? key : key.split("/")[0]) + '</h2>' +
+    '<span class="pill warn">mutation meta.yml</span><span style="flex:1"></span>' +
+    '<button class="mini" onclick="openProjectView(currentProjectView)">✕ annuler</button></div>' +
+    '<div style="max-width:560px">' +
+    row("cfg-name", "Nom affiché", pre.name) +
+    row("cfg-redmine", isP ? "Projet Redmine (id/slug)" : "Projet Redmine parent (id/slug)", pre.redmine);
+  if (isP) {
+    h += row("cfg-repo", "Repo GitLab (groupe/nom)", pre.repo) +
+         row("cfg-branch", "Branche par défaut", pre.branch);
+  }
+  h += '<div style="margin-top:14px;display:flex;gap:8px">' +
+    '<button class="primary" onclick="submitConfig(\'' + scope + '\', this)">✓ Enregistrer</button>' +
+    '<button class="mini" onclick="openProjectView(currentProjectView)">Annuler</button></div>' +
+    '<div style="margin-top:8px;color:var(--muted);font-size:11px">Laisser un champ vide = ne pas y toucher. ' +
+    'Écrit meta.yml (édition ciblée) + commit auto.</div></div>';
+  document.getElementById("projpane").innerHTML = h;
+}
+
+async function submitConfig(scope, btn) {
+  const key = currentProjectView;
+  const val = id => { const e = document.getElementById(id); return e ? e.value : ""; };
+  const fields = { name: val("cfg-name"), redmine: val("cfg-redmine"),
+                   repo: val("cfg-repo"), branch: val("cfg-branch") };
+  const args = configArgs(scope, key, fields);
+  if (!args) { toast("Aucun champ à modifier", true); return; }
+  const cmd = scope === "project" ? "project-config" : "client-config";
+  if (!window.confirm("Modifier la conf " + (scope === "project" ? "du projet" : "du client") +
+      " (écrit meta.yml) ?")) return;
+  btn.disabled = true;
+  try {
+    const r = await pmRun(cmd, args, { confirm: true });
+    if (r.ok) { toast("✓ conf enregistrée"); openProjectView(key); }
+    else { toast("Échec (rc=" + r.rc + ") : " + ((r.stderr || r.stdout || "").split("\n")[0]), true); btn.disabled = false; }
+  } catch (e) { toast(e.message, true); btn.disabled = false; }
 }
 
 function openReview(rm) {

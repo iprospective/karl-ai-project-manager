@@ -779,5 +779,32 @@ for (const [nom, hex] of [["light", lightHex], ["dark", darkHex]]) {
   assert(r >= 4.5, `${nom} : libellé du bouton d'envoi ${mpFg[1]} sur ${mpBg[1]} = ${r.toFixed(2)}:1 < 4.5 (illisible)`);
 }
 console.log("✓ composer (RM2527) : bouton d'envoi compact et lisible sur son fond");
+// — configArgs (RM2531) : args /pm/run pour l'édition de conf projet/client —
+const fCA = />>> configArgs[\s\S]*?(function configArgs[\s\S]*?)\n\/\/ <<< configArgs/.exec(html);
+assert(fCA, "marqueurs >>> configArgs / <<< configArgs introuvables");
+const configArgs = vm.runInNewContext("(" + fCA[1] + ")", {});
+
+// (spread { ...res } : normalise le realm du vm.runInNewContext pour deepStrictEqual)
+// projet : client+project + champs non vides ; les vides sont omis
+assert.deepStrictEqual(
+  { ...configArgs("project", "iprospective/pm-ai-agents",
+    { name: "Nouveau", redmine: "pm-ai-agents", repo: "", branch: "  " }) },
+  { client: "iprospective", project: "pm-ai-agents", name: "Nouveau", redmine_project_id: "pm-ai-agents" },
+  "projet : champs vides/espaces omis, non vides trim");
+// projet : repo + branche pris en compte
+assert.deepStrictEqual(
+  { ...configArgs("project", "c/p", { name: "", redmine: "", repo: "g/r", branch: "dev" }) },
+  { client: "c", project: "p", gitlab_repo: "g/r", default_branch: "dev" },
+  "projet : gitlab_repo + default_branch");
+// client : pas de project, pas de gitlab même si fournis
+assert.deepStrictEqual(
+  { ...configArgs("client", "acme/shop", { name: "Acme", redmine: "acme-parent", repo: "x/y", branch: "main" }) },
+  { client: "acme", name: "Acme", redmine_project_id: "acme-parent" },
+  "client : ni project ni gitlab, seulement name + redmine");
+// aucun champ conf → null (rien à faire)
+assert.strictEqual(configArgs("project", "c/p", { name: "", redmine: "", repo: "", branch: "" }), null,
+  "aucun champ → null");
+assert.strictEqual(configArgs("client", "c/p", {}), null, "client sans champ → null");
+console.log("✓ configArgs (RM2531) : args /pm/run, champs vides omis, gitlab réservé au projet");
 
 console.log("OK — tous les tests cockpit passent");

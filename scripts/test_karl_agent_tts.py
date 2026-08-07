@@ -36,6 +36,10 @@ def expect_api(code, fn, name):
 # — Piper absent (défaut du test) : caps tts=False, synth → 503 —
 ka.PIPER_BIN = pathlib.Path("/nonexistent/piper")
 ka.PIPER_MODELS = pathlib.Path("/nonexistent/models")
+# Herméticité (RM2531) : op_voice_caps sonde le sidecar Whisper en direct → on le
+# pointe sur un port mort pour que stt=False quel que soit l'environnement (sinon
+# le test échoue quand un sidecar tourne vraiment, ex. activation prod RM2533).
+ka.WHISPER_URL = "http://127.0.0.1:9"
 caps = ka.op_voice_caps()
 check("caps sans Piper : tts False", caps["tts"] is False and caps["engine"] is None)
 check("caps : stt False (lot 2)", caps["stt"] is False)

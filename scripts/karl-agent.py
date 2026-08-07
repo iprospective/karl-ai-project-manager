@@ -4334,6 +4334,33 @@ def _project_tickets_summary(tasks: list) -> dict:
             "open_by_status": by_status, "total": len(tasks)}
 
 
+def _client_conf(client: str) -> dict:
+    """RM2531 — conf structurée du client pour préremplir le formulaire d'édition :
+    name + redmine.default_project_id, lus à plat depuis .mmi-pm-client/meta.yml
+    (parent du symlink `client`). Vide si absent."""
+    cdir = PROJECTS_BASE / client / "client"
+    try:
+        meta = cdir.resolve().parent / "meta.yml"
+    except OSError:
+        return {}
+    if not meta.is_file():
+        return {}
+    name = rid = None
+    block = None
+    for line in meta.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line and not line[0].isspace():
+            block = line.split(":", 1)[0].strip() if ":" in line else None
+            if line.startswith("name:") and not name:
+                name = _scalar(line)
+            continue
+        s = line.strip()
+        if block == "redmine" and s.startswith("default_project_id:") and not rid:
+            rid = s.split(":", 1)[1].strip().strip("'\"")
+    if rid in ("null", "~", ""):
+        rid = None
+    return {"client_name": name, "client_redmine_project_id": rid}
+
+
 def op_project(client: str, project: str) -> dict:
     """RM2353 : fiche projet pour le panneau principal du cockpit — conf
     pertinente (overview : redmine.project_id, repo gitlab), docs, environnements,
@@ -4395,11 +4422,13 @@ def op_project(client: str, project: str) -> dict:
     redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
     return {
         "client": client, "project": project, "name": name,
+        "redmine_project_id": slug,          # RM2531 : préremplissage du formulaire de conf
         "redmine_project_url": f"{redmine}/projects/{slug}" if redmine and slug else "",
         "redmine_issues_url": f"{redmine}/projects/{slug}/issues" if redmine and slug else "",
         "gitlab_repo": repo, "default_branch": default_branch,
         "docs": _project_docs(pdir),
         "environments": _read_project_envs(pdir),
+        **_client_conf(client),
         **_project_tickets_summary(tasks),
     }
 
@@ -4670,6 +4699,30 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "workspace", "server": "workspace_of_rm", "positional": True},
          {"name": "keep_db", "label": "Conserver le clone BDD", "type": "bool", "flag": "--keep-db"},
          {"name": "force", "label": "Forcer (modifs non commitées)", "type": "bool", "flag": "--force"},
+     ]},
+    # Conf structurée projet/client (RM2531) — édition CIBLÉE de meta.yml via le
+    # single-writer pm-project-config.py (les champs vides ne touchent rien).
+    {"name": "project-config", "label": "Modifier la conf d'un projet", "category": "projet",
+     "script": "pm-project-config.py", "mutate": True, "confirm": True, "args": [
+         {"name": "client", "label": "Client", "type": "text", "required": True,
+          "flag": "--client", "max_len": 48},
+         {"name": "project", "label": "Projet", "type": "text", "required": True,
+          "flag": "--project", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "flag": "--name", "max_len": 96},
+         {"name": "redmine_project_id", "label": "Projet Redmine (id/slug)", "type": "text",
+          "flag": "--redmine-project-id", "max_len": 64},
+         {"name": "gitlab_repo", "label": "Repo GitLab (groupe/nom)", "type": "text",
+          "flag": "--gitlab-repo", "max_len": 128},
+         {"name": "default_branch", "label": "Branche par défaut", "type": "text",
+          "flag": "--default-branch", "max_len": 64},
+     ]},
+    {"name": "client-config", "label": "Modifier la conf d'un client", "category": "projet",
+     "script": "pm-project-config.py", "mutate": True, "confirm": True, "args": [
+         {"name": "client", "label": "Client", "type": "text", "required": True,
+          "flag": "--client", "max_len": 48},
+         {"name": "name", "label": "Nom affiché", "type": "text", "flag": "--name", "max_len": 96},
+         {"name": "redmine_project_id", "label": "Projet Redmine parent (id/slug)", "type": "text",
+          "flag": "--redmine-project-id", "max_len": 64},
      ]},
 ]
 _PM_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9-]*\.py$")

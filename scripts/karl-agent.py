@@ -3693,6 +3693,97 @@ def op_question(rm_id: str) -> dict:
     return {"rm_id": rm_id, "question": _extract_question(tail)}
 
 
+# RM2466 volet 2 : le transcript d'une session ne cesse de grossir (plusieurs Mo)
+# et le panneau se rafraîchit en boucle — on ne le relit que s'il a bougé.
+_UNRESOLVED_CACHE = {}          # chemin → (mtime, taille, [questions])
+
+
+def _transcript_file(session_id):
+    """Fichier JSONL d'une session claude, ou None (même résolution que /outline)."""
+    if not session_id:
+        return None
+    return next((p for root in CLAUDE_STORES
+                 for p in root.glob(f"*/{session_id}.jsonl")), None)
+
+
+def _unresolved_questions(session_id) -> list:
+    """RM2466 : questions du transcript restées SANS réponse (typage RM2549).
+    À ne pas confondre avec l'état `attention`/`choice` : celui-ci dit que la
+    session est bloquée MAINTENANT ; celles-ci ont été posées puis laissées en
+    plan — non bloquantes, mais ce sont elles qui se perdent."""
+    jf = _transcript_file(session_id)
+    if not jf:
+        return []
+    try:
+        st = jf.stat()
+    except OSError:
+        return []
+    key = str(jf)
+    hit = _UNRESOLVED_CACHE.get(key)
+    if hit and hit[0] == st.st_mtime and hit[1] == st.st_size:
+        return hit[2]
+    try:
+        with jf.open(encoding="utf-8", errors="replace") as fh:
+            items = _transcript_outline(fh, max_items=1000000)
+    except OSError:
+        return []
+    out = [{"text": i["text"], "full": i["full"]} for i in items
+           if i.get("kind") == "question" and not i.get("resolved")]
+    _UNRESOLVED_CACHE[key] = (st.st_mtime, st.st_size, out)
+    return out
+
+
+# >>> pending_entries — pure (testée par test_karl_agent_pending.py)
+def pending_entries(sessions, unresolved_by_sid, question_by_sid) -> list:
+    """RM2466 volet 2 : ce qui attend une réponse, toutes sessions confondues.
+    Deux signaux JAMAIS fusionnés — ils n'appellent pas la même urgence :
+      - `live`  : la session est bloquée maintenant (state attention/choice) ;
+      - `stale` : question posée puis laissée sans réponse (transcript).
+    Les bloquées d'abord ; à égalité, la session la plus récemment active."""
+    out = []
+    for s in sessions or []:
+        sid = s.get("rm_id")
+        if s.get("ghost"):
+            continue                    # session enregistrée mais pas démarrée
+        if s.get("state") in ("attention", "choice"):
+            out.append({
+                "rm_id": sid, "kind": "live", "state": s.get("state"),
+                "client": s.get("client"), "project": s.get("project"),
+                "text": question_by_sid.get(sid) or "(question à l'écran)",
+                "full": question_by_sid.get(sid) or "",
+                "created": s.get("created"),
+            })
+        for q in unresolved_by_sid.get(sid) or []:
+            out.append({
+                "rm_id": sid, "kind": "stale", "state": s.get("state"),
+                "client": s.get("client"), "project": s.get("project"),
+                "text": q.get("text") or "", "full": q.get("full") or "",
+                "created": s.get("created"),
+            })
+    out.sort(key=lambda e: (e["kind"] != "live", -(e.get("created") or 0), str(e["rm_id"])))
+    return out
+# <<< pending_entries
+
+
+def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
+    sessions = _sessions_view(qs, auth_ctx)
+    unresolved, questions = {}, {}
+    for s in sessions:
+        sid = s.get("rm_id")
+        if s.get("state") in ("attention", "choice"):
+            rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(sid))
+            if rc == 0:
+                questions[sid] = _extract_question(
+                    "\n".join(out.rstrip().splitlines()[-15:]))
+        if s.get("engine") == "claude":
+            unresolved[sid] = _unresolved_questions(s.get("session_id"))
+    entries = pending_entries(sessions, unresolved, questions)
+    return {"entries": entries,
+            "live": sum(1 for e in entries if e["kind"] == "live"),
+            "stale": sum(1 for e in entries if e["kind"] == "stale")}
+
+
 def _session_state(rm_id: str, engine) -> str:
     rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
     if rc != 0:
@@ -5561,6 +5652,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"resumable": op_resumable(qs)})
+            if path == "/pending":       # RM2466 : ce qui attend une réponse
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_pending(qs, self.auth_ctx))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)

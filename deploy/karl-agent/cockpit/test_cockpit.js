@@ -813,4 +813,35 @@ assert.strictEqual(configArgs("project", "c/p", { name: "", redmine: "", repo: "
 assert.strictEqual(configArgs("client", "c/p", {}), null, "client sans champ → null");
 console.log("✓ configArgs (RM2531) : args /pm/run, champs vides omis, gitlab réservé au projet");
 
+// — 12. panneau « en attente de toi » (RM2466 volet 2) —
+const fPd = />>> pendingDecor[\s\S]*?(function pendingDecor[\s\S]*?)\n\/\/ <<< pendingDecor/.exec(html);
+assert(fPd, "marqueurs >>> pendingDecor / <<< pendingDecor introuvables");
+const pendingDecor = vm.runInNewContext("(" + fPd[1] + ")");
+
+const dLive = pendingDecor({ kind: "live", state: "attention" });
+const dChoice = pendingDecor({ kind: "live", state: "choice" });
+const dStale = pendingDecor({ kind: "stale" });
+assert(dLive.cls.includes("ounres") && !dStale.cls.includes("ounres"),
+  "une session BLOQUÉE est signalée plus fort qu'une question qui traîne");
+assert(dLive.icon !== dStale.icon && dLive.tag !== dStale.tag,
+  "les deux natures diffèrent par l'icône ET le libellé, pas seulement la couleur");
+assert(dChoice.icon !== dLive.icon, "menu de choix et question oui/non ont leur icône");
+assert(/bloqu/i.test(dLive.tag) && /sans réponse/i.test(dStale.tag),
+  "les libellés disent en toutes lettres de quoi il s'agit");
+assert(pendingDecor(null).tag && pendingDecor(undefined).icon, "entrée absente tolérée");
+console.log("✓ état (RM2466) : bloquée vs sans réponse, distinguées sur trois canaux");
+
+// le badge de l'onglet ne doit alerter que sur les sessions VRAIMENT bloquées :
+// une question en souffrance ne doit pas faire clignoter le cockpit en continu
+const mRp = /function renderPending\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(mRp, "renderPending introuvable");
+assert(/badge\.textContent = pending\.live/.test(mRp[0]) && !/badge\.textContent = .*stale/.test(mRp[0]),
+  "le badge compte les bloquées, jamais les questions en souffrance");
+assert(/rp-state/.test(html) && /data-rpanel="state"/.test(html),
+  "l'onglet « état » a son bouton et son panneau");
+const onglets2 = (html.match(/data-rpanel="/g) || []).length;
+const corps2 = (html.match(/class="rp" id="rp-/g) || []).length;
+assert.strictEqual(onglets2, corps2, "chaque onglet de droite a toujours son panneau");
+console.log("✓ état (RM2466) : badge réservé aux sessions bloquées, onglet câblé");
+
 console.log("OK — tous les tests cockpit passent");

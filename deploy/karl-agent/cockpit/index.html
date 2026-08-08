@@ -295,6 +295,8 @@
   .rpanel { width: 330px; border-left: 1px solid var(--line); background: var(--panel);
     display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; }
   .rpanel.collapsed { width: 34px; }
+  /* RM2579 : l'onglet conversation prend plus de largeur (échanges lisibles) */
+  .rpanel.wide { width: 460px; }
   .rpanel.collapsed .rnav, .rpanel.collapsed .rbody { display: none; }
   .rtoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
     border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
@@ -345,6 +347,22 @@
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
+  /* RM2579 : sous-onglets de l'onglet « tickets » (niveau 1 = ticket, niveau 2 = facette) */
+  .rsub { display: flex; flex-wrap: wrap; gap: 3px; margin: 0 0 8px; }
+  .rsub.facets { margin-top: -2px; }
+  .rsub button { font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line);
+    background: transparent; color: var(--muted); cursor: pointer; }
+  .rsub button:hover { color: var(--fg); }
+  .rsub button.active { background: var(--bg); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+  .rsub.facets button.active { color: var(--fg-strong); border-color: var(--line); background: var(--panel2); }
+  /* RM2579 : lecture inline d'un message de la conversation (remplace la modale) */
+  .oread { flex: none; max-height: 45%; display: flex; flex-direction: column; min-height: 0;
+    border-top: 2px solid var(--accent); background: var(--panel2); overscroll-behavior: contain; }
+  .oreadbar { display: flex; align-items: center; gap: 8px; flex: none;
+    background: var(--panel2); border-bottom: 1px solid var(--line); padding: 5px 8px; font-size: 11px; }
+  .oreadbar .t { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .oreadtxt { flex: 1; min-height: 0; overflow-y: auto; padding: 8px 10px; white-space: pre-wrap;
+    word-break: break-word; font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--fg); }
   .doclist { list-style: none; margin: 0; padding: 0; }
   .doclist li { padding: 4px 6px; border-radius: 5px; cursor: pointer; font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
   .doclist li:hover { background: var(--panel2); }
@@ -754,6 +772,23 @@ if (window.matchMedia) {
       </select>
       <div id="th-hint" style="color:var(--muted);font-size:11.5px;margin-top:6px"></div>
     </div>
+    <!-- RM2579 : démarrage de la colonne de droite (local à CE navigateur) -->
+    <div class="card" id="rightcard">
+      <h2>🧩 Colonne de droite <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px">
+        <input type="checkbox" id="rp-startopen" onchange="setRightStartOpen(this.checked)">
+        <span>Démarrer dépliée</span>
+      </label>
+      <label for="rp-deftab">Onglet affiché par défaut</label>
+      <select id="rp-deftab" onchange="setRightDefaultTab(this.value)">
+        <option value="infos">ℹ infos</option>
+        <option value="tickets">🎫 tickets</option>
+        <option value="outline">🗺 conversation</option>
+      </select>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        S'applique au prochain chargement du cockpit.
+      </div>
+    </div>
     <div class="card" id="reglages-card">
       <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
       <div id="reglages-body" style="margin-top:8px"></div>
@@ -830,12 +865,21 @@ if (window.matchMedia) {
         <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
         <nav class="rnav">
+          <!-- RM2579 : infos (session) / tickets (sous-onglets) / conversation -->
+          <button data-rpanel="infos" onclick="switchRight('infos')"
+            title="Infos de la session : tmux, branches, worktrees, conso live">ℹ infos</button>
+          <button data-rpanel="tickets" onclick="switchRight('tickets')"
+            title="Tickets de la session — un sous-onglet par ticket, puis détail / conso / workspace">🎫 tickets</button>
           <button data-rpanel="outline" onclick="switchRight('outline')"
-            title="Conversation de la session — clic sur une entrée : lecture du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
-          <button data-rpanel="meta" onclick="switchRight('meta')"
-            title="Infos de la session : ticket, projet, branches, worktrees">ℹ infos</button>
+            title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
         <div class="rbody">
+          <div class="rp" id="rp-infos">
+            <div class="metabody" id="infosbody"></div>
+          </div>
+          <div class="rp" id="rp-tickets">
+            <div class="metabody" id="ticketsbody"></div>
+          </div>
           <!-- RM2330 : outline de la conversation -->
           <div class="rp" id="rp-outline">
             <div class="outnav">
@@ -847,9 +891,8 @@ if (window.matchMedia) {
               <span class="cnt" id="outcnt"></span>
             </div>
             <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
-          </div>
-          <div class="rp" id="rp-meta">
-            <div class="metabody" id="metabody"></div>
+            <!-- RM2579 : lecture inline d'un message (remplace la modale) -->
+            <div class="oread" id="oread" style="display:none"></div>
           </div>
         </div>
       </aside>
@@ -2496,25 +2539,32 @@ function outlineNextUnresolved(items, pos) {
 // onglet déplie sans changer d'onglet — attacher une session ne doit pas
 // arracher la vue de qui travaille dans la conversation.
 function rightPanelReduce(state, action) {
+  // RM2579 : trois onglets. « meta » (ancien nom, localStorage d'avant) → « infos » ;
+  // tout onglet inconnu retombe sur « infos » (défaut applicatif).
+  const TABS = ["infos", "tickets", "outline"];
+  const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
   const cur = {
-    tab: (state && state.tab) || "outline",
+    tab: norm((state && state.tab) || "infos"),
     collapsed: !state || state.collapsed !== false,
   };
   const a = action || {};
-  if (a.type === "show") return { tab: a.tab || cur.tab, collapsed: false };
+  if (a.type === "show") return { tab: norm(a.tab || cur.tab), collapsed: false };
   if (a.type === "collapse") return { tab: cur.tab, collapsed: true };
   if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed };
   if (a.type === "select") {
-    const tab = a.tab || cur.tab;
+    const tab = norm(a.tab || cur.tab);
     return { tab, collapsed: cur.collapsed ? false : tab === cur.tab };
   }
   return cur;
 }
 // <<< rightPanelReduce
 
-let rightState = { tab: "outline", collapsed: true };
+let rightState = { tab: "infos", collapsed: true };
 function applyRight() {
-  document.getElementById("rpanel").classList.toggle("collapsed", rightState.collapsed);
+  const panel = document.getElementById("rpanel");
+  panel.classList.toggle("collapsed", rightState.collapsed);
+  // RM2579 : l'onglet conversation est plus large pour rendre les échanges lisibles
+  panel.classList.toggle("wide", !rightState.collapsed && rightState.tab === "outline");
   document.querySelectorAll(".rnav button").forEach(b =>
     b.classList.toggle("active", b.dataset.rpanel === rightState.tab));
   document.querySelectorAll(".rp").forEach(el =>
@@ -2522,6 +2572,9 @@ function applyRight() {
   try { localStorage.setItem("karlRight", JSON.stringify(rightState)); } catch (e) { /* mode privé */ }
   // RM2330 : l'outline ne se charge qu'une fois réellement visible
   if (rightVisible("outline") && attached && !outline.items.length) loadOutline();
+  // RM2579 : (re)peuple l'onglet visible quand on y bascule
+  if (rightVisible("infos")) renderInfos();
+  if (rightVisible("tickets")) renderTickets();
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -2538,12 +2591,28 @@ function applyLeft() {
 }
 function toggleLeft() { leftCollapsed = !leftCollapsed; applyLeft(); }
 
-// restauration des préférences de disposition (repli + onglet actif)
+// RM2579 : état de DÉMARRAGE de la colonne de droite, paramétrable (ce navigateur).
+// Défauts : repliée, onglet « infos ».
+function rightStartOpen() { return localStorage.getItem("karlRightStartOpen") === "1"; }
+function rightDefaultTab() {
+  const t = localStorage.getItem("karlRightDefaultTab");
+  return (t === "infos" || t === "tickets" || t === "outline") ? t : "infos";
+}
+function setRightStartOpen(on) {
+  try { localStorage.setItem("karlRightStartOpen", on ? "1" : "0"); } catch (e) { /* privé */ }
+}
+function setRightDefaultTab(tab) {
+  try { localStorage.setItem("karlRightDefaultTab", tab); } catch (e) { /* privé */ }
+}
+// restauration des préférences de disposition (repli gauche + démarrage colonne droite)
 function restorePanels() {
   try {
-    const saved = JSON.parse(localStorage.getItem("karlRight") || "null");
-    if (saved) rightState = rightPanelReduce(saved, {});
+    // Démarrage piloté par les préférences (onglet par défaut + déplié ou non),
+    // pas par le dernier état ad hoc de la session précédente (RM2579).
+    rightState = rightPanelReduce({ tab: rightDefaultTab(), collapsed: !rightStartOpen() }, {});
     leftCollapsed = localStorage.getItem("karlLeftCollapsed") === "1";
+    const cbo = document.getElementById("rp-startopen"); if (cbo) cbo.checked = rightStartOpen();
+    const sel = document.getElementById("rp-deftab"); if (sel) sel.value = rightDefaultTab();
   } catch (e) { /* mode privé ou valeur corrompue : on garde les défauts */ }
   applyRight(); applyLeft();
 }
@@ -2591,16 +2660,32 @@ function renderOutline() {
     body.appendChild(d);
   }
 }
+// RM2579 : lecture inline d'un message dans l'onglet conversation (remplace la
+// modale docmodal). La zone se déplie sous la liste ; texte brut (pas de rendu).
+function showOutlineRead(title, txt) {
+  const box = document.getElementById("oread");
+  if (!box) return;
+  box.innerHTML = '<div class="oreadbar"><span class="t">' + esc(title) + '</span>' +
+    '<button class="mini" onclick="closeOutlineRead()" title="Fermer la lecture">✕</button></div>' +
+    '<div class="oreadtxt">' + esc(txt) + '</div>';
+  box.style.display = "flex";
+  box.querySelector(".oreadtxt").scrollTop = 0;
+}
+function closeOutlineRead() {
+  const box = document.getElementById("oread");
+  if (box) { box.style.display = "none"; box.innerHTML = ""; }
+}
+
 async function jumpTo(it) {
   if (!attached) return;
   outPos = it.line;
   if (outline.source === "transcript") {
     // sessions claude : TUI en écran alterné, pas de scrollback tmux à piloter —
-    // le point de conversation s'ouvre en lecture (modale) DANS le cockpit,
-    // l'outline le marque. Rien n'est envoyé à tmux : la vue des autres clients
+    // le point de conversation s'ouvre en lecture INLINE dans le panneau (RM2579,
+    // remplace la modale). Rien n'est envoyé à tmux : la vue des autres clients
     // attachés à la session ne bouge pas (RM2549).
     const dec = outlineDecor(it);
-    showCaptureModal(dec.icon + " " + dec.label +
+    showOutlineRead(dec.icon + " " + dec.label +
       " — " + (/^\d+$/.test(String(attached)) ? "RM" + attached : attached),
       (it.full || it.text)
       + (it.kind === "question" && it.resolved ? "\n\n→ Réponse retenue : " + it.answer : "")
@@ -2642,7 +2727,7 @@ async function scrollLive() {
   if (!attached) return;
   outPos = null;
   if (outline.source === "transcript") {  // pas de scrollback à replacer : on
-    closeDoc(); renderOutline(); return;  // referme juste la lecture en cours
+    closeOutlineRead(); renderOutline(); return;  // referme juste la lecture inline
   }
   try {
     await api("/scroll", {
@@ -3022,7 +3107,8 @@ async function refreshWorkspace(rmId) {
 function rmLink(id) { return '<span class="pill" onclick="showTicket(' + id + ')">RM' + id + '</span>'; }
 function showTicket(id) {
   metaTicket = String(id);
-  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
+  metaFacet = "detail";             // RM2579 : on ouvre sur le détail du ticket
+  showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderMeta();
   ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
   if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
@@ -3048,137 +3134,154 @@ function fmtMin(m) {
   m = Math.round(Number(m));
   return m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
 }
-// Panneau Projet (RM2173) : clic sur le libellé d'un groupe d'onglets.
-function showProject(key) {
-  metaTicket = null;
-  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
-  const sess = groupsCache[key] || [];
-  let r = null;
-  for (const s of sess) { const c = resolveCache[s.rm_id]; if (c && c.found) { r = c; break; } }
-  let h = '<div class="ms"><h4>Projet</h4><div style="margin:2px 0 6px;font-weight:600">' + esc(key) + '</div>';
-  if (sess.length) {
-    h += '<div class="kv"><span class="k">sessions</span><span class="v rels">' +
-      sess.map(s => '<span class="pill" onclick="attach(\'' + esc(s.rm_id) + '\')">' +
-        (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>').join(' ') + '</span></div>';
-  }
-  h += '</div>';
-  if (r && r.project_docs && r.project_docs.length) {
-    h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
-    r.project_docs.forEach(d => { h += '<li onclick="openDoc(\'' + esc(d.path) + '\',\'' + esc(d.name) + '\')">📄 ' + esc(d.name) + '</li>'; });
-    h += '</ul></div>';
-  }
-  if (!r) h += '<div class="ms" style="color:var(--muted)">docs projet : attache une session du groupe pour les charger</div>';
-  document.getElementById("metabody").innerHTML = h;
-}
 // RM2427 : `ghosts=0` — une session seulement ENREGISTRÉE ne tourne pas, il n'y a rien à attacher.
 function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
-function renderMeta() {
-  const b = document.getElementById("metabody");
-  // Le détail d'un ticket s'affiche AUSSI sans session attachée (RM2210 :
-  // « ℹ détail » depuis la file À tester) — seul le bloc Session exige l'attache.
-  if (!attached && !metaTicket) { b.innerHTML = ""; return; }
-  let h = "";
-  if (attached) {
-  // ── Session (tmux + registre pm_session RM2166) ──
-  h += '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
-    esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>';
-  h += usageHtml(attached);       // RM2373 : conso tokens live (entrée/sortie)
-  // ── Tickets de la session (RM2173) : ancrage + registre, cliquables ──
+// RM2579 : la colonne de droite sépare « infos » (session) et « tickets » (un
+// sous-onglet par ticket de la session, puis facette détail/conso/workspace).
+// renderMeta() reste l'orchestrateur appelé par le reste du code (attach, resolve,
+// usage…) : il rafraîchit les deux panneaux.
+let metaFacet = "detail";  // facette active de l'onglet tickets (detail|conso|workspace)
+
+function renderMeta() { renderInfos(); renderTickets(); }
+
+// ── Onglet « infos » : niveau session uniquement ──
+function renderInfos() {
+  const b = document.getElementById("infosbody");
+  if (!b) return;
+  if (!attached) { b.innerHTML = '<div class="empty">attache une session pour voir ses infos.</div>'; return; }
+  // Session (tmux + registre pm_session RM2166) + conso live (RM2373)
+  b.innerHTML = '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
+    esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>' + usageHtml(attached);
+}
+
+// ── Onglet « tickets » : sous-onglets 2 niveaux (ticket, puis facette) ──
+function renderTickets() {
+  const b = document.getElementById("ticketsbody");
+  if (!b) return;
   const tks = sessionTickets();
-  if (tks.length) {
-    h += '<div class="ms"><h4>Tickets</h4><div class="rels">' + tks.map(t =>
-      '<span class="pill' + (metaTicket === t ? ' ok' : '') + '" style="cursor:pointer" ' +
-      'onclick="showTicket(' + t + ')">RM' + t + '</span>').join(' ') + '</div></div>';
-    tks.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(() => renderMeta()); });
-  } else {
-    h += '<div class="ms" style="color:var(--muted)">' +
-      (/^\d+$/.test(attached) ? "ticket non PM-tracké" : "session slug (sans ticket d\u2019ancrage)") + '</div>';
+  const list = tks.slice();
+  // un ticket ouvert hors session (fiche revue / file à tester) reste visible
+  if (metaTicket && list.indexOf(metaTicket) < 0) list.unshift(metaTicket);
+  if (!list.length) {
+    b.innerHTML = attached
+      ? '<div class="ms" style="color:var(--muted)">' +
+        (/^\d+$/.test(attached) ? "ticket non PM-tracké" : "session slug (sans ticket d’ancrage)") + '</div>'
+      : '<div class="empty">aucun ticket — attache une session ou ouvre une fiche.</div>';
+    return;
   }
-  }
-  // ── Détail du ticket sélectionné ──
-  const rmId = metaTicket;
-  const r = rmId ? resolveCache[rmId] : null, ws = rmId ? wsCache[rmId] : null;
-  if (rmId && r === undefined) h += '<div class="ms">chargement…</div>';
-  else if (rmId && (!r || !r.found)) {
-    h += '<div class="ms"><h4>Ticket</h4>RM' + esc(rmId) + ' <span style="color:var(--muted)">non trouvé en local</span></div>';
-  } else if (rmId && r && r.found) {
-    const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
-    h += '<div class="ms"><h4>Ticket</h4>' +
-      '<div class="kv"><span class="k">id</span><span class="v">' +
-      (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) +
-      ' <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" onclick="gotoTicket(' + rmId + ')">→ lanceur</span>' +
-      ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span></span></div>' +
-      '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
-      '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-      '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
-      (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
-      '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
-      '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
-    // Consommation enregistrée par le PM (RM2173) — tokens ventilés entrée/sortie (RM2373)
-    const m = r.metrics || {};
-    if (m.tokens_total != null || m.cost_total_usd != null) {
-      const bd = m.tokens_breakdown || {};
-      const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
-      // RM2519 : total = entrée + sortie (le cache est complémentaire, hors total).
-      // Calculé depuis le breakdown → correct même sur les anciens tickets dont le
-      // tokens_total stocké incluait encore le cache (pas de recalcul rétroactif).
-      const tokTot = hasBd ? ((bd.input || 0) + (bd.output || 0)) : m.tokens_total;
-      h += '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
-        '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">' + fmtTokens(tokTot) + '</span></div>' +
-        (hasBd ?
-          '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
-          '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
-          '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
-          : '') +
-        '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
-        '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
-        '<div class="kv"><span class="k">temps humain</span><span class="v">' + fmtMin(m.human_time_total_minutes) + '</span></div>' +
-        '<div class="kv"><span class="k">dernière activité</span><span class="v">' + esc(m.updated || "—") + '</span></div></div>';
-    }
-    h += '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
-    if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
-    else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
-    else {
-      h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
-      h += '<div class="rels" style="margin-top:4px">';
-      h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
-      if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
-      if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
-      if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
-      h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
-    }
-    h += '</div>';
-    if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
-      h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
-      if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
-      if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
-      (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
-        h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
-      });
-      h += '</div>';
-    }
-    if (r.git && (r.git.branch || r.git.mr_url)) {
-      h += '<div class="ms"><h4>Git ticket</h4>';
-      if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
-      if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
-      h += '</div>';
-    }
-    const rels = [];
-    if (r.parent_task) rels.push(["parent", [r.parent_task]]);
-    if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
-    if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
-    if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
-    if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
-    if (rels.length) {
-      h += '<div class="ms"><h4>Relations</h4>';
-      rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
-      h += '</div>';
-    }
-    if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + mdToHtml(r.description) + '</div></div>';
-    if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
-  }
+  const sel = (metaTicket && list.indexOf(metaTicket) >= 0) ? metaTicket : list[0];
+  list.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(() => renderTickets()); });
+  const facet = ["detail", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
+  if (facet === "workspace" && wsCache[sel] === undefined) refreshWorkspace(sel);
+  // niveau 1 : un sous-onglet par ticket
+  let h = '<div class="rsub">' + list.map(t =>
+    '<button class="' + (t === sel ? 'active' : '') + '" onclick="setTicketTab(\'' + esc(t) + '\')">RM' + esc(t) + '</button>'
+  ).join('') + '</div>';
+  // niveau 2 : facettes du ticket sélectionné
+  h += '<div class="rsub facets">' + [["detail", "détail"], ["conso", "conso"], ["workspace", "workspace"]].map(f =>
+    '<button class="' + (f[0] === facet ? 'active' : '') + '" onclick="setTicketFacet(\'' + f[0] + '\')">' + esc(f[1]) + '</button>'
+  ).join('') + '</div>';
+  const r = resolveCache[sel];
+  if (r === undefined) h += '<div class="ms">chargement…</div>';
+  else if (!r || !r.found) h += '<div class="ms"><h4>Ticket</h4>RM' + esc(sel) + ' <span style="color:var(--muted)">non trouvé en local</span></div>';
+  else if (facet === "conso") h += _ticketConsoHtml(r);
+  else if (facet === "workspace") h += _ticketWorkspaceHtml(sel, wsCache[sel]);
+  else h += _ticketDetailHtml(sel, r);
   b.innerHTML = h;
 }
+function setTicketTab(rm) {
+  metaTicket = String(rm);
+  if (wsCache[metaTicket] === undefined) refreshWorkspace(metaTicket);
+  ensureResolved(metaTicket).then(() => renderTickets());
+  renderTickets();
+}
+function setTicketFacet(f) { metaFacet = f; renderTickets(); }
+
+// ── Facette « détail » : identité + environnement + git + relations + desc + log ──
+function _ticketDetailHtml(rmId, r) {
+  const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
+  let h = '<div class="ms"><h4>Ticket</h4>' +
+    '<div class="kv"><span class="k">id</span><span class="v">' +
+    (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) +
+    ' <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" onclick="gotoTicket(' + rmId + ')">→ lanceur</span>' +
+    ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span></span></div>' +
+    '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
+    '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
+    '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
+    (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
+    '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
+    '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
+  if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
+    h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
+    if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
+    if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
+    (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
+      h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
+    });
+    h += '</div>';
+  }
+  if (r.git && (r.git.branch || r.git.mr_url)) {
+    h += '<div class="ms"><h4>Git ticket</h4>';
+    if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
+    if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
+    h += '</div>';
+  }
+  const rels = [];
+  if (r.parent_task) rels.push(["parent", [r.parent_task]]);
+  if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
+  if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
+  if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
+  if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
+  if (rels.length) {
+    h += '<div class="ms"><h4>Relations</h4>';
+    rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
+    h += '</div>';
+  }
+  if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + mdToHtml(r.description) + '</div></div>';
+  if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
+  return h;
+}
+
+// ── Facette « conso » : consommation enregistrée par le PM (RM2173/2373/2519) ──
+function _ticketConsoHtml(r) {
+  const m = r.metrics || {};
+  if (m.tokens_total == null && m.cost_total_usd == null)
+    return '<div class="ms" style="color:var(--muted)">Aucune consommation enregistrée pour ce ticket.</div>';
+  const bd = m.tokens_breakdown || {};
+  const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
+  // RM2519 : total = entrée + sortie (le cache est complémentaire, hors total).
+  const tokTot = hasBd ? ((bd.input || 0) + (bd.output || 0)) : m.tokens_total;
+  return '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
+    '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">' + fmtTokens(tokTot) + '</span></div>' +
+    (hasBd ?
+      '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
+      '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
+      '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
+      : '') +
+    '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
+    '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
+    '<div class="kv"><span class="k">temps humain</span><span class="v">' + fmtMin(m.human_time_total_minutes) + '</span></div>' +
+    '<div class="kv"><span class="k">dernière activité</span><span class="v">' + esc(m.updated || "—") + '</span></div></div>';
+}
+
+// ── Facette « workspace » : état git du worktree (intérim RM1883) ──
+function _ticketWorkspaceHtml(rmId, ws) {
+  let h = '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
+  if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
+  else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
+  else {
+    h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
+    h += '<div class="rels" style="margin-top:4px">';
+    h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
+    if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
+    if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
+    if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
+    h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
+  }
+  h += '</div>';
+  return h;
+}
+
 // >>> mdToHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2309 : mini-rendu markdown auto-suffisant et SÛR — tout le texte est échappé
 // AVANT toute transformation, les liens sont limités à http(s)/mailto. Couverture
@@ -3512,9 +3615,10 @@ function detach() {
   document.getElementById("placeholder").style.display = "flex";
   document.getElementById("tabactions").style.display = "none";
   collapseRight();                  // RM2466 : plus de session → la colonne se replie
-  document.getElementById("metabody").innerHTML = "";
+  renderMeta();                     // RM2579 : vide infos + tickets (plus de #metabody)
   outline = { items: [], total: 0 }; outPos = null;   // RM2330
   document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
+  closeOutlineRead();               // RM2579 : referme la lecture inline
   document.getElementById("chipsrow").style.display = "none";
   renderCurTitle();
 }
@@ -3935,7 +4039,8 @@ function openReview(rm) {
   metaTicket = rm;
   document.getElementById("placeholder").style.display = "none";
   document.getElementById("reviewpane").style.display = "block";
-  showRight("meta");                // RM2466 : la fiche demandée passe au premier plan
+  metaFacet = "detail";             // RM2579 : ouvrir sur le détail
+  showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
   ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
@@ -3948,7 +4053,7 @@ function closeReview(rm) {
     currentReview = null; metaTicket = null;
     document.getElementById("reviewpane").style.display = "none";
     document.getElementById("placeholder").style.display = "flex";
-    document.getElementById("metabody").innerHTML = "";
+    renderMeta();                    // RM2579 : rafraîchit infos + tickets (plus de #metabody)
   }
   renderCurTitle();
   refreshSessions();

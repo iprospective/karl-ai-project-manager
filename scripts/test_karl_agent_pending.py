@@ -99,11 +99,24 @@ check("dérive signalée quand le statut a bougé depuis l'ouverture",
 check("pas de dérive quand rien n'a bougé", b["todo"][0]["drifted"] is False)
 check("opened_status vide ne fabrique pas une fausse dérive",
       [e for e in b["todo"] if e["ref"] == "chantier-libre"][0]["drifted"] is False)
-check("statut inconnu → rangé dans « reste à faire » (jamais escamoté)",
-      len(ka.worklog_buckets([{"ref": "RM9", "status": "statut_exotique"}])["todo"]) == 1)
+# Un statut hors référentiel n'est PAS « à faire » : le ranger là affirmerait
+# ce qu'on ne sait pas. Il a sa propre section, et reste visible.
+inc = ka.worklog_buckets([{"ref": "RM9", "status": "statut_exotique"},
+                          {"ref": "RM10", "status": "a_teste_demandeur"}])  # faute de frappe
+check("statut hors référentiel → « statut inconnu », jamais « reste à faire »",
+      len(inc["unknown"]) == 2 and not inc["todo"])
+check("un statut mal orthographié se voit au lieu de se fondre",
+      any(e["ref"] == "RM10" for e in inc["unknown"]))
+check("les statuts NORMS actifs restent bien dans « reste à faire »",
+      len(ka.worklog_buckets([{"ref": "RM11", "status": "a_mep"},
+                              {"ref": "RM12", "status": "etude_chiffrage_en_cours"},
+                              {"ref": "RM13", "status": "a_corriger"}])["todo"]) == 3)
+check("aucun item n'est perdu, quel que soit son statut",
+      sum(len(v) for v in ka.worklog_buckets(ITEMS + [{"ref": "RMX", "status": "?"}]).values())
+      == len(ITEMS) + 1)
 check("worklog vide ou absent toléré",
-      ka.worklog_buckets([]) == {"todo": [], "waiting": [], "done": []}
-      and ka.worklog_buckets(None) == {"todo": [], "waiting": [], "done": []})
+      ka.worklog_buckets([]) == {"todo": [], "waiting": [], "done": [], "unknown": []}
+      and ka.worklog_buckets(None) == {"todo": [], "waiting": [], "done": [], "unknown": []})
 # la classification DOIT rester celle de pm-session-status : deux vérités
 # divergentes sur « où on en est » seraient pires que pas de panneau du tout
 import re as _re

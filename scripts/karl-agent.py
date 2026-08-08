@@ -3776,6 +3776,11 @@ WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
 WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
                    "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
                    "en_pause"}
+# Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
+# attente, plus les variantes libres qu'emploient les chantiers hors ticket.
+WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+                "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
+                "a_mep", "en_mep", "a_corriger", "todo", "à faire", "en cours"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
@@ -3783,8 +3788,14 @@ def worklog_buckets(items) -> dict:
     """RM2466 : range les items du worklog en « reste à faire » / « en attente »
     / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
     son ouverture dans la session (souvent : une autre session l'a fait avancer).
-    `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé."""
-    out = {"todo": [], "waiting": [], "done": []}
+    `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé.
+
+    Un statut hors des trois référentiels va dans `unknown` — PAS dans « reste à
+    faire ». Le ranger d'office parmi les choses à faire affirmerait quelque
+    chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
+    orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
+    Il reste affiché dans tous les cas : jamais escamoté."""
+    out = {"todo": [], "waiting": [], "done": [], "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
         opened = str(it.get("opened_status") or "").lower()
@@ -3799,8 +3810,10 @@ def worklog_buckets(items) -> dict:
             out["done"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
-        else:
+        elif st in WORKLOG_TODO:
             out["todo"].append(entry)
+        else:
+            out["unknown"].append(entry)
     return out
 # <<< worklog_buckets
 
@@ -3815,8 +3828,7 @@ def op_worklog(rm_id: str) -> dict:
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
-             "title": None, "updated": None,
-             "buckets": {"todo": [], "waiting": [], "done": []}}
+             "title": None, "updated": None, "buckets": worklog_buckets([])}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"

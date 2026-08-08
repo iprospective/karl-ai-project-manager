@@ -2674,6 +2674,8 @@ function worklogSections(buckets) {
     { key: "todo", icon: "⏳", label: "reste à faire", items: b.todo || [] },
     { key: "waiting", icon: "⏸", label: "en attente / bloqué", items: b.waiting || [] },
     { key: "done", icon: "✅", label: "fait", items: b.done || [] },
+    // en dernier, et nommé pour ce qu'il est : un statut qu'on ne sait pas ranger
+    { key: "unknown", icon: "❔", label: "statut inconnu", items: b.unknown || [] },
   ].filter(s => s.items.length);
 }
 // <<< worklogSections

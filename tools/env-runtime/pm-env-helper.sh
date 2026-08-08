@@ -12,6 +12,10 @@
 #   vhost-proxy-add <name> <port>       crée+active le vhost reverse proxy <name>.lxc
 #                                       → http://127.0.0.1:<port>/ (envs portés par un
 #                                       daemon HTTP — karl-agent, serveurs non-PHP ; RM2358)
+#   vhost-karl-add <name> <port>        crée+active un vhost karl COMPLET <name>.lxc
+#                                       (HTTPS + terminal wss /ttyd/ws, même conf que la
+#                                       prod via karl-vhost-render ; RM2565) → instance
+#                                       de TEST cockpit ; ttyd de prod partagé
 #   vhost-remove <name>                 désactive+supprime (si géré par nous) + purge logs apache
 #   db-clone <src> <dst> [motif ...]    CREATE DATABASE dst + copie (dst = *_rm<id> uniquement).
 #                                       motifs LIKE optionnels = tables EXCLUES des données
@@ -111,6 +115,12 @@ EOF
 SSL_CERT="${PM_ENV_SSL_CERT:-/etc/ssl/certs/ssl-cert-snakeoil.pem}"
 SSL_KEY="${PM_ENV_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"
 
+# Renderer du vhost karl (RM2565) : co-déployé à côté de ce helper par
+# `mmi-pm core update` (source deploy/karl-agent/karl-vhost-render.sh). Source
+# UNIQUE du template, partagée avec le vhost de prod (apache-vhost-setup.sh) →
+# les vhosts de test cockpit ne divergent jamais de la conf déployée.
+KARL_VHOST_RENDER="${PM_KARL_VHOST_RENDER:-/usr/local/sbin/karl-vhost-render}"
+
 cmd_vhost_proxy_add() {
     # Vhost reverse proxy <name>.lxc → http://127.0.0.1:<port>/ (RM2358).
     # Pour les envs servis par un daemon HTTP en loopback (karl-agent, serveurs
@@ -173,6 +183,39 @@ EOF
     apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
     audit "vhost-proxy-add $name port=$port ssl=$([ -n "$ssl_block" ] && echo 1 || echo 0)"
     echo "✓ vhost $name.lxc → 127.0.0.1:$port (reverse proxy$([ -n "$ssl_block" ] && echo ', http+https' || echo ', http'))"
+}
+
+cmd_vhost_karl_add() {
+    # Vhost karl-agent COMPLET (HTTPS + terminal wss même origine `/ttyd/ws`)
+    # pour une instance de TEST cockpit (RM2565). Même forme que le déploiement
+    # de prod — template rendu par le MÊME karl-vhost-render que
+    # apache-vhost-setup.sh, donc jamais de divergence. HTTPS est REQUIS ici :
+    # sans contexte sécurisé le micro (getUserMedia/Whisper) et le terminal (wss)
+    # du cockpit sont cassés — c'est la raison d'être de ce verbe vs proxy-add.
+    # ttyd PARTAGÉ avec la prod (`/ttyd/` → 127.0.0.1:7681) : PAS de listener
+    # :7681 dédié ici (il vit dans karl.conf ; un `Listen` doublon casserait Apache).
+    local name="$1" port="$2" conf
+    vname_ok "$name" || die "nom de vhost invalide : $name"
+    [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1024 ] && [ "$port" -le 65535 ] \
+        || die "port invalide (1024-65535 attendu) : $port"
+    [ -x "$KARL_VHOST_RENDER" ] || die "renderer karl absent : $KARL_VHOST_RENDER (mmi-pm core update requis pour le co-déployer)"
+    { [ -r "$SSL_CERT" ] && [ -r "$SSL_KEY" ]; } \
+        || die "cert TLS introuvable ($SSL_CERT) — le cockpit exige HTTPS (micro/terminal)"
+    conf="$SITES/$name.conf"
+    if [ -e "$conf" ]; then
+        grep -qF "$MARKER" "$conf" || die "$name.conf existe et n'est pas géré par pm-env-helper"
+    fi
+    # managed-by commence par « pm-env-helper » → vhost-remove le reconnaît (MARKER).
+    "$KARL_VHOST_RENDER" \
+        --managed-by "pm-env-helper (karl-style, RM2565)" \
+        --host "$name.lxc" --port "$port" \
+        --ssl-cert "$SSL_CERT" --ssl-key "$SSL_KEY" \
+        --log-prefix "$name" > "$conf"
+    a2enmod -q proxy proxy_http proxy_wstunnel ssl >/dev/null 2>&1 || true
+    a2ensite -q "$name" >/dev/null
+    apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
+    audit "vhost-karl-add $name port=$port"
+    echo "✓ vhost karl $name.lxc → 127.0.0.1:$port (https + terminal wss /ttyd/ws, ttyd prod partagé)"
 }
 
 cmd_vhost_remove() {
@@ -283,10 +326,11 @@ verb="${1:-}"; shift || true
 case "$verb" in
     vhost-add)    [ $# -eq 3 ] || die "usage: vhost-add <name> <docroot> <sock>"; cmd_vhost_add "$@";;
     vhost-proxy-add) [ $# -eq 2 ] || die "usage: vhost-proxy-add <name> <port>"; cmd_vhost_proxy_add "$@";;
+    vhost-karl-add) [ $# -eq 2 ] || die "usage: vhost-karl-add <name> <port>"; cmd_vhost_karl_add "$@";;
     vhost-remove) [ $# -eq 1 ] || die "usage: vhost-remove <name>"; cmd_vhost_remove "$@";;
     db-clone)     [ $# -ge 2 ] || die "usage: db-clone <src> <dst> [motif-exclusion ...]"; cmd_db_clone "$@";;
     db-post-sql)  [ $# -eq 1 ] || die "usage: db-post-sql <db>  (SQL sur stdin)"; cmd_db_post_sql "$@";;
     db-drop)      [ $# -eq 1 ] || die "usage: db-drop <db>"; cmd_db_drop "$@";;
     phplog-purge) [ $# -eq 1 ] || die "usage: phplog-purge <basename>"; cmd_phplog_purge "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
 esac

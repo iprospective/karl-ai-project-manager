@@ -10,9 +10,13 @@ lance une instance karl-agent DÉDIÉE sur le worktree de la branche du ticket :
     pm-cockpit-test-env.py list               # instances enregistrées
 
 - port déterministe : 9900 + (rm_id % 90) ;
-- deux unités systemd USER : karl-test-<id> (karl-agent du worktree, port local)
-  et karl-test-<id>-bridge (socat lié sur l'IP du conteneur → accès direct
-  http://dev.lxc:<port>/ depuis l'hôte, ttyd partagé déjà exposé) ;
+- une unité systemd USER karl-test-<id> (karl-agent du worktree, en loopback) ;
+- exposition HTTPS via un vhost Apache karl COMPLET (RM2565) : `mmi-pm env vhost
+  karl-add <repo>-rm<id> <port>` → https://<repo>-rm<id>.lxc/ avec la MÊME conf
+  que le déploiement de prod (redirect 80→443, terminal wss /ttyd/ws, contexte
+  sécurisé requis par le micro/Whisper). Le ttyd de prod est partagé (pas de
+  listener :7681 dédié). Le privilège root vit dans pm-env-helper (NOPASSWD),
+  jamais de sudo direct ici ;
 - `test_url` posé/vidé dans le frontmatter + CF Redmine (set_test_url de
   pm-env-session — même mécanique que les envs applicatifs) ;
 - registre : ~/.local/state/karl-cockpit-test/registry.json.
@@ -25,7 +29,6 @@ import pathlib
 import importlib.util
 import json
 import os
-import re
 import subprocess
 import sys
 import time
@@ -43,6 +46,11 @@ _spec.loader.exec_module(_pes)
 REGISTRY = Path.home() / ".local" / "state" / "karl-cockpit-test" / "registry.json"
 PORT_BASE = 9900
 PORT_SPAN = 90
+
+# Façade CLI vers les verbes vhost du helper privilégié (RM2372) — même binaire
+# que celui consommé par pm-env-expose. Le privilège root vit dans pm-env-helper
+# (NOPASSWD) ; cet outil ne fait jamais de sudo direct sur Apache.
+MMI_PM = HERE.parent / "bin" / "mmi-pm"
 
 
 def port_for(rm_id: int) -> int:
@@ -78,17 +86,6 @@ def prod_state_dir() -> Path:
     que l'instance de test doit lire pour résoudre les sessions live."""
     base = os.environ.get("XDG_STATE_HOME") or (Path.home() / ".local" / "state")
     return Path(base) / "karl-agent"
-
-
-def container_ip() -> str:
-    """IP sortante du conteneur (interface vers la passerelle) — point d'accès
-    host-side (http://dev.lxc:<port>/ résout dessus)."""
-    out = subprocess.run(["ip", "-4", "route", "get", "1.1.1.1"],
-                         capture_output=True, text=True, timeout=5).stdout
-    m = re.search(r"\bsrc (\d+\.\d+\.\d+\.\d+)", out)
-    if not m:
-        sys.exit("ERREUR : IP du conteneur introuvable (ip route get)")
-    return m.group(1)
 
 
 def _registry() -> dict:
@@ -135,21 +132,37 @@ def run(cmd: list, check=True):
     return r
 
 
+def vhost_name(ws: Path, rm_id: int) -> str:
+    """Nom du vhost de test : <repo>-rm<id> (satisfait vname_ok du helper). Le
+    mono-repo est déjà garanti par resolve_worktree ; on relit juste son nom."""
+    return f"{_pes.load_repos(ws)[0]['name']}-rm{rm_id}"
+
+
+def mmi_pm_vhost(*args: str, check=True) -> subprocess.CompletedProcess:
+    """Applique une opération vhost via `mmi-pm env vhost …` (→ pm-env-helper
+    NOPASSWD, RM2372). Surface le stdout du helper (ligne de confirmation)."""
+    r = run([str(MMI_PM), "env", "vhost", *args], check=check)
+    if r.stdout.strip():
+        print(r.stdout.strip())
+    return r
+
+
 def cmd_create(args):
     ws = _pes.find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     wt = resolve_worktree(ws, args.rmid)
+    name = vhost_name(ws, args.rmid)
     port = port_for(args.rmid)
-    ip = container_ip()
-    unit, bridge = f"karl-test-{args.rmid}", f"karl-test-{args.rmid}-bridge"
-    url = f"http://dev.lxc:{port}/"
-    print(f"workspace : {ws}\nworktree  : {wt}\nport      : {port} (ip {ip})")
+    unit = f"karl-test-{args.rmid}"
+    url = f"https://{name}.lxc/"
+    print(f"workspace : {ws}\nworktree  : {wt}\nvhost     : {name}.lxc → 127.0.0.1:{port}")
     if args.dry_run:
-        print(f"[dry-run] systemd-run --user {unit} + {bridge} ; test_url = {url}")
+        print(f"[dry-run] systemd-run --user {unit} ; "
+              f"mmi-pm env vhost karl-add {name} {port} ; test_url = {url}")
         return
     # idempotent : stop d'une éventuelle instance précédente du même ticket
-    subprocess.run(["systemctl", "--user", "stop", unit, bridge],
+    subprocess.run(["systemctl", "--user", "stop", unit],
                    capture_output=True, timeout=30)
-    subprocess.run(["systemctl", "--user", "reset-failed", unit, bridge],
+    subprocess.run(["systemctl", "--user", "reset-failed", unit],
                    capture_output=True, timeout=30)
     # LOG_DIR isolé par instance (logs HTTP/pipe/pm-runs propres au test) MAIS
     # STATE_DIR pointé sur l'état de session PARTAGÉ de la prod (keys/sessions/
@@ -168,9 +181,6 @@ def cmd_create(args):
          # vides. On pointe celui de l'instance déployée, en lecture seule.
          f"--setenv=KARL_AGENT_PROJECTS_BASE={prod_projects_base(ws)}",
          "/usr/bin/python3", "scripts/karl-agent.py"])
-    run(["systemd-run", "--user", f"--unit={bridge}",
-         "/usr/bin/socat", f"TCP-LISTEN:{port},bind={ip},fork,reuseaddr",
-         f"TCP:127.0.0.1:{port}"])
     # sonde /health (l'auth peut répondre 401 : on veut juste « ça écoute »)
     ok = False
     for _ in range(20):
@@ -185,36 +195,53 @@ def cmd_create(args):
         except OSError:
             continue
     if not ok:
-        run(["systemctl", "--user", "stop", unit, bridge], check=False)
+        run(["systemctl", "--user", "stop", unit], check=False)
         sys.exit(f"ERREUR : l'instance ne répond pas sur 127.0.0.1:{port} — "
                  f"journalctl --user -u {unit}")
+    # Exposition HTTPS (RM2565) : vhost karl COMPLET (terminal wss + micro), même
+    # conf que la prod, via le helper privilégié. Si l'application échoue (ex.
+    # renderer pas encore co-déployé : `mmi-pm core update`), on stoppe l'instance
+    # pour ne pas laisser un karl-agent orphelin sans exposition.
+    try:
+        mmi_pm_vhost("karl-add", name, str(port))
+    except SystemExit:
+        run(["systemctl", "--user", "stop", unit], check=False)
+        raise
     _pes.set_test_url(ws, args.rmid, url, False)
     reg = _registry()
     reg[str(args.rmid)] = {"port": port, "worktree": str(wt), "url": url,
-                           "units": [unit, bridge], "created": int(time.time())}
+                           "vhost": name, "unit": unit, "created": int(time.time())}
     _save_registry(reg)
-    print(f"✓ instance cockpit de test RM{args.rmid} : {url} "
-          f"(mêmes identifiants que le cockpit ; teardown : pm-cockpit-test-env.py teardown {args.rmid})")
+    print(f"✓ instance cockpit de test RM{args.rmid} : {url}\n"
+          f"  (mêmes identifiants que le cockpit ; cert auto-signé à accepter une "
+          f"fois ; teardown : pm-cockpit-test-env.py teardown {args.rmid})")
 
 
 def cmd_teardown(args):
-    unit, bridge = f"karl-test-{args.rmid}", f"karl-test-{args.rmid}-bridge"
+    unit = f"karl-test-{args.rmid}"
+    # `bridge` : legacy (exposition socat avant RM2565) — stoppé aussi pour
+    # nettoyer une instance créée par l'ancien flux.
+    bridge = f"{unit}-bridge"
     reg = _registry()
     known = reg.pop(str(args.rmid), None)
     if args.if_exists and not known:
         # rien d'enregistré : silencieux (hook best-effort à la fermeture du ticket)
         return
+    ws = _pes.find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
+    vh = (known or {}).get("vhost") or vhost_name(ws, args.rmid)
     if args.dry_run:
-        print(f"[dry-run] stop {unit} + {bridge} ; test_url vidé")
+        print(f"[dry-run] stop {unit} (+ {bridge} legacy) ; "
+              f"mmi-pm env vhost remove {vh} ; test_url vidé")
         return
     subprocess.run(["systemctl", "--user", "stop", unit, bridge],
                    capture_output=True, timeout=30)
     subprocess.run(["systemctl", "--user", "reset-failed", unit, bridge],
                    capture_output=True, timeout=30)
-    ws = _pes.find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
+    # Retrait du vhost (best-effort, idempotent côté helper : « absent » = no-op).
+    mmi_pm_vhost("remove", vh, check=False)
     _pes.set_test_url(ws, args.rmid, None, False)
     _save_registry(reg)
-    print(f"✓ instance de test RM{args.rmid} démontée (test_url vidé)")
+    print(f"✓ instance de test RM{args.rmid} démontée (vhost retiré, test_url vidé)")
 
 
 def cmd_list(args):

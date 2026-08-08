@@ -86,70 +86,17 @@ SSL_KEY="${KARL_SSL_KEY:-/etc/ssl/private/ssl-cert-snakeoil.key}"
 a2enmod -q proxy proxy_http proxy_wstunnel ssl >/dev/null
 
 # ── Conf désirée ────────────────────────────────────────────────────────────
+# Template FACTORISÉ (RM2565) : le corps du vhost est rendu par
+# karl-vhost-render.sh, SOURCE UNIQUE partagée avec les vhosts d'instances de
+# test cockpit (pm-env-helper vhost-karl-add) → prod et test ne divergent plus.
+# --ttyd-listen "$IP" ajoute le listener :7681 dédié (repli iframe), propre à la
+# prod ; les instances de test l'omettent (elles partagent ce ttyd via /ttyd/).
 NEW="$(mktemp)"; trap 'rm -f "$NEW"' EXIT
-cat > "$NEW" <<EOF
-# managed-by: apache-vhost-setup.sh (karl-agent, RM1873) — NE PAS ÉDITER (régénéré)
-#
-# HTTPS obligatoire (RM2561) : getUserMedia (micro, dictée Whisper RM2533) exige
-# un contexte sécurisé — http:// refuse le micro. Cert auto-signé snakeoil.
-
-# :80 → redirection vers HTTPS (302 temporaire : évite un cache navigateur collant
-# si l'on revient un jour en http, contrairement au 301 permanent).
-<VirtualHost *:80>
-    ServerName $HOST
-    Redirect temp / https://$HOST/
-
-    ErrorLog  \${APACHE_LOG_DIR}/karl.error.log
-    CustomLog \${APACHE_LOG_DIR}/karl.access.log combined
-</VirtualHost>
-
-<VirtualHost *:443>
-    ServerName $HOST
-
-    SSLEngine on
-    SSLCertificateFile    $SSL_CERT
-    SSLCertificateKeyFile $SSL_KEY
-
-    ProxyPreserveHost On
-    # Terminal (RM2561) : ttyd en même origine que le cockpit → le wss réutilise
-    # l'exception de cert déjà accordée ici. Les règles spécifiques d'abord :
-    # Apache retient le PREMIER ProxyPass qui matche, et « / » matche tout.
-    ProxyPass        /ttyd/ws ws://127.0.0.1:7681/ws retry=0
-    ProxyPassReverse /ttyd/ws ws://127.0.0.1:7681/ws
-    ProxyPass        /ttyd/   http://127.0.0.1:7681/ retry=0
-    ProxyPassReverse /ttyd/   http://127.0.0.1:7681/
-    ProxyPass        /        http://127.0.0.1:$PORT/ retry=0
-    ProxyPassReverse /        http://127.0.0.1:$PORT/
-
-    ErrorLog  \${APACHE_LOG_DIR}/karl.error.log
-    CustomLog \${APACHE_LOG_DIR}/karl-ssl.access.log combined
-</VirtualHost>
-
-# Port dédié ttyd — conservé pour le SEUL repli iframe du cockpit (bundle
-# xterm.js non chargé : le cockpit affiche alors l'UI ttyd native, qui exige la
-# racine du serveur ttyd — elle fetch « /token » en absolu, donc ne survit pas au
-# préfixe /ttyd/). Le chemin normal (client maison karl-term.js) passe par le
-# vhost :443 ci-dessus et n'a plus besoin de ce port.
-# ⚠ cert auto-signé propre à ce host:port → ce repli-là demande sa propre
-# acceptation sur https://$HOST:7681/.
-Listen $IP:7681
-<VirtualHost $IP:7681>
-    ServerName $HOST
-
-    SSLEngine on
-    SSLCertificateFile    $SSL_CERT
-    SSLCertificateKeyFile $SSL_KEY
-
-    ProxyPreserveHost On
-    ProxyPass        /ws ws://127.0.0.1:7681/ws retry=0
-    ProxyPassReverse /ws ws://127.0.0.1:7681/ws
-    ProxyPass        / http://127.0.0.1:7681/ retry=0
-    ProxyPassReverse / http://127.0.0.1:7681/
-
-    ErrorLog  \${APACHE_LOG_DIR}/karl-ttyd.error.log
-    CustomLog \${APACHE_LOG_DIR}/karl-ttyd.access.log combined
-</VirtualHost>
-EOF
+"$SELF_DIR/karl-vhost-render.sh" \
+    --managed-by "apache-vhost-setup.sh (karl-agent, RM1873)" \
+    --host "$HOST" --port "$PORT" \
+    --ssl-cert "$SSL_CERT" --ssl-key "$SSL_KEY" \
+    --log-prefix karl --ttyd-listen "$IP" > "$NEW"
 
 # ── Application (seulement si changement) ───────────────────────────────────
 if [ -f "$CONF" ] && cmp -s "$NEW" "$CONF"; then

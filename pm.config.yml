@@ -24,6 +24,15 @@ schema_version: "1"
 roots:
   pm_dir:        "${PM_DIR:-auto}"
   projects_root: "${PROJECTS_PATH}"
+  # Racines FHS (RM2580) — séparent code / config / état / logs pour un install
+  # RELOCALISABLE (paquet). Défaut "auto" = layout ACTUEL → 0 régression ; un
+  # install packagé surcharge par env (ou pm.config.local.yml) :
+  #   conf_dir  "auto" → = pm_dir          (config avec le code)  | /etc/mmi-pm
+  #   state_dir "auto" → = {pm_dir}/var    (runtime : sessions…)  | /var/lib/mmi-pm/state
+  #   log_dir   "auto" → = {state_dir}/log                        | /var/log/mmi-pm
+  conf_dir:      "${PM_CONF_DIR:-auto}"
+  state_dir:     "${PM_STATE_DIR:-auto}"
+  log_dir:       "${PM_LOG_DIR:-auto}"
 
 # ── Patterns de chemins ───────────────────────────────────────────────────
 # Variables d'interpolation disponibles dans les patterns (str.format) :

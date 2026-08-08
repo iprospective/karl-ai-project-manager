@@ -79,6 +79,40 @@ check("aucune session → aucune entrée", ka.pending_entries([], {}, {}) == [])
 check("sources absentes tolérées", ka.pending_entries(None, {}, {}) == []
       and len(ka.pending_entries(SESSIONS, {}, {})) == 2)
 
+
+# — RM2466 étape 2 : worklog de session rangé en sections —
+ITEMS = [
+    {"ref": "RM1", "status": "en_cours", "opened_status": "en_cours", "label": "en cours"},
+    {"ref": "RM2", "status": "a_tester_demandeur", "opened_status": "nouveau", "label": "livré"},
+    {"ref": "RM3", "status": "ferme", "opened_status": "nouveau", "label": "fini"},
+    {"ref": "chantier-libre", "status": "à_faire", "opened_status": "", "label": "hors ticket"},
+]
+b = ka.worklog_buckets(ITEMS)
+check("reste à faire / en attente / fait, chacun dans sa section",
+      [len(b["todo"]), len(b["waiting"]), len(b["done"])] == [2, 1, 1])
+check("un statut de livraison compte comme « en attente » (pas comme fait)",
+      b["waiting"][0]["ref"] == "RM2")
+check("un chantier hors ticket a sa place dans le worklog",
+      any(e["ref"] == "chantier-libre" for e in b["todo"]))
+check("dérive signalée quand le statut a bougé depuis l'ouverture",
+      b["waiting"][0]["drifted"] is True and b["done"][0]["drifted"] is True)
+check("pas de dérive quand rien n'a bougé", b["todo"][0]["drifted"] is False)
+check("opened_status vide ne fabrique pas une fausse dérive",
+      [e for e in b["todo"] if e["ref"] == "chantier-libre"][0]["drifted"] is False)
+check("statut inconnu → rangé dans « reste à faire » (jamais escamoté)",
+      len(ka.worklog_buckets([{"ref": "RM9", "status": "statut_exotique"}])["todo"]) == 1)
+check("worklog vide ou absent toléré",
+      ka.worklog_buckets([]) == {"todo": [], "waiting": [], "done": []}
+      and ka.worklog_buckets(None) == {"todo": [], "waiting": [], "done": []})
+# la classification DOIT rester celle de pm-session-status : deux vérités
+# divergentes sur « où on en est » seraient pires que pas de panneau du tout
+import re as _re
+_src = (HERE / "pm-session-status.py").read_text(encoding="utf-8")
+_done = eval(_re.search(r"^DONE = (\{[^}]*\})", _src, _re.M).group(1))
+_wait = eval(_re.search(r"^WAITING = (\{[^}]*\})", _src, _re.M | _re.S).group(1))
+check("DONE identique à celui de pm-session-status.py", ka.WORKLOG_DONE == _done)
+check("WAITING identique à celui de pm-session-status.py", ka.WORKLOG_WAITING == _wait)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

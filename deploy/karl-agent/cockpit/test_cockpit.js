@@ -844,4 +844,30 @@ const corps2 = (html.match(/class="rp" id="rp-/g) || []).length;
 assert.strictEqual(onglets2, corps2, "chaque onglet de droite a toujours son panneau");
 console.log("✓ état (RM2466) : badge réservé aux sessions bloquées, onglet câblé");
 
+// — 13. worklog de session dans le panneau état (RM2466 volet 2, étape 2) —
+const fWs = />>> worklogSections[\s\S]*?(function worklogSections[\s\S]*?)\n\/\/ <<< worklogSections/.exec(html);
+assert(fWs, "marqueurs >>> worklogSections / <<< worklogSections introuvables");
+const worklogSections = vm.runInNewContext("(" + fWs[1] + ")");
+
+const secs = worklogSections({ todo: [{ ref: "RM1" }], waiting: [{ ref: "RM2" }], done: [{ ref: "RM3" }] });
+assert.deepStrictEqual(Array.from(secs.map(s => s.key)), ["todo", "waiting", "done"],
+  "ce qui reste d'abord, ce qui est fait en dernier");
+assert(secs.every(s => s.icon && s.label), "chaque section porte une icône ET un libellé");
+assert.strictEqual(worklogSections({ todo: [], waiting: [{ ref: "RM2" }], done: [] }).length, 1,
+  "les sections vides disparaissent (pas de titre sans contenu)");
+assert.strictEqual(worklogSections({}).length, 0, "worklog vide → aucune section");
+assert.strictEqual(worklogSections(null).length, 0, "worklog absent toléré");
+assert.strictEqual(worklogSections(undefined).length, 0, "buckets absents tolérés");
+console.log("✓ état (RM2466) : worklog en sections, vides masquées");
+
+// la dérive doit rester visible : sans elle on croirait que le statut affiché
+// est le fait de la session courante, alors qu'une autre l'a fait avancer
+const mRw = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(mRw, "renderWorklog introuvable");
+assert(/it\.drifted/.test(mRw[0]) && /opened_status/.test(mRw[0]),
+  "un statut modifié hors de la session doit être signalé comme tel");
+assert(/id="workbody"/.test(html) && /id="pendbody"/.test(html),
+  "le panneau état a ses deux moitiés : ce qui attend, et le travail");
+console.log("✓ état (RM2466) : dérive de statut signalée");
+
 console.log("OK — tous les tests cockpit passent");

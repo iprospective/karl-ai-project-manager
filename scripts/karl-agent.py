@@ -3765,6 +3765,71 @@ def pending_entries(sessions, unresolved_by_sid, question_by_sid) -> list:
 # <<< pending_entries
 
 
+# RM2466 volet 2 étape 2 : le worklog de session PM (pm-session-status, RM2068).
+# Store keyé par le session_id de l'agent — le même que celui du transcript.
+WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
+                   or (Path.home() / ".claude" / "session-worklogs")).expanduser()
+# Reprises TELLES QUELLES de pm-session-status.py : deux classifications
+# divergentes du même worklog donneraient deux vérités sur « où on en est ».
+WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
+                "résolu", "resolu"}
+WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
+                   "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
+                   "en_pause"}
+
+
+# >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
+def worklog_buckets(items) -> dict:
+    """RM2466 : range les items du worklog en « reste à faire » / « en attente »
+    / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
+    son ouverture dans la session (souvent : une autre session l'a fait avancer).
+    `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé."""
+    out = {"todo": [], "waiting": [], "done": []}
+    for it in items or []:
+        st = str(it.get("status") or "").lower()
+        opened = str(it.get("opened_status") or "").lower()
+        entry = {
+            "ref": it.get("ref"), "label": it.get("label") or "",
+            "status": it.get("status") or "?", "project": it.get("project"),
+            "note": it.get("note") or "", "next": it.get("next") or "",
+            "drifted": bool(opened and opened != st),
+            "opened_status": it.get("opened_status") or "",
+        }
+        if st in WORKLOG_DONE:
+            out["done"].append(entry)
+        elif st in WORKLOG_WAITING:
+            out["waiting"].append(entry)
+        else:
+            out["todo"].append(entry)
+    return out
+# <<< worklog_buckets
+
+
+def op_worklog(rm_id: str) -> dict:
+    """RM2466 volet 2 étape 2 : où en est le travail de CETTE session — les
+    tickets qu'elle a ouverts et leur statut, depuis le worklog PM."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
+             "title": None, "updated": None,
+             "buckets": {"todo": [], "waiting": [], "done": []}}
+    if not session_id:
+        return empty
+    path = WORKLOG_DIR / f"{session_id}.json"
+    try:
+        with path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return empty            # pas encore de worklog : la session n'a rien ouvert
+    return {"rm_id": rm_id, "session_id": session_id, "found": True,
+            "title": data.get("title"), "updated": data.get("updated"),
+            "buckets": worklog_buckets(data.get("items"))}
+
+
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
     sessions = _sessions_view(qs, auth_ctx)
@@ -5655,6 +5720,8 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))
+            if path.startswith("/worklog/"):   # RM2466 : où en est le travail
+                return self._send_json(200, op_worklog(path[len("/worklog/"):]))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)

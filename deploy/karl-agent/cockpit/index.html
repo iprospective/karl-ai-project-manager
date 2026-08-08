@@ -885,10 +885,13 @@ if (window.matchMedia) {
           <!-- RM2466 volet 2 : ce qui attend une réponse, TOUTES sessions -->
           <div class="rp" id="rp-state">
             <div class="outnav">
-              <button class="mini" onclick="loadPending(true)" title="Rafraîchir">⟳</button>
+              <button class="mini" onclick="loadState(true)" title="Rafraîchir">⟳</button>
               <span class="cnt" id="pendcnt"></span>
             </div>
-            <div class="outbody" id="pendbody"><div class="empty">chargement…</div></div>
+            <div class="outbody" id="statebody">
+              <div id="pendbody"><div class="empty">chargement…</div></div>
+              <div id="workbody"></div>
+            </div>
           </div>
           <div class="rp" id="rp-infos">
             <div class="metabody" id="infosbody"></div>
@@ -2591,7 +2594,7 @@ function applyRight() {
   // RM2579 : (re)peuple l'onglet visible quand on y bascule
   if (rightVisible("infos")) renderInfos();
   if (rightVisible("tickets")) renderTickets();
-  if (rightVisible("state")) loadPending();     // RM2466 volet 2
+  if (rightVisible("state")) loadState();       // RM2466 volet 2 (questions + travail)
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -2658,6 +2661,73 @@ function renderPending() {
     body.appendChild(d);
   }
 }
+
+// — RM2466 étape 2 : où en est le travail de la session (worklog PM) —
+
+// >>> worklogSections — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Ordre d'affichage : ce qui reste d'abord, ce qui est fait en dernier. Les
+// sections vides disparaissent — un panneau d'état ne doit pas être rempli de
+// titres sans contenu.
+function worklogSections(buckets) {
+  const b = buckets || {};
+  return [
+    { key: "todo", icon: "⏳", label: "reste à faire", items: b.todo || [] },
+    { key: "waiting", icon: "⏸", label: "en attente / bloqué", items: b.waiting || [] },
+    { key: "done", icon: "✅", label: "fait", items: b.done || [] },
+  ].filter(s => s.items.length);
+}
+// <<< worklogSections
+
+let worklog = { found: false, buckets: {} };
+async function loadWorklog() {
+  if (!attached) { worklog = { found: false, buckets: {} }; renderWorklog(); return; }
+  try {
+    worklog = await api("/worklog/" + encodeURIComponent(attached));
+  } catch (e) {
+    worklog = { found: false, buckets: {}, error: e.message };
+  }
+  renderWorklog();
+}
+function renderWorklog() {
+  const body = document.getElementById("workbody");
+  if (!attached) { body.innerHTML = ""; return; }
+  const secs = worklogSections(worklog.buckets);
+  if (!secs.length) {
+    body.innerHTML = '<div class="ms"><h4>travail de la session</h4>'
+      + '<div style="color:var(--muted);font-size:11.5px">'
+      + (worklog.found ? "aucun ticket ouvert dans cette session"
+                       : "pas de worklog pour cette session (rien n’a encore été ouvert)")
+      + "</div></div>";
+    return;
+  }
+  let h = '<div class="ms"><h4>travail de la session — RM' + esc(attached) + "</h4>";
+  for (const s of secs) {
+    h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
+      + esc(s.icon) + " " + esc(s.label) + " (" + s.items.length + ")</div>";
+    for (const it of s.items) {
+      // la dérive dit qu'une AUTRE session a fait avancer le ticket : sans elle,
+      // on croirait que le statut affiché est le fait de la session courante.
+      const drift = it.drifted
+        ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
+          + esc(it.opened_status) + " → " + esc(it.status) + "</span>"
+        : "";
+      h += '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
+        + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + JSON.stringify(String(it.ref)) + ')">'
+        + "<b>" + esc(it.ref) + '</b> <span class="pill">' + esc(it.status) + "</span>" + drift
+        + (it.label ? " " + esc(it.label) : "")
+        + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
+        + "</div>";
+    }
+  }
+  document.getElementById("workbody").innerHTML = h + "</div>";
+}
+// un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
+function openWorklogItem(ref) {
+  const m = /^RM(\d+)$/i.exec(String(ref || ""));
+  if (m) openReview(m[1]); else toast("Chantier hors ticket : " + ref);
+}
+// les deux moitiés du panneau se rafraîchissent ensemble
+async function loadState(force) { await Promise.all([loadPending(force), loadWorklog()]); }
 
 // RM2466 volet 3 : la colonne de gauche se replie vers la gauche, symétriquement
 let leftCollapsed = false;
@@ -3676,6 +3746,7 @@ function attach(rmId) {
   // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
   outline = { items: [], total: 0 }; outPos = null;
   if (rightVisible("outline")) loadOutline();
+  if (rightVisible("state")) loadWorklog();   // RM2466 : le travail suit la session attachée
   else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
@@ -4648,7 +4719,7 @@ async function kill(rmId) {
   // RM2466 : « en attente de toi » suit l'activité, mais sa cadence est plus
   // lente que la liste — il relit des transcripts (cache serveur sur mtime),
   // et une question qui traîne ne se périme pas en trois secondes.
-  setInterval(() => { if (rightVisible("state")) loadPending(); }, 10000);
+  setInterval(() => { if (rightVisible("state")) loadState(); }, 10000);
   // Cadence lente et volontairement désalignée du cache serveur (TTL 600 s) :
   // une MAJ du PM n'est pas une urgence, et ls-remote sort sur le réseau.
   setInterval(refreshCoreUpdate, 300000);

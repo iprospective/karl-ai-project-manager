@@ -3828,7 +3828,8 @@ def op_worklog(rm_id: str) -> dict:
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
-             "title": None, "updated": None, "buckets": worklog_buckets([])}
+             "title": None, "updated": None, "buckets": worklog_buckets([]),
+             "notifications": []}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3837,9 +3838,12 @@ def op_worklog(rm_id: str) -> dict:
             data = json.load(fh)
     except (OSError, ValueError):
         return empty            # pas encore de worklog : la session n'a rien ouvert
+    # RM2466 : le canal du volet 1 remonte avec le travail — c'est le même
+    # « état de session », vu depuis le cockpit plutôt que depuis le terminal.
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
-            "buckets": worklog_buckets(data.get("items"))}
+            "buckets": worklog_buckets(data.get("items")),
+            "notifications": (data.get("notifications") or [])[-20:]}
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:

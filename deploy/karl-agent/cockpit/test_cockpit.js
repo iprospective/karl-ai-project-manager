@@ -876,4 +876,37 @@ assert(/id="workbody"/.test(html) && /id="pendbody"/.test(html),
   "le panneau état a ses deux moitiés : ce qui attend, et le travail");
 console.log("✓ état (RM2466) : dérive de statut signalée");
 
+// tout onglet présent dans la barre DOIT être accepté par la normalisation.
+// Incident vécu : une whitelist ajoutée par un ticket ignorait l'onglet ajouté
+// par un ticket concurrent — le merge combinait nav et panneaux, mais l'onglet
+// était normalisé vers un autre et devenait inactivable EN PROD. Chaque branche
+// passait ses propres tests ; seule l'union était cassée.
+const navTabs = [...html.matchAll(/data-rpanel="([a-z]+)"/g)].map(m => m[1]);
+const mTabs = /const TABS = \[([^\]]*)\]/.exec(html);
+assert(mTabs, "whitelist TABS de la colonne de droite introuvable");
+const whitelist = (mTabs[1].match(/"([a-z]+)"/g) || []).map(s => s.replace(/"/g, ""));
+assert(navTabs.length, "aucun onglet trouvé dans la barre de droite");
+for (const tab of navTabs) {
+  assert(whitelist.includes(tab),
+    `onglet « ${tab} » présent dans la barre mais absent de TABS → inactivable en prod`);
+}
+console.log(`✓ colonne droite : les ${navTabs.length} onglets de la barre sont tous activables`);
+
+// — notifications de session dans le panneau (RM2466 volet 1 × volet 2) —
+const fNd = />>> notifyDecor[\s\S]*?(function notifyDecor[\s\S]*?)\n\/\/ <<< notifyDecor/.exec(html);
+assert(fNd, "marqueurs >>> notifyDecor / <<< notifyDecor introuvables");
+const notifyDecor = vm.runInNewContext("(" + fNd[1] + ")");
+const nc = notifyDecor("critical"), nw = notifyDecor("warn"), ni = notifyDecor("info");
+assert(nc.icon !== nw.icon && nw.icon !== ni.icon, "chaque gravité a son icône");
+assert(nc.label === "critical" && nw.label === "warn" && ni.label === "info",
+  "le niveau reste écrit en toutes lettres, pas seulement en couleur");
+assert(nc.cls.includes("ounres") && !ni.cls.includes("ounres"),
+  "seul le critique est mis en avant visuellement");
+assert.strictEqual(notifyDecor(undefined).label, "warn", "niveau absent → warn, jamais silencieux");
+const mRw2 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/notifications/.test(mRw2[0]), "le panneau affiche les notifications de session");
+assert(mRw2[0].indexOf("notifications de la session") < mRw2[0].indexOf("travail de la session"),
+  "les incidents passent avant le travail dans le rendu");
+console.log("✓ état (RM2466) : notifications de session rendues avant le travail");
+
 console.log("OK — tous les tests cockpit passent");

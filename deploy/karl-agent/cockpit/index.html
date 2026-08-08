@@ -2683,6 +2683,20 @@ function renderWorklog() {
     notes = '<div class="ms"><h4>🔔 notifications de la session ('
       + (worklog.notifications || []).length + ")</h4>" + notes + "</div>";
   }
+  // RM2583 : ce que la session a ouvert et pas encore mergé — une MR oubliée ne
+  // se voit sinon qu'au prochain conflit, ou à un core update incomplet.
+  const mrs = worklog.mrs_pending || [];
+  if (mrs.length) {
+    notes += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>";
+    for (const m of mrs) {
+      notes += '<div class="oline oq" style="white-space:normal">🔀 <b>!' + esc(m.iid)
+        + "</b> " + (m.ref ? esc(m.ref) + " " : "")
+        + (m.target ? '→ <span class="pill">' + esc(m.target) + "</span> " : "")
+        + (m.url ? '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
+        + "</div>";
+    }
+    notes += "</div>";
+  }
   const secs = worklogSections(worklog.buckets);
   if (!secs.length) {
     body.innerHTML = notes + '<div class="ms"><h4>worklog</h4>'

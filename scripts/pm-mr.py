@@ -187,18 +187,32 @@ def _guard_expect_rm(pr, iid, expect_rm):
              f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
 
 
+def _hook_mr(iid, **kw):
+    """RM2583 : reflet best-effort dans le worklog de session (jamais bloquant)."""
+    try:
+        from pm_session_hook import log_mr_to_session
+        log_mr_to_session(iid, **kw)
+    except Exception:
+        pass
+
+
 def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None):
     """Merge le cœur d'une PR avec les gardes PM. `expect_rm` (RM2232, tripwire #13
     étendu) : refuse si la branche source n'est pas préfixée `<expect_rm>-`."""
     pr = forge.get_pr(project, iid, token)
     _guard_expect_rm(pr, iid, expect_rm)
     if pr.state == "merged":
+        # déjà mergée : le worklog peut l'ignorer encore, on le remet d'aplomb
+        _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
+                 state="merged")
         out.op("merge", extra=f"!{iid} → {pr.target} "
                               f"(déjà mergée, branche {pr.source} conservée)")
         return
     if pr.state != "opened":
         sys.exit(f"ERREUR : MR !{iid} en état '{pr.state}' (pas 'opened').")
     forge.merge_pr(project, iid, token, squash=squash, keep_source=True)
+    _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
+             state="merged")           # RM2583 : sort des « à merger »
     out.op("merge", extra=f"!{iid} → {pr.target} (branche {pr.source} conservée)")
 
 
@@ -242,6 +256,8 @@ def cmd_close(args, forge, token):
         out.op("close", extra=f"!{args.iid} (déjà '{pr.state}', branche {pr.source} conservée)")
         return
     forge.close_pr(project, args.iid, token)
+    _hook_mr(args.iid, repo=project.path, source=pr.source, target=pr.target,
+             state="closed")
     out.op("close", extra=f"!{args.iid} {pr.source}→{pr.target} fermée "
                           f"(branche {pr.source} conservée)")
 
@@ -292,6 +308,10 @@ def cmd_create(args, forge, token):
             pr = forge.create_pr(project, src, tgt, title, desc, token)
             out.info(f"✓ MR !{pr.iid} créée : {src} → {tgt}")
         out.op("mr", extra=f"!{pr.iid} {src}→{tgt} {pr.web_url}")
+        # RM2583 : la session retient ce qu'elle a ouvert — sinon une MR se perd
+        # jusqu'au prochain conflit, ou jusqu'à un core update incomplet.
+        _hook_mr(pr.iid, url=pr.web_url, repo=project.path, source=src, target=tgt,
+                 ref=f"RM{args.rm_id}", state="opened")
         if args.porcelain:
             out.value(pr.iid)
         # Garde RM2219 : une PR saine référence le sha de sa branche source.

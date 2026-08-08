@@ -102,6 +102,20 @@ cockpit, onglet « état ».
   secret reste à faire, sur le ticket référencé par `--ref`. Consigner sans faire
   tourner le secret, c'est documenter une faille, pas la fermer.
 
+## MR à merger (RM2583)
+
+`pm-mr.py` inscrit lui-même les MR dans le worklog à la création, et les en sort
+au merge / à la fermeture — rien à faire à la main. `show` liste alors ce qui
+**reste à merger**, et le cockpit l'affiche dans l'onglet « état ».
+
+```bash
+scripts/pm-session-status.py mr --list          # tout l'historique de la session
+```
+
+Le worklog reflète ce que **cette session** a ouvert, pas l'état global de la
+forge : une MR mergée à la main dans l'UI GitLab y restera « à merger ».
+Correction : `pm-session-status.py mr <iid> --state merged`.
+
 ## Statuts
 
 Texte libre, mais reconnus pour le tri d'affichage :

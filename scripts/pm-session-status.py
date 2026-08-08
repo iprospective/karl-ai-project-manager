@@ -81,6 +81,34 @@ def notify_trim(notes, keep=NOTIFY_KEEP):
     return [n for n in notes if n in kept]
 
 
+# ─── canal « merge requests » (RM2583) ───────────────────────────────────────
+# Une session ouvre plusieurs MR au fil du travail (branche → dev, puis promotion
+# dev → main). Rien ne les récapitulait : une MR oubliée ne se voyait qu'au
+# prochain conflit, ou quand le core update ne contenait pas ce qu'on attendait.
+MR_OPEN_STATES = ("opened", "open", "reopened")
+
+
+def mr_upsert(mrs, entry):
+    """Ajoute ou met à jour une MR dans le canal, identifiée par (url) ou (iid,
+    repo). Une MR ne se duplique pas quand elle change d'état. Pure."""
+    mrs = [dict(m) for m in (mrs or [])]
+    for m in mrs:
+        same_url = entry.get("url") and m.get("url") == entry["url"]
+        same_iid = (entry.get("iid") and m.get("iid") == entry["iid"]
+                    and m.get("repo") == entry.get("repo"))
+        if same_url or same_iid:
+            m.update({k: v for k, v in entry.items() if v is not None})
+            return mrs
+    mrs.append({k: v for k, v in entry.items() if v is not None})
+    return mrs
+
+
+def mr_pending(mrs):
+    """Les MR qui restent à merger. Une MR mergée ou fermée SORT de cette liste
+    sans sortir du store : on veut pouvoir dire ce que la session a produit. Pure."""
+    return [m for m in (mrs or []) if (m.get("state") or "opened") in MR_OPEN_STATES]
+
+
 def notify_level_for(kind, level=None):
     """Niveau d'une notification : explicite, sinon déduit du type. Un secret
     exposé est critique par nature — ne pas compter sur l'agent pour y penser."""
@@ -253,6 +281,17 @@ def render_md(data, live=None):
         out.append("**" + data["title"] + "**")
     suffix = " · live" if live else ""
     out.append("_maj : " + data["updated"] + suffix + "_\n")
+
+    # RM2583 : ce qui reste à merger — juste après les incidents, avant le travail
+    pending = mr_pending(data.get("mrs"))
+    if pending:
+        out.append("## 🔀 MR à merger (%d)" % len(pending))
+        for m in pending:
+            ref = (" **%s**" % m["ref"]) if m.get("ref") else ""
+            cible = (" → `%s`" % m["target"]) if m.get("target") else ""
+            url = (" %s" % m["url"]) if m.get("url") else ""
+            out.append("- `!%s`%s%s%s" % (m.get("iid", "?"), ref, cible, url))
+        out.append("")
 
     # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
     # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
@@ -453,6 +492,22 @@ def cmd_notify(data, args):
     pmout.info("  · %s" % paths(data["session_id"])[1])
 
 
+def cmd_mr(data, args):
+    """RM2583 : refléter une MR ouverte / mergée / fermée dans le worklog."""
+    if args.list:
+        for m in (data.get("mrs") or []):
+            sys.stdout.write("!%s [%s] %s %s %s\n" % (
+                m.get("iid", "?"), m.get("state", "?"), m.get("ref") or "",
+                ("→ " + m["target"]) if m.get("target") else "", m.get("url") or ""))
+        return
+    entry = {"iid": args.iid, "url": args.url, "repo": args.repo,
+             "source": args.source, "target": args.target, "ref": args.ref,
+             "state": args.state or "opened", "ts": now()}
+    data["mrs"] = mr_upsert(data.get("mrs"), entry)
+    save(data)
+    pmout.op("worklog", extra="MR !%s %s" % (args.iid, entry["state"]))
+
+
 def main():
     p = argparse.ArgumentParser(description="Suivi d'avancement par session")
     p.add_argument("--session", help="override session id (défaut: $CLAUDE_CODE_SESSION_ID)")
@@ -486,6 +541,16 @@ def main():
     t = sub.add_parser("title", help="définir un titre de session")
     t.add_argument("title")
 
+    m = sub.add_parser("mr", help="refléter une MR dans le worklog (RM2583)")
+    m.add_argument("iid", nargs="?", help="numéro de la MR")
+    m.add_argument("--url")
+    m.add_argument("--repo", help="projet forge (path_with_namespace)")
+    m.add_argument("--source")
+    m.add_argument("--target")
+    m.add_argument("--ref", help="ticket concerné (ex: RM2583)")
+    m.add_argument("--state", choices=["opened", "merged", "closed"])
+    m.add_argument("--list", action="store_true")
+
     n = sub.add_parser("notify", help="consigner un événement notable (RM2466)")
     n.add_argument("message", nargs="?", help="texte court, factuel")
     n.add_argument("--kind", choices=sorted(NOTIFY_KINDS),
@@ -507,7 +572,8 @@ def main():
     if cmd == "show" and not hasattr(args, "no_live"):
         args.no_live = False
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
-     "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify}[cmd](data, args)
+     "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
+     "mr": cmd_mr}[cmd](data, args)
 
 
 if __name__ == "__main__":

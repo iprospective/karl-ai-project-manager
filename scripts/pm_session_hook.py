@@ -46,3 +46,25 @@ def log_to_session(ref, label=None, status=None, project=None, note=None,
         subprocess.run(cmd, check=False, capture_output=True, timeout=10)
     except Exception:
         pass  # best-effort : jamais bloquant pour l'opération PM
+
+
+def log_mr_to_session(iid, url=None, repo=None, source=None, target=None,
+                      ref=None, state="opened"):
+    """RM2583 : reflète une MR (ouverte / mergée / fermée) dans le worklog de la
+    session. Mêmes règles que `log_to_session` : no-op hors session Claude Code,
+    best-effort — une panne d'écriture du worklog ne doit JAMAIS faire échouer le
+    `pm-mr create` qui vient de réussir côté forge."""
+    if not os.environ.get("CLAUDE_CODE_SESSION_ID"):
+        return
+    script = Path(__file__).resolve().parent / "pm-session-status.py"
+    if not script.exists():
+        return
+    cmd = [sys.executable, str(script), "mr", str(iid), "--state", str(state)]
+    for flag, val in (("--url", url), ("--repo", repo), ("--source", source),
+                      ("--target", target), ("--ref", ref)):
+        if val:
+            cmd += [flag, str(val)]
+    try:
+        subprocess.run(cmd, check=False, capture_output=True, timeout=10)
+    except Exception:
+        pass  # best-effort : jamais bloquant pour l'opération forge

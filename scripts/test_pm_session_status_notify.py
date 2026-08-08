@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests RM2466 volet 1 — canal « notifications importantes » du worklog.
+"""Tests des canaux du worklog de session : notifications (RM2466 volet 1)
+et merge requests à merger (RM2583).
 
 Unitaire sur les fonctions pures, puis bout en bout sur un store JETABLE
 (PM_SESSION_WORKLOG_DIR) : jamais dans le worklog réel de la session courante.
@@ -100,7 +101,35 @@ with tempfile.TemporaryDirectory() as tmp:
     check("aucune notification → aucune section dans le rendu",
           "Notifications importantes" not in md)
 
+
+# — RM2583 : canal des MR à merger —
+mrs = pss.mr_upsert([], {"iid": "400", "url": "u/400", "repo": "g/p", "target": "dev",
+                         "ref": "RM1", "state": "opened"})
+mrs = pss.mr_upsert(mrs, {"iid": "401", "url": "u/401", "repo": "g/p", "target": "main",
+                          "state": "opened"})
+check("les MR ouvertes s'accumulent", len(mrs) == 2)
+maj = pss.mr_upsert(mrs, {"iid": "400", "url": "u/400", "state": "merged"})
+check("changer d'état ne duplique pas la MR", len(maj) == 2)
+check("l'état est bien mis à jour",
+      [m for m in maj if m["iid"] == "400"][0]["state"] == "merged")
+check("les champs non fournis ne sont pas écrasés",
+      [m for m in maj if m["iid"] == "400"][0]["ref"] == "RM1")
+check("une MR mergée sort des « à merger »",
+      [m["iid"] for m in pss.mr_pending(maj)] == ["401"])
+check("une MR fermée en sort aussi",
+      pss.mr_pending(pss.mr_upsert(maj, {"iid": "401", "url": "u/401", "state": "closed"})) == [])
+check("rien n'est perdu : l'historique garde tout",
+      len(pss.mr_upsert(maj, {"iid": "401", "url": "u/401", "state": "closed"})) == 2)
+check("identification par iid+repo quand l'URL manque",
+      len(pss.mr_upsert(mrs, {"iid": "400", "repo": "g/p", "state": "merged"})) == 2)
+check("même iid sur un AUTRE dépôt = une autre MR",
+      len(pss.mr_upsert(mrs, {"iid": "400", "repo": "autre/p", "state": "opened"})) == 3)
+check("état absent = à merger (on ne perd pas une MR mal renseignée)",
+      len(pss.mr_pending([{"iid": "9"}])) == 1)
+check("canal vide ou absent toléré",
+      pss.mr_pending([]) == [] and pss.mr_pending(None) == [] and pss.mr_upsert(None, {"iid": "1"}))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — tests notifications RM2466 passent")
+print("OK — tests canaux worklog (notifications RM2466 + MR RM2583) passent")

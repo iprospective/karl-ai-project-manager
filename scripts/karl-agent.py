@@ -3875,7 +3875,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": []}
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": []}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3884,6 +3884,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             data = json.load(fh)
     except (OSError, ValueError):
         return empty            # pas encore de worklog : la session n'a rien ouvert
+    # RM2583 : les MR que la session a ouvertes et pas encore mergées.
+    mrs = [m for m in (data.get("mrs") or [])
+           if (m.get("state") or "opened") in ("opened", "open", "reopened")]
     # RM2581 : le worklog fige le statut à l'ouverture — on le résout en live.
     items = data.get("items")
     live, checked = _worklog_live_map(session_id, items, force)
@@ -3893,7 +3896,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
-            "notifications": (data.get("notifications") or [])[-20:]}
+            "notifications": (data.get("notifications") or [])[-20:],
+            "mrs_pending": mrs}
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:

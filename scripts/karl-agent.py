@@ -3818,9 +3818,55 @@ def worklog_buckets(items) -> dict:
 # <<< worklog_buckets
 
 
-def op_worklog(rm_id: str) -> dict:
+# RM2581 : le worklog JSON fige le statut à l'ouverture ; le `status` n'est
+# rafraîchi que par les mutations de CETTE session. Un ticket avancé AILLEURS
+# reste donc périmé. On superpose le statut LIVE (frontmatter courant) à la
+# lecture, avec une garde de fraîcheur (le cockpit poll toutes les 10 s → on ne
+# re-résout qu'au plus 1×/60 s par session).
+_WORKLOG_LIVE_TTL = 60
+_worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
+
+
+# >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
+def _worklog_apply_live(items, live):
+    """Superpose le statut LIVE (map ref→statut, résolu du frontmatter) sur les
+    items du worklog : le statut affiché devient le statut réel du ticket, tandis
+    que `opened_status` reste le snapshot d'ouverture (la dérive reste calculable).
+    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son statut
+    stocké. Résolution injectée → pur et testable."""
+    out = []
+    for it in items or []:
+        lv = (live or {}).get(it.get("ref"))
+        out.append({**it, "status": lv} if lv else it)
+    return out
+# <<< worklog_apply_live
+
+
+def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
+    """map ref→statut courant depuis le frontmatter des tâches, avec garde de
+    fraîcheur 60 s (RM2581). Cheap : _find_task_file + _read_task_meta par ticket.
+    `force` contourne la garde (⟳ manuel). Renvoie (live_map, checked_ts)."""
+    now = time.time()
+    hit = _worklog_live_cache.get(session_id)
+    if hit and not force and now - hit[0] < _WORKLOG_LIVE_TTL:
+        return hit[1], hit[0]
+    live = {}
+    for it in items or []:
+        m = re.match(r"RM(\d+)$", str(it.get("ref") or ""))
+        if not m:
+            continue
+        tf = _find_task_file(m.group(1))
+        if tf:
+            st = _read_task_meta(tf).get("status")
+            if st:
+                live[it["ref"]] = st
+    _worklog_live_cache[session_id] = (now, live)
+    return live, now
+
+
+def op_worklog(rm_id: str, force: bool = False) -> dict:
     """RM2466 volet 2 étape 2 : où en est le travail de CETTE session — les
-    tickets qu'elle a ouverts et leur statut, depuis le worklog PM."""
+    tickets qu'elle a ouverts et leur statut. Statut résolu LIVE (RM2581)."""
     if not _valid_sid(rm_id):
         raise ApiError(400, "rm_id invalide")
     if not _has_session(rm_id):
@@ -3828,7 +3874,8 @@ def op_worklog(rm_id: str) -> dict:
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
-             "title": None, "updated": None, "buckets": worklog_buckets([])}
+             "title": None, "updated": None, "checked_ts": None,
+             "buckets": worklog_buckets([])}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3837,9 +3884,12 @@ def op_worklog(rm_id: str) -> dict:
             data = json.load(fh)
     except (OSError, ValueError):
         return empty            # pas encore de worklog : la session n'a rien ouvert
+    items = data.get("items")
+    live, checked = _worklog_live_map(session_id, items, force)
+    items = _worklog_apply_live(items, live)
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
-            "buckets": worklog_buckets(data.get("items"))}
+            "checked_ts": int(checked), "buckets": worklog_buckets(items)}
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
@@ -5732,8 +5782,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))
-            if path.startswith("/worklog/"):   # RM2466 : où en est le travail
-                return self._send_json(200, op_worklog(path[len("/worklog/"):]))
+            if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
+                force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
+                return self._send_json(200, op_worklog(path[len("/worklog/"):], force))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)

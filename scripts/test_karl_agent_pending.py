@@ -126,7 +126,29 @@ _wait = eval(_re.search(r"^WAITING = (\{[^}]*\})", _src, _re.M | _re.S).group(1)
 check("DONE identique à celui de pm-session-status.py", ka.WORKLOG_DONE == _done)
 check("WAITING identique à celui de pm-session-status.py", ka.WORKLOG_WAITING == _wait)
 
+# — RM2581 : superposition du statut LIVE sur le worklog —
+_items = [
+    {"ref": "RM1", "status": "a_mep", "opened_status": "nouveau"},   # avancé ailleurs
+    {"ref": "RM2", "status": "en_cours", "opened_status": "en_cours"},  # inchangé
+    {"ref": "chantier-x", "status": "en_cours"},                     # hors ticket
+    {"ref": "RM3", "status": "a_faire", "opened_status": "a_faire"},  # pas de live
+]
+_live = {"RM1": "ferme", "RM2": "en_cours"}   # RM3 absent (MD introuvable)
+_ov = ka._worklog_apply_live(_items, _live)
+check("live écrase le statut périmé (RM1 a_mep→ferme)", _ov[0]["status"] == "ferme")
+check("opened_status préservé pour la dérive", _ov[0]["opened_status"] == "nouveau")
+check("statut inchangé si live == stocké", _ov[1]["status"] == "en_cours")
+check("chantier hors ticket intact", _ov[2]["status"] == "en_cours")
+check("ref sans live garde le statut stocké", _ov[3]["status"] == "a_faire")
+check("apply_live ne mute pas l'entrée d'origine", _items[0]["status"] == "a_mep")
+check("apply_live tolère vide/None",
+      ka._worklog_apply_live([], {}) == [] and ka._worklog_apply_live(None, None) == [])
+# la dérive se calcule ensuite normalement sur le statut live
+_bk = ka.worklog_buckets(_ov)
+check("après live : RM1 classé fait (ferme) et marqué dérivé",
+      any(e["ref"] == "RM1" and e["drifted"] for e in _bk["done"]))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — tests pending RM2466 passent")
+print("OK — tests pending RM2466 + worklog live RM2581 passent")

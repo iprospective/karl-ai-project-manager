@@ -17,6 +17,18 @@
 removed: []
 
 rewritten:
+  - reason: "RM2568 (v1.66.1) : bloc d'exemples `glab api` bruts (create + merge de MR à la main) retiré de git-mep — il illustrait exactement le réflexe que la même section déconseille désormais : se replier sur un appel API artisanal au lieu de `pm-mr`, qui encapsule ces gotchas. Les 4 gotchas restent en puces juste au-dessus, pour les rares appels directs légitimes. Retrait aussi motivé par le budget de contexte de worker-dev, saturé au token près."
+    old: |
+      ```bash
+      # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
+      glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
+      glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
+        -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
+        -f remove_source_branch=false
+      glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
+        -f should_remove_source_branch=false
+      ```
+
   - reason: "RM2379 (v1.59.0) : ajout du type `configuration` — énumération `type` étendue à 14 valeurs (KERNEL)"
     old: |
       `audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`

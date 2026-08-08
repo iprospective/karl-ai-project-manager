@@ -330,6 +330,10 @@
   .oline.ouser { color: var(--fg-strong); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
   .oline.ouser:hover { background: var(--accent-soft-hover); }
   .oline.ocur { outline: 1px solid var(--accent); }
+  /* RM2466 : dans « état », la question DOIT se lire — l'ellipse sur une ligne
+     de l'outline sert une minimap, pas une liste de choses à traiter. */
+  #pendbody .oline { white-space: normal; overflow: visible; padding: 6px 8px; margin-bottom: 4px; }
+  #pendbody .oline b { font-family: var(--mono); margin-right: 4px; }
   /* RM2549 : questions posées / réponses retenues. Un état n'est JAMAIS porté
      par la seule couleur — icône et libellé en toutes lettres l'accompagnent
      (sinon l'information disparaît en capture d'écran, ou pour qui ne
@@ -866,6 +870,10 @@ if (window.matchMedia) {
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
         <nav class="rnav">
           <!-- RM2579 : infos (session) / tickets (sous-onglets) / conversation -->
+          <!-- RM2466 volet 2 : « état » est transverse — il ne dépend pas de la
+               session attachée, il dit ce qui attend une réponse PARTOUT. -->
+          <button data-rpanel="state" onclick="switchRight('state')"
+            title="État : tout ce qui attend une réponse, toutes sessions confondues">🗒 état<span class="nbadge att" id="rn-pending" style="display:none"></span></button>
           <button data-rpanel="infos" onclick="switchRight('infos')"
             title="Infos de la session : tmux, branches, worktrees, conso live">ℹ infos</button>
           <button data-rpanel="tickets" onclick="switchRight('tickets')"
@@ -874,6 +882,17 @@ if (window.matchMedia) {
             title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
         <div class="rbody">
+          <!-- RM2466 volet 2 : ce qui attend une réponse, TOUTES sessions -->
+          <div class="rp" id="rp-state">
+            <div class="outnav">
+              <button class="mini" onclick="loadState(true)" title="Rafraîchir">⟳</button>
+              <span class="cnt" id="pendcnt"></span>
+            </div>
+            <div class="outbody" id="statebody">
+              <div id="pendbody"><div class="empty">chargement…</div></div>
+              <div id="workbody"></div>
+            </div>
+          </div>
           <div class="rp" id="rp-infos">
             <div class="metabody" id="infosbody"></div>
           </div>
@@ -2575,6 +2594,7 @@ function applyRight() {
   // RM2579 : (re)peuple l'onglet visible quand on y bascule
   if (rightVisible("infos")) renderInfos();
   if (rightVisible("tickets")) renderTickets();
+  if (rightVisible("state")) loadState();       // RM2466 volet 2 (questions + travail)
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -2582,6 +2602,134 @@ function showRight(tab) { dispatchRight({ type: "show", tab: tab }); }
 function toggleRight() { dispatchRight({ type: "toggle" }); }
 function collapseRight() { dispatchRight({ type: "collapse" }); }
 function rightVisible(tab) { return !rightState.collapsed && rightState.tab === tab; }
+
+// ----- RM2466 volet 2 : « en attente de toi », toutes sessions confondues -----
+
+// >>> pendingDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Deux natures d'attente, qui n'appellent pas la même urgence — et comme pour
+// l'outline (RM2549), jamais la couleur seule : icône + libellé en toutes lettres.
+function pendingDecor(entry) {
+  if (entry && entry.kind === "live") {
+    return { icon: entry.state === "choice" ? "❓" : "⚠", tag: "bloquée", cls: "oq ounres",
+             title: "La session attend une réponse MAINTENANT — elle ne peut pas avancer" };
+  }
+  return { icon: "🕓", tag: "sans réponse", cls: "oq",
+           title: "Question posée puis laissée sans réponse — la session, elle, a continué" };
+}
+// <<< pendingDecor
+
+let pending = { entries: [], live: 0, stale: 0 };
+let pendingLoading = false;
+async function loadPending(force) {
+  if (pendingLoading) return;
+  pendingLoading = true;
+  try {
+    const r = await api("/pending");
+    pending = { entries: r.entries || [], live: r.live || 0, stale: r.stale || 0 };
+    renderPending();
+  } catch (e) {
+    if (force) toast(e.message, true);
+    document.getElementById("pendbody").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
+  } finally {
+    pendingLoading = false;
+  }
+}
+function renderPending() {
+  // le badge de l'onglet ne compte QUE les sessions bloquées : une question en
+  // souffrance n'est pas une alarme, elle ne doit pas clignoter en permanence.
+  const badge = document.getElementById("rn-pending");
+  badge.textContent = pending.live || "";
+  badge.style.display = pending.live ? "" : "none";
+  document.getElementById("pendcnt").textContent =
+    pending.live + " bloquée(s) · " + pending.stale + " sans réponse";
+  const body = document.getElementById("pendbody");
+  if (!pending.entries.length) {
+    body.innerHTML = '<div class="empty">rien n\'attend de réponse — tout est traité</div>';
+    return;
+  }
+  body.innerHTML = "";
+  for (const e of pending.entries) {
+    const dec = pendingDecor(e);
+    const d = document.createElement("div");
+    d.className = "oline " + dec.cls + (String(attached) === String(e.rm_id) ? " ocur" : "");
+    const ou = (e.client && e.project) ? e.client + "/" + e.project : "";
+    d.innerHTML = esc(dec.icon) + ' <span class="otag">' + esc(dec.tag) + "</span>"
+      + '<b>RM' + esc(e.rm_id) + "</b> " + esc(e.text)
+      + (ou ? ' <span style="opacity:.6">· ' + esc(ou) + "</span>" : "");
+    d.title = dec.title + " — clic : attacher RM" + e.rm_id;
+    d.onclick = () => attach(e.rm_id);
+    body.appendChild(d);
+  }
+}
+
+// — RM2466 étape 2 : où en est le travail de la session (worklog PM) —
+
+// >>> worklogSections — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Ordre d'affichage : ce qui reste d'abord, ce qui est fait en dernier. Les
+// sections vides disparaissent — un panneau d'état ne doit pas être rempli de
+// titres sans contenu.
+function worklogSections(buckets) {
+  const b = buckets || {};
+  return [
+    { key: "todo", icon: "⏳", label: "reste à faire", items: b.todo || [] },
+    { key: "waiting", icon: "⏸", label: "en attente / bloqué", items: b.waiting || [] },
+    { key: "done", icon: "✅", label: "fait", items: b.done || [] },
+    // en dernier, et nommé pour ce qu'il est : un statut qu'on ne sait pas ranger
+    { key: "unknown", icon: "❔", label: "statut inconnu", items: b.unknown || [] },
+  ].filter(s => s.items.length);
+}
+// <<< worklogSections
+
+let worklog = { found: false, buckets: {} };
+async function loadWorklog() {
+  if (!attached) { worklog = { found: false, buckets: {} }; renderWorklog(); return; }
+  try {
+    worklog = await api("/worklog/" + encodeURIComponent(attached));
+  } catch (e) {
+    worklog = { found: false, buckets: {}, error: e.message };
+  }
+  renderWorklog();
+}
+function renderWorklog() {
+  const body = document.getElementById("workbody");
+  if (!attached) { body.innerHTML = ""; return; }
+  const secs = worklogSections(worklog.buckets);
+  if (!secs.length) {
+    body.innerHTML = '<div class="ms"><h4>travail de la session</h4>'
+      + '<div style="color:var(--muted);font-size:11.5px">'
+      + (worklog.found ? "aucun ticket ouvert dans cette session"
+                       : "pas de worklog pour cette session (rien n’a encore été ouvert)")
+      + "</div></div>";
+    return;
+  }
+  let h = '<div class="ms"><h4>travail de la session — RM' + esc(attached) + "</h4>";
+  for (const s of secs) {
+    h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
+      + esc(s.icon) + " " + esc(s.label) + " (" + s.items.length + ")</div>";
+    for (const it of s.items) {
+      // la dérive dit qu'une AUTRE session a fait avancer le ticket : sans elle,
+      // on croirait que le statut affiché est le fait de la session courante.
+      const drift = it.drifted
+        ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
+          + esc(it.opened_status) + " → " + esc(it.status) + "</span>"
+        : "";
+      h += '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
+        + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + JSON.stringify(String(it.ref)) + ')">'
+        + "<b>" + esc(it.ref) + '</b> <span class="pill">' + esc(it.status) + "</span>" + drift
+        + (it.label ? " " + esc(it.label) : "")
+        + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
+        + "</div>";
+    }
+  }
+  document.getElementById("workbody").innerHTML = h + "</div>";
+}
+// un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
+function openWorklogItem(ref) {
+  const m = /^RM(\d+)$/i.exec(String(ref || ""));
+  if (m) openReview(m[1]); else toast("Chantier hors ticket : " + ref);
+}
+// les deux moitiés du panneau se rafraîchissent ensemble
+async function loadState(force) { await Promise.all([loadPending(force), loadWorklog()]); }
 
 // RM2466 volet 3 : la colonne de gauche se replie vers la gauche, symétriquement
 let leftCollapsed = false;
@@ -3600,6 +3748,7 @@ function attach(rmId) {
   // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
   outline = { items: [], total: 0 }; outPos = null;
   if (rightVisible("outline")) loadOutline();
+  if (rightVisible("state")) loadWorklog();   // RM2466 : le travail suit la session attachée
   else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
@@ -4569,6 +4718,10 @@ async function kill(rmId) {
   refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
   setInterval(refreshHealth, 5000);
   setInterval(refreshSessions, 3000);
+  // RM2466 : « en attente de toi » suit l'activité, mais sa cadence est plus
+  // lente que la liste — il relit des transcripts (cache serveur sur mtime),
+  // et une question qui traîne ne se périme pas en trois secondes.
+  setInterval(() => { if (rightVisible("state")) loadState(); }, 10000);
   // Cadence lente et volontairement désalignée du cache serveur (TTL 600 s) :
   // une MAJ du PM n'est pas une urgence, et ls-remote sort sur le réseau.
   setInterval(refreshCoreUpdate, 300000);

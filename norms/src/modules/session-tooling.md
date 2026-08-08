@@ -53,7 +53,16 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
+| Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+## Notifications importantes de session (RM2466)
+
+Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-champ**
+(pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
+Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
+`outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
+canal noyé ne sera pas lu. Mode d'emploi : skill `mmi-pm-session-status`.
 
 ### Idiomes fréquents (évite de relancer `--help` à chaque session)
 

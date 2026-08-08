@@ -34,7 +34,10 @@ try:
 except Exception:
     pm_session = None
 
-WORKLOG_DIR = os.path.expanduser("~/.claude/session-worklogs")
+# Surchargeable pour les tests : sans ça, éprouver le canal de notifications
+# écrirait dans le worklog RÉEL de la session en cours.
+WORKLOG_DIR = os.path.expanduser(
+    os.environ.get("PM_SESSION_WORKLOG_DIR") or "~/.claude/session-worklogs")
 
 # statuts considérés comme terminés (filtrés hors du « reste à faire »)
 DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu", "resolu"}
@@ -43,6 +46,47 @@ WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
            "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
+
+# ─── canal « notifications importantes » (RM2466 volet 1) ────────────────────
+# Un incident notable finissait au mieux dans une phrase de réponse de l'agent,
+# et se perdait au premier défilement de la conversation. Ce canal le retient au
+# niveau SESSION, à côté des items de travail mais distinct d'eux.
+NOTIFY_LEVELS = ("info", "warn", "critical")
+NOTIFY_ICON = {"info": "ℹ️", "warn": "⚠️", "critical": "🔴"}
+# Typologie issue de RM2466. `kind` reste libre, mais nommer les cas que NORMS
+# impose de consigner évite que chaque agent invente son propre vocabulaire.
+NOTIFY_KINDS = {
+    "secret": "secret exposé (transcript, log, capture) — rotation à envisager",
+    "refus": "action refusée / permission manquante",
+    "garde-fou": "garde-fou déclenché (branche protégée, périmètre projet, worktree)",
+    "outillage": "outillage PM en défaut (un script ne fait pas ce qu'il annonce)",
+    "decision": "décision du demandeur attendue — l'avancement est bloqué",
+    "autre": "autre événement notable",
+}
+NOTIFY_KEEP = 100          # garde-fou de taille du canal
+
+
+def notify_trim(notes, keep=NOTIFY_KEEP):
+    """Rogne les plus anciennes au-delà de `keep`, mais JAMAIS une `critical` :
+    un secret exposé ne doit pas disparaître parce que la session a été bavarde.
+    Pure (testable)."""
+    notes = list(notes or [])
+    if len(notes) <= keep:
+        return notes
+    crit = [n for n in notes if n.get("level") == "critical"]
+    rest = [n for n in notes if n.get("level") != "critical"]
+    room = max(0, keep - len(crit))
+    kept = crit + (rest[-room:] if room else [])
+    # ordre chronologique conservé, quel que soit le tri interne ci-dessus
+    return [n for n in notes if n in kept]
+
+
+def notify_level_for(kind, level=None):
+    """Niveau d'une notification : explicite, sinon déduit du type. Un secret
+    exposé est critique par nature — ne pas compter sur l'agent pour y penser."""
+    if level:
+        return level
+    return "critical" if kind == "secret" else "warn"
 
 
 def now():
@@ -210,6 +254,22 @@ def render_md(data, live=None):
     suffix = " · live" if live else ""
     out.append("_maj : " + data["updated"] + suffix + "_\n")
 
+    # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
+    # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
+    notes = data.get("notifications") or []
+    if notes:
+        out.append("## 🔔 Notifications importantes (%d)" % len(notes))
+        for n in notes[-20:]:
+            ref = (" **%s**" % n["ref"]) if n.get("ref") else ""
+            kind = (" `%s`" % n["kind"]) if n.get("kind") and n["kind"] != "autre" else ""
+            out.append("- %s `%s`%s%s — %s _(%s)_" % (
+                NOTIFY_ICON.get(n.get("level"), "•"), n.get("level", "?"), kind, ref,
+                n.get("message", ""), n.get("ts", "")))
+        if len(notes) > 20:
+            out.append("_(%d plus anciennes — `pm-session-status.py notify --list`)_"
+                       % (len(notes) - 20))
+        out.append("")
+
     # Branches / worktrees ouverts par la session (RM2034). Lecture seule :
     # n'alloue pas de seq (affiché seulement si la session en a déjà un).
     rec = pm_session.current_record() if pm_session else None
@@ -359,6 +419,40 @@ def cmd_title(data, args):
     pmout.op("worklog", extra="titre : %s" % args.title)
 
 
+def cmd_notify(data, args):
+    """RM2466 volet 1 : consigner un événement notable au niveau session."""
+    notes = data.get("notifications") or []
+    if args.list:
+        if not notes:
+            pmout.info("aucune notification dans cette session")
+            return
+        for n in notes:
+            tags = " ".join(x for x in (n.get("kind"), n.get("ref")) if x)
+            sys.stdout.write("%s [%s] %s — %s\n" % (
+                n.get("ts", ""), n.get("level", "?"), tags, n.get("message", "")))
+        return
+    if args.clear:
+        # les `critical` ne partent qu'à la demande explicite : un secret exposé
+        # ne s'acquitte pas d'un revers de main en vidant le canal.
+        kept = [] if args.all else [n for n in notes if n.get("level") == "critical"]
+        removed = len(notes) - len(kept)
+        data["notifications"] = kept
+        save(data)
+        pmout.op("worklog", extra="%d notification(s) acquittée(s)%s" % (
+            removed, "" if args.all else ", %d critique(s) conservée(s)" % len(kept)))
+        return
+    if not args.message:
+        pmout.fail("message requis (ou --list / --clear)")
+    kind = args.kind or "autre"
+    note = {"ts": now(), "level": notify_level_for(kind, args.level), "kind": kind,
+            "ref": args.ref, "message": args.message}
+    data["notifications"] = notify_trim(notes + [note])
+    save(data)
+    pmout.op("worklog", extra="notification %s [%s] %s" % (
+        NOTIFY_ICON.get(note["level"], "•"), note["level"], args.message[:60]))
+    pmout.info("  · %s" % paths(data["session_id"])[1])
+
+
 def main():
     p = argparse.ArgumentParser(description="Suivi d'avancement par session")
     p.add_argument("--session", help="override session id (défaut: $CLAUDE_CODE_SESSION_ID)")
@@ -392,6 +486,19 @@ def main():
     t = sub.add_parser("title", help="définir un titre de session")
     t.add_argument("title")
 
+    n = sub.add_parser("notify", help="consigner un événement notable (RM2466)")
+    n.add_argument("message", nargs="?", help="texte court, factuel")
+    n.add_argument("--kind", choices=sorted(NOTIFY_KINDS),
+                   help="; ".join("%s = %s" % kv for kv in sorted(NOTIFY_KINDS.items())))
+    n.add_argument("--level", choices=NOTIFY_LEVELS,
+                   help="défaut : critical pour --kind secret, warn sinon")
+    n.add_argument("--ref", help="ticket concerné (ex: RM2466)")
+    n.add_argument("--list", action="store_true", help="lister les notifications")
+    n.add_argument("--clear", action="store_true",
+                   help="acquitter (les critiques sont conservées sauf --all)")
+    n.add_argument("--all", action="store_true",
+                   help="avec --clear : acquitter AUSSI les critiques")
+
     args = p.parse_args()
     pmout.configure(args)
     data = load(session_id(args.session))
@@ -400,7 +507,7 @@ def main():
     if cmd == "show" and not hasattr(args, "no_live"):
         args.no_live = False
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
-     "rm": cmd_rm, "title": cmd_title}[cmd](data, args)
+     "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify}[cmd](data, args)
 
 
 if __name__ == "__main__":

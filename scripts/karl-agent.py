@@ -3875,7 +3875,7 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([])}
+             "buckets": worklog_buckets([]), "notifications": []}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3884,12 +3884,16 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             data = json.load(fh)
     except (OSError, ValueError):
         return empty            # pas encore de worklog : la session n'a rien ouvert
+    # RM2581 : le worklog fige le statut à l'ouverture — on le résout en live.
     items = data.get("items")
     live, checked = _worklog_live_map(session_id, items, force)
     items = _worklog_apply_live(items, live)
+    # RM2466 : le canal de notifications remonte avec le travail — c'est le même
+    # « état de session », vu depuis le cockpit plutôt que depuis le terminal.
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
-            "checked_ts": int(checked), "buckets": worklog_buckets(items)}
+            "checked_ts": int(checked), "buckets": worklog_buckets(items),
+            "notifications": (data.get("notifications") or [])[-20:]}
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:

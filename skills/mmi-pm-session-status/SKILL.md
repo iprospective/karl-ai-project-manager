@@ -68,6 +68,40 @@ scripts/pm-session-status.py rm <ref>
 scripts/pm-session-status.py title "Libellé de la session"
 ```
 
+## Notifications importantes (RM2466)
+
+Canal d'**événements**, distinct des items de travail : un incident rencontré en
+séance finissait au mieux dans une phrase de réponse, et se perdait au premier
+défilement. Règle NORMS : `modules/session-tooling.md` § « Notifications
+importantes » (déclencheur au KERNEL).
+
+**Consigner sur-le-champ**, pas « à la fin » — à la fin, on a oublié :
+
+```bash
+scripts/pm-session-status.py notify "<fait court et factuel>" --kind <type> [--ref RM<id>] [--level info|warn|critical]
+scripts/pm-session-status.py notify --list          # relire le canal
+scripts/pm-session-status.py notify --clear         # acquitter (les `critical` restent)
+scripts/pm-session-status.py notify --clear --all   # acquitter AUSSI les critiques
+```
+
+| `--kind` | quand | niveau par défaut |
+|---|---|---|
+| `secret` | un secret a transité en clair (transcript, log, capture, sortie de commande) | `critical` |
+| `refus` | action refusée / permission manquante | `warn` |
+| `garde-fou` | branche protégée, périmètre projet, worktree | `warn` |
+| `outillage` | un script PM ne fait pas ce qu'il annonce | `warn` |
+| `decision` | un arbitrage du demandeur manque et bloque l'avancement | `warn` |
+
+Restitué **en tête** de `show` (donc du récap de session) et repris par le
+cockpit, onglet « état ».
+
+**Deux pièges :**
+- une notification est un fait **notable et actionnable**, pas un commentaire —
+  un canal noyé sous le bruit ne sera pas lu, donc ne servira à rien ;
+- pour un secret exposé, la notification **trace** le fait ; la **rotation** du
+  secret reste à faire, sur le ticket référencé par `--ref`. Consigner sans faire
+  tourner le secret, c'est documenter une faille, pas la fermer.
+
 ## Statuts
 
 Texte libre, mais reconnus pour le tri d'affichage :

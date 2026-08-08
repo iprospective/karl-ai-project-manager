@@ -743,7 +743,13 @@ assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: true }, { type
   { tab: "infos", collapsed: false }, "legacy « meta » migré aussi via show");
 assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", collapsed: true },
   "onglet inconnu → infos");
-console.log("✓ colonnes (RM2466/2579) : 3 onglets, défaut infos, legacy meta→infos, repli mémorisé");
+// « state » (🗒 état, RM2466 volet 2 mergé en parallèle) est un onglet VALIDE :
+// il ne doit PAS être normalisé vers infos (régression corrigée).
+assert.deepStrictEqual(rightPanelReduce({ tab: "state", collapsed: false }, {}),
+  { tab: "state", collapsed: false }, "onglet state préservé (pas de normalisation)");
+assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "state" }),
+  { tab: "state", collapsed: false }, "select state : déplie sur état");
+console.log("✓ colonnes (RM2466/2579) : 4 onglets (dont état), défaut infos, legacy meta→infos");
 
 // structure : les deux asides empilés ont bien fusionné en une colonne à onglets
 assert(!/class="metapanel|class="outpanel|id="metapanel"|id="outpanel"/.test(html),

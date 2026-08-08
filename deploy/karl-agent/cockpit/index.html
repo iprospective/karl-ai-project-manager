@@ -788,6 +788,7 @@ if (window.matchMedia) {
         <option value="infos">ℹ infos</option>
         <option value="tickets">🎫 tickets</option>
         <option value="outline">🗺 conversation</option>
+        <option value="state">🗒 état</option>
       </select>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         S'applique au prochain chargement du cockpit.
@@ -2560,7 +2561,8 @@ function outlineNextUnresolved(items, pos) {
 function rightPanelReduce(state, action) {
   // RM2579 : trois onglets. « meta » (ancien nom, localStorage d'avant) → « infos » ;
   // tout onglet inconnu retombe sur « infos » (défaut applicatif).
-  const TABS = ["infos", "tickets", "outline"];
+  // « state » = onglet 🗒 état (RM2466 volet 2), ajouté en parallèle de RM2579.
+  const TABS = ["state", "infos", "tickets", "outline"];
   const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
   const cur = {
     tab: norm((state && state.tab) || "infos"),
@@ -2744,7 +2746,7 @@ function toggleLeft() { leftCollapsed = !leftCollapsed; applyLeft(); }
 function rightStartOpen() { return localStorage.getItem("karlRightStartOpen") === "1"; }
 function rightDefaultTab() {
   const t = localStorage.getItem("karlRightDefaultTab");
-  return (t === "infos" || t === "tickets" || t === "outline") ? t : "infos";
+  return (t === "infos" || t === "tickets" || t === "outline" || t === "state") ? t : "infos";
 }
 function setRightStartOpen(on) {
   try { localStorage.setItem("karlRightStartOpen", on ? "1" : "0"); } catch (e) { /* privé */ }

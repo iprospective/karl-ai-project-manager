@@ -870,11 +870,12 @@ if (window.matchMedia) {
         <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
         <nav class="rnav">
-          <!-- RM2579 : infos (session) / tickets (sous-onglets) / conversation -->
-          <!-- RM2466 volet 2 : « état » est transverse — il ne dépend pas de la
-               session attachée, il dit ce qui attend une réponse PARTOUT. -->
+          <!-- RM2579/2581 : worklog (cette session) / infos / tickets / conversation.
+               RM2581 : le panneau droit est FOCALISÉ sur la session attachée — le
+               « en attente, toutes sessions » a été retiré d'ici ; ce signal vit
+               à gauche (badge ⚠/❓ par tuile de session). id « state » conservé. -->
           <button data-rpanel="state" onclick="switchRight('state')"
-            title="État : tout ce qui attend une réponse, toutes sessions confondues">🗒 état<span class="nbadge att" id="rn-pending" style="display:none"></span></button>
+            title="Worklog : les tickets ouverts dans CETTE session et leur statut (résolu en direct)">🗒 worklog</button>
           <button data-rpanel="infos" onclick="switchRight('infos')"
             title="Infos de la session : tmux, branches, worktrees, conso live">ℹ infos</button>
           <button data-rpanel="tickets" onclick="switchRight('tickets')"
@@ -883,15 +884,14 @@ if (window.matchMedia) {
             title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
         <div class="rbody">
-          <!-- RM2466 volet 2 : ce qui attend une réponse, TOUTES sessions -->
+          <!-- RM2581 : worklog de CETTE session (statut résolu live, garde 60 s) -->
           <div class="rp" id="rp-state">
             <div class="outnav">
-              <button class="mini" onclick="loadState(true)" title="Rafraîchir">⟳</button>
-              <span class="cnt" id="pendcnt"></span>
+              <button class="mini" onclick="loadWorklog(true)" title="Rafraîchir le worklog">⟳</button>
+              <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
-              <div id="pendbody"><div class="empty">chargement…</div></div>
-              <div id="workbody"></div>
+              <div id="workbody"><div class="empty">chargement…</div></div>
             </div>
           </div>
           <div class="rp" id="rp-infos">
@@ -2596,7 +2596,7 @@ function applyRight() {
   // RM2579 : (re)peuple l'onglet visible quand on y bascule
   if (rightVisible("infos")) renderInfos();
   if (rightVisible("tickets")) renderTickets();
-  if (rightVisible("state")) loadState();       // RM2466 volet 2 (questions + travail)
+  if (rightVisible("state")) loadWorklog();     // RM2581 : worklog de la session
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -2620,49 +2620,10 @@ function pendingDecor(entry) {
 }
 // <<< pendingDecor
 
-let pending = { entries: [], live: 0, stale: 0 };
-let pendingLoading = false;
-async function loadPending(force) {
-  if (pendingLoading) return;
-  pendingLoading = true;
-  try {
-    const r = await api("/pending");
-    pending = { entries: r.entries || [], live: r.live || 0, stale: r.stale || 0 };
-    renderPending();
-  } catch (e) {
-    if (force) toast(e.message, true);
-    document.getElementById("pendbody").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
-  } finally {
-    pendingLoading = false;
-  }
-}
-function renderPending() {
-  // le badge de l'onglet ne compte QUE les sessions bloquées : une question en
-  // souffrance n'est pas une alarme, elle ne doit pas clignoter en permanence.
-  const badge = document.getElementById("rn-pending");
-  badge.textContent = pending.live || "";
-  badge.style.display = pending.live ? "" : "none";
-  document.getElementById("pendcnt").textContent =
-    pending.live + " bloquée(s) · " + pending.stale + " sans réponse";
-  const body = document.getElementById("pendbody");
-  if (!pending.entries.length) {
-    body.innerHTML = '<div class="empty">rien n\'attend de réponse — tout est traité</div>';
-    return;
-  }
-  body.innerHTML = "";
-  for (const e of pending.entries) {
-    const dec = pendingDecor(e);
-    const d = document.createElement("div");
-    d.className = "oline " + dec.cls + (String(attached) === String(e.rm_id) ? " ocur" : "");
-    const ou = (e.client && e.project) ? e.client + "/" + e.project : "";
-    d.innerHTML = esc(dec.icon) + ' <span class="otag">' + esc(dec.tag) + "</span>"
-      + '<b>RM' + esc(e.rm_id) + "</b> " + esc(e.text)
-      + (ou ? ' <span style="opacity:.6">· ' + esc(ou) + "</span>" : "");
-    d.title = dec.title + " — clic : attacher RM" + e.rm_id;
-    d.onclick = () => attach(e.rm_id);
-    body.appendChild(d);
-  }
-}
+// RM2581 : l'affichage « en attente, toutes sessions » a été retiré du panneau
+// droit (recentré sur la session). L'endpoint /pending et pendingDecor sont
+// conservés pour un futur badge « sans réponse » sur la liste de GAUCHE — le
+// signal d'attente y vit déjà (badge ⚠/❓ par tuile de session).
 
 // — RM2466 étape 2 : où en est le travail de la session (worklog PM) —
 
@@ -2683,10 +2644,11 @@ function worklogSections(buckets) {
 // <<< worklogSections
 
 let worklog = { found: false, buckets: {} };
-async function loadWorklog() {
+// force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel.
+async function loadWorklog(force) {
   if (!attached) { worklog = { found: false, buckets: {} }; renderWorklog(); return; }
   try {
-    worklog = await api("/worklog/" + encodeURIComponent(attached));
+    worklog = await api("/worklog/" + encodeURIComponent(attached) + (force ? "?force=1" : ""));
   } catch (e) {
     worklog = { found: false, buckets: {}, error: e.message };
   }
@@ -2704,6 +2666,9 @@ function notifyDecor(level) {
 
 function renderWorklog() {
   const body = document.getElementById("workbody");
+  // RM2581 : signal de fraîcheur — quand le statut a été résolu live pour la dernière fois
+  const fr = document.getElementById("workfresh");
+  if (fr) fr.textContent = (attached && worklog.checked_ts) ? "vérifié " + ago(worklog.checked_ts) : "";
   if (!attached) { body.innerHTML = ""; return; }
   // les incidents passent avant le travail : c'est ce qu'on perd le plus vite
   let notes = "";
@@ -2720,14 +2685,14 @@ function renderWorklog() {
   }
   const secs = worklogSections(worklog.buckets);
   if (!secs.length) {
-    body.innerHTML = notes + '<div class="ms"><h4>travail de la session</h4>'
+    body.innerHTML = notes + '<div class="ms"><h4>worklog</h4>'
       + '<div style="color:var(--muted);font-size:11.5px">'
       + (worklog.found ? "aucun ticket ouvert dans cette session"
                        : "pas de worklog pour cette session (rien n’a encore été ouvert)")
       + "</div></div>";
     return;
   }
-  let h = notes + '<div class="ms"><h4>travail de la session — RM' + esc(attached) + "</h4>";
+  let h = notes + '<div class="ms"><h4>worklog — RM' + esc(attached) + "</h4>";
   for (const s of secs) {
     h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
       + esc(s.icon) + " " + esc(s.label) + " (" + s.items.length + ")</div>";
@@ -2754,7 +2719,6 @@ function openWorklogItem(ref) {
   if (m) openReview(m[1]); else toast("Chantier hors ticket : " + ref);
 }
 // les deux moitiés du panneau se rafraîchissent ensemble
-async function loadState(force) { await Promise.all([loadPending(force), loadWorklog()]); }
 
 // RM2466 volet 3 : la colonne de gauche se replie vers la gauche, symétriquement
 let leftCollapsed = false;
@@ -4746,7 +4710,7 @@ async function kill(rmId) {
   // RM2466 : « en attente de toi » suit l'activité, mais sa cadence est plus
   // lente que la liste — il relit des transcripts (cache serveur sur mtime),
   // et une question qui traîne ne se périme pas en trois secondes.
-  setInterval(() => { if (rightVisible("state")) loadState(); }, 10000);
+  setInterval(() => { if (rightVisible("state")) loadWorklog(); }, 10000);
   // Cadence lente et volontairement désalignée du cache serveur (TTL 600 s) :
   // une MAJ du PM n'est pas une urgence, et ls-remote sort sur le réseau.
   setInterval(refreshCoreUpdate, 300000);

@@ -837,18 +837,17 @@ assert(/bloqu/i.test(dLive.tag) && /sans réponse/i.test(dStale.tag),
 assert(pendingDecor(null).tag && pendingDecor(undefined).icon, "entrée absente tolérée");
 console.log("✓ état (RM2466) : bloquée vs sans réponse, distinguées sur trois canaux");
 
-// le badge de l'onglet ne doit alerter que sur les sessions VRAIMENT bloquées :
-// une question en souffrance ne doit pas faire clignoter le cockpit en continu
-const mRp = /function renderPending\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(mRp, "renderPending introuvable");
-assert(/badge\.textContent = pending\.live/.test(mRp[0]) && !/badge\.textContent = .*stale/.test(mRp[0]),
-  "le badge compte les bloquées, jamais les questions en souffrance");
+// RM2581 : le panneau droit est recentré sur la SESSION — la section « en attente,
+// toutes sessions » a été retirée ; l'onglet devient le worklog (renommé).
 assert(/rp-state/.test(html) && /data-rpanel="state"/.test(html),
-  "l'onglet « état » a son bouton et son panneau");
+  "l'onglet worklog a son bouton et son panneau (id « state » conservé)");
+assert(/🗒 worklog/.test(html), "l'onglet « état » est renommé « worklog » (RM2581)");
+assert(!/id="pendbody"/.test(html) && !/id="rn-pending"/.test(html),
+  "la section « en attente (toutes sessions) » et son badge ont été retirés du panneau droit");
 const onglets2 = (html.match(/data-rpanel="/g) || []).length;
 const corps2 = (html.match(/class="rp" id="rp-/g) || []).length;
 assert.strictEqual(onglets2, corps2, "chaque onglet de droite a toujours son panneau");
-console.log("✓ état (RM2466) : badge réservé aux sessions bloquées, onglet câblé");
+console.log("✓ worklog (RM2581) : panneau droit recentré sur la session, onglet renommé");
 
 // — 13. worklog de session dans le panneau état (RM2466 volet 2, étape 2) —
 const fWs = />>> worklogSections[\s\S]*?(function worklogSections[\s\S]*?)\n\/\/ <<< worklogSections/.exec(html);
@@ -872,9 +871,12 @@ const mRw = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
 assert(mRw, "renderWorklog introuvable");
 assert(/it\.drifted/.test(mRw[0]) && /opened_status/.test(mRw[0]),
   "un statut modifié hors de la session doit être signalé comme tel");
-assert(/id="workbody"/.test(html) && /id="pendbody"/.test(html),
-  "le panneau état a ses deux moitiés : ce qui attend, et le travail");
-console.log("✓ état (RM2466) : dérive de statut signalée");
+assert(/id="workbody"/.test(html) && !/id="pendbody"/.test(html),
+  "le panneau droit ne contient plus que le worklog (RM2581)");
+// RM2581 : signal de fraîcheur de la résolution live
+assert(/id="workfresh"/.test(html) && /checked_ts/.test(mRw[0]),
+  "le worklog affiche quand son statut a été résolu en direct (workfresh/checked_ts)");
+console.log("✓ worklog (RM2581) : dérive signalée, statut live, fraîcheur affichée");
 
 // tout onglet présent dans la barre DOIT être accepté par la normalisation.
 // Incident vécu : une whitelist ajoutée par un ticket ignorait l'onglet ajouté
@@ -905,8 +907,11 @@ assert(nc.cls.includes("ounres") && !ni.cls.includes("ounres"),
 assert.strictEqual(notifyDecor(undefined).label, "warn", "niveau absent → warn, jamais silencieux");
 const mRw2 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
 assert(/notifications/.test(mRw2[0]), "le panneau affiche les notifications de session");
-assert(mRw2[0].indexOf("notifications de la session") < mRw2[0].indexOf("travail de la session"),
-  "les incidents passent avant le travail dans le rendu");
+// robuste au libellé de la section (renommée par RM2581) : ce qui compte est
+// que les notifications PRÉFIXENT le rendu, dans les deux sorties de la fonction
+const prefixes = mRw2[0].match(/(?:body\.innerHTML|let h) = notes \+/g) || [];
+assert.strictEqual(prefixes.length, 2,
+  "les incidents doivent préfixer le worklog, dans les deux branches du rendu");
 console.log("✓ état (RM2466) : notifications de session rendues avant le travail");
 
 console.log("OK — tous les tests cockpit passent");

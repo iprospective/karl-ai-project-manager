@@ -3693,6 +3693,174 @@ def op_question(rm_id: str) -> dict:
     return {"rm_id": rm_id, "question": _extract_question(tail)}
 
 
+# RM2466 volet 2 : le transcript d'une session ne cesse de grossir (plusieurs Mo)
+# et le panneau se rafraîchit en boucle — on ne le relit que s'il a bougé.
+_UNRESOLVED_CACHE = {}          # chemin → (mtime, taille, [questions])
+
+
+def _transcript_file(session_id):
+    """Fichier JSONL d'une session claude, ou None (même résolution que /outline)."""
+    if not session_id:
+        return None
+    return next((p for root in CLAUDE_STORES
+                 for p in root.glob(f"*/{session_id}.jsonl")), None)
+
+
+def _unresolved_questions(session_id) -> list:
+    """RM2466 : questions du transcript restées SANS réponse (typage RM2549).
+    À ne pas confondre avec l'état `attention`/`choice` : celui-ci dit que la
+    session est bloquée MAINTENANT ; celles-ci ont été posées puis laissées en
+    plan — non bloquantes, mais ce sont elles qui se perdent."""
+    jf = _transcript_file(session_id)
+    if not jf:
+        return []
+    try:
+        st = jf.stat()
+    except OSError:
+        return []
+    key = str(jf)
+    hit = _UNRESOLVED_CACHE.get(key)
+    if hit and hit[0] == st.st_mtime and hit[1] == st.st_size:
+        return hit[2]
+    try:
+        with jf.open(encoding="utf-8", errors="replace") as fh:
+            items = _transcript_outline(fh, max_items=1000000)
+    except OSError:
+        return []
+    out = [{"text": i["text"], "full": i["full"]} for i in items
+           if i.get("kind") == "question" and not i.get("resolved")]
+    _UNRESOLVED_CACHE[key] = (st.st_mtime, st.st_size, out)
+    return out
+
+
+# >>> pending_entries — pure (testée par test_karl_agent_pending.py)
+def pending_entries(sessions, unresolved_by_sid, question_by_sid) -> list:
+    """RM2466 volet 2 : ce qui attend une réponse, toutes sessions confondues.
+    Deux signaux JAMAIS fusionnés — ils n'appellent pas la même urgence :
+      - `live`  : la session est bloquée maintenant (state attention/choice) ;
+      - `stale` : question posée puis laissée sans réponse (transcript).
+    Les bloquées d'abord ; à égalité, la session la plus récemment active."""
+    out = []
+    for s in sessions or []:
+        sid = s.get("rm_id")
+        if s.get("ghost"):
+            continue                    # session enregistrée mais pas démarrée
+        if s.get("state") in ("attention", "choice"):
+            out.append({
+                "rm_id": sid, "kind": "live", "state": s.get("state"),
+                "client": s.get("client"), "project": s.get("project"),
+                "text": question_by_sid.get(sid) or "(question à l'écran)",
+                "full": question_by_sid.get(sid) or "",
+                "created": s.get("created"),
+            })
+        for q in unresolved_by_sid.get(sid) or []:
+            out.append({
+                "rm_id": sid, "kind": "stale", "state": s.get("state"),
+                "client": s.get("client"), "project": s.get("project"),
+                "text": q.get("text") or "", "full": q.get("full") or "",
+                "created": s.get("created"),
+            })
+    out.sort(key=lambda e: (e["kind"] != "live", -(e.get("created") or 0), str(e["rm_id"])))
+    return out
+# <<< pending_entries
+
+
+# RM2466 volet 2 étape 2 : le worklog de session PM (pm-session-status, RM2068).
+# Store keyé par le session_id de l'agent — le même que celui du transcript.
+WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
+                   or (Path.home() / ".claude" / "session-worklogs")).expanduser()
+# Reprises TELLES QUELLES de pm-session-status.py : deux classifications
+# divergentes du même worklog donneraient deux vérités sur « où on en est ».
+WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
+                "résolu", "resolu"}
+WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
+                   "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
+                   "en_pause"}
+# Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
+# attente, plus les variantes libres qu'emploient les chantiers hors ticket.
+WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+                "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
+                "a_mep", "en_mep", "a_corriger", "todo", "à faire", "en cours"}
+
+
+# >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
+def worklog_buckets(items) -> dict:
+    """RM2466 : range les items du worklog en « reste à faire » / « en attente »
+    / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
+    son ouverture dans la session (souvent : une autre session l'a fait avancer).
+    `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé.
+
+    Un statut hors des trois référentiels va dans `unknown` — PAS dans « reste à
+    faire ». Le ranger d'office parmi les choses à faire affirmerait quelque
+    chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
+    orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
+    Il reste affiché dans tous les cas : jamais escamoté."""
+    out = {"todo": [], "waiting": [], "done": [], "unknown": []}
+    for it in items or []:
+        st = str(it.get("status") or "").lower()
+        opened = str(it.get("opened_status") or "").lower()
+        entry = {
+            "ref": it.get("ref"), "label": it.get("label") or "",
+            "status": it.get("status") or "?", "project": it.get("project"),
+            "note": it.get("note") or "", "next": it.get("next") or "",
+            "drifted": bool(opened and opened != st),
+            "opened_status": it.get("opened_status") or "",
+        }
+        if st in WORKLOG_DONE:
+            out["done"].append(entry)
+        elif st in WORKLOG_WAITING:
+            out["waiting"].append(entry)
+        elif st in WORKLOG_TODO:
+            out["todo"].append(entry)
+        else:
+            out["unknown"].append(entry)
+    return out
+# <<< worklog_buckets
+
+
+def op_worklog(rm_id: str) -> dict:
+    """RM2466 volet 2 étape 2 : où en est le travail de CETTE session — les
+    tickets qu'elle a ouverts et leur statut, depuis le worklog PM."""
+    if not _valid_sid(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _has_session(rm_id):
+        raise ApiError(404, f"session absente : {_session_name(rm_id)}")
+    k = _key_info(rm_id) or {}
+    session_id = k.get("session_id")
+    empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
+             "title": None, "updated": None, "buckets": worklog_buckets([])}
+    if not session_id:
+        return empty
+    path = WORKLOG_DIR / f"{session_id}.json"
+    try:
+        with path.open(encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError):
+        return empty            # pas encore de worklog : la session n'a rien ouvert
+    return {"rm_id": rm_id, "session_id": session_id, "found": True,
+            "title": data.get("title"), "updated": data.get("updated"),
+            "buckets": worklog_buckets(data.get("items"))}
+
+
+def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
+    sessions = _sessions_view(qs, auth_ctx)
+    unresolved, questions = {}, {}
+    for s in sessions:
+        sid = s.get("rm_id")
+        if s.get("state") in ("attention", "choice"):
+            rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(sid))
+            if rc == 0:
+                questions[sid] = _extract_question(
+                    "\n".join(out.rstrip().splitlines()[-15:]))
+        if s.get("engine") == "claude":
+            unresolved[sid] = _unresolved_questions(s.get("session_id"))
+    entries = pending_entries(sessions, unresolved, questions)
+    return {"entries": entries,
+            "live": sum(1 for e in entries if e["kind"] == "live"),
+            "stale": sum(1 for e in entries if e["kind"] == "stale")}
+
+
 def _session_state(rm_id: str, engine) -> str:
     rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
     if rc != 0:
@@ -5561,6 +5729,11 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"resumable": op_resumable(qs)})
+            if path == "/pending":       # RM2466 : ce qui attend une réponse
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_pending(qs, self.auth_ctx))
+            if path.startswith("/worklog/"):   # RM2466 : où en est le travail
+                return self._send_json(200, op_worklog(path[len("/worklog/"):]))
             if path.startswith("/capture/"):
                 rm_id = path[len("/capture/"):]
                 qs = parse_qs(parsed.query)

@@ -718,26 +718,32 @@ const rightPanelReduce = (s, a) => ({ ..._rpr(s, a) });
 
 const replie = { tab: "outline", collapsed: true };
 const ouvert = { tab: "outline", collapsed: false };
-assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "meta" }),
-  { tab: "meta", collapsed: false }, "replié : sélectionner un onglet déplie dessus");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "meta" }),
-  { tab: "meta", collapsed: false }, "ouvert : changer d'onglet ne replie pas");
+assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "tickets" }),
+  { tab: "tickets", collapsed: false }, "replié : sélectionner un onglet déplie dessus");
+assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "tickets" }),
+  { tab: "tickets", collapsed: false }, "ouvert : changer d'onglet ne replie pas");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "outline" }),
   { tab: "outline", collapsed: true }, "ouvert : re-sélectionner l'onglet actif replie");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show" }),
   ouvert, "show sans onglet : déplie sans arracher l'onglet courant");
 assert.deepStrictEqual(rightPanelReduce({ tab: "outline", collapsed: true }, { type: "show" }),
   ouvert, "show sans onglet depuis replié : déplie sur l'onglet mémorisé");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show", tab: "meta" }),
-  { tab: "meta", collapsed: false }, "show ciblé : l'onglet demandé passe devant");
-assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: false }, { type: "collapse" }),
-  { tab: "meta", collapsed: true }, "collapse garde l'onglet en mémoire");
+assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show", tab: "tickets" }),
+  { tab: "tickets", collapsed: false }, "show ciblé : l'onglet demandé passe devant");
+assert.deepStrictEqual(rightPanelReduce({ tab: "tickets", collapsed: false }, { type: "collapse" }),
+  { tab: "tickets", collapsed: true }, "collapse garde l'onglet en mémoire");
 assert.deepStrictEqual(rightPanelReduce(replie, { type: "toggle" }), ouvert, "toggle déplie");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "toggle" }), replie, "toggle replie");
-assert.deepStrictEqual(rightPanelReduce(null, {}), replie, "état absent → replié sur la conversation");
-assert.deepStrictEqual(rightPanelReduce({ tab: "meta" }, {}), { tab: "meta", collapsed: true },
-  "état partiel (localStorage d'une ancienne version) toléré");
-console.log("✓ colonnes (RM2466) : un seul onglet actif à droite, repli mémorisé");
+// RM2579 : trois onglets, défaut « infos », migration de l'ancien « meta »
+assert.deepStrictEqual(rightPanelReduce(null, {}), { tab: "infos", collapsed: true },
+  "état absent → replié sur infos (défaut RM2579)");
+assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: false }, {}),
+  { tab: "infos", collapsed: false }, "legacy « meta » (ancien localStorage) → infos");
+assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: true }, { type: "show" }),
+  { tab: "infos", collapsed: false }, "legacy « meta » migré aussi via show");
+assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", collapsed: true },
+  "onglet inconnu → infos");
+console.log("✓ colonnes (RM2466/2579) : 3 onglets, défaut infos, legacy meta→infos, repli mémorisé");
 
 // structure : les deux asides empilés ont bien fusionné en une colonne à onglets
 assert(!/class="metapanel|class="outpanel|id="metapanel"|id="outpanel"/.test(html),

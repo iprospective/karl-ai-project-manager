@@ -2654,22 +2654,45 @@ async function loadWorklog(force) {
   }
   renderWorklog();
 }
+// >>> notifyDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2466 volet 1 : gravité d'un événement de session. Le niveau reste écrit en
+// toutes lettres à côté de l'icône — une pastille de couleur seule ne dit rien.
+function notifyDecor(level) {
+  if (level === "critical") return { icon: "🔴", cls: "oq ounres", label: "critical" };
+  if (level === "info") return { icon: "ℹ️", cls: "", label: "info" };
+  return { icon: "⚠️", cls: "oq", label: "warn" };
+}
+// <<< notifyDecor
+
 function renderWorklog() {
   const body = document.getElementById("workbody");
   // RM2581 : signal de fraîcheur — quand le statut a été résolu live pour la dernière fois
   const fr = document.getElementById("workfresh");
   if (fr) fr.textContent = (attached && worklog.checked_ts) ? "vérifié " + ago(worklog.checked_ts) : "";
   if (!attached) { body.innerHTML = ""; return; }
+  // les incidents passent avant le travail : c'est ce qu'on perd le plus vite
+  let notes = "";
+  for (const n of (worklog.notifications || [])) {
+    const d = notifyDecor(n.level);
+    notes += '<div class="oline ' + d.cls + '" style="white-space:normal" title="'
+      + esc(n.ts || "") + '">' + d.icon + ' <span class="otag">' + esc(d.label) + "</span>"
+      + (n.kind && n.kind !== "autre" ? '<span class="pill">' + esc(n.kind) + "</span> " : "")
+      + (n.ref ? "<b>" + esc(n.ref) + "</b> " : "") + esc(n.message || "") + "</div>";
+  }
+  if (notes) {
+    notes = '<div class="ms"><h4>🔔 notifications de la session ('
+      + (worklog.notifications || []).length + ")</h4>" + notes + "</div>";
+  }
   const secs = worklogSections(worklog.buckets);
   if (!secs.length) {
-    body.innerHTML = '<div class="ms"><h4>worklog</h4>'
+    body.innerHTML = notes + '<div class="ms"><h4>worklog</h4>'
       + '<div style="color:var(--muted);font-size:11.5px">'
       + (worklog.found ? "aucun ticket ouvert dans cette session"
                        : "pas de worklog pour cette session (rien n’a encore été ouvert)")
       + "</div></div>";
     return;
   }
-  let h = '<div class="ms"><h4>worklog — RM' + esc(attached) + "</h4>";
+  let h = notes + '<div class="ms"><h4>worklog — RM' + esc(attached) + "</h4>";
   for (const s of secs) {
     h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
       + esc(s.icon) + " " + esc(s.label) + " (" + s.items.length + ")</div>";

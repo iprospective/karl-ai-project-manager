@@ -5047,6 +5047,43 @@ def _probe_env(host: str, env: str) -> tuple:
         return False, f"injoignable ({exc.__class__.__name__})"
 
 
+def _probe_cockpit_test_env(host: str) -> tuple:
+    """Vivacité d'une instance cockpit de test (RM2565) → (live, reason).
+
+    Contrairement à un env docroot (cf. _probe_env), l'instance de test est un
+    vhost reverse-proxy HTTPS `<repo>-rm<id>.lxc` : le `:80` redirige (302) vers
+    `:443`, il n'y a pas de canari docroot, et le backend karl-agent répond en
+    loopback derrière le proxy. On sonde donc `/health` en HTTPS sur
+    127.0.0.1:443 (Host = vhost karl), cert auto-signé snakeoil accepté (comme le
+    navigateur après l'avertissement). live = `/health` répond < 500 ; un 5xx
+    (typiquement 503 après un reboot qui a tué l'unité --user) = à relancer.
+    Connexion sur 127.0.0.1 (surchargeable KARL_PROBE_ADDR) : karl-agent tourne
+    DANS le conteneur dev, où les noms `*.lxc` ne résolvent pas."""
+    import http.client
+    import ssl
+    addr = os.environ.get("KARL_PROBE_ADDR", "127.0.0.1")
+    ctx = ssl._create_unverified_context()
+    try:
+        c = http.client.HTTPSConnection(addr, 443, timeout=1.5, context=ctx)
+        c.request("GET", "/health", headers={"Host": host})
+        r = c.getresponse()
+        body = r.read(256).decode("utf-8", "replace")
+        c.close()
+        # /health de karl-agent = 200 + JSON {"status": "ok", …}. On exige cette
+        # signature : un vhost ABSENT retombe sur le :443 par défaut (404,
+        # DocumentRoot /var/www/html) — sans ce contrôle, tout Host non résolu
+        # passerait pour « en ligne ». Un backend mort (unité --user tuée par un
+        # reboot) donne un 502/503 via le proxy.
+        if r.status == 200 and '"status"' in body and '"ok"' in body:
+            return True, ""
+        if r.status >= 500:
+            return False, (f"instance servie mais en erreur (HTTP {r.status}) — "
+                           "relancer l'instance de test")
+        return False, f"instance non servie (HTTP {r.status})"
+    except OSError as exc:
+        return False, f"injoignable ({exc.__class__.__name__})"
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -5078,13 +5115,29 @@ def op_test_queue(qs: dict) -> list:
         # RM2356 : ticket cockpit-testable = son worktree embarque karl-agent
         e["cockpit_testable"] = bool(
             ws and env and (ws / "envs" / env / "scripts" / "karl-agent.py").is_file())
+        # RM2588 : une instance cockpit de test (RM2565) est un vhost reverse-proxy
+        # HTTPS `<repo>-rm<id>.lxc` porté par `test_url`, PAS un docroot du worktree —
+        # elle se sonde en HTTPS (cf. _probe_cockpit_test_env), sur l'hôte de test_url.
+        e["test_url"] = str(fm.get("test_url") or "").strip() or None
+        e["cockpit_host"] = (urlparse(e["test_url"]).hostname
+                             if e["cockpit_testable"] and e["test_url"] else None)
     # Sonde de vivacité en parallèle (RM2229) : un worktree présent n'est un
     # env de test QUE si son vhost sert bien ce worktree et que l'appli répond.
     to_probe = [e for e in out if e.get("env")]
     if to_probe:
         import concurrent.futures
+        # RM2588 : deux natures d'env → deux sondes. Docroot pm-env-session
+        # (canari http) via _probe_env ; instance cockpit de test HTTPS (RM2565)
+        # via _probe_cockpit_test_env sur l'hôte de test_url. Un ticket
+        # cockpit-testable sans test_url = instance jamais lancée (bouton create).
+        def _probe(e):
+            if e.get("cockpit_testable"):
+                return (_probe_cockpit_test_env(e["cockpit_host"])
+                        if e.get("cockpit_host")
+                        else (False, "instance de test non lancée"))
+            return _probe_env(e["test_host"], e["env"])
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-            futs = {pool.submit(_probe_env, e["test_host"], e["env"]): e
+            futs = {pool.submit(_probe, e): e
                     for e in to_probe}
             for fut in concurrent.futures.as_completed(futs):
                 e = futs[fut]

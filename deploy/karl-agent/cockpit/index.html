@@ -1391,6 +1391,10 @@ async function refreshSessions() {
           : "";
         const auto = s.auto_yes_until
           ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
+        // RM2598 : question laissée sans réponse (la session a continué). On ne l'affiche
+        // pas si elle est DÉJÀ en attention/choix (⚠/❓ live) — même urgence, un seul signal.
+        const stale = (pendStale.has(String(s.rm_id)) && s.state !== "attention" && s.state !== "choice")
+          ? '<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>' : "";
         const title = r && r.found ? (r.title || "") : "";
         // RM2445 : vivante d'un autre jeu — on dit LEQUEL, sinon la tuile paraît égarée
         // RM2446 : dire à quel jeu elle appartient — ou qu'elle n'est dans AUCUN
@@ -1404,7 +1408,7 @@ async function refreshSessions() {
           '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + titleLink(s.rm_id, title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
-          badge + auto +
+          badge + auto + stale +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
           // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
           // la session du jeu SANS la fermer ; ✕ ferme le tmux (l'entrée reste
@@ -2717,9 +2721,24 @@ function pendingDecor(entry) {
 // <<< pendingDecor
 
 // RM2581 : l'affichage « en attente, toutes sessions » a été retiré du panneau
-// droit (recentré sur la session). L'endpoint /pending et pendingDecor sont
-// conservés pour un futur badge « sans réponse » sur la liste de GAUCHE — le
-// signal d'attente y vit déjà (badge ⚠/❓ par tuile de session).
+// droit (recentré sur la session). RM2598 : /pending alimente désormais un badge
+// « sans réponse » (🕓) par tuile de session dans la liste de GAUCHE.
+
+// >>> pendStaleSet — pur (testé par test_cockpit.js) : rm_ids des sessions avec une
+// question posée puis laissée SANS RÉPONSE (kind « stale »). Les bloquées live
+// (kind « live ») sont déjà signalées ⚠/❓ par l'état tmux — on ne double pas.
+function pendStaleSet(entries) {
+  const s = new Set();
+  for (const e of entries || []) if (e && e.kind === "stale") s.add(String(e.rm_id));
+  return s;
+}
+// <<< pendStaleSet
+
+let pendStale = new Set();   // rm_ids ayant une question sans réponse
+async function loadPending() {
+  try { const r = await api("/pending"); pendStale = pendStaleSet(r.entries || []); }
+  catch (e) { /* pas connecté, ou pas de sessions : on laisse l'ensemble en l'état */ }
+}
 
 // — RM2466 étape 2 : où en est le travail de la session (worklog PM) —
 
@@ -5134,6 +5153,8 @@ async function kill(rmId) {
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
   refreshHealth(); refreshSessions();
+  loadPending();         // RM2598 : questions sans réponse → badge 🕓 à gauche
+  setInterval(loadPending, 20000);
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
   refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?

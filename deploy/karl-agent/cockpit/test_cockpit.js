@@ -1033,4 +1033,38 @@ assert.strictEqual(outByKind(its2, "question").length, 1, "questions seulement")
 assert.strictEqual(outByKind([], "user").length, 0, "vide tolere");
 console.log("\u2713 outByKind (RM2601) : filtres tout / moi / questions");
 
+// — vue git (RM2602) : lecture des commits et des diffs —
+const fGd = />>> gitDiffLine[\s\S]*?(function gitDiffLine[\s\S]*?)\n\/\/ <<< gitDiffLine/.exec(html);
+assert(fGd, "marqueurs >>> gitDiffLine introuvables");
+const gitDiffLine = vm.runInNewContext("(" + fGd[1] + ")");
+assert.strictEqual(gitDiffLine("+ajout"), "add", "ligne ajoutée");
+assert.strictEqual(gitDiffLine("-retrait"), "del", "ligne retirée");
+assert.strictEqual(gitDiffLine("@@ -1,4 +1,9 @@"), "hunk", "en-tête de section");
+assert.strictEqual(gitDiffLine(" contexte"), "", "ligne de contexte non colorée");
+// le piège : +++/--- sont des en-têtes de FICHIER, pas du contenu modifié
+assert.strictEqual(gitDiffLine("+++ b/x.py"), "fh", "+++ est un en-tête, pas un ajout");
+assert.strictEqual(gitDiffLine("--- a/x.py"), "fh", "--- est un en-tête, pas un retrait");
+assert.strictEqual(gitDiffLine("diff --git a/x b/x"), "fh", "ligne diff --git");
+assert.strictEqual(gitDiffLine(null), "", "ligne absente tolérée");
+console.log("✓ git (RM2602) : coloration du patch, en-têtes non confondus avec du contenu");
+
+const fGs = />>> gitStatLabel[\s\S]*?(function gitStatLabel[\s\S]*?)\n\/\/ <<< gitStatLabel/.exec(html);
+assert(fGs, "marqueurs >>> gitStatLabel introuvables");
+const gitStatLabel = vm.runInNewContext("(" + fGs[1] + ")");
+assert(/2 fichiers/.test(gitStatLabel({ count: 2, added: 5, removed: 3, files: [] })), "pluriel");
+assert(/1 fichier ·/.test(gitStatLabel({ count: 1, added: 1, removed: 0, files: [] })), "singulier");
+assert(/1 binaire/.test(gitStatLabel({ count: 1, added: 0, removed: 0, files: [{ binary: true }] })),
+  "un binaire est signalé — sinon « +0 −0 » ferait croire qu'il n'a pas changé");
+assert(gitStatLabel(null).length, "stats absentes tolérées");
+console.log("✓ git (RM2602) : résumé de diff, binaires signalés");
+
+// aucune ACTION git ne doit être exposée : ce lot est en lecture seule
+const mGit = /\/git\/[a-z]+\//g;
+const routes = [...new Set((html.match(mGit) || []))];
+assert(routes.every(r => ["/git/log/", "/git/show/", "/git/diff/"].includes(r)),
+  "le front n'appelle que des routes git de LECTURE : " + routes.join(" "));
+assert(!/\/git\/(checkout|reset|stash|revert|commit|push)/.test(html),
+  "aucune action git ne doit être appelable depuis le cockpit");
+console.log("✓ git (RM2602) : lecture seule, aucune action exposée");
+
 console.log("OK — tous les tests cockpit passent");

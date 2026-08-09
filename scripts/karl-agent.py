@@ -4389,6 +4389,196 @@ def _git(cwd, *args, timeout=8):
         return 1, "", "git indisponible"
 
 
+# ── RM2602 : relire les commits et les diffs du ticket, depuis le cockpit ─────
+# GitLab montre ce qui est POUSSÉ. L'apport du cockpit est le local non poussé
+# et la proximité avec la session. Tout est en LECTURE : aucune action git n'est
+# exposée — un geste destructif déclenché depuis un navigateur sur un worktree
+# partagé demanderait son propre cadrage.
+
+# Le client envoie des refs et des sha. Ils partent dans une ligne de commande :
+# on les valide, on ne les échappe pas. Un `--upload-pack=…` glissé dans une ref
+# serait une exécution arbitraire, et git accepte des refs très permissives.
+_GIT_SHA_RE = re.compile(r"\A[0-9a-f]{7,40}\Z")
+_GIT_REF_RE = re.compile(r"\A[A-Za-z0-9._/-]{1,120}\Z")
+GIT_LOG_MAX = 200            # commits listés au plus
+GIT_DIFF_MAX_BYTES = 400_000  # au-delà, on tronque — et on le DIT
+GIT_LOG_SEP = "\x1f"        # séparateur de champs (jamais dans un message git)
+
+
+def _valid_sha(s):
+    return bool(s) and bool(_GIT_SHA_RE.match(str(s)))
+
+
+def _valid_ref(s):
+    """Ref git plausible. Refuse ce que git lui-même refuse (`..`, début par
+    `-`), donc aussi les tentatives d'injecter une option."""
+    s = str(s or "")
+    if not _GIT_REF_RE.match(s) or s.startswith("-") or ".." in s:
+        return False
+    return not s.endswith("/") and not s.endswith(".lock")
+
+
+# >>> parse_git_log — pure (testée par test_karl_agent_git.py)
+def parse_git_log(raw, unpushed_shas=None):
+    """Journal `git log` (format à séparateurs) → items.
+
+    `unpushed_shas` = ce qui n'existe sur AUCUN remote. C'est la distinction qui
+    justifie cette vue : GitLab ne peut pas montrer le non-poussé."""
+    non_pousses = set(unpushed_shas or [])
+    out = []
+    for line in (raw or "").splitlines():
+        if not line.strip():
+            continue
+        parts = line.split(GIT_LOG_SEP)
+        if len(parts) < 5:
+            continue
+        sha, iso, auteur, sujet, parents = parts[0], parts[1], parts[2], parts[3], parts[4]
+        out.append({
+            "sha": sha, "short": sha[:9], "date": iso, "author": auteur,
+            "subject": sujet,
+            "merge": len(parents.split()) > 1,
+            "pushed": sha not in non_pousses,
+        })
+    return out
+# <<< parse_git_log
+
+
+# >>> parse_numstat — pure (testée par test_karl_agent_git.py)
+def parse_numstat(raw):
+    """`git ... --numstat` → [{path, added, removed, binary}] + totaux.
+    Un fichier binaire rend `-` au lieu d'un compte : le dire plutôt que
+    l'afficher comme « 0 ligne changée », ce qui serait faux."""
+    fichiers, ajouts, retraits = [], 0, 0
+    for line in (raw or "").splitlines():
+        cols = line.split("\t")
+        if len(cols) < 3:
+            continue
+        a, r, chemin = cols[0], cols[1], cols[-1]
+        binaire = (a == "-" or r == "-")
+        na = 0 if binaire else int(a or 0)
+        nr = 0 if binaire else int(r or 0)
+        ajouts += na
+        retraits += nr
+        fichiers.append({"path": chemin, "added": na, "removed": nr, "binary": binaire})
+    return {"files": fichiers, "added": ajouts, "removed": retraits,
+            "count": len(fichiers)}
+# <<< parse_numstat
+
+
+def _ticket_repo(rm_id: str) -> Path:
+    """Dépôt du ticket : son worktree de session s'il existe, sinon le workspace
+    de code. Jamais un chemin fourni par le client."""
+    tf = _find_task_file(rm_id)
+    if not tf:
+        return Path(DEFAULT_CWD)
+    ws = _resolve_workspace(tf.parent.parent)
+    if not ws:
+        return Path(DEFAULT_CWD)
+    for d in sorted((ws / "envs").glob(f"*rm{rm_id}")):
+        if (d / ".git").exists():
+            return d
+    return ws
+
+
+def _unpushed_shas(cwd, limit):
+    """Sha de HEAD absents de TOUS les remotes.
+
+    Poser la question à l'upstream de la branche seul donnait un résultat exact
+    mais trompeur : une branche fraîche n'a pas d'upstream, et son historique —
+    déjà sur origin/main — apparaissait entièrement « non poussé ». `--not
+    --remotes` répond à la vraie question : « ce commit existe-t-il ailleurs que
+    chez moi ? »"""
+    rc, raw, _ = _git(cwd, "rev-list", f"-{limit}", "HEAD", "--not", "--remotes",
+                      timeout=15)
+    return set(raw.split()) if rc == 0 else set()
+
+
+def op_git_log(rm_id: str, qs: dict) -> dict:
+    """RM2602 : commits de la branche du ticket, poussés ou non."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    cwd = _ticket_repo(rm_id)
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return {"rm_id": rm_id, "cwd": str(cwd), "is_git": False, "commits": []}
+    try:
+        limit = max(1, min(GIT_LOG_MAX, int(qs.get("limit") or 40)))
+    except ValueError:
+        limit = 40
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    fmt = GIT_LOG_SEP.join(["%H", "%cI", "%an", "%s", "%P"])
+    rc, raw, err = _git(cwd, "log", f"--format={fmt}", f"-{limit}", timeout=15)
+    if rc != 0:
+        raise ApiError(500, f"git log a échoué : {err[:200]}")
+    non_pousses = _unpushed_shas(cwd, limit * 3)
+    commits = parse_git_log(raw, unpushed_shas=non_pousses)
+    rc, porcelain, _ = _git(cwd, "status", "--porcelain")
+    return {"rm_id": rm_id, "cwd": str(cwd), "is_git": True, "branch": branch,
+            "commits": commits, "limit": limit,
+            "dirty": len([l for l in porcelain.splitlines() if l and not l.startswith("??")]),
+            "untracked": len([l for l in porcelain.splitlines() if l.startswith("??")])}
+
+
+def _diff_payload(cwd, args):
+    """(numstat, patch tronqué ou non) pour un `git diff/show` déjà validé."""
+    rc, stat_raw, err = _git(cwd, *args, "--numstat", timeout=20)
+    if rc != 0:
+        raise ApiError(500, f"git a échoué : {err[:200]}")
+    stats = parse_numstat(stat_raw)
+    rc, patch, _ = _git(cwd, *args, "--patch", "--no-color", timeout=25)
+    tronque = len(patch) > GIT_DIFF_MAX_BYTES
+    if tronque:
+        # tronquer en SILENCE ferait lire un diff partiel comme s'il était complet
+        patch = patch[:GIT_DIFF_MAX_BYTES]
+    return stats, patch, tronque
+
+
+def op_git_show(rm_id: str, sha: str) -> dict:
+    """RM2602 : diff d'un commit."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    if not _valid_sha(sha):
+        raise ApiError(400, "sha invalide")
+    cwd = _ticket_repo(rm_id)
+    fmt = GIT_LOG_SEP.join(["%H", "%cI", "%an", "%s", "%P"])
+    rc, raw, _ = _git(cwd, "show", "-s", f"--format={fmt}", sha)
+    if rc != 0:
+        raise ApiError(404, f"commit {sha} introuvable dans {cwd.name}")
+    meta = (parse_git_log(raw) or [{}])[0]
+    rc, body, _ = _git(cwd, "show", "-s", "--format=%B", sha)
+    stats, patch, tronque = _diff_payload(cwd, ["show", sha, "--format="])
+    return {"rm_id": rm_id, "commit": meta, "message": body,
+            "stats": stats, "patch": patch, "truncated": tronque,
+            "max_bytes": GIT_DIFF_MAX_BYTES}
+
+
+def op_git_diff(rm_id: str, qs: dict) -> dict:
+    """RM2602 : diff cumulé de la branche vs sa cible, ou travail non commité."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    cwd = _ticket_repo(rm_id)
+    mode = (qs.get("mode") or "branch").strip()
+    if mode == "worktree":
+        stats, patch, tronque = _diff_payload(cwd, ["diff", "HEAD"])
+        return {"rm_id": rm_id, "mode": mode, "base": "HEAD",
+                "stats": stats, "patch": patch, "truncated": tronque,
+                "max_bytes": GIT_DIFF_MAX_BYTES}
+    base = (qs.get("base") or "").strip()
+    if base and not _valid_ref(base):
+        raise ApiError(400, "base invalide")
+    if not base:
+        rc, up, _ = _git(cwd, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
+        base = "origin/dev" if rc != 0 or not up else up.split("/", 1)[0] + "/dev"
+    rc, _, _ = _git(cwd, "rev-parse", "--verify", "--quiet", base)
+    if rc != 0:
+        raise ApiError(404, f"base introuvable : {base}")
+    # `base...HEAD` : ce que LA BRANCHE apporte, pas ce qui a divergé en face
+    stats, patch, tronque = _diff_payload(cwd, ["diff", f"{base}...HEAD"])
+    return {"rm_id": rm_id, "mode": "branch", "base": base,
+            "stats": stats, "patch": patch, "truncated": tronque,
+            "max_bytes": GIT_DIFF_MAX_BYTES}
+
+
 def op_workspace_status(rm_id: str) -> dict:
     """État git du workspace de code de la tâche (branche, dirty, untracked,
     ahead/behind). Vue *intérim* : l'outil complet (submodules, prod, nettoyage)
@@ -6013,6 +6203,17 @@ class Handler(BaseHTTPRequestHandler):
                     g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path.startswith("/git/log/"):        # RM2602 : lecture seule
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))
+            if path.startswith("/git/show/"):
+                rest = path[len("/git/show/"):].split("/", 1)
+                if len(rest) != 2:
+                    raise ApiError(400, "usage : /git/show/<rm_id>/<sha>")
+                return self._send_json(200, op_git_show(rest[0], rest[1]))
+            if path.startswith("/git/diff/"):
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_git_diff(path[len("/git/diff/"):], qs))
             if path.startswith("/workspace-status/"):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path == "/file":

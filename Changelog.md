@@ -33,6 +33,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   (`pm-task-status-update`, étape 7) est best-effort — un checkout sans
   `pm_session_hook.py` ne casse plus la clôture ni l'auto-commit.
 
+### Documentation
+- **Point d'entrée développeur** (RM2594) : `DEVELOPMENT.md` relie README,
+  normes, `knowledge/` et `docs/` (architecture, flux, boucle de dev « comment
+  contribuer »), référencé depuis le README. Pointe les sources vivantes, sans
+  valeur qui rouille.
+
 ---
 
 ## [1.12.1] - 2026-07-20 — Garde de cible pm-branch-start

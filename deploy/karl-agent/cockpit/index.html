@@ -559,7 +559,7 @@ if (window.matchMedia) {
     <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
     <nav class="lnav">
       <button data-panel="running" onclick="switchPanel('running')">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
-      <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets</button>
+      <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
       <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
       <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
       <button data-panel="pm" onclick="switchPanel('pm')">⚙ commandes pm</button>
@@ -598,6 +598,12 @@ if (window.matchMedia) {
     </div>
 
     <div class="lpanel" id="lp-tickets">
+    <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours » -->
+    <div class="card">
+      <h2>Tickets ouverts <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
+      <div id="openedbox"></div>
+    </div>
+
     <div class="card">
       <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
       <div class="searchrow">
@@ -2920,6 +2926,139 @@ async function gitShowDiff(mode) {
   } catch (e) { toast(e.message, true); }
 }
 
+// ----- RM2606 : tickets ouverts dans la session cockpit -----
+
+// >>> openedAdd — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Ouvrir un ticket le remonte en tête, sans doublon — comme l'historique du
+// composer (RM2527). Plafonné : une liste sans fin cesse d'être consultable, et
+// c'est exactement ce qu'on cherche à éviter.
+function openedAdd(list, id, max) {
+  const s = String(id == null ? "" : id).trim();
+  if (!/^\d+$/.test(s)) return (list || []).slice();
+  const out = (list || []).map(String).filter(x => x !== s);
+  out.unshift(s);
+  return out.slice(0, max || 40);
+}
+// <<< openedAdd
+
+// >>> ticketStatusRank — pur (testé par test_cockpit.js)
+// Ordre de LECTURE, pas alphabétique : ce qui réclame une action d'abord, ce
+// qui est clos en dernier. Un statut inconnu se range avant « fermé » plutôt
+// que d'être noyé — on préfère le voir que le perdre.
+function ticketStatusRank(status) {
+  const ordre = ["a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev",
+                 "a_mep", "en_mep", "a_faire", "etude_chiffrage_a_valider",
+                 "etude_chiffrage_en_cours", "a_etudier_chiffrer", "nouveau",
+                 "en_pause"];
+  const s = String(status || "").toLowerCase();
+  if (s === "ferme" || s === "fermé") return 99;   // clos : toujours en dernier
+  const i = ordre.indexOf(s);
+  return i < 0 ? 98 : i;   // inconnu : avant les fermés, pour qu'il se voie
+}
+// <<< ticketStatusRank
+
+// >>> groupOpenedTickets — pur (testé par test_cockpit.js)
+// Groupe les tickets ouverts par projet, chaque groupe trié par urgence de
+// statut. `client` filtre ; un ticket non encore résolu reste affiché (sous
+// « … ») plutôt que de disparaître le temps d'un aller-retour réseau.
+function groupOpenedTickets(ids, cache, client) {
+  const groups = new Map();
+  const clients = new Set();
+  for (const id of (ids || [])) {
+    const r = (cache || {})[id] || null;
+    if (r && r.found && r.client) clients.add(r.client);
+    if (client && (!r || !r.found || r.client !== client)) continue;
+    const key = (r && r.found && r.client)
+      ? r.client + "/" + (r.project || "?") : "…";
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push({
+      rm_id: String(id),
+      title: (r && r.title) || "",
+      status: (r && r.status) || "?",
+      client: (r && r.client) || null,
+      project: (r && r.project) || null,
+      resolved: !!(r && r.found),
+    });
+  }
+  for (const items of groups.values()) {
+    items.sort((a, b) => ticketStatusRank(a.status) - ticketStatusRank(b.status)
+      || Number(b.rm_id) - Number(a.rm_id));
+  }
+  const keys = [...groups.keys()].sort((a, b) =>
+    (a === "…") - (b === "…") || a.localeCompare(b));
+  return { keys, groups, clients: [...clients].sort() };
+}
+// <<< groupOpenedTickets
+
+let openedTickets = [];
+try { openedTickets = JSON.parse(localStorage.getItem("karlOpenedTickets") || "[]"); }
+catch (e) { openedTickets = []; }   // valeur corrompue : on repart d'une liste vide
+let openedClient = null;
+
+function openedSave() {
+  try { localStorage.setItem("karlOpenedTickets", JSON.stringify(openedTickets)); }
+  catch (e) { /* mode privé */ }
+}
+function noteOpenedTicket(id) {
+  const avant = openedTickets.length;
+  openedTickets = openedAdd(openedTickets, id, 40);
+  if (openedTickets.length !== avant || String(openedTickets[0]) !== String(id)) openedSave();
+  openedTickets.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(renderOpened); });
+  renderOpened();
+}
+function openedForget(id) {
+  openedTickets = openedTickets.filter(x => String(x) !== String(id));
+  openedSave(); renderOpened();
+}
+function openedClear() {
+  openedTickets = []; openedClient = null; openedSave(); renderOpened();
+}
+function openedFilter(c) { openedClient = c || null; renderOpened(); }
+
+function renderOpened() {
+  const badge = document.getElementById("ln-tickets");
+  if (badge) {
+    badge.textContent = openedTickets.length;
+    badge.style.display = openedTickets.length ? "" : "none";
+  }
+  const box = document.getElementById("openedbox");
+  if (!box) return;
+  const { keys, groups, clients } = groupOpenedTickets(openedTickets, resolveCache, openedClient);
+  if (!openedTickets.length) {
+    box.innerHTML = '<div style="color:var(--muted);font-size:11.5px">'
+      + "Aucun ticket ouvert pour l'instant. Ceux que tu consultes s'empilent ici.</div>";
+    return;
+  }
+  let h = "";
+  if (clients.length > 1) {
+    h += '<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">'
+      + '<button class="mini' + (openedClient ? "" : " primary") + '" onclick="openedFilter(null)">tous</button>'
+      + clients.map(c => '<button class="mini' + (openedClient === c ? " primary" : "")
+          + '" onclick="openedFilter(' + jarg(c) + ')">' + esc(c) + "</button>").join("")
+      + '<span style="flex:1"></span>'
+      + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
+  } else {
+    h += '<div class="cmpbar" style="margin-bottom:6px"><span style="flex:1"></span>'
+      + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
+  }
+  for (const k of keys) {
+    h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
+      + esc(k === "…" ? "en cours de résolution" : k)
+      + " (" + groups.get(k).length + ")</div>";
+    for (const it of groups.get(k)) {
+      h += '<div class="oline" style="white-space:normal;display:flex;gap:6px;align-items:baseline"'
+        + ' onclick="showTicket(' + it.rm_id + ')" title="Ouvrir la fiche">'
+        + '<span class="pill">RM' + esc(it.rm_id) + "</span>"
+        + '<span class="pill" style="opacity:.85">' + esc(it.status) + "</span>"
+        + '<span style="flex:1">' + esc(it.title || (it.resolved ? "" : "chargement…")) + "</span>"
+        + '<button class="mini" title="Retirer de la liste"'
+        + ' onclick="event.stopPropagation();openedForget(' + jarg(it.rm_id) + ')">✕</button>'
+        + "</div>";
+    }
+  }
+  box.innerHTML = h;
+}
+
 // ----- RM2466 volet 2 : « en attente de toi », toutes sessions confondues -----
 
 // >>> pendingDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -3823,6 +3962,7 @@ async function refreshWorkspace(rmId) {
 // au lanceur ni changer de session). gotoTicket (lanceur) reste dispo en action.
 function rmLink(id) { return '<span class="pill" onclick="showTicket(' + id + ')">RM' + id + '</span>'; }
 function showTicket(id) {
+  noteOpenedTicket(id);             // RM2606 : ce qu'on ouvre reste sous la main
   metaTicket = String(id);
   metaFacet = "detail";             // RM2579 : on ouvre sur le détail du ticket
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
@@ -4863,6 +5003,7 @@ async function submitConfig(scope, btn) {
 }
 
 function openReview(rm) {
+  noteOpenedTicket(rm);             // RM2606 : la revue est une consultation aussi
   rm = String(rm);
   if (!reviewTabs.includes(rm)) reviewTabs.push(rm);
   if (attached) detach();               // une seule vue active à la fois
@@ -5400,6 +5541,7 @@ async function kill(rmId) {
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
+  renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer

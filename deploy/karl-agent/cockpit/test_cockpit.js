@@ -1103,4 +1103,62 @@ assert(/registry_conflicts|conf\.forEach/.test(mReg[0]),
   "les conflits de session RESTENT visibles — ils ne partent nulle part ailleurs");
 console.log("✓ infos (RM2605) : allégé, sans rien perdre");
 
+// — RM2606 : tickets ouverts dans l'onglet de gauche —
+const grab = (name) => {
+  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
+  assert(m, "marqueurs >>> " + name + " introuvables");
+  return m[1];
+};
+const openedAdd = vm.runInNewContext("(" + grab("openedAdd") + ")");
+assert.deepStrictEqual(Array.from(openedAdd([], "2606")), ["2606"], "premier ticket");
+assert.deepStrictEqual(Array.from(openedAdd(["2605"], "2606")), ["2606", "2605"], "le dernier ouvert en tête");
+assert.deepStrictEqual(Array.from(openedAdd(["2605", "2606"], "2605")), ["2605", "2606"],
+  "rouvrir remonte sans dupliquer");
+assert.deepStrictEqual(Array.from(openedAdd([], "abc")), [], "une réf non numérique n'entre pas");
+assert.deepStrictEqual(Array.from(openedAdd(null, "1")), ["1"], "liste absente tolérée");
+assert.strictEqual(openedAdd(["1", "2", "3"], "4", 3).length, 3, "plafond respecté");
+assert.deepStrictEqual(Array.from(openedAdd(["1", "2", "3"], "4", 3)), ["4", "1", "2"],
+  "le plus ancien tombe");
+console.log("✓ tickets ouverts (RM2606) : sans doublon, récent en tête, plafonné");
+
+const ticketStatusRank = vm.runInNewContext("(" + grab("ticketStatusRank") + ")");
+assert(ticketStatusRank("a_corriger") < ticketStatusRank("en_cours"),
+  "ce qui revient corrigé passe avant ce qui est en cours");
+assert(ticketStatusRank("en_cours") < ticketStatusRank("a_faire"), "en cours avant à faire");
+assert(ticketStatusRank("a_faire") < ticketStatusRank("ferme"), "fermé en dernier");
+assert(ticketStatusRank("statut_exotique") < ticketStatusRank("ferme"),
+  "un statut inconnu se voit, il n'est pas rangé avec les fermés");
+console.log("✓ tickets ouverts (RM2606) : ordre de lecture, pas alphabétique");
+
+// groupOpenedTickets appelle ticketStatusRank : le contexte isolé doit l'avoir
+const groupOpenedTickets = vm.runInNewContext("(" + grab("groupOpenedTickets") + ")",
+  { ticketStatusRank });
+const tkCache = {
+  "1": { found: true, client: "acme", project: "shop", title: "A", status: "ferme" },
+  "2": { found: true, client: "acme", project: "shop", title: "B", status: "en_cours" },
+  "3": { found: true, client: "beta", project: "api", title: "C", status: "a_faire" },
+};
+const g = groupOpenedTickets(["1", "2", "3", "9"], tkCache, null);
+assert.deepStrictEqual(Array.from(g.keys), ["acme/shop", "beta/api", "…"],
+  "groupé par client/projet, le non résolu en dernier");
+assert.deepStrictEqual(Array.from(g.groups.get("acme/shop").map(x => x.rm_id)), ["2", "1"],
+  "dans un groupe, l'urgence de statut ordonne");
+assert.deepStrictEqual(Array.from(g.clients), ["acme", "beta"], "clients proposés au filtre");
+assert(g.groups.get("…")[0].resolved === false,
+  "un ticket pas encore résolu reste visible plutôt que de disparaître");
+const f = groupOpenedTickets(["1", "2", "3"], tkCache, "beta");
+assert.deepStrictEqual(Array.from(f.keys), ["beta/api"], "le filtre client réduit la liste");
+assert.deepStrictEqual(Array.from(groupOpenedTickets([], {}, null).keys), [], "liste vide tolérée");
+assert.deepStrictEqual(Array.from(groupOpenedTickets(null, null, null).keys), [], "entrées absentes tolérées");
+console.log("✓ tickets ouverts (RM2606) : groupés par projet, filtrés par client");
+
+// le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
+assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
+const mShow = /function showTicket\(id\) \{[\s\S]*?\n\}/.exec(html);
+assert(mShow && /noteOpenedTicket/.test(mShow[0]), "ouvrir une fiche alimente la liste");
+const mRev = /function openReview\(rm\) \{[\s\S]*?\n\}/.exec(html);
+assert(mRev && /noteOpenedTicket/.test(mRev[0]), "ouvrir une revue aussi");
+assert(/karlOpenedTickets/.test(html), "la liste survit au rechargement (localStorage)");
+console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
+
 console.log("OK — tous les tests cockpit passent");

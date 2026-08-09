@@ -50,6 +50,33 @@ def run_step(label, cmd, ok_required=True):
     return r
 
 
+# >>> resolve_session_repo — pure (testée par test_pm_task_take_repo.py)
+def resolve_session_repo(md_path, rm_id, registry_worktrees, cwd):
+    """Dépôt cible de la branche de ticket, et d'où on l'a déduit.
+
+    RM2589 : la recherche partait du RÉPERTOIRE COURANT. Lancé ailleurs qu'à la
+    racine du workspace, `take` ne trouvait pas l'env de session qui venait
+    pourtant d'être créé, retombait sur `.` sans le dire, et la branche partait
+    sur le mauvais dépôt. L'ancre fiable est la TÂCHE : son `.mmi-pm` donne le
+    workspace, où qu'on ait lancé la commande.
+    """
+    for w in registry_worktrees or []:
+        if str(w).endswith(f"rm{rm_id}"):
+            return str(w), "registre de session"
+    # workspace de la tâche (co-location RM1949) — indépendant du cwd
+    real = Path(md_path).resolve()
+    ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
+    if ws:
+        for d in sorted((ws / "envs").glob(f"*rm{rm_id}")):
+            return str(d), "env de session du workspace"
+    # dernier recours : le cwd, comme avant — mais on le dit
+    for envs_dir in Path(cwd).glob("envs"):
+        for d in sorted(envs_dir.glob(f"*rm{rm_id}")):
+            return str(d), "env trouvé depuis le cwd"
+    return ".", "cwd (aucun env de session trouvé)"
+# <<< resolve_session_repo
+
+
 def main():
     here = Path(__file__).resolve().parent
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
@@ -80,22 +107,17 @@ def main():
     if not args.no_branch:
         repo = args.repo
         if not repo:
-            # worktree de session envs/<repo>-rm<id> si le layout RM1993 l'a créé
-            cand = None
+            registry = []
             try:
                 import pm_session
-                rec = pm_session.current_record() or {}
-                for w in rec.get("worktrees") or []:
-                    if w.endswith(f"rm{args.rm_id}"):
-                        cand = w
-                        break
+                registry = (pm_session.current_record() or {}).get("worktrees") or []
             except Exception:
                 pass
-            if not cand:
-                for envs_dir in Path.cwd().glob("envs"):
-                    for d in envs_dir.glob(f"*rm{args.rm_id}"):
-                        cand = str(d)
-            repo = cand or "."
+            repo, origine = resolve_session_repo(md, args.rm_id, registry, Path.cwd())
+            # RM2589 : DIRE sur quel dépôt la branche part. Un take silencieux qui
+            # retombe sur le cwd fait travailler à côté de l'env de session — c'est
+            # ce qui a produit un worktree sans runtime sur RM2573.
+            out.op("dépôt", rm=args.rm_id, extra=f"{repo} ({origine})")
         cmd = [str(here / "pm-branch-start.py"), str(args.rm_id), "--repo", str(repo)]
         if args.base:
             cmd += ["--from", args.base]

@@ -36,7 +36,7 @@ def _now() -> str:
 
 def sessions_dir() -> Path:
     cfg = PMConfig.load()
-    d = cfg.pm_dir / "var" / "sessions"
+    d = cfg.state_dir / "sessions"
     d.mkdir(parents=True, exist_ok=True)
     return d
 

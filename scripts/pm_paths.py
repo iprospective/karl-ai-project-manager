@@ -110,10 +110,19 @@ class PMConfig:
     """Résolveur de chemins du système PM (lecture seule)."""
 
     def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict,
-                 providers: Optional[dict] = None):
+                 providers: Optional[dict] = None,
+                 conf_dir: Optional[Path] = None,
+                 state_dir: Optional[Path] = None,
+                 log_dir: Optional[Path] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
+        # Racines FHS (RM2580) — séparent config / état / logs du code. Défauts
+        # = layout actuel si non fournies (conf avec le code, var sous pm_dir) →
+        # 0 régression ; un install packagé les surcharge (roots / env).
+        self.state_dir = state_dir or (pm_dir / "var")
+        self.conf_dir = conf_dir or pm_dir
+        self.log_dir = log_dir or (self.state_dir / "log")
         # Registre de providers (RM2542/P0) — section `providers:` de pm.config.yml
         # (servers + defaults). Vide si absente. Consommé par pm_registry.
         self.providers = providers or {}
@@ -176,18 +185,32 @@ class PMConfig:
         if not projects_root.is_dir():
             sys.exit(f"ERREUR : projects_root introuvable : {projects_root}")
 
+        # Racines FHS (RM2580) — "auto"/absent → défaut relatif au layout actuel
+        # (0 régression). Un install packagé surcharge par env (PM_CONF_DIR, …).
+        # Ces racines sont des SORTIES (créées à la demande) → pas de is_dir()
+        # bloquant, contrairement à projects_root.
+        def _root(key: str, default: Path) -> Path:
+            raw = _expand_env(roots.get(key, "auto"))
+            if not raw or raw == "auto":
+                return default
+            return Path(raw).expanduser().resolve()
+        conf_dir = _root("conf_dir", pm_dir_final)
+        state_dir = _root("state_dir", pm_dir_final / "var")
+        log_dir = _root("log_dir", state_dir / "log")
+
         patterns = cfg.get("paths", {}) or {}
         if not patterns:
             sys.exit("ERREUR : pm.config.yml :: paths est vide")
 
-        return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}))
+        return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
+                   conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir)
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:
         """Résout un pattern de chemin par sa clé.
 
         Variables disponibles dans le pattern :
-          - `{pm_dir}` et `{projects_root}` : racines de la config
+          - `{pm_dir}` `{projects_root}` `{conf_dir}` `{state_dir}` `{log_dir}` : racines
           - n'importe quel kwarg passé (ex: `entity="x"`, `project="y"`)
           - n'importe quelle autre clé de `paths.*` (résolue récursivement)
         """
@@ -209,6 +232,12 @@ class PMConfig:
                 return str(self.pm_dir)
             if name == "projects_root":
                 return str(self.projects_root)
+            if name == "conf_dir":
+                return str(self.conf_dir)
+            if name == "state_dir":
+                return str(self.state_dir)
+            if name == "log_dir":
+                return str(self.log_dir)
             # Patterns d'abord (sauf si on est déjà en train de résoudre
             # ce nom — auto-réf → fallback kwargs). Cela permet par exemple
             # à `entity: "{entities_dir}/{entity}"` d'utiliser le kwarg

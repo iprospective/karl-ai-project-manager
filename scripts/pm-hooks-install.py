@@ -12,12 +12,15 @@ Repo PM = dossier contenant un `.mmi-pm` (profondeur 1-2 sous /zfs/workspaces) +
 core `.mmi-pm-core` lui-même. Ne clobber JAMAIS un post-commit existant non-symlink.
 """
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 WORKSPACES = Path("/zfs/workspaces")
-PM_CORE = WORKSPACES / ".mmi-pm-core"
+# Racine du code PM. Surchargée par PM_CORE_DIR (relocalisable, RM2580) ; défaut
+# = déploiement actuel sous WORKSPACES (0 régression).
+PM_CORE = Path(os.environ.get("PM_CORE_DIR") or (WORKSPACES / ".mmi-pm-core"))
 HOOK_SRC = PM_CORE / "scripts" / "pm-post-commit.py"
 # pre-push anti-id-prédit (RM2224) : posé sur le repo racine ET les bares repos/*.git
 # (les branches de ticket partent des worktrees envs/, dont les hooks vivent au bare).

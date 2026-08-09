@@ -39,6 +39,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   contribuer »), référencé depuis le README. Pointe les sources vivantes, sans
   valeur qui rouille.
 
+### Gouvernance
+- **Contrat « docs vivantes » étendu à 4 cibles** (RM2595, NORMS v1.67.0) : la
+  section dédiée « Développement du PM » (module `governance`) impose de mettre à
+  jour, dans la même MR, la doc correspondant à la surface changée — `Changelog.md`,
+  `README.md`, **aide cockpit** et **`DEVELOPMENT.md`** — avec déclencheur KERNEL
+  « je livre un changement de surface ».
+
 ---
 
 ## [1.12.1] - 2026-07-20 — Garde de cible pm-branch-start

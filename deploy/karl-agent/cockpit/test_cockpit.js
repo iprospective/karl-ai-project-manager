@@ -1012,4 +1012,14 @@ assert.strictEqual(pendStaleSet([]).size, 0, "vide → Set vide");
 assert.strictEqual(pendStaleSet(null).size, 0, "null toléré");
 console.log("\u2713 pendStaleSet (RM2598) : questions sans réponse, live exclues");
 
+// — clampWidth (RM2599) : largeur du panneau de droite bornée —
+const fCw = />>> clampWidth[\s\S]*?(function clampWidth[\s\S]*?)\n\/\/ <<< clampWidth/.exec(html);
+assert(fCw, "marqueurs clampWidth introuvables");
+const clampWidth = vm.runInNewContext("(" + fCw[1] + ")", { R_WIDTH_DEFAULT: 330, Math, Number, isFinite });
+assert.strictEqual(clampWidth(500), 500, "valeur dans les bornes conservee");
+assert.strictEqual(clampWidth(100), 240, "sous le min -> 240");
+assert.strictEqual(clampWidth(2000), 900, "au-dessus du max -> 900");
+assert.strictEqual(clampWidth("abc"), 330, "non numerique -> defaut");
+console.log("\u2713 clampWidth (RM2599) : largeur bornee [240,900], defaut si invalide");
+
 console.log("OK — tous les tests cockpit passent");

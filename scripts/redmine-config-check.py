@@ -116,21 +116,35 @@ def check_cf_trackers(ref, live, drifts):
     if not expected:
         return
     live_cf = live["custom_fields"]
+    ref_trk = ref.get("trackers") or {}
     for cf_id, spec in (ref.get("custom_fields") or {}).items():
         if not isinstance(spec, dict) or spec.get("type") != "issue":
             continue
         item = live_cf.get(cf_id)
         if item is None:
             continue  # déjà signalé en 'missing' par check_custom_fields
+        # RM2592 : un CF peut ne concerner qu'une PARTIE des trackers. Sans ce
+        # `trackers:` optionnel, le contrôle réclamait « GIT Branche » sur le
+        # tracker Assistance — or de l'assistance ne produit pas de code. Un
+        # contrôle qui signale en permanence un écart assumé finit par être
+        # ignoré, et c'est là qu'il masque les vrais trous.
+        vises = spec.get("trackers")
+        if vises:
+            attendus = {live_trk[ref_trk[k]]["name"] for k in vises
+                        if k in ref_trk and ref_trk[k] in live_trk}
+        else:
+            attendus = expected
+        if not attendus:
+            continue
         assoc = {t.get("name") for t in (item.get("trackers") or [])}
-        missing = expected - assoc
+        missing = attendus - assoc
         if not assoc:
-            drifts.append(_drift("custom_fields", cf_id, sorted(expected), [],
+            drifts.append(_drift("custom_fields", cf_id, sorted(attendus), [],
                                  "no_trackers",
                                  f"CF {cf_id} ({spec.get('name')!r}) associé à AUCUN tracker "
-                                 f"→ ignoré silencieusement à l'écriture. Activer sur : {sorted(expected)}"))
+                                 f"→ ignoré silencieusement à l'écriture. Activer sur : {sorted(attendus)}"))
         elif missing:
-            drifts.append(_drift("custom_fields", cf_id, sorted(expected), sorted(assoc),
+            drifts.append(_drift("custom_fields", cf_id, sorted(attendus), sorted(assoc),
                                  "tracker_partial",
                                  f"CF {cf_id} ({spec.get('name')!r}) absent des trackers {sorted(missing)}"))
 

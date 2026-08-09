@@ -135,11 +135,12 @@ env_runtime:
 # actif, on resserrera si besoin.
 context:
   budget_tokens:
-    # RM2466 : relevé de 32768 — le plafond était atteint à 2 tokens près, il ne
-    # signalait plus une dérive, il bloquait la prochaine règle écrite. Le vrai
-    # gisement est ailleurs : git-mep (9k) + status-workflow (7,3k) = 73 % des
-    # modules préchargés. À élaguer dans un ticket dédié, pas au fil de l'eau.
-    default: 34000
+    # RM2582 : ramené de 34000 après dégraissage. Le mode d'emploi et les cas
+    # particuliers de git-mep / status-workflow sont sortis de la précharge (ils
+    # s'ouvrent par déclencheur) : worker-dev est passé de 33k à ~24,2k. Le
+    # plafond garde ~20 % de marge — assez pour écrire une règle sans tout
+    # rejouer, trop peu pour laisser la dérive s'installer sans qu'on la voie.
+    default: 29000
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
 # ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────

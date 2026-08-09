@@ -319,8 +319,24 @@
   /* chips longues (branches/worktrees RM2166) : ellipse au lieu de déborder */
   .metabody .rels .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   /* RM2330 : outline de conversation (façon minimap d'éditeur) */
-  .outnav { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; align-items: center; }
+  .outnav { display: flex; gap: 4px; padding: 6px 8px; border-bottom: 1px solid var(--line); flex: none; align-items: center; flex-wrap: wrap; }
   .outnav .cnt { color: var(--muted); font-size: 11px; margin-left: auto; }
+  /* RM2596 : recherche dans la conversation */
+  .outnav .outq { flex: 1 1 120px; min-width: 90px; padding: 2px 7px; border: 1px solid var(--line);
+    border-radius: 6px; background: var(--bg); color: var(--fg); font-size: 12px; }
+  .outnav .outq:focus { outline: none; border-color: var(--accent); }
+  /* RM2596 : lecture inline dépliée SOUS l'entrée cliquée (accordéon) */
+  .oexp { margin: 1px 0 5px; border-left: 2px solid var(--accent); background: var(--panel2);
+    border-radius: 0 5px 5px 0; }
+  .oexpbar { display: flex; gap: 6px; padding: 3px 6px; border-bottom: 1px solid var(--line); }
+  .oexpbar .sp { flex: 1; }
+  .oexptxt { padding: 7px 9px; max-height: 45vh; overflow-y: auto; white-space: pre-wrap; word-break: break-word;
+    font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--fg); }
+  /* RM2596 : refs cliquables (ticket / fichier / worktree) dans le texte lu */
+  .olink { color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+  .olink:hover { filter: brightness(1.2); }
+  .olink.omono { font-family: var(--mono); font-size: .95em; }
+  .oexptxt mark, .oline mark { background: var(--accent-soft); color: var(--fg-strong); border-radius: 2px; padding: 0 1px; }
   .outbody { flex: 1; min-height: 0; overflow-y: auto; padding: 6px; overscroll-behavior: contain; }
   .oline { padding: 3px 7px; margin-bottom: 2px; border-radius: 5px; font-size: 11.5px; line-height: 1.35;
     color: var(--muted); cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -931,11 +947,11 @@ if (window.matchMedia) {
               <button class="mini" onclick="jumpUnresolved()" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
               <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
               <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
+              <input class="outq" id="outq" type="search" placeholder="rechercher…" autocomplete="off"
+                     oninput="setOutQuery(this.value)" title="Filtrer les messages de la conversation (RM2596)">
               <span class="cnt" id="outcnt"></span>
             </div>
             <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
-            <!-- RM2579 : lecture inline d'un message (remplace la modale) -->
-            <div class="oread" id="oread" style="display:none"></div>
           </div>
         </div>
       </aside>
@@ -2523,6 +2539,60 @@ async function readQuestion() {
 // ----- RM2330 : outline de conversation + navigation dans l'historique -----
 let outline = { items: [], total: 0 };
 let outPos = null;      // dernière ligne atteinte (null = direct, en bas)
+let outQuery = "";      // RM2596 : recherche dans la conversation
+let outOpen = null;     // RM2596 : ligne de l'entrée dépliée (accordéon, lecture à l'endroit du clic)
+function setOutQuery(v) { outQuery = v; renderOutline(); }
+
+// >>> outMatch — pur (testé par test_cockpit.js) : filtre les entrées sur une requête
+function outMatch(items, q) {
+  q = String(q || "").trim().toLowerCase();
+  if (!q) return items || [];
+  return (items || []).filter(it =>
+    String(it.text || "").toLowerCase().includes(q) || String(it.full || "").toLowerCase().includes(q));
+}
+// <<< outMatch
+
+// >>> hlq — pur (testé) : échappe un texte et surligne les occurrences de q (<mark>)
+function hlq(text, q) {
+  const s = String(text == null ? "" : text);
+  q = String(q || "").trim();
+  if (!q) return esc(s);
+  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
+  let out = "", last = 0, m;
+  while ((m = re.exec(s))) {
+    if (m.index === re.lastIndex) { re.lastIndex++; continue; }
+    out += esc(s.slice(last, m.index)) + "<mark>" + esc(m[0]) + "</mark>";
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+// <<< hlq
+
+// >>> linkify — pur (testé) : échappe puis rend cliquables refs RM, chemins, URLs
+// Tokenisation en une passe (jamais de linkify SUR du HTML déjà injecté → sûr).
+function linkify(text) {
+  const s = String(text == null ? "" : text);
+  const re = /(https?:\/\/[^\s<)]+)|(\bRM\d+\b)|([\w.-]+\/[\w./-]+\.\w{1,6})/g;
+  let out = "", last = 0, m;
+  while ((m = re.exec(s))) {
+    out += esc(s.slice(last, m.index));
+    if (m[1]) out += '<a href="' + esc(m[1]) + '" target="_blank" rel="noopener">' + esc(m[1]) + "</a>";
+    else if (m[2]) out += '<span class="olink" title="Ouvrir la fiche ' + esc(m[2])
+      + '" onclick="showTicket(' + m[2].slice(2) + ')">' + esc(m[2]) + "</span>";
+    else if (m[3]) out += '<span class="olink omono" title="Ouvrir dans l\'onglet Fichiers" onclick="openFileRef('
+      + jarg(m[3]) + ')">' + esc(m[3]) + "</span>";
+    last = m.index + m[0].length;
+  }
+  return out + esc(s.slice(last));
+}
+// <<< linkify
+
+// Argument chaîne pour un onclick="..." (attribut à guillemets DOUBLES) : littéral
+// JS entre guillemets SIMPLES échappés. JSON.stringify (guillemets doubles) casserait
+// l'attribut. `"` remplacé par son entité pour ne jamais fermer l'attribut.
+function jarg(s) {
+  return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
+}
 
 // >>> outlineStep — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2330 : cible de saut parmi les messages UTILISATEUR de l'outline.
@@ -2774,7 +2844,7 @@ function renderWorklog() {
       const brs = brByRm[it.ref] || [];
       brs.forEach(b => usedBr.add(b));
       tickets += '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
-        + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + JSON.stringify(String(it.ref)) + ')">'
+        + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
         + "<b>" + esc(it.ref) + '</b> <span class="pill">' + esc(it.status) + "</span>" + drift
         + (it.label ? " " + esc(it.label) : "")
         + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
@@ -2879,7 +2949,7 @@ function renderFiles() {
   if (wts.length > 1) {
     h += '<div class="rsub">' + wts.map(w =>
       '<button class="' + (w.path === fileNav.wt ? "active" : "") + '" title="' + esc(w.path) +
-      '" onclick="filesLoadDir(' + JSON.stringify(w.path) + ',\'\')">' + esc(w.name) + "</button>").join("") + "</div>";
+      '" onclick="filesLoadDir(' + jarg(w.path) + ',\'\')">' + esc(w.name) + "</button>").join("") + "</div>";
   }
   if (cur && cur.is_git) {
     h += '<div class="rels" style="margin-bottom:6px">'
@@ -2908,13 +2978,13 @@ function renderFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + JSON.stringify(c.path) + ');return false">' + esc(c.name) + "</a>"
+        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(c.name) + "</a>"
         : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += fileNav.entries.length ? fileNav.entries.map(e => {
       const child = (fileNav.path ? fileNav.path + "/" : "") + e.name;
       return e.dir
-        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesLoadDir(fileNav.wt,' + JSON.stringify(child) + ')">📁 ' + esc(e.name) + "</div>"
-        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesOpen(' + JSON.stringify(e.name) + ')">📄 ' + esc(e.name)
+        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesLoadDir(fileNav.wt,' + jarg(child) + ')">📁 ' + esc(e.name) + "</div>"
+        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesOpen(' + jarg(e.name) + ')">📄 ' + esc(e.name)
           + (e.size != null ? ' <span style="color:var(--muted);font-size:10px">' + (Math.round(e.size / 102.4) / 10) + " Ko</span>" : "") + "</div>";
     }).join("") : '<div class="empty">dossier vide</div>';
   }
@@ -2976,74 +3046,88 @@ async function loadOutline() {
 }
 function renderOutline() {
   const body = document.getElementById("outbody");
-  // RM2549 : le compte des questions en souffrance vaut le compte des messages
+  const q = outQuery;
+  const shown = outMatch(outline.items, q);
   const unres = outline.items.filter(i => i.kind === "question" && !i.resolved).length;
   document.getElementById("outcnt").textContent =
-    outline.items.filter(i => i.kind === "user").length + " msg"
-    + (unres ? " · ⚠ " + unres + " sans réponse" : "");
+    (q ? shown.length + " résultat" + (shown.length > 1 ? "s" : "")
+       : outline.items.filter(i => i.kind === "user").length + " msg")
+    + (!q && unres ? " · ⚠ " + unres + " sans réponse" : "");
   if (!outline.items.length) {
     body.innerHTML = '<div class="empty">conversation vide (ou moteur sans marqueurs « > » / « ⏺ »)</div>';
     return;
   }
+  if (q && !shown.length) {
+    body.innerHTML = '<div class="empty">aucun message ne contient « ' + esc(q) + ' »</div>';
+    return;
+  }
   body.innerHTML = "";
-  for (const it of outline.items) {
+  for (const it of shown) {
     const dec = outlineDecor(it);
     const d = document.createElement("div");
     d.className = "oline" + (dec.cls ? " " + dec.cls : "") + (outPos === it.line ? " ocur" : "");
     d.innerHTML = esc(dec.icon) + " "
       + (dec.tag ? '<span class="otag">' + esc(dec.tag) + "</span>" : "")
-      + esc(it.text);
+      + hlq(it.text, q);
     d.title = dec.title +
-      (outline.source === "transcript" ? " — clic : lire ce message" : " — clic : faire défiler le terminal jusqu'ici");
+      (outline.source === "transcript" ? " — clic : lire ce message" : " — clic : lire + faire défiler le terminal");
     d.onclick = () => jumpTo(it);
     body.appendChild(d);
+    // RM2596 : accordéon — la lecture se déplie SOUS l'entrée cliquée (à l'endroit
+    // du clic), un seul message ouvert à la fois. Refs cliquables via linkify().
+    if (outOpen === it.line) {
+      const exp = document.createElement("div");
+      exp.className = "oexp";
+      exp.innerHTML = '<div class="oexpbar"><span class="sp"></span>'
+        + '<button class="mini" onclick="copyOutline(' + jarg(String(it.line)) + ');event.stopPropagation()" title="Copier le message">⧉ copier</button>'
+        + '<button class="mini" onclick="closeOutlineRead();event.stopPropagation()" title="Replier">✕</button></div>'
+        + '<div class="oexptxt">' + linkify(outlineFull(it)) + "</div>";
+      body.appendChild(exp);
+    }
   }
 }
-// RM2579 : lecture inline d'un message dans l'onglet conversation (remplace la
-// modale docmodal). La zone se déplie sous la liste ; texte brut (pas de rendu).
-function showOutlineRead(title, txt) {
-  const box = document.getElementById("oread");
-  if (!box) return;
-  box.innerHTML = '<div class="oreadbar"><span class="t">' + esc(title) + '</span>' +
-    '<button class="mini" onclick="closeOutlineRead()" title="Fermer la lecture">✕</button></div>' +
-    '<div class="oreadtxt">' + esc(txt) + '</div>';
-  box.style.display = "flex";
-  box.querySelector(".oreadtxt").scrollTop = 0;
+function outlineFull(it) {
+  return (it.full || it.text)
+    + (it.kind === "question" && it.resolved ? "\n\n→ Réponse retenue : " + it.answer : "")
+    + (it.kind === "question" && !it.resolved ? "\n\n⚠ Cette question est restée SANS RÉPONSE." : "");
 }
-function closeOutlineRead() {
-  const box = document.getElementById("oread");
-  if (box) { box.style.display = "none"; box.innerHTML = ""; }
+function copyOutline(line) {
+  const it = (outline.items || []).find(x => String(x.line) === String(line));
+  if (it && navigator.clipboard) navigator.clipboard.writeText(outlineFull(it)).then(() => toast("Message copié"), () => {});
+}
+function closeOutlineRead() { outOpen = null; renderOutline(); }
+// RM2596 : depuis une référence de fichier dans un message → onglet Fichiers
+// (best-effort : ouvre le worktree courant de la session au bon dossier).
+async function openFileRef(path) {
+  showRight("files");
+  await loadFiles();
+  if (!fileNav.wt) { toast("Aucun worktree pour naviguer vers « " + path + " »", true); return; }
+  const parts = String(path).split("/"); const file = parts.pop(); const dir = parts.join("/");
+  await filesLoadDir(fileNav.wt, dir);
+  if (fileNav.entries.some(e => !e.dir && e.name === file)) filesOpen(file);
+  else toast("« " + path + " » introuvable dans " + (fileNav.wt || "").split("/").pop() + " — navigue à la main", true);
 }
 
 async function jumpTo(it) {
   if (!attached) return;
   outPos = it.line;
-  if (outline.source === "transcript") {
-    // sessions claude : TUI en écran alterné, pas de scrollback tmux à piloter —
-    // le point de conversation s'ouvre en lecture INLINE dans le panneau (RM2579,
-    // remplace la modale). Rien n'est envoyé à tmux : la vue des autres clients
-    // attachés à la session ne bouge pas (RM2549).
-    const dec = outlineDecor(it);
-    showOutlineRead(dec.icon + " " + dec.label +
-      " — " + (/^\d+$/.test(String(attached)) ? "RM" + attached : attached),
-      (it.full || it.text)
-      + (it.kind === "question" && it.resolved ? "\n\n→ Réponse retenue : " + it.answer : "")
-      + (it.kind === "question" && !it.resolved ? "\n\n⚠ Cette question est restée SANS RÉPONSE." : ""));
-    renderOutline();
-    // fait défiler l'OUTLINE jusqu'à l'entrée marquée
-    const cur = document.querySelector(".oline.ocur");
-    if (cur) cur.scrollIntoView({ block: "center" });
-    return;
+  outOpen = (outOpen === it.line) ? null : it.line;   // RM2596 : accordéon (toggle à l'endroit du clic)
+  renderOutline();
+  const cur = document.querySelector(".oline.ocur");
+  if (cur) cur.scrollIntoView({ block: "center" });
+  // tmux (scrollback) : on fait AUSSI défiler le terminal jusqu'ici. Les sessions
+  // « transcript » (claude, écran alterné) n'ont pas de scrollback à piloter — on
+  // ne touche pas à tmux, la vue des autres clients ne bouge pas (RM2549).
+  if (outline.source !== "transcript") {
+    try {
+      await api("/scroll", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rm_id: attached, line: Math.max(0, it.line - 2) }),
+      });
+    } catch (e) { toast(e.message, true); }
   }
-  try {
-    // -2 : deux lignes de contexte au-dessus de la cible
-    await api("/scroll", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, line: Math.max(0, it.line - 2) }),
-    });
-    renderOutline();
-  } catch (e) { toast(e.message, true); }
 }
+
 function jumpUser(dir) {
   const go = () => {
     const it = outlineStep(outline.items, outPos, dir);
@@ -4395,7 +4479,7 @@ function renderProjFiles() {
     if (!wts.length) { b.innerHTML = '<div class="empty">aucun worktree pour ce projet.</div>'; return; }
     b.innerHTML = '<div style="max-height:340px;overflow-y:auto">' + wts.map(w =>
       '<div class="oline" style="white-space:normal;cursor:pointer" title="' + esc(w.path)
-      + '" onclick="projBrowse(' + JSON.stringify(w.path) + ',\'\')">📂 ' + esc(w.name)
+      + '" onclick="projBrowse(' + jarg(w.path) + ',\'\')">📂 ' + esc(w.name)
       + (w.is_git ? ' <span class="pill">⎇ ' + esc(w.branch) + "</span>"
         + '<span class="pill ' + (w.clean ? "ok" : "warn") + '">' + (w.clean ? "clean" : (w.dirty + " modifs")) + "</span>" : "")
       + "</div>").join("") + "</div>";
@@ -4415,13 +4499,13 @@ function renderProjFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(projFiles.path).map((cc, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + JSON.stringify(cc.path) + ');return false">' + esc(cc.name) + "</a>"
+        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + jarg(cc.path) + ');return false">' + esc(cc.name) + "</a>"
         : "<b>" + esc(cc.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += '<div style="max-height:340px;overflow-y:auto">' + (projFiles.entries.length ? projFiles.entries.map(e => {
       const child = (projFiles.path ? projFiles.path + "/" : "") + e.name;
       return e.dir
-        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projBrowse(projFiles.wt,' + JSON.stringify(child) + ')">📁 ' + esc(e.name) + "</div>"
-        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projOpen(' + JSON.stringify(e.name) + ')">📄 ' + esc(e.name) + "</div>";
+        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projBrowse(projFiles.wt,' + jarg(child) + ')">📁 ' + esc(e.name) + "</div>"
+        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projOpen(' + jarg(e.name) + ')">📄 ' + esc(e.name) + "</div>";
     }).join("") : '<div class="empty">dossier vide</div>') + "</div>";
   }
   b.innerHTML = h;

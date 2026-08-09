@@ -679,14 +679,15 @@ assert.strictEqual(outlineNextUnresolved(null, null), null, "outline absent tol�
 console.log("✓ outline (RM2549) : saut à la prochaine question sans réponse");
 
 // la navigation en source transcript ne doit RIEN envoyer à tmux : la vue des
-// autres clients attachés ne bouge pas (critère du ticket).
+// autres clients attachés ne bouge pas (RM2549). Depuis RM2596, l'appel /scroll
+// est GARDÉ par « source !== transcript » (l'accordéon gère la lecture inline).
 const mJump = /async function jumpTo\(it\) \{[\s\S]*?\n\}/.exec(html);
 assert(mJump, "jumpTo introuvable");
-const branche = /if \(outline\.source === "transcript"\) \{[\s\S]*?return;/.exec(mJump[0]);
-assert(branche, "branche transcript de jumpTo introuvable");
-assert(!/\/scroll/.test(branche[0]),
-  "source transcript : aucun appel /scroll — la vue des autres clients ne doit pas bouger");
-console.log("✓ outline (RM2549) : lecture ancrée dans le cockpit, sans piloter tmux");
+const gi = mJump[0].indexOf('outline.source !== "transcript"');
+const si = mJump[0].indexOf("/scroll");
+assert(gi >= 0 && si > gi,
+  "l'appel /scroll est gardé par « source !== transcript » — transcript ne pilote pas tmux");
+console.log("✓ outline (RM2549/2596) : /scroll gardé, transcript ne pilote pas tmux");
 
 // — origine du WebSocket du terminal (RM2561) —
 // Le cert auto-signé ne vaut que pour le host:port visité et un wss:// vers un
@@ -961,5 +962,44 @@ assert.strictEqual(worklogDocs({ RM3: ["str-seul"] })[0].name, "str-seul", "entr
 assert.strictEqual([...worklogDocs({})].length, 0, "map vide → liste vide");
 assert.strictEqual([...worklogDocs(null)].length, 0, "map absente tolérée");
 console.log("✓ worklogDocs (RM2584) : documents aplatis par ticket");
+
+// — RM2596 : recherche / surlignage / linkify de la conversation —
+const escO = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const mJarg = /function jarg\(s\) \{[\s\S]*?\n\}/.exec(html);
+assert(mJarg, "jarg introuvable");
+const jargFn = vm.runInNewContext("(" + mJarg[0] + ")", {});
+function grabO(name, ctx) {
+  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
+  assert(m, "marqueurs " + name + " introuvables");
+  return vm.runInNewContext("(" + m[1] + ")", ctx || {});
+}
+const outMatch = grabO("outMatch");
+const hlq = grabO("hlq", { esc: escO });
+const linkify = grabO("linkify", { esc: escO, jarg: jargFn });
+
+// jarg : argument onclick sûr (guillemets simples, jamais de " qui casse l'attribut)
+assert.strictEqual(jargFn("a/b.py"), "'a/b.py'", "chemin simple entre quotes simples");
+assert(!/"/.test(jargFn('x"y')), "un \" dans la valeur ne ferme pas l'attribut");
+assert.strictEqual(jargFn("l'a"), "'l\\'a'", "apostrophe échappée");
+
+// outMatch : filtre insensible à la casse sur text OU full ; vide → tout
+const oitems = [{ line: 1, text: "corrige RM123", full: "le bug RM123" }, { line: 2, text: "autre", full: "rien" }];
+assert.strictEqual(outMatch(oitems, "rm123").length, 1, "insensible à la casse");
+assert.strictEqual(outMatch(oitems, "bug")[0].line, 1, "cherche aussi dans full");
+assert.strictEqual(outMatch(oitems, "").length, 2, "requête vide → tout");
+assert.strictEqual(outMatch(oitems, "zzz").length, 0, "aucun match → []");
+
+// hlq : échappe + surligne, sûr
+assert.strictEqual(hlq("a <b> RM1", ""), "a &lt;b&gt; RM1", "sans requête : simple échappement");
+assert(/<mark>RM1<\/mark>/.test(hlq("voir RM1", "rm1")), "surligne (insensible casse)");
+assert(!/<b>/.test(hlq("<b>x</b>", "x")), "HTML source échappé");
+
+// linkify : RM → showTicket, chemin → openFileRef ('...'), URL → <a>, reste échappé
+const lk = linkify("fix RM42 dans scripts/karl-agent.py cf https://x.io/p et <b>");
+assert(/onclick="showTicket\(42\)"/.test(lk) && />RM42</.test(lk), "RM42 cliquable → showTicket");
+assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(lk), "chemin cliquable → openFileRef (quotes simples)");
+assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
+assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
+console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
 
 console.log("OK — tous les tests cockpit passent");

@@ -330,6 +330,8 @@
   .outnav .outq { flex: 1 1 120px; min-width: 90px; padding: 2px 7px; border: 1px solid var(--line);
     border-radius: 6px; background: var(--bg); color: var(--fg); font-size: 12px; }
   .outnav .outq:focus { outline: none; border-color: var(--accent); }
+  /* RM2601 : filtre de vue actif */
+  .outnav .mini.active { color: var(--accent); border-color: var(--accent); font-weight: 600; }
   /* RM2596 : lecture inline dépliée SOUS l'entrée cliquée (accordéon) */
   .oexp { margin: 1px 0 5px; border-left: 2px solid var(--accent); background: var(--panel2);
     border-radius: 0 5px 5px 0; }
@@ -957,6 +959,10 @@ if (window.matchMedia) {
               <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
               <input class="outq" id="outq" type="search" placeholder="rechercher…" autocomplete="off"
                      oninput="setOutQuery(this.value)" title="Filtrer les messages de la conversation (RM2596)">
+              <!-- RM2601 : filtres de vue -->
+              <button class="mini active" data-of="all" onclick="setOutFilter('all')" title="Tout afficher">tout</button>
+              <button class="mini" data-of="user" onclick="setOutFilter('user')" title="Tes messages seulement">🗣 moi</button>
+              <button class="mini" data-of="question" onclick="setOutFilter('question')" title="Questions seulement">❓</button>
               <span class="cnt" id="outcnt"></span>
             </div>
             <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
@@ -2564,6 +2570,21 @@ function outMatch(items, q) {
 }
 // <<< outMatch
 
+// >>> outByKind — pur (testé) : filtre de VUE (RM2601) — tout / moi (user) / questions
+function outByKind(items, filter) {
+  if (filter === "user") return (items || []).filter(it => it && it.kind === "user");
+  if (filter === "question") return (items || []).filter(it => it && it.kind === "question");
+  return items || [];
+}
+// <<< outByKind
+
+let outFilter = "all";   // RM2601 : filtre de vue de la conversation
+function setOutFilter(f) {
+  outFilter = f;
+  document.querySelectorAll(".outnav [data-of]").forEach(b => b.classList.toggle("active", b.dataset.of === f));
+  renderOutline();
+}
+
 // >>> hlq — pur (testé) : échappe un texte et surligne les occurrences de q (<mark>)
 function hlq(text, q) {
   const s = String(text == null ? "" : text);
@@ -3117,18 +3138,19 @@ async function loadOutline() {
 function renderOutline() {
   const body = document.getElementById("outbody");
   const q = outQuery;
-  const shown = outMatch(outline.items, q);
+  const shown = outByKind(outMatch(outline.items, q), outFilter);   // RM2596 recherche + RM2601 filtre
+  const filtered = q || outFilter !== "all";
   const unres = outline.items.filter(i => i.kind === "question" && !i.resolved).length;
   document.getElementById("outcnt").textContent =
-    (q ? shown.length + " résultat" + (shown.length > 1 ? "s" : "")
-       : outline.items.filter(i => i.kind === "user").length + " msg")
-    + (!q && unres ? " · ⚠ " + unres + " sans réponse" : "");
+    (filtered ? shown.length + " affiché" + (shown.length > 1 ? "s" : "")
+              : outline.items.filter(i => i.kind === "user").length + " msg")
+    + (!filtered && unres ? " · ⚠ " + unres + " sans réponse" : "");
   if (!outline.items.length) {
     body.innerHTML = '<div class="empty">conversation vide (ou moteur sans marqueurs « > » / « ⏺ »)</div>';
     return;
   }
-  if (q && !shown.length) {
-    body.innerHTML = '<div class="empty">aucun message ne contient « ' + esc(q) + ' »</div>';
+  if (filtered && !shown.length) {
+    body.innerHTML = '<div class="empty">aucun message' + (q ? ' ne contient « ' + esc(q) + ' »' : ' pour ce filtre') + "</div>";
     return;
   }
   body.innerHTML = "";

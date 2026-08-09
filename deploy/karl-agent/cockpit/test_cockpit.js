@@ -747,6 +747,8 @@ assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", col
 // il ne doit PAS être normalisé vers infos (régression corrigée).
 assert.deepStrictEqual(rightPanelReduce({ tab: "state", collapsed: false }, {}),
   { tab: "state", collapsed: false }, "onglet state préservé (pas de normalisation)");
+assert.deepStrictEqual(rightPanelReduce({ tab: "files", collapsed: false }, {}),
+  { tab: "files", collapsed: false }, "onglet files (RM2586) est un onglet valide");
 assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "state" }),
   { tab: "state", collapsed: false }, "select state : déplie sur état");
 console.log("✓ colonnes (RM2466/2579) : 4 onglets (dont état), défaut infos, legacy meta→infos");
@@ -913,5 +915,20 @@ const prefixes = mRw2[0].match(/(?:body\.innerHTML|let h) = notes \+/g) || [];
 assert.strictEqual(prefixes.length, 2,
   "les incidents doivent préfixer le worklog, dans les deux branches du rendu");
 console.log("✓ état (RM2466) : notifications de session rendues avant le travail");
+
+// — filesCrumbs (RM2586) : fil d'ariane de l'explorateur de fichiers —
+const fFc = />>> filesCrumbs[\s\S]*?(function filesCrumbs[\s\S]*?)\n\/\/ <<< filesCrumbs/.exec(html);
+assert(fFc, "marqueurs >>> filesCrumbs / <<< filesCrumbs introuvables");
+const filesCrumbs = vm.runInNewContext("(" + fFc[1] + ")");
+assert.strictEqual(JSON.stringify(filesCrumbs("")), JSON.stringify([{ name: "/", path: "" }]),
+  "racine : un seul élément « / »");
+assert.strictEqual(JSON.stringify(filesCrumbs("src/app")),
+  JSON.stringify([{ name: "/", path: "" }, { name: "src", path: "src" }, { name: "app", path: "src/app" }]),
+  "fil d'ariane cumulatif (chemins cumulés)");
+assert.strictEqual(JSON.stringify(filesCrumbs("a//b/").map(c => c.path)), JSON.stringify(["", "a", "a/b"]),
+  "slashes superflus tolérés");
+console.log("✓ fichiers (RM2586) : fil d'ariane cumulatif");
+// l'onglet fichiers a bien son bouton ET son panneau (équilibre onglets/panneaux déjà vérifié)
+assert(/data-rpanel="files"/.test(html) && /id="rp-files"/.test(html), "onglet fichiers câblé (RM2586)");
 
 console.log("OK — tous les tests cockpit passent");

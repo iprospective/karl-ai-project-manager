@@ -880,6 +880,8 @@ if (window.matchMedia) {
             title="Infos de la session : tmux, branches, worktrees, conso live">ℹ infos</button>
           <button data-rpanel="tickets" onclick="switchRight('tickets')"
             title="Tickets de la session — un sous-onglet par ticket, puis détail / conso / workspace">🎫 tickets</button>
+          <button data-rpanel="files" onclick="switchRight('files')"
+            title="Fichiers : parcourir les worktrees de la session, git status/commits, ouvrir un fichier (RM2586)">📁 fichiers</button>
           <button data-rpanel="outline" onclick="switchRight('outline')"
             title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
@@ -899,6 +901,14 @@ if (window.matchMedia) {
           </div>
           <div class="rp" id="rp-tickets">
             <div class="metabody" id="ticketsbody"></div>
+          </div>
+          <!-- RM2586 : explorateur de fichiers (worktrees de la session) -->
+          <div class="rp" id="rp-files">
+            <div class="outnav">
+              <button class="mini" onclick="loadFiles(true)" title="Rafraîchir">⟳</button>
+              <span class="cnt" id="filescnt"></span>
+            </div>
+            <div class="metabody" id="filesbody"><div class="empty">attache une session…</div></div>
           </div>
           <!-- RM2330 : outline de la conversation -->
           <div class="rp" id="rp-outline">
@@ -2562,7 +2572,7 @@ function rightPanelReduce(state, action) {
   // RM2579 : trois onglets. « meta » (ancien nom, localStorage d'avant) → « infos » ;
   // tout onglet inconnu retombe sur « infos » (défaut applicatif).
   // « state » = onglet 🗒 état (RM2466 volet 2), ajouté en parallèle de RM2579.
-  const TABS = ["state", "infos", "tickets", "outline"];
+  const TABS = ["state", "infos", "tickets", "files", "outline"];
   const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
   const cur = {
     tab: norm((state && state.tab) || "infos"),
@@ -2597,6 +2607,9 @@ function applyRight() {
   if (rightVisible("infos")) renderInfos();
   if (rightVisible("tickets")) renderTickets();
   if (rightVisible("state")) loadWorklog();     // RM2581 : worklog de la session
+  // RM2586 : (re)charge les worktrees quand on ouvre l'onglet, ou après un
+  // changement de session (filesData.sid ≠ session attachée).
+  if (rightVisible("files") && attached && filesData.sid !== String(attached)) loadFiles();
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -2731,6 +2744,113 @@ function renderWorklog() {
 function openWorklogItem(ref) {
   const m = /^RM(\d+)$/i.exec(String(ref || ""));
   if (m) openReview(m[1]); else toast("Chantier hors ticket : " + ref);
+}
+
+// ── RM2586 : explorateur de fichiers (worktrees de la session) ──────────────
+let filesData = { sid: null, worktrees: [] };
+let fileNav = { wt: null, path: "", entries: [], commits: null, file: null, showCommits: false };
+
+// >>> filesCrumbs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Fil d'ariane cumulatif d'un chemin : racine « / » puis chaque segment avec son
+// chemin cumulé. Tolère les slashes superflus.
+function filesCrumbs(path) {
+  const out = [{ name: "/", path: "" }];
+  let acc = "";
+  for (const seg of String(path || "").split("/").filter(Boolean)) {
+    acc = acc ? acc + "/" + seg : seg;
+    out.push({ name: seg, path: acc });
+  }
+  return out;
+}
+// <<< filesCrumbs
+
+const _fq = () => "sid=" + encodeURIComponent(attached) + "&worktree=" + encodeURIComponent(fileNav.wt);
+async function loadFiles(force) {
+  const b = document.getElementById("filesbody");
+  if (!attached) { b.innerHTML = '<div class="empty">attache une session pour parcourir ses worktrees.</div>'; return; }
+  try {
+    filesData = await api("/worktrees/" + encodeURIComponent(attached));
+  } catch (e) { b.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
+  const wts = (filesData.worktrees || []).filter(w => w.exists);
+  if (!wts.length) { b.innerHTML = '<div class="empty">aucun worktree pour cette session (rien de branché).</div>'; return; }
+  if (force || !fileNav.wt || !wts.some(w => w.path === fileNav.wt)) {
+    fileNav = { wt: wts[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
+  }
+  filesLoadDir(fileNav.wt, fileNav.path);
+}
+async function filesLoadDir(wt, path) {
+  fileNav.wt = wt; fileNav.path = path; fileNav.file = null;
+  if (fileNav.commits != null && wt !== fileNav._commitsWt) fileNav.commits = null;  // commits par worktree
+  try {
+    const r = await api("/fs/ls?" + _fq() + "&path=" + encodeURIComponent(path));
+    fileNav.entries = r.entries || [];
+  } catch (e) { fileNav.entries = []; toast(e.message, true); }
+  renderFiles();
+}
+async function filesOpen(name) {
+  const sp = fileNav.path ? fileNav.path + "/" + name : name;
+  try {
+    fileNav.file = await api("/fs/file?" + _fq() + "&path=" + encodeURIComponent(sp));
+  } catch (e) { toast(e.message, true); return; }
+  renderFiles();
+}
+async function filesToggleCommits() {
+  fileNav.showCommits = !fileNav.showCommits;
+  if (fileNav.showCommits && fileNav.commits == null) {
+    try { const r = await api("/fs/log?" + _fq()); fileNav.commits = r.commits || []; fileNav._commitsWt = fileNav.wt; }
+    catch (e) { fileNav.commits = []; }
+  }
+  renderFiles();
+}
+function renderFiles() {
+  const b = document.getElementById("filesbody");
+  const wts = (filesData.worktrees || []).filter(w => w.exists);
+  const cur = wts.find(w => w.path === fileNav.wt) || wts[0];
+  document.getElementById("filescnt").textContent = cur ? cur.name : "";
+  let h = "";
+  if (wts.length > 1) {
+    h += '<div class="rsub">' + wts.map(w =>
+      '<button class="' + (w.path === fileNav.wt ? "active" : "") + '" title="' + esc(w.path) +
+      '" onclick="filesLoadDir(' + JSON.stringify(w.path) + ',\'\')">' + esc(w.name) + "</button>").join("") + "</div>";
+  }
+  if (cur && cur.is_git) {
+    h += '<div class="rels" style="margin-bottom:6px">'
+      + '<span class="pill">⎇ ' + esc(cur.branch) + "</span>"
+      + '<span class="pill ' + (cur.clean ? "ok" : "warn") + '">' + (cur.clean ? "clean" : (cur.dirty + " modifs")) + "</span>"
+      + (cur.untracked ? '<span class="pill warn">' + cur.untracked + " untracked</span>" : "")
+      + (cur.ahead ? '<span class="pill">↑' + cur.ahead + "</span>" : "")
+      + (cur.behind ? '<span class="pill dang">↓' + cur.behind + "</span>" : "")
+      + '<span class="pill" style="cursor:pointer" onclick="filesToggleCommits()">' + (fileNav.showCommits ? "▾" : "▸") + " commits</span></div>";
+    if (fileNav.showCommits) {
+      const cs = fileNav.commits || [];
+      h += '<div class="ms">' + (cs.length ? cs.map(c =>
+        '<div class="oline" style="white-space:normal" title="' + esc(c.author) + '"><span class="r-id">' + esc(c.hash)
+        + '</span> ' + esc(c.subject) + ' <span style="color:var(--muted)">· ' + esc(c.date) + "</span></div>").join("")
+        : '<div style="color:var(--muted);font-size:11.5px">aucun commit</div>') + "</div>";
+    }
+  }
+  if (fileNav.file) {
+    const f = fileNav.file;
+    h += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'
+      + '<button class="mini" onclick="filesLoadDir(fileNav.wt, fileNav.path)">‹ retour</button>'
+      + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b>"
+      + '<span style="color:var(--muted);font-size:11px">' + (Math.round((f.size || 0) / 102.4) / 10) + " Ko</span></div>";
+    h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
+                    : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(f.content) + "</pre>";
+  } else {
+    h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
+      i < a.length - 1
+        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + JSON.stringify(c.path) + ');return false">' + esc(c.name) + "</a>"
+        : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+    h += fileNav.entries.length ? fileNav.entries.map(e => {
+      const child = (fileNav.path ? fileNav.path + "/" : "") + e.name;
+      return e.dir
+        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesLoadDir(fileNav.wt,' + JSON.stringify(child) + ')">📁 ' + esc(e.name) + "</div>"
+        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="filesOpen(' + JSON.stringify(e.name) + ')">📄 ' + esc(e.name)
+          + (e.size != null ? ' <span style="color:var(--muted);font-size:10px">' + (Math.round(e.size / 102.4) / 10) + " Ko</span>" : "") + "</div>";
+    }).join("") : '<div class="empty">dossier vide</div>';
+  }
+  b.innerHTML = h;
 }
 // les deux moitiés du panneau se rafraîchissent ensemble
 
@@ -3771,6 +3891,8 @@ function detach() {
   outline = { items: [], total: 0 }; outPos = null;   // RM2330
   document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
   closeOutlineRead();               // RM2579 : referme la lecture inline
+  filesData = { sid: null, worktrees: [] };   // RM2586 : oublie les worktrees de la session
+  document.getElementById("filesbody").innerHTML = '<div class="empty">attache une session…</div>';
   document.getElementById("chipsrow").style.display = "none";
   renderCurTitle();
 }

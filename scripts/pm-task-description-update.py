@@ -259,7 +259,13 @@ def main():
         fm = yaml.safe_load(m.group(2)) or {}
         body = m.group(4)
         if args.set_from_file:
-            new_body = body  # on ne réécrit pas le corps MD sur un remplacement libre
+            # RM2578 : le fichier fourni EST la nouvelle description — donc la
+            # nouvelle source de vérité. Laisser le corps MD en arrière faisait
+            # diverger les deux checklists : un `--check n` suivant appliquait
+            # ses index sur l'ANCIENNE liste locale (mauvaises lignes cochées),
+            # et `pm-task-deliver`, qui lit le MD, refusait des livraisons sur
+            # une checklist périmée. Constaté deux fois (RM2573, RM2305).
+            new_body = "\n" + new_desc.strip("\n") + "\n"
         else:
             new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all)
         if done_ratio is not None:

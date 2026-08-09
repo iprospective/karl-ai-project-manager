@@ -611,8 +611,44 @@ def op_auth_devices_list(ctx: dict) -> dict:
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
+# Aide intégrée (RM2593) : pages markdown versionnées, servies via /help.
+HELP_DIR = COCKPIT_DIR / "help"
 # Base URL du terminal web ttyd. Vide → le client la calcule (location.hostname:7681).
 TTYD_URL = os.environ.get("KARL_AGENT_TTYD_URL", "")
+
+
+def _help_title(md_path) -> str:
+    """Titre d'une page d'aide = son premier H1 (`# …`), sinon le nom de fichier."""
+    try:
+        for line in md_path.read_text(encoding="utf-8").splitlines():
+            if line.startswith("# "):
+                return line[2:].strip()
+    except OSError:
+        pass
+    return md_path.stem
+
+
+def op_help_list() -> dict:
+    """Sommaire de l'aide (RM2593) : `help/*.md` triés par un préfixe d'ordre
+    optionnel `NN-` (retiré de l'id). Retourne {topics: [{id, title, file}]}."""
+    topics = []
+    if HELP_DIR.is_dir():
+        for p in sorted(HELP_DIR.glob("*.md")):
+            slug = p.stem
+            tid = slug.split("-", 1)[1] if slug[:2].isdigit() and "-" in slug else slug
+            topics.append({"id": tid, "title": _help_title(p), "file": p.name})
+    return {"topics": topics}
+
+
+def op_help_get(topic: str) -> dict | None:
+    """Contenu markdown d'un topic d'aide. Anti-traversal : `topic` est résolu
+    par correspondance dans le sommaire (jamais joint à un chemin). None si inconnu."""
+    topic = (topic or "").strip()
+    for t in op_help_list()["topics"]:
+        if t["id"] == topic:
+            return {"id": t["id"], "title": t["title"],
+                    "markdown": (HELP_DIR / t["file"]).read_text(encoding="utf-8")}
+    return None
 
 
 # ── Helpers tmux ─────────────────────────────────────────────────────────────
@@ -5857,6 +5893,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(404, {"error": "cockpit/index.html absent"})
         if path.startswith("/static/"):      # RM2522 : vendor/ + client terminal
             return self._send_asset(path[len("/static/"):])
+        if path == "/help":                  # RM2593 : sommaire de l'aide intégrée
+            return self._send_json(200, op_help_list())
+        if path.startswith("/help/"):        # RM2593 : contenu markdown d'un topic
+            data = op_help_get(path[len("/help/"):])
+            return self._send_json(200 if data else 404,
+                                   data or {"error": "topic d'aide inconnu"})
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,

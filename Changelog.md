@@ -11,6 +11,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [Unreleased] — Cockpit & environnements de test
+
+### Cockpit
+- **Aide intégrée** (RM2593) : menu **❓ aide** + boutons `?` contextuels par
+  panneau, ouvrant des pages de doc utilisateur markdown versionnées
+  (`deploy/karl-agent/cockpit/help/`) servies par karl-agent (`/help`,
+  `/help/<topic>`) et rendues dans le cockpit. Maintenues au fil des devs.
+- **Instances cockpit de test relançables en un clic** (RM2588) : la file « à
+  tester » sonde l'instance HTTPS (`/health`), affiche son état ●/⚠ + lien
+  `https`, et expose « 🚀 (re)lancer » quand elle est down (survit aux reboots).
+
+### Environnements de test
+- **Exposition HTTPS des instances cockpit de test** (RM2565) : vhost karl
+  factorisé (source unique `karl-vhost-render.sh`, non-régression `karl.conf`),
+  réutilisé par `pm-cockpit-test-env` via `pm-env-helper vhost-karl-add` —
+  terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
+
+### Outillage
+- **Clôture de ticket robuste** (RM2587) : le hook worklog de session
+  (`pm-task-status-update`, étape 7) est best-effort — un checkout sans
+  `pm_session_hook.py` ne casse plus la clôture ni l'auto-commit.
+
+---
+
 ## [1.12.1] - 2026-07-20 — Garde de cible pm-branch-start
 
 ### Outillage

@@ -1067,4 +1067,40 @@ assert(!/\/git\/(checkout|reset|stash|revert|commit|push)/.test(html),
   "aucune action git ne doit être appelable depuis le cockpit");
 console.log("✓ git (RM2602) : lecture seule, aucune action exposée");
 
+// — RM2605 : chaque information dans le bon onglet, tickets cliquables —
+const fWr = />>> worklogRefHtml[\s\S]*?(function worklogRefHtml[\s\S]*?)\n\/\/ <<< worklogRefHtml/.exec(html);
+assert(fWr, "marqueurs >>> worklogRefHtml introuvables");
+const worklogRefHtml = vm.runInNewContext("(" + fWr[1] + ")");
+const escId = s => String(s);
+const lien = worklogRefHtml("RM2467", escId);
+assert(/showTicket\(2467\)/.test(lien), "un ticket ouvre sa fiche");
+assert(/pill/.test(lien) && /cursor:pointer/.test(lien), "et SE VOIT comme cliquable");
+assert(/event\.stopPropagation/.test(lien),
+  "le clic sur le lien ne doit pas aussi déclencher celui de la ligne");
+const libre = worklogRefHtml("pisceen-facettes", escId);
+assert(!/showTicket/.test(libre) && /<b>/.test(libre),
+  "un chantier hors ticket n'est pas un lien : il n'a pas de fiche");
+assert(worklogRefHtml(null, escId).length >= 0, "réf absente tolérée");
+console.log("✓ worklog (RM2605) : tickets cliquables, chantiers libres non");
+
+const fGb = />>> gitBranchesHtml[\s\S]*?(function gitBranchesHtml[\s\S]*?)\n\/\/ <<< gitBranchesHtml/.exec(html);
+assert(fGb, "marqueurs >>> gitBranchesHtml introuvables");
+const gitBranchesHtml = vm.runInNewContext("(" + fGb[1] + ")");
+const brs = gitBranchesHtml(["2605-x", "dev"], "2605-x", escId);
+assert(/2605-x/.test(brs) && /dev/.test(brs), "les branches de la session sont listées");
+assert(/pill ok[^>]*>2605-x/.test(brs) || /class="pill ok"/.test(brs),
+  "la branche COURANTE est distinguée — sinon on ne sait pas laquelle on regarde");
+assert.strictEqual(gitBranchesHtml([], null, escId), "", "aucune branche → rien, pas un cadre vide");
+assert.strictEqual(gitBranchesHtml(null, null, escId), "", "branches absentes tolérées");
+console.log("✓ git (RM2605) : branches dans l'onglet git, la courante distinguée");
+
+// ce qui quitte « infos » ne doit pas disparaître : les conflits restent
+const mReg = /function registryHtml\([\s\S]*?\n\}/.exec(html);
+assert(mReg, "registryHtml introuvable");
+assert(!/reg\.branches/.test(mReg[0]), "les branches ont quitté « infos »");
+assert(!/reg\.worktrees/.test(mReg[0]), "les worktrees ont quitté « infos » (l'onglet fichiers les sert)");
+assert(/registry_conflicts|conf\.forEach/.test(mReg[0]),
+  "les conflits de session RESTENT visibles — ils ne partent nulle part ailleurs");
+console.log("✓ infos (RM2605) : allégé, sans rien perdre");
+
 console.log("OK — tous les tests cockpit passent");

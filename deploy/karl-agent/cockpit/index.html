@@ -2807,6 +2807,33 @@ async function gitLoad(force) {
     document.getElementById("gitbody").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
   } finally { gitLoading = false; }
 }
+// >>> worklogRefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2605 : un ticket cité doit SE VOIR comme un lien. La ligne entière était
+// déjà cliquable, mais un `RM2467` en gras ne dit pas qu'on peut l'ouvrir.
+// Un chantier hors ticket (slug libre) n'est pas un lien : il n'y a pas de fiche.
+function worklogRefHtml(ref, esc) {
+  const s = String(ref == null ? "" : ref);
+  const m = /^RM(\d+)$/i.exec(s);
+  if (!m) return "<b>" + esc(s) + "</b>";
+  return '<span class="pill" style="cursor:pointer" title="Ouvrir la fiche du ticket" '
+    + 'onclick="event.stopPropagation();showTicket(' + m[1] + ')">' + esc(s) + "</span>";
+}
+// <<< worklogRefHtml
+
+// >>> gitBranchesHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2605 : branches de la session, à côté du dépôt qu'elles concernent. La
+// branche COURANTE est distinguée — sans ça, une liste de branches ne dit pas
+// laquelle on regarde.
+function gitBranchesHtml(branches, courante, esc) {
+  const list = (branches || []).filter(Boolean);
+  if (!list.length) return "";
+  return '<div class="kv"><span class="k">branches</span><span class="v rels">'
+    + list.map(b => '<span class="pill' + (b === courante ? " ok" : "") + '" title="'
+        + esc(b) + (b === courante ? " (branche courante)" : "") + '">' + esc(b) + "</span>").join(" ")
+    + "</span></div>";
+}
+// <<< gitBranchesHtml
+
 function gitRender() {
   const body = document.getElementById("gitbody");
   if (!gitLog.is_git) {
@@ -2832,8 +2859,13 @@ function gitRender() {
   cnt.textContent =
     (gitLog.branch || "?") + (locaux ? " · " + locaux + " non poussé" + (locaux > 1 ? "s" : "") : "")
     + (gitLog.dirty ? " · " + gitLog.dirty + " modifié" + (gitLog.dirty > 1 ? "s" : "") : "");
-  if (!gitLog.commits.length) { body.innerHTML = '<div class="empty">aucun commit</div>'; return; }
-  body.innerHTML = "";
+  const reg = (sessCache[attached] || {}).registry || {};
+  const entete = gitBranchesHtml(reg.branches, gitLog.branch, esc);
+  if (!gitLog.commits.length) {
+    body.innerHTML = entete + '<div class="empty">aucun commit</div>';
+    return;
+  }
+  body.innerHTML = entete;
   for (const c of gitLog.commits) {
     const d = document.createElement("div");
     d.className = "gcommit" + (c.pushed ? "" : " local") + (gitSel === c.sha ? " cur" : "");
@@ -3047,7 +3079,7 @@ function renderWorklog() {
       brs.forEach(b => usedBr.add(b));
       tickets += '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
         + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
-        + "<b>" + esc(it.ref) + '</b> <span class="pill">' + esc(it.status) + "</span>" + drift
+        + worklogRefHtml(it.ref, esc) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
         + (it.label ? " " + esc(it.label) : "")
         + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
         + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
@@ -3772,12 +3804,9 @@ function registryHtml(rmId) {
   if (reg) {
     h += '<div class="kv"><span class="k">session PM</span><span class="v">#' + esc(reg.seq) +
       (reg.machine ? ' · m' + esc(reg.machine) : '') + (reg.created ? ' · ' + esc(reg.created) : '') + '</span></div>';
-    if (reg.branches && reg.branches.length)
-      h += '<div class="kv"><span class="k">branches</span><span class="v rels">' +
-        reg.branches.map(b => '<span class="pill" title="' + esc(b) + '">' + esc(b) + '</span>').join(' ') + '</span></div>';
-    if (reg.worktrees && reg.worktrees.length)
-      h += '<div class="kv"><span class="k">worktrees</span><span class="v rels">' +
-        reg.worktrees.map(w => '<span class="pill" title="' + esc(w) + '">' + esc(wtName(w)) + '</span>').join(' ') + '</span></div>';
+    // RM2605 : les branches vivent dans l'onglet git (c'est la vue du dépôt) et
+    // les worktrees dans l'onglet fichiers (qui les sert déjà via /worktrees).
+    // « infos » garde ce qui n'appartient qu'à la session.
   }
   conf.forEach(c => {
     h += '<div style="margin-top:4px"><span class="pill dang">⚠ RM' + esc(c.rm_id) +

@@ -1002,4 +1002,14 @@ assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
 assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
 console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
 
+// — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
+const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
+assert(fPs, "marqueurs pendStaleSet introuvables");
+const pendStaleSet = vm.runInNewContext("(" + fPs[1] + ")", { Set });
+const ps = pendStaleSet([{ rm_id: "1", kind: "live" }, { rm_id: "2", kind: "stale" }, { rm_id: "3", kind: "stale" }]);
+assert(!ps.has("1") && ps.has("2") && ps.has("3"), "ne garde que les stale (live déjà signalés ⚠/❓)");
+assert.strictEqual(pendStaleSet([]).size, 0, "vide → Set vide");
+assert.strictEqual(pendStaleSet(null).size, 0, "null toléré");
+console.log("\u2713 pendStaleSet (RM2598) : questions sans réponse, live exclues");
+
 console.log("OK — tous les tests cockpit passent");

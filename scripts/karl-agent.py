@@ -4465,19 +4465,40 @@ def parse_numstat(raw):
 # <<< parse_numstat
 
 
-def _ticket_repo(rm_id: str) -> Path:
-    """Dépôt du ticket : son worktree de session s'il existe, sinon le workspace
-    de code. Jamais un chemin fourni par le client."""
+def _is_pm_data_repo(cwd) -> bool:
+    """Vrai si ce dépôt ne porte QUE des données PM (`.mmi-pm/`).
+
+    Au layout RM1993, la racine d'un workspace est un dépôt de données : elle ne
+    track que `.mmi-pm/` et reçoit les auto-commits de l'outillage (`pm(tick)`,
+    `pm(report)`…). Y dérouler un journal de commits noie le code sous du bruit
+    machine — c'est ce que la première version faisait."""
+    rc, out, _ = _git(cwd, "ls-files", "--", ":!.mmi-pm", ":!.gitignore")
+    return rc == 0 and not out.strip()
+
+
+def _ticket_repo(rm_id: str):
+    """(dépôt, origine) du ticket. Jamais un chemin fourni par le client.
+
+    RM2602 : on cherche le WORKTREE de code, pas le workspace. Le repli sur la
+    racine du workspace montrait le dépôt de données PM et ses auto-commits —
+    exactement ce qu'on ne veut pas voir.
+    """
     tf = _find_task_file(rm_id)
-    if not tf:
-        return Path(DEFAULT_CWD)
-    ws = _resolve_workspace(tf.parent.parent)
-    if not ws:
-        return Path(DEFAULT_CWD)
-    for d in sorted((ws / "envs").glob(f"*rm{rm_id}")):
+    ws = _resolve_workspace(tf.parent.parent) if tf else None
+    if ws:
+        for d in sorted((ws / "envs").glob(f"*rm{rm_id}")):
+            if (d / ".git").exists():
+                return d, "worktree du ticket"
+    # Le ticket n'a pas SON worktree : celui de la session fait l'affaire — c'est
+    # là que la session travaille réellement. `_session_worktrees` (RM2590) rend
+    # des chaînes, pas des Path.
+    for w in _session_worktrees(rm_id):
+        d = Path(w)
         if (d / ".git").exists():
-            return d
-    return ws
+            return d, f"worktree de la session ({d.name})"
+    if ws:
+        return ws, "racine du workspace"
+    return Path(DEFAULT_CWD), "répertoire par défaut"
 
 
 def _unpushed_shas(cwd, limit):
@@ -4497,10 +4518,17 @@ def op_git_log(rm_id: str, qs: dict) -> dict:
     """RM2602 : commits de la branche du ticket, poussés ou non."""
     if not _RM_ID_RE.match(rm_id):
         raise ApiError(400, "rm_id invalide")
-    cwd = _ticket_repo(rm_id)
+    cwd, origine = _ticket_repo(rm_id)
     rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
     if rc != 0:
-        return {"rm_id": rm_id, "cwd": str(cwd), "is_git": False, "commits": []}
+        return {"rm_id": rm_id, "cwd": str(cwd), "origin": origine,
+                "is_git": False, "commits": []}
+    if _is_pm_data_repo(cwd):
+        # le DIRE plutôt que dérouler des pm(tick) : un journal d'auto-commits
+        # ressemble à du travail alors qu'il n'en est pas.
+        return {"rm_id": rm_id, "cwd": str(cwd), "origin": origine,
+                "is_git": True, "pm_data_repo": True, "commits": [],
+                "branch": None, "dirty": 0, "untracked": 0}
     try:
         limit = max(1, min(GIT_LOG_MAX, int(qs.get("limit") or 40)))
     except ValueError:
@@ -4513,7 +4541,8 @@ def op_git_log(rm_id: str, qs: dict) -> dict:
     non_pousses = _unpushed_shas(cwd, limit * 3)
     commits = parse_git_log(raw, unpushed_shas=non_pousses)
     rc, porcelain, _ = _git(cwd, "status", "--porcelain")
-    return {"rm_id": rm_id, "cwd": str(cwd), "is_git": True, "branch": branch,
+    return {"rm_id": rm_id, "cwd": str(cwd), "origin": origine,
+            "is_git": True, "pm_data_repo": False, "branch": branch,
             "commits": commits, "limit": limit,
             "dirty": len([l for l in porcelain.splitlines() if l and not l.startswith("??")]),
             "untracked": len([l for l in porcelain.splitlines() if l.startswith("??")])}
@@ -4539,7 +4568,7 @@ def op_git_show(rm_id: str, sha: str) -> dict:
         raise ApiError(400, "rm_id invalide")
     if not _valid_sha(sha):
         raise ApiError(400, "sha invalide")
-    cwd = _ticket_repo(rm_id)
+    cwd, _ = _ticket_repo(rm_id)
     fmt = GIT_LOG_SEP.join(["%H", "%cI", "%an", "%s", "%P"])
     rc, raw, _ = _git(cwd, "show", "-s", f"--format={fmt}", sha)
     if rc != 0:
@@ -4556,7 +4585,7 @@ def op_git_diff(rm_id: str, qs: dict) -> dict:
     """RM2602 : diff cumulé de la branche vs sa cible, ou travail non commité."""
     if not _RM_ID_RE.match(rm_id):
         raise ApiError(400, "rm_id invalide")
-    cwd = _ticket_repo(rm_id)
+    cwd, _ = _ticket_repo(rm_id)
     mode = (qs.get("mode") or "branch").strip()
     if mode == "worktree":
         stats, patch, tronque = _diff_payload(cwd, ["diff", "HEAD"])

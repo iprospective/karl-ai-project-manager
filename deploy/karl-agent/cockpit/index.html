@@ -2814,8 +2814,22 @@ function gitRender() {
     document.getElementById("gitcnt").textContent = "";
     return;
   }
+  // RM2602 : la racine d'un workspace ne track que `.mmi-pm/` et reçoit les
+  // auto-commits de l'outillage. Y dérouler un journal donnerait à lire des
+  // `pm(tick)` comme s'il s'agissait de travail — on le dit, on ne l'affiche pas.
+  if (gitLog.pm_data_repo) {
+    document.getElementById("gitcnt").textContent = "aucun code";
+    body.innerHTML = '<div class="empty">Ce ticket n\'a pas de worktree de code.'
+      + "<br><br>Le dépôt trouvé ne porte que les données PM (<code>.mmi-pm/</code>) "
+      + "et ses commits automatiques — sans intérêt ici.<br><br>"
+      + "Prends le ticket (<code>pm-task-take</code>) pour créer son worktree, "
+      + "ou attache une session qui en a un.</div>";
+    return;
+  }
   const locaux = gitLog.commits.filter(c => !c.pushed).length;
-  document.getElementById("gitcnt").textContent =
+  const cnt = document.getElementById("gitcnt");
+  cnt.title = "Dépôt : " + (gitLog.cwd || "?") + "\n(" + (gitLog.origin || "?") + ")";
+  cnt.textContent =
     (gitLog.branch || "?") + (locaux ? " · " + locaux + " non poussé" + (locaux > 1 ? "s" : "") : "")
     + (gitLog.dirty ? " · " + gitLog.dirty + " modifié" + (gitLog.dirty > 1 ? "s" : "") : "");
   if (!gitLog.commits.length) { body.innerHTML = '<div class="empty">aucun commit</div>'; return; }

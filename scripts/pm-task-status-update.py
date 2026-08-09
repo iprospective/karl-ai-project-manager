@@ -195,7 +195,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         env_cfg = (yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}).get(
             "env_runtime") or {}
         if not env_cfg.get("auto_session", True):
-            return
+            return          # opt-out global assumé : silence voulu, pas une panne
         # workspace = parent du .mmi-pm contenant la tâche (co-location RM1949)
         real = md_path.resolve()
         ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
@@ -204,13 +204,25 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
             encoding="utf-8")) or {}).get("repos") or []
         if not repos:
+            # RM2578 : ces sorties étaient MUETTES, et `out.info` n'émet qu'en
+            # --verbose. On ne pouvait donc pas distinguer « le hook n'a pas
+            # tourné » de « il a tourné sans rien faire » — un ticket a conclu
+            # au premier alors que rien ne le prouvait.
+            out.warn(f"env de session non créé pour RM{rm_id} : aucun `repos:` "
+                     f"au manifeste ({ws}/.mmi-pm/meta.yml)")
             return
         if len(repos) > 1:
-            out.info(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
-                  f"pm-env-session.py create {rm_id} --repo <name>", file=sys.stderr)
+            out.warn(f"env de session non auto ({len(repos)} repos au manifeste) : "
+                     f"pm-env-session.py create {rm_id} --repo <name>")
             return
         name = repos[0].get("name")
-        if not name or not (ws / "repos" / f"{name}.git").is_dir():
+        if not name:
+            out.warn(f"env de session non créé pour RM{rm_id} : le premier `repos:` "
+                     f"du manifeste n'a pas de `name`")
+            return
+        if not (ws / "repos" / f"{name}.git").is_dir():
+            out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
+                     f"({ws}/repos/{name}.git) — workspace hors layout RM1993 ?")
             return
         if new_status == "en_cours":
             verb = "create"
@@ -232,7 +244,9 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         hook_out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
             last = hook_out.splitlines()[-1] if hook_out else f"✓ {verb} ok"
-            out.info(f"  · env de session ({verb}) : {last}")
+            # RM2578 : VISIBLE, pas réservé au --verbose. Savoir si le worktree
+            # est exécutable (runtime appliqué) fait partie du contrat du take.
+            out.op("env-session", rm=rm_id, extra=f"{verb} — {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.

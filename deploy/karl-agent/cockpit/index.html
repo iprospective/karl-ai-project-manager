@@ -351,6 +351,11 @@
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
+  /* RM2585 : titre de ticket cliquable (→ fiche) + petit lien externe ↗ Redmine */
+  .tlink { cursor: pointer; }
+  .tlink:hover { color: var(--accent); text-decoration: underline; }
+  .rmext { color: var(--muted); text-decoration: none; font-size: 11px; padding: 0 2px; }
+  .rmext:hover { color: var(--accent); }
   /* RM2579 : sous-onglets de l'onglet « tickets » (niveau 1 = ticket, niveau 2 = facette) */
   .rsub { display: flex; flex-wrap: wrap; gap: 3px; margin: 0 0 8px; }
   .rsub.facets { margin-top: -2px; }
@@ -1284,7 +1289,7 @@ function renderAttnBand(list, sessions) {
     chip.className = "attnchip";
     chip.innerHTML = '<span class="tdot st-' + esc(s.state) + '"></span>' +
       '<span class="tid">' + (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
-      '<span class="rmeta">' + esc((r && r.found ? r.title : "") || tmuxName(s.rm_id)) + '</span>' +
+      '<span class="rmeta">' + ((r && r.found && r.title) ? titleLink(s.rm_id, r.title) : esc(tmuxName(s.rm_id))) + '</span>' +
       (s.state === "attention" ? '<span class="tyes" title="Répondre Oui (sans attacher)">✔</span>' : '');
     chip.onclick = () => attach(s.rm_id);
     const y = chip.querySelector(".tyes");
@@ -1374,7 +1379,7 @@ async function refreshSessions() {
           (disp && disp !== "a_traiter" ? " disp-" + disp : "") +
           '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
-          '<span class="rmeta">' + esc(title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
+          '<span class="rmeta">' + titleLink(s.rm_id, title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           badge + auto +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
           // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
@@ -1415,7 +1420,7 @@ async function refreshSessions() {
         it.title = "Revue RM" + rm + (r && r.found ? " — " + (r.title || "") : "");
         it.innerHTML = '<span class="tdot" style="background:var(--warn)"></span>' +
           '<span class="tid">RM' + esc(rm) + '</span>' +
-          '<span class="rmeta">' + esc(r && r.found ? (r.title || "") : "") + '</span>' +
+          '<span class="rmeta">' + titleLink(rm, r && r.found ? r.title : "") + '</span>' +
           '<span class="tkill" title="Fermer la revue">✕</span>';
         it.onclick = () => openReview(rm);
         it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); closeReview(rm); };
@@ -1454,7 +1459,7 @@ function renderCurTitle() {
     const s = sessCache[attached] || {}, r = resolveCache[attached];
     el.innerHTML = '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
       (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
-      '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : tmuxName(attached)) + '</span>' +
+      '<span class="ttitle">' + ((r && r.found && r.title) ? titleLink(attached, r.title) : esc(tmuxName(attached))) + '</span>' +
       (s.state === "attention"
         ? '<span class="tbadge">⚠</span><button class="mini" style="margin-left:8px" ' +
           'onclick="approve(attached)" title="Répondre Oui à la question en attente de cette session">✔ Oui</button>'
@@ -1463,7 +1468,7 @@ function renderCurTitle() {
   } else if (currentReview) {
     const r = resolveCache[currentReview];
     el.innerHTML = '🧪 <span class="tid">RM' + esc(currentReview) + '</span>' +
-      '<span class="ttitle">' + esc(r && r.found ? (r.title || "") : "") + '</span>';
+      '<span class="ttitle">' + titleLink(currentReview, r && r.found ? r.title : "") + '</span>';
   } else if (currentProjectView) {
     el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
       '<span class="ttitle">fiche projet</span>';
@@ -3131,7 +3136,7 @@ async function search() {
       const li = document.createElement("li");
       li.innerHTML =
         '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' +
-        '<span class="r-title">' + (t.title || "(sans titre)") + '</span></div>' +
+        '<span class="r-title">' + titleLink(t.rm_id, t.title || "(sans titre)") + '</span></div>' +
         '<div class="r-meta">' + t.client + " / " + t.project + " · " + (t.status || "?") + '</div>';
       li.onclick = () => {
         document.getElementById("rm").value = t.rm_id;
@@ -3290,6 +3295,25 @@ let metaTicket = null;  // RM2173 : ticket affiché dans l'encart (≠ session a
 let groupsCache = {};   // RM2173 : clé client/projet → sessions du groupe
 let orderedCache = [];  // RM2302 : sessions à plat, dans l'ordre d'affichage
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+// >>> titleLink — pur (testé par test_cockpit.js ; esc + CFG fournis au contexte)
+// Titre de ticket cliquable → fiche infos (showTicket), suivi d'un petit lien ↗ vers
+// Redmine (construit depuis CFG.redmine_url). rmId absent/non numérique (chantier,
+// session slug) → texte simple, non cliquable. event.stopPropagation : un titre dans
+// une tuile ouvre la fiche SANS déclencher l'action de la tuile (attacher).
+function titleLink(rmId, title) {
+  const t = esc(title == null ? "" : title);
+  if (rmId == null || !/^\d+$/.test(String(rmId))) return t;
+  const id = String(rmId);
+  const lbl = '<span class="tlink" title="Voir la fiche du ticket RM' + id + '" '
+    + 'onclick="showTicket(' + id + ');event.stopPropagation()">' + t + '</span>';
+  const base = (typeof CFG !== "undefined" && CFG && CFG.redmine_url) || "";
+  const ext = base
+    ? ' <a class="rmext" href="' + esc(base) + '/issues/' + id + '" target="_blank" rel="noopener"'
+      + ' title="Ouvrir RM' + id + ' dans Redmine" onclick="event.stopPropagation()">↗</a>'
+    : '';
+  return lbl + ext;
+}
+// <<< titleLink
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
   if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
@@ -4176,7 +4200,7 @@ function tkRow(t) {
   return '<div class="oline" style="white-space:normal" onclick="showTicket(' + esc(t.rm_id) + ')" ' +
     'title="Détail dans l’encart ℹ">' +
     '<span class="r-id">RM' + esc(t.rm_id) + '</span> ' +
-    '<span class="pill">' + esc(t.status || "?") + '</span> ' + esc(t.title || "") +
+    '<span class="pill">' + esc(t.status || "?") + '</span> ' + titleLink(t.rm_id, t.title) +
     (t.mtime ? ' <span style="color:var(--muted)">· ' + ago(t.mtime) + '</span>' : "") + '</div>';
 }
 function renderProjectPane(key, d) {
@@ -4337,7 +4361,7 @@ function renderReviewPane() {
   if (!currentReview) return;
   const rm = currentReview, r = resolveCache[rm], q = tqCache[rm];
   let h = '<div style="max-width:720px">';
-  h += '<h3 style="margin:0 0 4px">🧪 RM' + esc(rm) + (r && r.found ? " — " + esc(r.title) : "") + '</h3>';
+  h += '<h3 style="margin:0 0 4px">🧪 RM' + esc(rm) + (r && r.found ? " — " + titleLink(rm, r.title) : "") + '</h3>';
   if (r && r.found) {
     h += '<div style="color:var(--muted);margin-bottom:6px">' + esc(r.client + "/" + r.project) +
       ' · <span class="pill">' + esc(r.status || "?") + '</span>' +

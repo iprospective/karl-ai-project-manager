@@ -5765,6 +5765,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/cockpit-config":
             return self._send_json(200, {
                 "ttyd_base": TTYD_URL,
+                # RM2585 : base Redmine → lien externe ↗ construit côté client
+                # (…/issues/<rm>) partout où un ticket s'affiche, sans /resolve.
+                "redmine_url": os.environ.get("REDMINE_URL", "").rstrip("/"),
                 "auth_required": AUTH_TOKEN is not None or BASIC_USER is not None,
                 # la carte de login user/mdp n'a de sens que si des identifiants
                 # existent (superadmin .env et/ou comptes serveur)

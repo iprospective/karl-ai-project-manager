@@ -4567,16 +4567,31 @@ function renderTQ() {
         '<span class="r-title" title="' + esc(e.title) + '">' + esc(e.title) + '</span></div>';
       h += '<div class="r-meta">' + esc((e.client || "?") + "/" + (e.project || "?")) +
         (e.branch ? " · " + esc(e.branch) : "") +
-        (e.test_host && e.env_live ? ' · <a href="http://' + esc(e.test_host) + '/" target="_blank">' + esc(e.test_host) + ' ↗</a>' :
-         e.test_host ? ' · <span title="' + esc(e.env_reason || 'env indisponible') + '" style="color:var(--muted)">' + esc(e.test_host) + ' ⚠</span>' : "") + '</div>';
+        // RM2588 : instance cockpit de test = lien test_url HTTPS (RM2565) + état
+        // ●/⚠ issu de la sonde HTTPS ; sinon env docroot (lien http legacy).
+        (e.cockpit_testable
+          ? (e.env_live && e.test_url
+              ? ' · <a href="' + esc(e.test_url) + '" target="_blank">' + esc(e.cockpit_host || e.test_url) + ' ↗</a> <span title="instance de test en ligne" style="color:var(--ok,#3fb950)">●</span>'
+              : ' · <span title="' + esc(e.env_reason || 'instance de test non lancée') + '" style="color:var(--muted)">instance de test ⚠</span>')
+          : (e.test_host && e.env_live ? ' · <a href="http://' + esc(e.test_host) + '/" target="_blank">' + esc(e.test_host) + ' ↗</a>' :
+             e.test_host ? ' · <span title="' + esc(e.env_reason || 'env indisponible') + '" style="color:var(--muted)">' + esc(e.test_host) + ' ⚠</span>' : "")) + '</div>';
       h += '<div class="rels" style="margin-top:5px">';
       h += '<button class="chip" onclick="openReview(' + e.rm_id + ')">🧪 revue</button>';
-      if (e.env && e.env_live) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
+      // RM2588 : cockpit_testable EN PREMIER — un worktree de code a toujours
+      // `e.env`, donc sans ça la branche `else if (e.env)` masquait le bouton de
+      // (re)lance. En ligne → démonter ; sinon → (re)lancer (create idempotent :
+      // survit aux reboots qui tuent l'unité --user) + démonter (nettoyage).
+      if (e.cockpit_testable) {
+        if (e.env_live) h += '<button class="chip" onclick="tqCockpitEnv(' + e.rm_id + ', \'teardown\', this)">🧹 démonter l\'instance</button>';
+        else {
+          h += '<button class="chip" title="(Re)lance une instance karl-agent de la BRANCHE du ticket en HTTPS (RM2565) et pose test_url" onclick="tqCockpitEnv(' + e.rm_id + ', \'create\', this)">🚀 (re)lancer l\'instance de test</button>';
+          h += '<button class="chip" title="Nettoyer un vhost/état résiduel" onclick="tqCockpitEnv(' + e.rm_id + ', \'teardown\', this)">🧹 démonter</button>';
+        }
+      }
+      else if (e.env && e.env_live) h += '<button class="chip" onclick="tqTeardown(' + e.rm_id + ', this)">🧹 démonter</button>';
       else if (e.env) h += '<button class="chip" title="' + esc(e.env_reason || 'env indisponible') + '" onclick="tqDeploy(' + e.rm_id + ', this)">🔁 re-déployer</button>';
-      else if (e.cockpit_testable) h += '<button class="chip" title="Lance une instance karl-agent de la BRANCHE du ticket (port dédié) et pose test_url" onclick="tqCockpitEnv(' + e.rm_id + ', \'create\', this)">🚀 instance cockpit de test</button>';
       else if (e.deployable) h += '<button class="chip" onclick="tqDeploy(' + e.rm_id + ', this)">🚀 déployer</button>';
       else h += '<span class="pill" title="workspace hors layout repos/+envs/ — normaliser d\'abord (mmi-pm env migrate)" style="opacity:.5">🚀 indisponible</span>';
-      if (e.cockpit_testable) h += '<button class="chip" onclick="tqCockpitEnv(' + e.rm_id + ', \'teardown\', this)">🧹 instance test</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'valider\', this)">✅ testé OK → fermer</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'mep\', this)">🚧 testé OK → MEP</button>';
       h += '<button class="chip" onclick="tqVerdict(' + e.rm_id + ', \'renvoyer\', this)">↩ KO → corriger</button>';

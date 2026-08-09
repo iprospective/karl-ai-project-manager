@@ -381,6 +381,12 @@
   .rels .pill { cursor: pointer; }
   .docmodal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 20; align-items: center; justify-content: center; }
   .docmodal.show { display: flex; }
+  /* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
+  .helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  .helptoc .chip.on { color: var(--accent); font-weight: 600; }
+  .helpbody { font-size: 14px; line-height: 1.55; }
+  .helpq { cursor: pointer; background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 50%; width: 18px; height: 18px; line-height: 15px; font-size: 12px; padding: 0; margin-left: 6px; vertical-align: middle; }
+  .helpq:hover { color: var(--accent); border-color: var(--accent); }
   .docbox { width: min(900px, 92vw); height: min(80vh, 800px); background: var(--panel); border: 1px solid var(--line); border-radius: 10px; display: flex; flex-direction: column; }
   .docbar { display: flex; align-items: center; justify-content: space-between; padding: 10px 14px; border-bottom: 1px solid var(--line); font-family: var(--mono); font-size: 13px; }
   #doccontent { margin: 0; padding: 16px; overflow: auto; font-size: 12.5px; color: var(--fg); flex: 1; }
@@ -498,6 +504,8 @@ if (window.matchMedia) {
        `main` est lui-même une décision humaine. -->
   <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
     title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
+  <!-- RM2593 : aide intégrée du cockpit -->
+  <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -550,7 +558,7 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-tickets">
     <div class="card">
-      <h2>Rechercher un ticket</h2>
+      <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
       <div class="searchrow">
         <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
         <button class="mini" id="searchclear" onclick="clearSearch()" title="Vider la recherche">✕</button>
@@ -584,7 +592,7 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-sessions">
     <div class="card">
-      <h2>Lancer une session</h2>
+      <h2>Lancer une session <button class="helpq" onclick="openHelp('sessions')" title="Aide sur ce panneau">?</button></h2>
       <label for="rm">Ticket (RM id)</label>
       <input id="rm" type="number" inputmode="numeric" placeholder="ex : 1669" min="1">
       <div class="resolved" id="resolved"></div>
@@ -649,7 +657,7 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-test">
     <div class="card" id="tqcard">
-      <h2>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span></h2>
+      <h2>🧪 À tester <span class="tq-count" id="tq-count" style="color:var(--muted);font-weight:normal"></span> <button class="helpq" onclick="openHelp('tests')" title="Aide sur ce panneau">?</button></h2>
       <!-- RM2315 : recherche par mots-clés, combinable avec les filtres ci-dessous -->
       <div class="searchrow" style="margin-top:8px">
         <input id="tq-q" type="text" placeholder="mots-clés : id, titre, projet, branche, tag…" oninput="renderTQ()">
@@ -694,7 +702,7 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-pm">
     <div class="card" id="pmcard">
-      <h2>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span></h2>
+      <h2>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span> <button class="helpq" onclick="openHelp('commandes')" title="Aide sur ce panneau">?</button></h2>
       <div id="pm-menu" style="margin-top:8px"></div>
       <div id="pm-form"></div>
       <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
@@ -800,7 +808,7 @@ if (window.matchMedia) {
       </div>
     </div>
     <div class="card" id="reglages-card">
-      <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span></h2>
+      <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span> <button class="helpq" onclick="openHelp('reglages')" title="Aide sur ce panneau">?</button></h2>
       <div id="reglages-body" style="margin-top:8px"></div>
     </div>
     </div>
@@ -3719,6 +3727,42 @@ async function openDoc(path, name) {
   } catch (e) { el.textContent = "erreur : " + e.message; }
 }
 function closeDoc() { document.getElementById("docmodal").classList.remove("show"); }
+
+// RM2593 : aide intégrée. Pages markdown servies par /help (sommaire) et
+// /help/<topic> (contenu), rendues dans la docmodal — sommaire (chips) + corps.
+// openHelp() sans argument ouvre la première page (index). Les liens markdown
+// internes dont le href est un id de topic naviguent dans l'aide.
+let HELP_TOPICS = null;
+async function openHelp(topic) {
+  const el = document.getElementById("doccontent");
+  document.getElementById("doctitle").textContent = "❓ Aide";
+  el.className = ""; el.textContent = "chargement…";
+  document.getElementById("docmodal").classList.add("show");
+  try {
+    if (!HELP_TOPICS) {
+      const lr = await fetch("/help", { headers: headers() });
+      HELP_TOPICS = lr.ok ? ((await lr.json()).topics || []) : [];
+    }
+    const topics = HELP_TOPICS;
+    if (!topic) topic = (topics[0] || {}).id;
+    let md = "*(aide indisponible)*";
+    if (topic) {
+      const cr = await fetch("/help/" + encodeURIComponent(topic), { headers: headers() });
+      md = cr.ok ? ((await cr.json()).markdown || "") : "*(page d'aide introuvable)*";
+    }
+    const toc = topics.map(t =>
+      '<button class="chip' + (t.id === topic ? ' on' : '') +
+      '" onclick="openHelp(\'' + t.id + '\')">' + esc(t.title) + '</button>').join("");
+    el.innerHTML = '<div class="helptoc">' + toc + '</div><div class="helpbody">' + mdToHtml(md) + '</div>';
+    // liens markdown internes (href = id de topic) → navigation d'aide interne
+    el.querySelectorAll('.helpbody a[href]').forEach(a => {
+      const href = a.getAttribute("href") || "";
+      if (topics.some(t => t.id === href)) {
+        a.onclick = (ev) => { ev.preventDefault(); openHelp(href); };
+      }
+    });
+  } catch (e) { el.textContent = "erreur : " + e.message; }
+}
 
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au

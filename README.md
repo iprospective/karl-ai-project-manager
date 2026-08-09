@@ -123,6 +123,12 @@ workspace à son volet PM — **symlink** vers `projects/…` (modèle historiqu
 **dossier co-localisé versionné** dans le workspace (modèle RM1949/RM2228, fichiers
 partagés avec l'arbo centrale). `pm-workspace-coloc` gère la conversion.
 
+## Pour les développeurs
+
+Pour développer le système PM lui-même (architecture, flux, boucle de dev,
+« comment contribuer ») : **[DEVELOPMENT.md](DEVELOPMENT.md)** — point d'entrée
+qui relie README, normes, `knowledge/` et `docs/`.
+
 ## Pour les agents IA
 
 **Ordre de lecture au démarrage :** voir `CLAUDE.md` à la racine et `agents/worker-common.md`.

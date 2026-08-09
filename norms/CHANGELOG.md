@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [1.67.0] - 2026-08-09
+
+### Ajouté
+- **governance** — sous-section dédiée « **Développement du PM** » : le contrat
+  « docs vivantes » est étendu de 2 à **4 cibles** — `Changelog.md`, `README.md`,
+  **aide cockpit** (`deploy/karl-agent/cockpit/help/`, RM2593) et **doc
+  développeur** (`DEVELOPMENT.md`, RM2594). Toute MR qui change la surface
+  concernée met à jour sa doc dans la même MR (refusable en revue sinon). Nouveau
+  déclencheur KERNEL « je livre un changement de surface ». (RM2595)
+
 ## [1.66.1] - 2026-08-07
 
 ### Précisé

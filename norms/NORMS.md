@@ -1,10 +1,10 @@
 ---
-schema_version: "1.66.1"
+schema_version: "1.67.0"
 updated: 2026-08-07
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.66.1
+# Normes de gestion des tâches — v1.67.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -30,6 +30,7 @@ updated: 2026-08-07
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
+| je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
 | je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
@@ -2999,6 +3000,24 @@ deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
 - Ces mises à jour font partie de la **livraison** (même esprit que le CHANGELOG
   projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
   sans sa ligne de Changelog.
+
+### Développement du PM — doc vivante à quatre cibles (RM2595)
+
+Le contrat « docs vivantes » ci-dessus est le **contrat de développement du PM**.
+Il porte sur **quatre cibles** : toute livraison qui change la surface concernée
+met à jour, **dans la même MR** que le code, la doc correspondante — un reviewer
+peut refuser une MR « surface » dont la doc n'a pas suivi.
+
+| Cible | Se met à jour quand… | Où |
+|---|---|---|
+| `Changelog.md` | la **surface système** change (outil, skill, flux statuts/envs/cockpit) | entrée jalon courante (`[Unreleased]` ou nouvelle) |
+| `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
+| **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
+| **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+
+Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+(pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
+commit-par-commit (le détail vit dans les tickets).
 
 ## Versionning des normes
 

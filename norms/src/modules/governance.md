@@ -129,6 +129,24 @@ deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
   projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
   sans sa ligne de Changelog.
 
+### Développement du PM — doc vivante à quatre cibles (RM2595)
+
+Le contrat « docs vivantes » ci-dessus est le **contrat de développement du PM**.
+Il porte sur **quatre cibles** : toute livraison qui change la surface concernée
+met à jour, **dans la même MR** que le code, la doc correspondante — un reviewer
+peut refuser une MR « surface » dont la doc n'a pas suivi.
+
+| Cible | Se met à jour quand… | Où |
+|---|---|---|
+| `Changelog.md` | la **surface système** change (outil, skill, flux statuts/envs/cockpit) | entrée jalon courante (`[Unreleased]` ou nouvelle) |
+| `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
+| **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
+| **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+
+Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+(pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
+commit-par-commit (le détail vit dans les tickets).
+
 ## Versionning des normes
 
 | Type | Exemple | Règle |

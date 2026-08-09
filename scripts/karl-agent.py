@@ -4410,13 +4410,42 @@ def _session_worktrees(sid: str) -> list:
     return []
 
 
-def _resolve_worktree(sid: str, worktree: str) -> Path:
-    """Le worktree demandé doit être EXACTEMENT l'un de ceux de la session."""
-    if worktree in _session_worktrees(sid):
+def _project_worktrees(client: str, project: str) -> list:
+    """RM2590 : TOUS les worktrees de code du projet. Deux sources unies, pour
+    couvrir repo unique ET layout RM1993 (bare + worktrees sous envs/) :
+      1. `git worktree list` depuis le workspace résolu ;
+      2. scan de `<workspace>/envs/` (les worktrees de code y vivent, séparés du
+         checkout que résout `_resolve_workspace` pour les projets data/code split)."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        return []
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    if not ws:
+        return []
+    paths = set()
+    rc, out, _ = _git(ws, "worktree", "list", "--porcelain")
+    if rc == 0:
+        paths |= {l[len("worktree "):] for l in out.splitlines() if l.startswith("worktree ")}
+    for cand in (ws / "envs", ws.parent / "envs"):
+        if cand.is_dir():
+            for d in cand.iterdir():
+                if d.is_dir() and (d / ".git").exists():
+                    paths.add(str(d))
+            break
+    return sorted(paths)
+
+
+def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str = None) -> Path:
+    """Le worktree demandé doit appartenir au périmètre autorisé : les worktrees de
+    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590."""
+    allowed = set(_session_worktrees(sid)) if sid else set()
+    if client and project:
+        allowed |= set(_project_worktrees(client, project))
+    if worktree in allowed:
         p = Path(worktree)
         if p.is_dir():
             return p
-    raise ApiError(403, "worktree hors de la session")
+    raise ApiError(403, "worktree hors du périmètre autorisé")
 
 
 def _safe_subpath(base: Path, subpath: str) -> Path:
@@ -4490,9 +4519,21 @@ def op_worktrees(sid: str) -> dict:
     return {"sid": sid, "worktrees": out}
 
 
-def op_fs_ls(sid: str, worktree: str, subpath: str) -> dict:
-    """Listing d'un dossier d'un worktree de la session (dossiers d'abord)."""
-    base = _resolve_worktree(sid, worktree)
+def op_project_worktrees(client: str, project: str) -> dict:
+    """RM2590 : TOUS les worktrees du projet + git status (pour la vue projet)."""
+    out = []
+    for w in _project_worktrees(client, project):
+        p = Path(w)
+        item = {"path": w, "name": p.name, "exists": p.is_dir()}
+        if p.is_dir():
+            item.update(_git_brief(p))
+        out.append(item)
+    return {"client": client, "project": project, "worktrees": out}
+
+
+def op_fs_ls(sid: str, worktree: str, subpath: str, client: str = None, project: str = None) -> dict:
+    """Listing d'un dossier d'un worktree autorisé (session ou projet ; dossiers d'abord)."""
+    base = _resolve_worktree(sid, worktree, client, project)
     target = _safe_subpath(base, subpath)
     if not target.is_dir():
         raise ApiError(404, "dossier introuvable")
@@ -4509,17 +4550,17 @@ def op_fs_ls(sid: str, worktree: str, subpath: str) -> dict:
     return {"worktree": worktree, "subpath": subpath, "entries": _ls_sort(entries)}
 
 
-def op_fs_log(sid: str, worktree: str) -> dict:
-    """Derniers commits d'un worktree de la session (git log, argv)."""
-    base = _resolve_worktree(sid, worktree)
+def op_fs_log(sid: str, worktree: str, client: str = None, project: str = None) -> dict:
+    """Derniers commits d'un worktree autorisé (git log, argv)."""
+    base = _resolve_worktree(sid, worktree, client, project)
     rc, out, _ = _git(base, "log", "-n", "30",
                       "--pretty=format:%h%x1f%an%x1f%ad%x1f%s", "--date=short")
     return {"worktree": worktree, "commits": _parse_gitlog(out) if rc == 0 else []}
 
 
-def op_fs_file(sid: str, worktree: str, subpath: str) -> dict:
-    """Contenu d'un fichier d'un worktree (lecture seule, borné, texte seul)."""
-    base = _resolve_worktree(sid, worktree)
+def op_fs_file(sid: str, worktree: str, subpath: str, client: str = None, project: str = None) -> dict:
+    """Contenu d'un fichier d'un worktree autorisé (lecture seule, borné, texte seul)."""
+    base = _resolve_worktree(sid, worktree, client, project)
     target = _safe_subpath(base, subpath)
     if not target.is_file():
         raise ApiError(404, "fichier introuvable")
@@ -5937,14 +5978,20 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
             if path.startswith("/worktrees/"):    # RM2586 : worktrees de la session
                 return self._send_json(200, op_worktrees(path[len("/worktrees/"):]))
-            if path == "/fs/ls" or path == "/fs/log" or path == "/fs/file":  # RM2586
+            if path.startswith("/project-worktrees/"):   # RM2590 : worktrees du projet
+                parts = path[len("/project-worktrees/"):].split("/")
+                if len(parts) != 2:
+                    return self._send_json(400, {"error": "attendu : /project-worktrees/<client>/<projet>"})
+                return self._send_json(200, op_project_worktrees(parts[0], parts[1]))
+            if path == "/fs/ls" or path == "/fs/log" or path == "/fs/file":  # RM2586/2590
                 g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 sid, wt, sp = g.get("sid", ""), g.get("worktree", ""), g.get("path", "")
+                cl, pr = g.get("client"), g.get("project")   # périmètre projet (RM2590)
                 if path == "/fs/ls":
-                    return self._send_json(200, op_fs_ls(sid, wt, sp))
+                    return self._send_json(200, op_fs_ls(sid, wt, sp, cl, pr))
                 if path == "/fs/log":
-                    return self._send_json(200, op_fs_log(sid, wt))
-                return self._send_json(200, op_fs_file(sid, wt, sp))
+                    return self._send_json(200, op_fs_log(sid, wt, cl, pr))
+                return self._send_json(200, op_fs_file(sid, wt, sp, cl, pr))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

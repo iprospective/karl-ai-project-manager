@@ -3798,7 +3798,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
             "notifications": (data.get("notifications") or [])[-20:],
-            "mrs_pending": mrs}
+            "mrs_pending": mrs,
+            "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:

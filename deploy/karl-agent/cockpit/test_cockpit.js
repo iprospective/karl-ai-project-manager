@@ -949,4 +949,17 @@ tlo = mkTl({})("42", "T");
 assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
 console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
 
+// — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
+const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
+assert(fWd, "marqueurs >>> worklogDocs / <<< worklogDocs introuvables");
+const worklogDocs = vm.runInNewContext("(" + fWd[1] + ")");
+const wd = worklogDocs({ RM1: [["a.py", "output"], ["b.md", "output"]], RM2: [["c", ""]] });
+assert.strictEqual(wd.length, 3, "aplatit tous les documents de tous les tickets");
+assert.strictEqual(JSON.stringify(wd[0]), JSON.stringify({ ref: "RM1", name: "a.py", kind: "output" }),
+  "chaque entrée porte ref + name + kind");
+assert.strictEqual(worklogDocs({ RM3: ["str-seul"] })[0].name, "str-seul", "entrée chaîne tolérée (name seul)");
+assert.strictEqual([...worklogDocs({})].length, 0, "map vide → liste vide");
+assert.strictEqual([...worklogDocs(null)].length, 0, "map absente tolérée");
+console.log("✓ worklogDocs (RM2584) : documents aplatis par ticket");
+
 console.log("OK — tous les tests cockpit passent");

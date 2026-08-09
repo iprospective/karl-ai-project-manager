@@ -2661,6 +2661,21 @@ function worklogSections(buckets) {
 }
 // <<< worklogSections
 
+// >>> worklogDocs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2584 : aplatit la map { ref → [[name, kind], …] } des documents/outputs des
+// tickets de la session en une liste [{ref, name, kind}], en préservant l'ordre.
+// Tolère une entrée déjà sous forme de chaîne (name seul).
+function worklogDocs(docsMap) {
+  const out = [];
+  for (const ref of Object.keys(docsMap || {})) {
+    for (const d of (docsMap[ref] || [])) {
+      out.push({ ref, name: Array.isArray(d) ? d[0] : d, kind: Array.isArray(d) ? (d[1] || "") : "" });
+    }
+  }
+  return out;
+}
+// <<< worklogDocs
+
 let worklog = { found: false, buckets: {} };
 // force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel.
 async function loadWorklog(force) {
@@ -2740,10 +2755,30 @@ function renderWorklog() {
         + "<b>" + esc(it.ref) + '</b> <span class="pill">' + esc(it.status) + "</span>" + drift
         + (it.label ? " " + esc(it.label) : "")
         + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
+        + (it.note ? '<div style="color:var(--muted);font-size:11px">↳ ' + esc(it.note) + "</div>" : "")
         + "</div>";
     }
   }
-  document.getElementById("workbody").innerHTML = h + "</div>";
+  h += "</div>";                       // ferme le ms « worklog »
+  // RM2584 : contexte de session — branches ouvertes + documents/outputs des tickets
+  const reg = (sessCache[attached] || {}).registry || {};
+  if ((reg.branches || []).length) {
+    h += '<div class="ms"><h4>🌿 branches</h4><div class="rels">'
+      + reg.branches.map(bb => '<span class="pill" title="branche ouverte par la session">' + esc(bb) + "</span>").join(" ")
+      + "</div></div>";
+  }
+  const docs = worklogDocs(worklog.docs);
+  if (docs.length) {
+    h += '<div class="ms"><h4>📄 documents (' + docs.length + ")</h4>";
+    let cur = null;
+    for (const d of docs) {
+      if (d.ref !== cur) { h += '<div style="margin:4px 0 1px"><b>' + esc(d.ref) + "</b></div>"; cur = d.ref; }
+      h += '<div class="oline" style="white-space:normal;cursor:default">📄 ' + esc(d.name)
+        + (d.kind ? ' <span class="pill">' + esc(d.kind) + "</span>" : "") + "</div>";
+    }
+    h += "</div>";
+  }
+  document.getElementById("workbody").innerHTML = h;
 }
 // un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
 function openWorklogItem(ref) {

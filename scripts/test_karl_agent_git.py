@@ -86,6 +86,42 @@ for mauvais in ("", None, "--upload-pack=/bin/sh", "-x", "a..b", "a b", "a;b", "
 check("le plafond de diff est explicite", ka.GIT_DIFF_MAX_BYTES > 0)
 check("le nombre de commits listés est borné", ka.GIT_LOG_MAX > 0)
 
+
+# — RM2602 (retour de test) : ne jamais dérouler les auto-commits PM —
+import subprocess, tempfile
+
+
+def _repo(fichiers):
+    d = pathlib.Path(tempfile.mkdtemp())
+    subprocess.run(["git", "init", "-q", str(d)], check=True)
+    for rel in fichiers:
+        f = d / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text("x", encoding="utf-8")
+    subprocess.run(["git", "-C", str(d), "add", "-A"], check=True)
+    return d
+
+
+data = _repo([".mmi-pm/tasks/RM1_x.md", ".gitignore"])
+check("un dépôt qui ne track que .mmi-pm/ est reconnu comme dépôt de données",
+      ka._is_pm_data_repo(data) is True)
+code = _repo(["src/app.py", ".mmi-pm/tasks/RM1_x.md"])
+check("un dépôt portant du code n'est PAS un dépôt de données",
+      ka._is_pm_data_repo(code) is False)
+vide = _repo([])
+check("un dépôt vide compte comme dépôt de données (rien à montrer)",
+      ka._is_pm_data_repo(vide) is True)
+
+# La régression d'origine : faute de worktree pour le ticket, on retombait sur la
+# racine du workspace et le journal se remplissait de pm(tick)/pm(report). La
+# résolution doit TOUJOURS rendre un couple (dépôt, origine nommée) — c'est
+# l'origine qui permet de voir qu'on regarde autre chose que ce qu'on croit.
+depot, origine = ka._ticket_repo("999999")        # ticket qui n'existe pas
+check("un ticket inconnu rend quand même un couple exploitable",
+      isinstance(depot, pathlib.Path) and isinstance(origine, str) and origine)
+check("et l'origine dit que c'est un repli, pas un vrai worktree",
+      "worktree du ticket" not in origine)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

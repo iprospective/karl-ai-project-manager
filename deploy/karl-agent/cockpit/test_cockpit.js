@@ -1022,4 +1022,15 @@ assert.strictEqual(clampWidth(2000), 900, "au-dessus du max -> 900");
 assert.strictEqual(clampWidth("abc"), 330, "non numerique -> defaut");
 console.log("\u2713 clampWidth (RM2599) : largeur bornee [240,900], defaut si invalide");
 
+// — outByKind (RM2601) : filtre de vue de la conversation —
+const fBk = />>> outByKind[\s\S]*?(function outByKind[\s\S]*?)\n\/\/ <<< outByKind/.exec(html);
+assert(fBk, "marqueurs outByKind introuvables");
+const outByKind = vm.runInNewContext("(" + fBk[1] + ")");
+const its2 = [{ kind: "user" }, { kind: "question" }, { kind: "answer" }, {}];
+assert.strictEqual(outByKind(its2, "all").length, 4, "all -> tout");
+assert.strictEqual(outByKind(its2, "user").length, 1, "moi -> user seulement");
+assert.strictEqual(outByKind(its2, "question").length, 1, "questions seulement");
+assert.strictEqual(outByKind([], "user").length, 0, "vide tolere");
+console.log("\u2713 outByKind (RM2601) : filtres tout / moi / questions");
+
 console.log("OK — tous les tests cockpit passent");

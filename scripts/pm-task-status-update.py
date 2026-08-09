@@ -818,14 +818,21 @@ def main():
     # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.
     # Upsert : crée l'item si le ticket n'avait pas été ouvert dans cette session. Cf RM1875.
     if not args.dry_run:
-        import pm_session_hook
+        # best-effort, JAMAIS bloquant (comme l'étape 6bis) : un checkout sans
+        # pm_session_hook.py (branche antérieure à son ajout, checkout partiel)
+        # ne doit pas planter la clôture APRÈS l'écriture du statut et faire
+        # sauter l'auto-commit de l'étape 8 (incident RM2587).
         try:
-            proj = md_path.relative_to(cfg.projects_root).parts[3]
-        except (ValueError, IndexError):
-            proj = None
-        pm_session_hook.log_to_session(
-            f"RM{args.rm_id}", label=fm.get("title"),
-            status=args.status, project=proj)
+            import pm_session_hook
+            try:
+                proj = md_path.relative_to(cfg.projects_root).parts[3]
+            except (ValueError, IndexError):
+                proj = None
+            pm_session_hook.log_to_session(
+                f"RM{args.rm_id}", label=fm.get("title"),
+                status=args.status, project=proj)
+        except Exception as e:
+            out.warn(f"worklog de session non mis à jour (best-effort) : {e}")
 
     # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
     # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).

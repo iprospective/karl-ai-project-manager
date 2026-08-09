@@ -931,4 +931,22 @@ console.log("✓ fichiers (RM2586) : fil d'ariane cumulatif");
 // l'onglet fichiers a bien son bouton ET son panneau (équilibre onglets/panneaux déjà vérifié)
 assert(/data-rpanel="files"/.test(html) && /id="rp-files"/.test(html), "onglet fichiers câblé (RM2586)");
 
+// — titleLink (RM2585) : titre de ticket cliquable + lien externe Redmine —
+const fTl = />>> titleLink[\s\S]*?(function titleLink[\s\S]*?)\n\/\/ <<< titleLink/.exec(html);
+assert(fTl, "marqueurs >>> titleLink / <<< titleLink introuvables");
+const escFn = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const mkTl = cfg => vm.runInNewContext("(" + fTl[1] + ")", { esc: escFn, CFG: cfg });
+const tl = mkTl({ redmine_url: "https://r.x" });
+let tlo = tl("2585", "Mon <b>ticket</b>");
+assert(/showTicket\(2585\)/.test(tlo) && /event\.stopPropagation/.test(tlo),
+  "titre numérique : clic → showTicket, sans déclencher la tuile");
+assert(/href="https:\/\/r\.x\/issues\/2585"/.test(tlo) && /class="rmext"/.test(tlo),
+  "lien externe ↗ construit depuis CFG.redmine_url");
+assert(tlo.includes("Mon &lt;b&gt;ticket&lt;/b&gt;") && !/<b>/.test(tlo), "titre échappé (anti-XSS)");
+assert.strictEqual(mkTl({})("chantier-x", "Truc"), "Truc", "ref non ticket (slug) → texte simple");
+assert.strictEqual(tl(null, "x"), "x", "ref absente → texte simple");
+tlo = mkTl({})("42", "T");
+assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
+console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
+
 console.log("OK — tous les tests cockpit passent");

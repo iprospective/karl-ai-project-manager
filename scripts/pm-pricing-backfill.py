@@ -149,9 +149,8 @@ def main():
     pricing = load_pricing()
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
-    root = Path(__file__).resolve().parent.parent
     backup_path = Path(args.backup) if args.backup else (
-        root / "var" / f"pricing-backfill-{datetime.now():%Y%m%d-%H%M%S}.jsonl")
+        cfg.state_dir / f"pricing-backfill-{datetime.now():%Y%m%d-%H%M%S}.jsonl")
     if args.apply:
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         backup_fh = backup_path.open("a", encoding="utf-8")

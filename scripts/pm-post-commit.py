@@ -26,7 +26,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-PM_CORE = "/zfs/workspaces/.mmi-pm-core"
+# Racine du code PM. Surchargée par PM_CORE_DIR (relocalisable, RM2580) ; défaut
+# = emplacement de déploiement actuel (0 régression). Hook symlinké → on pourrait
+# aussi s'auto-localiser, mais l'override env est le mécanisme canonique (pm_paths).
+PM_CORE = os.environ.get("PM_CORE_DIR") or "/zfs/workspaces/.mmi-pm-core"
 REPORT = PM_CORE + "/scripts/pm-task-report.py"
 
 

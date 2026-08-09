@@ -4286,7 +4286,81 @@ function renderProjectPane(key, d) {
     d.closed_recent.forEach(t => { h += tkRow(t); });
     h += '</div>';
   }
+  // RM2590 : explorateur de fichiers sur TOUS les worktrees du projet
+  h += '<div class="ms"><h4>🗂 Fichiers / worktrees du projet</h4><div id="projfiles">'
+    + '<div class="empty">chargement…</div></div></div>';
   pane.innerHTML = h;
+  loadProjWorktrees(key);
+}
+
+// ── RM2590 : explorateur de fichiers dans la vue projet (tous les worktrees) ──
+let projWts = { key: null, worktrees: [] };
+let projFiles = { wt: null, path: "", entries: [], file: null };
+const _pfq = key => "client=" + encodeURIComponent(key.split("/")[0])
+  + "&project=" + encodeURIComponent(key.split("/")[1]) + "&worktree=" + encodeURIComponent(projFiles.wt);
+async function loadProjWorktrees(key) {
+  const [c, p] = key.split("/");
+  if (!c || !p) return;
+  try {
+    projWts = await api("/project-worktrees/" + encodeURIComponent(c) + "/" + encodeURIComponent(p));
+    projWts.key = key;
+  } catch (e) { const b = document.getElementById("projfiles"); if (b) b.innerHTML = '<div class="empty">' + esc(e.message) + "</div>"; return; }
+  projFiles = { wt: null, path: "", entries: [], file: null };
+  renderProjFiles();
+}
+async function projBrowse(wt, path) {
+  projFiles.wt = wt; projFiles.path = path; projFiles.file = null;
+  try {
+    const r = await api("/fs/ls?" + _pfq(currentProjectView) + "&path=" + encodeURIComponent(path));
+    projFiles.entries = r.entries || [];
+  } catch (e) { projFiles.entries = []; toast(e.message, true); }
+  renderProjFiles();
+}
+async function projOpen(name) {
+  const sp = projFiles.path ? projFiles.path + "/" + name : name;
+  try { projFiles.file = await api("/fs/file?" + _pfq(currentProjectView) + "&path=" + encodeURIComponent(sp)); }
+  catch (e) { toast(e.message, true); return; }
+  renderProjFiles();
+}
+function renderProjFiles() {
+  const b = document.getElementById("projfiles");
+  if (!b) return;
+  const wts = (projWts.worktrees || []).filter(w => w.exists);
+  // pas de worktree sélectionné → liste des worktrees du projet
+  if (!projFiles.wt) {
+    if (!wts.length) { b.innerHTML = '<div class="empty">aucun worktree pour ce projet.</div>'; return; }
+    b.innerHTML = '<div style="max-height:340px;overflow-y:auto">' + wts.map(w =>
+      '<div class="oline" style="white-space:normal;cursor:pointer" title="' + esc(w.path)
+      + '" onclick="projBrowse(' + JSON.stringify(w.path) + ',\'\')">📂 ' + esc(w.name)
+      + (w.is_git ? ' <span class="pill">⎇ ' + esc(w.branch) + "</span>"
+        + '<span class="pill ' + (w.clean ? "ok" : "warn") + '">' + (w.clean ? "clean" : (w.dirty + " modifs")) + "</span>" : "")
+      + "</div>").join("") + "</div>";
+    return;
+  }
+  const cur = wts.find(w => w.path === projFiles.wt) || {};
+  let h = '<div style="margin-bottom:6px"><button class="mini" onclick="projFiles.wt=null;renderProjFiles()">‹ worktrees</button> '
+    + '<b style="font-family:var(--mono);font-size:12px">' + esc(cur.name || "") + "</b>"
+    + (cur.is_git ? ' <span class="pill">⎇ ' + esc(cur.branch) + "</span>" : "") + "</div>";
+  if (projFiles.file) {
+    const f = projFiles.file;
+    h += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'
+      + '<button class="mini" onclick="projBrowse(projFiles.wt, projFiles.path)">‹ retour</button>'
+      + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b></div>";
+    h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
+                    : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(f.content) + "</pre>";
+  } else {
+    h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(projFiles.path).map((cc, i, a) =>
+      i < a.length - 1
+        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + JSON.stringify(cc.path) + ');return false">' + esc(cc.name) + "</a>"
+        : "<b>" + esc(cc.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+    h += '<div style="max-height:340px;overflow-y:auto">' + (projFiles.entries.length ? projFiles.entries.map(e => {
+      const child = (projFiles.path ? projFiles.path + "/" : "") + e.name;
+      return e.dir
+        ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projBrowse(projFiles.wt,' + JSON.stringify(child) + ')">📁 ' + esc(e.name) + "</div>"
+        : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="projOpen(' + JSON.stringify(e.name) + ')">📄 ' + esc(e.name) + "</div>";
+    }).join("") : '<div class="empty">dossier vide</div>') + "</div>";
+  }
+  b.innerHTML = h;
 }
 
 // ── RM2531 : édition de la conf structurée (meta.yml) projet / client ─────────

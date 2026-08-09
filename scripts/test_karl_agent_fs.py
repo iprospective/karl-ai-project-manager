@@ -83,6 +83,24 @@ check("op_fs_file binaire → 415", raises(415, lambda: ka.op_fs_file("s", wt, "
 check("op_fs_file inexistant → 404", raises(404, lambda: ka.op_fs_file("s", wt, "nope.txt")))
 check("op_fs_ls évasion → 403", raises(403, lambda: ka.op_fs_ls("s", wt, "../..")))
 
+# — RM2590 : périmètre PROJET (union avec la session) —
+wt2 = tempfile.mkdtemp(prefix="rm2590-wt-")
+(pathlib.Path(wt2) / "doc.md").write_text("# projet\n", encoding="utf-8")
+ka._project_worktrees = lambda c, p: [wt2]        # whitelist projet = wt2
+# wt2 n'est PAS dans la session (whitelist session = [wt]) mais l'est dans le projet
+check("worktree du projet accepté (union session ∪ projet)",
+      ka._resolve_worktree("s", wt2, "cli", "prj") == pathlib.Path(wt2))
+check("worktree du projet refusé SANS périmètre projet",
+      raises(403, lambda: ka._resolve_worktree("s", wt2)))
+check("op_fs_ls périmètre projet liste wt2",
+      any(e["name"] == "doc.md" for e in ka.op_fs_ls("", wt2, "", "cli", "prj")["entries"]))
+check("op_fs_file périmètre projet lit wt2",
+      ka.op_fs_file("", wt2, "doc.md", "cli", "prj")["content"].startswith("# projet"))
+check("évasion refusée aussi en périmètre projet",
+      raises(403, lambda: ka.op_fs_ls("", wt2, "..", "cli", "prj")))
+check("op_project_worktrees liste les worktrees du projet",
+      any(w["name"] == pathlib.Path(wt2).name for w in ka.op_project_worktrees("cli", "prj")["worktrees"]))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

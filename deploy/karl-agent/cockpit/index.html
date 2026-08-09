@@ -292,12 +292,17 @@
   /* RM2466 volet 3 : colonne de DROITE à panneaux commutables — un seul actif à
      la fois, sur le modèle de la gauche (.lnav), au lieu de deux asides empilés
      qui mangeaient chacun leur largeur. Se replie vers SON bord : la droite. */
-  .rpanel { width: 330px; border-left: 1px solid var(--line); background: var(--panel);
-    display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; }
+  /* RM2599 : largeur réglable (poignée) et persistée, via --rpanel-w */
+  .rpanel { width: var(--rpanel-w, 330px); border-left: 1px solid var(--line); background: var(--panel);
+    display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; position: relative; }
   .rpanel.collapsed { width: 34px; }
-  /* RM2579 : l'onglet conversation prend plus de largeur (échanges lisibles) */
-  .rpanel.wide { width: 460px; }
-  .rpanel.collapsed .rnav, .rpanel.collapsed .rbody { display: none; }
+  /* RM2579 : l'onglet conversation reste au moins aussi large (échanges lisibles) */
+  .rpanel.wide { width: max(var(--rpanel-w, 330px), 460px); }
+  .rpanel.resizing { transition: none; user-select: none; }
+  .rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.collapsed .rhandle { display: none; }
+  /* RM2599 : poignée de redimensionnement sur le bord gauche */
+  .rhandle { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
+  .rhandle:hover, .rpanel.resizing .rhandle { background: var(--accent); opacity: .45; }
   .rtoggle { cursor: pointer; background: var(--panel2); color: var(--accent); border: none;
     border-bottom: 1px solid var(--line); height: 32px; font-size: 14px; flex: none; }
   .rnav { display: flex; flex-wrap: wrap; gap: 4px; padding: 6px 8px; flex: none;
@@ -896,6 +901,9 @@ if (window.matchMedia) {
       </div>
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
+        <!-- RM2599 : glisser pour régler la largeur · double-clic pour réinitialiser -->
+        <div class="rhandle" id="rhandle" onmousedown="rStartResize(event)" ondblclick="rResetWidth()"
+             title="Glisser pour régler la largeur · double-clic : réinitialiser"></div>
         <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
         <nav class="rnav">
@@ -3041,9 +3049,52 @@ function restorePanels() {
     leftCollapsed = localStorage.getItem("karlLeftCollapsed") === "1";
     const cbo = document.getElementById("rp-startopen"); if (cbo) cbo.checked = rightStartOpen();
     const sel = document.getElementById("rp-deftab"); if (sel) sel.value = rightDefaultTab();
+    restoreRightWidth();   // RM2599 : largeur réglée du panneau de droite
   } catch (e) { /* mode privé ou valeur corrompue : on garde les défauts */ }
   applyRight(); applyLeft();
 }
+
+// ── RM2599 : largeur réglable du panneau de droite (poignée + persistance) ──
+const R_WIDTH_DEFAULT = 330;
+// >>> clampWidth — pur (testé par test_cockpit.js) : largeur bornée [240, 900]
+function clampWidth(px) {
+  const n = Math.round(Number(px));
+  if (!isFinite(n)) return R_WIDTH_DEFAULT;
+  return Math.max(240, Math.min(900, n));
+}
+// <<< clampWidth
+function setRightWidth(px) { document.documentElement.style.setProperty("--rpanel-w", clampWidth(px) + "px"); }
+function restoreRightWidth() {
+  const v = parseInt(localStorage.getItem("karlRightWidth") || "", 10);
+  if (v) setRightWidth(v);
+}
+let rResizing = false, rRight = 0;
+function rStartResize(e) {
+  const panel = document.getElementById("rpanel");
+  if (panel.classList.contains("collapsed")) return;   // rien à redimensionner
+  rResizing = true; rRight = panel.getBoundingClientRect().right;
+  panel.classList.add("resizing");
+  e.preventDefault();
+}
+function rDoResize(e) {
+  if (!rResizing) return;
+  setRightWidth(rRight - e.clientX);   // le panneau grandit vers la gauche
+}
+function rEndResize() {
+  if (!rResizing) return;
+  rResizing = false;
+  document.getElementById("rpanel").classList.remove("resizing");
+  const w = getComputedStyle(document.documentElement).getPropertyValue("--rpanel-w").trim();
+  try { if (w) localStorage.setItem("karlRightWidth", parseInt(w, 10)); } catch (e) { /* privé */ }
+  if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
+}
+function rResetWidth() {
+  setRightWidth(R_WIDTH_DEFAULT);
+  try { localStorage.removeItem("karlRightWidth"); } catch (e) { /* privé */ }
+  if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
+}
+document.addEventListener("mousemove", rDoResize);
+document.addEventListener("mouseup", rEndResize);
 // RM2466 : garde de réentrance — déplier la colonne ET attacher une session
 // déclenchent tous deux un chargement ; sans ça, deux requêtes concurrentes
 // partent pour le même outline (et le ⟳ cliqué en rafale en lance autant).

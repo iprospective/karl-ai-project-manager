@@ -4386,6 +4386,156 @@ def op_workspace_status(rm_id: str) -> dict:
     }
 
 
+# ── Explorateur de fichiers (RM2586) : worktrees de la session, lecture seule ──
+# Sécurité (défense en profondeur) :
+#  1. le worktree demandé DOIT figurer dans les worktrees de la session (registre
+#     pm_session) — whitelist stricte, le client ne choisit pas un chemin libre ;
+#  2. le sous-chemin est lexicalement propre (pas d'absolu ni de « .. ») ET, après
+#     résolution des symlinks, reste SOUS le worktree (anti-évasion) ;
+#  3. lecture seule, taille bornée, binaires refusés.
+_FS_MAX_BYTES = 512 * 1024
+_FS_SKIP = {".git"}
+
+
+def _session_worktrees(sid: str) -> list:
+    """Chemins des worktrees ouverts par la session (registre pm_session)."""
+    k = _key_info(sid) or {}
+    csid = k.get("session_id")
+    if not csid:
+        return []
+    for rec in _session_registry().values():
+        if rec.get("claude_session_id") == csid:
+            return [w for w in (rec.get("worktrees") or []) if w]
+    return []
+
+
+def _resolve_worktree(sid: str, worktree: str) -> Path:
+    """Le worktree demandé doit être EXACTEMENT l'un de ceux de la session."""
+    if worktree in _session_worktrees(sid):
+        p = Path(worktree)
+        if p.is_dir():
+            return p
+    raise ApiError(403, "worktree hors de la session")
+
+
+def _safe_subpath(base: Path, subpath: str) -> Path:
+    """Sous-chemin propre + confiné au worktree (symlinks résolus)."""
+    sp = PurePosixPath(subpath or "")
+    if sp.is_absolute() or ".." in sp.parts:
+        raise ApiError(403, "sous-chemin invalide")
+    target = base / sp
+    try:
+        rp, broot = target.resolve(), base.resolve()
+    except OSError:
+        raise ApiError(400, "chemin illisible")
+    if rp != broot and broot not in rp.parents:
+        raise ApiError(403, "hors du worktree")
+    return target
+
+
+# >>> ls_sort — pure (testée par test_karl_agent_fs.py)
+def _ls_sort(entries: list) -> list:
+    """Dossiers d'abord, puis fichiers ; alphabétique (insensible à la casse)
+    dans chaque groupe. Stable et déterministe."""
+    return sorted(entries or [], key=lambda e: (not e.get("dir"), str(e.get("name", "")).lower()))
+# <<< ls_sort
+
+
+# >>> parse_gitlog — pure (testée par test_karl_agent_fs.py)
+def _parse_gitlog(text: str) -> list:
+    """Parse une sortie `git log` au format hash\\x1fauthor\\x1fdate\\x1fsubject
+    (une ligne par commit). Ignore les lignes malformées."""
+    out = []
+    for line in (text or "").splitlines():
+        parts = line.split("\x1f")
+        if len(parts) == 4 and parts[0]:
+            out.append({"hash": parts[0], "author": parts[1],
+                        "date": parts[2], "subject": parts[3]})
+    return out
+# <<< parse_gitlog
+
+
+def _git_brief(cwd: Path) -> dict:
+    """État git compact d'un worktree (branche, clean/dirty, ahead/behind)."""
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        return {"is_git": False}
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    _, porcelain, _ = _git(cwd, "status", "--porcelain")
+    lines = [l for l in porcelain.splitlines() if l]
+    dirty = sum(1 for l in lines if not l.startswith("??"))
+    untracked = sum(1 for l in lines if l.startswith("??"))
+    ahead = behind = 0
+    rc, ab, _ = _git(cwd, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    if rc == 0 and ab:
+        p = ab.split()
+        if len(p) == 2 and p[0].isdigit() and p[1].isdigit():
+            behind, ahead = int(p[0]), int(p[1])
+    return {"is_git": True, "branch": branch, "dirty": dirty, "untracked": untracked,
+            "ahead": ahead, "behind": behind, "clean": dirty == 0 and untracked == 0}
+
+
+def op_worktrees(sid: str) -> dict:
+    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers)."""
+    if not _valid_sid(sid):
+        raise ApiError(400, "sid invalide")
+    out = []
+    for w in _session_worktrees(sid):
+        p = Path(w)
+        item = {"path": w, "name": p.name, "exists": p.is_dir()}
+        if p.is_dir():
+            item.update(_git_brief(p))
+        out.append(item)
+    return {"sid": sid, "worktrees": out}
+
+
+def op_fs_ls(sid: str, worktree: str, subpath: str) -> dict:
+    """Listing d'un dossier d'un worktree de la session (dossiers d'abord)."""
+    base = _resolve_worktree(sid, worktree)
+    target = _safe_subpath(base, subpath)
+    if not target.is_dir():
+        raise ApiError(404, "dossier introuvable")
+    entries = []
+    for e in target.iterdir():
+        if e.name in _FS_SKIP:
+            continue
+        try:
+            is_dir = e.is_dir()
+            size = (e.stat().st_size if e.is_file() else None)
+        except OSError:
+            continue
+        entries.append({"name": e.name, "dir": is_dir, "size": size})
+    return {"worktree": worktree, "subpath": subpath, "entries": _ls_sort(entries)}
+
+
+def op_fs_log(sid: str, worktree: str) -> dict:
+    """Derniers commits d'un worktree de la session (git log, argv)."""
+    base = _resolve_worktree(sid, worktree)
+    rc, out, _ = _git(base, "log", "-n", "30",
+                      "--pretty=format:%h%x1f%an%x1f%ad%x1f%s", "--date=short")
+    return {"worktree": worktree, "commits": _parse_gitlog(out) if rc == 0 else []}
+
+
+def op_fs_file(sid: str, worktree: str, subpath: str) -> dict:
+    """Contenu d'un fichier d'un worktree (lecture seule, borné, texte seul)."""
+    base = _resolve_worktree(sid, worktree)
+    target = _safe_subpath(base, subpath)
+    if not target.is_file():
+        raise ApiError(404, "fichier introuvable")
+    try:
+        size = target.stat().st_size
+        if size > _FS_MAX_BYTES:
+            raise ApiError(413, f"fichier trop volumineux (> {_FS_MAX_BYTES // 1024} Ko)")
+        raw = target.read_bytes()
+    except OSError as e:
+        raise ApiError(500, f"lecture impossible : {e}")
+    if b"\x00" in raw[:4096]:
+        raise ApiError(415, "fichier binaire (aperçu non disponible)")
+    return {"worktree": worktree, "subpath": subpath, "name": target.name,
+            "size": size, "markdown": target.suffix.lower() == ".md",
+            "content": raw.decode("utf-8", errors="replace")}
+
+
 def op_file(relpath: str) -> str:
     """Sert un fichier .md sous projects/ (lecture seule, anti-évasion) — pour
     afficher les docs projet (CDC, overview…) dans le panneau du cockpit.
@@ -5728,6 +5878,16 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
+            if path.startswith("/worktrees/"):    # RM2586 : worktrees de la session
+                return self._send_json(200, op_worktrees(path[len("/worktrees/"):]))
+            if path == "/fs/ls" or path == "/fs/log" or path == "/fs/file":  # RM2586
+                g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                sid, wt, sp = g.get("sid", ""), g.get("worktree", ""), g.get("path", "")
+                if path == "/fs/ls":
+                    return self._send_json(200, op_fs_ls(sid, wt, sp))
+                if path == "/fs/log":
+                    return self._send_json(200, op_fs_log(sid, wt))
+                return self._send_json(200, op_fs_file(sid, wt, sp))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

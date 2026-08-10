@@ -32,6 +32,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 - **Clôture de ticket robuste** (RM2587) : le hook worklog de session
   (`pm-task-status-update`, étape 7) est best-effort — un checkout sans
   `pm_session_hook.py` ne casse plus la clôture ni l'auto-commit.
+- **GC des envs de tickets fermés** (RM2566) : `pm-env-gc` / `mmi-pm env gc`
+  retire les worktrees `envs/` dont le ticket est `ferme`, **propres** et
+  **intégrés** (HEAD ancêtre de `origin/main`/`origin/dev`), et élague leurs
+  branches locales en merge-safe. Dry-run par défaut ; saute tout worktree sale
+  ou non intégré. (Comble l'absence de nettoyage périodique ; le bug de nommage
+  qui produisait les slugs à rallonge était déjà corrigé, RM2523.)
 
 ### Documentation
 - **Point d'entrée développeur** (RM2594) : `DEVELOPMENT.md` relie README,

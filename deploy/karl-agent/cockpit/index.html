@@ -398,13 +398,19 @@
   .rmext { color: var(--muted); text-decoration: none; font-size: 11px; padding: 0 2px; }
   .rmext:hover { color: var(--accent); }
   /* RM2579 : sous-onglets de l'onglet « tickets » (niveau 1 = ticket, niveau 2 = facette) */
-  .rsub { display: flex; flex-wrap: wrap; gap: 3px; margin: 0 0 8px; }
-  .rsub.facets { margin-top: -2px; }
-  .rsub button { font-size: 11px; padding: 2px 8px; border-radius: 5px; border: 1px solid var(--line);
-    background: transparent; color: var(--muted); cursor: pointer; }
-  .rsub button:hover { color: var(--fg); }
-  .rsub button.active { background: var(--bg); color: var(--accent); border-color: var(--accent); font-weight: 600; }
-  .rsub.facets button.active { color: var(--fg-strong); border-color: var(--line); background: var(--panel2); }
+  /* RM2612 : hiérarchie visuelle des sous-onglets du panneau droit —
+     niveau 1 = onglets SOULIGNÉS (barre sous la ligne) ; niveau 2 (facettes) =
+     pastilles arrondies indentées. Distincts des onglets principaux (.rnav, encadrés). */
+  .rsub { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
+  .rsub button { font-size: 11px; padding: 3px 9px 4px; border: none; border-bottom: 2px solid transparent;
+    border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); cursor: pointer; }
+  .rsub button:hover { color: var(--fg); background: var(--panel2); }
+  .rsub button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+  /* niveau 2 : facettes — pastilles pleines quand actives, légèrement en retrait */
+  .rsub.facets { border-bottom: none; gap: 3px; margin: -4px 0 8px 12px; }
+  .rsub.facets button { font-size: 10.5px; padding: 1px 9px; border: 1px solid var(--line); border-radius: 999px; }
+  .rsub.facets button:hover { background: transparent; color: var(--fg); border-color: var(--muted); }
+  .rsub.facets button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
   /* RM2579 : lecture inline d'un message de la conversation (remplace la modale) */
   .oread { flex: none; max-height: 45%; display: flex; flex-direction: column; min-height: 0;
     border-top: 2px solid var(--accent); background: var(--panel2); overscroll-behavior: contain; }

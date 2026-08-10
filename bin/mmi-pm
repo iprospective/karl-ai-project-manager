@@ -345,7 +345,9 @@ cmd_env(){
     init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
     migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
     vhost)   shift; cmd_env_vhost "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost)";;
+    # gc (RM2566) : dry-run PAR DÉFAUT (garde son propre --apply, pas de --dry-run injecté).
+    gc)      shift; exec python3 "$CORE_DIR/scripts/pm-env-gc.py" "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost|gc)";;
   esac
 }
 

@@ -3914,6 +3914,32 @@ function refreshUsage(rmId) { ensureUsage(rmId, true).then(() => renderMeta()); 
 const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };
 function fmtUsd(x) { x = Number(x) || 0; return "$" + (Math.abs(x) < 1 ? x.toFixed(3) : x.toFixed(2)); }
 function fmtRate(r) { return r != null ? "$" + r : "?"; }
+// >>> modelWindow — pur (RM2611) : fenêtre de contexte d'un modèle.
+//  1. override explicite pm.pricing.yml (`context_window` du modèle, remonté dans rates) ;
+//  2. sinon DÉDUITE de l'observation : un contexte déjà > 200k prouve une fenêtre 1M
+//     (certains modèles sont en 1M — RM2611) ;
+//  3. sinon défaut 200k pour les modèles claude ; null si inconnu.
+function modelWindow(model, rates, contextLast) {
+  if (rates && rates.context_window) return Number(rates.context_window);
+  if (Number(contextLast) > 200000) return 1000000;
+  return (model && /claude/i.test(model)) ? 200000 : null;
+}
+// <<< modelWindow
+// >>> ctxPct — pur (RM2611) : % de remplissage du contexte pour une fenêtre donnée.
+function ctxPct(contextLast, window) {
+  if (!window || !contextLast) return null;
+  return Math.round((Number(contextLast) / Number(window)) * 100);
+}
+// <<< ctxPct
+function fmtWin(w) { w = Number(w) || 0; return w >= 1e6 ? (Math.round(w / 1e5) / 10) + "M" : Math.round(w / 1000) + "k"; }
+// >>> throughput — pur (RM2611) : débit moyen depuis la création (created→now).
+// {tpm: tokens/min, uph: $/h} ou null si durée < 30 s / inconnue.
+function throughput(total, cost, createdMs, nowMs) {
+  const dur = (Number(nowMs) - Number(createdMs)) / 1000;   // secondes
+  if (!isFinite(dur) || dur < 30) return null;
+  return { tpm: Math.round(Number(total || 0) / (dur / 60)), uph: Number(cost || 0) / (dur / 3600) };
+}
+// <<< throughput
 function usageHtml(rmId) {
   if (!usageFresh(rmId) && !usageInFlight[rmId]) ensureUsage(rmId).then(() => renderMeta());
   const c = usageCache[rmId], u = c ? c.usage : undefined, m = c ? c.meta : null;
@@ -3932,19 +3958,49 @@ function usageHtml(rmId) {
   else if (u === null) inner = '<span style="color:var(--muted)">indisponible</span>';
   else if (!u.turns) inner = '<span style="color:var(--muted)">transcript claude indisponible' +
     (u.engine && u.engine !== "claude" ? " (moteur " + esc(u.engine) + ")" : "") + '</span>';
-  else inner =
-    '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
-    '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
-    '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
-    '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
-    '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + '</span></div>' +
-    '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>';
+  else {
+    // RM2611 : % de remplissage du contexte (fenêtre par modèle) + débit moyen
+    const w = modelWindow(m && m.model, m && m.rates, u.context_last);
+    const cp = ctxPct(u.context_last, w);
+    const tp = reg.created ? throughput(u.total, m && m.cost_usd, Date.parse(reg.created), Date.now()) : null;
+    inner =
+      '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
+      '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
+      '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
+      '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
+      '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + (cp != null ? ' <span style="color:var(--muted)">(' + cp + '% de ' + fmtWin(w) + ')</span>' : '') + '</span></div>' +
+      '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>' +
+      (tp ? '<div class="kv"><span class="k">débit</span><span class="v" title="moyenne depuis la création">' + fmtTokens(tp.tpm) + '/min' + (tp.uph ? ' · ' + fmtUsd(tp.uph) + '/h' : '') + '</span></div>' : '');
+  }
   // RM2609 : dates (créée = registre pm_session ; dernière activité = mtime transcript)
   let dates = "";
   if (reg.created) dates += '<div class="kv"><span class="k">créée</span><span class="v" title="' + esc(reg.created) + '">' + esc(reg.created) + '</span></div>';
   if (m && m.updated) dates += '<div class="kv"><span class="k">dernière activité</span><span class="v">il y a ' + ago(m.updated) + '</span></div>';
   return '<div class="ms"><h4>Session en direct ' +
-    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span></h4>' + head + inner + dates + '</div>';
+    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span> ' +
+    '<span class="pill" style="cursor:pointer" title="Copier le récap dans le presse-papier" onclick="copyInfos(\'' + esc(rmId) + '\')">⧉ copier</span></h4>' + head + inner + dates + '</div>';
+}
+// RM2611 : récap texte des infos de session → presse-papier
+function copyInfos(rmId) {
+  const c = usageCache[rmId], u = c ? c.usage : null, m = c ? c.meta : null;
+  const reg = (sessCache[rmId] || {}).registry || {};
+  if (!m) { toast("Infos pas encore chargées", true); return; }
+  const L = ["Session RM" + rmId, "outil: " + (ENGINE_LABEL[m.engine] || m.engine || "?")];
+  if (m.model) L.push("modèle: " + m.model);
+  if (m.cost_usd != null && u && u.turns) L.push("coût: " + fmtUsd(m.cost_usd));
+  if (u && u.turns) {
+    L.push("tokens: " + u.total + " (entrée " + u.input + " / sortie " + u.output + " ; cache " + u.cache_read + "/" + u.cache_creation + ")");
+    const w = modelWindow(m.model, m.rates, u.context_last);
+    const cp = ctxPct(u.context_last, w);
+    L.push("contexte: " + u.context_last + (cp != null ? " (" + cp + "% de " + fmtWin(w) + ")" : ""));
+    L.push("tours: " + u.turns);
+    const tp = reg.created ? throughput(u.total, m.cost_usd, Date.parse(reg.created), Date.now()) : null;
+    if (tp) L.push("débit: " + tp.tpm + " tok/min" + (tp.uph ? " · " + fmtUsd(tp.uph) + "/h" : ""));
+  }
+  if (reg.created) L.push("créée: " + reg.created);
+  if (m.updated) L.push("dernière activité: il y a " + ago(m.updated));
+  if (navigator.clipboard) navigator.clipboard.writeText(L.join("\n")).then(() => toast("Récap copié"), () => toast("Copie refusée", true));
+  else toast("Presse-papier indisponible", true);
 }
 function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
 function tabTip(s) {

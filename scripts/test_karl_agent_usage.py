@@ -102,7 +102,26 @@ try:
 except ka.ApiError as e:
     check("rm_id invalide → 400", e.code == 400)
 
+# — RM2609 : modèle extrait du transcript + coût depuis les tarifs —
+_lines = [
+    '{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":100,"output_tokens":40,"cache_read_input_tokens":900,"cache_creation_input_tokens":10}}}',
+    '{"type":"user","message":{}}',
+    '{"type":"assistant","message":{"model":"claude-opus-4-8","usage":{"input_tokens":50,"output_tokens":20,"cache_read_input_tokens":1200,"cache_creation_input_tokens":0}}}',
+]
+_u = ka._transcript_usage(_lines)
+check("_transcript_usage capture le modèle", _u["model"] == "claude-opus-4-8")
+check("_transcript_usage total = entrée+sortie", _u["total"] == 210 and _u["turns"] == 2)
+
+_rates = {"input_per_mtok_usd": 10.0, "output_per_mtok_usd": 50.0,
+          "cache_read_per_mtok_usd": 1.0, "cache_creation_per_mtok_usd": 12.5}
+# input 150·10 + output 60·50 + cache_read 2100·1 + cache_creation 10·12.5 = 1500+3000+2100+125 = 6725 (µ$) → /1e6
+_cost = ka._usage_cost(_u, _rates)
+check("_usage_cost correct", abs(_cost - (6725 / 1_000_000)) < 1e-9)
+check("_usage_cost sans tarifs → 0", ka._usage_cost(_u, None) == 0.0)
+check("_usage_cost usage vide → 0", ka._usage_cost({}, _rates) == 0.0)
+check("_usage_cost tolère champs manquants", ka._usage_cost({"input": 100}, {"input_per_mtok_usd": 10}) == 100 * 10 / 1_000_000)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)
-print("OK — tests conso tokens session RM2373 passent")
+print("OK — tests conso tokens session RM2373 + coût/modèle RM2609 passent")

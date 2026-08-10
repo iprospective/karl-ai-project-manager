@@ -2837,12 +2837,14 @@ async function gitLoad(force) {
 // RM2605 : un ticket cité doit SE VOIR comme un lien. La ligne entière était
 // déjà cliquable, mais un `RM2467` en gras ne dit pas qu'on peut l'ouvrir.
 // Un chantier hors ticket (slug libre) n'est pas un lien : il n'y a pas de fiche.
-function worklogRefHtml(ref, esc) {
+function worklogRefHtml(ref, esc, tipAttr) {
   const s = String(ref == null ? "" : ref);
   const m = /^RM(\d+)$/i.exec(s);
   if (!m) return "<b>" + esc(s) + "</b>";
-  return '<span class="pill" style="cursor:pointer" title="Ouvrir la fiche du ticket" '
-    + 'onclick="event.stopPropagation();showTicket(' + m[1] + ')">' + esc(s) + "</span>";
+  // `tipAttr` est passé en paramètre, pas capturé : une fonction marquée pure
+  // qui appelle une globale n'est pas testable isolément (piège vu 3 fois ici).
+  return '<span class="pill" style="cursor:pointer"' + (tipAttr ? tipAttr(m[1]) : "")
+    + ' onclick="event.stopPropagation();showTicket(' + m[1] + ')">' + esc(s) + "</span>";
 }
 // <<< worklogRefHtml
 
@@ -3068,7 +3070,7 @@ function renderOpened() {
     for (const it of groups.get(k)) {
       h += '<div class="oline" style="white-space:normal;display:flex;gap:6px;align-items:baseline"'
         + ' onclick="showTicket(' + it.rm_id + ')" title="Ouvrir la fiche">'
-        + '<span class="pill">RM' + esc(it.rm_id) + "</span>"
+        + '<span class="pill"' + tipAttr(it.rm_id) + ">RM" + esc(it.rm_id) + "</span>"
         + '<span class="pill" style="opacity:.85">' + esc(it.status) + "</span>"
         + '<span style="flex:1">' + esc(it.title || (it.resolved ? "" : "chargement…")) + "</span>"
         + '<button class="mini" title="Retirer de la liste"'
@@ -3077,6 +3079,92 @@ function renderOpened() {
     }
   }
   box.innerHTML = h;
+}
+
+// ----- RM2619 : cache des tickets + infobulle au survol d'un RM-id -----
+
+// >>> ticketTipText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Texte d'infobulle d'un ticket. Tant que le cache n'a pas répondu, on le DIT
+// (« chargement… ») plutôt que de rendre une bulle vide, qui se lit comme une
+// absence d'information alors que c'est une attente.
+function ticketTipText(id, brief) {
+  const b = brief || null;
+  if (!b) return "RM" + id + " — chargement…";
+  if (!b.found) return "RM" + id + " — inconnu en local";
+  const bits = [];
+  if (b.status) bits.push(b.status);
+  if (b.completion_pct !== null && b.completion_pct !== undefined) bits.push(b.completion_pct + " %");
+  if (b.type) bits.push(b.type);
+  if (b.priority && b.priority !== "normal") bits.push("priorité " + b.priority);
+  const ou = (b.client && b.project) ? b.client + "/" + b.project : (b.client || "");
+  return "RM" + id + " — " + (b.title || "(sans titre)")
+    + (bits.length ? "\n" + bits.join(" · ") : "")
+    + (ou ? "\n" + ou : "");
+}
+// <<< ticketTipText
+
+// >>> pendingBriefIds — pur (testé par test_cockpit.js)
+// Ids à demander : ceux qu'on ne connaît pas encore ET qui ne sont pas déjà en
+// vol. Sans ce filtre, chaque rendu redemandait tout ce qui était à l'écran.
+function pendingBriefIds(ids, cache, inflight) {
+  const vus = new Set();
+  const out = [];
+  for (const raw of (ids || [])) {
+    const id = String(raw == null ? "" : raw).trim();
+    if (!/^\d+$/.test(id) || vus.has(id)) continue;
+    vus.add(id);
+    if ((cache || {})[id] !== undefined) continue;
+    if ((inflight || new Set()).has(id)) continue;
+    out.push(id);
+  }
+  return out;
+}
+// <<< pendingBriefIds
+
+const briefCache = {};            // rm_id → brief (ou {found:false})
+const briefInflight = new Set();
+let briefTimer = null;
+const briefQueue = new Set();
+
+// Les demandes sont regroupées : vingt RM-id affichés au même rendu ne doivent
+// pas produire vingt requêtes. Un court délai suffit à tout rassembler.
+function requestBriefs(ids, onLoad) {
+  for (const id of pendingBriefIds(ids, briefCache, briefInflight)) briefQueue.add(id);
+  if (!briefQueue.size || briefTimer) return;
+  briefTimer = setTimeout(async () => {
+    briefTimer = null;
+    const lot = [...briefQueue].slice(0, 100);
+    briefQueue.clear();
+    lot.forEach(id => briefInflight.add(id));
+    try {
+      const r = await api("/tickets/brief?ids=" + encodeURIComponent(lot.join(",")));
+      Object.assign(briefCache, r.tickets || {});
+      // un id absent de la réponse ne doit pas être redemandé en boucle
+      lot.forEach(id => { if (briefCache[id] === undefined) briefCache[id] = { found: false, rm_id: id }; });
+      if (onLoad) onLoad();
+    } catch (e) {
+      lot.forEach(id => briefCache[id] = { found: false, rm_id: id, error: true });
+    } finally {
+      lot.forEach(id => briefInflight.delete(id));
+    }
+  }, 120);
+}
+
+// Attribut title prêt à coller sur un élément portant un RM-id.
+function tipAttr(id) {
+  const s = String(id == null ? "" : id).replace(/^RM/i, "");
+  if (!/^\d+$/.test(s)) return "";
+  requestBriefs([s], () => refreshTips());
+  return ' data-tip-rm="' + s + '" title="' + esc(ticketTipText(s, briefCache[s])) + '"';
+}
+
+// Quand le cache se remplit, les infobulles déjà posées doivent suivre : on
+// réécrit l'attribut en place plutôt que de re-rendre des panneaux entiers.
+function refreshTips() {
+  document.querySelectorAll("[data-tip-rm]").forEach(el => {
+    const id = el.getAttribute("data-tip-rm");
+    el.setAttribute("title", ticketTipText(id, briefCache[id]));
+  });
 }
 
 // ----- RM2466 volet 2 : « en attente de toi », toutes sessions confondues -----
@@ -3243,7 +3331,7 @@ function renderWorklog() {
     brs.forEach(b => usedBr.add(b));
     return '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
-      + worklogRefHtml(it.ref, esc) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
+      + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
@@ -4063,7 +4151,10 @@ async function refreshWorkspace(rmId) {
 }
 // RM2173 : clic sur un RM-id → détail de CE ticket dans l'encart (sans toucher
 // au lanceur ni changer de session). gotoTicket (lanceur) reste dispo en action.
-function rmLink(id) { return '<span class="pill" onclick="showTicket(' + id + ')">RM' + id + '</span>'; }
+function rmLink(id) {
+  return '<span class="pill" style="cursor:pointer"' + tipAttr(id)
+    + ' onclick="showTicket(' + id + ')">RM' + id + "</span>";
+}
 function showTicket(id) {
   noteOpenedTicket(id);             // RM2606 : ce qu'on ouvre reste sous la main
   metaTicket = String(id);

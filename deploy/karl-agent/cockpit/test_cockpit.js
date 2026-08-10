@@ -1072,15 +1072,15 @@ const fWr = />>> worklogRefHtml[\s\S]*?(function worklogRefHtml[\s\S]*?)\n\/\/ <
 assert(fWr, "marqueurs >>> worklogRefHtml introuvables");
 const worklogRefHtml = vm.runInNewContext("(" + fWr[1] + ")");
 const escId = s => String(s);
-const lien = worklogRefHtml("RM2467", escId);
+const lien = worklogRefHtml("RM2467", escId, () => "");
 assert(/showTicket\(2467\)/.test(lien), "un ticket ouvre sa fiche");
 assert(/pill/.test(lien) && /cursor:pointer/.test(lien), "et SE VOIT comme cliquable");
 assert(/event\.stopPropagation/.test(lien),
   "le clic sur le lien ne doit pas aussi déclencher celui de la ligne");
-const libre = worklogRefHtml("pisceen-facettes", escId);
+const libre = worklogRefHtml("pisceen-facettes", escId, () => "");
 assert(!/showTicket/.test(libre) && /<b>/.test(libre),
   "un chantier hors ticket n'est pas un lien : il n'a pas de fiche");
-assert(worklogRefHtml(null, escId).length >= 0, "réf absente tolérée");
+assert(worklogRefHtml(null, escId, () => "").length >= 0, "réf absente tolérée");
 console.log("✓ worklog (RM2605) : tickets cliquables, chantiers libres non");
 
 const fGb = />>> gitBranchesHtml[\s\S]*?(function gitBranchesHtml[\s\S]*?)\n\/\/ <<< gitBranchesHtml/.exec(html);
@@ -1248,5 +1248,55 @@ assert(mEns, "ensureProjectCard introuvable");
 assert(/projCardCache\[cle\] !== undefined/.test(mEns[0]),
   "un projet déjà demandé n'est pas rechargé à chaque rendu de fiche");
 console.log("✓ ticket (RM2614) : une requête par projet, pas une par rendu");
+
+// — RM2619 : cache des tickets + infobulle au survol —
+const grabT = (name) => {
+  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
+  assert(m, "marqueurs >>> " + name + " introuvables");
+  return vm.runInNewContext("(" + m[1] + ")");
+};
+const ticketTipText = grabT("ticketTipText");
+
+const tip = ticketTipText("2619", {
+  found: true, title: "Cache des tickets", status: "en_cours", completion_pct: 40,
+  type: "feature", priority: "high", client: "iprospective", project: "pm-ai-agents" });
+assert(/RM2619 — Cache des tickets/.test(tip), "libellé en tête");
+assert(/en_cours/.test(tip) && /40 %/.test(tip), "statut et avancement");
+assert(/iprospective\/pm-ai-agents/.test(tip), "projet indiqué");
+assert(/priorité high/.test(tip), "une priorité non ordinaire est signalée");
+assert(!/priorité normal/.test(ticketTipText("1", { found: true, priority: "normal" })),
+  "une priorité normale n'encombre pas l'infobulle");
+
+// une attente ne doit pas se lire comme une absence d'information
+assert(/chargement/.test(ticketTipText("42", null)), "cache pas encore rempli : on le dit");
+assert(/inconnu/.test(ticketTipText("42", { found: false })), "ticket inconnu : on le dit aussi");
+assert(/sans titre/.test(ticketTipText("42", { found: true, title: "" })), "titre vide toléré");
+assert(/0 %/.test(ticketTipText("42", { found: true, completion_pct: 0 })),
+  "0 % s'affiche — c'est une information, pas une absence");
+console.log("✓ infobulle (RM2619) : libellé, statut, %, projet ; attente distinguée de l'inconnu");
+
+const pendingBriefIds = grabT("pendingBriefIds");
+assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], {}, new Set())), ["1", "2"],
+  "tout ce qui manque est demandé");
+assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], { "1": {} }, new Set())), ["2"],
+  "ce qui est déjà en cache n'est pas redemandé");
+assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], {}, new Set(["1"]))), ["2"],
+  "ce qui est déjà en vol non plus");
+assert.deepStrictEqual(Array.from(pendingBriefIds(["3", "3", "3"], {}, new Set())), ["3"],
+  "un même id affiché dix fois ne fait pas dix demandes");
+assert.deepStrictEqual(Array.from(pendingBriefIds(["abc", "", null, "12"], {}, new Set())), ["12"],
+  "les réfs non numériques sont écartées");
+assert.deepStrictEqual(Array.from(pendingBriefIds(null, null, null)), [], "entrées absentes tolérées");
+// un ticket introuvable est mis en cache comme tel : sans ça, on le redemande sans fin
+assert.deepStrictEqual(Array.from(pendingBriefIds(["9"], { "9": { found: false } }, new Set())), [],
+  "un ticket connu comme introuvable n'est pas redemandé en boucle");
+console.log("✓ infobulle (RM2619) : demandes regroupées, jamais en boucle");
+
+assert(/\/tickets\/brief\?ids=/.test(html), "le cockpit interroge l'endpoint de lot");
+assert(/data-tip-rm/.test(html), "les éléments porteurs d'un RM-id sont repérables pour la mise à jour");
+const mRt = /function refreshTips\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(mRt && /setAttribute\("title"/.test(mRt[0]),
+  "quand le cache se remplit, les infobulles déjà posées suivent");
+console.log("✓ infobulle (RM2619) : endpoint de lot, mise à jour en place");
 
 console.log("OK — tous les tests cockpit passent");

@@ -1161,4 +1161,18 @@ assert(mRev && /noteOpenedTicket/.test(mRev[0]), "ouvrir une revue aussi");
 assert(/karlOpenedTickets/.test(html), "la liste survit au rechargement (localStorage)");
 console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
 
+// — worklogTabList (RM2610) : sous-onglets par statut du worklog —
+const fWt = />>> worklogTabList[\s\S]*?(function worklogTabList[\s\S]*?)\n\/\/ <<< worklogTabList/.exec(html);
+assert(fWt, "marqueurs worklogTabList introuvables");
+const worklogTabList = vm.runInNewContext("(" + fWt[1] + ")");
+const secs2 = [{ key: "todo", icon: "\u23f3", label: "reste a faire", items: [1, 2] }, { key: "done", icon: "\u2705", label: "fait", items: [1] }];
+let tabs2 = worklogTabList(secs2, 3, 0).map(t => [t.key, t.n]);
+assert.strictEqual(JSON.stringify(tabs2), JSON.stringify([["todo", 2], ["done", 1], ["documents", 3]]), "un onglet par bucket non vide + documents");
+assert.strictEqual(worklogTabList([], 0, 0).length, 0, "rien -> aucun onglet");
+assert.strictEqual(worklogTabList([], 2, 0)[0].key, "documents", "documents seuls");
+// branches orphelines sans bucket todo -> cree un onglet a faire en tete
+const tabs3 = worklogTabList([{ key: "done", icon: "x", label: "fait", items: [1] }], 0, 2);
+assert.strictEqual(tabs3[0].key, "todo", "orphelines -> onglet a faire cree");
+console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
+
 console.log("OK — tous les tests cockpit passent");

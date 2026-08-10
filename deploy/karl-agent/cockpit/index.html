@@ -3128,8 +3128,21 @@ function worklogDocs(docsMap) {
 // <<< worklogDocs
 
 let worklog = { found: false, buckets: {} };
-let worklogSub = "tickets";   // RM2591 : sous-onglet actif (tickets|documents|branches)
+let worklogSub = "todo";   // RM2610 : sous-onglet actif (clé de bucket | documents)
 function setWorklogSub(s) { worklogSub = s; renderWorklog(); }
+
+// >>> worklogTabList — pur (testé) : barre de sous-onglets du worklog (RM2610).
+// Un onglet par bucket de statut NON VIDE (dans l'ordre reste-à-faire → fait), plus
+// « documents » si présents. Un onglet « à faire » est créé s'il y a des branches
+// orphelines mais aucun ticket à faire (pour qu'elles aient un onglet d'accueil).
+function worklogTabList(secs, docsCount, orphanCount) {
+  const tabs = [];
+  for (const s of secs || []) tabs.push({ key: s.key, label: s.icon + " " + s.label, n: s.items.length });
+  if (orphanCount && !tabs.some(t => t.key === "todo")) tabs.unshift({ key: "todo", label: "⏳ reste à faire", n: 0 });
+  if (docsCount) tabs.push({ key: "documents", label: "📄 documents", n: docsCount });
+  return tabs;
+}
+// <<< worklogTabList
 // force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel.
 async function loadWorklog(force) {
   if (!attached) { worklog = { found: false, buckets: {} }; renderWorklog(); return; }
@@ -3195,45 +3208,32 @@ function renderWorklog() {
       + "</div></div>";
     return;
   }
-  // RM2591 : on regroupe chaque ticket avec SA branche (RM<id> ← « <id>-<slug> »).
+  // RM2591 : chaque ticket est regroupé avec SA branche (RM<id> ← « <id>-<slug> »).
   const brByRm = {};
   for (const b of branches) {
     const m = /^(\d+)-/.exec(String(b));
     if (m) (brByRm["RM" + m[1]] = brByRm["RM" + m[1]] || []).push(b);
   }
   const usedBr = new Set();
-  // — sous-onglet « tickets » : chaque ticket + sa branche —
-  let tickets = "";
-  for (const s of secs) {
-    tickets += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
-      + esc(s.icon) + " " + esc(s.label) + " (" + s.items.length + ")</div>";
-    for (const it of s.items) {
-      // la dérive dit qu'une AUTRE session a fait avancer le ticket : sans elle,
-      // on croirait que le statut affiché est le fait de la session courante.
-      const drift = it.drifted
-        ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
-          + esc(it.opened_status) + " → " + esc(it.status) + "</span>"
-        : "";
-      const brs = brByRm[it.ref] || [];
-      brs.forEach(b => usedBr.add(b));
-      tickets += '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
-        + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
-        + worklogRefHtml(it.ref, esc) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
-        + (it.label ? " " + esc(it.label) : "")
-        + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
-        + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
-        + (it.note ? '<div style="color:var(--muted);font-size:11px">↳ ' + esc(it.note) + "</div>" : "")
-        + "</div>";
-    }
-  }
-  // branches non rattachées à un ticket du worklog : listées à part, en bas
-  const orphan = branches.filter(b => !usedBr.has(b));
-  if (orphan.length) {
-    tickets += '<div style="margin:8px 0 2px;color:var(--muted);font-size:10.5px">🌿 autres branches (' + orphan.length + ")</div>"
-      + '<div class="rels">' + orphan.map(b => '<span class="pill" title="branche ouverte par la session">⎇ ' + esc(b) + "</span>").join(" ") + "</div>";
-  }
-  if (!tickets) tickets = '<div class="empty">aucun ticket ni branche pour cette session</div>';
-  // — sous-onglet « documents » : outputs/refs des tickets, groupés par ticket —
+  const itemHtml = (it) => {
+    const drift = it.drifted
+      ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
+        + esc(it.opened_status) + " → " + esc(it.status) + "</span>" : "";
+    const brs = brByRm[it.ref] || [];
+    brs.forEach(b => usedBr.add(b));
+    return '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
+      + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
+      + worklogRefHtml(it.ref, esc) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
+      + (it.label ? " " + esc(it.label) : "")
+      + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
+      + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
+      + (it.note ? '<div style="color:var(--muted);font-size:11px">↳ ' + esc(it.note) + "</div>" : "")
+      + "</div>";
+  };
+  // RM2610 : le contenu de chaque STATUT est un sous-onglet (pré-rendu → remplit usedBr).
+  const bucketHtml = {};
+  for (const s of secs) bucketHtml[s.key] = s.items.map(itemHtml).join("");
+  // documents (groupés par ticket)
   let docsHtml = "";
   let dcur = null;
   for (const d of docs) {
@@ -3242,13 +3242,22 @@ function renderWorklog() {
       + (d.kind ? ' <span class="pill">' + esc(d.kind) + "</span>" : "") + "</div>";
   }
   if (!docsHtml) docsHtml = '<div class="empty">aucun document lié aux tickets de la session</div>';
-  // barre de sous-onglets — le ticket et sa branche sont regroupés, d'où 2 onglets
-  const sub = worklogSub === "documents" ? "documents" : "tickets";
-  const tabs = [["tickets", "📋 tickets", nTickets], ["documents", "📄 documents", docs.length]];
+  // branches orphelines (sans ticket du worklog) → rattachées à l'onglet « à faire »
+  const orphan = branches.filter(b => !usedBr.has(b));
+  if (orphan.length) {
+    bucketHtml.todo = (bucketHtml.todo || "")
+      + '<div style="margin:8px 0 2px;color:var(--muted);font-size:10.5px">🌿 autres branches (' + orphan.length + ")</div>"
+      + '<div class="rels">' + orphan.map(b => '<span class="pill" title="branche ouverte par la session">⎇ ' + esc(b) + "</span>").join(" ") + "</div>";
+  }
+  // barre de sous-onglets par statut (+ documents) ; onglet actif : garder si valide
+  const tabs = worklogTabList(secs, docs.length, orphan.length);
+  let sub = worklogSub;
+  if (!tabs.some(t => t.key === sub)) sub = tabs.length ? tabs[0].key : "documents";
   let h = notes + '<div class="rsub">' + tabs.map(t =>
-    '<button class="' + (t[0] === sub ? "active" : "") + '" onclick="setWorklogSub(\'' + t[0] + '\')">'
-    + esc(t[1]) + (t[2] ? " (" + t[2] + ")" : "") + "</button>").join("") + "</div>";
-  h += '<div class="ms">' + (sub === "documents" ? docsHtml : tickets) + "</div>";
+    '<button class="' + (t.key === sub ? "active" : "") + '" onclick="setWorklogSub(' + jarg(t.key) + ')">'
+    + esc(t.label) + " (" + t.n + ")</button>").join("") + "</div>";
+  const content = sub === "documents" ? docsHtml : (bucketHtml[sub] || '<div class="empty">rien dans ce statut</div>');
+  h += '<div class="ms">' + content + "</div>";
   document.getElementById("workbody").innerHTML = h;
 }
 // un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)

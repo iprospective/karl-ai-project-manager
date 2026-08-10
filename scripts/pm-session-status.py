@@ -23,6 +23,7 @@ import argparse
 import datetime
 import json
 import os
+import pathlib
 import re
 import sys
 from pathlib import Path
@@ -36,6 +37,12 @@ except Exception:
 
 # Surchargeable pour les tests : sans ça, éprouver le canal de notifications
 # écrirait dans le worklog RÉEL de la session en cours.
+# Transcripts claude — même résolution que le cockpit et pm-decisions.
+CLAUDE_STORES = [pathlib.Path(x).expanduser()
+                 for x in os.environ.get(
+                     "PM_CLAUDE_STORES", os.path.expanduser("~/.claude/projects")).split(":")
+                 if x.strip()]
+
 WORKLOG_DIR = os.path.expanduser(
     os.environ.get("PM_SESSION_WORKLOG_DIR") or "~/.claude/session-worklogs")
 
@@ -64,6 +71,46 @@ NOTIFY_KINDS = {
     "autre": "autre événement notable",
 }
 NOTIFY_KEEP = 100          # garde-fou de taille du canal
+
+
+# ─── registre des demandes (RM2621) ──────────────────────────────────────────
+# Une demande formulée en séance n'existait que dans le fil : non ticketée
+# sur-le-champ, elle disparaissait au premier défilement. Le worklog ne
+# connaissait que les tickets — c'est-à-dire ce qui avait DÉJÀ été formalisé.
+REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee")
+# Statuts qui sortent une demande du « reste à traiter » : elle a trouvé sa
+# suite. `nouveau` est le seul qui appelle encore une décision.
+REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee")
+REQUEST_ICON = {"nouveau": "🆕", "ticketee": "🎫", "repondu": "💬",
+                "annulee": "🚫", "fusionnee": "⛓"}
+
+
+def request_open(requests):
+    """Demandes qui appellent encore une décision. Pure."""
+    return [r for r in (requests or []) if r.get("status", "nouveau") not in REQUEST_DONE]
+
+
+def request_apply(requests, ref, status, ticket=None, note=None, merged_into=None):
+    """Change le statut d'une demande. Rend (liste, trouvée). Pure.
+
+    `ref` est le numéro d'ordre affiché (1-based) : c'est ce que l'agent a sous
+    les yeux dans `show`, pas un identifiant interne qu'il faudrait retenir."""
+    out = [dict(r) for r in (requests or [])]
+    try:
+        i = int(str(ref)) - 1
+    except (TypeError, ValueError):
+        return out, False
+    if i < 0 or i >= len(out):
+        return out, False
+    if status:
+        out[i]["status"] = status
+    if ticket:
+        out[i]["ticket"] = str(ticket)
+    if note is not None:
+        out[i]["note"] = note
+    if merged_into:
+        out[i]["merged_into"] = str(merged_into)
+    return out, True
 
 
 def notify_trim(notes, keep=NOTIFY_KEEP):
@@ -293,6 +340,16 @@ def render_md(data, live=None):
             out.append("- `!%s`%s%s%s" % (m.get("iid", "?"), ref, cible, url))
         out.append("")
 
+    # RM2621 : ce qui n'est pas encore ticketé passe en tête — c'est ce qui se
+    # perd, les tickets ont déjà leur existence propre.
+    ouvertes = request_open(data.get("requests"))
+    if ouvertes:
+        out.append("## 📥 Demandes à traiter (%d)" % len(ouvertes))
+        for r in ouvertes:
+            n = (data.get("requests") or []).index(r) + 1
+            out.append("- `#%d` %s _(%s)_" % (n, r.get("text", ""), r.get("ts", "")))
+        out.append("")
+
     # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
     # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
     notes = data.get("notifications") or []
@@ -458,6 +515,136 @@ def cmd_title(data, args):
     pmout.op("worklog", extra="titre : %s" % args.title)
 
 
+# Messages qui ne sont pas des demandes : accusés de réception et relances. La
+# liste sert UNIQUEMENT au contrôle d'exhaustivité, pour ne pas crier au loup —
+# jamais à filtrer ce que l'agent enregistre. Un faux négatif ici ne cache rien :
+# il fait juste baisser le nombre attendu.
+REQUEST_ACK_RE = re.compile(
+    r"\A(ok|oui|non|go|vas[- ]?y|continue|enchaine[sz]?|merci|parfait|super|"
+    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b[\s!.…]*\Z",
+    re.I)
+
+
+def transcript_user_messages(path):
+    """Messages utilisateur d'un transcript claude (JSONL), hors enveloppes
+    techniques. Pure quant au format ; lit un fichier."""
+    out = []
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    with fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(o, dict) or o.get("type") != "user" or o.get("isMeta"):
+                continue
+            c = (o.get("message") or {}).get("content")
+            if isinstance(c, str):
+                txt = c
+            elif isinstance(c, list):
+                txt = "\n".join(b.get("text", "") for b in c
+                                 if isinstance(b, dict) and b.get("type") == "text")
+            else:
+                continue
+            txt = " ".join(str(txt).split())
+            if not txt or txt.startswith("<") or txt.startswith("Caveat"):
+                continue
+            out.append(txt)
+    return out
+
+
+def request_audit(messages, requests):
+    """RM2621 : compare ce que le demandeur a écrit à ce qui a été enregistré.
+
+    Ne juge PAS le contenu — il compte. Une règle NORMS réduit l'oubli, elle ne
+    le supprime pas, et un oubli ne laisse aucune trace : ce comptage est ce qui
+    transforme « je crois n'avoir rien oublié » en fait vérifiable. Pure."""
+    msgs = [m for m in (messages or [])]
+    attendus = [m for m in msgs if not REQUEST_ACK_RE.match(m)]
+    return {"messages": len(msgs), "acks": len(msgs) - len(attendus),
+            "expected": len(attendus), "recorded": len(requests or []),
+            "gap": max(0, len(attendus) - len(requests or [])),
+            "samples": attendus[:40]}
+
+
+def cmd_request(data, args):
+    """RM2621 : enregistrer une demande, ou faire évoluer son statut."""
+    reqs = data.get("requests") or []
+    if args.list:
+        if not reqs:
+            pmout.info("aucune demande enregistrée dans cette session")
+            return
+        for i, r in enumerate(reqs, 1):
+            st = r.get("status", "nouveau")
+            sys.stdout.write("#%d [%s] %s%s — %s\n" % (
+                i, st, REQUEST_ICON.get(st, ""),
+                (" " + r["ticket"]) if r.get("ticket") else "", r.get("text", "")))
+        return
+    if args.audit:
+        sid = data["session_id"]
+        path = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None)
+        if not path:
+            pmout.fail("transcript introuvable pour la session %s" % sid)
+        rep = request_audit(transcript_user_messages(path), reqs)
+        sys.stdout.write(
+            "messages du demandeur : %d (dont %d accusés de réception)\n"
+            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"], rep["recorded"]))
+        if rep["gap"]:
+            sys.stdout.write("\n⚠ écart de %d : des demandes n'ont probablement pas été "
+                             "enregistrées.\n  Messages à vérifier :\n" % rep["gap"])
+            enregistres = {r.get("text", "")[:60] for r in reqs}
+            for m in rep["samples"]:
+                if m[:60] not in enregistres:
+                    sys.stdout.write("   · %s\n" % m[:110])
+        else:
+            sys.stdout.write("\n✓ aucun écart détecté.\n")
+        return
+    if args.import_missing:
+        # RATTRAPAGE, pas le mode normal : reprend du transcript les messages
+        # absents du registre et les pose en « nouveau », à trier. Sert quand la
+        # règle n'était pas encore en place — la capture courante reste
+        # explicite, message par message.
+        sid = data["session_id"]
+        path = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None)
+        if not path:
+            pmout.fail("transcript introuvable pour la session %s" % sid)
+        connus = {r.get("text", "")[:60] for r in reqs}
+        ajout = 0
+        for m in transcript_user_messages(path):
+            if REQUEST_ACK_RE.match(m) or m[:60] in connus:
+                continue
+            reqs.append({"ts": now(), "text": " ".join(m.split())[:400],
+                         "status": "nouveau", "note": "importée du transcript (rattrapage)"})
+            connus.add(m[:60])
+            ajout += 1
+        data["requests"] = reqs
+        save(data)
+        pmout.op("worklog", extra="%d demande(s) importée(s) du transcript" % ajout)
+        return
+    if args.set:
+        # `--set` porte le numéro affiché par `show` / `--list`
+        reqs, ok = request_apply(reqs, args.set, args.status, args.ticket,
+                                 args.note, args.merged_into)
+        if not ok:
+            pmout.fail("demande #%s introuvable (voir `request --list`)" % args.set)
+        data["requests"] = reqs
+        save(data)
+        pmout.op("worklog", extra="demande #%s → %s" % (args.set, args.status or "màj"))
+        return
+    if not args.text:
+        pmout.fail("texte requis (ou --list / --set)")
+    reqs.append({"ts": now(), "text": " ".join(str(args.text).split())[:400],
+                 "status": args.status or "nouveau",
+                 **({"ticket": str(args.ticket)} if args.ticket else {}),
+                 **({"note": args.note} if args.note else {})})
+    data["requests"] = reqs
+    save(data)
+    pmout.op("worklog", extra="demande #%d enregistrée" % len(reqs))
+
+
 def cmd_notify(data, args):
     """RM2466 volet 1 : consigner un événement notable au niveau session."""
     notes = data.get("notifications") or []
@@ -551,6 +738,19 @@ def main():
     m.add_argument("--state", choices=["opened", "merged", "closed"])
     m.add_argument("--list", action="store_true")
 
+    rq = sub.add_parser("request", help="registre des demandes du demandeur (RM2621)")
+    rq.add_argument("text", nargs="?", help="la demande, telle qu'elle a été formulée")
+    rq.add_argument("--status", choices=REQUEST_STATES, help="défaut : nouveau")
+    rq.add_argument("--ticket", help="ticket qui la porte (ex: RM2621)")
+    rq.add_argument("--merged-into", dest="merged_into", help="numéro de la demande qui l'absorbe")
+    rq.add_argument("--note")
+    rq.add_argument("--set", help="numéro de la demande à faire évoluer (voir --list)")
+    rq.add_argument("--list", action="store_true", help="lister toutes les demandes")
+    rq.add_argument("--import-missing", dest="import_missing", action="store_true",
+                    help="RATTRAPAGE : importer du transcript les demandes absentes du registre")
+    rq.add_argument("--audit", action="store_true",
+                    help="comparer le registre au transcript (contrôle d'exhaustivité)")
+
     n = sub.add_parser("notify", help="consigner un événement notable (RM2466)")
     n.add_argument("message", nargs="?", help="texte court, factuel")
     n.add_argument("--kind", choices=sorted(NOTIFY_KINDS),
@@ -573,7 +773,7 @@ def main():
         args.no_live = False
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
      "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
-     "mr": cmd_mr}[cmd](data, args)
+     "mr": cmd_mr, "request": cmd_request}[cmd](data, args)
 
 
 if __name__ == "__main__":

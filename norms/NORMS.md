@@ -35,6 +35,7 @@ updated: 2026-08-07
 | je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
+| le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
 | un événement notable arrive en séance (secret affiché, action refusée, garde-fou déclenché, outil PM en défaut, décision qui bloque) | `modules/session-tooling.md` § « Notifications importantes » | `pm-session-status.py notify` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
@@ -572,6 +573,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
+| Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
 
@@ -582,6 +584,22 @@ Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-
 Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
 `outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
 canal noyé ne sera pas lu. Mode d'emploi : skill `mmi-pm-session-status`.
+
+## Registre des demandes (RM2621)
+
+Une demande formulée en séance n'existe que dans le fil : non ticketée
+sur-le-champ, elle disparaît au premier défilement.
+
+**Règle — enregistre CHAQUE demande dès réception**, avant de savoir si elle
+sera ticketée : `pm-session-status.py request "<la demande>"`. Puis, quand son
+sort est connu : `request --set <n> --status ticketee --ticket RM<id>` (ou
+`repondu` / `annulee` / `fusionnee --merged-into <n>`). Enregistrer coûte une
+ligne ; oublier ne laisse aucune trace.
+
+Ne filtre pas à la réception : « fais une sous-tâche » fait 19 caractères et
+c'est une demande. En cas de doute, enregistre — une entrée en trop se classe,
+une demande perdue ne se retrouve pas. Contrôle : `request --audit` compare le
+registre au transcript. Mode d'emploi : skill `mmi-pm-session-status`.
 
 ### Idiomes fréquents (évite de relancer `--help` à chaque session)
 

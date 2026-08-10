@@ -116,6 +116,43 @@ Le worklog reflète ce que **cette session** a ouvert, pas l'état global de la
 forge : une MR mergée à la main dans l'UI GitLab y restera « à merger ».
 Correction : `pm-session-status.py mr <iid> --state merged`.
 
+## Registre des demandes (RM2621)
+
+Une demande formulée en séance n'existe que dans le fil : non ticketée
+sur-le-champ, elle disparaît au premier défilement. Le registre la retient
+**avant** de savoir ce qu'elle deviendra. Règle NORMS :
+`modules/session-tooling.md` § « Registre des demandes ».
+
+```bash
+scripts/pm-session-status.py request "<la demande, telle que formulée>"
+scripts/pm-session-status.py request --list
+scripts/pm-session-status.py request --set 12 --status ticketee --ticket RM2621
+scripts/pm-session-status.py request --set 12 --status repondu --note "traité sans ticket"
+scripts/pm-session-status.py request --set 12 --status annulee
+scripts/pm-session-status.py request --set 12 --status fusionnee --merged-into 9
+scripts/pm-session-status.py request --audit           # contrôle d'exhaustivité
+scripts/pm-session-status.py request --import-missing   # RATTRAPAGE (voir plus bas)
+```
+
+`--set` prend le **numéro affiché** par `show` / `--list`, pas un identifiant à
+retenir. Seules les demandes `nouveau` apparaissent dans « 📥 Demandes à
+traiter » ; les quatre autres statuts les en sortent sans les effacer.
+
+**Ne filtre pas à la réception.** « fais une sous-tâche » fait 19 caractères et
+c'est une demande ; « core update fait » en fait 17 et n'en est pas une. En cas
+de doute : enregistre. Une entrée en trop se classe d'un geste, une demande
+perdue ne se retrouve pas.
+
+**`--audit` est le filet.** Il compte les messages du transcript, en retire les
+accusés de réception, et compare au registre. Il ne juge pas le contenu — c'est
+un comptage, il ne coûte aucun token, et c'est lui qui transforme « je crois
+n'avoir rien oublié » en fait vérifiable. À lancer en fin de session.
+
+**`--import-missing` est un rattrapage, pas le mode normal.** Il reprend du
+transcript tout ce qui manque et le pose en `nouveau`, à trier. Utile quand la
+règle n'était pas en place ; l'usage courant reste l'enregistrement explicite,
+message par message.
+
 ## Statuts
 
 Texte libre, mais reconnus pour le tri d'affichage :

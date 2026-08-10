@@ -1299,4 +1299,25 @@ assert(mRt && /setAttribute\("title"/.test(mRt[0]),
   "quand le cache se remplit, les infobulles déjà posées suivent");
 console.log("✓ infobulle (RM2619) : endpoint de lot, mise à jour en place");
 
+// — RM2622 : la doc du projet dans l'onglet fichiers —
+const mFr = />>> fileRootLabel[\s\S]*?(function fileRootLabel[\s\S]*?)\n\/\/ <<< fileRootLabel/.exec(html);
+assert(mFr, "marqueurs >>> fileRootLabel introuvables");
+const fileRootLabel = vm.runInNewContext("(" + mFr[1] + ")");
+const doc = fileRootLabel({ kind: "doc", name: "docs", docs: 15, label: "documents du projet", path: "/p/docs" });
+assert(doc.icon === "📄", "la doc porte une icône propre");
+assert(/15 fichiers/.test(doc.tip), "le nombre de documents situe le dossier");
+assert(/documents du projet/.test(doc.tip), "le libellé dit ce que c'est");
+const code = fileRootLabel({ kind: "code", name: "presta-rm2401", path: "/w/x" });
+assert(!code.icon && code.name === "presta-rm2401", "un worktree de code reste présenté comme avant");
+assert.strictEqual(fileRootLabel(null).name, "?", "entrée absente tolérée");
+console.log("✓ fichiers (RM2622) : doc et code distingués");
+
+// un dossier de doc n'a ni branche ni commits : pas de cadre git trompeur
+const mRf = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(mRf, "renderFiles introuvable");
+assert(/cur\.kind === "doc"/.test(mRf[0]), "le rendu traite la doc à part");
+assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
+  "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
+console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
+
 console.log("OK — tous les tests cockpit passent");

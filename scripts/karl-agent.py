@@ -4741,12 +4741,26 @@ def _project_worktrees(client: str, project: str) -> list:
     return sorted(paths)
 
 
+def _project_doc_roots(client: str, project: str) -> list:
+    """RM2622 : racines DOCUMENTAIRES du projet — `project/` (overview et
+    environments, canoniques) et `docs/` (aspects libres wiki-syncés, RM2043).
+
+    Ce n'est pas du code : pas de dépôt, pas de branche. Elles rejoignent la
+    liste blanche des racines lisibles, elles ne l'ouvrent pas — le modèle
+    d'autorisation reste « une racine déclarée, ou rien »."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        return []
+    pdir = PROJECTS_BASE / client / "projects" / project
+    return [str(pdir / sub) for sub in ("project", "docs") if (pdir / sub).is_dir()]
+
+
 def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str = None) -> Path:
     """Le worktree demandé doit appartenir au périmètre autorisé : les worktrees de
     la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590."""
     allowed = set(_session_worktrees(sid)) if sid else set()
     if client and project:
         allowed |= set(_project_worktrees(client, project))
+        allowed |= set(_project_doc_roots(client, project))   # RM2622
     if worktree in allowed:
         p = Path(worktree)
         if p.is_dir():
@@ -4830,10 +4844,18 @@ def op_project_worktrees(client: str, project: str) -> dict:
     out = []
     for w in _project_worktrees(client, project):
         p = Path(w)
-        item = {"path": w, "name": p.name, "exists": p.is_dir()}
+        item = {"path": w, "name": p.name, "exists": p.is_dir(), "kind": "code"}
         if p.is_dir():
             item.update(_git_brief(p))
         out.append(item)
+    # RM2622 : la doc du projet, marquée `kind: doc` — la présenter comme un
+    # worktree ferait attendre une branche et des commits qui n'existent pas.
+    for d in _project_doc_roots(client, project):
+        p = Path(d)
+        n = len(list(p.glob("*.md")))
+        out.append({"path": d, "name": p.name, "exists": True, "kind": "doc",
+                    "docs": n, "label": ("documents du projet" if p.name == "docs"
+                                         else "fiches canoniques (overview, environnements)")})
     return {"client": client, "project": project, "worktrees": out}
 
 

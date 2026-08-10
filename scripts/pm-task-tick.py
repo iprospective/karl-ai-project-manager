@@ -34,6 +34,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git  # auto-commit scopé des écritures (RM2095)
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -300,9 +301,15 @@ def update_task_fm(rm_id, deltas, model_used, log_entry=None):
     if not md_path:
         return False, f"RM{rm_id} introuvable"
 
+    # T7 : RMW du .md sous verrou par ticket (étroit — read→write ; le log/commit
+    # qui suivent sont hors verrou). Retours anticipés : libération explicite ;
+    # une exception éventuelle libère via l'OS (flock noyau).
+    _lk = ticket_lock(cfg.state_dir, rm_id)
+    _lk.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FM_RE.match(content)
     if not m:
+        _lk.__exit__(None, None, None)
         return False, f"pas de frontmatter dans {md_path}"
 
     fm = yaml.safe_load(m.group(2)) or {}
@@ -325,7 +332,8 @@ def update_task_fm(rm_id, deltas, model_used, log_entry=None):
 
     new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
-    md_path.write_text(new_content, encoding="utf-8")
+    atomic_write(md_path, new_content)
+    _lk.__exit__(None, None, None)  # T7 : libère après écriture (avant log/commit)
 
     # Log si seuil dépassé
     total_new = sum(int(deltas.get(k, 0) or 0) for k in ("input", "output", "cache_read", "cache_creation"))

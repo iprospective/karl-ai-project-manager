@@ -1192,4 +1192,14 @@ assert(tp611 && tp611.tpm === 10000 && Math.abs(tp611.uph - 3.0) < 1e-9, "debit 
 assert.strictEqual(throughput(100, 1, 0, 10000), null, "duree < 30s -> null");
 console.log("\u2713 infos (RM2611) : fenetre par modele (1M deduit), % contexte, debit");
 
+// — pollDelay (RM2613) : cadence adaptative + pause en arriere-plan —
+const fPd613 = />>> pollDelay[\s\S]*?(function pollDelay[\s\S]*?)\n\/\/ <<< pollDelay/.exec(html);
+assert(fPd613, "marqueurs pollDelay introuvables");
+const pollDelay = vm.runInNewContext("(" + fPd613[1] + ")");
+assert.strictEqual(pollDelay(true), 3000, "attention -> 3s");
+assert.strictEqual(pollDelay(false), 7000, "calme -> 7s");
+assert(/visibilitychange/.test(html) && /document\.hidden/.test(html), "pollers gates sur la visibilite (RM2613)");
+assert(/setInterval\([^)]*document\.hidden/.test(html) || /if \(!document\.hidden\)/.test(html), "au moins un poller saute quand cache");
+console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-plan");
+
 console.log("OK — tous les tests cockpit passent");

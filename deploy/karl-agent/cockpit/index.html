@@ -1378,6 +1378,19 @@ function renderAttnBand(list, sessions) {
   list.prepend(band);
 }
 
+// >>> pollDelay — pur (RM2613) : cadence du poll /sessions quand l'onglet est visible.
+// 3 s si une session attend une réponse (réactivité) ; 7 s au calme.
+function pollDelay(hot) { return hot ? 3000 : 7000; }
+// <<< pollDelay
+let hotSessions = 0;      // nb de sessions en attention/choix (règle la cadence)
+let sessTimer = null;     // timer auto-replanifié du poll /sessions (RM2613)
+function tickSessions() {
+  sessTimer = null;
+  if (document.hidden) return;   // pause en arrière-plan ; relancé par visibilitychange
+  Promise.resolve(refreshSessions()).finally(() => {
+    if (!document.hidden) sessTimer = setTimeout(tickSessions, pollDelay(hotSessions > 0));
+  });
+}
 async function refreshSessions() {
   const list = document.getElementById("runlist");
   try {
@@ -1399,6 +1412,7 @@ async function refreshSessions() {
     // sous le curseur. Sans effet en ordre stable (défaut) ; ne concerne que dynSort.
     const frozen = sortFrozen(dynSort, listHot, Date.now() - lastListMove);
     const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort && !frozen);
+    hotSessions = counts.attention + counts.choice;   // RM2613 : cadence adaptative du poll
     orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
@@ -5641,21 +5655,25 @@ async function kill(rmId) {
   renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
   try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
   loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
-  refreshHealth(); refreshSessions();
-  loadPending();         // RM2598 : questions sans réponse → badge 🕓 à gauche
-  setInterval(loadPending, 20000);
+  refreshHealth(); loadPending();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
   refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
-  setInterval(refreshHealth, 5000);
-  setInterval(refreshSessions, 3000);
-  // RM2466 : « en attente de toi » suit l'activité, mais sa cadence est plus
-  // lente que la liste — il relit des transcripts (cache serveur sur mtime),
-  // et une question qui traîne ne se périme pas en trois secondes.
-  setInterval(() => { if (rightVisible("state")) loadWorklog(); }, 10000);
-  // Cadence lente et volontairement désalignée du cache serveur (TTL 600 s) :
-  // une MAJ du PM n'est pas une urgence, et ls-remote sort sur le réseau.
-  setInterval(refreshCoreUpdate, 300000);
+  // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
+  // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
+  tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
+  setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
+  setInterval(() => { if (!document.hidden) loadPending(); }, 45000);   // RM2598 lourd (tmux+transcripts) → 45 s
+  // « en attente de toi » ne se périme pas en 3 s ; gated visible + onglet état actif.
+  setInterval(() => { if (!document.hidden && rightVisible("state")) loadWorklog(); }, 10000);
+  // MAJ du core : lente et désalignée du cache serveur (TTL 600 s) ; ls-remote réseau.
+  setInterval(() => { if (!document.hidden) refreshCoreUpdate(); }, 300000);
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) return;          // repassé au premier plan → on rattrape
+    refreshHealth(); loadPending();
+    if (!sessTimer) tickSessions();
+    if (rightVisible("state")) loadWorklog();
+  });
 })();
 </script>
 </body>

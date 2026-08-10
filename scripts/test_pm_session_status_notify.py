@@ -129,6 +129,48 @@ check("état absent = à merger (on ne perd pas une MR mal renseignée)",
 check("canal vide ou absent toléré",
       pss.mr_pending([]) == [] and pss.mr_pending(None) == [] and pss.mr_upsert(None, {"iid": "1"}))
 
+
+# — RM2621 : registre des demandes —
+R = [{"text": "a", "status": "nouveau"}, {"text": "b", "status": "ticketee", "ticket": "RM1"},
+     {"text": "c", "status": "annulee"}, {"text": "d"}]
+check("seules les demandes sans suite restent « à traiter »",
+      [r["text"] for r in pss.request_open(R)] == ["a", "d"])
+check("un statut absent vaut « nouveau » (on ne perd pas une demande mal saisie)",
+      any(r.get("text") == "d" for r in pss.request_open(R)))
+check("registre vide ou absent toléré",
+      pss.request_open([]) == [] and pss.request_open(None) == [])
+
+maj, ok = pss.request_apply(R, "2", "repondu")
+check("le numéro AFFICHÉ sert de référence (1-based)", ok and maj[1]["status"] == "repondu")
+check("les autres demandes ne bougent pas", maj[0]["status"] == "nouveau")
+check("le ticket déjà attaché est conservé", maj[1].get("ticket") == "RM1")
+maj2, _ = pss.request_apply(R, "1", "ticketee", ticket="RM2621")
+check("attacher un ticket", maj2[0]["ticket"] == "RM2621" and maj2[0]["status"] == "ticketee")
+maj3, _ = pss.request_apply(R, "1", "fusionnee", merged_into="2")
+check("fusionner garde la trace de la cible", maj3[0].get("merged_into") == "2")
+for mauvais in ("0", "99", "abc", None):
+    _, ok2 = pss.request_apply(R, mauvais, "repondu")
+    check(f"référence invalide refusée : {mauvais!r}", ok2 is False)
+
+# — contrôle d'exhaustivité : il compte, il ne devine pas —
+msgs = ["ajoute un onglet git", "ok", "go", "core update fait",
+        "au survol, montre le libellé", "/compact", "merci"]
+a = pss.request_audit(msgs, [{"text": "ajoute un onglet git"}])
+check("les accusés de réception ne comptent pas comme des demandes", a["acks"] == 5)
+check("l'écart est calculé sur les vraies demandes", a["expected"] == 2 and a["recorded"] == 1
+      and a["gap"] == 1)
+check("registre complet → aucun écart",
+      pss.request_audit(msgs, [{"text": "x"}, {"text": "y"}])["gap"] == 0)
+check("plus d'enregistrements que de messages → pas d'écart négatif",
+      pss.request_audit(msgs, [{"text": str(i)} for i in range(9)])["gap"] == 0)
+check("transcript vide toléré", pss.request_audit([], [])["gap"] == 0)
+# le filtre d'accusés ne doit JAMAIS masquer une vraie demande : il ne sert qu'à
+# fixer le nombre attendu, et une demande courte reste une demande
+check("une demande courte n'est pas prise pour un accusé",
+      pss.request_audit(["fais une sous-tâche"], [])["expected"] == 1)
+check("« core update fait » est bien un accusé, pas une demande",
+      pss.request_audit(["core update fait"], [])["expected"] == 0)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

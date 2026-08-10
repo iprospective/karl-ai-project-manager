@@ -3895,15 +3895,29 @@ async function ensureUsage(rmId, force) {
   if (!force && usageFresh(rmId)) return usageCache[rmId].usage;
   if (usageInFlight[rmId]) return;
   usageInFlight[rmId] = true;
-  try { const r = await api("/usage/" + encodeURIComponent(rmId)); usageCache[rmId] = { t: Date.now(), usage: r.usage || null }; }
-  catch (e) { usageCache[rmId] = { t: Date.now(), usage: null }; }
+  try { const r = await api("/usage/" + encodeURIComponent(rmId)); usageCache[rmId] = { t: Date.now(), usage: r.usage || null, meta: r }; }
+  catch (e) { usageCache[rmId] = { t: Date.now(), usage: null, meta: null }; }
   finally { usageInFlight[rmId] = false; }
   return usageCache[rmId].usage;
 }
 function refreshUsage(rmId) { ensureUsage(rmId, true).then(() => renderMeta()); }
+// RM2609 : libellés d'outil + format monétaire
+const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };
+function fmtUsd(x) { x = Number(x) || 0; return "$" + (Math.abs(x) < 1 ? x.toFixed(3) : x.toFixed(2)); }
+function fmtRate(r) { return r != null ? "$" + r : "?"; }
 function usageHtml(rmId) {
   if (!usageFresh(rmId) && !usageInFlight[rmId]) ensureUsage(rmId).then(() => renderMeta());
-  const c = usageCache[rmId], u = c ? c.usage : undefined;
+  const c = usageCache[rmId], u = c ? c.usage : undefined, m = c ? c.meta : null;
+  const reg = (sessCache[rmId] || {}).registry || {};
+  // RM2609 : en-tête d'exécution — outil, modèle, coût actuel (+ tarifs)
+  let head = "";
+  if (m) {
+    head += '<div class="kv"><span class="k">outil</span><span class="v">' + esc(ENGINE_LABEL[m.engine] || m.engine || "—") + '</span></div>';
+    if (m.model) head += '<div class="kv"><span class="k">modèle</span><span class="v">' + esc(m.model) + '</span></div>';
+    if (m.cost_usd != null && (u && u.turns)) head += '<div class="kv"><span class="k">coût actuel</span><span class="v"' +
+      (m.rates ? ' title="tarifs /Mtok — entrée ' + fmtRate(m.rates.input_per_mtok_usd) + ' · sortie ' + fmtRate(m.rates.output_per_mtok_usd) + ' · cache lu ' + fmtRate(m.rates.cache_read_per_mtok_usd) + '"' : '') +
+      '>' + fmtUsd(m.cost_usd) + (m.rates ? '' : ' <span style="color:var(--muted)">(tarif inconnu)</span>') + '</span></div>';
+  }
   let inner;
   if (u === undefined) inner = '<span style="color:var(--muted)">…</span>';
   else if (u === null) inner = '<span style="color:var(--muted)">indisponible</span>';
@@ -3916,8 +3930,12 @@ function usageHtml(rmId) {
     '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
     '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + '</span></div>' +
     '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>';
-  return '<div class="ms"><h4>Session en direct <span style="text-transform:none;color:var(--muted)">(tokens)</span> ' +
-    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span></h4>' + inner + '</div>';
+  // RM2609 : dates (créée = registre pm_session ; dernière activité = mtime transcript)
+  let dates = "";
+  if (reg.created) dates += '<div class="kv"><span class="k">créée</span><span class="v" title="' + esc(reg.created) + '">' + esc(reg.created) + '</span></div>';
+  if (m && m.updated) dates += '<div class="kv"><span class="k">dernière activité</span><span class="v">il y a ' + ago(m.updated) + '</span></div>';
+  return '<div class="ms"><h4>Session en direct ' +
+    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span></h4>' + head + inner + dates + '</div>';
 }
 function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
 function tabTip(s) {

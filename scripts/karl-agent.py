@@ -3476,6 +3476,7 @@ def _transcript_usage(lines) -> dict:
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
     turns = 0
     context_last = 0
+    model = None
     for line in lines:
         try:
             obj = json.loads(line)
@@ -3483,7 +3484,10 @@ def _transcript_usage(lines) -> dict:
             continue
         if not isinstance(obj, dict) or obj.get("type") != "assistant":
             continue
-        usage = (obj.get("message") or {}).get("usage")
+        msg = obj.get("message") or {}
+        if msg.get("model"):
+            model = msg["model"]            # RM2609 : modèle réel (dernier tour vu)
+        usage = msg.get("usage")
         if not isinstance(usage, dict):
             continue
         i = usage.get("input_tokens", 0) or 0
@@ -3505,14 +3509,51 @@ def _transcript_usage(lines) -> dict:
     agg["total"] = agg["input"] + agg["output"]
     agg["turns"] = turns
     agg["context_last"] = context_last
+    agg["model"] = model
     return agg
 
 
+# ── Tarifs & coût (RM2609) ───────────────────────────────────────────────────
+_PRICING_CACHE = {"t": 0.0, "models": {}}
+
+
+def _pricing_models() -> dict:
+    """models → tarifs par Mtok (pm.pricing.yml), cache 60 s (best-effort)."""
+    now = time.time()
+    if now - _PRICING_CACHE["t"] < 60 and _PRICING_CACHE["models"]:
+        return _PRICING_CACHE["models"]
+    try:
+        data = yaml_safe_load(_pricing_file().read_text(encoding="utf-8")) or {}
+        _PRICING_CACHE["models"] = data.get("models") or {}
+    except Exception:  # noqa: BLE001 — pricing best-effort, jamais bloquant
+        pass
+    _PRICING_CACHE["t"] = now
+    return _PRICING_CACHE["models"]
+
+
+# >>> usage_cost — pur (testé par test_karl_agent_usage.py)
+def _usage_cost(usage, rates) -> float:
+    """Coût USD = Σ (tokens_catégorie × tarif_par_Mtok) / 1e6. rates/usage falsy → 0."""
+    if not rates or not usage:
+        return 0.0
+
+    def num(d, key):
+        try:
+            return float((d or {}).get(key) or 0)
+        except (TypeError, ValueError, AttributeError):
+            return 0.0
+    return (num(usage, "input") * num(rates, "input_per_mtok_usd")
+            + num(usage, "output") * num(rates, "output_per_mtok_usd")
+            + num(usage, "cache_read") * num(rates, "cache_read_per_mtok_usd")
+            + num(usage, "cache_creation") * num(rates, "cache_creation_per_mtok_usd")) / 1_000_000.0
+# <<< usage_cost
+
+
 def op_usage(rm_id: str) -> dict:
-    """RM2373 : consommation tokens EN DIRECT d'une session (entrée/sortie/cache),
-    lue du transcript claude (JSONL) — même résolution de session_id que /outline.
-    404 si session absente ; usage à zéro si moteur non-claude ou transcript
-    encore introuvable (session tout juste lancée)."""
+    """RM2373/2609 : consommation EN DIRECT d'une session (tokens entrée/sortie/cache,
+    tours, contexte courant) + modèle réel, tarifs et coût (pm.pricing.yml), lus du
+    transcript claude (JSONL). 404 si session absente ; zéros si moteur non-claude ou
+    transcript encore introuvable."""
     if not _valid_sid(rm_id):
         raise ApiError(400, "rm_id invalide")
     if not _has_session(rm_id):
@@ -3520,19 +3561,29 @@ def op_usage(rm_id: str) -> dict:
     k = _key_info(rm_id) or {}
     session_id = k.get("session_id")
     empty = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0,
-             "total": 0, "turns": 0, "context_last": 0}
+             "total": 0, "turns": 0, "context_last": 0, "model": None}
+    base = {"rm_id": rm_id, "source": "none", "engine": k.get("engine"),
+            "model": None, "rates": None, "cost_usd": 0.0, "updated": None, "usage": empty}
     if k.get("engine") == "claude" and session_id:
         jf = next((p for root in CLAUDE_STORES
                    for p in root.glob(f"*/{session_id}.jsonl")), None)
         if jf:
             try:
                 with jf.open(encoding="utf-8", errors="replace") as fh:
-                    return {"rm_id": rm_id, "source": "transcript",
-                            "engine": "claude", "usage": _transcript_usage(fh)}
+                    usage = _transcript_usage(fh)
             except OSError as e:
                 raise ApiError(500, f"transcript illisible : {e}")
-    return {"rm_id": rm_id, "source": "none",
-            "engine": k.get("engine"), "usage": empty}
+            model = usage.get("model")
+            rates = _pricing_models().get(model) if model else None
+            try:
+                mtime = int(jf.stat().st_mtime)
+            except OSError:
+                mtime = None
+            return {"rm_id": rm_id, "source": "transcript", "engine": "claude",
+                    "model": model, "rates": rates,
+                    "cost_usd": round(_usage_cost(usage, rates), 4),
+                    "updated": mtime, "usage": usage}
+    return base
 
 
 def op_outline(rm_id: str) -> dict:

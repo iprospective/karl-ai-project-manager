@@ -5058,6 +5058,56 @@ def op_project(client: str, project: str) -> dict:
     }
 
 
+# RM2619 : résolution EN LOT et légère, pour les infobulles. `/resolve/<id>`
+# rend jusqu'à 6 000 caractères de description : afficher vingt tickets, c'était
+# vingt requêtes et autant de descriptions dont l'infobulle n'a que faire.
+BRIEF_MAX_IDS = 100
+
+
+def _task_completion(path) -> int | None:
+    """`completion_pct` du frontmatter, sans charger YAML."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not text.startswith("---"):
+        return None
+    end = text.find("\n---", 3)
+    for line in text[3:end if end != -1 else len(text)].splitlines():
+        if line.startswith("completion_pct:"):
+            v = line.split(":", 1)[1].strip()
+            try:
+                return max(0, min(100, int(v)))
+            except ValueError:
+                return None
+    return None
+
+
+def op_tickets_brief(ids) -> dict:
+    """RM2619 : {rm_id: {title, status, type, priority, completion_pct, client,
+    project}} pour une liste de tickets. Un id inconnu rend `found: false` —
+    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre."""
+    out = {}
+    for rm_id in list(ids or [])[:BRIEF_MAX_IDS]:
+        rm_id = str(rm_id).strip()
+        if not _RM_ID_RE.match(rm_id):
+            continue
+        tf = _find_task_file(rm_id)
+        if not tf:
+            out[rm_id] = {"found": False, "rm_id": rm_id}
+            continue
+        meta = _read_task_meta(tf)
+        client, project = _task_client_project(tf)
+        out[rm_id] = {
+            "found": True, "rm_id": rm_id, "title": meta.get("title") or "",
+            "status": meta.get("status") or "", "type": meta.get("type") or "",
+            "priority": meta.get("priority") or "",
+            "completion_pct": _task_completion(tf),
+            "client": client, "project": project,
+        }
+    return out
+
+
 def op_list_projects() -> list:
     out = []
     for cl in sorted(PROJECTS_BASE.glob("*")):
@@ -6274,6 +6324,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_buffer())
             if path.startswith("/stream/"):
                 return self._stream(path[len("/stream/"):])
+            if path == "/tickets/brief":     # RM2619 : résolution en lot, légère
+                qs = parse_qs(parsed.query)
+                ids = [x for v in qs.get("ids", []) for x in v.split(",") if x.strip()]
+                return self._send_json(200, {"tickets": op_tickets_brief(ids)})
             if path.startswith("/resolve/"):
                 return self._send_json(200, op_resolve(path[len("/resolve/"):]))
             if path == "/tickets/search":

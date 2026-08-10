@@ -30,6 +30,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
 import pm_hierarchy
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 from redmine_utils import api_ts_local
 
 try:
@@ -193,7 +194,7 @@ def apply_to_fm(fm, diffs, now):
 def write_md(path, fm, body):
     yaml_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False,
                              default_flow_style=False, width=120).rstrip()
-    path.write_text(f"---\n{yaml_fm}\n---\n{body}", encoding="utf-8")
+    atomic_write(path, f"---\n{yaml_fm}\n---\n{body}")  # T7 : atomique
 
 
 def sync_one(cfg, url, key, rm_id, args):
@@ -304,9 +305,11 @@ def main():
         ids = sorted(set(ids))
         print(f"Sync {len(ids)} tâche(s)…")
         for rm_id in ids:
-            sync_one(cfg, url, key, rm_id, args)
+            with ticket_lock(cfg.state_dir, rm_id):  # T7 : sérialise par ticket (séquentiel)
+                sync_one(cfg, url, key, rm_id, args)
     else:
-        sync_one(cfg, url, key, args.rm_id, args)
+        with ticket_lock(cfg.state_dir, args.rm_id):  # T7
+            sync_one(cfg, url, key, args.rm_id, args)
 
 
 if __name__ == "__main__":

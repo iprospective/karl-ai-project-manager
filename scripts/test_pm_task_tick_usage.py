@@ -162,7 +162,8 @@ def test_tokens_total_is_input_plus_output():
         "cost_total_usd: 0.0\nai_time_total_minutes: 0\nhuman_time_total_minutes: 0\n"
         "---\ncorps\n", encoding="utf-8")
     orig_load, orig_ac = tick.PMConfig.load, tick.pm_git.autocommit
-    tick.PMConfig.load = staticmethod(lambda: types.SimpleNamespace(find_task=lambda rid: md))
+    tick.PMConfig.load = staticmethod(lambda: types.SimpleNamespace(
+        find_task=lambda rid: md, state_dir=md.parent))  # state_dir : verrou ticket T7
     tick.pm_git.autocommit = lambda *a, **k: None
     try:
         ok, _ = tick.update_task_fm(

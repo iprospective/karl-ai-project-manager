@@ -43,6 +43,7 @@ import pm_markdown
 from pm_markdown import checklist_lines
 import pm_git  # auto-commit scopé des écritures (RM2095)
 import pm_scope
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -252,7 +253,10 @@ def main():
         extra = (extra + " " if extra else "") + f"done={done_ratio}%"
     out.op("desc", rm=args.rm_id, extra=extra)
 
-    # 2. Sync MD : applique la même transfo à la checklist du corps + completion_pct
+    # 2. Sync MD sous VERROU par ticket (T7) : RMW du .md (read→write), libéré avant
+    # le log/commit qui suivent. Pas de return dans le bloc if m: → libération unique.
+    _lk = ticket_lock(cfg.state_dir, args.rm_id)
+    _lk.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if m:
@@ -272,8 +276,10 @@ def main():
             fm["completion_pct"] = done_ratio
         fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
         new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}", encoding="utf-8")
+        atomic_write(md_path, f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}")
         out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+
+    _lk.__exit__(None, None, None)  # T7 : libère après le RMW du .md (avant log/commit)
 
     # 3. Append log local (notre historique ; peut mentionner le % même si Redmine le journalise nativement).
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")

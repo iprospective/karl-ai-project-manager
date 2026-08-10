@@ -122,6 +122,15 @@ check("un ticket inconnu rend quand même un couple exploitable",
 check("et l'origine dit que c'est un repli, pas un vrai worktree",
       "worktree du ticket" not in origine)
 
+
+# — RM2622 : racines documentaires, sans ouvrir l'accès aux fichiers —
+roots = ka._project_doc_roots("iprospective", "pm-ai-agents")
+check("les racines de doc du projet sont proposées", isinstance(roots, list))
+check("un client/projet non conforme ne rend aucune racine",
+      ka._project_doc_roots("../etc", "x") == [] and ka._project_doc_roots("", "") == [])
+check("aucune racine inventée pour un projet inexistant",
+      ka._project_doc_roots("nexistepas", "nonplus") == [])
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

@@ -353,6 +353,9 @@
   .oline.ouser { color: var(--fg-strong); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
   .oline.ouser:hover { background: var(--accent-soft-hover); }
   .oline.ocur { outline: 1px solid var(--accent); }
+  /* RM2622 : la doc du projet se distingue des worktrees de code */
+  .rsub button.doc { border-style: dashed; }
+
   /* RM2602 : commits et diffs du ticket. Le non-poussé est ce que le cockpit
      apporte face à GitLab — il porte donc une marque, un libellé et une teinte. */
   #gitbody .gcommit { padding: 4px 7px; margin-bottom: 3px; border-radius: 5px; cursor: pointer;
@@ -3430,6 +3433,22 @@ async function filesToggleCommits() {
   }
   renderFiles();
 }
+// >>> fileRootLabel — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2622 : la doc du projet n'est PAS un worktree. La présenter comme tel ferait
+// attendre une branche et des commits qui n'existent pas — d'où une icône, un
+// libellé et une infobulle propres.
+function fileRootLabel(w) {
+  const r = w || {};
+  if (r.kind === "doc") {
+    return { icon: "📄", name: r.name === "docs" ? "docs" : "fiches",
+             tip: (r.label || "documentation du projet")
+                  + (r.docs ? " — " + r.docs + " fichier" + (r.docs > 1 ? "s" : "") : "")
+                  + "\n" + (r.path || "") };
+  }
+  return { icon: "", name: r.name || "?", tip: r.path || "" };
+}
+// <<< fileRootLabel
+
 function renderFiles() {
   const b = document.getElementById("filesbody");
   const wts = (filesData.worktrees || []).filter(w => w.exists);
@@ -3437,9 +3456,20 @@ function renderFiles() {
   document.getElementById("filescnt").textContent = cur ? cur.name : "";
   let h = "";
   if (wts.length > 1) {
-    h += '<div class="rsub">' + wts.map(w =>
-      '<button class="' + (w.path === fileNav.wt ? "active" : "") + '" title="' + esc(w.path) +
-      '" onclick="filesLoadDir(' + jarg(w.path) + ',\'\')">' + esc(w.name) + "</button>").join("") + "</div>";
+    // RM2622 : le code d'abord, la doc ensuite et signalée — deux natures
+    const rangs = w => (w.kind === "doc" ? 1 : 0);
+    h += '<div class="rsub">' + wts.slice().sort((x, y) => rangs(x) - rangs(y)).map(w => {
+      const lb = fileRootLabel(w);
+      return '<button class="' + (w.path === fileNav.wt ? "active" : "")
+        + (w.kind === "doc" ? " doc" : "") + '" title="' + esc(lb.tip)
+        + '" onclick="filesLoadDir(' + jarg(w.path) + ',\'\')">'
+        + (lb.icon ? lb.icon + " " : "") + esc(lb.name) + "</button>";
+    }).join("") + "</div>";
+  }
+  if (cur && cur.kind === "doc") {
+    h += '<div class="rels" style="margin-bottom:6px"><span class="pill">📄 '
+      + esc(cur.label || "documentation du projet") + "</span>"
+      + '<span class="pill" title="Hors dépôt de code : ni branche ni commits">PM</span></div>';
   }
   if (cur && cur.is_git) {
     h += '<div class="rels" style="margin-bottom:6px">'

@@ -466,6 +466,20 @@
   .mdview th { background: var(--panel2); }
   .mdview a { color: var(--accent); }
   .mdview hr { border: none; border-top: 1px solid var(--line); margin: 10px 0; }
+  /* RM2623 : glossaire du jargon */
+  .gloss { border-bottom: 1px dotted var(--muted); cursor: help; }
+  .gloss:hover { border-bottom-color: var(--accent); color: var(--accent); }
+  .glosstop { position: sticky; top: 0; background: var(--panel); padding-bottom: 8px;
+    display: flex; align-items: center; gap: 10px; z-index: 1; }
+  .glosstop input { flex: 1; background: var(--bg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 10px; color: var(--fg); font-size: 13px; }
+  .glosstop .glosscount { color: var(--muted); font-size: 12px; white-space: nowrap; }
+  .glossrow { padding: 8px 2px; border-bottom: 1px solid var(--line); }
+  .glossrow.glosshi { background: var(--accent-soft, rgba(127,160,255,.14)); border-radius: 6px; }
+  .glossterm { font-family: var(--mono); font-weight: 600; color: var(--fg); font-size: 13px; }
+  .glossalias { color: var(--muted); font-weight: normal; font-size: 11.5px; margin-left: 6px; }
+  .glossdef { color: var(--fg); font-size: 12.5px; line-height: 1.5; margin-top: 3px; }
+  .glossempty { color: var(--muted); padding: 16px 2px; }
 </style>
 <!-- RM2386 : le thème est posé sur <html> AVANT le premier paint (pas de flash).
      Deux préférences, dans cet ordre de priorité :
@@ -556,6 +570,8 @@ if (window.matchMedia) {
     title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
   <!-- RM2593 : aide intégrée du cockpit -->
   <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
+  <!-- RM2623 : glossaire cliquable du jargon technique -->
+  <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -2666,7 +2682,7 @@ function linkify(text) {
   const re = /(https?:\/\/[^\s<)]+)|(\bRM\d+\b)|([\w.-]+\/[\w./-]+\.\w{1,6})/g;
   let out = "", last = 0, m;
   while ((m = re.exec(s))) {
-    out += esc(s.slice(last, m.index));
+    out += glossify(esc(s.slice(last, m.index)));   // RM2623 : jargon cliquable
     if (m[1]) out += '<a href="' + esc(m[1]) + '" target="_blank" rel="noopener">' + esc(m[1]) + "</a>";
     else if (m[2]) out += '<span class="olink" title="Ouvrir la fiche ' + esc(m[2])
       + '" onclick="showTicket(' + m[2].slice(2) + ')">' + esc(m[2]) + "</span>";
@@ -2674,7 +2690,7 @@ function linkify(text) {
       + jarg(m[3]) + ')">' + esc(m[3]) + "</span>";
     last = m.index + m[0].length;
   }
-  return out + esc(s.slice(last));
+  return out + glossify(esc(s.slice(last)));         // RM2623
 }
 // <<< linkify
 
@@ -2684,6 +2700,114 @@ function linkify(text) {
 function jarg(s) {
   return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
 }
+
+// ===== RM2623 : glossaire du jargon technique (client-only) =====
+// Dictionnaire terme → définition FR courte. `a` = alias / pluriels reconnus
+// (inline + recherche) ; `inline:false` = présent au panneau mais PAS souligné
+// automatiquement dans les textes (mots trop courants → tout souligner serait
+// du bruit). Rester factuel et compréhensible pour un lecteur non-développeur.
+const GLOSSARY = [
+  { t: "worktree", a: ["worktrees"], d: "Copie de travail Git rattachée à une branche. Un même dépôt peut avoir plusieurs worktrees (dossiers) ouverts en parallèle sur des branches différentes, sans se marcher dessus." },
+  { t: "worklog", a: ["worklogs"], d: "Journal d'avancement d'une session : la liste des tickets touchés et leur état, tenu à jour au fil de l'eau." },
+  { t: "backlog", d: "File d'attente des tâches à faire, pas encore prises en charge." },
+  { t: "serve-check", a: ["servecheck"], d: "Vérification rapide qu'une page se sert bien (réponse HTTP 200) avant de conclure qu'une mise en prod fonctionne." },
+  { t: "classifieur", a: ["classifier", "classifieurs"], d: "Composant qui range automatiquement une entrée dans une catégorie (ex. décider si un message attend une réponse)." },
+  { t: "clobber", d: "Écraser des données existantes sans le vouloir (un fichier, une version) — en général une erreur à éviter." },
+  { t: "writer", a: ["writers"], d: "Composant qui écrit (dans un fichier, une base…), par opposition au lecteur (reader)." },
+  { t: "ack", d: "Accusé de réception (« acknowledge ») : confirmation qu'un message ou un événement a bien été reçu et pris en compte." },
+  { t: "teardown", a: ["teardowns"], d: "Démontage : arrêt propre et nettoyage d'un environnement de test ou de ressources après usage." },
+  { t: "canari", a: ["canary", "canaris"], d: "Sonde ou déploiement témoin lancé en avance pour détecter un problème avant qu'il ne touche tout le monde." },
+  { t: "daemon", a: ["daemons", "démon"], d: "Programme qui tourne en arrière-plan en permanence, sans interface (ex. un service qui écoute des requêtes)." },
+  { t: "poll", a: ["polling"], d: "Interroger régulièrement une source pour voir si quelque chose a changé (ex. le cockpit demande l'état des sessions toutes les X secondes)." },
+  { t: "transcript", a: ["transcripts"], d: "Enregistrement complet des échanges d'une session (messages, outils appelés), relu pour l'affichage et les métriques." },
+  { t: "attach", d: "Se rattacher à une session en cours pour en voir — ou en prendre — le terminal en direct." },
+  { t: "MR", a: ["merge request"], d: "Merge Request : demande de fusion d'une branche vers une autre (dev, main), relue avant d'être acceptée." },
+  { t: "MEP", d: "Mise En Production : déployer le code validé pour qu'il tourne en conditions réelles." },
+  { t: "promote", a: ["promotion"], d: "Faire passer un changement de l'intégration (dev) vers la production (main), via une MR." },
+  { t: "frontmatter", d: "Bloc de métadonnées en tête d'un fichier (souvent en YAML, entre ---), séparé du corps (ex. le statut d'un ticket)." },
+  { t: "worker", a: ["workers"], d: "Agent exécutant : celui qui traite concrètement une tâche, par opposition à l'orchestrateur qui répartit." },
+  { t: "tick", a: ["ticks"], d: "Battement périodique : une itération régulière d'un traitement (ex. un relevé de métriques à intervalle fixe)." },
+  { t: "branche", a: ["branch", "branches"], d: "Ligne de développement parallèle dans Git : on y travaille sans toucher aux autres." },
+  { t: "rebase", d: "Rejouer ses commits par-dessus une autre base (ex. la dernière version de dev) pour garder un historique propre." },
+  { t: "hook", a: ["hooks"], d: "Point d'accroche : du code déclenché automatiquement sur un événement (ex. après un commit, au démarrage d'une session)." },
+  { t: "endpoint", a: ["endpoints", "route", "routes"], d: "Point d'entrée d'une API : une URL/route qui répond à une requête (ex. /health)." },
+  { t: "sandbox", d: "Bac à sable : environnement isolé où exécuter du code sans risque pour le reste." },
+  { t: "idempotent", d: "Se dit d'une opération qu'on peut rejouer plusieurs fois sans changer le résultat au-delà de la première." },
+  { t: "whitelist", a: ["liste blanche"], d: "Liste d'autorisation : seuls les éléments listés sont permis, le reste est refusé par défaut." },
+  { t: "stdout", a: ["stderr"], d: "Sortie standard d'un programme (le texte normal qu'il affiche) ; stderr est la sortie d'erreur." },
+  { t: "overlay", d: "Surcouche affichée par-dessus l'interface (fenêtre modale, panneau flottant)." },
+  { t: "scope", inline: false, d: "Périmètre : ce qui est concerné ou couvert (par une variable, un changement, une tâche)." },
+  { t: "process", a: ["processus"], inline: false, d: "Programme en cours d'exécution vu par le système, avec sa propre mémoire." },
+  { t: "thread", a: ["threads"], inline: false, d: "Fil d'exécution à l'intérieur d'un process : plusieurs threads travaillent en parallèle en partageant la mémoire." },
+  { t: "session", a: ["sessions"], inline: false, d: "Une conversation/instance de travail d'un agent (Claude Code…), suivie individuellement." },
+  { t: "commit", a: ["commits"], inline: false, d: "Enregistrement d'un lot de modifications dans l'historique Git, avec un message." },
+  { t: "merge", inline: false, d: "Fusionner les changements d'une branche dans une autre." },
+  { t: "cache", inline: false, d: "Réserve de résultats déjà calculés/chargés pour répondre plus vite sans refaire le travail." },
+];
+
+// >>> glossNorm — pur (RM2623, testé) : clé canonique d'un terme (minuscule,
+// espaces réduits, ponctuation de bord retirée).
+function glossNorm(term) {
+  return String(term == null ? "" : term).toLowerCase().trim()
+    .replace(/\s+/g, " ")
+    .replace(/^[^0-9a-zà-ÿ-]+|[^0-9a-zà-ÿ-]+$/g, "");
+}
+// <<< glossNorm
+
+// >>> buildGloss — pur (RM2623, testé) : indexe le glossaire.
+// Retourne { map, surfaces } : map[cléNormalisée] = {t,d} pour terme ET alias ;
+// surfaces = libellés à repérer inline (entrées inline uniquement), triés du
+// plus long au plus court pour un « longest match » dans l'alternance regex.
+function buildGloss(entries) {
+  const map = {}, surf = [];
+  for (const e of (entries || [])) {
+    const labels = [e.t].concat(e.a || []);
+    for (const l of labels) {
+      const k = glossNorm(l);
+      if (k && !map[k]) map[k] = { t: e.t, d: e.d };
+    }
+    if (e.inline !== false) { for (const l of labels) surf.push(l); }
+  }
+  surf.sort((x, y) => y.length - x.length);
+  return { map: map, surfaces: surf };
+}
+// <<< buildGloss
+
+// >>> glossMatch — pur (RM2623, testé) : entrées filtrées par requête (sur le
+// terme, ses alias ou sa définition), triées alpha sur le terme.
+function glossMatch(query, entries) {
+  const q = String(query || "").toLowerCase().trim();
+  const list = (entries || []).filter(function (e) {
+    if (!q) return true;
+    if (String(e.t).toLowerCase().indexOf(q) >= 0) return true;
+    if ((e.a || []).some(function (a) { return String(a).toLowerCase().indexOf(q) >= 0; })) return true;
+    return String(e.d).toLowerCase().indexOf(q) >= 0;
+  });
+  return list.slice().sort(function (x, y) { return String(x.t).localeCompare(String(y.t)); });
+}
+// <<< glossMatch
+
+// >>> glossify — pur (RM2623, testé) : dans un texte DÉJÀ échappé (aucune balise
+// HTML), enveloppe les termes connus dans <span class="gloss" data-term=…>.
+// Match uniquement sur frontières de mot ; `built` injectable pour les tests.
+function glossify(escaped, built) {
+  const s = String(escaped == null ? "" : escaped);
+  built = built || GLOSS;
+  if (!built || !built.surfaces.length) return s;
+  const alt = built.surfaces.map(function (x) {
+    return x.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }).join("|");
+  const re = new RegExp("\\b(" + alt + ")\\b", "gi");
+  return s.replace(re, function (m) {
+    const hit = built.map[glossNorm(m)];
+    if (!hit) return m;
+    return '<span class="gloss" data-term="' + esc(glossNorm(hit.t))
+      + '" title="' + esc(hit.d) + '">' + m + "</span>";
+  });
+}
+// <<< glossify
+
+const GLOSS = buildGloss(GLOSSARY);
 
 // >>> outlineStep — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2330 : cible de saut parmi les messages UTILISATEUR de l'outline.
@@ -4547,6 +4671,54 @@ async function openHelp(topic) {
     });
   } catch (e) { el.textContent = "erreur : " + e.message; }
 }
+
+// ----- RM2623 : glossaire du jargon (surcouche d'aide) -----
+// Réutilise la modale doc (#docmodal). Un point d'entrée « 📖 glossaire » ouvre
+// la liste complète, cherchable ; les termes soulignés dans les textes (classe
+// .gloss, posés par glossify) ouvrent la modale focalisée sur leur définition —
+// via délégation de clic (pas d'onclick inline).
+function renderGlossary(query, focus) {
+  const box = document.getElementById("glosslist");
+  if (!box) return;
+  const rows = glossMatch(query, GLOSSARY);
+  const cnt = document.getElementById("glosscount");
+  if (cnt) cnt.textContent = rows.length + " / " + GLOSSARY.length;
+  if (!rows.length) { box.innerHTML = '<div class="glossempty">Aucun terme ne correspond.</div>'; return; }
+  box.innerHTML = rows.map(function (e) {
+    const key = glossNorm(e.t);
+    const alias = (e.a && e.a.length) ? '<span class="glossalias">' + esc(e.a.join(", ")) + "</span>" : "";
+    const hi = (focus && glossNorm(focus) === key) ? " glosshi" : "";
+    return '<div class="glossrow' + hi + '" data-k="' + esc(key) + '">'
+      + '<span class="glossterm">' + esc(e.t) + "</span>" + alias
+      + '<div class="glossdef">' + esc(e.d) + "</div></div>";
+  }).join("");
+  if (focus) {
+    const el = box.querySelector('.glossrow.glosshi');
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" });
+  }
+}
+function openGlossary(term) {
+  document.getElementById("doctitle").textContent = "📖 Glossaire du jargon";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML =
+    '<div class="glosstop">'
+    + '<input id="glosssearch" type="search" placeholder="Rechercher un terme ou une définition…" autocomplete="off">'
+    + '<span class="glosscount" id="glosscount"></span></div>'
+    + '<div id="glosslist"></div>';
+  document.getElementById("docmodal").classList.add("show");
+  const search = document.getElementById("glosssearch");
+  search.oninput = function () { renderGlossary(search.value, null); };
+  const focus = (term && glossNorm(term)) ? term : null;
+  renderGlossary("", focus);
+  if (!focus) { try { search.focus(); } catch (e) {} }
+}
+// Délégation : clic sur un terme souligné (.gloss) → ouvre le glossaire dessus.
+document.addEventListener("click", function (ev) {
+  const t = ev.target;
+  const g = t && t.closest ? t.closest(".gloss") : null;
+  if (g) { ev.preventDefault(); ev.stopPropagation(); openGlossary(g.getAttribute("data-term")); }
+});
 
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au

@@ -56,6 +56,7 @@ from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
 from pm_doc import get_doc_provider, DocProviderError  # seam DocProvider (P3/RM2545)  # noqa: E402
+from pm_lock import resource_lock, atomic_write, LockTimeout  # verrous par ressource (T7/RM2551)  # noqa: E402
 
 try:
     import yaml
@@ -404,60 +405,37 @@ def git_push(repo):
 
 # ── Lock anti-concurrence (.wiki-sync/.lock) ─────────────────────────────
 class LockBusy(Exception):
-    """Levée quand un autre sync détient déjà le lock du projet (process vivant)."""
+    """Levée quand un autre sync du même projet tient déjà le lock au-delà du délai."""
 
 
 class ProjectLock:
     """Sérialise deux syncs concurrents d'un même projet (spec §9).
 
-    Lock-file `.wiki-sync/.lock` (gitignore'd) créé en O_EXCL. Un lock détenu par
-    un PID mort est volé (récupération après crash). Un lock vivant → LockBusy.
-    """
+    Généralisé sur pm_lock (T7/RM2551) : verrou `flock` sur `.wiki-sync/.lock`,
+    libéré par le NOYAU à la mort du process → plus de vol-de-lock par sonde PID
+    (supprime le TOCTOU RM1834). Contention = attente bornée ; au-delà de `timeout`,
+    LockBusy → le projet est skippé et re-tenté au sync suivant (skip préservé)."""
 
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, *, timeout=10.0):
         self.path = state_dir / ".lock"
         self.state_dir = state_dir
-        self.acquired = False
+        self._timeout = timeout
+        self._cm = None
 
     def __enter__(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        self._cm = resource_lock(self.path, timeout=self._timeout)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            if not self._stale():
-                raise LockBusy(str(self.path))
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        os.close(fd)
-        self.acquired = True
+            self._cm.__enter__()
+        except LockTimeout as e:
+            self._cm = None
+            raise LockBusy(str(self.path)) from e
         return self
 
-    def _stale(self):
-        """True si le lock pointe un PID absent/illisible (donc volable)."""
-        try:
-            pid = int(self.path.read_text(encoding="utf-8").strip() or "0")
-        except (OSError, ValueError):
-            return True
-        if pid <= 0:
-            return True
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False  # process vivant (autre utilisateur) → pas volable
-        return False
-
     def __exit__(self, *exc):
-        if self.acquired:
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
+        if self._cm is not None:
+            self._cm.__exit__(*exc)
+            self._cm = None
         return False
 
 
@@ -474,9 +452,9 @@ def load_state(state_dir):
 
 def save_state(state_dir, state):
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "state.json").write_text(
-        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8")
+    atomic_write(  # T7 : écriture atomique — jamais de state.json à moitié écrit
+        state_dir / "state.json",
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 # ── Collecte des aspects ─────────────────────────────────────────────────

@@ -975,7 +975,16 @@ function grabO(name, ctx) {
 }
 const outMatch = grabO("outMatch");
 const hlq = grabO("hlq", { esc: escO });
-const linkify = grabO("linkify", { esc: escO, jarg: jargFn });
+// RM2623 : glossaire — extraction + build partagé (linkify dépend de glossify)
+const mGloss = /const GLOSSARY = (\[[\s\S]*?\n\]);/.exec(html);
+assert(mGloss, "GLOSSARY introuvable");
+const GLOSSARY = vm.runInNewContext("(" + mGloss[1] + ")");
+const glossNorm = grabO("glossNorm");
+const buildGloss = grabO("buildGloss", { glossNorm });
+const glossMatch = grabO("glossMatch");
+const GLOSS = buildGloss(GLOSSARY);
+const glossify = grabO("glossify", { esc: escO, glossNorm, GLOSS });
+const linkify = grabO("linkify", { esc: escO, jarg: jargFn, glossify });
 
 // jarg : argument onclick sûr (guillemets simples, jamais de " qui casse l'attribut)
 assert.strictEqual(jargFn("a/b.py"), "'a/b.py'", "chemin simple entre quotes simples");
@@ -1001,6 +1010,27 @@ assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(lk), "chemin cli
 assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
 assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
 console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
+
+// — RM2623 : glossaire cliquable du jargon —
+assert.strictEqual(glossNorm("  Worktree, "), "worktree", "glossNorm: minuscule + ponctuation de bord retirée");
+assert.strictEqual(glossNorm("serve-check"), "serve-check", "glossNorm garde le trait d'union interne");
+assert(GLOSS.map["worktrees"] && GLOSS.map["worktrees"].t === "worktree", "alias/pluriel → terme canonique dans map");
+assert.strictEqual(GLOSS.surfaces.indexOf("scope"), -1, "terme inline:false absent des surfaces (pas de soulignage auto)");
+assert(GLOSS.surfaces[0].length >= GLOSS.surfaces[GLOSS.surfaces.length - 1].length, "surfaces triées du plus long au plus court");
+// glossMatch : recherche terme / alias / définition, tri alpha, requête vide → tout
+assert(glossMatch("worktree", GLOSSARY).some(e => e.t === "worktree"), "glossMatch trouve par terme");
+assert(glossMatch("bac à sable", GLOSSARY).some(e => e.t === "sandbox"), "glossMatch trouve par définition");
+assert.strictEqual(glossMatch("zzznope", GLOSSARY).length, 0, "glossMatch : aucun match → []");
+assert.strictEqual(glossMatch("", GLOSSARY).length, GLOSSARY.length, "glossMatch : requête vide → tout");
+// glossify : enveloppe le terme (frontière de mot), data-term canonique, def en title, sûr
+const gy = glossify(escO("un worktree ici"));
+assert(/<span class="gloss" data-term="worktree"/.test(gy), "glossify enveloppe le terme connu");
+assert(/title="Copie de travail Git/.test(gy), "glossify met la définition en title");
+assert.strictEqual(glossify(escO("reworktreeX")), "reworktreeX", "pas de match en milieu de mot (frontières)");
+assert(!/gloss/.test(glossify(escO("un scope large"))), "terme inline:false non souligné dans le texte");
+assert(/data-term="worktree"/.test(glossify(escO("des worktrees"))), "pluriel reconnu → data-term canonique");
+assert(!/<b>/.test(glossify(escO("<b>worktree</b>"))) && /&lt;b&gt;/.test(glossify(escO("<b>worktree</b>"))), "opère sur du texte déjà échappé (anti-XSS)");
+console.log("✓ glossaire (RM2623) : normalisation, index, recherche, soulignage inline sûr");
 
 // — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
 const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);

@@ -120,3 +120,52 @@ def atomic_write(
             tmp.unlink()
         except FileNotFoundError:
             pass  # déjà renommé (cas nominal) ou jamais créé
+
+
+def gc_locks(root: _PathLike, *, min_idle: float = 3600.0, apply: bool = False) -> dict:
+    """GC des fichiers `.lock` (RM2551) — filet post-crash + observabilité.
+
+    `flock` étant libéré par le NOYAU à la mort du process, un `.lock` ACQUÉRABLE = inert
+    (aucun détenteur vivant). Ce GC :
+      - **supprime** (si `apply`) les `.lock` inertes ET inactifs depuis > `min_idle` s.
+        La double condition (acquérable + vieux) + l'unlink SOUS flock tenu bornent à
+        néant la course unlink/recréation (un lock inactif depuis 1 h ne sera pas
+        ré-acquis pile pendant le GC) ;
+      - **signale** (jamais ne casse) les `.lock` TENUS depuis > `min_idle` s = détenteur
+        potentiellement pendu (investiguer ; kill sous contrôle admin seulement).
+    Ne touche JAMAIS un verrou vivant (teste l'acquérabilité en non-bloquant).
+    Retourne `{removed, kept_inert, held, stale_held}`. `apply=False` = dry-run."""
+    root = Path(root)
+    rep = {"removed": [], "kept_inert": [], "held": [], "stale_held": []}
+    if not root.is_dir():
+        return rep
+    now = time.time()
+    for lp in sorted(root.glob("*.lock")):
+        try:
+            age = now - lp.stat().st_mtime
+        except FileNotFoundError:
+            continue
+        fd = os.open(lp, os.O_RDWR)
+        try:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                acquirable = True
+            except OSError:
+                acquirable = False
+            if acquirable:
+                if age > min_idle:
+                    if apply:
+                        try:
+                            lp.unlink()  # sous flock tenu → aucun détenteur concurrent
+                        except FileNotFoundError:
+                            pass
+                    rep["removed"].append(lp.name)
+                else:
+                    rep["kept_inert"].append(lp.name)
+                fcntl.flock(fd, fcntl.LOCK_UN)
+            else:
+                bucket = "stale_held" if age > min_idle else "held"
+                rep[bucket].append((lp.name, round(age)))
+        finally:
+            os.close(fd)
+    return rep

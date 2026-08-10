@@ -15,7 +15,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
-from pm_lock import resource_lock, atomic_write, lock_for, ticket_lock, LockTimeout  # noqa: E402
+from pm_lock import resource_lock, atomic_write, lock_for, ticket_lock, gc_locks, LockTimeout  # noqa: E402
 
 
 def test_lock_for():
@@ -75,6 +75,29 @@ def test_ticket_lock(tmp):
     print("✓ ticket_lock : lock sous state_dir/locks/RM<id>.lock, sérialise par ticket")
 
 
+def test_gc_locks(tmp):
+    import fcntl
+    locks = tmp / "gcdir"
+    locks.mkdir()
+    old_t = time.time() - 7200  # 2 h
+    inert_old = locks / "RM1.lock"; inert_old.write_text(""); os.utime(inert_old, (old_t, old_t))
+    inert_recent = locks / "RM2.lock"; inert_recent.write_text("")  # mtime ~ maintenant
+    held = locks / "RM3.lock"; held.write_text("")
+    hfd = os.open(held, os.O_RDWR)
+    fcntl.flock(hfd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    os.utime(held, (old_t, old_t))  # tenu ET vieux → stale_held
+    try:
+        rep = gc_locks(locks, min_idle=3600, apply=True)
+        assert "RM1.lock" in rep["removed"] and not inert_old.exists(), "inerte vieux → supprimé"
+        assert "RM2.lock" in rep["kept_inert"] and inert_recent.exists(), "inerte récent → gardé"
+        assert any(n == "RM3.lock" for n, _ in rep["stale_held"]), "tenu vieux → signalé"
+        assert held.exists(), "verrou tenu JAMAIS supprimé"
+    finally:
+        fcntl.flock(hfd, fcntl.LOCK_UN)
+        os.close(hfd)
+    print("✓ gc_locks : inerte-vieux supprimé, récent gardé, tenu-vieux signalé (jamais cassé)")
+
+
 def test_crash_safety(tmp):
     lp = tmp / "crash.lock"
     ready = tmp / "ready"
@@ -124,6 +147,7 @@ def main():
         test_contention(tmp)
         test_atomic_write(tmp)
         test_ticket_lock(tmp)
+        test_gc_locks(tmp)
         test_crash_safety(tmp)
     print("\nOK — tests pm_lock passent")
     return 0

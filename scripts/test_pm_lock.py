@@ -15,7 +15,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
-from pm_lock import resource_lock, atomic_write, lock_for, LockTimeout  # noqa: E402
+from pm_lock import resource_lock, atomic_write, lock_for, ticket_lock, LockTimeout  # noqa: E402
 
 
 def test_lock_for():
@@ -58,6 +58,21 @@ def test_atomic_write(tmp):
     atomic_write(pb, b"\x00\x01\x02")
     assert pb.read_bytes() == b"\x00\x01\x02", "bytes"
     print("✓ atomic_write : contenu, mode préservé, bytes, pas de temp résiduel")
+
+
+def test_ticket_lock(tmp):
+    with ticket_lock(tmp, 42):
+        assert (tmp / "locks" / "RM42.lock").exists(), "lock sous state_dir/locks/"
+        # contention même ticket (2 OFD) → LockTimeout
+        try:
+            with ticket_lock(tmp, 42, timeout=0.2):
+                raise AssertionError("aurait dû lever LockTimeout")
+        except LockTimeout:
+            pass
+    # tickets différents → pas de contention
+    with ticket_lock(tmp, 42), ticket_lock(tmp, 99, timeout=0.5):
+        pass
+    print("✓ ticket_lock : lock sous state_dir/locks/RM<id>.lock, sérialise par ticket")
 
 
 def test_crash_safety(tmp):
@@ -108,6 +123,7 @@ def main():
         test_acquire_release(tmp)
         test_contention(tmp)
         test_atomic_write(tmp)
+        test_ticket_lock(tmp)
         test_crash_safety(tmp)
     print("\nOK — tests pm_lock passent")
     return 0

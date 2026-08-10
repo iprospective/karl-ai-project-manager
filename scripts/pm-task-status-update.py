@@ -45,6 +45,7 @@ import pm_reporting
 import pm_git
 import pm_scope
 import redmine_utils
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -580,7 +581,14 @@ def main():
         except Exception as e:
             out.warn(f"report-on-close échoué (non bloquant) : {e}")
 
-    # 1. Parse + update frontmatter
+    # 1. Parse + update frontmatter — sous VERROU PAR TICKET (T7) : sérialise le RMW
+    # du .md contre un autre writer du même ticket. Volontairement ÉTROIT (read→write
+    # du .md), libéré juste après l'écriture, AVANT les sous-process (metrics-push) et
+    # l'auto-commit → pas d'auto-blocage flock. Les sys.exit intermédiaires libèrent le
+    # verrou via l'OS (flock noyau). Le .log (append-only) et le commit git suivent hors
+    # verrou (git a son propre verrouillage) ; l'atomicité pleine du triplet = daemon (c).
+    _tlock = ticket_lock(cfg.state_dir, args.rm_id)
+    _tlock.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if not m:
@@ -785,8 +793,10 @@ def main():
                  + (f" assign={assigned_to_id}" if assigned_to_id is not None else "")
                  + (f" close={args.close_reason}" if args.close_reason else ""))
 
-    # 3. Write MD
-    md_path.write_text(new_content, encoding="utf-8")
+    # 3. Write MD (atomique) puis LIBÈRE le verrou ticket — les sous-process suivants
+    # (metrics-push, autocommit) reprennent leurs propres verrous sans nesting.
+    atomic_write(md_path, new_content)
+    _tlock.__exit__(None, None, None)
     out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
 
     # 4. Append log

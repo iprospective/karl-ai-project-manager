@@ -1175,4 +1175,21 @@ const tabs3 = worklogTabList([{ key: "done", icon: "x", label: "fait", items: [1
 assert.strictEqual(tabs3[0].key, "todo", "orphelines -> onglet a faire cree");
 console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
 
+// — RM2611 : fenêtre de contexte par modèle + % + débit —
+const grab611 = (n) => { const mm = new RegExp(">>> "+n+"[\\s\\S]*?(function "+n+"[\\s\\S]*?)\\n\\/\\/ <<< "+n).exec(html); assert(mm, n+" introuvable"); return vm.runInNewContext("("+mm[1]+")", { Number, Math, isFinite }); };
+const modelWindow = grab611("modelWindow");
+const ctxPct611 = grab611("ctxPct");
+const throughput = grab611("throughput");
+assert.strictEqual(modelWindow("claude-x", { context_window: 1000000 }, 50000), 1000000, "override pricing.yml prioritaire");
+assert.strictEqual(modelWindow("claude-x", null, 868000), 1000000, "contexte >200k -> fenetre 1M deduite");
+assert.strictEqual(modelWindow("claude-opus-4-8", null, 5000), 200000, "defaut claude 200k");
+assert.strictEqual(modelWindow("gpt-x", null, 5000), null, "non-claude inconnu -> null");
+assert.strictEqual(ctxPct611(100000, 200000), 50, "50%");
+assert.strictEqual(ctxPct611(868000, 1000000), 87, "arrondi");
+assert.strictEqual(ctxPct611(1000, null), null, "sans fenetre -> null");
+const tp611 = throughput(600000, 3.0, 0, 3600000);
+assert(tp611 && tp611.tpm === 10000 && Math.abs(tp611.uph - 3.0) < 1e-9, "debit moyen (10000 tok/min, $3/h)");
+assert.strictEqual(throughput(100, 1, 0, 10000), null, "duree < 30s -> null");
+console.log("\u2713 infos (RM2611) : fenetre par modele (1M deduit), % contexte, debit");
+
 console.log("OK — tous les tests cockpit passent");

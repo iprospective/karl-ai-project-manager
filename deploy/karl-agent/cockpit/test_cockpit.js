@@ -1202,4 +1202,51 @@ assert(/visibilitychange/.test(html) && /document\.hidden/.test(html), "pollers 
 assert(/setInterval\([^)]*document\.hidden/.test(html) || /if \(!document\.hidden\)/.test(html), "au moins un poller saute quand cache");
 console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-plan");
 
+// — RM2614 : situer un ticket dans son client / projet —
+const fPb = />>> projectBriefHtml[\s\S]*?(function projectBriefHtml[\s\S]*?)\n\/\/ <<< projectBriefHtml/.exec(html);
+assert(fPb, "marqueurs >>> projectBriefHtml introuvables");
+const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")");
+const e = s => String(s);
+const j = s => '"' + String(s) + '"';
+
+// tant que la fiche projet n'est pas chargée, on affiche ce qu'on SAIT déjà
+const nu = projectBriefHtml("acme", "shop", null, e, j);
+assert(/acme/.test(nu) && /shop/.test(nu), "client et projet viennent du ticket, sans attendre le réseau");
+assert(/showProject\("acme\/shop"\)/.test(nu), "le lien vers la fiche projet est là d'emblée");
+assert(!/tickets/.test(nu), "pas de compteur inventé tant que la fiche n'est pas chargée");
+
+const carte = {
+  client_name: "Acme SA", client_redmine_project_id: "acme",
+  name: "Boutique", redmine_project_url: "https://r/projects/shop",
+  gitlab_repo: "grp/shop", default_branch: "dev",
+  open_by_status: { en_cours: 2, a_faire: 3 }, total: 12,
+};
+const plein = projectBriefHtml("acme", "shop", carte, e, j);
+assert(/Acme SA/.test(plein) && /Boutique/.test(plein), "les noms lisibles priment sur les slugs");
+assert(/5 ouverts \/ 12/.test(plein), "le compte d'ouverts situe le projet d'un coup d'œil");
+assert(/grp\/shop/.test(plein) && /dev/.test(plein), "dépôt et branche par défaut affichés");
+assert(/https:\/\/r\/projects\/shop/.test(plein) && /rel="noopener"/.test(plein),
+  "lien Redmine du projet, ouvert sans fuite d'opener");
+
+const un = projectBriefHtml("acme", "shop", { open_by_status: { en_cours: 1 } }, e, j);
+assert(/1 ouvert</.test(un), "singulier respecté");
+
+// un ticket non résolu ne doit pas produire un cadre vide
+assert.strictEqual(projectBriefHtml(null, "shop", carte, e, j), "", "sans client : rien");
+assert.strictEqual(projectBriefHtml("acme", null, carte, e, j), "", "sans projet : rien");
+assert.strictEqual(projectBriefHtml("", "", null, e, j), "", "les deux vides : rien");
+// vu sur un projet RÉEL : un champ YAML vide remonte en chaîne "null"
+const nul = projectBriefHtml("calicote", "prestashop",
+  { gitlab_repo: "null", default_branch: "main", client_name: "Calicote" }, e, j);
+assert(!/null/.test(nul), "un dépôt non déclaré ne s'affiche pas comme « null »");
+assert(/Calicote/.test(nul), "le reste de la fiche s'affiche normalement");
+console.log("✓ ticket (RM2614) : client/projet situés, liens vers le détail");
+
+// la fiche projet ne doit être demandée qu'une fois par projet
+const mEns = /function ensureProjectCard\([\s\S]*?\n\}/.exec(html);
+assert(mEns, "ensureProjectCard introuvable");
+assert(/projCardCache\[cle\] !== undefined/.test(mEns[0]),
+  "un projet déjà demandé n'est pas rechargé à chaque rendu de fiche");
+console.log("✓ ticket (RM2614) : une requête par projet, pas une par rendu");
+
 console.log("OK — tous les tests cockpit passent");

@@ -84,6 +84,15 @@ def resource_lock(lock_file: _PathLike, *, timeout: float = 10.0, poll: float = 
             os.close(fd)
 
 
+def ticket_lock(state_dir: _PathLike, rm_id, *, timeout: float = 10.0):
+    """Verrou PAR TICKET (T7) : sérialise les écritures du triplet d'un même RM<id>
+    (`.md` + `.reporting.yml` + `.log.md`). Le `.lock` vit sous `state_dir/locks/`
+    (dans `var/`, HORS arbre tracké) → aucun risque de commit accidentel, et pas de
+    dépendance à un `.gitignore` dans les 47 méta-repos. Granularité PER-MACHINE
+    (sérialisation LOCALE ; l'inter-machine reste arbitré par `updated` Redmine)."""
+    return resource_lock(Path(state_dir) / "locks" / f"RM{rm_id}.lock", timeout=timeout)
+
+
 def atomic_write(
     path: _PathLike, data: Union[str, bytes], *, encoding: str = "utf-8"
 ) -> Path:

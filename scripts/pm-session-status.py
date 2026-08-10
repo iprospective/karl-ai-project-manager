@@ -29,6 +29,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout
+from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
@@ -156,10 +157,10 @@ def save(data, live=None):
             data["docs"] = docs
     data["updated"] = now()
     jpath, mpath = paths(data["session_id"])
-    with open(jpath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    with open(mpath, "w", encoding="utf-8") as f:
-        f.write(render_md(data, live=live))
+    # T7 : écriture atomique (temp + os.replace). Worklog per-session/per-user → pas de
+    # concurrence (donc pas de verrou), mais évite un fichier à moitié écrit au crash.
+    atomic_write(jpath, json.dumps(data, ensure_ascii=False, indent=2))
+    atomic_write(mpath, render_md(data, live=live))
 
 
 def find(data, ref):

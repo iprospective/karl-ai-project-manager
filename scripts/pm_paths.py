@@ -66,6 +66,20 @@ def _secrets_env(pm_dir: Path) -> Optional[Path]:
     return None
 
 
+def _user_secrets_env() -> Optional[Path]:
+    """`.env` secrets PROPRE au dev courant (RM2438 T1, scission des secrets) :
+    `$XDG_CONFIG_HOME/mmi-pm/.env` (défaut `~/.config/mmi-pm/.env`, `600` par dev).
+
+    Chargé AVANT le `.env` d'instance : `_load_env_file` étant premier-écrit-gagne,
+    les clés du dev l'emportent sur l'instance (fallback karl), `os.environ` (override
+    de session) battant les deux. Absent → aucun effet : comportement karl STRICTEMENT
+    inchangé (rétrocompat). Permet à chaque dev de poser SA clé sans exposer celle de
+    karl au groupe `pm`."""
+    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
+    cand = Path(base).expanduser() / "mmi-pm" / ".env"
+    return cand if cand.is_file() else None
+
+
 def _expand_env(value: str) -> str:
     """Résout `${VAR}` et `${VAR:-default}` dans une chaîne."""
     if not isinstance(value, str):
@@ -103,7 +117,12 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge le .env de secrets (pm_dir si présent, sinon core via PM_CORE_DIR)
+        # 2. Charge les secrets : user (par dev, prioritaire) PUIS instance (fallback
+        #    rétrocompat karl). Premier-écrit-gagne → user > instance ; os.environ bat
+        #    les deux. Sans `~/.config/mmi-pm/.env`, comportement strictement inchangé.
+        user_env = _user_secrets_env()
+        if user_env:
+            _load_env_file(user_env)
         env_file = _secrets_env(pm_dir)
         if env_file:
             _load_env_file(env_file)

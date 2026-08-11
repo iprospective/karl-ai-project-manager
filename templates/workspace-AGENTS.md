@@ -47,7 +47,7 @@ n'est PAS un double-checkout cassé :
   avec sudo** sans feu vert. L'alias `…/ai/project-management` (le lien `.mmi-pm` de
   plein de projets) pointe ici.
 - **`/zfs/workspaces/iprospective/ai-project-management` = l'ENV de DEV PM**
-  (`mathieu:mathieu`). C'est là qu'on **développe l'outillage PM** et là que
+  (`pm:pm`, groupe `pm`). C'est là qu'on **développe l'outillage PM** et là que
   `pm-task-add` & co écrivent quand le projet est résolu via `--project`. Des
   changements non-committés y sont du **WIP normal**, pas une anomalie.
 
@@ -58,6 +58,9 @@ depuis le conteneur** (`ssh mathieu@dev.lxc`). `main` protégée (RM2030) →
 `git push origin main:dev` puis **MR dev→main** (token *manager*, API projet
 id **138**, résolution par match **exact** du `path_with_namespace`). Symptôme
 typique quand on l'ignore : « auto-push différé » qui s'accumule.
+
+Tout le reste (droits des dossiers, layout, conventions internes) est documenté **côté
+PM** : `CLAUDE.md` et `agents/` à la racine du repo. Ce fichier-ci n'en est que le pont.
 
 ## Si oui — onboarding obligatoire AVANT toute action
 

@@ -4223,12 +4223,64 @@ function titleLink(rmId, title) {
   return lbl + ext;
 }
 // <<< titleLink
+// RM2630 : `resolveCache` n'avait NI péremption NI invalidation — un ticket
+// n'était résolu qu'une fois par chargement de page, et la douzaine de vues qui
+// lisent ce cache (liste, encart ℹ, lanceur, fiche de revue, tickets ouverts)
+// servaient toutes la même donnée figée. Toute écriture faite hors cockpit
+// (statut, description, chiffrage) restait invisible jusqu'au F5, sans que rien
+// ne le signale — on cherche alors l'anomalie côté synchro Redmine/MD, où il n'y
+// a rien à trouver. D'où : horodatage des entrées + révalidation au retour sur
+// un ticket + rechargement manuel (⟳) + date de la version affichée.
+const resolveAt = {};             // rm_id → Date.now() de la dernière résolution
+const RESOLVE_TTL_MS = 30000;     // au-delà, une vue ticket qui s'ouvre révalide
+function resolveStale(rmId) {
+  const t = resolveAt[String(rmId)];
+  return t === undefined || (Date.now() - t) > RESOLVE_TTL_MS;
+}
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
   if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
+  resolveAt[rmId] = Date.now();
   return resolveCache[rmId];
 }
+// Révalidation silencieuse au retour sur un ticket : sert le cache tout de
+// suite (pas de clignotement), puis re-rend si le serveur a du neuf.
+function revalidateTicket(rmId, after) {
+  rmId = String(rmId);
+  if (!resolveStale(rmId)) return;
+  const before = JSON.stringify(resolveCache[rmId] || null);
+  ensureResolved(rmId, true).then(r => {
+    if (JSON.stringify(r || null) !== before && after) after(r);
+  });
+}
+// Rechargement explicite (bouton ⟳) : recharge et re-rend, quoi qu'il arrive.
+// Reste utile malgré la révalidation auto — c'est le recours quand on doute de
+// ce qu'on lit, et il rend la fraîcheur actionnable plutôt que subie.
+function reloadTicket(rmId) {
+  rmId = String(rmId);
+  return ensureResolved(rmId, true).then(() => {
+    if (metaTicket === rmId) renderMeta();
+    if (typeof currentReview !== "undefined" && currentReview === rmId) renderReviewPane();
+    const box = document.getElementById("rm");
+    if (box && box.value.trim() === rmId && typeof resolveRm === "function") resolveRm();
+    toast("RM" + rmId + " rechargé");
+  });
+}
+// « il y a X » à partir d'un horodatage ISO minute — pour dater la version montrée.
+// >>> sinceLabel — pur (testé par test_cockpit.js)
+function sinceLabel(iso, now) {
+  if (!iso) return "";
+  const t = Date.parse(String(iso).replace(" ", "T"));
+  if (isNaN(t)) return "";
+  const min = Math.floor(((now === undefined ? Date.now() : now) - t) / 60000);
+  if (min < 1) return "à l'instant";
+  if (min < 60) return "il y a " + min + " min";
+  const h = Math.floor(min / 60);
+  if (h < 24) return "il y a " + h + " h";
+  return "il y a " + Math.floor(h / 24) + " j";
+}
+// <<< sinceLabel
 // RM2373 : conso tokens live de la session (entrée/sortie séparées), lue du
 // transcript via /usage. Rafraîchie à la demande + auto (20 s) tant que l'encart
 // est ouvert ; un verrou in-flight évite les rafales sur les renders répétés.
@@ -4390,6 +4442,9 @@ function showTicket(id) {
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderMeta();
   ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
+  // RM2630 : revenir sur un ticket déjà vu doit montrer son état actuel, pas
+  // celui du premier affichage — révalidation au-delà du TTL.
+  revalidateTicket(id, () => { if (metaTicket === String(id)) renderMeta(); });
   if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
 }
 function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); switchPanel("sessions"); attachIfRunning(id); }
@@ -4533,13 +4588,30 @@ function ensureProjectCard(client, project, onLoad) {
   return null;
 }
 
+// RM2630 : dater la version affichée. Sans ça, une donnée périmée est
+// indiscernable d'une donnée fraîche — c'est ce qui fait chercher l'anomalie
+// ailleurs (synchro Redmine/MD) alors qu'elle est sous les yeux.
+function ticketFreshnessHtml(r) {
+  const stamp = (r && (r.updated || r.mtime)) || "";
+  if (!stamp) return "";
+  const since = sinceLabel(stamp);
+  return '<div class="kv"><span class="k" style="color:var(--muted)">version</span>' +
+    '<span class="v" style="color:var(--muted)" title="dernière écriture du ticket : ' + esc(stamp) + '">' +
+    esc(stamp) + (since ? ' <span style="opacity:.75">(' + esc(since) + ')</span>' : '') + '</span></div>';
+}
+
 function _ticketDetailHtml(rmId, r) {
   const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
   let h = '<div class="ms"><h4>Ticket</h4>' +
     '<div class="kv"><span class="k">id</span><span class="v">' +
     (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) +
     ' <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" onclick="gotoTicket(' + rmId + ')">→ lanceur</span>' +
-    ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span></span></div>' +
+    ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span>' +
+    // RM2630 : le ticket était le seul objet du cockpit sans son ⟳ (worklog,
+    // fichiers, git, outline, conso, workspace en ont un). Recours explicite
+    // quand on doute de ce qu'on lit.
+    ' <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque (description, statut, chiffrage)" onclick="reloadTicket(String(' + rmId + '))">↻</span></span></div>' +
+    ticketFreshnessHtml(r) +
     '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
     '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
     '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
@@ -5550,6 +5622,11 @@ function openReview(rm) {
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
   ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
+  // RM2630 : la fiche de revue est le pire endroit où lire une version périmée —
+  // c'est là qu'on décide d'accepter ou de refuser une livraison.
+  revalidateTicket(rm, () => {
+    if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); }
+  });
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
   refreshSessions();                     // re-rend la liste « en cours » (actif)
 }
@@ -5575,7 +5652,12 @@ function renderReviewPane() {
     h += '<div style="color:var(--muted);margin-bottom:6px">' + esc(r.client + "/" + r.project) +
       ' · <span class="pill">' + esc(r.status || "?") + '</span>' +
       (r.priority ? ' · <span class="pill">' + esc(r.priority) + '</span>' : "") +
-      (q && q.branch ? ' · branche <span class="pill" title="' + esc(q.branch) + '">' + esc(q.branch) + '</span>' : "") + '</div>';
+      (q && q.branch ? ' · branche <span class="pill" title="' + esc(q.branch) + '">' + esc(q.branch) + '</span>' : "") +
+      // RM2630 : dater la version + pouvoir la recharger, ici plus qu'ailleurs —
+      // c'est sur cette fiche qu'on accepte ou refuse une livraison.
+      ((r.updated || r.mtime) ? ' · <span title="dernière écriture du ticket : ' + esc(r.updated || r.mtime) + '">version ' + esc(sinceLabel(r.updated || r.mtime) || (r.updated || r.mtime)) + '</span>' : "") +
+      ' <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque" onclick="reloadTicket(String(' + esc(rm) + '))">↻</span>' +
+      '</div>';
     const links = [];
     if (r.redmine_url) links.push('<a href="' + esc(r.redmine_url) + '" target="_blank">Redmine ↗</a>');
     if (r.git && r.git.mr_url) links.push('<a href="' + esc(r.git.mr_url) + '" target="_blank">MR ↗</a>');
@@ -5658,7 +5740,14 @@ function renderReviewPane() {
 async function pmRun(name, args, opts) {
   const body = { name, args };
   if (opts && opts.confirm) body.confirm = true;
-  return api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const res = await api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  // RM2630 : une commande PM vient d'écrire sur le ticket — l'entrée de cache
+  // est périmée par construction. On la marque telle quelle plutôt que de
+  // compter sur un `ensureResolved(rm, true)` posé au cas par cas à chaque
+  // appelant (c'est ce qui manquait : 5 appelants sur N y pensaient).
+  const rm = args && (args.rm_id || args.rmId);
+  if (rm !== undefined && rm !== null) delete resolveAt[String(rm)];
+  return res;
 }
 // RM2355 : livre la branche du ticket (MR + merge → dev) pour débloquer un
 // verdict refusé par la merge gate RM2319. La transition de statut reste au

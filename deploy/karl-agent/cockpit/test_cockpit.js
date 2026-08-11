@@ -950,6 +950,20 @@ tlo = mkTl({})("42", "T");
 assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
 console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
 
+// — sinceLabel (RM2630) : dater la version de ticket affichée —
+const fSl = />>> sinceLabel[\s\S]*?(function sinceLabel[\s\S]*?)\n\/\/ <<< sinceLabel/.exec(html);
+assert(fSl, "marqueurs >>> sinceLabel / <<< sinceLabel introuvables");
+const sinceLabel = vm.runInNewContext("(" + fSl[1] + ")", {});
+const t0 = Date.parse("2026-08-11T12:00");
+assert.strictEqual(sinceLabel("2026-08-11T12:00", t0), "à l'instant", "même minute");
+assert.strictEqual(sinceLabel("2026-08-11T11:43", t0), "il y a 17 min", "minutes");
+assert.strictEqual(sinceLabel("2026-08-11T09:00", t0), "il y a 3 h", "heures");
+assert.strictEqual(sinceLabel("2026-08-09T12:00", t0), "il y a 2 j", "jours");
+assert.strictEqual(sinceLabel("2026-08-11 11:00", t0), "il y a 1 h", "espace accepté à la place du T");
+assert.strictEqual(sinceLabel("", t0), "", "horodatage absent → pas de mention");
+assert.strictEqual(sinceLabel("pas une date", t0), "", "horodatage illisible → pas de mention");
+console.log("✓ sinceLabel (RM2630) : âge de la version affichée, dégrade en silence");
+
 // — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
 const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
 assert(fWd, "marqueurs >>> worklogDocs / <<< worklogDocs introuvables");

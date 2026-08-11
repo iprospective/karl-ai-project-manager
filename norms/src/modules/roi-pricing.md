@@ -66,12 +66,24 @@ Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
 réponse Claude. Il :
 
 1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
-   sentinel global utilisateur — éviter les collisions multi-sessions) :
-   - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
-   - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
-   - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
-     qui parse les "RM1234" dans le prompt user)
+2. Identifie le RM-id courant **par ce que le tour a réellement touché** (RM1823),
+   lu dans le transcript que le hook reçoit déjà — on ne **devine** pas le ticket
+   depuis l'état du projet :
+   - **Signal du tour** (events depuis le dernier prompt humain, celui-ci inclus) :
+     le candidat au signal le plus **fort**, puis le plus **récent**. Force du
+     signal : **3** = commande de mutation PM (`pm-task-*.py`, `redmine-*.py` avec
+     un RM-id), **2** = édition d'un fichier de ticket (`RM<id>_*.md`), **1** =
+     simple mention textuelle (`RM1234`).
+   - **Continuation** : si le tour n'a touché aucun ticket (question, lecture,
+     mise au point), on retombe sur le dernier ticket touché **de la session**.
+   - **Repli** : sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`.
+   - **Le statut n'entre PAS dans la résolution** — sauf la garde `ferme`
+     ci-dessous. Une phase d'`etude_chiffrage_en_cours`, un `a_corriger`, un
+     `a_mep` sont tickés comme un `en_cours` : l'étude et le chiffrage se
+     mesurent aussi. (L'ancienne heuristique « seule tâche `en_cours` du projet »
+     est abandonnée depuis RM1823 : trompeuse — plusieurs tâches `en_cours` dans
+     un projet est le cas NORMAL, comme plusieurs sessions en parallèle ou
+     plusieurs tickets dans une même session.)
    - **Garde « ticket fermé » (RM2053)** : la cible n'est **jamais** un ticket
      `status: ferme`. Le résolveur retient le signal le plus fort **parmi les tickets
      ouverts** ; un tour touchant un ticket ouvert + un fermé ticke l'**ouvert** ; un
@@ -81,9 +93,14 @@ réponse Claude. Il :
      perdre). Évite que la cérémonie de clôture / le suivi post-fermeture ne gonfle un
      ticket déjà fermé.
 3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
-4. Sinon : lit le dernier message assistant du transcript, somme les tokens
-   par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
-   du MD (atomique avec optimistic locking)
+4. Sinon : somme les tokens **de tous les messages assistant du tour** (fenêtre =
+   curseur de session, à défaut dernier prompt humain — jamais tout le transcript,
+   pour ne pas recompter l'historique d'une session reprise), **dédupliqués par
+   `message.id`** (RM2628 : le JSONL écrit une même réponse une fois par bloc de
+   contenu, chaque ligne portant l'usage complet ; sans dédup la conso est
+   multipliée par le nombre de blocs — règle partagée avec le cockpit via
+   `pm_transcript.usage_by_message`), calcule le coût USD via `pm.pricing.yml`,
+   met à jour le frontmatter du MD (atomique avec optimistic locking)
 5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
    éviter le bruit, sinon silencieux)
 

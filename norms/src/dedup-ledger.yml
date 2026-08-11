@@ -17,6 +17,17 @@
 removed: []
 
 rewritten:
+  - reason: "RM2627 (v1.67.1) : description du résolveur de pm-task-tick périmée depuis RM1823. Le texte d'origine décrivait la cascade « sentinel, puis SEULE tâche en_cours du projet » et annonçait une « V2 prévue » déjà livrée ; le code résout en réalité par ce que le TOUR a touché (mutation PM > édition de fichier ticket > mention textuelle, puis continuation de session, puis sentinel) et ne filtre AUCUN statut hormis la garde `ferme` (RM2053). Écart coûteux : la doc laissait conclure qu'une phase d'étude/chiffrage n'était pas comptée — faux, vérifié sur un ticket réel. Le point 4 (« lit le dernier message assistant ») est réécrit dans le même mouvement : la somme porte sur tous les messages assistant du tour, dédupliqués par message.id (RM2628)."
+    old: |
+      2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
+         sentinel global utilisateur — éviter les collisions multi-sessions) :
+         - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
+         - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
+         - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
+           qui parse les "RM1234" dans le prompt user)
+      4. Sinon : lit le dernier message assistant du transcript, somme les tokens
+         par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
+         du MD (atomique avec optimistic locking)
   - reason: "RM2568 (v1.66.1) : bloc d'exemples `glab api` bruts (create + merge de MR à la main) retiré de git-mep — il illustrait exactement le réflexe que la même section déconseille désormais : se replier sur un appel API artisanal au lieu de `pm-mr`, qui encapsule ces gotchas. Les 4 gotchas restent en puces juste au-dessus, pour les rares appels directs légitimes. Retrait aussi motivé par le budget de contexte de worker-dev, saturé au token près."
     old: |
       ```bash

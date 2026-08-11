@@ -82,6 +82,13 @@ c'est une demande. En cas de doute, enregistre — une entrée en trop se classe
 une demande perdue ne se retrouve pas. Contrôle : `request --audit` compare le
 registre au transcript. Mode d'emploi : skill `mmi-pm-session-status`.
 
+**N'enregistre pas ce qui ne vient pas du demandeur** (RM2635) : résumé de
+compaction réinjecté dans le fil, collage de console renvoyé à TA demande,
+sortie de commande. Ce ne sont pas des demandes et ils noient les vraies. Si
+l'une s'est glissée dans le registre, elle se range en `non_demande` — pas en
+`annulee` : personne n'a rien annulé, et ranger le bruit sous un statut faux
+rend le registre inexploitable pour la question à laquelle il sert à répondre.
+
 ### Idiomes fréquents (évite de relancer `--help` à chaque session)
 
 - **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,

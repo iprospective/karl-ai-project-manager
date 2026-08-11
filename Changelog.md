@@ -29,6 +29,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **MR sans ticket** (RM2644) : `pm-mr create --no-ticket --title "…"` ouvre une MR
+  pour un changement qui n'a pas de ticket — ajout d'un terme au glossaire du
+  cockpit, coquille (cf. NORMS `governance` § « Changements sans ticket », v1.68.0).
+  La **MR reste due** : les branches d'intégration et de prod sont protégées, « sans
+  ticket » n'est pas « push direct » ; seules tombent les accroches au ticket (CF
+  *GIT Branche* / *GIT PR*, `git.mr_urls`, `--status`). Le mode exige un titre,
+  refuse un `rm_id` simultané et **refuse une branche préfixée `<id>-`** — elle y
+  trahirait un ticket oublié. Comble le trou qui avait obligé à créer la MR du terme
+  « one-off » à la main par l'API.
 - **Env de session : plus de saut ssh inutile, plus de base périmée** (RM2646).
   Deux défauts de `pm-env-session`, constatés en prenant un ticket depuis le
   conteneur `dev` : (1) le helper privilégié était **toujours** appelé via

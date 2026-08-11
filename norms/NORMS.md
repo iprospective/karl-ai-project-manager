@@ -1,10 +1,10 @@
 ---
-schema_version: "1.67.0"
-updated: 2026-08-07
+schema_version: "1.68.0"
+updated: 2026-08-11
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.67.0
+# Normes de gestion des tâches — v1.68.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -31,6 +31,7 @@ updated: 2026-08-07
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
+| je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
 | je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
@@ -3043,6 +3044,31 @@ peut refuser une MR « surface » dont la doc n'a pas suivi.
 Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
 (pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
 commit-par-commit (le détail vit dans les tickets).
+
+### Changements sans ticket (RM2644)
+
+Certains changements du repo PM **ne demandent pas de ticket Redmine** : le ticket y
+coûterait plus cher que le changement lui-même, et n'apprendrait rien à personne.
+
+| Sans ticket | Avec ticket |
+|---|---|
+| ajout d'un terme au **glossaire du cockpit** (`GLOSSARY`) | tout changement de **comportement** d'un outil |
+| correction de coquille / reformulation sans changement de sens | toute évolution de **surface** (outil, flux, statuts, envs, cockpit) |
+| — | toute modification de **NORMS** |
+
+**Ce qui ne change pas : la MR.** Les branches d'intégration et de prod restent
+protégées (tripwire #3) — « sans ticket » ne veut pas dire « push direct ». Ce qui
+tombe, faute d'objet, c'est ce qui s'accroche au ticket : CF Redmine *GIT Branche* /
+*GIT PR*, `git.mr_urls` du frontmatter, transition de statut.
+
+Outil : **`pm-mr create --no-ticket --title "…"`**. Il exige un titre (le titre par
+défaut est `RM<id> — <branche>`, qui n'existe pas ici), refuse `--status`, refuse un
+`rm_id` passé en même temps, et **refuse une branche préfixée `<id>-`** — dans ce
+mode, une telle branche trahit un ticket oublié, pas un changement ticketless. Nommer
+la branche par son sujet (`glossaire-one-off`).
+
+En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
+réversible, pas ce qui mérite d'être retrouvé plus tard.
 
 ## Versionning des normes
 

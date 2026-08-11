@@ -1049,6 +1049,28 @@ assert.strictEqual(glossGroups([{ t: "x", d: "y" }])[0].cat, "gen", "entrée san
 assert.strictEqual(glossGroups([{ t: "z", d: "w", c: "zzz" }])[0].cat, "zzz", "catégorie inconnue conservée (rejetée en fin), jamais perdue");
 console.log("✓ glossaire enrichi (RM2634) : catégories ordonnées, tri alpha, filtrage, rien de perdu");
 
+// — RM2639 : contexte client (pré-filtre global du cockpit) —
+const clientCtxList = grabO("clientCtxList");
+const clientCtxProject = grabO("clientCtxProject");
+const sessionInClient = grabO("sessionInClient");
+const PJ = [
+  { client: "iprospective", project: "pm-ai-agents", value: "iprospective/pm-ai-agents" },
+  { client: "acme", project: "site", value: "acme/site" },
+  { client: "iprospective", project: "infra", value: "iprospective/infra" },
+];
+assert.deepStrictEqual([...clientCtxList(PJ)], ["acme", "iprospective"], "clients uniques, triés alpha");
+assert.deepStrictEqual([...clientCtxList([])], [], "aucun projet → []");
+assert.strictEqual(clientCtxProject(PJ, "iprospective"), "iprospective/pm-ai-agents", "1er projet du client");
+assert.strictEqual(clientCtxProject(PJ, "inconnu"), "", "client introuvable → ''");
+assert.strictEqual(clientCtxProject(PJ, ""), "", "client vide → ''");
+assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, ""), true, "ctx vide → visible");
+assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, "acme"), true, "même client → visible");
+assert.strictEqual(sessionInClient({ client: "bob", state: "working" }, null, "acme"), false, "autre client, non en attente → masqué");
+assert.strictEqual(sessionInClient({ client: "bob", state: "attention" }, null, "acme"), true, "autre client mais en attente → jamais masqué (RM2445)");
+assert.strictEqual(sessionInClient({ client: "bob", state: "choice" }, null, "acme"), true, "autre client mais choix → jamais masqué");
+assert.strictEqual(sessionInClient({ state: "working" }, { found: true, client: "acme" }, "acme"), true, "client résolu via resolveCache");
+console.log("✓ contexte client (RM2639) : liste, projet par défaut, filtre (attente jamais masquée)");
+
 // — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
 const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
 assert(fPs, "marqueurs pendStaleSet introuvables");

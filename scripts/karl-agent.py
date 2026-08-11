@@ -3761,6 +3761,10 @@ WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
 # divergentes du même worklog donneraient deux vérités sur « où on en est ».
 WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
                 "résolu", "resolu"}
+# RM2635 : statuts qui sortent une demande du « à traiter ». Copie de
+# REQUEST_DONE (pm-session-status.py) — un test vérifie qu'elles ne divergent
+# pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
+REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
 WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
                    "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
                    "en_pause"}
@@ -3863,7 +3867,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": []}
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [],
+             "requests_open": []}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3886,6 +3891,13 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
             "notifications": (data.get("notifications") or [])[-20:],
             "mrs_pending": mrs,
+            # RM2635 : les demandes pas encore ticketées, là où le demandeur
+            # regarde. Le registre de RM2621 n'existait que dans le worklog
+            # Markdown : sûr, mais invisible depuis le cockpit — donc, de son
+            # point de vue, pas livré.
+            "requests_open": [dict(r, n=i + 1) for i, r
+                              in enumerate(data.get("requests") or [])
+                              if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
 
 

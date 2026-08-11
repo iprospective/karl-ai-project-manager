@@ -914,10 +914,7 @@ if (window.matchMedia) {
         <select class="mini" id="layoutsel" onchange="setLayout()" title="Disposition des panes">
           <option value="">Disposition…</option>
         </select>
-        <button class="mini" id="cpbtn" onclick="copyCapture(event.altKey)"
-          title="📋 Copier les 300 dernières lignes du terminal dans le presse-papier système&#10;(Alt+clic : afficher dans une fenêtre pour sélection manuelle)">📋 Copier</button>
-        <button class="mini" id="bufbtn" onclick="pullBuffer()"
-          title="📥 Récupérer la dernière copie faite DANS le terminal (ex. sélection copiée dans Claude Code, copy-mode tmux) vers ton presse-papier">📥 Copie</button>
+        <!-- RM2631 : « 📋 Copier » / « 📥 Copie » déplacés dans la barre du composer -->
         <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
       </div>
     </div>
@@ -938,6 +935,11 @@ if (window.matchMedia) {
           <div class="cmpbar">
             <button class="mini" id="cmphistbtn" onclick="composerHistoryToggle()"
               title="Messages déjà envoyés dans cette session (↑ / ↓ dans le champ vide)">historique ▾</button>
+            <!-- RM2631 : copier/coller du terminal, à côté de la saisie (déplacés depuis la barre d'outils) -->
+            <button class="mini" id="cpbtn" onclick="copyCapture(event.altKey)"
+              title="📋 Copier les 300 dernières lignes du terminal dans le presse-papier système&#10;(Alt+clic : afficher dans une fenêtre pour sélection manuelle)">📋 Copier</button>
+            <button class="mini" id="bufbtn" onclick="pullBuffer()"
+              title="📥 Récupérer la dernière copie faite DANS le terminal (ex. sélection copiée dans Claude Code, copy-mode tmux) vers ton presse-papier">📥 Copie</button>
             <span class="cmphint" id="cmphint"></span>
             <button class="mini primary" id="cmpsend" onclick="composerSend()"
               title="Envoyer à la session attachée (Entrée)">Envoyer ⏎</button>

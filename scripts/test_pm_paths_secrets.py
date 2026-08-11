@@ -15,7 +15,9 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPTS))
 import pm_paths  # noqa: E402
-from pm_paths import _user_secrets_env, _load_env_file  # noqa: E402
+from pm_paths import (  # noqa: E402
+    _user_secrets_env, _instance_env, _load_env_file,
+)
 
 
 def _clean(*keys):
@@ -63,6 +65,38 @@ def test_priority_order(tmp):
     print("✓ résolution : os.environ > user (~/.config) > instance (fallback karl)")
 
 
+def test_instance_locator(tmp):
+    """`_instance_env` = `pm.env` dans pm_dir, sinon via PM_CORE_DIR ; None si absent."""
+    d = tmp / "core"
+    d.mkdir()
+    assert _instance_env(d) is None, "absent → None (rétrocompat monolithique)"
+    (d / "pm.env").write_text("REDMINE_URL=x\n")
+    assert _instance_env(d) == d / "pm.env", "présent → pm.env de pm_dir"
+    print("✓ _instance_env : pm.env (non-secret) à côté de pm.config.yml")
+
+
+def test_permission_tolerance(tmp):
+    """Un `.env` secret illisible (perm refusée) est ignoré, sans lever — un dev
+    non-admin s'appuie sur pm.env + son user env."""
+    secret = tmp / "unreadable.env"
+    secret.write_text("KARL_SECRET=zzz\n")
+    os.chmod(secret, 0o000)
+    try:
+        _clean("KARL_SECRET")
+        _load_env_file(secret)  # ne doit PAS lever
+        readable = os.access(secret, os.R_OK)
+        # root contourne les perms : le test n'est probant que si non lisible
+        if not readable:
+            assert "KARL_SECRET" not in os.environ, "secret illisible → non chargé"
+            print("✓ tolérance PermissionError : secret admin-only illisible → ignoré")
+        else:
+            print("~ tolérance PermissionError : exécuté en root (perm contournée) — "
+                  "chemin no-raise validé quand même")
+    finally:
+        os.chmod(secret, 0o644)
+        _clean("KARL_SECRET")
+
+
 def test_retrocompat(tmp):
     """Sans user env, seul l'instance alimente l'environnement (karl inchangé)."""
     xdg = tmp / "noxdg"  # répertoire sans mmi-pm/.env
@@ -83,7 +117,9 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         test_user_locator(tmp)
+        test_instance_locator(tmp)
         test_priority_order(tmp)
+        test_permission_tolerance(tmp)
         test_retrocompat(tmp)
     print("\nOK — scission secrets 3 niveaux validée")
     return 0

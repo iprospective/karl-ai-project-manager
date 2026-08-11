@@ -37,10 +37,18 @@ _PATTERN_REF_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
 
 def _load_env_file(path: Path) -> None:
-    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant."""
+    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant.
+
+    Tolère un fichier illisible (`PermissionError`) : un dev NON-admin n'a pas le droit
+    de lire le `.env` secret (fallback karl, admin-only) → on l'ignore silencieusement,
+    ses propres clés (`~/.config/mmi-pm/.env`) et le config d'instance non-secret suffisent."""
     if not path.is_file():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8")
+    except PermissionError:
+        return
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -50,20 +58,33 @@ def _load_env_file(path: Path) -> None:
             os.environ[k] = v
 
 
-def _secrets_env(pm_dir: Path) -> Optional[Path]:
-    """`.env` portant secrets + chemins. Celui de `pm_dir` s'il existe (cas runtime
-    canonique : pm_dir == `.mmi-pm-core`). Sinon, le `.env` du core pointé par
-    `PM_CORE_DIR` (cas d'un CLONE de dev, qui ne porte PAS de secrets — symétrique de
-    `PM_DEV_DIR`). `None` si aucun n'est trouvable → erreur explicite dans `load()`."""
-    here = pm_dir / ".env"
+def _env_file_in(pm_dir: Path, name: str) -> Optional[Path]:
+    """Résout un fichier d'env `name` dans `pm_dir` (cas runtime canonique :
+    pm_dir == `.mmi-pm-core`), sinon dans le core pointé par `PM_CORE_DIR` (cas d'un
+    CLONE de dev). `None` si introuvable."""
+    here = pm_dir / name
     if here.is_file():
         return here
     core = os.environ.get("PM_CORE_DIR")
     if core:
-        cand = Path(core).expanduser().resolve() / ".env"
+        cand = Path(core).expanduser().resolve() / name
         if cand.is_file():
             return cand
     return None
+
+
+def _secrets_env(pm_dir: Path) -> Optional[Path]:
+    """`.env` portant les SECRETS (fallback karl, admin-only `600`). `None` si absent
+    → erreur explicite dans `load()` seulement si aucune source de secret n'existe."""
+    return _env_file_in(pm_dir, ".env")
+
+
+def _instance_env(pm_dir: Path) -> Optional[Path]:
+    """`pm.env` d'INSTANCE, non-secret (URLs Redmine/forge, ids de CF, chemins) —
+    group-readable (`640 root:pm`), lisible par tout le groupe `pm` SANS exposer les
+    secrets karl. Chargé en fallback à côté du `.env` secret. Absent → no-op :
+    rétrocompat, tout reste dans le `.env` monolithique tant qu'on n'a pas scindé."""
+    return _env_file_in(pm_dir, "pm.env")
 
 
 def _user_secrets_env() -> Optional[Path]:
@@ -117,12 +138,18 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge les secrets : user (par dev, prioritaire) PUIS instance (fallback
-        #    rétrocompat karl). Premier-écrit-gagne → user > instance ; os.environ bat
-        #    les deux. Sans `~/.config/mmi-pm/.env`, comportement strictement inchangé.
+        # 2. Charge la config/secrets, priorité décroissante (premier-écrit-gagne ;
+        #    os.environ, déjà posé, bat tout) :
+        #      user  ~/.config/mmi-pm/.env  (par dev, secrets perso)
+        #      inst  pm.env                 (instance, NON-secret, group-readable)
+        #      secr  .env                   (fallback karl, admin-only, peut être illisible)
+        #    Sans user ni pm.env, `.env` monolithique seul → comportement karl inchangé.
         user_env = _user_secrets_env()
         if user_env:
             _load_env_file(user_env)
+        inst_env = _instance_env(pm_dir)
+        if inst_env:
+            _load_env_file(inst_env)
         env_file = _secrets_env(pm_dir)
         if env_file:
             _load_env_file(env_file)

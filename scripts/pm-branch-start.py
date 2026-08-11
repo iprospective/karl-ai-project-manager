@@ -62,51 +62,14 @@ def _git(repo, *args, check=True):
 
 
 def _resolve_base(root, base, fetch=True):
-    """Résout la base de branchement sur le REMOTE plutôt que sur le ref local (RM2574).
+    """Base de branchement résolue sur le REMOTE — implémentation partagée dans
+    `pm_git.resolve_base_ref` (RM2574 pour la règle, RM2646 pour la factorisation :
+    `pm-env-session` créait des branches sans ce garde).
 
-    `git checkout -b <br> dev` résout `dev` en `refs/heads/dev` — la branche LOCALE du
-    clone, que rien ne rafraîchit. Sur un clone où l'on ne travaille jamais `dev`
-    directement, elle décroche silencieusement : la branche du ticket part alors d'un
-    code périmé (vécu RM2574 : 500 lignes de retard sur `scripts/karl-agent.py`), sans
-    le moindre signal.
-
-    On fetch, puis on branche depuis `origin/<base>` dès que ce ref existe. Le fetch
-    seul ne suffirait pas : il rafraîchit `origin/*` mais laisse le ref local — et donc
-    la base retenue — au même endroit.
-
-    Repli sur le ref local : pas de remote, `origin/<base>` inexistant (branche locale
-    seulement), ou `--from` désignant déjà un ref distant.
+    En `--dry-run` on ne fetch pas (un essai à blanc n'écrit pas dans `.git`) : la
+    résolution se fait sur les refs `origin/*` telles qu'elles sont, et on le dit.
     """
-    if "/" in base:            # --from origin/dev, upstream/main… déjà distant
-        return base
-    remote = "origin"
-    if _git(root, "remote", "get-url", remote, check=False).returncode != 0:
-        return base            # pas de remote : rien à rafraîchir
-    if fetch:
-        # Un fetch qui échoue EN SILENCE est le pire cas : la ref origin/* reste périmée
-        # et annonce la base « à jour » alors qu'elle a divergé (cf. NORMS git-mep).
-        r = _git(root, "fetch", "--quiet", remote, check=False)
-        if r.returncode != 0:
-            out.warn(f"git fetch {remote} a ÉCHOUÉ ({(r.stderr or r.stdout).strip()[:200]}) — "
-                     f"la base '{base}' peut être périmée, et rien ne le dira ensuite")
-    else:
-        # --dry-run : un essai à blanc n'écrit pas dans .git, fetch compris. On
-        # résout donc sur les refs origin/* telles qu'elles sont déjà.
-        out.warn(f"--dry-run : pas de fetch, base résolue sur les refs '{remote}/*' "
-                 f"déjà présentes (possiblement périmées)")
-    tracked = f"{remote}/{base}"
-    if _git(root, "rev-parse", "--verify", "--quiet", tracked,
-            check=False).returncode != 0:
-        return base            # branche purement locale (version, wip…) : légitime
-    local = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{base}",
-                 check=False)
-    if local.returncode == 0:
-        behind = _git(root, "rev-list", "--count", f"refs/heads/{base}..{tracked}",
-                      check=False).stdout.strip()
-        if behind.isdigit() and int(behind) > 0:
-            out.warn(f"base locale '{base}' en retard de {behind} commit(s) sur "
-                     f"'{tracked}' → branchement depuis '{tracked}'")
-    return tracked
+    return pm_git.resolve_base_ref(root, base, fetch=fetch, warn=out.warn)
 
 
 def _is_core(root):

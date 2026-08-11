@@ -1032,6 +1032,23 @@ assert(/data-term="worktree"/.test(glossify(escO("des worktrees"))), "pluriel re
 assert(!/<b>/.test(glossify(escO("<b>worktree</b>"))) && /&lt;b&gt;/.test(glossify(escO("<b>worktree</b>"))), "opère sur du texte déjà échappé (anti-XSS)");
 console.log("✓ glossaire (RM2623) : normalisation, index, recherche, soulignage inline sûr");
 
+// — RM2634 : glossaire enrichi — regroupement par catégories —
+const glossGroups = grabO("glossGroups");
+const gg = glossGroups(GLOSSARY);
+assert(gg.length >= 5, "plusieurs catégories rendues");
+assert(gg.every(g => g.items.length > 0), "aucun groupe vide");
+assert(gg.reduce((n, g) => n + g.items.length, 0) === GLOSSARY.length, "toutes les entrées reparties, aucune perdue");
+const cats = gg.map(g => g.cat);
+assert(cats.indexOf("git") >= 0 && cats.indexOf("git") < cats.indexOf("gen"), "ordre fixe : git avant Général");
+const gitg = gg.find(g => g.cat === "git");
+const names = gitg.items.map(i => i.t);
+assert(JSON.stringify(names) === JSON.stringify(names.slice().sort((a, b) => a.localeCompare(b))), "groupe trié alpha");
+const filtered = glossGroups(glossMatch("git", GLOSSARY));
+assert(filtered.length >= 1 && filtered.every(g => g.items.length > 0), "sur recherche : groupes filtrés, jamais vides");
+assert.strictEqual(glossGroups([{ t: "x", d: "y" }])[0].cat, "gen", "entrée sans catégorie → Général");
+assert.strictEqual(glossGroups([{ t: "z", d: "w", c: "zzz" }])[0].cat, "zzz", "catégorie inconnue conservée (rejetée en fin), jamais perdue");
+console.log("✓ glossaire enrichi (RM2634) : catégories ordonnées, tri alpha, filtrage, rien de perdu");
+
 // — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
 const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
 assert(fPs, "marqueurs pendStaleSet introuvables");

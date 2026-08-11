@@ -78,17 +78,32 @@ NOTIFY_KEEP = 100          # garde-fou de taille du canal
 # Une demande formulée en séance n'existait que dans le fil : non ticketée
 # sur-le-champ, elle disparaissait au premier défilement. Le worklog ne
 # connaissait que les tickets — c'est-à-dire ce qui avait DÉJÀ été formalisé.
-REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee")
+REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee",
+                  "non_demande")
 # Statuts qui sortent une demande du « reste à traiter » : elle a trouvé sa
 # suite. `nouveau` est le seul qui appelle encore une décision.
-REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee")
+# RM2635 : `non_demande` en fait partie, mais il ne dit PAS la même chose que
+# les autres. Ranger un collage de console dans `annulee` serait un mensonge de
+# classement — personne n'a rien annulé. Il lui faut son propre état, sinon le
+# tri se fait au prix d'une donnée fausse.
+REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee", "non_demande")
 REQUEST_ICON = {"nouveau": "🆕", "ticketee": "🎫", "repondu": "💬",
-                "annulee": "🚫", "fusionnee": "⛓"}
+                "annulee": "🚫", "fusionnee": "⛓", "non_demande": "🗒"}
 
 
 def request_open(requests):
     """Demandes qui appellent encore une décision. Pure."""
     return [r for r in (requests or []) if r.get("status", "nouveau") not in REQUEST_DONE]
+
+
+def request_count_by_state(requests):
+    """Décompte par statut. Pure — sert au worklog à afficher les non-demandes
+    à part plutôt que fondues dans « traité »."""
+    out = {}
+    for r in (requests or []):
+        st = r.get("status", "nouveau")
+        out[st] = out.get(st, 0) + 1
+    return out
 
 
 def request_apply(requests, ref, status, ticket=None, note=None, merged_into=None):
@@ -345,7 +360,13 @@ def render_md(data, live=None):
     # perd, les tickets ont déjà leur existence propre.
     ouvertes = request_open(data.get("requests"))
     if ouvertes:
-        out.append("## 📥 Demandes à traiter (%d)" % len(ouvertes))
+        # RM2635 : le décompte des écartées reste visible. Sans lui, l'écart
+        # entre le registre et cette liste ressemblerait à une perte.
+        par_etat = request_count_by_state(data.get("requests"))
+        ecartees = par_etat.get("non_demande", 0)
+        out.append("## 📥 Demandes à traiter (%d)%s" % (
+            len(ouvertes),
+            (" _· %d écartée(s) : accusés, collages_" % ecartees) if ecartees else ""))
         for r in ouvertes:
             n = (data.get("requests") or []).index(r) + 1
             out.append("- `#%d` %s _(%s)_" % (n, r.get("text", ""), r.get("ts", "")))
@@ -519,11 +540,74 @@ def cmd_title(data, args):
 # Messages qui ne sont pas des demandes : accusés de réception et relances. La
 # liste sert UNIQUEMENT au contrôle d'exhaustivité, pour ne pas crier au loup —
 # jamais à filtrer ce que l'agent enregistre. Un faux négatif ici ne cache rien :
-# il fait juste baisser le nombre attendu.
+# il fait juste monter le nombre attendu, donc le bruit de l'audit. C'est le
+# faux POSITIF qui coûte : il escamote une vraie demande du décompte. En cas de
+# doute, ne pas élargir.
 REQUEST_ACK_RE = re.compile(
     r"\A(ok|oui|non|go|vas[- ]?y|continue|enchaine[sz]?|merci|parfait|super|"
-    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b[\s!.…]*\Z",
+    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b"
+    r"[\s!.,…]*(enchaine[sz]?|go|continue|la suite)?[\s!.…]*\Z",
     re.I)
+
+# RM2635 : les verdicts. « ça a l'air bon ! tous les accents passent » n'est pas
+# une demande, mais l'expression anchorée ci-dessus ne l'attrape pas — un
+# verdict se prolonge presque toujours d'une observation. On tolère donc une
+# suite, à condition qu'elle ne demande rien.
+REQUEST_VERDICT_RE = re.compile(
+    r"\A([cç]?a (a l'air|semble) (bien|bon|ok)|c'est (bien|bon|ok|parfait)|"
+    r"nickel|impeccable|bien vu|core update( ?\+ ?reload)? (fait|faits|ok))\b", re.I)
+# Signaux qu'un message demande quelque chose. Sert de garde-fou dans les DEUX
+# sens : il empêche de prendre un verdict prolongé d'une consigne pour un simple
+# accusé, et il empêche de prendre pour un collage technique un message court
+# qui cite une erreur en demandant de la corriger.
+REQUEST_ASK_RE = re.compile(
+    r"\?|\b(fais|fait[- ]le|ajoute|corrige|fix|répare|repare|mets?|change|"
+    r"remplace|supprime|refais|relance|il faut|faudrait|ce serait bien|"
+    r"peux[- ]tu|pourrais|merge|prends|étudie|etudie|chiffre|regarde|vérifie|"
+    r"verifie|explique|montre)\b", re.I)
+
+# Enveloppes qui ne viennent pas du demandeur : résumé de compaction réinjecté
+# dans le fil, collage de console renvoyé à MA demande. Les compter comme des
+# demandes fait gonfler le registre de choses qui n'appellent aucune décision —
+# et un registre de 41 lignes dont 25 sont du bruit ne protège plus rien.
+REQUEST_PASTE_HEAD_RE = re.compile(
+    r"\A(this session is being continued|the summary below covers|"
+    r"caveat: the messages below|<[a-z-]+>)", re.I)
+REQUEST_PASTE_MARK_RE = re.compile(
+    r"debugger eval code:|\bat [\w.$<>]+ \([^)]*:\d+:\d+\)|\"keyCode\"|"
+    r"\"isComposing\"|console\.(log|error)\(|"
+    r"Traceback \(most recent call last\)|npm ERR!|\w+\.(js|py|php):\d+:\d+", re.I)
+
+
+def looks_like_paste(msg):
+    """Vrai si le message est une enveloppe technique et non une demande. Pure.
+
+    Deux marqueurs suffisent, MAIS jamais quand le message demande quelque
+    chose : « corrige ce TypeError at boot (app.js:12:3) » en porte deux et
+    reste une demande. Le faux négatif coûte une ligne à trier ; le faux
+    positif escamote une demande — c'est tout l'inverse de ce qu'on veut."""
+    m = str(msg or "")
+    if REQUEST_PASTE_HEAD_RE.match(m):
+        return True
+    if REQUEST_ASK_RE.search(m):
+        return False
+    return len(REQUEST_PASTE_MARK_RE.findall(m)) >= 2
+
+
+def request_is_noise(msg):
+    """Rend "ack", "paste" ou None. Pure — source unique pour l'audit ET
+    l'import, sinon l'audit réclamerait sans fin l'enregistrement de ce que
+    l'import refuse de prendre."""
+    m = " ".join(str(msg or "").split())
+    if not m:
+        return "ack"
+    if REQUEST_ACK_RE.match(m):
+        return "ack"
+    if REQUEST_VERDICT_RE.match(m) and not REQUEST_ASK_RE.search(m):
+        return "ack"
+    if looks_like_paste(m):
+        return "paste"
+    return None
 
 
 def transcript_user_messages(path):
@@ -564,8 +648,10 @@ def request_audit(messages, requests):
     le supprime pas, et un oubli ne laisse aucune trace : ce comptage est ce qui
     transforme « je crois n'avoir rien oublié » en fait vérifiable. Pure."""
     msgs = [m for m in (messages or [])]
-    attendus = [m for m in msgs if not REQUEST_ACK_RE.match(m)]
-    return {"messages": len(msgs), "acks": len(msgs) - len(attendus),
+    bruit = [request_is_noise(m) for m in msgs]
+    attendus = [m for m, b in zip(msgs, bruit) if not b]
+    return {"messages": len(msgs), "acks": bruit.count("ack"),
+            "pastes": bruit.count("paste"),
             "expected": len(attendus), "recorded": len(requests or []),
             "gap": max(0, len(attendus) - len(requests or [])),
             "samples": attendus[:40]}
@@ -591,8 +677,10 @@ def cmd_request(data, args):
             pmout.fail("transcript introuvable pour la session %s" % sid)
         rep = request_audit(transcript_user_messages(path), reqs)
         sys.stdout.write(
-            "messages du demandeur : %d (dont %d accusés de réception)\n"
-            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"], rep["recorded"]))
+            "messages du demandeur : %d (dont %d accusés de réception, "
+            "%d collages/résumés)\n"
+            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"],
+                                               rep["pastes"], rep["recorded"]))
         if rep["gap"]:
             sys.stdout.write("\n⚠ écart de %d : des demandes n'ont probablement pas été "
                              "enregistrées.\n  Messages à vérifier :\n" % rep["gap"])
@@ -615,7 +703,7 @@ def cmd_request(data, args):
         connus = {r.get("text", "")[:60] for r in reqs}
         ajout = 0
         for m in transcript_user_messages(path):
-            if REQUEST_ACK_RE.match(m) or m[:60] in connus:
+            if request_is_noise(m) or m[:60] in connus:
                 continue
             reqs.append({"ts": now(), "text": " ".join(m.split())[:400],
                          "status": "nouveau", "note": "importée du transcript (rattrapage)"})

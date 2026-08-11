@@ -3505,6 +3505,18 @@ function renderWorklog() {
     }
     notes += "</div>";
   }
+  // RM2635 : les demandes pas encore ticketées, AVANT les tickets — un ticket a
+  // déjà une existence propre, une demande orale n'a que cette ligne.
+  const reqs = worklog.requests_open || [];
+  if (reqs.length) {
+    notes += '<div class="ms"><h4>📥 demandes à traiter (' + reqs.length + ")</h4>";
+    for (const r of reqs) {
+      notes += '<div class="oline oq" style="white-space:normal" title="' + esc(r.ts || "")
+        + '">📥 <span class="otag">#' + esc(String(r.n)) + "</span> " + esc(r.text || "")
+        + "</div>";
+    }
+    notes += "</div>";
+  }
   const secs = worklogSections(worklog.buckets);
   const docs = worklogDocs(worklog.docs);
   const branches = ((sessCache[attached] || {}).registry || {}).branches || [];

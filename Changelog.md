@@ -29,6 +29,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Env de session : plus de saut ssh inutile, plus de base périmée** (RM2646).
+  Deux défauts de `pm-env-session`, constatés en prenant un ticket depuis le
+  conteneur `dev` : (1) le helper privilégié était **toujours** appelé via
+  `ssh <env_runtime.ssh_host>`, donc la box tentait de se joindre elle-même et
+  échouait — « non bloquant », donc **le vhost n'était jamais posé sans que rien
+  ne le dise** ; il s'exécute désormais en local (`sudo -n`) dès que le binaire
+  helper est présent et exécutable, `env_runtime.force_ssh: true` rétablissant
+  l'ancien comportement. (2) `resolve_base()` retenait le ref **local** de la
+  branche d'intégration même périmé (vu : `refs/heads/dev` à ~200 commits de
+  retard) et créait les branches de ticket sur du vieux code ; le garde de
+  `pm-branch-start` (RM2574) est factorisé dans `pm_git.resolve_base_ref` et
+  partagé par les deux outils — il ne pouvait pas rester d'un seul côté.
 - **Clôture de ticket robuste** (RM2587) : le hook worklog de session
   (`pm-task-status-update`, étape 7) est best-effort — un checkout sans
   `pm_session_hook.py` ne casse plus la clôture ni l'auto-commit.

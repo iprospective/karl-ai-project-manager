@@ -147,6 +147,31 @@ Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
 (pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
 commit-par-commit (le détail vit dans les tickets).
 
+### Changements sans ticket (RM2644)
+
+Certains changements du repo PM **ne demandent pas de ticket Redmine** : le ticket y
+coûterait plus cher que le changement lui-même, et n'apprendrait rien à personne.
+
+| Sans ticket | Avec ticket |
+|---|---|
+| ajout d'un terme au **glossaire du cockpit** (`GLOSSARY`) | tout changement de **comportement** d'un outil |
+| correction de coquille / reformulation sans changement de sens | toute évolution de **surface** (outil, flux, statuts, envs, cockpit) |
+| — | toute modification de **NORMS** |
+
+**Ce qui ne change pas : la MR.** Les branches d'intégration et de prod restent
+protégées (tripwire #3) — « sans ticket » ne veut pas dire « push direct ». Ce qui
+tombe, faute d'objet, c'est ce qui s'accroche au ticket : CF Redmine *GIT Branche* /
+*GIT PR*, `git.mr_urls` du frontmatter, transition de statut.
+
+Outil : **`pm-mr create --no-ticket --title "…"`**. Il exige un titre (le titre par
+défaut est `RM<id> — <branche>`, qui n'existe pas ici), refuse `--status`, refuse un
+`rm_id` passé en même temps, et **refuse une branche préfixée `<id>-`** — dans ce
+mode, une telle branche trahit un ticket oublié, pas un changement ticketless. Nommer
+la branche par son sujet (`glossaire-one-off`).
+
+En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
+réversible, pas ce qui mérite d'être retrouvé plus tard.
+
 ## Versionning des normes
 
 | Type | Exemple | Règle |

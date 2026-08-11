@@ -1,5 +1,21 @@
 # Changelog des normes
 
+## [1.68.0] - 2026-08-11
+
+### Ajouté
+- **governance** — sous-section « **Changements sans ticket** » : certains changements
+  du repo PM (ajout d'un terme au glossaire du cockpit, coquille) ne demandent **pas**
+  de ticket Redmine — le ticket y coûterait plus que le changement. Ce qui **ne change
+  pas**, c'est la **MR** : les branches d'intégration et de prod restent protégées
+  (tripwire #3), « sans ticket » n'est pas « push direct ». Tombent seulement les
+  accroches au ticket (CF *GIT Branche* / *GIT PR*, `git.mr_urls`, transition de
+  statut). Tableau sans-ticket / avec-ticket, et règle de doute : **prendre un ticket**.
+  Outillage : `pm-mr create --no-ticket --title "…"`, qui exige un titre, refuse
+  `--status`, refuse un `rm_id` simultané et refuse une branche préfixée `<id>-`
+  (dans ce mode, elle trahit un ticket oublié). Nouveau déclencheur KERNEL.
+  (RM2644 — déclenché par l'ajout du terme « one-off », dont la MR avait dû être créée
+  à la main faute d'option.)
+
 ## [1.67.0] - 2026-08-09
 
 ### Ajouté

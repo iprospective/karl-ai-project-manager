@@ -353,6 +353,12 @@
   .oline.ouser { color: var(--fg-strong); background: var(--accent-soft); border-left-color: var(--accent); font-weight: 600; }
   .oline.ouser:hover { background: var(--accent-soft-hover); }
   .oline.ocur { outline: 1px solid var(--accent); }
+  /* RM2639 : contexte client (en-tête + bandeau de la liste sessions) */
+  #clientctx { max-width: 190px; }
+  .ctxbanner { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; padding: 4px 9px;
+    font-size: 11px; background: var(--accent-soft); border: 1px solid var(--accent);
+    border-radius: 6px; color: var(--fg); }
+  .ctxbanner button { margin-left: auto; }
   /* RM2637 : ligne de ticket ouvert en deux niveaux (titre pleine largeur) */
   .otix { display: block; overflow: visible; white-space: normal; padding: 4px 7px; }
   .otix .otix-head { display: flex; gap: 6px; align-items: center; }
@@ -557,6 +563,11 @@ if (window.matchMedia) {
 <header>
   <span class="dot" id="health"></span>
   <h1>Cockpit karl-agent</h1>
+  <!-- RM2639 : contexte client — pré-filtre global du cockpit (modifiable partout) -->
+  <select class="mini" id="clientctx" onchange="setClientContext(this.value)"
+    title="Contexte client : pré-filtre le cockpit (tickets ouverts, sessions, recherche, création). Reste modifiable partout.">
+    <option value="">Tous les clients</option>
+  </select>
   <span class="sub" id="healthtxt">connexion…</span>
   <span class="hcnt" id="hcnt" title="Sessions ouvertes · attention · repos — clic : panneau « en cours »" onclick="switchPanel('running')"></span>
   <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
@@ -1351,6 +1362,35 @@ function computeGroups(sessions, rcache, dynamic) {
 }
 // <<< computeGroups
 
+// >>> clientCtxList — pur (RM2639, testé) : clients uniques triés depuis /projects.
+function clientCtxList(projects) {
+  const seen = {};
+  for (const p of (projects || [])) { if (p && p.client) seen[p.client] = 1; }
+  return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b); });
+}
+// <<< clientCtxList
+
+// >>> clientCtxProject — pur (RM2639, testé) : `value` (client/projet) du premier
+// projet d'un client donné, "" si client vide ou introuvable.
+function clientCtxProject(projects, client) {
+  if (!client) return "";
+  for (const p of (projects || [])) { if (p && p.client === client) return p.value; }
+  return "";
+}
+// <<< clientCtxProject
+
+// >>> sessionInClient — pur (RM2639, testé) : la session appartient-elle au
+// contexte client ? ctx vide → toujours oui. Sinon client de la session == ctx,
+// OU session en attente d'une réponse (attention/choice) — jamais masquée, même
+// d'un autre client (invariant RM2445). `r` = entrée resolveCache éventuelle.
+function sessionInClient(s, r, ctx) {
+  if (!ctx) return true;
+  const c = (s && s.client) || (r && r.found && r.client) || null;
+  if (c === ctx) return true;
+  return !!(s && (s.state === "attention" || s.state === "choice"));
+}
+// <<< sessionInClient
+
 // >>> nextAttentionId — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2302/RM2327 : prochaine session EN ATTENTE (⚠ oui/non OU ❓ choix multiple) à
 // attacher. `sessions` = liste plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ;
@@ -1449,7 +1489,13 @@ async function refreshSessions() {
       list.innerHTML = '<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>';
     // RM2346 : bandeau « à traiter » — attention/choix à place fixe, en tête.
     renderAttnBand(list, sessions);
-    for (const key of keys) {
+    // RM2639 : contexte client — ne montrer que les groupes du client ; une session
+    // en attente d'un autre client reste visible (sessionInClient la conserve).
+    const visKeys = clientContext
+      ? keys.filter(k => groups.get(k).some(s => sessionInClient(s, resolveCache, clientContext)))
+      : keys;
+    if (clientContext) renderClientCtxBanner(list, keys.length - visKeys.length);
+    for (const key of visKeys) {
       const sess = groups.get(key);
       groupsCache[key] = sess;
       const g = document.createElement("div");
@@ -4060,7 +4106,8 @@ async function search() {
   const q = document.getElementById("search").value.trim();
   const ul = document.getElementById("results");
   try {
-    const { results } = await api("/tickets/search?q=" + encodeURIComponent(q));
+    const cq = clientContext ? "&client=" + encodeURIComponent(clientContext) : "";   // RM2639
+    const { results } = await api("/tickets/search?q=" + encodeURIComponent(q) + cq);
     if (!results.length) { ul.innerHTML = '<div class="empty">aucun résultat</div>'; return; }
     ul.innerHTML = "";
     for (const t of results) {
@@ -4096,7 +4143,52 @@ async function loadProjects() {
       sel.appendChild(o);
       const o2 = o.cloneNode(true); o2.selected = false; rsSel.appendChild(o2);
     }
+    fillClientCtx();                                   // RM2639 : peuple le menu client
+    if (clientContext) {                               // pré-filtre appliqué au chargement
+      openedClient = clientContext; renderOpened();
+      const proj = clientCtxProject(allProjects, clientContext);
+      if (proj) { sel.value = proj; rsSel.value = proj; }
+    }
   } catch (e) { /* silencieux */ }
+}
+
+// ----- RM2639 : contexte client — pré-filtre global du cockpit (modifiable) -----
+let clientContext = "";
+try { clientContext = localStorage.getItem("karlClientCtx") || ""; } catch (e) { clientContext = ""; }
+
+function fillClientCtx() {
+  const sel = document.getElementById("clientctx");
+  if (!sel) return;
+  const clients = clientCtxList(allProjects);
+  if (clientContext && clients.indexOf(clientContext) < 0) clientContext = "";   // client disparu → tous
+  sel.innerHTML = '<option value="">Tous les clients</option>'
+    + clients.map(function (c) {
+        return '<option value="' + esc(c) + '"' + (c === clientContext ? " selected" : "") + ">" + esc(c) + "</option>";
+      }).join("");
+  sel.value = clientContext;
+}
+
+function setClientContext(c) {
+  clientContext = c || "";
+  try { localStorage.setItem("karlClientCtx", clientContext); } catch (e) {}
+  const sel = document.getElementById("clientctx"); if (sel) sel.value = clientContext;
+  openedClient = clientContext || null; renderOpened();        // tickets ouverts (override possible)
+  const proj = clientCtxProject(allProjects, clientContext);    // formulaires (modifiables)
+  if (proj) {
+    const nt = document.getElementById("nt-project"); if (nt) nt.value = proj;
+    const rs = document.getElementById("rs-project"); if (rs) rs.value = proj;
+  }
+  const sb = document.getElementById("search"); if (sb && sb.value.trim()) search();  // recherche
+  refreshSessions();                                           // sessions : re-render filtré
+}
+
+function renderClientCtxBanner(list, hidden) {
+  const d = document.createElement("div");
+  d.className = "ctxbanner";
+  d.innerHTML = 'Contexte client : <b>' + esc(clientContext) + "</b>"
+    + (hidden > 0 ? ' <span style="opacity:.7">· ' + hidden + " groupe(s) hors client masqué(s)</span>" : "")
+    + ' <button class="mini" onclick="setClientContext(\'\')" title="Revenir à tous les clients">tous ✕</button>';
+  list.appendChild(d);
 }
 
 // ----- RM1939 : sessions reprenables (resume natif du moteur) -----

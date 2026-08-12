@@ -81,6 +81,7 @@ API (JSON, localhost:9876)
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
                                    description, log…) depuis le MD local (RM1893 §1)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
+  GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
@@ -4705,6 +4706,130 @@ def op_workspace_status(rm_id: str) -> dict:
     }
 
 
+# ── RM2384 : cohérence git d'un ticket livré, AVANT « valider et fermer » ─────
+# À l'affichage d'un ticket a_tester_* dans la fiche de revue, on anticipe l'échec
+# de merge décrit par Mathieu (RM2000 : branche antérieure aux merges de la cible,
+# conflit CHANGELOG, échec sec au moment de l'action). On répond à la vraie
+# question — « cette branche se merge-t-elle proprement dans sa cible ? » — en
+# LOCAL et de façon AUTORITAIRE via `git merge-tree` (simulation de merge, sans
+# toucher le worktree ni pousser). Le retard (behind) reste une heuristique de
+# repli quand merge-tree est indisponible (vieux git, permissions).
+
+# >>> mergecheck_verdict — pure (testée par test_karl_agent_mergecheck.py)
+def mergecheck_verdict(*, is_git, has_worktree, target, behind=0, ahead=0,
+                       mergeable=None, conflicts=None, target_missing=False):
+    """Classe l'état de mergeabilité d'un ticket livré → {level, headline,
+    detail, advice}. `level` ∈ ok|warn|block|unknown. Pur : aucune I/O."""
+    conflicts = conflicts or []
+    if not is_git or not has_worktree:
+        return {"level": "unknown", "headline": "Cohérence git non vérifiable",
+                "detail": "worktree de code introuvable pour ce ticket",
+                "advice": ""}
+    if target_missing:
+        return {"level": "unknown",
+                "headline": "Branche cible introuvable (" + str(target) + ")",
+                "detail": "impossible de comparer la branche à sa cible d'intégration",
+                "advice": "vérifier le fetch de la cible / le manifeste (integration_branch)"}
+    if mergeable is False:
+        n = len(conflicts)
+        shown = ", ".join(conflicts[:6]) + (" …" if n > 6 else "")
+        return {"level": "block",
+                "headline": "Conflit de merge avec " + str(target)
+                            + " (" + str(n) + " fichier(s))",
+                "detail": shown,
+                "advice": "merge " + str(target) + " dans la branche, résous les "
+                          "conflits, pousse — AVANT de fermer / demander la MEP"}
+    if mergeable is True and behind > 0:
+        return {"level": "ok",
+                "headline": "Merge propre — branche en retard de " + str(behind)
+                            + " sur " + str(target),
+                "detail": "aucun conflit malgré le retard : la MR se mergera",
+                "advice": ""}
+    if mergeable is True:
+        return {"level": "ok", "headline": "Branche à jour, merge propre",
+                "detail": "", "advice": ""}
+    # mergeable is None : merge-tree indisponible → heuristique du retard
+    if behind > 0:
+        return {"level": "warn",
+                "headline": "Branche en retard de " + str(behind)
+                            + " commit(s) sur " + str(target),
+                "detail": "mergeabilité non vérifiée (merge-tree indisponible) — conflit possible",
+                "advice": "par prudence, merge " + str(target)
+                          + " dans la branche avant de fermer"}
+    return {"level": "ok", "headline": "Branche à jour",
+            "detail": "mergeabilité non vérifiée", "advice": ""}
+# <<< mergecheck_verdict
+
+
+def _parse_merge_tree_conflicts(rc, out):
+    """(mergeable, conflicts) depuis `git merge-tree --write-tree --name-only`.
+    rc 0 → propre ; rc 1 → conflit, stdout = OID\\n\\n<fichiers en conflit> ;
+    autre → indéterminé (permissions, vieux git)."""
+    if rc == 0:
+        return True, []
+    if rc == 1:
+        lines = (out or "").splitlines()
+        return False, [l for l in lines[1:] if l.strip()]
+    return None, []
+
+
+def op_mergecheck(rm_id: str) -> dict:
+    """RM2384 : la branche du ticket se merge-t-elle proprement dans sa cible ?
+    Lecture seule côté worktree (merge-tree simule, n'applique rien)."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    # cible d'intégration (défaut dev) — best-effort, ne bloque pas la vérif
+    target = "dev"
+    try:
+        _, _, target = _mr_deliver_context(rm_id)
+    except ApiError:
+        target = "dev"
+    cwd, origin_label = _ticket_repo(rm_id)
+    tf = _find_task_file(rm_id)
+    mr_url = None
+    if tf:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            mr_url = git.get("mr_url")
+        except OSError:
+            pass
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    is_git = rc == 0
+    has_worktree = is_git and cwd != Path(DEFAULT_CWD) and not _is_pm_data_repo(cwd)
+    base = {"rm_id": rm_id, "cwd": str(cwd), "origin": origin_label,
+            "target": target, "mr_url": mr_url, "is_git": is_git,
+            "has_worktree": has_worktree}
+    if not has_worktree:
+        return {**base, "verdict": mergecheck_verdict(
+            is_git=is_git, has_worktree=False, target=target)}
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    # rafraîchir la cible (best-effort) : le behind/mergeable doit refléter la
+    # cible actuelle, pas un origin/<target> figé au dernier fetch de la session.
+    _git(cwd, "fetch", "origin", target, timeout=20)
+    remote_target = "origin/" + target
+    rc, _, _ = _git(cwd, "rev-parse", "--verify", "--quiet", remote_target)
+    target_missing = rc != 0
+    behind = ahead = 0
+    mergeable, conflicts = None, []
+    if not target_missing:
+        rc, ab, _ = _git(cwd, "rev-list", "--left-right", "--count",
+                         remote_target + "...HEAD")
+        if rc == 0 and ab:
+            parts = ab.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                behind, ahead = int(parts[0]), int(parts[1])
+        rc, out, _ = _git(cwd, "merge-tree", "--write-tree", "--name-only",
+                          remote_target, "HEAD", timeout=30)
+        mergeable, conflicts = _parse_merge_tree_conflicts(rc, out)
+    verdict = mergecheck_verdict(
+        is_git=True, has_worktree=True, target=target, behind=behind, ahead=ahead,
+        mergeable=mergeable, conflicts=conflicts, target_missing=target_missing)
+    return {**base, "branch": branch, "behind": behind, "ahead": ahead,
+            "mergeable": mergeable, "conflicts": conflicts[:20],
+            "target_missing": target_missing, "verdict": verdict}
+
+
 # ── Explorateur de fichiers (RM2586) : worktrees de la session, lecture seule ──
 # Sécurité (défense en profondeur) :
 #  1. le worktree demandé DOIT figurer dans les worktrees de la session (registre
@@ -6384,6 +6509,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_git_diff(path[len("/git/diff/"):], qs))
             if path.startswith("/workspace-status/"):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
+            if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
+                return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))

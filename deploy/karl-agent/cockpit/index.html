@@ -452,6 +452,24 @@
   .rels .pill { cursor: pointer; }
   .docmodal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 20; align-items: center; justify-content: center; }
   .docmodal.show { display: flex; }
+  /* RM2458 : page de statut du poste (dans la docmodal) */
+  .es-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .es-bar .es-hint { color: var(--muted); font-size: 11.5px; }
+  .es-head { font-size: 13px; margin-bottom: 8px; }
+  .es-head .es-when { float: right; color: var(--muted); font-size: 11px; }
+  .es-group { margin-bottom: 10px; }
+  .es-gname { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; margin: 8px 0 3px; }
+  .es-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; padding: 3px 7px; border-radius: 6px; font-size: 13px; }
+  .es-row .es-mark { font-weight: 700; width: 1em; text-align: center; }
+  .es-row .es-label { font-weight: 600; }
+  .es-row .es-detail { color: var(--muted); font-size: 12.5px; word-break: break-word; }
+  .es-ok .es-mark { color: var(--ok); }
+  .es-info .es-mark { color: var(--muted); }
+  .es-warn { background: rgba(210,153,34,.09); } .es-warn .es-mark { color: var(--warn); }
+  .es-error { background: rgba(248,81,73,.11); } .es-error .es-mark { color: #f85149; }
+  .es-fixrow { flex-basis: 100%; display: flex; gap: 6px; align-items: center; margin: 3px 0 1px 1.7em; max-width: 100%; }
+  .es-fix { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; background: rgba(127,127,127,.13); padding: 2px 7px; border-radius: 5px; overflow-x: auto; white-space: pre; }
+  .es-copy { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); flex-shrink: 0; }
   /* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
   .helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
   .helptoc .chip.on { color: var(--accent); font-weight: 600; }
@@ -601,6 +619,8 @@ if (window.matchMedia) {
   <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
   <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
+  <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
+  <button class="mini" id="envbtn" onclick="openEnvStatus()" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -4962,6 +4982,62 @@ document.addEventListener("click", function (ev) {
   const g = t && t.closest ? t.closest(".gloss") : null;
   if (g) { ev.preventDefault(); ev.stopPropagation(); openGlossary(g.getAttribute("data-term")); }
 });
+
+// ----- RM2458 : santé du poste (page de statut) -----
+// >>> envStatusHtml — pur (testé par test_cockpit.js) : rendu de /env-status.
+// Chaque ligne colorée par niveau ; les rouges/oranges affichent la commande de
+// remédiation + un bouton « copier » (la commande n'entre JAMAIS dans un attribut
+// onclick — esCopy lit le <code> voisin, donc pas d'échappement fragile).
+function envStatusHtml(report) {
+  if (!report || !report.groups) return '<div class="es-detail">état indisponible</div>';
+  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
+  const s = (report.summary && report.summary.counts) || { ok: 0, warn: 0, error: 0 };
+  let h = '<div class="es-head"><span style="color:var(--ok)">✓ ' + (s.ok || 0) + "</span> · "
+    + '<span style="color:var(--warn)">! ' + (s.warn || 0) + "</span> · "
+    + '<span style="color:#f85149">✗ ' + (s.error || 0) + "</span>"
+    + (report.generated_at ? '<span class="es-when">' + esc(report.generated_at) + "</span>" : "") + "</div>";
+  report.groups.forEach(function (g) {
+    h += '<div class="es-group"><div class="es-gname">' + esc(g.name || "") + "</div>";
+    (g.checks || []).forEach(function (c) {
+      const lv = c.level || "info";
+      h += '<div class="es-row es-' + esc(lv) + '">'
+        + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
+        + '<span class="es-label">' + esc(c.label || "") + "</span>"
+        + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
+      if (c.fix) {
+        h += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
+          + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
+      }
+      h += "</div>";
+    });
+    h += "</div>";
+  });
+  return h;
+}
+// <<< envStatusHtml
+let envStatusCache = null;
+async function openEnvStatus(force) {
+  document.getElementById("doctitle").textContent = "🩺 Santé du poste";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = '<div class="es-bar"><button class="mini" onclick="openEnvStatus(true)" title="Relancer le diagnostic">↻ rafraîchir</button>'
+    + '<span class="es-hint">outils · secrets · git/GitLab · SSH · PM — chaque défaut porte sa commande</span></div>'
+    + '<div id="es-body" style="color:var(--muted)">diagnostic en cours…</div>';
+  document.getElementById("docmodal").classList.add("show");
+  try {
+    if (force || !envStatusCache) envStatusCache = await api("/env-status");
+    const body = document.getElementById("es-body");
+    if (body) body.innerHTML = envStatusHtml(envStatusCache);
+  } catch (e) {
+    const body = document.getElementById("es-body");
+    if (body) body.innerHTML = '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">échec du diagnostic : ' + esc(e.message) + "</span></div>";
+  }
+}
+async function esCopy(btn) {
+  const code = btn.previousElementSibling;
+  const ok = await writeClip(code ? code.textContent : "");
+  toast(ok ? "Commande copiée" : "Copie refusée", !ok);
+}
 
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au

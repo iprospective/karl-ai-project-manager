@@ -1411,4 +1411,31 @@ const bUnk = mcBanner({ verdict: {} });
 assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
 console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
 
+// — RM2458 : rendu de la page de santé du poste —
+const envStatusHtml = grabO("envStatusHtml", { esc: escO });
+assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
+const rep = {
+  generated_at: "2026-08-12T20:00:00",
+  summary: { counts: { ok: 3, info: 0, warn: 1, error: 1 } },
+  groups: [
+    { name: "Outils & dépendances", checks: [
+      { label: "bw", level: "error", detail: "binaire introuvable", fix: "npm i -g @bitwarden/cli" },
+      { label: "git", level: "ok", detail: "git version 2.43.0" } ] },
+    { name: "Git / GitLab", checks: [
+      { label: "repo pisceen/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard",
+        fix: "cd /w && git pull --rebase --autostash" } ] },
+  ],
+};
+const esh = envStatusHtml(rep);
+assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
+assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
+  "la ligne rouge montre le détail ET la commande de remédiation");
+assert(/onclick="esCopy\(this\)"/.test(esh), "chaque remédiation a son bouton copier (sans arg dans l'onclick)");
+assert(esh.indexOf('<code class="es-fix">') < esh.indexOf('esCopy'),
+  "la commande vit dans le <code> AVANT le bouton (esCopy lit le voisin) — pas dans l'attribut");
+assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est affiché");
+const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
+assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
+console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
+
 console.log("OK — tous les tests cockpit passent");

@@ -17,6 +17,41 @@ cible) et synchronisés avec les `relations` Redmine via le script
 | `relates` | `list[int]` | **Lien latéral non-bloquant** : sujet/famille commun | `relates` côté cible | POST `relates` |
 | `refs` | `list[obj]` | Référence externe libre (URL, commit, ticket partenaire) | — | — (champ libre, pas de relation Redmine) |
 
+### `refs: partner_issue` — ticket d'un gestionnaire partenaire (v1.69.0)
+
+Quand un projet déclare un **provider secondaire** (gestionnaire de tâches d'un client
+ou d'un prestataire, cf. `providers.task[]` du `meta.yml` — RM2653), un ticket PM peut
+être **rattaché** à un ticket de ce gestionnaire. Le lien est un item `refs[]` typé :
+
+```yaml
+refs:
+  - type: partner_issue
+    instance: redmine-matnat      # DOIT être un secondaire déclaré du projet
+    issue_id: 1234
+    url: https://tasks.materiaux-naturels.fr/issues/1234
+    role: mirror                  # mirror | upstream | related
+    last_seen_journal_id: null    # pointeur de synchro, PAR LIEN
+    added: 2026-08-12
+```
+
+| `role` | Sens |
+|---|---|
+| `mirror` | ce ticket **est** le mien vu de chez eux (1↔1) — **un seul** par tâche |
+| `upstream` | leur ticket est la demande d'origine |
+| `related` | voisinage : plusieurs de leurs tickets peuvent toucher la même tâche |
+
+**Règles.** Le lien se pose **toujours** avec `pm-task-partner` (tripwire #1), jamais à
+la main : l'outil valide que l'instance est un secondaire déclaré, refuse un doublon
+`(instance, issue_id)` ou un second `mirror`, pose le CF Redmine « Ticket partenaire »,
+journalise, et poste la note de rattachement chez le partenaire.
+
+**Le partenaire ne décide de rien chez nous** : un `partner_issue` ne modifie **aucun**
+champ du frontmatter (statut, priorité, assignation). Le provider **primaire** reste la
+seule source de vérité ; ce qui vient d'un secondaire s'écrit dans le `.log.md`.
+
+Quand le secondaire porte `link.policy: required` (« tout ce que je fais pour eux doit
+être rattaché chez eux »), `pm-doctor` signale chaque ticket **ouvert** sans lien.
+
 **Règles d'intégrité :**
 - Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
   Si l'un est présent sans l'autre, c'est un drift à corriger via

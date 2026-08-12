@@ -268,6 +268,37 @@ def test_reject_unknown_role_and_missing_instance():
                   "instance manquante")
 
 
+def test_legacy_instance_given_as_url():
+    """Donnée réelle : `redmine.instance` contient parfois une URL, pas un nom.
+
+    Constaté sur lemathou/mathematicians-db — le champ existait avant d'avoir une
+    sémantique arrêtée. La résolution doit rattacher l'URL à l'instance déclarée.
+    """
+    os.environ["REDMINE_URL"] = "https://tasks.example"
+    reg = Registry.from_config(_cfg())
+    meta = {"redmine": {"instance": "https://tasks.example/", "project_id": "x"}}
+    res = resolve(meta, "task", reg)
+    assert res.instance.name == "redmine-ipro" and res.source == "legacy"
+    assert res.params == {"project_id": "x"}
+
+
+def test_legacy_unknown_url_is_explicit_error():
+    reg = Registry.from_config(_cfg())
+    meta = {"redmine": {"instance": "https://redmine.ailleurs.fr", "project_id": 1}}
+    try:
+        resolve(meta, "task", reg)
+        raise AssertionError("attendu RegistryError (URL non déclarée)")
+    except RegistryError as e:
+        assert "aucune instance déclarée" in str(e)
+
+
+def test_by_url_ignores_trailing_slash_and_axis():
+    reg = Registry.from_config(_cfg())
+    assert reg.by_url("https://tasks.matnat/").name == "redmine-matnat"
+    assert reg.by_url("https://tasks.matnat", axis="forge") is None
+    assert reg.by_url("") is None
+
+
 def test_reject_axis_mismatch_in_list():
     reg = Registry.from_config(_cfg())
     _expect_error({"providers": {"task": [

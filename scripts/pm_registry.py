@@ -144,6 +144,38 @@ class Registry:
         """Instances déclarées pour un axe donné (diagnostic/listing)."""
         return [i for i in self._servers.values() if i.axis == axis]
 
+    def by_url(self, url: str, axis: str = ""):
+        """Instance déclarée servant cette URL, ou None (comparaison sans slash final)."""
+        target = (url or "").rstrip("/")
+        if not target:
+            return None
+        for i in self._servers.values():
+            if i.url and i.url.rstrip("/") == target and (not axis or not i.axis
+                                                          or i.axis == axis):
+                return i
+        return None
+
+    def resolve_name_or_url(self, value: str, axis: str = "") -> Instance:
+        """Résout une instance depuis un **nom** de registre ou une **URL**.
+
+        Les blocs `meta.yml` historiques (`redmine.instance`) ont été remplis avant que
+        le champ ait une sémantique arrêtée : on y trouve aussi bien un nom d'instance
+        qu'une URL (constaté sur `lemathou/mathematicians-db`). Refuser l'URL ferait
+        échouer la résolution sur de la donnée légitime — on la rattache donc à
+        l'instance déclarée qui sert cette URL.
+        """
+        if value in self._servers:
+            return self._servers[value]
+        if "://" in str(value):
+            inst = self.by_url(value, axis)
+            if inst is not None:
+                return inst
+            raise RegistryError(
+                f"instance {value!r} : aucune instance déclarée ne sert cette URL "
+                f"(déclarer le serveur dans pm.config.yml :: providers.servers, "
+                f"puis référencer son NOM)")
+        raise RegistryError(f"instance inconnue dans le registre : {value!r}")
+
     @property
     def servers(self):
         return dict(self._servers)
@@ -160,8 +192,8 @@ def _legacy_resolution(meta: dict, axis: str, registry: Registry):
     if axis == "task":
         rm = meta.get("redmine") or {}
         if rm:
-            inst = (registry.get(rm["instance"]) if rm.get("instance")
-                    else registry.default_for("task"))
+            inst = (registry.resolve_name_or_url(rm["instance"], "task")
+                    if rm.get("instance") else registry.default_for("task"))
             params = {}
             if rm.get("project_id") is not None:
                 params["project_id"] = rm["project_id"]
@@ -173,8 +205,8 @@ def _legacy_resolution(meta: dict, axis: str, registry: Registry):
         if gl:
             # bloc `gitlab:` historique → instance forge par défaut (GitLab),
             # params repo/group/default_branch conservés.
-            inst = (registry.get(gl["instance"]) if gl.get("instance")
-                    else registry.default_for("forge"))
+            inst = (registry.resolve_name_or_url(gl["instance"], "forge")
+                    if gl.get("instance") else registry.default_for("forge"))
             params = {k: gl[k] for k in ("repo", "group", "default_branch")
                       if k in gl}
             return Resolution(inst, params, source="legacy")

@@ -1,5 +1,21 @@
 # Changelog des normes
 
+## [1.69.0] - 2026-08-12
+
+### Ajouté
+- **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
+  partenaire » : quand un projet déclare un **provider secondaire** (`providers.task[]`
+  du `meta.yml`, RM2653), un ticket PM se rattache à un ticket de ce gestionnaire via un
+  `refs[]` typé `{instance, issue_id, url, role, last_seen_journal_id, added}`. `role` ∈
+  `mirror` (mon ticket vu de chez eux, **un seul** par tâche) / `upstream` / `related`.
+  Le lien se pose **par `pm-task-partner`** (tripwire #1) : l'outil valide que l'instance
+  est un secondaire déclaré, refuse doublon et second miroir, pose le CF « Ticket
+  partenaire », journalise et poste la note de rattachement chez le partenaire.
+  Invariant : **un secondaire ne modifie aucun champ du frontmatter** — le primaire reste
+  la seule source de vérité, ce qui vient d'ailleurs s'écrit dans le `.log.md`. Avec
+  `link.policy: required`, `pm-doctor` signale les tickets ouverts non rattachés.
+  (RM2654, chantier RM2626 — clients Pisceen et MatNat.)
+
 ## [1.68.0] - 2026-08-11
 
 ### Ajouté

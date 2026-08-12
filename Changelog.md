@@ -29,6 +29,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Providers
+- **Rattacher un ticket à un gestionnaire partenaire** (RM2654, N0 du chantier RM2626,
+  NORMS v1.69.0) : `pm-task-partner link|unlink|show` pose un lien `refs[]` typé
+  `partner_issue` entre un ticket PM et un ticket du **provider secondaire** d'un projet
+  (`role: mirror|upstream|related`, un seul miroir par tâche). L'outil refuse une
+  instance qui n'est pas un secondaire déclaré, un doublon ou un second miroir ; il pose
+  le CF Redmine « Ticket partenaire » quand `REDMINE_CF_PARTNER_ISSUE_ID` est configuré
+  (sinon il saute proprement — la définition d'un CF se crée par l'UI admin), journalise,
+  et poste chez le partenaire une **note de rattachement à gabarit fermé** (identité,
+  titre, URL — jamais de chemin, d'hôte, de branche ni de secret). Les effets distants
+  sont **best-effort** : un partenaire injoignable n'empêche pas de poser le lien. Avec
+  `link.policy: required`, `pm-doctor` signale chaque ticket **ouvert** non rattaché.
+  Aucune synchro de contenu à ce stade (pull = RM2655, push = RM2656).
+  Au passage : `resolve_instance` accepte une **URL** là où un `meta.yml` historique en
+  contient une au lieu d'un nom d'instance (constaté sur `lemathou/mathematicians-db`,
+  qui faisait échouer `pm-doctor`), et `PMConfig.locate_task()` rend enfin le projet
+  d'un ticket — nécessaire dès qu'une opération dépend de la config projet.
 - **Un provider par défaut + des providers secondaires** (RM2653, chantier RM2626) :
   l'axe **task** d'un projet cesse d'être *une* instance et devient une **liste
   ordonnée** — un **primaire** (source de vérité PM : états NORMS, reporting

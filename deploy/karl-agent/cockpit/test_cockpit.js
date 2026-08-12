@@ -1438,4 +1438,71 @@ const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", leve
 assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
 console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
 
+// — RM2659 : les racines de la session, groupées par projet —
+// Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
+// panneau doit les distinguer au lieu de supposer qu'il n'y en a qu'un.
+const mFg = />>> filesGroups[\s\S]*?(function filesGroups[\s\S]*?)\n\/\/ <<< filesGroups/.exec(html);
+assert(mFg, "marqueurs >>> filesGroups introuvables");
+const filesGroups = vm.runInNewContext("(" + mFg[1] + ")");
+const P1 = { root: "/w/appli", name: "appli", client: "ca", project: "appli",
+             docs: [{ path: "/pm/ca/appli/docs", name: "docs", label: "documents du projet", docs: 4 }] };
+const P2 = { root: "/w/infra", name: "infra", client: "cb", project: "infra", docs: [] };
+const W = [{ path: "/w/appli/envs/appli-rm42", name: "appli-rm42", exists: true },
+           { path: "/w/infra/envs/infra-rm7", name: "infra-rm7", exists: true }];
+let gs = filesGroups([P1, P2], W);
+assert.strictEqual(gs.length, 2, "deux projets → deux groupes");
+assert.deepStrictEqual(Array.from(gs.map(g => g.label)), ["appli", "infra"],
+  "l'ordre du serveur est conservé");
+assert.strictEqual(gs[0].roots[0].kind, "root", "la racine du workspace vient en premier");
+assert.strictEqual(gs[0].roots[0].path, "/w/appli", "…et c'est bien la racine, pas un worktree");
+assert(gs[0].roots.some(r => r.kind === "doc" && r.name === "docs"), "la doc du projet suit");
+assert(gs[0].roots.some(r => r.path === "/w/appli/envs/appli-rm42"),
+  "le worktree de la session est rattaché à SON projet");
+assert(!gs[0].roots.some(r => r.path === "/w/infra/envs/infra-rm7"),
+  "et pas à l'autre projet");
+// un seul projet : c'est le cas courant (84 % des sessions)
+gs = filesGroups([P1], [W[0]]);
+assert.strictEqual(gs.length, 1, "un seul projet → un seul groupe");
+// un worktree hors de toute racine connue ne doit pas disparaître
+gs = filesGroups([P1], [{ path: "/ailleurs/vieux-layout", name: "vieux", exists: true }]);
+assert.strictEqual(gs.length, 2, "un worktree orphelin forme son propre groupe");
+assert.strictEqual(gs[1].label, "hors projet", "…nommé pour ce qu'il est");
+assert.strictEqual(gs[1].roots[0].name, "vieux", "…et il est bien dedans");
+// un worktree disparu du disque n'est pas proposé
+gs = filesGroups([P1], [{ path: "/w/appli/envs/x", name: "x", exists: false }]);
+assert(!gs[0].roots.some(r => r.name === "x"), "un worktree absent du disque n'est pas listé");
+// pas de préfixe accidentel : /w/appli ne doit pas capturer /w/appli-autre
+gs = filesGroups([P1], [{ path: "/w/appli-autre/envs/y", name: "y", exists: true }]);
+assert.strictEqual(gs.length, 2, "un chemin voisin n'est pas avalé par la racine");
+// entrées vides / absentes : le panneau ne doit pas tomber
+assert.strictEqual(filesGroups(null, null).length, 0, "aucune donnée → aucun groupe");
+assert.strictEqual(filesGroups([{ name: "sans racine" }], []).length, 0,
+  "un projet sans racine est ignoré plutôt que rendu à moitié");
+console.log("✓ fichiers (RM2659) : racines groupées par projet, multi-projets couvert");
+const mGo = />>> filesGroupOf[\s\S]*?(function filesGroupOf[\s\S]*?)\n\/\/ <<< filesGroupOf/.exec(html);
+assert(mGo, "marqueurs >>> filesGroupOf introuvables");
+const filesGroupOf = vm.runInNewContext("(" + mGo[1] + ")");
+const G = filesGroups([P1, P2], W);
+assert.strictEqual(filesGroupOf(G, "/w/infra").label, "infra",
+  "le groupe actif suit la racine ouverte");
+assert.strictEqual(filesGroupOf(G, "/w/appli/envs/appli-rm42").label, "appli",
+  "…y compris depuis un worktree");
+assert.strictEqual(filesGroupOf(G, "/inconnu").label, "appli",
+  "un chemin inconnu retombe sur le premier groupe, pas sur rien");
+assert.strictEqual(filesGroupOf([], "/x"), null, "sans groupe, pas de groupe actif");
+console.log("✓ fichiers (RM2659) : le projet actif suit ce qu'on lit");
+// la racine du projet a son icône et se distingue d'un worktree
+const rootLbl = fileRootLabel({ kind: "root", name: "ai-project-management",
+                                label: "racine du workspace", path: "/w/x" });
+assert.strictEqual(rootLbl.icon, "🏠", "la racine du projet porte sa propre icône");
+assert(/racine du workspace/.test(rootLbl.tip), "l'infobulle dit ce que c'est");
+// le rendu : barre des projets seulement s'il y en a plusieurs
+const mRf2 = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/groups\.length > 1/.test(mRf2[0]),
+  "la barre des projets n'apparaît qu'à partir de deux projets");
+const mLf = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
+assert(/filesGroups\(/.test(mLf[0]),
+  "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
+console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
+
 console.log("OK — tous les tests cockpit passent");

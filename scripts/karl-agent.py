@@ -82,6 +82,7 @@ API (JSON, localhost:9876)
                                    description, log…) depuis le MD local (RM1893 §1)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
   GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
+  GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
@@ -5640,6 +5641,413 @@ def _probe_cockpit_test_env(host: str) -> tuple:
         return False, f"injoignable ({exc.__class__.__name__})"
 
 
+# ── RM2458 : page de statut de l'environnement (santé du poste) ───────────────
+# Agrège ce qui n'est visible nulle part aujourd'hui — prérequis cassés, repos PM
+# en divergence non poussée, secrets injoignables — et donne, PAR LIGNE, la
+# commande de remédiation (un statut « bw manquant » sans la commande fait perdre
+# autant de temps que pas de statut). Deux incidents fondateurs (2026-07-30,
+# RM2455) doivent toujours être attrapés : `bw` absent, un repo PM en divergence.
+# Aucun secret n'est jamais rendu : présence/absence de variables uniquement.
+
+ENV_TOOLS = [
+    ("git", "sudo apt install git"),
+    ("python3", "sudo apt install python3"),
+    ("psql", "sudo apt install postgresql-client"),
+    ("php", "sudo apt install php-cli"),
+    ("composer", "sudo apt install composer"),
+    ("bw", "npm config set prefix ~/.local && npm i -g @bitwarden/cli"),
+    ("nc", "sudo apt install netcat-openbsd"),
+    ("glab", "installer glab dans ~/.local/bin (gitlab.com/gitlab-org/cli)"),
+]
+_ENV_REPO_SKIP = {"envs", "repos", "node_modules", ".git", "vendor", "var"}
+
+
+def _chk(label, level, detail="", fix=""):
+    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation."""
+    return {"label": label, "level": level, "detail": detail, "fix": fix}
+
+
+# >>> envstatus_summary — pure (testée par test_karl_agent_envstatus.py)
+_ENV_LEVEL_RANK = {"ok": 0, "info": 1, "warn": 2, "error": 3}
+
+
+def envstatus_summary(groups):
+    """Compte par niveau + niveau global (le pire) sur tous les checks. Pur."""
+    counts = {"ok": 0, "info": 0, "warn": 0, "error": 0}
+    worst = "ok"
+    for g in groups or []:
+        for c in g.get("checks", []):
+            lv = c.get("level", "info")
+            if lv not in counts:
+                lv = "info"
+            counts[lv] += 1
+            if _ENV_LEVEL_RANK[lv] > _ENV_LEVEL_RANK[worst]:
+                worst = lv
+    return {"counts": counts, "worst": worst}
+# <<< envstatus_summary
+
+
+# >>> git_divergence_level — pure (testée) : classe un repo git.
+def git_divergence_level(ahead, behind, dirty):
+    """(level, detail) d'un repo. ahead>0 sans push = travail en attente (l'incident
+    pisceen) ; ahead>0 ET behind>0 = divergence non-fast-forward (push refusé)."""
+    a, b, d = int(ahead or 0), int(behind or 0), int(dirty or 0)
+    parts = []
+    if a:
+        parts.append(f"{a} commit(s) non poussé(s)")
+    if b:
+        parts.append(f"{b} commit(s) en retard")
+    if d:
+        parts.append(f"{d} fichier(s) modifié(s)")
+    detail = ", ".join(parts) if parts else "à jour, propre"
+    if a and b:
+        return "error", detail
+    if a or b or d:
+        return "warn", detail
+    return "ok", detail
+# <<< git_divergence_level
+
+
+# >>> path_local_bin_first — pure (testée) : ~/.local/bin en tête de PATH ?
+def path_local_bin_first(path_value, home):
+    """Le prefix npm pointe ~/.local/bin ; il doit précéder les répertoires système."""
+    dirs = [p for p in (path_value or "").split(os.pathsep) if p]
+    target = str(Path(home) / ".local" / "bin")
+    if target not in dirs:
+        return "warn", "~/.local/bin absent du PATH"
+    idx = dirs.index(target)
+    sys_idx = next((i for i, p in enumerate(dirs)
+                    if p in ("/usr/bin", "/usr/local/bin", "/bin")), len(dirs))
+    if idx < sys_idx:
+        return "ok", "~/.local/bin en tête"
+    return "warn", "~/.local/bin présent mais après les répertoires système"
+# <<< path_local_bin_first
+
+
+def _iter_task_files(limit=500):
+    out = []
+    try:
+        for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
+            if p.name.endswith(".log.md"):
+                continue
+            out.append(p)
+            if len(out) >= limit:
+                break
+    except OSError:
+        pass
+    return out
+
+
+def _env_repo_label(root):
+    for base in ALLOWED_ROOTS:
+        try:
+            return str(Path(root).resolve().relative_to(base))
+        except ValueError:
+            continue
+    return Path(root).name
+
+
+def _is_pm_repo(p):
+    """Un repo PM = un workspace de code PM-tracké (porte un `.mmi-pm`) OU un repo
+    de données dont le nom finit en `-core` (l'incident pisceen : infra-core). On
+    exclut ainsi les miroirs de code non-PM (dolibarr/…, libs) du même arbre."""
+    try:
+        if (p / ".mmi-pm").exists():
+            return True
+    except OSError:
+        pass
+    return p.name.endswith("-core")
+
+
+def _enumerate_pm_repos(limit=120):
+    """Repos PM sous les racines autorisées (profondeur 1 = core ; 2 = workspaces
+    client/projet). Saute les worktrees transients (envs/) et les bare (repos/).
+    Dédup par chemin RÉSOLU (un symlink et sa cible ne comptent qu'une fois)."""
+    roots, seen = [], set()
+
+    def add(p):
+        try:
+            rp = str(p.resolve())
+        except OSError:
+            rp = str(p)
+        if rp in seen:
+            return
+        try:                       # .mmi-pm-core (root-owned) : stat de .git peut refuser
+            is_repo = (p / ".git").exists()
+        except OSError:
+            is_repo = False
+        if is_repo and _is_pm_repo(p):
+            seen.add(rp)
+            roots.append(p)
+
+    def _isdir(p):
+        try:
+            return p.is_dir()
+        except OSError:
+            return False
+
+    for base in ALLOWED_ROOTS:
+        if not base.is_dir():
+            continue
+        try:
+            level1 = sorted(base.iterdir())
+        except OSError:
+            continue
+        for d1 in level1:
+            if not _isdir(d1) or d1.name in _ENV_REPO_SKIP:
+                continue
+            add(d1)
+            if len(roots) >= limit:
+                break
+            try:
+                for d2 in sorted(d1.iterdir()):
+                    if not _isdir(d2) or d2.name in _ENV_REPO_SKIP:
+                        continue
+                    add(d2)
+                    if len(roots) >= limit:
+                        break
+            except OSError:
+                pass
+            if len(roots) >= limit:
+                break
+        if len(roots) >= limit:
+            break
+    return roots[:limit]
+
+
+def _probe_repo(root):
+    label = _env_repo_label(root)
+    rc, _, err = _git(root, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        if "permission" in (err or "").lower():
+            return _chk(f"repo {label}", "info",
+                        "root-owned (prod PM) — non ausculté depuis l'hôte")
+        return None
+    _, branch, _ = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    ahead = behind = 0
+    ab_known = False
+    rc2, ab, _ = _git(root, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    if rc2 == 0 and ab:
+        parts = ab.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            behind, ahead = int(parts[0]), int(parts[1])
+            ab_known = True
+    rc3, porc, _ = _git(root, "status", "--porcelain")
+    dirty = sum(1 for l in porc.splitlines() if l and not l.startswith("??")) if rc3 == 0 else 0
+    lv, det = git_divergence_level(ahead, behind, dirty)
+    if not ab_known:
+        det += " · pas d'upstream"
+    fix = ""
+    if ahead and behind:
+        fix = f"cd {root} && git pull --rebase --autostash  # puis pousser (main protégée → MR, git-mep)"
+    elif ahead:
+        fix = f"cd {root} && git push  # ou, si main protégée : push origin main:dev + MR (git-mep)"
+    elif behind:
+        fix = f"cd {root} && git pull --rebase --autostash"
+    return _chk(f"repo {label} [{branch}]", lv, det, fix)
+
+
+def _probe_pat():
+    script = REPO_ROOT / "scripts" / "pm-token-check.py"
+    if not script.exists():
+        return _chk("PAT GitLab", "info", "pm-token-check absent")
+    try:
+        p = subprocess.run([sys.executable, str(script), "--threshold", "7"],
+                           capture_output=True, text=True, timeout=25, cwd=str(REPO_ROOT))
+    except (OSError, subprocess.TimeoutExpired):
+        return _chk("PAT GitLab", "warn", "pm-token-check : timeout/erreur")
+    if p.returncode == 0:
+        return _chk("PAT GitLab", "ok", "tous les tokens sains (échéance > 7 j)")
+    if p.returncode == 2:
+        tail = [l for l in (p.stdout or "").splitlines() if l.strip()]
+        return _chk("PAT GitLab", "warn", tail[-1][:120] if tail else "un token ≤ 7 j / inactif",
+                    "scripts/pm-token-check.py --rotate-due")
+    return _chk("PAT GitLab", "warn", "pm-token-check en erreur (réseau/API ?)")
+
+
+def _envchk_tools():
+    import shutil
+    out = []
+    for name, fix in ENV_TOOLS:
+        path = shutil.which(name)
+        if not path:
+            out.append(_chk(name, "error", "binaire introuvable", fix))
+            continue
+        ver = ""
+        try:
+            p = subprocess.run([name, "--version"], capture_output=True, text=True, timeout=4)
+            lines = [l for l in ((p.stdout or "") + (p.stderr or "")).splitlines() if l.strip()]
+            ver = lines[0].strip()[:80] if lines else ""
+            # certains binaires (nc) n'ont pas de --version → sortie « usage/invalid »
+            if re.search(r"invalid option|usage:", ver, re.I):
+                ver = ""
+        except (OSError, subprocess.TimeoutExpired):
+            ver = ""
+        out.append(_chk(name, "ok", ver or path))
+    lv, det = path_local_bin_first(os.environ.get("PATH", ""), os.path.expanduser("~"))
+    out.append(_chk("PATH ~/.local/bin", lv, det,
+                    'export PATH="$HOME/.local/bin:$PATH"' if lv != "ok" else ""))
+    return out
+
+
+def _envchk_secrets():
+    import socket as _socket
+    out = []
+    sock = f"/run/user/{os.getuid()}/vault-agentd.sock"
+    if not os.path.exists(sock):
+        out.append(_chk("vault-agentd", "error", "socket absent (agent non démarré)",
+                        "scripts/unlock-vault.sh"))
+    else:
+        try:
+            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect(sock)
+            s.sendall(b"PING\n")
+            rep = s.recv(64).decode("utf-8", "replace").strip()
+            s.close()
+            if rep.startswith("OK"):
+                out.append(_chk("vault-agentd", "ok", "joignable (PING → OK)"))
+            else:
+                out.append(_chk("vault-agentd", "warn", f"réponse inattendue : {rep[:40]}",
+                                "scripts/unlock-vault.sh"))
+        except OSError as e:
+            out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
+                            "scripts/unlock-vault.sh"))
+    envf = REPO_ROOT / ".env"
+    needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
+    try:
+        present = set()
+        for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                present.add(line.split("=", 1)[0].strip())
+        missing = [v for v in needed if v not in present]
+        if missing:
+            out.append(_chk(".env Vaultwarden", "warn",
+                            "variable(s) absente(s) : " + ", ".join(missing),
+                            "renseigner dans " + str(envf)))
+        else:
+            out.append(_chk(".env Vaultwarden", "ok",
+                            "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents"))
+    except OSError:
+        out.append(_chk(".env Vaultwarden", "warn", f".env illisible ({envf})"))
+    return out
+
+
+def _envchk_git():
+    import concurrent.futures
+    pairs = []
+    roots = _enumerate_pm_repos()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futs = {pool.submit(_probe_repo, r): r for r in roots}
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                chk = fut.result()
+            except Exception:
+                chk = None
+            if chk:
+                pairs.append((_env_repo_label(futs[fut]), chk))
+    out = [c for _, c in sorted(pairs, key=lambda x: x[0])]
+    if len(roots) >= 120:   # cap atteint : le DIRE plutôt que laisser croire à l'exhaustivité
+        out.append(_chk("repos PM", "info", "liste tronquée à 120 repos — certains non auscultés"))
+    out.append(_probe_pat())
+    key = Path(os.path.expanduser("~/.ssh/id_ed25519_gitlab"))
+    if key.exists():
+        out.append(_chk("clé GitLab dédiée", "ok",
+                        "id_ed25519_gitlab présente (push sans agent)"))
+    else:
+        out.append(_chk("clé GitLab dédiée", "warn", "~/.ssh/id_ed25519_gitlab absente",
+                        "repli HTTPS+token possible ; installer la clé pour SSH-first"))
+    return out
+
+
+def _envchk_ssh():
+    out = []
+    sock = os.environ.get("SSH_AUTH_SOCK", "")
+    fix_sock = "export SSH_AUTH_SOCK=/run/user/$(id -u)/ssh-agent.sock"
+    if not sock:
+        out.append(_chk("agent SSH", "warn", "SSH_AUTH_SOCK non défini", fix_sock))
+        return out
+    try:
+        p = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        out.append(_chk("agent SSH", "warn", "ssh-add indisponible"))
+        return out
+    if p.returncode == 0:
+        keys = [line.split()[-1] for line in p.stdout.splitlines() if len(line.split()) >= 3]
+        out.append(_chk("agent SSH", "ok",
+                        f"joignable, {len(keys)} clé(s) : " + ", ".join(keys[:6])))
+    elif p.returncode == 1:
+        out.append(_chk("agent SSH", "warn",
+                        "agent joignable mais VIDE (push GitLab OK via la clé dédiée)",
+                        "ssh-add ~/.ssh/id_rsa_root  # Mathieu ; clés sous passphrase"))
+    else:
+        out.append(_chk("agent SSH", "warn",
+                        "agent injoignable (SSH_AUTH_SOCK pointe ailleurs ?)", fix_sock))
+    return out
+
+
+def _envchk_pm():
+    out = []
+    vf = REPO_ROOT / "norms" / "VERSION"
+    try:
+        norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+    except (OSError, IndexError):
+        norms_v = ""
+    schemas = {}
+    orphans = []
+    for tf in _iter_task_files(limit=600):
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        sv = str(fm.get("schema_version") or "")
+        if sv:
+            schemas[sv] = schemas.get(sv, 0) + 1
+        if str(fm.get("status") or "") == "en_cours":
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            if not git.get("branch"):
+                m = re.search(r"RM(\d+)_", tf.name)
+                orphans.append("RM" + (m.group(1) if m else "?"))
+    if norms_v and len(schemas) > 1:
+        out.append(_chk("versions PM", "info",
+                        f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))
+    else:
+        modal = max(schemas, key=schemas.get) if schemas else "?"
+        out.append(_chk("versions PM", "ok",
+                        f"norms/VERSION={norms_v or '?'} · schema_version={modal}"))
+    if orphans:
+        out.append(_chk("tâches en_cours", "warn",
+                        f"{len(orphans)} sans branche (git.branch vide) : "
+                        + ", ".join(orphans[:8]),
+                        "reprendre via pm-branch-start (RM2224) ou clôturer"))
+    else:
+        out.append(_chk("tâches en_cours", "ok", "toutes ont une branche résoluble"))
+    return out
+
+
+def op_env_status() -> dict:
+    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
+    remédiation. Chaque famille est isolée : une sonde qui casse ne fait jamais
+    échouer la page. Aucun secret rendu (noms de variables uniquement)."""
+    families = [
+        ("Outils & dépendances", _envchk_tools),
+        ("Secrets", _envchk_secrets),
+        ("Git / GitLab", _envchk_git),
+        ("SSH", _envchk_ssh),
+        ("PM", _envchk_pm),
+    ]
+    groups = []
+    for name, fn in families:
+        try:
+            checks = fn()
+        except Exception as exc:  # une famille ne doit jamais tuer la page
+            checks = [_chk(name, "warn", f"contrôle en erreur ({exc.__class__.__name__})")]
+        groups.append({"name": name, "checks": checks})
+    return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "groups": groups, "summary": envstatus_summary(groups)}
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -6511,6 +6919,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/env-status":              # RM2458 : santé du poste
+                return self._send_json(200, op_env_status())
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))

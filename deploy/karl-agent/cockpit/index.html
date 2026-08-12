@@ -622,11 +622,9 @@ if (window.matchMedia) {
     <div class="lbody">
 
     <div class="lpanel" id="lp-running">
-      <!-- RM2344 : tri dynamique EN OPTION (désactivé par défaut — l'ordre stable ne bouge pas sous la souris) -->
-      <label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;font-size:11.5px;color:var(--muted);cursor:pointer">
-        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
-        tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
-      </label>
+      <!-- RM2658 : le tri dynamique (RM2344) a migré dans 🔧 réglages › « Sessions
+           (ce navigateur) » — il prenait une ligne pleine largeur ici pour une
+           option désactivée par défaut et rarement touchée. -->
       <!-- RM2395 : enregistrer / relancer le jeu de sessions ; RM2442 : jeux nommés -->
       <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
@@ -906,6 +904,20 @@ if (window.matchMedia) {
       </select>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         S'applique au prochain chargement du cockpit.
+      </div>
+    </div>
+    <!-- RM2658 : préférences d'affichage des sessions (locales à CE navigateur) —
+         accueille le tri dynamique (RM2344), déplacé hors de la colonne « en cours ». -->
+    <div class="card" id="sessprefcard">
+      <h2>🗂 Sessions <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)">
+        <span>Tri dynamique de la colonne « en cours »</span>
+      </label>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        ⚠ et activité en tête ; l'ordre se réordonne à chaque refresh (gelé tant que
+        tu survoles/interagis). Décoché : ordre stable alphabétique — rien ne bouge
+        sous la souris. Défaut : décoché.
       </div>
     </div>
     <div class="card" id="reglages-card">

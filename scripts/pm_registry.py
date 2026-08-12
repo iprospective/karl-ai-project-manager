@@ -4,12 +4,23 @@
 Fondation P0 (RM2542) de la généralisation forge → 3 axes providers
 (**task** / **forge** / **doc**) — cf. CDC RM2530 [[Cdc-rm2530-providers-par-projet]].
 
-Deux entrées :
+Trois entrées :
   * `Registry.from_config(providers_cfg)` — construit le registre depuis la section
     `providers:` de `pm.config.yml` (exposée par `PMConfig.providers`).
-  * `resolve_instance(project_meta, axis, registry)` — pour un projet (son `meta.yml`)
-    et un axe, retourne la **`Resolution`** = instance retenue + params projet
-    (project_id, repo, …) + `source` (traçabilité).
+  * `resolve_instances(project_meta, axis, registry)` — **liste ordonnée** des providers
+    d'un axe pour ce projet : le **primaire** en tête, puis les **secondaires**
+    (RM2653/L0, CDC RM2626 § 5.1).
+  * `resolve_instance(project_meta, axis, registry)` — le **primaire** seul (= premier
+    élément) : signature et sémantique inchangées pour tous les appelants historiques.
+
+Une `Resolution` = instance retenue + params projet (project_id, repo, …) + `role`
+(`primary` | `secondary`) + `link`/`sync` (règles portées par un secondaire) + `source`
+(traçabilité).
+
+**Primaire vs secondaire** (CDC RM2626) : le primaire est la **source de vérité PM**
+(états NORMS, reporting temps/tokens, cascade, tag IA) ; un secondaire est un
+gestionnaire **partenaire** avec lequel on se synchronise, jamais une source de vérité —
+d'où l'interdiction de porter `link:`/`sync:` sur le primaire.
 
 **INERTE par défaut / zéro régression.** Les défauts du registre reproduisent
 l'état actuel (Redmine global + GitLab) ; la rétro-compat lit les blocs historiques
@@ -17,9 +28,24 @@ l'état actuel (Redmine global + GitLab) ; la rétro-compat lit les blocs histor
 Aucun script existant ne consomme ce module en P0 — le câblage est en P1+.
 
 Priorité de résolution, par axe :
-  1. `meta.providers.<axe>.instance`  (config explicite par projet)
+  1. `meta.providers.<axe>`  (config explicite par projet — **dict** (1 provider) ou
+     **liste** (primaire + secondaires))
   2. bloc legacy du `meta.yml` (`redmine:` pour task, `gitlab:` pour forge)
   3. `providers.defaults.<axe>` du registre
+
+Formes acceptées de `meta.providers.<axe>` (toutes rétro-compatibles) :
+
+```yaml
+providers:
+  task: {instance: redmine-ipro, project_id: pm-ai-agents}    # dict → 1 primaire
+  task:                                                        # liste → primaire + N
+    - {instance: redmine-ipro, role: primary, project_id: pm-ai-agents}
+    - instance: redmine-matnat
+      role: secondary
+      project_id: 12
+      link: {policy: required}
+      sync: {pull: {notes: true}, push: {on: [ferme]}}
+```
 """
 import sys
 from dataclasses import dataclass, field
@@ -29,6 +55,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import _expand_env  # interpolation ${VAR} / ${VAR:-defaut}, comme roots
 
 AXES = ("task", "forge", "doc")
+ROLES = ("primary", "secondary")
+# Clés d'une entrée de provider qui ne sont PAS des params projet.
+_ENTRY_KEYS = ("instance", "role", "link", "sync")
 
 
 class RegistryError(Exception):
@@ -47,10 +76,17 @@ class Instance:
 
 @dataclass(frozen=True)
 class Resolution:
-    """Instance retenue pour (projet, axe) + params projet + provenance."""
+    """Instance retenue pour (projet, axe) + params projet + rôle + provenance."""
     instance: Instance
     params: dict = field(default_factory=dict)   # project_id, repo, group, default_branch…
     source: str = "default"                       # 'providers' | 'legacy' | 'default'
+    role: str = "primary"                         # 'primary' | 'secondary' (RM2653)
+    link: dict = field(default_factory=dict)      # règles de rattachement (secondaire)
+    sync: dict = field(default_factory=dict)      # règles de synchro pull/push (secondaire)
+
+    @property
+    def is_primary(self) -> bool:
+        return self.role == "primary"
 
 
 class Registry:
@@ -146,27 +182,83 @@ def _legacy_resolution(meta: dict, axis: str, registry: Registry):
     return None
 
 
-def resolve_instance(project_meta: dict, axis: str, registry: Registry) -> Resolution:
-    """Instance retenue pour (projet, axe). Voir priorité en tête de module."""
+def _entry_resolution(entry: dict, axis: str, registry: Registry, where: str) -> Resolution:
+    """Une entrée de `providers.<axe>` (dict) → `Resolution` validée."""
+    inst = registry.get(entry["instance"])
+    if inst.axis and inst.axis != axis:
+        raise RegistryError(
+            f"{where}.instance = {entry['instance']!r} est d'axe {inst.axis!r}")
+    role = entry.get("role") or "primary"
+    if role not in ROLES:
+        raise RegistryError(f"{where}.role = {role!r} inconnu (attendus : {ROLES})")
+    link = entry.get("link") or {}
+    sync = entry.get("sync") or {}
+    # Les règles de rattachement/synchro n'ont de sens que pour un partenaire :
+    # les poser sur le primaire (la source de vérité) est une erreur de conf.
+    if role == "primary" and (link or sync):
+        raise RegistryError(
+            f"{where} : 'link'/'sync' sur le provider PRIMAIRE — ces règles ne "
+            f"valent que pour un secondaire (le primaire est la source de vérité)")
+    params = {k: v for k, v in entry.items() if k not in _ENTRY_KEYS}
+    return Resolution(inst, params, source="providers", role=role, link=link, sync=sync)
+
+
+def resolve_instances(project_meta: dict, axis: str, registry: Registry) -> list:
+    """Providers d'un axe pour ce projet : **primaire en tête**, puis secondaires.
+
+    Retourne toujours au moins un élément (le primaire) — via le bloc `providers:`,
+    le bloc legacy, ou le défaut du registre. Voir priorité en tête de module.
+    """
     if axis not in AXES:
         raise RegistryError(f"axe inconnu : {axis!r} (attendus : {AXES})")
     meta = project_meta or {}
 
-    # 1. Bloc `providers:` explicite du projet.
-    prov = (meta.get("providers") or {}).get(axis) or {}
-    if prov.get("instance"):
-        inst = registry.get(prov["instance"])
-        if inst.axis and inst.axis != axis:
+    # 1. Bloc `providers:` explicite du projet — dict (1 provider) ou liste (N).
+    prov = (meta.get("providers") or {}).get(axis)
+    entries = []
+    if isinstance(prov, dict) and prov.get("instance"):
+        entries = [prov]
+    elif isinstance(prov, (list, tuple)):
+        entries = [e for e in prov if isinstance(e, dict)]
+        for i, e in enumerate(entries):
+            if not e.get("instance"):
+                raise RegistryError(
+                    f"providers.{axis}[{i}] : champ 'instance' obligatoire")
+    if entries:
+        out = [_entry_resolution(e, axis, registry, f"providers.{axis}[{i}]")
+               for i, e in enumerate(entries)]
+        primaries = [r for r in out if r.is_primary]
+        if len(primaries) != 1:
             raise RegistryError(
-                f"providers.{axis}.instance = {prov['instance']!r} est d'axe "
-                f"{inst.axis!r}")
-        params = {k: v for k, v in prov.items() if k != "instance"}
-        return Resolution(inst, params, source="providers")
+                f"providers.{axis} : {len(primaries)} provider(s) 'primary' — il en "
+                f"faut exactement un (les autres en role: secondary)")
+        seen = set()
+        for r in out:
+            if r.instance.name in seen:
+                raise RegistryError(
+                    f"providers.{axis} : instance {r.instance.name!r} déclarée deux fois")
+            seen.add(r.instance.name)
+        # Primaire en tête, ordre de déclaration préservé pour les secondaires.
+        return primaries + [r for r in out if not r.is_primary]
 
     # 2. Rétro-compat (blocs redmine:/gitlab:).
     legacy = _legacy_resolution(meta, axis, registry)
     if legacy:
-        return legacy
+        return [legacy]
 
     # 3. Défaut du registre.
-    return Resolution(registry.default_for(axis), {}, source="default")
+    return [Resolution(registry.default_for(axis), {}, source="default")]
+
+
+def resolve_instance(project_meta: dict, axis: str, registry: Registry) -> Resolution:
+    """Provider **primaire** pour (projet, axe) — source de vérité PM.
+
+    Sémantique historique conservée : un projet sans bloc `providers:` (ou avec la
+    forme dict) résout exactement comme avant l'introduction des secondaires.
+    """
+    return resolve_instances(project_meta, axis, registry)[0]
+
+
+def secondaries(project_meta: dict, axis: str, registry: Registry) -> list:
+    """Providers secondaires (partenaires) de cet axe — liste éventuellement vide."""
+    return [r for r in resolve_instances(project_meta, axis, registry) if not r.is_primary]

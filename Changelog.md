@@ -28,6 +28,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   réutilisé par `pm-cockpit-test-env` via `pm-env-helper vhost-karl-add` —
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
+### Providers
+- **Un provider par défaut + des providers secondaires** (RM2653, chantier RM2626) :
+  l'axe **task** d'un projet cesse d'être *une* instance et devient une **liste
+  ordonnée** — un **primaire** (source de vérité PM : états NORMS, reporting
+  temps/tokens, cascade, tag IA) et N **secondaires** (gestionnaires partenaires),
+  chacun portant ses règles `link:` / `sync:` dans `meta.yml`. Deux défauts du socle
+  P0/P1 sont corrigés au passage : `resolve_instance()` ne savait résoudre qu'une
+  instance (→ `resolve_instances()`, `secondaries()`), et surtout
+  **`RedmineTaskProvider` recevait une instance et l'ignorait** — toutes les requêtes
+  partaient sur les globales `REDMINE_URL`/`REDMINE_API_KEY`, ce qui rendait le
+  multi-instance inopérant malgré le registre. `redmine_creds(instance)` résout
+  désormais URL + clé **par instance** (`REDMINE__<INST>__API_KEY`, socle RM2546),
+  avec repli sur les clés globales quand l'instance déclarée *est* l'instance de
+  travail. Conf incohérente refusée d'entrée : zéro ou deux primaires, instance
+  dupliquée, ou `link:`/`sync:` posé sur le primaire (la source de vérité ne se
+  synchronise avec personne). `pm-providers resolve` affiche la liste par axe.
+  **Iso-comportement prouvé** : sans instance, les appels à `redmine_utils` sont
+  littéralement ceux d'avant (pas même un kwarg en plus) ; formes dict, legacy
+  `redmine:`/`gitlab:` et défauts du registre rendent un primaire unique.
+
 ### Outillage
 - **MR sans ticket** (RM2644) : `pm-mr create --no-ticket --title "…"` ouvre une MR
   pour un changement qui n'a pas de ticket — ajout d'un terme au glossaire du

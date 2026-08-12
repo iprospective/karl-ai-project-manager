@@ -159,20 +159,58 @@ def valid_statuses():
     return set(status_ids()) | set(status_aliases())
 
 
-def redmine_creds():
+def instance_env_prefix(name):
+    """Nom d'instance du registre → préfixe de variable d'env (RM2653/RM2546).
+
+    `redmine-matnat` → `REDMINE__REDMINE_MATNAT__` (clé API :
+    `REDMINE__REDMINE_MATNAT__API_KEY`). Tout caractère non alphanumérique
+    devient `_` pour rester un identifiant de variable d'environnement valide.
+    """
+    slug = "".join(c if c.isalnum() else "_" for c in str(name)).upper()
+    return f"REDMINE__{slug}__"
+
+
+def redmine_creds(instance=None):
     """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
 
     Identité par utilisateur (T1/RM2497) : préfère la clé perso du dev
     (`REDMINE_API_KEY`, typiquement dans `~/.config/mmi-pm/.env`) ; à défaut,
     retombe sur le compte de service karl (`REDMINE_USER_MAIN_API_KEY`) — pour les
     tâches de fond (cron, promote) et la rétrocompat. Résolveur CANONIQUE unique :
-    tout script doit l'importer plutôt que relire les variables lui-même."""
-    url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
-    if not (url and key):
-        sys.exit("ERREUR : REDMINE_URL + une clé API requis "
-                 "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
-                 "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
+    tout script doit l'importer plutôt que relire les variables lui-même.
+
+    **Multi-instance (RM2653/L0)** : `instance` — un `pm_registry.Instance` ou un nom
+    d'instance — cible une AUTRE instance Redmine que la globale (gestionnaire
+    partenaire, cf. CDC RM2626). Résolution alors :
+      * URL   : `instance.url` (à défaut `REDMINE__<INST>__URL`, sinon `REDMINE_URL`) ;
+      * clé   : `REDMINE__<INST>__API_KEY` — sauf si l'URL retenue est celle de la
+        globale `REDMINE_URL`, auquel cas les clés globales servent de repli (une
+        instance déclarée qui *est* l'instance de travail n'a pas besoin de clé dédiée).
+    `instance=None` → comportement historique **strictement** inchangé.
+    """
+    global_url = os.environ.get("REDMINE_URL", "").rstrip("/")
+    global_key = (os.environ.get("REDMINE_API_KEY")
+                  or os.environ.get("REDMINE_USER_MAIN_API_KEY"))
+    if instance is None:
+        if not (global_url and global_key):
+            sys.exit("ERREUR : REDMINE_URL + une clé API requis "
+                     "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
+                     "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
+        return global_url, global_key
+
+    name = getattr(instance, "name", instance)
+    prefix = instance_env_prefix(name)
+    url = (getattr(instance, "url", "") or os.environ.get(f"{prefix}URL", "")
+           or global_url).rstrip("/")
+    key = os.environ.get(f"{prefix}API_KEY")
+    if not key and url and url == global_url:
+        key = global_key            # l'instance déclarée EST l'instance de travail
+    if not url:
+        sys.exit(f"ERREUR : aucune URL pour l'instance Redmine {name!r} "
+                 f"(url du registre, {prefix}URL, ou REDMINE_URL)")
+    if not key:
+        sys.exit(f"ERREUR : clé API manquante pour l'instance Redmine {name!r} — "
+                 f"poser {prefix}API_KEY dans ~/.config/mmi-pm/.env")
     return url, key
 
 
@@ -226,9 +264,9 @@ def http_json(method, url, key, payload=None, timeout=20):
         return e.code, {"_error": err_body}
 
 
-def fetch_issue(issue_id, include=None):
+def fetch_issue(issue_id, include=None, creds=None):
     """Fetch un ticket avec inclusions optionnelles."""
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     qs = f"?include={include}" if include else ""
     code, body = http_json("GET", f"{url}/issues/{issue_id}.json{qs}", key)
     if code != 200:
@@ -236,14 +274,14 @@ def fetch_issue(issue_id, include=None):
     return body.get("issue", {})
 
 
-def list_issues(params=None, limit=25, timeout=20):
+def list_issues(params=None, limit=25, timeout=20, creds=None):
     """Liste des issues via `/issues.json` avec filtres Redmine arbitraires.
 
     `params` : dict de filtres natifs Redmine (ex: {"assigned_to_id": "me",
     "status_id": "open", "sort": "updated_on:desc"}). `limit` borne le retour.
     Retourne une liste de dicts issue (vide si aucun). Sys.exit si HTTP != 200.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     qp = dict(params or {})
     qp.setdefault("limit", limit)
     qs = urllib.parse.urlencode(qp)
@@ -253,13 +291,13 @@ def list_issues(params=None, limit=25, timeout=20):
     return body.get("issues", [])
 
 
-def search_issues(query, limit=15, timeout=20):
+def search_issues(query, limit=15, timeout=20, creds=None):
     """Recherche plein-texte via `/search.json` (scope issues uniquement).
 
     Retourne une liste de résultats {id, title, type, url, datetime, description}.
     Sys.exit si HTTP != 200.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     qs = urllib.parse.urlencode({"q": query, "issues": 1, "limit": limit})
     code, body = http_json("GET", f"{url}/search.json?{qs}", key, timeout=timeout)
     if code != 200:
@@ -267,13 +305,13 @@ def search_issues(query, limit=15, timeout=20):
     return body.get("results", [])
 
 
-def list_time_entries(params=None, limit=100, timeout=20):
+def list_time_entries(params=None, limit=100, timeout=20, creds=None):
     """Liste des saisies de temps via `/time_entries.json` avec filtres natifs.
 
     `params` ex: {"user_id": 5, "spent_on": "2026-06-02"}. Retourne une liste de
     dicts time_entry (chacun avec hours, user, issue, custom_fields…).
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     qp = dict(params or {})
     qp.setdefault("limit", limit)
     qs = urllib.parse.urlencode(qp)
@@ -283,13 +321,13 @@ def list_time_entries(params=None, limit=100, timeout=20):
     return body.get("time_entries", [])
 
 
-def find_users(name, limit=5, timeout=20):
+def find_users(name, limit=5, timeout=20, creds=None):
     """Recherche d'utilisateurs Redmine par fragment (login/nom/mail).
 
     Best-effort : nécessite les droits admin sur la clé API. Retourne une liste
     de dicts {id, firstname, lastname, login, ...} ou [] si non autorisé / aucun.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     qs = urllib.parse.urlencode({"name": name, "limit": limit})
     code, body = http_json("GET", f"{url}/users.json?{qs}", key, timeout=timeout)
     if code != 200:
@@ -297,9 +335,9 @@ def find_users(name, limit=5, timeout=20):
     return body.get("users", [])
 
 
-def add_issue_note(issue_id, note, timeout=20):
+def add_issue_note(issue_id, note, timeout=20, creds=None):
     """Ajoute une note (journal) à une issue via PUT `notes`. Sys.exit si échec."""
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     payload = {"issue": {"notes": note}}
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, timeout=timeout)
     if code not in (200, 204):
@@ -308,7 +346,7 @@ def add_issue_note(issue_id, note, timeout=20):
 
 
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
-                        notes=None, timeout=20):
+                        notes=None, timeout=20, creds=None):
     """PUT générique sur une issue : custom_fields + estimated_hours + note.
 
     `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
@@ -319,7 +357,7 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
     Redmine renvoie 204 mais *drop* silencieusement les attributs ≠ notes. Ce
     helper ne re-vérifie pas ; l'appelant le fait s'il a besoin de la garantie.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     issue = {}
     if custom_fields:
         issue["custom_fields"] = custom_fields
@@ -337,7 +375,7 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
 
 
 def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
-                      comments=None, custom_fields=None, timeout=20):
+                      comments=None, custom_fields=None, timeout=20, creds=None):
     """Crée une saisie de temps (`POST /time_entries.json`) sur une issue.
 
     `hours` : float (> 0 attendu côté Redmine). `activity_id` : id d'activité
@@ -345,7 +383,7 @@ def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
     aujourd'hui côté Redmine si None). `comments` : str. `custom_fields` :
     list[{id, value}] (ex: CF 16 Tokens). Retourne (ok, time_entry_id_or_err).
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     entry = {"issue_id": issue_id, "hours": round(float(hours), 2),
              "activity_id": activity_id}
     if spent_on:
@@ -361,25 +399,25 @@ def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
     return True, body.get("time_entry", {}).get("id")
 
 
-def set_issue_ia_tag(issue_id, value="IA"):
+def set_issue_ia_tag(issue_id, value="IA", creds=None):
     """Set le CF IA sur un ticket. `value=''` ou `None` retire le tag."""
     cf_id = get_ia_cf_id()
     if cf_id is None:
         sys.exit("ERREUR : REDMINE_CF_IA_ID non configuré dans .env — impossible de tag")
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     payload = {"issue": {"custom_fields": [{"id": cf_id, "value": value or ""}]}}
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} : {body.get('_error', '')}")
 
 
-def set_issue_parent(issue_id, parent_id):
+def set_issue_parent(issue_id, parent_id, creds=None):
     """Pose (ou retire) le parent natif d'une issue Redmine via `parent_issue_id`.
 
     `parent_id=None` détache l'issue de son parent (envoie une valeur vide, que
     Redmine interprète comme « pas de parent »). Sys.exit si le PUT échoue.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     val = parent_id if parent_id is not None else ""
     payload = {"issue": {"parent_issue_id": val}}
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
@@ -391,7 +429,7 @@ def set_issue_parent(issue_id, parent_id):
 def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
                          description="", author_id=None, tag_ia=True,
                          extra_custom_fields=None, parent_issue_id=None,
-                         status_id=None, timeout=20):
+                         status_id=None, timeout=20, creds=None):
     """Crée un ticket Redmine côté PM (POST + CF IA + PUT author optionnel).
 
     Source unique de vérité pour la création de tickets depuis le système PM.
@@ -426,7 +464,7 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
             PUT author_id échouant n'est pas bloquant — warning stderr et
             le ticket reste author=key-owner.
     """
-    url, key = redmine_creds()
+    url, key = creds or redmine_creds()
     payload_issue = {
         "project_id": project_id,
         "tracker_id": tracker_id,

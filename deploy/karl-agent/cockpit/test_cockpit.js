@@ -1389,4 +1389,26 @@ assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
   "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
 console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
 
+// — RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue —
+const mcBanner = grabO("mcBanner", { esc: escO });
+assert.strictEqual(mcBanner(null), "", "mc absent → pas de bannière");
+assert.strictEqual(mcBanner({}), "", "mc sans verdict → pas de bannière");
+const bOk = mcBanner({ verdict: { level: "ok", headline: "Branche à jour, merge propre" } });
+assert(/class="mcbanner mc-ok"/.test(bOk) && /✅/.test(bOk), "niveau ok → classe + icône vertes");
+assert(/Branche à jour/.test(bOk) && !/mc-advice/.test(bOk), "titre rendu, pas de conseil sans advice");
+const bBlock = mcBanner({
+  mr_url: "https://gitlab.x/mr/1",
+  verdict: { level: "block", headline: "Conflit de merge avec dev (2 fichier(s))",
+             detail: "CHANGELOG.md, src/app.py",
+             advice: "merge dev dans la branche, résous, pousse" } });
+assert(/class="mcbanner mc-block"/.test(bBlock) && /⛔/.test(bBlock), "conflit → bannière rouge");
+assert(/mc-advice[^>]*>→ /.test(bBlock), "la remédiation est mise en avant (→)");
+assert(/CHANGELOG.md/.test(bBlock), "les fichiers en conflit apparaissent");
+assert(/href="https:\/\/gitlab\.x\/mr\/1"/.test(bBlock), "le lien MR est proposé quand il existe");
+const bXss = mcBanner({ verdict: { level: "warn", headline: "en retard <b>x</b>" } });
+assert(/&lt;b&gt;/.test(bXss) && !/<b>/.test(bXss), "le titre est échappé (anti-XSS)");
+const bUnk = mcBanner({ verdict: {} });
+assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
+console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
+
 console.log("OK — tous les tests cockpit passent");

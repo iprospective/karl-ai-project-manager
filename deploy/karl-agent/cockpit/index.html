@@ -400,6 +400,16 @@
     border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
+  /* RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue */
+  .mcbanner { border-radius: 8px; padding: 9px 12px; font-size: 13px; line-height: 1.45; border: 1px solid transparent; }
+  .mcbanner .mc-head { font-weight: 600; }
+  .mcbanner .mc-detail { color: var(--muted); font-size: 12.5px; margin-top: 3px; word-break: break-word; }
+  .mcbanner .mc-advice { margin-top: 5px; font-size: 12.5px; }
+  .mcbanner .mc-mr { margin-top: 5px; font-size: 12px; }
+  .mc-ok      { background: rgba(63,185,80,.10);  border-color: rgba(63,185,80,.35); }
+  .mc-warn    { background: rgba(210,153,34,.12); border-color: rgba(210,153,34,.42); }
+  .mc-block   { background: rgba(248,81,73,.12);  border-color: rgba(248,81,73,.48); }
+  .mc-unknown { background: rgba(127,127,127,.10); border-color: rgba(127,127,127,.30); }
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
   .kv .k { color: var(--muted); } .kv .v { text-align: right; word-break: break-word; }
   .pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg); }
@@ -4344,6 +4354,35 @@ async function ensureResolved(rmId, force) {
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
   return resolveCache[rmId];
 }
+// RM2384 : cohérence git d'un ticket livré (la branche se merge-t-elle proprement
+// dans sa cible ?). Chargé à l'ouverture de la fiche de revue ; verrou in-flight +
+// fraîcheur 30 s pour ne pas relancer un fetch+merge-tree à chaque re-render.
+const mcCache = {};        // rmId → {t, mc}
+const mcInFlight = {};
+function mcFresh(rmId) { const c = mcCache[rmId]; return c && (Date.now() - c.t < 30000); }
+async function ensureMergecheck(rmId, force) {
+  rmId = String(rmId);
+  if (!force && mcFresh(rmId)) return mcCache[rmId].mc;
+  if (mcInFlight[rmId]) return;
+  mcInFlight[rmId] = true;
+  try { mcCache[rmId] = { t: Date.now(), mc: await api("/mergecheck/" + encodeURIComponent(rmId)) }; }
+  catch (e) { mcCache[rmId] = { t: Date.now(), mc: null }; }
+  finally { mcInFlight[rmId] = false; }
+  return mcCache[rmId].mc;
+}
+// >>> mcBanner — pur (testé par test_cockpit.js) : HTML de la bannière de
+// cohérence git à partir du verdict serveur. Aucun DOM, aucune I/O.
+function mcBanner(mc) {
+  if (!mc || !mc.verdict) return "";
+  const v = mc.verdict, lvl = v.level || "unknown";
+  const ICON = { ok: "✅", warn: "⚠️", block: "⛔", unknown: "❔" };
+  let inner = '<div class="mc-head">' + (ICON[lvl] || "") + " " + esc(v.headline || "") + '</div>';
+  if (v.detail) inner += '<div class="mc-detail">' + esc(v.detail) + '</div>';
+  if (v.advice) inner += '<div class="mc-advice">→ ' + esc(v.advice) + '</div>';
+  if (mc.mr_url) inner += '<div class="mc-mr"><a href="' + esc(mc.mr_url) + '" target="_blank">MR ↗</a></div>';
+  return '<div class="mcbanner mc-' + esc(lvl) + '">' + inner + '</div>';
+}
+// <<< mcBanner
 // RM2373 : conso tokens live de la session (entrée/sortie séparées), lue du
 // transcript via /usage. Rafraîchie à la demande + auto (20 s) tant que l'encart
 // est ouvert ; un verrou in-flight évite les rafales sur les renders répétés.
@@ -5665,6 +5704,7 @@ function openReview(rm) {
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
   ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
+  ensureMergecheck(rm).then(() => { if (currentReview === rm) renderReviewPane(); });  // RM2384
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
   refreshSessions();                     // re-rend la liste « en cours » (actif)
 }
@@ -5756,6 +5796,16 @@ function renderReviewPane() {
       h += '<div class="kv"><span class="k">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">' + esc(e.url) + ' ↗</a></span></div>';
     });
     h += '</div>';
+  }
+  // — RM2384 : cohérence git (mergeabilité de la branche dans sa cible) —
+  // Anticipe l'échec de merge au moment du verdict (RM2000) : on le signale AVANT
+  // de proposer « fermer / demander la MEP », avec l'action de remédiation.
+  if (r && r.found) {
+    const mc = mcCache[rm] && mcCache[rm].mc;
+    h += '<div class="ms"><h4>Cohérence git</h4>' +
+      (mc ? mcBanner(mc)
+          : '<div style="color:var(--muted)">vérification de la mergeabilité en cours…</div>') +
+      '</div>';
   }
   // — verdict —
   h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +

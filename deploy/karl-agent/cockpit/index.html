@@ -3711,10 +3711,14 @@ async function loadFiles(force) {
   try {
     filesData = await api("/worktrees/" + encodeURIComponent(attached));
   } catch (e) { b.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
-  const wts = (filesData.worktrees || []).filter(w => w.exists);
-  if (!wts.length) { b.innerHTML = '<div class="empty">aucun worktree pour cette session (rien de branché).</div>'; return; }
-  if (force || !fileNav.wt || !wts.some(w => w.path === fileNav.wt)) {
-    fileNav = { wt: wts[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
+  // RM2659 : une session sans worktree a quand même un projet — sa racine et sa
+  // doc restent lisibles. Se fier aux seuls worktrees vidait le panneau alors
+  // qu'il y avait tout à montrer.
+  const roots = filesGroups(filesData.projects, filesData.worktrees)
+    .reduce((a, g) => a.concat(g.roots), []);
+  if (!roots.length) { b.innerHTML = '<div class="empty">aucun worktree ni projet pour cette session (rien de branché).</div>'; return; }
+  if (force || !fileNav.wt || !roots.some(w => w.path === fileNav.wt)) {
+    fileNav = { wt: roots[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
   }
   filesLoadDir(fileNav.wt, fileNav.path);
 }
@@ -3754,19 +3758,77 @@ function fileRootLabel(w) {
                   + (r.docs ? " — " + r.docs + " fichier" + (r.docs > 1 ? "s" : "") : "")
                   + "\n" + (r.path || "") };
   }
+  if (r.kind === "root") {
+    return { icon: "🏠", name: r.name || "racine",
+             tip: (r.label || "racine du workspace") + "\n" + (r.path || "") };
+  }
   return { icon: "", name: r.name || "?", tip: r.path || "" };
 }
 // <<< fileRootLabel
 
+// >>> filesGroups — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2659 : les racines lisibles de la session, GROUPÉES PAR PROJET — une
+// session en touche parfois plusieurs (7 sur 62 au registre). Dans chaque
+// groupe : la racine du workspace d'abord (c'est ce que le « core » est
+// réellement, plutôt qu'un worktree parmi 60), puis sa doc, puis les worktrees
+// que la session a ouverts dedans.
+// Un worktree qui ne relève d'aucune racine connue (layout ancien : posé À CÔTÉ
+// du workspace) n'est pas perdu — il forme un groupe « hors projet ». Le faire
+// disparaître serait pire que l'encombrement qu'on corrige.
+function filesGroups(projects, worktrees) {
+  const gs = (projects || []).filter(p => p && p.root).map(p => ({
+    key: (p.client || "") + "/" + (p.project || ""),
+    label: p.project || p.name || "?",
+    client: p.client || "", project: p.project || "", root: p.root,
+    roots: [Object.assign({}, p, { path: p.root, kind: "root",
+                                   label: "racine du workspace" })].concat(
+      (p.docs || []).map(d => ({ path: d.path, name: d.name, kind: "doc",
+                                 label: d.label, docs: d.docs }))),
+  }));
+  const orphans = [];
+  for (const w of (worktrees || [])) {
+    if (!w || w.exists === false || !w.path) continue;
+    const g = gs.find(x => String(w.path).indexOf(x.root + "/") === 0);
+    (g ? g.roots : orphans).push(Object.assign({}, w, { kind: "code" }));
+  }
+  if (orphans.length) {
+    gs.push({ key: "", label: "hors projet", client: "", project: "", root: "",
+              roots: orphans });
+  }
+  return gs.filter(g => g.roots.length);
+}
+// <<< filesGroups
+
+// >>> filesGroupOf — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le groupe auquel appartient la racine courante — sinon le premier. Sans ça,
+// changer de worktree pourrait laisser la barre des projets sur un autre projet
+// que celui qu'on lit.
+function filesGroupOf(groups, path) {
+  const gs = groups || [];
+  return gs.find(g => (g.roots || []).some(r => r.path === path)) || gs[0] || null;
+}
+// <<< filesGroupOf
+
 function renderFiles() {
   const b = document.getElementById("filesbody");
-  const wts = (filesData.worktrees || []).filter(w => w.exists);
+  const groups = filesGroups(filesData.projects, filesData.worktrees);
+  const grp = filesGroupOf(groups, fileNav.wt);
+  const wts = grp ? grp.roots : [];
   const cur = wts.find(w => w.path === fileNav.wt) || wts[0];
   document.getElementById("filescnt").textContent = cur ? cur.name : "";
   let h = "";
+  // RM2659 : la barre des projets n'apparaît QUE s'il y en a plusieurs — une
+  // barre à un seul onglet n'informe de rien et coûte un niveau de lecture.
+  if (groups.length > 1) {
+    h += '<div class="rsub">' + groups.map(g =>
+      '<button class="' + (g === grp ? "active" : "") + '" title="' + esc(g.client ? g.client + " / " + g.label : g.label)
+      + '" onclick="filesLoadDir(' + jarg(g.roots[0].path) + ',\'\')">'
+      + esc(g.label) + "</button>").join("") + "</div>";
+  }
   if (wts.length > 1) {
-    // RM2622 : le code d'abord, la doc ensuite et signalée — deux natures
-    const rangs = w => (w.kind === "doc" ? 1 : 0);
+    // RM2622/RM2659 : la racine d'abord, puis le code, la doc en dernier et
+    // signalée — trois natures, qui n'attendent pas la même chose du panneau.
+    const rangs = w => (w.kind === "root" ? 0 : w.kind === "doc" ? 2 : 1);
     h += '<div class="rsub">' + wts.slice().sort((x, y) => rangs(x) - rangs(y)).map(w => {
       const lb = fileRootLabel(w);
       return '<button class="' + (w.path === fileNav.wt ? "active" : "")

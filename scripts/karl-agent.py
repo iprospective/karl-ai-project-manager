@@ -4842,6 +4842,32 @@ _FS_MAX_BYTES = 512 * 1024
 _FS_SKIP = {".git"}
 
 
+# >>> fs_hide — pure (testée par test_karl_agent_session_files.py)
+def _fs_hide(subpath: str, name: str) -> bool:
+    """RM2659 : entrées invisibles dans l'explorateur.
+
+    `.mmi-pm/tasks` compte ~1 300 fiches de tickets, que le cockpit sait déjà
+    montrer par ailleurs ; les dérouler ici noie `docs/`, `project/` et
+    `memory/`, qui sont ce qu'on vient y chercher. Le masquage vise un CHEMIN,
+    pas un nom : un dossier `tasks/` dans du code reste visible."""
+    if name in _FS_SKIP:
+        return True
+    return (subpath or "").strip("/") == ".mmi-pm" and name == "tasks"
+# <<< fs_hide
+
+
+# >>> fs_hidden_path — pure (testée par test_karl_agent_session_files.py)
+def _fs_hidden_path(subpath: str) -> bool:
+    """Vrai si le chemin EST une entrée masquée, ou se trouve dedans.
+
+    Sans ça, « masqué » ne voudrait dire que « pas cliquable » : le dossier
+    resterait servi à qui devine son chemin. Même règle que `_fs_hide`,
+    appliquée segment par segment — une seule définition du masquage."""
+    parts = [x for x in str(subpath or "").strip("/").split("/") if x]
+    return any(_fs_hide("/".join(parts[:i]), seg) for i, seg in enumerate(parts))
+# <<< fs_hidden_path
+
+
 def _session_worktrees(sid: str) -> list:
     """Chemins des worktrees ouverts par la session (registre pm_session)."""
     k = _key_info(sid) or {}
@@ -4892,10 +4918,86 @@ def _project_doc_roots(client: str, project: str) -> list:
     return [str(pdir / sub) for sub in ("project", "docs") if (pdir / sub).is_dir()]
 
 
+def _workspace_root(path) -> Path | None:
+    """RM2659 : racine du workspace contenant `path` — 1er ancêtre portant un
+    `.mmi-pm/`. Les worktrees de session vivent sous `<racine>/envs/`, mais un
+    layout ancien les met à côté de la racine : dans ce cas il n'y a rien à
+    remonter et on rend None plutôt qu'une racine devinée."""
+    try:
+        p = Path(path).resolve()
+    except (OSError, TypeError):
+        return None
+    for d in (p, *p.parents):
+        if (d / ".mmi-pm").exists() and (d / ".mmi-pm" / "meta.yml").is_file():
+            return d
+    return None
+
+
+def _root_project(root) -> tuple | None:
+    """(client, projet) d'une racine de workspace, lus dans `.mmi-pm/meta.yml`.
+
+    C'est l'inverse exact de `_resolve_workspace` : `<racine>/.mmi-pm` EST le
+    dossier du projet PM (RM1949, co-localisation), et son `meta.yml` porte le
+    couple. Pas de scan des clients, pas de devinette sur le nom du dossier —
+    un workspace peut s'appeler autrement que son projet (`ai-project-management`
+    pour `pm-ai-agents`)."""
+    meta = Path(root) / ".mmi-pm" / "meta.yml"
+    try:
+        import yaml as _y
+        d = _y.safe_load(meta.read_text(encoding="utf-8")) or {}
+    except Exception:      # absent, illisible, YAML cassé : pas de projet, pas de plantage
+        return None
+    if not isinstance(d, dict):
+        return None
+    client, slug = d.get("client"), d.get("slug")
+    if not (_PART_RE.match(str(client or "")) and _PART_RE.match(str(slug or ""))):
+        return None
+    return str(client), str(slug)
+
+
+def _session_projects(sid: str) -> list:
+    """RM2659 : les projets auxquels la session touche — son cwd et chacun de
+    ses worktrees. Une session sur plusieurs projets n'est pas un cas d'école :
+    7 sur 62 au registre (client + PM, deux infras de clients différents…)."""
+    out = {}
+    k = _key_info(sid) or {}
+    for cand in [k.get("cwd"), *(_session_worktrees(sid) or [])]:
+        root = _workspace_root(cand) if cand else None
+        if not root or str(root) in out:
+            continue
+        cp = _root_project(root)
+        if not cp:
+            continue
+        client, project = cp
+        out[str(root)] = {
+            "root": str(root), "name": root.name, "client": client, "project": project,
+            "docs": [{"path": d, "name": Path(d).name,
+                      "docs": len(list(Path(d).glob("*.md"))),
+                      "label": ("documents du projet" if Path(d).name == "docs"
+                                else "fiches canoniques (overview, environnements)")}
+                     for d in _project_doc_roots(client, project)],
+        }
+    return list(out.values())
+
+
+def _session_project_roots(sid: str) -> set:
+    """Racines lisibles apportées par les projets de la session (racine + doc)."""
+    allowed = set()
+    for pr in _session_projects(sid):
+        allowed.add(pr["root"])
+        allowed |= {d["path"] for d in pr["docs"]}
+    return allowed
+
+
 def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str = None) -> Path:
     """Le worktree demandé doit appartenir au périmètre autorisé : les worktrees de
-    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590."""
+    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590.
+    RM2659 y ajoute les racines des projets de la session : elles REJOIGNENT la
+    liste blanche, elles ne l'ouvrent pas — le modèle reste « une racine
+    déclarée, ou rien »."""
     allowed = set(_session_worktrees(sid)) if sid else set()
+    if sid:
+        allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
         allowed |= set(_project_doc_roots(client, project))   # RM2622
@@ -4911,6 +5013,8 @@ def _safe_subpath(base: Path, subpath: str) -> Path:
     sp = PurePosixPath(subpath or "")
     if sp.is_absolute() or ".." in sp.parts:
         raise ApiError(403, "sous-chemin invalide")
+    if _fs_hidden_path(subpath):          # RM2659
+        raise ApiError(403, "dossier masqué dans l'explorateur (les tickets ont leurs propres vues)")
     target = base / sp
     try:
         rp, broot = target.resolve(), base.resolve()
@@ -4964,7 +5068,10 @@ def _git_brief(cwd: Path) -> dict:
 
 
 def op_worktrees(sid: str) -> dict:
-    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers)."""
+    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers).
+    RM2659 : et les PROJETS auxquels la session touche — leur racine de
+    workspace et leur documentation. Le « core » cessait ainsi d'apparaître
+    comme un worktree parmi d'autres : il EST la racine."""
     if not _valid_sid(sid):
         raise ApiError(400, "sid invalide")
     out = []
@@ -4974,7 +5081,14 @@ def op_worktrees(sid: str) -> dict:
         if p.is_dir():
             item.update(_git_brief(p))
         out.append(item)
-    return {"sid": sid, "worktrees": out}
+    projects = []
+    for pr in _session_projects(sid):
+        root = Path(pr["root"])
+        item = dict(pr, exists=root.is_dir())
+        if root.is_dir():
+            item.update(_git_brief(root))
+        projects.append(item)
+    return {"sid": sid, "worktrees": out, "projects": projects}
 
 
 def op_project_worktrees(client: str, project: str) -> dict:
@@ -5005,7 +5119,7 @@ def op_fs_ls(sid: str, worktree: str, subpath: str, client: str = None, project:
         raise ApiError(404, "dossier introuvable")
     entries = []
     for e in target.iterdir():
-        if e.name in _FS_SKIP:
+        if _fs_hide(subpath, e.name):
             continue
         try:
             is_dir = e.is_dir()

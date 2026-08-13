@@ -1095,7 +1095,7 @@ if (window.matchMedia) {
               <button class="mini" onclick="loadFiles(true)" title="Rafraîchir">⟳</button>
               <span class="cnt" id="filescnt"></span>
             </div>
-            <div class="metabody" id="filesbody"><div class="empty">attache une session…</div></div>
+            <div class="metabody" id="filesbody"><div class="empty">chargement…</div></div>
           </div>
           <!-- RM2330 : outline de la conversation -->
           <div class="rp" id="rp-git">
@@ -1876,8 +1876,7 @@ async function refreshSessionSets() {
     // RM2452 : sur un jeu dérivé, « ajouter l'affichage » n'a aucun sens — la
     // règle décide, et le serveur refuse (400). On masque plutôt que d'offrir un
     // bouton qui échoue.
-    const curSet = setsCache.find(s => s.name === currentSet);
-    const derivedNow = !!(curSet && curSet.derived) && currentView === "set";
+    const derivedNow = !setWritable(setsCache, currentSet, currentView);
     const save = document.getElementById("btn-set-save");
     if (save) save.style.display = (derivedNow && !selMode) ? "none" : "";
     if (save) save.textContent = selMode
@@ -1899,6 +1898,25 @@ async function refreshSessionSets() {
     if (mv) mv.style.display = (selMode && others.length) ? "" : "none";
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
+// >>> setWritable — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2673 : le jeu courant accepte-t-il une écriture manuelle ? Trois gestes en
+// dépendent — « 💾 ajouter l'affichage », ⊖ (retirer du jeu) et ⟳ (politique de
+// reprise) — et tous échouent côté serveur sur un jeu DÉRIVÉ : 400
+// (`_reject_if_derived`) pour l'enregistrement et le retrait, 404 « sid absent »
+// pour la politique (un jeu calculé n'a pas d'`entries`).
+// Le piège corrigé ici : le caractère dérivé se lit sur le JEU COURANT — la
+// cible des écritures — et jamais sur la VUE. RM2452 conditionnait le masquage à
+// `currentView === "set"`, si bien qu'en vue « sessions ouvertes » ou « tous les
+// jeux » le bouton réapparaissait sur un jeu dérivé (cas vécu : jeu « PM »,
+// règle client/projet, vue live) pour n'offrir qu'un 400.
+// Une VUE par client ne désigne, elle, aucun jeu enregistré (RM2536) : rien à
+// écrire non plus.
+function setWritable(sets, name, view) {
+  if (/^client:/.test(String(view == null ? "" : view))) return false;
+  const cur = (sets || []).find(s => s && s.name === name);
+  return !(cur && cur.derived);
+}
+// <<< setWritable
 // RM2445 : le jeu courant est un état SERVEUR (le cockpit ne faisait que le
 // mémoriser localement, d'où une bascule sans le moindre effet visible). Basculer
 // = changer de contexte : aucun tmux n'est tué ni lancé, et le panneau se re-rend.
@@ -2206,7 +2224,10 @@ function renderGhostItem(s, r, it) {
   // jeu, ils ne peuvent qu'échouer. On ne les propose donc pas — même parti-pris
   // que « 💾 ajouter l'affichage », masqué sur un jeu dérivé. La relance, elle,
   // ne dépend plus d'aucun jeu et reste offerte.
-  const inSet = !/^client:/.test(currentView);
+  // RM2673 : un jeu courant DÉRIVÉ ferme exactement les mêmes gestes (400 sur le
+  // retrait, 404 sur la politique) — c'est la même question, posée une seule
+  // fois par `setWritable`.
+  const inSet = setWritable(setsCache, currentSet, currentView);
   it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
     (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
     '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
@@ -2336,12 +2357,16 @@ async function loadSessionSet() {
       const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
       const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
       // RM2427 : par entrée — ⟳/⏸ règle la reprise, ✕ retire du jeu
+      // RM2673 : ni l'un ni l'autre sur un jeu DÉRIVÉ — la règle décide du
+      // contenu, le serveur refuse les deux (400 / 404). « figer » reste offert
+      // juste au-dessus pour qui veut reprendre la main à la volée.
       return '<li><b>' + label + '</b> <span style="color:var(--muted)">' + esc(e.engine || "?") + '</span> ' + st +
+        (r.derived ? "" :
         '<span class="tkill" style="float:right" title="Retirer cette session du jeu" ' +
           'onclick="event.stopPropagation();forgetSetEntry(\'' + esc(e.sid) + '\')">⊖</span>' +
         '<span style="float:right;margin-right:8px;cursor:pointer" title="' + esc(restartTip(e.restart)) + '" ' +
           'onclick="event.stopPropagation();toggleSetEntryRestart(\'' + esc(e.sid) + '\',\'' + esc(e.restart || "idle") + '\')">' +
-          (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>' +
+          (e.restart === "auto" ? "⟳ auto" : "⏸ au clic") + '</span>') +
         // RM2439 : le NOM de la session, sans quoi la liste n'est qu'une suite de sid
         '<br><span style="font-size:11px">' + (e.title ? esc(e.title) : '<i style="opacity:.5">sans titre</i>') + '</span>' +
         '<br><span style="color:var(--muted);font-size:11px">' +
@@ -3108,8 +3133,9 @@ function applyRight() {
   if (rightVisible("tickets")) renderTickets();
   if (rightVisible("state")) loadWorklog();     // RM2581 : worklog de la session
   // RM2586 : (re)charge les worktrees quand on ouvre l'onglet, ou après un
-  // changement de session (filesData.sid ≠ session attachée).
-  if (rightVisible("files") && attached && filesData.sid !== String(attached)) loadFiles();
+  // changement de session. RM2673 : le contexte peut aussi être un PROJET (sans
+  // session attachée) — `filesEnsure` compare le contexte, pas le seul sid.
+  if (rightVisible("files")) filesEnsure();
   if (rightVisible("git") && attached) gitLoad();      // RM2602
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
@@ -3570,6 +3596,7 @@ function worklogDocs(docsMap) {
 // <<< worklogDocs
 
 let worklog = { found: false, buckets: {} };
+let worklogPending = null;   // RM2673 : session dont le worklog est en cours de chargement
 let worklogSub = "todo";   // RM2610 : sous-onglet actif (clé de bucket | documents)
 function setWorklogSub(s) { worklogSub = s; renderWorklog(); }
 
@@ -3588,12 +3615,19 @@ function worklogTabList(secs, docsCount, orphanCount) {
 // force=1 : contourne la garde de fraîcheur serveur (60 s) pour un ⟳ manuel.
 async function loadWorklog(force) {
   if (!attached) { worklog = { found: false, buckets: {} }; renderWorklog(); return; }
+  const sid = String(attached);
+  worklogPending = sid;                       // RM2673 : une requête à la fois par session
   try {
-    worklog = await api("/worklog/" + encodeURIComponent(attached) + (force ? "?force=1" : ""));
+    worklog = await api("/worklog/" + encodeURIComponent(sid) + (force ? "?force=1" : ""));
   } catch (e) {
-    worklog = { found: false, buckets: {}, error: e.message };
+    // `rm_id` même en échec : sans lui, l'onglet tickets redemanderait le
+    // worklog à chaque rendu (la garde porte sur la session déjà tentée).
+    worklog = { rm_id: sid, found: false, buckets: {}, error: e.message };
   }
+  worklogPending = null;
   renderWorklog();
+  // RM2673 : le worklog alimente aussi la liste des tickets de la session
+  if (rightVisible("tickets")) renderTickets();
 }
 // >>> notifyDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2466 volet 1 : gravité d'un événement de session. Le niveau reste écrit en
@@ -3738,19 +3772,91 @@ function filesCrumbs(path) {
 }
 // <<< filesCrumbs
 
-const _fq = () => "sid=" + encodeURIComponent(attached) + "&worktree=" + encodeURIComponent(fileNav.wt);
+// >>> filesContext — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2673 : QUOI lire dans l'onglet fichiers. Une session attachée montre ses
+// racines (RM2586/2659) ; sinon on se rabat sur le PROJET courant, que le
+// cockpit connaît de trois façons — la fiche de ticket ouverte, la fiche projet
+// ouverte, ou la règle du jeu courant quand elle désigne un projet.
+// Sans ce repli, ouvrir une fiche de ticket (qui détache la session) laissait le
+// panneau sur « attache une session… » : un projet parfaitement identifié, et
+// pas un fichier lisible. Une vue par client ne désigne, elle, aucun projet
+// unique : on ne devine pas.
+// `from` sert à DIRE d'où vient ce qu'on affiche — un panneau qui change de
+// contenu sans le dire se lit comme un bug.
+function filesContext(ctx) {
+  const c = ctx || {};
+  if (c.attached) return { kind: "session", sid: String(c.attached) };
+  const r = c.currentReview ? (c.resolveCache || {})[c.currentReview] : null;
+  if (r && r.found && r.client && r.project)
+    return { kind: "project", client: r.client, project: r.project,
+             from: "ticket RM" + c.currentReview };
+  const parts = String(c.currentProjectView || "").split("/");
+  if (parts.length === 2 && parts[0] && parts[1])
+    return { kind: "project", client: parts[0], project: parts[1], from: "fiche projet" };
+  const cur = (c.sets || []).find(s => s && s.name === c.currentSet);
+  const rule = (cur && cur.rule) || null;
+  if (rule && rule.client && rule.project)
+    return { kind: "project", client: rule.client, project: rule.project,
+             from: "jeu « " + (cur.label || cur.name) + " »" };
+  return { kind: "none" };
+}
+// <<< filesContext
+
+// >>> filesCtxKey — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Identité du contexte affiché — pour ne recharger le panneau que lorsqu'il
+// change VRAIMENT (le poll du cockpit repasse toutes les quelques secondes).
+function filesCtxKey(ctx) {
+  const c = ctx || {};
+  if (c.kind === "session") return "s:" + c.sid;
+  if (c.kind === "project") return "p:" + c.client + "/" + c.project;
+  return "none";
+}
+// <<< filesCtxKey
+
+// périmètre de lecture : une SESSION (ses worktrees) ou un PROJET (sa racine et
+// sa doc) — le serveur autorise les deux (RM2586/2590/2673)
+const _fq = () => (filesData.client && filesData.project && !attached
+    ? "client=" + encodeURIComponent(filesData.client) + "&project=" + encodeURIComponent(filesData.project)
+    : "sid=" + encodeURIComponent(attached))
+  + "&worktree=" + encodeURIComponent(fileNav.wt);
+// contexte courant du panneau (session attachée, sinon projet) — un seul endroit
+// où la question se pose
+function filesCtx() {
+  return filesContext({ attached, currentReview, resolveCache,
+                        currentProjectView, sets: setsCache, currentSet });
+}
+// RM2673 : (re)charge le panneau quand — et seulement quand — le contexte change.
+function filesEnsure() {
+  const key = filesCtxKey(filesCtx());
+  if (filesData.ctxKey !== key) loadFiles();
+}
 async function loadFiles(force) {
   const b = document.getElementById("filesbody");
-  if (!attached) { b.innerHTML = '<div class="empty">attache une session pour parcourir ses worktrees.</div>'; return; }
+  const ctx = filesCtx();
+  filesData = { sid: null, worktrees: [], ctxKey: filesCtxKey(ctx) };
+  if (ctx.kind === "none") {
+    b.innerHTML = '<div class="empty">attache une session, ou ouvre une fiche de ticket ' +
+      'ou de projet — les fichiers du projet suivront.</div>';
+    return;
+  }
   try {
-    filesData = await api("/worktrees/" + encodeURIComponent(attached));
+    const r = ctx.kind === "session"
+      ? await api("/worktrees/" + encodeURIComponent(ctx.sid))
+      : await api("/project-roots/" + encodeURIComponent(ctx.client) +
+                  "/" + encodeURIComponent(ctx.project));
+    filesData = Object.assign(r, { ctxKey: filesCtxKey(ctx), from: ctx.from || null });
   } catch (e) { b.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
   // RM2659 : une session sans worktree a quand même un projet — sa racine et sa
   // doc restent lisibles. Se fier aux seuls worktrees vidait le panneau alors
   // qu'il y avait tout à montrer.
   const roots = filesGroups(filesData.projects, filesData.worktrees)
     .reduce((a, g) => a.concat(g.roots), []);
-  if (!roots.length) { b.innerHTML = '<div class="empty">aucun worktree ni projet pour cette session (rien de branché).</div>'; return; }
+  if (!roots.length) {
+    b.innerHTML = '<div class="empty">' + (ctx.kind === "session"
+      ? "aucun worktree ni projet pour cette session (rien de branché)."
+      : "aucune racine lisible pour " + esc(ctx.client + "/" + ctx.project) + ".") + '</div>';
+    return;
+  }
   if (force || !fileNav.wt || !roots.some(w => w.path === fileNav.wt)) {
     fileNav = { wt: roots[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
   }
@@ -3809,20 +3915,25 @@ function fileRootLabel(w) {
 // Un worktree qui ne relève d'aucune racine connue (layout ancien : posé À CÔTÉ
 // du workspace) n'est pas perdu — il forme un groupe « hors projet ». Le faire
 // disparaître serait pire que l'encombrement qu'on corrige.
+// RM2673 : un projet dont le workspace de code n'est pas résolu (projet purement
+// documentaire, lien `workspace` cassé) garde sa DOC — la faire disparaître avec
+// la racine viderait le panneau alors qu'il reste tout à lire.
 function filesGroups(projects, worktrees) {
-  const gs = (projects || []).filter(p => p && p.root).map(p => ({
+  const gs = (projects || []).filter(p => p && (p.root || (p.docs || []).length)).map(p => ({
     key: (p.client || "") + "/" + (p.project || ""),
     label: p.project || p.name || "?",
-    client: p.client || "", project: p.project || "", root: p.root,
-    roots: [Object.assign({}, p, { path: p.root, kind: "root",
-                                   label: "racine du workspace" })].concat(
+    client: p.client || "", project: p.project || "", root: p.root || "",
+    roots: (p.root ? [Object.assign({}, p, { path: p.root, kind: "root",
+                                             label: "racine du workspace" })] : []).concat(
       (p.docs || []).map(d => ({ path: d.path, name: d.name, kind: "doc",
                                  label: d.label, docs: d.docs }))),
   }));
   const orphans = [];
   for (const w of (worktrees || [])) {
     if (!w || w.exists === false || !w.path) continue;
-    const g = gs.find(x => String(w.path).indexOf(x.root + "/") === 0);
+    // `x.root` vide (groupe purement documentaire) ne rattache rien : sans cette
+    // garde, `indexOf("/") === 0` ferait tomber TOUT chemin absolu dedans.
+    const g = gs.find(x => x.root && String(w.path).indexOf(x.root + "/") === 0);
     (g ? g.roots : orphans).push(Object.assign({}, w, { kind: "code" }));
   }
   if (orphans.length) {
@@ -3851,6 +3962,14 @@ function renderFiles() {
   const cur = wts.find(w => w.path === fileNav.wt) || wts[0];
   document.getElementById("filescnt").textContent = cur ? cur.name : "";
   let h = "";
+  // RM2673 : sans session attachée, le panneau montre le PROJET courant — il dit
+  // lequel et d'où il le tient (un panneau qui change de contenu en silence se
+  // lit comme un bug).
+  if (!attached && filesData.from) {
+    h += '<div class="rels" style="margin-bottom:6px"><span class="pill" title="Aucune session attachée : '
+      + 'le panneau montre le projet courant">📁 ' + esc((filesData.client || "") + "/" + (filesData.project || ""))
+      + '</span><span class="pill" style="opacity:.75">' + esc(filesData.from) + '</span></div>';
+  }
   // RM2659 : la barre des projets n'apparaît QUE s'il y en a plusieurs — une
   // barre à un seul onglet n'informe de rien et coûte un niveau de lecture.
   if (groups.length > 1) {
@@ -4675,15 +4794,37 @@ function showTicket(id) {
   if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
 }
 function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); switchPanel("sessions"); attachIfRunning(id); }
-// Tickets traités par la session attachée : ancrage + RM-ids déduits du registre.
+// >>> ticketsOfSession — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2673 : les tickets qu'une session traite, TOUTES sources confondues —
+// l'ancrage (sid numérique), le registre pm_session (branches `<id>-slug`,
+// worktrees `…-rm<id>`) et le WORKLOG de la session (RM2068).
+// Le worklog manquait, et c'est justement la seule source d'une session lancée
+// sur un SLUG : ni ancrage, ni — le plus souvent — branche à son nom. L'onglet
+// annonçait alors « session slug (sans ticket d'ancrage) » à des sessions qui
+// avaient traité cinq tickets. L'ordre reste celui de la proximité au travail
+// en cours : ancrage, registre, puis worklog (reste à faire avant fait).
+function ticketsOfSession(sid, registry, buckets) {
+  const out = [];
+  const add = id => { if (id && out.indexOf(id) < 0) out.push(id); };
+  if (/^\d+$/.test(String(sid == null ? "" : sid))) add(String(sid));
+  const reg = registry || {};
+  (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) add(m[1]); });
+  (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) add(m[1]); });
+  for (const k of ["todo", "waiting", "unknown", "done"])
+    for (const it of ((buckets || {})[k] || [])) {
+      const m = /^RM(\d+)$/i.exec(String((it && it.ref) || ""));
+      if (m) add(m[1]);
+    }
+  return out;
+}
+// <<< ticketsOfSession
+// Tickets traités par la session attachée : ancrage + registre + worklog (RM2673).
 function sessionTickets() {
   if (!attached) return [];
-  const out = new Set();
-  if (/^\d+$/.test(attached)) out.add(attached);
-  const reg = (sessCache[attached] || {}).registry || {};
-  (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) out.add(m[1]); });
-  (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) out.add(m[1]); });
-  return [...out];
+  // le worklog n'est lu que s'il est bien celui de la session attachée — il est
+  // chargé par l'onglet 🗒 état, qui peut porter une session précédente
+  const wl = (worklog && String(worklog.rm_id) === String(attached)) ? worklog.buckets : null;
+  return ticketsOfSession(attached, (sessCache[attached] || {}).registry, wl);
 }
 function fmtTokens(n) {
   if (n == null) return "—";
@@ -4798,14 +4939,24 @@ function renderInfos() {
 function renderTickets() {
   const b = document.getElementById("ticketsbody");
   if (!b) return;
+  // RM2673 : le worklog est une des sources de tickets de la session — on ne
+  // peut pas attendre que l'onglet 🗒 état soit ouvert pour le connaître.
+  if (attached && String(worklog.rm_id || "") !== String(attached)
+      && worklogPending !== String(attached)) loadWorklog();
   const tks = sessionTickets();
   const list = tks.slice();
   // un ticket ouvert hors session (fiche revue / file à tester) reste visible
   if (metaTicket && list.indexOf(metaTicket) < 0) list.unshift(metaTicket);
   if (!list.length) {
+    // RM2673 : dire ce qui a VRAIMENT été regardé — le worklog compris. « sans
+    // ticket d'ancrage » laissait croire à une limite de l'ancrage alors que le
+    // worklog de la session n'avait jamais été consulté.
+    const wlSeen = String(worklog.rm_id || "") === String(attached);
     b.innerHTML = attached
       ? '<div class="ms" style="color:var(--muted)">' +
-        (/^\d+$/.test(attached) ? "ticket non PM-tracké" : "session slug (sans ticket d’ancrage)") + '</div>'
+        (/^\d+$/.test(attached) ? "ticket non PM-tracké"
+          : (wlSeen ? "session slug — aucun ticket dans son worklog"
+                    : "session slug (sans ticket d’ancrage) — lecture du worklog…")) + '</div>'
       : '<div class="empty">aucun ticket — attache une session ou ouvre une fiche.</div>';
     return;
   }
@@ -5448,6 +5599,7 @@ function attach(rmId) {
   gitLog = { commits: [], branch: null }; gitSel = null;   // RM2602
   if (rightVisible("git")) gitLoad();
   else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
+  if (rightVisible("files")) filesEnsure();  // RM2673 : les fichiers suivent la session
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
   renderCurTitle();
@@ -5466,8 +5618,12 @@ function detach() {
   outline = { items: [], total: 0 }; outPos = null;   // RM2330
   document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
   closeOutlineRead();               // RM2579 : referme la lecture inline
-  filesData = { sid: null, worktrees: [] };   // RM2586 : oublie les worktrees de la session
-  document.getElementById("filesbody").innerHTML = '<div class="empty">attache une session…</div>';
+  // RM2586 : oublie les worktrees de la session. RM2673 : le panneau se rabat
+  // alors sur le projet courant (fiche ouverte, jeu) au lieu de rester muet —
+  // `filesEnsure` recharge s'il est visible, sinon le prochain dépliage le fera.
+  filesData = { sid: null, worktrees: [] };
+  if (rightVisible("files")) filesEnsure();
+  else document.getElementById("filesbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   document.getElementById("chipsrow").style.display = "none";
   renderCurTitle();
 }
@@ -5726,6 +5882,7 @@ async function openProjectView(key) {
   pane.style.display = "block";
   pane.innerHTML = '<div class="empty">chargement de la fiche projet…</div>';
   renderCurTitle();
+  if (rightVisible("files")) filesEnsure();   // RM2673 : le panneau suit le projet ouvert
   const [c, p] = key.split("/");
   if (!c || !p || key === "divers") {
     pane.innerHTML = '<div class="empty">groupe « divers » — sessions non rattachées à un projet PM.</div>' +
@@ -5966,7 +6123,14 @@ function openReview(rm) {
   metaFacet = "detail";             // RM2579 : ouvrir sur le détail
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
-  ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
+  if (rightVisible("files")) filesEnsure();   // RM2673 : fiche ouverte = projet connu
+  ensureResolved(rm).then(() => {
+    if (currentReview !== rm) return;
+    renderReviewPane(); renderMeta(); renderCurTitle();
+    // le client/projet du ticket n'est connu qu'ici : c'est lui qui donne son
+    // contexte au panneau fichiers
+    if (rightVisible("files")) filesEnsure();
+  });
   ensureMergecheck(rm).then(() => { if (currentReview === rm) renderReviewPane(); });  // RM2384
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
   refreshSessions();                     // re-rend la liste « en cours » (actif)

@@ -101,6 +101,43 @@ check("évasion refusée aussi en périmètre projet",
 check("op_project_worktrees liste les worktrees du projet",
       any(w["name"] == pathlib.Path(wt2).name for w in ka.op_project_worktrees("cli", "prj")["worktrees"]))
 
+
+# — RM2673 : racines d'un projet SANS session (op_project_roots) —
+# Arbo PM factice : <base>/<client>/projects/<projet>/{project,docs} + workspace
+_pm = pathlib.Path(tempfile.mkdtemp(prefix="rm2673-pm-"))
+_pdir = _pm / "cli" / "projects" / "prj"
+(_pdir / "docs").mkdir(parents=True)
+(_pdir / "project").mkdir()
+(_pdir / "docs" / "a.md").write_text("# a\n", encoding="utf-8")
+(_pdir / "project" / "overview.md").write_text("# o\n", encoding="utf-8")
+_ws = pathlib.Path(tempfile.mkdtemp(prefix="rm2673-ws-"))
+(_ws / "fichier.md").write_text("# ws\n", encoding="utf-8")
+ka.PROJECTS_BASE = _pm
+ka._resolve_workspace = lambda pdir: _ws
+ka._project_worktrees = lambda c, p: []       # aucun worktree : le cas qui vidait le panneau
+
+_roots = ka.op_project_roots("cli", "prj")
+check("op_project_roots rend un projet", len(_roots["projects"]) == 1)
+_pr = _roots["projects"][0]
+check("op_project_roots : la racine du workspace", _pr["root"] == str(_ws) and _pr["exists"] is True)
+check("op_project_roots : la doc du projet (project + docs)",
+      {d["name"] for d in _pr["docs"]} == {"project", "docs"})
+check("op_project_roots : le nombre de .md est rendu",
+      all(d["docs"] == 1 for d in _pr["docs"]))
+check("op_project_roots refuse un couple invalide",
+      raises(400, lambda: ka.op_project_roots("../etc", "prj")))
+check("op_project_roots : projet sans racine ni doc → 404",
+      raises(404, lambda: ka.op_project_roots("cli", "inconnu")))
+# la racine est lisible sans session, même sans worktree déclaré
+check("racine du projet lisible sans session (RM2673)",
+      ka._resolve_worktree("", str(_ws), "cli", "prj") == _ws)
+check("op_fs_ls sur la racine du projet, sans sid",
+      any(e["name"] == "fichier.md" for e in ka.op_fs_ls("", str(_ws), "", "cli", "prj")["entries"]))
+check("doc du projet lisible sans session",
+      any(e["name"] == "a.md" for e in ka.op_fs_ls("", str(_pdir / "docs"), "", "cli", "prj")["entries"]))
+check("hors périmètre toujours refusé sans sid",
+      raises(403, lambda: ka.op_fs_ls("", "/etc", "", "cli", "prj")))
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

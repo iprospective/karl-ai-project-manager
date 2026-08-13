@@ -1532,4 +1532,87 @@ const rv = triageRowHtml({ rm_id: 9, title: "v", status: "a_mep", priority: "nor
 assert(/⏳/.test(rv) && !/🔓/.test(rv), "en validation → ⏳ ; pas de badge débloque sans unblocks");
 console.log("✓ triage (RM1952) : filtres, score, débloquants/bloqués, échappement");
 
+// — RM2673 : écriture dans un jeu, tickets du worklog, fichiers sans session —
+const setWritable = grabO("setWritable");
+const SETS = [
+  { name: "default", label: "default" },
+  { name: "pm", label: "PM", derived: true, rule: { client: "iprospective", project: "pm-ai-agents" } },
+];
+assert.strictEqual(setWritable(SETS, "default", "set"), true, "jeu manuel → écriture possible");
+assert.strictEqual(setWritable(SETS, "pm", "set"), false, "jeu dérivé → aucune écriture");
+assert.strictEqual(setWritable(SETS, "pm", "live"), false,
+  "le jeu dérivé reste la cible en vue « sessions ouvertes » — le bouton ne doit pas revenir");
+assert.strictEqual(setWritable(SETS, "pm", "all"), false, "…ni en vue « tous les jeux »");
+assert.strictEqual(setWritable(SETS, "default", "client:acme"), false,
+  "une vue par client ne désigne aucun jeu (RM2536)");
+assert.strictEqual(setWritable(SETS, "inconnu", "set"), true,
+  "jeu pas encore chargé : on n'interdit pas à l'aveugle");
+assert.strictEqual(setWritable(null, "pm", null), true, "cache vide toléré");
+// les trois gestes partagent la même question
+const mRss2673 = /async function refreshSessionSets\(\)[\s\S]*?\n\}/.exec(html);
+assert(/setWritable\(setsCache, currentSet, currentView\)/.test(mRss2673[0]),
+  "le bouton d'enregistrement s'appuie sur setWritable");
+const mGhost2673 = /const inSet = ([^;]+);/.exec(html);
+assert(/setWritable\(/.test(mGhost2673[1]), "⊖ et ⟳ des tuiles grises aussi");
+const mSetList2673 = /async function loadSessionSet\(\)[\s\S]*?\n\}/.exec(html);
+assert(/r\.derived \? "" :/.test(mSetList2673[0]),
+  "la liste des entrées n'offre ni ⊖ ni ⟳ sur un jeu dérivé");
+console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu dérivé, quelle que soit la vue");
+
+const ticketsOfSession = grabO("ticketsOfSession");
+const REG = { branches: ["2673-ergonomie-pm", "sans-ticket"], worktrees: ["/w/appli/envs/appli-rm2605"] };
+const WL = { todo: [{ ref: "RM2661" }], waiting: [{ ref: "RM2663" }], done: [{ ref: "RM2673" }],
+             unknown: [{ ref: "chantier-libre" }] };
+assert.deepStrictEqual([...ticketsOfSession("2673", REG, null)], ["2673", "2605"],
+  "ancrage puis registre (branche déjà connue, non dupliquée)");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, WL)], ["2661", "2663", "2673"],
+  "session slug : ses tickets viennent du worklog, reste-à-faire d'abord");
+assert.deepStrictEqual([...ticketsOfSession("2673", REG, WL)], ["2673", "2605", "2661", "2663"],
+  "toutes sources fusionnées, sans doublon, dans l'ordre de proximité");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, null)], [],
+  "rien de connu → aucune invention");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, { todo: [{ ref: "libre" }] })], [],
+  "un chantier hors ticket n'est pas un RM-id");
+const mRt2673 = /function renderTickets\(\)[\s\S]*?\n\}/.exec(html);
+assert(/loadWorklog\(\)/.test(mRt2673[0]),
+  "l'onglet tickets charge le worklog lui-même (il ne dépend pas de l'onglet état)");
+assert(/aucun ticket dans son worklog/.test(mRt2673[0]),
+  "le message vide ne parle du worklog qu'une fois celui-ci lu");
+console.log("✓ tickets (RM2673) : le worklog de session compte comme source, sans doublon");
+
+const filesContext = grabO("filesContext");
+const filesCtxKey = grabO("filesCtxKey");
+assert.deepStrictEqual(Object.assign({}, filesContext({ attached: "2673", currentReview: "10" })),
+  { kind: "session", sid: "2673" }, "session attachée : elle prime sur tout");
+const fcTicket = filesContext({ currentReview: "2605",
+  resolveCache: { 2605: { found: true, client: "acme", project: "shop" } } });
+assert.strictEqual(fcTicket.kind + " " + fcTicket.client + "/" + fcTicket.project, "project acme/shop",
+  "fiche de ticket ouverte → son projet");
+assert(/RM2605/.test(fcTicket.from), "…et le panneau peut dire d'où ça vient");
+assert.strictEqual(filesContext({ currentProjectView: "beta/api" }).project, "api",
+  "fiche projet ouverte → ce projet");
+assert.strictEqual(filesContext({ currentSet: "pm", sets: SETS }).project, "pm-ai-agents",
+  "à défaut, la règle du jeu courant désigne un projet");
+assert.strictEqual(filesContext({ currentSet: "default", sets: SETS }).kind, "none",
+  "un jeu manuel ne désigne aucun projet : on ne devine pas");
+assert.strictEqual(filesContext({ currentReview: "9", resolveCache: { 9: { found: false } } }).kind, "none",
+  "ticket non résolu → pas de projet inventé");
+assert.strictEqual(filesContext(null).kind, "none", "contexte absent toléré");
+assert.strictEqual(filesCtxKey({ kind: "session", sid: "7" }), "s:7", "clé de session");
+assert.strictEqual(filesCtxKey({ kind: "project", client: "a", project: "b" }), "p:a/b", "clé de projet");
+assert.strictEqual(filesCtxKey({ kind: "none" }), "none", "clé du vide");
+const mLf3 = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
+assert(/project-roots\//.test(mLf3[0]),
+  "sans session, le panneau lit la racine + la doc du projet (endpoint léger)");
+assert(!/attache une session pour parcourir/.test(html),
+  "plus de cul-de-sac « attache une session » quand un projet est identifié");
+// la doc d'un projet sans workspace résolu ne disparaît pas avec la racine
+const gsDoc = filesGroups([{ client: "a", project: "b", docs: [{ path: "/pm/b/docs", name: "docs" }] }], []);
+assert.strictEqual(gsDoc.length, 1, "projet sans racine mais avec doc → groupe conservé");
+assert.strictEqual(gsDoc[0].roots[0].kind, "doc", "…et c'est bien sa doc qu'on lit");
+assert.strictEqual(filesGroups([{ client: "a", project: "b", docs: [] }],
+  [{ path: "/ailleurs/x", name: "x", exists: true }])[0].label, "hors projet",
+  "une racine vide n'aspire pas les worktrees des autres");
+console.log("✓ fichiers (RM2673) : repli sur le projet courant, provenance affichée");
+
 console.log("OK — tous les tests cockpit passent");

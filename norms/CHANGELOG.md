@@ -1,5 +1,26 @@
 # Changelog des normes
 
+## [1.69.0] - 2026-08-13
+
+### Ajouté
+- **KERNEL — tripwire #15 « Restitution : la plomberie PM est muette »** : la mécanique
+  git des dépôts de **données PM** (`*-core` : auto-commits `pm(...)`, push, branche, MR,
+  hash, « ✓ commité ») ne figure **jamais** dans la restitution à l'utilisateur — process
+  automatique, l'annoncer gaspille des tokens et noie le fond. Exception : l'**échec** d'un
+  auto-push, signalé en une ligne. La règle **existait déjà** dans
+  `agents/worker-common.md` (RM2440) mais **pas dans les tripwires** : elle ne survivait
+  donc pas au compactage de contexte et se faisait violer de façon répétée. C'est le cas
+  d'école du principe §4 de MAINTAINING (« une règle qui vit dans un module jamais ouvert
+  est silencieusement violée ») — avec une nuance qui justifie le format tripwire complet
+  plutôt qu'une ligne-déclencheur : la règle s'applique au moment où l'agent **rédige sa
+  réponse**, moment où il n'ouvre plus aucun fichier. Aucun déclencheur ne peut l'attraper.
+- **KERNEL — tripwire #3** : la note d'exception RM2440 (push direct autorisé sur les
+  `*-core`) renvoie désormais vers le tripwire #15. Elle présentait le push sur ces dépôts
+  sous le seul angle « c'est autorisé », ce qui pouvait se lire comme « c'est un sujet dont
+  on parle ».
+  (RM2676 — déclenché par une violation signalée par Mathieu le 2026-08-13, au moins la
+  deuxième.)
+
 ## [1.68.0] - 2026-08-11
 
 ### Ajouté

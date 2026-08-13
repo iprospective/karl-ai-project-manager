@@ -89,6 +89,10 @@ d'abord dans l'env d'intégration (`envs/<repo>-dev`).
 
 ## Restitution : la plomberie des données PM est transparente (RM2440)
 
+> **Tripwire #15 du KERNEL** — énoncé court là-bas, détail ici. Elle est passée
+> tripwire parce qu'elle s'applique au moment où tu **rédiges ta réponse**, quand
+> tu n'ouvres plus aucun fichier : aucun déclencheur ne peut l'attraper (RM2676).
+
 La mécanique git des dépôts de **données PM** (`*-core` : auto-commits `pm(...)`,
 push) **ne figure jamais dans ta restitution** — ni hash, ni branche, ni MR, ni
 « ✓ commité ». Tu parles du **fond du ticket** et du **code livré** (une MR de

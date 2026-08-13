@@ -413,6 +413,28 @@
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
   .kv .k { color: var(--muted); } .kv .v { text-align: right; word-break: break-word; }
   .pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg); }
+  /* RM1952 : triage ROI des tickets ouverts */
+  .triagefilters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 6px; }
+  .triagefilters select { width: auto; max-width: 150px; }
+  .triagefilters .tr-vf { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+  .triagelegend { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .tr-count { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .tr-more { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; }
+  .tr-err { color: #f85149; font-size: 12.5px; }
+  .tr-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .tr-row:hover { background: rgba(127,127,127,.10); }
+  .tr-rank { color: var(--muted); font-size: 11px; min-width: 1.4em; text-align: right; }
+  .tr-score { font-weight: 700; color: var(--accent, #4c8eda); min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+  .tr-rm { color: var(--muted); font-size: 11.5px; }
+  .tr-title { flex: 1; min-width: 40%; font-weight: 600; word-break: break-word; }
+  .tr-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .tr-prio { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  .tr-prio-high, .tr-prio-urgent { color: var(--warn); border-color: var(--warn); }
+  .tr-prio-low { color: var(--muted); }
+  .tr-time { font-size: 11px; color: var(--muted); }
+  .tr-badge { font-size: 10.5px; padding: 0 4px; border-radius: 4px; }
+  .tr-unblock { color: var(--ok); }
+  .tr-blocked { color: #f85149; }
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
@@ -670,6 +692,18 @@ if (window.matchMedia) {
     </div>
 
     <div class="lpanel" id="lp-tickets">
+    <!-- RM1952 : triage ROI — quel ticket travailler maintenant (score, débloquants) -->
+    <details class="card" id="triagecard" ontoggle="if(this.open) loadTriage()">
+      <summary>🎯 Triage ROI <span style="color:var(--muted);font-weight:normal">— prochaines actions à plus fort levier</span></summary>
+      <div class="triagefilters">
+        <select id="tr-client" onchange="renderTriage()" title="Filtrer par client"><option value="">tous les clients</option></select>
+        <select id="tr-project" onchange="renderTriage()" title="Filtrer par projet"><option value="">tous les projets</option></select>
+        <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid" onchange="renderTriage()"> masquer la validation</label>
+        <button class="mini" onclick="loadTriage(true)" title="Recalculer le classement">↻</button>
+      </div>
+      <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
+      <div id="triage-list"><div style="color:var(--muted)">déplie pour calculer le classement…</div></div>
+    </details>
     <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours » -->
     <div class="card">
       <h2>Tickets ouverts <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
@@ -4669,6 +4703,85 @@ function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sess
 // usage…) : il rafraîchit les deux panneaux.
 let metaFacet = "detail";  // facette active de l'onglet tickets (detail|conso|workspace)
 
+// ----- RM1952 : triage ROI des tickets ouverts -----
+let triageData = null;
+async function loadTriage(force) {
+  const box = document.getElementById("triage-list");
+  if (!box) return;
+  if (triageData && !force) { renderTriage(); return; }
+  box.innerHTML = '<div style="color:var(--muted)">calcul du classement ROI…</div>';
+  try {
+    triageData = await api("/triage");
+    fillTriageFilters();
+    renderTriage();
+  } catch (e) {
+    box.innerHTML = '<div class="tr-err">échec du classement : ' + esc(e.message) + '</div>';
+  }
+}
+function fillTriageFilters() {
+  const tickets = (triageData && triageData.tickets) || [];
+  const cs = document.getElementById("tr-client");
+  if (!cs) return;
+  const clients = [...new Set(tickets.map(t => t.client).filter(Boolean))].sort();
+  // défaut : le contexte client courant (RM2639) s'il est posé
+  const prevC = cs.value || (typeof clientContext !== "undefined" ? clientContext : "") || "";
+  cs.innerHTML = '<option value="">tous les clients</option>' +
+    clients.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join("");
+  if (clients.includes(prevC)) cs.value = prevC;
+  fillTriageProjects();
+}
+function fillTriageProjects() {
+  const tickets = (triageData && triageData.tickets) || [];
+  const cs = document.getElementById("tr-client"), ps = document.getElementById("tr-project");
+  if (!cs || !ps) return;
+  const cur = cs.value, prev = ps.value;
+  const projs = [...new Set(tickets.filter(t => !cur || t.client === cur).map(t => t.project).filter(Boolean))].sort();
+  ps.innerHTML = '<option value="">tous les projets</option>' +
+    projs.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
+  if (projs.includes(prev)) ps.value = prev;
+}
+function renderTriage() {
+  const box = document.getElementById("triage-list");
+  if (!box || !triageData) return;
+  fillTriageProjects();
+  const c = document.getElementById("tr-client").value;
+  const p = document.getElementById("tr-project").value;
+  const hideValid = document.getElementById("tr-hidevalid").checked;
+  const rows = triageFilter(triageData.tickets, c, p, hideValid);
+  if (!rows.length) { box.innerHTML = '<div style="color:var(--muted)">aucun ticket ouvert avec ces filtres</div>'; return; }
+  box.innerHTML = '<div class="tr-count">' + rows.length + ' ticket(s) · triés par levier ROI</div>' +
+    rows.slice(0, 60).map((e, i) => triageRowHtml(e, i + 1)).join("") +
+    (rows.length > 60 ? '<div class="tr-more">… ' + (rows.length - 60) + ' de plus (affine les filtres)</div>' : "");
+}
+// >>> triageFilter — pur (testé par test_cockpit.js)
+function triageFilter(tickets, client, project, hideValid) {
+  return (tickets || []).filter(function (t) {
+    if (client && t.client !== client) return false;
+    if (project && t.project !== project) return false;
+    if (hideValid && t.awaiting_validation) return false;
+    return true;
+  });
+}
+// <<< triageFilter
+// >>> triageRowHtml — pur (testé par test_cockpit.js) : une ligne de triage.
+function triageRowHtml(e, rank) {
+  if (!e) return "";
+  const badges = [];
+  if (e.unblocks) badges.push('<span class="tr-badge tr-unblock" title="débloque ' + e.unblocks + ' ticket(s) ouvert(s)">🔓 ' + e.unblocks + '</span>');
+  if (e.awaiting_validation) badges.push('<span class="tr-badge tr-valid" title="en attente de validation">⏳</span>');
+  if (e.blocked) badges.push('<span class="tr-badge tr-blocked" title="bloqué par : ' + esc((e.blocked_by || []).join(", ")) + '">⛔</span>');
+  const t = e.time_minutes ? Math.round(e.time_minutes) + ' min' : '';
+  return '<div class="tr-row" onclick="showTicket(' + Number(e.rm_id) + ')" title="Ouvrir la fiche du ticket">' +
+    '<span class="tr-rank">' + rank + '</span>' +
+    '<span class="tr-score" title="score ROI = gain € × priorité / coût">' + esc(String(e.score)) + '</span>' +
+    '<span class="tr-rm">RM' + esc(String(e.rm_id)) + '</span>' +
+    '<span class="tr-title">' + esc(e.title || '') + '</span>' +
+    '<span class="tr-meta"><span class="pill">' + esc(e.status || '') + '</span>' +
+    ' <span class="tr-prio tr-prio-' + esc(e.priority) + '">' + esc(e.priority) + '</span>' +
+    (t ? ' <span class="tr-time">' + esc(t) + '</span>' : '') +
+    (badges.length ? ' ' + badges.join(' ') : '') + '</span></div>';
+}
+// <<< triageRowHtml
 function renderMeta() { renderInfos(); renderTickets(); }
 
 // ── Onglet « infos » : niveau session uniquement ──

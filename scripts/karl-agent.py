@@ -83,6 +83,7 @@ API (JSON, localhost:9876)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
   GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
   GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
@@ -4444,6 +4445,93 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     return out[:limit]
 
 
+# ── RM1952 : triage ROI des tickets ouverts — prochaine action à plus fort levier ─
+# Croise priorité, estimation (temps/tokens), gain attendu (ROI) et dépendances
+# pour répondre « quel ticket travailler maintenant ? ». Le score ROI (€) réutilise
+# priority.py (RM1717) — source unique de vérité, aucun calcul divergent ici.
+_TRIAGE_OPEN = {"nouveau", "a_faire", "en_cours",
+                "a_tester_dev", "a_tester_demandeur", "a_mep"}
+_TRIAGE_VALID = {"a_tester_dev", "a_tester_demandeur", "a_mep"}
+
+
+# >>> triage_flags — pure (testée par test_karl_agent_triage.py)
+def triage_flags(depends_on, status_by_id, unblocks_count, status):
+    """Signaux de levier d'un ticket ouvert. Un dépendant non `ferme` (ou inconnu)
+    le bloque ; unblocks_count = nombre de tickets ouverts qui l'attendent."""
+    blocked_by = [dep for dep in (depends_on or []) if status_by_id.get(dep) != "ferme"]
+    return {
+        "blocked": bool(blocked_by),
+        "blocked_by": blocked_by,
+        "awaiting_validation": status in _TRIAGE_VALID,
+        "unblocks": int(unblocks_count or 0),
+    }
+# <<< triage_flags
+
+
+def op_triage(qs: dict) -> dict:
+    """RM1952 : classement ROI décroissant des tickets ouverts (filtres client/projet).
+    Une passe légère (`_read_task_meta`) donne le statut de TOUS les tickets ; le
+    frontmatter complet (roi/estimate/deps) n'est lu que pour les ouverts."""
+    import priority as _prio
+    rate = _prio.hourly_rate_eur()
+    fq_client = (qs.get("client") or "").strip() or None
+    fq_project = (qs.get("project") or "").strip() or None
+
+    status_by_id, open_files = {}, []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        rid = int(m.group(1))
+        status_by_id[rid] = _read_task_meta(tf)["status"]
+        if status_by_id[rid] in _TRIAGE_OPEN:
+            open_files.append((tf, rid))
+
+    parsed, unblocks = [], {}
+    for tf, rid in open_files:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if not isinstance(fm, dict):
+            continue
+        for dep in fm.get("depends_on") or []:
+            unblocks[dep] = unblocks.get(dep, 0) + 1
+        parsed.append((tf, rid, fm))
+
+    tickets = []
+    for tf, rid, fm in parsed:
+        cl, pr = _task_client_project(tf)
+        if fq_client and cl != fq_client:
+            continue
+        if fq_project and pr != fq_project:
+            continue
+        status = str(fm.get("status") or "")
+        est = fm.get("estimate") if isinstance(fm.get("estimate"), dict) else {}
+        roi = fm.get("roi") if isinstance(fm.get("roi"), dict) else {}
+        flags = triage_flags(fm.get("depends_on"), status_by_id, unblocks.get(rid, 0), status)
+        tickets.append({
+            "rm_id": rid,
+            "title": fm.get("title") or "",
+            "status": status,
+            "priority": fm.get("priority") or "normal",
+            "type": fm.get("type") or "",
+            "client": cl, "project": pr,
+            "score": round(_prio.task_score(fm, rate), 1),
+            "time_minutes": est.get("time_minutes"),
+            "tokens": est.get("tokens"),
+            "immediate_benefit": roi.get("immediate_benefit"),
+            "monthly_benefit": roi.get("monthly_benefit"),
+            "completion_pct": fm.get("completion_pct") or 0,
+            **flags,
+        })
+    # score ROI décroissant ; à score égal, ce qui débloque le plus remonte
+    tickets.sort(key=lambda e: (e["score"], e["unblocks"]), reverse=True)
+    return {"rate_eur": rate, "count": len(tickets), "tickets": tickets}
+
+
 # ── Statut du workspace de la tâche (intérim ; outil dédié = RM1883) ─────────
 def _git(cwd, *args, timeout=8):
     try:
@@ -7035,6 +7123,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
+            if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_triage(qs))
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))

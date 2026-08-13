@@ -1505,4 +1505,31 @@ assert(/filesGroups\(/.test(mLf[0]),
   "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
 console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
 
+// — RM1952 : triage ROI des tickets ouverts —
+const triageFilter = grabO("triageFilter");
+const triageRowHtml = grabO("triageRowHtml", { esc: escO });
+const TT = [
+  { rm_id: 1, client: "iprospective", project: "atlas", awaiting_validation: false },
+  { rm_id: 2, client: "iprospective", project: "infra", awaiting_validation: true },
+  { rm_id: 3, client: "calicote", project: "prestashop", awaiting_validation: false },
+];
+assert.strictEqual(triageFilter(TT, "", "", false).length, 3, "sans filtre → tout");
+assert.strictEqual(triageFilter(TT, "iprospective", "", false).length, 2, "filtre client");
+assert.strictEqual(triageFilter(TT, "iprospective", "infra", false).length, 1, "filtre client+projet");
+assert.strictEqual(triageFilter(TT, "", "", true).length, 2, "masquer la validation retire les a_tester_*");
+assert.strictEqual([...triageFilter(null, "", "", false)].length, 0, "liste absente tolérée");
+// rendu d'une ligne : score, RM cliquable (numérique), badges, échappement
+assert.strictEqual(triageRowHtml(null, 1), "", "entrée absente → vide");
+const row = triageRowHtml({ rm_id: 42, title: "Fix <b>x</b>", status: "nouveau", priority: "high",
+  score: 200, time_minutes: 90, unblocks: 3, blocked: true, blocked_by: [7, 8], awaiting_validation: false }, 1);
+assert(/onclick="showTicket\(42\)"/.test(row), "clic → showTicket avec id numérique (pas d'injection)");
+assert(/tr-score[^>]*>200</.test(row) && />RM42</.test(row), "score et RM affichés");
+assert(/🔓 3/.test(row) && /tr-blocked/.test(row), "badges débloque + bloqué");
+assert(/bloqué par : 7, 8/.test(row), "l'infobulle liste les bloqueurs");
+assert(/Fix &lt;b&gt;x&lt;\/b&gt;/.test(row) && !/<b>/.test(row), "titre échappé (anti-XSS)");
+assert(/90 min/.test(row), "estimation de temps affichée");
+const rv = triageRowHtml({ rm_id: 9, title: "v", status: "a_mep", priority: "normal", score: 5, awaiting_validation: true }, 2);
+assert(/⏳/.test(rv) && !/🔓/.test(rv), "en validation → ⏳ ; pas de badge débloque sans unblocks");
+console.log("✓ triage (RM1952) : filtres, score, débloquants/bloqués, échappement");
+
 console.log("OK — tous les tests cockpit passent");

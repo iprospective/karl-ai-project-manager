@@ -6136,6 +6136,61 @@ def _envchk_secrets():
     return out
 
 
+# >>> gitlab_push_check_line — pure (testée) : ligne de statut du watchdog RM2376.
+def gitlab_push_check_line(state, age_seconds):
+    """(level, detail, fix) à partir de l'état du watchdog push GitLab. Pur."""
+    if not state:
+        return ("warn", "jamais vérifié (watchdog non exécuté)",
+                "scripts/pm-gitlab-push-check.py")
+    age = ""
+    if age_seconds is not None:
+        mins = int(age_seconds // 60)
+        age = " · il y a " + (str(mins) + " min" if mins else "moins d'1 min")
+    stale = age_seconds is not None and age_seconds > 3600
+    if state.get("ok"):
+        lvl = "warn" if stale else "ok"
+        det = (state.get("detail") or "auth OK") + age + (" (périmé)" if stale else "")
+        return (lvl, det, "scripts/pm-gitlab-push-check.py" if stale else "")
+    return ("error", (state.get("detail") or "auth KO") + age,
+            state.get("remediation") or "voir RM2158 (clé dédiée)")
+# <<< gitlab_push_check_line
+
+
+def _gitlab_push_state(max_age=900):
+    """État du watchdog push GitLab (RM2376). Lit le JSON écrit par
+    pm-gitlab-push-check ; le rafraîchit EN DIRECT s'il manque ou est périmé — le
+    cockpit tourne dans le conteneur dev, là où l'auth de la clé dédiée est valide."""
+    sp = Path(os.environ.get("KARL_GITLAB_CHECK_STATE") or (STATE_DIR / "gitlab-push.json"))
+
+    def _read():
+        try:
+            return json.loads(sp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def _age(st):
+        if not st or not st.get("checked_at"):
+            return None
+        try:
+            return time.time() - time.mktime(time.strptime(st["checked_at"], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, TypeError):
+            return None
+
+    st = _read()
+    age = _age(st)
+    if st is None or age is None or age > max_age:
+        script = REPO_ROOT / "scripts" / "pm-gitlab-push-check.py"
+        if script.exists():
+            try:
+                subprocess.run([sys.executable, str(script)], capture_output=True,
+                               text=True, timeout=15)
+                st = _read() or st
+                age = _age(st)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return st, age
+
+
 def _envchk_git():
     import concurrent.futures
     pairs = []
@@ -6160,6 +6215,10 @@ def _envchk_git():
     else:
         out.append(_chk("clé GitLab dédiée", "warn", "~/.ssh/id_ed25519_gitlab absente",
                         "repli HTTPS+token possible ; installer la clé pour SSH-first"))
+    # RM2376 : « karl peut-il pousser ? » — auth SSH GitLab vérifiée en direct
+    st, age = _gitlab_push_state()
+    lvl, det, fix = gitlab_push_check_line(st, age)
+    out.append(_chk("push GitLab (karl)", lvl, det, fix))
     return out
 
 

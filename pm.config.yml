@@ -190,3 +190,17 @@ providers:
 ui:
   # dark | light | auto (auto = prefers-color-scheme du navigateur)
   theme: auto
+
+# ── Sessions d'agents (cockpit karl) ──────────────────────────────────────
+# Plafond mémoire des scopes systemd `tmux-spawn-*.scope` (RM2690). Sans lui,
+# une session qui fuit sature la machine et c'est le kernel qui choisit la
+# victime — pas forcément le fautif (incident OOM du 2026-08-13, 15,7 Go).
+# Rubrique « Sessions » du panneau 🔧 réglages du cockpit (whitelist RM2213) ;
+# surcharge par instance dans pm.config.local.yml (posée depuis le cockpit).
+# Ne s'applique qu'aux sessions créées ENSUITE (les scopes vivantes gardent
+# leur réglage). `KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` dans le .env
+# FIGENT ces valeurs (le cockpit refuse alors l'écriture).
+sessions:
+  # GiB (systemd compte en puissances de 1024) ; 0 = pas de limite.
+  memory_high_gib: 6    # seuil de pression : throttling + reclaim, pas de kill
+  memory_max_gib: 8     # plafond dur : au-delà, OOM-kill de la SEULE scope

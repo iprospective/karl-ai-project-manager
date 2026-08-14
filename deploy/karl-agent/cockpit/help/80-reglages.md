@@ -17,6 +17,26 @@ Le panneau **🔧 réglages** regroupe les préférences du cockpit et de la con
 - L'accès au cockpit passe par une **authentification** (Basic ou jeton) : aucune
   route n'est publique dès qu'un identifiant est configuré.
 
+## Sessions — plafond mémoire
+
+Chaque session tmux vit dans sa propre **scope systemd**, qui naît sans limite :
+une session qui fuit peut faire ramer toute la workstation, et c'est alors le
+kernel qui choisit sa victime — pas forcément le processus fautif. Deux réglages
+plafonnent la scope pour qu'une session qui dérape **se fasse tuer seule** :
+
+- **Seuil de pression** (`MemoryHigh`, 6 GiB par défaut) : au-delà, la session
+  est freinée et sa mémoire recyclée — elle n'est pas tuée.
+- **Plafond dur** (`MemoryMax`, 8 GiB par défaut) : au-delà, seule cette session
+  est tuée (OOM de la scope), les autres et le poste ne bougent pas.
+
+En **GiB** ; `0` = pas de limite. La modification s'applique aux sessions créées
+**ensuite** — les sessions déjà lancées gardent leur plafond. 8 GiB est
+volontairement large : ~20× la consommation normale d'une session (160–440 Mo).
+
+Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
+(`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX`) : elle s'édite alors dans le
+`.env`, suivi d'un redémarrage de karl-agent.
+
 ## Conf PM (surcharge contrôlée)
 
 Certains réglages PM sont éditables depuis le cockpit et écrits dans une

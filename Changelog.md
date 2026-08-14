@@ -39,7 +39,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   **idempotente** (index des `Message-ID`), robots et listes écartés. Exposé au
   cockpit via le catalogue de commandes (catégorie *mail*), qui gagne au passage
   les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
-  négociable côté client.
+  négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
+  de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
+  `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
+  de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1
+  (« aucun .env trouvé ») — `conso-report` comme les nouvelles commandes mail.
 - **MR sans ticket** (RM2644) : `pm-mr create --no-ticket --title "…"` ouvre une MR
   pour un changement qui n'a pas de ticket — ajout d'un terme au glossaire du
   cockpit, coquille (cf. NORMS `governance` § « Changements sans ticket », v1.68.0).

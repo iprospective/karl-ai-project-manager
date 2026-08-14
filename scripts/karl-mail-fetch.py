@@ -30,7 +30,7 @@ Usage :
 Configuration (`.env` du repo PM ou variables d'environnement) :
     KARL_MAIL_SECRET_URI        item Vaultwarden (défaut : compte karl, cf. karl-mail-send)
     KARL_MAIL_IMAP_HOST / _PORT hôte/port IMAP (défaut mail.iprospective.net:993)
-    KARL_MAIL_TRUSTED_FOLDERS   csv des dossiers de confiance (défaut : aucun — cf. RM2667)
+    KARL_MAIL_TRUSTED_FOLDERS   csv des dossiers de confiance (défaut : INBOX.Clients, Clients)
     KARL_MAIL_EXCLUDE_FOLDERS   csv des dossiers jamais relevés (Sent, Junk, virtual.*, …)
     KARL_MAIL_MACHINE_SENDERS   csv de motifs additionnels d'expéditeurs machine
     KARL_AGENT_STATE_DIR        racine d'état (défaut : ~/.local/state/karl-agent)
@@ -61,12 +61,20 @@ IMAP_HOST_DEFAULT = "mail.iprospective.net"
 IMAP_PORT_DEFAULT = 993
 VAULT_URI_DEFAULT = "vaultwarden://iprospective/iprospective-agents/karl@mail.iprospective.net"
 
-# Dossiers jamais relevés : ce qu'on a écrit soi-même, les corbeilles, et les
+# Dossiers de confiance : le classement est fait côté serveur (Sieve/Dovecot), le
+# dossier vaut donc pré-qualification « c'est un client ». Constaté sur la boîte de
+# karl : `INBOX.Clients`. Surchargeable par KARL_MAIL_TRUSTED_FOLDERS ; les absents
+# sont simplement ignorés (une instance fédérée n'a pas la même boîte).
+TRUSTED_FOLDERS_DEFAULT = ["INBOX.Clients", "Clients"]
+
+# Dossiers jamais relevés : ce qu'on a écrit soi-même, les corbeilles, les boîtes de
+# rangement machine (GitLab, Vaultwarden — pas des clients, cf. RM2666), et les
 # dossiers `virtual.*` (vues agrégées du plugin Dovecot « virtual » — leurs messages
 # sont déjà dans un vrai dossier ; les relever ferait un doublon).
 EXCLUDE_FOLDERS_DEFAULT = [
     "Sent", "INBOX.Sent", "Drafts", "INBOX.Drafts", "Junk", "INBOX.Junk",
     "Trash", "INBOX.Trash", "Archives", "INBOX.Archives", "Spam", "virtual*",
+    "*Gitlab", "*GitLab", "*Vault", "*Vaultwarden", "*Notifications",
 ]
 
 # Expéditeurs « machine » : notifications, robots, listes. Écartés de la file — ils ne
@@ -304,7 +312,12 @@ def list_folders(m) -> list:
         if not m2:
             continue
         name = m2.group("name").strip().strip('"')
-        names.append({"name": name, "flags": m2.group("flags").split()})
+        flags = m2.group("flags").split()
+        if any(n["name"] == name for n in names):
+            continue          # Dovecot peut lister deux fois un dossier virtuel
+        names.append({"name": name, "flags": flags,
+                      # \Noselect = nœud d'arborescence, pas une boîte (ex. « virtual »)
+                      "selectable": "\\Noselect" not in flags})
     return names
 
 
@@ -464,7 +477,7 @@ def main():
     host = os.environ.get("KARL_MAIL_IMAP_HOST", IMAP_HOST_DEFAULT)
     port = int(os.environ.get("KARL_MAIL_IMAP_PORT", IMAP_PORT_DEFAULT))
     uri = os.environ.get("KARL_MAIL_SECRET_URI", VAULT_URI_DEFAULT)
-    trusted = csv_env("KARL_MAIL_TRUSTED_FOLDERS", [])
+    trusted = csv_env("KARL_MAIL_TRUSTED_FOLDERS", TRUSTED_FOLDERS_DEFAULT)
     excludes = csv_env("KARL_MAIL_EXCLUDE_FOLDERS", EXCLUDE_FOLDERS_DEFAULT)
     extra_machine = csv_env("KARL_MAIL_MACHINE_SENDERS", [])
 
@@ -475,16 +488,23 @@ def main():
                  remede=f"vérifie l'item {uri}")
     m = imap_connect(host, port, user, password)
     try:
-        available = [f["name"] for f in list_folders(m)]
+        folder_info = list_folders(m)
+        available = [f["name"] for f in folder_info if f["selectable"]]
         if args.list_folders:
-            for name in available:
-                mark = "·"
-                if name in trusted:
-                    mark = "★"                       # dossier de confiance (RM2667)
+            for f in folder_info:
+                name = f["name"]
+                if not f["selectable"]:
+                    mark, why = "⊘", "non sélectionnable"
+                elif name in trusted:
+                    mark, why = "★", "confiance (classé par le serveur)"
                 elif excluded(name, excludes):
-                    mark = "✗"                       # jamais relevé
-                print(f"  {mark} {name}")
-            out.op("dossiers", extra=f"{len(available)} sur {host} ({user})")
+                    mark, why = "✗", "jamais relevé"
+                elif name.upper() == "INBOX":
+                    mark, why = "▸", "file secondaire (non classé)"
+                else:
+                    mark, why = "·", "présent, non relevé par défaut"
+                print(f"  {mark} {name:24} {why}")
+            out.op("dossiers", extra=f"{len(folder_info)} sur {host} ({user})")
             return
 
         if args.folder:

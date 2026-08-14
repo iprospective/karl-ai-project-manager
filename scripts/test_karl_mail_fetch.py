@@ -104,6 +104,12 @@ check("virtual.* exclu", kmf.excluded("virtual.Flagged", kmf.EXCLUDE_FOLDERS_DEF
 check("Sent exclu", kmf.excluded("Sent", kmf.EXCLUDE_FOLDERS_DEFAULT))
 check("INBOX non exclue", not kmf.excluded("INBOX", kmf.EXCLUDE_FOLDERS_DEFAULT))
 check("dossier client non exclu", not kmf.excluded("clients", kmf.EXCLUDE_FOLDERS_DEFAULT))
+# boîtes de rangement machine de la boîte réelle (RM2666 : « gitlab, vaultwarden… »)
+check("INBOX.Gitlab exclu", kmf.excluded("INBOX.Gitlab", kmf.EXCLUDE_FOLDERS_DEFAULT))
+check("INBOX.Vault exclu", kmf.excluded("INBOX.Vault", kmf.EXCLUDE_FOLDERS_DEFAULT))
+check("INBOX.Clients est de confiance par défaut",
+      "INBOX.Clients" in kmf.TRUSTED_FOLDERS_DEFAULT
+      and not kmf.excluded("INBOX.Clients", kmf.EXCLUDE_FOLDERS_DEFAULT))
 
 
 class FakeIMAP:
@@ -114,7 +120,12 @@ class FakeIMAP:
         self.calls, self.selected = [], None
 
     def list(self):
-        return "OK", [f'(\\HasNoChildren) "." "{f}"'.encode() for f in self.folders]
+        # Reproduit la sortie réelle de Dovecot : flags variés, nom NON quoté, un
+        # nœud \Noselect, et un doublon (constaté sur virtual.Flagged, RM2668).
+        out = [f'(\\HasNoChildren \\UnMarked) "." {f}'.encode() for f in self.folders]
+        out.append(b'(\\Noselect \\HasChildren) "." virtual')
+        out.append(out[0])
+        return "OK", out
 
     def select(self, folder, readonly=False):
         self.selected = folder.strip('"')
@@ -142,6 +153,17 @@ msgs = [
     ("clients", mail(mid="<4@x>", frm="contact@pisceen.fr", subject="Devis")),
 ]
 fake = FakeIMAP(["INBOX", "clients", "Sent", "virtual.All"], msgs)
+
+# — LIST : dédoublonné, \Noselect signalé, noms non quotés lus —
+listed = kmf.list_folders(fake)
+names = [f["name"] for f in listed]
+check("LIST : noms lus sans guillemets", "INBOX" in names and "clients" in names)
+check("LIST : doublon serveur écarté", len(names) == len(set(names)))
+check("LIST : \\Noselect non sélectionnable",
+      next(f for f in listed if f["name"] == "virtual")["selectable"] is False)
+check("LIST : dossier normal sélectionnable",
+      next(f for f in listed if f["name"] == "INBOX")["selectable"] is True)
+
 args = argparse.Namespace(days=30, limit=0, body_chars=4000, unseen_only=False,
                           mark_seen=False)
 index = {}

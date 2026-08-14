@@ -46,6 +46,12 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   Avant de conclure à l'absence et de (re)créer : chercher au chemin **canonique** et
   **énumérer** le conteneur. Détails :
   [gitlab/depots-et-groupes.md](./gitlab/depots-et-groupes.md).
+- **Un worktree n'est pas l'état du projet** : auditer une structure (submodules,
+  arborescence, overrides) dans une copie de travail non rafraîchie fait diagnostiquer
+  comme « à faire » du travail déjà livré — un `git status` propre ne le signale pas,
+  le worktree étant cohérent avec *son* commit. Toujours `git fetch` +
+  `git rev-list --count HEAD..origin/<intégration>` avant de conclure, ou lire la
+  branche directement (`git show origin/dev:<path>`).
 
 ## Conventions
 

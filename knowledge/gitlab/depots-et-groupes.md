@@ -83,13 +83,39 @@ curl -s -H "PRIVATE-TOKEN: $GITLAB_WORKER_TOKEN" \
   | python3 -c "import sys,json;[print(p['path_with_namespace']) for p in json.load(sys.stdin)]"
 ```
 
-## Source connue de contamination
+## Source connue de contamination — et pourquoi un `.gitmodules` n'est pas une référence
 
-Le `.gitmodules` du dépôt **`calicote/prestashop`** déclare ses submodules avec l'ancien
-chemin `gitlab:iprospective/prestashop/…`. Comme il est versionné, il se réplique dans tous
-ses worktrees et sert de modèle trompeur — c'est le seul `.gitmodules` du parc dans ce cas.
-Normalisation suivie par **RM2651**.
+Un `.gitmodules` versionné se réplique dans **tous** les worktrees du dépôt et sert de
+modèle à quiconque en ajoute un. S'il porte un chemin obsolète, il le propage.
+
+C'est arrivé sur `calicote/prestashop`, qui a longtemps déclaré ses 4 submodules en
+`gitlab:iprospective/prestashop/…`. **Corrigé depuis** : RM2575 a submodule-ifié les
+modules `cins*` et son `.gitmodules` compte aujourd'hui 24 entrées, toutes en
+`gitlab:prestashop/…` et toutes avec la clé `branch =`.
+
+> **Le piège de second ordre, celui qui a réellement coûté** : on lit un `.gitmodules`
+> **dans un worktree local en retard**. Le fichier est juste sur `origin/dev` et faux dans
+> la copie qu'on a sous les yeux — 64 commits de retard dans le cas vécu (RM2648,
+> 2026-08-14), ce qui a fait diagnostiquer « URLs à normaliser, module à extraire » sur un
+> travail **déjà livré et mergé**. Un fichier versionné ne dit la vérité que si la copie
+> lue est à jour :
+>
+> ```bash
+> git fetch origin && git rev-list --count HEAD..origin/dev   # 0 attendu
+> git show origin/dev:.gitmodules                             # sinon, lire la branche
+> ```
 
 > **Règle** : avant de conclure qu'un dépôt de module n'existe pas et qu'il faut le créer,
 > le chercher à son chemin **canonique** (`prestashop/…`) **et** énumérer le groupe. Un
-> `.gitmodules` existant n'est pas une source fiable pour le chemin d'un groupe.
+> `.gitmodules` existant n'est pas une source fiable pour le chemin d'un groupe — et une
+> copie de travail non rafraîchie n'est pas une source fiable tout court.
+
+## Corollaire : l'inventaire d'un site se lit sur la branche, pas dans le worktree
+
+Ces dépôts sont consommés en **submodules**. Savoir « ce que ce site utilise » se lit donc
+dans `.gitmodules` — et c'est précisément un fichier qu'un worktree de ticket, créé il y a
+quinze jours, rend périmé sans le moindre signe extérieur. Un `git status` propre ne
+protège de rien : le worktree est cohérent avec **son** commit, pas avec l'intégration.
+
+Réflexe avant tout audit de structure (submodules, arborescence de modules, overrides) :
+`git fetch` puis comparer à `origin/dev`, ou lire directement `git show origin/dev:<path>`.

@@ -908,6 +908,13 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     name = _session_name(rm_id)
 
     _start_session_tmux(rm_id, cmd, cwd, width, height, env_extra)
+    # RM2691 : sans set-at-launch (tout sauf claude), il n'y a NI clé de session
+    # NI adhésion au jeu — une entrée de jeu sans engine/session_id/cwd serait
+    # hollow, donc non relançable, tout en consommant un slot de SESSION_SET_MAX.
+    # On le dit explicitement plutôt que de laisser `joined` non défini : le
+    # `return` le lit inconditionnellement (500 UnboundLocalError sur les spawns
+    # shell/opencode/vibe, alors que la session tmux était bien créée).
+    joined = {"group": None, "joined": False, "reason": "sans-session-id"}
     if session_id:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))

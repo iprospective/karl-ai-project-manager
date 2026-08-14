@@ -14,6 +14,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Correctif — lancer une session non-claude** (RM2691) : `POST /spawn` avec
+  `engine` = `shell`, `opencode` ou `vibe` répondait **500** (`UnboundLocalError`
+  sur `joined`, affecté seulement dans la branche claude) alors que la session
+  tmux était bien créée — l'appelant relançait et se prenait un 409 « session
+  déjà active ». La réponse dit maintenant explicitement que le jeu de sessions
+  n'a pas été rejoint (`reason: "sans-session-id"`) : sans set-at-launch, une
+  entrée de jeu serait hollow (ni engine, ni session_id, ni cwd), donc non
+  relançable, tout en consommant un slot du plafond.
 - **Aide intégrée** (RM2593) : menu **❓ aide** + boutons `?` contextuels par
   panneau, ouvrant des pages de doc utilisateur markdown versionnées
   (`deploy/karl-agent/cockpit/help/`) servies par karl-agent (`/help`,

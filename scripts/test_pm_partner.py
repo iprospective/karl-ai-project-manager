@@ -220,6 +220,123 @@ def test_legacy_project_has_no_obligation():
     assert pm_partner.declared_secondaries(meta, reg) == {}
 
 
+# ── pull (N1/RM2655) — lecture seule, journal uniquement ───────────────────
+
+class _FakeProvider:
+    """Provider distant en dur : aucun réseau, l'appel est enregistré."""
+    def __init__(self, issue):
+        self.issue, self.calls = issue, []
+
+    def fetch_issue(self, issue_id, include=None):
+        self.calls.append((issue_id, include))
+        return self.issue
+
+
+def _issue(journals=(), status="En cours", subject="Leur ticket"):
+    return {"id": 1234, "subject": subject, "status": {"id": 2, "name": status},
+            "journals": list(journals)}
+
+
+def _journal(jid, notes="", author="Alice", details=None):
+    return {"id": jid, "notes": notes, "user": {"name": author},
+            "created_on": "2026-08-14T09:30:00Z", "details": details or []}
+
+
+def test_extract_updates_filters_by_pointer():
+    issue = _issue([_journal(1, "vieille"), _journal(2, "nouvelle"), _journal(3, "encore")])
+    up = extract = pm_partner.extract_updates(issue, since_journal_id=1)
+    assert [j["id"] for j in up["notes"]] == [2, 3]
+    assert up["last_journal_id"] == 3
+
+
+def test_extract_updates_ignores_field_only_journals():
+    """Un journal sans commentaire (changement de champ) n'apprend rien : ignoré."""
+    issue = _issue([_journal(1, ""), _journal(2, "   "),
+                    _journal(3, "un vrai commentaire")])
+    up = pm_partner.extract_updates(issue)
+    assert [j["id"] for j in up["notes"]] == [3]
+    # …mais le pointeur avance quand même, sinon on les relirait indéfiniment
+    assert up["last_journal_id"] == 3
+
+
+def test_extract_updates_status_change_detection():
+    issue = _issue(status="Résolu")
+    assert pm_partner.extract_updates(issue, last_status="En cours")["status_changed"]
+    assert not pm_partner.extract_updates(issue, last_status="Résolu")["status_changed"]
+
+
+def test_extract_updates_on_empty_issue():
+    up = pm_partner.extract_updates({"status": {}}, since_journal_id=5)
+    assert up["notes"] == [] and up["last_journal_id"] == 5
+    assert up["status"] == "" and up["status_changed"] is False
+
+
+def test_pull_enabled_defaults_and_switches():
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    assert pm_partner.pull_enabled(res) == (True, True)          # sync absent → permissif
+    res2 = type(res)(res.instance, res.params, res.source, res.role, res.link,
+                     {"pull": {"notes": True, "status": False}})
+    assert pm_partner.pull_enabled(res2) == (True, False)
+    res3 = type(res)(res.instance, res.params, res.source, res.role, res.link,
+                     {"pull": False})
+    assert pm_partner.pull_enabled(res3) == (False, False)
+
+
+def test_pull_ref_respects_switches():
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    res_no_notes = type(res)(res.instance, res.params, res.source, res.role, res.link,
+                             {"pull": {"notes": False}})
+    prov = _FakeProvider(_issue([_journal(1, "coucou")], status="Résolu"))
+    up, title = pm_partner.pull_ref(res_no_notes, _ref(), provider=prov)
+    assert up["notes"] == [] and up["status"] == "Résolu"
+    assert title == "Leur ticket"
+    assert prov.calls == [(1234, "journals")]
+
+
+def test_format_pull_entry_quotes_foreign_content():
+    entry = pm_partner.format_pull_entry(
+        _ref(), {"notes": [_journal(9, "ligne A\n\nligne B", author="Bob")],
+                 "status": "Résolu", "status_changed": True, "last_journal_id": 9},
+        remote_title="Leur ticket")
+    assert "redmine-matnat#1234" in entry and "lecture seule" in entry
+    assert "**Résolu**" in entry and "non répercuté" in entry
+    # tout le contenu venu d'ailleurs est cité — on doit le distinguer d'un coup d'œil
+    assert "> ligne A" in entry and "> ligne B" in entry
+    assert "Note #9 — Bob" in entry
+
+
+def test_format_pull_entry_empty_when_nothing_new():
+    assert pm_partner.format_pull_entry(
+        _ref(), {"notes": [], "status": "En cours", "status_changed": False,
+                 "last_journal_id": 3}) == ""
+
+
+def test_format_pull_entry_truncates_long_notes():
+    long_note = "x" * 5000
+    entry = pm_partner.format_pull_entry(
+        _ref(), {"notes": [_journal(1, long_note)], "status": "", "status_changed": False,
+                 "last_journal_id": 1})
+    assert "tronqué, 5000 caractères" in entry and len(entry) < 3000
+
+
+def test_apply_pointers_advances_only_on_change():
+    ref = _ref()
+    up = {"last_journal_id": 7, "status": "Résolu"}
+    assert pm_partner.apply_pointers(ref, up) is True
+    assert ref["last_seen_journal_id"] == 7 and ref["last_seen_status"] == "Résolu"
+    assert pm_partner.apply_pointers(ref, up) is False           # idempotent
+
+
+def test_pull_never_touches_task_state():
+    """Garde-fou du lot : le pull ne produit RIEN qui ressemble à un état PM."""
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    prov = _FakeProvider(_issue([_journal(1, "note")], status="Fermé"))
+    up, _ = pm_partner.pull_ref(res, _ref(), provider=prov)
+    assert set(up) == {"notes", "last_journal_id", "status", "status_changed"}
+    # le statut distant est un LIBELLÉ brut, jamais un statut NORMS
+    assert up["status"] == "Fermé"
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

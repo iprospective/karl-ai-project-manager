@@ -94,7 +94,7 @@ def _make_tree(tmp, secondary=True, policy="required"):
 
 def _args(**kw):
     base = dict(no_commit=True, dry_run=False, no_remote_note=True, url=None,
-                instance=None, issue=None, role="related", verbose=False)
+                instance=None, issue=None, role="related", verbose=False, all=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -251,6 +251,128 @@ def test_show_unknown_task():
         cfg, _ = _make_tree(Path(d))
         rc, o = _call(cli.cmd_show, cfg, _args(rm_id=9999))
         assert rc != 0 and "introuvable" in o
+
+
+# ── pull (N1/RM2655) ───────────────────────────────────────────────────────
+
+class _FakeProvider:
+    def __init__(self, issue):
+        self.issue = issue
+
+    def fetch_issue(self, issue_id, include=None):
+        return self.issue
+
+
+@contextlib.contextmanager
+def _remote(issue, fail=False):
+    """Remplace l'accès distant — aucun réseau dans les tests de pull."""
+    import pm_partner
+    orig = pm_partner.fetch_remote
+    if fail:
+        def stub(resolution, issue_id, provider=None):
+            raise RuntimeError("partenaire injoignable")
+    else:
+        def stub(resolution, issue_id, provider=None):
+            return _FakeProvider(issue).fetch_issue(issue_id, include="journals")
+    pm_partner.fetch_remote = stub
+    try:
+        yield
+    finally:
+        pm_partner.fetch_remote = orig
+
+
+def _issue(journals=(), status="En cours"):
+    return {"id": 1234, "subject": "Leur ticket", "status": {"name": status},
+            "journals": [{"id": j, "notes": n, "user": {"name": "Alice"},
+                          "created_on": "2026-08-14T09:30:00Z"} for j, n in journals]}
+
+
+def _pull(cfg, rm=9001, **kw):
+    return _call(cli.cmd_pull, cfg, _args(rm_id=rm, all=False, **kw))
+
+
+def test_pull_appends_notes_and_advances_pointer():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, issue=1234, role="mirror")
+        with _remote(_issue([(1, "leur commentaire"), (2, "")], status="Résolu")):
+            rc, o = _pull(cfg)
+        assert rc == 0, o
+        log = _log(proj)
+        assert "redmine-matnat#1234" in log and "> leur commentaire" in log
+        assert "**Résolu**" in log and "non répercuté" in log
+        ref = _fm(proj)["refs"][0]
+        assert ref["last_seen_journal_id"] == 2      # avance même sur un journal sans note
+        assert ref["last_seen_status"] == "Résolu"
+
+
+def test_pull_is_idempotent():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, issue=1234)
+        issue = _issue([(1, "une note")], status="En cours")
+        with _remote(issue):
+            _pull(cfg)
+            before = _log(proj)
+            rc, o = _pull(cfg)
+        assert rc == 0 and "rien de neuf" in o
+        assert _log(proj) == before, "un second pull ne doit rien réécrire"
+
+
+def test_pull_never_changes_task_state():
+    """Le partenaire informe, il ne décide pas : statut/priorité/assignation intacts."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, issue=1234)
+        before = {k: v for k, v in _fm(proj).items() if k != "refs"}
+        with _remote(_issue([(1, "on a fermé de notre côté")], status="Fermé")):
+            _pull(cfg)
+        after = {k: v for k, v in _fm(proj).items() if k != "refs"}
+        assert after["status"] == before["status"] == "en_cours"
+        assert {k: v for k, v in after.items() if k != "updated"} == \
+               {k: v for k, v in before.items() if k != "updated"}
+
+
+def test_pull_dry_run_writes_nothing():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, issue=1234)
+        log_before = _log(proj)
+        with _remote(_issue([(1, "une note")])):
+            rc, o = _pull(cfg, dry_run=True)
+        assert rc == 0 and "une note" in o
+        assert _log(proj) == log_before
+        assert _fm(proj)["refs"][0]["last_seen_journal_id"] is None
+
+
+def test_pull_without_link_is_a_warning_not_a_failure():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        rc, o = _pull(cfg)
+        assert rc == 0 and "aucun lien partenaire" in o
+
+
+def test_pull_survives_unreachable_partner():
+    """Accès révoqué / réseau coupé : avertissement, pas de plantage, rien de perdu."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, issue=1234)
+        with _remote(None, fail=True):
+            rc, o = _pull(cfg)
+        assert rc == 0 and "injoignable" in o
+        assert _fm(proj)["refs"][0]["last_seen_journal_id"] is None
+
+
+def test_pull_all_scans_open_linked_tasks_only():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        _link(cfg, rm=9001, issue=1234)
+        with _remote(_issue([(1, "note pour le ticket ouvert")])):
+            rc, o = _call(cli.cmd_pull, cfg, _args(rm_id=None, all=True))
+        assert rc == 0, o
+        assert "1 ticket(s) scanné(s)" in o and "1 avec du neuf" in o
+        assert "note pour le ticket ouvert" in _log(proj, 9001)
+        assert _log(proj, 9002) == ""          # ticket fermé : jamais réveillé
 
 
 # ── pm-doctor ──────────────────────────────────────────────────────────────

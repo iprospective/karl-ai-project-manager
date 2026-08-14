@@ -29,6 +29,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Providers
+- **Lire ce qui se dit chez le partenaire** (RM2655, N1 du chantier RM2626) :
+  `pm-task-partner pull <RM>` — ou `--all`, câblable en cron (exemple fourni, 30 min) —
+  importe dans le `.log.md` les **notes nouvelles** du ticket rattaché (citées, sous un
+  en-tête qui nomme l'instance : on distingue d'un coup d'œil ce qui vient d'ailleurs)
+  et le **statut brut** de leur côté. Réglable par secondaire
+  (`sync.pull: {notes, status}`). Le pointeur `last_seen_journal_id` vit **dans le
+  lien** — pas dans `redmine_last_journal_id`, qui suit l'instance primaire : deux
+  boucles, deux pointeurs, sinon elles se marchent dessus. Lecture seule et sans effet
+  de bord : **rien** n'est répercuté sur le statut, la priorité ou l'assignation ; un
+  partenaire injoignable produit un avertissement et le balayage continue. `--all` ne
+  scanne que les tickets **ouverts** portant un lien.
 - **Rattacher un ticket à un gestionnaire partenaire** (RM2654, N0 du chantier RM2626,
   NORMS v1.69.0) : `pm-task-partner link|unlink|show` pose un lien `refs[]` typé
   `partner_issue` entre un ticket PM et un ticket du **provider secondaire** d'un projet

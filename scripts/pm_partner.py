@@ -218,6 +218,122 @@ def post_link_note(resolution, issue_id, rm_id, title, url="", dry_run=False):
     return note
 
 
+# ── pull : ce qui se dit chez le partenaire (N1, RM2655) ──────────────────
+#
+# Lecture SEULE, et le résultat n'atterrit QUE dans le `.log.md` : le statut, la
+# priorité et l'assignation restent au provider primaire. Un partenaire ne décide de
+# rien chez nous — il informe.
+
+_NOTE_MAX = 2000          # au-delà, la note importée est tronquée (le journal reste lisible)
+
+
+def pull_enabled(resolution):
+    """(notes, status) — ce que le secondaire autorise à importer.
+
+    Défaut permissif sur les notes (c'est l'intérêt du rattachement) et sur le statut :
+    les deux sont de la lecture pure. Un projet coupe explicitement via
+    `sync.pull: {notes: false, status: false}`.
+    """
+    pull = (resolution.sync or {}).get("pull")
+    if pull is None:
+        return True, True
+    if pull is False:
+        return False, False
+    return bool(pull.get("notes", True)), bool(pull.get("status", True))
+
+
+def fetch_remote(resolution, issue_id, provider=None):
+    """Ticket distant, journaux inclus. `provider` injectable (tests hors réseau)."""
+    provider = provider or get_task_provider(instance=resolution.instance)
+    return provider.fetch_issue(issue_id, include="journals")
+
+
+def extract_updates(issue, since_journal_id=None, last_status=None):
+    """Nouveautés d'un ticket distant depuis le dernier passage.
+
+    Retourne `{notes, last_journal_id, status, status_changed}` :
+      * `notes` — journaux **porteurs d'un commentaire** et plus récents que le
+        pointeur ; les journaux purement techniques (changement de champ) sont ignorés,
+        ils ne nous apprennent rien d'utile ;
+      * `last_journal_id` — nouveau pointeur (max des journaux vus, y compris ceux sans
+        note : sinon on les relirait à chaque passage) ;
+      * `status` / `status_changed` — statut **brut** du partenaire (leur libellé, pas
+        un état NORMS : leurs workflows ne sont pas les nôtres).
+    """
+    journals = sorted((issue.get("journals") or []), key=lambda j: j.get("id") or 0)
+    since = since_journal_id or 0
+    fresh = [j for j in journals if (j.get("id") or 0) > since]
+    notes = [j for j in fresh if (j.get("notes") or "").strip()]
+    last_id = max([j.get("id") or 0 for j in journals] + [since]) or None
+    status = ((issue.get("status") or {}).get("name") or "").strip()
+    return {
+        "notes": notes,
+        "last_journal_id": last_id,
+        "status": status,
+        "status_changed": bool(status) and status != (last_status or ""),
+    }
+
+
+def format_pull_entry(ref, updates, remote_title=""):
+    """Rend l'entrée `.log.md` d'un pull — ou `""` s'il n'y a rien à écrire.
+
+    Le contenu venu de chez le partenaire est **cité** (`> `) et l'en-tête nomme
+    l'instance : en relisant le journal, on doit voir d'un coup d'œil ce qui vient de
+    nous et ce qui vient d'ailleurs.
+    """
+    if not updates["notes"] and not updates["status_changed"]:
+        return ""
+    who = f"{ref.get('instance')}#{ref.get('issue_id')}"
+    lines = [f"Source : **{who}** (gestionnaire partenaire, lecture seule)"]
+    if remote_title:
+        lines.append(f"Ticket distant : {remote_title}")
+    if updates["status_changed"]:
+        lines.append(f"Statut chez eux : **{updates['status']}** "
+                     f"(brut — non répercuté sur le statut NORMS)")
+    for j in updates["notes"]:
+        author = ((j.get("user") or {}).get("name") or "?").strip()
+        when = (j.get("created_on") or "")[:16].replace("T", " ")
+        lines.append("")
+        lines.append(f"Note #{j.get('id')} — {author}{f' — {when}' if when else ''} :")
+        text = (j.get("notes") or "").strip()
+        if len(text) > _NOTE_MAX:
+            text = text[:_NOTE_MAX] + f"\n… (tronqué, {len(j['notes'])} caractères)"
+        for nl in text.splitlines():
+            lines.append(f"> {nl}" if nl else ">")
+    return "\n".join(lines) + "\n"
+
+
+def pull_ref(resolution, ref, provider=None):
+    """Pull d'UN lien → `(updates, remote_title)`. N'écrit rien (l'appelant décide)."""
+    notes_ok, status_ok = pull_enabled(resolution)
+    issue = fetch_remote(resolution, ref.get("issue_id"), provider=provider)
+    updates = extract_updates(issue,
+                              since_journal_id=ref.get("last_seen_journal_id"),
+                              last_status=ref.get("last_seen_status"))
+    if not notes_ok:
+        updates["notes"] = []
+    if not status_ok:
+        updates["status"], updates["status_changed"] = "", False
+    return updates, (issue.get("subject") or "").strip()
+
+
+def apply_pointers(ref, updates):
+    """Avance les pointeurs du lien après un pull réussi. Retourne True si modifié.
+
+    Le pointeur vit **dans le lien**, jamais dans `redmine_last_journal_id` : ce dernier
+    suit l'instance primaire, et les deux boucles se marcheraient dessus.
+    """
+    changed = False
+    if updates.get("last_journal_id") and \
+            updates["last_journal_id"] != ref.get("last_seen_journal_id"):
+        ref["last_seen_journal_id"] = updates["last_journal_id"]
+        changed = True
+    if updates.get("status") and updates["status"] != ref.get("last_seen_status"):
+        ref["last_seen_status"] = updates["status"]
+        changed = True
+    return changed
+
+
 # ── politique de rattachement (link.policy) ───────────────────────────────
 
 def required_secondaries(project_meta, registry, axis="task"):

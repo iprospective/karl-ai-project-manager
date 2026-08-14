@@ -15,6 +15,12 @@
   la seule source de vérité, ce qui vient d'ailleurs s'écrit dans le `.log.md`. Avec
   `link.policy: required`, `pm-doctor` signale les tickets ouverts non rattachés.
   (RM2654, chantier RM2626 — clients Pisceen et MatNat.)
+- **task-links** — `pm-task-partner pull` : importe dans le `.log.md` les notes nouvelles
+  du ticket partenaire (citées, en-tête nommant l'instance) et son statut **brut**.
+  Réglable par secondaire (`sync.pull: {notes, status}`), pointeur `last_seen_journal_id`
+  **par lien** — distinct de `redmine_last_journal_id`, qui suit l'instance primaire.
+  Lecture seule : rien n'est répercuté sur le statut/priorité/assignation, et un
+  partenaire injoignable avertit sans faire échouer. (RM2655.)
 
 ## [1.68.0] - 2026-08-11
 

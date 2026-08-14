@@ -9,10 +9,18 @@ Sous-commandes :
     link   <RM-id> --instance <inst> --issue <id> [--role mirror|upstream|related]
     unlink <RM-id> --instance <inst> [--issue <id>]
     show   <RM-id>
+    pull   <RM-id> | --all        # N1 : importe notes + statut distants (lecture seule)
 
 L'instance doit être un provider **secondaire déclaré du projet** (bloc `providers.task[]`
 de son `meta.yml`, cf. RM2653) : un lien vers une instance inconnue serait un lien
 qu'aucun outil ne saurait ensuite lire ni synchroniser.
+
+Le `pull` (N1/RM2655) est de la **lecture seule** chez le partenaire et n'écrit que dans
+le `.log.md` : notes nouvelles (citées, en-tête nommant l'instance) et statut brut de
+leur côté. Il n'y a **aucune** répercussion sur le statut, la priorité ou l'assignation —
+le provider primaire reste la seule source de vérité. Le pointeur de lecture
+(`last_seen_journal_id`) vit dans le lien, pas dans `redmine_last_journal_id` qui suit
+l'instance primaire.
 
 Ce que la commande écrit :
   * `refs[]` du frontmatter (type `partner_issue`) + `updated` ;
@@ -199,6 +207,90 @@ def cmd_unlink(cfg, args):
     out.op("délien partenaire", rm=rm_id, extra=f"{ref['instance']}#{ref['issue_id']}")
 
 
+def _pull_one(cfg, rm_id, args, quiet=False):
+    """Pull des liens d'UN ticket. Retourne (nb_liens_avec_nouveautés, nb_erreurs)."""
+    path, ent, proj, fm, body = load_task(cfg, rm_id)
+    meta, reg = project_context(cfg, ent, proj)
+    refs = pm_partner.partner_refs(fm)
+    if not refs:
+        if not quiet:
+            out.warn(f"RM{rm_id} : aucun lien partenaire à synchroniser")
+        return 0, 0
+
+    fresh, errors, entries = 0, 0, []
+    for ref in refs:
+        try:
+            res = pm_partner.resolve_secondary(meta, reg, ref.get("instance"))
+            updates, remote_title = pm_partner.pull_ref(res, ref)
+        except Exception as e:                                   # noqa: BLE001
+            # Réseau, accès révoqué, conf incohérente : on signale et on continue —
+            # un partenaire en panne ne doit bloquer ni les autres liens ni le PM.
+            errors += 1
+            out.warn(f"RM{rm_id} · {ref.get('instance')}#{ref.get('issue_id')} : {e}")
+            continue
+        entry = pm_partner.format_pull_entry(ref, updates, remote_title)
+        if entry:
+            entries.append((ref, updates, entry))
+            fresh += 1
+
+    if not entries:
+        if not quiet:
+            out.op("pull partenaire", rm=rm_id, extra="rien de neuf")
+        return 0, errors
+    if args.dry_run:
+        for _, _, entry in entries:
+            print(entry)
+        out.op("pull partenaire (dry-run)", rm=rm_id, extra=f"{fresh} lien(s) avec du neuf")
+        return fresh, errors
+
+    # Écriture : journal d'abord (append-only, jamais perdu), puis pointeurs du lien.
+    with ticket_lock(cfg.state_dir, rm_id):
+        path, ent, proj, fm, body = load_task(cfg, rm_id)      # relecture sous verrou
+        for ref, updates, entry in entries:
+            append_log(path, entry)
+            live = pm_partner.find_ref(fm, instance=ref.get("instance"),
+                                       issue_id=ref.get("issue_id"))
+            if live is not None:
+                pm_partner.apply_pointers(live, updates)
+        write_task(path, fm, body)
+    autocommit(args, path, f"pm(partner): RM{rm_id} pull ({fresh} lien(s))")
+    out.op("pull partenaire", rm=rm_id,
+           extra=f"{fresh} lien(s) avec du neuf" + (f", {errors} en échec" if errors else ""))
+    return fresh, errors
+
+
+def cmd_pull(cfg, args):
+    if not args.all:
+        _pull_one(cfg, args.rm_id, args)
+        return
+    # Mode balayage (cron) : uniquement les tickets OUVERTS portant un lien — inutile
+    # de réveiller un partenaire pour un ticket clos.
+    total_fresh, total_err, scanned = 0, 0, 0
+    for ent, proj, _ in cfg.iter_projects():
+        tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if f.name.endswith(".log.md"):
+                continue
+            m = FM_RE.match(f.read_text(encoding="utf-8"))
+            if not m:
+                continue
+            try:
+                fm = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError:
+                continue
+            if fm.get("status") == "ferme" or not pm_partner.partner_refs(fm):
+                continue
+            scanned += 1
+            fresh, err = _pull_one(cfg, fm.get("redmine_id"), args, quiet=True)
+            total_fresh += fresh
+            total_err += err
+    out.op("pull partenaire --all",
+           extra=f"{scanned} ticket(s) scanné(s), {total_fresh} avec du neuf"
+                 + (f", {total_err} lien(s) en échec" if total_err else ""))
+
+
 def cmd_show(cfg, args):
     rm_id = args.rm_id
     path, ent, proj, fm, _ = load_task(cfg, rm_id)
@@ -263,10 +355,21 @@ def main():
     p = sub.add_parser("show", help="liens partenaires + secondaires déclarés")
     p.add_argument("rm_id", type=int)
 
+    p = sub.add_parser("pull", help="importe notes + statut distants dans le .log.md")
+    p.add_argument("rm_id", type=int, nargs="?",
+                   help="ticket à synchroniser (omis avec --all)")
+    p.add_argument("--all", action="store_true",
+                   help="balaie tous les tickets OUVERTS portant un lien (cron)")
+    p.add_argument("--no-commit", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+
     args = ap.parse_args()
     out.configure(args)
+    if args.cmd == "pull" and not args.all and args.rm_id is None:
+        ap.error("pull : préciser un <RM-id> ou --all")
     cfg = PMConfig.load()
-    {"link": cmd_link, "unlink": cmd_unlink, "show": cmd_show}[args.cmd](cfg, args)
+    {"link": cmd_link, "unlink": cmd_unlink, "show": cmd_show,
+     "pull": cmd_pull}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

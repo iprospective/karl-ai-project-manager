@@ -2541,6 +2541,15 @@ seule source de vérité ; ce qui vient d'un secondaire s'écrit dans le `.log.m
 Quand le secondaire porte `link.policy: required` (« tout ce que je fais pour eux doit
 être rattaché chez eux »), `pm-doctor` signale chaque ticket **ouvert** sans lien.
 
+**Importer ce qui se dit chez eux** (v1.69.0) : `pm-task-partner pull <RM-id>` (ou
+`--all`, câblable en cron) lit le ticket distant et **appende au `.log.md`** les notes
+nouvelles — citées, sous un en-tête qui nomme l'instance — et leur statut **brut**
+(leur libellé, pas un état NORMS). Réglable par secondaire via
+`sync.pull: {notes, status}`. Le pointeur de lecture (`last_seen_journal_id`) vit **dans
+le lien**, jamais dans `redmine_last_journal_id` qui suit l'instance primaire — deux
+boucles, deux pointeurs. Un partenaire injoignable produit un avertissement, jamais un
+échec : le PM ne dépend pas de la disponibilité d'un tiers.
+
 **Règles d'intégrité :**
 - Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
   Si l'un est présent sans l'autre, c'est un drift à corriger via

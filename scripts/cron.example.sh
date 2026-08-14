@@ -44,6 +44,14 @@ LOG_DIR=/var/log/pm-ai-agents
 # wiki hors activité git. Lock-file par projet → pas de chevauchement avec un push manuel.
 */10 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-wiki-sync.py --all --push >> "$LOG_DIR/wiki-sync.log" 2>&1
 
+# ── Pull des gestionnaires partenaires (RM2655, chantier RM2626) ──
+# Toutes les 30 min : importe dans le `.log.md` les notes et le statut des tickets
+# rattachés chez un provider SECONDAIRE (Pisceen, MatNat…). Lecture seule chez eux,
+# rien n'est répercuté sur l'état PM. Ne scanne que les tickets OUVERTS portant un
+# lien : sans projet configuré en partenaire, ce cron ne fait rien du tout.
+# À n'activer qu'une fois les accès API partenaires en place (RM2657).
+*/30 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-task-partner.py pull --all >> "$LOG_DIR/partner-pull.log" 2>&1
+
 # ── Promotion PM dev→main (RM2298) ───────────────────────────────
 # Toutes les heures : promeut par lot les auto-commits pm-* repliés sur `dev`
 # (branches protégées RM2030) vers `main` du repo de DONNÉES PM — MR auto-créée

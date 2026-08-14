@@ -63,11 +63,12 @@ check("suffixe systemd G", ka._mem_bytes("6G") == 6 * GIB)
 check("suffixe systemd M", ka._mem_bytes("6144M") == 6 * GIB)
 check("suffixe GiB toléré", ka._mem_bytes("8GiB") == 8 * GIB)
 check("octets nus", ka._mem_bytes("8589934592") == 8 * GIB)
-check("0 = pas de limite", ka._mem_bytes(0) is None)
-check("chaîne vide = pas de limite", ka._mem_bytes("") is None)
-check("none = pas de limite", ka._mem_bytes("none") is None)
-check("infinity = pas de limite", ka._mem_bytes("infinity") is None)
-check("valeur illisible = pas de limite", ka._mem_bytes("beaucoup") is None)
+check("0 octet reste 0 (l'appelant tranche)", ka._mem_bytes(0) == 0)
+check("chaîne vide = pas de plafond", ka._mem_bytes("") is None)
+check("none = pas de plafond", ka._mem_bytes("none") is None)
+check("infinity = pas de plafond", ka._mem_bytes("infinity") is None)
+check("-1 = pas de plafond", ka._mem_bytes(-1) is None and ka._mem_bytes("-1") is None)
+check("valeur illisible = pas de plafond", ka._mem_bytes("beaucoup") is None)
 check("booléen ignoré (piège YAML)", ka._mem_bytes(True) is None)
 
 with tempfile.TemporaryDirectory() as td:
@@ -90,9 +91,21 @@ with tempfile.TemporaryDirectory() as td:
         check("clé absente → défaut du module",
               ka._mem_limit("high") == int(ka.MEM_LIMIT_DEFAULTS["high"] * GIB))
 
-        write_conf(root, {"memory_high_gib": 0, "memory_max_gib": 0})
-        check("0 en conf → fonctionnalité désactivée",
+        write_conf(root, {"memory_high_gib": 0, "memory_max_gib": 0, "memory_swap_gib": -1})
+        check("0 en conf → plafond high/max levé",
               ka._mem_limit("high") is None and ka._mem_limit("max") is None)
+
+        # — swap : convention INVERSE (0 = aucun swap, -1 = illimité) —
+        check("-1 en conf → swap illimité", ka._mem_limit("swap") is None)
+        write_conf(root, {"memory_swap_gib": 0})
+        check("0 en conf → aucun swap (plafond réel, pas une désactivation)",
+              ka._mem_limit("swap") == 0)
+        write_conf(root, {"memory_swap_gib": 2})
+        check("swap chiffré lu en GiB", ka._mem_limit("swap") == 2 * GIB)
+        write_conf(root, None)
+        check("swap absent de la conf → défaut du module (aucun swap)",
+              ka._mem_limit("swap") == 0
+              and ka.MEM_LIMIT_DEFAULTS["swap"] == 0.0)
 
         # — précédence : env > conf —
         write_conf(root, {"memory_high_gib": 6, "memory_max_gib": 8})
@@ -112,6 +125,12 @@ with tempfile.TemporaryDirectory() as td:
         check("non figé sans variable d'env", "pinned" not in s)
         check("plafond dur exposé aussi",
               setting("conf:sessions.memory_max_gib")["value"] == 8.0)
+        s = setting("conf:sessions.memory_swap_gib")
+        check("swap exposé, borne basse à -1", s["value"] == 0.0 and s["min"] == -1)
+        write_conf(root, {"memory_high_gib": 6, "memory_max_gib": 8, "memory_swap_gib": -1})
+        check("swap illimité servi comme -1 (et non 0 = aucun swap)",
+              setting("conf:sessions.memory_swap_gib")["value"] == -1.0)
+        write_conf(root, {"memory_high_gib": 6, "memory_max_gib": 8})
 
         os.environ[ka.MEM_LIMIT_ENV["high"]] = "10G"
         s = setting("conf:sessions.memory_high_gib")
@@ -148,6 +167,12 @@ with tempfile.TemporaryDirectory() as td:
                                      "value": 0, "confirm": True})["value"] == 0.0)
         check("valeur hors bornes rejetée",
               rejected({"key": "conf:sessions.memory_high_gib", "value": 9999, "confirm": True}))
+        check("-1 refusé sur high (borne basse à 0)",
+              rejected({"key": "conf:sessions.memory_high_gib", "value": -1, "confirm": True}))
+        check("-1 accepté sur le swap",
+              ka.op_pm_settings_set({"key": "conf:sessions.memory_swap_gib",
+                                     "value": -1, "confirm": True})["value"] == -1.0
+              and ka._mem_limit("swap") is None)
         check("confirmation obligatoire",
               rejected({"key": "conf:sessions.memory_high_gib", "value": 4}))
 
@@ -159,8 +184,9 @@ with tempfile.TemporaryDirectory() as td:
         check("scope introuvable → None (session créée quand même)", got is None)
         check("scope introuvable → warning loggué", "plafond mémoire" in err.getvalue())
 
-        # — désactivé : aucun appel systemd, aucun warning —
-        write_conf(root, {"memory_high_gib": 0, "memory_max_gib": 0})
+        # — tout désactivé (swap compris) : aucun appel systemd, aucun warning —
+        write_conf(root, {"memory_high_gib": 0, "memory_max_gib": 0,
+                          "memory_swap_gib": -1})
         err = io.StringIO()
         with redirect_stderr(err):
             got = ka._apply_memory_limits("karl-RM-inexistante")

@@ -37,9 +37,10 @@ onboarding agent), voir d'abord [README.md](README.md).
 - **Sessions tmux et cgroups (RM2690).** tmux crée une scope systemd par pane
   (`tmux-spawn-<uuid>.scope`, UUID aléatoire ⇒ pas de drop-in déclaratif) : le
   plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
-  Valeurs dans `pm.config.yml` (`sessions.memory_{high,max}_gib`, éditables
-  depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` du `.env`
-  priment et figent le réglage.
+  Valeurs dans `pm.config.yml` (`sessions.memory_{high,max,swap}_gib`, éditables
+  depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `_MAX` / `_SWAP` du `.env`
+  priment et figent le réglage. Piège : sur `swap`, `0` est un plafond réel
+  (aucun swap, le défaut) et c'est `-1` qui lève la limite.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

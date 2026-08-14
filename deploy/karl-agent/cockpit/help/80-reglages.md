@@ -28,14 +28,20 @@ plafonnent la scope pour qu'une session qui dérape **se fasse tuer seule** :
   est freinée et sa mémoire recyclée — elle n'est pas tuée.
 - **Plafond dur** (`MemoryMax`, 8 GiB par défaut) : au-delà, seule cette session
   est tuée (OOM de la scope), les autres et le poste ne bougent pas.
+- **Swap autorisé** (`MemorySwapMax`, **0 = aucun** par défaut) : sans swap, une
+  session qui fuit meurt au plafond dur au lieu d'y grimper lentement en
+  saturant le swap — c'est le swap saturé qui fait ramer tout le poste. Ici la
+  convention est **inversée** : `0` veut dire « aucun swap », et c'est `-1` qui
+  lève le plafond.
 
-En **GiB** ; `0` = pas de limite. La modification s'applique aux sessions créées
+En **GiB** ; pour le seuil et le plafond dur, `0` = pas de limite. La
+modification s'applique aux sessions créées
 **ensuite** — les sessions déjà lancées gardent leur plafond. 8 GiB est
 volontairement large : ~20× la consommation normale d'une session (160–440 Mo).
 
 Un cadenas 🔒 sur le champ signale que la valeur est **figée par le `.env`**
-(`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX`) : elle s'édite alors dans le
-`.env`, suivi d'un redémarrage de karl-agent.
+(`KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` / `KARL_AGENT_MEM_SWAP`) : elle
+s'édite alors dans le `.env`, suivi d'un redémarrage de karl-agent.
 
 ## Conf PM (surcharge contrôlée)
 

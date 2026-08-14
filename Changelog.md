@@ -23,10 +23,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `/resume`), jamais bloquante (systemd absent, délégation `memory` manquante ou
   `set-property` en échec → warning, session créée). **Réglable depuis le cockpit**
   (🔧 réglages, rubrique « Sessions », en GiB, `0` = illimité) via
-  `sessions.memory_{high,max}_gib` de `pm.config.yml` ; `KARL_AGENT_MEM_HIGH` /
-  `KARL_AGENT_MEM_MAX` (`.env`, syntaxe systemd) **figent** la valeur — le champ
-  est alors marqué 🔒 et l'écriture refusée. Ne s'applique qu'aux sessions créées
-  ensuite.
+  `sessions.memory_{high,max,swap}_gib` de `pm.config.yml` ; `KARL_AGENT_MEM_HIGH`
+  / `_MAX` / `_SWAP` (`.env`, syntaxe systemd) **figent** la valeur — le champ est
+  alors marqué 🔒 et l'écriture refusée. Ne s'applique qu'aux sessions créées
+  ensuite. Le **swap est plafonné à 0** par défaut (`MemorySwapMax`) : sans lui,
+  une session qui fuit grimpe lentement de `MemoryHigh` à `MemoryMax` en saturant
+  le swap — et c'est le swap saturé qui fait ramer le poste. Convention inversée
+  sur ce champ : `0` = aucun swap, `-1` = illimité.
 - **Aide intégrée** (RM2593) : menu **❓ aide** + boutons `?` contextuels par
   panneau, ouvrant des pages de doc utilisateur markdown versionnées
   (`deploy/karl-agent/cockpit/help/`) servies par karl-agent (`/help`,

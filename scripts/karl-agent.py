@@ -333,14 +333,23 @@ DEFAULT_HEIGHT = int(os.environ.get("KARL_AGENT_HEIGHT", "50"))
 # Trois couches, de la plus forte à la plus faible :
 #   1. variables d'env (.env)  — figent la valeur pour l'instance (le cockpit
 #      refuse alors l'écriture) ; syntaxe systemd : "6G", "6144M", octets nus,
-#      vide / `none` / `infinity` / `0` = pas de limite ;
-#   2. pm.config[.local].yml `sessions.memory_{high,max}_gib` — en GiB, édité
-#      depuis le cockpit (panneau 🔧 réglages) ; 0 = pas de limite ;
+#      vide / `none` / `infinity` / `-1` = pas de limite ;
+#   2. pm.config[.local].yml `sessions.memory_{high,max,swap}_gib` — en GiB,
+#      édité depuis le cockpit (panneau 🔧 réglages) ;
 #   3. ces constantes, si la conf ne porte pas la clé (déploiement ancien).
-MEM_LIMIT_DEFAULTS = {"high": 6.0, "max": 8.0}          # GiB
-MEM_LIMIT_ENV = {"high": "KARL_AGENT_MEM_HIGH", "max": "KARL_AGENT_MEM_MAX"}
+#
+# ⚠ `swap` (MemorySwapMax) ne suit pas la convention des deux autres : 0 y est
+# une limite RÉELLE (aucun swap autorisé), pas une désactivation — c'est `-1`
+# qui lève le plafond. Défaut 0 : sans swap, une session qui fuit meurt à
+# MemoryMax au lieu de saturer le swap et de faire ramer tout le poste pendant
+# la montée MemoryHigh → MemoryMax (c'est ce qui s'est passé le 2026-08-13).
+MEM_LIMIT_DEFAULTS = {"high": 6.0, "max": 8.0, "swap": 0.0}          # GiB
+MEM_LIMIT_ENV = {"high": "KARL_AGENT_MEM_HIGH", "max": "KARL_AGENT_MEM_MAX",
+                 "swap": "KARL_AGENT_MEM_SWAP"}
 MEM_LIMIT_CONF = {"high": ["sessions", "memory_high_gib"],
-                  "max": ["sessions", "memory_max_gib"]}
+                  "max": ["sessions", "memory_max_gib"],
+                  "swap": ["sessions", "memory_swap_gib"]}
+MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapMax"}
 
 # Répertoire des logs pipe-pane (alimente /stream et /capture étendu).
 LOG_DIR = Path(
@@ -686,34 +695,48 @@ _MEM_UNITS = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
 _MEM_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT])?i?B?$", re.I)
 
 
+_MEM_UNLIMITED = ("none", "off", "infinity", "-1", "max")
+
+
 def _mem_bytes(raw) -> int | None:
-    """Limite mémoire → octets. `None` = pas de limite (vide, `none`, `infinity`,
-    0, ou valeur illisible). Un nombre est en GiB (conf/cockpit) ; une chaîne suit
-    la syntaxe systemd ("6G", "6144M", octets nus)."""
+    """Limite mémoire → octets. `None` = pas de plafond (vide, `none`, `infinity`,
+    `-1`, ou valeur illisible). Un nombre est en GiB (conf/cockpit) ; une chaîne
+    suit la syntaxe systemd ("6G", "6144M", octets nus). **0 est une valeur
+    valide** — c'est l'appelant qui décide si zéro octet a un sens (swap) ou vaut
+    « pas de plafond » (high/max)."""
     if raw is None or isinstance(raw, bool):
         return None
     if isinstance(raw, (int, float)):
+        if raw < 0:
+            return None
         n = float(raw) * 1024 ** 3
     else:
         s = str(raw).strip()
-        if not s or s.lower() in ("none", "off", "infinity"):
+        if not s or s.lower() in _MEM_UNLIMITED:
             return None
         m = _MEM_RE.match(s)
         if not m:
             return None
         n = float(m.group(1)) * _MEM_UNITS.get((m.group(2) or "").upper(), 1)
-    return int(n) if n >= 1 else None
+    return int(n)
 
 
 def _mem_limit(kind: str) -> int | None:
-    """Limite effective en octets pour `high` / `max` : env (.env) > conf > défaut."""
+    """Limite effective en octets pour `high` / `max` / `swap` :
+    env (.env) > conf > défaut. `None` = pas de plafond. Pour `high` et `max`,
+    0 vaut « pas de plafond » (un plafond nul tuerait tout au démarrage) ; pour
+    `swap`, 0 est le plafond réel « aucun swap »."""
     env = os.environ.get(MEM_LIMIT_ENV[kind])
     if env is not None:
-        return _mem_bytes(env)
-    cur = _conf_merged()
-    for part in MEM_LIMIT_CONF[kind]:
-        cur = cur.get(part) if isinstance(cur, dict) else None
-    return _mem_bytes(MEM_LIMIT_DEFAULTS[kind] if cur is None else cur)
+        b = _mem_bytes(env)
+    else:
+        cur = _conf_merged()
+        for part in MEM_LIMIT_CONF[kind]:
+            cur = cur.get(part) if isinstance(cur, dict) else None
+        b = _mem_bytes(MEM_LIMIT_DEFAULTS[kind] if cur is None else cur)
+    if b is not None and b < 1 and kind != "swap":
+        return None
+    return b
 
 
 def _pane_scope(name: str, tries: int = 3, delay: float = 0.1) -> str | None:
@@ -745,15 +768,15 @@ def _apply_memory_limits(name: str) -> str | None:
     None si rien n'a été appliqué. JAMAIS bloquant : tout échec (systemd absent,
     délégation `memory` manquante, scope introuvable, set-property KO) est un
     warning sur stderr — la création de session ne doit pas en dépendre."""
-    high, mx = _mem_limit("high"), _mem_limit("max")
-    if high is None and mx is None:
+    limits = {k: _mem_limit(k) for k in MEM_LIMIT_PROP}
+    if all(v is None for v in limits.values()):
         return None
     scope = _pane_scope(name)
     if not scope:
         sys.stderr.write(f"plafond mémoire : scope tmux-spawn introuvable pour {name}, ignoré\n")
         return None
-    props = [f"MemoryHigh={high if high is not None else 'infinity'}",
-             f"MemoryMax={mx if mx is not None else 'infinity'}"]
+    props = [f"{MEM_LIMIT_PROP[k]}={v if v is not None else 'infinity'}"
+             for k, v in limits.items()]
     try:
         p = subprocess.run(["systemctl", "--user", "--runtime", "set-property", scope, *props],
                            capture_output=True, text=True, timeout=10)
@@ -6524,6 +6547,11 @@ _PM_SETTINGS_CONF = [
      "label": "Mémoire — plafond dur, GiB (0 = illimité)",
      "group": "Sessions", "type": "number", "path": ["sessions", "memory_max_gib"],
      "min": 0, "max": 512},
+    # Le swap inverse la convention : 0 = aucun swap (plafond réel), -1 = illimité.
+    {"key": "conf:sessions.memory_swap_gib", "mem_kind": "swap",
+     "label": "Mémoire — swap autorisé, GiB (0 = aucun, -1 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_swap_gib"],
+     "min": -1, "max": 512},
 ]
 _PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
                  "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
@@ -6596,11 +6624,16 @@ def _pm_settings() -> list:
 
 
 def _mem_setting_value(kind: str) -> tuple[float, str | None]:
-    """(GiB effectifs, variable d'env qui fige la valeur ou None) — RM2690."""
+    """(GiB effectifs, variable d'env qui fige la valeur ou None) — RM2690.
+    « Pas de plafond » se dit 0 pour high/max et -1 pour swap (où 0 signifie
+    « aucun swap ») — même convention que les champs du cockpit."""
     b = _mem_limit(kind)
     env = MEM_LIMIT_ENV[kind]
-    return (round(b / 1024 ** 3, 2) if b else 0.0,
-            env if os.environ.get(env) is not None else None)
+    if b is None:
+        val = -1.0 if kind == "swap" else 0.0
+    else:
+        val = round(b / 1024 ** 3, 2)
+    return val, (env if os.environ.get(env) is not None else None)
 
 
 def _ui_theme() -> str:

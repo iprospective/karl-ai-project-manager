@@ -198,9 +198,15 @@ ui:
 # Rubrique « Sessions » du panneau 🔧 réglages du cockpit (whitelist RM2213) ;
 # surcharge par instance dans pm.config.local.yml (posée depuis le cockpit).
 # Ne s'applique qu'aux sessions créées ENSUITE (les scopes vivantes gardent
-# leur réglage). `KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` dans le .env
-# FIGENT ces valeurs (le cockpit refuse alors l'écriture).
+# leur réglage). `KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` /
+# `KARL_AGENT_MEM_SWAP` dans le .env FIGENT ces valeurs (le cockpit refuse
+# alors l'écriture).
 sessions:
   # GiB (systemd compte en puissances de 1024) ; 0 = pas de limite.
   memory_high_gib: 6    # seuil de pression : throttling + reclaim, pas de kill
   memory_max_gib: 8     # plafond dur : au-delà, OOM-kill de la SEULE scope
+  # ⚠ Convention INVERSE pour le swap : 0 = aucun swap (plafond réel),
+  # -1 = illimité. Sans swap, une session qui fuit meurt à memory_max au lieu
+  # de saturer le swap et de faire ramer le poste pendant la montée
+  # high → max — c'est le scénario du 2026-08-13 (6 Go de swap saturés).
+  memory_swap_gib: 0

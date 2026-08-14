@@ -2630,7 +2630,10 @@ granularités, l'agent produit :
 2. **Note Redmine** — résumé **détaillé**, human-readable, destiné au ticket : ce
    qui a été fait/livré et *pourquoi*, + **réf du commit** (SHA + URL GitLab, cf.
    « Référencer un commit ») + **temps + tokens** du delta (cf. § « Journalisation
-   par commit »). C'est la trace que les humains lisent.
+   par commit »). C'est la trace que les humains lisent — donc **aérée** : sauts
+   de ligne aux ruptures d'idée plutôt qu'un unique bloc compact, sans pour
+   autant sur-formatter une note de trois phrases (pas de titres/listes à
+   outrance).
 3. **Entrée `.log.md`** — variante technique de l'agent (détail, décisions) + réf
    commit + métriques, append-only (format ci-dessus). Les humains ne la lisent pas.
 4. Si l'étape est une **livraison** : transition de statut + `done_ratio` au même

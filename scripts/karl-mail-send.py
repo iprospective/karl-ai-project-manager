@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """karl-mail-send — Envoie un email depuis karl@iprospective.fr via SMTP iProspective.
 
-V1 : send only. Pas de fetch IMAP, pas de threading entrant — voir tâches sœurs
+Après envoi SMTP réussi, le message est aussi ré-appendé (IMAP APPEND) dans le
+dossier Sent du compte, pour que la boîte reflète les envois de Karl. Pas de
+fetch IMAP ni de threading entrant par ailleurs — voir tâches sœurs
 (RM1724/1725/1726) et roadmap V2 pour réception.
 
 Credentials résolus à la volée depuis Vaultwarden via scripts/resolve-secret.sh
@@ -24,6 +26,7 @@ Pré-requis :
 """
 import argparse
 import email.utils
+import imaplib
 import smtplib
 import ssl
 import subprocess
@@ -38,6 +41,9 @@ from pm_paths import PMConfig
 
 SMTP_HOST = "mail.iprospective.net"
 SMTP_PORT = 465
+IMAP_HOST = "mail.iprospective.net"
+IMAP_PORT = 993
+IMAP_SENT_FOLDER = "Sent"
 # Item Vaultwarden portant les identifiants SMTP. Nom EXACT de l'item :
 # "karl@mail.iprospective.net" (convention <compte>@<service>)
 # Viser le nom EXACT est impératif : si le nom ne correspond a aucun item, bw bascule
@@ -128,6 +134,25 @@ def append_to_log(rm_id, msg, bcc_list, dry_run=False):
     return log_path
 
 
+def append_to_sent(username, password, msg):
+    """IMAP APPEND du message dans le dossier Sent. Non bloquant : le SMTP a
+    déjà réussi, une erreur ici ne doit pas faire échouer l'envoi — juste
+    prévenir sur stderr."""
+    try:
+        with imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=20) as m:
+            m.login(username, password)
+            typ, _ = m.append(
+                IMAP_SENT_FOLDER, "(\\Seen)", None, msg.as_bytes()
+            )
+            if typ != "OK":
+                print(f"⚠ IMAP APPEND vers {IMAP_SENT_FOLDER} : réponse {typ}", file=sys.stderr)
+                return False
+            return True
+    except Exception as e:
+        print(f"⚠ IMAP APPEND vers {IMAP_SENT_FOLDER} échoué (mail envoyé quand même) : {e}", file=sys.stderr)
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--to", action="append", required=True, help="Destinataire (répétable)")
@@ -196,6 +221,9 @@ def main():
         sys.exit(f"ERREUR réseau : {e}")
 
     print(f"\n✓ Mail envoyé via {SMTP_HOST}:{SMTP_PORT}")
+
+    if append_to_sent(username, password, msg):
+        print(f"✓ Copié dans {IMAP_SENT_FOLDER} ({IMAP_HOST}:{IMAP_PORT})")
 
     if args.rm_id:
         lp = append_to_log(args.rm_id, msg, args.bcc)

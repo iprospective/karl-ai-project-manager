@@ -400,9 +400,41 @@
     border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
+  /* RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue */
+  .mcbanner { border-radius: 8px; padding: 9px 12px; font-size: 13px; line-height: 1.45; border: 1px solid transparent; }
+  .mcbanner .mc-head { font-weight: 600; }
+  .mcbanner .mc-detail { color: var(--muted); font-size: 12.5px; margin-top: 3px; word-break: break-word; }
+  .mcbanner .mc-advice { margin-top: 5px; font-size: 12.5px; }
+  .mcbanner .mc-mr { margin-top: 5px; font-size: 12px; }
+  .mc-ok      { background: rgba(63,185,80,.10);  border-color: rgba(63,185,80,.35); }
+  .mc-warn    { background: rgba(210,153,34,.12); border-color: rgba(210,153,34,.42); }
+  .mc-block   { background: rgba(248,81,73,.12);  border-color: rgba(248,81,73,.48); }
+  .mc-unknown { background: rgba(127,127,127,.10); border-color: rgba(127,127,127,.30); }
   .kv { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
   .kv .k { color: var(--muted); } .kv .v { text-align: right; word-break: break-word; }
   .pill { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); color: var(--fg); }
+  /* RM1952 : triage ROI des tickets ouverts */
+  .triagefilters { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 8px 0 6px; }
+  .triagefilters select { width: auto; max-width: 150px; }
+  .triagefilters .tr-vf { display: flex; align-items: center; gap: 5px; font-size: 11.5px; color: var(--muted); cursor: pointer; }
+  .triagelegend { font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .tr-count { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .tr-more { font-size: 11px; color: var(--muted); margin-top: 6px; text-align: center; }
+  .tr-err { color: #f85149; font-size: 12.5px; }
+  .tr-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; padding: 4px 6px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  .tr-row:hover { background: rgba(127,127,127,.10); }
+  .tr-rank { color: var(--muted); font-size: 11px; min-width: 1.4em; text-align: right; }
+  .tr-score { font-weight: 700; color: var(--accent, #4c8eda); min-width: 3.2em; text-align: right; font-variant-numeric: tabular-nums; }
+  .tr-rm { color: var(--muted); font-size: 11.5px; }
+  .tr-title { flex: 1; min-width: 40%; font-weight: 600; word-break: break-word; }
+  .tr-meta { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; }
+  .tr-prio { font-size: 10px; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+  .tr-prio-high, .tr-prio-urgent { color: var(--warn); border-color: var(--warn); }
+  .tr-prio-low { color: var(--muted); }
+  .tr-time { font-size: 11px; color: var(--muted); }
+  .tr-badge { font-size: 10.5px; padding: 0 4px; border-radius: 4px; }
+  .tr-unblock { color: var(--ok); }
+  .tr-blocked { color: #f85149; }
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
@@ -442,6 +474,24 @@
   .rels .pill { cursor: pointer; }
   .docmodal { display: none; position: fixed; inset: 0; background: var(--overlay); z-index: 20; align-items: center; justify-content: center; }
   .docmodal.show { display: flex; }
+  /* RM2458 : page de statut du poste (dans la docmodal) */
+  .es-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .es-bar .es-hint { color: var(--muted); font-size: 11.5px; }
+  .es-head { font-size: 13px; margin-bottom: 8px; }
+  .es-head .es-when { float: right; color: var(--muted); font-size: 11px; }
+  .es-group { margin-bottom: 10px; }
+  .es-gname { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; margin: 8px 0 3px; }
+  .es-row { display: flex; flex-wrap: wrap; align-items: baseline; gap: 7px; padding: 3px 7px; border-radius: 6px; font-size: 13px; }
+  .es-row .es-mark { font-weight: 700; width: 1em; text-align: center; }
+  .es-row .es-label { font-weight: 600; }
+  .es-row .es-detail { color: var(--muted); font-size: 12.5px; word-break: break-word; }
+  .es-ok .es-mark { color: var(--ok); }
+  .es-info .es-mark { color: var(--muted); }
+  .es-warn { background: rgba(210,153,34,.09); } .es-warn .es-mark { color: var(--warn); }
+  .es-error { background: rgba(248,81,73,.11); } .es-error .es-mark { color: #f85149; }
+  .es-fixrow { flex-basis: 100%; display: flex; gap: 6px; align-items: center; margin: 3px 0 1px 1.7em; max-width: 100%; }
+  .es-fix { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; background: rgba(127,127,127,.13); padding: 2px 7px; border-radius: 5px; overflow-x: auto; white-space: pre; }
+  .es-copy { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); flex-shrink: 0; }
   /* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
   .helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
   .helptoc .chip.on { color: var(--accent); font-weight: 600; }
@@ -591,6 +641,8 @@ if (window.matchMedia) {
   <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
   <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
+  <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
+  <button class="mini" id="envbtn" onclick="openEnvStatus()" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -612,11 +664,9 @@ if (window.matchMedia) {
     <div class="lbody">
 
     <div class="lpanel" id="lp-running">
-      <!-- RM2344 : tri dynamique EN OPTION (désactivé par défaut — l'ordre stable ne bouge pas sous la souris) -->
-      <label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;font-size:11.5px;color:var(--muted);cursor:pointer">
-        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)" style="width:auto">
-        tri dynamique (⚠ et activité en tête — l'ordre bouge à chaque refresh)
-      </label>
+      <!-- RM2658 : le tri dynamique (RM2344) a migré dans 🔧 réglages › « Sessions
+           (ce navigateur) » — il prenait une ligne pleine largeur ici pour une
+           option désactivée par défaut et rarement touchée. -->
       <!-- RM2395 : enregistrer / relancer le jeu de sessions ; RM2442 : jeux nommés -->
       <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
@@ -642,6 +692,18 @@ if (window.matchMedia) {
     </div>
 
     <div class="lpanel" id="lp-tickets">
+    <!-- RM1952 : triage ROI — quel ticket travailler maintenant (score, débloquants) -->
+    <details class="card" id="triagecard" ontoggle="if(this.open) loadTriage()">
+      <summary>🎯 Triage ROI <span style="color:var(--muted);font-weight:normal">— prochaines actions à plus fort levier</span></summary>
+      <div class="triagefilters">
+        <select id="tr-client" onchange="renderTriage()" title="Filtrer par client"><option value="">tous les clients</option></select>
+        <select id="tr-project" onchange="renderTriage()" title="Filtrer par projet"><option value="">tous les projets</option></select>
+        <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid" onchange="renderTriage()"> masquer la validation</label>
+        <button class="mini" onclick="loadTriage(true)" title="Recalculer le classement">↻</button>
+      </div>
+      <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
+      <div id="triage-list"><div style="color:var(--muted)">déplie pour calculer le classement…</div></div>
+    </details>
     <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours » -->
     <div class="card">
       <h2>Tickets ouverts <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
@@ -896,6 +958,20 @@ if (window.matchMedia) {
       </select>
       <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
         S'applique au prochain chargement du cockpit.
+      </div>
+    </div>
+    <!-- RM2658 : préférences d'affichage des sessions (locales à CE navigateur) —
+         accueille le tri dynamique (RM2344), déplacé hors de la colonne « en cours ». -->
+    <div class="card" id="sessprefcard">
+      <h2>🗂 Sessions <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+      <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)">
+        <span>Tri dynamique de la colonne « en cours »</span>
+      </label>
+      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+        ⚠ et activité en tête ; l'ordre se réordonne à chaque refresh (gelé tant que
+        tu survoles/interagis). Décoché : ordre stable alphabétique — rien ne bouge
+        sous la souris. Défaut : décoché.
       </div>
     </div>
     <div class="card" id="reglages-card">
@@ -3669,10 +3745,14 @@ async function loadFiles(force) {
   try {
     filesData = await api("/worktrees/" + encodeURIComponent(attached));
   } catch (e) { b.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; return; }
-  const wts = (filesData.worktrees || []).filter(w => w.exists);
-  if (!wts.length) { b.innerHTML = '<div class="empty">aucun worktree pour cette session (rien de branché).</div>'; return; }
-  if (force || !fileNav.wt || !wts.some(w => w.path === fileNav.wt)) {
-    fileNav = { wt: wts[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
+  // RM2659 : une session sans worktree a quand même un projet — sa racine et sa
+  // doc restent lisibles. Se fier aux seuls worktrees vidait le panneau alors
+  // qu'il y avait tout à montrer.
+  const roots = filesGroups(filesData.projects, filesData.worktrees)
+    .reduce((a, g) => a.concat(g.roots), []);
+  if (!roots.length) { b.innerHTML = '<div class="empty">aucun worktree ni projet pour cette session (rien de branché).</div>'; return; }
+  if (force || !fileNav.wt || !roots.some(w => w.path === fileNav.wt)) {
+    fileNav = { wt: roots[0].path, path: "", entries: [], commits: null, file: null, showCommits: false };
   }
   filesLoadDir(fileNav.wt, fileNav.path);
 }
@@ -3712,19 +3792,77 @@ function fileRootLabel(w) {
                   + (r.docs ? " — " + r.docs + " fichier" + (r.docs > 1 ? "s" : "") : "")
                   + "\n" + (r.path || "") };
   }
+  if (r.kind === "root") {
+    return { icon: "🏠", name: r.name || "racine",
+             tip: (r.label || "racine du workspace") + "\n" + (r.path || "") };
+  }
   return { icon: "", name: r.name || "?", tip: r.path || "" };
 }
 // <<< fileRootLabel
 
+// >>> filesGroups — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2659 : les racines lisibles de la session, GROUPÉES PAR PROJET — une
+// session en touche parfois plusieurs (7 sur 62 au registre). Dans chaque
+// groupe : la racine du workspace d'abord (c'est ce que le « core » est
+// réellement, plutôt qu'un worktree parmi 60), puis sa doc, puis les worktrees
+// que la session a ouverts dedans.
+// Un worktree qui ne relève d'aucune racine connue (layout ancien : posé À CÔTÉ
+// du workspace) n'est pas perdu — il forme un groupe « hors projet ». Le faire
+// disparaître serait pire que l'encombrement qu'on corrige.
+function filesGroups(projects, worktrees) {
+  const gs = (projects || []).filter(p => p && p.root).map(p => ({
+    key: (p.client || "") + "/" + (p.project || ""),
+    label: p.project || p.name || "?",
+    client: p.client || "", project: p.project || "", root: p.root,
+    roots: [Object.assign({}, p, { path: p.root, kind: "root",
+                                   label: "racine du workspace" })].concat(
+      (p.docs || []).map(d => ({ path: d.path, name: d.name, kind: "doc",
+                                 label: d.label, docs: d.docs }))),
+  }));
+  const orphans = [];
+  for (const w of (worktrees || [])) {
+    if (!w || w.exists === false || !w.path) continue;
+    const g = gs.find(x => String(w.path).indexOf(x.root + "/") === 0);
+    (g ? g.roots : orphans).push(Object.assign({}, w, { kind: "code" }));
+  }
+  if (orphans.length) {
+    gs.push({ key: "", label: "hors projet", client: "", project: "", root: "",
+              roots: orphans });
+  }
+  return gs.filter(g => g.roots.length);
+}
+// <<< filesGroups
+
+// >>> filesGroupOf — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le groupe auquel appartient la racine courante — sinon le premier. Sans ça,
+// changer de worktree pourrait laisser la barre des projets sur un autre projet
+// que celui qu'on lit.
+function filesGroupOf(groups, path) {
+  const gs = groups || [];
+  return gs.find(g => (g.roots || []).some(r => r.path === path)) || gs[0] || null;
+}
+// <<< filesGroupOf
+
 function renderFiles() {
   const b = document.getElementById("filesbody");
-  const wts = (filesData.worktrees || []).filter(w => w.exists);
+  const groups = filesGroups(filesData.projects, filesData.worktrees);
+  const grp = filesGroupOf(groups, fileNav.wt);
+  const wts = grp ? grp.roots : [];
   const cur = wts.find(w => w.path === fileNav.wt) || wts[0];
   document.getElementById("filescnt").textContent = cur ? cur.name : "";
   let h = "";
+  // RM2659 : la barre des projets n'apparaît QUE s'il y en a plusieurs — une
+  // barre à un seul onglet n'informe de rien et coûte un niveau de lecture.
+  if (groups.length > 1) {
+    h += '<div class="rsub">' + groups.map(g =>
+      '<button class="' + (g === grp ? "active" : "") + '" title="' + esc(g.client ? g.client + " / " + g.label : g.label)
+      + '" onclick="filesLoadDir(' + jarg(g.roots[0].path) + ',\'\')">'
+      + esc(g.label) + "</button>").join("") + "</div>";
+  }
   if (wts.length > 1) {
-    // RM2622 : le code d'abord, la doc ensuite et signalée — deux natures
-    const rangs = w => (w.kind === "doc" ? 1 : 0);
+    // RM2622/RM2659 : la racine d'abord, puis le code, la doc en dernier et
+    // signalée — trois natures, qui n'attendent pas la même chose du panneau.
+    const rangs = w => (w.kind === "root" ? 0 : w.kind === "doc" ? 2 : 1);
     h += '<div class="rsub">' + wts.slice().sort((x, y) => rangs(x) - rangs(y)).map(w => {
       const lb = fileRootLabel(w);
       return '<button class="' + (w.path === fileNav.wt ? "active" : "")
@@ -4344,6 +4482,35 @@ async function ensureResolved(rmId, force) {
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
   return resolveCache[rmId];
 }
+// RM2384 : cohérence git d'un ticket livré (la branche se merge-t-elle proprement
+// dans sa cible ?). Chargé à l'ouverture de la fiche de revue ; verrou in-flight +
+// fraîcheur 30 s pour ne pas relancer un fetch+merge-tree à chaque re-render.
+const mcCache = {};        // rmId → {t, mc}
+const mcInFlight = {};
+function mcFresh(rmId) { const c = mcCache[rmId]; return c && (Date.now() - c.t < 30000); }
+async function ensureMergecheck(rmId, force) {
+  rmId = String(rmId);
+  if (!force && mcFresh(rmId)) return mcCache[rmId].mc;
+  if (mcInFlight[rmId]) return;
+  mcInFlight[rmId] = true;
+  try { mcCache[rmId] = { t: Date.now(), mc: await api("/mergecheck/" + encodeURIComponent(rmId)) }; }
+  catch (e) { mcCache[rmId] = { t: Date.now(), mc: null }; }
+  finally { mcInFlight[rmId] = false; }
+  return mcCache[rmId].mc;
+}
+// >>> mcBanner — pur (testé par test_cockpit.js) : HTML de la bannière de
+// cohérence git à partir du verdict serveur. Aucun DOM, aucune I/O.
+function mcBanner(mc) {
+  if (!mc || !mc.verdict) return "";
+  const v = mc.verdict, lvl = v.level || "unknown";
+  const ICON = { ok: "✅", warn: "⚠️", block: "⛔", unknown: "❔" };
+  let inner = '<div class="mc-head">' + (ICON[lvl] || "") + " " + esc(v.headline || "") + '</div>';
+  if (v.detail) inner += '<div class="mc-detail">' + esc(v.detail) + '</div>';
+  if (v.advice) inner += '<div class="mc-advice">→ ' + esc(v.advice) + '</div>';
+  if (mc.mr_url) inner += '<div class="mc-mr"><a href="' + esc(mc.mr_url) + '" target="_blank">MR ↗</a></div>';
+  return '<div class="mcbanner mc-' + esc(lvl) + '">' + inner + '</div>';
+}
+// <<< mcBanner
 // RM2373 : conso tokens live de la session (entrée/sortie séparées), lue du
 // transcript via /usage. Rafraîchie à la demande + auto (20 s) tant que l'encart
 // est ouvert ; un verrou in-flight évite les rafales sur les renders répétés.
@@ -4536,6 +4703,85 @@ function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sess
 // usage…) : il rafraîchit les deux panneaux.
 let metaFacet = "detail";  // facette active de l'onglet tickets (detail|conso|workspace)
 
+// ----- RM1952 : triage ROI des tickets ouverts -----
+let triageData = null;
+async function loadTriage(force) {
+  const box = document.getElementById("triage-list");
+  if (!box) return;
+  if (triageData && !force) { renderTriage(); return; }
+  box.innerHTML = '<div style="color:var(--muted)">calcul du classement ROI…</div>';
+  try {
+    triageData = await api("/triage");
+    fillTriageFilters();
+    renderTriage();
+  } catch (e) {
+    box.innerHTML = '<div class="tr-err">échec du classement : ' + esc(e.message) + '</div>';
+  }
+}
+function fillTriageFilters() {
+  const tickets = (triageData && triageData.tickets) || [];
+  const cs = document.getElementById("tr-client");
+  if (!cs) return;
+  const clients = [...new Set(tickets.map(t => t.client).filter(Boolean))].sort();
+  // défaut : le contexte client courant (RM2639) s'il est posé
+  const prevC = cs.value || (typeof clientContext !== "undefined" ? clientContext : "") || "";
+  cs.innerHTML = '<option value="">tous les clients</option>' +
+    clients.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join("");
+  if (clients.includes(prevC)) cs.value = prevC;
+  fillTriageProjects();
+}
+function fillTriageProjects() {
+  const tickets = (triageData && triageData.tickets) || [];
+  const cs = document.getElementById("tr-client"), ps = document.getElementById("tr-project");
+  if (!cs || !ps) return;
+  const cur = cs.value, prev = ps.value;
+  const projs = [...new Set(tickets.filter(t => !cur || t.client === cur).map(t => t.project).filter(Boolean))].sort();
+  ps.innerHTML = '<option value="">tous les projets</option>' +
+    projs.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
+  if (projs.includes(prev)) ps.value = prev;
+}
+function renderTriage() {
+  const box = document.getElementById("triage-list");
+  if (!box || !triageData) return;
+  fillTriageProjects();
+  const c = document.getElementById("tr-client").value;
+  const p = document.getElementById("tr-project").value;
+  const hideValid = document.getElementById("tr-hidevalid").checked;
+  const rows = triageFilter(triageData.tickets, c, p, hideValid);
+  if (!rows.length) { box.innerHTML = '<div style="color:var(--muted)">aucun ticket ouvert avec ces filtres</div>'; return; }
+  box.innerHTML = '<div class="tr-count">' + rows.length + ' ticket(s) · triés par levier ROI</div>' +
+    rows.slice(0, 60).map((e, i) => triageRowHtml(e, i + 1)).join("") +
+    (rows.length > 60 ? '<div class="tr-more">… ' + (rows.length - 60) + ' de plus (affine les filtres)</div>' : "");
+}
+// >>> triageFilter — pur (testé par test_cockpit.js)
+function triageFilter(tickets, client, project, hideValid) {
+  return (tickets || []).filter(function (t) {
+    if (client && t.client !== client) return false;
+    if (project && t.project !== project) return false;
+    if (hideValid && t.awaiting_validation) return false;
+    return true;
+  });
+}
+// <<< triageFilter
+// >>> triageRowHtml — pur (testé par test_cockpit.js) : une ligne de triage.
+function triageRowHtml(e, rank) {
+  if (!e) return "";
+  const badges = [];
+  if (e.unblocks) badges.push('<span class="tr-badge tr-unblock" title="débloque ' + e.unblocks + ' ticket(s) ouvert(s)">🔓 ' + e.unblocks + '</span>');
+  if (e.awaiting_validation) badges.push('<span class="tr-badge tr-valid" title="en attente de validation">⏳</span>');
+  if (e.blocked) badges.push('<span class="tr-badge tr-blocked" title="bloqué par : ' + esc((e.blocked_by || []).join(", ")) + '">⛔</span>');
+  const t = e.time_minutes ? Math.round(e.time_minutes) + ' min' : '';
+  return '<div class="tr-row" onclick="showTicket(' + Number(e.rm_id) + ')" title="Ouvrir la fiche du ticket">' +
+    '<span class="tr-rank">' + rank + '</span>' +
+    '<span class="tr-score" title="score ROI = gain € × priorité / coût">' + esc(String(e.score)) + '</span>' +
+    '<span class="tr-rm">RM' + esc(String(e.rm_id)) + '</span>' +
+    '<span class="tr-title">' + esc(e.title || '') + '</span>' +
+    '<span class="tr-meta"><span class="pill">' + esc(e.status || '') + '</span>' +
+    ' <span class="tr-prio tr-prio-' + esc(e.priority) + '">' + esc(e.priority) + '</span>' +
+    (t ? ' <span class="tr-time">' + esc(t) + '</span>' : '') +
+    (badges.length ? ' ' + badges.join(' ') : '') + '</span></div>';
+}
+// <<< triageRowHtml
 function renderMeta() { renderInfos(); renderTickets(); }
 
 // ── Onglet « infos » : niveau session uniquement ──
@@ -4911,6 +5157,62 @@ document.addEventListener("click", function (ev) {
   const g = t && t.closest ? t.closest(".gloss") : null;
   if (g) { ev.preventDefault(); ev.stopPropagation(); openGlossary(g.getAttribute("data-term")); }
 });
+
+// ----- RM2458 : santé du poste (page de statut) -----
+// >>> envStatusHtml — pur (testé par test_cockpit.js) : rendu de /env-status.
+// Chaque ligne colorée par niveau ; les rouges/oranges affichent la commande de
+// remédiation + un bouton « copier » (la commande n'entre JAMAIS dans un attribut
+// onclick — esCopy lit le <code> voisin, donc pas d'échappement fragile).
+function envStatusHtml(report) {
+  if (!report || !report.groups) return '<div class="es-detail">état indisponible</div>';
+  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
+  const s = (report.summary && report.summary.counts) || { ok: 0, warn: 0, error: 0 };
+  let h = '<div class="es-head"><span style="color:var(--ok)">✓ ' + (s.ok || 0) + "</span> · "
+    + '<span style="color:var(--warn)">! ' + (s.warn || 0) + "</span> · "
+    + '<span style="color:#f85149">✗ ' + (s.error || 0) + "</span>"
+    + (report.generated_at ? '<span class="es-when">' + esc(report.generated_at) + "</span>" : "") + "</div>";
+  report.groups.forEach(function (g) {
+    h += '<div class="es-group"><div class="es-gname">' + esc(g.name || "") + "</div>";
+    (g.checks || []).forEach(function (c) {
+      const lv = c.level || "info";
+      h += '<div class="es-row es-' + esc(lv) + '">'
+        + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
+        + '<span class="es-label">' + esc(c.label || "") + "</span>"
+        + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
+      if (c.fix) {
+        h += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
+          + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
+      }
+      h += "</div>";
+    });
+    h += "</div>";
+  });
+  return h;
+}
+// <<< envStatusHtml
+let envStatusCache = null;
+async function openEnvStatus(force) {
+  document.getElementById("doctitle").textContent = "🩺 Santé du poste";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = '<div class="es-bar"><button class="mini" onclick="openEnvStatus(true)" title="Relancer le diagnostic">↻ rafraîchir</button>'
+    + '<span class="es-hint">outils · secrets · git/GitLab · SSH · PM — chaque défaut porte sa commande</span></div>'
+    + '<div id="es-body" style="color:var(--muted)">diagnostic en cours…</div>';
+  document.getElementById("docmodal").classList.add("show");
+  try {
+    if (force || !envStatusCache) envStatusCache = await api("/env-status");
+    const body = document.getElementById("es-body");
+    if (body) body.innerHTML = envStatusHtml(envStatusCache);
+  } catch (e) {
+    const body = document.getElementById("es-body");
+    if (body) body.innerHTML = '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">échec du diagnostic : ' + esc(e.message) + "</span></div>";
+  }
+}
+async function esCopy(btn) {
+  const code = btn.previousElementSibling;
+  const ok = await writeClip(code ? code.textContent : "");
+  toast(ok ? "Commande copiée" : "Copie refusée", !ok);
+}
 
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
@@ -5665,6 +5967,7 @@ function openReview(rm) {
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
   ensureResolved(rm).then(() => { if (currentReview === rm) { renderReviewPane(); renderMeta(); renderCurTitle(); } });
+  ensureMergecheck(rm).then(() => { if (currentReview === rm) renderReviewPane(); });  // RM2384
   if (tqCache[rm] === undefined) loadTestQueue();   // rafraîchit env/branche
   refreshSessions();                     // re-rend la liste « en cours » (actif)
 }
@@ -5756,6 +6059,16 @@ function renderReviewPane() {
       h += '<div class="kv"><span class="k">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">' + esc(e.url) + ' ↗</a></span></div>';
     });
     h += '</div>';
+  }
+  // — RM2384 : cohérence git (mergeabilité de la branche dans sa cible) —
+  // Anticipe l'échec de merge au moment du verdict (RM2000) : on le signale AVANT
+  // de proposer « fermer / demander la MEP », avec l'action de remédiation.
+  if (r && r.found) {
+    const mc = mcCache[rm] && mcCache[rm].mc;
+    h += '<div class="ms"><h4>Cohérence git</h4>' +
+      (mc ? mcBanner(mc)
+          : '<div style="color:var(--muted)">vérification de la mergeabilité en cours…</div>') +
+      '</div>';
   }
   // — verdict —
   h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +

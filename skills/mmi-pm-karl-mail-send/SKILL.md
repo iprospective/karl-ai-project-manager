@@ -1,6 +1,6 @@
 ---
 name: mmi-pm-karl-mail-send
-description: Envoie un email depuis karl@iprospective.fr via SMTP iProspective (Postfix, port 465). V1 send-only. Credentials Vaultwarden, jamais loggués. Append automatique au .log.md du ticket si RM-id fourni. Usage : "/mmi-pm-karl-mail-send --to a@b.fr --subject 'X' --body 'Y'", ou langage naturel "envoie un mail à client@x.fr depuis karl pour dire que RM1234 est livré".
+description: Envoie un email depuis karl@iprospective.fr via SMTP iProspective (Postfix, port 465), et copie le message envoyé dans le dossier Sent via IMAP APPEND. Credentials Vaultwarden, jamais loggués. Append automatique au .log.md du ticket si RM-id fourni. Usage : "/mmi-pm-karl-mail-send --to a@b.fr --subject 'X' --body 'Y'", ou langage naturel "envoie un mail à client@x.fr depuis karl pour dire que RM1234 est livré".
 allowed-tools: Bash, Read, AskUserQuestion
 ---
 
@@ -75,4 +75,5 @@ EOF
 - `From:` est toujours `Karl (iProspective Agent) <karl@iprospective.fr>` (l'agent ne peut pas se faire passer pour quelqu'un d'autre)
 - `BCC` n'apparaît pas dans les headers reçus (comme attendu RFC) mais est listé dans le `.log.md` local
 - Subject auto-préfixé `[RM<id>]` si `--rm-id` (sauf si déjà préfixé)
-- V1 : pas de pièces jointes, pas de HTML, pas de réception/IMAP. Voir roadmap dans la description de RM1723.
+- Après l'envoi SMTP, le message est ré-appendé dans le dossier `Sent` du compte via IMAP (mêmes credentials). Non bloquant : un échec d'APPEND ne fait pas échouer l'envoi, juste un warning sur stderr (le mail est déjà parti).
+- V1 : pas de pièces jointes, pas de HTML, pas de réception/fetch IMAP entrant. Voir roadmap dans la description de RM1723.

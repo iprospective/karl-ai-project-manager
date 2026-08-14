@@ -81,6 +81,9 @@ API (JSON, localhost:9876)
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
                                    description, log…) depuis le MD local (RM1893 §1)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
+  GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
+  GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
@@ -4442,6 +4445,93 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     return out[:limit]
 
 
+# ── RM1952 : triage ROI des tickets ouverts — prochaine action à plus fort levier ─
+# Croise priorité, estimation (temps/tokens), gain attendu (ROI) et dépendances
+# pour répondre « quel ticket travailler maintenant ? ». Le score ROI (€) réutilise
+# priority.py (RM1717) — source unique de vérité, aucun calcul divergent ici.
+_TRIAGE_OPEN = {"nouveau", "a_faire", "en_cours",
+                "a_tester_dev", "a_tester_demandeur", "a_mep"}
+_TRIAGE_VALID = {"a_tester_dev", "a_tester_demandeur", "a_mep"}
+
+
+# >>> triage_flags — pure (testée par test_karl_agent_triage.py)
+def triage_flags(depends_on, status_by_id, unblocks_count, status):
+    """Signaux de levier d'un ticket ouvert. Un dépendant non `ferme` (ou inconnu)
+    le bloque ; unblocks_count = nombre de tickets ouverts qui l'attendent."""
+    blocked_by = [dep for dep in (depends_on or []) if status_by_id.get(dep) != "ferme"]
+    return {
+        "blocked": bool(blocked_by),
+        "blocked_by": blocked_by,
+        "awaiting_validation": status in _TRIAGE_VALID,
+        "unblocks": int(unblocks_count or 0),
+    }
+# <<< triage_flags
+
+
+def op_triage(qs: dict) -> dict:
+    """RM1952 : classement ROI décroissant des tickets ouverts (filtres client/projet).
+    Une passe légère (`_read_task_meta`) donne le statut de TOUS les tickets ; le
+    frontmatter complet (roi/estimate/deps) n'est lu que pour les ouverts."""
+    import priority as _prio
+    rate = _prio.hourly_rate_eur()
+    fq_client = (qs.get("client") or "").strip() or None
+    fq_project = (qs.get("project") or "").strip() or None
+
+    status_by_id, open_files = {}, []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        rid = int(m.group(1))
+        status_by_id[rid] = _read_task_meta(tf)["status"]
+        if status_by_id[rid] in _TRIAGE_OPEN:
+            open_files.append((tf, rid))
+
+    parsed, unblocks = [], {}
+    for tf, rid in open_files:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if not isinstance(fm, dict):
+            continue
+        for dep in fm.get("depends_on") or []:
+            unblocks[dep] = unblocks.get(dep, 0) + 1
+        parsed.append((tf, rid, fm))
+
+    tickets = []
+    for tf, rid, fm in parsed:
+        cl, pr = _task_client_project(tf)
+        if fq_client and cl != fq_client:
+            continue
+        if fq_project and pr != fq_project:
+            continue
+        status = str(fm.get("status") or "")
+        est = fm.get("estimate") if isinstance(fm.get("estimate"), dict) else {}
+        roi = fm.get("roi") if isinstance(fm.get("roi"), dict) else {}
+        flags = triage_flags(fm.get("depends_on"), status_by_id, unblocks.get(rid, 0), status)
+        tickets.append({
+            "rm_id": rid,
+            "title": fm.get("title") or "",
+            "status": status,
+            "priority": fm.get("priority") or "normal",
+            "type": fm.get("type") or "",
+            "client": cl, "project": pr,
+            "score": round(_prio.task_score(fm, rate), 1),
+            "time_minutes": est.get("time_minutes"),
+            "tokens": est.get("tokens"),
+            "immediate_benefit": roi.get("immediate_benefit"),
+            "monthly_benefit": roi.get("monthly_benefit"),
+            "completion_pct": fm.get("completion_pct") or 0,
+            **flags,
+        })
+    # score ROI décroissant ; à score égal, ce qui débloque le plus remonte
+    tickets.sort(key=lambda e: (e["score"], e["unblocks"]), reverse=True)
+    return {"rate_eur": rate, "count": len(tickets), "tickets": tickets}
+
+
 # ── Statut du workspace de la tâche (intérim ; outil dédié = RM1883) ─────────
 def _git(cwd, *args, timeout=8):
     try:
@@ -4705,6 +4795,130 @@ def op_workspace_status(rm_id: str) -> dict:
     }
 
 
+# ── RM2384 : cohérence git d'un ticket livré, AVANT « valider et fermer » ─────
+# À l'affichage d'un ticket a_tester_* dans la fiche de revue, on anticipe l'échec
+# de merge décrit par Mathieu (RM2000 : branche antérieure aux merges de la cible,
+# conflit CHANGELOG, échec sec au moment de l'action). On répond à la vraie
+# question — « cette branche se merge-t-elle proprement dans sa cible ? » — en
+# LOCAL et de façon AUTORITAIRE via `git merge-tree` (simulation de merge, sans
+# toucher le worktree ni pousser). Le retard (behind) reste une heuristique de
+# repli quand merge-tree est indisponible (vieux git, permissions).
+
+# >>> mergecheck_verdict — pure (testée par test_karl_agent_mergecheck.py)
+def mergecheck_verdict(*, is_git, has_worktree, target, behind=0, ahead=0,
+                       mergeable=None, conflicts=None, target_missing=False):
+    """Classe l'état de mergeabilité d'un ticket livré → {level, headline,
+    detail, advice}. `level` ∈ ok|warn|block|unknown. Pur : aucune I/O."""
+    conflicts = conflicts or []
+    if not is_git or not has_worktree:
+        return {"level": "unknown", "headline": "Cohérence git non vérifiable",
+                "detail": "worktree de code introuvable pour ce ticket",
+                "advice": ""}
+    if target_missing:
+        return {"level": "unknown",
+                "headline": "Branche cible introuvable (" + str(target) + ")",
+                "detail": "impossible de comparer la branche à sa cible d'intégration",
+                "advice": "vérifier le fetch de la cible / le manifeste (integration_branch)"}
+    if mergeable is False:
+        n = len(conflicts)
+        shown = ", ".join(conflicts[:6]) + (" …" if n > 6 else "")
+        return {"level": "block",
+                "headline": "Conflit de merge avec " + str(target)
+                            + " (" + str(n) + " fichier(s))",
+                "detail": shown,
+                "advice": "merge " + str(target) + " dans la branche, résous les "
+                          "conflits, pousse — AVANT de fermer / demander la MEP"}
+    if mergeable is True and behind > 0:
+        return {"level": "ok",
+                "headline": "Merge propre — branche en retard de " + str(behind)
+                            + " sur " + str(target),
+                "detail": "aucun conflit malgré le retard : la MR se mergera",
+                "advice": ""}
+    if mergeable is True:
+        return {"level": "ok", "headline": "Branche à jour, merge propre",
+                "detail": "", "advice": ""}
+    # mergeable is None : merge-tree indisponible → heuristique du retard
+    if behind > 0:
+        return {"level": "warn",
+                "headline": "Branche en retard de " + str(behind)
+                            + " commit(s) sur " + str(target),
+                "detail": "mergeabilité non vérifiée (merge-tree indisponible) — conflit possible",
+                "advice": "par prudence, merge " + str(target)
+                          + " dans la branche avant de fermer"}
+    return {"level": "ok", "headline": "Branche à jour",
+            "detail": "mergeabilité non vérifiée", "advice": ""}
+# <<< mergecheck_verdict
+
+
+def _parse_merge_tree_conflicts(rc, out):
+    """(mergeable, conflicts) depuis `git merge-tree --write-tree --name-only`.
+    rc 0 → propre ; rc 1 → conflit, stdout = OID\\n\\n<fichiers en conflit> ;
+    autre → indéterminé (permissions, vieux git)."""
+    if rc == 0:
+        return True, []
+    if rc == 1:
+        lines = (out or "").splitlines()
+        return False, [l for l in lines[1:] if l.strip()]
+    return None, []
+
+
+def op_mergecheck(rm_id: str) -> dict:
+    """RM2384 : la branche du ticket se merge-t-elle proprement dans sa cible ?
+    Lecture seule côté worktree (merge-tree simule, n'applique rien)."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    # cible d'intégration (défaut dev) — best-effort, ne bloque pas la vérif
+    target = "dev"
+    try:
+        _, _, target = _mr_deliver_context(rm_id)
+    except ApiError:
+        target = "dev"
+    cwd, origin_label = _ticket_repo(rm_id)
+    tf = _find_task_file(rm_id)
+    mr_url = None
+    if tf:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            mr_url = git.get("mr_url")
+        except OSError:
+            pass
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    is_git = rc == 0
+    has_worktree = is_git and cwd != Path(DEFAULT_CWD) and not _is_pm_data_repo(cwd)
+    base = {"rm_id": rm_id, "cwd": str(cwd), "origin": origin_label,
+            "target": target, "mr_url": mr_url, "is_git": is_git,
+            "has_worktree": has_worktree}
+    if not has_worktree:
+        return {**base, "verdict": mergecheck_verdict(
+            is_git=is_git, has_worktree=False, target=target)}
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    # rafraîchir la cible (best-effort) : le behind/mergeable doit refléter la
+    # cible actuelle, pas un origin/<target> figé au dernier fetch de la session.
+    _git(cwd, "fetch", "origin", target, timeout=20)
+    remote_target = "origin/" + target
+    rc, _, _ = _git(cwd, "rev-parse", "--verify", "--quiet", remote_target)
+    target_missing = rc != 0
+    behind = ahead = 0
+    mergeable, conflicts = None, []
+    if not target_missing:
+        rc, ab, _ = _git(cwd, "rev-list", "--left-right", "--count",
+                         remote_target + "...HEAD")
+        if rc == 0 and ab:
+            parts = ab.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                behind, ahead = int(parts[0]), int(parts[1])
+        rc, out, _ = _git(cwd, "merge-tree", "--write-tree", "--name-only",
+                          remote_target, "HEAD", timeout=30)
+        mergeable, conflicts = _parse_merge_tree_conflicts(rc, out)
+    verdict = mergecheck_verdict(
+        is_git=True, has_worktree=True, target=target, behind=behind, ahead=ahead,
+        mergeable=mergeable, conflicts=conflicts, target_missing=target_missing)
+    return {**base, "branch": branch, "behind": behind, "ahead": ahead,
+            "mergeable": mergeable, "conflicts": conflicts[:20],
+            "target_missing": target_missing, "verdict": verdict}
+
+
 # ── Explorateur de fichiers (RM2586) : worktrees de la session, lecture seule ──
 # Sécurité (défense en profondeur) :
 #  1. le worktree demandé DOIT figurer dans les worktrees de la session (registre
@@ -4714,6 +4928,32 @@ def op_workspace_status(rm_id: str) -> dict:
 #  3. lecture seule, taille bornée, binaires refusés.
 _FS_MAX_BYTES = 512 * 1024
 _FS_SKIP = {".git"}
+
+
+# >>> fs_hide — pure (testée par test_karl_agent_session_files.py)
+def _fs_hide(subpath: str, name: str) -> bool:
+    """RM2659 : entrées invisibles dans l'explorateur.
+
+    `.mmi-pm/tasks` compte ~1 300 fiches de tickets, que le cockpit sait déjà
+    montrer par ailleurs ; les dérouler ici noie `docs/`, `project/` et
+    `memory/`, qui sont ce qu'on vient y chercher. Le masquage vise un CHEMIN,
+    pas un nom : un dossier `tasks/` dans du code reste visible."""
+    if name in _FS_SKIP:
+        return True
+    return (subpath or "").strip("/") == ".mmi-pm" and name == "tasks"
+# <<< fs_hide
+
+
+# >>> fs_hidden_path — pure (testée par test_karl_agent_session_files.py)
+def _fs_hidden_path(subpath: str) -> bool:
+    """Vrai si le chemin EST une entrée masquée, ou se trouve dedans.
+
+    Sans ça, « masqué » ne voudrait dire que « pas cliquable » : le dossier
+    resterait servi à qui devine son chemin. Même règle que `_fs_hide`,
+    appliquée segment par segment — une seule définition du masquage."""
+    parts = [x for x in str(subpath or "").strip("/").split("/") if x]
+    return any(_fs_hide("/".join(parts[:i]), seg) for i, seg in enumerate(parts))
+# <<< fs_hidden_path
 
 
 def _session_worktrees(sid: str) -> list:
@@ -4766,10 +5006,86 @@ def _project_doc_roots(client: str, project: str) -> list:
     return [str(pdir / sub) for sub in ("project", "docs") if (pdir / sub).is_dir()]
 
 
+def _workspace_root(path) -> Path | None:
+    """RM2659 : racine du workspace contenant `path` — 1er ancêtre portant un
+    `.mmi-pm/`. Les worktrees de session vivent sous `<racine>/envs/`, mais un
+    layout ancien les met à côté de la racine : dans ce cas il n'y a rien à
+    remonter et on rend None plutôt qu'une racine devinée."""
+    try:
+        p = Path(path).resolve()
+    except (OSError, TypeError):
+        return None
+    for d in (p, *p.parents):
+        if (d / ".mmi-pm").exists() and (d / ".mmi-pm" / "meta.yml").is_file():
+            return d
+    return None
+
+
+def _root_project(root) -> tuple | None:
+    """(client, projet) d'une racine de workspace, lus dans `.mmi-pm/meta.yml`.
+
+    C'est l'inverse exact de `_resolve_workspace` : `<racine>/.mmi-pm` EST le
+    dossier du projet PM (RM1949, co-localisation), et son `meta.yml` porte le
+    couple. Pas de scan des clients, pas de devinette sur le nom du dossier —
+    un workspace peut s'appeler autrement que son projet (`ai-project-management`
+    pour `pm-ai-agents`)."""
+    meta = Path(root) / ".mmi-pm" / "meta.yml"
+    try:
+        import yaml as _y
+        d = _y.safe_load(meta.read_text(encoding="utf-8")) or {}
+    except Exception:      # absent, illisible, YAML cassé : pas de projet, pas de plantage
+        return None
+    if not isinstance(d, dict):
+        return None
+    client, slug = d.get("client"), d.get("slug")
+    if not (_PART_RE.match(str(client or "")) and _PART_RE.match(str(slug or ""))):
+        return None
+    return str(client), str(slug)
+
+
+def _session_projects(sid: str) -> list:
+    """RM2659 : les projets auxquels la session touche — son cwd et chacun de
+    ses worktrees. Une session sur plusieurs projets n'est pas un cas d'école :
+    7 sur 62 au registre (client + PM, deux infras de clients différents…)."""
+    out = {}
+    k = _key_info(sid) or {}
+    for cand in [k.get("cwd"), *(_session_worktrees(sid) or [])]:
+        root = _workspace_root(cand) if cand else None
+        if not root or str(root) in out:
+            continue
+        cp = _root_project(root)
+        if not cp:
+            continue
+        client, project = cp
+        out[str(root)] = {
+            "root": str(root), "name": root.name, "client": client, "project": project,
+            "docs": [{"path": d, "name": Path(d).name,
+                      "docs": len(list(Path(d).glob("*.md"))),
+                      "label": ("documents du projet" if Path(d).name == "docs"
+                                else "fiches canoniques (overview, environnements)")}
+                     for d in _project_doc_roots(client, project)],
+        }
+    return list(out.values())
+
+
+def _session_project_roots(sid: str) -> set:
+    """Racines lisibles apportées par les projets de la session (racine + doc)."""
+    allowed = set()
+    for pr in _session_projects(sid):
+        allowed.add(pr["root"])
+        allowed |= {d["path"] for d in pr["docs"]}
+    return allowed
+
+
 def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str = None) -> Path:
     """Le worktree demandé doit appartenir au périmètre autorisé : les worktrees de
-    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590."""
+    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590.
+    RM2659 y ajoute les racines des projets de la session : elles REJOIGNENT la
+    liste blanche, elles ne l'ouvrent pas — le modèle reste « une racine
+    déclarée, ou rien »."""
     allowed = set(_session_worktrees(sid)) if sid else set()
+    if sid:
+        allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
         allowed |= set(_project_doc_roots(client, project))   # RM2622
@@ -4785,6 +5101,8 @@ def _safe_subpath(base: Path, subpath: str) -> Path:
     sp = PurePosixPath(subpath or "")
     if sp.is_absolute() or ".." in sp.parts:
         raise ApiError(403, "sous-chemin invalide")
+    if _fs_hidden_path(subpath):          # RM2659
+        raise ApiError(403, "dossier masqué dans l'explorateur (les tickets ont leurs propres vues)")
     target = base / sp
     try:
         rp, broot = target.resolve(), base.resolve()
@@ -4838,7 +5156,10 @@ def _git_brief(cwd: Path) -> dict:
 
 
 def op_worktrees(sid: str) -> dict:
-    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers)."""
+    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers).
+    RM2659 : et les PROJETS auxquels la session touche — leur racine de
+    workspace et leur documentation. Le « core » cessait ainsi d'apparaître
+    comme un worktree parmi d'autres : il EST la racine."""
     if not _valid_sid(sid):
         raise ApiError(400, "sid invalide")
     out = []
@@ -4848,7 +5169,14 @@ def op_worktrees(sid: str) -> dict:
         if p.is_dir():
             item.update(_git_brief(p))
         out.append(item)
-    return {"sid": sid, "worktrees": out}
+    projects = []
+    for pr in _session_projects(sid):
+        root = Path(pr["root"])
+        item = dict(pr, exists=root.is_dir())
+        if root.is_dir():
+            item.update(_git_brief(root))
+        projects.append(item)
+    return {"sid": sid, "worktrees": out, "projects": projects}
 
 
 def op_project_worktrees(client: str, project: str) -> dict:
@@ -4879,7 +5207,7 @@ def op_fs_ls(sid: str, worktree: str, subpath: str, client: str = None, project:
         raise ApiError(404, "dossier introuvable")
     entries = []
     for e in target.iterdir():
-        if e.name in _FS_SKIP:
+        if _fs_hide(subpath, e.name):
             continue
         try:
             is_dir = e.is_dir()
@@ -5513,6 +5841,472 @@ def _probe_cockpit_test_env(host: str) -> tuple:
         return False, f"instance non servie (HTTP {r.status})"
     except OSError as exc:
         return False, f"injoignable ({exc.__class__.__name__})"
+
+
+# ── RM2458 : page de statut de l'environnement (santé du poste) ───────────────
+# Agrège ce qui n'est visible nulle part aujourd'hui — prérequis cassés, repos PM
+# en divergence non poussée, secrets injoignables — et donne, PAR LIGNE, la
+# commande de remédiation (un statut « bw manquant » sans la commande fait perdre
+# autant de temps que pas de statut). Deux incidents fondateurs (2026-07-30,
+# RM2455) doivent toujours être attrapés : `bw` absent, un repo PM en divergence.
+# Aucun secret n'est jamais rendu : présence/absence de variables uniquement.
+
+ENV_TOOLS = [
+    ("git", "sudo apt install git"),
+    ("python3", "sudo apt install python3"),
+    ("psql", "sudo apt install postgresql-client"),
+    ("php", "sudo apt install php-cli"),
+    ("composer", "sudo apt install composer"),
+    ("bw", "npm config set prefix ~/.local && npm i -g @bitwarden/cli"),
+    ("nc", "sudo apt install netcat-openbsd"),
+    ("glab", "installer glab dans ~/.local/bin (gitlab.com/gitlab-org/cli)"),
+]
+_ENV_REPO_SKIP = {"envs", "repos", "node_modules", ".git", "vendor", "var"}
+
+
+def _chk(label, level, detail="", fix=""):
+    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation."""
+    return {"label": label, "level": level, "detail": detail, "fix": fix}
+
+
+# >>> envstatus_summary — pure (testée par test_karl_agent_envstatus.py)
+_ENV_LEVEL_RANK = {"ok": 0, "info": 1, "warn": 2, "error": 3}
+
+
+def envstatus_summary(groups):
+    """Compte par niveau + niveau global (le pire) sur tous les checks. Pur."""
+    counts = {"ok": 0, "info": 0, "warn": 0, "error": 0}
+    worst = "ok"
+    for g in groups or []:
+        for c in g.get("checks", []):
+            lv = c.get("level", "info")
+            if lv not in counts:
+                lv = "info"
+            counts[lv] += 1
+            if _ENV_LEVEL_RANK[lv] > _ENV_LEVEL_RANK[worst]:
+                worst = lv
+    return {"counts": counts, "worst": worst}
+# <<< envstatus_summary
+
+
+# >>> git_divergence_level — pure (testée) : classe un repo git.
+def git_divergence_level(ahead, behind, dirty):
+    """(level, detail) d'un repo. ahead>0 sans push = travail en attente (l'incident
+    pisceen) ; ahead>0 ET behind>0 = divergence non-fast-forward (push refusé)."""
+    a, b, d = int(ahead or 0), int(behind or 0), int(dirty or 0)
+    parts = []
+    if a:
+        parts.append(f"{a} commit(s) non poussé(s)")
+    if b:
+        parts.append(f"{b} commit(s) en retard")
+    if d:
+        parts.append(f"{d} fichier(s) modifié(s)")
+    detail = ", ".join(parts) if parts else "à jour, propre"
+    if a and b:
+        return "error", detail
+    if a or b or d:
+        return "warn", detail
+    return "ok", detail
+# <<< git_divergence_level
+
+
+# >>> path_local_bin_first — pure (testée) : ~/.local/bin en tête de PATH ?
+def path_local_bin_first(path_value, home):
+    """Le prefix npm pointe ~/.local/bin ; il doit précéder les répertoires système."""
+    dirs = [p for p in (path_value or "").split(os.pathsep) if p]
+    target = str(Path(home) / ".local" / "bin")
+    if target not in dirs:
+        return "warn", "~/.local/bin absent du PATH"
+    idx = dirs.index(target)
+    sys_idx = next((i for i, p in enumerate(dirs)
+                    if p in ("/usr/bin", "/usr/local/bin", "/bin")), len(dirs))
+    if idx < sys_idx:
+        return "ok", "~/.local/bin en tête"
+    return "warn", "~/.local/bin présent mais après les répertoires système"
+# <<< path_local_bin_first
+
+
+def _iter_task_files(limit=500):
+    out = []
+    try:
+        for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
+            if p.name.endswith(".log.md"):
+                continue
+            out.append(p)
+            if len(out) >= limit:
+                break
+    except OSError:
+        pass
+    return out
+
+
+def _env_repo_label(root):
+    for base in ALLOWED_ROOTS:
+        try:
+            return str(Path(root).resolve().relative_to(base))
+        except ValueError:
+            continue
+    return Path(root).name
+
+
+def _is_pm_repo(p):
+    """Un repo PM = un workspace de code PM-tracké (porte un `.mmi-pm`) OU un repo
+    de données dont le nom finit en `-core` (l'incident pisceen : infra-core). On
+    exclut ainsi les miroirs de code non-PM (dolibarr/…, libs) du même arbre."""
+    try:
+        if (p / ".mmi-pm").exists():
+            return True
+    except OSError:
+        pass
+    return p.name.endswith("-core")
+
+
+def _enumerate_pm_repos(limit=120):
+    """Repos PM sous les racines autorisées (profondeur 1 = core ; 2 = workspaces
+    client/projet). Saute les worktrees transients (envs/) et les bare (repos/).
+    Dédup par chemin RÉSOLU (un symlink et sa cible ne comptent qu'une fois)."""
+    roots, seen = [], set()
+
+    def add(p):
+        try:
+            rp = str(p.resolve())
+        except OSError:
+            rp = str(p)
+        if rp in seen:
+            return
+        try:                       # .mmi-pm-core (root-owned) : stat de .git peut refuser
+            is_repo = (p / ".git").exists()
+        except OSError:
+            is_repo = False
+        if is_repo and _is_pm_repo(p):
+            seen.add(rp)
+            roots.append(p)
+
+    def _isdir(p):
+        try:
+            return p.is_dir()
+        except OSError:
+            return False
+
+    for base in ALLOWED_ROOTS:
+        if not base.is_dir():
+            continue
+        try:
+            level1 = sorted(base.iterdir())
+        except OSError:
+            continue
+        for d1 in level1:
+            if not _isdir(d1) or d1.name in _ENV_REPO_SKIP:
+                continue
+            add(d1)
+            if len(roots) >= limit:
+                break
+            try:
+                for d2 in sorted(d1.iterdir()):
+                    if not _isdir(d2) or d2.name in _ENV_REPO_SKIP:
+                        continue
+                    add(d2)
+                    if len(roots) >= limit:
+                        break
+            except OSError:
+                pass
+            if len(roots) >= limit:
+                break
+        if len(roots) >= limit:
+            break
+    return roots[:limit]
+
+
+def _probe_repo(root):
+    label = _env_repo_label(root)
+    rc, _, err = _git(root, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        if "permission" in (err or "").lower():
+            return _chk(f"repo {label}", "info",
+                        "root-owned (prod PM) — non ausculté depuis l'hôte")
+        return None
+    _, branch, _ = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    ahead = behind = 0
+    ab_known = False
+    rc2, ab, _ = _git(root, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    if rc2 == 0 and ab:
+        parts = ab.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            behind, ahead = int(parts[0]), int(parts[1])
+            ab_known = True
+    rc3, porc, _ = _git(root, "status", "--porcelain")
+    dirty = sum(1 for l in porc.splitlines() if l and not l.startswith("??")) if rc3 == 0 else 0
+    lv, det = git_divergence_level(ahead, behind, dirty)
+    if not ab_known:
+        det += " · pas d'upstream"
+    fix = ""
+    if ahead and behind:
+        fix = f"cd {root} && git pull --rebase --autostash  # puis pousser (main protégée → MR, git-mep)"
+    elif ahead:
+        fix = f"cd {root} && git push  # ou, si main protégée : push origin main:dev + MR (git-mep)"
+    elif behind:
+        fix = f"cd {root} && git pull --rebase --autostash"
+    return _chk(f"repo {label} [{branch}]", lv, det, fix)
+
+
+def _probe_pat():
+    script = REPO_ROOT / "scripts" / "pm-token-check.py"
+    if not script.exists():
+        return _chk("PAT GitLab", "info", "pm-token-check absent")
+    try:
+        p = subprocess.run([sys.executable, str(script), "--threshold", "7"],
+                           capture_output=True, text=True, timeout=25, cwd=str(REPO_ROOT))
+    except (OSError, subprocess.TimeoutExpired):
+        return _chk("PAT GitLab", "warn", "pm-token-check : timeout/erreur")
+    if p.returncode == 0:
+        return _chk("PAT GitLab", "ok", "tous les tokens sains (échéance > 7 j)")
+    if p.returncode == 2:
+        tail = [l for l in (p.stdout or "").splitlines() if l.strip()]
+        return _chk("PAT GitLab", "warn", tail[-1][:120] if tail else "un token ≤ 7 j / inactif",
+                    "scripts/pm-token-check.py --rotate-due")
+    return _chk("PAT GitLab", "warn", "pm-token-check en erreur (réseau/API ?)")
+
+
+def _envchk_tools():
+    import shutil
+    out = []
+    for name, fix in ENV_TOOLS:
+        path = shutil.which(name)
+        if not path:
+            out.append(_chk(name, "error", "binaire introuvable", fix))
+            continue
+        ver = ""
+        try:
+            p = subprocess.run([name, "--version"], capture_output=True, text=True, timeout=4)
+            lines = [l for l in ((p.stdout or "") + (p.stderr or "")).splitlines() if l.strip()]
+            ver = lines[0].strip()[:80] if lines else ""
+            # certains binaires (nc) n'ont pas de --version → sortie « usage/invalid »
+            if re.search(r"invalid option|usage:", ver, re.I):
+                ver = ""
+        except (OSError, subprocess.TimeoutExpired):
+            ver = ""
+        out.append(_chk(name, "ok", ver or path))
+    lv, det = path_local_bin_first(os.environ.get("PATH", ""), os.path.expanduser("~"))
+    out.append(_chk("PATH ~/.local/bin", lv, det,
+                    'export PATH="$HOME/.local/bin:$PATH"' if lv != "ok" else ""))
+    return out
+
+
+def _envchk_secrets():
+    import socket as _socket
+    out = []
+    sock = f"/run/user/{os.getuid()}/vault-agentd.sock"
+    if not os.path.exists(sock):
+        out.append(_chk("vault-agentd", "error", "socket absent (agent non démarré)",
+                        "scripts/unlock-vault.sh"))
+    else:
+        try:
+            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect(sock)
+            s.sendall(b"PING\n")
+            rep = s.recv(64).decode("utf-8", "replace").strip()
+            s.close()
+            if rep.startswith("OK"):
+                out.append(_chk("vault-agentd", "ok", "joignable (PING → OK)"))
+            else:
+                out.append(_chk("vault-agentd", "warn", f"réponse inattendue : {rep[:40]}",
+                                "scripts/unlock-vault.sh"))
+        except OSError as e:
+            out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
+                            "scripts/unlock-vault.sh"))
+    envf = REPO_ROOT / ".env"
+    needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
+    try:
+        present = set()
+        for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = line.strip()
+            if line and not line.startswith("#") and "=" in line:
+                present.add(line.split("=", 1)[0].strip())
+        missing = [v for v in needed if v not in present]
+        if missing:
+            out.append(_chk(".env Vaultwarden", "warn",
+                            "variable(s) absente(s) : " + ", ".join(missing),
+                            "renseigner dans " + str(envf)))
+        else:
+            out.append(_chk(".env Vaultwarden", "ok",
+                            "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents"))
+    except OSError:
+        out.append(_chk(".env Vaultwarden", "warn", f".env illisible ({envf})"))
+    return out
+
+
+# >>> gitlab_push_check_line — pure (testée) : ligne de statut du watchdog RM2376.
+def gitlab_push_check_line(state, age_seconds):
+    """(level, detail, fix) à partir de l'état du watchdog push GitLab. Pur."""
+    if not state:
+        return ("warn", "jamais vérifié (watchdog non exécuté)",
+                "scripts/pm-gitlab-push-check.py")
+    age = ""
+    if age_seconds is not None:
+        mins = int(age_seconds // 60)
+        age = " · il y a " + (str(mins) + " min" if mins else "moins d'1 min")
+    stale = age_seconds is not None and age_seconds > 3600
+    if state.get("ok"):
+        lvl = "warn" if stale else "ok"
+        det = (state.get("detail") or "auth OK") + age + (" (périmé)" if stale else "")
+        return (lvl, det, "scripts/pm-gitlab-push-check.py" if stale else "")
+    return ("error", (state.get("detail") or "auth KO") + age,
+            state.get("remediation") or "voir RM2158 (clé dédiée)")
+# <<< gitlab_push_check_line
+
+
+def _gitlab_push_state(max_age=900):
+    """État du watchdog push GitLab (RM2376). Lit le JSON écrit par
+    pm-gitlab-push-check ; le rafraîchit EN DIRECT s'il manque ou est périmé — le
+    cockpit tourne dans le conteneur dev, là où l'auth de la clé dédiée est valide."""
+    sp = Path(os.environ.get("KARL_GITLAB_CHECK_STATE") or (STATE_DIR / "gitlab-push.json"))
+
+    def _read():
+        try:
+            return json.loads(sp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def _age(st):
+        if not st or not st.get("checked_at"):
+            return None
+        try:
+            return time.time() - time.mktime(time.strptime(st["checked_at"], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, TypeError):
+            return None
+
+    st = _read()
+    age = _age(st)
+    if st is None or age is None or age > max_age:
+        script = REPO_ROOT / "scripts" / "pm-gitlab-push-check.py"
+        if script.exists():
+            try:
+                subprocess.run([sys.executable, str(script)], capture_output=True,
+                               text=True, timeout=15)
+                st = _read() or st
+                age = _age(st)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return st, age
+
+
+def _envchk_git():
+    import concurrent.futures
+    pairs = []
+    roots = _enumerate_pm_repos()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futs = {pool.submit(_probe_repo, r): r for r in roots}
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                chk = fut.result()
+            except Exception:
+                chk = None
+            if chk:
+                pairs.append((_env_repo_label(futs[fut]), chk))
+    out = [c for _, c in sorted(pairs, key=lambda x: x[0])]
+    if len(roots) >= 120:   # cap atteint : le DIRE plutôt que laisser croire à l'exhaustivité
+        out.append(_chk("repos PM", "info", "liste tronquée à 120 repos — certains non auscultés"))
+    out.append(_probe_pat())
+    key = Path(os.path.expanduser("~/.ssh/id_ed25519_gitlab"))
+    if key.exists():
+        out.append(_chk("clé GitLab dédiée", "ok",
+                        "id_ed25519_gitlab présente (push sans agent)"))
+    else:
+        out.append(_chk("clé GitLab dédiée", "warn", "~/.ssh/id_ed25519_gitlab absente",
+                        "repli HTTPS+token possible ; installer la clé pour SSH-first"))
+    # RM2376 : « karl peut-il pousser ? » — auth SSH GitLab vérifiée en direct
+    st, age = _gitlab_push_state()
+    lvl, det, fix = gitlab_push_check_line(st, age)
+    out.append(_chk("push GitLab (karl)", lvl, det, fix))
+    return out
+
+
+def _envchk_ssh():
+    out = []
+    sock = os.environ.get("SSH_AUTH_SOCK", "")
+    fix_sock = "export SSH_AUTH_SOCK=/run/user/$(id -u)/ssh-agent.sock"
+    if not sock:
+        out.append(_chk("agent SSH", "warn", "SSH_AUTH_SOCK non défini", fix_sock))
+        return out
+    try:
+        p = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        out.append(_chk("agent SSH", "warn", "ssh-add indisponible"))
+        return out
+    if p.returncode == 0:
+        keys = [line.split()[-1] for line in p.stdout.splitlines() if len(line.split()) >= 3]
+        out.append(_chk("agent SSH", "ok",
+                        f"joignable, {len(keys)} clé(s) : " + ", ".join(keys[:6])))
+    elif p.returncode == 1:
+        out.append(_chk("agent SSH", "warn",
+                        "agent joignable mais VIDE (push GitLab OK via la clé dédiée)",
+                        "ssh-add ~/.ssh/id_rsa_root  # Mathieu ; clés sous passphrase"))
+    else:
+        out.append(_chk("agent SSH", "warn",
+                        "agent injoignable (SSH_AUTH_SOCK pointe ailleurs ?)", fix_sock))
+    return out
+
+
+def _envchk_pm():
+    out = []
+    vf = REPO_ROOT / "norms" / "VERSION"
+    try:
+        norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+    except (OSError, IndexError):
+        norms_v = ""
+    schemas = {}
+    orphans = []
+    for tf in _iter_task_files(limit=600):
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        sv = str(fm.get("schema_version") or "")
+        if sv:
+            schemas[sv] = schemas.get(sv, 0) + 1
+        if str(fm.get("status") or "") == "en_cours":
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            if not git.get("branch"):
+                m = re.search(r"RM(\d+)_", tf.name)
+                orphans.append("RM" + (m.group(1) if m else "?"))
+    if norms_v and len(schemas) > 1:
+        out.append(_chk("versions PM", "info",
+                        f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))
+    else:
+        modal = max(schemas, key=schemas.get) if schemas else "?"
+        out.append(_chk("versions PM", "ok",
+                        f"norms/VERSION={norms_v or '?'} · schema_version={modal}"))
+    if orphans:
+        out.append(_chk("tâches en_cours", "warn",
+                        f"{len(orphans)} sans branche (git.branch vide) : "
+                        + ", ".join(orphans[:8]),
+                        "reprendre via pm-branch-start (RM2224) ou clôturer"))
+    else:
+        out.append(_chk("tâches en_cours", "ok", "toutes ont une branche résoluble"))
+    return out
+
+
+def op_env_status() -> dict:
+    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
+    remédiation. Chaque famille est isolée : une sonde qui casse ne fait jamais
+    échouer la page. Aucun secret rendu (noms de variables uniquement)."""
+    families = [
+        ("Outils & dépendances", _envchk_tools),
+        ("Secrets", _envchk_secrets),
+        ("Git / GitLab", _envchk_git),
+        ("SSH", _envchk_ssh),
+        ("PM", _envchk_pm),
+    ]
+    groups = []
+    for name, fn in families:
+        try:
+            checks = fn()
+        except Exception as exc:  # une famille ne doit jamais tuer la page
+            checks = [_chk(name, "warn", f"contrôle en erreur ({exc.__class__.__name__})")]
+        groups.append({"name": name, "checks": checks})
+    return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "groups": groups, "summary": envstatus_summary(groups)}
 
 
 def op_test_queue(qs: dict) -> list:
@@ -6384,6 +7178,13 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_git_diff(path[len("/git/diff/"):], qs))
             if path.startswith("/workspace-status/"):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
+            if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
+                return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/env-status":              # RM2458 : santé du poste
+                return self._send_json(200, op_env_status())
+            if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_triage(qs))
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))

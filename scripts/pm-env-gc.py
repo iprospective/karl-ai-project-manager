@@ -10,18 +10,22 @@ Retire un worktree si, ET SEULEMENT SI, les trois gardes passent :
   2. il est PROPRE (aucune modif non commitée) ;
   3. il est INTÉGRÉ : HEAD est ancêtre de `origin/main` ou `origin/dev` (donc
      aucun commit local non mergé / non poussé à perdre).
-Puis supprime sa branche locale en **merge-safe** (`git branch -d`, jamais `-D`).
-Un worktree sale ou non intégré est SAUTÉ (garde de non-perte). Les worktrees
+Puis supprime sa branche locale, **après avoir vérifié la même intégration**
+(RM2660 : `git branch -d` compare au HEAD du bare — une branche arbitraire —
+et refusait 78 branches pourtant présentes dans `origin/main`). Un worktree
+sale ou non intégré est SAUTÉ (garde de non-perte). Les worktrees
 d'intégration (branche `dev`/`main`/… = pas d'id de ticket) et le bare sont
 ignorés.
 
-Dry-run par DÉFAUT (liste ce qui serait retiré) ; `--apply` exécute.
+Dry-run par DÉFAUT (liste ce qui serait retiré) ; `--apply` exécute. Le
+dry-run et l'exécution posent exactement la même question : ce que le premier
+annonce, le second le fait.
 
 Usage :
     pm-env-gc.py                       # dry-run depuis le workspace courant
     pm-env-gc.py --fetch               # rafraîchit origin/* d'abord
     pm-env-gc.py --apply               # exécute le nettoyage
-    mmi-pm env gc [--apply]            # via la façade CLI
+    mmi-pm env-gc [--apply]            # via la façade CLI
 """
 import argparse
 import re
@@ -64,7 +68,13 @@ def ticket_status(cfg: PMConfig, rm_id: int):
 
 
 def integrated(bare: Path, head: str):
-    """(True, ref) si `head` est ancêtre d'une branche d'intégration connue."""
+    """(True, ref) si `head` est ancêtre d'une branche d'intégration connue.
+
+    RM2660 : c'est LA question à poser avant de supprimer quoi que ce soit, et
+    la seule — pour les worktrees comme pour les branches. `git branch -d` en
+    pose une autre : « mergée dans HEAD ? ». Dans un bare, HEAD pointe sur une
+    branche arbitraire (constaté : un reliquat de ticket), donc son verdict ne
+    dit rien sur l'intégration réelle."""
     for ref in ("origin/main", "origin/dev", "main", "dev", "origin/master", "master"):
         if git(["rev-parse", "--verify", "-q", ref + "^{commit}"], cwd=bare).returncode != 0:
             continue
@@ -138,40 +148,61 @@ def gc_worktrees(cfg, bare: Path, apply: bool, verbose: bool):
     return removed, kept, skipped, freed_branches
 
 
-def gc_branches(cfg, bare: Path, apply: bool, skip: set, verbose: bool):
-    """Supprime les branches locales des tickets fermés, en merge-safe (`-d`).
-    `skip` = branches encore rattachées à un worktree (traitées ailleurs)."""
+def gc_branches(cfg, bare: Path, apply: bool, verbose: bool):
+    """Supprime les branches locales des tickets fermés, une fois leur
+    intégration VÉRIFIÉE.
+
+    RM2660 : le dry-run et l'exécution posent désormais la même question, via
+    `integrated()`. Auparavant le dry-run testait l'ancêtre de origin/main
+    (juste) tandis que l'exécution déléguait à `git branch -d` (qui compare au
+    HEAD du bare) : 78 branches étaient annoncées à chaque passage et jamais
+    supprimées. La suppression utilise `-D` PARCE QUE la garde est faite ici,
+    sur la branche d'intégration réelle — c'est plus strict que `-d`, pas
+    moins : `-d` acceptait aussi les branches mergées dans un HEAD arbitraire."""
     out = git(["for-each-ref", "--format=%(refname:short)", "refs/heads/"], cwd=bare).stdout
-    pruned = 0
+    head_br = git(["symbolic-ref", "--short", "-q", "HEAD"], cwd=bare).stdout.strip()
+    # Branches encore checkoutées : git refuse de les supprimer, et le worktree
+    # qui les tient a ses propres raisons d'exister (sale, ticket ouvert…).
+    # Les annoncer serait promettre une suppression impossible — le défaut même
+    # que ce ticket corrige. Relevé APRÈS le GC des worktrees : ceux qui ont été
+    # retirés ne figurent plus ici.
+    in_use = {e["branch"] for e in worktree_entries(bare) if e.get("branch")}
+    pruned, kept_unmerged, kept_busy = 0, 0, 0
     for br in out.split():
-        if br in skip:
-            continue
         m = TICKET_RE.match(br)
         if not m:
             continue
         if ticket_status(cfg, int(m.group(1))) != "ferme":
             continue
+        if br in in_use:
+            kept_busy += 1
+            if verbose:
+                print(f"  · branche {br} — encore rattachée à un worktree → gardée")
+            continue
+        ok, ref = integrated(bare, br)
+        if not ok:
+            kept_unmerged += 1
+            if verbose:
+                print(f"  · branche {br} (RM{m.group(1)} ferme) — commits non intégrés → gardée")
+            continue
+        if br == head_br:
+            # on ne supprime pas la branche sur laquelle pointe HEAD : git refuse,
+            # et le silence ferait réapparaître la ligne à chaque passage.
+            kept_busy += 1
+            if verbose:
+                print(f"  · branche {br} — HEAD du bare pointe dessus → gardée")
+            continue
         if apply:
-            r = git(["branch", "-d", br], cwd=bare)  # -d : refuse si non mergée
+            r = git(["branch", "-D", br], cwd=bare)
             if r.returncode != 0:
-                if verbose:
-                    print(f"  · branche {br} non supprimée (non mergée ?) — gardée")
+                print(f"      ✗ échec suppression {br} : {r.stderr.strip()}")
+                kept_unmerged += 1
                 continue
-            print(f"  ✓ branche locale supprimée : {br}")
+            print(f"  ✓ branche locale supprimée : {br} (intégrée dans {ref})")
         else:
-            # dry-run : ne supprime pas, mais teste la même sûreté que `-d` (mergée ?)
-            base_ok = any(git(["merge-base", "--is-ancestor", br, ref], cwd=bare).returncode == 0
-                          for ref in ("origin/main", "main", "origin/dev", "dev")
-                          if git(["rev-parse", "--verify", "-q", ref + "^{commit}"], cwd=bare).returncode == 0)
-            if base_ok:
-                print(f"  → branche locale à supprimer : {br}")
-            elif verbose:
-                print(f"  · branche {br} (RM{m.group(1)} ferme) mais non mergée → gardée")
-                continue
-            else:
-                continue
+            print(f"  → branche locale à supprimer : {br} (intégrée dans {ref})")
         pruned += 1
-    return pruned
+    return pruned, kept_unmerged, kept_busy
 
 
 def main():
@@ -192,18 +223,27 @@ def main():
         sys.exit(f"aucun bare repos/*.git sous {ws}")
 
     print(f"workspace : {ws}\nmode      : {'APPLY' if args.apply else 'dry-run (aucune suppression)'}\n")
-    tot_r = tot_k = tot_s = tot_b = 0
+    tot_r = tot_k = tot_s = tot_b = tot_bk = tot_bb = 0
     for bare in bares:
         print(f"── {bare.name} ──")
         if args.fetch:
             git(["fetch", "--all", "-q"], cwd=bare)
-        r, k, s, freed = gc_worktrees(cfg, bare, args.apply, args.verbose)
-        b = gc_branches(cfg, bare, args.apply, set(freed), args.verbose)
-        tot_r, tot_k, tot_s, tot_b = tot_r + r, tot_k + k, tot_s + s, tot_b + b
+        r, k, s, _freed = gc_worktrees(cfg, bare, args.apply, args.verbose)
+        b, bk, bb = gc_branches(cfg, bare, args.apply, args.verbose)
+        tot_r, tot_k, tot_s = tot_r + r, tot_k + k, tot_s + s
+        tot_b, tot_bk, tot_bb = tot_b + b, tot_bk + bk, tot_bb + bb
 
     verb = "retirés" if args.apply else "à retirer"
     print(f"\n{tot_r} worktree(s) {verb} · {tot_b} branche(s) locale(s) {'supprimée(s)' if args.apply else 'à supprimer'} "
           f"· {tot_k} gardé(s) · {tot_s} sauté(s) (sale/non intégré)")
+    # RM2660 : ce qui est gardé faute d'intégration se dit, sinon la seule trace
+    # d'un travail non mergé serait une ligne de moins dans un décompte.
+    if tot_bk or tot_bb:
+        détail = ", ".join(
+            x for x in (f"{tot_bk} non intégrée(s)" if tot_bk else "",
+                        f"{tot_bb} rattachée(s) à un worktree" if tot_bb else "") if x)
+        print(f"branche(s) gardée(s) : {détail}"
+              + ("" if args.verbose else " (--verbose pour les lister)"))
     if not args.apply and (tot_r or tot_b):
         print("→ relancer avec --apply pour exécuter.")
 

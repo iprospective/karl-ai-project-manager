@@ -1389,4 +1389,147 @@ assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
   "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
 console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
 
+// — RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue —
+const mcBanner = grabO("mcBanner", { esc: escO });
+assert.strictEqual(mcBanner(null), "", "mc absent → pas de bannière");
+assert.strictEqual(mcBanner({}), "", "mc sans verdict → pas de bannière");
+const bOk = mcBanner({ verdict: { level: "ok", headline: "Branche à jour, merge propre" } });
+assert(/class="mcbanner mc-ok"/.test(bOk) && /✅/.test(bOk), "niveau ok → classe + icône vertes");
+assert(/Branche à jour/.test(bOk) && !/mc-advice/.test(bOk), "titre rendu, pas de conseil sans advice");
+const bBlock = mcBanner({
+  mr_url: "https://gitlab.x/mr/1",
+  verdict: { level: "block", headline: "Conflit de merge avec dev (2 fichier(s))",
+             detail: "CHANGELOG.md, src/app.py",
+             advice: "merge dev dans la branche, résous, pousse" } });
+assert(/class="mcbanner mc-block"/.test(bBlock) && /⛔/.test(bBlock), "conflit → bannière rouge");
+assert(/mc-advice[^>]*>→ /.test(bBlock), "la remédiation est mise en avant (→)");
+assert(/CHANGELOG.md/.test(bBlock), "les fichiers en conflit apparaissent");
+assert(/href="https:\/\/gitlab\.x\/mr\/1"/.test(bBlock), "le lien MR est proposé quand il existe");
+const bXss = mcBanner({ verdict: { level: "warn", headline: "en retard <b>x</b>" } });
+assert(/&lt;b&gt;/.test(bXss) && !/<b>/.test(bXss), "le titre est échappé (anti-XSS)");
+const bUnk = mcBanner({ verdict: {} });
+assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
+console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
+
+// — RM2458 : rendu de la page de santé du poste —
+const envStatusHtml = grabO("envStatusHtml", { esc: escO });
+assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
+const rep = {
+  generated_at: "2026-08-12T20:00:00",
+  summary: { counts: { ok: 3, info: 0, warn: 1, error: 1 } },
+  groups: [
+    { name: "Outils & dépendances", checks: [
+      { label: "bw", level: "error", detail: "binaire introuvable", fix: "npm i -g @bitwarden/cli" },
+      { label: "git", level: "ok", detail: "git version 2.43.0" } ] },
+    { name: "Git / GitLab", checks: [
+      { label: "repo pisceen/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard",
+        fix: "cd /w && git pull --rebase --autostash" } ] },
+  ],
+};
+const esh = envStatusHtml(rep);
+assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
+assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
+  "la ligne rouge montre le détail ET la commande de remédiation");
+assert(/onclick="esCopy\(this\)"/.test(esh), "chaque remédiation a son bouton copier (sans arg dans l'onclick)");
+assert(esh.indexOf('<code class="es-fix">') < esh.indexOf('esCopy'),
+  "la commande vit dans le <code> AVANT le bouton (esCopy lit le voisin) — pas dans l'attribut");
+assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est affiché");
+const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
+assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
+console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
+
+// — RM2659 : les racines de la session, groupées par projet —
+// Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
+// panneau doit les distinguer au lieu de supposer qu'il n'y en a qu'un.
+const mFg = />>> filesGroups[\s\S]*?(function filesGroups[\s\S]*?)\n\/\/ <<< filesGroups/.exec(html);
+assert(mFg, "marqueurs >>> filesGroups introuvables");
+const filesGroups = vm.runInNewContext("(" + mFg[1] + ")");
+const P1 = { root: "/w/appli", name: "appli", client: "ca", project: "appli",
+             docs: [{ path: "/pm/ca/appli/docs", name: "docs", label: "documents du projet", docs: 4 }] };
+const P2 = { root: "/w/infra", name: "infra", client: "cb", project: "infra", docs: [] };
+const W = [{ path: "/w/appli/envs/appli-rm42", name: "appli-rm42", exists: true },
+           { path: "/w/infra/envs/infra-rm7", name: "infra-rm7", exists: true }];
+let gs = filesGroups([P1, P2], W);
+assert.strictEqual(gs.length, 2, "deux projets → deux groupes");
+assert.deepStrictEqual(Array.from(gs.map(g => g.label)), ["appli", "infra"],
+  "l'ordre du serveur est conservé");
+assert.strictEqual(gs[0].roots[0].kind, "root", "la racine du workspace vient en premier");
+assert.strictEqual(gs[0].roots[0].path, "/w/appli", "…et c'est bien la racine, pas un worktree");
+assert(gs[0].roots.some(r => r.kind === "doc" && r.name === "docs"), "la doc du projet suit");
+assert(gs[0].roots.some(r => r.path === "/w/appli/envs/appli-rm42"),
+  "le worktree de la session est rattaché à SON projet");
+assert(!gs[0].roots.some(r => r.path === "/w/infra/envs/infra-rm7"),
+  "et pas à l'autre projet");
+// un seul projet : c'est le cas courant (84 % des sessions)
+gs = filesGroups([P1], [W[0]]);
+assert.strictEqual(gs.length, 1, "un seul projet → un seul groupe");
+// un worktree hors de toute racine connue ne doit pas disparaître
+gs = filesGroups([P1], [{ path: "/ailleurs/vieux-layout", name: "vieux", exists: true }]);
+assert.strictEqual(gs.length, 2, "un worktree orphelin forme son propre groupe");
+assert.strictEqual(gs[1].label, "hors projet", "…nommé pour ce qu'il est");
+assert.strictEqual(gs[1].roots[0].name, "vieux", "…et il est bien dedans");
+// un worktree disparu du disque n'est pas proposé
+gs = filesGroups([P1], [{ path: "/w/appli/envs/x", name: "x", exists: false }]);
+assert(!gs[0].roots.some(r => r.name === "x"), "un worktree absent du disque n'est pas listé");
+// pas de préfixe accidentel : /w/appli ne doit pas capturer /w/appli-autre
+gs = filesGroups([P1], [{ path: "/w/appli-autre/envs/y", name: "y", exists: true }]);
+assert.strictEqual(gs.length, 2, "un chemin voisin n'est pas avalé par la racine");
+// entrées vides / absentes : le panneau ne doit pas tomber
+assert.strictEqual(filesGroups(null, null).length, 0, "aucune donnée → aucun groupe");
+assert.strictEqual(filesGroups([{ name: "sans racine" }], []).length, 0,
+  "un projet sans racine est ignoré plutôt que rendu à moitié");
+console.log("✓ fichiers (RM2659) : racines groupées par projet, multi-projets couvert");
+const mGo = />>> filesGroupOf[\s\S]*?(function filesGroupOf[\s\S]*?)\n\/\/ <<< filesGroupOf/.exec(html);
+assert(mGo, "marqueurs >>> filesGroupOf introuvables");
+const filesGroupOf = vm.runInNewContext("(" + mGo[1] + ")");
+const G = filesGroups([P1, P2], W);
+assert.strictEqual(filesGroupOf(G, "/w/infra").label, "infra",
+  "le groupe actif suit la racine ouverte");
+assert.strictEqual(filesGroupOf(G, "/w/appli/envs/appli-rm42").label, "appli",
+  "…y compris depuis un worktree");
+assert.strictEqual(filesGroupOf(G, "/inconnu").label, "appli",
+  "un chemin inconnu retombe sur le premier groupe, pas sur rien");
+assert.strictEqual(filesGroupOf([], "/x"), null, "sans groupe, pas de groupe actif");
+console.log("✓ fichiers (RM2659) : le projet actif suit ce qu'on lit");
+// la racine du projet a son icône et se distingue d'un worktree
+const rootLbl = fileRootLabel({ kind: "root", name: "ai-project-management",
+                                label: "racine du workspace", path: "/w/x" });
+assert.strictEqual(rootLbl.icon, "🏠", "la racine du projet porte sa propre icône");
+assert(/racine du workspace/.test(rootLbl.tip), "l'infobulle dit ce que c'est");
+// le rendu : barre des projets seulement s'il y en a plusieurs
+const mRf2 = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/groups\.length > 1/.test(mRf2[0]),
+  "la barre des projets n'apparaît qu'à partir de deux projets");
+const mLf = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
+assert(/filesGroups\(/.test(mLf[0]),
+  "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
+console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
+
+// — RM1952 : triage ROI des tickets ouverts —
+const triageFilter = grabO("triageFilter");
+const triageRowHtml = grabO("triageRowHtml", { esc: escO });
+const TT = [
+  { rm_id: 1, client: "iprospective", project: "atlas", awaiting_validation: false },
+  { rm_id: 2, client: "iprospective", project: "infra", awaiting_validation: true },
+  { rm_id: 3, client: "calicote", project: "prestashop", awaiting_validation: false },
+];
+assert.strictEqual(triageFilter(TT, "", "", false).length, 3, "sans filtre → tout");
+assert.strictEqual(triageFilter(TT, "iprospective", "", false).length, 2, "filtre client");
+assert.strictEqual(triageFilter(TT, "iprospective", "infra", false).length, 1, "filtre client+projet");
+assert.strictEqual(triageFilter(TT, "", "", true).length, 2, "masquer la validation retire les a_tester_*");
+assert.strictEqual([...triageFilter(null, "", "", false)].length, 0, "liste absente tolérée");
+// rendu d'une ligne : score, RM cliquable (numérique), badges, échappement
+assert.strictEqual(triageRowHtml(null, 1), "", "entrée absente → vide");
+const row = triageRowHtml({ rm_id: 42, title: "Fix <b>x</b>", status: "nouveau", priority: "high",
+  score: 200, time_minutes: 90, unblocks: 3, blocked: true, blocked_by: [7, 8], awaiting_validation: false }, 1);
+assert(/onclick="showTicket\(42\)"/.test(row), "clic → showTicket avec id numérique (pas d'injection)");
+assert(/tr-score[^>]*>200</.test(row) && />RM42</.test(row), "score et RM affichés");
+assert(/🔓 3/.test(row) && /tr-blocked/.test(row), "badges débloque + bloqué");
+assert(/bloqué par : 7, 8/.test(row), "l'infobulle liste les bloqueurs");
+assert(/Fix &lt;b&gt;x&lt;\/b&gt;/.test(row) && !/<b>/.test(row), "titre échappé (anti-XSS)");
+assert(/90 min/.test(row), "estimation de temps affichée");
+const rv = triageRowHtml({ rm_id: 9, title: "v", status: "a_mep", priority: "normal", score: 5, awaiting_validation: true }, 2);
+assert(/⏳/.test(rv) && !/🔓/.test(rv), "en validation → ⏳ ; pas de badge débloque sans unblocks");
+console.log("✓ triage (RM1952) : filtres, score, débloquants/bloqués, échappement");
+
 console.log("OK — tous les tests cockpit passent");

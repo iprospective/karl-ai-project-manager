@@ -1557,6 +1557,20 @@ assert(/setWritable\(/.test(mGhost2673[1]), "⊖ et ⟳ des tuiles grises aussi"
 const mSetList2673 = /async function loadSessionSet\(\)[\s\S]*?\n\}/.exec(html);
 assert(/r\.derived \? "" :/.test(mSetList2673[0]),
   "la liste des entrées n'offre ni ⊖ ni ⟳ sur un jeu dérivé");
+// une session VIVANTE appartient aussi aux jeux dérivés (RM2537) : son ⊖ doit
+// tomber sous la même règle que celui des tuiles grises
+const mLive2673 = /\(s\.sets \|\| \[\]\)\.includes\(currentSet\)([^?]*)\?/.exec(html);
+assert(mLive2673 && /setWritable\(/.test(mLive2673[1]),
+  "⊖ d'une session vivante : masqué quand le jeu courant est dérivé");
+// déplacer / scinder touchent eux aussi les entrées d'un jeu
+const mMove2673 = /const canMove = ([^;]+);/.exec(html);
+assert(mMove2673 && /setWritable\(/.test(mMove2673[1]),
+  "« → déplacer » exige un jeu source inscriptible");
+assert(/s\.name !== currentSet && !s\.derived/.test(html),
+  "…et les destinations dérivées ne sont pas proposées");
+const mSplit2673 = /const split = ([^;]+);/.exec(html);
+assert(mSplit2673 && /setWritable\(/.test(mSplit2673[1]),
+  "la scission n'est pas proposée depuis un jeu dérivé");
 console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu dérivé, quelle que soit la vue");
 
 const ticketsOfSession = grabO("ticketsOfSession");

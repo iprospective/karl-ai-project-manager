@@ -1633,7 +1633,11 @@ async function refreshSessions() {
           // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
           // la session du jeu SANS la fermer ; ✕ ferme le tmux (l'entrée reste
           // dans le jeu, en tuile grise — invariant RM2439).
-          ((s.sets || []).includes(currentSet)
+          // RM2673 : une session VIVANTE appartient aussi aux jeux dérivés
+          // (RM2537 : l'appartenance se calcule par la règle) — mais on ne
+          // retire pas à la main d'un ensemble calculé, le serveur refuse (400).
+          // `setWritable` tranche ici comme pour les tuiles grises et le 💾.
+          ((s.sets || []).includes(currentSet) && setWritable(setsCache, currentSet, currentView)
             ? '<span class="tkill tdrop" title="Retirer du jeu « ' + esc(setLabel(currentSet)) +
               ' » — la session continue de tourner">⊖</span>' : "") +
           '<span class="tkill" title="Fermer la session (le tmux est tué ; l\'entrée reste dans le jeu, en tuile grise)">✕</span>';
@@ -1889,13 +1893,17 @@ async function refreshSessionSets() {
     // le rôle de « ＋ jeu depuis la sélection »)
     const tgt = document.getElementById("sel-target");
     const mv = document.getElementById("btn-sel-move");
-    const others = setsCache.filter(s => s.name !== currentSet);
+    // RM2673 : un déplacement touche DEUX jeux — le serveur refuse aussi bien
+    // depuis que vers un jeu dérivé. On retire donc les dérivés des destinations,
+    // et le geste entier quand c'est la source qui est calculée.
+    const others = setsCache.filter(s => s.name !== currentSet && !s.derived);
+    const canMove = selMode && others.length && setWritable(setsCache, currentSet, currentView);
     if (tgt) {
       tgt.innerHTML = others.map(s => '<option value="' + esc(s.name) + '">vers ' +
         esc(s.label) + " (" + s.count + ")</option>").join("");
-      tgt.style.display = (selMode && others.length) ? "" : "none";
+      tgt.style.display = canMove ? "" : "none";
     }
-    if (mv) mv.style.display = (selMode && others.length) ? "" : "none";
+    if (mv) mv.style.display = canMove ? "" : "none";
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
 // >>> setWritable — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -2100,7 +2108,11 @@ async function createSetFromSelection() {
   if (setsCache.some(s => s.name === name)) { toast("le jeu « " + name + " » existe déjà", true); return; }
   // scinder = les retirer du jeu courant ; sinon elles y restent AUSSI (une session
   // peut appartenir à plusieurs jeux — RM2445)
-  const split = window.confirm(
+  // RM2673 : sur un jeu DÉRIVÉ, la scission est refusée par le serveur (son
+  // contenu se calcule). On ne pose pas une question dont une des réponses ne
+  // peut qu'échouer : le nouveau jeu se crée, l'ancien continue de désigner ce
+  // que sa règle désigne.
+  const split = setWritable(setsCache, currentSet, currentView) && window.confirm(
     "Les RETIRER du jeu « " + setLabel(currentSet) + " » (scinder) ?\n\n" +
     "OK = scinder · Annuler = les garder dans les deux jeux");
   const body = { group: name, label: label, sids: [...selected] };

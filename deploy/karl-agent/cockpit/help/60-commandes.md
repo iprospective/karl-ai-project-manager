@@ -21,6 +21,18 @@ de test** (create / teardown).
   Lecture seule : rien n'est supprimé, déplacé, ni marqué lu.
 - **File des emails à traiter** : affiche la file courante sans se connecter.
 
+- **Router les emails (client / projet)** : pour chaque email de la file, propose un
+  client et, quand c'est certain, un projet — avec une **confiance** et la **source**
+  de la proposition (fil du ticket, table apprise, compte Redmine de l'expéditeur,
+  contacts du client, indice dans l'adresse). Quand rien n'est sûr, l'email reste
+  « à classer » : le système ne devine pas.
+- **Corriger le client/projet d'un email** : ta correction fait autorité **et est
+  apprise** — le même expéditeur sera routé tout seul la prochaine fois. L'option
+  « apprendre tout le domaine » est refusée sur gmail, orange, free… (elle enverrait
+  tout le courrier de ce fournisseur chez un seul client).
+  Astuce : si l'expéditeur t'écrit sur **plusieurs projets**, corrige vers le
+  **client seul** — le projet restera demandé mail par mail plutôt que figé.
+
 Cette relève **ne crée aucun ticket** : elle prépare le travail de triage
 (rédaction et création à la validation viennent ensuite). Un email dont le sujet
 porte `[RM<id>]` est reconnu comme une **réponse** dans un fil existant.

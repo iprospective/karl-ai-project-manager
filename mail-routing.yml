@@ -1,0 +1,6 @@
+# Routage des emails entrants → client/projet (RM2669).
+# Alimenté par les corrections humaines ; aucun contenu d'email ici.
+# Forme : addresses/<email> ou domains/<domaine> → 'client' ou 'client/projet'.
+addresses:
+  info.calyclay@gmail.com: calyclay
+domains: {}

@@ -41,6 +41,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
   négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
   de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Routage des emails entrants → client/projet** (RM2669, chantier RM2666) :
+  `karl-mail-route.py` + `pm_mail_routing.py` proposent, pour chaque email de la
+  file, un client et — seulement quand c'est certain — un projet, avec **confiance
+  et source** : fil `[RM<id>]`, table apprise `mail-routing.yml`, compte Redmine de
+  l'expéditeur, `contacts[]` du client, indice textuel. Sinon l'email reste « à
+  classer » — jamais de choix silencieux entre deux candidats (tripwire 14). Chaque
+  correction humaine est **apprise** ; apprendre le *domaine* d'un fournisseur grand
+  public (gmail, orange…) est refusé, et les adresses maison sont exclues des
+  indices — sans quoi tout mail de Mathieu partirait chez un client au hasard,
+  `contacts[]` portant la même adresse propriétaire chez les 20 clients.
 - **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
   `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
   de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1

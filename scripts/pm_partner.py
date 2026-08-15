@@ -334,6 +334,115 @@ def apply_pointers(ref, updates):
     return changed
 
 
+# ── push : rendre compte chez le partenaire (N2, RM2656) ──────────────────
+#
+# **Écriture pauvre, et rien d'autre** : une note de texte. Jamais de statut, de champ
+# personnalisé ni de saisie de temps — les ids de `redmine.reference.yml` sont ceux
+# d'iProspective et n'ont aucun sens sur une autre instance (CDC RM2626 § pièges).
+#
+# **Inerte par défaut** : sans `sync.push.on` déclaré sur le secondaire, le PM n'écrit
+# jamais chez un tiers. Activer se fait projet par projet, après revue du gabarit.
+
+# Statuts NORMS → libellé lisible par un tiers. Le partenaire ne connaît pas notre
+# machine d'états : lui envoyer `a_tester_demandeur` ne lui apprendrait rien.
+_STATUS_LABELS = {
+    "en_cours": "pris en charge",
+    "a_tester_dev": "livré, en cours de vérification",
+    "a_tester_demandeur": "livré, en attente de validation",
+    "a_mep": "validé, en attente de mise en production",
+    "en_mep": "en cours de mise en production",
+    "a_corriger": "correction en cours",
+    "en_pause": "en attente",
+    "ferme": "terminé",
+}
+_CLOSE_LABELS = {
+    "resolu": "terminé",
+    "wont_fix": "clos sans suite",
+    "abandonne": "abandonné",
+    "hors_perimetre": "clos (hors périmètre)",
+    "doublon": "clos (doublon)",
+    "invalide": "clos (sans objet)",
+}
+
+
+def push_triggers(resolution):
+    """Statuts NORMS qui déclenchent une note chez ce secondaire (vide = jamais)."""
+    push = (resolution.sync or {}).get("push") or {}
+    if push is True:                     # `push: true` = tolérance de conf, pas un défaut
+        return []
+    return [str(s) for s in (push.get("on") or [])]
+
+
+def should_push(resolution, status):
+    """Ce changement de statut doit-il être annoncé au partenaire ?"""
+    return bool(status) and status in push_triggers(resolution)
+
+
+def status_label(status, close_reason=None):
+    """Libellé lisible d'un statut NORMS (avec nuance de fermeture le cas échéant)."""
+    if status == "ferme" and close_reason:
+        return _CLOSE_LABELS.get(close_reason, _STATUS_LABELS["ferme"])
+    return _STATUS_LABELS.get(status, status or "")
+
+
+def status_note(rm_id, title, status, close_reason=None, message=""):
+    """Gabarit **fermé** de la note de suivi poussée chez le partenaire.
+
+    Ne contient que ce qu'un tiers peut légitimement lire : notre identifiant de suivi,
+    le titre du ticket, l'état en clair, et éventuellement un message rédigé à la main.
+    **Volontairement pas d'URL** : `tasks.iprospective.fr` n'est pas accessible au
+    partenaire — l'y envoyer ne l'aiderait pas et exposerait notre infra pour rien.
+    Rien d'interne (chemin, hôte, branche, environnement de test, secret) n'y entre :
+    une note poussée chez un tiers ne se rattrape pas.
+    """
+    lines = [f"Suivi iProspective : RM{rm_id} — {title}".rstrip(" —")]
+    label = status_label(status, close_reason)
+    if label:
+        lines.append(f"État : {label}.")
+    msg = (message or "").strip()
+    if msg:
+        lines += ["", msg]
+    return "\n".join(lines)
+
+
+def push_status_note(resolution, ref, rm_id, title, status, close_reason=None,
+                     message="", dry_run=False, provider=None):
+    """Poste la note de suivi sur le ticket distant. Retourne le texte posté."""
+    note = status_note(rm_id, title, status, close_reason, message)
+    if dry_run:
+        return note
+    provider = provider or get_task_provider(instance=resolution.instance)
+    provider.add_note(ref.get("issue_id"), note)
+    return note
+
+
+def create_remote_issue(resolution, subject, description="", provider=None):
+    """Crée le ticket **chez le partenaire** et retourne son id.
+
+    Exige que le secondaire déclare `create.tracker_id` (et un `project_id`) : les ids
+    de trackers/priorités d'iProspective ne valent pas chez eux, et il n'existe pas de
+    défaut raisonnable à deviner — mieux vaut une erreur explicite qu'un ticket créé
+    dans le mauvais tracker.
+    """
+    params = resolution.params or {}
+    create = params.get("create") or {}
+    project_id = create.get("project_id") or params.get("project_id")
+    tracker_id = create.get("tracker_id")
+    if not project_id or not tracker_id:
+        raise PartnerError(
+            f"création chez {resolution.instance.name} impossible : déclarer "
+            f"`create: {{tracker_id: <id chez eux>}}` (et `project_id`) sur ce provider "
+            f"secondaire — les ids de tracker ne sont pas portables d'une instance à "
+            f"l'autre")
+    provider = provider or get_task_provider(instance=resolution.instance)
+    issue = provider.create_issue(
+        project_id=project_id, tracker_id=tracker_id,
+        priority_id=create.get("priority_id", 2), subject=subject,
+        description=description,
+        tag_ia=False)          # le CF « IA » est une notion iProspective : pas chez eux
+    return (issue or {}).get("id") if isinstance(issue, dict) else issue
+
+
 # ── politique de rattachement (link.policy) ───────────────────────────────
 
 def required_secondaries(project_meta, registry, axis="task"):

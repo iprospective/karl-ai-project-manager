@@ -21,6 +21,14 @@
   **par lien** — distinct de `redmine_last_journal_id`, qui suit l'instance primaire.
   Lecture seule : rien n'est répercuté sur le statut/priorité/assignation, et un
   partenaire injoignable avertit sans faire échouer. (RM2655.)
+- **task-links** — `pm-task-partner push` + déclencheur sur transition de statut : une
+  **note de suivi** part chez le partenaire quand le secondaire déclare ce statut dans
+  `sync.push.on`. **Défaut : rien ne part** — l'activation est un geste explicite par
+  projet, après revue du gabarit. Écriture **pauvre** (note texte seule), **gabarit
+  fermé** (identifiant, titre, état en clair — jamais de jargon NORMS, de chemin, d'hôte,
+  de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
+  `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
+  `create.tracker_id` déclaré. (RM2656.)
 
 ## [1.68.0] - 2026-08-11
 

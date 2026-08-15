@@ -337,6 +337,102 @@ def test_pull_never_touches_task_state():
     assert up["status"] == "Fermé"
 
 
+# ── push (N2/RM2656) — écriture pauvre, inerte par défaut ──────────────────
+
+def _with_sync(res, sync):
+    return type(res)(res.instance, res.params, res.source, res.role, res.link, sync)
+
+
+def _sec(sync=None, params=None):
+    res = pm_partner.resolve_secondary(_meta(), _reg(), "redmine-matnat")
+    if params is not None:
+        res = type(res)(res.instance, params, res.source, res.role, res.link, res.sync)
+    return _with_sync(res, sync) if sync is not None else res
+
+
+def test_push_is_inert_without_configuration():
+    """Sans `sync.push.on`, le PM n'écrit JAMAIS chez un tiers. C'est le défaut."""
+    assert pm_partner.push_triggers(_sec()) == []
+    assert pm_partner.should_push(_sec(), "ferme") is False
+    assert pm_partner.push_triggers(_sec({"push": True})) == []   # conf floue ≠ tout pousser
+
+
+def test_push_triggers_declared():
+    res = _sec({"push": {"on": ["a_tester_demandeur", "ferme"]}})
+    assert pm_partner.should_push(res, "ferme") is True
+    assert pm_partner.should_push(res, "en_cours") is False
+    assert pm_partner.should_push(res, "") is False
+
+
+def test_status_label_is_readable_by_a_third_party():
+    """Le partenaire ne connaît pas notre machine d'états : pas de jargon NORMS."""
+    assert pm_partner.status_label("a_tester_demandeur") == "livré, en attente de validation"
+    assert pm_partner.status_label("ferme") == "terminé"
+    assert pm_partner.status_label("ferme", "abandonne") == "abandonné"
+    assert pm_partner.status_label("ferme", "wont_fix") == "clos sans suite"
+    # statut inconnu : on rend la valeur brute plutôt que d'inventer
+    assert pm_partner.status_label("bidon") == "bidon"
+
+
+def test_status_note_is_closed():
+    note = pm_partner.status_note(2626, "Gestion multiple de gestionnaires",
+                                  "a_tester_demandeur")
+    assert note.startswith("Suivi iProspective : RM2626 — Gestion multiple")
+    assert "livré, en attente de validation" in note
+    # aucune fuite interne, et surtout PAS d'URL de notre Redmine (inaccessible pour eux)
+    for leak in ("/zfs/", "dev.local", "envs/", "git@", "REDMINE_", "http://", "https://",
+                 "a_tester_demandeur"):
+        assert leak not in note, leak
+
+
+def test_status_note_with_human_message():
+    note = pm_partner.status_note(7, "Titre", "ferme", "resolu",
+                                  message="Livré en prod ce matin.")
+    assert "État : terminé." in note and note.endswith("Livré en prod ce matin.")
+
+
+def test_push_status_note_dry_run_does_not_touch_network():
+    note = pm_partner.push_status_note(_sec(), _ref(), 2626, "Titre", "ferme",
+                                       dry_run=True)
+    assert "Suivi iProspective : RM2626" in note
+
+
+def test_push_status_note_posts_only_a_note():
+    """Écriture pauvre : add_note et rien d'autre (ni statut, ni CF, ni time entry)."""
+    class _P:
+        def __init__(self): self.calls = []
+        def add_note(self, issue_id, note): self.calls.append(("add_note", issue_id, note))
+        def __getattr__(self, name):
+            raise AssertionError(f"le push ne doit appeler que add_note (vu : {name})")
+    p = _P()
+    pm_partner.push_status_note(_sec(), _ref(), 2626, "Titre", "ferme", provider=p)
+    assert len(p.calls) == 1 and p.calls[0][0] == "add_note" and p.calls[0][1] == 1234
+
+
+def test_create_remote_requires_explicit_tracker():
+    """Les ids de tracker ne sont pas portables : pas de devinette silencieuse."""
+    try:
+        pm_partner.create_remote_issue(_sec(params={"project_id": 12}), "Sujet")
+        raise AssertionError("attendu PartnerError (tracker_id absent)")
+    except PartnerError as e:
+        assert "tracker_id" in str(e)
+
+
+def test_create_remote_passes_declared_ids_and_no_ia_tag():
+    class _P:
+        def __init__(self): self.kw = None
+        def create_issue(self, **kw):
+            self.kw = kw
+            return {"id": 4242}
+    p = _P()
+    res = _sec(params={"project_id": 12, "create": {"tracker_id": 3, "priority_id": 4}})
+    assert pm_partner.create_remote_issue(res, "Sujet", "Desc", provider=p) == 4242
+    assert p.kw["project_id"] == 12 and p.kw["tracker_id"] == 3
+    assert p.kw["priority_id"] == 4 and p.kw["subject"] == "Sujet"
+    # le CF « IA » est une notion iProspective — ne pas l'imposer chez un tiers
+    assert p.kw["tag_ia"] is False
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

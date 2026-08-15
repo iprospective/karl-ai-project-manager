@@ -29,6 +29,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Providers
+- **Rendre compte chez le partenaire** (RM2656, N2 du chantier RM2626) :
+  `pm-task-partner push <RM>` poste une **note de suivi** chez les partenaires du ticket,
+  et une **transition de statut** la déclenche automatiquement — mais **seulement** si le
+  secondaire déclare ce statut dans `sync.push.on`. **Défaut : rien ne part chez
+  personne** ; l'activation est un geste explicite par projet, après revue du gabarit,
+  parce qu'une note poussée chez un tiers ne se rattrape pas. Écriture **pauvre** : une
+  note de texte, jamais un statut, un CF ni une saisie de temps (les ids de
+  `redmine.reference.yml` ne valent que chez nous). **Gabarit fermé** : identifiant de
+  suivi, titre, état **en clair** (`a_tester_demandeur` → « livré, en attente de
+  validation » — le partenaire ne connaît pas notre machine d'états), plus un message
+  rédigé à la main ; ni chemin, ni hôte, ni branche, ni URL interne (notre Redmine ne lui
+  est pas accessible). Le hook est **best-effort** : il n'échoue jamais une transition
+  déjà écrite, et reste muet sur les projets sans partenaire (~80 ms). Enfin,
+  `link --create-remote` crée le ticket manquant chez eux puis le rattache, en exigeant
+  un `create.tracker_id` déclaré — les ids de tracker ne sont pas portables.
 - **Lire ce qui se dit chez le partenaire** (RM2655, N1 du chantier RM2626) :
   `pm-task-partner pull <RM>` — ou `--all`, câblable en cron (exemple fourni, 30 min) —
   importe dans le `.log.md` les **notes nouvelles** du ticket rattaché (citées, sous un

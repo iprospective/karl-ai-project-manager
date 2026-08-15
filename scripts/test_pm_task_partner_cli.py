@@ -94,7 +94,8 @@ def _make_tree(tmp, secondary=True, policy="required"):
 
 def _args(**kw):
     base = dict(no_commit=True, dry_run=False, no_remote_note=True, url=None,
-                instance=None, issue=None, role="related", verbose=False, all=False)
+                instance=None, issue=None, role="related", verbose=False, all=False,
+                create_remote=False, remote_description="")
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -373,6 +374,166 @@ def test_pull_all_scans_open_linked_tasks_only():
         assert "1 ticket(s) scanné(s)" in o and "1 avec du neuf" in o
         assert "note pour le ticket ouvert" in _log(proj, 9001)
         assert _log(proj, 9002) == ""          # ticket fermé : jamais réveillé
+
+
+# ── push (N2/RM2656) ───────────────────────────────────────────────────────
+
+@contextlib.contextmanager
+def _capture_push(fail=False):
+    """Intercepte l'envoi chez le partenaire. Retourne la liste des notes postées."""
+    import pm_partner
+    orig = pm_partner.push_status_note
+    posted = []
+
+    def stub(resolution, ref, rm_id, title, status, close_reason=None, message="",
+             dry_run=False, provider=None):
+        note = pm_partner.status_note(rm_id, title, status, close_reason, message)
+        if fail:
+            raise RuntimeError("partenaire injoignable")
+        if not dry_run:
+            posted.append((resolution.instance.name, ref.get("issue_id"), note))
+        return note
+    pm_partner.push_status_note = stub
+    try:
+        yield posted
+    finally:
+        pm_partner.push_status_note = orig
+
+
+def _make_tree_push(tmp, on=("ferme",)):
+    """Arbre dont le secondaire déclare des déclencheurs de push."""
+    cfg, proj = _make_tree(tmp)
+    meta = yaml.safe_load((proj / "meta.yml").read_text(encoding="utf-8"))
+    meta["providers"]["task"][1]["sync"] = {"push": {"on": list(on)}}
+    (proj / "meta.yml").write_text(yaml.safe_dump(meta, allow_unicode=True),
+                                   encoding="utf-8")
+    return cfg, proj
+
+
+def _push(cfg, rm=9001, **kw):
+    base = dict(rm_id=rm, status=None, message=None, force=False, quiet=False)
+    base.update(kw)
+    return _call(cli.cmd_push, cfg, _args(**base))
+
+
+def test_push_is_inert_without_declared_triggers():
+    """Défaut du système : rien ne part chez un tiers tant que ce n'est pas déclaré."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))          # secondaire SANS sync.push
+        _link(cfg, issue=1234)
+        with _capture_push() as posted:
+            rc, o = _push(cfg, status="ferme")
+        assert rc == 0 and posted == []
+        assert "aucun secondaire n'annonce" in o
+
+
+def test_push_posts_when_status_is_declared():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree_push(Path(d), on=("ferme", "a_tester_demandeur"))
+        _link(cfg, issue=1234)
+        with _capture_push() as posted:
+            rc, o = _push(cfg, status="ferme")
+        assert rc == 0, o
+        assert len(posted) == 1 and posted[0][0] == "redmine-matnat"
+        assert "Suivi iProspective : RM9001" in posted[0][2]
+        assert "terminé" in posted[0][2]
+        assert "poussée chez" in _log(proj)      # trace locale de ce qui est sorti
+
+
+def test_push_ignores_non_declared_status():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree_push(Path(d), on=("ferme",))
+        _link(cfg, issue=1234)
+        with _capture_push() as posted:
+            _push(cfg, status="en_cours")
+        assert posted == []
+
+
+def test_push_force_overrides_triggers():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree_push(Path(d), on=())
+        _link(cfg, issue=1234)
+        with _capture_push() as posted:
+            _push(cfg, status="en_cours", force=True)
+        assert len(posted) == 1 and "pris en charge" in posted[0][2]
+
+
+def test_push_dry_run_posts_nothing():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree_push(Path(d))
+        _link(cfg, issue=1234)
+        log_before = _log(proj)
+        with _capture_push() as posted:
+            rc, o = _push(cfg, status="ferme", dry_run=True)
+        assert rc == 0 and posted == [] and "Suivi iProspective" in o
+        assert _log(proj) == log_before
+
+
+def test_push_survives_unreachable_partner():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree_push(Path(d))
+        _link(cfg, issue=1234)
+        with _capture_push(fail=True):
+            rc, o = _push(cfg, status="ferme")
+        assert rc == 0 and "non postée" in o and "injoignable" in o
+
+
+def test_push_quiet_says_nothing_when_there_is_nothing_to_do():
+    """Le hook de transition appelle `push --quiet` : il ne doit rien afficher ni
+    échouer sur les 46 projets sans partenaire, sinon chaque changement de statut
+    se met à bavarder."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))                    # aucun lien, aucun push déclaré
+        with _capture_push() as posted:
+            rc, o = _push(cfg, status="ferme", quiet=True)
+        assert rc == 0 and posted == [] and o.strip() == "", o
+
+
+def test_push_without_any_link_is_quiet():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree_push(Path(d))
+        with _capture_push() as posted:
+            rc, o = _push(cfg, status="ferme")
+        assert rc == 0 and posted == [] and "aucun lien partenaire" in o
+
+
+def test_link_create_remote_creates_then_links():
+    import pm_partner
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        meta = yaml.safe_load((proj / "meta.yml").read_text(encoding="utf-8"))
+        meta["providers"]["task"][1]["create"] = {"tracker_id": 3}
+        (proj / "meta.yml").write_text(yaml.safe_dump(meta, allow_unicode=True),
+                                       encoding="utf-8")
+        cfg = PMConfig.load(Path(d) / "pm")
+        orig = pm_partner.create_remote_issue
+        pm_partner.create_remote_issue = lambda res, subject, description="", provider=None: 4242
+        try:
+            rc, o = _call(cli.cmd_link, cfg,
+                          _args(rm_id=9001, instance="redmine-matnat", issue=None,
+                                role="mirror", create_remote=True, remote_description=""))
+        finally:
+            pm_partner.create_remote_issue = orig
+        assert rc == 0, o
+        refs = _fm(proj)["refs"]
+        assert len(refs) == 1 and refs[0]["issue_id"] == 4242
+
+
+def test_link_create_remote_conflicts_with_issue():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        rc, o = _call(cli.cmd_link, cfg,
+                      _args(rm_id=9001, instance="redmine-matnat", issue=1,
+                            create_remote=True, remote_description=""))
+        assert rc != 0 and "exclusifs" in o
+
+
+def test_link_without_issue_nor_create_remote_fails():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        rc, o = _call(cli.cmd_link, cfg,
+                      _args(rm_id=9001, instance="redmine-matnat", issue=None))
+        assert rc != 0 and "--issue" in o
 
 
 # ── pm-doctor ──────────────────────────────────────────────────────────────

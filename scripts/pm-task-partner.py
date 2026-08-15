@@ -137,7 +137,26 @@ def cmd_link(cfg, args):
         meta, reg = project_context(cfg, ent, proj)
         try:
             res = pm_partner.resolve_secondary(meta, reg, args.instance)
-            ref = pm_partner.build_ref(res, args.issue, role=args.role, url=args.url)
+            issue_id = args.issue
+            if getattr(args, "create_remote", False):
+                # Cas MatNat : le ticket n'existe pas encore chez eux, on le crée puis
+                # on rattache dans la foulée. Le titre part tel quel : c'est le sujet
+                # commun, pas un contenu interne.
+                if issue_id:
+                    out.fail("--create-remote et --issue sont exclusifs "
+                             "(soit on crée le ticket, soit on en cible un existant)")
+                if args.dry_run:
+                    out.op("création distante (dry-run)", rm=rm_id,
+                           extra=f"{args.instance} ← « {fm.get('title', '')} »")
+                    return
+                issue_id = pm_partner.create_remote_issue(
+                    res, fm.get("title", ""), description=args.remote_description or "")
+                if not issue_id:
+                    out.fail(f"création chez {args.instance} : aucun id retourné")
+                out.info(f"  ticket créé chez {args.instance} : #{issue_id}")
+            elif not issue_id:
+                out.fail("préciser --issue <id> (ou --create-remote pour le créer)")
+            ref = pm_partner.build_ref(res, issue_id, role=args.role, url=args.url)
             pm_partner.check_addition(fm, ref)
         except (pm_partner.PartnerError, RegistryError) as e:
             out.fail(str(e), remede="pm-providers resolve task pour voir les secondaires "
@@ -291,6 +310,65 @@ def cmd_pull(cfg, args):
                  + (f", {total_err} lien(s) en échec" if total_err else ""))
 
 
+def cmd_push(cfg, args):
+    """Annonce l'état du ticket chez ses partenaires (N2/RM2656)."""
+    rm_id = args.rm_id
+    path, ent, proj, fm, body = load_task(cfg, rm_id)
+    meta, reg = project_context(cfg, ent, proj)
+    status = args.status or fm.get("status")
+    refs = pm_partner.partner_refs(fm)
+
+    targets = []
+    for ref in refs:
+        try:
+            res = pm_partner.resolve_secondary(meta, reg, ref.get("instance"))
+        except (pm_partner.PartnerError, RegistryError) as e:
+            out.warn(f"{ref.get('instance')} : {e}")
+            continue
+        # `--force` sert au push manuel ponctuel ; le hook, lui, respecte sync.push.on
+        if args.force or pm_partner.should_push(res, status):
+            targets.append((res, ref))
+
+    if not targets:
+        if not args.quiet:
+            why = ("aucun lien partenaire" if not refs else
+                   f"aucun secondaire n'annonce le statut '{status}' "
+                   f"(sync.push.on) — --force pour forcer")
+            out.op("push partenaire", rm=rm_id, extra=why)
+        return
+
+    posted, warnings = [], []
+    for res, ref in targets:
+        try:
+            note = pm_partner.push_status_note(
+                res, ref, rm_id, fm.get("title", ""), status,
+                close_reason=fm.get("close_reason"), message=args.message or "",
+                dry_run=args.dry_run)
+        except Exception as e:                                   # noqa: BLE001
+            warnings.append(f"{ref.get('instance')}#{ref.get('issue_id')} : {e}")
+            continue
+        posted.append((ref, note))
+
+    if args.dry_run:
+        for ref, note in posted:
+            print(f"— vers {ref.get('instance')}#{ref.get('issue_id')} :\n{note}\n")
+        out.op("push partenaire (dry-run)", rm=rm_id, extra=f"{len(posted)} destinataire(s)")
+        return
+    if posted:
+        append_log(path, "Note de suivi poussée chez : "
+                   + ", ".join(f"**{r.get('instance')}#{r.get('issue_id')}**"
+                               for r, _ in posted)
+                   + f" (statut `{status}`)\n\n"
+                   + "\n".join(f"> {l}" for l in posted[0][1].splitlines()))
+        autocommit(args, path, f"pm(partner): RM{rm_id} push statut {status}")
+    for w in warnings:
+        out.warn(f"note de suivi non postée — {w}")
+    if posted or not args.quiet:
+        out.op("push partenaire", rm=rm_id,
+               extra=f"{len(posted)} note(s) postée(s)"
+                     + (f", {len(warnings)} en échec" if warnings else ""))
+
+
 def cmd_show(cfg, args):
     rm_id = args.rm_id
     path, ent, proj, fm, _ = load_task(cfg, rm_id)
@@ -337,7 +415,12 @@ def main():
     p = sub.add_parser("link", help="rattache le ticket à un ticket partenaire")
     p.add_argument("rm_id", type=int)
     p.add_argument("--instance", required=True, help="secondaire déclaré du projet")
-    p.add_argument("--issue", required=True, help="id du ticket chez le partenaire")
+    p.add_argument("--issue", help="id du ticket chez le partenaire")
+    p.add_argument("--create-remote", action="store_true",
+                   help="crée le ticket chez le partenaire puis le rattache "
+                        "(exige `create.tracker_id` sur le provider secondaire)")
+    p.add_argument("--remote-description", default="",
+                   help="description du ticket créé chez le partenaire")
     p.add_argument("--role", default="related", choices=list(pm_partner.ROLES))
     p.add_argument("--url", help="URL du ticket distant (défaut : déduite de l'instance)")
     p.add_argument("--no-remote-note", action="store_true",
@@ -363,13 +446,23 @@ def main():
     p.add_argument("--no-commit", action="store_true")
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("push", help="annonce l'état du ticket chez ses partenaires")
+    p.add_argument("rm_id", type=int)
+    p.add_argument("--status", help="statut annoncé (défaut : celui du ticket)")
+    p.add_argument("--message", help="phrase libre ajoutée à la note (revue humaine)")
+    p.add_argument("--force", action="store_true",
+                   help="poste même si le statut n'est pas dans sync.push.on")
+    p.add_argument("--quiet", action="store_true", help="silencieux s'il n'y a rien à faire")
+    p.add_argument("--no-commit", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+
     args = ap.parse_args()
     out.configure(args)
     if args.cmd == "pull" and not args.all and args.rm_id is None:
         ap.error("pull : préciser un <RM-id> ou --all")
     cfg = PMConfig.load()
     {"link": cmd_link, "unlink": cmd_unlink, "show": cmd_show,
-     "pull": cmd_pull}[args.cmd](cfg, args)
+     "pull": cmd_pull, "push": cmd_push}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

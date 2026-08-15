@@ -2550,6 +2550,23 @@ le lien**, jamais dans `redmine_last_journal_id` qui suit l'instance primaire �
 boucles, deux pointeurs. Un partenaire injoignable produit un avertissement, jamais un
 échec : le PM ne dépend pas de la disponibilité d'un tiers.
 
+**Rendre compte chez eux** (v1.69.0) : une transition de statut poste une **note de
+suivi** chez le partenaire — **seulement** si le secondaire déclare ce statut dans
+`sync.push.on`. **Défaut : rien ne part.** L'activation se fait projet par projet, après
+revue du gabarit : une note poussée chez un tiers ne se rattrape pas.
+
+* **Écriture pauvre** : une note de texte, jamais un statut, un champ personnalisé ni une
+  saisie de temps — les ids de `redmine.reference.yml` sont ceux d'iProspective.
+* **Gabarit fermé** : identifiant de suivi, titre, état **en clair**
+  (`a_tester_demandeur` → « livré, en attente de validation » : le partenaire ne connaît
+  pas notre machine d'états), plus un message rédigé à la main. Pas de chemin, d'hôte, de
+  branche, d'environnement de test, ni d'URL interne — notre Redmine ne lui est pas
+  accessible de toute façon.
+* Le push est **best-effort** : il n'échoue jamais une transition déjà écrite côté PM.
+* `pm-task-partner link --create-remote` crée le ticket manquant chez eux puis le
+  rattache ; il exige un `create.tracker_id` déclaré (les ids de tracker ne sont pas
+  portables — on ne devine pas).
+
 **Règles d'intégrité :**
 - Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
   Si l'un est présent sans l'autre, c'est un drift à corriger via

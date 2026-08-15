@@ -5706,6 +5706,27 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
      ]},
+    # Relève de la boîte de karl (RM2668, chantier RM2666). `mutate: False` : le script
+    # ne touche ni Redmine ni la boîte (FETCH en PEEK) — il ne fait qu'alimenter la file
+    # de triage locale. `--mark-seen` n'est délibérément PAS exposé ici : marquer lu est
+    # une action sur la boîte de prod, elle reste en CLI, explicite.
+    {"name": "mail-fetch", "label": "Relever les emails de karl",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "days", "label": "Fenêtre (jours)", "type": "int", "flag": "--days"},
+         {"name": "limit", "label": "Messages max par dossier", "type": "int", "flag": "--limit"},
+         {"name": "folder", "label": "Dossier (défaut : confiance + INBOX)",
+          "type": "text", "flag": "--folder", "max_len": 64},
+         {"name": "unseen_only", "label": "Non lus seulement", "type": "bool",
+          "flag": "--unseen-only"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    {"name": "mail-queue", "label": "File des emails à traiter",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "args": [
+         {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
+     ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
     # scripts eux-mêmes ; ici on borne juste la longueur.
@@ -6649,14 +6670,21 @@ def op_pm_run(payload: dict) -> dict:
     given = payload.get("args") or {}
     if not isinstance(given, dict):
         raise ApiError(400, "args : objet {nom: valeur} attendu")
-    # les args `server:` sont calculés ici — un client qui les fournit est rejeté
-    known = {a["name"] for a in cmd.get("args") or [] if not a.get("server")}
+    # les args `server:` (calculés ici) et `const:` (imposés par le catalogue) ne se
+    # fournissent pas côté client — un client qui les envoie est rejeté
+    known = {a["name"] for a in cmd.get("args") or []
+             if not a.get("server") and not a.get("const")}
     unknown = set(given) - known
     if unknown:
         raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
     positionals, flags = [], []
     for spec in cmd.get("args") or []:
         aname = spec["name"]
+        if spec.get("const"):
+            # flag imposé par le catalogue (mode figé d'un script : ex. --queue) —
+            # jamais négociable par le client, jamais affiché comme champ
+            flags.append(spec["flag"])
+            continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local
             rmv = str(given.get("rm_id") or "")

@@ -5825,6 +5825,7 @@ function renderPmForm(name) {
     (c.mutate ? ' <span class="pill warn">mutation</span>' : ' <span class="pill">lecture</span>');
   for (const a of c.args || []) {
     if (a.server) continue;                        // résolu côté serveur
+    if (a.const) continue;                         // imposé par le catalogue (RM2668)
     const id = "pmf-" + a.name, lbl = esc(a.label || a.name) + (a.required ? " *" : "");
     if (a.type === "enum") {
       h += '<label for="' + id + '">' + lbl + '</label><select id="' + id + '">' +

@@ -1741,8 +1741,11 @@ function renderCurTitle() {
 }
 // RM2327 : durée restante lisible d'un auto-oui (epoch secondes → « 12 min »)
 function autoYesLeft(until) {
+  // RM2699 : les minutes se TRONQUENT elles aussi. Arrondies, elles pouvaient
+  // rendre « 1 h 60 min » (7199 s) — les heures sont déjà prises à part, une
+  // minute arrondie au-dessus déborde sur l'heure suivante.
   const s = Math.max(0, Math.round(until - Date.now() / 1000));
-  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round((s % 3600) / 60) + " min"
+  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min"
     : Math.max(1, Math.round(s / 60)) + " min";
 }
 // RM2327 : répondre Oui à toutes les sessions en attente d'une question

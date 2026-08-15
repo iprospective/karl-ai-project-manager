@@ -5043,6 +5043,16 @@ def _root_project(root) -> tuple | None:
     return str(client), str(slug)
 
 
+def _project_docs_entries(client: str, project: str) -> list:
+    """Racines documentaires d'un projet, au format « racine lisible » de
+    l'explorateur (chemin, nom, nombre de .md, libellé)."""
+    return [{"path": d, "name": Path(d).name,
+             "docs": len(list(Path(d).glob("*.md"))),
+             "label": ("documents du projet" if Path(d).name == "docs"
+                       else "fiches canoniques (overview, environnements)")}
+            for d in _project_doc_roots(client, project)]
+
+
 def _session_projects(sid: str) -> list:
     """RM2659 : les projets auxquels la session touche — son cwd et chacun de
     ses worktrees. Une session sur plusieurs projets n'est pas un cas d'école :
@@ -5059,11 +5069,7 @@ def _session_projects(sid: str) -> list:
         client, project = cp
         out[str(root)] = {
             "root": str(root), "name": root.name, "client": client, "project": project,
-            "docs": [{"path": d, "name": Path(d).name,
-                      "docs": len(list(Path(d).glob("*.md"))),
-                      "label": ("documents du projet" if Path(d).name == "docs"
-                                else "fiches canoniques (overview, environnements)")}
-                     for d in _project_doc_roots(client, project)],
+            "docs": _project_docs_entries(client, project),
         }
     return list(out.values())
 
@@ -5089,6 +5095,10 @@ def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str 
     if client and project:
         allowed |= set(_project_worktrees(client, project))
         allowed |= set(_project_doc_roots(client, project))   # RM2622
+        # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
+        # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
+        # l'explorateur ouvre quand aucune session n'est attachée.
+        allowed |= _project_root_paths(client, project)
     if worktree in allowed:
         p = Path(worktree)
         if p.is_dir():
@@ -5177,6 +5187,43 @@ def op_worktrees(sid: str) -> dict:
             item.update(_git_brief(root))
         projects.append(item)
     return {"sid": sid, "worktrees": out, "projects": projects}
+
+
+def _project_root_paths(client: str, project: str) -> set:
+    """Racines lisibles d'un projet SANS session : racine du workspace + doc."""
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    out = {d["path"] for d in _project_docs_entries(client, project)}
+    if ws:
+        out.add(str(ws))
+    return out
+
+
+def op_project_roots(client: str, project: str) -> dict:
+    """RM2673 : racine du workspace + doc d'un projet, sans passer par une
+    session. L'explorateur de fichiers pouvait déjà lire un projet (RM2590), mais
+    seulement depuis la fiche projet : quand aucune session n'est attachée
+    (fiche de ticket ouverte, par exemple), le panneau restait sur « attache une
+    session… » alors que client/projet étaient parfaitement identifiés.
+
+    Pourquoi pas `/project-worktrees` : il rend TOUS les worktrees avec un
+    `git status` chacun — 65 sur pm-ai-agents. C'est le bon prix pour la fiche
+    projet, pas pour l'ouverture d'un panneau latéral. Ici : la racine (un seul
+    `git status`) et sa doc, soit exactement ce que RM2659 montre déjà d'une
+    session sans worktree."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        raise ApiError(400, "client/projet invalide")
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    docs = _project_docs_entries(client, project)
+    if not ws and not docs:
+        raise ApiError(404, f"projet sans racine lisible : {client}/{project}")
+    item = {"root": str(ws) if ws else "", "name": (Path(ws).name if ws else project),
+            "client": client, "project": project, "docs": docs,
+            "exists": bool(ws) and Path(ws).is_dir()}
+    if item["exists"]:
+        item.update(_git_brief(Path(ws)))
+    return {"client": client, "project": project, "projects": [item], "worktrees": []}
 
 
 def op_project_worktrees(client: str, project: str) -> dict:
@@ -5658,6 +5705,27 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "project", "label": "Projet", "type": "text", "flag": "--project", "max_len": 64},
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
+     ]},
+    # Relève de la boîte de karl (RM2668, chantier RM2666). `mutate: False` : le script
+    # ne touche ni Redmine ni la boîte (FETCH en PEEK) — il ne fait qu'alimenter la file
+    # de triage locale. `--mark-seen` n'est délibérément PAS exposé ici : marquer lu est
+    # une action sur la boîte de prod, elle reste en CLI, explicite.
+    {"name": "mail-fetch", "label": "Relever les emails de karl",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "days", "label": "Fenêtre (jours)", "type": "int", "flag": "--days"},
+         {"name": "limit", "label": "Messages max par dossier", "type": "int", "flag": "--limit"},
+         {"name": "folder", "label": "Dossier (défaut : confiance + INBOX)",
+          "type": "text", "flag": "--folder", "max_len": 64},
+         {"name": "unseen_only", "label": "Non lus seulement", "type": "bool",
+          "flag": "--unseen-only"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    {"name": "mail-queue", "label": "File des emails à traiter",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "args": [
+         {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
      ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
@@ -6602,14 +6670,21 @@ def op_pm_run(payload: dict) -> dict:
     given = payload.get("args") or {}
     if not isinstance(given, dict):
         raise ApiError(400, "args : objet {nom: valeur} attendu")
-    # les args `server:` sont calculés ici — un client qui les fournit est rejeté
-    known = {a["name"] for a in cmd.get("args") or [] if not a.get("server")}
+    # les args `server:` (calculés ici) et `const:` (imposés par le catalogue) ne se
+    # fournissent pas côté client — un client qui les envoie est rejeté
+    known = {a["name"] for a in cmd.get("args") or []
+             if not a.get("server") and not a.get("const")}
     unknown = set(given) - known
     if unknown:
         raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
     positionals, flags = [], []
     for spec in cmd.get("args") or []:
         aname = spec["name"]
+        if spec.get("const"):
+            # flag imposé par le catalogue (mode figé d'un script : ex. --queue) —
+            # jamais négociable par le client, jamais affiché comme champ
+            flags.append(spec["flag"])
+            continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local
             rmv = str(given.get("rm_id") or "")
@@ -7190,6 +7265,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
             if path.startswith("/worktrees/"):    # RM2586 : worktrees de la session
                 return self._send_json(200, op_worktrees(path[len("/worktrees/"):]))
+            if path.startswith("/project-roots/"):   # RM2673 : racine + doc du projet
+                parts = path[len("/project-roots/"):].split("/")
+                if len(parts) != 2:
+                    return self._send_json(400, {"error": "attendu : /project-roots/<client>/<projet>"})
+                return self._send_json(200, op_project_roots(parts[0], parts[1]))
             if path.startswith("/project-worktrees/"):   # RM2590 : worktrees du projet
                 parts = path[len("/project-worktrees/"):].split("/")
                 if len(parts) != 2:

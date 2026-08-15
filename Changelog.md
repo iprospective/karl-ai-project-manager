@@ -76,6 +76,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   `redmine:`/`gitlab:` et défauts du registre rendent un primaire unique.
 
 ### Outillage
+- **Relève des emails de karl** (RM2668, chantier RM2666) :
+  `scripts/karl-mail-fetch.py` ouvre enfin la **lecture** de la boîte
+  `karl@iprospective.fr` (RM1723 était *send-only*) et dépose les messages humains
+  dans une **file de triage** locale — hors git, le repo de données partant sur
+  GitLab. Les dossiers classés côté serveur sont relevés en premier, **`INBOX`
+  ensuite** (un correspondant inconnu du carnet n'est classé nulle part). Lecture
+  **non destructive** (`BODY.PEEK`, pas de DELETE/MOVE, `--mark-seen` opt-in),
+  **idempotente** (index des `Message-ID`), robots et listes écartés. Exposé au
+  cockpit via le catalogue de commandes (catégorie *mail*), qui gagne au passage
+  les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
+  négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
+  de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
+  `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
+  de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1
+  (« aucun .env trouvé ») — `conso-report` comme les nouvelles commandes mail.
 - **MR sans ticket** (RM2644) : `pm-mr create --no-ticket --title "…"` ouvre une MR
   pour un changement qui n'a pas de ticket — ajout d'un terme au glossaire du
   cockpit, coquille (cf. NORMS `governance` § « Changements sans ticket », v1.68.0).

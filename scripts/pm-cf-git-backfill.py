@@ -20,6 +20,8 @@ Garde-fous :
 
 Usage :
     pm-cf-git-backfill.py                  # dry-run : ce qui serait écrit
+    pm-cf-git-backfill.py --repair-generic # + répare les `dev` écrits par les
+                                           #   promotions d'avant RM2701
     pm-cf-git-backfill.py --apply          # écrit, et vérifie
     pm-cf-git-backfill.py --apply --limit 5   # essai sur 5 tickets d'abord
 """
@@ -110,12 +112,23 @@ def branche_de_ticket(rid, branch):
     return bool(re.match(r"^%d-" % int(rid), str(branch or "")))
 
 
-def to_write(rid, issue, info):
-    """CF à poser sur ce ticket : uniquement les VIDES, jamais un écrasement."""
+# Valeurs qui ne désignent aucun ticket : toutes les livraisons y passent.
+GENERIQUES = {"dev", "main", "master", "preprod"}
+
+
+def to_write(rid, issue, info, repair=False):
+    """CF à poser sur ce ticket.
+
+    Par défaut : uniquement les VIDES, jamais un écrasement. Avec `repair`
+    (RM2701), on remplace en plus les valeurs GÉNÉRIQUES — `pm-mr` écrivait
+    `dev` à chaque MR de promotion, écrasant la branche du ticket. Remplacer
+    une valeur fausse par la vraie n'est pas le même geste qu'écraser une
+    valeur renseignée : la première ment, la seconde informe."""
     cur = cf_map(issue)
     todo = []
-    if (CF_BRANCH in cur and not cur[CF_BRANCH].strip()
-            and branche_de_ticket(rid, info["branch"])):
+    actuel = cur.get(CF_BRANCH, "").strip()
+    remplaçable = (not actuel) or (repair and actuel in GENERIQUES)
+    if CF_BRANCH in cur and remplaçable and branche_de_ticket(rid, info["branch"]):
         todo.append({"id": CF_BRANCH, "value": info["branch"]})
     if CF_PR in cur and not cur[CF_PR].strip() and info["pr"]:
         todo.append({"id": CF_PR, "value": info["pr"]})
@@ -127,6 +140,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--apply", action="store_true", help="écrit (défaut : dry-run)")
     ap.add_argument("--limit", type=int, help="ne traiter que les N premiers (essai)")
+    ap.add_argument("--repair-generic", dest="repair", action="store_true",
+                    help="remplace aussi les valeurs génériques (dev/main…) écrites "
+                         "par les MR de promotion d'avant RM2701")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
 
@@ -156,7 +172,7 @@ def main():
             continue
         if not branche_de_ticket(rid, info["branch"]):
             generiques += 1        # `main` en frontmatter : pas une branche de ticket
-        todo = to_write(rid, iss, info)
+        todo = to_write(rid, iss, info, args.repair)
         if todo:
             plan.append((rid, iss, todo))
     if args.limit:

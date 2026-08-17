@@ -322,6 +322,35 @@ def _model_catalog() -> dict:
 DEFAULT_WIDTH = int(os.environ.get("KARL_AGENT_WIDTH", "200"))
 DEFAULT_HEIGHT = int(os.environ.get("KARL_AGENT_HEIGHT", "50"))
 
+# ── Plafond mémoire des scopes tmux de session (RM2690) ──────────────────────
+# tmux (compilé avec support systemd) crée UNE scope par pane,
+# `tmux-spawn-<uuid>.scope`, née avec MemoryHigh/MemoryMax=infinity. L'UUID étant
+# aléatoire, aucun drop-in déclaratif n'est applicable : le seul point d'accroche
+# est le spawn (cf. _apply_memory_limits). Sans plafond, une session qui fuit
+# étouffe toute la workstation et c'est le kernel qui choisit la victime — pas
+# forcément le fautif (incident OOM du 2026-08-13, 15,7 Go de RSS).
+#
+# Trois couches, de la plus forte à la plus faible :
+#   1. variables d'env (.env)  — figent la valeur pour l'instance (le cockpit
+#      refuse alors l'écriture) ; syntaxe systemd : "6G", "6144M", octets nus,
+#      vide / `none` / `infinity` / `-1` = pas de limite ;
+#   2. pm.config[.local].yml `sessions.memory_{high,max,swap}_gib` — en GiB,
+#      édité depuis le cockpit (panneau 🔧 réglages) ;
+#   3. ces constantes, si la conf ne porte pas la clé (déploiement ancien).
+#
+# ⚠ `swap` (MemorySwapMax) ne suit pas la convention des deux autres : 0 y est
+# une limite RÉELLE (aucun swap autorisé), pas une désactivation — c'est `-1`
+# qui lève le plafond. Défaut 0 : sans swap, une session qui fuit meurt à
+# MemoryMax au lieu de saturer le swap et de faire ramer tout le poste pendant
+# la montée MemoryHigh → MemoryMax (c'est ce qui s'est passé le 2026-08-13).
+MEM_LIMIT_DEFAULTS = {"high": 6.0, "max": 8.0, "swap": 0.0}          # GiB
+MEM_LIMIT_ENV = {"high": "KARL_AGENT_MEM_HIGH", "max": "KARL_AGENT_MEM_MAX",
+                 "swap": "KARL_AGENT_MEM_SWAP"}
+MEM_LIMIT_CONF = {"high": ["sessions", "memory_high_gib"],
+                  "max": ["sessions", "memory_max_gib"],
+                  "swap": ["sessions", "memory_swap_gib"]}
+MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapMax"}
+
 # Répertoire des logs pipe-pane (alimente /stream et /capture étendu).
 LOG_DIR = Path(
     os.environ.get("KARL_AGENT_LOG_DIR")
@@ -661,6 +690,106 @@ def _tmux(*args, timeout=10):
     return p.returncode, p.stdout, p.stderr
 
 
+# ── Plafond mémoire (RM2690) — voir MEM_LIMIT_* en tête de module ────────────
+_MEM_UNITS = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+_MEM_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT])?i?B?$", re.I)
+
+
+_MEM_UNLIMITED = ("none", "off", "infinity", "-1", "max")
+
+
+def _mem_bytes(raw) -> int | None:
+    """Limite mémoire → octets. `None` = pas de plafond (vide, `none`, `infinity`,
+    `-1`, ou valeur illisible). Un nombre est en GiB (conf/cockpit) ; une chaîne
+    suit la syntaxe systemd ("6G", "6144M", octets nus). **0 est une valeur
+    valide** — c'est l'appelant qui décide si zéro octet a un sens (swap) ou vaut
+    « pas de plafond » (high/max)."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        if raw < 0:
+            return None
+        n = float(raw) * 1024 ** 3
+    else:
+        s = str(raw).strip()
+        if not s or s.lower() in _MEM_UNLIMITED:
+            return None
+        m = _MEM_RE.match(s)
+        if not m:
+            return None
+        n = float(m.group(1)) * _MEM_UNITS.get((m.group(2) or "").upper(), 1)
+    return int(n)
+
+
+def _mem_limit(kind: str) -> int | None:
+    """Limite effective en octets pour `high` / `max` / `swap` :
+    env (.env) > conf > défaut. `None` = pas de plafond. Pour `high` et `max`,
+    0 vaut « pas de plafond » (un plafond nul tuerait tout au démarrage) ; pour
+    `swap`, 0 est le plafond réel « aucun swap »."""
+    env = os.environ.get(MEM_LIMIT_ENV[kind])
+    if env is not None:
+        b = _mem_bytes(env)
+    else:
+        cur = _conf_merged()
+        for part in MEM_LIMIT_CONF[kind]:
+            cur = cur.get(part) if isinstance(cur, dict) else None
+        b = _mem_bytes(MEM_LIMIT_DEFAULTS[kind] if cur is None else cur)
+    if b is not None and b < 1 and kind != "swap":
+        return None
+    return b
+
+
+def _pane_scope(name: str, tries: int = 3, delay: float = 0.1) -> str | None:
+    """Nom de la scope systemd du pane de la session tmux `name`, ou None.
+    Ne retient QUE les `tmux-spawn-*.scope` (cgroup v2 : ligne `0::/<chemin>`) —
+    hors délégation cgroup, tmux ne crée pas de scope et il n'y a rien à plafonner.
+    Petit retry : la scope peut n'être pas encore visible juste après new-session."""
+    for i in range(tries):
+        rc, out, _ = _tmux("display-message", "-p", "-t", name, "#{pane_pid}")
+        pid = out.strip()
+        if rc == 0 and pid.isdigit():
+            try:
+                cgroup = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8")
+            except OSError:
+                cgroup = ""
+            for line in cgroup.splitlines():
+                if not line.startswith("0::"):
+                    continue
+                unit = line.split("::", 1)[1].rstrip("/").rsplit("/", 1)[-1]
+                if unit.startswith("tmux-spawn-") and unit.endswith(".scope"):
+                    return unit
+        if i + 1 < tries:
+            time.sleep(delay)
+    return None
+
+
+def _apply_memory_limits(name: str) -> str | None:
+    """Plafonne la scope systemd du pane de `name`. Retourne la scope plafonnée,
+    None si rien n'a été appliqué. JAMAIS bloquant : tout échec (systemd absent,
+    délégation `memory` manquante, scope introuvable, set-property KO) est un
+    warning sur stderr — la création de session ne doit pas en dépendre."""
+    limits = {k: _mem_limit(k) for k in MEM_LIMIT_PROP}
+    if all(v is None for v in limits.values()):
+        return None
+    scope = _pane_scope(name)
+    if not scope:
+        sys.stderr.write(f"plafond mémoire : scope tmux-spawn introuvable pour {name}, ignoré\n")
+        return None
+    props = [f"{MEM_LIMIT_PROP[k]}={v if v is not None else 'infinity'}"
+             for k, v in limits.items()]
+    try:
+        p = subprocess.run(["systemctl", "--user", "--runtime", "set-property", scope, *props],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(f"plafond mémoire : systemctl indisponible ({exc}), ignoré\n")
+        return None
+    if p.returncode != 0:
+        sys.stderr.write(f"plafond mémoire : set-property {scope} a échoué : "
+                         f"{(p.stderr or '').strip()[:200]}\n")
+        return None
+    return scope
+
+
 def _session_name(rm_id: str) -> str:
     """sid → nom tmux : karl-RM<id> (ticket) ou karl-<slug> (RM2144)."""
     if _is_ticket_sid(rm_id):
@@ -954,6 +1083,15 @@ def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
     )
     if rc != 0:
         raise ApiError(500, f"tmux new-session a échoué : {err.strip()}")
+
+    # RM2690 : plafond mémoire sur la scope systemd du pane — une session qui fuit
+    # se fait tuer SEULE au lieu de laisser le kernel arbitrer. Couvre spawn ET
+    # resume (les deux passent ici). Défensif : un spawn ne doit jamais échouer
+    # à cause du plafond.
+    try:
+        _apply_memory_limits(name)
+    except Exception as exc:
+        sys.stderr.write(f"plafond mémoire non appliqué pour {name} : {exc}\n")
 
     # pipe-pane : capture continue du pane vers un log (alimente /stream).
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -5050,6 +5188,16 @@ def _root_project(root) -> tuple | None:
     return str(client), str(slug)
 
 
+def _project_docs_entries(client: str, project: str) -> list:
+    """Racines documentaires d'un projet, au format « racine lisible » de
+    l'explorateur (chemin, nom, nombre de .md, libellé)."""
+    return [{"path": d, "name": Path(d).name,
+             "docs": len(list(Path(d).glob("*.md"))),
+             "label": ("documents du projet" if Path(d).name == "docs"
+                       else "fiches canoniques (overview, environnements)")}
+            for d in _project_doc_roots(client, project)]
+
+
 def _session_projects(sid: str) -> list:
     """RM2659 : les projets auxquels la session touche — son cwd et chacun de
     ses worktrees. Une session sur plusieurs projets n'est pas un cas d'école :
@@ -5066,11 +5214,7 @@ def _session_projects(sid: str) -> list:
         client, project = cp
         out[str(root)] = {
             "root": str(root), "name": root.name, "client": client, "project": project,
-            "docs": [{"path": d, "name": Path(d).name,
-                      "docs": len(list(Path(d).glob("*.md"))),
-                      "label": ("documents du projet" if Path(d).name == "docs"
-                                else "fiches canoniques (overview, environnements)")}
-                     for d in _project_doc_roots(client, project)],
+            "docs": _project_docs_entries(client, project),
         }
     return list(out.values())
 
@@ -5096,6 +5240,10 @@ def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str 
     if client and project:
         allowed |= set(_project_worktrees(client, project))
         allowed |= set(_project_doc_roots(client, project))   # RM2622
+        # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
+        # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
+        # l'explorateur ouvre quand aucune session n'est attachée.
+        allowed |= _project_root_paths(client, project)
     if worktree in allowed:
         p = Path(worktree)
         if p.is_dir():
@@ -5184,6 +5332,43 @@ def op_worktrees(sid: str) -> dict:
             item.update(_git_brief(root))
         projects.append(item)
     return {"sid": sid, "worktrees": out, "projects": projects}
+
+
+def _project_root_paths(client: str, project: str) -> set:
+    """Racines lisibles d'un projet SANS session : racine du workspace + doc."""
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    out = {d["path"] for d in _project_docs_entries(client, project)}
+    if ws:
+        out.add(str(ws))
+    return out
+
+
+def op_project_roots(client: str, project: str) -> dict:
+    """RM2673 : racine du workspace + doc d'un projet, sans passer par une
+    session. L'explorateur de fichiers pouvait déjà lire un projet (RM2590), mais
+    seulement depuis la fiche projet : quand aucune session n'est attachée
+    (fiche de ticket ouverte, par exemple), le panneau restait sur « attache une
+    session… » alors que client/projet étaient parfaitement identifiés.
+
+    Pourquoi pas `/project-worktrees` : il rend TOUS les worktrees avec un
+    `git status` chacun — 65 sur pm-ai-agents. C'est le bon prix pour la fiche
+    projet, pas pour l'ouverture d'un panneau latéral. Ici : la racine (un seul
+    `git status`) et sa doc, soit exactement ce que RM2659 montre déjà d'une
+    session sans worktree."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        raise ApiError(400, "client/projet invalide")
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    docs = _project_docs_entries(client, project)
+    if not ws and not docs:
+        raise ApiError(404, f"projet sans racine lisible : {client}/{project}")
+    item = {"root": str(ws) if ws else "", "name": (Path(ws).name if ws else project),
+            "client": client, "project": project, "docs": docs,
+            "exists": bool(ws) and Path(ws).is_dir()}
+    if item["exists"]:
+        item.update(_git_brief(Path(ws)))
+    return {"client": client, "project": project, "projects": [item], "worktrees": []}
 
 
 def op_project_worktrees(client: str, project: str) -> dict:
@@ -5665,6 +5850,27 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "project", "label": "Projet", "type": "text", "flag": "--project", "max_len": 64},
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
+     ]},
+    # Relève de la boîte de karl (RM2668, chantier RM2666). `mutate: False` : le script
+    # ne touche ni Redmine ni la boîte (FETCH en PEEK) — il ne fait qu'alimenter la file
+    # de triage locale. `--mark-seen` n'est délibérément PAS exposé ici : marquer lu est
+    # une action sur la boîte de prod, elle reste en CLI, explicite.
+    {"name": "mail-fetch", "label": "Relever les emails de karl",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "days", "label": "Fenêtre (jours)", "type": "int", "flag": "--days"},
+         {"name": "limit", "label": "Messages max par dossier", "type": "int", "flag": "--limit"},
+         {"name": "folder", "label": "Dossier (défaut : confiance + INBOX)",
+          "type": "text", "flag": "--folder", "max_len": 64},
+         {"name": "unseen_only", "label": "Non lus seulement", "type": "bool",
+          "flag": "--unseen-only"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    {"name": "mail-queue", "label": "File des emails à traiter",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "args": [
+         {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
      ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
@@ -6403,6 +6609,24 @@ _PM_SETTINGS_CONF = [
     {"key": "conf:ui.theme", "label": "Thème",
      "group": "Design front", "type": "enum", "path": ["ui", "theme"],
      "options": ["dark", "light", "auto"], "default": "auto"},
+    # RM2690 — plafond mémoire des scopes tmux, en GiB (0 = pas de limite).
+    # `mem_kind` branche le réglage sur _mem_limit() : la valeur servie est la
+    # limite EFFECTIVE (env > conf > défaut), et une variable d'env la fige.
+    # Ne s'applique qu'aux sessions créées ENSUITE (les scopes vivantes gardent
+    # leur réglage — hors périmètre, cf. RM2690).
+    {"key": "conf:sessions.memory_high_gib", "mem_kind": "high",
+     "label": "Mémoire — seuil de pression, GiB (0 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_high_gib"],
+     "min": 0, "max": 512},
+    {"key": "conf:sessions.memory_max_gib", "mem_kind": "max",
+     "label": "Mémoire — plafond dur, GiB (0 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_max_gib"],
+     "min": 0, "max": 512},
+    # Le swap inverse la convention : 0 = aucun swap (plafond réel), -1 = illimité.
+    {"key": "conf:sessions.memory_swap_gib", "mem_kind": "swap",
+     "label": "Mémoire — swap autorisé, GiB (0 = aucun, -1 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_swap_gib"],
+     "min": -1, "max": 512},
 ]
 _PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
                  "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
@@ -6437,6 +6661,12 @@ def _pm_settings() -> list:
     out = []
     conf = _conf_merged()
     for e in _PM_SETTINGS_CONF:
+        if e.get("mem_kind"):
+            # RM2690 : on sert la limite EFFECTIVE, pas la seule clé de conf —
+            # `pinned` dit au front qu'une variable d'env la fige (champ grisé).
+            val, pin = _mem_setting_value(e["mem_kind"])
+            out.append({**e, "value": val, **({"pinned": pin} if pin else {})})
+            continue
         cur = conf
         for part in e["path"]:
             cur = cur.get(part) if isinstance(cur, dict) else None
@@ -6445,6 +6675,9 @@ def _pm_settings() -> list:
         if e["type"] == "enum":
             # valeur hors options (conf éditée à la main) → on retombe sur le défaut
             val = cur if cur in e["options"] else e.get("default", e["options"][0])
+        elif e["type"] == "number":
+            val = cur if isinstance(cur, (int, float)) and not isinstance(cur, bool) \
+                else e.get("default")
         else:
             val = bool(cur)
         out.append({**e, "value": val})
@@ -6465,6 +6698,19 @@ def _pm_settings() -> list:
     return out
 
 
+def _mem_setting_value(kind: str) -> tuple[float, str | None]:
+    """(GiB effectifs, variable d'env qui fige la valeur ou None) — RM2690.
+    « Pas de plafond » se dit 0 pour high/max et -1 pour swap (où 0 signifie
+    « aucun swap ») — même convention que les champs du cockpit."""
+    b = _mem_limit(kind)
+    env = MEM_LIMIT_ENV[kind]
+    if b is None:
+        val = -1.0 if kind == "swap" else 0.0
+    else:
+        val = round(b / 1024 ** 3, 2)
+    return val, (env if os.environ.get(env) is not None else None)
+
+
 def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
@@ -6478,6 +6724,13 @@ def op_pm_settings_set(payload: dict) -> dict:
         raise ApiError(400, f"clé inconnue/hors whitelist : {key!r}")
     if payload.get("confirm") is not True:
         raise ApiError(400, "confirmation requise (confirm: true)")
+    if spec.get("mem_kind"):
+        # RM2690 : écrire dans la conf serait sans effet tant que le .env fige la
+        # valeur — on le dit au lieu de laisser croire que le réglage a pris.
+        env = MEM_LIMIT_ENV[spec["mem_kind"]]
+        if os.environ.get(env) is not None:
+            raise ApiError(400, f"réglage figé par la variable d'environnement {env} "
+                                f"(.env du repo) — édite le .env puis redémarre karl-agent")
     raw = payload.get("value")
     if spec["type"] == "bool":
         val = raw in (True, "1", "true", "on")
@@ -6609,14 +6862,21 @@ def op_pm_run(payload: dict) -> dict:
     given = payload.get("args") or {}
     if not isinstance(given, dict):
         raise ApiError(400, "args : objet {nom: valeur} attendu")
-    # les args `server:` sont calculés ici — un client qui les fournit est rejeté
-    known = {a["name"] for a in cmd.get("args") or [] if not a.get("server")}
+    # les args `server:` (calculés ici) et `const:` (imposés par le catalogue) ne se
+    # fournissent pas côté client — un client qui les envoie est rejeté
+    known = {a["name"] for a in cmd.get("args") or []
+             if not a.get("server") and not a.get("const")}
     unknown = set(given) - known
     if unknown:
         raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
     positionals, flags = [], []
     for spec in cmd.get("args") or []:
         aname = spec["name"]
+        if spec.get("const"):
+            # flag imposé par le catalogue (mode figé d'un script : ex. --queue) —
+            # jamais négociable par le client, jamais affiché comme champ
+            flags.append(spec["flag"])
+            continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local
             rmv = str(given.get("rm_id") or "")
@@ -7197,6 +7457,11 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
             if path.startswith("/worktrees/"):    # RM2586 : worktrees de la session
                 return self._send_json(200, op_worktrees(path[len("/worktrees/"):]))
+            if path.startswith("/project-roots/"):   # RM2673 : racine + doc du projet
+                parts = path[len("/project-roots/"):].split("/")
+                if len(parts) != 2:
+                    return self._send_json(400, {"error": "attendu : /project-roots/<client>/<projet>"})
+                return self._send_json(200, op_project_roots(parts[0], parts[1]))
             if path.startswith("/project-worktrees/"):   # RM2590 : worktrees du projet
                 parts = path[len("/project-worktrees/"):].split("/")
                 if len(parts) != 2:

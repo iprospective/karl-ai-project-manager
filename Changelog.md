@@ -22,6 +22,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   n'a pas été rejoint (`reason: "sans-session-id"`) : sans set-at-launch, une
   entrée de jeu serait hollow (ni engine, ni session_id, ni cwd), donc non
   relançable, tout en consommant un slot du plafond.
+- **Plafond mémoire des sessions** (RM2690) : chaque session tmux naît avec un
+  plafond sur sa **scope systemd** (`MemoryHigh=6G` / `MemoryMax=8G` par défaut) —
+  une session qui fuit se fait tuer **seule** au lieu de saturer la workstation et
+  de laisser le kernel choisir la victime (incident OOM du 2026-08-13 : 15,7 Go de
+  RSS, victime arbitraire). L'UUID de scope étant aléatoire, aucun drop-in
+  déclaratif n'est possible : l'accroche est le spawn (couvre `/spawn` **et**
+  `/resume`), jamais bloquante (systemd absent, délégation `memory` manquante ou
+  `set-property` en échec → warning, session créée). **Réglable depuis le cockpit**
+  (🔧 réglages, rubrique « Sessions », en GiB, `0` = illimité) via
+  `sessions.memory_{high,max,swap}_gib` de `pm.config.yml` ; `KARL_AGENT_MEM_HIGH`
+  / `_MAX` / `_SWAP` (`.env`, syntaxe systemd) **figent** la valeur — le champ est
+  alors marqué 🔒 et l'écriture refusée. Ne s'applique qu'aux sessions créées
+  ensuite. Le **swap est plafonné à 0** par défaut (`MemorySwapMax`) : sans lui,
+  une session qui fuit grimpe lentement de `MemoryHigh` à `MemoryMax` en saturant
+  le swap — et c'est le swap saturé qui fait ramer le poste. Convention inversée
+  sur ce champ : `0` = aucun swap, `-1` = illimité.
 - **Aide intégrée** (RM2593) : menu **❓ aide** + boutons `?` contextuels par
   panneau, ouvrant des pages de doc utilisateur markdown versionnées
   (`deploy/karl-agent/cockpit/help/`) servies par karl-agent (`/help`,
@@ -37,6 +53,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Relève des emails de karl** (RM2668, chantier RM2666) :
+  `scripts/karl-mail-fetch.py` ouvre enfin la **lecture** de la boîte
+  `karl@iprospective.fr` (RM1723 était *send-only*) et dépose les messages humains
+  dans une **file de triage** locale — hors git, le repo de données partant sur
+  GitLab. Les dossiers classés côté serveur sont relevés en premier, **`INBOX`
+  ensuite** (un correspondant inconnu du carnet n'est classé nulle part). Lecture
+  **non destructive** (`BODY.PEEK`, pas de DELETE/MOVE, `--mark-seen` opt-in),
+  **idempotente** (index des `Message-ID`), robots et listes écartés. Exposé au
+  cockpit via le catalogue de commandes (catégorie *mail*), qui gagne au passage
+  les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
+  négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
+  de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
+  `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
+  de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1
+  (« aucun .env trouvé ») — `conso-report` comme les nouvelles commandes mail.
 - **MR sans ticket** (RM2644) : `pm-mr create --no-ticket --title "…"` ouvre une MR
   pour un changement qui n'a pas de ticket — ajout d'un terme au glossaire du
   cockpit, coquille (cf. NORMS `governance` § « Changements sans ticket », v1.68.0).

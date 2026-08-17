@@ -23,10 +23,12 @@ trap 'echo "✗ Script error at line $LINENO (exit $?)" >&2' ERR
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOCK="/run/user/$(id -u)/vault-agentd.sock"
 
-# Try to source .env from the PM repo root (one dir up from scripts/)
-if [ -f "$SCRIPT_DIR/../.env" ]; then
-  set -a; . "$SCRIPT_DIR/../.env"; set +a
-fi
+# Source la config PM depuis la racine du repo (un cran au-dessus de scripts/).
+# Scission RM2438 T1 : pm.env (non-secret, ex. VAULT_URL) + .env (secrets, BW_*) →
+# sourcer les DEUX (BW_CLIENTID/SECRET sont dans .env, VAULT_URL dans pm.env).
+for f in pm.env .env; do
+  [ -f "$SCRIPT_DIR/../$f" ] && { set -a; . "$SCRIPT_DIR/../$f"; set +a; }
+done
 
 : "${BW_CLIENTID:?missing — set in .env or env}"
 : "${BW_CLIENTSECRET:?missing — set in .env or env}"

@@ -53,6 +53,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Plusieurs vaults déverrouillés en parallèle** (RM2683, lot L2 du chantier
+  RM2662). `vault-agentd` tenait **une** session ; il tient désormais un **état par
+  instance** (session, horodatages, backend), donc des TTL et des verrous
+  indépendants : déverrouiller le vault d'un client ne prolonge pas celui
+  d'iProspective, et son expiration ne le verrouille pas. Le daemon ne quitte que
+  lorsqu'il ne reste plus aucune instance ouverte — comportement d'origine dès lors
+  qu'il n'y en a qu'une. Protocole étendu, **rétrocompatible** (un appel sans slug
+  vise l'instance par défaut) : `SET-SESSION [<slug>] <token>`, `LOCK [<slug>]`,
+  `SYNC [<slug>]`, `LIST-IN <slug> [filtre]`, et `STATUS <slug>` qui garde le format
+  historique tandis que `STATUS` nu devient un tableau de bord `<slug>\t<état>`.
+  Côté scripts : `unlock-vault.sh -i <instance>` (+ `--print-instance` pour
+  diagnostiquer sans rien déverrouiller), `lock-vault.sh [<instance>]`,
+  `vault-list.sh -i <instance>`. Le type de chaque instance vient du registre
+  providers ; **sans registre lisible, le daemon dégrade** vers l'instance unique
+  au lieu de tomber — un `sys.exit()` de `PMConfig.load()` (qui ne dérive pas
+  d'`Exception`) tuait sinon le thread de service et le client recevait un silence.
+  Corrigé au passage : la convention de nommage des identifiants par instance
+  devient `SECRET__<SLUG>__…` avec slug **normalisé** (`vw-ipro` → `VW_IPRO`) — la
+  forme à tiret n'était pas un nom de variable shell valide, donc inutilisable
+  depuis un `.env` sourcé ; la forme littérale reste lue par tolérance.
 - **Vaults déclarés en conf, par client ou par projet** (RM2682, lot L1 du
   chantier RM2662). Le registre providers gagne un **axe `secret`** : chaque vault
   est une instance nommée (`providers.servers.<slug>`, sans aucun secret dedans),

@@ -1,6 +1,18 @@
 #!/usr/bin/env bash
 # unlock-vault.sh — start vault-agentd (if needed) and feed it BW_SESSION.
 #
+# Usage :
+#   unlock-vault.sh                  # instance par défaut (VAULT_INSTANCE, défaut vw-ipro)
+#   unlock-vault.sh -i <instance>    # une instance Vaultwarden nommée (RM2683)
+#
+# Chaque instance a sa propre session côté daemon : déverrouiller le vault d'un
+# client ne prolonge pas celui d'iProspective. Les identifiants d'API sont pris
+# par instance (`SECRET__<slug>__CLIENTID` / `__CLIENTSECRET`, RM2682) avec repli
+# sur BW_CLIENTID / BW_CLIENTSECRET.
+#
+# Ce script ne déverrouille que des instances de type `vaultwarden` : les autres
+# backends (KeePass…) ont leur propre sémantique — cf. RM2684.
+#
 # Prompts for the karl@iprospective.fr master password (read -s, never logged or written
 # to disk). Calls `bw unlock --raw` to obtain a session token, then passes it to the
 # in-memory daemon over the Unix socket.
@@ -21,15 +33,47 @@ set -uo pipefail
 trap 'echo "✗ Script error at line $LINENO (exit $?)" >&2' ERR
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOCK="/run/user/$(id -u)/vault-agentd.sock"
+SOCK="${VAULT_SOCK:-/run/user/$(id -u)/vault-agentd.sock}"
+
+INSTANCE="${VAULT_INSTANCE:-vw-ipro}"
+if [ "${1:-}" = "-i" ]; then
+  [ "$#" -ge 2 ] || { echo "Usage: $0 [-i <instance>]" >&2; exit 1; }
+  INSTANCE="$2"; shift 2
+fi
 
 # Try to source .env from the PM repo root (one dir up from scripts/)
 if [ -f "$SCRIPT_DIR/../.env" ]; then
   set -a; . "$SCRIPT_DIR/../.env"; set +a
 fi
 
-: "${BW_CLIENTID:?missing — set in .env or env}"
-: "${BW_CLIENTSECRET:?missing — set in .env or env}"
+# Identifiants par instance (RM2682/RM2683), repli sur les variables historiques
+# du .env. Le slug est normalisé (majuscules, non-alphanum → `_`) : un nom de
+# variable shell n'accepte pas de tiret — `vw-ipro` → `SECRET__VW_IPRO__…`.
+SLUG="$(printf '%s' "$INSTANCE" | tr '[:lower:]' '[:upper:]' | tr -c 'A-Z0-9' '_')"
+
+# `_cred <SUFFIXE> <repli>` : valeur par instance si NON VIDE, sinon le repli
+# historique. Une variable déclarée vide compte comme absente (piège classique :
+# `printenv` réussit sur une variable vide et masquerait le repli).
+_cred() {
+  local v; v="$(printenv "SECRET__${SLUG}__$1" 2>/dev/null || true)"
+  printf '%s' "${v:-$2}"
+}
+BW_CLIENTID="$(_cred CLIENTID "${BW_CLIENTID:-}")"
+BW_CLIENTSECRET="$(_cred CLIENTSECRET "${BW_CLIENTSECRET:-}")"
+VAULT_URL="$(_cred URL "${VAULT_URL:-}")"
+
+if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
+  # Diagnostic : quelle instance, quelles clés trouvées — jamais les valeurs.
+  found=""
+  [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
+  [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
+  [ -n "$VAULT_URL" ] && found="$found URL"
+  echo "instance=$INSTANCE slug=$SLUG url=${VAULT_URL:-—} creds=${found:- aucun}"
+  exit 0
+fi
+
+: "${BW_CLIENTID:?missing — set SECRET__${SLUG}__CLIENTID (ou BW_CLIENTID)}"
+: "${BW_CLIENTSECRET:?missing — set SECRET__${SLUG}__CLIENTSECRET (ou BW_CLIENTSECRET)}"
 : "${VAULT_URL:=https://vault.iprospective.fr}"
 
 if ! command -v bw >/dev/null 2>&1; then

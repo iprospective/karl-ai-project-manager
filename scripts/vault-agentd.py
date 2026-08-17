@@ -122,11 +122,21 @@ def _instance_spec(slug):
         try:
             from pm_paths import PMConfig
             from pm_registry import Registry
-            reg = Registry.from_config(PMConfig.load().providers)
+            # PM_CORE_DIR : racine de config alternative (défaut = ce dépôt).
+            # Couture de testabilité, comme VAULT_SOCK — un daemon de test doit
+            # pouvoir déclarer ses propres instances sans toucher à la conf livrée.
+            core_dir = os.environ.get("PM_CORE_DIR") or None
+            reg = Registry.from_config(PMConfig.load(core_dir).providers)
             for inst in reg.servers.values():
                 if inst.axis == "secret":
                     _registry_cache[inst.name] = (inst.type, dict(inst.options))
-        except Exception:  # noqa: BLE001 — registre absent/illisible : on dégrade
+        except (Exception, SystemExit) as e:  # noqa: BLE001
+            # Registre absent, illisible ou incohérent : on DÉGRADE vers l'instance
+            # par défaut. `SystemExit` compte : `PMConfig.load()` fait `sys.exit()`
+            # sur une config incomplète, et il ne dérive pas d'`Exception` — sans ce
+            # cas, il tuerait le thread de service et le client recevrait un silence.
+            print(f"vault-agentd: registre providers indisponible ({type(e).__name__}) "
+                  f"→ instance unique {INSTANCE!r}", file=sys.stderr)
             _registry_cache = {}
     if slug in _registry_cache:
         return _registry_cache[slug]
@@ -328,6 +338,9 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--idle-timeout", type=int, help="Override VAULT_IDLE_TIMEOUT (seconds)")
     ap.add_argument("--lock-at-hour", type=int, help="Override VAULT_LOCK_AT_HOUR (0-23 or -1 to disable)")
+    ap.add_argument("--supervisor-interval", type=float, default=30.0,
+                    help="Période de contrôle des expirations (s, défaut 30) — "
+                         "abaissée par les tests pour observer un TTL réel")
     args = ap.parse_args()
     global IDLE_TIMEOUT, LOCK_AT_HOUR
     if args.idle_timeout is not None:
@@ -355,7 +368,8 @@ def main():
     server = socketserver.ThreadingUnixStreamServer(SOCK_PATH, VaultHandler)
     os.chmod(SOCK_PATH, 0o600)
 
-    threading.Thread(target=_bg_supervisor, daemon=True).start()
+    threading.Thread(target=_bg_supervisor, args=(args.supervisor_interval,),
+                     daemon=True).start()
 
     def _shutdown(*_):
         # Toutes les sessions disparaissent avec le process — on les efface

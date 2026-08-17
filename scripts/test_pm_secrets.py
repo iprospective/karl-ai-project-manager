@@ -242,6 +242,30 @@ def test_creds_repli_legacy():
     assert c2["CLIENTID"] == "id-ipro" and c2["URL"] == "https://vault.example", c2
 
 
+def test_env_slug_shell_compatible():
+    """Le nom de variable doit être valide en shell : pas de tiret, pas de point."""
+    assert pm_secrets.env_slug("vw-ipro") == "VW_IPRO"
+    assert pm_secrets.env_slug("kdbx.perso-2") == "KDBX_PERSO_2"
+    assert pm_secrets.creds_env_key("vw-ipro", "clientid") == "SECRET__VW_IPRO__CLIENTID"
+    for slug in ("vw-ipro", "kdbx.perso-2", "op-ipro"):
+        var = pm_secrets.creds_env_key(slug, "TOKEN")
+        assert var.replace("_", "").isalnum(), var          # sourçable par bash
+
+
+def test_creds_forme_canonique_et_litterale():
+    """La forme normalisée est lue ; la littérale reste tolérée (`.env` d'avant)."""
+    env_canon = {"SECRET__VW_IPRO__CLIENTID": "id-canon"}
+    assert pm_secrets.creds_for("vw-ipro", env=env_canon, legacy=False) == {
+        "CLIENTID": "id-canon"}
+    env_litt = {"SECRET__vw-ipro__CLIENTID": "id-litt"}
+    assert pm_secrets.creds_for("vw-ipro", env=env_litt, legacy=False) == {
+        "CLIENTID": "id-litt"}
+    # Les deux présentes : la canonique gagne (une seule vérité).
+    env_deux = dict(env_canon, **env_litt)
+    assert pm_secrets.creds_for("vw-ipro", env=env_deux, legacy=False) == {
+        "CLIENTID": "id-canon"}
+
+
 def test_creds_keys_ne_rend_que_des_noms():
     """Un diagnostic peut afficher les clés — jamais les valeurs (tripwire 11)."""
     keys = pm_secrets.creds_keys("vw-ipro", env=ENV_DEV, legacy=False)

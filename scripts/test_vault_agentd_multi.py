@@ -51,16 +51,20 @@ if a[:1] == ["sync"]:
 print("unexpected: %%s" %% a, file=sys.stderr); sys.exit(1)
 """ % (json.dumps(ITEM_IPRO), json.dumps(ITEM_CLIENT))
 
-CONFIG = """
-roots:
-  projects: "%(work)s/projects"
-providers:
-  defaults:
-    secret: vw-ipro
-  servers:
-    vw-ipro:     { axis: secret, type: vaultwarden, url: "https://vault.test" }
-    vw-clientx:  { axis: secret, type: vaultwarden, url: "https://vault.client-x.test" }
-"""
+# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée.
+# Repartir du fichier réel évite de maintenir un faux `pm.config.yml` (qui doit
+# porter `paths:`, `roots:`… sous peine de faire échouer `PMConfig.load`).
+EXTRA_INSTANCE = (
+    '    vw-clientx:  { axis: secret, type: vaultwarden, '
+    'url: "https://vault.client-x.test" }\n')
+
+
+def _config_avec_deux_vaults():
+    src = (_HERE.parent / "pm.config.yml").read_text(encoding="utf-8")
+    ancre = "    vw-ipro:"
+    i = src.index(ancre)
+    fin = src.index("\n", i) + 1
+    return src[:fin] + EXTRA_INSTANCE + src[fin:]
 
 
 def _ask(sock_path, line, timeout=10):
@@ -98,7 +102,7 @@ def _wait_socket(path, timeout=5.0):
 class Daemon:
     """Un daemon de test, avec sa config, son faux `bw` et son socket."""
 
-    def __init__(self, work, idle_timeout=None, tag="d"):
+    def __init__(self, work, idle_timeout=None, tag="d", supervisor_interval=None):
         self.work = work
         self.sock = str(work / f"{tag}.sock")
         self.env = dict(os.environ)
@@ -110,6 +114,8 @@ class Daemon:
         self.args = [sys.executable, str(DAEMON)]
         if idle_timeout is not None:
             self.args += ["--idle-timeout", str(idle_timeout)]
+        if supervisor_interval is not None:
+            self.args += ["--supervisor-interval", str(supervisor_interval)]
         self.log = open(work / f"{tag}.log", "w")
         self.proc = None
 
@@ -144,7 +150,10 @@ def _workdir(td):
     fake = work / "bin" / "bw"
     fake.write_text(FAKE_BW)
     fake.chmod(0o755)
-    (work / "pm.config.yml").write_text(CONFIG % {"work": work})
+    (work / "pm.config.yml").write_text(_config_avec_deux_vaults())
+    # `PMConfig.load(<dir>)` cherche aussi les scripts à côté : on lie le dossier
+    # scripts/ du dépôt pour que la config de test reste une simple surcouche.
+    (work / "scripts").symlink_to(_HERE)
     return work
 
 
@@ -209,26 +218,25 @@ def test_lock_derniere_instance_quitte():
 def test_expiration_par_instance():
     """L'inactivité expire instance par instance, pas globalement.
 
-    `--idle-timeout 1` + un accès régulier sur une seule des deux : l'autre doit
-    tomber, celle qu'on utilise doit survivre.
+    TTL d'1 s, superviseur toutes les 0,25 s : on maintient UNE des deux instances
+    active par des accès réguliers. Attendu : l'inactive tombe, l'active survit —
+    c'est tout l'intérêt d'un compteur par instance.
     """
     with tempfile.TemporaryDirectory(prefix="multi-") as td:
         work = _workdir(td)
-        with Daemon(work, idle_timeout=1, tag="exp") as d:
+        with Daemon(work, idle_timeout=1, supervisor_interval=0.25, tag="exp") as d:
             d.ask("SET-SESSION vw-ipro tok-ipro")
             d.ask("SET-SESSION vw-clientx tok-client")
-            # Le superviseur tourne toutes les 30 s par défaut : on le déclenche
-            # via l'horloge en gardant l'une des deux instances active.
-            fin = time.time() + 4
+            fin = time.time() + 3
             while time.time() < fin:
                 d.ask("GET secret://vw-ipro/coll/prod-db password")
-                time.sleep(0.4)
-            # Pas d'attente du superviseur : on vérifie au moins que l'instance
-            # utilisée répond toujours et que le daemon est vivant.
-            assert d.alive
-            assert d.ask("GET secret://vw-ipro/coll/prod-db password").strip() == "PWD-IPRO"
-            st = d.ask("STATUS vw-clientx").strip()
-            assert st.startswith(("locked", "unlocked")), st
+                time.sleep(0.3)
+            assert d.alive, "une instance reste active : le daemon ne doit pas quitter"
+            actif = d.ask("GET secret://vw-ipro/coll/prod-db password").strip()
+            assert actif == "PWD-IPRO", f"l'instance utilisée a expiré : {actif!r}"
+            inactif = d.ask("STATUS vw-clientx").strip()
+            assert inactif == "locked", f"l'instance inactive devait expirer : {inactif!r}"
+            assert d.ask("GET secret://vw-clientx/coll/prod-db").strip() == "ERR locked"
 
 
 def test_status_formats():

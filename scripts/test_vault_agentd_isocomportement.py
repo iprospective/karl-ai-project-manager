@@ -302,7 +302,10 @@ def main():
             # Même classe de réponse : ERR ↔ ERR, valeur ↔ valeur.
             ok = (a.startswith("ERR") == b.startswith("ERR"))
             if ok and cmd == "STATUS":
-                ok = bool(re.match(r"^(locked|unlocked )", b))
+                # RM2683 : `STATUS` nu devient un tableau de bord `<slug>\t<état>`
+                # (le format historique reste rendu par `STATUS <slug>`, testé plus
+                # bas). On exige donc l'état de l'instance par défaut, préfixée.
+                ok = bool(re.match(r"^\S+\t(locked|unlocked )", b))
             detail = "" if ok else f"\n      avant={a!r}\n      après={b!r}"
         print(f"  {'✓' if ok else '✗'} {cmd}{'' if strict else '  (classe)'}{detail}")
         fails += 0 if ok else 1

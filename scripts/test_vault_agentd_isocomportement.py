@@ -30,7 +30,26 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 CURRENT = _HERE / "vault-agentd.py"
-BASE_REF = os.environ.get("ISO_BASE_REF", "origin/dev")
+
+
+def _base_ref():
+    """Révision de référence : l'état du daemon AVANT le chantier multi-vault.
+
+    Surtout pas `origin/dev` : une fois L0 mergé, dev contient déjà la refonte et
+    la comparaison ne prouverait plus rien (elle comparerait le code à lui-même).
+    On vise donc le parent du commit qui a introduit `pm_secrets.py`.
+    """
+    if os.environ.get("ISO_BASE_REF"):
+        return os.environ["ISO_BASE_REF"]
+    r = subprocess.run(
+        ["git", "-C", str(_HERE.parent), "log", "--diff-filter=A", "--format=%H",
+         "-1", "--", "scripts/pm_secrets.py"],
+        capture_output=True, text=True)
+    sha = r.stdout.strip()
+    return f"{sha}^" if sha else "origin/dev"
+
+
+BASE_REF = _base_ref()
 
 # Item factice servi par le faux `bw` — aucune ressemblance avec un vrai secret.
 FAKE_ITEM = {
@@ -260,10 +279,15 @@ def main():
         base = work / "vault-agentd-base.py"
         # La version d'avant n'a pas VAULT_SOCK : on l'injecte pour ne pas
         # toucher au socket de la session en cours.
+        cible = 'SOCK_PATH = f"{SOCK_DIR}/vault-agentd.sock"'
         src = base_src.stdout.replace(
-            'SOCK_PATH = f"{SOCK_DIR}/vault-agentd.sock"',
+            cible,
             'SOCK_PATH = os.environ.get("VAULT_SOCK") or f"{SOCK_DIR}/vault-agentd.sock"')
-        assert "VAULT_SOCK" in src, "injection du socket de test impossible"
+        # Le remplacement DOIT avoir eu lieu (ou le support être déjà présent) :
+        # sinon le daemon de référence irait ouvrir le socket réel de la session.
+        assert src != base_src.stdout or "VAULT_SOCK" in base_src.stdout, (
+            f"injection du socket de test impossible sur {BASE_REF} — "
+            f"la ligne SOCK_PATH attendue est introuvable")
         base.write_text(src)
 
         scenario = [c for c, _ in COMMANDES]

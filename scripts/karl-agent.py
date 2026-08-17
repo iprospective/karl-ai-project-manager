@@ -5867,6 +5867,27 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
           "flag": "--dry-run"},
      ]},
+    # Routage de la file (RM2669) : propose client/projet par email, avec confiance.
+    {"name": "mail-route", "label": "Router les emails (client / projet)",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "redmine", "label": "Interroger Redmine (comptes des expéditeurs)",
+          "type": "bool", "flag": "--redmine"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    # La correction humaine : elle fait autorité ET s'apprend (mail-routing.yml),
+    # d'où `mutate` + confirmation.
+    {"name": "mail-route-set", "label": "Corriger le client/projet d'un email",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": True, "confirm": True, "args": [
+         {"name": "set", "label": "Clé de l'email (colonne de gauche)", "type": "text",
+          "required": True, "flag": "--set", "max_len": 64},
+         {"name": "to", "label": "Cible : client ou client/projet", "type": "text",
+          "required": True, "flag": "--to", "max_len": 96},
+         {"name": "domain", "label": "Apprendre tout le DOMAINE (pas juste l'adresse)",
+          "type": "bool", "flag": "--domain"},
+     ]},
     {"name": "mail-queue", "label": "File des emails à traiter",
      "category": "mail", "script": "karl-mail-fetch.py",
      "mutate": False, "args": [

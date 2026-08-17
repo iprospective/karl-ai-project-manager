@@ -64,6 +64,14 @@ paths:
   task_file:           "{tasks_dir}/RM{id}_{slug}.md"
   task_log_file:       "{tasks_dir}/RM{id}_{slug}.log.md"
 
+  # Routage des emails entrants → client/projet (RM2669). Table adresse →
+  # client/projet : de la CONFIGURATION, donc sous `conf_dir` (= le repo de code
+  # par défaut, où elle est versionnée). Surtout PAS sous `projects_root` : ce
+  # dossier est `.gitignore`d côté code et n'est le checkout d'aucun dépôt de
+  # données — la table y serait ni versionnée ni sauvegardée. Aucun contenu
+  # d'email ne s'en approche (la file de triage, elle, reste hors git — RM2668).
+  mail_routing_file:   "{conf_dir}/mail-routing.yml"
+
   # Symlinks de liaison code ↔ PM
   # workspace_link  : côté PM, pointe vers le workspace de code
   # reverse_link    : côté workspace de code, pointe vers le projet PM

@@ -5867,10 +5867,96 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
           "flag": "--dry-run"},
      ]},
+    # Routage de la file (RM2669) : propose client/projet par email, avec confiance.
+    {"name": "mail-route", "label": "Router les emails (client / projet)",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "redmine", "label": "Interroger Redmine (comptes des expéditeurs)",
+          "type": "bool", "flag": "--redmine"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    # La correction humaine : elle fait autorité ET s'apprend (mail-routing.yml),
+    # d'où `mutate` + confirmation.
+    {"name": "mail-route-set", "label": "Corriger le client/projet d'un email",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": True, "confirm": True, "args": [
+         {"name": "set", "label": "Clé de l'email (colonne de gauche)", "type": "text",
+          "required": True, "flag": "--set", "max_len": 64},
+         {"name": "to", "label": "Cible : client ou client/projet", "type": "text",
+          "required": True, "flag": "--to", "max_len": 96},
+         {"name": "domain", "label": "Apprendre tout le DOMAINE (pas juste l'adresse)",
+          "type": "bool", "flag": "--domain"},
+     ]},
+    # Rédaction assistée + création à la validation (RM2670). `mail-draft` propose
+    # (aucun ticket créé) ; `mail-create` est la VALIDATION humaine, donc confirmée.
+    {"name": "mail-draft", "label": "Rédiger un ticket depuis un email",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": False, "timeout": 600, "args": [
+         {"name": "draft", "label": "Clé de l'email (ou « all »)", "type": "text",
+          "required": True, "flag": "--draft", "max_len": 64},
+         {"name": "full_body", "label": "Envoyer le corps ENTIER au modèle",
+          "type": "bool", "flag": "--full-body"},
+         {"name": "force", "label": "Refaire une proposition existante", "type": "bool",
+          "flag": "--force"},
+     ]},
+    {"name": "mail-show", "label": "Voir la proposition d'un email",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": False, "args": [
+         {"name": "show", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--show", "max_len": 64},
+     ]},
+    {"name": "mail-create", "label": "Créer le ticket depuis la proposition",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": True, "confirm": True, "timeout": 300, "args": [
+         {"name": "create", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--create", "max_len": 64},
+         {"name": "project", "label": "Projet (client/projet) — corrige la proposition",
+          "type": "text", "flag": "--project", "max_len": 96},
+         {"name": "title", "label": "Titre — corrige la proposition", "type": "text",
+          "flag": "--title", "max_len": 120},
+         {"name": "priority", "label": "Priorité", "type": "enum", "flag": "--priority",
+          "choices": PRIORITIES},
+         {"name": "note_on", "label": "Rattacher à un ticket existant (note)",
+          "type": "rm_id", "flag": "--note-on"},
+     ]},
+    {"name": "mail-dismiss", "label": "Écarter un email de la file",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": True, "args": [
+         {"name": "dismiss", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--dismiss", "max_len": 64},
+         {"name": "reason", "label": "Motif", "type": "text", "flag": "--reason",
+          "max_len": 200},
+     ]},
     {"name": "mail-queue", "label": "File des emails à traiter",
      "category": "mail", "script": "karl-mail-fetch.py",
      "mutate": False, "args": [
          {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
+     ]},
+    # Contacts clients (RM2702) — nom, prénom, email, téléphone dans le meta.yml du
+    # client. `list` d'abord (lecture), `add` ensuite (mutation, sans confirmation :
+    # ajouter un contact est anodin et se retire d'un `remove`).
+    {"name": "contact-list", "label": "Contacts d'un client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": False, "args": [
+         {"name": "cmd", "type": "text", "flag": "list", "const": True, "positional": True},
+         {"name": "client", "label": "Client (vide = tous)", "type": "text",
+          "positional": True, "max_len": 48},
+         {"name": "only_real", "label": "Masquer nos propres adresses", "type": "bool",
+          "flag": "--only-real"},
+     ]},
+    {"name": "contact-add", "label": "Ajouter un contact client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": True, "args": [
+         {"name": "cmd", "type": "text", "flag": "add", "const": True, "positional": True},
+         {"name": "client", "label": "Client", "type": "text", "required": True,
+          "positional": True, "max_len": 48},
+         {"name": "last_name", "label": "NOM", "type": "text", "flag": "--last-name", "max_len": 64},
+         {"name": "first_name", "label": "Prénom", "type": "text", "flag": "--first-name", "max_len": 64},
+         {"name": "email", "label": "Email", "type": "text", "flag": "--email", "max_len": 96},
+         {"name": "phone", "label": "Téléphone", "type": "text", "flag": "--phone", "max_len": 32},
+         {"name": "role", "label": "Rôle", "type": "enum", "flag": "--role",
+          "choices": ["owner", "decideur", "technique", "facturation", "autre"]},
      ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
@@ -6873,9 +6959,11 @@ def op_pm_run(payload: dict) -> dict:
     for spec in cmd.get("args") or []:
         aname = spec["name"]
         if spec.get("const"):
-            # flag imposé par le catalogue (mode figé d'un script : ex. --queue) —
-            # jamais négociable par le client, jamais affiché comme champ
-            flags.append(spec["flag"])
+            # valeur imposée par le catalogue (mode figé d'un script : `--queue`, ou
+            # une sous-commande `list` / `add`) — jamais négociable par le client,
+            # jamais affichée comme champ. Positionnelle, elle garde son rang de
+            # déclaration : une sous-commande doit précéder ses arguments.
+            (positionals if spec.get("positional") else flags).append(spec["flag"])
             continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local

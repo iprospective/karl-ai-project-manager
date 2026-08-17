@@ -53,6 +53,60 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Vaults déclarés en conf, par client ou par projet** (RM2682, lot L1 du
+  chantier RM2662). Le registre providers gagne un **axe `secret`** : chaque vault
+  est une instance nommée (`providers.servers.<slug>`, sans aucun secret dedans),
+  avec un défaut (`providers.defaults.secret: vw-ipro`, qui reproduit l'existant).
+  Deux limites du registre tombent au passage, au bénéfice de **tous** les axes :
+  la liste d'axes devient **déclarative** (`providers.axes`) — un axe futur
+  (monitoring/Zabbix) ne coûte plus qu'une ligne de conf —, et la résolution gagne
+  le **niveau client** : `resolve_instance(project_meta, axis, registry,
+  client_meta=…)` applique projet > legacy projet > **client** > défaut, ce qui
+  permet « tous les projets de ce client passent par tel vault ». Sans
+  `client_meta`, la résolution est identique à avant (prouvé par test). Les
+  identifiants restent **par dev** : `SECRET__<slug>__CLIENTID` / `__FILE` /
+  `__TOKEN` dans `~/.config/mmi-pm/.env` (convention RM2546), avec repli sur les
+  variables historiques tant qu'un dev n'a pas migré ; `pm-providers.py resolve`
+  affiche l'instance retenue et les **noms** des identifiants trouvés, jamais leurs
+  valeurs. Corrigé au passage : `pm-providers resolve --client X` se laissait
+  écraser par la détection du cwd et répondait pour le projet courant.
+- **Socle multi-vault : `pm_secrets`** (RM2681, lot L0 du chantier RM2662). La
+  résolution de secrets passe derrière une interface `SecretBackend` (statut,
+  résolution, listing, `Capabilities`) avec des erreurs normalisées
+  (`locked` / `unreachable` / `not_found` / `denied` / `bad_uri` / `unsupported`) ;
+  `VaultwardenBackend` est l'**extraction iso-comportement** de l'existant, et
+  `vault-agentd` ne fait plus que porter la session et le protocole. Trois formes
+  d'URI acceptées : `secret://<instance>/<chemin…>[#champ]`, `secret:<chemin…>` et
+  la forme historique `vaultwarden://<org>/<coll>/<item>` — **supportée
+  définitivement**, aucun pointeur existant à réécrire. Un URI visant une instance
+  autre que celle servie est **refusé explicitement** plutôt que résolu en silence
+  dans le mauvais coffre (multi-instances : RM2683). Point d'extension
+  `register_backend()` pour les backends suivants (KeePass RM2684, 1Password,
+  Nextcloud Passwords, sops). Non-régression prouvée par un harnais qui rejoue
+  l'ancienne et la nouvelle implémentation sur un faux `bw`
+  (`test_vault_agentd_isocomportement.py`, comparaison stricte des réponses
+  nominales + codes de sortie de `resolve-secret.sh`).
+- **Contacts clients : nom, prénom, email, téléphone** (RM2702) :
+  `pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+  `import-redmine`) devient le seul point d'écriture de `contacts[]` dans le
+  `meta.yml` du client, au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`. `internal: true` marque **nos** adresses — le gabarit de création en pose
+  une chez chaque client, elle n'identifie donc personne (et a failli servir à router
+  du courrier entrant, RM2669). `import-redmine` amorce la fiche depuis les comptes
+  Redmine rattachés aux projets du client (nom, prénom, email y sont déjà ; le
+  téléphone reste à saisir). Documenté dans NORMS (`structure-reference`, **v1.69.0**).
+  Cockpit : catégorie *contacts*, et les arguments `const` du catalogue acceptent
+  désormais une **sous-commande positionnelle**. Un **annuaire indépendant des
+  clients** (une personne, plusieurs rattachements) est à l'étude — RM2703.
+- **De l'email au ticket, à la validation** (RM2670, chantier RM2666) :
+  `karl-mail-draft.py` rédige une proposition de ticket depuis un email de la file
+  (`claude -p` sans outils, JSON strict, projet **choisi dans une liste fournie** —
+  jamais inventé), puis crée le ticket **quand un humain valide** (`--create`), en
+  journalisant le `Message-ID` d'origine dans la description. Un email qui répond à un
+  fil pose une **note** au lieu d'ouvrir un doublon — y compris quand le sujet a perdu
+  son marqueur `[RM<id>]` (`--note-on`). Par défaut, seuls sujet, expéditeur et
+  500 premiers caractères partent au modèle ; `--full-body` reste un choix explicite.
+  Cockpit : `mail-draft` / `mail-show` / `mail-create` / `mail-dismiss`.
 - **Relève des emails de karl** (RM2668, chantier RM2666) :
   `scripts/karl-mail-fetch.py` ouvre enfin la **lecture** de la boîte
   `karl@iprospective.fr` (RM1723 était *send-only*) et dépose les messages humains
@@ -65,6 +119,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
   négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
   de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Routage des emails entrants → client/projet** (RM2669, chantier RM2666) :
+  `karl-mail-route.py` + `pm_mail_routing.py` proposent, pour chaque email de la
+  file, un client et — seulement quand c'est certain — un projet, avec **confiance
+  et source** : fil `[RM<id>]`, table apprise `mail-routing.yml`, compte Redmine de
+  l'expéditeur, `contacts[]` du client, indice textuel. Sinon l'email reste « à
+  classer » — jamais de choix silencieux entre deux candidats (tripwire 14). Chaque
+  correction humaine est **apprise** ; apprendre le *domaine* d'un fournisseur grand
+  public (gmail, orange…) est refusé, et les adresses maison sont exclues des
+  indices — sans quoi tout mail de Mathieu partirait chez un client au hasard,
+  `contacts[]` portant la même adresse propriétaire chez les 20 clients.
 - **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
   `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
   de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1

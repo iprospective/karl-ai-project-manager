@@ -4034,8 +4034,8 @@ function renderFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(val(c.name)) + "</a>"
-        : "<b>" + esc(val(c.name)) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(c.name) + "</a>"
+        : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += fileNav.entries.length ? fileNav.entries.map(e => {
       const child = (fileNav.path ? fileNav.path + "/" : "") + e.name;
       return e.dir
@@ -5003,42 +5003,50 @@ function setTicketFacet(f) { metaFacet = f; renderTickets(); }
 // ── Facette « détail » : identité + environnement + git + relations + desc + log ──
 // >>> projectBriefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2614 : situer le ticket dans son client et son projet, en trois lignes.
+// >>> cval — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2614/RM2714 : un champ YAML vide remonte en CHAÎNE "null" / "~" / "None" —
+// sans ce filtre, la fiche affichait « dépôt : null ».
+// Le nom compte : RM2614 l'appelait `val` et le déclarait DANS une fonction,
+// alors que les appels étaient posés dans quatre autres — `ReferenceError` à
+// l'exécution (panneau « commandes pm », fil d'ariane des fichiers, docs
+// projet). Trois `val` locaux distincts vivent encore dans ce fichier : ce
+// nettoyeur global en porte donc un autre.
+function cval(v) {
+  const s = String(v == null ? "" : v).trim();
+  return (s && s !== "null" && s !== "~" && s !== "None") ? s : "";
+}
+// <<< cval
+
 // `card` est la fiche projet déjà chargée (/project/<c>/<p>) ou null tant qu'elle
 // ne l'est pas — on affiche alors ce qu'on sait déjà plutôt que rien : le client
 // et le projet viennent du ticket, ils n'ont pas besoin d'un aller-retour.
 function projectBriefHtml(client, project, card, esc, jarg) {
   if (!client || !project) return "";      // ticket non résolu : pas de bloc vide
   const c = card || {};
-  // Un champ YAML vide remonte en CHAÎNE "null" / "~" / "None" : sans ce filtre,
-  // la fiche affichait « dépôt : null » sur les projets sans dépôt déclaré.
-  const val = v => {
-    const s = String(v == null ? "" : v).trim();
-    return (s && s !== "null" && s !== "~" && s !== "None") ? s : "";
-  };
   const cle = client + "/" + project;
   const ouverts = c.open_by_status
     ? Object.values(c.open_by_status).reduce((a, b) => a + b, 0) : null;
   let h = '<div class="ms"><h4>Client / projet</h4>';
   h += '<div class="kv"><span class="k">client</span><span class="v">'
-    + esc(val(c.client_name) || client)
-    + (val(c.client_redmine_project_id)
-        ? ' <span class="pill" style="opacity:.7">' + esc(val(c.client_redmine_project_id)) + "</span>" : "")
+    + esc(cval(c.client_name) || client)
+    + (cval(c.client_redmine_project_id)
+        ? ' <span class="pill" style="opacity:.7">' + esc(cval(c.client_redmine_project_id)) + "</span>" : "")
     + "</span></div>";
   h += '<div class="kv"><span class="k">projet</span><span class="v">'
-    + esc(val(c.name) || project)
+    + esc(cval(c.name) || project)
     + ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche du projet"'
     + ' onclick="showProject(' + jarg(cle) + ')">🗂 fiche</span>'
-    + (val(c.redmine_project_url)
-        ? ' <a href="' + esc(val(c.redmine_project_url)) + '" target="_blank" rel="noopener">Redmine ↗</a>' : "")
+    + (cval(c.redmine_project_url)
+        ? ' <a href="' + esc(cval(c.redmine_project_url)) + '" target="_blank" rel="noopener">Redmine ↗</a>' : "")
     + "</span></div>";
   if (ouverts !== null) {
     h += '<div class="kv"><span class="k">tickets</span><span class="v">'
       + ouverts + " ouvert" + (ouverts > 1 ? "s" : "")
       + (c.total ? " / " + c.total : "") + "</span></div>";
   }
-  if (val(c.gitlab_repo)) {
-    h += '<div class="kv"><span class="k">dépôt</span><span class="v">' + esc(val(c.gitlab_repo))
-      + (val(c.default_branch) ? ' <span class="pill">' + esc(val(c.default_branch)) + "</span>" : "")
+  if (cval(c.gitlab_repo)) {
+    h += '<div class="kv"><span class="k">dépôt</span><span class="v">' + esc(cval(c.gitlab_repo))
+      + (cval(c.default_branch) ? ' <span class="pill">' + esc(cval(c.default_branch)) + "</span>" : "")
       + "</span></div>";
   }
   return h + "</div>";
@@ -5811,9 +5819,9 @@ async function loadPmCommands() {
       const row = document.createElement("div"); row.className = "rels";
       cats[cat].forEach(c => {
         const b = document.createElement("button");
-        b.className = "chip"; b.textContent = (c.mutate ? "✏ " : "👁 ") + (c.label || val(c.name));
-        b.title = val(c.name) + (c.confirm ? " (confirmation requise)" : "");
-        b.onclick = () => renderPmForm(val(c.name));
+        b.className = "chip"; b.textContent = (c.mutate ? "✏ " : "👁 ") + (c.label || c.name);
+        b.title = c.name + (c.confirm ? " (confirmation requise)" : "");
+        b.onclick = () => renderPmForm(c.name);
         row.appendChild(b);
       });
       g.appendChild(row); menu.appendChild(g);
@@ -5826,7 +5834,7 @@ function renderPmForm(name) {
   document.getElementById("pm-result").style.display = "none";
   if (!c) { f.innerHTML = ""; return; }
   let h = '<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px">' +
-    '<b>' + esc(c.label || val(c.name)) + '</b>' +
+    '<b>' + esc(c.label || c.name) + '</b>' +
     (c.mutate ? ' <span class="pill warn">mutation</span>' : ' <span class="pill">lecture</span>');
   for (const a of c.args || []) {
     if (a.server) continue;                        // résolu côté serveur
@@ -5862,7 +5870,7 @@ async function submitPmForm(name, btn) {
     else if (v !== "") args[a.name] = v;
     else if (a.required) { toast("Champ requis : " + (a.label || a.name), true); return; }
   }
-  if (c.confirm && !window.confirm((c.label || val(c.name)) + " — exécuter cette mutation ?")) return;
+  if (c.confirm && !window.confirm((c.label || c.name) + " — exécuter cette mutation ?")) return;
   btn.disabled = true;
   try {
     const r = await pmRun(name, args, { confirm: !!c.confirm });
@@ -5960,7 +5968,7 @@ function renderProjectPane(key, d) {
   // docs projet
   if ((d.docs || []).length) {
     h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
-    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doval(c.name)) + '\')">📄 ' + esc(doval(c.name)) + '</li>'; });
+    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doc.name) + '\')">📄 ' + esc(doc.name) + '</li>'; });
     h += '</ul></div>';
   }
   // tickets ouverts par statut + récents
@@ -6042,8 +6050,8 @@ function renderProjFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(projFiles.path).map((cc, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + jarg(cc.path) + ');return false">' + esc(cval(c.name)) + "</a>"
-        : "<b>" + esc(cval(c.name)) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + jarg(cc.path) + ');return false">' + esc(cc.name) + "</a>"
+        : "<b>" + esc(cc.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += '<div style="max-height:340px;overflow-y:auto">' + (projFiles.entries.length ? projFiles.entries.map(e => {
       const child = (projFiles.path ? projFiles.path + "/" : "") + e.name;
       return e.dir

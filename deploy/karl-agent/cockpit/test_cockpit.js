@@ -1274,7 +1274,18 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 // — RM2614 : situer un ticket dans son client / projet —
 const fPb = />>> projectBriefHtml[\s\S]*?(function projectBriefHtml[\s\S]*?)\n\/\/ <<< projectBriefHtml/.exec(html);
 assert(fPb, "marqueurs >>> projectBriefHtml introuvables");
-const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")");
+// RM2714 : `cval` (nettoyeur des valeurs YAML « null ») est désormais une
+// fonction GLOBALE — elle doit être fournie au sandbox, sinon on rejouerait le
+// bug qu'on vient de corriger : un identifiant hors de portée.
+const mCval = />>> cval[\s\S]*?(function cval[\s\S]*?)\n\/\/ <<< cval/.exec(html);
+assert(mCval, "marqueurs >>> cval introuvables");
+const cval = vm.runInNewContext("(" + mCval[1] + ")");
+const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")", { cval });
+assert.strictEqual(cval("null"), "", "cval : la CHAÎNE « null » vaut vide (piège YAML)");
+assert.strictEqual(cval("~"), "", "cval : « ~ » aussi");
+assert.strictEqual(cval("None"), "", "cval : « None » aussi");
+assert.strictEqual(cval(null), "", "cval : null réel");
+assert.strictEqual(cval("  x  "), "x", "cval : trim");
 const e = s => String(s);
 const j = s => '"' + String(s) + '"';
 

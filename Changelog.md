@@ -53,6 +53,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Socle multi-vault : `pm_secrets`** (RM2681, lot L0 du chantier RM2662). La
+  résolution de secrets passe derrière une interface `SecretBackend` (statut,
+  résolution, listing, `Capabilities`) avec des erreurs normalisées
+  (`locked` / `unreachable` / `not_found` / `denied` / `bad_uri` / `unsupported`) ;
+  `VaultwardenBackend` est l'**extraction iso-comportement** de l'existant, et
+  `vault-agentd` ne fait plus que porter la session et le protocole. Trois formes
+  d'URI acceptées : `secret://<instance>/<chemin…>[#champ]`, `secret:<chemin…>` et
+  la forme historique `vaultwarden://<org>/<coll>/<item>` — **supportée
+  définitivement**, aucun pointeur existant à réécrire. Un URI visant une instance
+  autre que celle servie est **refusé explicitement** plutôt que résolu en silence
+  dans le mauvais coffre (multi-instances : RM2683). Point d'extension
+  `register_backend()` pour les backends suivants (KeePass RM2684, 1Password,
+  Nextcloud Passwords, sops). Non-régression prouvée par un harnais qui rejoue
+  l'ancienne et la nouvelle implémentation sur un faux `bw`
+  (`test_vault_agentd_isocomportement.py`, comparaison stricte des réponses
+  nominales + codes de sortie de `resolve-secret.sh`).
 - **Contacts clients : nom, prénom, email, téléphone** (RM2702) :
   `pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
   `import-redmine`) devient le seul point d'écriture de `contacts[]` dans le

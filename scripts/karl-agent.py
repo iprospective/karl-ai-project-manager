@@ -6077,9 +6077,16 @@ ENV_TOOLS = [
 _ENV_REPO_SKIP = {"envs", "repos", "node_modules", ".git", "vendor", "var"}
 
 
-def _chk(label, level, detail="", fix=""):
-    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation."""
-    return {"label": label, "level": level, "detail": detail, "fix": fix}
+def _chk(label, level, detail="", fix="", section=""):
+    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation.
+
+    `section` (RM2708) : sous-groupe DANS une famille — le client, pour les
+    repos. Une famille de 44 dépôts ne se lit pas à plat ; l'UI en fait des
+    sections repliables. Vide = la famille n'a pas de sous-groupe."""
+    c = {"label": label, "level": level, "detail": detail, "fix": fix}
+    if section:
+        c["section"] = section
+    return c
 
 
 # >>> envstatus_summary — pure (testée par test_karl_agent_envstatus.py)
@@ -6404,7 +6411,24 @@ def _gitlab_push_state(max_age=900):
     return st, age
 
 
-def _envchk_git():
+# >>> env_repo_section — pure (testée par test_karl_agent_envstatus.py)
+def env_repo_section(label):
+    """RM2708 : le CLIENT d'un repo, depuis son label (`<client>/<projet>` sous
+    une racine autorisée). Un repo de profondeur 1 (le core PM, un dépôt posé à
+    la racine) n'a pas de client : il va dans « hors client » plutôt que de
+    fabriquer une section d'un seul élément portant son propre nom."""
+    lab = str(label or "").strip().strip("/")
+    return lab.split("/")[0] if "/" in lab else "hors client"
+# <<< env_repo_section
+
+
+def _envchk_repos():
+    """RM2708 : les dépôts, dans leur propre famille et sectionnés par client.
+
+    Ils étaient mêlés aux contrôles d'accès de « Git / GitLab » — 44 lignes sur
+    ce poste, qui noyaient les trois qui comptent (PAT périmé, push cassé). Ce
+    sont deux questions distinctes : « mes dépôts sont-ils à jour ? » et
+    « puis-je pousser ? »."""
     import concurrent.futures
     pairs = []
     roots = _enumerate_pm_repos()
@@ -6416,11 +6440,20 @@ def _envchk_git():
             except Exception:
                 chk = None
             if chk:
-                pairs.append((_env_repo_label(futs[fut]), chk))
+                label = _env_repo_label(futs[fut])
+                chk["section"] = env_repo_section(label)
+                pairs.append((label, chk))
     out = [c for _, c in sorted(pairs, key=lambda x: x[0])]
     if len(roots) >= 120:   # cap atteint : le DIRE plutôt que laisser croire à l'exhaustivité
-        out.append(_chk("repos PM", "info", "liste tronquée à 120 repos — certains non auscultés"))
-    out.append(_probe_pat())
+        out.append(_chk("repos PM", "info",
+                        "liste tronquée à 120 repos — certains non auscultés"))
+    return out
+
+
+def _envchk_git():
+    """Accès GitLab : jeton, clé dédiée, capacité de push. Les dépôts eux-mêmes
+    vivent dans leur propre famille depuis RM2708 (`_envchk_repos`)."""
+    out = [_probe_pat()]
     key = Path(os.path.expanduser("~/.ssh/id_ed25519_gitlab"))
     if key.exists():
         out.append(_chk("clé GitLab dédiée", "ok",
@@ -6508,6 +6541,7 @@ def op_env_status() -> dict:
         ("Outils & dépendances", _envchk_tools),
         ("Secrets", _envchk_secrets),
         ("Git / GitLab", _envchk_git),
+        ("Repos", _envchk_repos),        # RM2708 : les dépôts, sectionnés par client
         ("SSH", _envchk_ssh),
         ("PM", _envchk_pm),
     ]

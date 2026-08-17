@@ -1412,7 +1412,14 @@ assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unk
 console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
 
 // — RM2458 : rendu de la page de santé du poste —
-const envStatusHtml = grabO("envStatusHtml", { esc: escO });
+// RM2708 : envStatusHtml compose désormais avec quatre fonctions pures — on les
+// évalue dans UN sandbox partagé, sinon chacune serait aveugle aux autres.
+const envCtx = { esc: escO, jarg: jargFn };
+for (const n of ["envStatusTabs", "envStatusDefaultTab", "envStatusSections",
+                 "envStatusBadge", "envStatusGroupHtml", "envStatusHtml"]) {
+  envCtx[n] = grabO(n, envCtx);
+}
+const envStatusHtml = envCtx.envStatusHtml;
 assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
 const rep = {
   generated_at: "2026-08-12T20:00:00",
@@ -1426,7 +1433,9 @@ const rep = {
         fix: "cd /w && git pull --rebase --autostash" } ] },
   ],
 };
-const esh = envStatusHtml(rep);
+// RM2708 : une famille à la fois → on force l'onglet pour les assertions de rendu
+const esh = envStatusHtml(rep, "Outils & dépendances")
+  + envStatusHtml(rep, "Git / GitLab");
 assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
 assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
   "la ligne rouge montre le détail ET la commande de remédiation");
@@ -1437,6 +1446,55 @@ assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est
 const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
 assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
 console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
+
+// — RM2708 : familles en onglets, dépôts en sections par client —
+const G6 = [
+  { name: "Outils & dépendances", checks: [{ label: "git", level: "ok" }] },
+  { name: "Git / GitLab", checks: [{ label: "PAT", level: "warn" }, { label: "push", level: "ok" }] },
+  { name: "Repos", checks: [
+    { label: "repo calicote/presta [main]", level: "ok", section: "calicote" },
+    { label: "repo calicote/dolibarr [dev]", level: "ok", section: "calicote" },
+    { label: "repo pisceen/presta [main]", level: "error", detail: "9 non poussés", section: "pisceen" },
+    { label: "repo perso/maths [main]", level: "warn", section: "perso" },
+    { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" } ] },
+];
+const tabs2708 = envCtx.envStatusTabs(G6);
+assert.deepStrictEqual([...tabs2708.map(t => t.name)],
+  ["Outils & dépendances", "Git / GitLab", "Repos"], "un onglet par famille, dans l'ordre du serveur");
+assert.deepStrictEqual({ ...tabs2708[2] }, { name: "Repos", warn: 1, error: 1, n: 5 },
+  "chaque onglet porte ses compteurs de défauts (visibles sans cliquer)");
+assert.strictEqual(envCtx.envStatusDefaultTab(tabs2708), "Repos",
+  "on ouvre sur la première famille EN ERREUR, pas sur la première tout court");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A", warn: 2, error: 0 }, { name: "B", warn: 0, error: 0 }]),
+  "A", "à défaut d'erreur, la première en avertissement");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A" }, { name: "B" }]), "A",
+  "tout est vert → la première famille");
+assert.strictEqual(envCtx.envStatusDefaultTab([]), "", "aucune famille toléré");
+// sections : défauts en tête, sans-section d'abord (lignes de service)
+const secs2708 = envCtx.envStatusSections(G6[2].checks);
+assert.deepStrictEqual([...secs2708.map(s => s.name)], ["", "pisceen", "perso", "calicote"],
+  "lignes hors client en tête, puis les sections EN DÉFAUT, puis le reste par ordre alpha");
+assert.strictEqual(secs2708[3].checks.length, 2, "les dépôts d'un client sont regroupés");
+assert.strictEqual(envCtx.envStatusSections([]).length, 0, "aucune ligne → aucune section");
+// rendu : replié quand tout va bien, déplié quand ça coince
+const rep2 = { summary: { counts: {} }, groups: G6 };
+const hRepos = envStatusHtml(rep2, "Repos");
+assert(/<details class="es-sec" open><summary>pisceen/.test(hRepos),
+  "une section en erreur est DÉPLIÉE — c'est ce qu'on vient voir");
+assert(/<details class="es-sec"><summary>calicote/.test(hRepos),
+  "une section sans défaut est repliée (20 clients, presque tous sans rien à signaler)");
+assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos),
+  "les lignes sans client restent visibles, sans section fantôme");
+assert(!/repo calicote\/presta/.test(envStatusHtml(rep2, "Git / GitLab")),
+  "un onglet ne montre QUE sa famille");
+assert(/es-badge es-error">✗ 1/.test(hRepos) && /es-badge es-warn">! 1/.test(hRepos),
+  "les pastilles de défaut sont rendues sur les onglets");
+assert(/onclick="setEnvTab\('Repos'\)"/.test(hRepos),
+  "l'onglet se change par setEnvTab, argument passé en guillemets simples (jarg)");
+// une famille à plat (sans section) ne fabrique aucun <details>
+assert(!/es-sec/.test(envStatusHtml(rep2, "Outils & dépendances")),
+  "une famille sans section reste une liste à plat");
+console.log("✓ santé du poste (RM2708) : onglets par famille, dépôts sectionnés par client");
 
 // — RM2659 : les racines de la session, groupées par projet —
 // Une session touche parfois plusieurs projets (7 sur 62 au registre) : le

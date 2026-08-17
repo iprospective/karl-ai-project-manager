@@ -492,6 +492,14 @@
   .es-fixrow { flex-basis: 100%; display: flex; gap: 6px; align-items: center; margin: 3px 0 1px 1.7em; max-width: 100%; }
   .es-fix { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; background: rgba(127,127,127,.13); padding: 2px 7px; border-radius: 5px; overflow-x: auto; white-space: pre; }
   .es-copy { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); flex-shrink: 0; }
+  /* RM2708 : familles en onglets, dépôts en sections par client */
+  .es-badge { font-size: 10px; padding: 0 5px; border-radius: 9px; font-weight: 700; }
+  .es-badge.es-warn { color: var(--warn); background: rgba(210,153,34,.16); }
+  .es-badge.es-error { color: #f85149; background: rgba(248,81,73,.16); }
+  .es-sec { margin: 2px 0; border-left: 2px solid var(--line); padding-left: 8px; }
+  .es-sec > summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 3px 0; list-style: revert; }
+  .es-sec > summary:hover { color: var(--accent); }
+  .es-sec .es-seccnt { color: var(--muted); font-weight: 400; font-size: 11px; }
   /* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
   .helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
   .helptoc .chip.on { color: var(--accent); font-weight: 600; }
@@ -5326,34 +5334,127 @@ document.addEventListener("click", function (ev) {
 // Chaque ligne colorée par niveau ; les rouges/oranges affichent la commande de
 // remédiation + un bouton « copier » (la commande n'entre JAMAIS dans un attribut
 // onclick — esCopy lit le <code> voisin, donc pas d'échappement fragile).
-function envStatusHtml(report) {
+function envStatusHtml(report, active) {
   if (!report || !report.groups) return '<div class="es-detail">état indisponible</div>';
-  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
   const s = (report.summary && report.summary.counts) || { ok: 0, warn: 0, error: 0 };
   let h = '<div class="es-head"><span style="color:var(--ok)">✓ ' + (s.ok || 0) + "</span> · "
     + '<span style="color:var(--warn)">! ' + (s.warn || 0) + "</span> · "
     + '<span style="color:#f85149">✗ ' + (s.error || 0) + "</span>"
     + (report.generated_at ? '<span class="es-when">' + esc(report.generated_at) + "</span>" : "") + "</div>";
-  report.groups.forEach(function (g) {
-    h += '<div class="es-group"><div class="es-gname">' + esc(g.name || "") + "</div>";
-    (g.checks || []).forEach(function (c) {
-      const lv = c.level || "info";
-      h += '<div class="es-row es-' + esc(lv) + '">'
-        + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
-        + '<span class="es-label">' + esc(c.label || "") + "</span>"
-        + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
-      if (c.fix) {
-        h += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
-          + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
-      }
-      h += "</div>";
-    });
-    h += "</div>";
-  });
+  // RM2708 : une famille à la fois. Cinq familles empilées, dont une de 44
+  // dépôts, se lisaient au défilement — et les trois lignes qui comptent (PAT
+  // périmé, push cassé) se noyaient dans l'inventaire.
+  const tabs = envStatusTabs(report.groups);
+  const cur = tabs.some(t => t.name === active) ? active : envStatusDefaultTab(tabs);
+  h += '<div class="rsub">' + tabs.map(t =>
+    '<button class="' + (t.name === cur ? "active" : "") + '" onclick="setEnvTab(' + jarg(t.name) + ')">'
+    + esc(t.name) + envStatusBadge(t) + "</button>").join("") + "</div>";
+  const g = report.groups.find(x => (x.name || "") === cur) || { checks: [] };
+  h += envStatusGroupHtml(g);
   return h;
 }
 // <<< envStatusHtml
+
+// >>> envStatusTabs — pur (testé par test_cockpit.js) : un onglet par famille,
+// avec ses compteurs de défauts (c'est ce qui permet de voir où ça coince SANS
+// cliquer sur chaque onglet — sinon les onglets cacheraient l'information que la
+// page empilée donnait gratuitement).
+function envStatusTabs(groups) {
+  return (groups || []).map(function (g) {
+    let warn = 0, error = 0;
+    (g.checks || []).forEach(function (c) {
+      if (c.level === "warn") warn++;
+      else if (c.level === "error") error++;
+    });
+    return { name: g.name || "", warn: warn, error: error, n: (g.checks || []).length };
+  });
+}
+// <<< envStatusTabs
+
+// >>> envStatusDefaultTab — pur (testé par test_cockpit.js)
+// La page s'ouvre sur ce qui ne va pas : première famille en erreur, sinon
+// première en avertissement, sinon la première tout court.
+function envStatusDefaultTab(tabs) {
+  const ts = tabs || [];
+  const bad = ts.find(t => t.error) || ts.find(t => t.warn) || ts[0];
+  return bad ? bad.name : "";
+}
+// <<< envStatusDefaultTab
+
+// >>> envStatusSections — pur (testé par test_cockpit.js)
+// Regroupe les lignes d'une famille par `section` (le client, pour les dépôts).
+// Sections EN DÉFAUT d'abord — c'est ce qu'on vient voir ; le reste par ordre
+// alphabétique. Les lignes sans section (contrôles de service, troncature)
+// forment un groupe sans titre, rendu en tête et jamais replié.
+function envStatusSections(checks) {
+  const rank = { ok: 0, info: 0, warn: 1, error: 2 };
+  const bySec = new Map();
+  for (const c of checks || []) {
+    const k = c && c.section ? String(c.section) : "";
+    if (!bySec.has(k)) bySec.set(k, { name: k, checks: [], worst: 0 });
+    const s = bySec.get(k);
+    s.checks.push(c);
+    s.worst = Math.max(s.worst, rank[(c && c.level) || "info"] || 0);
+  }
+  const out = [...bySec.values()];
+  out.sort((a, b) => (a.name === "" ? -1 : b.name === "" ? 1 : 0)
+    || (b.worst - a.worst) || a.name.localeCompare(b.name));
+  return out;
+}
+// <<< envStatusSections
+
+// >>> envStatusBadge — pur (testé par test_cockpit.js) : pastilles d'un onglet.
+function envStatusBadge(t) {
+  const e = (t && t.error) || 0, w = (t && t.warn) || 0;
+  return (e ? ' <span class="es-badge es-error">✗ ' + e + "</span>" : "")
+    + (w ? ' <span class="es-badge es-warn">! ' + w + "</span>" : "");
+}
+// <<< envStatusBadge
+
+// >>> envStatusGroupHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rendu d'une famille : lignes à plat, ou sections repliables si elle en a.
+function envStatusGroupHtml(g) {
+  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
+  const rowHtml = function (c) {
+    const lv = c.level || "info";
+    let r = '<div class="es-row es-' + esc(lv) + '">'
+      + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
+      + '<span class="es-label">' + esc(c.label || "") + "</span>"
+      + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
+    if (c.fix) {
+      // la commande n'entre JAMAIS dans un attribut onclick : esCopy lit le <code> voisin
+      r += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
+        + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
+    }
+    return r + "</div>";
+  };
+  const sections = envStatusSections(g.checks || []);
+  if (sections.length === 1 && sections[0].name === "") {
+    return '<div class="es-group">' + (g.checks || []).map(rowHtml).join("") + "</div>";
+  }
+  let h = '<div class="es-group">';
+  for (const s of sections) {
+    if (!s.name) { h += s.checks.map(rowHtml).join(""); continue; }
+    // RM2708 : une section sans défaut est repliée — 20 clients dont l'immense
+    // majorité n'a rien à signaler ; ce qui va bien se compte, il ne se lit pas.
+    const bad = s.worst > 0;
+    h += '<details class="es-sec"' + (bad ? " open" : "") + '><summary>' + esc(s.name)
+      + ' <span class="es-seccnt">' + s.checks.length + "</span>"
+      + envStatusBadge({ error: s.checks.filter(c => c.level === "error").length,
+                         warn: s.checks.filter(c => c.level === "warn").length })
+      + "</summary>" + s.checks.map(rowHtml).join("") + "</details>";
+  }
+  return h + "</div>";
+}
+// <<< envStatusGroupHtml
+
 let envStatusCache = null;
+let envTab = null;          // RM2708 : famille affichée (null = choisie par défaut)
+function setEnvTab(name) {
+  envTab = name;
+  const body = document.getElementById("es-body");
+  if (body && envStatusCache) body.innerHTML = envStatusHtml(envStatusCache, envTab);
+}
 async function openEnvStatus(force) {
   document.getElementById("doctitle").textContent = "🩺 Santé du poste";
   const el = document.getElementById("doccontent");
@@ -5363,9 +5464,12 @@ async function openEnvStatus(force) {
     + '<div id="es-body" style="color:var(--muted)">diagnostic en cours…</div>';
   document.getElementById("docmodal").classList.add("show");
   try {
+    // RM2708 : ↻ garde l'onglet ouvert (on rafraîchit POUR revoir la même
+    // famille après une réparation). Un onglet disparu retombe sur le défaut,
+    // `envStatusHtml` s'en charge.
     if (force || !envStatusCache) envStatusCache = await api("/env-status");
     const body = document.getElementById("es-body");
-    if (body) body.innerHTML = envStatusHtml(envStatusCache);
+    if (body) body.innerHTML = envStatusHtml(envStatusCache, envTab);
   } catch (e) {
     const body = document.getElementById("es-body");
     if (body) body.innerHTML = '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">échec du diagnostic : ' + esc(e.message) + "</span></div>";

@@ -349,9 +349,16 @@ def get_backend(type_, name="default", **options):
 # dans le `.env` du dev (`~/.config/mmi-pm/.env`, chargé par pm_paths dans
 # os.environ), nommés par slug d'instance :
 #
-#     SECRET__<slug>__CLIENTID / __CLIENTSECRET   Vaultwarden (clé API)
-#     SECRET__<slug>__FILE                        KeePass / sops (chemin)
-#     SECRET__<slug>__TOKEN                       backend en ligne
+#     SECRET__<SLUG>__CLIENTID / __CLIENTSECRET   Vaultwarden (clé API)
+#     SECRET__<SLUG>__FILE                        KeePass / sops (chemin)
+#     SECRET__<SLUG>__TOKEN                       backend en ligne
+#
+# `<SLUG>` est le slug **normalisé** : majuscules, et tout caractère non
+# alphanumérique remplacé par `_` — `vw-ipro` → `SECRET__VW_IPRO__CLIENTID`.
+# Raison (RM2683) : un nom de variable shell n'accepte pas les tirets, donc la
+# forme littérale `SECRET__vw-ipro__…` ne pouvait ni être sourcée depuis un `.env`
+# ni être lue par `${!var}` — elle n'était utilisable que depuis Python. La forme
+# littérale reste acceptée en lecture, pour ne pas casser un `.env` déjà écrit.
 #
 # Convention alignée sur RM2546 (`REDMINE__<slug>__API_KEY`). Les valeurs ne sont
 # jamais journalisées : seules les CLÉS présentes peuvent l'être.
@@ -366,16 +373,31 @@ LEGACY_CREDS = {
 }
 
 
+def env_slug(instance):
+    """Slug normalisé pour un nom de variable d'environnement (shell-compatible)."""
+    return "".join(c if c.isalnum() else "_" for c in str(instance)).upper()
+
+
+def creds_env_key(instance, suffix):
+    """Nom canonique de la variable portant un identifiant d'instance."""
+    return f"{CREDS_PREFIX}{env_slug(instance)}__{suffix.upper()}"
+
+
 def creds_for(instance, env=None, legacy=True):
     """Identifiants déclarés pour une instance : {suffixe: valeur}.
 
+    Lit la forme canonique (slug normalisé) ET la forme littérale, cette dernière
+    par tolérance pour un `.env` écrit avant RM2683 ; la canonique gagne.
     `legacy=True` complète avec les variables historiques (BW_CLIENTID…) pour les
     clés absentes — la migration vers les clés par slug reste ainsi opt-in.
     """
     env = os.environ if env is None else env
-    prefix = f"{CREDS_PREFIX}{instance}__"
-    out = {k[len(prefix):]: v for k, v in env.items()
-           if k.startswith(prefix) and v not in (None, "")}
+    out = {}
+    # Forme littérale d'abord, la canonique ensuite : elle écrase, donc elle gagne.
+    for prefix in (f"{CREDS_PREFIX}{instance}__",
+                   f"{CREDS_PREFIX}{env_slug(instance)}__"):
+        out.update({k[len(prefix):].upper(): v for k, v in env.items()
+                    if k.startswith(prefix) and v not in (None, "")})
     if legacy:
         for suffix, var in LEGACY_CREDS.items():
             if suffix not in out and env.get(var):

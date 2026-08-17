@@ -98,6 +98,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   Cockpit : catégorie *contacts*, et les arguments `const` du catalogue acceptent
   désormais une **sous-commande positionnelle**. Un **annuaire indépendant des
   clients** (une personne, plusieurs rattachements) est à l'étude — RM2703.
+- **De l'email au ticket, à la validation** (RM2670, chantier RM2666) :
+  `karl-mail-draft.py` rédige une proposition de ticket depuis un email de la file
+  (`claude -p` sans outils, JSON strict, projet **choisi dans une liste fournie** —
+  jamais inventé), puis crée le ticket **quand un humain valide** (`--create`), en
+  journalisant le `Message-ID` d'origine dans la description. Un email qui répond à un
+  fil pose une **note** au lieu d'ouvrir un doublon — y compris quand le sujet a perdu
+  son marqueur `[RM<id>]` (`--note-on`). Par défaut, seuls sujet, expéditeur et
+  500 premiers caractères partent au modèle ; `--full-body` reste un choix explicite.
+  Cockpit : `mail-draft` / `mail-show` / `mail-create` / `mail-dismiss`.
 - **Relève des emails de karl** (RM2668, chantier RM2666) :
   `scripts/karl-mail-fetch.py` ouvre enfin la **lecture** de la boîte
   `karl@iprospective.fr` (RM1723 était *send-only*) et dépose les messages humains

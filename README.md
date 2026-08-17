@@ -65,6 +65,7 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
   PISTES.md                            # pistes d'évolution
   pm.config.yml                        # config des chemins (commitée)
   pm.config.local.yml                  # surcharge locale (gitignored, optionnel)
+  mail-routing.yml                     # routage email → client/projet (appris, RM2669)
   .env                                 # credentials + PROJECTS_PATH (gitignored)
   .gitignore
   norms/
@@ -94,6 +95,9 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     pm-env-*.py                        # init, migrate, session (envs par ticket), deploy
     pm-mr.py · pm-branch-start.py      # branche par ticket, MR fiable (create/merge/get)
     pm-norms-assemble.py · -doctor.py  # gouvernance NORMS (build + invariants)
+    karl-mail-*.py                     # boîte de karl : send, fetch (relève), route
+                                       # (client/projet), draft (ticket à la validation)
+    pm-client-contact.py               # contacts d'un client (nom, prénom, email, tél)
     redmine-fetch-task.py · redmine-post-note.py · pm-project-bootstrap.py …
   templates/
     task.md                            # template tâche

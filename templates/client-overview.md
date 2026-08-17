@@ -17,6 +17,7 @@ contacts:
     email: ""
     phone: ""
     role: owner
+    title: ""
 
 # Cascade — valeurs héritées par tous les projets du client
 defaults:

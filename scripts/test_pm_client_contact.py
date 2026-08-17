@@ -68,7 +68,8 @@ P.meta_path = lambda cfg, client: meta_file          # une seule fiche pour le t
 
 def args(**kw):
     base = dict(client="demo", email=None, last_name=None, first_name=None,
-                phone=None, role=None, dry_run=False, only_real=False, apply=False)
+                phone=None, role=None, title=None, dry_run=False, only_real=False,
+                apply=False)
     base.update(kw)
     return argparse.Namespace(**base)
 
@@ -79,13 +80,14 @@ def contacts():
 
 # ── ajout : les quatre champs demandés ───────────────────────────────────────
 P.cmd_add(cfg, args(email="claire@demo.fr", last_name="Dupont", first_name="Claire",
-                    phone=" +33 6 12  34 56 78 ", role="technique"))
+                    phone=" +33 6 12  34 56 78 ", role="technique", title="Gérante"))
 c = P.find_contact(contacts(), "claire@demo.fr")
 check("ajout : nom, prénom, email enregistrés",
       c and (c["last_name"], c["first_name"], c["email"]) == ("Dupont", "Claire", "claire@demo.fr"))
 check("ajout : téléphone normalisé et gardé en chaîne",
       isinstance(c.get("phone"), str) and c["phone"] == "+33 6 12 34 56 78")
 check("ajout : rôle enregistré", c.get("role") == "technique")
+check("ajout : fonction en clair conservée", c.get("title") == "Gérante")
 check("ajout : contact externe non marqué interne", "internal" not in c)
 
 # ── garde-fous ───────────────────────────────────────────────────────────────
@@ -117,10 +119,18 @@ P.cmd_mark_internal(cfg, args(client="demo", apply=True))
 check("marquage rétroactif de l'entrée du gabarit",
       P.find_contact(contacts(), "mathieu@iprospective.fr").get("internal") is True)
 
+# ── reprise d'une fiche ancienne (champ `name` en un bloc) ───────────────────
+P.cmd_set(cfg, args(email="mathieu@iprospective.fr", last_name="Moulin",
+                    first_name="Mathieu"))
+c = P.find_contact(contacts(), "mathieu@iprospective.fr")
+check("reprise : nom structuré", (c["last_name"], c["first_name"]) == ("Moulin", "Mathieu"))
+check("reprise : ancien champ `name` retiré (plus de doublon)", "name" not in c)
+
 # ── fiches vides du gabarit ──────────────────────────────────────────────────
 check("fiche vide reconnue", P.is_empty({"name": "", "email": "", "role": "owner"}))
 check("fiche nommée non vide", not P.is_empty({"name": "Lydie Mariller", "email": ""}))
 check("fiche avec téléphone seul non vide", not P.is_empty({"phone": "0475000000"}))
+check("fiche avec fonction seule non vide", not P.is_empty({"title": "Gérant"}))
 
 # ── modification et retrait ──────────────────────────────────────────────────
 P.cmd_set(cfg, args(email="claire@demo.fr", phone="04 75 00 00 00", role="decideur"))

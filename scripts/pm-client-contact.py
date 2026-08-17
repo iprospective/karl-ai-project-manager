@@ -12,6 +12,7 @@ Schéma d'un contact (tous les champs sont optionnels sauf un identifiant : emai
         email: claire@exemple.fr
         phone: "+33 6 12 34 56 78"
         role: technique            # owner | decideur | technique | facturation | autre
+        title: Gérant              # fonction, en clair (le rôle est une catégorie)
         internal: true             # posé AUTOMATIQUEMENT sur nos propres adresses
 
 `internal: true` marque nos adresses maison (iprospective.fr…) : le gabarit de création
@@ -43,7 +44,7 @@ from pm_paths import PMConfig                              # noqa: E402
 ROLES = ["owner", "decideur", "technique", "facturation", "autre"]
 OWN_DOMAINS = ["iprospective.fr", "iprospective.net"]
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[a-z]{2,}$", re.I)
-FIELDS = ("last_name", "first_name", "email", "phone", "role")
+FIELDS = ("last_name", "first_name", "email", "phone", "role", "title")
 
 
 def is_internal(email: str) -> bool:
@@ -105,7 +106,7 @@ def is_empty(c: dict) -> bool:
     """Fiche vide laissée par le gabarit de création (`{name: '', email: '', role: owner}`)
     — présente chez plusieurs clients. Ce n'est pas un contact."""
     return not any((c.get(k) or "").strip()
-                   for k in ("email", "last_name", "first_name", "name", "phone"))
+                   for k in ("email", "last_name", "first_name", "name", "phone", "title"))
 
 
 def find_contact(contacts: list, email: str):
@@ -122,8 +123,11 @@ def print_contacts(client: str, contacts: list):
         return
     for c in contacts:
         tag = " (interne)" if c.get("internal") else ""
+        role = c.get("role") or ""
+        if c.get("title"):
+            role = f"{role} · {c['title']}" if role else c["title"]
         print(f"  {client:20} {contact_label(c):28.28} {(c.get('email') or ''):32.32} "
-              f"{(c.get('phone') or ''):18.18} {(c.get('role') or ''):12}{tag}")
+              f"{(c.get('phone') or ''):18.18} {role:26.26}{tag}")
 
 
 # ── Commandes ────────────────────────────────────────────────────────────────
@@ -189,7 +193,12 @@ def cmd_set(cfg, args):
             c[k] = normalize_phone(v) if k == "phone" else v
             changed.append(k)
     if not changed:
-        out.fail("rien à modifier", remede="précise --phone / --last-name / --first-name / --role")
+        out.fail("rien à modifier",
+                 remede="précise --phone / --last-name / --first-name / --role / --title")
+    # reprise d'une fiche ancienne : dès que le nom est structuré, le `name` global
+    # (nom complet en un bloc) n'a plus de raison d'être — il doublonnerait.
+    if c.get("name") and (c.get("last_name") or c.get("first_name")):
+        c.pop("name")
     if c.get("email"):
         c["internal"] = is_internal(c["email"]) or None
         if not c["internal"]:
@@ -325,6 +334,7 @@ def main():
         parser.add_argument("--first-name", dest="first_name", help="Prénom")
         parser.add_argument("--phone", help="Téléphone (chaîne : le + est conservé)")
         parser.add_argument("--role", choices=ROLES, help=f"Rôle ({', '.join(ROLES)})")
+        parser.add_argument("--title", help="Fonction en clair (Gérant, DG, comptable…)")
 
     p = sub.add_parser("add", help="Ajoute un contact")
     p.add_argument("client")

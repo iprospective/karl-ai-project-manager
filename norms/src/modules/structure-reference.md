@@ -166,6 +166,7 @@ contacts:
     email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
     phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
     role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
     internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
 ```
 

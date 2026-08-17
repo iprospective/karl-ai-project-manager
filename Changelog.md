@@ -53,6 +53,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Contacts clients : nom, prénom, email, téléphone** (RM2702) :
+  `pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+  `import-redmine`) devient le seul point d'écriture de `contacts[]` dans le
+  `meta.yml` du client, au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`. `internal: true` marque **nos** adresses — le gabarit de création en pose
+  une chez chaque client, elle n'identifie donc personne (et a failli servir à router
+  du courrier entrant, RM2669). `import-redmine` amorce la fiche depuis les comptes
+  Redmine rattachés aux projets du client (nom, prénom, email y sont déjà ; le
+  téléphone reste à saisir). Documenté dans NORMS (`structure-reference`, **v1.69.0**).
+  Cockpit : catégorie *contacts*, et les arguments `const` du catalogue acceptent
+  désormais une **sous-commande positionnelle**. Un **annuaire indépendant des
+  clients** (une personne, plusieurs rattachements) est à l'étude — RM2703.
 - **De l'email au ticket, à la validation** (RM2670, chantier RM2666) :
   `karl-mail-draft.py` rédige une proposition de ticket depuis un email de la file
   (`claude -p` sans outils, JSON strict, projet **choisi dans une liste fournie** —
@@ -74,6 +86,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   les arguments **`const`** — un flag imposé par le catalogue, ni affiché ni
   négociable côté client. Défauts calés sur la boîte réelle : `INBOX.Clients` est
   de confiance, `INBOX.Gitlab` / `INBOX.Vault` jamais relevés.
+- **Routage des emails entrants → client/projet** (RM2669, chantier RM2666) :
+  `karl-mail-route.py` + `pm_mail_routing.py` proposent, pour chaque email de la
+  file, un client et — seulement quand c'est certain — un projet, avec **confiance
+  et source** : fil `[RM<id>]`, table apprise `mail-routing.yml`, compte Redmine de
+  l'expéditeur, `contacts[]` du client, indice textuel. Sinon l'email reste « à
+  classer » — jamais de choix silencieux entre deux candidats (tripwire 14). Chaque
+  correction humaine est **apprise** ; apprendre le *domaine* d'un fournisseur grand
+  public (gmail, orange…) est refusé, et les adresses maison sont exclues des
+  indices — sans quoi tout mail de Mathieu partirait chez un client au hasard,
+  `contacts[]` portant la même adresse propriétaire chez les 20 clients.
 - **Instances cockpit de test : les commandes ⚙ fonctionnent enfin** (RM2668) :
   `pm-cockpit-test-env` transmet `PM_CORE_DIR` à l'instance. Sans lui, le worktree
   de code n'a pas de `.env` et **toute** commande du catalogue mourait en rc=1

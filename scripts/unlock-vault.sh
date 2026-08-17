@@ -41,10 +41,12 @@ if [ "${1:-}" = "-i" ]; then
   INSTANCE="$2"; shift 2
 fi
 
-# Try to source .env from the PM repo root (one dir up from scripts/)
-if [ -f "$SCRIPT_DIR/../.env" ]; then
-  set -a; . "$SCRIPT_DIR/../.env"; set +a
-fi
+# Source la config PM depuis la racine du repo (un cran au-dessus de scripts/).
+# Scission RM2438 T1 : pm.env (non-secret, ex. VAULT_URL) + .env (secrets, BW_*) →
+# sourcer les DEUX (BW_CLIENTID/SECRET sont dans .env, VAULT_URL dans pm.env).
+for f in pm.env .env; do
+  [ -f "$SCRIPT_DIR/../$f" ] && { set -a; . "$SCRIPT_DIR/../$f"; set +a; }
+done
 
 # Identifiants par instance (RM2682/RM2683), repli sur les variables historiques
 # du .env. Le slug est normalisé (majuscules, non-alphanum → `_`) : un nom de

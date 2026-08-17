@@ -14,6 +14,30 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Correctif — lancer une session non-claude** (RM2691) : `POST /spawn` avec
+  `engine` = `shell`, `opencode` ou `vibe` répondait **500** (`UnboundLocalError`
+  sur `joined`, affecté seulement dans la branche claude) alors que la session
+  tmux était bien créée — l'appelant relançait et se prenait un 409 « session
+  déjà active ». La réponse dit maintenant explicitement que le jeu de sessions
+  n'a pas été rejoint (`reason: "sans-session-id"`) : sans set-at-launch, une
+  entrée de jeu serait hollow (ni engine, ni session_id, ni cwd), donc non
+  relançable, tout en consommant un slot du plafond.
+- **Plafond mémoire des sessions** (RM2690) : chaque session tmux naît avec un
+  plafond sur sa **scope systemd** (`MemoryHigh=6G` / `MemoryMax=8G` par défaut) —
+  une session qui fuit se fait tuer **seule** au lieu de saturer la workstation et
+  de laisser le kernel choisir la victime (incident OOM du 2026-08-13 : 15,7 Go de
+  RSS, victime arbitraire). L'UUID de scope étant aléatoire, aucun drop-in
+  déclaratif n'est possible : l'accroche est le spawn (couvre `/spawn` **et**
+  `/resume`), jamais bloquante (systemd absent, délégation `memory` manquante ou
+  `set-property` en échec → warning, session créée). **Réglable depuis le cockpit**
+  (🔧 réglages, rubrique « Sessions », en GiB, `0` = illimité) via
+  `sessions.memory_{high,max,swap}_gib` de `pm.config.yml` ; `KARL_AGENT_MEM_HIGH`
+  / `_MAX` / `_SWAP` (`.env`, syntaxe systemd) **figent** la valeur — le champ est
+  alors marqué 🔒 et l'écriture refusée. Ne s'applique qu'aux sessions créées
+  ensuite. Le **swap est plafonné à 0** par défaut (`MemorySwapMax`) : sans lui,
+  une session qui fuit grimpe lentement de `MemoryHigh` à `MemoryMax` en saturant
+  le swap — et c'est le swap saturé qui fait ramer le poste. Convention inversée
+  sur ce champ : `0` = aucun swap, `-1` = illimité.
 - **Aide intégrée** (RM2593) : menu **❓ aide** + boutons `?` contextuels par
   panneau, ouvrant des pages de doc utilisateur markdown versionnées
   (`deploy/karl-agent/cockpit/help/`) servies par karl-agent (`/help`,

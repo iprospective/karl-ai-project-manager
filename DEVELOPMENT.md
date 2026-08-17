@@ -73,6 +73,11 @@ pm-task-deliver.py <RM> --check-all --protocol - --summary -
 # 4. MEP : promotion dev→main (branche protégée) puis déploiement
 pm-promote.py                 # ouvre + merge une MR dev→main
 mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
+
+# 0 bis. NAISSANCE d'un dépôt (RM2640) — avant tout le reste, si le dépôt n'existe pas
+pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
+#   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
+#   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
 ```
 
 **Docs vivantes (obligatoire à la livraison).** Toute MR qui change la surface met

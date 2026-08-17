@@ -146,9 +146,20 @@ import subprocess
 import sys
 import threading
 import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
+
+# RM2700 — cookie de session (même origine) : rend le token d'appareil
+# transmissible par cookie EN PLUS de l'en-tête X-Karl-Token. Nécessaire au
+# terminal distant : le handshake ttyd porte son token dans la 1re frame WS (pas
+# dans l'upgrade HTTP), donc le seul credential qu'Apache/mmi peut voir à
+# l'upgrade pour gater `/ttyd` est le cookie même-origine, envoyé automatiquement
+# par le navigateur. HttpOnly (hors de portée du JS), Secure (HTTPS public),
+# SameSite=Strict (anti-CSRF : jamais envoyé en cross-site).
+SESSION_COOKIE = "karl_session"
+SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le token
 
 # RM2305 : le typage questions/réponses (RM2549) vit dans `pm_transcript`, partagé
 # avec les scripts PM — deux copies donneraient deux vérités sur « cette question
@@ -7161,11 +7172,13 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
     # -- utilitaires de réponse --
-    def _send_json(self, code: int, obj: dict):
+    def _send_json(self, code: int, obj: dict, extra_headers=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (extra_headers or ()):  # RM2700 : Set-Cookie au login/logout
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -7220,6 +7233,32 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _session_cookie_value(self):
+        """Valeur du cookie de session `karl_session` présentée par le client
+        (ou None). RM2700."""
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return None
+        try:
+            jar = SimpleCookie()
+            jar.load(raw)
+        except Exception:  # noqa: BLE001 — en-tête Cookie malformé
+            return None
+        morsel = jar.get(SESSION_COOKIE)
+        return morsel.value if morsel else None
+
+    @staticmethod
+    def _session_cookie(token: str) -> str:
+        """En-tête Set-Cookie déposant le token comme cookie de session. RM2700."""
+        return (f"{SESSION_COOKIE}={token}; Max-Age={SESSION_COOKIE_MAX_AGE}; "
+                "Path=/; HttpOnly; Secure; SameSite=Strict")
+
+    @staticmethod
+    def _clear_cookie() -> str:
+        """En-tête Set-Cookie purgeant le cookie de session (logout). RM2700."""
+        return (f"{SESSION_COOKIE}=; Max-Age=0; "
+                "Path=/; HttpOnly; Secure; SameSite=Strict")
+
     def _check_auth(self) -> bool:
         """Vraie si le client présente le token partagé, un TOKEN D'APPAREIL
         (RM2334) ou des credentials Basic valides (RM2139). Sans aucune auth
@@ -7238,6 +7277,18 @@ class Handler(BaseHTTPRequestHandler):
             if hit:
                 did, rec = hit
                 self.auth_ctx = {"mode": "device", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did}
+                return True
+        # RM2700 : cookie de session même-origine = token d'appareil transmis par
+        # cookie. Seul credential visible à l'upgrade WS de `/ttyd` (le handshake
+        # ttyd cache son token dans la 1re frame). SameSite=Strict au dépôt →
+        # jamais envoyé en cross-site, donc pas de vecteur CSRF.
+        cookie_tok = self._session_cookie_value()
+        if cookie_tok:
+            hit = _device_auth(cookie_tok)
+            if hit:
+                did, rec = hit
+                self.auth_ctx = {"mode": "cookie", "user": rec.get("user"),
                                  "admin": bool(rec.get("admin")), "device_id": did}
                 return True
         if BASIC_USER is not None and BASIC_PASS is not None:
@@ -7488,8 +7539,12 @@ class Handler(BaseHTTPRequestHandler):
         # progressif par IP dans op_auth_login).
         if path == "/auth/login":
             try:
-                return self._send_json(200, op_auth_login(
-                    self._read_json(), self.client_address[0]))
+                res = op_auth_login(self._read_json(), self.client_address[0])
+                # RM2700 : pose AUSSI le token en cookie de session même-origine
+                # (en plus de la réponse JSON que le cockpit met en localStorage).
+                # Sert exclusivement au gate du terminal distant `/ttyd`.
+                return self._send_json(200, res, extra_headers=[
+                    ("Set-Cookie", self._session_cookie(res["token"]))])
             except ApiError as e:
                 return self._send_json(e.code, {"error": e.msg})
             except Exception as e:  # noqa: BLE001
@@ -7603,7 +7658,13 @@ class Handler(BaseHTTPRequestHandler):
                 n = _revoke_devices(device_ids={did})
                 if not n:
                     raise ApiError(404, f"appareil inconnu : {did}")
-                return self._send_json(200, {"device_id": did, "revoked": True})
+                # RM2700 : logout de l'appareil courant → purge son cookie de
+                # session (le token est déjà révoqué côté serveur ; on évite un
+                # cookie mort qui repartirait à chaque requête).
+                extra = ([("Set-Cookie", self._clear_cookie())]
+                         if did == self.auth_ctx.get("device_id") else None)
+                return self._send_json(200, {"device_id": did, "revoked": True},
+                                       extra_headers=extra)
             if path.startswith("/auth/users/"):
                 self._require_admin()
                 return self._send_json(200, op_auth_user_delete(path[len("/auth/users/"):]))

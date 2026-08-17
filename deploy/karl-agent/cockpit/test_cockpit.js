@@ -1629,4 +1629,38 @@ assert.strictEqual(filesGroups([{ client: "a", project: "b", docs: [] }],
   "une racine vide n'aspire pas les worktrees des autres");
 console.log("✓ fichiers (RM2673) : repli sur le projet courant, provenance affichée");
 
+// — RM2695 : avancement d'un ticket dans le worklog —
+const worklogProgressHtml = grabO("worklogProgressHtml");
+const wpNone = worklogProgressHtml({ ref: "RM1", status: "en_cours" }, escO);
+assert.strictEqual(wpNone, "",
+  "un ticket sans checklist ne rend RIEN — « 0/0 » se lirait comme un ticket vide");
+assert.strictEqual(worklogProgressHtml(null, escO), "", "item absent toléré");
+assert.strictEqual(worklogProgressHtml({ checklist: { done: 0, total: 0, items: [] } }, escO), "",
+  "checklist vide = pas de checklist");
+const wp = worklogProgressHtml({ checklist: { done: 3, total: 6, items: ["reste A", "reste B"] } }, escO);
+assert(/>3\/6 ✓</.test(wp), "le compteur x/y est affiché");
+assert(/☐ reste A/.test(wp) && /☐ reste B/.test(wp), "les critères RESTANTS sont listés");
+assert(!/pill ok/.test(wp), "tant que ce n'est pas fini, pas de pastille verte");
+const wpDone = worklogProgressHtml({ checklist: { done: 6, total: 6, items: [] } }, escO);
+assert(/pill ok/.test(wpDone) && />6\/6 ✓</.test(wpDone),
+  "tout coché → pastille verte, et rien à lister (ce qui est fait se compte)");
+const wpZero = worklogProgressHtml({ checklist: { done: 0, total: 4, items: ["a"] } }, escO);
+assert(/pill warn/.test(wpZero), "aucun critère coché → pastille d'alerte");
+const wpTrunc = worklogProgressHtml({ checklist: { done: 0, total: 60, items: ["a"], truncated: true } }, escO);
+assert(/…/.test(wpTrunc), "une liste tronquée le DIT (pas de silence sur ce qui manque)");
+// sous-tâches : leur statut, pas juste leur numéro
+const wpSub = worklogProgressHtml({ sub_tasks: [{ rm_id: "2696", status: "a_faire", title: "T2" }] }, escO);
+assert(/RM2696 · a_faire/.test(wpSub), "une sous-tâche porte son statut");
+assert(/title="sous-tâche — T2"/.test(wpSub), "…et son titre en infobulle");
+// échappement (le texte d'un critère vient de la description du ticket)
+const wpXss = worklogProgressHtml({ checklist: { done: 0, total: 1, items: ["<img src=x onerror=1>"] },
+  sub_tasks: [{ rm_id: "1<b>", status: "a<b>", title: "t<b>" }] }, escO);
+assert(!/<img/.test(wpXss) && /&lt;img/.test(wpXss), "le texte d'un critère est échappé");
+assert(!/<b>/.test(wpXss), "id, statut et titre de sous-tâche échappés aussi");
+// le rendu du worklog appelle bien l'avancement
+const mItem = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
+  "chaque ligne du worklog rend l'avancement de son ticket");
+console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
+
 console.log("OK — tous les tests cockpit passent");

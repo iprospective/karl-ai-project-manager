@@ -21,6 +21,17 @@ de test** (create / teardown).
   Lecture seule : rien n'est supprimé, déplacé, ni marqué lu.
 - **File des emails à traiter** : affiche la file courante sans se connecter.
 
+- **Rédiger un ticket depuis un email** : propose titre, type, priorité, projet et
+  description. **Rien n'est créé** à ce stade. Par défaut seuls le sujet, l'expéditeur
+  et les 500 premiers caractères partent au modèle ; « envoyer le corps entier » donne
+  des propositions nettement plus précises — c'est un arbitrage à faire en connaissance
+  de cause (le corps du mail sort alors du poste).
+- **Voir la proposition** : le détail, avec la confiance et les avertissements.
+- **Créer le ticket depuis la proposition** : c'est **ta validation**. Tu peux corriger
+  le projet, le titre ou la priorité au passage. Si l'email répond à un fil, indique le
+  ticket : une **note** y est posée au lieu de créer un doublon.
+- **Écarter un email** : sort de la file avec un motif (accusé de réception, hors sujet…).
+
 Cette relève **ne crée aucun ticket** : elle prépare le travail de triage
 (rédaction et création à la validation viennent ensuite). Un email dont le sujet
 porte `[RM<id>]` est reconnu comme une **réponse** dans un fil existant.

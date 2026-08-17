@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [1.69.0] - 2026-08-17
+
+### Ajouté
+- **structure-reference** — section « **Contacts d'un client** » : le `meta.yml` du core
+  client porte `contacts[]` au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`, écrit par le seul `pm-client-contact.py`. Deux pièges documentés, tous deux
+  rencontrés en production : `internal: true` marque **nos** adresses (le gabarit de
+  création en pose une chez chaque client — l'utiliser pour identifier un client
+  enverrait tout notre courrier chez un client au hasard, cf. routage RM2669), et une
+  fiche entièrement vide est un résidu de gabarit, pas un contact. Le champ historique
+  `name` reste lu en repli. Annuaire indépendant : à l'étude (RM2703).
+
 ## [1.68.0] - 2026-08-11
 
 ### Ajouté

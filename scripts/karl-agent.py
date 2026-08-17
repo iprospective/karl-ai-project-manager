@@ -5893,6 +5893,31 @@ _PM_COMMANDS_DEFAULT = [
      "mutate": False, "args": [
          {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
      ]},
+    # Contacts clients (RM2702) — nom, prénom, email, téléphone dans le meta.yml du
+    # client. `list` d'abord (lecture), `add` ensuite (mutation, sans confirmation :
+    # ajouter un contact est anodin et se retire d'un `remove`).
+    {"name": "contact-list", "label": "Contacts d'un client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": False, "args": [
+         {"name": "cmd", "type": "text", "flag": "list", "const": True, "positional": True},
+         {"name": "client", "label": "Client (vide = tous)", "type": "text",
+          "positional": True, "max_len": 48},
+         {"name": "only_real", "label": "Masquer nos propres adresses", "type": "bool",
+          "flag": "--only-real"},
+     ]},
+    {"name": "contact-add", "label": "Ajouter un contact client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": True, "args": [
+         {"name": "cmd", "type": "text", "flag": "add", "const": True, "positional": True},
+         {"name": "client", "label": "Client", "type": "text", "required": True,
+          "positional": True, "max_len": 48},
+         {"name": "last_name", "label": "NOM", "type": "text", "flag": "--last-name", "max_len": 64},
+         {"name": "first_name", "label": "Prénom", "type": "text", "flag": "--first-name", "max_len": 64},
+         {"name": "email", "label": "Email", "type": "text", "flag": "--email", "max_len": 96},
+         {"name": "phone", "label": "Téléphone", "type": "text", "flag": "--phone", "max_len": 32},
+         {"name": "role", "label": "Rôle", "type": "enum", "flag": "--role",
+          "choices": ["owner", "decideur", "technique", "facturation", "autre"]},
+     ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
     # scripts eux-mêmes ; ici on borne juste la longueur.
@@ -6894,9 +6919,11 @@ def op_pm_run(payload: dict) -> dict:
     for spec in cmd.get("args") or []:
         aname = spec["name"]
         if spec.get("const"):
-            # flag imposé par le catalogue (mode figé d'un script : ex. --queue) —
-            # jamais négociable par le client, jamais affiché comme champ
-            flags.append(spec["flag"])
+            # valeur imposée par le catalogue (mode figé d'un script : `--queue`, ou
+            # une sous-commande `list` / `add`) — jamais négociable par le client,
+            # jamais affichée comme champ. Positionnelle, elle garde son rang de
+            # déclaration : une sous-commande doit précéder ses arguments.
+            (positionals if spec.get("positional") else flags).append(spec["flag"])
             continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local

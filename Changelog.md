@@ -53,6 +53,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Contacts clients : nom, prénom, email, téléphone** (RM2702) :
+  `pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+  `import-redmine`) devient le seul point d'écriture de `contacts[]` dans le
+  `meta.yml` du client, au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`. `internal: true` marque **nos** adresses — le gabarit de création en pose
+  une chez chaque client, elle n'identifie donc personne (et a failli servir à router
+  du courrier entrant, RM2669). `import-redmine` amorce la fiche depuis les comptes
+  Redmine rattachés aux projets du client (nom, prénom, email y sont déjà ; le
+  téléphone reste à saisir). Documenté dans NORMS (`structure-reference`, **v1.69.0**).
+  Cockpit : catégorie *contacts*, et les arguments `const` du catalogue acceptent
+  désormais une **sous-commande positionnelle**. Un **annuaire indépendant des
+  clients** (une personne, plusieurs rattachements) est à l'étude — RM2703.
 - **Relève des emails de karl** (RM2668, chantier RM2666) :
   `scripts/karl-mail-fetch.py` ouvre enfin la **lecture** de la boîte
   `karl@iprospective.fr` (RM1723 était *send-only*) et dépose les messages humains

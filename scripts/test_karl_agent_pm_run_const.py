@@ -61,6 +61,19 @@ check("op_pm_run renvoie un résultat", isinstance(res, dict))
 check("argv porte --queue", "--queue" in argv)
 check("argv sans arg parasite", argv[-1] == "--queue" and argv[-2].endswith("karl-mail-fetch.py"))
 
+# — const positionnel : la sous-commande précède ses arguments (RM2702) —
+argv.clear()
+ka.op_pm_run({"name": "contact-list", "args": {"client": "calyclay"}})
+check("const positionnel en tête", argv[-2:] == ["list", "calyclay"])
+argv.clear()
+ka.op_pm_run({"name": "contact-add", "args": {"client": "demo", "last_name": "Dupont",
+                                              "phone": "+33 6 12 34 56 78"}})
+check("sous-commande add avant le client",
+      argv.index("add") < argv.index("demo"))
+check("téléphone transmis tel quel", "+33 6 12 34 56 78" in argv)
+check("contact-add annoncé comme mutation",
+      cmds["contact-add"]["mutate"] is True)
+
 # — un client ne peut pas fournir (ni retirer) un arg const —
 try:
     ka.op_pm_run({"name": "mail-queue", "args": {"queue": False}})

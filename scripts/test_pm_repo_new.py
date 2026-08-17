@@ -133,5 +133,28 @@ class PushFrom(unittest.TestCase):
         self.assertNotIn("https://", joined)
 
 
+class ValidationEnAmont(unittest.TestCase):
+    """RM2640 — `--push-from` doit être validé AVANT le POST /projects.
+
+    Sinon un chemin erroné laisse un projet vide derrière lui sur la forge.
+    """
+
+    def test_source_invalide_refusee(self):
+        with self.assertRaises(SystemExit):
+            M.check_push_source("/tmp")
+
+    def test_bare_accepte(self):
+        import subprocess, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            subprocess.run(["git", "init", "--bare", "-q", d], check=True)
+            self.assertEqual(M.check_push_source(d), pathlib.Path(d).resolve())
+
+    def test_appelee_avant_la_creation(self):
+        """Garde de source : la validation précède `project_exists` dans main()."""
+        src = pathlib.Path(__file__).with_name("pm-repo-new.py").read_text()
+        self.assertLess(src.index("check_push_source(args.push_from)"),
+                        src.index("existing = project_exists"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

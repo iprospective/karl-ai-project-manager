@@ -118,15 +118,25 @@ def create_project(forge, token, name, group_id, args):
     return data
 
 
+def check_push_source(local):
+    """Valide `--push-from` AVANT toute création.
+
+    Sinon un chemin erroné laisse derrière lui un projet vide sur la forge : l'échec
+    arrive après le POST, et rien ne le nettoie.
+    """
+    local = Path(local).resolve()
+    if not (local / "HEAD").is_file() and not (local / ".git").exists():
+        die(f"--push-from : '{local}' n'est pas un dépôt git (ni bare, ni worktree).")
+    return local
+
+
 def push_from(local, full_path, default_branch, dry):
     """Pousse un dépôt local existant. Remote en alias SSH canonique — jamais HTTPS.
 
     RM2328 : on ne convertit pas un remote en HTTPS. L'alias `gitlab:` reste la forme
     stockée ; un `url.…insteadOf` global fait le repli token là où la clé manque.
     """
-    local = Path(local).resolve()
-    if not (local / "HEAD").is_file() and not (local / ".git").exists():
-        die(f"--push-from : '{local}' n'est pas un dépôt git (ni bare, ni worktree).")
+    local = check_push_source(local)
     url = f"gitlab:{full_path}.git"
     cmds = [["git", "-C", str(local), "remote", "remove", "origin"],
             ["git", "-C", str(local), "remote", "add", "origin", url],
@@ -188,6 +198,9 @@ def main():
         token = forge.token("manager")
     except ForgeError as e:
         die(str(e))
+
+    if args.push_from:                       # validé AVANT toute création
+        check_push_source(args.push_from)
 
     existing = project_exists(forge, token, full_path)
     if existing:

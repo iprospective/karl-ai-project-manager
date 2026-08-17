@@ -15,24 +15,32 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import importlib.util
+
 from pm_paths import PMConfig
-from pm_registry import AXES, Registry, RegistryError, resolve_instance
+from pm_registry import Registry, RegistryError, resolve_instance
+
+_spec = importlib.util.spec_from_file_location(
+    "pm_secrets", str(Path(__file__).resolve().parent / "pm_secrets.py"))
+pm_secrets = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(pm_secrets)
 
 
 def cmd_list(reg: Registry):
-    print("Registre providers — defaults :")
-    for axis in AXES:
+    print(f"Registre providers — axes actifs : {', '.join(reg.axes)}")
+    print("Defaults :")
+    for axis in reg.axes:
         name = reg.defaults.get(axis, "—")
         print(f"  {axis:6} → {name}")
     print("\nInstances déclarées :")
-    for axis in AXES:
+    for axis in reg.axes:
         insts = reg.by_axis(axis)
         print(f"  [{axis}]")
         for i in sorted(insts, key=lambda x: x.name):
             opt = f"  {i.options}" if i.options else ""
             print(f"    · {i.name:15} type={i.type:12} url={i.url or '—'}{opt}")
         # instances sans axis déclaré (tolérées) rattachées à aucun bloc
-    stray = [i for i in reg.servers.values() if i.axis not in AXES]
+    stray = [i for i in reg.servers.values() if i.axis not in reg.axes]
     if stray:
         print("  [sans axe déclaré]")
         for i in stray:
@@ -40,22 +48,32 @@ def cmd_list(reg: Registry):
 
 
 def cmd_resolve(cfg: PMConfig, reg: Registry, axis, client, project):
-    if not (client and project):
+    # `--client` explicite fait foi : ne pas le laisser écraser par le cwd (sinon
+    # on répond pour le projet courant en croyant répondre pour le client demandé).
+    if not client:
         det = cfg.detect_project_from_cwd()
         if not det:
             sys.exit("ERREUR : projet non détecté depuis le cwd — passer "
-                     "--client C --project P.")
+                     "--client C [--project P].")
         client, project = det
-    meta = cfg.project_meta(client, project)
-    axes = [axis] if axis else list(AXES)
-    print(f"Résolution pour {client}/{project} :")
+    # `--client` seul : ce que voit un projet de ce client qui ne surcharge rien.
+    meta = cfg.project_meta(client, project) if project else {}
+    client_meta = cfg.client_meta(client)
+    axes = [axis] if axis else list(reg.axes)
+    cible = f"{client}/{project}" if project else f"{client}/<projet sans surcharge>"
+    print(f"Résolution pour {cible} :")
     for ax in axes:
         try:
-            res = resolve_instance(meta, ax, reg)
+            res = resolve_instance(meta, ax, reg, client_meta=client_meta)
             i = res.instance
             params = f"  params={res.params}" if res.params else ""
-            print(f"  {ax:6} → {i.name:15} (type={i.type}, url={i.url or '—'}, "
-                  f"source={res.source}){params}")
+            ligne = (f"  {ax:6} → {i.name:15} (type={i.type}, url={i.url or '—'}, "
+                     f"source={res.source}){params}")
+            if ax == "secret":
+                # Identifiants : on ne montre QUE les noms de clés (tripwire 11).
+                keys = pm_secrets.creds_keys(i.name)
+                ligne += f"\n           creds={', '.join(keys) if keys else '— aucun'}"
+            print(ligne)
         except RegistryError as e:
             print(f"  {ax:6} → ✗ {e}")
 
@@ -66,8 +84,8 @@ def main():
     sub = ap.add_subparsers(dest="cmd")
     ap.add_argument("--list", action="store_true", help="affiche le registre et quitte")
     r = sub.add_parser("resolve", help="montre la résolution d'instance d'un projet")
-    r.add_argument("axis", nargs="?", choices=list(AXES),
-                   help="axe à résoudre (défaut : les trois)")
+    r.add_argument("axis", nargs="?",
+                   help="axe à résoudre (défaut : tous les axes actifs)")
     r.add_argument("--client", help="entité/client (défaut : détecté du cwd)")
     r.add_argument("--project", help="slug projet (défaut : détecté du cwd)")
     args = ap.parse_args()

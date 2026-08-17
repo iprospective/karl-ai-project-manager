@@ -6827,24 +6827,79 @@ def _envchk_secrets():
         except OSError as e:
             out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
                             "scripts/unlock-vault.sh"))
+    out.extend(_envchk_vault_instances())
+    return out
+
+
+def _envchk_vault_instances():
+    """Un diagnostic par instance de vault déclarée (axe `secret`, RM2662).
+
+    Ne montre que les NOMS des identifiants trouvés — jamais leurs valeurs
+    (tripwire 11). Sans registre lisible, on retombe sur le contrôle historique
+    des variables Vaultwarden globales.
+    """
     envf = REPO_ROOT / ".env"
-    needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
-    try:
+
+    def _env_keys():
+        """Variables déclarées dans le `.env` d'instance (noms seuls)."""
         present = set()
-        for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                present.add(line.split("=", 1)[0].strip())
+        try:
+            for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    present.add(line.split("=", 1)[0].strip())
+        except OSError:
+            return None
+        return present
+
+    # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
+    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
+    present = _env_keys()
+    env_absent = present is None
+    if env_absent:
+        present = set()
+
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        import pm_secrets
+        reg = Registry.from_config(PMConfig.load().providers)
+        instances = [i for i in reg.servers.values() if i.axis == "secret"]
+        defaut = reg.defaults.get("secret")
+    except Exception:  # noqa: BLE001 — registre absent : contrôle historique
+        instances = []
+        defaut = None
+
+    if not instances:
+        if env_absent:
+            return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
+                         "normal dans un worktree : les identifiants viennent alors de "
+                         "~/.config/mmi-pm/.env")]
+        needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
         missing = [v for v in needed if v not in present]
         if missing:
-            out.append(_chk(".env Vaultwarden", "warn",
-                            "variable(s) absente(s) : " + ", ".join(missing),
-                            "renseigner dans " + str(envf)))
+            return [_chk("vault : .env", "warn",
+                         "variable(s) absente(s) : " + ", ".join(missing),
+                         "renseigner dans " + str(envf))]
+        return [_chk("vault : .env", "ok",
+                     "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents")]
+
+    out = []
+    for inst in sorted(instances, key=lambda i: i.name):
+        # Clés du dev (os.environ, superposé par pm_paths) + celles du .env d'instance.
+        keys = set(pm_secrets.creds_keys(inst.name, legacy=(inst.name == defaut)))
+        prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
+        keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
+        etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
+        if keys:
+            out.append(_chk(etiquette, "ok",
+                            f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
         else:
-            out.append(_chk(".env Vaultwarden", "ok",
-                            "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents"))
-    except OSError:
-        out.append(_chk(".env Vaultwarden", "warn", f".env illisible ({envf})"))
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · aucun identifiant trouvé",
+                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
     return out
 
 

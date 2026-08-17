@@ -204,6 +204,52 @@ def test_hierarchie_des_erreurs():
         assert str(e) == "[b] msg", str(e)
 
 
+# ── Identifiants par instance et par dev (RM2682/L1) ─────────────────────────
+ENV_DEV = {
+    "SECRET__vw-ipro__CLIENTID": "id-ipro",
+    "SECRET__vw-ipro__CLIENTSECRET": "secret-ipro",
+    "SECRET__kdbx-perso__FILE": "/home/dev/vaults/ipro.kdbx",
+    "SECRET__vw-clientx__TOKEN": "tok-x",
+    "SECRET__vw-ipro__VIDE": "",              # déclarée vide → ignorée
+    "BW_CLIENTID": "legacy-id",
+    "BW_CLIENTSECRET": "legacy-secret",
+    "VAULT_URL": "https://vault.example",
+    "AUTRE_VAR": "sans rapport",
+}
+
+
+def test_creds_par_slug():
+    c = pm_secrets.creds_for("vw-ipro", env=ENV_DEV, legacy=False)
+    assert c == {"CLIENTID": "id-ipro", "CLIENTSECRET": "secret-ipro"}, c
+    assert pm_secrets.creds_for("kdbx-perso", env=ENV_DEV, legacy=False) == {
+        "FILE": "/home/dev/vaults/ipro.kdbx"}
+
+
+def test_creds_isolees_par_instance():
+    """Les identifiants d'un vault ne fuient pas vers un autre."""
+    x = pm_secrets.creds_for("vw-clientx", env=ENV_DEV, legacy=False)
+    assert x == {"TOKEN": "tok-x"}, x
+    assert "TOKEN" not in pm_secrets.creds_for("vw-ipro", env=ENV_DEV, legacy=False)
+
+
+def test_creds_repli_legacy():
+    """Tant qu'un dev n'a pas nommé ses clés par slug, l'existant continue."""
+    c = pm_secrets.creds_for("vw-autre", env=ENV_DEV)           # aucune clé par slug
+    assert c == {"CLIENTID": "legacy-id", "CLIENTSECRET": "legacy-secret",
+                 "URL": "https://vault.example"}, c
+    # Les clés par slug l'emportent sur le repli.
+    c2 = pm_secrets.creds_for("vw-ipro", env=ENV_DEV)
+    assert c2["CLIENTID"] == "id-ipro" and c2["URL"] == "https://vault.example", c2
+
+
+def test_creds_keys_ne_rend_que_des_noms():
+    """Un diagnostic peut afficher les clés — jamais les valeurs (tripwire 11)."""
+    keys = pm_secrets.creds_keys("vw-ipro", env=ENV_DEV, legacy=False)
+    assert keys == ["CLIENTID", "CLIENTSECRET"], keys
+    for valeur in ("id-ipro", "secret-ipro", "tok-x", "legacy-id"):
+        assert valeur not in keys
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

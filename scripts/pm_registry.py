@@ -17,9 +17,19 @@ l'état actuel (Redmine global + GitLab) ; la rétro-compat lit les blocs histor
 Aucun script existant ne consomme ce module en P0 — le câblage est en P1+.
 
 Priorité de résolution, par axe :
-  1. `meta.providers.<axe>.instance`  (config explicite par projet)
-  2. bloc legacy du `meta.yml` (`redmine:` pour task, `gitlab:` pour forge)
-  3. `providers.defaults.<axe>` du registre
+  1. `meta.providers.<axe>.instance`  (config explicite du PROJET)
+  2. bloc legacy du `meta.yml` projet (`redmine:` pour task, `gitlab:` pour forge)
+  3. `providers.<axe>.instance` du CLIENT — vaut pour tous ses projets (RM2682)
+  4. `providers.defaults.<axe>` du registre
+
+Le legacy projet (2) passe **avant** le client (3) : c'est une configuration du
+projet, donc plus spécifique. Conséquence pratique : sur les axes `task`/`forge`,
+un projet portant un bloc `redmine:`/`gitlab:` (le cas de presque tous) n'hérite
+pas du client — le niveau client joue pleinement sur les axes sans legacy, dont
+`secret`, et sur les projets migrés au bloc `providers:`.
+
+Axes : `DEFAULT_AXES` (task/forge/doc/secret) + tout axe déclaré dans
+`providers.axes`. Ajouter un axe (monitoring…) ne demande aucune modification ici.
 """
 import sys
 from dataclasses import dataclass, field
@@ -28,7 +38,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import _expand_env  # interpolation ${VAR} / ${VAR:-defaut}, comme roots
 
-AXES = ("task", "forge", "doc")
+# Axes livrés d'office. `secret` (vaults) arrive avec RM2682/L1 — cf. CDC RM2662.
+# La liste est un DÉFAUT, pas une limite : `providers.axes` peut l'étendre (un axe
+# `monitoring` ne doit coûter qu'une ligne de conf, pas une modification d'ici).
+DEFAULT_AXES = ("task", "forge", "doc", "secret")
+
+# Rétro-compat : plusieurs appelants importent `AXES`. Le registre, lui, raisonne
+# sur `Registry.axes` (qui tient compte de `providers.axes`).
+AXES = DEFAULT_AXES
 
 
 class RegistryError(Exception):
@@ -54,21 +71,30 @@ class Resolution:
 
 
 class Registry:
-    def __init__(self, servers: dict, defaults: dict):
+    def __init__(self, servers: dict, defaults: dict, axes=None):
         self._servers = servers      # name -> Instance
         self._defaults = defaults     # axis -> instance name
+        self._axes = tuple(axes) if axes else DEFAULT_AXES
 
     # ── construction ──────────────────────────────────────────────────────
     @classmethod
     def from_config(cls, providers_cfg: dict) -> "Registry":
         cfg = providers_cfg or {}
+        # `providers.axes` étend (ou restreint) la liste d'axes. Les axes livrés
+        # restent toujours valides : les retirer casserait des appelants en place.
+        declared_axes = cfg.get("axes") or []
+        if not isinstance(declared_axes, (list, tuple)):
+            raise RegistryError("providers.axes doit être une liste d'axes")
+        axes = tuple(DEFAULT_AXES) + tuple(a for a in declared_axes
+                                           if a not in DEFAULT_AXES)
         servers: dict = {}
         for name, spec in (cfg.get("servers") or {}).items():
             spec = spec or {}
             axis = spec.get("axis", "")
-            if axis and axis not in AXES:
+            if axis and axis not in axes:
                 raise RegistryError(
-                    f"instance {name!r} : axis {axis!r} inconnu (attendus : {AXES})")
+                    f"instance {name!r} : axis {axis!r} inconnu (attendus : {axes} "
+                    f"— déclare-le dans providers.axes)")
             servers[name] = Instance(
                 name=name,
                 axis=axis,
@@ -80,8 +106,8 @@ class Registry:
         defaults = dict(cfg.get("defaults") or {})
         # Cohérence : chaque défaut pointe une instance existante du bon axe.
         for axis, name in defaults.items():
-            if axis not in AXES:
-                raise RegistryError(f"defaults.{axis} : axe inconnu (attendus : {AXES})")
+            if axis not in axes:
+                raise RegistryError(f"defaults.{axis} : axe inconnu (attendus : {axes})")
             if name not in servers:
                 raise RegistryError(
                     f"defaults.{axis} = {name!r} : instance absente du registre")
@@ -90,7 +116,7 @@ class Registry:
                 raise RegistryError(
                     f"defaults.{axis} = {name!r} mais cette instance est d'axe "
                     f"{declared!r}")
-        return cls(servers, defaults)
+        return cls(servers, defaults, axes=axes)
 
     # ── accès ─────────────────────────────────────────────────────────────
     def get(self, name: str) -> Instance:
@@ -115,6 +141,11 @@ class Registry:
     @property
     def defaults(self):
         return dict(self._defaults)
+
+    @property
+    def axes(self):
+        """Axes valides pour CE registre (défauts + `providers.axes`)."""
+        return self._axes
 
 
 # ── Rétro-compatibilité des blocs `meta.yml` historiques ────────────────────
@@ -146,27 +177,46 @@ def _legacy_resolution(meta: dict, axis: str, registry: Registry):
     return None
 
 
-def resolve_instance(project_meta: dict, axis: str, registry: Registry) -> Resolution:
-    """Instance retenue pour (projet, axe). Voir priorité en tête de module."""
-    if axis not in AXES:
-        raise RegistryError(f"axe inconnu : {axis!r} (attendus : {AXES})")
+def _providers_resolution(meta: dict, axis: str, registry: Registry, source: str):
+    """Bloc `providers.<axe>` d'un meta (projet ou client) → `Resolution`."""
+    prov = (meta.get("providers") or {}).get(axis) or {}
+    if not prov.get("instance"):
+        return None
+    inst = registry.get(prov["instance"])
+    if inst.axis and inst.axis != axis:
+        raise RegistryError(
+            f"providers.{axis}.instance = {prov['instance']!r} est d'axe "
+            f"{inst.axis!r}")
+    params = {k: v for k, v in prov.items() if k != "instance"}
+    return Resolution(inst, params, source=source)
+
+
+def resolve_instance(project_meta: dict, axis: str, registry: Registry,
+                     client_meta: dict = None) -> Resolution:
+    """Instance retenue pour (projet, axe). Voir priorité en tête de module.
+
+    `client_meta` (optionnel) ajoute le **niveau client** entre le projet et le
+    défaut d'instance (RM2682) : « tous les projets de ce client passent par tel
+    vault / telle forge ». Omis ⇒ comportement d'avant, à l'identique.
+    """
+    if axis not in registry.axes:
+        raise RegistryError(f"axe inconnu : {axis!r} (attendus : {registry.axes})")
     meta = project_meta or {}
 
     # 1. Bloc `providers:` explicite du projet.
-    prov = (meta.get("providers") or {}).get(axis) or {}
-    if prov.get("instance"):
-        inst = registry.get(prov["instance"])
-        if inst.axis and inst.axis != axis:
-            raise RegistryError(
-                f"providers.{axis}.instance = {prov['instance']!r} est d'axe "
-                f"{inst.axis!r}")
-        params = {k: v for k, v in prov.items() if k != "instance"}
-        return Resolution(inst, params, source="providers")
+    res = _providers_resolution(meta, axis, registry, "providers")
+    if res:
+        return res
 
-    # 2. Rétro-compat (blocs redmine:/gitlab:).
+    # 2. Rétro-compat (blocs redmine:/gitlab: du projet).
     legacy = _legacy_resolution(meta, axis, registry)
     if legacy:
         return legacy
 
-    # 3. Défaut du registre.
+    # 3. Bloc `providers:` du client — vaut pour tous ses projets.
+    res = _providers_resolution(client_meta or {}, axis, registry, "client")
+    if res:
+        return res
+
+    # 4. Défaut du registre.
     return Resolution(registry.default_for(axis), {}, source="default")

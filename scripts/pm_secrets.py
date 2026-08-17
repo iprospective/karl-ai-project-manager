@@ -33,6 +33,7 @@ Le champ peut aussi être passé hors URI par l'appelant (2ᵉ argument de
 `resolve-secret.sh`) ; dans ce cas il l'emporte sur le `#champ` de l'URI.
 """
 import json
+import os
 import subprocess
 
 
@@ -341,3 +342,49 @@ def get_backend(type_, name="default", **options):
         raise UnsupportedError(
             f"type de vault inconnu : {type_!r} (connus : {known})", backend=name)
     return cls(name=name, **options)
+
+
+# ── Identifiants par instance et par développeur (RM2682/L1) ─────────────────
+# Le registre déclare les instances SANS secret ; les identifiants d'accès vivent
+# dans le `.env` du dev (`~/.config/mmi-pm/.env`, chargé par pm_paths dans
+# os.environ), nommés par slug d'instance :
+#
+#     SECRET__<slug>__CLIENTID / __CLIENTSECRET   Vaultwarden (clé API)
+#     SECRET__<slug>__FILE                        KeePass / sops (chemin)
+#     SECRET__<slug>__TOKEN                       backend en ligne
+#
+# Convention alignée sur RM2546 (`REDMINE__<slug>__API_KEY`). Les valeurs ne sont
+# jamais journalisées : seules les CLÉS présentes peuvent l'être.
+CREDS_PREFIX = "SECRET__"
+
+# Repli par instance : variables historiques, pour ne rien casser tant qu'un dev
+# n'a pas nommé ses clés par slug. Ne concerne que l'instance Vaultwarden livrée.
+LEGACY_CREDS = {
+    "CLIENTID": "BW_CLIENTID",
+    "CLIENTSECRET": "BW_CLIENTSECRET",
+    "URL": "VAULT_URL",
+}
+
+
+def creds_for(instance, env=None, legacy=True):
+    """Identifiants déclarés pour une instance : {suffixe: valeur}.
+
+    `legacy=True` complète avec les variables historiques (BW_CLIENTID…) pour les
+    clés absentes — la migration vers les clés par slug reste ainsi opt-in.
+    """
+    env = os.environ if env is None else env
+    prefix = f"{CREDS_PREFIX}{instance}__"
+    out = {k[len(prefix):]: v for k, v in env.items()
+           if k.startswith(prefix) and v not in (None, "")}
+    if legacy:
+        for suffix, var in LEGACY_CREDS.items():
+            if suffix not in out and env.get(var):
+                out[suffix] = env[var]
+    return out
+
+
+def creds_keys(instance, env=None, legacy=True):
+    """Noms des identifiants disponibles, triés — jamais les valeurs.
+
+    C'est ce qu'un diagnostic peut afficher ou journaliser (tripwire 11)."""
+    return sorted(creds_for(instance, env=env, legacy=legacy))

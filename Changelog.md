@@ -53,6 +53,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Vaults déclarés en conf, par client ou par projet** (RM2682, lot L1 du
+  chantier RM2662). Le registre providers gagne un **axe `secret`** : chaque vault
+  est une instance nommée (`providers.servers.<slug>`, sans aucun secret dedans),
+  avec un défaut (`providers.defaults.secret: vw-ipro`, qui reproduit l'existant).
+  Deux limites du registre tombent au passage, au bénéfice de **tous** les axes :
+  la liste d'axes devient **déclarative** (`providers.axes`) — un axe futur
+  (monitoring/Zabbix) ne coûte plus qu'une ligne de conf —, et la résolution gagne
+  le **niveau client** : `resolve_instance(project_meta, axis, registry,
+  client_meta=…)` applique projet > legacy projet > **client** > défaut, ce qui
+  permet « tous les projets de ce client passent par tel vault ». Sans
+  `client_meta`, la résolution est identique à avant (prouvé par test). Les
+  identifiants restent **par dev** : `SECRET__<slug>__CLIENTID` / `__FILE` /
+  `__TOKEN` dans `~/.config/mmi-pm/.env` (convention RM2546), avec repli sur les
+  variables historiques tant qu'un dev n'a pas migré ; `pm-providers.py resolve`
+  affiche l'instance retenue et les **noms** des identifiants trouvés, jamais leurs
+  valeurs. Corrigé au passage : `pm-providers resolve --client X` se laissait
+  écraser par la détection du cwd et répondait pour le projet courant.
 - **Socle multi-vault : `pm_secrets`** (RM2681, lot L0 du chantier RM2662). La
   résolution de secrets passe derrière une interface `SecretBackend` (statut,
   résolution, listing, `Capabilities`) avec des erreurs normalisées

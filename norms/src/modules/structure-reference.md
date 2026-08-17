@@ -179,6 +179,9 @@ Deux pièges, tous deux rencontrés en production :
 - Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
   de gabarit, pas un contact : les outils l'ignorent.
 
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
 Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
 toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
 `last_name` / `first_name`.

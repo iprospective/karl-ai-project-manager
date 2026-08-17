@@ -97,9 +97,11 @@ def normalize_phone(raw) -> str:
 
 
 def contact_label(c: dict) -> str:
+    """Nom de la personne ; à défaut sa fonction — une boîte de service (« Service
+    informatique », « comptabilité ») n'a pas de nom propre et c'est légitime."""
     name = " ".join(x for x in [(c.get("last_name") or "").upper(),
                                 c.get("first_name") or ""] if x).strip()
-    return name or c.get("name") or c.get("email") or "(sans nom)"
+    return name or c.get("name") or c.get("title") or c.get("email") or "(sans nom)"
 
 
 def is_empty(c: dict) -> bool:

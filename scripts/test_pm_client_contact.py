@@ -132,6 +132,15 @@ check("fiche nommée non vide", not P.is_empty({"name": "Lydie Mariller", "email
 check("fiche avec téléphone seul non vide", not P.is_empty({"phone": "0475000000"}))
 check("fiche avec fonction seule non vide", not P.is_empty({"title": "Gérant"}))
 
+# ── boîte de service : pas de nom propre, la fonction fait l'identité ────────
+P.cmd_add(cfg, args(email="webmaster@demo.fr", role="technique",
+                    title="Service informatique"))
+sc = P.find_contact(contacts(), "webmaster@demo.fr")
+check("boîte de service acceptée sans nom de personne", sc is not None)
+check("boîte de service : libellé = sa fonction",
+      P.contact_label(sc) == "Service informatique")
+P.cmd_remove(cfg, args(email="webmaster@demo.fr"))
+
 # ── modification et retrait ──────────────────────────────────────────────────
 P.cmd_set(cfg, args(email="claire@demo.fr", phone="04 75 00 00 00", role="decideur"))
 c = P.find_contact(contacts(), "claire@demo.fr")

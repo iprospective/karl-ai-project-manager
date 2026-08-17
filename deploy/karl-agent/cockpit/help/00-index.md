@@ -14,7 +14,7 @@ La colonne de gauche a un onglet par surface :
 | 🚀 **sessions** | jeux de sessions enregistrés (relancer, autostart) | [Sessions & terminal](sessions) |
 | 🧪 **à tester** | file de test/revue des tickets livrés | [À tester & revue](tests) |
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
-| 🔧 **réglages** | thème, appareils, dictée, conf PM | [Réglages](reglages) |
+| 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 
 La colonne de droite affiche la session attachée : terminal, worklog, état.
 

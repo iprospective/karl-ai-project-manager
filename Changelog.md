@@ -53,6 +53,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Backend KeePass** (RM2684, lot L3a du chantier RM2662) : un fichier `.kdbx`
+  et une passphrase suffisent — aucun serveur, aucun compte à créer. C'est le
+  backend qu'un intervenant externe peut fournir sans rien installer côté
+  iProspective, et la preuve que l'abstraction de L0 tient. Déclaration
+  `{ axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }` (ou
+  `SECRET__<SLUG>__FILE` / `__KEYFILE` par dev) ; déverrouillage
+  `unlock-vault.sh -i <instance>`, qui pousse la passphrase au daemon **et vérifie
+  aussitôt qu'elle ouvre la base** — sinon l'échec ne se verrait qu'à la première
+  résolution, longtemps après la saisie. Le chemin d'un secret suit les groupes
+  KeePass (`secret://kdbx-perso/clients/acme/prod-db`), le chemin donné valant
+  **suffixe** du groupe réel. Dépendance **optionnelle** : sans `pykeepass`
+  (`sudo apt install python3-pykeepass`), l'instance se déclare `unreachable` avec
+  la commande d'installation, sans gêner les autres vaults. Diagnostics ordonnés
+  comme on les corrige : configuration → dépendance → déverrouillage.
+  `pm-providers.py instance <slug> [--field …]` expose la fiche d'une instance
+  (c'est ce qui permet aux scripts shell de connaître le type d'un vault).
+  Corrigé au passage : le flux Vaultwarden posait sa session **sans slug**, donc
+  `unlock-vault.sh -i <autre-instance>` aurait déverrouillé l'instance par défaut
+  — le bon jeton dans le mauvais coffre.
 - **Plusieurs vaults déverrouillés en parallèle** (RM2683, lot L2 du chantier
   RM2662). `vault-agentd` tenait **une** session ; il tient désormais un **état par
   instance** (session, horodatages, backend), donc des TTL et des verrous

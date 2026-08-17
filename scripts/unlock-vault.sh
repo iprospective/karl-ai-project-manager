@@ -61,6 +61,12 @@ _cred() {
 BW_CLIENTID="$(_cred CLIENTID "${BW_CLIENTID:-}")"
 BW_CLIENTSECRET="$(_cred CLIENTSECRET "${BW_CLIENTSECRET:-}")"
 VAULT_URL="$(_cred URL "${VAULT_URL:-}")"
+KDBX_FILE="$(_cred FILE "")"
+
+# Type du backend, lu dans le registre providers. Inconnu (registre absent) →
+# `vaultwarden`, le comportement d'avant le chantier.
+TYPE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field type 2>/dev/null || true)"
+[ -z "$TYPE" ] && TYPE="vaultwarden"
 
 if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
   # Diagnostic : quelle instance, quelles clés trouvées — jamais les valeurs.
@@ -68,9 +74,60 @@ if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
   [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
   [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
   [ -n "$VAULT_URL" ] && found="$found URL"
-  echo "instance=$INSTANCE slug=$SLUG url=${VAULT_URL:-—} creds=${found:- aucun}"
+  [ -n "$KDBX_FILE" ] && found="$found FILE"
+  echo "instance=$INSTANCE slug=$SLUG type=$TYPE url=${VAULT_URL:-—} creds=${found:- aucun}"
   exit 0
 fi
+
+# ── Démarrage du daemon (commun à tous les types) ───────────────────────────
+_start_daemon() {
+  if [ ! -S "$SOCK" ] || ! printf 'PING\n' | nc -N -U "$SOCK" 2>/dev/null | grep -q '^OK'; then
+    echo "Starting vault-agentd…" >&2
+    local IDLE_OPT=() HOUR_OPT=()
+    [ -n "${VAULT_IDLE_TIMEOUT:-}" ] && IDLE_OPT=(--idle-timeout "$VAULT_IDLE_TIMEOUT")
+    [ -n "${VAULT_LOCK_AT_HOUR:-}" ] && HOUR_OPT=(--lock-at-hour "$VAULT_LOCK_AT_HOUR")
+    nohup python3 "$SCRIPT_DIR/vault-agentd.py" "${IDLE_OPT[@]}" "${HOUR_OPT[@]}" \
+      </dev/null >/tmp/vault-agentd.log 2>&1 &
+    disown || true
+    for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.1; done
+  fi
+}
+
+# ── KeePass : pas de `bw`, juste une passphrase poussée au daemon ────────────
+# Même discipline que pour le mot de passe maître : saisie non echo, jamais
+# écrite sur disque, jamais en argument de commande visible dans `ps`.
+if [ "$TYPE" = "keepass" ]; then
+  if [ -z "$KDBX_FILE" ]; then
+    KDBX_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+  fi
+  [ -n "$KDBX_FILE" ] || {
+    echo "✗ instance $INSTANCE : aucun fichier .kdbx (providers.servers.$INSTANCE.file ou SECRET__${SLUG}__FILE)" >&2
+    exit 1; }
+  _start_daemon
+  read -r -s -p "Passphrase KeePass ($INSTANCE) : " KP_PWD
+  echo
+  [ -z "$KP_PWD" ] && { echo "Passphrase vide, abandon." >&2; exit 1; }
+  RESP="$(printf 'SET-SESSION %s %s\n' "$INSTANCE" "$KP_PWD" | nc -N -U "$SOCK")"
+  KP_PWD=""; unset KP_PWD
+  if [ "$RESP" != "OK" ]; then
+    echo "✗ Daemon did not accept session : $RESP" >&2
+    exit 1
+  fi
+  # Vérifie tout de suite que la passphrase ouvre bien la base : sans ça, l'échec
+  # ne se verrait qu'à la première résolution, longtemps après la saisie.
+  CHECK="$(printf 'LIST-IN %s\n' "$INSTANCE" | nc -N -U "$SOCK")"
+  case "$CHECK" in
+    "ERR denied"*)
+      printf 'LOCK %s\n' "$INSTANCE" | nc -N -U "$SOCK" >/dev/null
+      echo "✗ Passphrase refusée par la base $KDBX_FILE." >&2; exit 1 ;;
+    "ERR "*)
+      echo "⚠ Session posée, mais la base n'a pas répondu : $CHECK" >&2 ;;
+  esac
+  echo "✓ KeePass « $INSTANCE » unlocked ($KDBX_FILE)."
+  exit 0
+fi
+
+# ── Vaultwarden / Bitwarden (flux historique) ───────────────────────────────
 
 : "${BW_CLIENTID:?missing — set SECRET__${SLUG}__CLIENTID (ou BW_CLIENTID)}"
 : "${BW_CLIENTSECRET:?missing — set SECRET__${SLUG}__CLIENTSECRET (ou BW_CLIENTSECRET)}"
@@ -90,21 +147,8 @@ if [ "$status" = "unauthenticated" ]; then
   BW_CLIENTID="$BW_CLIENTID" BW_CLIENTSECRET="$BW_CLIENTSECRET" bw login --apikey >/dev/null
 fi
 
-# Start the daemon if not running
-if [ ! -S "$SOCK" ] || ! printf 'PING\n' | nc -N -U "$SOCK" 2>/dev/null | grep -q '^OK'; then
-  echo "Starting vault-agentd…" >&2
-  IDLE_OPT=()
-  HOUR_OPT=()
-  [ -n "${VAULT_IDLE_TIMEOUT:-}" ] && IDLE_OPT=(--idle-timeout "$VAULT_IDLE_TIMEOUT")
-  [ -n "${VAULT_LOCK_AT_HOUR:-}" ] && HOUR_OPT=(--lock-at-hour "$VAULT_LOCK_AT_HOUR")
-  nohup python3 "$SCRIPT_DIR/vault-agentd.py" "${IDLE_OPT[@]}" "${HOUR_OPT[@]}" </dev/null >/tmp/vault-agentd.log 2>&1 &
-  disown || true
-  # Wait up to 2s for socket
-  for _ in $(seq 1 20); do
-    [ -S "$SOCK" ] && break
-    sleep 0.1
-  done
-fi
+# Start the daemon if not running (même helper que la branche KeePass)
+_start_daemon
 
 # Prompt master password (never echoed, never written)
 read -r -s -p "Master password for karl@: " MASTER_PWD
@@ -148,7 +192,9 @@ fi
 
 # Hand session to daemon
 echo "» sending SET-SESSION to daemon…" >&2
-RESP="$(printf 'SET-SESSION %s\n' "$SESSION" | nc -N -U "$SOCK")"
+# Le slug est explicite : sans lui, un `-i <autre-instance>` poserait la session
+# sur l'instance PAR DÉFAUT — le bon token dans le mauvais coffre.
+RESP="$(printf 'SET-SESSION %s %s\n' "$INSTANCE" "$SESSION" | nc -N -U "$SOCK")"
 SESSION=""; unset SESSION
 echo "» daemon response: $RESP" >&2
 if [ "$RESP" != "OK" ]; then
@@ -156,5 +202,7 @@ if [ "$RESP" != "OK" ]; then
   exit 1
 fi
 
-STATUS="$(printf 'STATUS\n' | nc -N -U "$SOCK")"
-echo "✓ Vault unlocked. ${STATUS}"
+# `STATUS <slug>` : l'état de CETTE instance, au format historique (le `STATUS`
+# nu rend désormais le tableau de bord de toutes les instances).
+STATUS="$(printf 'STATUS %s\n' "$INSTANCE" | nc -N -U "$SOCK")"
+echo "✓ Vault « $INSTANCE » unlocked. ${STATUS}"

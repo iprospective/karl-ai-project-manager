@@ -1663,4 +1663,49 @@ assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
   "chaque ligne du worklog rend l'avancement de son ticket");
 console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
 
+// — RM2696 : worklog PROJET (toutes sessions confondues) —
+const projWorklogHtml = grabO("projWorklogHtml");
+assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
+  "projet sans activité → message, pas de crash");
+const GRP = {
+  key: "acme/shop",
+  counts: { sessions_live: 1, sessions: 2, active: 2, waiting: 1, orphans: 1, mrs: 1, requests: 1 },
+  tickets: [
+    { rm_id: "11", status: "en_cours", title: "orphelin", bucket: "active",
+      sessions: [], has_live_session: false },
+    { rm_id: "10", status: "en_cours", title: "suivi", bucket: "active",
+      sessions: ["70"], has_live_session: true, checklist: { done: 1, total: 2, items: ["b"] } },
+    { rm_id: "12", status: "a_tester_demandeur", title: "en attente", bucket: "waiting",
+      sessions: ["71"], has_live_session: false },
+  ],
+  mrs: [{ iid: "9", ref: "RM12", target: "dev", url: "https://x/9", alive: false }],
+  requests: [{ text: "une demande", n: 1 }],
+  sessions: [{ sid: "70", alive: true, title: "T" }, { sid: "71", alive: false, title: "U" }],
+};
+const pw = projWorklogHtml(GRP, escO, jargFn);
+assert(/1 session\(s\) ouverte\(s\)/.test(pw) && /15|2 en cours/.test(pw), "bandeau de compteurs");
+assert(/💤 à reprendre/.test(pw), "un ticket actif sans session vivante est SIGNALÉ (le cas qu'on perd de vue)");
+assert(pw.indexOf("RM11") < pw.indexOf("RM10"), "…et il passe avant les tickets suivis");
+assert(/>1\/2 ✓</.test(pw), "l'avancement (RM2695) est repris dans la vue projet");
+assert(/🔀 MR à merger \(1\)/.test(pw) && /!9/.test(pw), "les MR non mergées sont listées");
+assert(/session éteinte/.test(pw), "une MR laissée par une session éteinte le dit");
+assert(/📥 demandes non ticketées \(1\)/.test(pw), "les demandes non ticketées remontent");
+assert(/a_tester_demandeur : 1/.test(pw), "les attentes sont comptées par statut (le geste diffère)");
+assert(/onclick="attach\('70'\)"/.test(pw), "les sessions sont attachables (arg en guillemets simples, jarg)");
+assert(/onclick="showTicket\(11\)"/.test(pw), "un ticket ouvre sa fiche (id numérique, pas d'injection)");
+// plafond d'affichage : borné ET annoncé
+const many = { counts: {}, tickets: Array.from({ length: 33 }, (_, i) =>
+  ({ rm_id: String(200 + i), status: "a_tester_demandeur", title: "t", bucket: "waiting",
+     sessions: [], has_live_session: false })), mrs: [], requests: [], sessions: [] };
+const pwMany = projWorklogHtml(many, escO, jargFn);
+assert((pwMany.match(/class="r-id"/g) || []).length === 20, "la liste est bornée à 20 lignes");
+assert(/… et 13 autre\(s\)/.test(pwMany), "…et la troncature est ANNONCÉE (jamais muette)");
+// échappement : titres et textes viennent des tickets et des demandes
+const pwXss = projWorklogHtml({ counts: {}, tickets: [{ rm_id: "1", status: "<b>s", title: "<img src=x>",
+  bucket: "active", sessions: ["<b>"], has_live_session: false }],
+  mrs: [], requests: [{ text: "<script>" }], sessions: [] }, escO, jargFn);
+assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss),
+  "titre, statut, session et demande échappés (anti-XSS)");
+console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées");
+
 console.log("OK — tous les tests cockpit passent");

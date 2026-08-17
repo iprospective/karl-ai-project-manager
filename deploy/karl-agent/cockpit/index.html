@@ -5978,6 +5978,18 @@ function renderProjectPane(key, d) {
     '<button class="mini" onclick="openConfigForm(\'project\')" title="Modifier la conf du projet (meta.yml)">✎ conf projet</button>' +
     '<button class="mini" onclick="openConfigForm(\'client\')" title="Modifier la conf du client ' + esc(ck) + ' (meta.yml)">✎ conf client</button>' +
     '<button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
+  // RM2696 : deux lectures du même projet — sa FICHE (ce qu'il est) et son
+  // WORKLOG (ce qui s'y passe, toutes sessions confondues).
+  h += '<div class="rsub" style="margin:8px 0 4px">'
+    + '<button class="' + (projTab === "worklog" ? "" : "active") + '" onclick="setProjTab(\'fiche\')">📋 fiche</button>'
+    + '<button class="' + (projTab === "worklog" ? "active" : "") + '" onclick="setProjTab(\'worklog\')">🗒 worklog</button>'
+    + "</div>";
+  if (projTab === "worklog") {
+    h += '<div id="projworklog"><div class="empty">chargement du worklog projet…</div></div>';
+    pane.innerHTML = h;
+    loadProjWorklog(key);
+    return;
+  }
   // liens
   h += '<div class="rels" style="margin:10px 0 14px">';
   if (d.redmine_project_url) h += '<a class="pill" href="' + esc(d.redmine_project_url) + '" target="_blank">🎫 Projet Redmine ↗</a>';
@@ -6020,6 +6032,114 @@ function renderProjectPane(key, d) {
     + '<div class="empty">chargement…</div></div></div>';
   pane.innerHTML = h;
   loadProjWorktrees(key);
+}
+
+// ── RM2696 : worklog PROJET — ce qui se passe sur un projet, toutes sessions ──
+let projTab = "fiche";
+let projOverview = { key: null, group: null };
+function setProjTab(t) {
+  projTab = t;
+  if (currentProjectView && projectData) renderProjectPane(currentProjectView, projectData);
+}
+
+// >>> projWorklogHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le worklog d'un PROJET : ce que trois sessions font du même projet ne se lisait
+// nulle part d'un bloc. Ordre voulu — d'abord ce qui bloque (MR non mergées,
+// tickets actifs SANS session vivante), ensuite le travail en cours, enfin
+// l'attente. Un ticket actif dont plus aucune session ne parle est le cas qu'on
+// perd de vue : il est signalé, pas rangé au milieu.
+function projWorklogHtml(g, esc, jarg) {
+  if (!g) return '<div class="empty">rien en cours sur ce projet.</div>';
+  const c = g.counts || {};
+  const pill = (n, txt, cls) => n ? '<span class="pill ' + (cls || "") + '">' + n + " " + txt + "</span>" : "";
+  let h = '<div class="rels" style="margin-bottom:10px">'
+    + pill(c.sessions_live, "session(s) ouverte(s)", "ok")
+    + pill(c.active, "en cours")
+    + pill(c.orphans, "sans session", "warn")
+    + pill(c.waiting, "en attente")
+    + pill(c.mrs, "MR à merger", "warn")
+    + pill(c.requests, "demande(s)", "warn") + "</div>";
+  const tks = g.tickets || [];
+  const row = t => {
+    const cl = t.checklist;
+    const prog = cl && cl.total
+      ? ' <span class="pill' + (cl.done >= cl.total ? " ok" : "") + '">' + cl.done + "/" + cl.total + " ✓</span>" : "";
+    const who = (t.sessions || []).length
+      ? (t.sessions || []).map(s => '<span class="pill" title="session qui traite ce ticket">' + esc(String(s)) + "</span>").join(" ")
+      : '<span class="pill warn" title="aucune session, vivante ou éteinte, ne parle de ce ticket">sans session</span>';
+    const cold = t.bucket === "active" && !t.has_live_session
+      ? ' <span class="pill warn" title="ticket en cours, mais aucune session vivante ne le traite">💤 à reprendre</span>' : "";
+    return '<div class="oline" style="white-space:normal" onclick="showTicket(' + Number(t.rm_id) + ')"'
+      + ' title="Ouvrir la fiche du ticket"><span class="r-id">RM' + esc(String(t.rm_id)) + "</span> "
+      + '<span class="pill">' + esc(t.status || "?") + "</span>" + prog + cold + " " + esc(t.title || "")
+      + '<div style="margin-top:2px">' + who + "</div></div>";
+  };
+  const mrs = g.mrs || [];
+  if (mrs.length) {
+    h += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>"
+      + mrs.map(m => '<div class="oline" style="white-space:normal">🔀 <b>!' + esc(String(m.iid)) + "</b> "
+        + (m.ref ? esc(String(m.ref)) + " " : "")
+        + (m.target ? '→ <span class="pill">' + esc(String(m.target)) + "</span> " : "")
+        + (m.url ? '<a href="' + esc(String(m.url)) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
+        + (m.alive === false ? ' <span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span>' : "")
+        + "</div>").join("") + "</div>";
+  }
+  const reqs = g.requests || [];
+  if (reqs.length) {
+    h += '<div class="ms"><h4>📥 demandes non ticketées (' + reqs.length + ")</h4>"
+      + reqs.map(r => '<div class="oline" style="white-space:normal">📥 ' + esc(String(r.text || "")) + "</div>").join("") + "</div>";
+  }
+  const active = tks.filter(t => t.bucket === "active");
+  const waiting = tks.filter(t => t.bucket !== "active");
+  // Plafond d'affichage : 69 tickets en attente listés d'un bloc, c'est
+  // exactement ce qu'on ne lit pas. On borne — et on DIT ce qui est coupé, une
+  // troncature muette se lirait comme « il n'y a que ça ».
+  const CAP = 20;
+  const listing = (arr, empty) => {
+    if (!arr.length) return '<div class="empty">' + empty + "</div>";
+    const shown = arr.slice(0, CAP).map(row).join("");
+    return shown + (arr.length > CAP
+      ? '<div style="color:var(--muted);font-size:11px;margin-top:4px">… et ' + (arr.length - CAP)
+        + " autre(s) — la liste complète est dans la fiche du projet</div>" : "");
+  };
+  h += '<div class="ms"><h4>🔨 en cours (' + active.length + ")</h4>"
+    + listing(active, "rien en cours") + "</div>";
+  // Répartition des attentes par statut : un ticket « a_tester_demandeur » et un
+  // « a_mep » n'appellent pas le même geste — le compte par statut se lit d'un
+  // coup d'œil là où 69 lignes ne se lisent pas.
+  const byStatus = {};
+  waiting.forEach(t => { byStatus[t.status || "?"] = (byStatus[t.status || "?"] || 0) + 1; });
+  h += '<div class="ms"><h4>⏳ en attente d’un geste (' + waiting.length + ")</h4>"
+    + (waiting.length ? '<div class="rels" style="margin-bottom:6px">'
+        + Object.keys(byStatus).sort().map(s => '<span class="pill">' + esc(s) + " : " + byStatus[s] + "</span>").join(" ")
+        + "</div>" : "")
+    + listing(waiting, "rien en attente") + "</div>";
+  const sess = g.sessions || [];
+  if (sess.length) {
+    h += '<div class="ms"><h4>🖥 sessions du projet (' + (c.sessions_live || 0) + "/" + sess.length + ")</h4><div class=\"rels\">"
+      + sess.map(s => '<span class="pill' + (s.alive ? " ok" : "") + '" style="cursor:pointer"'
+        + ' title="' + esc(String(s.title || s.sid)) + (s.alive ? " — ouverte" : " — éteinte")
+        + '" onclick="attach(' + jarg(String(s.sid)) + ')">' + esc(String(s.sid)) + "</span>").join(" ")
+      + "</div></div>";
+  }
+  return h;
+}
+// <<< projWorklogHtml
+
+async function loadProjWorklog(key) {
+  const [c, p] = String(key || "").split("/");
+  const b = document.getElementById("projworklog");
+  if (!b || !c || !p) return;
+  try {
+    const r = await api("/overview?client=" + encodeURIComponent(c) + "&project=" + encodeURIComponent(p));
+    projOverview = { key: key, group: (r.projects || [])[0] || null };
+  } catch (e) {
+    b.innerHTML = '<div class="empty">worklog projet indisponible : ' + esc(e.message) + "</div>";
+    return;
+  }
+  if (currentProjectView === key && projTab === "worklog") {
+    b.innerHTML = projWorklogHtml(projOverview.group, esc, jarg);
+  }
 }
 
 // ── RM2590 : explorateur de fichiers dans la vue projet (tous les worktrees) ──

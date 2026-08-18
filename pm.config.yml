@@ -201,6 +201,10 @@ providers:
     # vault (cf. CDC RM2662 § 3.2 bis) ; déclarer une autre instance sert aux
     # intervenants qui ont leur propre outil, ou à un client qui impose le sien.
     vw-ipro:        { axis: secret, type: vaultwarden, url: "${VAULT_URL:-https://vault.iprospective.fr}" }
+    # Exemple — base KeePass locale (RM2684). Décommenter et adapter le chemin ;
+    # dépendance : `sudo apt install python3-pykeepass`. Déverrouillage :
+    # `scripts/unlock-vault.sh -i kdbx-perso` (passphrase, jamais écrite).
+    # kdbx-perso:   { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
 
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés

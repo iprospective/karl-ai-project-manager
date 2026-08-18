@@ -437,6 +437,11 @@
     border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
   /* RM2695 : avancement d'un ticket dans le worklog (critères restants) */
   .wl-prog { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 3px 0 0 1.2em; }
+  /* RM2719 : points d'un ticket, cochables dans l'écran de confirmation du lot */
+  .bp-points { margin: 4px 0 2px 14px; display: flex; flex-direction: column; gap: 2px; }
+  .bp-point { font-size: 11.5px; color: var(--fg); display: flex; gap: 5px; align-items: flex-start; cursor: pointer; }
+  .bp-point input { width: auto; margin: 2px 0 0; }
+  .bp-hint { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
   .wl-crit { font-size: 10.5px; color: var(--muted); background: rgba(127,127,127,.1);
     border-radius: 4px; padding: 1px 6px; max-width: 100%; overflow-wrap: anywhere; }
   .ms { margin-bottom: 14px; }
@@ -4197,6 +4202,14 @@ function renderWorklog() {
     // un TICKET (un chantier libre n'a pas de protocole à dérouler), et le clic
     // dessus ne doit pas ouvrir la fiche — d'où le stopPropagation.
     const selectable = /^RM\d+$/i.test(String(it.ref || ""));
+    // RM2719 : les critères NON cochés du ticket sont les points qu'on pourra
+    // retenir un par un dans l'écran de confirmation. On les mémorise ici, au
+    // rendu — les faire transiter par un attribut HTML les exposerait à
+    // l'échappement pour rien.
+    if (selectable) worklogPoints[String(it.ref)] = {
+      points: ((it.checklist || {}).items || []).slice(),
+      points_truncated: !!(it.checklist || {}).truncated,
+    };
     const box = selectable
       ? '<input type="checkbox" style="width:auto;margin-right:5px" title="Sélectionner pour un traitement en série"'
         + ' onclick="event.stopPropagation();batchToggle(' + jarg(String(it.ref)) + ',' + jarg(String(it.status || ""))
@@ -4278,9 +4291,14 @@ function worklogProgressHtml(it, esc) {
 // <<< worklogProgressHtml
 
 // ── RM2716 : sélection de tickets du worklog → traitement en série ───────────
-const batchSel = new Map();      // ref → {rm_id, status, title}
+const batchSel = new Map();      // ref → {rm_id, status, title, points[]}
+const worklogPoints = {};        // RM2719 : ref → critères non cochés du ticket
 function batchToggle(ref, status, title, on) {
-  if (on) batchSel.set(ref, { rm_id: String(ref).replace(/^RM/, ""), status: status, title: title });
+  if (on) {
+    const wp = worklogPoints[String(ref)] || {};
+    batchSel.set(ref, { rm_id: String(ref).replace(/^RM/, ""), status: status, title: title,
+                        points: wp.points || [], points_truncated: !!wp.points_truncated });
+  }
   else batchSel.delete(ref);
   const b = document.getElementById("batch-btn");
   if (b) {
@@ -4296,13 +4314,29 @@ function batchToggle(ref, status, title, on) {
 function batchPlanHtml(plan, esc) {
   const p = plan || {};
   const todo = p.todo || [], skipped = p.skipped || [];
+  // RM2719 : les points d'un ticket, cochés par défaut — décocher restreint la
+  // portée. Tous cochés = ticket entier (l'état de départ ne change donc rien).
+  // Décocher TOUS les points d'un ticket l'écarte : c'est dit ici, sinon le
+  // ticket disparaîtrait du lot sans explication.
+  const pointsHtml = (t) => {
+    const pts = t.points || [];
+    if (!pts.length) return "";
+    return '<div class="bp-points">'
+      + pts.map((pt, j) => '<label class="bp-point"><input type="checkbox" checked'
+          + ' data-ref="' + esc(String(t.rm_id)) + '" data-i="' + j + '"'
+          + ' value="' + esc(String(pt)) + '"> ' + esc(String(pt)) + "</label>").join("")
+      + '<div class="bp-hint">tous cochés = ticket entier · aucun coché = ticket écarté'
+      + (t.points_truncated ? " · ⚠ liste de critères incomplète (le ticket en porte d’autres)" : "")
+      + "</div>"
+      + "</div>";
+  };
   let h = '<div class="ms"><h4>▶ à traiter (' + todo.length + ")</h4>";
   h += todo.length
     ? todo.map((t, i) => '<div class="oline" style="white-space:normal"><b>' + (i + 1) + ".</b> "
         + '<span class="r-id">RM' + esc(String(t.rm_id)) + "</span> "
         + '<span class="pill">' + esc(String(t.status || "")) + "</span> "
         + esc(String(t.title || "")) + '<div style="color:var(--muted);font-size:11px">→ '
-        + esc(String(t.instruction || "")) + "</div></div>").join("")
+        + esc(String(t.instruction || "")) + "</div>" + pointsHtml(t) + "</div>").join("")
     : '<div class="empty">aucun ticket actionnable dans la sélection</div>';
   h += "</div>";
   if (skipped.length) {
@@ -4343,15 +4377,37 @@ async function openBatchPlan() {
     + esc(batchPlanCache.prompt || "") + "</pre></details>";
   document.getElementById("docmodal").classList.add("show");
 }
+// RM2719 : la portée retenue est lue DANS l'écran de confirmation au moment de
+// l'envoi — l'état vit à un seul endroit (les cases), pas en double dans une map
+// qu'il faudrait tenir à jour. Un ticket dont tous les points restent cochés
+// part entier (pas de `scope`), c'est-à-dire exactement le lot de RM2716.
+function batchScopedItems() {
+  const boxes = [...document.querySelectorAll("#doccontent .bp-point input")];
+  const byRef = {};
+  for (const b of boxes) {
+    const ref = b.dataset.ref;
+    if (!ref) continue;
+    const e = byRef[ref] = byRef[ref] || { all: [], kept: [] };
+    e.all.push(b.value);
+    if (b.checked) e.kept.push(b.value);
+  }
+  return [...batchSel.values()].map(it => {
+    const e = byRef[String(it.rm_id)];
+    if (!e || e.kept.length === e.all.length) return it;   // ticket entier
+    return Object.assign({}, it, { scope: e.kept });
+  });
+}
 async function sendBatch(btn) {
   if (!batchPlanCache || !attached) return;
   btn.disabled = true;
   try {
     const r = await api("/worklog/batch", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, items: [...batchSel.values()],
+      body: JSON.stringify({ rm_id: attached, items: batchScopedItems(),
                              allow_large: batchPlanCache.count > 10 }) });
-    toast("▶ " + r.count + " ticket(s) envoyés à la session " + attached);
+    const ecartes = (r.skipped || []).length;
+    toast("▶ " + r.count + " ticket(s) envoyés à la session " + attached
+          + (ecartes ? " · " + ecartes + " écarté(s)" : ""));
     batchSel.clear(); batchToggle();      // remet le bouton à zéro
     closeDoc();
     loadWorklog(true);

@@ -2041,3 +2041,28 @@ assert.strictEqual(markPillHtml2718("constructor"), "",
 assert(markPillHtml2718("test").endsWith("</span> "),
   "la pastille garde son espace de séparation avec le titre");
 console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'inventé");
+
+// — RM2719 : portée restreinte — les points d'un ticket, cochables avant envoi —
+const bpPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", title: "dev",
+  instruction: "traiter puis livrer", points: ["critère A", "critère B"] }], skipped: [] }, escO);
+assert(/class="bp-point"/.test(bpPts), "les points du ticket sont rendus");
+assert((bpPts.match(/type="checkbox" checked/g) || []).length === 2,
+  "chaque point est coché par défaut : l'état de départ = ticket entier");
+assert(/data-ref="10"/.test(bpPts), "chaque case porte le ticket auquel elle appartient");
+assert(/value="critère A"/.test(bpPts), "la case porte le libellé exact du point (c'est lui qui part)");
+assert(/aucun coché = ticket écarté/.test(bpPts),
+  "la conséquence de tout décocher doit être écrite, pas devinée");
+const bpNoPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter" }],
+                                skipped: [] }, escO);
+assert(!/bp-point/.test(bpNoPts), "un ticket sans critère ne rend aucune case (pas de bloc vide)");
+const bpPtsXss = batchPlanHtml({ todo: [{ rm_id: "1", status: "a_faire",
+  instruction: "x", points: ['<img src=x onerror=1> "guillemet"'] }], skipped: [] }, escO);
+assert(!/<img/.test(bpPtsXss), "un libellé de critère est échappé dans le texte");
+assert(!/value="[^"]*"guillemet/.test(bpPtsXss), "…et dans l'attribut value (sinon l'attribut se ferme)");
+console.log("✓ portée restreinte d'un ticket (RM2719) : points cochables, échappés, conséquence écrite");
+const bpTrunc = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter",
+  points: ["critère A"], points_truncated: true }], skipped: [] }, escO);
+assert(/liste de critères incomplète/.test(bpTrunc),
+  "une liste de critères tronquée doit se dire : sinon elle se lit comme complète");
+assert(!/liste de critères incomplète/.test(bpPts), "…et ne s'affiche pas quand elle est complète");
+console.log("✓ portée restreinte (RM2719) : une liste de critères incomplète est annoncée");

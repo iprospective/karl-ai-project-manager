@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests RM2716 — traitement en série d'un lot de tickets du worklog.
+"""Tests RM2716/RM2719 — traitement en série d'un lot de tickets du worklog.
 
 Ce qu'on protège (les gardes valent plus que la fonctionnalité) :
   - aucun ticket non actionnable n'entre dans la consigne, et chaque exclusion
@@ -9,6 +9,12 @@ Ce qu'on protège (les gardes valent plus que la fonctionnalité) :
   - `dry_run` ne touche à aucune session (c'est le récapitulatif d'avant envoi) ;
   - la consigne exige les trois retours arbitrés (statut NORMS, notification de
     fin, récapitulatif au worklog).
+
+RM2719 — portée RESTREINTE : ne faire traiter que certains points d'un ticket.
+Ce qu'on protège en plus : une portée vide ÉCARTE le ticket (décocher tous ses
+points veut dire « rien à y faire », pas « fais tout »), les points repris sont
+bornés et ce qui déborde est ANNONCÉ, et la consigne interdit de clôturer un
+ticket dont il reste des points.
 
 Lancer : python3 scripts/test_karl_agent_batch.py
 """
@@ -110,6 +116,71 @@ check("le plafond ne compte QUE les actionnables",
 ka._has_session = lambda sid: False
 check("session éteinte → 404 (et rien d'envoyé)",
       raises(404, lambda: ka.op_worklog_batch({"rm_id": "70", "items": ITEMS})))
+
+# — RM2719 : portée RESTREINTE (ne traiter que certains points d'un ticket) —
+check("sans `scope`, rien ne change : le ticket part entier",
+      all(not t["scope"] for t in ka.batch_plan(ITEMS)["todo"]))
+check("les points candidats sont repris pour l'écran de confirmation",
+      ka.batch_plan([{"rm_id": "10", "status": "a_faire",
+                      "points": ["  critère  A ", "critère A", "", "critère B"]}]
+                    )["todo"][0]["points"] == ["critère A", "critère B"],
+      "…normalisés (espaces) et dédoublonnés")
+
+sc = ka.batch_plan([{"rm_id": "10", "status": "a_faire", "title": "dev",
+                     "points": ["A", "B", "C"], "scope": ["B", "C"]}])["todo"][0]
+check("la portée retenue est portée par le ticket", sc["scope"] == ["B", "C"])
+p2719 = ka.batch_prompt([sc])
+check("la consigne DIT que la portée est restreinte", "PORTÉE RESTREINTE" in p2719)
+check("…et liste les points retenus, eux seuls",
+      "- B" in p2719 and "- C" in p2719 and "- A" not in p2719)
+check("…et INTERDIT de clôturer un ticket restreint",
+      "ne se clôture PAS" in p2719 and "ne repart PAS au demandeur" in p2719)
+check("la règle de portée n'apparaît PAS sans ticket restreint",
+      "PORTÉE RESTREINTE" not in ka.batch_prompt(ka.batch_plan(ITEMS)["todo"]))
+
+check("décocher TOUS les points écarte le ticket (au lieu de tout traiter)",
+      [s["rm_id"] for s in ka.batch_plan(
+          [{"rm_id": "10", "status": "a_faire", "points": ["A"], "scope": []}])["skipped"]] == ["10"])
+check("…avec sa raison",
+      "aucun point retenu" in ka.batch_plan(
+          [{"rm_id": "10", "status": "a_faire", "scope": []}])["skipped"][0]["reason"])
+
+gros_pts = [f"point {i}" for i in range(ka.BATCH_POINTS_MAX + 3)]
+cap = ka.batch_plan([{"rm_id": "10", "status": "a_faire", "scope": gros_pts}])["todo"][0]
+check("les points sont plafonnés", len(cap["scope"]) == ka.BATCH_POINTS_MAX)
+check("…et le RESTE est annoncé, pas escamoté", cap["scope_truncated"] == 3)
+check("…y compris dans la consigne", "3 autre(s) point(s)" in ka.batch_prompt([cap]))
+
+long_pt = "x" * (ka.BATCH_POINT_LEN + 50)
+clip = ka.batch_plan([{"rm_id": "10", "status": "a_faire", "scope": [long_pt]}])["todo"][0]
+check("un point trop long est borné (un critère est une ligne)",
+      len(clip["scope"][0]) == ka.BATCH_POINT_LEN and clip["scope"][0].endswith("…"))
+check("un point multi-ligne ne casse pas la liste numérotée",
+      ka.batch_plan([{"rm_id": "10", "status": "a_faire", "scope": ["a\nb\n c"]}]
+                    )["todo"][0]["scope"] == ["a b c"])
+check("une portée sur un ticket NON actionnable ne le ressuscite pas",
+      ka.batch_plan([{"rm_id": "12", "status": "a_tester_demandeur", "scope": ["A"]}])["todo"] == [])
+
+sent.clear()
+ka._has_session = lambda sid: True
+res2 = ka.op_worklog_batch({"rm_id": "70", "items": [
+    {"rm_id": "10", "status": "a_faire", "points": ["A", "B"], "scope": ["A"]}]})
+check("la consigne envoyée porte la portée retenue",
+      res2["sent"] is True and "PORTÉE RESTREINTE" in sent[-1]["msg"] and "- A" in sent[-1]["msg"])
+check("un lot dont TOUS les tickets sont vidés de leurs points → 400",
+      raises(400, lambda: ka.op_worklog_batch({"rm_id": "70", "items": [
+          {"rm_id": "10", "status": "a_faire", "scope": []}]})))
+
+check("une liste de critères déjà incomplète en amont reste signalée",
+      ka.batch_plan([{"rm_id": "10", "status": "a_faire", "points": ["A"],
+                      "points_truncated": True}])["todo"][0]["points_truncated"] is True)
+check("…et un plafond atteint côté serveur la signale aussi",
+      ka.batch_plan([{"rm_id": "10", "status": "a_faire",
+                      "points": [f"p{i}" for i in range(ka.BATCH_POINTS_MAX + 1)]}]
+                    )["todo"][0]["points_truncated"] is True)
+check("liste complète → rien de signalé",
+      ka.batch_plan([{"rm_id": "10", "status": "a_faire", "points": ["A"]}]
+                    )["todo"][0]["points_truncated"] is False)
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

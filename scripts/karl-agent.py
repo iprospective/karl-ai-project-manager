@@ -4349,6 +4349,31 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
 # des règles métier, elles doivent être testables sans navigateur.
 BATCH_MAX = 10          # au-delà : confirmation explicite (`allow_large`)
 
+# RM2719 — portée RESTREINTE : ne faire traiter que certains points d'un ticket
+# (ses critères d'acceptation non cochés, exposés par RM2695). Deux listes, à ne
+# pas confondre : `points` = ce qu'on PROPOSE de cocher (repris tel quel pour
+# l'écran de confirmation), `scope` = ce qui est RETENU (la restriction). Absent
+# ⇒ ticket entier, comportement de RM2716 inchangé.
+BATCH_POINTS_MAX = 12   # points repris dans la consigne, par ticket
+BATCH_POINT_LEN = 300   # un critère est une ligne, pas un paragraphe
+
+
+def _batch_points(raw, limit=BATCH_POINTS_MAX):
+    """Nettoie une liste de points : une ligne chacun, borné, dédoublonné,
+    plafonné. Rend (points, nombre de points laissés de côté) — le reste du code
+    ANNONCE ce nombre : une liste tronquée en silence se lirait comme la liste
+    complète, et l'agent clôturerait un ticket dont il n'a pas vu la fin."""
+    out, seen = [], set()
+    for p in raw or []:
+        t = " ".join(str(p or "").split())
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        if len(t) > BATCH_POINT_LEN:
+            t = t[:BATCH_POINT_LEN - 1].rstrip() + "…"
+        out.append(t)
+    return out[:limit], max(0, len(out) - limit)
+
 # Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
 # une étude se termine en validation, un dev se termine en test demandeur.
 BATCH_ACTIONS = {
@@ -4378,7 +4403,12 @@ def batch_plan(items) -> dict:
     Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
     affiche avant l'envoi. Un statut inconnu (nouveau statut NORMS pas encore
     connu ici) est écarté aussi — deviner l'action à faire sur un ticket serait
-    pire que de le dire."""
+    pire que de le dire.
+
+    RM2719 — un item peut porter une PORTÉE : `scope` = les seuls points à
+    traiter. Absente, le ticket part en entier (RM2716). Présente mais VIDE,
+    le ticket est écarté avec sa raison — décocher tous les points d'un ticket
+    veut dire « rien à y faire », pas « fais tout »."""
     todo, skipped = [], []
     seen = set()
     for it in items or []:
@@ -4388,9 +4418,25 @@ def batch_plan(items) -> dict:
         seen.add(rm)
         status = str((it or {}).get("status") or "").strip()
         act = BATCH_ACTIONS.get(status)
+        raw_scope = (it or {}).get("scope")
+        scoped = isinstance(raw_scope, list)
+        scope, scope_cut = _batch_points(raw_scope) if scoped else ([], 0)
+        if act and scoped and not scope:
+            skipped.append({"rm_id": rm, "status": status,
+                            "reason": "aucun point retenu dans la sélection",
+                            "title": (it or {}).get("title") or ""})
+            continue
         if act:
+            points, pcut = _batch_points((it or {}).get("points"))
             todo.append({"rm_id": rm, "status": status, "action": act[0],
-                         "instruction": act[1], "title": (it or {}).get("title") or ""})
+                         "instruction": act[1], "title": (it or {}).get("title") or "",
+                         "points": points, "scope": scope,
+                         "scope_truncated": scope_cut,
+                         # La liste des critères peut déjà arriver incomplète du
+                         # worklog (plafond de `parse_checklist`) : on le REDIT
+                         # ici, sinon l'écran de sélection se lirait comme la
+                         # liste complète des points du ticket.
+                         "points_truncated": bool(pcut or (it or {}).get("points_truncated"))})
         else:
             todo_reason = BATCH_SKIP.get(status) or f"statut « {status or '?'} » : aucune action définie"
             skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
@@ -4407,12 +4453,32 @@ def batch_prompt(todo) -> str:
     Elle exige les trois retours arbitrés : le statut de fin du flux NORMS (qui
     réattribue au demandeur), la notification de fin de lot, et le récapitulatif
     au worklog. Sans ça, « traite ces tickets » laisserait le demandeur surveiller
-    des sessions pour savoir où ça en est."""
+    des sessions pour savoir où ça en est.
+
+    RM2719 — un ticket à PORTÉE RESTREINTE porte ses points sous sa ligne, et la
+    règle qui va avec : il ne se clôture pas et ne repart pas au demandeur tant
+    qu'il en reste. La règle n'est ajoutée que s'il y a au moins un ticket
+    restreint — une consigne qui liste des cas absents se lit moins bien."""
     lignes = []
+    scoped = False
     for i, t in enumerate(todo or [], 1):
         titre = (" — " + t["title"]) if t.get("title") else ""
         lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+        pts = t.get("scope") or []
+        if pts:
+            scoped = True
+            lignes.append("   PORTÉE RESTREINTE — ne traite QUE ces points :")
+            lignes += [f"   - {p}" for p in pts]
+            cut = t.get("scope_truncated") or 0
+            if cut:
+                lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
+                              "ici : reprends-les depuis la checklist du ticket.)")
     corps = "\n".join(lignes)
+    regle_scope = (
+        "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
+        "demandeur : traite uniquement les points listés, ne coche que ces "
+        "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
+    ) if scoped else ""
     return (
         f"Traite ces {len(todo or [])} ticket(s) EN SÉRIE, dans cet ordre, en "
         "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
@@ -4423,6 +4489,7 @@ def batch_prompt(todo) -> str:
         "qu'une fois le précédent rendu ;\n"
         "- chaque ticket revient au demandeur par son statut de fin NORMS "
         "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+        f"{regle_scope}"
         "- consigne l'avancement du lot au worklog "
         "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
         "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "

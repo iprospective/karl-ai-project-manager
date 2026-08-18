@@ -54,6 +54,8 @@ WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
            "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
+# RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
+HORS_PROJET = "hors projet"
 
 # ─── canal « notifications importantes » (RM2466 volet 1) ────────────────────
 # Un incident notable finissait au mieux dans une phrase de réponse de l'agent,
@@ -335,6 +337,19 @@ def _read_fm_lists(path, fields):
     return res
 
 
+def project_from_task_path(path):
+    """`…/clients/<client>/projects/<projet>/tasks/RM123_x.md` → `<projet>`.
+
+    Best-effort : sert de repli quand l'item du worklog a été ouvert sans
+    `--project` (RM2724). Rend None si le chemin n'a pas cette forme."""
+    try:
+        parts = os.path.normpath(str(path)).split(os.sep)
+        i = len(parts) - 1 - parts[::-1].index("tasks")
+    except ValueError:
+        return None
+    return parts[i - 1] if i >= 1 else None
+
+
 def resolve_live(items):
     """map ref→{status,title} depuis le frontmatter des tâches (best-effort).
 
@@ -363,7 +378,7 @@ def resolve_live(items):
             docs = ([[d, "ref"] for d in lists["refs"]]
                     + [[d, "output"] for d in lists["outputs"]])
             live[ref] = {"status": st, "title": _read_fm_field(p, "title"),
-                         "docs": docs}
+                         "project": project_from_task_path(p), "docs": docs}
     return live
 
 
@@ -477,8 +492,10 @@ def render_md(data, live=None):
     def line(it):
         st = eff_status(it, live)
         lv = (live or {}).get(it["ref"])
-        label = it.get("label") or (lv["title"] if lv and lv.get("title") else it["ref"])
-        proj = (" _(%s)_" % it["project"]) if it.get("project") else ""
+        label = it.get("label")
+        if (not label or label == it["ref"]) and lv and lv.get("title"):
+            label = lv["title"]          # RM2724 : évite « RM2680 — RM2680 »
+        label = label or it["ref"]
         # dérive : le statut courant diffère de celui d'ouverture dans la session
         opened = it.get("opened_status") or it.get("status")
         drift = ""
@@ -487,16 +504,37 @@ def render_md(data, live=None):
         commit = (" · `%s`" % it["commit"]) if it.get("commit") else ""
         nxt = ("\n  → " + it["next"]) if it.get("next") else ""
         note = ("\n  ↳ " + it["note"]) if it.get("note") else ""
-        return "- `[%s]` **%s** — %s%s%s%s%s%s" % (
-            st, it["ref"], label, proj, drift, commit, nxt, note)
+        return "- `[%s]` **%s** — %s%s%s%s%s" % (
+            st, it["ref"], label, drift, commit, nxt, note)
+
+    # RM2724 : le projet portait en suffixe de ligne, invisible dès que la
+    # session mélange plusieurs projets. Il devient le titre du groupe.
+    def by_project(items):
+        groups, order = {}, []
+        for it in items:
+            lv = (live or {}).get(it["ref"]) or {}
+            proj = it.get("project") or lv.get("project") or HORS_PROJET
+            if proj not in groups:
+                groups[proj] = []
+                order.append(proj)
+            groups[proj].append(it)
+        # ordre d'apparition, sauf « hors projet » qui ferme la marche
+        order.sort(key=lambda p: p == HORS_PROJET)
+        lines = []
+        for proj in order:
+            if lines:
+                lines.append("")
+            lines.append("### %s" % proj)
+            lines += [line(i) for i in groups[proj]]
+        return lines
 
     out.append("## ⏳ Reste à faire")
-    out += [line(i) for i in todo] or ["_(rien)_"]
+    out += by_project(todo) or ["_(rien)_"]
     if wait:
         out.append("\n## ⏸️ En attente / bloqué")
-        out += [line(i) for i in wait]
+        out += by_project(wait)
     out.append("\n## ✅ Fait")
-    out += [line(i) for i in done] or ["_(rien)_"]
+    out += by_project(done) or ["_(rien)_"]
 
     # RM2715 : l'archive des notifications, tout en bas — elle ne réclame rien,
     # mais elle dit ce que la session a réglé et PAR QUOI (le ticket qui la porte).

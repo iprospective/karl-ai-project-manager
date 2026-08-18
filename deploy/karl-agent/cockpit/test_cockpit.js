@@ -1811,7 +1811,8 @@ assert(/event\.stopPropagation\(\);batchToggle\(/.test(mItem2716[0]),
 assert(/\/\^RM\\d\+\$\/i\.test/.test(mItem2716[0]),
   "seul un TICKET est sélectionnable (un chantier libre n'a pas de protocole)");
 // l'envoi passe par le récapitulatif : jamais d'appel direct sans dry_run d'abord
-const mOpen = /async function openBatchPlan\(\)[\s\S]*?\n\}/.exec(html);
+const mOpen = /async function openBatchPlan\([\s\S]*?\n\}/.exec(html);
+assert(mOpen, "openBatchPlan introuvable");
 assert(/dry_run: true/.test(mOpen[0]), "le récapitulatif s'obtient en dry_run (aucun envoi)");
 const mSend = /async function sendBatch\([\s\S]*?\n\}/.exec(html);
 assert(/batchPlanCache/.test(mSend[0]),
@@ -2066,3 +2067,48 @@ assert(/liste de critères incomplète/.test(bpTrunc),
   "une liste de critères tronquée doit se dire : sinon elle se lit comme complète");
 assert(!/liste de critères incomplète/.test(bpPts), "…et ne s'affiche pas quand elle est complète");
 console.log("✓ portée restreinte (RM2719) : une liste de critères incomplète est annoncée");
+
+// — RM2720 : les actions PM portent sur un TICKET, plus sur la session —
+const pmActionTarget = grabO("pmActionTarget");
+const SESS2720 = { "123": { rm_id: "123" }, "77": { rm_id: "77" }, "88": { rm_id: "88", ghost: true } };
+const tOwn = pmActionTarget("123", SESS2720, "77");
+assert.strictEqual(tOwn.sid, "123", "la session DU ticket est la cible naturelle");
+assert.strictEqual(tOwn.own, true, "…et elle est signalée comme telle (pas de confirmation à demander)");
+const tFallback = pmActionTarget("999", SESS2720, "77");
+assert.strictEqual(tFallback.sid, "77", "sans session du ticket, repli sur la session attachée");
+assert.strictEqual(tFallback.own, false, "…mais le repli n'est pas la session du ticket");
+assert(/pas la session du ticket/.test(tFallback.why),
+  "le repli doit être DIT : injecter une consigne ailleurs n'est pas neutre");
+assert.strictEqual(pmActionTarget("999", SESS2720, null).sid, null,
+  "sans session vivante : aucune cible (le bouton se désactive)");
+assert(/aucune session/.test(pmActionTarget("999", SESS2720, null).why), "…avec sa raison");
+assert.strictEqual(pmActionTarget("88", SESS2720, null).sid, null,
+  "un fantôme (tuile grise, aucun processus) n'est pas une cible");
+assert.strictEqual(pmActionTarget("999", {}, "77").sid, null,
+  "une session attachée absente du cache n'est pas une cible");
+
+// la barre de session ne rend plus les actions de ticket
+const mChips = /function renderChips\(\)[\s\S]*?\n\}/.exec(html);
+assert(mChips, "renderChips introuvable");
+assert(/if \(a\.ticket_only\) continue;/.test(mChips[0]),
+  "les actions ticket_only ne doivent plus être rendues au niveau session");
+assert(!/isTicket/.test(mChips[0]),
+  "plus de distinction session-ticket / session-slug dans la barre (elle n'a plus lieu d'être)");
+// sendAction sait viser un ticket ET une session distincts
+const mSend2720 = /async function sendAction\([\s\S]*?\n\}/.exec(html);
+assert(mSend2720, "sendAction introuvable");
+assert(/async function sendAction\(a, btn, id, sid\)/.test(mSend2720[0]),
+  "sendAction doit distinguer le ticket visé de la session destinataire");
+assert(/replaceAll\("\{id\}", rid\)/.test(mSend2720[0]), "{id} vaut le TICKET, plus la session");
+console.log("✓ actions PM sur le ticket (RM2720) : cible résolue, repli annoncé, barre session nettoyée");
+
+// — RM2720 : le second mode de lot se lit dans l'écran de confirmation —
+const mModes = /const BATCH_MODES = (\{[\s\S]*?\n\});/.exec(html);
+assert(mModes, "BATCH_MODES (cockpit) introuvable");
+const MODES2720 = vm.runInNewContext("(" + mModes[1] + ")");
+assert(MODES2720.atester && MODES2720.traiter, "deux modes de lot");
+assert.notStrictEqual(MODES2720.atester.envoi, MODES2720.traiter.envoi,
+  "le bouton d'envoi doit dire lequel des deux part");
+assert.strictEqual(MODES2720.atester.points, false,
+  "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
+console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");

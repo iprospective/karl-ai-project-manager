@@ -13,6 +13,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Outillage
+- **`pm-env-session teardown` se bloquait sur son propre canari** (RM2679) : la garde
+  « worktree sale » exemptait bien les artefacts posés par `create` (`.user.ini`,
+  `pm-env.txt`), mais en **comparant des chaînes concaténées**. Avec `docroot: "."` —
+  tout projet servi depuis la racine du checkout, dont `pisceen/presta` — elle
+  produisait `?? ./pm-env.txt` là où `git status` écrit `?? pm-env.txt` : l'exemption
+  ne matchait **jamais**. Comme l'échec du teardown est annoncé « non bloquant », il
+  passait inaperçu et les worktrees (228 Mo pièce) s'accumulaient avec leur vhost.
+  La comparaison porte désormais sur des **chemins normalisés** et gère les chemins
+  quotés et les renommages.
+- **`runtime.teardown_ignore`** (RM2679) : le projet peut déclarer les chemins **non
+  suivis** que son appli écrit au runtime (ex. `yaml/*.php`, le cache de config de
+  PrestaShop) — motifs fnmatch relatifs au worktree. Choix assumé de ne PAS passer la
+  garde en `--porcelain -uno` : un fichier neuf qu'on a oublié d'ajouter doit continuer
+  à bloquer le teardown. Un fichier **suivi et modifié** n'est jamais rendu jetable,
+  même s'il correspond à un motif.
+
 ### Cockpit
 - **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de
   ticket, fiche projet, création) devient un onglet. **Un seul onglet non épinglé à la

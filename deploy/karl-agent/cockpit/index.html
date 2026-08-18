@@ -478,6 +478,7 @@
   .tr-blocked { color: #f85149; }
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
+  .pill.test { color: var(--accent); border-color: var(--accent); }   /* RM2718 : [A TESTER] */
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
   /* RM2585 : titre de ticket cliquable (→ fiche) + petit lien externe ↗ Redmine */
   .tlink { cursor: pointer; }
@@ -840,6 +841,7 @@ if (window.matchMedia) {
           <select id="rs-status" onchange="loadResumable()">
             <option value="not-done" selected>sauf [DONE]</option>
             <option value="wip">[WIP] à finir</option>
+            <option value="test">[A TESTER] livrées, à tester</option>
             <option value="done">[DONE] terminées</option>
             <option value="">toutes</option>
           </select>
@@ -2129,7 +2131,7 @@ function ruleFormHtml(rule, isNew) {
       opt("", rule.project) + projects.map(pr => opt(pr, rule.project)).join("") +
     '</select></label>' +
     '<label style="font-size:11px">marque<select id="rf-mark" style="width:100%">' +
-      opt("", rule.mark) + ["wip", "done", "none"].map(m => opt(m, rule.mark)).join("") +
+      opt("", rule.mark) + ["wip", "test", "done", "none"].map(m => opt(m, rule.mark)).join("") +
     '</select></label>' +
     '<label style="font-size:11px">tickets (séparés par des virgules)' +
       '<input id="rf-tickets" style="width:100%" value="' + esc((rule.tickets || []).join(",")) + '"></label>' +
@@ -2927,6 +2929,18 @@ function setOutFilter(f) {
   document.querySelectorAll(".outnav [data-of]").forEach(b => b.classList.toggle("active", b.dataset.of === f));
   renderOutline();
 }
+
+// >>> markPillHtml — pur (testé) : pastille du statut de session (/session-mark)
+function markPillHtml(mark) {
+  // Le marqueur est lu dans un TITRE, qui peut valoir n'importe quoi (renommage
+  // à la main) : un statut inconnu ne rend RIEN plutôt qu'une pastille inventée.
+  // `hasOwn` et pas `PILL[mark]` : « constructor » rendrait sinon une pastille
+  // vide au lieu de rien.
+  const PILL = { wip: ["warn", "WIP"], test: ["test", "À TESTER"], done: ["ok", "DONE"] };
+  const p = Object.hasOwn(PILL, mark) ? PILL[mark] : null;
+  return p ? '<span class="pill ' + p[0] + '">' + p[1] + "</span> " : "";
+}
+// <<< markPillHtml
 
 // >>> hlq — pur (testé) : échappe un texte et surligne les occurrences de q (<mark>)
 function hlq(text, q) {
@@ -5066,8 +5080,7 @@ async function loadResumable() {
     ul.innerHTML = "";
     for (const s of resumable) {
       const li = document.createElement("li");
-      const markPill = s.mark === "wip" ? '<span class="pill warn">WIP</span> '
-        : s.mark === "done" ? '<span class="pill ok">DONE</span> ' : "";
+      const markPill = markPillHtml(s.mark);
       const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
       li.innerHTML =
         '<div class="r-top">' + markPill +

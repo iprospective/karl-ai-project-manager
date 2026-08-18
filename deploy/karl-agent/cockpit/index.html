@@ -214,6 +214,17 @@
   .tabbar { display: flex; align-items: center; gap: 8px; background: var(--panel);
     border-bottom: 1px solid var(--line); padding: 0 10px; min-height: 38px; }
   /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+  .ctabs { display: flex; gap: 2px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
+    max-width: 62%; scrollbar-width: thin; }
+  .ctab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
+    border: 1px solid var(--line); border-bottom: none; border-radius: 5px 5px 0 0;
+    background: var(--bg2); color: var(--muted); font-size: 11px; white-space: nowrap;
+    cursor: pointer; max-width: 220px; }
+  .ctab.active { background: var(--term-bg, var(--bg)); color: var(--fg); border-color: var(--accent); }
+  .ctab.temp { font-style: italic; }        /* non épinglé : remplacé à la vue suivante */
+  .ctab .lbl { overflow: hidden; text-overflow: ellipsis; }
+  .ctab .x, .ctab .pin { opacity: .55; }
+  .ctab .x:hover, .ctab .pin:hover { opacity: 1; }
   .curtitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
     font-size: 13px; white-space: nowrap; overflow: hidden; }
   .curtitle .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); }
@@ -732,8 +743,13 @@ if (window.matchMedia) {
       <ul class="results" id="results"></ul>
     </div>
 
+    <!-- RM2672 : la création s'ouvre en PLEINE PAGE dans le panneau central ;
+         la carte ci-dessous reste pour une saisie éclair. -->
+    <button class="mini" style="width:100%;margin-bottom:6px" onclick="openNewTicket()"
+      title="Ouvre la création de ticket en pleine page, dans un onglet du panneau central">
+      ＋ créer un ticket</button>
     <details class="card" id="ntcard">
-      <summary>Nouveau ticket</summary>
+      <summary>Nouveau ticket <span style="color:var(--muted);font-weight:normal">(saisie éclair)</span></summary>
       <label for="nt-title">Titre</label>
       <input id="nt-title" type="text" placeholder="Titre du ticket">
       <label for="nt-project">Projet</label>
@@ -1022,6 +1038,10 @@ if (window.matchMedia) {
 
   <section class="right">
     <div class="tabbar">
+      <!-- RM2672 : onglets épinglés du panneau central. Un seul onglet NON épinglé à
+           la fois (il est remplacé par la vue suivante) : c'est ce qui empêche de
+           recréer l'annuaire illisible retiré en RM2140/2283. -->
+      <div class="ctabs" id="ctabs"></div>
       <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
         <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
@@ -1083,6 +1103,9 @@ if (window.matchMedia) {
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
         <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2672 : création de ticket en PLEINE PAGE (la carte repliée du panneau
+             gauche était trop étroite pour rédiger une description) -->
+        <div id="ntpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
@@ -2914,6 +2937,221 @@ function jarg(s) {
   return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
 }
 
+
+
+// ===== RM2672 : onglets épinglés du panneau central =====
+// Modèle : une vue ouverte devient un onglet. UN SEUL onglet non épinglé à la fois —
+// il est remplacé par la vue suivante. Épingler, c'est dire « garde-le sous la main ».
+// C'est ce qui évite de recréer la barre d'onglets de SESSIONS retirée en RM2140/2283 :
+// le rail gauche reste la liste de référence, l'onglet est un marque-page.
+let centerTabs = [];        // [{kind, key, label, pinned}]
+let activeTabId = null;
+try {
+  centerTabs = JSON.parse(localStorage.getItem("karlTabs") || "[]").filter(t => t && t.kind);
+} catch (e) { centerTabs = []; }
+
+function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
+
+function saveTabs() {
+  try {
+    localStorage.setItem("karlTabs", JSON.stringify(centerTabs.filter(t => t.pinned)));
+    localStorage.setItem("karlTabActive", activeTabId || "");
+  } catch (e) { /* mode privé : les onglets vivent le temps de la page */ }
+}
+
+// >>> upsertTab — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Insère/active un onglet et applique la règle du temporaire unique. Retourne les
+// onglets et l'id actif — aucun effet de bord, tout est dans le retour.
+function upsertTab(tabs, kind, key, label, opts) {
+  opts = opts || {};
+  const id = kind + ":" + (key == null ? "" : key);
+  const out = tabs.slice();
+  const i = out.findIndex(t => t.kind + ":" + (t.key == null ? "" : t.key) === id);
+  if (i >= 0) {
+    if (label) out[i] = Object.assign({}, out[i], { label });
+    if (opts.pin) out[i] = Object.assign({}, out[i], { pinned: true });
+    return { tabs: out, active: id };
+  }
+  const tab = { kind, key: key == null ? "" : key, label: label || id, pinned: !!opts.pin };
+  if (!tab.pinned) {
+    // un seul temporaire : le précédent cède la place (modèle « aperçu »)
+    for (let j = out.length - 1; j >= 0; j--) if (!out[j].pinned) out.splice(j, 1);
+  }
+  out.push(tab);
+  return { tabs: out, active: id };
+}
+// <<< upsertTab
+
+// >>> closeTabAt — pur (testé par test_cockpit.js)
+// Ferme l'onglet `id` et désigne le suivant à activer (le voisin de gauche, sinon
+// celui de droite, sinon aucun).
+function closeTabAt(tabs, id, activeId) {
+  const i = tabs.findIndex(t => t.kind + ":" + (t.key == null ? "" : t.key) === id);
+  if (i < 0) return { tabs: tabs.slice(), active: activeId };
+  const out = tabs.slice(); out.splice(i, 1);
+  let active = activeId;
+  if (activeId === id) {
+    const n = out[i - 1] || out[i] || null;
+    active = n ? n.kind + ":" + (n.key == null ? "" : n.key) : null;
+  }
+  return { tabs: out, active };
+}
+// <<< closeTabAt
+
+// >>> renderCenterTabs — pur (testé par test_cockpit.js)
+function renderCenterTabs(tabs, activeId, esc, jarg) {
+  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋" };
+  return tabs.map(t => {
+    const id = t.kind + ":" + (t.key == null ? "" : t.key);
+    const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
+    return '<span class="' + cls + '" onclick="activateTab(' + jarg(id) + ')" title="' +
+      esc(t.label) + (t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
+      '<span>' + (icon[t.kind] || "•") + '</span>' +
+      '<span class="lbl">' + esc(t.label) + '</span>' +
+      '<span class="pin" onclick="event.stopPropagation();togglePin(' + jarg(id) + ')" title="' +
+      (t.pinned ? "Détacher" : "Épingler : garder cet onglet ouvert") + '">' +
+      (t.pinned ? "📌" : "⇧") + '</span>' +
+      '<span class="x" onclick="event.stopPropagation();closeTab(' + jarg(id) + ')" title="Fermer">✕</span>' +
+      '</span>';
+  }).join("");
+}
+// <<< renderCenterTabs
+
+function renderTabs() {
+  const el = document.getElementById("ctabs");
+  if (el) el.innerHTML = renderCenterTabs(centerTabs, activeTabId, esc, jarg);
+}
+
+// Enregistre la vue courante comme onglet. Appelé PAR les ouvreurs existants
+// (attach / openReview / openProjectView) : le modèle d'onglets se pose au-dessus,
+// il ne réécrit pas les vues.
+function noteTab(kind, key, label, opts) {
+  const r = upsertTab(centerTabs, kind, key, label, opts);
+  centerTabs = r.tabs; activeTabId = r.active;
+  saveTabs(); renderTabs();
+}
+
+function activateTab(id) {
+  const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
+  if (!t) return;
+  if (t.kind === "session") attach(t.key);
+  else if (t.kind === "review") openReview(t.key);
+  else if (t.kind === "project") openProjectView(t.key);
+  else if (t.kind === "newticket") openNewTicket();
+}
+
+function togglePin(id) {
+  const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
+  if (!t) return;
+  t.pinned = !t.pinned;
+  saveTabs(); renderTabs();
+}
+
+function closeTab(id) {
+  const r = closeTabAt(centerTabs, id, activeTabId);
+  centerTabs = r.tabs; activeTabId = r.active;
+  saveTabs(); renderTabs();
+  if (r.active) activateTab(r.active);
+  else {                       // plus rien d'ouvert : on revient à l'écran d'accueil
+    if (attached) detach();
+    closeReview(); closeProjectView(); closeNewTicket();
+  }
+}
+
+// ----- vue « nouveau ticket » en pleine page -----
+function closeNewTicket() {
+  const pane = document.getElementById("ntpane");
+  if (pane) pane.style.display = "none";
+  if (!attached && !currentReview && !currentProjectView) {
+    document.getElementById("placeholder").style.display = "flex";
+  }
+}
+
+function openNewTicket() {
+  if (attached) detach();
+  closeReview(); closeProjectView();
+  document.getElementById("placeholder").style.display = "none";
+  const pane = document.getElementById("ntpane");
+  pane.style.display = "block";
+  pane.innerHTML = newTicketFormHtml(CFG.task_types || [], CFG.priorities || [],
+                                     projectOptionsHtml(), esc);
+  noteTab("newticket", "", "nouveau ticket");
+  renderCurTitle();
+}
+
+function projectOptionsHtml() {
+  const sel = document.getElementById("nt-project");
+  return sel ? sel.innerHTML : "";      // même source que la carte du panneau gauche
+}
+
+// >>> newTicketFormHtml — pur (testé par test_cockpit.js)
+// Formulaire COMPLET : ce que la carte repliée du panneau gauche ne portait pas
+// (passe agent-testeur, env cible, estimation) tient ici sans être à l'étroit.
+function newTicketFormHtml(types, priorities, projectOptions, esc) {
+  const opt = (v, cur) => '<option value="' + esc(v.value || v) + '"' +
+    ((v.value || v) === cur ? " selected" : "") + '>' + esc(v.label || v) + '</option>';
+  return '<h2 style="margin-top:0">＋ Nouveau ticket</h2>' +
+    '<div style="max-width:820px">' +
+    '<label for="ntf-title">Titre</label>' +
+    '<input id="ntf-title" type="text" placeholder="Ce qu\'il faut faire, en une ligne">' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-project">Projet</label><select id="ntf-project">' + projectOptions + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-type">Type</label><select id="ntf-type">' +
+    types.map(t => opt(t, "feature")).join("") + '</select>' +
+    '</div></div>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-prio">Priorité</label><select id="ntf-prio">' +
+    priorities.map(p => opt(p, "normal")).join("") + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-tags">Tags <span style="color:var(--muted)">(csv)</span></label>' +
+    '<input id="ntf-tags" type="text" placeholder="cockpit, mail">' +
+    '</div></div>' +
+    '<label for="ntf-desc">Description</label>' +
+    '<textarea id="ntf-desc" rows="12" placeholder="Contexte, ce qui est demandé, ce qui reste à clarifier…"></textarea>' +
+    '<details style="margin-top:10px"><summary>Options — test, environnement, estimation</summary>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-agent-test">Passe agent-testeur</label><select id="ntf-agent-test">' +
+    ["default", "oui", "non", "demander"].map(v => opt(v, "default")).join("") + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-env">Env cible <span style="color:var(--muted)">(optionnel)</span></label>' +
+    '<input id="ntf-env" type="text" placeholder="dev, test, prod…">' +
+    '</div></div>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-human">Temps humain prévu (min)</label><input id="ntf-human" type="number" min="0">' +
+    '</div><div>' +
+    '<label for="ntf-ai">Temps IA prévu (min)</label><input id="ntf-ai" type="number" min="0">' +
+    '</div></div>' +
+    '<label for="ntf-diff">Difficulté</label><select id="ntf-diff">' +
+    ['<option value=""></option>'].concat(["low", "medium", "high", "critical"].map(v => opt(v, ""))).join("") +
+    '</select>' +
+    '</details>' +
+    '<button class="primary" id="ntf-btn" style="margin-top:12px" onclick="submitNewTicket(this)">Créer le ticket</button>' +
+    '</div>';
+}
+// <<< newTicketFormHtml
+
+async function submitNewTicket(btn) {
+  const g = id => (document.getElementById(id) || {}).value || "";
+  const title = g("ntf-title").trim();
+  if (!title) { toast("Titre requis", true); return; }
+  const body = {
+    title, project: g("ntf-project"), type: g("ntf-type"), priority: g("ntf-prio"),
+    tags: g("ntf-tags").trim(), description: g("ntf-desc").trim(),
+    agent_test: g("ntf-agent-test"), target_env: g("ntf-env").trim(),
+    est_human_minutes: g("ntf-human"), est_ai_minutes: g("ntf-ai"),
+    difficulty: g("ntf-diff"),
+  };
+  btn.disabled = true; btn.textContent = "Création…";
+  try {
+    const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify(body) });
+    toast("Ticket RM" + r.rm_id + " créé");
+    closeTab("newticket:");
+    openReview(String(r.rm_id));        // on enchaîne sur la fiche du ticket créé
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
+}
 
 // ===== RM2671 (chantier RM2666) : panneau « emails » =====
 // La file vient de /mail/queue ; chaque action délègue au script correspondant
@@ -6004,6 +6242,7 @@ function attach(rmId) {
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
   document.getElementById("projpane").style.display = "none";
+  closeNewTicket();                           // RM2672 : la création cède la place
   document.getElementById("placeholder").style.display = "none";
   mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
@@ -6026,6 +6265,8 @@ function attach(rmId) {
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
   renderCurTitle();
+  // RM2672 : la vue devient un onglet (non épinglé par défaut : un aperçu)
+  noteTab("session", String(rmId), (/^\d+$/.test(String(rmId)) ? "RM" : "") + rmId);
   refreshSessions();   // re-rend la liste pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
@@ -6306,7 +6547,9 @@ async function openProjectView(key) {
   currentReview = null;
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = key;
+  closeNewTicket();                 // RM2672
   document.getElementById("placeholder").style.display = "none";
+  noteTab("project", key, key);     // RM2672
   const pane = document.getElementById("projpane");
   pane.style.display = "block";
   pane.innerHTML = '<div class="empty">chargement de la fiche projet…</div>';
@@ -6667,8 +6910,10 @@ function openReview(rm) {
   closeProjectView();                   // RM2353 : la fiche projet cède la place
   currentReview = rm;
   metaTicket = rm;
+  closeNewTicket();                 // RM2672
   document.getElementById("placeholder").style.display = "none";
   document.getElementById("reviewpane").style.display = "block";
+  noteTab("review", rm, "RM" + rm);  // RM2672
   metaFacet = "detail";             // RM2579 : ouvrir sur le détail
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
@@ -7216,6 +7461,15 @@ async function kill(rmId) {
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
+  // RM2672 : les onglets ÉPINGLÉS survivent au rechargement. On les réaffiche, et on
+  // rouvre celui qui était actif — mais jamais une session : la rattacher au boot
+  // monterait un terminal que l'utilisateur n'a pas demandé.
+  renderTabs();
+  try {
+    const last = localStorage.getItem("karlTabActive") || "";
+    const t0 = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === last);
+    if (t0 && t0.kind !== "session") activateTab(last);
+  } catch (e) { /* mode privé */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri

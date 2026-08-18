@@ -14,6 +14,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de
+  ticket, fiche projet, création) devient un onglet. **Un seul onglet non épinglé à la
+  fois** — la vue suivante le remplace ; épingler le conserve. Les épinglés survivent au
+  rechargement (une session n'est jamais rattachée d'office au boot). Le rail gauche
+  reste la liste de référence : l'onglet est un marque-page, pas l'annuaire de sessions
+  retiré en RM2140/2283. Nouvelle vue **＋ créer un ticket** en pleine page, avec les
+  champs que la carte repliée ne portait pas (passe agent-testeur, env cible, estimation,
+  difficulté) — validés côté serveur.
 - **Panneau « 📧 emails »** (RM2671, chantier RM2666) : la file de triage devient
   cliquable — relever, router, rédiger, **créer à la validation**, rattacher à un fil
   existant, reclasser (la correction est apprise) ou écarter avec un motif. Le corps

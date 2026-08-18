@@ -6103,6 +6103,37 @@ def op_create_ticket(payload: dict) -> dict:
     tags = (payload.get("tags") or "").strip()
     if tags:
         args += ["--tags", tags]
+    # RM2672 — le formulaire pleine page porte les champs que la carte repliée du
+    # panneau gauche n'avait pas : passe agent-testeur, env cible, estimation.
+    # Chacun est validé ici : le client ne compose jamais l'argv.
+    agent_test = (payload.get("agent_test") or "").strip()
+    if agent_test:
+        if agent_test not in ("default", "oui", "non", "demander"):
+            raise ApiError(400, "agent_test invalide (default|oui|non|demander)")
+        args += ["--agent-test", agent_test]
+    target_env = (payload.get("target_env") or "").strip()
+    if target_env:
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", target_env):
+            raise ApiError(400, "target_env invalide (kebab-case)")
+        args += ["--target-env", target_env]
+    for field, flag, lo, hi in (("est_human_minutes", "--est-human-minutes", 0, 100000),
+                                ("est_ai_minutes", "--est-ai-minutes", 0, 100000),
+                                ("est_tokens", "--est-tokens", 0, 100_000_000)):
+        v = payload.get(field)
+        if v in (None, ""):
+            continue
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            raise ApiError(400, f"{field} : nombre attendu")
+        if not lo <= n <= hi:
+            raise ApiError(400, f"{field} hors bornes")
+        args += [flag, str(n)]
+    difficulty = (payload.get("difficulty") or "").strip()
+    if difficulty:
+        if difficulty not in ("low", "medium", "high", "critical"):
+            raise ApiError(400, "difficulty invalide")
+        args += ["--est-difficulty", difficulty]
     try:
         p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
                            text=True, timeout=90, env=os.environ)

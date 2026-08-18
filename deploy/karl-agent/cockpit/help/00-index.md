@@ -17,6 +17,9 @@ La colonne de gauche a un onglet par surface :
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 
+Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte est un
+onglet temporaire, épingle-la pour la conserver.
+
 La colonne de droite affiche la session attachée : terminal, worklog, état.
 
 ## Les boutons d'aide

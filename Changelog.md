@@ -13,6 +13,32 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Outillage
+- **`pm-env-session teardown` se bloquait sur son propre canari** (RM2679) : la garde
+  « worktree sale » exemptait bien les artefacts posés par `create` (`.user.ini`,
+  `pm-env.txt`), mais en **comparant des chaînes concaténées**. Avec `docroot: "."` —
+  tout projet servi depuis la racine du checkout, dont `pisceen/presta` — elle
+  produisait `?? ./pm-env.txt` là où `git status` écrit `?? pm-env.txt` : l'exemption
+  ne matchait **jamais**. Comme l'échec du teardown est annoncé « non bloquant », il
+  passait inaperçu et les worktrees (228 Mo pièce) s'accumulaient avec leur vhost.
+  La comparaison porte désormais sur des **chemins normalisés** et gère les chemins
+  quotés et les renommages.
+- **`runtime.teardown_ignore`** (RM2679) : le projet peut déclarer les chemins **non
+  suivis** que son appli écrit au runtime (ex. `yaml/*.php`, le cache de config de
+  PrestaShop) — motifs fnmatch relatifs au worktree. Choix assumé de ne PAS passer la
+  garde en `--porcelain -uno` : un fichier neuf qu'on a oublié d'ajouter doit continuer
+  à bloquer le teardown. Un fichier **suivi et modifié** n'est jamais rendu jetable,
+  même s'il correspond à un motif.
+- **`pm-repo-new`** (RM2640) : le PM outillait la vie d'un dépôt mais pas sa **naissance** —
+  créer un projet se faisait à l'UI ou au `curl`, exactement le cas visé par le tripwire #1.
+  La commande enchaîne désormais résolution du groupe **par chemin exact** (tripwire #14,
+  jamais par basename : incidents RM2219/RM2410), refus si le projet existe, `POST /projects`
+  (**privé par défaut**, `default_branch` explicite), `--push-from` d'un dépôt local avec
+  remote en **alias SSH canonique `gitlab:`** (jamais HTTPS, RM2328), puis `pm-protect`
+  **appelé** et non réimplémenté. `--porcelain` sort `<id> <path_with_namespace>` : aucun id
+  n'est deviné ni recopié de mémoire (tripwire #13). `--dry-run` montre la séquence complète.
+  Passe par `pm_forge` — GitLab n'est pas codé en dur.
+
 ### Cockpit
 - **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de
   ticket, fiche projet, création) devient un onglet. **Un seul onglet non épinglé à la
@@ -69,6 +95,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Worklog de session : les tickets sont groupés par projet** (RM2724). Le projet
+  n'apparaissait qu'en suffixe de ligne (`_(pisceen-presta)_`), en queue d'une ligne
+  qui porte déjà statut, référence, titre, dérive et commit — invisible dès que la
+  session mélange plusieurs projets, ce qui est le cas normal. Il devient un
+  **sous-titre de groupe** dans chacune des trois sections (*Reste à faire*, *En
+  attente*, *Fait*), et le suffixe disparaît. Le regroupement est un rendu, pas un
+  tri : l'ordre des items dans un groupe reste celui de la session, celui des groupes
+  suit leur première apparition — sauf `hors projet`, qui ferme la marche. Un item
+  ouvert **sans `--project`** n'est plus orphelin : son projet est rattrapé depuis le
+  chemin de la tâche résolue par `resolve_live`. Au passage, un item dont le label ne
+  fait que répéter sa référence affiche enfin le titre de la tâche (« RM2680 — RM2680 »).
 - **Notifications de session : une notification traitée quitte le backlog**
   (RM2715, NORMS v1.71.0). Le canal `notify` (RM2466) n'avait que deux états —
   *au backlog* ou *effacée* : une notification consignée « ticket à ouvrir »

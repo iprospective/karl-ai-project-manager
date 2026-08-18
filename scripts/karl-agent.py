@@ -6619,6 +6619,143 @@ def op_env_status() -> dict:
             "groups": groups, "summary": envstatus_summary(groups)}
 
 
+# ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
+# Le cockpit ne réimplémente RIEN du pipeline : il lit la file déposée par
+# karl-mail-fetch et délègue chaque action au script correspondant (argv strict,
+# jamais de shell). La file vit hors git (courrier client) — cf. RM2668.
+MAIL_DIR = STATE_DIR / "mail"
+
+
+def _mail_queue_dir() -> Path:
+    return MAIL_DIR / "queue"
+
+
+def op_mail_queue(qs: dict) -> dict:
+    """File de triage : un email = expéditeur, sujet, routage proposé, état.
+
+    Le corps n'est renvoyé QUE sur demande (`key=`) : la liste n'a pas à trimballer
+    des milliers de caractères de courrier client dans chaque rafraîchissement.
+    """
+    d = _mail_queue_dir()
+    wanted = (qs.get("key") or "").strip()
+    show_done = qs.get("done") == "1"
+    items = []
+    if d.is_dir():
+        for f in sorted(d.glob("*.json")):
+            try:
+                e = json.loads(f.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            done = bool(e.get("created_rm") or e.get("dismissed"))
+            if done and not show_done and e.get("key") != wanted:
+                continue
+            item = {k: e.get(k) for k in (
+                "key", "from", "from_name", "subject", "date", "folder", "rm_id",
+                "kind", "created_rm", "outcome", "message_id")}
+            item["attachments"] = len(e.get("attachments") or [])
+            item["routing"] = e.get("routing") or {}
+            item["draft"] = e.get("draft") or {}
+            item["dismissed"] = e.get("dismissed") or None
+            item["state"] = ("créé" if e.get("created_rm") else
+                             "écarté" if e.get("dismissed") else
+                             "proposé" if e.get("draft") else "à traiter")
+            if e.get("key") == wanted:          # détail : corps complet
+                item["body"] = e.get("body") or ""
+                item["body_truncated"] = bool(e.get("body_truncated"))
+                item["attachment_list"] = e.get("attachments") or []
+            items.append(item)
+    items.sort(key=lambda e: e.get("date") or "", reverse=True)
+    pending = sum(1 for e in items if e["state"] in ("à traiter", "proposé"))
+    return {"emails": items, "pending": pending}
+
+
+def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
+    """Exécute un script de la chaîne mail. Même modèle que le catalogue ⚙ :
+    argv strict, script en allowlist, aucune interpolation shell."""
+    if script not in ("karl-mail-fetch.py", "karl-mail-route.py", "karl-mail-draft.py"):
+        raise ApiError(400, f"script mail inconnu : {script}")
+    path = (REPO_ROOT / "scripts" / script).resolve()
+    if not path.is_file():
+        raise ApiError(500, f"script introuvable : {script}")
+    for a in args:
+        if not isinstance(a, str):
+            raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout,
+                           env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"{script} : timeout ({timeout}s)")
+    return {"ok": p.returncode == 0, "rc": p.returncode,
+            "stdout": (p.stdout or "")[-4000:], "stderr": (p.stderr or "")[-2000:]}
+
+
+def _mail_key(payload: dict) -> str:
+    key = str(payload.get("key") or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{6,32}", key):
+        raise ApiError(400, "clé d'email invalide")
+    return key
+
+
+def op_mail_fetch(payload: dict) -> dict:
+    """Relève la boîte. Lecture seule côté IMAP (--mark-seen n'est pas exposé ici)."""
+    args = []
+    days = payload.get("days")
+    if days:
+        args += ["--days", str(int(days))]
+    if payload.get("dry_run"):
+        args.append("--dry-run")
+    return _mail_script("karl-mail-fetch.py", args)
+
+
+def op_mail_route(payload: dict) -> dict:
+    args = ["--redmine"] if payload.get("redmine") else []
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_route_set(payload: dict) -> dict:
+    """Correction humaine du routage : elle fait autorité ET s'apprend (RM2669)."""
+    target = str(payload.get("to") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}(/[a-z0-9][a-z0-9._-]{0,47})?", target):
+        raise ApiError(400, "cible attendue : client ou client/projet")
+    args = ["--set", _mail_key(payload), "--to", target]
+    if payload.get("domain"):
+        args.append("--domain")
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_draft(payload: dict) -> dict:
+    args = ["--draft", _mail_key(payload)]
+    if payload.get("full_body"):
+        args.append("--full-body")
+    if payload.get("force"):
+        args.append("--force")
+    return _mail_script("karl-mail-draft.py", args, timeout=600)
+
+
+def op_mail_create(payload: dict) -> dict:
+    """Création du ticket — c'est la VALIDATION humaine (CDC D1)."""
+    args = ["--create", _mail_key(payload)]
+    for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
+                                 ("--title", "title", r".{1,120}"),
+                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--note-on", "note_on", r"\d{1,8}")):
+        v = str(payload.get(field) or "").strip()
+        if v:
+            if not re.fullmatch(pattern, v, re.S):
+                raise ApiError(400, f"{field} invalide")
+            args += [flag, v]
+    return _mail_script("karl-mail-draft.py", args)
+
+
+def op_mail_dismiss(payload: dict) -> dict:
+    args = ["--dismiss", _mail_key(payload)]
+    reason = str(payload.get("reason") or "").strip()
+    if reason:
+        args += ["--reason", reason[:200]]
+    return _mail_script("karl-mail-draft.py", args)
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -7526,6 +7663,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
                 return self._send_json(200, {"settings": _pm_settings()})
+            if path == "/mail/queue":          # RM2671 : file de triage des emails
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_mail_queue(qs))
             if path == "/pm/test-queue":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"queue": op_test_queue(qs)})
@@ -7706,6 +7846,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
+            # RM2671 — panneau « emails » : chaque geste délègue à son script
+            if path == "/mail/fetch":
+                return self._send_json(200, op_mail_fetch(payload))
+            if path == "/mail/route":
+                return self._send_json(200, op_mail_route(payload))
+            if path == "/mail/route-set":
+                return self._send_json(200, op_mail_route_set(payload))
+            if path == "/mail/draft":
+                return self._send_json(200, op_mail_draft(payload))
+            if path == "/mail/create":
+                return self._send_json(200, op_mail_create(payload))
+            if path == "/mail/dismiss":
+                return self._send_json(200, op_mail_dismiss(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

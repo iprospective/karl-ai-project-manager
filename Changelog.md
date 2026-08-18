@@ -14,6 +14,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Panneau « 📧 emails »** (RM2671, chantier RM2666) : la file de triage devient
+  cliquable — relever, router, rédiger, **créer à la validation**, rattacher à un fil
+  existant, reclasser (la correction est apprise) ou écarter avec un motif. Le corps
+  d'un email n'est chargé qu'au dépliage, jamais dans la liste. Le panneau ne
+  réimplémente rien : il lit `/mail/queue` et délègue chaque geste au script du
+  pipeline (argv strict, allowlist). `--mark-seen` n'est **pas** exposé : marquer lu
+  agit sur une boîte de production, ça reste un geste CLI. Aide dédiée : page
+  « Emails ».
 - **Correctif — lancer une session non-claude** (RM2691) : `POST /spawn` avec
   `engine` = `shell`, `opencode` ou `vibe` répondait **500** (`UnboundLocalError`
   sur `joined`, affecté seulement dans la branche claude) alors que la session

@@ -4114,6 +4114,187 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
 
 
+# ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────
+# UN seul calcul, trois vues : le worklog projet (ici), le dashboard global (T3)
+# et, à terme, la vue par session. Trois pipelines auraient produit trois
+# vérités — le worklog en a déjà deux rendus (JSON et Markdown), on ne rejoue pas
+# cette erreur à l'échelle du projet.
+#
+# Aucune source nouvelle : index des tâches (statut, checklist RM2695), index des
+# clés de session (cwd → client/projet), worklogs de session (tickets, MR,
+# demandes), tmux (vivacité). Rien à saisir à la main.
+_OVERVIEW_TTL = 60.0
+_overview_cache: dict = {}      # clé (client, project) → (ts, payload)
+
+# Ce qui compte comme « en cours » vs « en attente d'un geste » dans la vue
+# projet. Volontairement dérivé du flow NORMS, pas d'une liste ad hoc.
+OVERVIEW_ACTIVE = {"en_cours", "a_corriger"}
+OVERVIEW_WAITING = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+def _overview_open_tasks(client=None, project=None) -> list:
+    """Tickets ouverts (actifs ou en attente), en UN parcours de l'index — 1036
+    fichiers en 0,05 s sur ce poste, frontmatter seul. La checklist (corps du
+    fichier) n'est lue que pour les tickets réellement rendus."""
+    wanted = OVERVIEW_ACTIVE | OVERVIEW_WAITING
+    out = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        cl, pr = _task_client_project(tf)
+        if (client and cl != client) or (project and pr != project):
+            continue
+        meta = _read_task_meta(tf)
+        if meta.get("status") not in wanted:
+            continue
+        entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
+                 "status": meta.get("status"), "priority": meta.get("priority") or "",
+                 "client": cl, "project": pr}
+        try:
+            body = _task_body(tf.read_text(encoding="utf-8"))
+        except OSError:
+            body = ""
+        cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
+        if cl_stats["total"]:
+            entry["checklist"] = cl_stats
+        out.append(entry)
+    out.sort(key=lambda e: -int(e["rm_id"]))
+    return out
+
+
+def _overview_sessions() -> list:
+    """Sessions connues (index des clés), avec leur projet et leur vivacité.
+
+    Les sessions ÉTEINTES comptent : c'est précisément là que dorment les MR
+    oubliées et les tickets qu'on croit finis. Les omettre reproduirait le trou
+    que cette vue est censée boucher."""
+    live = {s["rm_id"] for s in _list_sessions()}
+    out = []
+    for sid, k in _all_keys():
+        client, project = _pm_project_of_cwd(k.get("cwd"))
+        out.append({"sid": sid, "client": client, "project": project,
+                    "session_id": k.get("session_id"), "cwd": k.get("cwd"),
+                    "alive": sid in live,
+                    "title": _transcript_title(k.get("session_id"))})
+    return out
+
+
+def _overview_worklog(session_id):
+    """Worklog d'une session, lu sur disque (pas d'exigence de session vivante,
+    contrairement à `op_worklog` qui sert l'onglet d'une session attachée)."""
+    if not session_id:
+        return None
+    try:
+        with (WORKLOG_DIR / f"{session_id}.json").open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2696 : état consolidé par (client, projet) — sessions, tickets ouverts
+    avec leur avancement, MR non mergées, demandes non ticketées.
+
+    Filtrable (`?client=&project=`). Garde de fraîcheur de 60 s : le cockpit
+    poll, l'agrégat ne se recalcule pas à chaque passage."""
+    client = (qs or {}).get("client") or None
+    project = (qs or {}).get("project") or None
+    key = (client or "", project or "")
+    now = time.time()
+    hit = _overview_cache.get(key)
+    if hit and now - hit[0] < _OVERVIEW_TTL and not (qs or {}).get("force"):
+        return dict(hit[1], cached=True)
+
+    groups: dict = {}
+
+    def grp(cl, pr):
+        if not cl or not pr:
+            return None
+        if (client and cl != client) or (project and pr != project):
+            return None
+        return groups.setdefault((cl, pr), {
+            "client": cl, "project": pr, "key": f"{cl}/{pr}",
+            "sessions": [], "tickets": [], "mrs": [], "requests": [],
+        })
+
+    # 1. sessions du projet (vivantes ET éteintes)
+    sessions = _overview_sessions()
+    for s in sessions:
+        g = grp(s.get("client"), s.get("project"))
+        if g is not None:
+            g["sessions"].append({k: s[k] for k in ("sid", "session_id", "alive", "title")})
+
+    # 2. tickets ouverts — y compris ceux dont plus aucune session ne parle
+    by_rm: dict = {}
+    for t in _overview_open_tasks(client, project):
+        g = grp(t["client"], t["project"])
+        if g is None:
+            continue
+        row = dict(t, sessions=[], has_live_session=False,
+                   bucket=("waiting" if t["status"] in OVERVIEW_WAITING else "active"))
+        g["tickets"].append(row)
+        by_rm[t["rm_id"]] = row
+
+    # 3. worklogs : qui travaille sur quoi, MR pendantes, demandes non ticketées
+    seen_mr = set()
+    for s in sessions:
+        wl = _overview_worklog(s.get("session_id"))
+        if not wl:
+            continue
+        for it in wl.get("items") or []:
+            m = re.match(r"RM(\d+)$", str(it.get("ref") or ""))
+            if not m:
+                continue
+            row = by_rm.get(m.group(1))
+            if row is None:                 # ticket clos, ou hors périmètre du filtre
+                continue
+            if s["sid"] not in row["sessions"]:
+                row["sessions"].append(s["sid"])
+            if s.get("alive"):
+                row["has_live_session"] = True
+        g = grp(s.get("client"), s.get("project"))
+        if g is None:
+            continue
+        for mr in wl.get("mrs") or []:
+            if (mr.get("state") or "opened") not in ("opened", "open", "reopened"):
+                continue
+            k = (mr.get("repo"), str(mr.get("iid")))
+            if k in seen_mr:
+                continue
+            seen_mr.add(k)
+            g["mrs"].append(dict(mr, sid=s["sid"], alive=s.get("alive")))
+        for i, r in enumerate(wl.get("requests") or []):
+            if r.get("status", "nouveau") in REQUEST_DONE_STATES:
+                continue
+            g["requests"].append(dict(r, n=i + 1, sid=s["sid"]))
+
+    out = []
+    for g in groups.values():
+        # un ticket actif dont AUCUNE session ne parle est le cas qu'on perd de
+        # vue : il monte en tête de sa catégorie plutôt que de se fondre.
+        g["tickets"].sort(key=lambda t: (t["bucket"] != "active",
+                                         t["has_live_session"], -int(t["rm_id"])))
+        g["sessions"].sort(key=lambda s: (not s["alive"], s["sid"]))
+        g["counts"] = {
+            "sessions_live": sum(1 for s in g["sessions"] if s["alive"]),
+            "sessions": len(g["sessions"]),
+            "active": sum(1 for t in g["tickets"] if t["bucket"] == "active"),
+            "waiting": sum(1 for t in g["tickets"] if t["bucket"] == "waiting"),
+            "orphans": sum(1 for t in g["tickets"]
+                           if t["bucket"] == "active" and not t["has_live_session"]),
+            "mrs": len(g["mrs"]), "requests": len(g["requests"]),
+        }
+        out.append(g)
+    out.sort(key=lambda g: (-g["counts"]["active"], g["key"]))
+    payload = {"generated_at": int(now), "projects": out, "count": len(out),
+               "filtered": bool(client or project), "cached": False}
+    _overview_cache[key] = (now, payload)
+    return payload
+
+
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
     sessions = _sessions_view(qs, auth_ctx)
@@ -7712,6 +7893,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/overview":                # RM2696 : agrégat par projet
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_overview(qs, self.auth_ctx))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
             if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts

@@ -17,7 +17,9 @@ from pm_registry import Instance
 
 _ENV_KEYS = ("REDMINE_URL", "REDMINE_API_KEY", "REDMINE_USER_MAIN_API_KEY",
              "REDMINE__REDMINE_MATNAT__API_KEY", "REDMINE__REDMINE_MATNAT__URL",
-             "REDMINE__REDMINE_IPRO__API_KEY")
+             "REDMINE__REDMINE_IPRO__API_KEY",
+             "REDMINE__REDMINE_MATNAT__HTTP_USER",
+             "REDMINE__REDMINE_MATNAT__HTTP_PASSWORD")
 
 
 @contextlib.contextmanager
@@ -106,6 +108,75 @@ def test_instance_without_any_url_exits():
     inst = Instance("redmine-ailleurs", "task", "redmine", "")
     with env(REDMINE_API_KEY="perso"):
         _exits(lambda: ru.redmine_creds(inst), "aucune URL résolue")
+
+
+# ── auth HTTP Basic en amont de Redmine (RM2657) ───────────────────────────
+
+def test_creds_stay_a_two_tuple():
+    """Rétro-compat : tous les appelants font `url, key = creds`."""
+    with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso"):
+        c = ru.redmine_creds()
+        url, key = c
+        assert (url, key) == ("https://tasks.example", "perso")
+        assert c[0] == "https://tasks.example" and len(c) == 2
+        assert c.basic is None
+
+
+def test_basic_absent_by_default():
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
+             REDMINE__REDMINE_MATNAT__API_KEY="k"):
+        assert ru.redmine_creds(inst).basic is None
+
+
+def test_basic_carried_when_declared():
+    """L'instance MatNat est derrière un htpasswd : la clé API seule prend un 401."""
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    with env(REDMINE_URL="https://tasks.example", REDMINE_API_KEY="perso",
+             REDMINE__REDMINE_MATNAT__API_KEY="k",
+             REDMINE__REDMINE_MATNAT__HTTP_USER="web",
+             REDMINE__REDMINE_MATNAT__HTTP_PASSWORD="motdepasse"):
+        c = ru.redmine_creds(inst)
+        assert c == ("https://tasks.matnat", "k")
+        assert c.basic == ("web", "motdepasse")
+
+
+def test_instance_http_basic_helper():
+    with env(REDMINE__REDMINE_MATNAT__HTTP_USER="web"):
+        assert ru.instance_http_basic("redmine-matnat") == ("web", "")
+    with env():
+        assert ru.instance_http_basic("redmine-matnat") is None
+
+
+def test_http_json_sets_basic_header():
+    """L'en-tête Authorization doit être posé — sans lui, 401 du serveur web."""
+    seen = {}
+
+    class _Resp:
+        status = 200
+        def read(self): return b"{}"
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def _fake_urlopen(req, timeout=20):
+        seen["req"] = req
+        return _Resp()
+
+    orig = ru.urllib.request.urlopen
+    ru.urllib.request.urlopen = _fake_urlopen
+    try:
+        ru.http_json("GET", "https://x/issues.json", "clef", basic=("u", "p"))
+        hdr = seen["req"].get_header("Authorization")
+        assert hdr and hdr.startswith("Basic ")
+        import base64
+        assert base64.b64decode(hdr.split()[1]).decode() == "u:p"
+        # la clé API reste envoyée : les deux authentifications se cumulent
+        assert seen["req"].get_header("X-redmine-api-key") == "clef"
+        seen.clear()
+        ru.http_json("GET", "https://x/issues.json", "clef")
+        assert seen["req"].get_header("Authorization") is None
+    finally:
+        ru.urllib.request.urlopen = orig
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

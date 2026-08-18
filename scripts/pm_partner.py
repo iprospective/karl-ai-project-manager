@@ -110,6 +110,32 @@ def resolve_secondary(project_meta, registry, instance_name, axis="task"):
 
 # ── construction / validation d'un lien ───────────────────────────────────
 
+CF_REF_MAX = 16          # « Réf ticket outil externe » (CF 9) : string, max_length=16
+_INSTANCE_TYPE_PREFIXES = ("redmine-", "gogs-", "gitlab-", "github-", "jira-")
+
+
+def short_instance(name):
+    """Nom d'instance → forme courte pour un affichage contraint (`redmine-matnat`
+    → `matnat`). Le type du serveur n'apporte rien dans une référence de ticket."""
+    s = str(name or "")
+    for p in _INSTANCE_TYPE_PREFIXES:
+        if s.startswith(p):
+            return s[len(p):]
+    return s
+
+
+def cf_ref(ref):
+    """Référence compacte d'un lien pour le CF Redmine — **16 caractères max**.
+
+    Le champ « Réf ticket outil externe » est un `string` court : une URL n'y entre
+    pas (47 caractères pour un ticket MatNat). On y met donc `<instance courte>#<id>`,
+    ex. `matnat#5576` — lisible, non ambigu entre partenaires, et l'URL complète reste
+    dans le `refs[]` du frontmatter.
+    """
+    label = f"{short_instance(ref.get('instance'))}#{ref.get('issue_id')}"
+    return label[:CF_REF_MAX]
+
+
 def issue_url(resolution, issue_id):
     """URL humaine du ticket distant, d'après l'URL d'instance du registre."""
     base = (resolution.instance.url or "").rstrip("/")

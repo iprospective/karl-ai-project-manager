@@ -10,6 +10,8 @@ Sous-commandes :
     unlink <RM-id> --instance <inst> [--issue <id>]
     show   <RM-id>
     pull   <RM-id> | --all        # N1 : importe notes + statut distants (lecture seule)
+    push   <RM-id>                # N2 : annonce l'état du ticket chez ses partenaires
+    sync-cf <RM-id> | --all       # (re)pose la réf. externe sur des liens existants
 
 L'instance doit être un provider **secondaire déclaré du projet** (bloc `providers.task[]`
 de son `meta.yml`, cf. RM2653) : un lien vers une instance inconnue serait un lien
@@ -24,8 +26,10 @@ l'instance primaire.
 
 Ce que la commande écrit :
   * `refs[]` du frontmatter (type `partner_issue`) + `updated` ;
-  * le CF Redmine « Ticket partenaire » (URL cliquable) — si `REDMINE_CF_PARTNER_ISSUE_ID`
-    est configuré ; sans lui, on saute proprement (le lien local reste posé) ;
+  * le CF Redmine **« Réf ticket outil externe »** (CF 9 — `string`, 16 caractères max)
+    sous forme compacte `matnat#5576`, si `REDMINE_CF_PARTNER_ISSUE_ID` est configuré ;
+    sans lui, on saute proprement (le lien local reste posé). L'URL complète, trop longue
+    pour ce champ, reste dans le `refs[]` du frontmatter ;
   * une entrée `.log.md` ;
   * au `link`, une **note de rattachement** chez le partenaire si son `link.note_on_link`
     n'est pas désactivé — best-effort : un partenaire injoignable n'empêche pas de poser
@@ -95,27 +99,47 @@ def autocommit(args, path, message):
     pm_git.autocommit([path, path.parent / path.name.replace(".md", ".log.md")], message)
 
 
-# ── CF Redmine « Ticket partenaire » ──────────────────────────────────────
+# ── CF Redmine « Réf ticket outil externe » (CF 9) ────────────────────────
 
 def partner_cf_id():
-    """Id du CF « Ticket partenaire » (`.env :: REDMINE_CF_PARTNER_ISSUE_ID`), ou None.
+    """Id du CF portant la référence externe (`.env :: REDMINE_CF_PARTNER_ISSUE_ID`).
 
-    Comme pour le protocole de test (RM2229), la **définition** du CF se crée par l'UI
-    admin Redmine (l'API ne sait pas le faire) : tant que la variable est absente, le
-    lien vit dans le frontmatter et rien n'est poussé — pas d'échec bloquant.
+    Sur l'instance iProspective, c'est le CF **9 « Réf ticket outil externe »**
+    (`string`, **16 caractères max**, tous trackers) — il préexistait, inutilisé
+    (RM2657). Tant que la variable est absente, le lien vit dans le frontmatter et
+    rien n'est poussé : pas d'échec bloquant.
     """
     val = (os.environ.get("REDMINE_CF_PARTNER_ISSUE_ID") or "").strip()
     return int(val) if val.isdigit() else None
 
 
-def push_cf(rm_id, url):
-    """Pousse l'URL du lien principal sur le CF. Retourne True si poussé."""
+def push_cf(rm_id, value):
+    """Pousse la référence compacte sur le CF. Retourne (posé?, raison si non).
+
+    **Le succès HTTP ne prouve rien ici** : quand un custom field n'est pas activé pour
+    le projet (ou le tracker) du ticket, Redmine répond 200 et **ignore** la valeur en
+    silence (constaté RM2657 sur le CF 9). On relit donc le ticket pour vérifier que la
+    valeur a bien pris, plutôt que d'annoncer un succès mensonger.
+    """
     cf_id = partner_cf_id()
     if cf_id is None:
-        return False
-    get_task_provider().update_fields(
-        rm_id, custom_fields=[{"id": cf_id, "value": url or ""}])
-    return True
+        return False, "REDMINE_CF_PARTNER_ISSUE_ID non configuré"
+    wanted = (value or "")[:pm_partner.CF_REF_MAX]
+    provider = get_task_provider()
+    ok, msg = provider.update_fields(rm_id, custom_fields=[{"id": cf_id, "value": wanted}])
+    if not ok:
+        return False, msg or "PUT refusé"
+    issue = provider.fetch_issue(rm_id)
+    got = next((c.get("value") for c in (issue.get("custom_fields") or [])
+                if c.get("id") == cf_id), None)
+    if got is None:
+        return False, (f"CF {cf_id} non activé pour le projet "
+                       f"« {(issue.get('project') or {}).get('name', '?')} » — "
+                       f"le cocher « pour tous les projets » dans l'admin Redmine "
+                       f"(l'API ne modifie pas la définition d'un CF)")
+    if got != wanted:
+        return False, f"CF {cf_id} : valeur non prise (attendu {wanted!r}, lu {got!r})"
+    return True, ""
 
 
 # ── contexte projet (registre + secondaires) ──────────────────────────────
@@ -180,20 +204,24 @@ def cmd_link(cfg, args):
         except Exception as e:                                   # noqa: BLE001
             warnings.append(f"note de rattachement non postée chez {res.instance.name} : {e}")
     try:
-        cf_pushed = push_cf(rm_id, ref["url"])
+        cf_pushed, cf_why = push_cf(rm_id, pm_partner.cf_ref(ref))
+        if not cf_pushed and "non configuré" not in cf_why:
+            warnings.append(f"référence externe non posée sur le ticket : {cf_why}")
     except Exception as e:                                       # noqa: BLE001
-        warnings.append(f"CF « Ticket partenaire » non poussé : {e}")
+        cf_why = str(e)
+        warnings.append(f"référence externe non posée sur le ticket : {e}")
 
     append_log(path, f"Rattaché à **{ref['instance']}#{ref['issue_id']}** "
                      f"(role={ref['role']}) — {ref['url']}\n"
                      f"note distante : {'oui' if note_posted else 'non'} · "
-                     f"CF Redmine : {'oui' if cf_pushed else 'non configuré'}")
+                     f"réf. externe (CF) : "
+                     f"{pm_partner.cf_ref(ref) if cf_pushed else 'non posée — ' + cf_why}")
     autocommit(args, path, f"pm(partner): RM{rm_id} ↔ {ref['instance']}#{ref['issue_id']}")
     for w in warnings:
         out.warn(w)
     out.op("lien partenaire", rm=rm_id,
            extra=f"{ref['instance']}#{ref['issue_id']} role={ref['role']}"
-                 + ("" if cf_pushed else " (CF non configuré)"))
+                 + (f" · réf. {pm_partner.cf_ref(ref)}" if cf_pushed else " (réf. CF non posée)"))
 
 
 def cmd_unlink(cfg, args):
@@ -215,9 +243,11 @@ def cmd_unlink(cfg, args):
     remaining = pm_partner.partner_refs(fm)
     warnings = []
     try:  # le CF porte le lien principal : on le recale sur ce qui reste (ou on le vide)
-        push_cf(rm_id, remaining[0]["url"] if remaining else "")
+        ok, why = push_cf(rm_id, pm_partner.cf_ref(remaining[0]) if remaining else "")
+        if not ok and "non configuré" not in why:
+            warnings.append(f"référence externe non mise à jour : {why}")
     except Exception as e:                                       # noqa: BLE001
-        warnings.append(f"CF « Ticket partenaire » non mis à jour : {e}")
+        warnings.append(f"référence externe non mise à jour : {e}")
     append_log(path, f"Délié de **{ref['instance']}#{ref['issue_id']}** "
                      f"(role={ref.get('role')}). Le ticket distant n'est pas modifié.")
     autocommit(args, path, f"pm(partner): RM{rm_id} ⊘ {ref['instance']}#{ref['issue_id']}")
@@ -369,6 +399,62 @@ def cmd_push(cfg, args):
                      + (f", {len(warnings)} en échec" if warnings else ""))
 
 
+def _linked_open_tasks(cfg):
+    """Itère (rm_id) des tickets OUVERTS portant au moins un lien partenaire."""
+    for ent, proj, _ in cfg.iter_projects():
+        tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if f.name.endswith(".log.md"):
+                continue
+            m = FM_RE.match(f.read_text(encoding="utf-8"))
+            if not m:
+                continue
+            try:
+                fm = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError:
+                continue
+            if fm.get("status") != "ferme" and pm_partner.partner_refs(fm):
+                yield fm.get("redmine_id"), fm
+
+
+def cmd_sync_cf(cfg, args):
+    """(Re)pose la référence externe sur des tickets DÉJÀ rattachés.
+
+    Utile après coup : activation du champ côté admin, rattachements rétroactifs, ou
+    changement du format de référence. Ne touche ni les liens ni le partenaire — c'est
+    un recalage local→notre Redmine.
+    """
+    targets = ([(args.rm_id, None)] if not args.all else list(_linked_open_tasks(cfg)))
+    done, skipped = 0, []
+    for rm_id, fm in targets:
+        if fm is None:
+            _, _, _, fm, _ = load_task(cfg, rm_id)
+        refs = pm_partner.partner_refs(fm)
+        if not refs:
+            skipped.append((rm_id, "aucun lien partenaire"))
+            continue
+        value = pm_partner.cf_ref(refs[0])
+        if args.dry_run:
+            print(f"  RM{rm_id} ← {value}")
+            done += 1
+            continue
+        try:
+            ok, why = push_cf(rm_id, value)
+        except Exception as e:                                   # noqa: BLE001
+            ok, why = False, str(e)
+        if ok:
+            done += 1
+        else:
+            skipped.append((rm_id, why))
+    for rm_id, why in skipped:
+        out.warn(f"RM{rm_id} : {why}")
+    out.op("réf. externe" + (" (dry-run)" if args.dry_run else ""),
+           extra=f"{done} ticket(s) à jour"
+                 + (f", {len(skipped)} ignoré(s)" if skipped else ""))
+
+
 def cmd_show(cfg, args):
     rm_id = args.rm_id
     path, ent, proj, fm, _ = load_task(cfg, rm_id)
@@ -456,13 +542,20 @@ def main():
     p.add_argument("--no-commit", action="store_true")
     p.add_argument("--dry-run", action="store_true")
 
+    p = sub.add_parser("sync-cf",
+                       help="(re)pose la réf. externe sur des tickets déjà rattachés")
+    p.add_argument("rm_id", type=int, nargs="?")
+    p.add_argument("--all", action="store_true",
+                   help="tous les tickets ouverts portant un lien")
+    p.add_argument("--dry-run", action="store_true")
+
     args = ap.parse_args()
     out.configure(args)
-    if args.cmd == "pull" and not args.all and args.rm_id is None:
+    if args.cmd in ("pull", "sync-cf") and not args.all and args.rm_id is None:
         ap.error("pull : préciser un <RM-id> ou --all")
     cfg = PMConfig.load()
     {"link": cmd_link, "unlink": cmd_unlink, "show": cmd_show,
-     "pull": cmd_pull, "push": cmd_push}[args.cmd](cfg, args)
+     "pull": cmd_pull, "push": cmd_push, "sync-cf": cmd_sync_cf}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

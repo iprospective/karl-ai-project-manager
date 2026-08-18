@@ -29,6 +29,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Providers
+- **Raccordement réel du premier partenaire : MatNat** (RM2657, L4 du chantier RM2626) :
+  `matnat/infra` déclare `tasks.materiaux-naturels.fr` en provider **secondaire**
+  (`policy: optional`, pull actif, `push.on: []` — aucune écriture chez eux). Premier
+  rattachement en production : RM2618 ↔ leur #5576. Trois obstacles levés au passage,
+  tous invisibles avant de brancher une vraie instance tierce :
+  * **auth HTTP Basic** devant leur Redmine (Apache, realm « Pas touche minouche ») : la
+    clé API seule prenait un 401 du serveur web, avant d'atteindre l'application.
+    `redmine_creds(instance)` rend désormais un `Creds` — toujours un tuple `(url, key)`
+    pour les appelants — qui transporte l'auth Basic
+    (`REDMINE__<INST>__HTTP_USER` / `__HTTP_PASSWORD`) ; `http_json` pose l'en-tête
+    `Authorization` en plus de la clé API, les deux se cumulent.
+  * **le champ de référence existait déjà** : CF **9 « Réf ticket outil externe »**
+    (`string`, **16 caractères**) — donc pas d'URL possible. On y pousse une référence
+    compacte `matnat#5576` ; l'URL complète reste dans `refs[]`.
+  * **Redmine accepte un CF non activé et l'ignore en silence** (HTTP 200 sans effet) :
+    `push_cf` relisait donc un succès mensonger. Il vérifie maintenant que la valeur a
+    pris et, sinon, dit quoi faire (« CF non activé pour le projet — le cocher dans
+    l'admin »). Nouvelle sous-commande `pm-task-partner sync-cf [--all]` pour rattraper
+    les liens posés avant l'activation du champ.
 - **Rendre compte chez le partenaire** (RM2656, N2 du chantier RM2626) :
   `pm-task-partner push <RM>` poste une **note de suivi** chez les partenaires du ticket,
   et une **transition de statut** la déclenche automatiquement — mais **seulement** si le

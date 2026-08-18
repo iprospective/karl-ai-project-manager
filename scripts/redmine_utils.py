@@ -8,6 +8,7 @@ Centralise :
 
 Aucune logique métier PM ici — uniquement de l'I/O Redmine.
 """
+import base64
 import json
 import os
 import sys
@@ -170,6 +171,36 @@ def instance_env_prefix(name):
     return f"REDMINE__{slug}__"
 
 
+class Creds(tuple):
+    """`(url, key)` — plus, en attribut, une éventuelle auth HTTP Basic.
+
+    Reste un tuple à deux éléments : `url, key = creds` et `creds[0]` continuent de
+    fonctionner partout. L'auth Basic voyage à côté (`creds.basic`) parce qu'elle n'est
+    pas une propriété du compte Redmine mais du **serveur web devant lui** — certaines
+    instances partenaires sont protégées par un htpasswd (constaté sur
+    `tasks.materiaux-naturels.fr`, realm « Pas touche minouche », RM2657).
+    """
+    basic = None
+
+    def __new__(cls, url, key, basic=None):
+        obj = super().__new__(cls, (url, key))
+        obj.basic = basic
+        return obj
+
+
+def instance_http_basic(name):
+    """(user, password) de l'auth HTTP Basic d'une instance, ou None.
+
+    Variables : `REDMINE__<INST>__HTTP_USER` / `REDMINE__<INST>__HTTP_PASSWORD`.
+    Absentes → None (cas général : aucune auth en amont).
+    """
+    prefix = instance_env_prefix(name)
+    user = os.environ.get(f"{prefix}HTTP_USER")
+    if not user:
+        return None
+    return (user, os.environ.get(f"{prefix}HTTP_PASSWORD", ""))
+
+
 def redmine_creds(instance=None):
     """Retourne (url, key) pour l'utilisateur COURANT. Sys.exit si manquants.
 
@@ -196,7 +227,7 @@ def redmine_creds(instance=None):
             sys.exit("ERREUR : REDMINE_URL + une clé API requis "
                      "(REDMINE_API_KEY perso dans ~/.config/mmi-pm/.env, ou "
                      "REDMINE_USER_MAIN_API_KEY karl dans le .env d'instance)")
-        return global_url, global_key
+        return Creds(global_url, global_key)
 
     name = getattr(instance, "name", instance)
     prefix = instance_env_prefix(name)
@@ -211,7 +242,7 @@ def redmine_creds(instance=None):
     if not key:
         sys.exit(f"ERREUR : clé API manquante pour l'instance Redmine {name!r} — "
                  f"poser {prefix}API_KEY dans ~/.config/mmi-pm/.env")
-    return url, key
+    return Creds(url, key, instance_http_basic(name))
 
 
 def get_ia_cf_id():
@@ -243,14 +274,22 @@ def issue_is_ia_tagged(issue):
     return False
 
 
-def http_json(method, url, key, payload=None, timeout=20):
-    """Requête HTTP JSON simple. Retourne (status_code, body_dict_or_error)."""
+def http_json(method, url, key, payload=None, timeout=20, basic=None):
+    """Requête HTTP JSON simple. Retourne (status_code, body_dict_or_error).
+
+    `basic=(user, password)` ajoute une auth **HTTP Basic** — nécessaire quand un
+    serveur web protège l'instance en amont de Redmine (RM2657) ; la clé API seule
+    reçoit alors un 401 du serveur web, avant même d'atteindre Redmine.
+    """
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
+    headers = {"Content-Type": "application/json", "X-Redmine-API-Key": key,
+               "Accept": "application/json"}
+    if basic:
+        token = base64.b64encode(
+            f"{basic[0]}:{basic[1]}".encode("utf-8")).decode("ascii")
+        headers["Authorization"] = f"Basic {token}"
     req = urllib.request.Request(
-        url, data=data,
-        headers={"Content-Type": "application/json", "X-Redmine-API-Key": key,
-                 "Accept": "application/json"},
-        method=method,
+        url, data=data, headers=headers, method=method,
     )
     try:
         with urllib.request.urlopen(req, timeout=timeout) as r:
@@ -266,9 +305,11 @@ def http_json(method, url, key, payload=None, timeout=20):
 
 def fetch_issue(issue_id, include=None, creds=None):
     """Fetch un ticket avec inclusions optionnelles."""
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     qs = f"?include={include}" if include else ""
-    code, body = http_json("GET", f"{url}/issues/{issue_id}.json{qs}", key)
+    code, body = http_json("GET", f"{url}/issues/{issue_id}.json{qs}", key, basic=_basic)
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} pour issue #{issue_id} : {body.get('_error', '')}")
     return body.get("issue", {})
@@ -281,11 +322,13 @@ def list_issues(params=None, limit=25, timeout=20, creds=None):
     "status_id": "open", "sort": "updated_on:desc"}). `limit` borne le retour.
     Retourne une liste de dicts issue (vide si aucun). Sys.exit si HTTP != 200.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     qp = dict(params or {})
     qp.setdefault("limit", limit)
     qs = urllib.parse.urlencode(qp)
-    code, body = http_json("GET", f"{url}/issues.json?{qs}", key, timeout=timeout)
+    code, body = http_json("GET", f"{url}/issues.json?{qs}", key, timeout=timeout, basic=_basic)
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} sur /issues : {body.get('_error', '')}")
     return body.get("issues", [])
@@ -297,9 +340,11 @@ def search_issues(query, limit=15, timeout=20, creds=None):
     Retourne une liste de résultats {id, title, type, url, datetime, description}.
     Sys.exit si HTTP != 200.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     qs = urllib.parse.urlencode({"q": query, "issues": 1, "limit": limit})
-    code, body = http_json("GET", f"{url}/search.json?{qs}", key, timeout=timeout)
+    code, body = http_json("GET", f"{url}/search.json?{qs}", key, timeout=timeout, basic=_basic)
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} sur /search : {body.get('_error', '')}")
     return body.get("results", [])
@@ -311,11 +356,13 @@ def list_time_entries(params=None, limit=100, timeout=20, creds=None):
     `params` ex: {"user_id": 5, "spent_on": "2026-06-02"}. Retourne une liste de
     dicts time_entry (chacun avec hours, user, issue, custom_fields…).
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     qp = dict(params or {})
     qp.setdefault("limit", limit)
     qs = urllib.parse.urlencode(qp)
-    code, body = http_json("GET", f"{url}/time_entries.json?{qs}", key, timeout=timeout)
+    code, body = http_json("GET", f"{url}/time_entries.json?{qs}", key, timeout=timeout, basic=_basic)
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} sur /time_entries : {body.get('_error', '')}")
     return body.get("time_entries", [])
@@ -327,9 +374,11 @@ def find_users(name, limit=5, timeout=20, creds=None):
     Best-effort : nécessite les droits admin sur la clé API. Retourne une liste
     de dicts {id, firstname, lastname, login, ...} ou [] si non autorisé / aucun.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     qs = urllib.parse.urlencode({"name": name, "limit": limit})
-    code, body = http_json("GET", f"{url}/users.json?{qs}", key, timeout=timeout)
+    code, body = http_json("GET", f"{url}/users.json?{qs}", key, timeout=timeout, basic=_basic)
     if code != 200:
         return []
     return body.get("users", [])
@@ -337,9 +386,11 @@ def find_users(name, limit=5, timeout=20, creds=None):
 
 def add_issue_note(issue_id, note, timeout=20, creds=None):
     """Ajoute une note (journal) à une issue via PUT `notes`. Sys.exit si échec."""
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     payload = {"issue": {"notes": note}}
-    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, timeout=timeout)
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, timeout=timeout, basic=_basic)
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} sur note de #{issue_id} : {body.get('_error', '')}")
     return True
@@ -357,7 +408,9 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
     Redmine renvoie 204 mais *drop* silencieusement les attributs ≠ notes. Ce
     helper ne re-vérifie pas ; l'appelant le fait s'il a besoin de la garantie.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     issue = {}
     if custom_fields:
         issue["custom_fields"] = custom_fields
@@ -368,7 +421,7 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
     if not issue:
         return True, ""
     code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,
-                           {"issue": issue}, timeout=timeout)
+                           {"issue": issue}, timeout=timeout, basic=_basic)
     if code not in (200, 204):
         return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
     return True, ""
@@ -383,7 +436,9 @@ def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
     aujourd'hui côté Redmine si None). `comments` : str. `custom_fields` :
     list[{id, value}] (ex: CF 16 Tokens). Retourne (ok, time_entry_id_or_err).
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     entry = {"issue_id": issue_id, "hours": round(float(hours), 2),
              "activity_id": activity_id}
     if spent_on:
@@ -393,7 +448,7 @@ def create_time_entry(issue_id, *, hours, activity_id, spent_on=None,
     if custom_fields:
         entry["custom_fields"] = custom_fields
     code, body = http_json("POST", f"{url}/time_entries.json", key,
-                           {"time_entry": entry}, timeout=timeout)
+                           {"time_entry": entry}, timeout=timeout, basic=_basic)
     if code not in (200, 201):
         return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
     return True, body.get("time_entry", {}).get("id")
@@ -404,9 +459,11 @@ def set_issue_ia_tag(issue_id, value="IA", creds=None):
     cf_id = get_ia_cf_id()
     if cf_id is None:
         sys.exit("ERREUR : REDMINE_CF_IA_ID non configuré dans .env — impossible de tag")
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     payload = {"issue": {"custom_fields": [{"id": cf_id, "value": value or ""}]}}
-    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, basic=_basic)
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} : {body.get('_error', '')}")
 
@@ -417,10 +474,12 @@ def set_issue_parent(issue_id, parent_id, creds=None):
     `parent_id=None` détache l'issue de son parent (envoie une valeur vide, que
     Redmine interprète comme « pas de parent »). Sys.exit si le PUT échoue.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     val = parent_id if parent_id is not None else ""
     payload = {"issue": {"parent_issue_id": val}}
-    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload)
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key, payload, basic=_basic)
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} sur parent_issue_id de #{issue_id} : "
                  f"{body.get('_error', '')}")
@@ -464,7 +523,9 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
             PUT author_id échouant n'est pas bloquant — warning stderr et
             le ticket reste author=key-owner.
     """
-    url, key = creds or redmine_creds()
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
     payload_issue = {
         "project_id": project_id,
         "tracker_id": tracker_id,
@@ -490,7 +551,7 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
         payload_issue["custom_fields"] = custom_fields
 
     code, body = http_json("POST", f"{url}/issues.json", key,
-                           {"issue": payload_issue}, timeout=timeout)
+                           {"issue": payload_issue}, timeout=timeout, basic=_basic)
     if code not in (200, 201):
         sys.exit(f"ERREUR Redmine HTTP {code} sur POST /issues : "
                  f"{body.get('_error', '')[:500]}")
@@ -498,7 +559,7 @@ def create_redmine_issue(*, project_id, tracker_id, priority_id, subject,
 
     if author_id is not None:
         code2, body2 = http_json("PUT", f"{url}/issues/{rm_id}.json", key,
-                                 {"issue": {"author_id": author_id}}, timeout=10)
+                                 {"issue": {"author_id": author_id}}, timeout=10, basic=_basic)
         if code2 not in (200, 204):
             print(f"⚠ PUT author_id={author_id} échoué (HTTP {code2}) sur RM{rm_id} — "
                   f"ticket reste author=key-owner", file=sys.stderr)

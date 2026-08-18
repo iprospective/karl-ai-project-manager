@@ -536,6 +536,94 @@ def test_link_without_issue_nor_create_remote_fails():
         assert rc != 0 and "--issue" in o
 
 
+# ── référence externe (CF) et son rattrapage — RM2657 ──────────────────────
+
+@contextlib.contextmanager
+def _cf(activated=True, cf_id="9"):
+    """Simule le CF Redmine : `activated=False` reproduit le piège — Redmine répond
+    200 mais ignore la valeur quand le champ n'est pas activé pour le projet."""
+    store = {}
+    orig = cli.get_task_provider          # la CLI a importé le symbole : patcher ICI
+
+    class _P:
+        def update_fields(self, rm_id, custom_fields=None, **kw):
+            if activated:
+                store[rm_id] = custom_fields[0]["value"]
+            return True, ""                     # Redmine accepte dans les deux cas
+
+        def fetch_issue(self, rm_id, include=None):
+            cfs = ([{"id": int(cf_id), "name": "Réf ticket outil externe",
+                     "value": store.get(rm_id, "")}] if activated else [])
+            return {"id": rm_id, "project": {"name": "site"}, "custom_fields": cfs}
+
+    cli.get_task_provider = lambda *a, **k: _P()
+    old = os.environ.get("REDMINE_CF_PARTNER_ISSUE_ID")
+    os.environ["REDMINE_CF_PARTNER_ISSUE_ID"] = cf_id
+    try:
+        yield store
+    finally:
+        cli.get_task_provider = orig
+        if old is None:
+            os.environ.pop("REDMINE_CF_PARTNER_ISSUE_ID", None)
+        else:
+            os.environ["REDMINE_CF_PARTNER_ISSUE_ID"] = old
+
+
+def test_cf_gets_a_compact_reference():
+    """16 caractères max : c'est `matnat#5576` qui part, pas l'URL."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        with _cf() as store:
+            _link(cfg, issue=5576, role="mirror")
+        assert store[9001] == "matnat#5576"
+        assert len(store[9001]) <= 16
+
+
+def test_cf_not_activated_is_reported_not_silently_ok():
+    """Le piège : HTTP 200 sans effet ne doit PAS passer pour un succès."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, proj = _make_tree(Path(d))
+        with _cf(activated=False):
+            rc, o = _link(cfg, issue=5576)
+        assert rc == 0                                   # le lien local est posé
+        assert "non activé pour le projet" in o
+        assert len(_fm(proj)["refs"]) == 1
+
+
+def test_sync_cf_repairs_existing_links():
+    """Après activation du champ côté admin, on rattrape sans délier/relier."""
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        with _cf(activated=False):
+            _link(cfg, issue=5576, role="mirror")        # CF non posé à l'époque
+        with _cf() as store:
+            rc, o = _call(cli.cmd_sync_cf, cfg, _args(rm_id=9001, all=False))
+        assert rc == 0 and store[9001] == "matnat#5576"
+        assert "1 ticket(s) à jour" in o
+
+
+def test_sync_cf_all_skips_unlinked_and_closed():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        with _cf(activated=False):
+            _link(cfg, issue=5576)
+        with _cf() as store:
+            rc, o = _call(cli.cmd_sync_cf, cfg, _args(rm_id=None, all=True))
+        assert rc == 0 and list(store) == [9001]         # 9002 est fermé → ignoré
+        assert "1 ticket(s) à jour" in o
+
+
+def test_unlink_clears_the_reference():
+    with tempfile.TemporaryDirectory() as d:
+        cfg, _ = _make_tree(Path(d))
+        with _cf() as store:
+            _link(cfg, issue=5576)
+            assert store[9001] == "matnat#5576"
+            _call(cli.cmd_unlink, cfg, _args(rm_id=9001, instance="redmine-matnat",
+                                             issue=5576))
+            assert store[9001] == ""                     # plus de lien → champ vidé
+
+
 # ── pm-doctor ──────────────────────────────────────────────────────────────
 
 def _doctor(cfg):

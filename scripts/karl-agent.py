@@ -4395,9 +4395,44 @@ BATCH_SKIP = {
     "ferme": "fermé",
 }
 
+# RM2720 — second MODE de lot : « passe ces tickets à tester ». Ce n'est pas un
+# changement de statut en masse : rendre un ticket au demandeur, c'est le
+# LIVRER (note de livraison + protocole de test, NORMS RM2229). Le mode a donc
+# sa propre table de statuts éligibles — et une étude n'y est pas : elle se rend
+# en validation, pas en test.
+BATCH_ATESTER = {
+    "en_cours": ("livrer", "livrer : note de livraison + protocole de test, puis "
+                           "statut à tester approprié (a_tester_dev / a_tester_demandeur "
+                           "selon requires_agent_test)"),
+    "a_corriger": ("livrer", "relivrer la correction : note + protocole, puis statut "
+                             "à tester approprié"),
+    "a_faire": ("livrer", "VÉRIFIER d'abord que le travail est réellement fait "
+                          "(branche, MR, critères) ; si oui livrer, sinon ne rien "
+                          "changer et le dire"),
+    "a_tester_dev": ("tester", "faire la passe de test agent, puis router selon le "
+                               "verdict (a_tester_demandeur si OK)"),
+}
+BATCH_ATESTER_SKIP = {
+    "a_tester_demandeur": "déjà en test chez toi",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "ferme": "fermé",
+    "nouveau": "pas encore pris en charge : rien à livrer",
+    "a_etudier_chiffrer": "à étudier : une étude se rend en validation, pas en test",
+    "etude_chiffrage_en_cours": "étude en cours : elle se rend en validation, pas en test",
+    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+}
+
+# Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
+# lot (plafond, portée, envoi, garde de session) ne change pas.
+BATCH_MODES = {
+    "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
+    "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
+}
+
 
 # >>> batch_plan — pure (testée par test_karl_agent_batch.py)
-def batch_plan(items) -> dict:
+def batch_plan(items, mode: str = "traiter") -> dict:
     """Répartit les tickets demandés entre CE QUI PART et ce qui est écarté.
 
     Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
@@ -4408,7 +4443,16 @@ def batch_plan(items) -> dict:
     RM2719 — un item peut porter une PORTÉE : `scope` = les seuls points à
     traiter. Absente, le ticket part en entier (RM2716). Présente mais VIDE,
     le ticket est écarté avec sa raison — décocher tous les points d'un ticket
-    veut dire « rien à y faire », pas « fais tout »."""
+    veut dire « rien à y faire », pas « fais tout ».
+
+    RM2720 — `mode` choisit la table d'actions : « traiter » (défaut) ou
+    « atester » (rendre au demandeur). Un mode inconnu est refusé plutôt que
+    rabattu sur le défaut : envoyer « traite ces tickets » à qui a demandé
+    « passe-les à tester » serait la pire des tolérances."""
+    m = BATCH_MODES.get(mode)
+    if m is None:
+        raise ApiError(400, f"mode de lot inconnu : {mode}")
+    actions, skips = m["actions"], m["skip"]
     todo, skipped = [], []
     seen = set()
     for it in items or []:
@@ -4417,7 +4461,7 @@ def batch_plan(items) -> dict:
             continue
         seen.add(rm)
         status = str((it or {}).get("status") or "").strip()
-        act = BATCH_ACTIONS.get(status)
+        act = actions.get(status)
         raw_scope = (it or {}).get("scope")
         scoped = isinstance(raw_scope, list)
         scope, scope_cut = _batch_points(raw_scope) if scoped else ([], 0)
@@ -4438,7 +4482,7 @@ def batch_plan(items) -> dict:
                          # liste complète des points du ticket.
                          "points_truncated": bool(pcut or (it or {}).get("points_truncated"))})
         else:
-            todo_reason = BATCH_SKIP.get(status) or f"statut « {status or '?'} » : aucune action définie"
+            todo_reason = skips.get(status) or f"statut « {status or '?'} » : aucune action définie"
             skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
                             "title": (it or {}).get("title") or ""})
     return {"todo": todo, "skipped": skipped}
@@ -4446,7 +4490,7 @@ def batch_plan(items) -> dict:
 
 
 # >>> batch_prompt — pure (testée par test_karl_agent_batch.py)
-def batch_prompt(todo) -> str:
+def batch_prompt(todo, mode: str = "traiter") -> str:
     """La consigne envoyée à l'agent. Elle est AUTO-PORTANTE : l'agent qui la
     reçoit ne voit pas l'écran d'où elle vient.
 
@@ -4458,7 +4502,13 @@ def batch_prompt(todo) -> str:
     RM2719 — un ticket à PORTÉE RESTREINTE porte ses points sous sa ligne, et la
     règle qui va avec : il ne se clôture pas et ne repart pas au demandeur tant
     qu'il en reste. La règle n'est ajoutée que s'il y a au moins un ticket
-    restreint — une consigne qui liste des cas absents se lit moins bien."""
+    restreint — une consigne qui liste des cas absents se lit moins bien.
+
+    RM2720 — en mode « atester », la consigne dit autre chose : rendre un ticket
+    au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
+    protocole de test, et interdit de bouger le statut d'un ticket dont le
+    travail n'est pas réellement livré. La fin (worklog, notification, bilan)
+    est commune aux deux modes."""
     lignes = []
     scoped = False
     for i, t in enumerate(todo or [], 1):
@@ -4479,8 +4529,35 @@ def batch_prompt(todo) -> str:
         "demandeur : traite uniquement les points listés, ne coche que ces "
         "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
     ) if scoped else ""
+    # Fin commune : sans ces trois retours, un lot laisse le demandeur
+    # surveiller des sessions pour savoir où ça en est.
+    fin = (
+        "- consigne l'avancement du lot au worklog "
+        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
+        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
+        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
+        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
+        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "bilan ticket par ticket."
+    )
+    n = len(todo or [])
+    if mode == "atester":
+        return (
+            f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
+            "protocole worker NORMS :\n"
+            f"{corps}\n\n"
+            "Règles du lot :\n"
+            "- passer un ticket « à tester », c'est le LIVRER : chacun part avec sa "
+            "note de livraison ET son protocole de test (norme RM2229) — pas un "
+            "simple changement de statut ;\n"
+            "- si le travail n'est PAS réellement livré (branche non poussée, MR "
+            "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse le "
+            "statut en l'état, dis pourquoi, passe au suivant ;\n"
+            "- un ticket à la fois, jusqu'à son statut de fin ;\n"
+            f"{fin}"
+        )
     return (
-        f"Traite ces {len(todo or [])} ticket(s) EN SÉRIE, dans cet ordre, en "
+        f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "
         "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
         "livraison) :\n"
         f"{corps}\n\n"
@@ -4490,13 +4567,7 @@ def batch_prompt(todo) -> str:
         "- chaque ticket revient au demandeur par son statut de fin NORMS "
         "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
         f"{regle_scope}"
-        "- consigne l'avancement du lot au worklog "
-        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
-        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
-        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
-        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
-        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
-        "bilan ticket par ticket."
+        f"{fin}"
     )
 # <<< batch_prompt
 
@@ -4504,14 +4575,17 @@ def batch_prompt(todo) -> str:
 def op_worklog_batch(payload: dict) -> dict:
     """RM2716 — compose (et, sauf `dry_run`, envoie) la consigne de lot à la
     session attachée. `dry_run` sert le récapitulatif AVANT confirmation : rien
-    ne part sans que le demandeur ait vu ce qui va être demandé."""
+    ne part sans que le demandeur ait vu ce qui va être demandé.
+
+    RM2720 — `mode` : « traiter » (défaut) ou « atester »."""
     sid = str(payload.get("rm_id") or payload.get("sid") or "").strip()
     if not _valid_sid(sid):
         raise ApiError(400, "session invalide")
     items = payload.get("items")
     if not isinstance(items, list) or not items:
         raise ApiError(400, "items (liste non vide) requis")
-    plan = batch_plan(items)
+    mode = str(payload.get("mode") or "traiter")
+    plan = batch_plan(items, mode)
     todo = plan["todo"]
     dry = bool(payload.get("dry_run"))
     if not todo:
@@ -4520,8 +4594,8 @@ def op_worklog_batch(payload: dict) -> dict:
         raise ApiError(409, f"{len(todo)} tickets : au-delà de {BATCH_MAX}, "
                             "confirme explicitement (une file trop longue déborde "
                             "le contexte de l'agent)")
-    prompt = batch_prompt(todo)
-    out = {"sid": sid, "count": len(todo), "todo": todo,
+    prompt = batch_prompt(todo, mode)
+    out = {"sid": sid, "mode": mode, "count": len(todo), "todo": todo,
            "skipped": plan["skipped"], "prompt": prompt, "sent": False}
     if dry:
         return out
@@ -6446,7 +6520,7 @@ _DEFAULT_ACTIONS = [
     {"key": "point", "group": "Session", "label": "📊 point",
      "text": "fais un point synthétique : avancement, reste à faire, blocages, "
              "prochaine étape — sans rien modifier"},
-    {"key": "atester", "group": "Session", "label": "🧪 à tester",
+    {"key": "session-atester", "group": "Session", "label": "🧪 à tester",
      "text": "marque la session à tester : tout le lot est livré, il ne reste "
              "qu'à tester côté demandeur (/session-mark a-tester)"},
     {"key": "done", "group": "Session", "label": "🏁 done",
@@ -8596,7 +8670,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_send(payload))
             if path == "/alerts/snooze":       # RM2698 : reporter une alerte
                 return self._send_json(200, op_alert_snooze(payload))
-            if path == "/worklog/batch":       # RM2716 : traiter un lot en série
+            if path == "/worklog/batch":       # RM2716/RM2720 : lot en série (mode)
                 return self._send_json(200, op_worklog_batch(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))

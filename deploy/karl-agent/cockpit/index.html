@@ -1194,6 +1194,13 @@ if (window.matchMedia) {
                    LIVRAISON (note + protocole), pas un changement de statut. -->
               <button class="mini" id="batch-atester-btn" style="display:none" onclick="openBatchPlan('atester')"
                       title="Faire livrer les tickets cochés (note de livraison + protocole) et les passer à tester">✔ à tester</button>
+              <!-- RM2720 : merger les MR des tickets cochés. Ces deux-là ne passent
+                   PAS par la session : le cockpit appelle pm-mr.py (le script est le
+                   seul écrivain du couple MR/ticket). -->
+              <button class="mini" id="mr-dev-btn" style="display:none" onclick="openMrBatch('dev')"
+                      title="Merger la MR de chaque ticket coché dans la branche d'intégration (dev), via pm-mr">⇥ merger dev</button>
+              <button class="mini" id="mr-prod-btn" style="display:none" onclick="openMrBatch('prod')"
+                      title="Promouvoir en production : MR intégration → main (une par dépôt) — elle emporte tout dev, pas seulement les tickets cochés">⇥ merger prod</button>
               <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
@@ -4323,6 +4330,10 @@ function batchToggle(ref, status, title, on) {
     bt.style.display = batchSel.size ? "" : "none";
     bt.textContent = "✔ à tester (" + batchSel.size + ")";
   }
+  for (const [id, txt] of [["mr-dev-btn", "⇥ merger dev ("], ["mr-prod-btn", "⇥ merger prod ("]]) {
+    const e = document.getElementById(id);
+    if (e) { e.style.display = batchSel.size ? "" : "none"; e.textContent = txt + batchSel.size + ")"; }
+  }
 }
 // >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
@@ -4409,6 +4420,89 @@ async function openBatchPlan(mode) {
     + esc(batchPlanCache.prompt || "") + "</pre></details>";
   document.getElementById("docmodal").classList.add("show");
 }
+// >>> mrBatchHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2720 : l'écran de confirmation d'un lot de merges. Il doit dire trois
+// choses qu'on ne peut pas deviner en cochant des cases : ce qui va être mergé
+// et VERS OÙ, ce qui est écarté et pourquoi, et — en promotion — qu'une MR
+// intégration→production emporte tout ce que dev contient, pas seulement les
+// tickets cochés. Un ticket dont la session tourne encore est signalé : merger
+// sous les pieds d'un agent au travail se voit avant, pas après.
+function mrBatchHtml(plan, esc) {
+  const p = plan || {};
+  const runs = p.runs || [], skipped = p.skipped || [], live = p.live || [];
+  const prod = p.mode === "prod";
+  let h = '<div class="ms"><h4>' + (prod ? "⇥ promotion en production" : "⇥ merge dans l’intégration")
+    + " (" + runs.length + ")</h4>";
+  h += runs.length
+    ? runs.map(r => '<div class="oline" style="white-space:normal">'
+        + r.rm_ids.map(i => '<span class="r-id">RM' + esc(String(i)) + "</span>").join(" ")
+        + ' <span class="pill">' + esc(String(r.source || "")) + " → " + esc(String(r.target || ""))
+        + "</span></div>").join("")
+    : '<div class="empty">rien à merger</div>';
+  h += "</div>";
+  if (prod) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ une promotion emporte TOUT ce que « '
+      + esc(String((runs[0] || {}).source || "dev")) + ' » contient et qui n’est pas encore en production'
+      + " — pas seulement les tickets cochés. Une MR par dépôt.</div>";
+  }
+  if (live.length) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ session encore vivante pour '
+      + live.map(i => "RM" + esc(String(i))).join(", ")
+      + " — merger maintenant, c’est merger sous les pieds d’un agent au travail.</div>";
+  }
+  if (skipped.length) {
+    h += '<div class="ms"><h4>⊘ écartés (' + skipped.length + ")</h4>"
+      + skipped.map(k => '<div class="oline" style="white-space:normal;opacity:.75">'
+        + '<span class="r-id">RM' + esc(String(k.rm_id)) + "</span>"
+        + '<div style="color:var(--muted);font-size:11px">' + esc(String(k.reason || "")) + "</div></div>").join("")
+      + "</div>";
+  }
+  return h;
+}
+// <<< mrBatchHtml
+
+let mrBatchCache = null;
+async function openMrBatch(mode) {
+  if (!batchSel.size) return;
+  const items = [...batchSel.values()].map(it => ({ rm_id: it.rm_id }));
+  try {
+    mrBatchCache = await api("/mr/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: mode, items: items, dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  document.getElementById("doctitle").textContent =
+    (mode === "prod" ? "⇥ Promouvoir en production" : "⇥ Merger dans l’intégration")
+    + " — " + mrBatchCache.runs.length + " MR";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = mrBatchHtml(mrBatchCache, esc)
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="primary" onclick="sendMrBatch(this)">⇥ merger maintenant</button>'
+    + '<button class="mini" onclick="closeDoc()">annuler</button></div>';
+  document.getElementById("docmodal").classList.add("show");
+}
+async function sendMrBatch(btn) {
+  if (!mrBatchCache) return;
+  btn.disabled = true; btn.textContent = "⇥ merge en cours…";
+  try {
+    const r = await api("/mr/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: mrBatchCache.mode, confirm: true, allow_large: true,
+                             items: (mrBatchCache.todo || []).map(t => ({ rm_id: t.rm_id })) }) });
+    const ko = r.failed || [];
+    toast(ko.length ? ko.length + " merge(s) en échec sur " + r.results.length
+                    : "⇥ " + r.results.length + " MR mergée(s)", !!ko.length);
+    // Un merge qui échoue (conflit, gate, branche protégée) ne se résume pas à
+    // un code retour : on rend la sortie du script, c'est elle qui dit quoi faire.
+    if (ko.length) showCaptureModal("Merge — ÉCHEC",
+      ko.map(k => "RM" + k.rm_ids.join(",") + " " + k.source + "→" + k.target
+                  + "\n" + (k.stdout || "") + "\n" + (k.stderr || "")).join("\n\n"));
+    else closeDoc();
+    loadWorklog(true);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "⇥ merger maintenant"; }
+}
+
 // RM2719 : la portée retenue est lue DANS l'écran de confirmation au moment de
 // l'envoi — l'état vit à un seul endroit (les cases), pas en double dans une map
 // qu'il faudrait tenir à jour. Un ticket dont tous les points restent cochés

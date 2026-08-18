@@ -3957,6 +3957,11 @@ def worklog_buckets(items) -> dict:
             "drifted": bool(opened and opened != st),
             "opened_status": it.get("opened_status") or "",
         }
+        # RM2695 : l'avancement DANS le ticket suit son item — un statut dit où
+        # en est le ticket, pas ce qu'il reste à y faire.
+        for k in ("checklist", "sub_tasks"):
+            if it.get(k):
+                entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
         elif st in WORKLOG_WAITING:
@@ -3980,15 +3985,31 @@ _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
 def _worklog_apply_live(items, live):
-    """Superpose le statut LIVE (map ref→statut, résolu du frontmatter) sur les
-    items du worklog : le statut affiché devient le statut réel du ticket, tandis
-    que `opened_status` reste le snapshot d'ouverture (la dérive reste calculable).
-    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son statut
-    stocké. Résolution injectée → pur et testable."""
+    """Superpose l'état LIVE (map ref→{status, checklist, sub_tasks}, résolu du
+    frontmatter) sur les items du worklog : le statut affiché devient le statut
+    réel du ticket, tandis que `opened_status` reste le snapshot d'ouverture (la
+    dérive reste calculable). RM2695 y ajoute l'avancement — la checklist des
+    critères et les sous-tâches, lues au même passage.
+
+    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son
+    statut stocké. Une entrée sous forme de CHAÎNE reste acceptée : c'était la
+    forme d'avant RM2695, et un cache chaud peut encore en contenir.
+    Résolution injectée → pur et testable."""
     out = []
     for it in items or []:
         lv = (live or {}).get(it.get("ref"))
-        out.append({**it, "status": lv} if lv else it)
+        if not lv:
+            out.append(it)
+            continue
+        if isinstance(lv, str):
+            lv = {"status": lv}
+        merged = {**it}
+        if lv.get("status"):
+            merged["status"] = lv["status"]
+        for k in ("checklist", "sub_tasks"):
+            if lv.get(k):
+                merged[k] = lv[k]
+        out.append(merged)
     return out
 # <<< worklog_apply_live
 
@@ -4007,12 +4028,45 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         if not m:
             continue
         tf = _find_task_file(m.group(1))
-        if tf:
-            st = _read_task_meta(tf).get("status")
-            if st:
-                live[it["ref"]] = st
+        if not tf:
+            continue
+        st = _read_task_meta(tf).get("status")
+        # RM2695 : le fichier est DÉJÀ ouvert pour le statut — on en profite pour
+        # l'avancement (checklist) et les sous-tâches. Une requête par ticket
+        # depuis le cockpit aurait coûté N appels tous les 10 s ; ici c'est une
+        # lecture de plus dans une garde de fraîcheur qui existe déjà.
+        entry = {"status": st} if st else {}
+        try:
+            text = tf.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        if text:
+            cl = parse_checklist(_task_body(text))
+            if cl["total"]:
+                entry["checklist"] = cl
+            subs = _subtasks_status(_parse_frontmatter(text).get("sub_tasks"))
+            if subs:
+                entry["sub_tasks"] = subs
+        if entry:
+            live[it["ref"]] = entry
     _worklog_live_cache[session_id] = (now, live)
     return live, now
+
+
+def _subtasks_status(refs) -> list:
+    """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
+    ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
+    sur l'avancement. Lecture bornée (une sous-tâche = un `_read_task_meta`)."""
+    out = []
+    for ref in (refs or [])[:20]:
+        rid = re.sub(r"^RM", "", str(ref).strip())
+        if not rid.isdigit():
+            continue
+        tf = _find_task_file(rid)
+        meta = _read_task_meta(tf) if tf else {}
+        out.append({"rm_id": rid, "status": meta.get("status") or "",
+                    "title": meta.get("title") or ""})
+    return out
 
 
 def op_worklog(rm_id: str, force: bool = False) -> dict:
@@ -4424,6 +4478,39 @@ def _task_body(text: str) -> str:
     return text[end + 4:].strip() if end != -1 else ""
 
 
+# >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
+_CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
+
+
+def parse_checklist(body: str, max_items: int = 40) -> dict:
+    """RM2695 : l'avancement d'un ticket, lu là où il est DÉJÀ tenu — la
+    checklist des critères d'acceptation de sa description (tripwire #9
+    « description vivante », miroir du `done_ratio`).
+
+    Aucun référentiel de tâches à créer : un second endroit à maintenir
+    divergerait du premier en une semaine. On lit `- [ ]` / `- [x]`, puces `*` et
+    `+` comprises, indentation tolérée (sous-items d'une liste).
+
+    `items` est plafonné (l'UI n'affiche que le RESTE à faire, et une description
+    n'est pas un backlog) ; `done`/`total` comptent tout, eux, sinon le compteur
+    mentirait sur les tickets longs."""
+    done = total = 0
+    items = []
+    for line in (body or "").splitlines():
+        m = _CHECKLIST_RE.match(line)
+        if not m:
+            continue
+        checked = m.group(1) in ("x", "X")
+        total += 1
+        if checked:
+            done += 1
+        elif len(items) < max_items:
+            items.append(m.group(2))
+    return {"done": done, "total": total, "items": items,
+            "truncated": total - done > len(items)}
+# <<< parse_checklist
+
+
 def _log_tail(tf: Path, n: int = 18) -> str:
     logf = tf.with_name(tf.stem + ".log.md")
     try:
@@ -4536,6 +4623,11 @@ def op_resolve(rm_id: str) -> dict:
         "environments": envs, "active_env": _env_for_status(status, envs),
         "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
         "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        # RM2695 : avancement = la checklist des critères d'acceptation, seule
+        # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
+        # statut, une liste d'ids n'apprenant rien sur l'avancement.
+        "checklist": parse_checklist(_task_body(text)),
+        "sub_tasks_status": _subtasks_status(fm.get("sub_tasks")),
         "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
         "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],

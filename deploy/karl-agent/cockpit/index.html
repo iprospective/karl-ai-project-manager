@@ -398,6 +398,10 @@
   .oline.oans { color: var(--ok); border-left-color: var(--ok); }
   .oline .otag { font-size: 9px; text-transform: uppercase; letter-spacing: .5px;
     border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
+  /* RM2695 : avancement d'un ticket dans le worklog (critères restants) */
+  .wl-prog { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 3px 0 0 1.2em; }
+  .wl-crit { font-size: 10.5px; color: var(--muted); background: rgba(127,127,127,.1);
+    border-radius: 4px; padding: 1px 6px; max-width: 100%; overflow-wrap: anywhere; }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
   /* RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue */
@@ -3739,6 +3743,7 @@ function renderWorklog() {
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
       + (it.note ? '<div style="color:var(--muted);font-size:11px">↳ ' + esc(it.note) + "</div>" : "")
+      + worklogProgressHtml(it, esc)     // RM2695 : avancement + sous-tâches
       + "</div>";
   };
   // RM2610 : le contenu de chaque STATUT est un sous-onglet (pré-rendu → remplit usedBr).
@@ -3771,6 +3776,39 @@ function renderWorklog() {
   h += '<div class="ms">' + content + "</div>";
   document.getElementById("workbody").innerHTML = h;
 }
+// >>> worklogProgressHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2695 : l'avancement DANS un ticket. Un statut dit où en est le ticket, pas
+// ce qu'il reste à y faire — d'où « 3/6 ✓ » et, dépliés, les critères NON
+// COCHÉS. Les cochés ne sont pas listés : ce qui est fait se compte, il ne se
+// lit pas. Les sous-tâches suivent, avec leur statut (une liste d'ids
+// n'apprendrait rien).
+// Un ticket sans checklist ne rend RIEN — surtout pas « 0/0 », qui se lirait
+// comme un ticket vide alors qu'il n'a simplement pas de critères.
+function worklogProgressHtml(it, esc) {
+  const c = (it && it.checklist) || null;
+  const subs = (it && it.sub_tasks) || [];
+  let h = "";
+  if (c && c.total) {
+    const done = c.done || 0, total = c.total;
+    const cls = done >= total ? "ok" : (done ? "" : "warn");
+    h += '<div class="wl-prog"><span class="pill ' + cls + '" title="critères d’acceptation cochés">'
+      + done + "/" + total + " ✓</span>";
+    (c.items || []).forEach(function (t) {
+      h += '<span class="wl-crit" title="critère restant">☐ ' + esc(t) + "</span>";
+    });
+    if (c.truncated) h += '<span class="wl-crit" style="opacity:.6">…</span>';
+    h += "</div>";
+  }
+  if (subs.length) {
+    h += '<div class="wl-prog">' + subs.map(function (s) {
+      return '<span class="pill" title="sous-tâche' + (s.title ? " — " + esc(s.title) : "") + '">'
+        + "RM" + esc(String(s.rm_id)) + (s.status ? " · " + esc(s.status) : "") + "</span>";
+    }).join(" ") + "</div>";
+  }
+  return h;
+}
+// <<< worklogProgressHtml
+
 // un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
 function openWorklogItem(ref) {
   const m = /^RM(\d+)$/i.exec(String(ref || ""));

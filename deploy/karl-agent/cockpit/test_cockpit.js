@@ -2028,3 +2028,16 @@ assert(/<option value="normal" selected>/.test(form), "priorité normal non pré
 assert(/calyclay\/infra/.test(form), "liste des projets non injectée");
 assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
 console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");
+
+// — RM2718 : pastille du statut de session ([WIP] / [A TESTER] / [DONE]) —
+const markPillHtml2718 = grabO("markPillHtml");
+assert(/pill warn">WIP</.test(markPillHtml2718("wip")), "WIP : pastille d'attention");
+assert(/pill test">À TESTER</.test(markPillHtml2718("test")), "test : pastille « À TESTER »");
+assert(/pill ok">DONE</.test(markPillHtml2718("done")), "DONE : pastille ok");
+assert.strictEqual(markPillHtml2718(null), "", "pas de marqueur → pas de pastille");
+assert.strictEqual(markPillHtml2718("zzz"), "", "statut inconnu → rien d'inventé");
+assert.strictEqual(markPillHtml2718("constructor"), "",
+  "une clé héritée d'Object ne doit pas produire de pastille");
+assert(markPillHtml2718("test").endsWith("</span> "),
+  "la pastille garde son espace de séparation avec le titre");
+console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'inventé");

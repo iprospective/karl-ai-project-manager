@@ -14,6 +14,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de
+  ticket, fiche projet, création) devient un onglet. **Un seul onglet non épinglé à la
+  fois** — la vue suivante le remplace ; épingler le conserve. Les épinglés survivent au
+  rechargement (une session n'est jamais rattachée d'office au boot). Le rail gauche
+  reste la liste de référence : l'onglet est un marque-page, pas l'annuaire de sessions
+  retiré en RM2140/2283. Nouvelle vue **＋ créer un ticket** en pleine page, avec les
+  champs que la carte repliée ne portait pas (passe agent-testeur, env cible, estimation,
+  difficulté) — validés côté serveur.
+- **Panneau « 📧 emails »** (RM2671, chantier RM2666) : la file de triage devient
+  cliquable — relever, router, rédiger, **créer à la validation**, rattacher à un fil
+  existant, reclasser (la correction est apprise) ou écarter avec un motif. Le corps
+  d'un email n'est chargé qu'au dépliage, jamais dans la liste. Le panneau ne
+  réimplémente rien : il lit `/mail/queue` et délègue chaque geste au script du
+  pipeline (argv strict, allowlist). `--mark-seen` n'est **pas** exposé : marquer lu
+  agit sur une boîte de production, ça reste un geste CLI. Aide dédiée : page
+  « Emails ».
 - **Correctif — lancer une session non-claude** (RM2691) : `POST /spawn` avec
   `engine` = `shell`, `opencode` ou `vibe` répondait **500** (`UnboundLocalError`
   sur `joined`, affecté seulement dans la branche claude) alors que la session
@@ -54,7 +70,7 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ### Outillage
 - **Notifications de session : une notification traitée quitte le backlog**
-  (RM2715, NORMS v1.70.0). Le canal `notify` (RM2466) n'avait que deux états —
+  (RM2715, NORMS v1.71.0). Le canal `notify` (RM2466) n'avait que deux états —
   *au backlog* ou *effacée* : une notification consignée « ticket à ouvrir »
   restait affichée telle quelle après l'ouverture, la livraison ET la MEP du
   ticket, sa consigne devenue fausse. Elle porte désormais sa résolution
@@ -66,6 +82,45 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   Le rognage du canal sacrifie l'archive avant les notifications encore ouvertes.
   Côté **cockpit** (onglet état), seules les ouvertes sont servies, avec un
   rappel discret du nombre de traitées.
+- **La doc ne suppose plus un vault unique** (RM2710, lot L4 du chantier RM2662) :
+  NORMS `environments` § « Gestion des secrets » (**v1.70.0**) décrit des vaults
+  **déclarés** — instances du registre providers, slug, défaut, surcharge
+  client/projet, identifiants par dev — et les trois formes d'URI, dont
+  `vaultwarden://` **toujours valide** ; tripwire 11 du KERNEL généralisé (« le
+  secret de déverrouillage », pas « le master password Vaultwarden »). Suivent les
+  templates (aspect `environments`, bootstrap secrets et environnements), les skills
+  (`mmi-env-sync`, `mmi-pm-karl-mail-send`), `karl-mail-send.py`, et
+  `tools/synchro`, qui **refusait** les nouvelles formes d'URI (`case
+  vaultwarden://*` — un `secret://…` dans `MYSQL_ADMIN_SECRET` mourait en « URI
+  invalide »). Le contrôle d'environnement du cockpit liste désormais **une ligne
+  par instance de vault déclarée** avec les *noms* des identifiants trouvés, au lieu
+  de guetter trois variables `BW_*` en dur — et ne rend plus muet un poste dont le
+  `.env` d'instance est illisible (cas d'un worktree ou d'une instance de test).
+  Deux gardes ajoutées au test : aucune **valeur** d'identifiant présente dans
+  l'environnement ne doit apparaître dans le rapport (l'ancien test ne cherchait
+  qu'un motif de nom, il serait passé sur un secret affiché en clair), et une ligne
+  par instance déclarée. L'identifiant du template `001-secrets-vaultwarden` est
+  volontairement conservé : c'est la clé référencée par les `bootstrap.skip` des
+  projets, le renommer les ferait re-proposer.
+- **Backend KeePass** (RM2684, lot L3a du chantier RM2662) : un fichier `.kdbx`
+  et une passphrase suffisent — aucun serveur, aucun compte à créer. C'est le
+  backend qu'un intervenant externe peut fournir sans rien installer côté
+  iProspective, et la preuve que l'abstraction de L0 tient. Déclaration
+  `{ axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }` (ou
+  `SECRET__<SLUG>__FILE` / `__KEYFILE` par dev) ; déverrouillage
+  `unlock-vault.sh -i <instance>`, qui pousse la passphrase au daemon **et vérifie
+  aussitôt qu'elle ouvre la base** — sinon l'échec ne se verrait qu'à la première
+  résolution, longtemps après la saisie. Le chemin d'un secret suit les groupes
+  KeePass (`secret://kdbx-perso/clients/acme/prod-db`), le chemin donné valant
+  **suffixe** du groupe réel. Dépendance **optionnelle** : sans `pykeepass`
+  (`sudo apt install python3-pykeepass`), l'instance se déclare `unreachable` avec
+  la commande d'installation, sans gêner les autres vaults. Diagnostics ordonnés
+  comme on les corrige : configuration → dépendance → déverrouillage.
+  `pm-providers.py instance <slug> [--field …]` expose la fiche d'une instance
+  (c'est ce qui permet aux scripts shell de connaître le type d'un vault).
+  Corrigé au passage : le flux Vaultwarden posait sa session **sans slug**, donc
+  `unlock-vault.sh -i <autre-instance>` aurait déverrouillé l'instance par défaut
+  — le bon jeton dans le mauvais coffre.
 - **Plusieurs vaults déverrouillés en parallèle** (RM2683, lot L2 du chantier
   RM2662). `vault-agentd` tenait **une** session ; il tient désormais un **état par
   instance** (session, horodatages, backend), donc des TTL et des verrous

@@ -1274,7 +1274,18 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 // — RM2614 : situer un ticket dans son client / projet —
 const fPb = />>> projectBriefHtml[\s\S]*?(function projectBriefHtml[\s\S]*?)\n\/\/ <<< projectBriefHtml/.exec(html);
 assert(fPb, "marqueurs >>> projectBriefHtml introuvables");
-const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")");
+// RM2714 : `cval` (nettoyeur des valeurs YAML « null ») est désormais une
+// fonction GLOBALE — elle doit être fournie au sandbox, sinon on rejouerait le
+// bug qu'on vient de corriger : un identifiant hors de portée.
+const mCval = />>> cval[\s\S]*?(function cval[\s\S]*?)\n\/\/ <<< cval/.exec(html);
+assert(mCval, "marqueurs >>> cval introuvables");
+const cval = vm.runInNewContext("(" + mCval[1] + ")");
+const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")", { cval });
+assert.strictEqual(cval("null"), "", "cval : la CHAÎNE « null » vaut vide (piège YAML)");
+assert.strictEqual(cval("~"), "", "cval : « ~ » aussi");
+assert.strictEqual(cval("None"), "", "cval : « None » aussi");
+assert.strictEqual(cval(null), "", "cval : null réel");
+assert.strictEqual(cval("  x  "), "x", "cval : trim");
 const e = s => String(s);
 const j = s => '"' + String(s) + '"';
 
@@ -1412,7 +1423,14 @@ assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unk
 console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
 
 // — RM2458 : rendu de la page de santé du poste —
-const envStatusHtml = grabO("envStatusHtml", { esc: escO });
+// RM2708 : envStatusHtml compose désormais avec quatre fonctions pures — on les
+// évalue dans UN sandbox partagé, sinon chacune serait aveugle aux autres.
+const envCtx = { esc: escO, jarg: jargFn };
+for (const n of ["envStatusTabs", "envStatusDefaultTab", "envStatusSections",
+                 "envStatusBadge", "envStatusGroupHtml", "envStatusHtml"]) {
+  envCtx[n] = grabO(n, envCtx);
+}
+const envStatusHtml = envCtx.envStatusHtml;
 assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
 const rep = {
   generated_at: "2026-08-12T20:00:00",
@@ -1426,7 +1444,9 @@ const rep = {
         fix: "cd /w && git pull --rebase --autostash" } ] },
   ],
 };
-const esh = envStatusHtml(rep);
+// RM2708 : une famille à la fois → on force l'onglet pour les assertions de rendu
+const esh = envStatusHtml(rep, "Outils & dépendances")
+  + envStatusHtml(rep, "Git / GitLab");
 assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
 assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
   "la ligne rouge montre le détail ET la commande de remédiation");
@@ -1437,6 +1457,55 @@ assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est
 const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
 assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
 console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
+
+// — RM2708 : familles en onglets, dépôts en sections par client —
+const G6 = [
+  { name: "Outils & dépendances", checks: [{ label: "git", level: "ok" }] },
+  { name: "Git / GitLab", checks: [{ label: "PAT", level: "warn" }, { label: "push", level: "ok" }] },
+  { name: "Repos", checks: [
+    { label: "repo calicote/presta [main]", level: "ok", section: "calicote" },
+    { label: "repo calicote/dolibarr [dev]", level: "ok", section: "calicote" },
+    { label: "repo pisceen/presta [main]", level: "error", detail: "9 non poussés", section: "pisceen" },
+    { label: "repo perso/maths [main]", level: "warn", section: "perso" },
+    { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" } ] },
+];
+const tabs2708 = envCtx.envStatusTabs(G6);
+assert.deepStrictEqual([...tabs2708.map(t => t.name)],
+  ["Outils & dépendances", "Git / GitLab", "Repos"], "un onglet par famille, dans l'ordre du serveur");
+assert.deepStrictEqual({ ...tabs2708[2] }, { name: "Repos", warn: 1, error: 1, n: 5 },
+  "chaque onglet porte ses compteurs de défauts (visibles sans cliquer)");
+assert.strictEqual(envCtx.envStatusDefaultTab(tabs2708), "Repos",
+  "on ouvre sur la première famille EN ERREUR, pas sur la première tout court");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A", warn: 2, error: 0 }, { name: "B", warn: 0, error: 0 }]),
+  "A", "à défaut d'erreur, la première en avertissement");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A" }, { name: "B" }]), "A",
+  "tout est vert → la première famille");
+assert.strictEqual(envCtx.envStatusDefaultTab([]), "", "aucune famille toléré");
+// sections : défauts en tête, sans-section d'abord (lignes de service)
+const secs2708 = envCtx.envStatusSections(G6[2].checks);
+assert.deepStrictEqual([...secs2708.map(s => s.name)], ["", "pisceen", "perso", "calicote"],
+  "lignes hors client en tête, puis les sections EN DÉFAUT, puis le reste par ordre alpha");
+assert.strictEqual(secs2708[3].checks.length, 2, "les dépôts d'un client sont regroupés");
+assert.strictEqual(envCtx.envStatusSections([]).length, 0, "aucune ligne → aucune section");
+// rendu : replié quand tout va bien, déplié quand ça coince
+const rep2 = { summary: { counts: {} }, groups: G6 };
+const hRepos = envStatusHtml(rep2, "Repos");
+assert(/<details class="es-sec" open><summary>pisceen/.test(hRepos),
+  "une section en erreur est DÉPLIÉE — c'est ce qu'on vient voir");
+assert(/<details class="es-sec"><summary>calicote/.test(hRepos),
+  "une section sans défaut est repliée (20 clients, presque tous sans rien à signaler)");
+assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos),
+  "les lignes sans client restent visibles, sans section fantôme");
+assert(!/repo calicote\/presta/.test(envStatusHtml(rep2, "Git / GitLab")),
+  "un onglet ne montre QUE sa famille");
+assert(/es-badge es-error">✗ 1/.test(hRepos) && /es-badge es-warn">! 1/.test(hRepos),
+  "les pastilles de défaut sont rendues sur les onglets");
+assert(/onclick="setEnvTab\('Repos'\)"/.test(hRepos),
+  "l'onglet se change par setEnvTab, argument passé en guillemets simples (jarg)");
+// une famille à plat (sans section) ne fabrique aucun <details>
+assert(!/es-sec/.test(envStatusHtml(rep2, "Outils & dépendances")),
+  "une famille sans section reste une liste à plat");
+console.log("✓ santé du poste (RM2708) : onglets par famille, dépôts sectionnés par client");
 
 // — RM2659 : les racines de la session, groupées par projet —
 // Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
@@ -1629,4 +1698,241 @@ assert.strictEqual(filesGroups([{ client: "a", project: "b", docs: [] }],
   "une racine vide n'aspire pas les worktrees des autres");
 console.log("✓ fichiers (RM2673) : repli sur le projet courant, provenance affichée");
 
+// — RM2695 : avancement d'un ticket dans le worklog —
+const worklogProgressHtml = grabO("worklogProgressHtml");
+const wpNone = worklogProgressHtml({ ref: "RM1", status: "en_cours" }, escO);
+assert.strictEqual(wpNone, "",
+  "un ticket sans checklist ne rend RIEN — « 0/0 » se lirait comme un ticket vide");
+assert.strictEqual(worklogProgressHtml(null, escO), "", "item absent toléré");
+assert.strictEqual(worklogProgressHtml({ checklist: { done: 0, total: 0, items: [] } }, escO), "",
+  "checklist vide = pas de checklist");
+const wp = worklogProgressHtml({ checklist: { done: 3, total: 6, items: ["reste A", "reste B"] } }, escO);
+assert(/>3\/6 ✓</.test(wp), "le compteur x/y est affiché");
+assert(/☐ reste A/.test(wp) && /☐ reste B/.test(wp), "les critères RESTANTS sont listés");
+assert(!/pill ok/.test(wp), "tant que ce n'est pas fini, pas de pastille verte");
+const wpDone = worklogProgressHtml({ checklist: { done: 6, total: 6, items: [] } }, escO);
+assert(/pill ok/.test(wpDone) && />6\/6 ✓</.test(wpDone),
+  "tout coché → pastille verte, et rien à lister (ce qui est fait se compte)");
+const wpZero = worklogProgressHtml({ checklist: { done: 0, total: 4, items: ["a"] } }, escO);
+assert(/pill warn/.test(wpZero), "aucun critère coché → pastille d'alerte");
+const wpTrunc = worklogProgressHtml({ checklist: { done: 0, total: 60, items: ["a"], truncated: true } }, escO);
+assert(/…/.test(wpTrunc), "une liste tronquée le DIT (pas de silence sur ce qui manque)");
+// sous-tâches : leur statut, pas juste leur numéro
+const wpSub = worklogProgressHtml({ sub_tasks: [{ rm_id: "2696", status: "a_faire", title: "T2" }] }, escO);
+assert(/RM2696 · a_faire/.test(wpSub), "une sous-tâche porte son statut");
+assert(/title="sous-tâche — T2"/.test(wpSub), "…et son titre en infobulle");
+// échappement (le texte d'un critère vient de la description du ticket)
+const wpXss = worklogProgressHtml({ checklist: { done: 0, total: 1, items: ["<img src=x onerror=1>"] },
+  sub_tasks: [{ rm_id: "1<b>", status: "a<b>", title: "t<b>" }] }, escO);
+assert(!/<img/.test(wpXss) && /&lt;img/.test(wpXss), "le texte d'un critère est échappé");
+assert(!/<b>/.test(wpXss), "id, statut et titre de sous-tâche échappés aussi");
+// le rendu du worklog appelle bien l'avancement
+const mItem = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
+  "chaque ligne du worklog rend l'avancement de son ticket");
+console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
+
+// — RM2696 : worklog PROJET (toutes sessions confondues) —
+const projWorklogHtml = grabO("projWorklogHtml");
+assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
+  "projet sans activité → message, pas de crash");
+const GRP = {
+  key: "acme/shop",
+  counts: { sessions_live: 1, sessions: 2, active: 2, waiting: 1, orphans: 1, mrs: 1, requests: 1 },
+  tickets: [
+    { rm_id: "11", status: "en_cours", title: "orphelin", bucket: "active",
+      sessions: [], has_live_session: false },
+    { rm_id: "10", status: "en_cours", title: "suivi", bucket: "active",
+      sessions: ["70"], has_live_session: true, checklist: { done: 1, total: 2, items: ["b"] } },
+    { rm_id: "12", status: "a_tester_demandeur", title: "en attente", bucket: "waiting",
+      sessions: ["71"], has_live_session: false },
+  ],
+  mrs: [{ iid: "9", ref: "RM12", target: "dev", url: "https://x/9", alive: false }],
+  requests: [{ text: "une demande", n: 1 }],
+  sessions: [{ sid: "70", alive: true, title: "T" }, { sid: "71", alive: false, title: "U" }],
+};
+const pw = projWorklogHtml(GRP, escO, jargFn);
+assert(/1 session\(s\) ouverte\(s\)/.test(pw) && /15|2 en cours/.test(pw), "bandeau de compteurs");
+assert(/💤 à reprendre/.test(pw), "un ticket actif sans session vivante est SIGNALÉ (le cas qu'on perd de vue)");
+assert(pw.indexOf("RM11") < pw.indexOf("RM10"), "…et il passe avant les tickets suivis");
+assert(/>1\/2 ✓</.test(pw), "l'avancement (RM2695) est repris dans la vue projet");
+assert(/🔀 MR à merger \(1\)/.test(pw) && /!9/.test(pw), "les MR non mergées sont listées");
+assert(/session éteinte/.test(pw), "une MR laissée par une session éteinte le dit");
+assert(/📥 demandes non ticketées \(1\)/.test(pw), "les demandes non ticketées remontent");
+assert(/a_tester_demandeur : 1/.test(pw), "les attentes sont comptées par statut (le geste diffère)");
+assert(/onclick="attach\('70'\)"/.test(pw), "les sessions sont attachables (arg en guillemets simples, jarg)");
+assert(/onclick="showTicket\(11\)"/.test(pw), "un ticket ouvre sa fiche (id numérique, pas d'injection)");
+// plafond d'affichage : borné ET annoncé
+const many = { counts: {}, tickets: Array.from({ length: 33 }, (_, i) =>
+  ({ rm_id: String(200 + i), status: "a_tester_demandeur", title: "t", bucket: "waiting",
+     sessions: [], has_live_session: false })), mrs: [], requests: [], sessions: [] };
+const pwMany = projWorklogHtml(many, escO, jargFn);
+assert((pwMany.match(/class="r-id"/g) || []).length === 20, "la liste est bornée à 20 lignes");
+assert(/… et 13 autre\(s\)/.test(pwMany), "…et la troncature est ANNONCÉE (jamais muette)");
+// échappement : titres et textes viennent des tickets et des demandes
+const pwXss = projWorklogHtml({ counts: {}, tickets: [{ rm_id: "1", status: "<b>s", title: "<img src=x>",
+  bucket: "active", sessions: ["<b>"], has_live_session: false }],
+  mrs: [], requests: [{ text: "<script>" }], sessions: [] }, escO, jargFn);
+assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss),
+  "titre, statut, session et demande échappés (anti-XSS)");
+console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées");
+
+
+// — RM2716 : sélection de tickets du worklog → traitement en série —
+const batchPlanHtml = grabO("batchPlanHtml");
+const PLAN = {
+  count: 2,
+  todo: [{ rm_id: "10", status: "a_faire", title: "dev", instruction: "traiter puis livrer" },
+         { rm_id: "11", status: "a_etudier_chiffrer", title: "étude", instruction: "étudier et chiffrer" }],
+  skipped: [{ rm_id: "12", status: "a_tester_demandeur", title: "chez toi",
+              reason: "attend TON verdict, pas celui de l'agent" }],
+};
+const bp = batchPlanHtml(PLAN, escO);
+assert(/▶ à traiter \(2\)/.test(bp), "le récapitulatif compte ce qui va partir");
+assert(/1\.<\/b> <span class="r-id">RM10/.test(bp), "les tickets sont numérotés dans l'ordre d'exécution");
+assert(/traiter puis livrer/.test(bp) && /étudier et chiffrer/.test(bp),
+  "chaque ticket affiche l'action qui sera demandée");
+assert(/⊘ écartés \(1\)/.test(bp) && /attend TON verdict/.test(bp),
+  "les écartés sont listés AVEC leur raison — rien n'est retiré en silence");
+assert(!/au-delà de 10/.test(bp), "pas d'avertissement de volume sur un petit lot");
+const bpBig = batchPlanHtml({ todo: Array.from({ length: 12 }, (_, i) =>
+  ({ rm_id: String(i), status: "a_faire", instruction: "traiter" })), skipped: [] }, escO);
+assert(/au-delà de 10/.test(bpBig), "au-delà de 10 tickets, l'avertissement de volume s'affiche");
+const bpEmpty = batchPlanHtml({ todo: [], skipped: [] }, escO);
+assert(/aucun ticket actionnable/.test(bpEmpty), "sélection sans actionnable : dit clairement qu'il n'y a rien");
+assert(/à traiter \(0\)/.test(batchPlanHtml(null, escO)), "plan absent toléré");
+const bpXss = batchPlanHtml({ todo: [{ rm_id: "1<b>", status: "<img src=x>", title: "<script>",
+  instruction: "<b>i" }], skipped: [{ rm_id: "2", reason: "<script>" }] }, escO);
+assert(!/<img|<script>/.test(bpXss), "titre, statut, instruction et raison échappés (anti-XSS)");
+// la case à cocher ne détourne pas le clic de la ligne, et n'existe que sur un ticket
+const mItem2716 = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(/event\.stopPropagation\(\);batchToggle\(/.test(mItem2716[0]),
+  "cocher ne doit pas ouvrir la fiche du ticket");
+assert(/\/\^RM\\d\+\$\/i\.test/.test(mItem2716[0]),
+  "seul un TICKET est sélectionnable (un chantier libre n'a pas de protocole)");
+// l'envoi passe par le récapitulatif : jamais d'appel direct sans dry_run d'abord
+const mOpen = /async function openBatchPlan\(\)[\s\S]*?\n\}/.exec(html);
+assert(/dry_run: true/.test(mOpen[0]), "le récapitulatif s'obtient en dry_run (aucun envoi)");
+const mSend = /async function sendBatch\([\s\S]*?\n\}/.exec(html);
+assert(/batchPlanCache/.test(mSend[0]),
+  "l'envoi n'est possible qu'après avoir chargé — donc affiché — le récapitulatif");
+console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
+
+
 console.log("OK — tous les tests cockpit passent");
+
+// — renderMailList (RM2671) : file de triage des emails —
+const fml = />>> renderMailList[\s\S]*?(function renderMailList[\s\S]*?)\n\/\/ <<< renderMailList/.exec(html);
+assert(fml, "marqueurs >>> renderMailList / <<< renderMailList introuvables");
+const renderMailList = vm.runInNewContext("(" + fml[1] + ")", {});
+// escFn / jargFn sont déjà définis plus haut dans ce fichier (RM2612/RM2623) :
+// on les réutilise tels quels, pour tester avec les MÊMES échappements que la page.
+
+assert(/file vide/.test(renderMailList([], null, escFn, jargFn)), "file vide non signalée");
+
+const mails = [
+  { key: "aaa1", subject: "Panne de caisse", from_name: "CalyClay", from: "a@b.fr",
+    date: "2026-08-17T09:00", folder: "INBOX.Clients", state: "à traiter", attachments: 2,
+    routing: { client: "calyclay", project: null, source: "contacts", confidence: 0.8 } },
+  { key: "bbb2", subject: "Re: suite", from: "c@d.fr", date: "2026-08-16T09:00",
+    state: "créé", created_rm: 2710, rm_id: 2661, routing: {} },
+  { key: "ccc3", subject: "Merci", from: "e@f.fr", date: "2026-08-15T09:00",
+    state: "écarté", dismissed: { reason: "accusé de réception" }, routing: {} },
+];
+let out = renderMailList(mails, null, escFn, jargFn);
+assert(/calyclay\/\?/.test(out), "client sans projet doit rester « /? » (pas de choix silencieux)");
+assert(/80%/.test(out) && /contacts/.test(out), "confiance et source absentes");
+assert(/📎2/.test(out), "pièces jointes non signalées");
+assert(/↩ RM2661/.test(out), "réponse à un fil non signalée");
+assert(/→ RM2710/.test(out), "ticket créé non signalé");
+assert(/accusé de réception/.test(out), "motif d'écartement absent");
+assert(!/Créer le ticket/.test(out), "les actions ne doivent apparaître que sur l'email déplié");
+
+// — email déplié : formulaire pré-rempli et éditable, actions présentes —
+const open = [Object.assign({}, mails[0], {
+  body: "Bonjour,\nça plante.", body_truncated: true,
+  draft: { title: "Caisse HS", project: "calyclay/dolibarr", priority: "high",
+           description: "Le TPE ne répond plus.", confidence: 0.75, actionable: true,
+           warnings: ["projet hors liste (x) → écarté"] },
+})];
+out = renderMailList(open, "aaa1", escFn, jargFn);
+assert(/id="ml-title" value="Caisse HS"/.test(out), "titre non pré-rempli");
+assert(/id="ml-project" value="calyclay\/dolibarr"/.test(out), "projet non pré-rempli");
+assert(/<option selected>high<\/option>|selected>high/.test(out), "priorité non pré-sélectionnée");
+assert(/projet hors liste/.test(out), "avertissement de la proposition non affiché");
+assert(/tronqué à la relève/.test(out), "troncature du corps non signalée");
+["Rédiger", "Créer le ticket", "Note sur…", "Reclasser", "Écarter"].forEach(a =>
+  assert(out.includes(a), "action manquante : " + a));
+
+// — RM2588/mémoire : un argument chaîne passé en onclick doit être en quotes SIMPLES
+//   (jarg), sinon l'attribut se referme et le handler meurt au clic —
+assert(/onclick="mailToggle\('aaa1'\)"/.test(out), "clé non passée via jarg dans onclick");
+assert(!/onclick="[^"]*\{&quot;/.test(out), "objet JSON injecté dans un onclick");
+
+// — échappement : un sujet hostile ne doit pas sortir tel quel —
+out = renderMailList([{ key: "ddd4", subject: '<img src=x onerror=alert(1)>',
+                        from: "x@y.fr", date: "2026-08-14", state: "à traiter", routing: {} }],
+                     null, escFn, jargFn);
+assert(!/<img/.test(out) && /&lt;img/.test(out), "sujet non échappé");
+console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempli, échappement");
+
+// — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
+// `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
+const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
+const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
+      renderCenterTabs = grabFn("renderCenterTabs"), newTicketFormHtml = grabFn("newTicketFormHtml");
+
+let st = { tabs: [], active: null };
+st = upsertTab(st.tabs, "session", "2668", "RM2668");
+assert.equal(st.tabs.length, 1); assert.equal(st.active, "session:2668");
+assert.equal(st.tabs[0].pinned, false, "un onglet est temporaire par défaut");
+
+// règle du temporaire unique : la vue suivante REMPLACE le temporaire précédent
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review"], "le temporaire précédent doit céder la place");
+
+// épinglé : il reste, et le temporaire vient à côté
+st = upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true });
+st = upsertTab(st.tabs, "project", "calyclay/infra", "calyclay/infra");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "project"], "un onglet épinglé survit");
+st = upsertTab(st.tabs, "newticket", "", "nouveau ticket");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "newticket"], "un seul temporaire à la fois");
+
+// ré-ouvrir un onglet existant l'active sans le dupliquer
+const before = st.tabs.length;
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.equal(st.tabs.length, before, "pas de doublon d'onglet");
+assert.equal(st.active, "review:2670");
+
+// fermeture : voisin de gauche, puis de droite, puis plus rien
+let c = closeTabAt(st.tabs, "review:2670", "review:2670");
+assert.equal(c.active, "newticket:", "à défaut de voisin gauche, on prend le droit");
+c = closeTabAt(c.tabs, "newticket:", "newticket:");
+assert.equal(c.tabs.length, 0); assert.equal(c.active, null, "plus d'onglet → aucune vue active");
+c = closeTabAt([{ kind: "review", key: "1" }], "review:404", "review:1");
+assert.equal(c.tabs.length, 1, "fermer un onglet inconnu ne casse rien");
+
+// rendu : actif, épinglé, échappement, et onclick en quotes simples (jarg)
+const tabsHtml = renderCenterTabs(
+  [{ kind: "review", key: "2670", label: "RM2670", pinned: true },
+   { kind: "project", key: "x/y", label: '<b>x</b>', pinned: false }],
+  "review:2670", escFn, jargFn);
+assert(/class="ctab active"/.test(tabsHtml), "onglet actif non marqué");
+assert(/📌/.test(tabsHtml) && /⇧/.test(tabsHtml), "état d'épinglage non rendu");
+assert(/ctab temp/.test(tabsHtml), "onglet temporaire non signalé");
+assert(!/<b>x<\/b>/.test(tabsHtml) && /&lt;b&gt;/.test(tabsHtml), "libellé non échappé");
+assert(/onclick="activateTab\('review:2670'\)"/.test(tabsHtml), "id non passé via jarg");
+assert(/event\.stopPropagation\(\);closeTab/.test(tabsHtml), "la croix doit stopper la propagation");
+
+// formulaire pleine page : les champs qui manquaient à la carte repliée
+const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
+                               ["low", "normal", "high", "urgent"],
+                               '<option value="calyclay/infra">calyclay/infra</option>', escFn);
+["ntf-title", "ntf-project", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
+ "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id =>
+  assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
+assert(/<option value="feature" selected>/.test(form), "type feature non présélectionné");
+assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
+assert(/calyclay\/infra/.test(form), "liste des projets non injectée");
+assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
+console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");

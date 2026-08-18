@@ -49,7 +49,9 @@ onboarding agent), voir d'abord [README.md](README.md).
   indice) ; `karl-mail-draft` rédige (via `claude -p` sans outils, JSON strict) **puis
   crée à la validation humaine**. CDC : `docs/cdc-rm2666-emails-vers-tickets.md` côté
   données. Les contacts qui alimentent le routage se saisissent avec
-  `pm-client-contact` (`meta.yml` du client).
+  `pm-client-contact` (`meta.yml` du client). Côté cockpit, le panneau **📧 emails**
+  (RM2671) ne fait que lire `/mail/queue` et déléguer aux scripts : aucune logique de
+  triage n'est dupliquée dans l'UI.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

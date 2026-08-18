@@ -3957,6 +3957,11 @@ def worklog_buckets(items) -> dict:
             "drifted": bool(opened and opened != st),
             "opened_status": it.get("opened_status") or "",
         }
+        # RM2695 : l'avancement DANS le ticket suit son item — un statut dit où
+        # en est le ticket, pas ce qu'il reste à y faire.
+        for k in ("checklist", "sub_tasks"):
+            if it.get(k):
+                entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
         elif st in WORKLOG_WAITING:
@@ -3980,15 +3985,31 @@ _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
 def _worklog_apply_live(items, live):
-    """Superpose le statut LIVE (map ref→statut, résolu du frontmatter) sur les
-    items du worklog : le statut affiché devient le statut réel du ticket, tandis
-    que `opened_status` reste le snapshot d'ouverture (la dérive reste calculable).
-    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son statut
-    stocké. Résolution injectée → pur et testable."""
+    """Superpose l'état LIVE (map ref→{status, checklist, sub_tasks}, résolu du
+    frontmatter) sur les items du worklog : le statut affiché devient le statut
+    réel du ticket, tandis que `opened_status` reste le snapshot d'ouverture (la
+    dérive reste calculable). RM2695 y ajoute l'avancement — la checklist des
+    critères et les sous-tâches, lues au même passage.
+
+    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son
+    statut stocké. Une entrée sous forme de CHAÎNE reste acceptée : c'était la
+    forme d'avant RM2695, et un cache chaud peut encore en contenir.
+    Résolution injectée → pur et testable."""
     out = []
     for it in items or []:
         lv = (live or {}).get(it.get("ref"))
-        out.append({**it, "status": lv} if lv else it)
+        if not lv:
+            out.append(it)
+            continue
+        if isinstance(lv, str):
+            lv = {"status": lv}
+        merged = {**it}
+        if lv.get("status"):
+            merged["status"] = lv["status"]
+        for k in ("checklist", "sub_tasks"):
+            if lv.get(k):
+                merged[k] = lv[k]
+        out.append(merged)
     return out
 # <<< worklog_apply_live
 
@@ -4007,12 +4028,45 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         if not m:
             continue
         tf = _find_task_file(m.group(1))
-        if tf:
-            st = _read_task_meta(tf).get("status")
-            if st:
-                live[it["ref"]] = st
+        if not tf:
+            continue
+        st = _read_task_meta(tf).get("status")
+        # RM2695 : le fichier est DÉJÀ ouvert pour le statut — on en profite pour
+        # l'avancement (checklist) et les sous-tâches. Une requête par ticket
+        # depuis le cockpit aurait coûté N appels tous les 10 s ; ici c'est une
+        # lecture de plus dans une garde de fraîcheur qui existe déjà.
+        entry = {"status": st} if st else {}
+        try:
+            text = tf.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        if text:
+            cl = parse_checklist(_task_body(text))
+            if cl["total"]:
+                entry["checklist"] = cl
+            subs = _subtasks_status(_parse_frontmatter(text).get("sub_tasks"))
+            if subs:
+                entry["sub_tasks"] = subs
+        if entry:
+            live[it["ref"]] = entry
     _worklog_live_cache[session_id] = (now, live)
     return live, now
+
+
+def _subtasks_status(refs) -> list:
+    """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
+    ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
+    sur l'avancement. Lecture bornée (une sous-tâche = un `_read_task_meta`)."""
+    out = []
+    for ref in (refs or [])[:20]:
+        rid = re.sub(r"^RM", "", str(ref).strip())
+        if not rid.isdigit():
+            continue
+        tf = _find_task_file(rid)
+        meta = _read_task_meta(tf) if tf else {}
+        out.append({"rm_id": rid, "status": meta.get("status") or "",
+                    "title": meta.get("title") or ""})
+    return out
 
 
 def op_worklog(rm_id: str, force: bool = False) -> dict:
@@ -4066,6 +4120,309 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
                               if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
 
+
+# ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────
+# UN seul calcul, trois vues : le worklog projet (ici), le dashboard global (T3)
+# et, à terme, la vue par session. Trois pipelines auraient produit trois
+# vérités — le worklog en a déjà deux rendus (JSON et Markdown), on ne rejoue pas
+# cette erreur à l'échelle du projet.
+#
+# Aucune source nouvelle : index des tâches (statut, checklist RM2695), index des
+# clés de session (cwd → client/projet), worklogs de session (tickets, MR,
+# demandes), tmux (vivacité). Rien à saisir à la main.
+_OVERVIEW_TTL = 60.0
+_overview_cache: dict = {}      # clé (client, project) → (ts, payload)
+
+# Ce qui compte comme « en cours » vs « en attente d'un geste » dans la vue
+# projet. Volontairement dérivé du flow NORMS, pas d'une liste ad hoc.
+OVERVIEW_ACTIVE = {"en_cours", "a_corriger"}
+OVERVIEW_WAITING = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+def _overview_open_tasks(client=None, project=None) -> list:
+    """Tickets ouverts (actifs ou en attente), en UN parcours de l'index — 1036
+    fichiers en 0,05 s sur ce poste, frontmatter seul. La checklist (corps du
+    fichier) n'est lue que pour les tickets réellement rendus."""
+    wanted = OVERVIEW_ACTIVE | OVERVIEW_WAITING
+    out = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        cl, pr = _task_client_project(tf)
+        if (client and cl != client) or (project and pr != project):
+            continue
+        meta = _read_task_meta(tf)
+        if meta.get("status") not in wanted:
+            continue
+        entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
+                 "status": meta.get("status"), "priority": meta.get("priority") or "",
+                 "client": cl, "project": pr}
+        try:
+            body = _task_body(tf.read_text(encoding="utf-8"))
+        except OSError:
+            body = ""
+        cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
+        if cl_stats["total"]:
+            entry["checklist"] = cl_stats
+        out.append(entry)
+    out.sort(key=lambda e: -int(e["rm_id"]))
+    return out
+
+
+def _overview_sessions() -> list:
+    """Sessions connues (index des clés), avec leur projet et leur vivacité.
+
+    Les sessions ÉTEINTES comptent : c'est précisément là que dorment les MR
+    oubliées et les tickets qu'on croit finis. Les omettre reproduirait le trou
+    que cette vue est censée boucher."""
+    live = {s["rm_id"] for s in _list_sessions()}
+    out = []
+    for sid, k in _all_keys():
+        client, project = _pm_project_of_cwd(k.get("cwd"))
+        out.append({"sid": sid, "client": client, "project": project,
+                    "session_id": k.get("session_id"), "cwd": k.get("cwd"),
+                    "alive": sid in live,
+                    "title": _transcript_title(k.get("session_id"))})
+    return out
+
+
+def _overview_worklog(session_id):
+    """Worklog d'une session, lu sur disque (pas d'exigence de session vivante,
+    contrairement à `op_worklog` qui sert l'onglet d'une session attachée)."""
+    if not session_id:
+        return None
+    try:
+        with (WORKLOG_DIR / f"{session_id}.json").open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2696 : état consolidé par (client, projet) — sessions, tickets ouverts
+    avec leur avancement, MR non mergées, demandes non ticketées.
+
+    Filtrable (`?client=&project=`). Garde de fraîcheur de 60 s : le cockpit
+    poll, l'agrégat ne se recalcule pas à chaque passage."""
+    client = (qs or {}).get("client") or None
+    project = (qs or {}).get("project") or None
+    key = (client or "", project or "")
+    now = time.time()
+    hit = _overview_cache.get(key)
+    if hit and now - hit[0] < _OVERVIEW_TTL and not (qs or {}).get("force"):
+        return dict(hit[1], cached=True)
+
+    groups: dict = {}
+
+    def grp(cl, pr):
+        if not cl or not pr:
+            return None
+        if (client and cl != client) or (project and pr != project):
+            return None
+        return groups.setdefault((cl, pr), {
+            "client": cl, "project": pr, "key": f"{cl}/{pr}",
+            "sessions": [], "tickets": [], "mrs": [], "requests": [],
+        })
+
+    # 1. sessions du projet (vivantes ET éteintes)
+    sessions = _overview_sessions()
+    for s in sessions:
+        g = grp(s.get("client"), s.get("project"))
+        if g is not None:
+            g["sessions"].append({k: s[k] for k in ("sid", "session_id", "alive", "title")})
+
+    # 2. tickets ouverts — y compris ceux dont plus aucune session ne parle
+    by_rm: dict = {}
+    for t in _overview_open_tasks(client, project):
+        g = grp(t["client"], t["project"])
+        if g is None:
+            continue
+        row = dict(t, sessions=[], has_live_session=False,
+                   bucket=("waiting" if t["status"] in OVERVIEW_WAITING else "active"))
+        g["tickets"].append(row)
+        by_rm[t["rm_id"]] = row
+
+    # 3. worklogs : qui travaille sur quoi, MR pendantes, demandes non ticketées
+    seen_mr = set()
+    for s in sessions:
+        wl = _overview_worklog(s.get("session_id"))
+        if not wl:
+            continue
+        for it in wl.get("items") or []:
+            m = re.match(r"RM(\d+)$", str(it.get("ref") or ""))
+            if not m:
+                continue
+            row = by_rm.get(m.group(1))
+            if row is None:                 # ticket clos, ou hors périmètre du filtre
+                continue
+            if s["sid"] not in row["sessions"]:
+                row["sessions"].append(s["sid"])
+            if s.get("alive"):
+                row["has_live_session"] = True
+        g = grp(s.get("client"), s.get("project"))
+        if g is None:
+            continue
+        for mr in wl.get("mrs") or []:
+            if (mr.get("state") or "opened") not in ("opened", "open", "reopened"):
+                continue
+            k = (mr.get("repo"), str(mr.get("iid")))
+            if k in seen_mr:
+                continue
+            seen_mr.add(k)
+            g["mrs"].append(dict(mr, sid=s["sid"], alive=s.get("alive")))
+        for i, r in enumerate(wl.get("requests") or []):
+            if r.get("status", "nouveau") in REQUEST_DONE_STATES:
+                continue
+            g["requests"].append(dict(r, n=i + 1, sid=s["sid"]))
+
+    out = []
+    for g in groups.values():
+        # un ticket actif dont AUCUNE session ne parle est le cas qu'on perd de
+        # vue : il monte en tête de sa catégorie plutôt que de se fondre.
+        g["tickets"].sort(key=lambda t: (t["bucket"] != "active",
+                                         t["has_live_session"], -int(t["rm_id"])))
+        g["sessions"].sort(key=lambda s: (not s["alive"], s["sid"]))
+        g["counts"] = {
+            "sessions_live": sum(1 for s in g["sessions"] if s["alive"]),
+            "sessions": len(g["sessions"]),
+            "active": sum(1 for t in g["tickets"] if t["bucket"] == "active"),
+            "waiting": sum(1 for t in g["tickets"] if t["bucket"] == "waiting"),
+            "orphans": sum(1 for t in g["tickets"]
+                           if t["bucket"] == "active" and not t["has_live_session"]),
+            "mrs": len(g["mrs"]), "requests": len(g["requests"]),
+        }
+        out.append(g)
+    out.sort(key=lambda g: (-g["counts"]["active"], g["key"]))
+    payload = {"generated_at": int(now), "projects": out, "count": len(out),
+               "filtered": bool(client or project), "cached": False}
+    _overview_cache[key] = (now, payload)
+    return payload
+
+
+# ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
+# Le geste : cocher des tickets, cliquer « traiter », et la SESSION ATTACHÉE
+# enchaîne — aucune session créée. La composition de la consigne vit ici, pas
+# dans le cockpit : le mapping statut → action, le plafond et les exclusions sont
+# des règles métier, elles doivent être testables sans navigateur.
+BATCH_MAX = 10          # au-delà : confirmation explicite (`allow_large`)
+
+# Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
+# une étude se termine en validation, un dev se termine en test demandeur.
+BATCH_ACTIONS = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
+    "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
+    "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
+    "a_tester_dev": ("tester", "faire la passe de test agent et router selon le verdict"),
+}
+# Statuts où l'agent n'a RIEN à faire : la balle est chez le demandeur, en MEP,
+# ou le ticket est clos. Les inclure enverrait l'agent tourner à vide.
+BATCH_SKIP = {
+    "a_tester_demandeur": "attend TON verdict, pas celui de l'agent",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
+
+# >>> batch_plan — pure (testée par test_karl_agent_batch.py)
+def batch_plan(items) -> dict:
+    """Répartit les tickets demandés entre CE QUI PART et ce qui est écarté.
+
+    Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
+    affiche avant l'envoi. Un statut inconnu (nouveau statut NORMS pas encore
+    connu ici) est écarté aussi — deviner l'action à faire sur un ticket serait
+    pire que de le dire."""
+    todo, skipped = [], []
+    seen = set()
+    for it in items or []:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        status = str((it or {}).get("status") or "").strip()
+        act = BATCH_ACTIONS.get(status)
+        if act:
+            todo.append({"rm_id": rm, "status": status, "action": act[0],
+                         "instruction": act[1], "title": (it or {}).get("title") or ""})
+        else:
+            todo_reason = BATCH_SKIP.get(status) or f"statut « {status or '?'} » : aucune action définie"
+            skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
+                            "title": (it or {}).get("title") or ""})
+    return {"todo": todo, "skipped": skipped}
+# <<< batch_plan
+
+
+# >>> batch_prompt — pure (testée par test_karl_agent_batch.py)
+def batch_prompt(todo) -> str:
+    """La consigne envoyée à l'agent. Elle est AUTO-PORTANTE : l'agent qui la
+    reçoit ne voit pas l'écran d'où elle vient.
+
+    Elle exige les trois retours arbitrés : le statut de fin du flux NORMS (qui
+    réattribue au demandeur), la notification de fin de lot, et le récapitulatif
+    au worklog. Sans ça, « traite ces tickets » laisserait le demandeur surveiller
+    des sessions pour savoir où ça en est."""
+    lignes = []
+    for i, t in enumerate(todo or [], 1):
+        titre = (" — " + t["title"]) if t.get("title") else ""
+        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+    corps = "\n".join(lignes)
+    return (
+        f"Traite ces {len(todo or [])} ticket(s) EN SÉRIE, dans cet ordre, en "
+        "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
+        "livraison) :\n"
+        f"{corps}\n\n"
+        "Règles du lot :\n"
+        "- un ticket à la fois, jusqu'à son statut de fin ; ne passe au suivant "
+        "qu'une fois le précédent rendu ;\n"
+        "- chaque ticket revient au demandeur par son statut de fin NORMS "
+        "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+        "- consigne l'avancement du lot au worklog "
+        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
+        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
+        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
+        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
+        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "bilan ticket par ticket."
+    )
+# <<< batch_prompt
+
+
+def op_worklog_batch(payload: dict) -> dict:
+    """RM2716 — compose (et, sauf `dry_run`, envoie) la consigne de lot à la
+    session attachée. `dry_run` sert le récapitulatif AVANT confirmation : rien
+    ne part sans que le demandeur ait vu ce qui va être demandé."""
+    sid = str(payload.get("rm_id") or payload.get("sid") or "").strip()
+    if not _valid_sid(sid):
+        raise ApiError(400, "session invalide")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    plan = batch_plan(items)
+    todo = plan["todo"]
+    dry = bool(payload.get("dry_run"))
+    if not todo:
+        raise ApiError(400, "aucun ticket actionnable dans la sélection")
+    if len(todo) > BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(todo)} tickets : au-delà de {BATCH_MAX}, "
+                            "confirme explicitement (une file trop longue déborde "
+                            "le contexte de l'agent)")
+    prompt = batch_prompt(todo)
+    out = {"sid": sid, "count": len(todo), "todo": todo,
+           "skipped": plan["skipped"], "prompt": prompt, "sent": False}
+    if dry:
+        return out
+    if not _has_session(sid):
+        raise ApiError(404, f"session absente : {_session_name(sid)}")
+    op_send({"rm_id": sid, "msg": prompt, "enter": True})
+    out["sent"] = True
+    return out
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
@@ -4431,6 +4788,39 @@ def _task_body(text: str) -> str:
     return text[end + 4:].strip() if end != -1 else ""
 
 
+# >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
+_CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
+
+
+def parse_checklist(body: str, max_items: int = 40) -> dict:
+    """RM2695 : l'avancement d'un ticket, lu là où il est DÉJÀ tenu — la
+    checklist des critères d'acceptation de sa description (tripwire #9
+    « description vivante », miroir du `done_ratio`).
+
+    Aucun référentiel de tâches à créer : un second endroit à maintenir
+    divergerait du premier en une semaine. On lit `- [ ]` / `- [x]`, puces `*` et
+    `+` comprises, indentation tolérée (sous-items d'une liste).
+
+    `items` est plafonné (l'UI n'affiche que le RESTE à faire, et une description
+    n'est pas un backlog) ; `done`/`total` comptent tout, eux, sinon le compteur
+    mentirait sur les tickets longs."""
+    done = total = 0
+    items = []
+    for line in (body or "").splitlines():
+        m = _CHECKLIST_RE.match(line)
+        if not m:
+            continue
+        checked = m.group(1) in ("x", "X")
+        total += 1
+        if checked:
+            done += 1
+        elif len(items) < max_items:
+            items.append(m.group(2))
+    return {"done": done, "total": total, "items": items,
+            "truncated": total - done > len(items)}
+# <<< parse_checklist
+
+
 def _log_tail(tf: Path, n: int = 18) -> str:
     logf = tf.with_name(tf.stem + ".log.md")
     try:
@@ -4543,6 +4933,11 @@ def op_resolve(rm_id: str) -> dict:
         "environments": envs, "active_env": _env_for_status(status, envs),
         "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
         "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        # RM2695 : avancement = la checklist des critères d'acceptation, seule
+        # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
+        # statut, une liste d'ids n'apprenant rien sur l'avancement.
+        "checklist": parse_checklist(_task_body(text)),
+        "sub_tasks_status": _subtasks_status(fm.get("sub_tasks")),
         "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
         "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
@@ -5715,6 +6110,37 @@ def op_create_ticket(payload: dict) -> dict:
     tags = (payload.get("tags") or "").strip()
     if tags:
         args += ["--tags", tags]
+    # RM2672 — le formulaire pleine page porte les champs que la carte repliée du
+    # panneau gauche n'avait pas : passe agent-testeur, env cible, estimation.
+    # Chacun est validé ici : le client ne compose jamais l'argv.
+    agent_test = (payload.get("agent_test") or "").strip()
+    if agent_test:
+        if agent_test not in ("default", "oui", "non", "demander"):
+            raise ApiError(400, "agent_test invalide (default|oui|non|demander)")
+        args += ["--agent-test", agent_test]
+    target_env = (payload.get("target_env") or "").strip()
+    if target_env:
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", target_env):
+            raise ApiError(400, "target_env invalide (kebab-case)")
+        args += ["--target-env", target_env]
+    for field, flag, lo, hi in (("est_human_minutes", "--est-human-minutes", 0, 100000),
+                                ("est_ai_minutes", "--est-ai-minutes", 0, 100000),
+                                ("est_tokens", "--est-tokens", 0, 100_000_000)):
+        v = payload.get(field)
+        if v in (None, ""):
+            continue
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            raise ApiError(400, f"{field} : nombre attendu")
+        if not lo <= n <= hi:
+            raise ApiError(400, f"{field} hors bornes")
+        args += [flag, str(n)]
+    difficulty = (payload.get("difficulty") or "").strip()
+    if difficulty:
+        if difficulty not in ("low", "medium", "high", "critical"):
+            raise ApiError(400, "difficulty invalide")
+        args += ["--est-difficulty", difficulty]
     try:
         p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
                            text=True, timeout=90, env=os.environ)
@@ -6181,9 +6607,16 @@ ENV_TOOLS = [
 _ENV_REPO_SKIP = {"envs", "repos", "node_modules", ".git", "vendor", "var"}
 
 
-def _chk(label, level, detail="", fix=""):
-    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation."""
-    return {"label": label, "level": level, "detail": detail, "fix": fix}
+def _chk(label, level, detail="", fix="", section=""):
+    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation.
+
+    `section` (RM2708) : sous-groupe DANS une famille — le client, pour les
+    repos. Une famille de 44 dépôts ne se lit pas à plat ; l'UI en fait des
+    sections repliables. Vide = la famille n'a pas de sous-groupe."""
+    c = {"label": label, "level": level, "detail": detail, "fix": fix}
+    if section:
+        c["section"] = section
+    return c
 
 
 # >>> envstatus_summary — pure (testée par test_karl_agent_envstatus.py)
@@ -6432,24 +6865,79 @@ def _envchk_secrets():
         except OSError as e:
             out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
                             "scripts/unlock-vault.sh"))
+    out.extend(_envchk_vault_instances())
+    return out
+
+
+def _envchk_vault_instances():
+    """Un diagnostic par instance de vault déclarée (axe `secret`, RM2662).
+
+    Ne montre que les NOMS des identifiants trouvés — jamais leurs valeurs
+    (tripwire 11). Sans registre lisible, on retombe sur le contrôle historique
+    des variables Vaultwarden globales.
+    """
     envf = REPO_ROOT / ".env"
-    needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
-    try:
+
+    def _env_keys():
+        """Variables déclarées dans le `.env` d'instance (noms seuls)."""
         present = set()
-        for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                present.add(line.split("=", 1)[0].strip())
+        try:
+            for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    present.add(line.split("=", 1)[0].strip())
+        except OSError:
+            return None
+        return present
+
+    # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
+    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
+    present = _env_keys()
+    env_absent = present is None
+    if env_absent:
+        present = set()
+
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        import pm_secrets
+        reg = Registry.from_config(PMConfig.load().providers)
+        instances = [i for i in reg.servers.values() if i.axis == "secret"]
+        defaut = reg.defaults.get("secret")
+    except Exception:  # noqa: BLE001 — registre absent : contrôle historique
+        instances = []
+        defaut = None
+
+    if not instances:
+        if env_absent:
+            return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
+                         "normal dans un worktree : les identifiants viennent alors de "
+                         "~/.config/mmi-pm/.env")]
+        needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
         missing = [v for v in needed if v not in present]
         if missing:
-            out.append(_chk(".env Vaultwarden", "warn",
-                            "variable(s) absente(s) : " + ", ".join(missing),
-                            "renseigner dans " + str(envf)))
+            return [_chk("vault : .env", "warn",
+                         "variable(s) absente(s) : " + ", ".join(missing),
+                         "renseigner dans " + str(envf))]
+        return [_chk("vault : .env", "ok",
+                     "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents")]
+
+    out = []
+    for inst in sorted(instances, key=lambda i: i.name):
+        # Clés du dev (os.environ, superposé par pm_paths) + celles du .env d'instance.
+        keys = set(pm_secrets.creds_keys(inst.name, legacy=(inst.name == defaut)))
+        prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
+        keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
+        etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
+        if keys:
+            out.append(_chk(etiquette, "ok",
+                            f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
         else:
-            out.append(_chk(".env Vaultwarden", "ok",
-                            "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents"))
-    except OSError:
-        out.append(_chk(".env Vaultwarden", "warn", f".env illisible ({envf})"))
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · aucun identifiant trouvé",
+                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
     return out
 
 
@@ -6508,7 +6996,24 @@ def _gitlab_push_state(max_age=900):
     return st, age
 
 
-def _envchk_git():
+# >>> env_repo_section — pure (testée par test_karl_agent_envstatus.py)
+def env_repo_section(label):
+    """RM2708 : le CLIENT d'un repo, depuis son label (`<client>/<projet>` sous
+    une racine autorisée). Un repo de profondeur 1 (le core PM, un dépôt posé à
+    la racine) n'a pas de client : il va dans « hors client » plutôt que de
+    fabriquer une section d'un seul élément portant son propre nom."""
+    lab = str(label or "").strip().strip("/")
+    return lab.split("/")[0] if "/" in lab else "hors client"
+# <<< env_repo_section
+
+
+def _envchk_repos():
+    """RM2708 : les dépôts, dans leur propre famille et sectionnés par client.
+
+    Ils étaient mêlés aux contrôles d'accès de « Git / GitLab » — 44 lignes sur
+    ce poste, qui noyaient les trois qui comptent (PAT périmé, push cassé). Ce
+    sont deux questions distinctes : « mes dépôts sont-ils à jour ? » et
+    « puis-je pousser ? »."""
     import concurrent.futures
     pairs = []
     roots = _enumerate_pm_repos()
@@ -6520,11 +7025,20 @@ def _envchk_git():
             except Exception:
                 chk = None
             if chk:
-                pairs.append((_env_repo_label(futs[fut]), chk))
+                label = _env_repo_label(futs[fut])
+                chk["section"] = env_repo_section(label)
+                pairs.append((label, chk))
     out = [c for _, c in sorted(pairs, key=lambda x: x[0])]
     if len(roots) >= 120:   # cap atteint : le DIRE plutôt que laisser croire à l'exhaustivité
-        out.append(_chk("repos PM", "info", "liste tronquée à 120 repos — certains non auscultés"))
-    out.append(_probe_pat())
+        out.append(_chk("repos PM", "info",
+                        "liste tronquée à 120 repos — certains non auscultés"))
+    return out
+
+
+def _envchk_git():
+    """Accès GitLab : jeton, clé dédiée, capacité de push. Les dépôts eux-mêmes
+    vivent dans leur propre famille depuis RM2708 (`_envchk_repos`)."""
+    out = [_probe_pat()]
     key = Path(os.path.expanduser("~/.ssh/id_ed25519_gitlab"))
     if key.exists():
         out.append(_chk("clé GitLab dédiée", "ok",
@@ -6612,6 +7126,7 @@ def op_env_status() -> dict:
         ("Outils & dépendances", _envchk_tools),
         ("Secrets", _envchk_secrets),
         ("Git / GitLab", _envchk_git),
+        ("Repos", _envchk_repos),        # RM2708 : les dépôts, sectionnés par client
         ("SSH", _envchk_ssh),
         ("PM", _envchk_pm),
     ]
@@ -6624,6 +7139,143 @@ def op_env_status() -> dict:
         groups.append({"name": name, "checks": checks})
     return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "groups": groups, "summary": envstatus_summary(groups)}
+
+
+# ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
+# Le cockpit ne réimplémente RIEN du pipeline : il lit la file déposée par
+# karl-mail-fetch et délègue chaque action au script correspondant (argv strict,
+# jamais de shell). La file vit hors git (courrier client) — cf. RM2668.
+MAIL_DIR = STATE_DIR / "mail"
+
+
+def _mail_queue_dir() -> Path:
+    return MAIL_DIR / "queue"
+
+
+def op_mail_queue(qs: dict) -> dict:
+    """File de triage : un email = expéditeur, sujet, routage proposé, état.
+
+    Le corps n'est renvoyé QUE sur demande (`key=`) : la liste n'a pas à trimballer
+    des milliers de caractères de courrier client dans chaque rafraîchissement.
+    """
+    d = _mail_queue_dir()
+    wanted = (qs.get("key") or "").strip()
+    show_done = qs.get("done") == "1"
+    items = []
+    if d.is_dir():
+        for f in sorted(d.glob("*.json")):
+            try:
+                e = json.loads(f.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            done = bool(e.get("created_rm") or e.get("dismissed"))
+            if done and not show_done and e.get("key") != wanted:
+                continue
+            item = {k: e.get(k) for k in (
+                "key", "from", "from_name", "subject", "date", "folder", "rm_id",
+                "kind", "created_rm", "outcome", "message_id")}
+            item["attachments"] = len(e.get("attachments") or [])
+            item["routing"] = e.get("routing") or {}
+            item["draft"] = e.get("draft") or {}
+            item["dismissed"] = e.get("dismissed") or None
+            item["state"] = ("créé" if e.get("created_rm") else
+                             "écarté" if e.get("dismissed") else
+                             "proposé" if e.get("draft") else "à traiter")
+            if e.get("key") == wanted:          # détail : corps complet
+                item["body"] = e.get("body") or ""
+                item["body_truncated"] = bool(e.get("body_truncated"))
+                item["attachment_list"] = e.get("attachments") or []
+            items.append(item)
+    items.sort(key=lambda e: e.get("date") or "", reverse=True)
+    pending = sum(1 for e in items if e["state"] in ("à traiter", "proposé"))
+    return {"emails": items, "pending": pending}
+
+
+def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
+    """Exécute un script de la chaîne mail. Même modèle que le catalogue ⚙ :
+    argv strict, script en allowlist, aucune interpolation shell."""
+    if script not in ("karl-mail-fetch.py", "karl-mail-route.py", "karl-mail-draft.py"):
+        raise ApiError(400, f"script mail inconnu : {script}")
+    path = (REPO_ROOT / "scripts" / script).resolve()
+    if not path.is_file():
+        raise ApiError(500, f"script introuvable : {script}")
+    for a in args:
+        if not isinstance(a, str):
+            raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout,
+                           env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"{script} : timeout ({timeout}s)")
+    return {"ok": p.returncode == 0, "rc": p.returncode,
+            "stdout": (p.stdout or "")[-4000:], "stderr": (p.stderr or "")[-2000:]}
+
+
+def _mail_key(payload: dict) -> str:
+    key = str(payload.get("key") or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{6,32}", key):
+        raise ApiError(400, "clé d'email invalide")
+    return key
+
+
+def op_mail_fetch(payload: dict) -> dict:
+    """Relève la boîte. Lecture seule côté IMAP (--mark-seen n'est pas exposé ici)."""
+    args = []
+    days = payload.get("days")
+    if days:
+        args += ["--days", str(int(days))]
+    if payload.get("dry_run"):
+        args.append("--dry-run")
+    return _mail_script("karl-mail-fetch.py", args)
+
+
+def op_mail_route(payload: dict) -> dict:
+    args = ["--redmine"] if payload.get("redmine") else []
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_route_set(payload: dict) -> dict:
+    """Correction humaine du routage : elle fait autorité ET s'apprend (RM2669)."""
+    target = str(payload.get("to") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}(/[a-z0-9][a-z0-9._-]{0,47})?", target):
+        raise ApiError(400, "cible attendue : client ou client/projet")
+    args = ["--set", _mail_key(payload), "--to", target]
+    if payload.get("domain"):
+        args.append("--domain")
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_draft(payload: dict) -> dict:
+    args = ["--draft", _mail_key(payload)]
+    if payload.get("full_body"):
+        args.append("--full-body")
+    if payload.get("force"):
+        args.append("--force")
+    return _mail_script("karl-mail-draft.py", args, timeout=600)
+
+
+def op_mail_create(payload: dict) -> dict:
+    """Création du ticket — c'est la VALIDATION humaine (CDC D1)."""
+    args = ["--create", _mail_key(payload)]
+    for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
+                                 ("--title", "title", r".{1,120}"),
+                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--note-on", "note_on", r"\d{1,8}")):
+        v = str(payload.get(field) or "").strip()
+        if v:
+            if not re.fullmatch(pattern, v, re.S):
+                raise ApiError(400, f"{field} invalide")
+            args += [flag, v]
+    return _mail_script("karl-mail-draft.py", args)
+
+
+def op_mail_dismiss(payload: dict) -> dict:
+    args = ["--dismiss", _mail_key(payload)]
+    reason = str(payload.get("reason") or "").strip()
+    if reason:
+        args += ["--reason", reason[:200]]
+    return _mail_script("karl-mail-draft.py", args)
 
 
 def op_test_queue(qs: dict) -> list:
@@ -7533,6 +8185,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
                 return self._send_json(200, {"settings": _pm_settings()})
+            if path == "/mail/queue":          # RM2671 : file de triage des emails
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_mail_queue(qs))
             if path == "/pm/test-queue":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"queue": op_test_queue(qs)})
@@ -7593,6 +8248,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/overview":                # RM2696 : agrégat par projet
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_overview(qs, self.auth_ctx))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
             if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
@@ -7685,6 +8343,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/worklog/batch":       # RM2716 : traiter un lot en série
+                return self._send_json(200, op_worklog_batch(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
             if path == "/scroll":
@@ -7713,6 +8373,19 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
+            # RM2671 — panneau « emails » : chaque geste délègue à son script
+            if path == "/mail/fetch":
+                return self._send_json(200, op_mail_fetch(payload))
+            if path == "/mail/route":
+                return self._send_json(200, op_mail_route(payload))
+            if path == "/mail/route-set":
+                return self._send_json(200, op_mail_route_set(payload))
+            if path == "/mail/draft":
+                return self._send_json(200, op_mail_draft(payload))
+            if path == "/mail/create":
+                return self._send_json(200, op_mail_create(payload))
+            if path == "/mail/dismiss":
+                return self._send_json(200, op_mail_dismiss(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})

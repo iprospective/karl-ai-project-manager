@@ -17,7 +17,8 @@ adaptations de sécurité (mails, paiements, sync, domaine). Piloté par le skil
 - `lib/<type>.sh` — logique par type de site (`presta`, `dolibarr`, `wordpress`…).
 - `environments/<env>.conf` — **gitignoré** : confs machine-spécifiques (db, alias SSH,
   domaine). **Aucun secret en clair** : MySQL admin local via `~/.my.cnf`, secrets
-  distants via Vaultwarden (`vaultwarden://` dans la conf, résolu au runtime).
+  distants via un vault déclaré (URI `secret://…` — ou `vaultwarden://…`, forme
+  historique — dans la conf, résolu au runtime).
 
 Détails d'usage et conventions : voir le skill `mmi-env-sync`.
 

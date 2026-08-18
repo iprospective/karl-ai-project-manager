@@ -1,6 +1,6 @@
 #!/bin/bash
 # helpers.sh — fonctions utilitaires partagées (log, confirmation, garde-fous,
-# résolution de secret Vaultwarden, auth MySQL sécurisée).
+# résolution de secret (vault déclaré), auth MySQL sécurisée).
 
 # --- logging ---------------------------------------------------------------
 log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
@@ -35,8 +35,9 @@ guard_local_target() {
   esac
 }
 
-# --- Vaultwarden -----------------------------------------------------------
-# resolve_secret "vaultwarden://org/col/item" [field] → valeur sur stdout.
+# --- Résolution de secret --------------------------------------------------
+# resolve_secret "<uri>" [field] → valeur sur stdout. URI : secret://<instance>/…,
+# secret:<chemin> ou vaultwarden://org/col/item (forme historique).
 # IMPORTANT : ne fait PAS exit (utilisé en substitution de commande). Renvoie
 # un code != 0 en cas d'échec ; le message part sur stderr. Le caller DOIT
 # tester le code (ex: val="$(resolve_secret …)" || die …).
@@ -50,7 +51,7 @@ resolve_secret() {
   val="$("$RESOLVE_SECRET_BIN" "$uri" "$field")"; rc=$?
   case $rc in
     0) printf '%s' "$val"; return 0 ;;
-    2) echo "Coffre Vaultwarden verrouillé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
+    2) echo "Vault verrouillé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
     3) echo "vault-agentd non lancé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
     *) echo "Échec résolution secret '$uri' (code $rc)." >&2 ;;
   esac
@@ -61,17 +62,18 @@ resolve_secret() {
 # Deux modes selon $MYSQL_ADMIN_SECRET :
 #   - vide (dev local) → on s'appuie sur le ~/.my.cnf de l'utilisateur (root) ;
 #     on ajoute juste -h $MYSQL_HOST.
-#   - vaultwarden://… → on construit un --defaults-file dédié (0600, ignore
+#   - URI de secret (secret://…, secret:…, vaultwarden://…) → on construit un
+#     --defaults-file dédié (0600, ignore
 #     ~/.my.cnf) avec user=$MYSQL_ADMIN_USER + mot de passe résolu (abort si échec).
 # Le fichier temporaire est supprimé par le trap de sync.sh.
 MYSQL_AUTH_ARGS=()
 mysql_local_init() {
   case "${MYSQL_ADMIN_SECRET:-}" in
-    vaultwarden://*)
+    secret://*|secret:*|vaultwarden://*)
       local pass
       pass="$(resolve_secret "$MYSQL_ADMIN_SECRET" password)" \
         || die "Impossible de résoudre le mot de passe admin MySQL ($MYSQL_ADMIN_SECRET)."
-      [ -n "$pass" ] || die "Mot de passe admin MySQL vide après résolution Vaultwarden."
+      [ -n "$pass" ] || die "Mot de passe admin MySQL vide après résolution du secret."
       MYSQL_DEFAULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/.synchro-my.XXXXXX")"
       chmod 600 "$MYSQL_DEFAULTS_FILE"
       printf '[client]\nhost=%s\nuser=%s\npassword=%s\n' \
@@ -83,7 +85,7 @@ mysql_local_init() {
       log "Auth MySQL locale via ~/.my.cnf (host $MYSQL_HOST)."
       MYSQL_AUTH_ARGS=(-h "$MYSQL_HOST")
       ;;
-    *) die "MYSQL_ADMIN_SECRET doit être une URI vaultwarden:// ou vide (reçu: $MYSQL_ADMIN_SECRET)." ;;
+    *) die "MYSQL_ADMIN_SECRET doit être une URI de secret (secret://…, secret:…, vaultwarden://…) ou vide (reçu: $MYSQL_ADMIN_SECRET)." ;;
   esac
   mysql "${MYSQL_AUTH_ARGS[@]}" -e "SELECT 1;" >/dev/null 2>&1 \
     || die "Connexion MySQL locale impossible (host=$MYSQL_HOST). Vérifie ~/.my.cnf ou MYSQL_ADMIN_SECRET."

@@ -10,7 +10,7 @@ DUMP_FILE=""   # rempli par db_dump_from_prod
 #   remote-backup-script (défaut) : la prod a un backup/mysqlbackup_all.sh qui
 #       génère backup/mysql/<db>.sql.gz ; on l'exécute via ssh puis on rsync.
 #   remote-mysqldump : on lance mysqldump à distance via ssh (creds prod requis :
-#       REMOTE_DB_USER + REMOTE_DB_SECRET vaultwarden).
+#       REMOTE_DB_USER + REMOTE_DB_SECRET : URI de secret).
 db_dump_from_prod() {
   mkdir -p "$TMP_PATH"
   DUMP_FILE="$TMP_PATH/$DB_TO.sql.gz"

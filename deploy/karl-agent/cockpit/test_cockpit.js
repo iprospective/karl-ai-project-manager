@@ -1777,6 +1777,48 @@ assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss),
   "titre, statut, session et demande échappés (anti-XSS)");
 console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées");
 
+
+// — RM2716 : sélection de tickets du worklog → traitement en série —
+const batchPlanHtml = grabO("batchPlanHtml");
+const PLAN = {
+  count: 2,
+  todo: [{ rm_id: "10", status: "a_faire", title: "dev", instruction: "traiter puis livrer" },
+         { rm_id: "11", status: "a_etudier_chiffrer", title: "étude", instruction: "étudier et chiffrer" }],
+  skipped: [{ rm_id: "12", status: "a_tester_demandeur", title: "chez toi",
+              reason: "attend TON verdict, pas celui de l'agent" }],
+};
+const bp = batchPlanHtml(PLAN, escO);
+assert(/▶ à traiter \(2\)/.test(bp), "le récapitulatif compte ce qui va partir");
+assert(/1\.<\/b> <span class="r-id">RM10/.test(bp), "les tickets sont numérotés dans l'ordre d'exécution");
+assert(/traiter puis livrer/.test(bp) && /étudier et chiffrer/.test(bp),
+  "chaque ticket affiche l'action qui sera demandée");
+assert(/⊘ écartés \(1\)/.test(bp) && /attend TON verdict/.test(bp),
+  "les écartés sont listés AVEC leur raison — rien n'est retiré en silence");
+assert(!/au-delà de 10/.test(bp), "pas d'avertissement de volume sur un petit lot");
+const bpBig = batchPlanHtml({ todo: Array.from({ length: 12 }, (_, i) =>
+  ({ rm_id: String(i), status: "a_faire", instruction: "traiter" })), skipped: [] }, escO);
+assert(/au-delà de 10/.test(bpBig), "au-delà de 10 tickets, l'avertissement de volume s'affiche");
+const bpEmpty = batchPlanHtml({ todo: [], skipped: [] }, escO);
+assert(/aucun ticket actionnable/.test(bpEmpty), "sélection sans actionnable : dit clairement qu'il n'y a rien");
+assert(/à traiter \(0\)/.test(batchPlanHtml(null, escO)), "plan absent toléré");
+const bpXss = batchPlanHtml({ todo: [{ rm_id: "1<b>", status: "<img src=x>", title: "<script>",
+  instruction: "<b>i" }], skipped: [{ rm_id: "2", reason: "<script>" }] }, escO);
+assert(!/<img|<script>/.test(bpXss), "titre, statut, instruction et raison échappés (anti-XSS)");
+// la case à cocher ne détourne pas le clic de la ligne, et n'existe que sur un ticket
+const mItem2716 = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(/event\.stopPropagation\(\);batchToggle\(/.test(mItem2716[0]),
+  "cocher ne doit pas ouvrir la fiche du ticket");
+assert(/\/\^RM\\d\+\$\/i\.test/.test(mItem2716[0]),
+  "seul un TICKET est sélectionnable (un chantier libre n'a pas de protocole)");
+// l'envoi passe par le récapitulatif : jamais d'appel direct sans dry_run d'abord
+const mOpen = /async function openBatchPlan\(\)[\s\S]*?\n\}/.exec(html);
+assert(/dry_run: true/.test(mOpen[0]), "le récapitulatif s'obtient en dry_run (aucun envoi)");
+const mSend = /async function sendBatch\([\s\S]*?\n\}/.exec(html);
+assert(/batchPlanCache/.test(mSend[0]),
+  "l'envoi n'est possible qu'après avoir chargé — donc affiché — le récapitulatif");
+console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
+
+
 console.log("OK — tous les tests cockpit passent");
 
 // — renderMailList (RM2671) : file de triage des emails —

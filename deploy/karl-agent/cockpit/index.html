@@ -1114,6 +1114,10 @@ if (window.matchMedia) {
           <div class="rp" id="rp-state">
             <div class="outnav">
               <button class="mini" onclick="loadWorklog(true)" title="Rafraîchir le worklog">⟳</button>
+              <!-- RM2716 : cocher des tickets et les faire traiter en série par
+                   la session attachée (récapitulatif avant envoi) -->
+              <button class="mini" id="batch-btn" style="display:none" onclick="openBatchPlan()"
+                      title="Faire traiter les tickets cochés, l'un après l'autre, par la session attachée">▶ traiter</button>
               <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
@@ -3897,8 +3901,19 @@ function renderWorklog() {
         + esc(it.opened_status) + " → " + esc(it.status) + "</span>" : "";
     const brs = brByRm[it.ref] || [];
     brs.forEach(b => usedBr.add(b));
+    // RM2716 : cocher pour faire traiter en série. La case ne s'affiche que sur
+    // un TICKET (un chantier libre n'a pas de protocole à dérouler), et le clic
+    // dessus ne doit pas ouvrir la fiche — d'où le stopPropagation.
+    const selectable = /^RM\d+$/i.test(String(it.ref || ""));
+    const box = selectable
+      ? '<input type="checkbox" style="width:auto;margin-right:5px" title="Sélectionner pour un traitement en série"'
+        + ' onclick="event.stopPropagation();batchToggle(' + jarg(String(it.ref)) + ',' + jarg(String(it.status || ""))
+        + ',' + jarg(String(it.label || "")) + ',this.checked)"'
+        + (batchSel.has(String(it.ref)) ? " checked" : "") + ">"
+      : "";
     return '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
+      + box
       + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
@@ -3969,6 +3984,88 @@ function worklogProgressHtml(it, esc) {
   return h;
 }
 // <<< worklogProgressHtml
+
+// ── RM2716 : sélection de tickets du worklog → traitement en série ───────────
+const batchSel = new Map();      // ref → {rm_id, status, title}
+function batchToggle(ref, status, title, on) {
+  if (on) batchSel.set(ref, { rm_id: String(ref).replace(/^RM/, ""), status: status, title: title });
+  else batchSel.delete(ref);
+  const b = document.getElementById("batch-btn");
+  if (b) {
+    b.style.display = batchSel.size ? "" : "none";
+    b.textContent = "▶ traiter (" + batchSel.size + ")";
+  }
+}
+// >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
+// raison. C'est la garde principale — la consigne déclenche du travail réel
+// (branches, MR, changements de statut) sans repasser par l'écran à chaque
+// étape. Rien ne doit partir sans que ce tableau ait été lu.
+function batchPlanHtml(plan, esc) {
+  const p = plan || {};
+  const todo = p.todo || [], skipped = p.skipped || [];
+  let h = '<div class="ms"><h4>▶ à traiter (' + todo.length + ")</h4>";
+  h += todo.length
+    ? todo.map((t, i) => '<div class="oline" style="white-space:normal"><b>' + (i + 1) + ".</b> "
+        + '<span class="r-id">RM' + esc(String(t.rm_id)) + "</span> "
+        + '<span class="pill">' + esc(String(t.status || "")) + "</span> "
+        + esc(String(t.title || "")) + '<div style="color:var(--muted);font-size:11px">→ '
+        + esc(String(t.instruction || "")) + "</div></div>").join("")
+    : '<div class="empty">aucun ticket actionnable dans la sélection</div>';
+  h += "</div>";
+  if (skipped.length) {
+    h += '<div class="ms"><h4>⊘ écartés (' + skipped.length + ")</h4>"
+      + skipped.map(s => '<div class="oline" style="white-space:normal;opacity:.75">'
+        + '<span class="r-id">RM' + esc(String(s.rm_id)) + "</span> "
+        + esc(String(s.title || "")) + '<div style="color:var(--muted);font-size:11px">'
+        + esc(String(s.reason || "")) + "</div></div>").join("") + "</div>";
+  }
+  if (todo.length > 10) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ ' + todo.length
+      + " tickets : au-delà de 10, la file déborde le contexte de l’agent — "
+      + "confirme seulement si tu sais pourquoi.</div>";
+  }
+  return h;
+}
+// <<< batchPlanHtml
+let batchPlanCache = null;
+async function openBatchPlan() {
+  if (!attached) { toast("aucune session attachée", true); return; }
+  if (!batchSel.size) return;
+  try {
+    batchPlanCache = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, items: [...batchSel.values()],
+                             dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  document.getElementById("doctitle").textContent =
+    "▶ Traiter " + batchPlanCache.count + " ticket(s) — session " + attached;
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = batchPlanHtml(batchPlanCache, esc)
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="primary" onclick="sendBatch(this)">▶ envoyer à la session</button>'
+    + '<button class="mini" onclick="closeDoc()">annuler</button></div>'
+    + '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">'
+    + "voir la consigne exacte</summary><pre class=\"logtail\" style=\"white-space:pre-wrap\">"
+    + esc(batchPlanCache.prompt || "") + "</pre></details>";
+  document.getElementById("docmodal").classList.add("show");
+}
+async function sendBatch(btn) {
+  if (!batchPlanCache || !attached) return;
+  btn.disabled = true;
+  try {
+    const r = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, items: [...batchSel.values()],
+                             allow_large: batchPlanCache.count > 10 }) });
+    toast("▶ " + r.count + " ticket(s) envoyés à la session " + attached);
+    batchSel.clear(); batchToggle();      // remet le bouton à zéro
+    closeDoc();
+    loadWorklog(true);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
 
 // un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
 function openWorklogItem(ref) {

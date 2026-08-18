@@ -320,11 +320,183 @@ def extract_field(item_json, field):
     return ""
 
 
+# ── KeePass (fichier .kdbx, via pykeepass) — RM2684/L3a ──────────────────────
+class KeepassBackend(SecretBackend):
+    """Base KeePass locale : un fichier `.kdbx` et une passphrase, aucun serveur.
+
+    C'est le backend le plus autonome — celui qu'un intervenant externe peut
+    fournir sans rien installer côté iProspective.
+
+    Déclaration (registre providers, axe `secret`) :
+        kdbx-perso: { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
+    Le chemin peut aussi venir des identifiants par dev : `SECRET__<SLUG>__FILE`
+    (idem `__KEYFILE` pour un fichier-clé). La **passphrase** ne vit qu'en mémoire
+    du daemon, fournie à chaque appel comme la session Vaultwarden.
+
+    Chemin d'un secret : `secret://<slug>/<groupe…>/<titre>` — la profondeur est
+    libre, KeePass imbriquant les groupes.
+
+    Dépendance **optionnelle** : sans `pykeepass`, l'instance se déclare
+    `unreachable` avec la commande d'installation, sans gêner les autres.
+    """
+
+    type = "keepass"
+
+    def __init__(self, name="default", session_getter=None, file=None,
+                 keyfile=None, **options):
+        super().__init__(name=name, **options)
+        self._session_getter = session_getter or (lambda: None)
+        creds = creds_for(name, legacy=False)
+        self._file = file or creds.get("FILE") or ""
+        self._keyfile = keyfile or creds.get("KEYFILE") or None
+
+    @property
+    def caps(self):
+        return Capabilities(needs_unlock=True, listable=True, hierarchical=True)
+
+    # -- accès au fichier ---------------------------------------------------
+    def _path(self):
+        if not self._file:
+            raise UnreachableError(
+                "aucun fichier .kdbx : renseigne `file:` dans providers.servers "
+                f"ou {creds_env_key(self.name, 'FILE')}", backend=self.name)
+        p = os.path.expanduser(self._file)
+        if not os.path.isfile(p):
+            raise UnreachableError(f"fichier .kdbx introuvable : {p}", backend=self.name)
+        return p
+
+    def _open(self):
+        """Ouvre la base. La passphrase vient du daemon, jamais du disque.
+
+        La base est rouverte à chaque résolution : c'est quelques centaines de ms
+        (dérivation de clé) contre le risque de garder un objet déchiffré vivant.
+        Un usage intensif justifierait un cache — pas le nôtre (quelques secrets
+        par session).
+        """
+        # Ordre des diagnostics = ordre dans lequel on les corrige : la
+        # configuration d'abord (un chemin manquant ne dépend pas du module),
+        # puis la dépendance, puis le déverrouillage.
+        path = self._path()
+        try:
+            from pykeepass import PyKeePass
+        except ImportError:
+            raise UnreachableError(
+                "module `pykeepass` absent — installe-le "
+                "(`sudo apt install python3-pykeepass`)", backend=self.name)
+        passphrase = self._session_getter()
+        if not passphrase:
+            raise LockedError("base KeePass verrouillée", backend=self.name)
+        keyfile = os.path.expanduser(self._keyfile) if self._keyfile else None
+        try:
+            return PyKeePass(path, password=passphrase, keyfile=keyfile)
+        except Exception as e:  # noqa: BLE001 — pykeepass lève des types variés
+            nom = type(e).__name__
+            if "Credentials" in nom or "Header" in nom or "password" in str(e).lower():
+                raise DeniedError("passphrase (ou fichier-clé) incorrecte",
+                                  backend=self.name)
+            raise UnreachableError(f"ouverture impossible : {nom}", backend=self.name)
+
+    def status(self):
+        try:
+            self._path()
+        except SecretError:
+            return "unreachable"
+        try:
+            from pykeepass import PyKeePass  # noqa: F401
+        except ImportError:
+            return "unreachable"
+        return "unlocked" if self._session_getter() else "locked"
+
+    def unlock(self, **_):
+        """La passphrase est saisie par un humain, comme le mot de passe maître."""
+        raise UnsupportedError(
+            "déverrouillage humain : lance unlock-vault.sh -i <instance>",
+            backend=self.name)
+
+    # -- résolution ---------------------------------------------------------
+    def resolve(self, path, field=None):
+        if not path:
+            raise UriError("aucun item dans le chemin", backend=self.name)
+        kp = self._open()
+        title = path[-1]
+        groups = [g for g in path[:-1] if g]
+        entry = self._find(kp, groups, title)
+        if entry is None:
+            ou = "/".join(path)
+            raise NotFoundError(f"entrée introuvable : {ou}", backend=self.name)
+        return extract_entry_field(entry, field)
+
+    @staticmethod
+    def _find(kp, groups, title):
+        """Entrée par titre, filtrée par chemin de groupes s'il en reste un.
+
+        Le chemin est un **suffixe** du groupe réel : `secret://kdbx/acme/db`
+        trouve l'entrée « db » du groupe « acme », quelle que soit sa profondeur
+        au-dessus — l'URI reste lisible sans rejouer la racine du fichier.
+        """
+        candidates = kp.find_entries(title=title, first=False) or []
+        if not groups:
+            return candidates[0] if candidates else None
+        want = [g.lower() for g in groups]
+        for e in candidates:
+            chain = [(g.name or "").lower() for g in _group_chain(e.group)]
+            if chain[-len(want):] == want:
+                return e
+        return None
+
+    def list(self, filt=None):
+        kp = self._open()
+        out = []
+        for e in kp.entries:
+            name = e.title or ""
+            if filt is not None and filt.lower() not in name.lower():
+                continue
+            chain = "/".join(g.name for g in _group_chain(e.group) if g.name)
+            out.append({"id": str(e.uuid), "org": "-",
+                        "collections": [chain] if chain else [], "name": name})
+        return out
+
+
+def _group_chain(group):
+    """Groupes de la racine jusqu'à `group` (compatible toutes versions pykeepass)."""
+    chain = []
+    g = group
+    while g is not None:
+        chain.append(g)
+        g = getattr(g, "parentgroup", None)
+    return list(reversed(chain))
+
+
+def extract_entry_field(entry, field):
+    """Champ d'une entrée KeePass, aligné sur le contrat de `extract_field`.
+
+    Sans champ demandé → le mot de passe s'il existe, sinon un résumé JSON de
+    l'entrée (jamais le mot de passe s'il est vide : il n'y a rien à cacher).
+    """
+    props = dict(getattr(entry, "custom_properties", None) or {})
+    if field is None:
+        if entry.password:
+            return entry.password
+        return json.dumps({"title": entry.title, "username": entry.username,
+                           "url": entry.url, "notes": entry.notes,
+                           "fields": sorted(props)}, ensure_ascii=False)
+    if field == "password":
+        return entry.password or ""
+    if field == "username":
+        return entry.username or ""
+    if field == "notes":
+        return entry.notes or ""
+    if field == "uri":
+        return entry.url or ""
+    return props.get(field, "")
+
+
 # ── Fabrique ─────────────────────────────────────────────────────────────────
-# Un type par gestionnaire. Les suivants (keepass RM2684, onepassword,
-# nextcloud_passwords, sops) s'enregistrent ici sans toucher aux appelants.
+# Un type par gestionnaire. Les suivants (onepassword, nextcloud_passwords,
+# sops) s'enregistrent ici sans toucher aux appelants.
 BACKENDS = {
     VaultwardenBackend.type: VaultwardenBackend,
+    KeepassBackend.type: KeepassBackend,
 }
 
 

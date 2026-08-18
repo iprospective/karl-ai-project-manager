@@ -78,11 +78,27 @@ def cmd_resolve(cfg: PMConfig, reg: Registry, axis, client, project):
             print(f"  {ax:6} → ✗ {e}")
 
 
+def cmd_instance(reg: Registry, name, field):
+    """Fiche d'une instance déclarée — sert aussi de résolveur aux scripts shell."""
+    inst = reg.get(name)
+    if field:
+        valeur = {"type": inst.type, "url": inst.url, "axis": inst.axis}.get(
+            field, inst.options.get(field, ""))
+        print(valeur)
+        return
+    opts = " ".join(f"{k}={v}" for k, v in sorted(inst.options.items()))
+    print(f"{inst.name}\taxis={inst.axis}\ttype={inst.type}\turl={inst.url or '—'}"
+          + (f"\t{opts}" if opts else ""))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd")
     ap.add_argument("--list", action="store_true", help="affiche le registre et quitte")
+    i = sub.add_parser("instance", help="fiche d'une instance déclarée")
+    i.add_argument("name")
+    i.add_argument("--field", help="n'afficher qu'un champ (type, url, axis, ou une option)")
     r = sub.add_parser("resolve", help="montre la résolution d'instance d'un projet")
     r.add_argument("axis", nargs="?",
                    help="axe à résoudre (défaut : tous les axes actifs)")
@@ -101,6 +117,11 @@ def main():
         return
     if args.cmd == "resolve":
         cmd_resolve(cfg, reg, args.axis, args.client, args.project)
+    elif args.cmd == "instance":
+        try:
+            cmd_instance(reg, args.name, args.field)
+        except RegistryError as e:
+            sys.exit(f"ERREUR : {e}")
 
 
 if __name__ == "__main__":

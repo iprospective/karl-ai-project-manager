@@ -4295,6 +4295,128 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
     return payload
 
 
+# ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
+# Le geste : cocher des tickets, cliquer « traiter », et la SESSION ATTACHÉE
+# enchaîne — aucune session créée. La composition de la consigne vit ici, pas
+# dans le cockpit : le mapping statut → action, le plafond et les exclusions sont
+# des règles métier, elles doivent être testables sans navigateur.
+BATCH_MAX = 10          # au-delà : confirmation explicite (`allow_large`)
+
+# Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
+# une étude se termine en validation, un dev se termine en test demandeur.
+BATCH_ACTIONS = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
+    "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
+    "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
+    "a_tester_dev": ("tester", "faire la passe de test agent et router selon le verdict"),
+}
+# Statuts où l'agent n'a RIEN à faire : la balle est chez le demandeur, en MEP,
+# ou le ticket est clos. Les inclure enverrait l'agent tourner à vide.
+BATCH_SKIP = {
+    "a_tester_demandeur": "attend TON verdict, pas celui de l'agent",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
+
+# >>> batch_plan — pure (testée par test_karl_agent_batch.py)
+def batch_plan(items) -> dict:
+    """Répartit les tickets demandés entre CE QUI PART et ce qui est écarté.
+
+    Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
+    affiche avant l'envoi. Un statut inconnu (nouveau statut NORMS pas encore
+    connu ici) est écarté aussi — deviner l'action à faire sur un ticket serait
+    pire que de le dire."""
+    todo, skipped = [], []
+    seen = set()
+    for it in items or []:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        status = str((it or {}).get("status") or "").strip()
+        act = BATCH_ACTIONS.get(status)
+        if act:
+            todo.append({"rm_id": rm, "status": status, "action": act[0],
+                         "instruction": act[1], "title": (it or {}).get("title") or ""})
+        else:
+            todo_reason = BATCH_SKIP.get(status) or f"statut « {status or '?'} » : aucune action définie"
+            skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
+                            "title": (it or {}).get("title") or ""})
+    return {"todo": todo, "skipped": skipped}
+# <<< batch_plan
+
+
+# >>> batch_prompt — pure (testée par test_karl_agent_batch.py)
+def batch_prompt(todo) -> str:
+    """La consigne envoyée à l'agent. Elle est AUTO-PORTANTE : l'agent qui la
+    reçoit ne voit pas l'écran d'où elle vient.
+
+    Elle exige les trois retours arbitrés : le statut de fin du flux NORMS (qui
+    réattribue au demandeur), la notification de fin de lot, et le récapitulatif
+    au worklog. Sans ça, « traite ces tickets » laisserait le demandeur surveiller
+    des sessions pour savoir où ça en est."""
+    lignes = []
+    for i, t in enumerate(todo or [], 1):
+        titre = (" — " + t["title"]) if t.get("title") else ""
+        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+    corps = "\n".join(lignes)
+    return (
+        f"Traite ces {len(todo or [])} ticket(s) EN SÉRIE, dans cet ordre, en "
+        "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
+        "livraison) :\n"
+        f"{corps}\n\n"
+        "Règles du lot :\n"
+        "- un ticket à la fois, jusqu'à son statut de fin ; ne passe au suivant "
+        "qu'une fois le précédent rendu ;\n"
+        "- chaque ticket revient au demandeur par son statut de fin NORMS "
+        "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+        "- consigne l'avancement du lot au worklog "
+        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
+        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
+        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
+        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
+        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "bilan ticket par ticket."
+    )
+# <<< batch_prompt
+
+
+def op_worklog_batch(payload: dict) -> dict:
+    """RM2716 — compose (et, sauf `dry_run`, envoie) la consigne de lot à la
+    session attachée. `dry_run` sert le récapitulatif AVANT confirmation : rien
+    ne part sans que le demandeur ait vu ce qui va être demandé."""
+    sid = str(payload.get("rm_id") or payload.get("sid") or "").strip()
+    if not _valid_sid(sid):
+        raise ApiError(400, "session invalide")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    plan = batch_plan(items)
+    todo = plan["todo"]
+    dry = bool(payload.get("dry_run"))
+    if not todo:
+        raise ApiError(400, "aucun ticket actionnable dans la sélection")
+    if len(todo) > BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(todo)} tickets : au-delà de {BATCH_MAX}, "
+                            "confirme explicitement (une file trop longue déborde "
+                            "le contexte de l'agent)")
+    prompt = batch_prompt(todo)
+    out = {"sid": sid, "count": len(todo), "todo": todo,
+           "skipped": plan["skipped"], "prompt": prompt, "sent": False}
+    if dry:
+        return out
+    if not _has_session(sid):
+        raise ApiError(404, f"session absente : {_session_name(sid)}")
+    op_send({"rm_id": sid, "msg": prompt, "enter": True})
+    out["sent"] = True
+    return out
+
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
     sessions = _sessions_view(qs, auth_ctx)
@@ -6705,24 +6827,79 @@ def _envchk_secrets():
         except OSError as e:
             out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
                             "scripts/unlock-vault.sh"))
+    out.extend(_envchk_vault_instances())
+    return out
+
+
+def _envchk_vault_instances():
+    """Un diagnostic par instance de vault déclarée (axe `secret`, RM2662).
+
+    Ne montre que les NOMS des identifiants trouvés — jamais leurs valeurs
+    (tripwire 11). Sans registre lisible, on retombe sur le contrôle historique
+    des variables Vaultwarden globales.
+    """
     envf = REPO_ROOT / ".env"
-    needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
-    try:
+
+    def _env_keys():
+        """Variables déclarées dans le `.env` d'instance (noms seuls)."""
         present = set()
-        for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
-            line = line.strip()
-            if line and not line.startswith("#") and "=" in line:
-                present.add(line.split("=", 1)[0].strip())
+        try:
+            for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    present.add(line.split("=", 1)[0].strip())
+        except OSError:
+            return None
+        return present
+
+    # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
+    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
+    present = _env_keys()
+    env_absent = present is None
+    if env_absent:
+        present = set()
+
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        import pm_secrets
+        reg = Registry.from_config(PMConfig.load().providers)
+        instances = [i for i in reg.servers.values() if i.axis == "secret"]
+        defaut = reg.defaults.get("secret")
+    except Exception:  # noqa: BLE001 — registre absent : contrôle historique
+        instances = []
+        defaut = None
+
+    if not instances:
+        if env_absent:
+            return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
+                         "normal dans un worktree : les identifiants viennent alors de "
+                         "~/.config/mmi-pm/.env")]
+        needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
         missing = [v for v in needed if v not in present]
         if missing:
-            out.append(_chk(".env Vaultwarden", "warn",
-                            "variable(s) absente(s) : " + ", ".join(missing),
-                            "renseigner dans " + str(envf)))
+            return [_chk("vault : .env", "warn",
+                         "variable(s) absente(s) : " + ", ".join(missing),
+                         "renseigner dans " + str(envf))]
+        return [_chk("vault : .env", "ok",
+                     "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents")]
+
+    out = []
+    for inst in sorted(instances, key=lambda i: i.name):
+        # Clés du dev (os.environ, superposé par pm_paths) + celles du .env d'instance.
+        keys = set(pm_secrets.creds_keys(inst.name, legacy=(inst.name == defaut)))
+        prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
+        keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
+        etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
+        if keys:
+            out.append(_chk(etiquette, "ok",
+                            f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
         else:
-            out.append(_chk(".env Vaultwarden", "ok",
-                            "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents"))
-    except OSError:
-        out.append(_chk(".env Vaultwarden", "warn", f".env illisible ({envf})"))
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · aucun identifiant trouvé",
+                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
     return out
 
 
@@ -8128,6 +8305,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/worklog/batch":       # RM2716 : traiter un lot en série
+                return self._send_json(200, op_worklog_batch(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
             if path == "/scroll":

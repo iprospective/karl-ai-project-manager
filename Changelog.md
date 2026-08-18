@@ -61,6 +61,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **La doc ne suppose plus un vault unique** (RM2710, lot L4 du chantier RM2662) :
+  NORMS `environments` § « Gestion des secrets » (**v1.70.0**) décrit des vaults
+  **déclarés** — instances du registre providers, slug, défaut, surcharge
+  client/projet, identifiants par dev — et les trois formes d'URI, dont
+  `vaultwarden://` **toujours valide** ; tripwire 11 du KERNEL généralisé (« le
+  secret de déverrouillage », pas « le master password Vaultwarden »). Suivent les
+  templates (aspect `environments`, bootstrap secrets et environnements), les skills
+  (`mmi-env-sync`, `mmi-pm-karl-mail-send`), `karl-mail-send.py`, et
+  `tools/synchro`, qui **refusait** les nouvelles formes d'URI (`case
+  vaultwarden://*` — un `secret://…` dans `MYSQL_ADMIN_SECRET` mourait en « URI
+  invalide »). Le contrôle d'environnement du cockpit liste désormais **une ligne
+  par instance de vault déclarée** avec les *noms* des identifiants trouvés, au lieu
+  de guetter trois variables `BW_*` en dur — et ne rend plus muet un poste dont le
+  `.env` d'instance est illisible (cas d'un worktree ou d'une instance de test).
+  Deux gardes ajoutées au test : aucune **valeur** d'identifiant présente dans
+  l'environnement ne doit apparaître dans le rapport (l'ancien test ne cherchait
+  qu'un motif de nom, il serait passé sur un secret affiché en clair), et une ligne
+  par instance déclarée. L'identifiant du template `001-secrets-vaultwarden` est
+  volontairement conservé : c'est la clé référencée par les `bootstrap.skip` des
+  projets, le renommer les ferait re-proposer.
 - **Backend KeePass** (RM2684, lot L3a du chantier RM2662) : un fichier `.kdbx`
   et une passphrase suffisent — aucun serveur, aucun compte à créer. C'est le
   backend qu'un intervenant externe peut fournir sans rien installer côté

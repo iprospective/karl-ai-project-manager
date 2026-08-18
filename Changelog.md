@@ -86,6 +86,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Worklog de session : les tickets sont groupés par projet** (RM2724). Le projet
+  n'apparaissait qu'en suffixe de ligne (`_(pisceen-presta)_`), en queue d'une ligne
+  qui porte déjà statut, référence, titre, dérive et commit — invisible dès que la
+  session mélange plusieurs projets, ce qui est le cas normal. Il devient un
+  **sous-titre de groupe** dans chacune des trois sections (*Reste à faire*, *En
+  attente*, *Fait*), et le suffixe disparaît. Le regroupement est un rendu, pas un
+  tri : l'ordre des items dans un groupe reste celui de la session, celui des groupes
+  suit leur première apparition — sauf `hors projet`, qui ferme la marche. Un item
+  ouvert **sans `--project`** n'est plus orphelin : son projet est rattrapé depuis le
+  chemin de la tâche résolue par `resolve_live`. Au passage, un item dont le label ne
+  fait que répéter sa référence affiche enfin le titre de la tâche (« RM2680 — RM2680 »).
 - **Notifications de session : une notification traitée quitte le backlog**
   (RM2715, NORMS v1.71.0). Le canal `notify` (RM2466) n'avait que deux états —
   *au backlog* ou *effacée* : une notification consignée « ticket à ouvrir »

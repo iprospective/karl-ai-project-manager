@@ -1819,6 +1819,70 @@ assert(/batchPlanCache/.test(mSend[0]),
 console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
 
 
+// — RM2697 : tableau de bord « ce qui requiert mon attention » —
+const attentionRows = grabO("attentionRows", { tmuxNameOf: sid => String(sid) });
+const attentionHtml = grabO("attentionHtml");
+const OV = { projects: [
+  { client: "acme", project: "shop", counts: {},
+    tickets: [{ rm_id: "10", status: "a_tester_demandeur", title: "livré", bucket: "waiting" },
+              { rm_id: "11", status: "en_cours", title: "en cours", bucket: "active" },
+              { rm_id: "12", status: "a_mep", title: "à déployer", bucket: "waiting" }],
+    mrs: [{ iid: "9", ref: "RM11", url: "https://x/9", alive: false }],
+    requests: [{ text: "une demande" }],
+    sessions: [{ sid: "70", alive: true, title: "S70" }] },
+] };
+const SESS = { "70": { state: "idle", client: "acme", project: "shop", title: "S70" },
+               "71": { state: "attention", client: "acme", project: "shop", title: "S71" } };
+const rows = attentionRows(OV, SESS, { stale: [] });
+assert.deepStrictEqual([...rows.map(r => r.kind)],
+  ["question", "test", "mr", "mep", "idle", "request"],
+  "l'ordre suit le COÛT de l'attente, pas le projet");
+assert.strictEqual(rows[0].verb, "réponds", "une session qui attend une réponse passe avant tout");
+assert.strictEqual(rows[1].rm_id, "10", "puis ce qui attend TON verdict");
+assert(rows[2].text.includes("session éteinte"), "une MR d'une session éteinte le dit");
+assert.strictEqual(rows[4].kind, "idle", "une session au repos avec du travail actif remonte");
+assert(/1 ticket\(s\) en cours/.test(rows[4].text), "…en disant combien de travail reste");
+// une question restée sans réponse (RM2598) compte comme attente, même sans état ⚠
+const stale = attentionRows({ projects: [] }, { "80": { client: "a", project: "b", title: "S" } }, { stale: ["80"] });
+assert.strictEqual(stale.length === 1 && stale[0].icon, "🕓", "question laissée sans réponse : signalée");
+// filtres
+assert.strictEqual(attentionRows(OV, SESS, { client: "autre" }).length, 0, "filtre client");
+assert.strictEqual(attentionRows(OV, SESS, { project: "shop" }).length, rows.length, "filtre projet");
+assert.deepStrictEqual([...attentionRows(null, null, {})], [], "données absentes tolérées");
+// une session au repos SANS travail actif n'encombre pas
+const calme = attentionRows({ projects: [{ client: "a", project: "b", tickets: [], mrs: [],
+  requests: [], sessions: [{ sid: "9", alive: true }] }] }, {}, {});
+assert.strictEqual(calme.length, 0, "pas de ligne pour une session au repos sans rien à faire");
+// rendu
+const dh = attentionHtml(rows, escO, jargFn);
+assert(/dash-sec/.test(dh) && /une session attend ta réponse/.test(dh), "les lignes sont groupées par nature d'attente");
+assert(/onclick="attach\('71'\)"/.test(dh), "une session s'attache en un clic");
+assert(/onclick="openReview\('10'\)"/.test(dh), "un ticket ouvre sa fiche");
+assert(/window\.open\('https:\/\/x\/9'/.test(dh), "une MR s'ouvre sur la forge");
+assert(/rien n’attend de toi/.test(attentionHtml([], escO, jargFn)),
+  "rien à faire est une bonne nouvelle, pas un écran mort");
+// volume : sur ce poste la liste brute fait 175 lignes — un tableau de bord qui
+// les afficherait toutes rejouerait le problème qu'il corrige
+const many2697 = Array.from({ length: 40 }, (_, i) =>
+  ({ rank: 2, kind: "test", icon: "🧪", verb: "teste", client: "a", project: "b",
+     rm_id: String(1000 + i), text: "t", since: "2026-08-" + String(10 + (i % 20)).padStart(2, "0") }));
+const dhMany = attentionHtml(many2697, escO, jargFn);
+assert.strictEqual((dhMany.match(/dash-row/g) || []).length, 5, "au plus 5 lignes par nature d'attente");
+assert(/… et 35 autre/.test(dhMany), "…et le reste est ANNONCÉ, jamais coupé en silence");
+assert(/dash-chip[^>]*>🧪 40</.test(dhMany), "le compte RÉEL reste visible en tête (vue d'ensemble)");
+assert(/\(40\)/.test(dhMany), "chaque section porte son total, pas le nombre affiché");
+// ancienneté : ce qui attend depuis le plus longtemps passe devant
+const parAge = attentionRows({ projects: [{ client: "a", project: "b", mrs: [], requests: [], sessions: [],
+  tickets: [{ rm_id: "2", status: "a_tester_demandeur", title: "récent", updated: "2026-08-17" },
+            { rm_id: "1", status: "a_tester_demandeur", title: "vieux", updated: "2026-06-01" }] }] }, {}, {});
+assert.deepStrictEqual([...parAge.map(r => r.rm_id)], ["1", "2"],
+  "dans une nature, le plus ancien d'abord — trier par numéro trierait au hasard");
+assert(/2026-06-01/.test(attentionHtml(parAge, escO, jargFn)), "la date d'attente est affichée");
+const dhXss = attentionHtml([{ rank: 1, kind: "test", icon: "🧪", verb: "<b>v", client: "<img src=x>",
+  project: "p", rm_id: "1", text: "<script>" }], escO, jargFn);
+assert(!/<img|<script>|<b>v/.test(dhXss), "verbe, client et texte échappés (anti-XSS)");
+console.log("✓ dashboard (RM2697) : tri par nature d'attente, verbes d'action, écran vide parlant");
+
 console.log("OK — tous les tests cockpit passent");
 
 // — renderMailList (RM2671) : file de triage des emails —

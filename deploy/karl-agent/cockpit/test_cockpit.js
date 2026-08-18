@@ -2137,3 +2137,31 @@ const ewXss = envWarnBadge({ worst: "warn", items: [
   { family: "SSH", label: '"><img src=x>', level: "warn", detail: "x" }] }, escO);
 assert(!/<img/.test(ewXss), "le détail d'un check est échappé dans l'attribut title");
 console.log("✓ badge d'anomalies du poste (RM2722) : silencieux si sain, compté, expliqué au survol");
+
+// — RM2720 (suite) : écran de confirmation d'un lot de merges —
+const mrBatchHtml = grabO("mrBatchHtml");
+const PLAN_DEV = { mode: "dev", live: [], skipped: [], runs: [
+  { rm_ids: ["10"], source: "10-x", target: "dev" },
+  { rm_ids: ["11"], source: "11-y", target: "dev" }] };
+const mbDev = mrBatchHtml(PLAN_DEV, escO);
+assert(/10-x → dev/.test(mbDev), "chaque MR dit d'OÙ vers OÙ elle merge");
+assert(!/promotion emporte/.test(mbDev), "pas d'avertissement de promotion sur un merge d'intégration");
+const mbProd = mrBatchHtml({ mode: "prod", live: [], skipped: [],
+  runs: [{ rm_ids: ["10", "11"], source: "dev", target: "main" }] }, escO);
+assert(/emporte TOUT/.test(mbProd),
+  "une promotion emporte plus que les tickets cochés : ça doit être écrit avant le clic");
+assert(/dev → main/.test(mbProd), "…et la promotion dit sa source et sa cible");
+const mbLive = mrBatchHtml({ mode: "dev", live: ["11"], skipped: [],
+  runs: [{ rm_ids: ["11"], source: "11-y", target: "dev" }] }, escO);
+assert(/session encore vivante/.test(mbLive) && /RM11/.test(mbLive),
+  "merger sous les pieds d'un agent au travail doit se voir AVANT");
+const mbSkip = mrBatchHtml({ mode: "dev", live: [], runs: [],
+  skipped: [{ rm_id: "13", reason: "aucune branche au frontmatter" }] }, escO);
+assert(/⊘ écartés \(1\)/.test(mbSkip) && /aucune branche/.test(mbSkip),
+  "un ticket écarté porte sa raison");
+assert(/rien à merger/.test(mbSkip), "un plan vide le dit");
+assert(/à merger/.test(mrBatchHtml(null, escO)), "plan absent toléré");
+const mbXss = mrBatchHtml({ mode: "dev", live: [], skipped: [],
+  runs: [{ rm_ids: ["1"], source: "<img src=x>", target: "dev" }] }, escO);
+assert(!/<img/.test(mbXss), "un nom de branche est échappé");
+console.log("✓ lot de merges (RM2720) : cible dite, promotion avertie, session vivante signalée");

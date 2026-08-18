@@ -120,6 +120,13 @@ API (JSON, localhost:9876)
                                   commande du catalogue (allowlist, args
                                   validés par type, argv sans shell,
                                   runs mutants journalisés pm-runs.jsonl)
+  POST /mr/batch {items[], mode:dev|prod, dry_run?, confirm}
+                                → merge un LOT de MR via pm-mr.py : « dev » =
+                                  branche du ticket → intégration (une MR par
+                                  ticket) ; « prod » = PROMOTION intégration →
+                                  production (une MR par dépôt — elle emporte
+                                  tout dev, pas seulement les tickets cochés).
+                                  `dry_run` rend le plan sans rien merger (RM2720)
   POST /mr/deliver {rm_id, confirm}
                                 → {rc, ok, branch, target, stdout, stderr} —
                                   livre la branche du ticket (MR + merge → dev)
@@ -8139,6 +8146,159 @@ def op_mr_deliver(payload: dict) -> dict:
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
 
 
+# ── RM2720 (suite) : merger un LOT de MR depuis le worklog ───────────────────
+# Le merge passe par `pm-mr.py` — jamais par un appel API réimplémenté ici. Le
+# script est le seul écrivain du couple (MR, ticket) : il pose le champ CF GIT
+# PR, écrit la note Redmine et le log du ticket, et connaît les branches
+# protégées. karl-agent ne fait que composer l'argv (jamais de shell) et rendre
+# le résultat.
+#
+# Deux cibles, deux gestes DIFFÉRENTS — et c'est la principale chose à ne pas
+# confondre :
+#   « dev »  : la branche du ticket → branche d'intégration. Un ticket, une MR.
+#   « prod » : la branche d'INTÉGRATION → branche de production. C'est une
+#              PROMOTION : elle emporte tout ce que dev contient, pas seulement
+#              les tickets cochés. Une MR par dépôt concerné, pas par ticket.
+# Merger la branche d'un ticket directement dans main sauterait l'intégration :
+# ce n'est pas proposé.
+MR_BATCH_MAX = 10
+PROD_BRANCH_DEFAULT = "main"
+
+
+def _mr_prod_branch(ws) -> str:
+    """Branche de production d'un workspace (manifeste `production_branch`,
+    défaut `main`)."""
+    try:
+        meta = yaml_safe_load((ws / ".mmi-pm" / "meta.yml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        return PROD_BRANCH_DEFAULT
+    repos = meta.get("repos") or []
+    if len(repos) == 1 and repos[0].get("production_branch"):
+        return str(repos[0]["production_branch"])
+    return PROD_BRANCH_DEFAULT
+
+
+# >>> mr_batch_plan — pure (testée par test_karl_agent_mr_batch.py)
+def mr_batch_plan(resolved, mode: str) -> dict:
+    """Range les tickets résolus en ce qui PART et ce qui est écarté.
+
+    `resolved` : [{rm_id, branch?, integration?, prod?, repo?, live?, error?}].
+    Rien d'écarté en silence — un ticket sans branche (jamais démarré) ou qu'on
+    n'a pas su résoudre porte sa raison.
+
+    En mode « prod », les tickets sont regroupés PAR DÉPÔT : une promotion
+    dev→main par dépôt, pas une par ticket — sinon on lancerait dix fois la même
+    MR, et les neuf dernières échoueraient sur « rien à merger »."""
+    todo, skipped = [], []
+    for r in resolved or []:
+        if r.get("error"):
+            skipped.append({"rm_id": r.get("rm_id"), "reason": r["error"]})
+        else:
+            todo.append(r)
+    if mode == "prod":
+        groups, order = {}, []
+        for r in todo:
+            key = r.get("repo") or ""
+            if key not in groups:
+                groups[key] = {"repo": key, "source": r.get("integration"),
+                               "target": r.get("prod"), "rm_ids": []}
+                order.append(key)
+            groups[key]["rm_ids"].append(r["rm_id"])
+        runs = [groups[k] for k in order]
+    else:
+        runs = [{"repo": r.get("repo"), "source": r.get("branch"),
+                 "target": r.get("integration"), "rm_ids": [r["rm_id"]]} for r in todo]
+    return {"mode": mode, "runs": runs, "todo": todo, "skipped": skipped,
+            "count": len(runs),
+            # Un ticket dont la session TOURNE ENCORE : on ne l'écarte pas (c'est
+            # peut-être voulu), on le SIGNALE — merger sous les pieds d'un agent
+            # au travail est le genre de chose qu'on veut voir avant de cliquer.
+            "live": [r["rm_id"] for r in todo if r.get("live")]}
+# <<< mr_batch_plan
+
+
+def _mr_batch_resolve(rm_id: str, mode: str) -> dict:
+    """Contexte git d'un ticket pour le lot, ou {error} — jamais d'exception :
+    un ticket bancal ne doit pas emporter le lot entier."""
+    out = {"rm_id": rm_id}
+    try:
+        bare, branch, integration = _mr_deliver_context(rm_id)
+    except ApiError as e:
+        out["error"] = e.msg
+        return out
+    ws = bare.parent.parent
+    out.update({"repo": str(bare), "branch": branch, "integration": integration,
+                "prod": _mr_prod_branch(ws), "live": _has_session(rm_id)})
+    return out
+
+
+def op_mr_batch(payload: dict) -> dict:
+    """RM2720 — merge les MR d'une sélection de tickets, via `pm-mr.py`.
+
+    `mode` : « dev » (branche du ticket → intégration) ou « prod » (promotion
+    intégration → production, une par dépôt). `dry_run` rend le plan sans rien
+    merger : c'est l'écran de confirmation, et il dit ce qu'une promotion
+    emporte. Le run réel exige `confirm` (comme /mr/deliver)."""
+    mode = str(payload.get("mode") or "dev")
+    if mode not in ("dev", "prod"):
+        raise ApiError(400, f"mode inconnu : {mode} (dev | prod)")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    seen, resolved = set(), []
+    for it in items:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        resolved.append(_mr_batch_resolve(rm, mode))
+    plan = mr_batch_plan(resolved, mode)
+    if not plan["runs"]:
+        raise ApiError(400, "aucun ticket mergeable dans la sélection")
+    if len(plan["runs"]) > MR_BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(plan['runs'])} merges : au-delà de {MR_BATCH_MAX}, "
+                            "confirme explicitement")
+    if payload.get("dry_run"):
+        return dict(plan, ran=False)
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    results = []
+    for run in plan["runs"]:
+        if mode == "prod":
+            argv = [sys.executable, str(script), "create", "--no-ticket",
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--no-push", "--merge",
+                    "--title", f"promotion {run['source']}→{run['target']} : "
+                               + ", ".join("RM" + i for i in run["rm_ids"])]
+        else:
+            argv = [sys.executable, str(script), "create", run["rm_ids"][0],
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--merge"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                               cwd=str(REPO_ROOT))
+            rc, out, err = r.returncode, r.stdout, r.stderr
+        except subprocess.TimeoutExpired:
+            rc, out, err = 124, "", "timeout (300 s)"
+        results.append({"rm_ids": run["rm_ids"], "repo": run["repo"],
+                        "source": run["source"], "target": run["target"],
+                        "rc": rc, "ok": rc == 0,
+                        "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]})
+        try:
+            PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                    "name": "mr-batch", "args": {"mode": mode,
+                                    "rm_ids": run["rm_ids"], "target": run["target"]},
+                                    "rc": rc}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass                 # le journal ne doit jamais faire échouer le run
+    return dict(plan, ran=True, results=results,
+                ok=all(r["ok"] for r in results),
+                failed=[r for r in results if not r["ok"]])
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -8768,6 +8928,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/mr/batch":            # RM2720 : merger un lot de MR
+                return self._send_json(200, op_mr_batch(payload))
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":

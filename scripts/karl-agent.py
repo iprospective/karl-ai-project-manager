@@ -4431,6 +4431,134 @@ def op_worklog_batch(payload: dict) -> dict:
     out["sent"] = True
     return out
 
+# ── RM2698 (T4 de RM2694) : alertes de DÉRIVE ─────────────────────────────────
+# T2/T3 montrent l'état. Ce qu'on perd en multi-sessions, ce n'est pas ce qu'on
+# voit — c'est ce qu'on ne voit plus : le temps qui passe sur de l'inachevé.
+#
+# Les seuils ne sont pas devinés : ils viennent de l'observation faite pendant
+# T3 sur ce poste (126 tickets en attente de verdict, 36 tickets actifs sans
+# session, ~20 MR ouvertes). Des seuils courts produiraient 150 alertes — donc
+# aucune. Ils sont réglables (panneau 🔧 réglages) parce que ces chiffres sont
+# ceux d'un poste à un instant, pas une vérité.
+ALERT_DEFAULTS = {
+    "orphan_hours": 72,        # ticket actif sans session vivante
+    "mr_days": 7,              # MR ouverte, pas mergée
+    "verdict_days": 14,        # ticket qui attend le verdict du demandeur
+    "mep_days": 3,             # ticket a_mep / en_mep non déployé
+    "max": 12,                 # une alerte permanente n'est plus une alerte
+}
+_ALERT_SNOOZE = STATE_DIR / "alerts-snooze.json"
+
+
+def _alert_thresholds() -> dict:
+    """Seuils effectifs : conf PM si présente, défauts sinon."""
+    conf = (_conf_merged().get("alerts") or {}) if callable(globals().get("_conf_merged")) else {}
+    out = dict(ALERT_DEFAULTS)
+    for k in out:
+        v = conf.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[k] = v
+    return out
+
+
+def _alert_snoozed() -> dict:
+    """Alertes reportées : clé → timestamp de réveil. Un report est EXPLICITE et
+    daté ; il ne supprime jamais l'alerte, il la décale."""
+    d = _read_json_file(_ALERT_SNOOZE) or {}
+    now = time.time()
+    return {k: v for k, v in d.items() if isinstance(v, (int, float)) and v > now}
+
+
+def op_alert_snooze(payload: dict) -> dict:
+    """Reporte une alerte de N jours (défaut 7). Jamais de suppression : ce qui
+    dérive revient à échéance, sinon l'oubli est simplement institutionnalisé."""
+    key = str(payload.get("key") or "").strip()
+    if not key or len(key) > 200:
+        raise ApiError(400, "key requise")
+    days = payload.get("days")
+    days = days if isinstance(days, (int, float)) and 0 < days <= 90 else 7
+    cur = _read_json_file(_ALERT_SNOOZE) or {}
+    cur[key] = int(time.time() + days * 86400)
+    _write_json_atomic(_ALERT_SNOOZE, cur)
+    return {"key": key, "until": cur[key], "days": days}
+
+
+# >>> alert_age_days — pure (testée par test_karl_agent_alerts.py)
+def alert_age_days(stamp, now_ts):
+    """Âge en jours d'un horodatage PM (`2026-08-01T19:36`, ou date seule).
+    Rend None si la date est absente ou illisible — on ne fabrique pas une
+    ancienneté, sous peine d'alerter sur du vide."""
+    s = str(stamp or "").strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            t = time.mktime(time.strptime(s[:len(time.strftime(fmt))], fmt))
+            return max(0.0, (now_ts - t) / 86400.0)
+        except (ValueError, OverflowError):
+            continue
+    return None
+# <<< alert_age_days
+
+
+# >>> build_alerts — pure (testée par test_karl_agent_alerts.py)
+def build_alerts(projects, thresholds, now_ts, snoozed=None):
+    """Les dérives, depuis l'agrégat /overview. Pure : la lecture disque et
+    l'horloge sont injectées, donc testable sans poste ni sessions.
+
+    Chaque alerte porte SA DATE (« depuis 34 j ») : une alerte sans âge ne se
+    hiérarchise pas, et c'est l'âge qui dit laquelle traite en premier."""
+    th, snz = thresholds or ALERT_DEFAULTS, snoozed or {}
+    out = []
+
+    def add(kind, key, age, label, **extra):
+        if key in snz:
+            return
+        out.append(dict({"kind": kind, "key": key, "age_days": round(age, 1),
+                         "label": label}, **extra))
+
+    for g in projects or []:
+        cl, pr = g.get("client"), g.get("project")
+        for t in g.get("tickets") or []:
+            age = alert_age_days(t.get("updated"), now_ts)
+            if age is None:
+                continue
+            st = t.get("status")
+            if t.get("bucket") == "active" and not t.get("has_live_session") \
+                    and age * 24 >= th["orphan_hours"]:
+                add("orphan", f"t:{t['rm_id']}", age,
+                    "ticket en cours, aucune session ne le traite",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+            elif st == "a_tester_demandeur" and age >= th["verdict_days"]:
+                add("verdict", f"t:{t['rm_id']}", age, "livré, attend ton verdict",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+            elif st in ("a_mep", "en_mep") and age >= th["mep_days"]:
+                add("mep", f"t:{t['rm_id']}", age, "validé, pas encore déployé",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+        for m in g.get("mrs") or []:
+            age = alert_age_days(m.get("ts"), now_ts)
+            if age is not None and age >= th["mr_days"]:
+                add("mr", f"m:{m.get('repo')}:{m.get('iid')}", age, "MR ouverte, pas mergée",
+                    iid=m.get("iid"), url=m.get("url"), rm_id=str(m.get("ref") or "").replace("RM", ""),
+                    client=cl, project=pr, title=str(m.get("ref") or ""))
+    # le plus vieux d'abord, et un nombre BORNÉ : une liste d'alertes qu'on ne
+    # finit pas de lire se contourne, puis s'ignore
+    out.sort(key=lambda a: -a["age_days"])
+    total = len(out)
+    cap = int(th.get("max") or ALERT_DEFAULTS["max"])
+    return {"alerts": out[:cap], "total": total, "hidden": max(0, total - cap)}
+# <<< build_alerts
+
+
+def op_alerts(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2698 — dérives du moment, calculées depuis l'agrégat RM2696."""
+    ov = op_overview(qs or {}, auth_ctx)
+    res = build_alerts(ov.get("projects"), _alert_thresholds(), time.time(), _alert_snoozed())
+    res["thresholds"] = _alert_thresholds()
+    res["generated_at"] = ov.get("generated_at")
+    return res
+
+
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
     """RM2466 volet 2 : agrégat « en attente de toi » pour le panneau d'état."""
     sessions = _sessions_view(qs, auth_ctx)
@@ -7369,6 +7497,16 @@ _PM_SETTINGS_CONF = [
     # RM2386 — rubrique « Design front » : apparence du cockpit web. Le type
     # `enum` est générique (options[] + défaut), pas ad hoc au thème : les
     # prochains réglages de mise en page s'ajoutent ici sans toucher au rendu.
+    # RM2698 — seuils des alertes de dérive. Défauts issus de l'observation faite
+    # pendant T3 (RM2697) : trop courts, ils produiraient 150 alertes, donc aucune.
+    {"key": "conf:alerts.orphan_hours", "label": "Alerte — ticket en cours sans session (heures)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "orphan_hours"], "default": 72},
+    {"key": "conf:alerts.mr_days", "label": "Alerte — MR ouverte non mergée (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "mr_days"], "default": 7},
+    {"key": "conf:alerts.verdict_days", "label": "Alerte — ticket qui attend ton verdict (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "verdict_days"], "default": 14},
+    {"key": "conf:alerts.mep_days", "label": "Alerte — validé mais pas déployé (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "mep_days"], "default": 3},
     {"key": "conf:ui.theme", "label": "Thème",
      "group": "Design front", "type": "enum", "path": ["ui", "theme"],
      "options": ["dark", "light", "auto"], "default": "auto"},
@@ -8255,6 +8393,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
             if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
                 return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/alerts":                  # RM2698 : dérives (tickets, MR)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_alerts(qs, self.auth_ctx))
             if path == "/overview":                # RM2696 : agrégat par projet
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
@@ -8350,6 +8491,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/alerts/snooze":       # RM2698 : reporter une alerte
+                return self._send_json(200, op_alert_snooze(payload))
             if path == "/worklog/batch":       # RM2716 : traiter un lot en série
                 return self._send_json(200, op_worklog_batch(payload))
             if path == "/approve":

@@ -1883,6 +1883,34 @@ const dhXss = attentionHtml([{ rank: 1, kind: "test", icon: "🧪", verb: "<b>v"
 assert(!/<img|<script>|<b>v/.test(dhXss), "verbe, client et texte échappés (anti-XSS)");
 console.log("✓ dashboard (RM2697) : tri par nature d'attente, verbes d'action, écran vide parlant");
 
+// — RM2698 : alertes de dérive, en tête du tableau de bord —
+const alertsHtml = grabO("alertsHtml");
+assert.strictEqual(alertsHtml({ alerts: [] }, escO, jargFn), "",
+  "rien à signaler ⇒ RIEN d'affiché (une bannière permanente cesse d'être lue)");
+assert.strictEqual(alertsHtml(null, escO, jargFn), "", "données absentes tolérées");
+const AL = { total: 30, hidden: 18, alerts: [
+  { kind: "verdict", key: "t:4", age_days: 48.2, rm_id: "4", client: "acme", project: "shop",
+    label: "livré, attend ton verdict", title: "un titre" },
+  { kind: "mr", key: "m:r:9", age_days: 29, iid: "9", url: "https://x/9", client: "acme",
+    project: "shop", label: "MR ouverte, pas mergée" },
+] };
+const ah = alertsHtml(AL, escO, jargFn);
+assert(/⚠ dérives \(30\)/.test(ah), "l'en-tête porte le TOTAL, pas le nombre affiché");
+assert(/48 j/.test(ah) && /29 j/.test(ah), "chaque alerte porte son âge — sans lui, on ne priorise pas");
+assert(/… et 18 dérive/.test(ah), "ce qui est masqué est annoncé, avec le renvoi aux réglages");
+assert(/onclick="snoozeAlert\('t:4'\)"/.test(ah), "chaque alerte se REPORTE (jamais de suppression)");
+assert(/⏳ 7 j/.test(ah), "le report est daté et explicite");
+assert(/onclick="openReview\('4'\)"/.test(ah), "le ticket s'ouvre en un clic");
+assert(/href="https:\/\/x\/9"/.test(ah), "une MR renvoie à la forge");
+const ahXss = alertsHtml({ alerts: [{ kind: "mr", key: "<b>k", age_days: 1, client: "<img src=x>",
+  project: "p", label: "<script>", title: "<b>t" }] }, escO, jargFn);
+assert(!/<img|<script>|<b>t/.test(ahXss), "client, label et titre échappés (anti-XSS)");
+// les alertes passent AVANT l'état dans le rendu du tableau de bord
+const mRd = /function renderDashboard\(\)[\s\S]*?\n\}/.exec(html);
+assert(mRd && mRd[0].indexOf("alertsHtml") < mRd[0].indexOf("attentionHtml"),
+  "la dérive s'affiche avant l'état courant");
+console.log("✓ alertes (RM2698) : datées, bornées, reportables, silencieuses quand tout va bien");
+
 console.log("OK — tous les tests cockpit passent");
 
 // — renderMailList (RM2671) : file de triage des emails —

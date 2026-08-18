@@ -1833,3 +1833,64 @@ out = renderMailList([{ key: "ddd4", subject: '<img src=x onerror=alert(1)>',
                      null, escFn, jargFn);
 assert(!/<img/.test(out) && /&lt;img/.test(out), "sujet non échappé");
 console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempli, échappement");
+
+// — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
+// `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
+const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
+const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
+      renderCenterTabs = grabFn("renderCenterTabs"), newTicketFormHtml = grabFn("newTicketFormHtml");
+
+let st = { tabs: [], active: null };
+st = upsertTab(st.tabs, "session", "2668", "RM2668");
+assert.equal(st.tabs.length, 1); assert.equal(st.active, "session:2668");
+assert.equal(st.tabs[0].pinned, false, "un onglet est temporaire par défaut");
+
+// règle du temporaire unique : la vue suivante REMPLACE le temporaire précédent
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review"], "le temporaire précédent doit céder la place");
+
+// épinglé : il reste, et le temporaire vient à côté
+st = upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true });
+st = upsertTab(st.tabs, "project", "calyclay/infra", "calyclay/infra");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "project"], "un onglet épinglé survit");
+st = upsertTab(st.tabs, "newticket", "", "nouveau ticket");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "newticket"], "un seul temporaire à la fois");
+
+// ré-ouvrir un onglet existant l'active sans le dupliquer
+const before = st.tabs.length;
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.equal(st.tabs.length, before, "pas de doublon d'onglet");
+assert.equal(st.active, "review:2670");
+
+// fermeture : voisin de gauche, puis de droite, puis plus rien
+let c = closeTabAt(st.tabs, "review:2670", "review:2670");
+assert.equal(c.active, "newticket:", "à défaut de voisin gauche, on prend le droit");
+c = closeTabAt(c.tabs, "newticket:", "newticket:");
+assert.equal(c.tabs.length, 0); assert.equal(c.active, null, "plus d'onglet → aucune vue active");
+c = closeTabAt([{ kind: "review", key: "1" }], "review:404", "review:1");
+assert.equal(c.tabs.length, 1, "fermer un onglet inconnu ne casse rien");
+
+// rendu : actif, épinglé, échappement, et onclick en quotes simples (jarg)
+const tabsHtml = renderCenterTabs(
+  [{ kind: "review", key: "2670", label: "RM2670", pinned: true },
+   { kind: "project", key: "x/y", label: '<b>x</b>', pinned: false }],
+  "review:2670", escFn, jargFn);
+assert(/class="ctab active"/.test(tabsHtml), "onglet actif non marqué");
+assert(/📌/.test(tabsHtml) && /⇧/.test(tabsHtml), "état d'épinglage non rendu");
+assert(/ctab temp/.test(tabsHtml), "onglet temporaire non signalé");
+assert(!/<b>x<\/b>/.test(tabsHtml) && /&lt;b&gt;/.test(tabsHtml), "libellé non échappé");
+assert(/onclick="activateTab\('review:2670'\)"/.test(tabsHtml), "id non passé via jarg");
+assert(/event\.stopPropagation\(\);closeTab/.test(tabsHtml), "la croix doit stopper la propagation");
+
+// formulaire pleine page : les champs qui manquaient à la carte repliée
+const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
+                               ["low", "normal", "high", "urgent"],
+                               '<option value="calyclay/infra">calyclay/infra</option>', escFn);
+["ntf-title", "ntf-project", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
+ "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id =>
+  assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
+assert(/<option value="feature" selected>/.test(form), "type feature non présélectionné");
+assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
+assert(/calyclay\/infra/.test(form), "liste des projets non injectée");
+assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
+console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");

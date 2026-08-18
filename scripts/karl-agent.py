@@ -127,6 +127,9 @@ API (JSON, localhost:9876)
                                   production (une MR par dépôt — elle emporte
                                   tout dev, pas seulement les tickets cochés).
                                   `dry_run` rend le plan sans rien merger (RM2720)
+  POST /mr/merge {url, confirm} → merge UNE MR désignée par son URL, via
+                                  pm-mr.py (bouton des lignes « MR à merger »
+                                  du worklog)  (RM2723)
   POST /mr/deliver {rm_id, confirm}
                                 → {rc, ok, branch, target, stdout, stderr} —
                                   livre la branche du ticket (MR + merge → dev)
@@ -8299,6 +8302,53 @@ def op_mr_batch(payload: dict) -> dict:
                 failed=[r for r in results if not r["ok"]])
 
 
+# >>> mr_url_iid — pure (testée par test_karl_agent_mr_batch.py)
+_MR_URL_RE = re.compile(r"^https?://[^/\s]+/[^\s?#]+/-/merge_requests/(\d+)/?$")
+
+
+def mr_url_iid(url):
+    """iid d'une URL de MR GitLab, ou None si ce n'est pas une URL de MR.
+
+    On ne valide PAS l'hôte ici : `pm-mr.py` refuse déjà toute forge non
+    déclarée avant le moindre appel — un PAT ne doit jamais partir vers un hôte
+    inconnu, et cette règle n'a qu'un seul endroit où vivre. Ce contrôle-ci sert
+    à échouer TÔT et clairement sur une entrée qui n'est pas une MR (le worklog
+    est écrit par des agents : son contenu se vérifie)."""
+    m = _MR_URL_RE.match(str(url or "").strip())
+    return m.group(1) if m else None
+# <<< mr_url_iid
+
+
+def op_mr_merge(payload: dict) -> dict:
+    """RM2723 — merge UNE MR, désignée par son URL, via `pm-mr.py merge`.
+
+    L'URL est la forme canonique et auto-portante (hôte → forge, chemin →
+    projet, fin → iid) : un iid nu exigerait un dépôt explicite (RM2541), que le
+    worklog ne porte pas. Confirmation obligatoire — le geste ne se défait pas."""
+    url = str(payload.get("url") or "").strip()
+    if not mr_url_iid(url):
+        raise ApiError(400, "URL de MR attendue (…/-/merge_requests/<iid>)")
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    argv = [sys.executable, str(script), "merge", url]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                           cwd=str(REPO_ROOT))
+        rc, out, err = r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        rc, out, err = 124, "", "timeout (300 s)"
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-merge",
+                                "args": {"url": url}, "rc": rc}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass                     # le journal ne doit jamais faire échouer le run
+    return {"name": "mr-merge", "url": url, "iid": mr_url_iid(url), "rc": rc,
+            "ok": rc == 0, "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]}
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -8930,6 +8980,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_pm_run(payload))
             if path == "/mr/batch":            # RM2720 : merger un lot de MR
                 return self._send_json(200, op_mr_batch(payload))
+            if path == "/mr/merge":            # RM2723 : merger UNE MR (par URL)
+                return self._send_json(200, op_mr_merge(payload))
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":

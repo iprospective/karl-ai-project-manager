@@ -29,6 +29,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   garde en `--porcelain -uno` : un fichier neuf qu'on a oublié d'ajouter doit continuer
   à bloquer le teardown. Un fichier **suivi et modifié** n'est jamais rendu jetable,
   même s'il correspond à un motif.
+- **`pm-repo-new`** (RM2640) : le PM outillait la vie d'un dépôt mais pas sa **naissance** —
+  créer un projet se faisait à l'UI ou au `curl`, exactement le cas visé par le tripwire #1.
+  La commande enchaîne désormais résolution du groupe **par chemin exact** (tripwire #14,
+  jamais par basename : incidents RM2219/RM2410), refus si le projet existe, `POST /projects`
+  (**privé par défaut**, `default_branch` explicite), `--push-from` d'un dépôt local avec
+  remote en **alias SSH canonique `gitlab:`** (jamais HTTPS, RM2328), puis `pm-protect`
+  **appelé** et non réimplémenté. `--porcelain` sort `<id> <path_with_namespace>` : aucun id
+  n'est deviné ni recopié de mémoire (tripwire #13). `--dry-run` montre la séquence complète.
+  Passe par `pm_forge` — GitLab n'est pas codé en dur.
 
 ### Cockpit
 - **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de

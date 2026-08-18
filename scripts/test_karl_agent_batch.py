@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests RM2716/RM2719 — traitement en série d'un lot de tickets du worklog.
+"""Tests RM2716/RM2719/RM2720 — lot de tickets du worklog.
 
 Ce qu'on protège (les gardes valent plus que la fonctionnalité) :
   - aucun ticket non actionnable n'entre dans la consigne, et chaque exclusion
@@ -15,6 +15,12 @@ Ce qu'on protège en plus : une portée vide ÉCARTE le ticket (décocher tous s
 points veut dire « rien à y faire », pas « fais tout »), les points repris sont
 bornés et ce qui déborde est ANNONCÉ, et la consigne interdit de clôturer un
 ticket dont il reste des points.
+
+RM2720 — second MODE de lot, « passer à tester ». Ce qu'on protège : les deux
+modes ne classent pas les mêmes statuts (une étude se rend en validation, pas en
+test), un mode inconnu est REFUSÉ plutôt que rabattu sur le défaut, et la
+consigne « à tester » exige une vraie livraison (note + protocole) au lieu d'un
+changement de statut en masse.
 
 Lancer : python3 scripts/test_karl_agent_batch.py
 """
@@ -181,6 +187,52 @@ check("…et un plafond atteint côté serveur la signale aussi",
 check("liste complète → rien de signalé",
       ka.batch_plan([{"rm_id": "10", "status": "a_faire", "points": ["A"]}]
                     )["todo"][0]["points_truncated"] is False)
+
+# — RM2720 : second mode de lot, « passer à tester » —
+ATEST = [
+    {"rm_id": "20", "status": "en_cours", "title": "dev en cours"},
+    {"rm_id": "21", "status": "a_corriger"},
+    {"rm_id": "22", "status": "a_tester_demandeur"},
+    {"rm_id": "23", "status": "a_etudier_chiffrer"},
+    {"rm_id": "24", "status": "etude_chiffrage_a_valider"},
+    {"rm_id": "25", "status": "ferme"},
+    {"rm_id": "26", "status": "statut_invente"},
+]
+pa = ka.batch_plan(ATEST, "atester")
+check("mode « à tester » : les tickets dont le travail est chez l'agent partent",
+      [t["rm_id"] for t in pa["todo"]] == ["20", "21"], str([t["rm_id"] for t in pa["todo"]]))
+skr = {x["rm_id"]: x["reason"] for x in pa["skipped"]}
+check("un ticket DÉJÀ chez le demandeur est écarté", "déjà en test" in skr.get("22", ""))
+check("une ÉTUDE est écartée : elle se rend en validation, pas en test",
+      "validation" in skr.get("23", "") and "validation" in skr.get("24", ""))
+check("un ticket fermé est écarté", "25" in skr)
+check("un statut inconnu est écarté, pas deviné", "aucune action définie" in skr.get("26", ""))
+check("les deux modes ne classent PAS pareil (c'est tout l'intérêt)",
+      [t["rm_id"] for t in ka.batch_plan(ATEST)["todo"]] != [t["rm_id"] for t in pa["todo"]])
+check("un mode inconnu est REFUSÉ (jamais rabattu sur le défaut)",
+      raises(400, lambda: ka.batch_plan(ATEST, "zzz")))
+
+pat = ka.batch_prompt(pa["todo"], "atester")
+check("la consigne « à tester » exige la note de livraison ET le protocole de test",
+      "note de livraison" in pat and "protocole de test" in pat)
+check("…et interdit de bouger le statut d'un travail non livré",
+      "NE FORCE PAS" in pat and "laisse le statut en l'état" in pat)
+check("…et reste une consigne de LOT (worklog, notification, bilan)",
+      "pm-session-status" in pat and "lot terminé" in pat)
+check("la consigne « traiter » n'est PAS celle-là",
+      "note de livraison" not in ka.batch_prompt(ka.batch_plan(ITEMS)["todo"]))
+
+sent.clear()
+r2720 = ka.op_worklog_batch({"rm_id": "70", "mode": "atester", "items": ATEST})
+check("le mode voyage jusqu'à l'envoi", r2720["mode"] == "atester"
+      and "« à tester »" in sent[-1]["msg"])
+check("mode inconnu à l'envoi → 400",
+      raises(400, lambda: ka.op_worklog_batch({"rm_id": "70", "mode": "zzz", "items": ATEST})))
+check("un lot « à tester » sans ticket éligible → 400",
+      raises(400, lambda: ka.op_worklog_batch({"rm_id": "70", "mode": "atester",
+                                               "items": [{"rm_id": "22", "status": "a_tester_demandeur"}]})))
+check("le catalogue d'actions rapides n'a plus deux clés « atester »",
+      len({a["key"] for a in ka._DEFAULT_ACTIONS}) == len(ka._DEFAULT_ACTIONS))
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

@@ -1179,8 +1179,12 @@ if (window.matchMedia) {
               <button class="mini" onclick="loadWorklog(true)" title="Rafraîchir le worklog">⟳</button>
               <!-- RM2716 : cocher des tickets et les faire traiter en série par
                    la session attachée (récapitulatif avant envoi) -->
-              <button class="mini" id="batch-btn" style="display:none" onclick="openBatchPlan()"
+              <button class="mini" id="batch-btn" style="display:none" onclick="openBatchPlan('traiter')"
                       title="Faire traiter les tickets cochés, l'un après l'autre, par la session attachée">▶ traiter</button>
+              <!-- RM2720 : passer les tickets cochés « à tester » — c'est une
+                   LIVRAISON (note + protocole), pas un changement de statut. -->
+              <button class="mini" id="batch-atester-btn" style="display:none" onclick="openBatchPlan('atester')"
+                      title="Faire livrer les tickets cochés (note de livraison + protocole) et les passer à tester">✔ à tester</button>
               <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
@@ -4305,6 +4309,11 @@ function batchToggle(ref, status, title, on) {
     b.style.display = batchSel.size ? "" : "none";
     b.textContent = "▶ traiter (" + batchSel.size + ")";
   }
+  const bt = document.getElementById("batch-atester-btn");
+  if (bt) {
+    bt.style.display = batchSel.size ? "" : "none";
+    bt.textContent = "✔ à tester (" + batchSel.size + ")";
+  }
 }
 // >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
@@ -4355,22 +4364,36 @@ function batchPlanHtml(plan, esc) {
 }
 // <<< batchPlanHtml
 let batchPlanCache = null;
-async function openBatchPlan() {
+// RM2720 : deux modes de lot, un seul écran de confirmation — ce qui change,
+// c'est ce qui va être demandé, et ça doit se lire dans le titre comme dans le
+// bouton d'envoi (envoyer « traiter » en croyant envoyer « à tester » ne se
+// rattrape pas).
+const BATCH_MODES = {
+  traiter: { titre: "▶ Traiter", envoi: "▶ envoyer à la session", points: true },
+  atester: { titre: "✔ Passer à tester", envoi: "✔ livrer et passer à tester", points: false },
+};
+async function openBatchPlan(mode) {
   if (!attached) { toast("aucune session attachée", true); return; }
   if (!batchSel.size) return;
+  const m = BATCH_MODES[mode] ? mode : "traiter";
+  const cfg = BATCH_MODES[m];
   try {
     batchPlanCache = await api("/worklog/batch", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, items: [...batchSel.values()],
+      // la portée par points n'a de sens que pour « traiter » : on ne livre pas
+      // la moitié d'un ticket.
+      body: JSON.stringify({ rm_id: attached, mode: m,
+                             items: [...batchSel.values()].map(it => cfg.points ? it
+                               : Object.assign({}, it, { points: [], points_truncated: false })),
                              dry_run: true, allow_large: true }) });
   } catch (e) { toast(e.message, true); return; }
   document.getElementById("doctitle").textContent =
-    "▶ Traiter " + batchPlanCache.count + " ticket(s) — session " + attached;
+    cfg.titre + " " + batchPlanCache.count + " ticket(s) — session " + attached;
   const el = document.getElementById("doccontent");
   el.className = "";
   el.innerHTML = batchPlanHtml(batchPlanCache, esc)
     + '<div style="display:flex;gap:8px;margin-top:12px">'
-    + '<button class="primary" onclick="sendBatch(this)">▶ envoyer à la session</button>'
+    + '<button class="primary" onclick="sendBatch(this)">' + cfg.envoi + "</button>"
     + '<button class="mini" onclick="closeDoc()">annuler</button></div>'
     + '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">'
     + "voir la consigne exacte</summary><pre class=\"logtail\" style=\"white-space:pre-wrap\">"
@@ -4403,10 +4426,11 @@ async function sendBatch(btn) {
   try {
     const r = await api("/worklog/batch", { method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, items: batchScopedItems(),
+      body: JSON.stringify({ rm_id: attached, mode: batchPlanCache.mode || "traiter",
+                             items: batchScopedItems(),
                              allow_large: batchPlanCache.count > 10 }) });
     const ecartes = (r.skipped || []).length;
-    toast("▶ " + r.count + " ticket(s) envoyés à la session " + attached
+    toast((r.mode === "atester" ? "✔ " : "▶ ") + r.count + " ticket(s) envoyés à la session " + attached
           + (ecartes ? " · " + ecartes + " écarté(s)" : ""));
     batchSel.clear(); batchToggle();      // remet le bouton à zéro
     closeDoc();
@@ -7356,6 +7380,18 @@ function renderReviewPane() {
           : '<div style="color:var(--muted)">vérification de la mergeabilité en cours…</div>') +
       '</div>';
   }
+  // — RM2720 : actions PM DU TICKET (elles vivaient au bas de la session) —
+  const pmActs = (CFG.actions || []).filter(a => a.ticket_only);
+  if (pmActs.length) {
+    const tgt = pmActionTarget(rm, sessCache, attached);
+    h += '<div class="ms"><h4>Actions PM</h4><div class="rels">'
+      + pmActs.map((a, i) => '<button class="chip"' + (tgt.sid ? "" : " disabled")
+          + ' title="' + esc(String(a.text || "").replaceAll("{id}", rm)) + '"'
+          + ' onclick="sendPmAction(' + i + ',' + jarg(String(rm)) + ',this)">'
+          + esc(a.label) + "</button>").join(" ")
+      + '</div><div style="color:var(--muted);font-size:11px;margin-top:4px">'
+      + esc(tgt.why) + "</div></div>";
+  }
   // — verdict —
   h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +
     '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'valider\', this)">✅ testé OK → fermer</button>' +
@@ -7585,16 +7621,39 @@ async function tqVerdict(rm, kind, btn) {
   finally { ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 
+// >>> pmActionTarget — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2720 — À QUI envoyer une action PM déclenchée depuis la fiche d'un ticket.
+// La session du ticket d'abord : c'est elle qui a le contexte. À défaut la
+// session attachée — mais on le DIT, parce qu'envoyer « passe RM123 en cours »
+// dans une session qui travaille sur autre chose n'est pas neutre. Sans session
+// vivante, rien : le bouton se désactive avec sa raison, plutôt que d'échouer
+// après le clic.
+function pmActionTarget(rm, sessions, attached) {
+  const alive = (sid) => {
+    const s = (sessions || {})[String(sid)];
+    return !!(s && !s.ghost);
+  };
+  if (alive(rm)) return { sid: String(rm), own: true, why: "→ session du ticket RM" + rm };
+  if (attached && alive(attached))
+    return { sid: String(attached), own: false,
+             why: "→ session attachée (" + attached + ") — ce n’est pas la session du ticket" };
+  return { sid: null, own: false, why: "aucune session vivante où envoyer cette action" };
+}
+// <<< pmActionTarget
+
 // ----- §2 : chips d'actions en un clic (catalogue serveur CFG.actions) -----
 function renderChips() {
   const row = document.getElementById("chipsrow");
   const acts = CFG.actions || [];
   if (!attached || !acts.length) { row.style.display = "none"; return; }
-  const isTicket = /^\d+$/.test(attached);
   row.innerHTML = "";
   let lastGroup = null;
   for (const a of acts) {
-    if (a.ticket_only && !isTicket) continue;   // session slug : pas de chips PM
+    // RM2720 : une action `ticket_only` porte sur UN ticket — elle est rendue sur
+    // la fiche du ticket concerné (`renderReviewPane`), pas ici. Au niveau
+    // session, `{id}` valait l'id de la SESSION : sans objet pour un ancrage
+    // slug, et faux dès qu'une session porte plusieurs tickets.
+    if (a.ticket_only) continue;
     if (a.group && a.group !== lastGroup) {
       const g = document.createElement("span");
       g.className = "cgroup"; g.textContent = a.group;
@@ -7609,21 +7668,40 @@ function renderChips() {
   }
   row.style.display = row.childElementCount ? "flex" : "none";
 }
-async function sendAction(a, btn) {
-  if (!attached) return;
+// RM2720 : `id` = ce que remplace {id} dans la consigne (un TICKET pour les
+// actions PM) ; `sid` = la session à qui on l'envoie. Les deux coïncidaient tant
+// que les actions de ticket vivaient dans la barre de session — plus maintenant.
+async function sendAction(a, btn, id, sid) {
+  const target = sid || attached;
+  const rid = id == null ? attached : String(id);
+  if (!target) return;
   btn.disabled = true;
   try {
     await api("/send", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        rm_id: attached,
-        msg: String(a.text || "").replaceAll("{id}", attached),
+        rm_id: target,
+        msg: String(a.text || "").replaceAll("{id}", rid),
         enter: a.enter !== false,
       }),
     });
     toast(a.enter === false ? "Texte injecté — complète dans le terminal" : "Envoyé : " + a.label);
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
+}
+
+// RM2720 : action PM d'un ticket. La confirmation n'apparaît que si la cible
+// n'est PAS la session du ticket — c'est le seul cas où le clic fait quelque
+// chose d'inattendu (injecter une consigne dans une session qui travaille
+// ailleurs).
+async function sendPmAction(idx, rm, btn) {
+  const a = (CFG.actions || []).filter(x => x.ticket_only)[idx];
+  if (!a) return;
+  const tgt = pmActionTarget(rm, sessCache, attached);
+  if (!tgt.sid) { toast(tgt.why, true); return; }
+  if (!tgt.own && !window.confirm("« " + a.label + " » de RM" + rm + "\n"
+      + tgt.why + "\n\nEnvoyer quand même ?")) return;
+  sendAction(a, btn, rm, tgt.sid);
 }
 
 // ----- §3 : moniteurs multi-panes -----

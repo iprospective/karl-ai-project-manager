@@ -79,10 +79,23 @@ importantes » (déclencheur au KERNEL).
 
 ```bash
 scripts/pm-session-status.py notify "<fait court et factuel>" --kind <type> [--ref RM<id>] [--level info|warn|critical]
-scripts/pm-session-status.py notify --list          # relire le canal
-scripts/pm-session-status.py notify --clear         # acquitter (les `critical` restent)
-scripts/pm-session-status.py notify --clear --all   # acquitter AUSSI les critiques
+scripts/pm-session-status.py notify --list          # relire le canal (numéro + état)
+scripts/pm-session-status.py notify --resolve <n> --ticket RM<id> [--note "…"]
+scripts/pm-session-status.py notify --clear         # SUPPRIME l'archive (traitées)
+scripts/pm-session-status.py notify --clear --all   # supprime TOUT, ouvertes et critiques
 ```
+
+**Referme la notification quand elle est traitée** (RM2715). Une notification
+porte une consigne (« ticket à ouvrir », « rotation à faire ») : laissée telle
+quelle une fois faite, elle devient un mensonge affiché au backlog — cas vécu,
+une notif « ticket à ouvrir » y est restée après l'ouverture, la livraison et la
+MEP du ticket. `--resolve` la sort du backlog **sans la supprimer** : elle
+descend en archive avec le ticket qui l'a portée, comme une MR mergée sort des
+« à merger » sans sortir du worklog.
+
+⚠ `--resolve` ≠ `--clear`. Le premier archive, le second **détruit** — et
+`--clear` ne touche par défaut qu'à l'archive : ni les ouvertes, ni les
+`critical` ne partent sans `--all`.
 
 | `--kind` | quand | niveau par défaut |
 |---|---|---|

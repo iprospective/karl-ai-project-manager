@@ -64,7 +64,14 @@ Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-
 (pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
 Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
 `outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
-canal noyé ne sera pas lu. Mode d'emploi : skill `mmi-pm-session-status`.
+canal noyé ne sera pas lu.
+
+**Et referme-la quand elle est traitée** (RM2715) : `notify --resolve <n> --ticket
+RM<id>`. Une notification dit ce qu'il reste à faire ; laissée telle quelle après
+coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'est) et
+use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
+elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
+ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
 
 ## Registre des demandes (RM2621)
 

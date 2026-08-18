@@ -3667,8 +3667,14 @@ function renderWorklog() {
       + (n.ref ? "<b>" + esc(n.ref) + "</b> " : "") + esc(n.message || "") + "</div>";
   }
   if (notes) {
+    // RM2715 : le compteur porte sur les OUVERTES (le serveur ne renvoie plus
+    // que celles-là) ; les traitées sont rappelées en sourdine, pas listées.
+    const done = (worklog.notifications_done || []).length;
     notes = '<div class="ms"><h4>🔔 notifications de la session ('
-      + (worklog.notifications || []).length + ")</h4>" + notes + "</div>";
+      + (worklog.notifications || []).length + ")"
+      + (done ? ' <span class="otag" title="traitées, gardées au worklog">'
+                + done + " traitée" + (done > 1 ? "s" : "") + "</span>" : "")
+      + "</h4>" + notes + "</div>";
   }
   // RM2583 : ce que la session a ouvert et pas encore mergé — une MR oubliée ne
   // se voit sinon qu'au prochain conflit, ou à un core update incomplet.

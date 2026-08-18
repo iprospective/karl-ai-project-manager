@@ -53,6 +53,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
 ### Outillage
+- **Notifications de session : une notification traitée quitte le backlog**
+  (RM2715, NORMS v1.70.0). Le canal `notify` (RM2466) n'avait que deux états —
+  *au backlog* ou *effacée* : une notification consignée « ticket à ouvrir »
+  restait affichée telle quelle après l'ouverture, la livraison ET la MEP du
+  ticket, sa consigne devenue fausse. Elle porte désormais sa résolution
+  (`notify --resolve <n> --ticket RM<id> [--note …]`) : elle sort du backlog
+  **sans sortir du store** et descend dans une section d'archive avec le ticket
+  qui l'a portée — modèle déjà posé par `mr_pending` (RM2583) et le registre des
+  demandes (RM2621). `--clear` cesse d'être le geste par défaut : il DÉTRUIT, et
+  ne vide plus que l'archive (ni les ouvertes ni les `critical` sans `--all`).
+  Le rognage du canal sacrifie l'archive avant les notifications encore ouvertes.
+  Côté **cockpit** (onglet état), seules les ouvertes sont servies, avec un
+  rappel discret du nombre de traitées.
 - **Plusieurs vaults déverrouillés en parallèle** (RM2683, lot L2 du chantier
   RM2662). `vault-agentd` tenait **une** session ; il tient désormais un **état par
   instance** (session, horodatages, backend), donc des TTL et des verrous

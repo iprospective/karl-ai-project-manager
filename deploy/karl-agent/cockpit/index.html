@@ -4172,13 +4172,7 @@ function renderWorklog() {
   const mrs = worklog.mrs_pending || [];
   if (mrs.length) {
     notes += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>";
-    for (const m of mrs) {
-      notes += '<div class="oline oq" style="white-space:normal">🔀 <b>!' + esc(m.iid)
-        + "</b> " + (m.ref ? esc(m.ref) + " " : "")
-        + (m.target ? '→ <span class="pill">' + esc(m.target) + "</span> " : "")
-        + (m.url ? '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
-        + "</div>";
-    }
+    for (const m of mrs) notes += mrLineHtml(m, esc, jarg);
     notes += "</div>";
   }
   // RM2635 : les demandes pas encore ticketées, AVANT les tickets — un ticket a
@@ -4277,6 +4271,52 @@ function renderWorklog() {
   h += '<div class="ms">' + content + "</div>";
   document.getElementById("workbody").innerHTML = h;
 }
+// >>> mrLineHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2723 : une ligne « MR à merger ». Le rendu vivait en DOUBLE — worklog de
+// session et worklog de projet — donc le bouton n'aurait existé qu'à un des deux
+// endroits, et la prochaine correction n'en aurait touché qu'un.
+// Le bouton n'apparaît que s'il y a une URL : c'est elle qui identifie la MR
+// pour pm-mr (un iid nu exigerait un dépôt explicite — RM2541).
+function mrLineHtml(m, esc, jarg) {
+  const mr = m || {};
+  const url = mr.url ? String(mr.url) : "";
+  return '<div class="oline oq" style="white-space:normal">🔀 <b>!' + esc(String(mr.iid || "?")) + "</b> "
+    + (mr.ref ? esc(String(mr.ref)) + " " : "")
+    + (mr.target ? '→ <span class="pill">' + esc(String(mr.target)) + "</span> " : "")
+    + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">ouvrir ↗</a> ' : "")
+    + (mr.alive === false ? '<span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span> ' : "")
+    // `esc(jarg(...))` et pas `jarg(...)` seul : jarg met la valeur entre
+    // guillemets SIMPLES pour le JS, mais l'attribut, lui, est entre guillemets
+    // DOUBLES — un « " » dans un libellé de MR (le worklog est écrit par des
+    // agents) le fermerait. L'échappement HTML est défait par le parseur avant
+    // que le JS ne voie la valeur : les deux couches se composent.
+    + (url ? '<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" onclick="mergeOneMr('
+        + esc(jarg(url)) + "," + esc(jarg(String(mr.iid || ""))) + ","
+        + esc(jarg(String(mr.target || ""))) + ',this)">⇥ merger</button>' : "")
+    + "</div>";
+}
+// <<< mrLineHtml
+
+// RM2723 : merge d'une MR depuis le worklog. Confirmation d'abord — le geste ne
+// se défait pas — et l'échec rend la sortie du script, c'est elle qui dit quoi
+// faire (conflit, merge gate, branche protégée).
+async function mergeOneMr(url, iid, target, btn) {
+  if (!window.confirm("Merger la MR !" + iid + (target ? " dans « " + target + " »" : "") + " ?\n"
+      + "Le merge passe par pm-mr (note Redmine, CF GIT PR, log du ticket).")) return;
+  btn.disabled = true; btn.textContent = "⇥ merge…";
+  try {
+    const r = await api("/mr/merge", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url, confirm: true }) });
+    toast(r.ok ? "⇥ MR !" + iid + " mergée" : "Échec (rc=" + r.rc + ")", !r.ok);
+    if (!r.ok) showCaptureModal("Merge MR !" + iid + " — ÉCHEC",
+      (r.stdout || "") + "\n" + (r.stderr || ""));
+    loadWorklog(true);
+    if (currentProjectView) loadProjWorklog(currentProjectView);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "⇥ merger"; }
+}
+
 // >>> worklogProgressHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2695 : l'avancement DANS un ticket. Un statut dit où en est le ticket, pas
 // ce qu'il reste à y faire — d'où « 3/6 ✓ » et, dépliés, les critères NON
@@ -7181,12 +7221,7 @@ function projWorklogHtml(g, esc, jarg) {
   const mrs = g.mrs || [];
   if (mrs.length) {
     h += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>"
-      + mrs.map(m => '<div class="oline" style="white-space:normal">🔀 <b>!' + esc(String(m.iid)) + "</b> "
-        + (m.ref ? esc(String(m.ref)) + " " : "")
-        + (m.target ? '→ <span class="pill">' + esc(String(m.target)) + "</span> " : "")
-        + (m.url ? '<a href="' + esc(String(m.url)) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
-        + (m.alive === false ? ' <span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span>' : "")
-        + "</div>").join("") + "</div>";
+      + mrs.map(m => mrLineHtml(m, esc, jarg)).join("") + "</div>";
   }
   const reqs = g.requests || [];
   if (reqs.length) {

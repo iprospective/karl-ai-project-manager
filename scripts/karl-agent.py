@@ -4161,9 +4161,16 @@ def _overview_open_tasks(client=None, project=None) -> list:
                  "status": meta.get("status"), "priority": meta.get("priority") or "",
                  "client": cl, "project": pr}
         try:
-            body = _task_body(tf.read_text(encoding="utf-8"))
+            text = tf.read_text(encoding="utf-8")
         except OSError:
-            body = ""
+            text = ""
+        body = _task_body(text) if text else ""
+        # RM2697 : depuis QUAND ça attend. Sans cette date, un tableau de bord
+        # trie 126 tickets « à tester » par numéro — c'est-à-dire au hasard du
+        # point de vue de l'attention. Le plus ancien est celui qui coince.
+        mu = re.search(r"^updated:\s*'?([0-9T:\- ]+)'?\s*$", text, re.M) if text else None
+        if mu:
+            entry["updated"] = mu.group(1).strip()
         cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
         if cl_stats["total"]:
             entry["checklist"] = cl_stats

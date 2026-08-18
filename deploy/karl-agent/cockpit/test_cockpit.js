@@ -2112,3 +2112,28 @@ assert.notStrictEqual(MODES2720.atester.envoi, MODES2720.traiter.envoi,
 assert.strictEqual(MODES2720.atester.points, false,
   "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
 console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");
+
+// — RM2722 : badge d'anomalies du poste (contrôle de démarrage) —
+const envWarnBadge = grabO("envWarnBadge");
+assert.strictEqual(envWarnBadge({ items: [], count: 0, worst: "ok" }, escO), "",
+  "poste sain : AUCUN badge (un indicateur permanent ne se lit plus)");
+assert.strictEqual(envWarnBadge(null, escO), "", "données absentes tolérées");
+const ewWarn = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "agent joignable mais VIDE" }] }, escO);
+assert(/>🩺 1</.test(ewWarn), "le badge porte le NOMBRE d'anomalies");
+assert(/pill ew-warn/.test(ewWarn), "niveau warn : couleur d'avertissement");
+assert(/agent joignable mais VIDE/.test(ewWarn),
+  "le survol dit QUOI — sans ça il faut ouvrir le panneau pour savoir quoi réparer");
+const ewErr = envWarnBadge({ worst: "error", items: [
+  { family: "Secrets", label: "vault-agentd", level: "error", detail: "socket absent" },
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "vide" }] }, escO);
+assert(/pill ew-error/.test(ewErr), "une erreur l'emporte sur un avertissement");
+assert(/>🩺 2</.test(ewErr), "…et les deux sont comptées");
+const ewMany = envWarnBadge({ worst: "warn", items: Array.from({ length: 12 }, (_, i) =>
+  ({ family: "Outils & dépendances", label: "outil" + i, level: "warn", detail: "absent" })) }, escO);
+assert(/>🩺 12</.test(ewMany), "le compte reste exact même si le survol est tronqué");
+assert(/et 4 autre\(s\)/.test(ewMany), "…et la troncature du survol est annoncée");
+const ewXss = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: '"><img src=x>', level: "warn", detail: "x" }] }, escO);
+assert(!/<img/.test(ewXss), "le détail d'un check est échappé dans l'attribut title");
+console.log("✓ badge d'anomalies du poste (RM2722) : silencieux si sain, compté, expliqué au survol");

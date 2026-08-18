@@ -202,6 +202,10 @@
     padding: 1px 9px; font-size: 12px; }
   .dash-more { color: var(--muted); font-size: 11px; padding: 2px 8px 2px 2.4em; }
   .dash-since { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .dash-alerts { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px 8px;
+    margin-bottom: 12px; background: rgba(210,153,34,.06); }
+  .alert-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 2px; font-size: 12.5px; }
+  .alert-age { color: var(--warn); font-weight: 700; min-width: 3.2em; text-align: right; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
     border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 14px;
     border-radius: 6px; font-size: 13px; max-width: 360px; opacity: 0; transform: translateY(8px);
@@ -6817,6 +6821,51 @@ function attentionHtml(rows, esc, jarg) {
 }
 // <<< attentionHtml
 
+// >>> alertsHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2698 : la dérive, en tête du tableau de bord. Ce qu'on perd en
+// multi-sessions n'est pas ce qu'on voit, c'est ce qu'on ne voit plus.
+// Chaque alerte porte son ÂGE — sans lui, on ne sait pas laquelle traiter — et
+// un bouton « ⏳ 7 j » qui la REPORTE : jamais de suppression, sinon on
+// institutionnalise l'oubli. Rien à signaler ⇒ rien d'affiché : une bannière
+// permanente cesse d'être lue.
+function alertsHtml(data, esc, jarg) {
+  const d = data || {}, as = d.alerts || [];
+  if (!as.length) return "";
+  const ICON = { orphan: "💤", verdict: "🧪", mep: "🚀", mr: "🔀" };
+  let h = '<div class="dash-alerts"><div class="dash-sec" style="margin-top:0">⚠ dérives ('
+    + (d.total || as.length) + ")</div>";
+  for (const a of as) {
+    const age = Math.round(a.age_days || 0);
+    h += '<div class="alert-row">'
+      + '<span class="dash-icon">' + (ICON[a.kind] || "⚠") + "</span>"
+      + '<span class="alert-age" title="temps écoulé depuis la dernière activité">' + age + " j</span>"
+      + '<span class="dash-who">' + esc(String((a.client || "") + "/" + (a.project || ""))) + "</span>"
+      + (a.rm_id ? '<span class="r-id" style="cursor:pointer" onclick="openReview(' + jarg(String(a.rm_id)) + ')">RM'
+                   + esc(String(a.rm_id)) + "</span> " : "")
+      + '<span class="dash-txt">' + esc(String(a.label || ""))
+      + (a.title ? " — " + esc(String(a.title)) : "") + "</span>"
+      + (a.url ? '<a class="pill" href="' + esc(String(a.url)) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
+      + '<button class="mini" title="Reporter cette alerte de 7 jours (elle reviendra)" '
+      + 'onclick="snoozeAlert(' + jarg(String(a.key)) + ')">⏳ 7 j</button></div>';
+  }
+  if (d.hidden) {
+    h += '<div class="dash-more">… et ' + d.hidden + " dérive(s) plus récente(s) — "
+      + "les seuils se règlent dans 🔧 réglages</div>";
+  }
+  return h + "</div>";
+}
+// <<< alertsHtml
+
+let alertsData = { alerts: [] };
+async function snoozeAlert(key) {
+  try {
+    await api("/alerts/snooze", { method: "POST", headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ key: key, days: 7 }) });
+    toast("⏳ alerte reportée de 7 jours — elle reviendra");
+    loadDashboard(true);
+  } catch (e) { toast(e.message, true); }
+}
+
 let dashData = { projects: [] };
 let dashFilter = { client: "", project: "" };
 function dashVisible() {
@@ -6826,8 +6875,11 @@ function dashVisible() {
 async function loadDashboard(force) {
   if (!dashVisible()) return;
   try {
+    // /alerts recalcule l'agrégat au besoin puis le SERT depuis la même garde de
+    // fraîcheur : les deux appels ne coûtent qu'un calcul (RM2696/RM2698).
     dashData = await api("/overview" + (force ? "?force=1" : ""));
-  } catch (e) { dashData = { projects: [], error: e.message }; }
+    alertsData = await api("/alerts");
+  } catch (e) { dashData = { projects: [], error: e.message }; alertsData = { alerts: [] }; }
   renderDashboard();
 }
 function renderDashboard() {
@@ -6847,9 +6899,10 @@ function renderDashboard() {
     + '<select onchange="setDashFilter(\'client\', this.value)">' + [""].concat(clients).map(c => opt(c, dashFilter.client)).join("") + "</select>"
     + '<select onchange="setDashFilter(\'project\', this.value)">' + [""].concat(projects).map(p => opt(p, dashFilter.project)).join("") + "</select>"
     + '<button class="mini" onclick="loadDashboard(true)" title="Recalculer">⟳</button></div>'
+    + alertsHtml(alertsData, esc, jarg)      // RM2698 : la dérive avant l'état
     + attentionHtml(rows, esc, jarg);
   box.style.display = "";
-  if (hint) hint.style.display = rows.length ? "none" : "";
+  if (hint) hint.style.display = (rows.length || (alertsData.alerts || []).length) ? "none" : "";
 }
 function setDashFilter(k, v) { dashFilter[k] = v; if (k === "client") dashFilter.project = ""; renderDashboard(); }
 // le nom tmux d'une session, sans dépendre du DOM (utilisé par attentionRows)

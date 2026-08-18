@@ -86,6 +86,10 @@ API (JSON, localhost:9876)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
   GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
   GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /env-check[?force=1]    → contrôle de DÉMARRAGE : uniquement les familles
+                                 surveillées (SSH, secrets, outils, git/GitLab) et
+                                 uniquement ce qui est en défaut ; mémorisé 5 min
+                                 (les sondes coûtent réseau)  (RM2722)
   GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
@@ -7430,27 +7434,92 @@ def _envchk_pm():
     return out
 
 
-def op_env_status() -> dict:
-    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
-    remédiation. Chaque famille est isolée : une sonde qui casse ne fait jamais
-    échouer la page. Aucun secret rendu (noms de variables uniquement)."""
-    families = [
-        ("Outils & dépendances", _envchk_tools),
-        ("Secrets", _envchk_secrets),
-        ("Git / GitLab", _envchk_git),
-        ("Repos", _envchk_repos),        # RM2708 : les dépôts, sectionnés par client
-        ("SSH", _envchk_ssh),
-        ("PM", _envchk_pm),
-    ]
+ENV_FAMILIES = [
+    ("Outils & dépendances", _envchk_tools),
+    ("Secrets", _envchk_secrets),
+    ("Git / GitLab", _envchk_git),
+    ("Repos", _envchk_repos),            # RM2708 : les dépôts, sectionnés par client
+    ("SSH", _envchk_ssh),
+    ("PM", _envchk_pm),
+]
+
+# RM2722 — les familles dont une anomalie doit se VOIR sans qu'on ouvre le
+# panneau : elles cassent le travail en cours, et se découvrent sinon au milieu
+# d'une commande qui échoue. « Repos » et « PM » en sont VOLONTAIREMENT absentes :
+# un dépôt sale ou en avance, c'est l'ordinaire de la journée (et la dérive est
+# déjà suivie par les alertes RM2698) — un badge qui clignote tous les jours ne
+# se regarde plus.
+ENV_ALERT_FAMILIES = ("SSH", "Secrets", "Outils & dépendances", "Git / GitLab")
+
+
+def _env_groups(only=None) -> list:
+    """Lance les familles demandées (toutes par défaut). Chaque famille est
+    isolée : une sonde qui casse ne fait jamais échouer la page."""
     groups = []
-    for name, fn in families:
+    for name, fn in ENV_FAMILIES:
+        if only is not None and name not in only:
+            continue
         try:
             checks = fn()
         except Exception as exc:  # une famille ne doit jamais tuer la page
             checks = [_chk(name, "warn", f"contrôle en erreur ({exc.__class__.__name__})")]
         groups.append({"name": name, "checks": checks})
+    return groups
+
+
+def op_env_status() -> dict:
+    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
+    remédiation. Aucun secret rendu (noms de variables uniquement)."""
+    groups = _env_groups()
     return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "groups": groups, "summary": envstatus_summary(groups)}
+
+
+# >>> env_alerts — pure (testée par test_karl_agent_envstatus.py)
+def env_alerts(groups):
+    """Les lignes en DÉFAUT des familles surveillées, à plat, avec leur famille.
+
+    Pure : ce qui compte ici est le tri, pas la sonde. Une ligne `ok`/`info` n'y
+    entre pas — un badge ne doit compter que ce qui demande un geste. L'ordre
+    met les `error` avant les `warn` : quand il y en a plusieurs, la première
+    ligne du survol doit être la plus grave."""
+    items = []
+    for g in groups or []:
+        fam = g.get("name") or ""
+        if fam not in ENV_ALERT_FAMILIES:
+            continue
+        for c in g.get("checks", []):
+            if c.get("level") in ("warn", "error"):
+                items.append({"family": fam, "label": c.get("label") or "",
+                              "level": c.get("level"), "detail": c.get("detail") or "",
+                              "fix": c.get("fix") or ""})
+    items.sort(key=lambda i: (0 if i["level"] == "error" else 1, i["family"], i["label"]))
+    return {"items": items, "count": len(items),
+            "worst": "error" if any(i["level"] == "error" for i in items)
+                     else ("warn" if items else "ok")}
+# <<< env_alerts
+
+
+# Le diagnostic des familles surveillées coûte cher (pm-token-check interroge
+# l'API GitLab, la sonde de push ouvre une connexion SSH) : sans mémorisation,
+# chaque ouverture du cockpit — et chaque onglet — le rejouerait.
+_ENV_CHECK_TTL = 300.0
+_env_check_cache: dict = {"at": 0.0, "data": None}
+
+
+def op_env_check(qs: dict | None = None) -> dict:
+    """RM2722 — contrôle de démarrage : uniquement les familles surveillées, et
+    uniquement ce qui est en défaut. `force=1` rejoue les sondes (après une
+    réparation, on veut le savoir tout de suite, pas dans cinq minutes)."""
+    force = bool((qs or {}).get("force"))
+    now = time.time()
+    if not force and _env_check_cache["data"] and now - _env_check_cache["at"] < _ENV_CHECK_TTL:
+        return dict(_env_check_cache["data"], cached=True)
+    out = env_alerts(_env_groups(ENV_ALERT_FAMILIES))
+    out["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    out["cached"] = False
+    _env_check_cache.update({"at": now, "data": out})
+    return out
 
 
 # ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
@@ -8578,6 +8647,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
+            if path == "/env-check":               # RM2722 : contrôle de démarrage
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_env_check(qs))
             if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_triage(qs))

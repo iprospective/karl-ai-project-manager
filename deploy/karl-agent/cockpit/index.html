@@ -293,6 +293,12 @@
   .runitem.ghost { opacity: .6; border-style: dashed; }
   .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
+  /* RM2722 : badge d'anomalies du poste — il CLIGNOTE parce qu'il ne s'affiche
+     que quand quelque chose bloque, et qu'il disparaît dès que c'est réparé. */
+  #envwarn { cursor: pointer; font-family: var(--mono); }
+  #envwarn .pill { animation: kblink 1s ease-in-out infinite; }
+  #envwarn .pill.ew-error { color: var(--danger); border-color: var(--danger); }
+  #envwarn .pill.ew-warn { color: var(--warn); border-color: var(--warn); }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
   .rgroup { margin-bottom: 16px; }
@@ -698,6 +704,9 @@ if (window.matchMedia) {
   <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
   <button class="mini" id="envbtn" onclick="openEnvStatus()" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
+  <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
+       git/GitLab). Rien ne s'affiche quand tout va bien. -->
+  <span id="envwarn" style="display:none" onclick="openEnvStatus()"></span>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -6007,6 +6016,37 @@ document.addEventListener("click", function (ev) {
   if (g) { ev.preventDefault(); ev.stopPropagation(); openGlossary(g.getAttribute("data-term")); }
 });
 
+// ----- RM2722 : contrôle du poste au démarrage -----
+// >>> envWarnBadge — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le badge d'en-tête. Rien quand tout va bien : un indicateur permanent finit
+// par ne plus être lu, et c'est justement les jours où il compte qu'on ne le
+// verrait pas. Le survol dit QUOI, pour ne pas avoir à ouvrir le panneau —
+// « ssh-add non fait » se répare en dix secondes si on sait que c'est ça.
+function envWarnBadge(data, esc) {
+  const d = data || {};
+  const items = d.items || [];
+  if (!items.length) return "";
+  const cls = d.worst === "error" ? "ew-error" : "ew-warn";
+  const lignes = items.slice(0, 8).map(i => "• " + i.family + " — " + i.label
+    + (i.detail ? " : " + i.detail : ""));
+  if (items.length > 8) lignes.push("… et " + (items.length - 8) + " autre(s)");
+  return '<span class="pill ' + cls + '" title="'
+    + esc(items.length + " anomalie(s) du poste — clic : ouvrir la santé du poste\n"
+          + lignes.join("\n")) + '">🩺 ' + items.length + "</span>";
+}
+// <<< envWarnBadge
+
+let envCheckCache = null;
+async function loadEnvCheck(force) {
+  try {
+    envCheckCache = await api("/env-check" + (force ? "?force=1" : ""));
+  } catch (e) { return; }        // le badge est un plus : son échec ne dit rien à l'écran
+  const el = document.getElementById("envwarn");
+  if (!el) return;
+  el.innerHTML = envWarnBadge(envCheckCache, esc);
+  el.style.display = el.innerHTML ? "" : "none";
+}
+
 // ----- RM2458 : santé du poste (page de statut) -----
 // >>> envStatusHtml — pur (testé par test_cockpit.js) : rendu de /env-status.
 // Chaque ligne colorée par niveau ; les rouges/oranges affichent la commande de
@@ -6148,6 +6188,9 @@ async function openEnvStatus(force) {
     if (force || !envStatusCache) envStatusCache = await api("/env-status");
     const body = document.getElementById("es-body");
     if (body) body.innerHTML = envStatusHtml(envStatusCache, envTab);
+    // RM2722 : le diagnostic complet vient d'être rejoué — le badge d'en-tête
+    // doit suivre, sinon il continue d'annoncer une panne réparée.
+    loadEnvCheck(!!force);
   } catch (e) {
     const body = document.getElementById("es-body");
     if (body) body.innerHTML = '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">échec du diagnostic : ' + esc(e.message) + "</span></div>";
@@ -7894,6 +7937,7 @@ async function kill(rmId) {
   // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
   loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
+  loadEnvCheck();        // RM2722 : contrôle du poste au démarrage (badge si anomalie)
   tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
   // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
@@ -7905,6 +7949,10 @@ async function kill(rmId) {
   setInterval(() => { if (!document.hidden && rightVisible("state")) loadWorklog(); }, 10000);
   // MAJ du core : lente et désalignée du cache serveur (TTL 600 s) ; ls-remote réseau.
   setInterval(() => { if (!document.hidden) refreshCoreUpdate(); }, 300000);
+  // RM2722 : le poste change en cours de journée (un `ssh-add` fait, un vault
+  // déverrouillé) — le badge doit s'éteindre tout seul. Cadence alignée sur la
+  // mémorisation serveur (5 min) : une requête de plus ne relance aucune sonde.
+  setInterval(() => { if (!document.hidden) loadEnvCheck(); }, 300000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;          // repassé au premier plan → on rattrape
     refreshHealth(); loadPending();

@@ -58,9 +58,6 @@ _cred() {
   local v; v="$(printenv "SECRET__${SLUG}__$1" 2>/dev/null || true)"
   printf '%s' "${v:-$2}"
 }
-BW_CLIENTID="$(_cred CLIENTID "${BW_CLIENTID:-}")"
-BW_CLIENTSECRET="$(_cred CLIENTSECRET "${BW_CLIENTSECRET:-}")"
-VAULT_URL="$(_cred URL "${VAULT_URL:-}")"
 KDBX_FILE="$(_cred FILE "")"
 
 # Type du backend, lu dans le registre providers. Inconnu (registre absent) →
@@ -68,14 +65,38 @@ KDBX_FILE="$(_cred FILE "")"
 TYPE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field type 2>/dev/null || true)"
 [ -z "$TYPE" ] && TYPE="vaultwarden"
 
+# Identifiants Vaultwarden : le repli sur les variables globales du `.env` ne vaut
+# que pour une instance de CE type — sinon un vault KeePass afficherait les clés
+# API de Vaultwarden et l'URL du serveur, ce qui n'a aucun sens pour un fichier.
+if [ "$TYPE" = "vaultwarden" ]; then
+  BW_CLIENTID="$(_cred CLIENTID "${BW_CLIENTID:-}")"
+  BW_CLIENTSECRET="$(_cred CLIENTSECRET "${BW_CLIENTSECRET:-}")"
+  VAULT_URL="$(_cred URL "${VAULT_URL:-}")"
+else
+  BW_CLIENTID="$(_cred CLIENTID "")"
+  BW_CLIENTSECRET="$(_cred CLIENTSECRET "")"
+  VAULT_URL="$(_cred URL "")"
+fi
+
 if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
   # Diagnostic : quelle instance, quelles clés trouvées — jamais les valeurs.
-  found=""
-  [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
-  [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
-  [ -n "$VAULT_URL" ] && found="$found URL"
-  [ -n "$KDBX_FILE" ] && found="$found FILE"
-  echo "instance=$INSTANCE slug=$SLUG type=$TYPE url=${VAULT_URL:-—} creds=${found:- aucun}"
+  # Les clés affichées sont celles qui COMPTENT pour le type de l'instance.
+  found=""; cible=""
+  case "$TYPE" in
+    keepass)
+      [ -z "$KDBX_FILE" ] && KDBX_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+      [ -n "$KDBX_FILE" ] && found="$found FILE"
+      [ -n "$(_cred KEYFILE "")" ] && found="$found KEYFILE"
+      cible="file=${KDBX_FILE:-—}"
+      ;;
+    *)
+      [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
+      [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
+      [ -n "$VAULT_URL" ] && found="$found URL"
+      cible="url=${VAULT_URL:-—}"
+      ;;
+  esac
+  echo "instance=$INSTANCE slug=$SLUG type=$TYPE $cible creds=${found:- aucun}"
   exit 0
 fi
 

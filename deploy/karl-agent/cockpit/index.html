@@ -670,6 +670,7 @@ if (window.matchMedia) {
       <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
       <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
       <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
+      <button data-panel="mail" onclick="switchPanel('mail')">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
       <button data-panel="pm" onclick="switchPanel('pm')">⚙ commandes pm</button>
       <button data-panel="settings" onclick="switchPanel('settings')">🔧 réglages</button>
     </nav>
@@ -862,6 +863,30 @@ if (window.matchMedia) {
       </div>
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
+    </div>
+    </div>
+
+    <div class="lpanel" id="lp-mail">
+    <!-- RM2671 (chantier RM2666) : file de triage des emails de karl. Le panneau
+         ne réimplémente rien : il lit /mail/queue et délègue chaque geste au script
+         (relève, routage, rédaction, création à la validation). -->
+    <div class="card">
+      <h2>📧 Emails <span id="mail-count" style="color:var(--muted);font-weight:normal"></span>
+        <button class="helpq" onclick="openHelp('emails')" title="Aide sur ce panneau">?</button></h2>
+      <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="mini" onclick="mailFetch(this)" title="Relève la boîte en IMAP (lecture seule) et alimente la file">📥 Relever</button>
+        <button class="mini" onclick="mailRoute(this)" title="Propose client/projet pour chaque email de la file">🎯 Router</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"
+               title="Envoie le corps ENTIER de l'email au modèle : propositions nettement plus précises, mais le contenu sort du poste">
+          <input type="checkbox" id="mail-fullbody" style="width:auto"> corps entier
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"
+               title="Afficher aussi les emails déjà traités ou écartés">
+          <input type="checkbox" id="mail-done" style="width:auto" onchange="loadMail()"> traités
+        </label>
+        <button class="mini" onclick="loadMail()" title="Rafraîchir la file">↻</button>
+      </div>
+      <div id="mail-list"><div class="empty">chargement…</div></div>
     </div>
     </div>
 
@@ -1395,7 +1420,7 @@ function showCoreUpdate() {
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
 // première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), pm: () => loadPmCommands(), settings: () => loadSettings() };
+const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), pm: () => loadPmCommands(), settings: () => loadSettings() };
 const _panelLoaded = {};
 function switchPanel(name) {
   if (!document.getElementById("lp-" + name)) name = "running";
@@ -2883,6 +2908,142 @@ function linkify(text) {
 // l'attribut. `"` remplacé par son entité pour ne jamais fermer l'attribut.
 function jarg(s) {
   return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
+}
+
+
+// ===== RM2671 (chantier RM2666) : panneau « emails » =====
+// La file vient de /mail/queue ; chaque action délègue au script correspondant
+// côté serveur. Le corps d'un email n'est chargé qu'au dépliage (il n'a rien à
+// faire dans un rafraîchissement de liste).
+let mailAll = [], mailOpen = null;
+
+// >>> renderMailList — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rend la file : état, expéditeur, sujet, routage proposé (client/projet + confiance)
+// et, pour l'email déplié, sa proposition de ticket. `esc` et `jarg` sont injectés.
+function renderMailList(emails, openKey, esc, jarg) {
+  if (!emails.length) {
+    return '<div class="empty">file vide — « 📥 Relever » interroge la boîte de karl</div>';
+  }
+  const badge = { "à traiter": "", "proposé": "✎", "écarté": "⊘", "créé": "✓" };
+  return emails.map(e => {
+    const r = e.routing || {}, d = e.draft || {};
+    const target = r.client ? (r.client + (r.project ? "/" + r.project : "/?")) : "à classer";
+    const conf = r.confidence ? Math.round(r.confidence * 100) + "%" : "";
+    const open = e.key === openKey;
+    let h = '<div class="card" style="margin-bottom:6px' + (open ? ';border-color:var(--accent)' : '') + '">';
+    h += '<div style="display:flex;gap:6px;align-items:baseline;cursor:pointer" onclick="mailToggle(' + jarg(e.key) + ')">';
+    h += '<span title="' + esc(e.state) + '">' + (badge[e.state] || "•") + '</span>';
+    h += '<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' +
+         esc(e.subject || "(sans objet)") + '</b>';
+    h += '<span style="color:var(--muted);font-size:11px">' + esc((e.date || "").slice(0, 10)) + '</span>';
+    h += '</div>';
+    h += '<div style="color:var(--muted);font-size:11px;margin-top:2px">' +
+         esc(e.from_name || e.from || "") + ' — ' + esc(e.folder || "") +
+         (e.attachments ? ' · 📎' + e.attachments : '') + '</div>';
+    h += '<div style="margin-top:4px;font-size:11px">🎯 <b>' + esc(target) + '</b>' +
+         (conf ? ' <span style="color:var(--muted)">' + conf + ' · ' + esc(r.source || "") + '</span>' : '') +
+         (e.rm_id ? ' · <span title="réponse dans un fil existant">↩ RM' + esc(e.rm_id) + '</span>' : '') +
+         (e.created_rm ? ' · <b>→ RM' + esc(e.created_rm) + '</b>' : '') + '</div>';
+    if (e.dismissed) {
+      h += '<div style="font-size:11px;color:var(--muted)">⊘ écarté — ' +
+           esc(e.dismissed.reason || "") + '</div>';
+    }
+    if (open) {
+      if (d.title) {
+        h += '<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px">';
+        h += '<div style="font-size:11px;color:var(--muted)">proposition' +
+             (d.confidence ? ' · ' + Math.round(d.confidence * 100) + '%' : '') +
+             (d.actionable === false ? ' · <b>non actionnable</b>' : '') + '</div>';
+        h += '<label>Titre</label><input id="ml-title" value="' + esc(d.title || "") + '">';
+        h += '<label>Projet</label><input id="ml-project" value="' +
+             esc(d.project || (r.client && r.project ? r.client + "/" + r.project : "")) +
+             '" placeholder="client/projet">';
+        h += '<label>Priorité</label><select id="ml-prio">' +
+             ["low", "normal", "high", "urgent"].map(x =>
+               '<option' + (x === (d.priority || "normal") ? " selected" : "") + '>' + x + '</option>').join("") +
+             '</select>';
+        (d.warnings || []).forEach(w => {
+          h += '<div style="font-size:11px;color:var(--warn)">⚠ ' + esc(w) + '</div>';
+        });
+        h += '<div style="font-size:11px;white-space:pre-wrap;margin-top:6px;color:var(--muted)">' +
+             esc((d.description || "").slice(0, 600)) + '</div>';
+        h += '</div>';
+      }
+      if (e.body) {
+        h += '<details style="margin-top:6px"><summary style="font-size:11px">corps de l\'email</summary>' +
+             '<div style="font-size:11px;white-space:pre-wrap;max-height:220px;overflow:auto">' +
+             esc(e.body) + (e.body_truncated ? '\n…(tronqué à la relève)' : '') + '</div></details>';
+      }
+      h += '<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">';
+      h += '<button class="mini" onclick="mailDraft(' + jarg(e.key) + ', this)">✎ Rédiger</button>';
+      h += '<button class="mini primary" onclick="mailCreate(' + jarg(e.key) + ', this)">✓ Créer le ticket</button>';
+      h += '<button class="mini" onclick="mailNoteOn(' + jarg(e.key) + ', this)" title="Rattacher à un ticket existant : pose une note au lieu de créer">↩ Note sur…</button>';
+      h += '<button class="mini" onclick="mailReroute(' + jarg(e.key) + ', this)" title="Corriger le client/projet — la correction est apprise">🎯 Reclasser</button>';
+      h += '<button class="mini" onclick="mailDismiss(' + jarg(e.key) + ', this)">⊘ Écarter</button>';
+      h += '</div>';
+    }
+    return h + '</div>';
+  }).join("");
+}
+// <<< renderMailList
+
+async function loadMail() {
+  const box = document.getElementById("mail-list");
+  if (!box) return;
+  const done = document.getElementById("mail-done").checked ? "1" : "0";
+  try {
+    const qs = "?done=" + done + (mailOpen ? "&key=" + encodeURIComponent(mailOpen) : "");
+    const d = await api("/mail/queue" + qs);
+    mailAll = d.emails || [];
+    box.innerHTML = renderMailList(mailAll, mailOpen, esc, jarg);
+    document.getElementById("mail-count").textContent =
+      d.pending ? "— " + d.pending + " à traiter" : "";
+    const b = document.getElementById("ln-mail");
+    b.textContent = d.pending || ""; b.style.display = d.pending ? "" : "none";
+  } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+function mailToggle(key) { mailOpen = (mailOpen === key ? null : key); loadMail(); }
+
+async function mailAction(path, body, btn, label) {
+  if (btn) { btn.disabled = true; btn.dataset.old = btn.textContent; btn.textContent = "…"; }
+  try {
+    const r = await api(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body || {}) });
+    const msg = (r.stdout || r.stderr || "").trim().split("\n").filter(Boolean).pop() || label;
+    toast(r.ok ? msg : "Échec : " + msg, !r.ok);
+    await loadMail();
+  } catch (e) { toast(e.message, true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.old || label; } }
+}
+
+function mailFetch(btn) { mailAction("/mail/fetch", {}, btn, "Relever"); }
+function mailRoute(btn) { mailAction("/mail/route", {}, btn, "Router"); }
+function mailDraft(key, btn) {
+  mailAction("/mail/draft", { key, full_body: document.getElementById("mail-fullbody").checked, force: true },
+             btn, "Rédiger");
+}
+function mailCreate(key, btn) {
+  const project = (document.getElementById("ml-project") || {}).value || "";
+  const title = (document.getElementById("ml-title") || {}).value || "";
+  const priority = (document.getElementById("ml-prio") || {}).value || "";
+  if (!window.confirm("Créer le ticket dans « " + (project || "?") + " » ?")) return;
+  mailAction("/mail/create", { key, project, title, priority }, btn, "Créer");
+}
+function mailNoteOn(key, btn) {
+  const rm = window.prompt("Rattacher à quel ticket ? (numéro RM)");
+  if (!rm) return;
+  mailAction("/mail/create", { key, note_on: String(rm).replace(/\D/g, "") }, btn, "Note");
+}
+function mailReroute(key, btn) {
+  const to = window.prompt("Client ou client/projet :");
+  if (!to) return;
+  mailAction("/mail/route-set", { key, to: to.trim() }, btn, "Reclasser");
+}
+function mailDismiss(key, btn) {
+  const reason = window.prompt("Motif (facultatif) :", "pas une demande");
+  if (reason === null) return;
+  mailAction("/mail/dismiss", { key, reason }, btn, "Écarter");
 }
 
 // ===== RM2623 : glossaire du jargon technique (client-only) =====

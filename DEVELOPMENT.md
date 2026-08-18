@@ -41,6 +41,17 @@ onboarding agent), voir d'abord [README.md](README.md).
   depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `_MAX` / `_SWAP` du `.env`
   priment et figent le réglage. Piège : sur `swap`, `0` est un plafond réel
   (aucun swap, le défaut) et c'est `-1` qui lève la limite.
+- **De l'email au ticket (chantier RM2666).** Quatre scripts, quatre gestes, aucune
+  boîte noire : `karl-mail-fetch` relève la boîte IMAP de karl vers une **file de
+  triage** locale (`$XDG_STATE_HOME/karl-agent/mail/`, **hors git** — c'est du courrier
+  client) ; `karl-mail-route` propose client/projet avec une confiance et une source
+  (fil `[RM<id>]`, table apprise `mail-routing.yml`, compte Redmine, `contacts[]`,
+  indice) ; `karl-mail-draft` rédige (via `claude -p` sans outils, JSON strict) **puis
+  crée à la validation humaine**. CDC : `docs/cdc-rm2666-emails-vers-tickets.md` côté
+  données. Les contacts qui alimentent le routage se saisissent avec
+  `pm-client-contact` (`meta.yml` du client). Côté cockpit, le panneau **📧 emails**
+  (RM2671) ne fait que lire `/mail/queue` et déléguer aux scripts : aucune logique de
+  triage n'est dupliquée dans l'UI.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

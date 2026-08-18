@@ -17,8 +17,8 @@ Wrapper contextuel autour de `scripts/karl-mail-send.py`. Suit la convention `mm
 
 ## Pré-requis
 
-- **Vault déverrouillé** : socket `vault-agentd.sock` actif. Si non, l'utilisateur doit lancer `scripts/unlock-vault.sh` (master password humain requis, l'agent ne demande jamais).
-- **Item Vaultwarden** : `vaultwarden://iprospective/iprospective-agents/karl-mail` doit exister avec `username` et `password`.
+- **Vault déverrouillé** : socket `vault-agentd.sock` actif. Si non, l'utilisateur doit lancer `scripts/unlock-vault.sh [-i <instance>]` (secret humain requis — master password ou passphrase —, l'agent ne demande jamais).
+- **Item du vault** : `secret://vw-ipro/iprospective-agents/karl-mail` doit exister avec `username` et `password` (la forme `vaultwarden://…` reste valide).
 
 Si le vault est locked au moment de l'appel, le script abort avec un message clair → relayer à l'utilisateur.
 

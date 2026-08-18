@@ -1,5 +1,49 @@
 # Changelog des normes
 
+## [1.71.0] - 2026-08-18
+
+### Ajouté
+- **session-tooling** — § « Notifications importantes de session » : la règle ne
+  s'arrêtait qu'à la consignation. Elle demande maintenant de **refermer** la
+  notification quand elle est traitée (`notify --resolve <n> --ticket RM<id>`).
+  Cas vécu : une notification « outillage — ticket à ouvrir » est restée au
+  backlog du cockpit après l'ouverture, la livraison ET la MEP du ticket
+  correspondant (RM2691) — elle y portait une consigne devenue fausse. Résoudre
+  sort du backlog **sans** supprimer (archive + ticket qui l'a portée) ; `--clear`
+  détruit et n'est pas le geste courant. Suit le modèle déjà posé par les canaux
+  `requests` (RM2621) et `mrs` (RM2583). Outillage : RM2715.
+
+## [1.70.0] - 2026-08-18
+
+### Modifié
+- **environments** — § « Gestion des secrets » généralisé : le PM n'est plus lié à un
+  gestionnaire unique. Un vault est une **instance déclarée** dans le registre providers
+  (axe `secret`), nommée par un slug, avec un défaut et une surcharge **par client ou par
+  projet** ; les identifiants restent **par développeur** (`SECRET__<SLUG>__…` dans
+  `~/.config/mmi-pm/.env`). Trois formes d'URI documentées — `secret://<instance>/<chemin>`,
+  `secret:<chemin>` et la forme historique `vaultwarden://<org>/<coll>/<item>`, **valide
+  définitivement** : aucun pointeur existant n'est à réécrire. Backends : `vaultwarden`,
+  `keepass`. Le cycle de vie des sessions devient **par instance** (déverrouiller le vault
+  d'un client ne prolonge pas celui d'iProspective), et deux règles s'ajoutent : un
+  diagnostic ne nomme que les **clés** d'identifiants, jamais leurs valeurs ; un URI visant
+  une instance inconnue est **refusé**, jamais rabattu sur le vault par défaut. Rappel
+  ajouté : pour les secrets d'un client, la collection `<client>-agents` du vault
+  iProspective reste la voie normale. (RM2662, lot RM2710.)
+- **KERNEL** — tripwire 11 : « jamais demander le master password Vaultwarden » devient
+  « jamais demander le secret de déverrouillage d'un vault (master password, passphrase) ».
+
+## [1.69.0] - 2026-08-17
+
+### Ajouté
+- **structure-reference** — section « **Contacts d'un client** » : le `meta.yml` du core
+  client porte `contacts[]` au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`, écrit par le seul `pm-client-contact.py`. Deux pièges documentés, tous deux
+  rencontrés en production : `internal: true` marque **nos** adresses (le gabarit de
+  création en pose une chez chaque client — l'utiliser pour identifier un client
+  enverrait tout notre courrier chez un client au hasard, cf. routage RM2669), et une
+  fiche entièrement vide est un résidu de gabarit, pas un contact. Le champ historique
+  `name` reste lu en repli. Annuaire indépendant : à l'étude (RM2703).
+
 ## [1.68.0] - 2026-08-11
 
 ### Ajouté

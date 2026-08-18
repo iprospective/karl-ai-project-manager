@@ -178,8 +178,34 @@
   .cmphist .hitem:last-child { border-bottom: 0; }
   .cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
   .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
-  .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
+  .placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 14px; text-align: center; padding: 24px; overflow-y: auto; }
+  /* RM2697 : tableau de bord d'attention, au centre quand aucune session n'est attachée */
+  #dashboard { width: 100%; max-width: 760px; text-align: left; margin: 0 auto; }
+  .dash-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+    color: var(--fg); font-size: 15px; }
+  .dash-head select { width: auto; font-size: 11.5px; padding: 2px 6px; }
+  .dash-cnt { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 0 8px; font-size: 12px; color: var(--muted); }
+  .dash-sec { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted);
+    font-weight: 600; margin: 12px 0 4px; }
+  .dash-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; }
+  .dash-row:hover { background: var(--panel2); }
+  .dash-icon { width: 1.2em; }
+  .dash-verb { font-weight: 600; color: var(--accent); min-width: 5.5em; }
+  .dash-who { color: var(--muted); font-size: 11.5px; min-width: 11em; }
+  .dash-txt { flex: 1; overflow-wrap: anywhere; }
+  .dash-empty { color: var(--ok); font-size: 15px; text-align: center; padding: 20px; }
+  .dash-sum { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .dash-chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1px 9px; font-size: 12px; }
+  .dash-more { color: var(--muted); font-size: 11px; padding: 2px 8px 2px 2.4em; }
+  .dash-since { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
+  .dash-alerts { border: 1px solid var(--warn); border-radius: 8px; padding: 6px 10px 8px;
+    margin-bottom: 12px; background: rgba(210,153,34,.06); }
+  .alert-row { display: flex; align-items: baseline; gap: 8px; padding: 3px 2px; font-size: 12.5px; }
+  .alert-age { color: var(--warn); font-weight: 700; min-width: 3.2em; text-align: right; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
     border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 14px;
     border-radius: 6px; font-size: 13px; max-width: 360px; opacity: 0; transform: translateY(8px);
@@ -214,6 +240,17 @@
   .tabbar { display: flex; align-items: center; gap: 8px; background: var(--panel);
     border-bottom: 1px solid var(--line); padding: 0 10px; min-height: 38px; }
   /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+  .ctabs { display: flex; gap: 2px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
+    max-width: 62%; scrollbar-width: thin; }
+  .ctab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
+    border: 1px solid var(--line); border-bottom: none; border-radius: 5px 5px 0 0;
+    background: var(--bg2); color: var(--muted); font-size: 11px; white-space: nowrap;
+    cursor: pointer; max-width: 220px; }
+  .ctab.active { background: var(--term-bg, var(--bg)); color: var(--fg); border-color: var(--accent); }
+  .ctab.temp { font-style: italic; }        /* non épinglé : remplacé à la vue suivante */
+  .ctab .lbl { overflow: hidden; text-overflow: ellipsis; }
+  .ctab .x, .ctab .pin { opacity: .55; }
+  .ctab .x:hover, .ctab .pin:hover { opacity: 1; }
   .curtitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
     font-size: 13px; white-space: nowrap; overflow: hidden; }
   .curtitle .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); }
@@ -256,6 +293,12 @@
   .runitem.ghost { opacity: .6; border-style: dashed; }
   .runitem.ghost:hover { opacity: 1; }
   @keyframes kblink { 50% { opacity: .25; } }
+  /* RM2722 : badge d'anomalies du poste — il CLIGNOTE parce qu'il ne s'affiche
+     que quand quelque chose bloque, et qu'il disparaît dès que c'est réparé. */
+  #envwarn { cursor: pointer; font-family: var(--mono); }
+  #envwarn .pill { animation: kblink 1s ease-in-out infinite; }
+  #envwarn .pill.ew-error { color: var(--danger); border-color: var(--danger); }
+  #envwarn .pill.ew-warn { color: var(--warn); border-color: var(--warn); }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
   .rgroup { margin-bottom: 16px; }
@@ -398,6 +441,15 @@
   .oline.oans { color: var(--ok); border-left-color: var(--ok); }
   .oline .otag { font-size: 9px; text-transform: uppercase; letter-spacing: .5px;
     border: 1px solid currentColor; border-radius: 3px; padding: 0 3px; margin-right: 4px; }
+  /* RM2695 : avancement d'un ticket dans le worklog (critères restants) */
+  .wl-prog { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin: 3px 0 0 1.2em; }
+  /* RM2719 : points d'un ticket, cochables dans l'écran de confirmation du lot */
+  .bp-points { margin: 4px 0 2px 14px; display: flex; flex-direction: column; gap: 2px; }
+  .bp-point { font-size: 11.5px; color: var(--fg); display: flex; gap: 5px; align-items: flex-start; cursor: pointer; }
+  .bp-point input { width: auto; margin: 2px 0 0; }
+  .bp-hint { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+  .wl-crit { font-size: 10.5px; color: var(--muted); background: rgba(127,127,127,.1);
+    border-radius: 4px; padding: 1px 6px; max-width: 100%; overflow-wrap: anywhere; }
   .ms { margin-bottom: 14px; }
   .ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
   /* RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue */
@@ -437,6 +489,7 @@
   .tr-blocked { color: #f85149; }
   .pill.ok { color: var(--ok); border-color: var(--ok); } .pill.warn { color: var(--warn); border-color: var(--warn); }
   .pill.dang { color: var(--danger); border-color: var(--danger); }
+  .pill.test { color: var(--accent); border-color: var(--accent); }   /* RM2718 : [A TESTER] */
   .metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
   /* RM2585 : titre de ticket cliquable (→ fiche) + petit lien externe ↗ Redmine */
   .tlink { cursor: pointer; }
@@ -492,6 +545,14 @@
   .es-fixrow { flex-basis: 100%; display: flex; gap: 6px; align-items: center; margin: 3px 0 1px 1.7em; max-width: 100%; }
   .es-fix { font-family: ui-monospace, SFMono-Regular, monospace; font-size: 12px; background: rgba(127,127,127,.13); padding: 2px 7px; border-radius: 5px; overflow-x: auto; white-space: pre; }
   .es-copy { font-size: 10.5px; padding: 1px 8px; border-radius: 10px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--fg); flex-shrink: 0; }
+  /* RM2708 : familles en onglets, dépôts en sections par client */
+  .es-badge { font-size: 10px; padding: 0 5px; border-radius: 9px; font-weight: 700; }
+  .es-badge.es-warn { color: var(--warn); background: rgba(210,153,34,.16); }
+  .es-badge.es-error { color: #f85149; background: rgba(248,81,73,.16); }
+  .es-sec { margin: 2px 0; border-left: 2px solid var(--line); padding-left: 8px; }
+  .es-sec > summary { cursor: pointer; font-size: 12px; font-weight: 600; padding: 3px 0; list-style: revert; }
+  .es-sec > summary:hover { color: var(--accent); }
+  .es-sec .es-seccnt { color: var(--muted); font-weight: 400; font-size: 11px; }
   /* RM2593 : aide intégrée — sommaire (chips) + corps markdown dans la docmodal */
   .helptoc { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
   .helptoc .chip.on { color: var(--accent); font-weight: 600; }
@@ -643,6 +704,9 @@ if (window.matchMedia) {
   <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
   <button class="mini" id="envbtn" onclick="openEnvStatus()" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
+  <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
+       git/GitLab). Rien ne s'affiche quand tout va bien. -->
+  <span id="envwarn" style="display:none" onclick="openEnvStatus()"></span>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -658,6 +722,7 @@ if (window.matchMedia) {
       <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
       <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
       <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
+      <button data-panel="mail" onclick="switchPanel('mail')">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
       <button data-panel="pm" onclick="switchPanel('pm')">⚙ commandes pm</button>
       <button data-panel="settings" onclick="switchPanel('settings')">🔧 réglages</button>
     </nav>
@@ -719,8 +784,13 @@ if (window.matchMedia) {
       <ul class="results" id="results"></ul>
     </div>
 
+    <!-- RM2672 : la création s'ouvre en PLEINE PAGE dans le panneau central ;
+         la carte ci-dessous reste pour une saisie éclair. -->
+    <button class="mini" style="width:100%;margin-bottom:6px" onclick="openNewTicket()"
+      title="Ouvre la création de ticket en pleine page, dans un onglet du panneau central">
+      ＋ créer un ticket</button>
     <details class="card" id="ntcard">
-      <summary>Nouveau ticket</summary>
+      <summary>Nouveau ticket <span style="color:var(--muted);font-weight:normal">(saisie éclair)</span></summary>
       <label for="nt-title">Titre</label>
       <input id="nt-title" type="text" placeholder="Titre du ticket">
       <label for="nt-project">Projet</label>
@@ -785,6 +855,7 @@ if (window.matchMedia) {
           <select id="rs-status" onchange="loadResumable()">
             <option value="not-done" selected>sauf [DONE]</option>
             <option value="wip">[WIP] à finir</option>
+            <option value="test">[A TESTER] livrées, à tester</option>
             <option value="done">[DONE] terminées</option>
             <option value="">toutes</option>
           </select>
@@ -850,6 +921,30 @@ if (window.matchMedia) {
       </div>
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
+    </div>
+    </div>
+
+    <div class="lpanel" id="lp-mail">
+    <!-- RM2671 (chantier RM2666) : file de triage des emails de karl. Le panneau
+         ne réimplémente rien : il lit /mail/queue et délègue chaque geste au script
+         (relève, routage, rédaction, création à la validation). -->
+    <div class="card">
+      <h2>📧 Emails <span id="mail-count" style="color:var(--muted);font-weight:normal"></span>
+        <button class="helpq" onclick="openHelp('emails')" title="Aide sur ce panneau">?</button></h2>
+      <div style="margin:8px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button class="mini" onclick="mailFetch(this)" title="Relève la boîte en IMAP (lecture seule) et alimente la file">📥 Relever</button>
+        <button class="mini" onclick="mailRoute(this)" title="Propose client/projet pour chaque email de la file">🎯 Router</button>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"
+               title="Envoie le corps ENTIER de l'email au modèle : propositions nettement plus précises, mais le contenu sort du poste">
+          <input type="checkbox" id="mail-fullbody" style="width:auto"> corps entier
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--muted)"
+               title="Afficher aussi les emails déjà traités ou écartés">
+          <input type="checkbox" id="mail-done" style="width:auto" onchange="loadMail()"> traités
+        </label>
+        <button class="mini" onclick="loadMail()" title="Rafraîchir la file">↻</button>
+      </div>
+      <div id="mail-list"><div class="empty">chargement…</div></div>
     </div>
     </div>
 
@@ -985,6 +1080,10 @@ if (window.matchMedia) {
 
   <section class="right">
     <div class="tabbar">
+      <!-- RM2672 : onglets épinglés du panneau central. Un seul onglet NON épinglé à
+           la fois (il est remplacé par la vue suivante) : c'est ce qui empêche de
+           recréer l'annuaire illisible retiré en RM2140/2283. -->
+      <div class="ctabs" id="ctabs"></div>
       <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
         <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
@@ -1015,9 +1114,16 @@ if (window.matchMedia) {
     </div>
     <div class="termwrap">
       <div class="termarea">
+        <!-- RM2697 : le vide central devient le tableau de bord « ce qui requiert
+             mon attention ». Pas un 7e panneau : cet espace ne servait à rien
+             tant qu'aucune session n'est attachée, et c'est l'écran de début et
+             de fin de journée. -->
         <div class="placeholder" id="placeholder">
-          Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
-          ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
+          <div id="dashboard" style="display:none"></div>
+          <div id="ph-hint">
+            Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
+            ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
+          </div>
         </div>
         <div id="termhost" style="display:none"></div>
         <!-- RM2527 : composer — écrire sans passer par le clavier du terminal.
@@ -1046,6 +1152,9 @@ if (window.matchMedia) {
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
         <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2672 : création de ticket en PLEINE PAGE (la carte repliée du panneau
+             gauche était trop étroite pour rédiger une description) -->
+        <div id="ntpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
@@ -1077,6 +1186,21 @@ if (window.matchMedia) {
           <div class="rp" id="rp-state">
             <div class="outnav">
               <button class="mini" onclick="loadWorklog(true)" title="Rafraîchir le worklog">⟳</button>
+              <!-- RM2716 : cocher des tickets et les faire traiter en série par
+                   la session attachée (récapitulatif avant envoi) -->
+              <button class="mini" id="batch-btn" style="display:none" onclick="openBatchPlan('traiter')"
+                      title="Faire traiter les tickets cochés, l'un après l'autre, par la session attachée">▶ traiter</button>
+              <!-- RM2720 : passer les tickets cochés « à tester » — c'est une
+                   LIVRAISON (note + protocole), pas un changement de statut. -->
+              <button class="mini" id="batch-atester-btn" style="display:none" onclick="openBatchPlan('atester')"
+                      title="Faire livrer les tickets cochés (note de livraison + protocole) et les passer à tester">✔ à tester</button>
+              <!-- RM2720 : merger les MR des tickets cochés. Ces deux-là ne passent
+                   PAS par la session : le cockpit appelle pm-mr.py (le script est le
+                   seul écrivain du couple MR/ticket). -->
+              <button class="mini" id="mr-dev-btn" style="display:none" onclick="openMrBatch('dev')"
+                      title="Merger la MR de chaque ticket coché dans la branche d'intégration (dev), via pm-mr">⇥ merger dev</button>
+              <button class="mini" id="mr-prod-btn" style="display:none" onclick="openMrBatch('prod')"
+                      title="Promouvoir en production : MR intégration → main (une par dépôt) — elle emporte tout dev, pas seulement les tickets cochés">⇥ merger prod</button>
               <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
@@ -1383,7 +1507,7 @@ function showCoreUpdate() {
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
 // première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), pm: () => loadPmCommands(), settings: () => loadSettings() };
+const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), pm: () => loadPmCommands(), settings: () => loadSettings() };
 const _panelLoaded = {};
 function switchPanel(name) {
   if (!document.getElementById("lp-" + name)) name = "running";
@@ -1741,8 +1865,11 @@ function renderCurTitle() {
 }
 // RM2327 : durée restante lisible d'un auto-oui (epoch secondes → « 12 min »)
 function autoYesLeft(until) {
+  // RM2699 : les minutes se TRONQUENT elles aussi. Arrondies, elles pouvaient
+  // rendre « 1 h 60 min » (7199 s) — les heures sont déjà prises à part, une
+  // minute arrondie au-dessus déborde sur l'heure suivante.
   const s = Math.max(0, Math.round(until - Date.now() / 1000));
-  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.round((s % 3600) / 60) + " min"
+  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min"
     : Math.max(1, Math.round(s / 60)) + " min";
 }
 // RM2327 : répondre Oui à toutes les sessions en attente d'une question
@@ -2029,7 +2156,7 @@ function ruleFormHtml(rule, isNew) {
       opt("", rule.project) + projects.map(pr => opt(pr, rule.project)).join("") +
     '</select></label>' +
     '<label style="font-size:11px">marque<select id="rf-mark" style="width:100%">' +
-      opt("", rule.mark) + ["wip", "done", "none"].map(m => opt(m, rule.mark)).join("") +
+      opt("", rule.mark) + ["wip", "test", "done", "none"].map(m => opt(m, rule.mark)).join("") +
     '</select></label>' +
     '<label style="font-size:11px">tickets (séparés par des virgules)' +
       '<input id="rf-tickets" style="width:100%" value="' + esc((rule.tickets || []).join(",")) + '"></label>' +
@@ -2828,6 +2955,18 @@ function setOutFilter(f) {
   renderOutline();
 }
 
+// >>> markPillHtml — pur (testé) : pastille du statut de session (/session-mark)
+function markPillHtml(mark) {
+  // Le marqueur est lu dans un TITRE, qui peut valoir n'importe quoi (renommage
+  // à la main) : un statut inconnu ne rend RIEN plutôt qu'une pastille inventée.
+  // `hasOwn` et pas `PILL[mark]` : « constructor » rendrait sinon une pastille
+  // vide au lieu de rien.
+  const PILL = { wip: ["warn", "WIP"], test: ["test", "À TESTER"], done: ["ok", "DONE"] };
+  const p = Object.hasOwn(PILL, mark) ? PILL[mark] : null;
+  return p ? '<span class="pill ' + p[0] + '">' + p[1] + "</span> " : "";
+}
+// <<< markPillHtml
+
 // >>> hlq — pur (testé) : échappe un texte et surligne les occurrences de q (<mark>)
 function hlq(text, q) {
   const s = String(text == null ? "" : text);
@@ -2868,6 +3007,358 @@ function linkify(text) {
 // l'attribut. `"` remplacé par son entité pour ne jamais fermer l'attribut.
 function jarg(s) {
   return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
+}
+
+
+
+// ===== RM2672 : onglets épinglés du panneau central =====
+// Modèle : une vue ouverte devient un onglet. UN SEUL onglet non épinglé à la fois —
+// il est remplacé par la vue suivante. Épingler, c'est dire « garde-le sous la main ».
+// C'est ce qui évite de recréer la barre d'onglets de SESSIONS retirée en RM2140/2283 :
+// le rail gauche reste la liste de référence, l'onglet est un marque-page.
+let centerTabs = [];        // [{kind, key, label, pinned}]
+let activeTabId = null;
+try {
+  centerTabs = JSON.parse(localStorage.getItem("karlTabs") || "[]").filter(t => t && t.kind);
+} catch (e) { centerTabs = []; }
+
+function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
+
+function saveTabs() {
+  try {
+    localStorage.setItem("karlTabs", JSON.stringify(centerTabs.filter(t => t.pinned)));
+    localStorage.setItem("karlTabActive", activeTabId || "");
+  } catch (e) { /* mode privé : les onglets vivent le temps de la page */ }
+}
+
+// >>> upsertTab — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Insère/active un onglet et applique la règle du temporaire unique. Retourne les
+// onglets et l'id actif — aucun effet de bord, tout est dans le retour.
+function upsertTab(tabs, kind, key, label, opts) {
+  opts = opts || {};
+  const id = kind + ":" + (key == null ? "" : key);
+  const out = tabs.slice();
+  const i = out.findIndex(t => t.kind + ":" + (t.key == null ? "" : t.key) === id);
+  if (i >= 0) {
+    if (label) out[i] = Object.assign({}, out[i], { label });
+    if (opts.pin) out[i] = Object.assign({}, out[i], { pinned: true });
+    return { tabs: out, active: id };
+  }
+  const tab = { kind, key: key == null ? "" : key, label: label || id, pinned: !!opts.pin };
+  if (!tab.pinned) {
+    // un seul temporaire : le précédent cède la place (modèle « aperçu »)
+    for (let j = out.length - 1; j >= 0; j--) if (!out[j].pinned) out.splice(j, 1);
+  }
+  out.push(tab);
+  return { tabs: out, active: id };
+}
+// <<< upsertTab
+
+// >>> closeTabAt — pur (testé par test_cockpit.js)
+// Ferme l'onglet `id` et désigne le suivant à activer (le voisin de gauche, sinon
+// celui de droite, sinon aucun).
+function closeTabAt(tabs, id, activeId) {
+  const i = tabs.findIndex(t => t.kind + ":" + (t.key == null ? "" : t.key) === id);
+  if (i < 0) return { tabs: tabs.slice(), active: activeId };
+  const out = tabs.slice(); out.splice(i, 1);
+  let active = activeId;
+  if (activeId === id) {
+    const n = out[i - 1] || out[i] || null;
+    active = n ? n.kind + ":" + (n.key == null ? "" : n.key) : null;
+  }
+  return { tabs: out, active };
+}
+// <<< closeTabAt
+
+// >>> renderCenterTabs — pur (testé par test_cockpit.js)
+function renderCenterTabs(tabs, activeId, esc, jarg) {
+  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋" };
+  return tabs.map(t => {
+    const id = t.kind + ":" + (t.key == null ? "" : t.key);
+    const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
+    return '<span class="' + cls + '" onclick="activateTab(' + jarg(id) + ')" title="' +
+      esc(t.label) + (t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
+      '<span>' + (icon[t.kind] || "•") + '</span>' +
+      '<span class="lbl">' + esc(t.label) + '</span>' +
+      '<span class="pin" onclick="event.stopPropagation();togglePin(' + jarg(id) + ')" title="' +
+      (t.pinned ? "Détacher" : "Épingler : garder cet onglet ouvert") + '">' +
+      (t.pinned ? "📌" : "⇧") + '</span>' +
+      '<span class="x" onclick="event.stopPropagation();closeTab(' + jarg(id) + ')" title="Fermer">✕</span>' +
+      '</span>';
+  }).join("");
+}
+// <<< renderCenterTabs
+
+function renderTabs() {
+  const el = document.getElementById("ctabs");
+  if (el) el.innerHTML = renderCenterTabs(centerTabs, activeTabId, esc, jarg);
+}
+
+// Enregistre la vue courante comme onglet. Appelé PAR les ouvreurs existants
+// (attach / openReview / openProjectView) : le modèle d'onglets se pose au-dessus,
+// il ne réécrit pas les vues.
+function noteTab(kind, key, label, opts) {
+  const r = upsertTab(centerTabs, kind, key, label, opts);
+  centerTabs = r.tabs; activeTabId = r.active;
+  saveTabs(); renderTabs();
+}
+
+function activateTab(id) {
+  const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
+  if (!t) return;
+  if (t.kind === "session") attach(t.key);
+  else if (t.kind === "review") openReview(t.key);
+  else if (t.kind === "project") openProjectView(t.key);
+  else if (t.kind === "newticket") openNewTicket();
+}
+
+function togglePin(id) {
+  const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
+  if (!t) return;
+  t.pinned = !t.pinned;
+  saveTabs(); renderTabs();
+}
+
+function closeTab(id) {
+  const r = closeTabAt(centerTabs, id, activeTabId);
+  centerTabs = r.tabs; activeTabId = r.active;
+  saveTabs(); renderTabs();
+  if (r.active) activateTab(r.active);
+  else {                       // plus rien d'ouvert : on revient à l'écran d'accueil
+    if (attached) detach();
+    closeReview(); closeProjectView(); closeNewTicket();
+  }
+}
+
+// ----- vue « nouveau ticket » en pleine page -----
+function closeNewTicket() {
+  const pane = document.getElementById("ntpane");
+  if (pane) pane.style.display = "none";
+  if (!attached && !currentReview && !currentProjectView) {
+    document.getElementById("placeholder").style.display = "flex";
+    loadDashboard();   // RM2697 : le centre redevient le tableau de bord
+  }
+}
+
+function openNewTicket() {
+  if (attached) detach();
+  closeReview(); closeProjectView();
+  document.getElementById("placeholder").style.display = "none";
+  const pane = document.getElementById("ntpane");
+  pane.style.display = "block";
+  pane.innerHTML = newTicketFormHtml(CFG.task_types || [], CFG.priorities || [],
+                                     projectOptionsHtml(), esc);
+  noteTab("newticket", "", "nouveau ticket");
+  renderCurTitle();
+}
+
+function projectOptionsHtml() {
+  const sel = document.getElementById("nt-project");
+  return sel ? sel.innerHTML : "";      // même source que la carte du panneau gauche
+}
+
+// >>> newTicketFormHtml — pur (testé par test_cockpit.js)
+// Formulaire COMPLET : ce que la carte repliée du panneau gauche ne portait pas
+// (passe agent-testeur, env cible, estimation) tient ici sans être à l'étroit.
+function newTicketFormHtml(types, priorities, projectOptions, esc) {
+  const opt = (v, cur) => '<option value="' + esc(v.value || v) + '"' +
+    ((v.value || v) === cur ? " selected" : "") + '>' + esc(v.label || v) + '</option>';
+  return '<h2 style="margin-top:0">＋ Nouveau ticket</h2>' +
+    '<div style="max-width:820px">' +
+    '<label for="ntf-title">Titre</label>' +
+    '<input id="ntf-title" type="text" placeholder="Ce qu\'il faut faire, en une ligne">' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-project">Projet</label><select id="ntf-project">' + projectOptions + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-type">Type</label><select id="ntf-type">' +
+    types.map(t => opt(t, "feature")).join("") + '</select>' +
+    '</div></div>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-prio">Priorité</label><select id="ntf-prio">' +
+    priorities.map(p => opt(p, "normal")).join("") + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-tags">Tags <span style="color:var(--muted)">(csv)</span></label>' +
+    '<input id="ntf-tags" type="text" placeholder="cockpit, mail">' +
+    '</div></div>' +
+    '<label for="ntf-desc">Description</label>' +
+    '<textarea id="ntf-desc" rows="12" placeholder="Contexte, ce qui est demandé, ce qui reste à clarifier…"></textarea>' +
+    '<details style="margin-top:10px"><summary>Options — test, environnement, estimation</summary>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-agent-test">Passe agent-testeur</label><select id="ntf-agent-test">' +
+    ["default", "oui", "non", "demander"].map(v => opt(v, "default")).join("") + '</select>' +
+    '</div><div>' +
+    '<label for="ntf-env">Env cible <span style="color:var(--muted)">(optionnel)</span></label>' +
+    '<input id="ntf-env" type="text" placeholder="dev, test, prod…">' +
+    '</div></div>' +
+    '<div class="row2"><div>' +
+    '<label for="ntf-human">Temps humain prévu (min)</label><input id="ntf-human" type="number" min="0">' +
+    '</div><div>' +
+    '<label for="ntf-ai">Temps IA prévu (min)</label><input id="ntf-ai" type="number" min="0">' +
+    '</div></div>' +
+    '<label for="ntf-diff">Difficulté</label><select id="ntf-diff">' +
+    ['<option value=""></option>'].concat(["low", "medium", "high", "critical"].map(v => opt(v, ""))).join("") +
+    '</select>' +
+    '</details>' +
+    '<button class="primary" id="ntf-btn" style="margin-top:12px" onclick="submitNewTicket(this)">Créer le ticket</button>' +
+    '</div>';
+}
+// <<< newTicketFormHtml
+
+async function submitNewTicket(btn) {
+  const g = id => (document.getElementById(id) || {}).value || "";
+  const title = g("ntf-title").trim();
+  if (!title) { toast("Titre requis", true); return; }
+  const body = {
+    title, project: g("ntf-project"), type: g("ntf-type"), priority: g("ntf-prio"),
+    tags: g("ntf-tags").trim(), description: g("ntf-desc").trim(),
+    agent_test: g("ntf-agent-test"), target_env: g("ntf-env").trim(),
+    est_human_minutes: g("ntf-human"), est_ai_minutes: g("ntf-ai"),
+    difficulty: g("ntf-diff"),
+  };
+  btn.disabled = true; btn.textContent = "Création…";
+  try {
+    const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" },
+                                      body: JSON.stringify(body) });
+    toast("Ticket RM" + r.rm_id + " créé");
+    closeTab("newticket:");
+    openReview(String(r.rm_id));        // on enchaîne sur la fiche du ticket créé
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
+}
+
+// ===== RM2671 (chantier RM2666) : panneau « emails » =====
+// La file vient de /mail/queue ; chaque action délègue au script correspondant
+// côté serveur. Le corps d'un email n'est chargé qu'au dépliage (il n'a rien à
+// faire dans un rafraîchissement de liste).
+let mailAll = [], mailOpen = null;
+
+// >>> renderMailList — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rend la file : état, expéditeur, sujet, routage proposé (client/projet + confiance)
+// et, pour l'email déplié, sa proposition de ticket. `esc` et `jarg` sont injectés.
+function renderMailList(emails, openKey, esc, jarg) {
+  if (!emails.length) {
+    return '<div class="empty">file vide — « 📥 Relever » interroge la boîte de karl</div>';
+  }
+  const badge = { "à traiter": "", "proposé": "✎", "écarté": "⊘", "créé": "✓" };
+  return emails.map(e => {
+    const r = e.routing || {}, d = e.draft || {};
+    const target = r.client ? (r.client + (r.project ? "/" + r.project : "/?")) : "à classer";
+    const conf = r.confidence ? Math.round(r.confidence * 100) + "%" : "";
+    const open = e.key === openKey;
+    let h = '<div class="card" style="margin-bottom:6px' + (open ? ';border-color:var(--accent)' : '') + '">';
+    h += '<div style="display:flex;gap:6px;align-items:baseline;cursor:pointer" onclick="mailToggle(' + jarg(e.key) + ')">';
+    h += '<span title="' + esc(e.state) + '">' + (badge[e.state] || "•") + '</span>';
+    h += '<b style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis">' +
+         esc(e.subject || "(sans objet)") + '</b>';
+    h += '<span style="color:var(--muted);font-size:11px">' + esc((e.date || "").slice(0, 10)) + '</span>';
+    h += '</div>';
+    h += '<div style="color:var(--muted);font-size:11px;margin-top:2px">' +
+         esc(e.from_name || e.from || "") + ' — ' + esc(e.folder || "") +
+         (e.attachments ? ' · 📎' + e.attachments : '') + '</div>';
+    h += '<div style="margin-top:4px;font-size:11px">🎯 <b>' + esc(target) + '</b>' +
+         (conf ? ' <span style="color:var(--muted)">' + conf + ' · ' + esc(r.source || "") + '</span>' : '') +
+         (e.rm_id ? ' · <span title="réponse dans un fil existant">↩ RM' + esc(e.rm_id) + '</span>' : '') +
+         (e.created_rm ? ' · <b>→ RM' + esc(e.created_rm) + '</b>' : '') + '</div>';
+    if (e.dismissed) {
+      h += '<div style="font-size:11px;color:var(--muted)">⊘ écarté — ' +
+           esc(e.dismissed.reason || "") + '</div>';
+    }
+    if (open) {
+      if (d.title) {
+        h += '<div style="margin-top:8px;border-top:1px solid var(--line);padding-top:6px">';
+        h += '<div style="font-size:11px;color:var(--muted)">proposition' +
+             (d.confidence ? ' · ' + Math.round(d.confidence * 100) + '%' : '') +
+             (d.actionable === false ? ' · <b>non actionnable</b>' : '') + '</div>';
+        h += '<label>Titre</label><input id="ml-title" value="' + esc(d.title || "") + '">';
+        h += '<label>Projet</label><input id="ml-project" value="' +
+             esc(d.project || (r.client && r.project ? r.client + "/" + r.project : "")) +
+             '" placeholder="client/projet">';
+        h += '<label>Priorité</label><select id="ml-prio">' +
+             ["low", "normal", "high", "urgent"].map(x =>
+               '<option' + (x === (d.priority || "normal") ? " selected" : "") + '>' + x + '</option>').join("") +
+             '</select>';
+        (d.warnings || []).forEach(w => {
+          h += '<div style="font-size:11px;color:var(--warn)">⚠ ' + esc(w) + '</div>';
+        });
+        h += '<div style="font-size:11px;white-space:pre-wrap;margin-top:6px;color:var(--muted)">' +
+             esc((d.description || "").slice(0, 600)) + '</div>';
+        h += '</div>';
+      }
+      if (e.body) {
+        h += '<details style="margin-top:6px"><summary style="font-size:11px">corps de l\'email</summary>' +
+             '<div style="font-size:11px;white-space:pre-wrap;max-height:220px;overflow:auto">' +
+             esc(e.body) + (e.body_truncated ? '\n…(tronqué à la relève)' : '') + '</div></details>';
+      }
+      h += '<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">';
+      h += '<button class="mini" onclick="mailDraft(' + jarg(e.key) + ', this)">✎ Rédiger</button>';
+      h += '<button class="mini primary" onclick="mailCreate(' + jarg(e.key) + ', this)">✓ Créer le ticket</button>';
+      h += '<button class="mini" onclick="mailNoteOn(' + jarg(e.key) + ', this)" title="Rattacher à un ticket existant : pose une note au lieu de créer">↩ Note sur…</button>';
+      h += '<button class="mini" onclick="mailReroute(' + jarg(e.key) + ', this)" title="Corriger le client/projet — la correction est apprise">🎯 Reclasser</button>';
+      h += '<button class="mini" onclick="mailDismiss(' + jarg(e.key) + ', this)">⊘ Écarter</button>';
+      h += '</div>';
+    }
+    return h + '</div>';
+  }).join("");
+}
+// <<< renderMailList
+
+async function loadMail() {
+  const box = document.getElementById("mail-list");
+  if (!box) return;
+  const done = document.getElementById("mail-done").checked ? "1" : "0";
+  try {
+    const qs = "?done=" + done + (mailOpen ? "&key=" + encodeURIComponent(mailOpen) : "");
+    const d = await api("/mail/queue" + qs);
+    mailAll = d.emails || [];
+    box.innerHTML = renderMailList(mailAll, mailOpen, esc, jarg);
+    document.getElementById("mail-count").textContent =
+      d.pending ? "— " + d.pending + " à traiter" : "";
+    const b = document.getElementById("ln-mail");
+    b.textContent = d.pending || ""; b.style.display = d.pending ? "" : "none";
+  } catch (e) { box.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
+}
+
+function mailToggle(key) { mailOpen = (mailOpen === key ? null : key); loadMail(); }
+
+async function mailAction(path, body, btn, label) {
+  if (btn) { btn.disabled = true; btn.dataset.old = btn.textContent; btn.textContent = "…"; }
+  try {
+    const r = await api(path, { method: "POST", headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify(body || {}) });
+    const msg = (r.stdout || r.stderr || "").trim().split("\n").filter(Boolean).pop() || label;
+    toast(r.ok ? msg : "Échec : " + msg, !r.ok);
+    await loadMail();
+  } catch (e) { toast(e.message, true); }
+  finally { if (btn) { btn.disabled = false; btn.textContent = btn.dataset.old || label; } }
+}
+
+function mailFetch(btn) { mailAction("/mail/fetch", {}, btn, "Relever"); }
+function mailRoute(btn) { mailAction("/mail/route", {}, btn, "Router"); }
+function mailDraft(key, btn) {
+  mailAction("/mail/draft", { key, full_body: document.getElementById("mail-fullbody").checked, force: true },
+             btn, "Rédiger");
+}
+function mailCreate(key, btn) {
+  const project = (document.getElementById("ml-project") || {}).value || "";
+  const title = (document.getElementById("ml-title") || {}).value || "";
+  const priority = (document.getElementById("ml-prio") || {}).value || "";
+  if (!window.confirm("Créer le ticket dans « " + (project || "?") + " » ?")) return;
+  mailAction("/mail/create", { key, project, title, priority }, btn, "Créer");
+}
+function mailNoteOn(key, btn) {
+  const rm = window.prompt("Rattacher à quel ticket ? (numéro RM)");
+  if (!rm) return;
+  mailAction("/mail/create", { key, note_on: String(rm).replace(/\D/g, "") }, btn, "Note");
+}
+function mailReroute(key, btn) {
+  const to = window.prompt("Client ou client/projet :");
+  if (!to) return;
+  mailAction("/mail/route-set", { key, to: to.trim() }, btn, "Reclasser");
+}
+function mailDismiss(key, btn) {
+  const reason = window.prompt("Motif (facultatif) :", "pas une demande");
+  if (reason === null) return;
+  mailAction("/mail/dismiss", { key, reason }, btn, "Écarter");
 }
 
 // ===== RM2623 : glossaire du jargon technique (client-only) =====
@@ -3667,21 +4158,21 @@ function renderWorklog() {
       + (n.ref ? "<b>" + esc(n.ref) + "</b> " : "") + esc(n.message || "") + "</div>";
   }
   if (notes) {
+    // RM2715 : le compteur porte sur les OUVERTES (le serveur ne renvoie plus
+    // que celles-là) ; les traitées sont rappelées en sourdine, pas listées.
+    const done = (worklog.notifications_done || []).length;
     notes = '<div class="ms"><h4>🔔 notifications de la session ('
-      + (worklog.notifications || []).length + ")</h4>" + notes + "</div>";
+      + (worklog.notifications || []).length + ")"
+      + (done ? ' <span class="otag" title="traitées, gardées au worklog">'
+                + done + " traitée" + (done > 1 ? "s" : "") + "</span>" : "")
+      + "</h4>" + notes + "</div>";
   }
   // RM2583 : ce que la session a ouvert et pas encore mergé — une MR oubliée ne
   // se voit sinon qu'au prochain conflit, ou à un core update incomplet.
   const mrs = worklog.mrs_pending || [];
   if (mrs.length) {
     notes += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>";
-    for (const m of mrs) {
-      notes += '<div class="oline oq" style="white-space:normal">🔀 <b>!' + esc(m.iid)
-        + "</b> " + (m.ref ? esc(m.ref) + " " : "")
-        + (m.target ? '→ <span class="pill">' + esc(m.target) + "</span> " : "")
-        + (m.url ? '<a href="' + esc(m.url) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
-        + "</div>";
-    }
+    for (const m of mrs) notes += mrLineHtml(m, esc, jarg);
     notes += "</div>";
   }
   // RM2635 : les demandes pas encore ticketées, AVANT les tickets — un ticket a
@@ -3721,13 +4212,33 @@ function renderWorklog() {
         + esc(it.opened_status) + " → " + esc(it.status) + "</span>" : "";
     const brs = brByRm[it.ref] || [];
     brs.forEach(b => usedBr.add(b));
+    // RM2716 : cocher pour faire traiter en série. La case ne s'affiche que sur
+    // un TICKET (un chantier libre n'a pas de protocole à dérouler), et le clic
+    // dessus ne doit pas ouvrir la fiche — d'où le stopPropagation.
+    const selectable = /^RM\d+$/i.test(String(it.ref || ""));
+    // RM2719 : les critères NON cochés du ticket sont les points qu'on pourra
+    // retenir un par un dans l'écran de confirmation. On les mémorise ici, au
+    // rendu — les faire transiter par un attribut HTML les exposerait à
+    // l'échappement pour rien.
+    if (selectable) worklogPoints[String(it.ref)] = {
+      points: ((it.checklist || {}).items || []).slice(),
+      points_truncated: !!(it.checklist || {}).truncated,
+    };
+    const box = selectable
+      ? '<input type="checkbox" style="width:auto;margin-right:5px" title="Sélectionner pour un traitement en série"'
+        + ' onclick="event.stopPropagation();batchToggle(' + jarg(String(it.ref)) + ',' + jarg(String(it.status || ""))
+        + ',' + jarg(String(it.label || "")) + ',this.checked)"'
+        + (batchSel.has(String(it.ref)) ? " checked" : "") + ">"
+      : "";
     return '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
+      + box
       + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
       + (it.note ? '<div style="color:var(--muted);font-size:11px">↳ ' + esc(it.note) + "</div>" : "")
+      + worklogProgressHtml(it, esc)     // RM2695 : avancement + sous-tâches
       + "</div>";
   };
   // RM2610 : le contenu de chaque STATUT est un sous-onglet (pré-rendu → remplit usedBr).
@@ -3760,6 +4271,317 @@ function renderWorklog() {
   h += '<div class="ms">' + content + "</div>";
   document.getElementById("workbody").innerHTML = h;
 }
+// >>> mrLineHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2723 : une ligne « MR à merger ». Le rendu vivait en DOUBLE — worklog de
+// session et worklog de projet — donc le bouton n'aurait existé qu'à un des deux
+// endroits, et la prochaine correction n'en aurait touché qu'un.
+// Le bouton n'apparaît que s'il y a une URL : c'est elle qui identifie la MR
+// pour pm-mr (un iid nu exigerait un dépôt explicite — RM2541).
+function mrLineHtml(m, esc, jarg) {
+  const mr = m || {};
+  const url = mr.url ? String(mr.url) : "";
+  return '<div class="oline oq" style="white-space:normal">🔀 <b>!' + esc(String(mr.iid || "?")) + "</b> "
+    + (mr.ref ? esc(String(mr.ref)) + " " : "")
+    + (mr.target ? '→ <span class="pill">' + esc(String(mr.target)) + "</span> " : "")
+    + (url ? '<a href="' + esc(url) + '" target="_blank" rel="noopener">ouvrir ↗</a> ' : "")
+    + (mr.alive === false ? '<span class="pill warn" title="la session qui l’a ouverte est éteinte">session éteinte</span> ' : "")
+    // `esc(jarg(...))` et pas `jarg(...)` seul : jarg met la valeur entre
+    // guillemets SIMPLES pour le JS, mais l'attribut, lui, est entre guillemets
+    // DOUBLES — un « " » dans un libellé de MR (le worklog est écrit par des
+    // agents) le fermerait. L'échappement HTML est défait par le parseur avant
+    // que le JS ne voie la valeur : les deux couches se composent.
+    + (url ? '<button class="mini" title="Merger cette MR maintenant (pm-mr merge)" onclick="mergeOneMr('
+        + esc(jarg(url)) + "," + esc(jarg(String(mr.iid || ""))) + ","
+        + esc(jarg(String(mr.target || ""))) + ',this)">⇥ merger</button>' : "")
+    + "</div>";
+}
+// <<< mrLineHtml
+
+// RM2723 : merge d'une MR depuis le worklog. Confirmation d'abord — le geste ne
+// se défait pas — et l'échec rend la sortie du script, c'est elle qui dit quoi
+// faire (conflit, merge gate, branche protégée).
+async function mergeOneMr(url, iid, target, btn) {
+  if (!window.confirm("Merger la MR !" + iid + (target ? " dans « " + target + " »" : "") + " ?\n"
+      + "Le merge passe par pm-mr (note Redmine, CF GIT PR, log du ticket).")) return;
+  btn.disabled = true; btn.textContent = "⇥ merge…";
+  try {
+    const r = await api("/mr/merge", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: url, confirm: true }) });
+    toast(r.ok ? "⇥ MR !" + iid + " mergée" : "Échec (rc=" + r.rc + ")", !r.ok);
+    if (!r.ok) showCaptureModal("Merge MR !" + iid + " — ÉCHEC",
+      (r.stdout || "") + "\n" + (r.stderr || ""));
+    loadWorklog(true);
+    if (currentProjectView) loadProjWorklog(currentProjectView);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "⇥ merger"; }
+}
+
+// >>> worklogProgressHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2695 : l'avancement DANS un ticket. Un statut dit où en est le ticket, pas
+// ce qu'il reste à y faire — d'où « 3/6 ✓ » et, dépliés, les critères NON
+// COCHÉS. Les cochés ne sont pas listés : ce qui est fait se compte, il ne se
+// lit pas. Les sous-tâches suivent, avec leur statut (une liste d'ids
+// n'apprendrait rien).
+// Un ticket sans checklist ne rend RIEN — surtout pas « 0/0 », qui se lirait
+// comme un ticket vide alors qu'il n'a simplement pas de critères.
+function worklogProgressHtml(it, esc) {
+  const c = (it && it.checklist) || null;
+  const subs = (it && it.sub_tasks) || [];
+  let h = "";
+  if (c && c.total) {
+    const done = c.done || 0, total = c.total;
+    const cls = done >= total ? "ok" : (done ? "" : "warn");
+    h += '<div class="wl-prog"><span class="pill ' + cls + '" title="critères d’acceptation cochés">'
+      + done + "/" + total + " ✓</span>";
+    (c.items || []).forEach(function (t) {
+      h += '<span class="wl-crit" title="critère restant">☐ ' + esc(t) + "</span>";
+    });
+    if (c.truncated) h += '<span class="wl-crit" style="opacity:.6">…</span>';
+    h += "</div>";
+  }
+  if (subs.length) {
+    h += '<div class="wl-prog">' + subs.map(function (s) {
+      return '<span class="pill" title="sous-tâche' + (s.title ? " — " + esc(s.title) : "") + '">'
+        + "RM" + esc(String(s.rm_id)) + (s.status ? " · " + esc(s.status) : "") + "</span>";
+    }).join(" ") + "</div>";
+  }
+  return h;
+}
+// <<< worklogProgressHtml
+
+// ── RM2716 : sélection de tickets du worklog → traitement en série ───────────
+const batchSel = new Map();      // ref → {rm_id, status, title, points[]}
+const worklogPoints = {};        // RM2719 : ref → critères non cochés du ticket
+function batchToggle(ref, status, title, on) {
+  if (on) {
+    const wp = worklogPoints[String(ref)] || {};
+    batchSel.set(ref, { rm_id: String(ref).replace(/^RM/, ""), status: status, title: title,
+                        points: wp.points || [], points_truncated: !!wp.points_truncated });
+  }
+  else batchSel.delete(ref);
+  const b = document.getElementById("batch-btn");
+  if (b) {
+    b.style.display = batchSel.size ? "" : "none";
+    b.textContent = "▶ traiter (" + batchSel.size + ")";
+  }
+  const bt = document.getElementById("batch-atester-btn");
+  if (bt) {
+    bt.style.display = batchSel.size ? "" : "none";
+    bt.textContent = "✔ à tester (" + batchSel.size + ")";
+  }
+  for (const [id, txt] of [["mr-dev-btn", "⇥ merger dev ("], ["mr-prod-btn", "⇥ merger prod ("]]) {
+    const e = document.getElementById(id);
+    if (e) { e.style.display = batchSel.size ? "" : "none"; e.textContent = txt + batchSel.size + ")"; }
+  }
+}
+// >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
+// raison. C'est la garde principale — la consigne déclenche du travail réel
+// (branches, MR, changements de statut) sans repasser par l'écran à chaque
+// étape. Rien ne doit partir sans que ce tableau ait été lu.
+function batchPlanHtml(plan, esc) {
+  const p = plan || {};
+  const todo = p.todo || [], skipped = p.skipped || [];
+  // RM2719 : les points d'un ticket, cochés par défaut — décocher restreint la
+  // portée. Tous cochés = ticket entier (l'état de départ ne change donc rien).
+  // Décocher TOUS les points d'un ticket l'écarte : c'est dit ici, sinon le
+  // ticket disparaîtrait du lot sans explication.
+  const pointsHtml = (t) => {
+    const pts = t.points || [];
+    if (!pts.length) return "";
+    return '<div class="bp-points">'
+      + pts.map((pt, j) => '<label class="bp-point"><input type="checkbox" checked'
+          + ' data-ref="' + esc(String(t.rm_id)) + '" data-i="' + j + '"'
+          + ' value="' + esc(String(pt)) + '"> ' + esc(String(pt)) + "</label>").join("")
+      + '<div class="bp-hint">tous cochés = ticket entier · aucun coché = ticket écarté'
+      + (t.points_truncated ? " · ⚠ liste de critères incomplète (le ticket en porte d’autres)" : "")
+      + "</div>"
+      + "</div>";
+  };
+  let h = '<div class="ms"><h4>▶ à traiter (' + todo.length + ")</h4>";
+  h += todo.length
+    ? todo.map((t, i) => '<div class="oline" style="white-space:normal"><b>' + (i + 1) + ".</b> "
+        + '<span class="r-id">RM' + esc(String(t.rm_id)) + "</span> "
+        + '<span class="pill">' + esc(String(t.status || "")) + "</span> "
+        + esc(String(t.title || "")) + '<div style="color:var(--muted);font-size:11px">→ '
+        + esc(String(t.instruction || "")) + "</div>" + pointsHtml(t) + "</div>").join("")
+    : '<div class="empty">aucun ticket actionnable dans la sélection</div>';
+  h += "</div>";
+  if (skipped.length) {
+    h += '<div class="ms"><h4>⊘ écartés (' + skipped.length + ")</h4>"
+      + skipped.map(s => '<div class="oline" style="white-space:normal;opacity:.75">'
+        + '<span class="r-id">RM' + esc(String(s.rm_id)) + "</span> "
+        + esc(String(s.title || "")) + '<div style="color:var(--muted);font-size:11px">'
+        + esc(String(s.reason || "")) + "</div></div>").join("") + "</div>";
+  }
+  if (todo.length > 10) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ ' + todo.length
+      + " tickets : au-delà de 10, la file déborde le contexte de l’agent — "
+      + "confirme seulement si tu sais pourquoi.</div>";
+  }
+  return h;
+}
+// <<< batchPlanHtml
+let batchPlanCache = null;
+// RM2720 : deux modes de lot, un seul écran de confirmation — ce qui change,
+// c'est ce qui va être demandé, et ça doit se lire dans le titre comme dans le
+// bouton d'envoi (envoyer « traiter » en croyant envoyer « à tester » ne se
+// rattrape pas).
+const BATCH_MODES = {
+  traiter: { titre: "▶ Traiter", envoi: "▶ envoyer à la session", points: true },
+  atester: { titre: "✔ Passer à tester", envoi: "✔ livrer et passer à tester", points: false },
+};
+async function openBatchPlan(mode) {
+  if (!attached) { toast("aucune session attachée", true); return; }
+  if (!batchSel.size) return;
+  const m = BATCH_MODES[mode] ? mode : "traiter";
+  const cfg = BATCH_MODES[m];
+  try {
+    batchPlanCache = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // la portée par points n'a de sens que pour « traiter » : on ne livre pas
+      // la moitié d'un ticket.
+      body: JSON.stringify({ rm_id: attached, mode: m,
+                             items: [...batchSel.values()].map(it => cfg.points ? it
+                               : Object.assign({}, it, { points: [], points_truncated: false })),
+                             dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  document.getElementById("doctitle").textContent =
+    cfg.titre + " " + batchPlanCache.count + " ticket(s) — session " + attached;
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = batchPlanHtml(batchPlanCache, esc)
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="primary" onclick="sendBatch(this)">' + cfg.envoi + "</button>"
+    + '<button class="mini" onclick="closeDoc()">annuler</button></div>'
+    + '<details style="margin-top:10px"><summary style="cursor:pointer;font-size:11.5px;color:var(--muted)">'
+    + "voir la consigne exacte</summary><pre class=\"logtail\" style=\"white-space:pre-wrap\">"
+    + esc(batchPlanCache.prompt || "") + "</pre></details>";
+  document.getElementById("docmodal").classList.add("show");
+}
+// >>> mrBatchHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2720 : l'écran de confirmation d'un lot de merges. Il doit dire trois
+// choses qu'on ne peut pas deviner en cochant des cases : ce qui va être mergé
+// et VERS OÙ, ce qui est écarté et pourquoi, et — en promotion — qu'une MR
+// intégration→production emporte tout ce que dev contient, pas seulement les
+// tickets cochés. Un ticket dont la session tourne encore est signalé : merger
+// sous les pieds d'un agent au travail se voit avant, pas après.
+function mrBatchHtml(plan, esc) {
+  const p = plan || {};
+  const runs = p.runs || [], skipped = p.skipped || [], live = p.live || [];
+  const prod = p.mode === "prod";
+  let h = '<div class="ms"><h4>' + (prod ? "⇥ promotion en production" : "⇥ merge dans l’intégration")
+    + " (" + runs.length + ")</h4>";
+  h += runs.length
+    ? runs.map(r => '<div class="oline" style="white-space:normal">'
+        + r.rm_ids.map(i => '<span class="r-id">RM' + esc(String(i)) + "</span>").join(" ")
+        + ' <span class="pill">' + esc(String(r.source || "")) + " → " + esc(String(r.target || ""))
+        + "</span></div>").join("")
+    : '<div class="empty">rien à merger</div>';
+  h += "</div>";
+  if (prod) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ une promotion emporte TOUT ce que « '
+      + esc(String((runs[0] || {}).source || "dev")) + ' » contient et qui n’est pas encore en production'
+      + " — pas seulement les tickets cochés. Une MR par dépôt.</div>";
+  }
+  if (live.length) {
+    h += '<div class="ms" style="color:var(--warn)">⚠ session encore vivante pour '
+      + live.map(i => "RM" + esc(String(i))).join(", ")
+      + " — merger maintenant, c’est merger sous les pieds d’un agent au travail.</div>";
+  }
+  if (skipped.length) {
+    h += '<div class="ms"><h4>⊘ écartés (' + skipped.length + ")</h4>"
+      + skipped.map(k => '<div class="oline" style="white-space:normal;opacity:.75">'
+        + '<span class="r-id">RM' + esc(String(k.rm_id)) + "</span>"
+        + '<div style="color:var(--muted);font-size:11px">' + esc(String(k.reason || "")) + "</div></div>").join("")
+      + "</div>";
+  }
+  return h;
+}
+// <<< mrBatchHtml
+
+let mrBatchCache = null;
+async function openMrBatch(mode) {
+  if (!batchSel.size) return;
+  const items = [...batchSel.values()].map(it => ({ rm_id: it.rm_id }));
+  try {
+    mrBatchCache = await api("/mr/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: mode, items: items, dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  document.getElementById("doctitle").textContent =
+    (mode === "prod" ? "⇥ Promouvoir en production" : "⇥ Merger dans l’intégration")
+    + " — " + mrBatchCache.runs.length + " MR";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  el.innerHTML = mrBatchHtml(mrBatchCache, esc)
+    + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="primary" onclick="sendMrBatch(this)">⇥ merger maintenant</button>'
+    + '<button class="mini" onclick="closeDoc()">annuler</button></div>';
+  document.getElementById("docmodal").classList.add("show");
+}
+async function sendMrBatch(btn) {
+  if (!mrBatchCache) return;
+  btn.disabled = true; btn.textContent = "⇥ merge en cours…";
+  try {
+    const r = await api("/mr/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ mode: mrBatchCache.mode, confirm: true, allow_large: true,
+                             items: (mrBatchCache.todo || []).map(t => ({ rm_id: t.rm_id })) }) });
+    const ko = r.failed || [];
+    toast(ko.length ? ko.length + " merge(s) en échec sur " + r.results.length
+                    : "⇥ " + r.results.length + " MR mergée(s)", !!ko.length);
+    // Un merge qui échoue (conflit, gate, branche protégée) ne se résume pas à
+    // un code retour : on rend la sortie du script, c'est elle qui dit quoi faire.
+    if (ko.length) showCaptureModal("Merge — ÉCHEC",
+      ko.map(k => "RM" + k.rm_ids.join(",") + " " + k.source + "→" + k.target
+                  + "\n" + (k.stdout || "") + "\n" + (k.stderr || "")).join("\n\n"));
+    else closeDoc();
+    loadWorklog(true);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = "⇥ merger maintenant"; }
+}
+
+// RM2719 : la portée retenue est lue DANS l'écran de confirmation au moment de
+// l'envoi — l'état vit à un seul endroit (les cases), pas en double dans une map
+// qu'il faudrait tenir à jour. Un ticket dont tous les points restent cochés
+// part entier (pas de `scope`), c'est-à-dire exactement le lot de RM2716.
+function batchScopedItems() {
+  const boxes = [...document.querySelectorAll("#doccontent .bp-point input")];
+  const byRef = {};
+  for (const b of boxes) {
+    const ref = b.dataset.ref;
+    if (!ref) continue;
+    const e = byRef[ref] = byRef[ref] || { all: [], kept: [] };
+    e.all.push(b.value);
+    if (b.checked) e.kept.push(b.value);
+  }
+  return [...batchSel.values()].map(it => {
+    const e = byRef[String(it.rm_id)];
+    if (!e || e.kept.length === e.all.length) return it;   // ticket entier
+    return Object.assign({}, it, { scope: e.kept });
+  });
+}
+async function sendBatch(btn) {
+  if (!batchPlanCache || !attached) return;
+  btn.disabled = true;
+  try {
+    const r = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached, mode: batchPlanCache.mode || "traiter",
+                             items: batchScopedItems(),
+                             allow_large: batchPlanCache.count > 10 }) });
+    const ecartes = (r.skipped || []).length;
+    toast((r.mode === "atester" ? "✔ " : "▶ ") + r.count + " ticket(s) envoyés à la session " + attached
+          + (ecartes ? " · " + ecartes + " écarté(s)" : ""));
+    batchSel.clear(); batchToggle();      // remet le bouton à zéro
+    closeDoc();
+    loadWorklog(true);
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; }
+}
+
 // un item du worklog peut être un ticket (RM1234) ou un chantier libre (slug)
 function openWorklogItem(ref) {
   const m = /^RM(\d+)$/i.exec(String(ref || ""));
@@ -4034,8 +4856,8 @@ function renderFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(val(c.name)) + "</a>"
-        : "<b>" + esc(val(c.name)) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+        ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(c.name) + "</a>"
+        : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += fileNav.entries.length ? fileNav.entries.map(e => {
       const child = (fileNav.path ? fileNav.path + "/" : "") + e.name;
       return e.dir
@@ -4481,8 +5303,7 @@ async function loadResumable() {
     ul.innerHTML = "";
     for (const s of resumable) {
       const li = document.createElement("li");
-      const markPill = s.mark === "wip" ? '<span class="pill warn">WIP</span> '
-        : s.mark === "done" ? '<span class="pill ok">DONE</span> ' : "";
+      const markPill = markPillHtml(s.mark);
       const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
       li.innerHTML =
         '<div class="r-top">' + markPill +
@@ -5003,42 +5824,50 @@ function setTicketFacet(f) { metaFacet = f; renderTickets(); }
 // ── Facette « détail » : identité + environnement + git + relations + desc + log ──
 // >>> projectBriefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2614 : situer le ticket dans son client et son projet, en trois lignes.
+// >>> cval — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2614/RM2714 : un champ YAML vide remonte en CHAÎNE "null" / "~" / "None" —
+// sans ce filtre, la fiche affichait « dépôt : null ».
+// Le nom compte : RM2614 l'appelait `val` et le déclarait DANS une fonction,
+// alors que les appels étaient posés dans quatre autres — `ReferenceError` à
+// l'exécution (panneau « commandes pm », fil d'ariane des fichiers, docs
+// projet). Trois `val` locaux distincts vivent encore dans ce fichier : ce
+// nettoyeur global en porte donc un autre.
+function cval(v) {
+  const s = String(v == null ? "" : v).trim();
+  return (s && s !== "null" && s !== "~" && s !== "None") ? s : "";
+}
+// <<< cval
+
 // `card` est la fiche projet déjà chargée (/project/<c>/<p>) ou null tant qu'elle
 // ne l'est pas — on affiche alors ce qu'on sait déjà plutôt que rien : le client
 // et le projet viennent du ticket, ils n'ont pas besoin d'un aller-retour.
 function projectBriefHtml(client, project, card, esc, jarg) {
   if (!client || !project) return "";      // ticket non résolu : pas de bloc vide
   const c = card || {};
-  // Un champ YAML vide remonte en CHAÎNE "null" / "~" / "None" : sans ce filtre,
-  // la fiche affichait « dépôt : null » sur les projets sans dépôt déclaré.
-  const val = v => {
-    const s = String(v == null ? "" : v).trim();
-    return (s && s !== "null" && s !== "~" && s !== "None") ? s : "";
-  };
   const cle = client + "/" + project;
   const ouverts = c.open_by_status
     ? Object.values(c.open_by_status).reduce((a, b) => a + b, 0) : null;
   let h = '<div class="ms"><h4>Client / projet</h4>';
   h += '<div class="kv"><span class="k">client</span><span class="v">'
-    + esc(val(c.client_name) || client)
-    + (val(c.client_redmine_project_id)
-        ? ' <span class="pill" style="opacity:.7">' + esc(val(c.client_redmine_project_id)) + "</span>" : "")
+    + esc(cval(c.client_name) || client)
+    + (cval(c.client_redmine_project_id)
+        ? ' <span class="pill" style="opacity:.7">' + esc(cval(c.client_redmine_project_id)) + "</span>" : "")
     + "</span></div>";
   h += '<div class="kv"><span class="k">projet</span><span class="v">'
-    + esc(val(c.name) || project)
+    + esc(cval(c.name) || project)
     + ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche du projet"'
     + ' onclick="showProject(' + jarg(cle) + ')">🗂 fiche</span>'
-    + (val(c.redmine_project_url)
-        ? ' <a href="' + esc(val(c.redmine_project_url)) + '" target="_blank" rel="noopener">Redmine ↗</a>' : "")
+    + (cval(c.redmine_project_url)
+        ? ' <a href="' + esc(cval(c.redmine_project_url)) + '" target="_blank" rel="noopener">Redmine ↗</a>' : "")
     + "</span></div>";
   if (ouverts !== null) {
     h += '<div class="kv"><span class="k">tickets</span><span class="v">'
       + ouverts + " ouvert" + (ouverts > 1 ? "s" : "")
       + (c.total ? " / " + c.total : "") + "</span></div>";
   }
-  if (val(c.gitlab_repo)) {
-    h += '<div class="kv"><span class="k">dépôt</span><span class="v">' + esc(val(c.gitlab_repo))
-      + (val(c.default_branch) ? ' <span class="pill">' + esc(val(c.default_branch)) + "</span>" : "")
+  if (cval(c.gitlab_repo)) {
+    h += '<div class="kv"><span class="k">dépôt</span><span class="v">' + esc(cval(c.gitlab_repo))
+      + (cval(c.default_branch) ? ' <span class="pill">' + esc(cval(c.default_branch)) + "</span>" : "")
       + "</span></div>";
   }
   return h + "</div>";
@@ -5321,39 +6150,163 @@ document.addEventListener("click", function (ev) {
   if (g) { ev.preventDefault(); ev.stopPropagation(); openGlossary(g.getAttribute("data-term")); }
 });
 
+// ----- RM2722 : contrôle du poste au démarrage -----
+// >>> envWarnBadge — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le badge d'en-tête. Rien quand tout va bien : un indicateur permanent finit
+// par ne plus être lu, et c'est justement les jours où il compte qu'on ne le
+// verrait pas. Le survol dit QUOI, pour ne pas avoir à ouvrir le panneau —
+// « ssh-add non fait » se répare en dix secondes si on sait que c'est ça.
+function envWarnBadge(data, esc) {
+  const d = data || {};
+  const items = d.items || [];
+  if (!items.length) return "";
+  const cls = d.worst === "error" ? "ew-error" : "ew-warn";
+  const lignes = items.slice(0, 8).map(i => "• " + i.family + " — " + i.label
+    + (i.detail ? " : " + i.detail : ""));
+  if (items.length > 8) lignes.push("… et " + (items.length - 8) + " autre(s)");
+  return '<span class="pill ' + cls + '" title="'
+    + esc(items.length + " anomalie(s) du poste — clic : ouvrir la santé du poste\n"
+          + lignes.join("\n")) + '">🩺 ' + items.length + "</span>";
+}
+// <<< envWarnBadge
+
+let envCheckCache = null;
+async function loadEnvCheck(force) {
+  try {
+    envCheckCache = await api("/env-check" + (force ? "?force=1" : ""));
+  } catch (e) { return; }        // le badge est un plus : son échec ne dit rien à l'écran
+  const el = document.getElementById("envwarn");
+  if (!el) return;
+  el.innerHTML = envWarnBadge(envCheckCache, esc);
+  el.style.display = el.innerHTML ? "" : "none";
+}
+
 // ----- RM2458 : santé du poste (page de statut) -----
 // >>> envStatusHtml — pur (testé par test_cockpit.js) : rendu de /env-status.
 // Chaque ligne colorée par niveau ; les rouges/oranges affichent la commande de
 // remédiation + un bouton « copier » (la commande n'entre JAMAIS dans un attribut
 // onclick — esCopy lit le <code> voisin, donc pas d'échappement fragile).
-function envStatusHtml(report) {
+function envStatusHtml(report, active) {
   if (!report || !report.groups) return '<div class="es-detail">état indisponible</div>';
-  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
   const s = (report.summary && report.summary.counts) || { ok: 0, warn: 0, error: 0 };
   let h = '<div class="es-head"><span style="color:var(--ok)">✓ ' + (s.ok || 0) + "</span> · "
     + '<span style="color:var(--warn)">! ' + (s.warn || 0) + "</span> · "
     + '<span style="color:#f85149">✗ ' + (s.error || 0) + "</span>"
     + (report.generated_at ? '<span class="es-when">' + esc(report.generated_at) + "</span>" : "") + "</div>";
-  report.groups.forEach(function (g) {
-    h += '<div class="es-group"><div class="es-gname">' + esc(g.name || "") + "</div>";
-    (g.checks || []).forEach(function (c) {
-      const lv = c.level || "info";
-      h += '<div class="es-row es-' + esc(lv) + '">'
-        + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
-        + '<span class="es-label">' + esc(c.label || "") + "</span>"
-        + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
-      if (c.fix) {
-        h += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
-          + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
-      }
-      h += "</div>";
-    });
-    h += "</div>";
-  });
+  // RM2708 : une famille à la fois. Cinq familles empilées, dont une de 44
+  // dépôts, se lisaient au défilement — et les trois lignes qui comptent (PAT
+  // périmé, push cassé) se noyaient dans l'inventaire.
+  const tabs = envStatusTabs(report.groups);
+  const cur = tabs.some(t => t.name === active) ? active : envStatusDefaultTab(tabs);
+  h += '<div class="rsub">' + tabs.map(t =>
+    '<button class="' + (t.name === cur ? "active" : "") + '" onclick="setEnvTab(' + jarg(t.name) + ')">'
+    + esc(t.name) + envStatusBadge(t) + "</button>").join("") + "</div>";
+  const g = report.groups.find(x => (x.name || "") === cur) || { checks: [] };
+  h += envStatusGroupHtml(g);
   return h;
 }
 // <<< envStatusHtml
+
+// >>> envStatusTabs — pur (testé par test_cockpit.js) : un onglet par famille,
+// avec ses compteurs de défauts (c'est ce qui permet de voir où ça coince SANS
+// cliquer sur chaque onglet — sinon les onglets cacheraient l'information que la
+// page empilée donnait gratuitement).
+function envStatusTabs(groups) {
+  return (groups || []).map(function (g) {
+    let warn = 0, error = 0;
+    (g.checks || []).forEach(function (c) {
+      if (c.level === "warn") warn++;
+      else if (c.level === "error") error++;
+    });
+    return { name: g.name || "", warn: warn, error: error, n: (g.checks || []).length };
+  });
+}
+// <<< envStatusTabs
+
+// >>> envStatusDefaultTab — pur (testé par test_cockpit.js)
+// La page s'ouvre sur ce qui ne va pas : première famille en erreur, sinon
+// première en avertissement, sinon la première tout court.
+function envStatusDefaultTab(tabs) {
+  const ts = tabs || [];
+  const bad = ts.find(t => t.error) || ts.find(t => t.warn) || ts[0];
+  return bad ? bad.name : "";
+}
+// <<< envStatusDefaultTab
+
+// >>> envStatusSections — pur (testé par test_cockpit.js)
+// Regroupe les lignes d'une famille par `section` (le client, pour les dépôts).
+// Sections EN DÉFAUT d'abord — c'est ce qu'on vient voir ; le reste par ordre
+// alphabétique. Les lignes sans section (contrôles de service, troncature)
+// forment un groupe sans titre, rendu en tête et jamais replié.
+function envStatusSections(checks) {
+  const rank = { ok: 0, info: 0, warn: 1, error: 2 };
+  const bySec = new Map();
+  for (const c of checks || []) {
+    const k = c && c.section ? String(c.section) : "";
+    if (!bySec.has(k)) bySec.set(k, { name: k, checks: [], worst: 0 });
+    const s = bySec.get(k);
+    s.checks.push(c);
+    s.worst = Math.max(s.worst, rank[(c && c.level) || "info"] || 0);
+  }
+  const out = [...bySec.values()];
+  out.sort((a, b) => (a.name === "" ? -1 : b.name === "" ? 1 : 0)
+    || (b.worst - a.worst) || a.name.localeCompare(b.name));
+  return out;
+}
+// <<< envStatusSections
+
+// >>> envStatusBadge — pur (testé par test_cockpit.js) : pastilles d'un onglet.
+function envStatusBadge(t) {
+  const e = (t && t.error) || 0, w = (t && t.warn) || 0;
+  return (e ? ' <span class="es-badge es-error">✗ ' + e + "</span>" : "")
+    + (w ? ' <span class="es-badge es-warn">! ' + w + "</span>" : "");
+}
+// <<< envStatusBadge
+
+// >>> envStatusGroupHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rendu d'une famille : lignes à plat, ou sections repliables si elle en a.
+function envStatusGroupHtml(g) {
+  const ICON = { ok: "✓", info: "·", warn: "!", error: "✗" };
+  const rowHtml = function (c) {
+    const lv = c.level || "info";
+    let r = '<div class="es-row es-' + esc(lv) + '">'
+      + '<span class="es-mark">' + (ICON[lv] || "·") + "</span>"
+      + '<span class="es-label">' + esc(c.label || "") + "</span>"
+      + (c.detail ? '<span class="es-detail">' + esc(c.detail) + "</span>" : "");
+    if (c.fix) {
+      // la commande n'entre JAMAIS dans un attribut onclick : esCopy lit le <code> voisin
+      r += '<div class="es-fixrow"><code class="es-fix">' + esc(c.fix) + "</code>"
+        + '<button class="es-copy" onclick="esCopy(this)" title="Copier la commande">copier</button></div>';
+    }
+    return r + "</div>";
+  };
+  const sections = envStatusSections(g.checks || []);
+  if (sections.length === 1 && sections[0].name === "") {
+    return '<div class="es-group">' + (g.checks || []).map(rowHtml).join("") + "</div>";
+  }
+  let h = '<div class="es-group">';
+  for (const s of sections) {
+    if (!s.name) { h += s.checks.map(rowHtml).join(""); continue; }
+    // RM2708 : une section sans défaut est repliée — 20 clients dont l'immense
+    // majorité n'a rien à signaler ; ce qui va bien se compte, il ne se lit pas.
+    const bad = s.worst > 0;
+    h += '<details class="es-sec"' + (bad ? " open" : "") + '><summary>' + esc(s.name)
+      + ' <span class="es-seccnt">' + s.checks.length + "</span>"
+      + envStatusBadge({ error: s.checks.filter(c => c.level === "error").length,
+                         warn: s.checks.filter(c => c.level === "warn").length })
+      + "</summary>" + s.checks.map(rowHtml).join("") + "</details>";
+  }
+  return h + "</div>";
+}
+// <<< envStatusGroupHtml
+
 let envStatusCache = null;
+let envTab = null;          // RM2708 : famille affichée (null = choisie par défaut)
+function setEnvTab(name) {
+  envTab = name;
+  const body = document.getElementById("es-body");
+  if (body && envStatusCache) body.innerHTML = envStatusHtml(envStatusCache, envTab);
+}
 async function openEnvStatus(force) {
   document.getElementById("doctitle").textContent = "🩺 Santé du poste";
   const el = document.getElementById("doccontent");
@@ -5363,9 +6316,15 @@ async function openEnvStatus(force) {
     + '<div id="es-body" style="color:var(--muted)">diagnostic en cours…</div>';
   document.getElementById("docmodal").classList.add("show");
   try {
+    // RM2708 : ↻ garde l'onglet ouvert (on rafraîchit POUR revoir la même
+    // famille après une réparation). Un onglet disparu retombe sur le défaut,
+    // `envStatusHtml` s'en charge.
     if (force || !envStatusCache) envStatusCache = await api("/env-status");
     const body = document.getElementById("es-body");
-    if (body) body.innerHTML = envStatusHtml(envStatusCache);
+    if (body) body.innerHTML = envStatusHtml(envStatusCache, envTab);
+    // RM2722 : le diagnostic complet vient d'être rejoué — le badge d'en-tête
+    // doit suivre, sinon il continue d'annoncer une panne réparée.
+    loadEnvCheck(!!force);
   } catch (e) {
     const body = document.getElementById("es-body");
     if (body) body.innerHTML = '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">échec du diagnostic : ' + esc(e.message) + "</span></div>";
@@ -5593,6 +6552,7 @@ function attach(rmId) {
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
   document.getElementById("projpane").style.display = "none";
+  closeNewTicket();                           // RM2672 : la création cède la place
   document.getElementById("placeholder").style.display = "none";
   mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
@@ -5615,6 +6575,8 @@ function attach(rmId) {
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
   renderCurTitle();
+  // RM2672 : la vue devient un onglet (non épinglé par défaut : un aperçu)
+  noteTab("session", String(rmId), (/^\d+$/.test(String(rmId)) ? "RM" : "") + rmId);
   refreshSessions();   // re-rend la liste pour marquer l'actif
 }
 function reattach() { if (attached) attach(attached); }
@@ -5624,6 +6586,7 @@ function detach() {
   document.getElementById("reviewpane").style.display = "none";
   unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
+  loadDashboard();   // RM2697 : le centre redevient le tableau de bord
   document.getElementById("tabactions").style.display = "none";
   collapseRight();                  // RM2466 : plus de session → la colonne se replie
   renderMeta();                     // RM2579 : vide infos + tickets (plus de #metabody)
@@ -5811,9 +6774,9 @@ async function loadPmCommands() {
       const row = document.createElement("div"); row.className = "rels";
       cats[cat].forEach(c => {
         const b = document.createElement("button");
-        b.className = "chip"; b.textContent = (c.mutate ? "✏ " : "👁 ") + (c.label || val(c.name));
-        b.title = val(c.name) + (c.confirm ? " (confirmation requise)" : "");
-        b.onclick = () => renderPmForm(val(c.name));
+        b.className = "chip"; b.textContent = (c.mutate ? "✏ " : "👁 ") + (c.label || c.name);
+        b.title = c.name + (c.confirm ? " (confirmation requise)" : "");
+        b.onclick = () => renderPmForm(c.name);
         row.appendChild(b);
       });
       g.appendChild(row); menu.appendChild(g);
@@ -5826,7 +6789,7 @@ function renderPmForm(name) {
   document.getElementById("pm-result").style.display = "none";
   if (!c) { f.innerHTML = ""; return; }
   let h = '<div style="border-top:1px solid var(--line);margin-top:10px;padding-top:8px">' +
-    '<b>' + esc(c.label || val(c.name)) + '</b>' +
+    '<b>' + esc(c.label || c.name) + '</b>' +
     (c.mutate ? ' <span class="pill warn">mutation</span>' : ' <span class="pill">lecture</span>');
   for (const a of c.args || []) {
     if (a.server) continue;                        // résolu côté serveur
@@ -5862,7 +6825,7 @@ async function submitPmForm(name, btn) {
     else if (v !== "") args[a.name] = v;
     else if (a.required) { toast("Champ requis : " + (a.label || a.name), true); return; }
   }
-  if (c.confirm && !window.confirm((c.label || val(c.name)) + " — exécuter cette mutation ?")) return;
+  if (c.confirm && !window.confirm((c.label || c.name) + " — exécuter cette mutation ?")) return;
   btn.disabled = true;
   try {
     const r = await pmRun(name, args, { confirm: !!c.confirm });
@@ -5887,7 +6850,7 @@ let projectData = null;          // RM2531 : dernière fiche chargée (prérempl
 function closeProjectView() {
   currentProjectView = null;
   document.getElementById("projpane").style.display = "none";
-  if (!attached && !currentReview) document.getElementById("placeholder").style.display = "flex";
+  if (!attached && !currentReview) { document.getElementById("placeholder").style.display = "flex"; loadDashboard(); }   // RM2697
   renderCurTitle();
 }
 async function openProjectView(key) {
@@ -5895,7 +6858,9 @@ async function openProjectView(key) {
   currentReview = null;
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = key;
+  closeNewTicket();                 // RM2672
   document.getElementById("placeholder").style.display = "none";
+  noteTab("project", key, key);     // RM2672
   const pane = document.getElementById("projpane");
   pane.style.display = "block";
   pane.innerHTML = '<div class="empty">chargement de la fiche projet…</div>';
@@ -5940,6 +6905,18 @@ function renderProjectPane(key, d) {
     '<button class="mini" onclick="openConfigForm(\'project\')" title="Modifier la conf du projet (meta.yml)">✎ conf projet</button>' +
     '<button class="mini" onclick="openConfigForm(\'client\')" title="Modifier la conf du client ' + esc(ck) + ' (meta.yml)">✎ conf client</button>' +
     '<button class="mini" onclick="closeProjectView()">✕ fermer</button></div>';
+  // RM2696 : deux lectures du même projet — sa FICHE (ce qu'il est) et son
+  // WORKLOG (ce qui s'y passe, toutes sessions confondues).
+  h += '<div class="rsub" style="margin:8px 0 4px">'
+    + '<button class="' + (projTab === "worklog" ? "" : "active") + '" onclick="setProjTab(\'fiche\')">📋 fiche</button>'
+    + '<button class="' + (projTab === "worklog" ? "active" : "") + '" onclick="setProjTab(\'worklog\')">🗒 worklog</button>'
+    + "</div>";
+  if (projTab === "worklog") {
+    h += '<div id="projworklog"><div class="empty">chargement du worklog projet…</div></div>';
+    pane.innerHTML = h;
+    loadProjWorklog(key);
+    return;
+  }
   // liens
   h += '<div class="rels" style="margin:10px 0 14px">';
   if (d.redmine_project_url) h += '<a class="pill" href="' + esc(d.redmine_project_url) + '" target="_blank">🎫 Projet Redmine ↗</a>';
@@ -5960,7 +6937,7 @@ function renderProjectPane(key, d) {
   // docs projet
   if ((d.docs || []).length) {
     h += '<div class="ms"><h4>Docs projet</h4><ul class="doclist">';
-    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doval(c.name)) + '\')">📄 ' + esc(doval(c.name)) + '</li>'; });
+    d.docs.forEach(doc => { h += '<li onclick="openDoc(\'' + esc(doc.path) + '\',\'' + esc(doc.name) + '\')">📄 ' + esc(doc.name) + '</li>'; });
     h += '</ul></div>';
   }
   // tickets ouverts par statut + récents
@@ -5982,6 +6959,326 @@ function renderProjectPane(key, d) {
     + '<div class="empty">chargement…</div></div></div>';
   pane.innerHTML = h;
   loadProjWorktrees(key);
+}
+
+// ── RM2697 (T3 de RM2694) : tableau de bord « ce qui requiert mon attention » ─
+// Une seule liste, triée par NATURE D'ATTENTE et non par projet. Grouper par
+// client fait relire ce qui va bien ; ici on ne montre que ce qui est bloqué sur
+// l'opérateur. Tout vient de /overview (RM2696) et du poll de sessions déjà en
+// place : aucun calcul propre, aucune requête supplémentaire.
+
+// >>> attentionRows — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rangs = coût de l'attente, du plus cher au moins cher :
+//   1 une session ATTEND une réponse — un agent est à l'arrêt, c'est ce qui
+//     coûte le plus ; 2 un ticket attend TON verdict ; 3 une MR attend un merge ;
+//   4 un ticket attend sa mise en production ; 5 une session au repos a encore
+//     du travail devant elle ; 6 une demande n'est pas encore ticketée.
+// Chaque ligne porte un VERBE : « réponds », « teste », « merge »… Un tableau de
+// bord qui liste des états sans dire quoi faire se relit à chaque passage.
+function attentionRows(overview, sessions, opts) {
+  const o = overview || {}, sess = sessions || {}, cfg = opts || {};
+  const fc = cfg.client || "", fp = cfg.project || "";
+  const rows = [];
+  const keep = (cl, pr) => (!fc || cl === fc) && (!fp || pr === fp);
+  // 1 — sessions qui attendent une réponse (état ⚠/❓, ou question restée sans suite)
+  for (const sid of Object.keys(sess)) {
+    const s = sess[sid] || {};
+    if (!keep(s.client || "", s.project || "")) continue;
+    const waiting = s.state === "attention" || s.state === "choice";
+    if (!waiting && !(cfg.stale || []).includes(String(sid))) continue;
+    rows.push({ rank: 1, kind: "question", icon: waiting ? "⚠" : "🕓",
+                verb: "réponds", sid: String(sid), client: s.client || "", project: s.project || "",
+                text: (s.title || tmuxNameOf(sid)) + (waiting ? "" : " — question laissée sans réponse") });
+  }
+  for (const g of (o.projects || [])) {
+    if (!keep(g.client, g.project)) continue;
+    for (const t of (g.tickets || [])) {
+      if (t.status === "a_tester_demandeur") {
+        rows.push({ rank: 2, kind: "test", icon: "🧪", verb: "teste", rm_id: t.rm_id,
+                    client: g.client, project: g.project, text: t.title || "", since: t.updated || "" });
+      } else if (t.status === "a_mep" || t.status === "en_mep") {
+        rows.push({ rank: 4, kind: "mep", icon: "🚀", verb: "déploie", rm_id: t.rm_id,
+                    client: g.client, project: g.project, text: t.title || "", since: t.updated || "" });
+      }
+    }
+    for (const m of (g.mrs || [])) {
+      rows.push({ rank: 3, kind: "mr", icon: "🔀", verb: "merge", iid: m.iid, url: m.url,
+                  rm_id: String(m.ref || "").replace(/^RM/, "") || null,
+                  client: g.client, project: g.project,
+                  text: "!" + m.iid + (m.ref ? " — " + m.ref : "")
+                        + (m.alive === false ? " (session éteinte)" : "") });
+    }
+    // 5 — une session au repos alors que son projet a encore du travail actif
+    const actifs = (g.tickets || []).filter(t => t.bucket === "active").length;
+    if (actifs) {
+      for (const s of (g.sessions || [])) {
+        if (!s.alive) continue;
+        const st = (sess[s.sid] || {}).state;
+        if (st && st !== "idle") continue;
+        rows.push({ rank: 5, kind: "idle", icon: "💤", verb: "relance", sid: String(s.sid),
+                    client: g.client, project: g.project,
+                    text: (s.title || String(s.sid)) + " — " + actifs + " ticket(s) en cours" });
+      }
+    }
+    for (const r of (g.requests || [])) {
+      rows.push({ rank: 6, kind: "request", icon: "📥", verb: "ticketise",
+                  client: g.client, project: g.project, text: String(r.text || "") });
+    }
+  }
+  // Dans une même nature, ce qui attend depuis le PLUS LONGTEMPS passe devant :
+  // trier 126 tickets « à tester » par numéro revient à les trier au hasard du
+  // point de vue de l'attention. Sans date connue, on retombe sur le projet.
+  rows.sort((a, b) => (a.rank - b.rank)
+    || String(a.since || "9999").localeCompare(String(b.since || "9999"))
+    || (a.client + "/" + a.project).localeCompare(b.client + "/" + b.project)
+    || String(a.rm_id || a.sid || a.iid || "").localeCompare(String(b.rm_id || b.sid || b.iid || "")));
+  return rows;
+}
+// <<< attentionRows
+
+// >>> attentionHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rien à afficher est une BONNE nouvelle, pas un écran mort : on le dit, et on
+// ne rend pas un tableau vide qui se lirait comme un chargement raté.
+function attentionHtml(rows, esc, jarg) {
+  const rs = rows || [];
+  if (!rs.length) {
+    return '<div class="dash-empty">✓ rien n’attend de toi.<br>'
+      + '<span style="font-size:12px">Les tickets en cours avancent dans leurs sessions ; '
+      + 'le worklog projet donne le détail.</span></div>';
+  }
+  const LABEL = { question: "une session attend ta réponse", test: "livré, attend ton verdict",
+                  mr: "MR ouverte, pas mergée", mep: "attend sa mise en production",
+                  idle: "session au repos, travail en cours", request: "demande pas encore ticketée" };
+  const ICON = { question: "⚠", test: "🧪", mr: "🔀", mep: "🚀", idle: "💤", request: "📥" };
+  // Sur ce poste, la liste brute fait 175 lignes (126 tickets en attente de
+  // verdict) : l'afficher entière rejouerait le problème que ce tableau corrige.
+  // On donne donc le COMPTE par nature — la vue d'ensemble — et les 5 plus
+  // anciens de chaque, qui sont ceux qui coincent. Le détail complet vit dans le
+  // worklog projet et la file « à tester ».
+  const CAP = 5;
+  const counts = {};
+  rs.forEach(r => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+  let h = '<div class="dash-sum">' + Object.keys(counts).map(k =>
+    '<span class="dash-chip" title="' + esc(LABEL[k] || k) + '">' + (ICON[k] || "•") + " " + counts[k] + "</span>").join("") + "</div>";
+  let last = null, shown = 0;
+  for (const r of rs) {
+    if (r.kind !== last) {
+      h += '<div class="dash-sec">' + esc(LABEL[r.kind] || r.kind) + " (" + counts[r.kind] + ")</div>";
+      last = r.kind; shown = 0;
+    }
+    shown++;
+    if (shown > CAP) {
+      if (shown === CAP + 1) {
+        h += '<div class="dash-more">… et ' + (counts[r.kind] - CAP)
+          + " autre(s) — les plus anciens sont listés en premier</div>";
+      }
+      continue;
+    }
+    const act = r.kind === "mr" && r.url
+      ? 'onclick="window.open(' + jarg(String(r.url)) + ',\'_blank\')"'
+      : r.sid ? 'onclick="attach(' + jarg(String(r.sid)) + ')"'
+      : r.rm_id ? 'onclick="openReview(' + jarg(String(r.rm_id)) + ')"' : "";
+    h += '<div class="dash-row"' + (act ? " " + act : "") + '>'
+      + '<span class="dash-icon">' + r.icon + "</span>"
+      + '<span class="dash-verb">' + esc(r.verb) + "</span>"
+      + '<span class="dash-who">' + esc(r.client + "/" + r.project) + "</span>"
+      + (r.rm_id ? '<span class="r-id">RM' + esc(String(r.rm_id)) + "</span> " : "")
+      + '<span class="dash-txt">' + esc(String(r.text || "")) + "</span>"
+      + (r.since ? '<span class="dash-since" title="dernière activité">' + esc(String(r.since).slice(0, 10)) + "</span>" : "")
+      + "</div>";
+  }
+  return h;
+}
+// <<< attentionHtml
+
+// >>> alertsHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2698 : la dérive, en tête du tableau de bord. Ce qu'on perd en
+// multi-sessions n'est pas ce qu'on voit, c'est ce qu'on ne voit plus.
+// Chaque alerte porte son ÂGE — sans lui, on ne sait pas laquelle traiter — et
+// un bouton « ⏳ 7 j » qui la REPORTE : jamais de suppression, sinon on
+// institutionnalise l'oubli. Rien à signaler ⇒ rien d'affiché : une bannière
+// permanente cesse d'être lue.
+function alertsHtml(data, esc, jarg) {
+  const d = data || {}, as = d.alerts || [];
+  if (!as.length) return "";
+  const ICON = { orphan: "💤", verdict: "🧪", mep: "🚀", mr: "🔀" };
+  let h = '<div class="dash-alerts"><div class="dash-sec" style="margin-top:0">⚠ dérives ('
+    + (d.total || as.length) + ")</div>";
+  for (const a of as) {
+    const age = Math.round(a.age_days || 0);
+    h += '<div class="alert-row">'
+      + '<span class="dash-icon">' + (ICON[a.kind] || "⚠") + "</span>"
+      + '<span class="alert-age" title="temps écoulé depuis la dernière activité">' + age + " j</span>"
+      + '<span class="dash-who">' + esc(String((a.client || "") + "/" + (a.project || ""))) + "</span>"
+      + (a.rm_id ? '<span class="r-id" style="cursor:pointer" onclick="openReview(' + jarg(String(a.rm_id)) + ')">RM'
+                   + esc(String(a.rm_id)) + "</span> " : "")
+      + '<span class="dash-txt">' + esc(String(a.label || ""))
+      + (a.title ? " — " + esc(String(a.title)) : "") + "</span>"
+      + (a.url ? '<a class="pill" href="' + esc(String(a.url)) + '" target="_blank" rel="noopener">ouvrir ↗</a>' : "")
+      + '<button class="mini" title="Reporter cette alerte de 7 jours (elle reviendra)" '
+      + 'onclick="snoozeAlert(' + jarg(String(a.key)) + ')">⏳ 7 j</button></div>';
+  }
+  if (d.hidden) {
+    h += '<div class="dash-more">… et ' + d.hidden + " dérive(s) plus récente(s) — "
+      + "les seuils se règlent dans 🔧 réglages</div>";
+  }
+  return h + "</div>";
+}
+// <<< alertsHtml
+
+let alertsData = { alerts: [] };
+async function snoozeAlert(key) {
+  try {
+    await api("/alerts/snooze", { method: "POST", headers: { "Content-Type": "application/json" },
+                                  body: JSON.stringify({ key: key, days: 7 }) });
+    toast("⏳ alerte reportée de 7 jours — elle reviendra");
+    loadDashboard(true);
+  } catch (e) { toast(e.message, true); }
+}
+
+let dashData = { projects: [] };
+let dashFilter = { client: "", project: "" };
+function dashVisible() {
+  const ph = document.getElementById("placeholder");
+  return !!ph && ph.style.display !== "none" && !attached;
+}
+async function loadDashboard(force) {
+  if (!dashVisible()) return;
+  try {
+    // /alerts recalcule l'agrégat au besoin puis le SERT depuis la même garde de
+    // fraîcheur : les deux appels ne coûtent qu'un calcul (RM2696/RM2698).
+    dashData = await api("/overview" + (force ? "?force=1" : ""));
+    alertsData = await api("/alerts");
+  } catch (e) { dashData = { projects: [], error: e.message }; alertsData = { alerts: [] }; }
+  renderDashboard();
+}
+function renderDashboard() {
+  const box = document.getElementById("dashboard"), hint = document.getElementById("ph-hint");
+  if (!box) return;
+  if (!dashVisible()) { box.style.display = "none"; if (hint) hint.style.display = ""; return; }
+  const rows = attentionRows(dashData, sessCache,
+    { client: dashFilter.client, project: dashFilter.project, stale: [...pendStale] });
+  // les couples client/projet connus alimentent les deux filtres
+  const clients = [...new Set((dashData.projects || []).map(g => g.client))].sort();
+  const projects = [...new Set((dashData.projects || [])
+    .filter(g => !dashFilter.client || g.client === dashFilter.client)
+    .map(g => g.project))].sort();
+  const opt = (v, cur) => '<option value="' + esc(v) + '"' + (v === cur ? " selected" : "") + ">" + esc(v || "tous") + "</option>";
+  box.innerHTML = '<div class="dash-head"><b>Ce qui requiert ton attention</b>'
+    + '<span class="dash-cnt">' + rows.length + "</span>"
+    + '<select onchange="setDashFilter(\'client\', this.value)">' + [""].concat(clients).map(c => opt(c, dashFilter.client)).join("") + "</select>"
+    + '<select onchange="setDashFilter(\'project\', this.value)">' + [""].concat(projects).map(p => opt(p, dashFilter.project)).join("") + "</select>"
+    + '<button class="mini" onclick="loadDashboard(true)" title="Recalculer">⟳</button></div>'
+    + alertsHtml(alertsData, esc, jarg)      // RM2698 : la dérive avant l'état
+    + attentionHtml(rows, esc, jarg);
+  box.style.display = "";
+  if (hint) hint.style.display = (rows.length || (alertsData.alerts || []).length) ? "none" : "";
+}
+function setDashFilter(k, v) { dashFilter[k] = v; if (k === "client") dashFilter.project = ""; renderDashboard(); }
+// le nom tmux d'une session, sans dépendre du DOM (utilisé par attentionRows)
+function tmuxNameOf(sid) { return (/^\d+$/.test(String(sid)) ? "RM" : "") + String(sid); }
+
+// ── RM2696 : worklog PROJET — ce qui se passe sur un projet, toutes sessions ──
+let projTab = "fiche";
+let projOverview = { key: null, group: null };
+function setProjTab(t) {
+  projTab = t;
+  if (currentProjectView && projectData) renderProjectPane(currentProjectView, projectData);
+}
+
+// >>> projWorklogHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le worklog d'un PROJET : ce que trois sessions font du même projet ne se lisait
+// nulle part d'un bloc. Ordre voulu — d'abord ce qui bloque (MR non mergées,
+// tickets actifs SANS session vivante), ensuite le travail en cours, enfin
+// l'attente. Un ticket actif dont plus aucune session ne parle est le cas qu'on
+// perd de vue : il est signalé, pas rangé au milieu.
+function projWorklogHtml(g, esc, jarg) {
+  if (!g) return '<div class="empty">rien en cours sur ce projet.</div>';
+  const c = g.counts || {};
+  const pill = (n, txt, cls) => n ? '<span class="pill ' + (cls || "") + '">' + n + " " + txt + "</span>" : "";
+  let h = '<div class="rels" style="margin-bottom:10px">'
+    + pill(c.sessions_live, "session(s) ouverte(s)", "ok")
+    + pill(c.active, "en cours")
+    + pill(c.orphans, "sans session", "warn")
+    + pill(c.waiting, "en attente")
+    + pill(c.mrs, "MR à merger", "warn")
+    + pill(c.requests, "demande(s)", "warn") + "</div>";
+  const tks = g.tickets || [];
+  const row = t => {
+    const cl = t.checklist;
+    const prog = cl && cl.total
+      ? ' <span class="pill' + (cl.done >= cl.total ? " ok" : "") + '">' + cl.done + "/" + cl.total + " ✓</span>" : "";
+    const who = (t.sessions || []).length
+      ? (t.sessions || []).map(s => '<span class="pill" title="session qui traite ce ticket">' + esc(String(s)) + "</span>").join(" ")
+      : '<span class="pill warn" title="aucune session, vivante ou éteinte, ne parle de ce ticket">sans session</span>';
+    const cold = t.bucket === "active" && !t.has_live_session
+      ? ' <span class="pill warn" title="ticket en cours, mais aucune session vivante ne le traite">💤 à reprendre</span>' : "";
+    return '<div class="oline" style="white-space:normal" onclick="showTicket(' + Number(t.rm_id) + ')"'
+      + ' title="Ouvrir la fiche du ticket"><span class="r-id">RM' + esc(String(t.rm_id)) + "</span> "
+      + '<span class="pill">' + esc(t.status || "?") + "</span>" + prog + cold + " " + esc(t.title || "")
+      + '<div style="margin-top:2px">' + who + "</div></div>";
+  };
+  const mrs = g.mrs || [];
+  if (mrs.length) {
+    h += '<div class="ms"><h4>🔀 MR à merger (' + mrs.length + ")</h4>"
+      + mrs.map(m => mrLineHtml(m, esc, jarg)).join("") + "</div>";
+  }
+  const reqs = g.requests || [];
+  if (reqs.length) {
+    h += '<div class="ms"><h4>📥 demandes non ticketées (' + reqs.length + ")</h4>"
+      + reqs.map(r => '<div class="oline" style="white-space:normal">📥 ' + esc(String(r.text || "")) + "</div>").join("") + "</div>";
+  }
+  const active = tks.filter(t => t.bucket === "active");
+  const waiting = tks.filter(t => t.bucket !== "active");
+  // Plafond d'affichage : 69 tickets en attente listés d'un bloc, c'est
+  // exactement ce qu'on ne lit pas. On borne — et on DIT ce qui est coupé, une
+  // troncature muette se lirait comme « il n'y a que ça ».
+  const CAP = 20;
+  const listing = (arr, empty) => {
+    if (!arr.length) return '<div class="empty">' + empty + "</div>";
+    const shown = arr.slice(0, CAP).map(row).join("");
+    return shown + (arr.length > CAP
+      ? '<div style="color:var(--muted);font-size:11px;margin-top:4px">… et ' + (arr.length - CAP)
+        + " autre(s) — la liste complète est dans la fiche du projet</div>" : "");
+  };
+  h += '<div class="ms"><h4>🔨 en cours (' + active.length + ")</h4>"
+    + listing(active, "rien en cours") + "</div>";
+  // Répartition des attentes par statut : un ticket « a_tester_demandeur » et un
+  // « a_mep » n'appellent pas le même geste — le compte par statut se lit d'un
+  // coup d'œil là où 69 lignes ne se lisent pas.
+  const byStatus = {};
+  waiting.forEach(t => { byStatus[t.status || "?"] = (byStatus[t.status || "?"] || 0) + 1; });
+  h += '<div class="ms"><h4>⏳ en attente d’un geste (' + waiting.length + ")</h4>"
+    + (waiting.length ? '<div class="rels" style="margin-bottom:6px">'
+        + Object.keys(byStatus).sort().map(s => '<span class="pill">' + esc(s) + " : " + byStatus[s] + "</span>").join(" ")
+        + "</div>" : "")
+    + listing(waiting, "rien en attente") + "</div>";
+  const sess = g.sessions || [];
+  if (sess.length) {
+    h += '<div class="ms"><h4>🖥 sessions du projet (' + (c.sessions_live || 0) + "/" + sess.length + ")</h4><div class=\"rels\">"
+      + sess.map(s => '<span class="pill' + (s.alive ? " ok" : "") + '" style="cursor:pointer"'
+        + ' title="' + esc(String(s.title || s.sid)) + (s.alive ? " — ouverte" : " — éteinte")
+        + '" onclick="attach(' + jarg(String(s.sid)) + ')">' + esc(String(s.sid)) + "</span>").join(" ")
+      + "</div></div>";
+  }
+  return h;
+}
+// <<< projWorklogHtml
+
+async function loadProjWorklog(key) {
+  const [c, p] = String(key || "").split("/");
+  const b = document.getElementById("projworklog");
+  if (!b || !c || !p) return;
+  try {
+    const r = await api("/overview?client=" + encodeURIComponent(c) + "&project=" + encodeURIComponent(p));
+    projOverview = { key: key, group: (r.projects || [])[0] || null };
+  } catch (e) {
+    b.innerHTML = '<div class="empty">worklog projet indisponible : ' + esc(e.message) + "</div>";
+    return;
+  }
+  if (currentProjectView === key && projTab === "worklog") {
+    b.innerHTML = projWorklogHtml(projOverview.group, esc, jarg);
+  }
 }
 
 // ── RM2590 : explorateur de fichiers dans la vue projet (tous les worktrees) ──
@@ -6042,8 +7339,8 @@ function renderProjFiles() {
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(projFiles.path).map((cc, i, a) =>
       i < a.length - 1
-        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + jarg(cc.path) + ');return false">' + esc(cval(c.name)) + "</a>"
-        : "<b>" + esc(cval(c.name)) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
+        ? '<a href="#" onclick="projBrowse(projFiles.wt,' + jarg(cc.path) + ');return false">' + esc(cc.name) + "</a>"
+        : "<b>" + esc(cc.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</div>";
     h += '<div style="max-height:340px;overflow-y:auto">' + (projFiles.entries.length ? projFiles.entries.map(e => {
       const child = (projFiles.path ? projFiles.path + "/" : "") + e.name;
       return e.dir
@@ -6136,8 +7433,10 @@ function openReview(rm) {
   closeProjectView();                   // RM2353 : la fiche projet cède la place
   currentReview = rm;
   metaTicket = rm;
+  closeNewTicket();                 // RM2672
   document.getElementById("placeholder").style.display = "none";
   document.getElementById("reviewpane").style.display = "block";
+  noteTab("review", rm, "RM" + rm);  // RM2672
   metaFacet = "detail";             // RM2579 : ouvrir sur le détail
   showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
   renderReviewPane(); renderMeta(); renderCurTitle();
@@ -6160,6 +7459,7 @@ function closeReview(rm) {
     currentReview = null; metaTicket = null;
     document.getElementById("reviewpane").style.display = "none";
     document.getElementById("placeholder").style.display = "flex";
+    loadDashboard();   // RM2697 : le centre redevient le tableau de bord
     renderMeta();                    // RM2579 : rafraîchit infos + tickets (plus de #metabody)
   }
   renderCurTitle();
@@ -6251,6 +7551,18 @@ function renderReviewPane() {
       (mc ? mcBanner(mc)
           : '<div style="color:var(--muted)">vérification de la mergeabilité en cours…</div>') +
       '</div>';
+  }
+  // — RM2720 : actions PM DU TICKET (elles vivaient au bas de la session) —
+  const pmActs = (CFG.actions || []).filter(a => a.ticket_only);
+  if (pmActs.length) {
+    const tgt = pmActionTarget(rm, sessCache, attached);
+    h += '<div class="ms"><h4>Actions PM</h4><div class="rels">'
+      + pmActs.map((a, i) => '<button class="chip"' + (tgt.sid ? "" : " disabled")
+          + ' title="' + esc(String(a.text || "").replaceAll("{id}", rm)) + '"'
+          + ' onclick="sendPmAction(' + i + ',' + jarg(String(rm)) + ',this)">'
+          + esc(a.label) + "</button>").join(" ")
+      + '</div><div style="color:var(--muted);font-size:11px;margin-top:4px">'
+      + esc(tgt.why) + "</div></div>";
   }
   // — verdict —
   h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +
@@ -6481,16 +7793,39 @@ async function tqVerdict(rm, kind, btn) {
   finally { ensureResolved(String(rm), true).then(loadTestQueue); }
 }
 
+// >>> pmActionTarget — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2720 — À QUI envoyer une action PM déclenchée depuis la fiche d'un ticket.
+// La session du ticket d'abord : c'est elle qui a le contexte. À défaut la
+// session attachée — mais on le DIT, parce qu'envoyer « passe RM123 en cours »
+// dans une session qui travaille sur autre chose n'est pas neutre. Sans session
+// vivante, rien : le bouton se désactive avec sa raison, plutôt que d'échouer
+// après le clic.
+function pmActionTarget(rm, sessions, attached) {
+  const alive = (sid) => {
+    const s = (sessions || {})[String(sid)];
+    return !!(s && !s.ghost);
+  };
+  if (alive(rm)) return { sid: String(rm), own: true, why: "→ session du ticket RM" + rm };
+  if (attached && alive(attached))
+    return { sid: String(attached), own: false,
+             why: "→ session attachée (" + attached + ") — ce n’est pas la session du ticket" };
+  return { sid: null, own: false, why: "aucune session vivante où envoyer cette action" };
+}
+// <<< pmActionTarget
+
 // ----- §2 : chips d'actions en un clic (catalogue serveur CFG.actions) -----
 function renderChips() {
   const row = document.getElementById("chipsrow");
   const acts = CFG.actions || [];
   if (!attached || !acts.length) { row.style.display = "none"; return; }
-  const isTicket = /^\d+$/.test(attached);
   row.innerHTML = "";
   let lastGroup = null;
   for (const a of acts) {
-    if (a.ticket_only && !isTicket) continue;   // session slug : pas de chips PM
+    // RM2720 : une action `ticket_only` porte sur UN ticket — elle est rendue sur
+    // la fiche du ticket concerné (`renderReviewPane`), pas ici. Au niveau
+    // session, `{id}` valait l'id de la SESSION : sans objet pour un ancrage
+    // slug, et faux dès qu'une session porte plusieurs tickets.
+    if (a.ticket_only) continue;
     if (a.group && a.group !== lastGroup) {
       const g = document.createElement("span");
       g.className = "cgroup"; g.textContent = a.group;
@@ -6505,21 +7840,40 @@ function renderChips() {
   }
   row.style.display = row.childElementCount ? "flex" : "none";
 }
-async function sendAction(a, btn) {
-  if (!attached) return;
+// RM2720 : `id` = ce que remplace {id} dans la consigne (un TICKET pour les
+// actions PM) ; `sid` = la session à qui on l'envoie. Les deux coïncidaient tant
+// que les actions de ticket vivaient dans la barre de session — plus maintenant.
+async function sendAction(a, btn, id, sid) {
+  const target = sid || attached;
+  const rid = id == null ? attached : String(id);
+  if (!target) return;
   btn.disabled = true;
   try {
     await api("/send", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        rm_id: attached,
-        msg: String(a.text || "").replaceAll("{id}", attached),
+        rm_id: target,
+        msg: String(a.text || "").replaceAll("{id}", rid),
         enter: a.enter !== false,
       }),
     });
     toast(a.enter === false ? "Texte injecté — complète dans le terminal" : "Envoyé : " + a.label);
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
+}
+
+// RM2720 : action PM d'un ticket. La confirmation n'apparaît que si la cible
+// n'est PAS la session du ticket — c'est le seul cas où le clic fait quelque
+// chose d'inattendu (injecter une consigne dans une session qui travaille
+// ailleurs).
+async function sendPmAction(idx, rm, btn) {
+  const a = (CFG.actions || []).filter(x => x.ticket_only)[idx];
+  if (!a) return;
+  const tgt = pmActionTarget(rm, sessCache, attached);
+  if (!tgt.sid) { toast(tgt.why, true); return; }
+  if (!tgt.own && !window.confirm("« " + a.label + " » de RM" + rm + "\n"
+      + tgt.why + "\n\nEnvoyer quand même ?")) return;
+  sendAction(a, btn, rm, tgt.sid);
 }
 
 // ----- §3 : moniteurs multi-panes -----
@@ -6685,6 +8039,15 @@ async function kill(rmId) {
   switchPanel((CFG.auth_required && !token()) ? "settings"
     : (localStorage.getItem("karlPanel") || "running"));
   restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
+  // RM2672 : les onglets ÉPINGLÉS survivent au rechargement. On les réaffiche, et on
+  // rouvre celui qui était actif — mais jamais une session : la rattacher au boot
+  // monterait un terminal que l'utilisateur n'a pas demandé.
+  renderTabs();
+  try {
+    const last = localStorage.getItem("karlTabActive") || "";
+    const t0 = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === last);
+    if (t0 && t0.kind !== "session") activateTab(last);
+  } catch (e) { /* mode privé */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
@@ -6702,13 +8065,23 @@ async function kill(rmId) {
   refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
   // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
+  loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
+  loadEnvCheck();        // RM2722 : contrôle du poste au démarrage (badge si anomalie)
   tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
+  // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
+  // la requête dès qu'une session est attachée (l'écran central sert alors au
+  // terminal). L'agrégat a sa propre garde de fraîcheur de 60 s côté serveur.
+  setInterval(() => { if (!document.hidden) loadDashboard(); }, 30000);
   setInterval(() => { if (!document.hidden) loadPending(); }, 45000);   // RM2598 lourd (tmux+transcripts) → 45 s
   // « en attente de toi » ne se périme pas en 3 s ; gated visible + onglet état actif.
   setInterval(() => { if (!document.hidden && rightVisible("state")) loadWorklog(); }, 10000);
   // MAJ du core : lente et désalignée du cache serveur (TTL 600 s) ; ls-remote réseau.
   setInterval(() => { if (!document.hidden) refreshCoreUpdate(); }, 300000);
+  // RM2722 : le poste change en cours de journée (un `ssh-add` fait, un vault
+  // déverrouillé) — le badge doit s'éteindre tout seul. Cadence alignée sur la
+  // mémorisation serveur (5 min) : une requête de plus ne relance aucune sonde.
+  setInterval(() => { if (!document.hidden) loadEnvCheck(); }, 300000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;          // repassé au premier plan → on rattrape
     refreshHealth(); loadPending();

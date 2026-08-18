@@ -4102,7 +4102,14 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
-            "notifications": (data.get("notifications") or [])[-20:],
+            # RM2715 : seules les notifications OUVERTES — une notification
+            # traitée restait au backlog du cockpit avec sa consigne périmée
+            # (« ticket à ouvrir » alors qu'il l'était). L'archive suit à part,
+            # comme les MR mergées : elle sort de la liste, pas du store.
+            "notifications": [n for n in (data.get("notifications") or [])
+                              if not n.get("resolved_at")][-20:],
+            "notifications_done": [n for n in (data.get("notifications") or [])
+                                   if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
             # RM2635 : les demandes pas encore ticketées, là où le demandeur
             # regarde. Le registre de RM2621 n'existait que dans le worklog

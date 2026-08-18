@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [1.71.0] - 2026-08-18
+
+### Ajouté
+- **session-tooling** — § « Notifications importantes de session » : la règle ne
+  s'arrêtait qu'à la consignation. Elle demande maintenant de **refermer** la
+  notification quand elle est traitée (`notify --resolve <n> --ticket RM<id>`).
+  Cas vécu : une notification « outillage — ticket à ouvrir » est restée au
+  backlog du cockpit après l'ouverture, la livraison ET la MEP du ticket
+  correspondant (RM2691) — elle y portait une consigne devenue fausse. Résoudre
+  sort du backlog **sans** supprimer (archive + ticket qui l'a portée) ; `--clear`
+  détruit et n'est pas le geste courant. Suit le modèle déjà posé par les canaux
+  `requests` (RM2621) et `mrs` (RM2583). Outillage : RM2715.
+
 ## [1.70.0] - 2026-08-18
 
 ### Modifié

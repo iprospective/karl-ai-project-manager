@@ -66,12 +66,15 @@ API (JSON, localhost:9876)
                                   IDLE, sans processus — `ghosts=0` les exclut.
                                   Les sessions réglées `restart:auto` (défaut des
                                   [WIP]) sont, elles, relancées au démarrage ; une
-                                  session [DONE] terminée sort du jeu  (RM2427)
+                                  session [DONE] terminée sort du jeu  (RM2427).
+                                  Une session [A TESTER] ne fait ni l'un ni
+                                  l'autre : livrée, mais gardée sous la main
+                                  jusqu'au verdict du demandeur  (RM2718)
   GET  /session-registry        → {records, rm_map} — registre pm_session brut
                                   (var/sessions/index.json, RM2034/RM2166)
-  GET  /resumable[?engine=&client=&project=&status=wip|done&q=&limit=]
+  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&limit=]
                                 → sessions REPRENABLES découvertes dans les
-                                  stores claude (titre [WIP]/[DONE] de
+                                  stores claude (titre [WIP]/[DONE]/[A TESTER] de
                                   /session-mark, cwd→projet via .mmi-pm,
                                   tickets liés via l'index local)  (RM1939)
   POST /resume {session_id?, rm_id?, n?, prompt?}
@@ -1546,7 +1549,20 @@ def _opencode_session_meta(session_id: str) -> dict:
     ms = updated or created or 0
     return {"title": (title or None), "cwd": (directory or None),
             "mtime": (int(ms) // 1000 if ms else None)}   # epoch ms → s
-_MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
+# Marqueurs de statut de session posés par /session-mark. Deux registres, à ne
+# pas confondre : le LIBELLÉ est écrit dans le titre et se lit dans
+# `claude --resume` ; la CLÉ (`wip`/`done`/`test`) est ce que manipulent les
+# filtres, les règles de jeu et l'API. « à tester » se dit mal en un mot — d'où
+# la table plutôt qu'un `.lower()` du libellé (RM2718). La variante accentuée
+# est acceptée en lecture (titre tapé à la main) ; le skill n'écrit que l'ASCII.
+MARK_KEYS = {"wip": "wip", "done": "done", "a tester": "test", "à tester": "test"}
+MARKS = ("wip", "done", "test")
+_MARK_RE = re.compile(r"^\[(WIP|DONE|[AÀ] TESTER)\]\s*", re.I)
+
+
+def _mark_key(m) -> str | None:
+    """Clé de statut d'un `_MARK_RE.match`, ou None si pas de marqueur."""
+    return MARK_KEYS.get(m.group(1).lower()) if m else None
 
 
 def _write_json_atomic(path: Path, obj: dict) -> None:
@@ -1678,8 +1694,9 @@ def _rule_norm(rule) -> dict:
             out[k] = [str(x) for x in v]
         elif k == "mark":
             m = str(v).lower()
-            if m not in ("wip", "done", "none"):
-                raise ApiError(400, "rule.mark doit valoir wip, done ou none")
+            if m not in MARKS + ("none",):
+                raise ApiError(400,
+                               f"rule.mark doit valoir {', '.join(MARKS)} ou none")
             out[k] = m
         else:
             out[k] = str(v)
@@ -2795,7 +2812,7 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
         meta = reader(session_id) if reader else {}
         raw = meta.get("title") or ""
         m = _MARK_RE.match(raw)
-        info = {"mark": m.group(1).lower() if m else None,
+        info = {"mark": _mark_key(m),
                 "title": _MARK_RE.sub("", raw).strip() or None,
                 "mtime": meta.get("mtime"), "cwd": meta.get("cwd")} if meta else {}
         _DONE_CACHE["map"][ckey] = info
@@ -2807,7 +2824,7 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
             meta = _jsonl_tail_meta(jf)
             raw = meta.get("title") or ""
             m = _MARK_RE.match(raw)
-            info = {"mark": m.group(1).lower() if m else None,
+            info = {"mark": _mark_key(m),
                     "title": _MARK_RE.sub("", raw).strip() or None,
                     "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
         except OSError:
@@ -2833,8 +2850,15 @@ def _transcript_age(session_id: str | None):
 
 
 def _session_mark(session_id: str | None) -> str | None:
-    """RM2427 — marqueur `[WIP]` / `[DONE]` posé par /session-mark, en minuscules
-    (None si absent, introuvable ou illisible)."""
+    """RM2427 — statut de session posé par /session-mark, en clé (`wip`, `done`,
+    `test`), ou None si absent, introuvable ou illisible.
+
+    RM2718 — `test` (`[A TESTER]`) dit : le lot est livré, le demandeur doit
+    tester. Il ne déclenche AUCUN des deux automatismes des deux autres — ni
+    l'éviction du jeu de `done` (c'est la session qu'on rouvre si le test
+    échoue), ni la relance au démarrage de `wip` (il n'y a plus rien à y faire
+    tant que le retour n'est pas venu). Voir `_forget_done_entries` et
+    `_default_restart` : l'un comme l'autre ne nomment QUE leur statut."""
     return _transcript_info(session_id).get("mark")
 
 
@@ -2850,6 +2874,9 @@ RESTART_POLICIES = ("auto", "idle")
 
 
 def _default_restart(session_id: str | None) -> str:
+    # `wip` seulement : une session `[A TESTER]` est livrée — la relancer au
+    # démarrage coûterait un TUI et une réhydratation de contexte pour rien.
+    # Elle reste relançable au clic, le jour où le test remonte quelque chose.
     return "auto" if _session_mark(session_id) == "wip" else "idle"
 
 
@@ -2857,7 +2884,11 @@ def _forget_done_entries(user: str, groups: dict) -> bool:
     """RM2427 — une session TERMINÉE (`/exit`, plus aucun tmux) dont le
     transcript est marqué `[DONE]` sort du jeu toute seule : elle a fini son
     travail, sa tuile grise n'a plus lieu d'être. Les sessions vivantes et les
-    non marquées sont conservées. Renvoie True si le store a changé."""
+    non marquées sont conservées. Renvoie True si le store a changé.
+
+    RM2718 — `[A TESTER]` n'est PAS `[DONE]` : le lot est livré mais le verdict
+    n'est pas tombé, et c'est exactement cette session qu'on rouvre si le test
+    échoue. Elle reste dans le jeu."""
     live = {s["rm_id"] for s in _list_sessions()}
     changed = False
     for group, rec in groups.items():
@@ -3178,7 +3209,9 @@ def resume_engines() -> list:
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
-    status (wip|done — marqueurs [WIP]/[DONE] posés par /session-mark), q."""
+    status (wip|done|test — marqueurs [WIP]/[DONE]/[A TESTER] posés par
+    /session-mark ; `not-done` = tout sauf les terminées, défaut du panneau : les
+    « à tester » y restent donc visibles), q."""
     f_engine = qs.get("engine") or None
     f_client = qs.get("client") or None
     f_project = qs.get("project") or None
@@ -3209,7 +3242,7 @@ def op_resumable(qs: dict) -> list:
         return {
             "engine": engine, "session_id": sid,
             "title": _MARK_RE.sub("", title_raw or "") or None,
-            "mark": m.group(1).lower() if m else None,
+            "mark": _mark_key(m),
             "cwd": cwd, "mtime": mtime,
             "client": client, "project": project,
             "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
@@ -6346,6 +6379,9 @@ _DEFAULT_ACTIONS = [
     {"key": "point", "group": "Session", "label": "📊 point",
      "text": "fais un point synthétique : avancement, reste à faire, blocages, "
              "prochaine étape — sans rien modifier"},
+    {"key": "atester", "group": "Session", "label": "🧪 à tester",
+     "text": "marque la session à tester : tout le lot est livré, il ne reste "
+             "qu'à tester côté demandeur (/session-mark a-tester)"},
     {"key": "done", "group": "Session", "label": "🏁 done",
      "text": "marque la session terminée (/session-mark done)"},
 ]

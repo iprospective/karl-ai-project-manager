@@ -178,8 +178,30 @@
   .cmphist .hitem:last-child { border-bottom: 0; }
   .cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
   .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
-  .placeholder { flex: 1; display: flex; align-items: center; justify-content: center;
-    color: var(--muted); font-size: 14px; text-align: center; padding: 24px; }
+  .placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 14px; text-align: center; padding: 24px; overflow-y: auto; }
+  /* RM2697 : tableau de bord d'attention, au centre quand aucune session n'est attachée */
+  #dashboard { width: 100%; max-width: 760px; text-align: left; margin: 0 auto; }
+  .dash-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
+    color: var(--fg); font-size: 15px; }
+  .dash-head select { width: auto; font-size: 11.5px; padding: 2px 6px; }
+  .dash-cnt { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 0 8px; font-size: 12px; color: var(--muted); }
+  .dash-sec { font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted);
+    font-weight: 600; margin: 12px 0 4px; }
+  .dash-row { display: flex; align-items: baseline; gap: 8px; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; }
+  .dash-row:hover { background: var(--panel2); }
+  .dash-icon { width: 1.2em; }
+  .dash-verb { font-weight: 600; color: var(--accent); min-width: 5.5em; }
+  .dash-who { color: var(--muted); font-size: 11.5px; min-width: 11em; }
+  .dash-txt { flex: 1; overflow-wrap: anywhere; }
+  .dash-empty { color: var(--ok); font-size: 15px; text-align: center; padding: 20px; }
+  .dash-sum { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .dash-chip { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 1px 9px; font-size: 12px; }
+  .dash-more { color: var(--muted); font-size: 11px; padding: 2px 8px 2px 2.4em; }
+  .dash-since { color: var(--muted); font-size: 10.5px; white-space: nowrap; }
   .toast { position: fixed; bottom: 16px; right: 16px; background: var(--panel2);
     border: 1px solid var(--line); border-left: 3px solid var(--accent); padding: 10px 14px;
     border-radius: 6px; font-size: 13px; max-width: 360px; opacity: 0; transform: translateY(8px);
@@ -1072,9 +1094,16 @@ if (window.matchMedia) {
     </div>
     <div class="termwrap">
       <div class="termarea">
+        <!-- RM2697 : le vide central devient le tableau de bord « ce qui requiert
+             mon attention ». Pas un 7e panneau : cet espace ne servait à rien
+             tant qu'aucune session n'est attachée, et c'est l'écran de début et
+             de fin de journée. -->
         <div class="placeholder" id="placeholder">
-          Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
-          ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
+          <div id="dashboard" style="display:none"></div>
+          <div id="ph-hint">
+            Choisis une session dans le panneau <b style="margin:0 4px">« ▶ en cours »</b> à gauche,<br>
+            ou lances-en une depuis « 🚀 sessions » (reprise de main : tu peux taper directement).
+          </div>
         </div>
         <div id="termhost" style="display:none"></div>
         <!-- RM2527 : composer — écrire sans passer par le clavier du terminal.
@@ -3064,6 +3093,7 @@ function closeNewTicket() {
   if (pane) pane.style.display = "none";
   if (!attached && !currentReview && !currentProjectView) {
     document.getElementById("placeholder").style.display = "flex";
+    loadDashboard();   // RM2697 : le centre redevient le tableau de bord
   }
 }
 
@@ -6282,6 +6312,7 @@ function detach() {
   document.getElementById("reviewpane").style.display = "none";
   unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
+  loadDashboard();   // RM2697 : le centre redevient le tableau de bord
   document.getElementById("tabactions").style.display = "none";
   collapseRight();                  // RM2466 : plus de session → la colonne se replie
   renderMeta();                     // RM2579 : vide infos + tickets (plus de #metabody)
@@ -6545,7 +6576,7 @@ let projectData = null;          // RM2531 : dernière fiche chargée (prérempl
 function closeProjectView() {
   currentProjectView = null;
   document.getElementById("projpane").style.display = "none";
-  if (!attached && !currentReview) document.getElementById("placeholder").style.display = "flex";
+  if (!attached && !currentReview) { document.getElementById("placeholder").style.display = "flex"; loadDashboard(); }   // RM2697
   renderCurTitle();
 }
 async function openProjectView(key) {
@@ -6655,6 +6686,174 @@ function renderProjectPane(key, d) {
   pane.innerHTML = h;
   loadProjWorktrees(key);
 }
+
+// ── RM2697 (T3 de RM2694) : tableau de bord « ce qui requiert mon attention » ─
+// Une seule liste, triée par NATURE D'ATTENTE et non par projet. Grouper par
+// client fait relire ce qui va bien ; ici on ne montre que ce qui est bloqué sur
+// l'opérateur. Tout vient de /overview (RM2696) et du poll de sessions déjà en
+// place : aucun calcul propre, aucune requête supplémentaire.
+
+// >>> attentionRows — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rangs = coût de l'attente, du plus cher au moins cher :
+//   1 une session ATTEND une réponse — un agent est à l'arrêt, c'est ce qui
+//     coûte le plus ; 2 un ticket attend TON verdict ; 3 une MR attend un merge ;
+//   4 un ticket attend sa mise en production ; 5 une session au repos a encore
+//     du travail devant elle ; 6 une demande n'est pas encore ticketée.
+// Chaque ligne porte un VERBE : « réponds », « teste », « merge »… Un tableau de
+// bord qui liste des états sans dire quoi faire se relit à chaque passage.
+function attentionRows(overview, sessions, opts) {
+  const o = overview || {}, sess = sessions || {}, cfg = opts || {};
+  const fc = cfg.client || "", fp = cfg.project || "";
+  const rows = [];
+  const keep = (cl, pr) => (!fc || cl === fc) && (!fp || pr === fp);
+  // 1 — sessions qui attendent une réponse (état ⚠/❓, ou question restée sans suite)
+  for (const sid of Object.keys(sess)) {
+    const s = sess[sid] || {};
+    if (!keep(s.client || "", s.project || "")) continue;
+    const waiting = s.state === "attention" || s.state === "choice";
+    if (!waiting && !(cfg.stale || []).includes(String(sid))) continue;
+    rows.push({ rank: 1, kind: "question", icon: waiting ? "⚠" : "🕓",
+                verb: "réponds", sid: String(sid), client: s.client || "", project: s.project || "",
+                text: (s.title || tmuxNameOf(sid)) + (waiting ? "" : " — question laissée sans réponse") });
+  }
+  for (const g of (o.projects || [])) {
+    if (!keep(g.client, g.project)) continue;
+    for (const t of (g.tickets || [])) {
+      if (t.status === "a_tester_demandeur") {
+        rows.push({ rank: 2, kind: "test", icon: "🧪", verb: "teste", rm_id: t.rm_id,
+                    client: g.client, project: g.project, text: t.title || "", since: t.updated || "" });
+      } else if (t.status === "a_mep" || t.status === "en_mep") {
+        rows.push({ rank: 4, kind: "mep", icon: "🚀", verb: "déploie", rm_id: t.rm_id,
+                    client: g.client, project: g.project, text: t.title || "", since: t.updated || "" });
+      }
+    }
+    for (const m of (g.mrs || [])) {
+      rows.push({ rank: 3, kind: "mr", icon: "🔀", verb: "merge", iid: m.iid, url: m.url,
+                  rm_id: String(m.ref || "").replace(/^RM/, "") || null,
+                  client: g.client, project: g.project,
+                  text: "!" + m.iid + (m.ref ? " — " + m.ref : "")
+                        + (m.alive === false ? " (session éteinte)" : "") });
+    }
+    // 5 — une session au repos alors que son projet a encore du travail actif
+    const actifs = (g.tickets || []).filter(t => t.bucket === "active").length;
+    if (actifs) {
+      for (const s of (g.sessions || [])) {
+        if (!s.alive) continue;
+        const st = (sess[s.sid] || {}).state;
+        if (st && st !== "idle") continue;
+        rows.push({ rank: 5, kind: "idle", icon: "💤", verb: "relance", sid: String(s.sid),
+                    client: g.client, project: g.project,
+                    text: (s.title || String(s.sid)) + " — " + actifs + " ticket(s) en cours" });
+      }
+    }
+    for (const r of (g.requests || [])) {
+      rows.push({ rank: 6, kind: "request", icon: "📥", verb: "ticketise",
+                  client: g.client, project: g.project, text: String(r.text || "") });
+    }
+  }
+  // Dans une même nature, ce qui attend depuis le PLUS LONGTEMPS passe devant :
+  // trier 126 tickets « à tester » par numéro revient à les trier au hasard du
+  // point de vue de l'attention. Sans date connue, on retombe sur le projet.
+  rows.sort((a, b) => (a.rank - b.rank)
+    || String(a.since || "9999").localeCompare(String(b.since || "9999"))
+    || (a.client + "/" + a.project).localeCompare(b.client + "/" + b.project)
+    || String(a.rm_id || a.sid || a.iid || "").localeCompare(String(b.rm_id || b.sid || b.iid || "")));
+  return rows;
+}
+// <<< attentionRows
+
+// >>> attentionHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Rien à afficher est une BONNE nouvelle, pas un écran mort : on le dit, et on
+// ne rend pas un tableau vide qui se lirait comme un chargement raté.
+function attentionHtml(rows, esc, jarg) {
+  const rs = rows || [];
+  if (!rs.length) {
+    return '<div class="dash-empty">✓ rien n’attend de toi.<br>'
+      + '<span style="font-size:12px">Les tickets en cours avancent dans leurs sessions ; '
+      + 'le worklog projet donne le détail.</span></div>';
+  }
+  const LABEL = { question: "une session attend ta réponse", test: "livré, attend ton verdict",
+                  mr: "MR ouverte, pas mergée", mep: "attend sa mise en production",
+                  idle: "session au repos, travail en cours", request: "demande pas encore ticketée" };
+  const ICON = { question: "⚠", test: "🧪", mr: "🔀", mep: "🚀", idle: "💤", request: "📥" };
+  // Sur ce poste, la liste brute fait 175 lignes (126 tickets en attente de
+  // verdict) : l'afficher entière rejouerait le problème que ce tableau corrige.
+  // On donne donc le COMPTE par nature — la vue d'ensemble — et les 5 plus
+  // anciens de chaque, qui sont ceux qui coincent. Le détail complet vit dans le
+  // worklog projet et la file « à tester ».
+  const CAP = 5;
+  const counts = {};
+  rs.forEach(r => { counts[r.kind] = (counts[r.kind] || 0) + 1; });
+  let h = '<div class="dash-sum">' + Object.keys(counts).map(k =>
+    '<span class="dash-chip" title="' + esc(LABEL[k] || k) + '">' + (ICON[k] || "•") + " " + counts[k] + "</span>").join("") + "</div>";
+  let last = null, shown = 0;
+  for (const r of rs) {
+    if (r.kind !== last) {
+      h += '<div class="dash-sec">' + esc(LABEL[r.kind] || r.kind) + " (" + counts[r.kind] + ")</div>";
+      last = r.kind; shown = 0;
+    }
+    shown++;
+    if (shown > CAP) {
+      if (shown === CAP + 1) {
+        h += '<div class="dash-more">… et ' + (counts[r.kind] - CAP)
+          + " autre(s) — les plus anciens sont listés en premier</div>";
+      }
+      continue;
+    }
+    const act = r.kind === "mr" && r.url
+      ? 'onclick="window.open(' + jarg(String(r.url)) + ',\'_blank\')"'
+      : r.sid ? 'onclick="attach(' + jarg(String(r.sid)) + ')"'
+      : r.rm_id ? 'onclick="openReview(' + jarg(String(r.rm_id)) + ')"' : "";
+    h += '<div class="dash-row"' + (act ? " " + act : "") + '>'
+      + '<span class="dash-icon">' + r.icon + "</span>"
+      + '<span class="dash-verb">' + esc(r.verb) + "</span>"
+      + '<span class="dash-who">' + esc(r.client + "/" + r.project) + "</span>"
+      + (r.rm_id ? '<span class="r-id">RM' + esc(String(r.rm_id)) + "</span> " : "")
+      + '<span class="dash-txt">' + esc(String(r.text || "")) + "</span>"
+      + (r.since ? '<span class="dash-since" title="dernière activité">' + esc(String(r.since).slice(0, 10)) + "</span>" : "")
+      + "</div>";
+  }
+  return h;
+}
+// <<< attentionHtml
+
+let dashData = { projects: [] };
+let dashFilter = { client: "", project: "" };
+function dashVisible() {
+  const ph = document.getElementById("placeholder");
+  return !!ph && ph.style.display !== "none" && !attached;
+}
+async function loadDashboard(force) {
+  if (!dashVisible()) return;
+  try {
+    dashData = await api("/overview" + (force ? "?force=1" : ""));
+  } catch (e) { dashData = { projects: [], error: e.message }; }
+  renderDashboard();
+}
+function renderDashboard() {
+  const box = document.getElementById("dashboard"), hint = document.getElementById("ph-hint");
+  if (!box) return;
+  if (!dashVisible()) { box.style.display = "none"; if (hint) hint.style.display = ""; return; }
+  const rows = attentionRows(dashData, sessCache,
+    { client: dashFilter.client, project: dashFilter.project, stale: [...pendStale] });
+  // les couples client/projet connus alimentent les deux filtres
+  const clients = [...new Set((dashData.projects || []).map(g => g.client))].sort();
+  const projects = [...new Set((dashData.projects || [])
+    .filter(g => !dashFilter.client || g.client === dashFilter.client)
+    .map(g => g.project))].sort();
+  const opt = (v, cur) => '<option value="' + esc(v) + '"' + (v === cur ? " selected" : "") + ">" + esc(v || "tous") + "</option>";
+  box.innerHTML = '<div class="dash-head"><b>Ce qui requiert ton attention</b>'
+    + '<span class="dash-cnt">' + rows.length + "</span>"
+    + '<select onchange="setDashFilter(\'client\', this.value)">' + [""].concat(clients).map(c => opt(c, dashFilter.client)).join("") + "</select>"
+    + '<select onchange="setDashFilter(\'project\', this.value)">' + [""].concat(projects).map(p => opt(p, dashFilter.project)).join("") + "</select>"
+    + '<button class="mini" onclick="loadDashboard(true)" title="Recalculer">⟳</button></div>'
+    + attentionHtml(rows, esc, jarg);
+  box.style.display = "";
+  if (hint) hint.style.display = rows.length ? "none" : "";
+}
+function setDashFilter(k, v) { dashFilter[k] = v; if (k === "client") dashFilter.project = ""; renderDashboard(); }
+// le nom tmux d'une session, sans dépendre du DOM (utilisé par attentionRows)
+function tmuxNameOf(sid) { return (/^\d+$/.test(String(sid)) ? "RM" : "") + String(sid); }
 
 // ── RM2696 : worklog PROJET — ce qui se passe sur un projet, toutes sessions ──
 let projTab = "fiche";
@@ -6942,6 +7141,7 @@ function closeReview(rm) {
     currentReview = null; metaTicket = null;
     document.getElementById("reviewpane").style.display = "none";
     document.getElementById("placeholder").style.display = "flex";
+    loadDashboard();   // RM2697 : le centre redevient le tableau de bord
     renderMeta();                    // RM2579 : rafraîchit infos + tickets (plus de #metabody)
   }
   renderCurTitle();
@@ -7493,8 +7693,13 @@ async function kill(rmId) {
   refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
   // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
+  loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
   tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
+  // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
+  // la requête dès qu'une session est attachée (l'écran central sert alors au
+  // terminal). L'agrégat a sa propre garde de fraîcheur de 60 s côté serveur.
+  setInterval(() => { if (!document.hidden) loadDashboard(); }, 30000);
   setInterval(() => { if (!document.hidden) loadPending(); }, 45000);   // RM2598 lourd (tmux+transcripts) → 45 s
   // « en attente de toi » ne se périme pas en 3 s ; gated visible + onglet état actif.
   setInterval(() => { if (!document.hidden && rightVisible("state")) loadWorklog(); }, 10000);

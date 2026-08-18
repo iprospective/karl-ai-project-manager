@@ -129,17 +129,62 @@ def request_apply(requests, ref, status, ticket=None, note=None, merged_into=Non
     return out, True
 
 
+def notify_open(notes):
+    """Notifications qui appellent encore quelque chose. Pure.
+
+    RM2715 : une notification consignée en séance restait au backlog pour
+    toujours, même traitée — celle du 14/08 disait encore « ticket à ouvrir »
+    alors que RM2691 l'avait été. Le canal `mrs` avait déjà tranché la question
+    (`mr_pending`) : ce qui est traité SORT de la liste sans SORTIR du store."""
+    return [n for n in (notes or []) if not n.get("resolved_at")]
+
+
+def notify_done(notes):
+    """L'archive : notifications traitées, gardées pour dire ce que la session a
+    réglé et par quoi. Pure."""
+    return [n for n in (notes or []) if n.get("resolved_at")]
+
+
+def notify_resolve(notes, ref, ticket=None, note=None, when=None):
+    """Marque une notification traitée, SANS la supprimer. Rend (liste, trouvée).
+    Pure.
+
+    `ref` est le numéro d'ordre affiché (1-based) par `--list`, comme pour les
+    demandes (`request_apply`) : l'agent n'a pas d'identifiant interne à retenir.
+    Ré-résoudre une notification déjà traitée met sa résolution à jour plutôt
+    que d'échouer — corriger un ticket mal saisi ne doit pas demander de ruse."""
+    out = [dict(n) for n in (notes or [])]
+    try:
+        i = int(str(ref)) - 1
+    except (TypeError, ValueError):
+        return out, False
+    if i < 0 or i >= len(out):
+        return out, False
+    out[i]["resolved_at"] = when or now()
+    if ticket:
+        out[i]["ticket"] = str(ticket)
+    if note is not None:
+        out[i]["resolution"] = note
+    return out, True
+
+
 def notify_trim(notes, keep=NOTIFY_KEEP):
     """Rogne les plus anciennes au-delà de `keep`, mais JAMAIS une `critical` :
     un secret exposé ne doit pas disparaître parce que la session a été bavarde.
-    Pure (testable)."""
+    RM2715 : à l'étroit, l'ARCHIVE est sacrifiée avant les notifications encore
+    ouvertes — une traitée a déjà servi, une ouverte appelle toujours quelque
+    chose. Pure (testable)."""
     notes = list(notes or [])
     if len(notes) <= keep:
         return notes
     crit = [n for n in notes if n.get("level") == "critical"]
-    rest = [n for n in notes if n.get("level") != "critical"]
+    reste = [n for n in notes if n.get("level") != "critical"]
+    ouvertes = [n for n in reste if not n.get("resolved_at")]
+    archive = [n for n in reste if n.get("resolved_at")]
     room = max(0, keep - len(crit))
-    kept = crit + (rest[-room:] if room else [])
+    kept = crit + (ouvertes[-room:] if room else [])
+    room = max(0, keep - len(kept))
+    kept = kept + (archive[-room:] if room else [])
     # ordre chronologique conservé, quel que soit le tri interne ci-dessus
     return [n for n in notes if n in kept]
 
@@ -375,17 +420,23 @@ def render_md(data, live=None):
     # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
     # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
     notes = data.get("notifications") or []
-    if notes:
-        out.append("## 🔔 Notifications importantes (%d)" % len(notes))
-        for n in notes[-20:]:
+    # RM2715 : le backlog ne montre que ce qui appelle encore quelque chose. Les
+    # traitées descendent en archive, en bas — sans disparaître.
+    ouvertes_n, traitees_n = notify_open(notes), notify_done(notes)
+    if ouvertes_n:
+        out.append("## 🔔 Notifications importantes (%d)%s" % (
+            len(ouvertes_n),
+            (" _· %d traitée(s)_" % len(traitees_n)) if traitees_n else ""))
+        for n in ouvertes_n[-20:]:
             ref = (" **%s**" % n["ref"]) if n.get("ref") else ""
             kind = (" `%s`" % n["kind"]) if n.get("kind") and n["kind"] != "autre" else ""
-            out.append("- %s `%s`%s%s — %s _(%s)_" % (
+            out.append("- `#%d` %s `%s`%s%s — %s _(%s)_" % (
+                notes.index(n) + 1,
                 NOTIFY_ICON.get(n.get("level"), "•"), n.get("level", "?"), kind, ref,
                 n.get("message", ""), n.get("ts", "")))
-        if len(notes) > 20:
+        if len(ouvertes_n) > 20:
             out.append("_(%d plus anciennes — `pm-session-status.py notify --list`)_"
-                       % (len(notes) - 20))
+                       % (len(ouvertes_n) - 20))
         out.append("")
 
     # Branches / worktrees ouverts par la session (RM2034). Lecture seule :
@@ -446,6 +497,17 @@ def render_md(data, live=None):
         out += [line(i) for i in wait]
     out.append("\n## ✅ Fait")
     out += [line(i) for i in done] or ["_(rien)_"]
+
+    # RM2715 : l'archive des notifications, tout en bas — elle ne réclame rien,
+    # mais elle dit ce que la session a réglé et PAR QUOI (le ticket qui la porte).
+    if traitees_n:
+        out.append("\n## 🗄 Notifications traitées (%d)" % len(traitees_n))
+        for n in traitees_n[-10:]:
+            tk = (" → **%s**" % n["ticket"]) if n.get("ticket") else ""
+            why = (" _%s_" % n["resolution"]) if n.get("resolution") else ""
+            out.append("- %s%s%s — %s _(traitée %s)_" % (
+                NOTIFY_ICON.get(n.get("level"), "•"), tk, why,
+                n.get("message", ""), n.get("resolved_at", "")))
     return "\n".join(out) + "\n"
 
 
@@ -741,20 +803,40 @@ def cmd_notify(data, args):
         if not notes:
             pmout.info("aucune notification dans cette session")
             return
-        for n in notes:
+        for i, n in enumerate(notes, 1):
             tags = " ".join(x for x in (n.get("kind"), n.get("ref")) if x)
-            sys.stdout.write("%s [%s] %s — %s\n" % (
-                n.get("ts", ""), n.get("level", "?"), tags, n.get("message", "")))
+            # RM2715 : le numéro est ce que `--resolve` attend, et l'état dit
+            # d'un coup d'œil ce qui appelle encore quelque chose.
+            if n.get("resolved_at"):
+                etat = "✓ traitée%s" % ((" " + n["ticket"]) if n.get("ticket") else "")
+            else:
+                etat = "ouverte"
+            sys.stdout.write("#%d %s [%s] %s %s — %s\n" % (
+                i, n.get("ts", ""), n.get("level", "?"), etat, tags,
+                n.get("message", "")))
+        return
+    if args.resolve:
+        notes, ok = notify_resolve(notes, args.resolve, args.ticket, args.note)
+        if not ok:
+            pmout.fail("notification #%s introuvable (voir `notify --list`)" % args.resolve)
+        data["notifications"] = notes
+        save(data)
+        pmout.op("worklog", extra="notification #%s traitée%s" % (
+            args.resolve, (" → " + str(args.ticket)) if args.ticket else ""))
         return
     if args.clear:
-        # les `critical` ne partent qu'à la demande explicite : un secret exposé
-        # ne s'acquitte pas d'un revers de main en vidant le canal.
-        kept = [] if args.all else [n for n in notes if n.get("level") == "critical"]
+        # RM2715 : `--clear` DÉTRUIT — ce n'est pas « traiter » (→ `--resolve`,
+        # qui archive). Par défaut il ne vide donc que l'ARCHIVE : une
+        # notification encore ouverte ne doit pas disparaître d'un revers de
+        # main, pas plus qu'une `critical` (un secret exposé ne s'acquitte pas
+        # en vidant le canal).
+        kept = [] if args.all else [n for n in notes
+                                    if n.get("level") == "critical" or not n.get("resolved_at")]
         removed = len(notes) - len(kept)
         data["notifications"] = kept
         save(data)
-        pmout.op("worklog", extra="%d notification(s) acquittée(s)%s" % (
-            removed, "" if args.all else ", %d critique(s) conservée(s)" % len(kept)))
+        pmout.op("worklog", extra="%d notification(s) supprimée(s)%s" % (
+            removed, "" if args.all else ", %d conservée(s) (ouvertes + critiques)" % len(kept)))
         return
     if not args.message:
         pmout.fail("message requis (ou --list / --clear)")
@@ -847,11 +929,18 @@ def main():
     n.add_argument("--level", choices=NOTIFY_LEVELS,
                    help="défaut : critical pour --kind secret, warn sinon")
     n.add_argument("--ref", help="ticket concerné (ex: RM2466)")
-    n.add_argument("--list", action="store_true", help="lister les notifications")
+    n.add_argument("--list", action="store_true",
+                   help="lister les notifications (numéro + état)")
+    n.add_argument("--resolve",
+                   help="numéro de la notification traitée (voir --list) — elle sort "
+                        "du backlog et reste consultable en archive")
+    n.add_argument("--ticket", help="avec --resolve : ticket qui l'a portée (ex: RM2691)")
+    n.add_argument("--note", help="avec --resolve : comment elle a été traitée")
     n.add_argument("--clear", action="store_true",
-                   help="acquitter (les critiques sont conservées sauf --all)")
+                   help="SUPPRIMER l'archive (traitées). Pour marquer traité sans "
+                        "perdre la trace, voir --resolve")
     n.add_argument("--all", action="store_true",
-                   help="avec --clear : acquitter AUSSI les critiques")
+                   help="avec --clear : supprimer AUSSI les ouvertes et les critiques")
 
     args = p.parse_args()
     pmout.configure(args)

@@ -1,3 +1,3 @@
 
-# Normes de gestion des tâches — v1.70.0
+# Normes de gestion des tâches — v1.71.0
 

@@ -1733,7 +1733,9 @@ assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
 console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
 
 // — RM2696 : worklog PROJET (toutes sessions confondues) —
-const projWorklogHtml = grabO("projWorklogHtml");
+// RM2723 : la ligne de MR est désormais une fonction partagée (session + projet).
+const mrLineHtml = grabO("mrLineHtml");
+const projWorklogHtml = grabO("projWorklogHtml", { mrLineHtml });
 assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
   "projet sans activité → message, pas de crash");
 const GRP = {
@@ -2165,3 +2167,33 @@ const mbXss = mrBatchHtml({ mode: "dev", live: [], skipped: [],
   runs: [{ rm_ids: ["1"], source: "<img src=x>", target: "dev" }] }, escO);
 assert(!/<img/.test(mbXss), "un nom de branche est échappé");
 console.log("✓ lot de merges (RM2720) : cible dite, promotion avertie, session vivante signalée");
+
+// — RM2723 : bouton « merger » sur chaque MR du worklog —
+const mrOk = mrLineHtml({ iid: 571, ref: "RM2720", target: "dev",
+  url: "https://gl.x/g/p/-/merge_requests/571" }, escO, jargFn);
+assert(/!571/.test(mrOk) && /RM2720/.test(mrOk), "la ligne garde ce qu'elle disait");
+assert(/⇥ merger<\/button>/.test(mrOk), "…et porte le bouton de merge");
+assert(/onclick="mergeOneMr\('https:\/\/gl\.x\/g\/p\/-\/merge_requests\/571'/.test(mrOk),
+  "la MR est désignée par son URL (un iid nu exigerait un dépôt — RM2541)");
+assert(!/onclick="[^"]*"[^"]*"/.test(mrOk.replace(/title="[^"]*"/g, "")),
+  "l'attribut onclick ne doit contenir aucun guillemet double non échappé");
+assert(/ouvrir ↗/.test(mrOk), "le lien d'ouverture reste");
+const mrNoUrl = mrLineHtml({ iid: 12, target: "dev" }, escO, jargFn);
+assert(!/mergeOneMr/.test(mrNoUrl),
+  "sans URL, pas de bouton : rien à quoi rattacher le merge");
+assert(/!12/.test(mrNoUrl), "…mais la ligne s'affiche quand même");
+const mrDead = mrLineHtml({ iid: 3, url: "https://gl.x/g/p/-/merge_requests/3", alive: false },
+  escO, jargFn);
+assert(/session éteinte/.test(mrDead), "l'état de la session qui l'a ouverte est conservé");
+const mrXss = mrLineHtml({ iid: '<img src=x>', ref: '"><b>', target: "<i>",
+  url: "https://gl.x/g/p/-/merge_requests/9" }, escO, jargFn);
+// (la ligne contient un <b> légitime — on cherche les charges injectées)
+assert(!/<img|<i>/.test(mrXss),
+  "iid, ref et cible sont échappés — y compris dans l'argument onclick, où jarg "
+  + "ne protège que du guillemet SIMPLE (l'attribut, lui, est en double)");
+const mrQuote = mrLineHtml({ iid: 'a"b', url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn);
+assert(!/onclick="mergeOneMr\([^"]*"[^"]*"/.test(mrQuote),
+  "un guillemet double dans un libellé ne doit pas fermer l'attribut onclick");
+assert(/⇥ merger/.test(mrLineHtml({ iid: 1, url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn)),
+  "une MR sans cible connue reste mergeable");
+console.log("✓ ligne de MR (RM2723) : rendu unique session+projet, merge à l'URL, pas de bouton sans URL");

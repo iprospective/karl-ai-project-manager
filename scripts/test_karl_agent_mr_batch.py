@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests RM2720 (suite) — merger un LOT de MR depuis le worklog.
+"""Tests RM2720/RM2723 — merger des MR depuis le worklog (lot et unitaire).
 
 Ce qu'on protège :
   - « dev » et « prod » ne sont PAS le même geste : dev merge la branche de
@@ -136,6 +136,38 @@ check("au-delà du plafond → 409",
 check("…contournable seulement explicitement",
       ka.op_mr_batch({"mode": "dev", "confirm": True, "allow_large": True,
                       "items": gros})["count"] == ka.MR_BATCH_MAX + 2)
+
+# — RM2723 : merge d'UNE MR, désignée par son URL —
+check("une URL de MR donne son iid",
+      ka.mr_url_iid("https://gl.x/grp/proj/-/merge_requests/571") == "571")
+check("…y compris avec un slash final",
+      ka.mr_url_iid("https://gl.x/grp/proj/-/merge_requests/12/") == "12")
+for mauvais in ("", None, "571", "https://gl.x/grp/proj/-/issues/12",
+                "https://gl.x/grp/proj/-/merge_requests/", "pas une url",
+                "https://gl.x/grp/proj/-/merge_requests/12?x=1"):
+    check(f"refusé : {mauvais!r}", ka.mr_url_iid(mauvais) is None)
+
+URL = "https://gl.x/grp/proj/-/merge_requests/571"
+check("une URL qui n'est pas une MR → 400",
+      raises(400, lambda: ka.op_mr_merge({"url": "https://gl.x/x", "confirm": True})))
+check("sans confirmation → 400 (le merge ne se défait pas)",
+      raises(400, lambda: ka.op_mr_merge({"url": URL})))
+
+runs.clear()
+ka.subprocess.run = lambda argv, **kw: runs.append(argv) or type(
+    "R", (), {"returncode": 0, "stdout": "merged", "stderr": ""})()
+r1 = ka.op_mr_merge({"url": URL, "confirm": True})
+check("le merge passe par pm-mr.py merge <url> (argv, jamais de shell)",
+      len(runs) == 1 and runs[0][2] == "merge" and runs[0][3] == URL
+      and "pm-mr.py" in runs[0][1])
+check("le résultat porte l'iid et le compte rendu",
+      r1["ok"] is True and r1["iid"] == "571" and "merged" in r1["stdout"])
+
+ka.subprocess.run = lambda argv, **kw: type(
+    "R", (), {"returncode": 1, "stdout": "conflit", "stderr": "boom"})()
+r2 = ka.op_mr_merge({"url": URL, "confirm": True})
+check("un échec est rendu tel quel (rc + sortie du script)",
+      r2["ok"] is False and r2["rc"] == 1 and "conflit" in r2["stdout"])
 
 if fails:
     print("ÉCHEC :", ", ".join(fails))

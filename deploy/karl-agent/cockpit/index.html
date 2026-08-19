@@ -761,25 +761,29 @@ if (window.matchMedia) {
            (ce navigateur) » — il prenait une ligne pleine largeur ici pour une
            option désactivée par défaut et rarement touchée. -->
       <!-- RM2395 : enregistrer / relancer le jeu de sessions ; RM2442 : jeux nommés -->
+      <!-- RM2741 : une seule ligne. Le sélecteur est l'élément élastique (il se
+           rétrécit jusqu'à 70 px avant que quoi que ce soit passe à la ligne) ;
+           les boutons gardent leur taille. -->
       <div style="margin:0 0 8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;width:auto;max-width:190px"
+        <select id="set-picker" onchange="onSetPick(this.value)" style="display:none;flex:1 1 110px;min-width:70px;max-width:190px"
                 title="Jeu de sessions courant. Entre parenthèses : sessions ouvertes / enregistrées dans le jeu ; « ⏻ » = jeu repris au démarrage"></select>
-        <button class="mini" onclick="createSet()"
-                title="Créer un jeu — vide par défaut, ou avec les sessions affichées (un chantier = un jeu)">＋ jeu</button>
+        <!-- RM2741 : UN bouton de création. Le formulaire décide de la nature —
+             critères vides = jeu manuel, critères renseignés = jeu dérivé — au lieu
+             de deux boutons qui posaient la question avant de savoir ce qu'on veut. -->
         <button class="mini" onclick="openRuleForm('__new__')"
-                title="Créer un jeu DÉRIVÉ : son contenu est calculé par une règle (client, projet, marque, tickets) — rien à curer, il ne dérive jamais">＋ règle</button>
+                title="Créer un jeu : manuel (critères laissés vides, à remplir avec les sessions affichées) ou DÉRIVÉ d'une règle client/projet/marque/tickets, dont le contenu se calcule">＋ jeu</button>
         <button class="mini" onclick="deleteSessionSet(this)" id="btn-set-del"
                 title="Supprimer le jeu courant (les sessions continuent de tourner)">🗑</button>
         <button class="mini" onclick="toggleSelMode()" id="btn-sel"
-                title="Choisir des sessions une à une — pour en faire un nouveau jeu, ou scinder le jeu courant">☑ sélection</button>
+                title="Sélection : choisir des sessions une à une — pour en faire un nouveau jeu, ou scinder le jeu courant">☑</button>
         <select id="sel-target" style="display:none;width:auto;max-width:150px"
                 title="Jeu de destination des sessions sélectionnées (RM2449)"></select>
         <button class="mini" id="btn-sel-move" style="display:none" onclick="moveSelection()"
                 title="Déplacer les sessions sélectionnées vers le jeu choisi">→ déplacer</button>
-        <button id="btn-set-save" onclick="saveSessionSet(this)"
+        <button class="mini" id="btn-set-save" onclick="saveSessionSet(this)"
                 title="Ajoute les sessions AFFICHÉES au jeu courant. N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ⊖ sur sa tuile">💾 Enregistrer</button>
-        <button id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
-                title="Relance d'un coup TOUTES les sessions enregistrées (un TUI par session). Au quotidien : clique la tuile grise de celle que tu veux réveiller (RM2427)">▶ Tout relancer</button>
+        <button class="mini" id="btn-relaunch" onclick="relaunchSessionSet(this)" style="display:none"
+                title="Relance d'un coup les sessions du jeu qui ne tournent PAS (un TUI par session). Au quotidien : clique la tuile grise de celle que tu veux réveiller (RM2427)">▶ relancer</button>
       </div>
       <div id="runlist"><div class="empty">chargement…</div></div>
     </div>
@@ -1976,16 +1980,35 @@ async function saveSessionSet(btn) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
-// relit le jeu → met à jour le bouton Relancer de la barre « en cours » (compteur + visibilité)
+// >>> relaunchBtnState — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2741 — quand « ▶ relancer » a-t-il un sens, et sur combien de sessions ?
+// Deux défauts corrigés :
+//   • il s'affichait en vue « sessions ouvertes », qui ne montre QUE des sessions
+//     vivantes : rien à y relancer, et le geste portait sur le jeu courant — pas
+//     sur ce qu'on regarde. Idem pour « tous les jeux » et les vues par client :
+//     l'affichage n'y est pas le jeu, un bouton qui écrit ailleurs que là où on
+//     regarde est un piège. Il ne reste donc que la vue du jeu.
+//   • son compteur montrait TOUTES les entrées, celles qui tournent déjà comprises
+//     (« Tout relancer (12) » quand 9 tournaient). On compte ce qui sera relancé.
+function relaunchBtnState(set, view) {
+  const s = set || {};
+  if (!s.exists || String(view || "set") !== "set") return { show: false, count: 0 };
+  const entries = s.entries || [];
+  // sans `entries` (payload partiel), on retombe sur le total : mieux vaut un
+  // compte approché qu'un bouton qui disparaît alors qu'il y a à relancer.
+  const count = entries.length ? entries.filter(e => !(e && e.alive)).length : (s.count || 0);
+  return { show: count > 0, count };
+}
+// <<< relaunchBtnState
+
+// relit le jeu → met à jour le bouton relancer de la barre « en cours »
 async function refreshSessionSet() {
   const btn = document.getElementById("btn-relaunch");
   if (!btn) return;
   try {
-    const r = await api("/session-set" + setQ());
-    if (r.exists && r.count) {
-      btn.textContent = "▶ Tout relancer (" + r.count + ")";
-      btn.style.display = "";
-    } else { btn.style.display = "none"; }
+    const st = relaunchBtnState(await api("/session-set" + setQ()), currentView);
+    btn.textContent = "▶ relancer (" + st.count + ")";
+    btn.style.display = st.show ? "" : "none";
   } catch (e) { btn.style.display = "none"; }
 }
 // RM2442 : liste des jeux → alimente le sélecteur de la barre « en cours » et
@@ -2038,9 +2061,14 @@ async function refreshSessionSets() {
     const derivedNow = !setWritable(setsCache, currentSet, currentView);
     const save = document.getElementById("btn-set-save");
     if (save) save.style.display = (derivedNow && !selMode) ? "none" : "";
+    // RM2741 : libellé court, mais le jeu CIBLE reste écrit dessus (RM2448 : un
+    // bouton qui écrit doit dire où) ; le détail passe dans l'infobulle.
     if (save) save.textContent = selMode
-      ? "＋ jeu depuis la sélection (" + selected.size + ")"
-      : "💾 ajouter l'affichage à « " + setLabel(currentSet) + " »";
+      ? "＋ jeu (" + selected.size + ")"
+      : "💾 → " + setLabel(currentSet);
+    if (save) save.title = selMode
+      ? "Créer un jeu avec les " + selected.size + " session(s) sélectionnée(s)"
+      : "Ajoute les sessions AFFICHÉES au jeu « " + setLabel(currentSet) + " ». N'efface jamais une session déjà enregistrée (RM2439) : pour en retirer une, ⊖ sur sa tuile";
     if (save) save.onclick = selMode ? () => createSetFromSelection() : (e) => saveSessionSet(save);
     const del = document.getElementById("btn-set-del");
     if (del) del.title = "Supprimer le jeu « " + setLabel(currentSet) + " » (les sessions continuent de tourner)";
@@ -2059,6 +2087,10 @@ async function refreshSessionSets() {
       tgt.style.display = canMove ? "" : "none";
     }
     if (mv) mv.style.display = canMove ? "" : "none";
+    // RM2741 : la VUE fait foi pour « ▶ relancer », et elle vient d'être relue
+    // ici — sans ce rappel, le bouton gardait l'état calculé avec la vue
+    // précédente (visible en « sessions ouvertes » juste après un rechargement).
+    refreshSessionSet();
   } catch (e) { setsCache = []; if (sel) sel.style.display = "none"; }
 }
 // >>> setWritable — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -2133,7 +2165,13 @@ function toggleSelMode() {
   selMode = !selMode;
   if (!selMode) selected.clear();
   const b = document.getElementById("btn-sel");
-  if (b) { b.textContent = selMode ? "✓ terminer" : "☑ sélection"; b.classList.toggle("active", selMode); }
+  // RM2741 : icône seule — le title porte le sens, la barre tient sur une ligne
+  if (b) {
+    b.textContent = selMode ? "✓" : "☑";
+    b.title = selMode ? "Terminer la sélection"
+                      : "Sélection : choisir des sessions une à une — pour en faire un nouveau jeu, ou scinder le jeu courant";
+    b.classList.toggle("active", selMode);
+  }
   refreshSessionSets();      // le bouton d'écriture change de rôle et de libellé
   refreshSessions();
 }
@@ -2165,18 +2203,32 @@ async function moveSelection() {
 function openRuleForm(group) { ruleFormFor = group; loadSessionSet(); }
 function closeRuleForm() { ruleFormFor = null; loadSessionSet(); }
 
-function ruleFormHtml(rule, isNew) {
+// >>> ruleFormHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2741 — ce formulaire porte désormais TOUTE création de jeu, pas seulement
+// les jeux dérivés : les critères y sont FACULTATIFS, et c'est leur présence qui
+// décide de la nature (cf. newSetPlan). Deux boutons « ＋ jeu » / « ＋ règle »
+// demandaient de trancher avant d'avoir vu les critères — et prenaient deux
+// places dans une barre qui en manque.
+function ruleFormHtml(rule, isNew, shownCount) {
   rule = rule || {};
+  const shown = Number(shownCount) || 0;
   const clients = setFacets.clients || [];
   const projects = [...new Set(clients.flatMap(c => c.projects || []))].sort();
   const opt = (v, cur, lbl) => '<option value="' + esc(v) + '"' +
     (String(cur || "") === v ? " selected" : "") + '>' + esc(lbl || v || "— indifférent —") + '</option>';
   return '<div style="border:1px solid var(--line);border-radius:6px;padding:8px;margin:6px 0">' +
     '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>' +
-      (isNew ? "Nouveau jeu dérivé" : "Règle du jeu") + '</b> — son contenu se calcule, ' +
-      'toute session qui satisfait la règle y entre d\'elle-même</div>' +
+      (isNew ? "Nouveau jeu" : "Règle du jeu") + '</b> — ' +
+      (isNew ? 'critères vides = jeu <b>manuel</b> (tu le remplis) ; un critère renseigné = jeu ' +
+               '<b>dérivé</b>, dont le contenu se calcule'
+             : 'son contenu se calcule, toute session qui satisfait la règle y entre d\'elle-même') +
+    '</div>' +
     (isNew ? '<input id="rf-name" placeholder="Nom du jeu (ex. Chantier Calicote)" ' +
              'style="width:100%;margin-bottom:6px">' : "") +
+    (isNew && shown ? '<label style="font-size:11px;display:flex;gap:5px;align-items:center;margin:0 0 6px">' +
+       '<input type="checkbox" id="rf-seed" style="width:auto;margin:0" checked> ' +
+       'y placer les ' + shown + ' session(s) affichée(s) ' +
+       '<span style="color:var(--muted)">(sans effet sur un jeu dérivé)</span></label>' : "") +
     '<label style="font-size:11px">client<select id="rf-client" style="width:100%">' +
       opt("", rule.client) + clients.map(c => opt(c.slug, rule.client, c.slug + " (" + c.count + ")")).join("") +
     '</select></label>' +
@@ -2193,6 +2245,29 @@ function ruleFormHtml(rule, isNew) {
         (isNew ? "Créer" : "Appliquer") + '</button>' +
       '<button class="mini" onclick="closeRuleForm()">Annuler</button></div></div>';
 }
+// <<< ruleFormHtml
+
+// >>> newSetPlan — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2741 — la nature du jeu créé se DÉDUIT du formulaire : aucun critère → jeu
+// manuel (semé, si demandé, des sessions affichées) ; au moins un critère → jeu
+// dérivé, dont le contenu est calculé — et alors les sessions affichées ne sont
+// pas versées. `note` le dit : une case cochée qu'on ignore en silence se lit
+// comme une case appliquée.
+function newSetPlan(name, label, rule, sids, seed, existing) {
+  if (!label) return { ok: false, error: "donne un nom au jeu" };
+  if (!name) return { ok: false, error: "nom inexploitable — il faut au moins une lettre ou un chiffre" };
+  if ((existing || []).indexOf(name) >= 0) return { ok: false, error: "le jeu « " + name + " » existe déjà" };
+  const has = !!(rule && Object.keys(rule).length);
+  const list = (sids || []).slice();
+  const body = { group: name, label: label };
+  if (has) body.rule = rule;
+  else if (seed && list.length) body.sids = list;
+  return { ok: true, kind: has ? "derived" : "manual", body,
+           note: (has && seed && list.length)
+             ? "règle renseignée : le contenu se calcule — les sessions affichées ne sont pas versées"
+             : "" };
+}
+// <<< newSetPlan
 
 function readRuleForm() {
   const g = id => (document.getElementById(id) || {}).value || "";
@@ -2207,21 +2282,25 @@ function readRuleForm() {
 
 async function applyRuleForm(isNew) {
   const rule = readRuleForm();
-  if (!Object.keys(rule).length) {
+  // RM2741 : une règle vide est un refus à l'ÉDITION (elle désignerait toutes les
+  // sessions), mais un choix légitime à la CRÉATION : c'est le jeu manuel.
+  if (!isNew && !Object.keys(rule).length) {
     toast("règle vide : elle désignerait toutes les sessions", true); return;
   }
   try {
     if (isNew) {
       const label = ((document.getElementById("rf-name") || {}).value || "").trim();
-      if (!label) { toast("donne un nom au jeu", true); return; }
-      const name = slugifySet(label);
-      if (!name) { toast("nom inexploitable", true); return; }
+      const seed = ((document.getElementById("rf-seed") || {}).checked) === true;
+      const plan = newSetPlan(slugifySet(label), label, rule,
+                              (orderedCache || []).map(s => s.rm_id), seed,
+                              setsCache.map(s => s.name));
+      if (!plan.ok) { toast(plan.error, true); return; }
       const r = await api("/session-set/create", { method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ group: name, label: label, rule: rule }) });
-      toast("＋ jeu dérivé « " + label + " » — " + r.count + " session(s)");
-      currentSet = name; currentView = "set";
-      try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
+        headers: { "Content-Type": "application/json" }, body: JSON.stringify(plan.body) });
+      toast("＋ jeu " + (plan.kind === "derived" ? "dérivé " : "") + "« " + label + " » — " +
+            r.count + " session(s)" + (plan.note ? " · " + plan.note : ""));
+      currentSet = plan.body.group; currentView = "set";
+      try { localStorage.setItem("karlSet", currentSet); } catch (e) { /* pas de storage */ }
     } else {
       const r = await api("/session-set/rule", { method: "POST",
         headers: { "Content-Type": "application/json" }, body: setBody({ rule }) });
@@ -2281,7 +2360,7 @@ async function createSetFromSelection() {
     try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
     selMode = false; selected.clear();
     const b = document.getElementById("btn-sel");
-    if (b) { b.textContent = "☑ sélection"; b.classList.remove("active"); }
+    if (b) { b.textContent = "☑"; b.classList.remove("active"); }
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
@@ -2301,28 +2380,6 @@ function onSetPick(v) {
 }
 // RM2447 : un jeu naît VIDE par défaut ; y verser les sessions affichées est une
 // OPTION explicite (Annuler ou Échap ⇒ jeu vide). Le jeu créé devient courant.
-async function createSet() {
-  const label = (window.prompt("Nom du nouveau jeu (ex. « Chantier Calicote ») :") || "").trim();
-  if (!label) return;
-  const name = slugifySet(label);
-  if (!name) { toast("nom inexploitable — il faut au moins une lettre ou un chiffre", true); return; }
-  if (setsCache.some(s => s.name === name)) { toast("le jeu « " + name + " » existe déjà", true); return; }
-  const shown = (orderedCache || []).map(s => s.rm_id);
-  const seed = shown.length && window.confirm(
-    "Y placer les " + shown.length + " session(s) affichée(s) ?\n\n" +
-    "OK = les inclure · Annuler = jeu vide");
-  try {
-    const r = await api("/session-set/create", { method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(seed ? { group: name, label: label, sids: shown }
-                                : { group: name, label: label }) });
-    toast(r.count ? "＋ jeu « " + label + " » créé — " + r.count + " session(s)"
-                  : "＋ jeu « " + label + " » créé (vide) — il est courant, « 💾 Enregistrer » y versera l\'affichage");
-    currentSet = name; currentView = "set";
-    try { localStorage.setItem("karlSet", name); } catch (e) { /* pas de storage */ }
-    refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
-  } catch (e) { toast(e.message, true); }
-}
 // renomme le LIBELLÉ du jeu courant ; le slug reste la clé du store
 async function renameSet() {
   const label = (window.prompt("Nouveau libellé du jeu :", setLabel(currentSet)) || "").trim();
@@ -2514,10 +2571,10 @@ async function loadSessionSet() {
   try {
     const r = await api("/session-set" + setQ());
     if (!r.exists || !r.count) {
-      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
         '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
-        ' » vide — bouton « 💾 ajouter l\'affichage » dans « ▶ en cours », ' +
-        'ou « ＋ règle » pour un jeu qui se remplit tout seul.</div>';
+        ' » vide — bouton « 💾 → ' + esc(setLabel(currentSet)) + ' » dans « ▶ en cours » pour y ' +
+        'verser l\'affichage, ou « ＋ jeu » avec un critère pour un jeu qui se remplit tout seul.</div>';
       return;
     }
     const rows = r.entries.map(e => {
@@ -2541,7 +2598,7 @@ async function loadSessionSet() {
         esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
-      (ruleFormFor === "__new__" ? ruleFormHtml({}, true) : "") +
+      (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
       (r.derived && ruleFormFor === currentSet ? ruleFormHtml(r.rule, false) : "") +
       (r.derived && ruleFormFor !== currentSet ?
         '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
@@ -2573,7 +2630,8 @@ async function loadSessionSet() {
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
-        'title="Relance VRAIMENT toutes les sessions du jeu d\'un coup (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ Tout relancer</button>' +
+        'title="Relance d\'un coup les sessions du jeu qui ne tournent PAS (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ relancer (' +
+        relaunchBtnState(r, "set").count + ')</button>' +
         '<button class="mini" onclick="toggleSetHistory()">↩ versions</button>' +
         '<button class="mini" onclick="deleteSessionSet(this)">🗑 Effacer</button></div>' +
       '<div id="set-history"></div>';

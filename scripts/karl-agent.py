@@ -86,6 +86,10 @@ API (JSON, localhost:9876)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
   GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
   GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /env-check[?force=1]    → contrôle de DÉMARRAGE : uniquement les familles
+                                 surveillées (SSH, secrets, outils, git/GitLab) et
+                                 uniquement ce qui est en défaut ; mémorisé 5 min
+                                 (les sondes coûtent réseau)  (RM2722)
   GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
@@ -116,6 +120,16 @@ API (JSON, localhost:9876)
                                   commande du catalogue (allowlist, args
                                   validés par type, argv sans shell,
                                   runs mutants journalisés pm-runs.jsonl)
+  POST /mr/batch {items[], mode:dev|prod, dry_run?, confirm}
+                                → merge un LOT de MR via pm-mr.py : « dev » =
+                                  branche du ticket → intégration (une MR par
+                                  ticket) ; « prod » = PROMOTION intégration →
+                                  production (une MR par dépôt — elle emporte
+                                  tout dev, pas seulement les tickets cochés).
+                                  `dry_run` rend le plan sans rien merger (RM2720)
+  POST /mr/merge {url, confirm} → merge UNE MR désignée par son URL, via
+                                  pm-mr.py (bouton des lignes « MR à merger »
+                                  du worklog)  (RM2723)
   POST /mr/deliver {rm_id, confirm}
                                 → {rc, ok, branch, target, stdout, stderr} —
                                   livre la branche du ticket (MR + merge → dev)
@@ -7430,27 +7444,92 @@ def _envchk_pm():
     return out
 
 
-def op_env_status() -> dict:
-    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
-    remédiation. Chaque famille est isolée : une sonde qui casse ne fait jamais
-    échouer la page. Aucun secret rendu (noms de variables uniquement)."""
-    families = [
-        ("Outils & dépendances", _envchk_tools),
-        ("Secrets", _envchk_secrets),
-        ("Git / GitLab", _envchk_git),
-        ("Repos", _envchk_repos),        # RM2708 : les dépôts, sectionnés par client
-        ("SSH", _envchk_ssh),
-        ("PM", _envchk_pm),
-    ]
+ENV_FAMILIES = [
+    ("Outils & dépendances", _envchk_tools),
+    ("Secrets", _envchk_secrets),
+    ("Git / GitLab", _envchk_git),
+    ("Repos", _envchk_repos),            # RM2708 : les dépôts, sectionnés par client
+    ("SSH", _envchk_ssh),
+    ("PM", _envchk_pm),
+]
+
+# RM2722 — les familles dont une anomalie doit se VOIR sans qu'on ouvre le
+# panneau : elles cassent le travail en cours, et se découvrent sinon au milieu
+# d'une commande qui échoue. « Repos » et « PM » en sont VOLONTAIREMENT absentes :
+# un dépôt sale ou en avance, c'est l'ordinaire de la journée (et la dérive est
+# déjà suivie par les alertes RM2698) — un badge qui clignote tous les jours ne
+# se regarde plus.
+ENV_ALERT_FAMILIES = ("SSH", "Secrets", "Outils & dépendances", "Git / GitLab")
+
+
+def _env_groups(only=None) -> list:
+    """Lance les familles demandées (toutes par défaut). Chaque famille est
+    isolée : une sonde qui casse ne fait jamais échouer la page."""
     groups = []
-    for name, fn in families:
+    for name, fn in ENV_FAMILIES:
+        if only is not None and name not in only:
+            continue
         try:
             checks = fn()
         except Exception as exc:  # une famille ne doit jamais tuer la page
             checks = [_chk(name, "warn", f"contrôle en erreur ({exc.__class__.__name__})")]
         groups.append({"name": name, "checks": checks})
+    return groups
+
+
+def op_env_status() -> dict:
+    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
+    remédiation. Aucun secret rendu (noms de variables uniquement)."""
+    groups = _env_groups()
     return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
             "groups": groups, "summary": envstatus_summary(groups)}
+
+
+# >>> env_alerts — pure (testée par test_karl_agent_envstatus.py)
+def env_alerts(groups):
+    """Les lignes en DÉFAUT des familles surveillées, à plat, avec leur famille.
+
+    Pure : ce qui compte ici est le tri, pas la sonde. Une ligne `ok`/`info` n'y
+    entre pas — un badge ne doit compter que ce qui demande un geste. L'ordre
+    met les `error` avant les `warn` : quand il y en a plusieurs, la première
+    ligne du survol doit être la plus grave."""
+    items = []
+    for g in groups or []:
+        fam = g.get("name") or ""
+        if fam not in ENV_ALERT_FAMILIES:
+            continue
+        for c in g.get("checks", []):
+            if c.get("level") in ("warn", "error"):
+                items.append({"family": fam, "label": c.get("label") or "",
+                              "level": c.get("level"), "detail": c.get("detail") or "",
+                              "fix": c.get("fix") or ""})
+    items.sort(key=lambda i: (0 if i["level"] == "error" else 1, i["family"], i["label"]))
+    return {"items": items, "count": len(items),
+            "worst": "error" if any(i["level"] == "error" for i in items)
+                     else ("warn" if items else "ok")}
+# <<< env_alerts
+
+
+# Le diagnostic des familles surveillées coûte cher (pm-token-check interroge
+# l'API GitLab, la sonde de push ouvre une connexion SSH) : sans mémorisation,
+# chaque ouverture du cockpit — et chaque onglet — le rejouerait.
+_ENV_CHECK_TTL = 300.0
+_env_check_cache: dict = {"at": 0.0, "data": None}
+
+
+def op_env_check(qs: dict | None = None) -> dict:
+    """RM2722 — contrôle de démarrage : uniquement les familles surveillées, et
+    uniquement ce qui est en défaut. `force=1` rejoue les sondes (après une
+    réparation, on veut le savoir tout de suite, pas dans cinq minutes)."""
+    force = bool((qs or {}).get("force"))
+    now = time.time()
+    if not force and _env_check_cache["data"] and now - _env_check_cache["at"] < _ENV_CHECK_TTL:
+        return dict(_env_check_cache["data"], cached=True)
+    out = env_alerts(_env_groups(ENV_ALERT_FAMILIES))
+    out["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    out["cached"] = False
+    _env_check_cache.update({"at": now, "data": out})
+    return out
 
 
 # ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
@@ -8070,6 +8149,206 @@ def op_mr_deliver(payload: dict) -> dict:
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
 
 
+# ── RM2720 (suite) : merger un LOT de MR depuis le worklog ───────────────────
+# Le merge passe par `pm-mr.py` — jamais par un appel API réimplémenté ici. Le
+# script est le seul écrivain du couple (MR, ticket) : il pose le champ CF GIT
+# PR, écrit la note Redmine et le log du ticket, et connaît les branches
+# protégées. karl-agent ne fait que composer l'argv (jamais de shell) et rendre
+# le résultat.
+#
+# Deux cibles, deux gestes DIFFÉRENTS — et c'est la principale chose à ne pas
+# confondre :
+#   « dev »  : la branche du ticket → branche d'intégration. Un ticket, une MR.
+#   « prod » : la branche d'INTÉGRATION → branche de production. C'est une
+#              PROMOTION : elle emporte tout ce que dev contient, pas seulement
+#              les tickets cochés. Une MR par dépôt concerné, pas par ticket.
+# Merger la branche d'un ticket directement dans main sauterait l'intégration :
+# ce n'est pas proposé.
+MR_BATCH_MAX = 10
+PROD_BRANCH_DEFAULT = "main"
+
+
+def _mr_prod_branch(ws) -> str:
+    """Branche de production d'un workspace (manifeste `production_branch`,
+    défaut `main`)."""
+    try:
+        meta = yaml_safe_load((ws / ".mmi-pm" / "meta.yml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        return PROD_BRANCH_DEFAULT
+    repos = meta.get("repos") or []
+    if len(repos) == 1 and repos[0].get("production_branch"):
+        return str(repos[0]["production_branch"])
+    return PROD_BRANCH_DEFAULT
+
+
+# >>> mr_batch_plan — pure (testée par test_karl_agent_mr_batch.py)
+def mr_batch_plan(resolved, mode: str) -> dict:
+    """Range les tickets résolus en ce qui PART et ce qui est écarté.
+
+    `resolved` : [{rm_id, branch?, integration?, prod?, repo?, live?, error?}].
+    Rien d'écarté en silence — un ticket sans branche (jamais démarré) ou qu'on
+    n'a pas su résoudre porte sa raison.
+
+    En mode « prod », les tickets sont regroupés PAR DÉPÔT : une promotion
+    dev→main par dépôt, pas une par ticket — sinon on lancerait dix fois la même
+    MR, et les neuf dernières échoueraient sur « rien à merger »."""
+    todo, skipped = [], []
+    for r in resolved or []:
+        if r.get("error"):
+            skipped.append({"rm_id": r.get("rm_id"), "reason": r["error"]})
+        else:
+            todo.append(r)
+    if mode == "prod":
+        groups, order = {}, []
+        for r in todo:
+            key = r.get("repo") or ""
+            if key not in groups:
+                groups[key] = {"repo": key, "source": r.get("integration"),
+                               "target": r.get("prod"), "rm_ids": []}
+                order.append(key)
+            groups[key]["rm_ids"].append(r["rm_id"])
+        runs = [groups[k] for k in order]
+    else:
+        runs = [{"repo": r.get("repo"), "source": r.get("branch"),
+                 "target": r.get("integration"), "rm_ids": [r["rm_id"]]} for r in todo]
+    return {"mode": mode, "runs": runs, "todo": todo, "skipped": skipped,
+            "count": len(runs),
+            # Un ticket dont la session TOURNE ENCORE : on ne l'écarte pas (c'est
+            # peut-être voulu), on le SIGNALE — merger sous les pieds d'un agent
+            # au travail est le genre de chose qu'on veut voir avant de cliquer.
+            "live": [r["rm_id"] for r in todo if r.get("live")]}
+# <<< mr_batch_plan
+
+
+def _mr_batch_resolve(rm_id: str, mode: str) -> dict:
+    """Contexte git d'un ticket pour le lot, ou {error} — jamais d'exception :
+    un ticket bancal ne doit pas emporter le lot entier."""
+    out = {"rm_id": rm_id}
+    try:
+        bare, branch, integration = _mr_deliver_context(rm_id)
+    except ApiError as e:
+        out["error"] = e.msg
+        return out
+    ws = bare.parent.parent
+    out.update({"repo": str(bare), "branch": branch, "integration": integration,
+                "prod": _mr_prod_branch(ws), "live": _has_session(rm_id)})
+    return out
+
+
+def op_mr_batch(payload: dict) -> dict:
+    """RM2720 — merge les MR d'une sélection de tickets, via `pm-mr.py`.
+
+    `mode` : « dev » (branche du ticket → intégration) ou « prod » (promotion
+    intégration → production, une par dépôt). `dry_run` rend le plan sans rien
+    merger : c'est l'écran de confirmation, et il dit ce qu'une promotion
+    emporte. Le run réel exige `confirm` (comme /mr/deliver)."""
+    mode = str(payload.get("mode") or "dev")
+    if mode not in ("dev", "prod"):
+        raise ApiError(400, f"mode inconnu : {mode} (dev | prod)")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    seen, resolved = set(), []
+    for it in items:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        resolved.append(_mr_batch_resolve(rm, mode))
+    plan = mr_batch_plan(resolved, mode)
+    if not plan["runs"]:
+        raise ApiError(400, "aucun ticket mergeable dans la sélection")
+    if len(plan["runs"]) > MR_BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(plan['runs'])} merges : au-delà de {MR_BATCH_MAX}, "
+                            "confirme explicitement")
+    if payload.get("dry_run"):
+        return dict(plan, ran=False)
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    results = []
+    for run in plan["runs"]:
+        if mode == "prod":
+            argv = [sys.executable, str(script), "create", "--no-ticket",
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--no-push", "--merge",
+                    "--title", f"promotion {run['source']}→{run['target']} : "
+                               + ", ".join("RM" + i for i in run["rm_ids"])]
+        else:
+            argv = [sys.executable, str(script), "create", run["rm_ids"][0],
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--merge"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                               cwd=str(REPO_ROOT))
+            rc, out, err = r.returncode, r.stdout, r.stderr
+        except subprocess.TimeoutExpired:
+            rc, out, err = 124, "", "timeout (300 s)"
+        results.append({"rm_ids": run["rm_ids"], "repo": run["repo"],
+                        "source": run["source"], "target": run["target"],
+                        "rc": rc, "ok": rc == 0,
+                        "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]})
+        try:
+            PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                    "name": "mr-batch", "args": {"mode": mode,
+                                    "rm_ids": run["rm_ids"], "target": run["target"]},
+                                    "rc": rc}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass                 # le journal ne doit jamais faire échouer le run
+    return dict(plan, ran=True, results=results,
+                ok=all(r["ok"] for r in results),
+                failed=[r for r in results if not r["ok"]])
+
+
+# >>> mr_url_iid — pure (testée par test_karl_agent_mr_batch.py)
+_MR_URL_RE = re.compile(r"^https?://[^/\s]+/[^\s?#]+/-/merge_requests/(\d+)/?$")
+
+
+def mr_url_iid(url):
+    """iid d'une URL de MR GitLab, ou None si ce n'est pas une URL de MR.
+
+    On ne valide PAS l'hôte ici : `pm-mr.py` refuse déjà toute forge non
+    déclarée avant le moindre appel — un PAT ne doit jamais partir vers un hôte
+    inconnu, et cette règle n'a qu'un seul endroit où vivre. Ce contrôle-ci sert
+    à échouer TÔT et clairement sur une entrée qui n'est pas une MR (le worklog
+    est écrit par des agents : son contenu se vérifie)."""
+    m = _MR_URL_RE.match(str(url or "").strip())
+    return m.group(1) if m else None
+# <<< mr_url_iid
+
+
+def op_mr_merge(payload: dict) -> dict:
+    """RM2723 — merge UNE MR, désignée par son URL, via `pm-mr.py merge`.
+
+    L'URL est la forme canonique et auto-portante (hôte → forge, chemin →
+    projet, fin → iid) : un iid nu exigerait un dépôt explicite (RM2541), que le
+    worklog ne porte pas. Confirmation obligatoire — le geste ne se défait pas."""
+    url = str(payload.get("url") or "").strip()
+    if not mr_url_iid(url):
+        raise ApiError(400, "URL de MR attendue (…/-/merge_requests/<iid>)")
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    argv = [sys.executable, str(script), "merge", url]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                           cwd=str(REPO_ROOT))
+        rc, out, err = r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        rc, out, err = 124, "", "timeout (300 s)"
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-merge",
+                                "args": {"url": url}, "rc": rc}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass                     # le journal ne doit jamais faire échouer le run
+    return {"name": "mr-merge", "url": url, "iid": mr_url_iid(url), "rc": rc,
+            "ok": rc == 0, "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]}
+
+
 def op_monitor(payload: dict) -> dict:
     """Ajoute un pane moniteur (split-window) à la session de l'agent."""
     rm_id = _require_rm_id(payload)
@@ -8578,6 +8857,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
+            if path == "/env-check":               # RM2722 : contrôle de démarrage
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_env_check(qs))
             if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_triage(qs))
@@ -8696,6 +8978,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/mr/batch":            # RM2720 : merger un lot de MR
+                return self._send_json(200, op_mr_batch(payload))
+            if path == "/mr/merge":            # RM2723 : merger UNE MR (par URL)
+                return self._send_json(200, op_mr_merge(payload))
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":

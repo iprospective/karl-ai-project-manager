@@ -1733,7 +1733,9 @@ assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
 console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
 
 // — RM2696 : worklog PROJET (toutes sessions confondues) —
-const projWorklogHtml = grabO("projWorklogHtml");
+// RM2723 : la ligne de MR est désormais une fonction partagée (session + projet).
+const mrLineHtml = grabO("mrLineHtml");
+const projWorklogHtml = grabO("projWorklogHtml", { mrLineHtml });
 assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
   "projet sans activité → message, pas de crash");
 const GRP = {
@@ -2112,6 +2114,89 @@ assert.notStrictEqual(MODES2720.atester.envoi, MODES2720.traiter.envoi,
 assert.strictEqual(MODES2720.atester.points, false,
   "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
 console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");
+
+// — RM2722 : badge d'anomalies du poste (contrôle de démarrage) —
+const envWarnBadge = grabO("envWarnBadge");
+assert.strictEqual(envWarnBadge({ items: [], count: 0, worst: "ok" }, escO), "",
+  "poste sain : AUCUN badge (un indicateur permanent ne se lit plus)");
+assert.strictEqual(envWarnBadge(null, escO), "", "données absentes tolérées");
+const ewWarn = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "agent joignable mais VIDE" }] }, escO);
+assert(/>🩺 1</.test(ewWarn), "le badge porte le NOMBRE d'anomalies");
+assert(/pill ew-warn/.test(ewWarn), "niveau warn : couleur d'avertissement");
+assert(/agent joignable mais VIDE/.test(ewWarn),
+  "le survol dit QUOI — sans ça il faut ouvrir le panneau pour savoir quoi réparer");
+const ewErr = envWarnBadge({ worst: "error", items: [
+  { family: "Secrets", label: "vault-agentd", level: "error", detail: "socket absent" },
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "vide" }] }, escO);
+assert(/pill ew-error/.test(ewErr), "une erreur l'emporte sur un avertissement");
+assert(/>🩺 2</.test(ewErr), "…et les deux sont comptées");
+const ewMany = envWarnBadge({ worst: "warn", items: Array.from({ length: 12 }, (_, i) =>
+  ({ family: "Outils & dépendances", label: "outil" + i, level: "warn", detail: "absent" })) }, escO);
+assert(/>🩺 12</.test(ewMany), "le compte reste exact même si le survol est tronqué");
+assert(/et 4 autre\(s\)/.test(ewMany), "…et la troncature du survol est annoncée");
+const ewXss = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: '"><img src=x>', level: "warn", detail: "x" }] }, escO);
+assert(!/<img/.test(ewXss), "le détail d'un check est échappé dans l'attribut title");
+console.log("✓ badge d'anomalies du poste (RM2722) : silencieux si sain, compté, expliqué au survol");
+
+// — RM2720 (suite) : écran de confirmation d'un lot de merges —
+const mrBatchHtml = grabO("mrBatchHtml");
+const PLAN_DEV = { mode: "dev", live: [], skipped: [], runs: [
+  { rm_ids: ["10"], source: "10-x", target: "dev" },
+  { rm_ids: ["11"], source: "11-y", target: "dev" }] };
+const mbDev = mrBatchHtml(PLAN_DEV, escO);
+assert(/10-x → dev/.test(mbDev), "chaque MR dit d'OÙ vers OÙ elle merge");
+assert(!/promotion emporte/.test(mbDev), "pas d'avertissement de promotion sur un merge d'intégration");
+const mbProd = mrBatchHtml({ mode: "prod", live: [], skipped: [],
+  runs: [{ rm_ids: ["10", "11"], source: "dev", target: "main" }] }, escO);
+assert(/emporte TOUT/.test(mbProd),
+  "une promotion emporte plus que les tickets cochés : ça doit être écrit avant le clic");
+assert(/dev → main/.test(mbProd), "…et la promotion dit sa source et sa cible");
+const mbLive = mrBatchHtml({ mode: "dev", live: ["11"], skipped: [],
+  runs: [{ rm_ids: ["11"], source: "11-y", target: "dev" }] }, escO);
+assert(/session encore vivante/.test(mbLive) && /RM11/.test(mbLive),
+  "merger sous les pieds d'un agent au travail doit se voir AVANT");
+const mbSkip = mrBatchHtml({ mode: "dev", live: [], runs: [],
+  skipped: [{ rm_id: "13", reason: "aucune branche au frontmatter" }] }, escO);
+assert(/⊘ écartés \(1\)/.test(mbSkip) && /aucune branche/.test(mbSkip),
+  "un ticket écarté porte sa raison");
+assert(/rien à merger/.test(mbSkip), "un plan vide le dit");
+assert(/à merger/.test(mrBatchHtml(null, escO)), "plan absent toléré");
+const mbXss = mrBatchHtml({ mode: "dev", live: [], skipped: [],
+  runs: [{ rm_ids: ["1"], source: "<img src=x>", target: "dev" }] }, escO);
+assert(!/<img/.test(mbXss), "un nom de branche est échappé");
+console.log("✓ lot de merges (RM2720) : cible dite, promotion avertie, session vivante signalée");
+
+// — RM2723 : bouton « merger » sur chaque MR du worklog —
+const mrOk = mrLineHtml({ iid: 571, ref: "RM2720", target: "dev",
+  url: "https://gl.x/g/p/-/merge_requests/571" }, escO, jargFn);
+assert(/!571/.test(mrOk) && /RM2720/.test(mrOk), "la ligne garde ce qu'elle disait");
+assert(/⇥ merger<\/button>/.test(mrOk), "…et porte le bouton de merge");
+assert(/onclick="mergeOneMr\('https:\/\/gl\.x\/g\/p\/-\/merge_requests\/571'/.test(mrOk),
+  "la MR est désignée par son URL (un iid nu exigerait un dépôt — RM2541)");
+assert(!/onclick="[^"]*"[^"]*"/.test(mrOk.replace(/title="[^"]*"/g, "")),
+  "l'attribut onclick ne doit contenir aucun guillemet double non échappé");
+assert(/ouvrir ↗/.test(mrOk), "le lien d'ouverture reste");
+const mrNoUrl = mrLineHtml({ iid: 12, target: "dev" }, escO, jargFn);
+assert(!/mergeOneMr/.test(mrNoUrl),
+  "sans URL, pas de bouton : rien à quoi rattacher le merge");
+assert(/!12/.test(mrNoUrl), "…mais la ligne s'affiche quand même");
+const mrDead = mrLineHtml({ iid: 3, url: "https://gl.x/g/p/-/merge_requests/3", alive: false },
+  escO, jargFn);
+assert(/session éteinte/.test(mrDead), "l'état de la session qui l'a ouverte est conservé");
+const mrXss = mrLineHtml({ iid: '<img src=x>', ref: '"><b>', target: "<i>",
+  url: "https://gl.x/g/p/-/merge_requests/9" }, escO, jargFn);
+// (la ligne contient un <b> légitime — on cherche les charges injectées)
+assert(!/<img|<i>/.test(mrXss),
+  "iid, ref et cible sont échappés — y compris dans l'argument onclick, où jarg "
+  + "ne protège que du guillemet SIMPLE (l'attribut, lui, est en double)");
+const mrQuote = mrLineHtml({ iid: 'a"b', url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn);
+assert(!/onclick="mergeOneMr\([^"]*"[^"]*"/.test(mrQuote),
+  "un guillemet double dans un libellé ne doit pas fermer l'attribut onclick");
+assert(/⇥ merger/.test(mrLineHtml({ iid: 1, url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn)),
+  "une MR sans cible connue reste mergeable");
+console.log("✓ ligne de MR (RM2723) : rendu unique session+projet, merge à l'URL, pas de bouton sans URL");
 
 // — RM2721 : « ⬆ MAJ dispo » doit se remarquer, et rester lisible sans animation —
 // Le bouton vivait avec le style `.mini` de ses six voisins du header : rien ne le

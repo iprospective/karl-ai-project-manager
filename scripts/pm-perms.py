@@ -4,31 +4,40 @@
 Outil IDEMPOTENT et committé (remplace les runbooks scratchpad éphémères, source de
 dérive — c'est un tel oubli qui a laissé matnat/infra en sticky, bug RM2438). Opère
 sur UN workspace projet (dossiers seulement, PAS de récursion dans les worktrees
-per-dev sous `envs/`), et optionnellement sur le `var/` (state_dir) du core.
+per-dev sous `envs/`), et optionnellement (`--var`) sur le `var/` (state_dir) ET les
+fichiers env communs du core.
 
 Modèle (dérivé du CDC §3.4 + d'un projet sain) :
     SQUELETTE  pm:pm 2750  — racine workspace, repos/         (group r-x, PAS d'écriture)
     CHURN      pm:pm 2770  — .mmi-pm, tasks, docs, envs        (group-write, JAMAIS sticky)
     CHURN+r    pm:pm 2775  — .mmi-pm/{memory,project,.wiki-sync} (idem + other-read)
     STATE      pm:pm 2775  — var/, var/locks, var/sessions (ticket-locks partagés)
+    ENV        root:pm 640 — pm.env, .env du core (secrets/config partagés)
+
+Fichiers env (`--var`) : owner **root** (privilégié : seul root/sudo réécrit), groupe
+**pm** (les comptes de rôle `<dev>-pm` DOIVENT lire config+secrets communs pour tourner),
+mode **640** (pas d'`other`). Corrige l'exposition initiale (`.env` en `root:mathieu` →
+un futur `<dev2>-pm` hors groupe `mathieu` ne pouvait pas lire les secrets communs).
 
 Invariants DURS (la cause-racine du bug RM2438) :
   · AUCUN dossier churn ne porte le sticky bit — `atomic_write` (os.replace) doit
     pouvoir remplacer un fichier qu'il ne possède pas ; sous sticky → EPERM.
-  · Le groupe des dossiers partagés = `pm`.
+  · Le groupe des dossiers/fichiers partagés = `pm`.
   · Le squelette n'est PAS group-writable (anti-déstructuration).
 
 Usage :
     pm-perms.py [WORKSPACE]        # DRY-RUN : liste les écarts, ne change rien (exit 1 si écart)
     pm-perms.py --apply [WS]       # applique (chmod + chgrp pm ; owner si root)
-    pm-perms.py --var [WS]         # inclut aussi le var/ du core (PM_CORE_DIR / pm.config)
+    pm-perms.py --var [WS]         # inclut aussi var/ (state_dir) + pm.env/.env du core
     WORKSPACE défaut = auto-détection en remontant jusqu'au .mmi-pm du cwd.
 
---apply nécessite d'être `pm` ou `root` (chmod/chgrp de fichiers pm-owned).
+--apply nécessite d'être `pm` ou `root` (chmod/chgrp de fichiers pm-owned ; l'ownership
+root des fichiers env n'est posé qu'en root).
 """
 import argparse
 import grp
 import os
+import pwd
 import stat
 import sys
 from pathlib import Path
@@ -46,6 +55,10 @@ WORKSPACE_MODEL = {
     ".mmi-pm/.wiki-sync": 0o2775,
 }
 STATE_MODEL = {".": 0o2775, "locks": 0o2775, "sessions": 0o2775}
+# Fichiers env communs du core (à la racine pm_dir) → root:pm 640.
+ENV_FILES = ("pm.env", ".env")
+ENV_FILE_MODE = 0o640
+ROOT_UID = 0
 STICKY = 0o1000
 
 
@@ -56,16 +69,31 @@ def _pm_gid():
         return None
 
 
-def diagnose(path: Path, want_mode: int, want_gid):
-    """Retourne la liste des écarts (chaînes) pour un dossier — fonction PURE (testable
-    sans privilège). Vérifie mode, sticky (jamais), et groupe."""
+def _pm_uid():
+    try:
+        return pwd.getpwnam("pm").pw_uid
+    except KeyError:
+        return None
+
+
+def _uname(uid):
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return str(uid)
+
+
+def diagnose(path: Path, want_mode: int, want_gid, want_uid=None):
+    """Retourne la liste des écarts (chaînes) pour un chemin — fonction PURE (testable
+    sans privilège). Vérifie mode, sticky (jamais, sur les DOSSIERS), groupe, et — si
+    `want_uid` fourni (fichiers env) — le propriétaire."""
     issues = []
     try:
         st = path.stat()
     except FileNotFoundError:
-        return issues  # dossier absent → ignoré (projets partiels)
+        return issues  # chemin absent → ignoré (projets partiels)
     cur = stat.S_IMODE(st.st_mode)
-    if cur & STICKY:
+    if stat.S_ISDIR(st.st_mode) and cur & STICKY:
         issues.append(f"sticky bit présent (mode {cur:04o}) — INTERDIT sur churn")
     if cur != want_mode:
         issues.append(f"mode {cur:04o} ≠ attendu {want_mode:04o}")
@@ -75,6 +103,8 @@ def diagnose(path: Path, want_mode: int, want_gid):
         except KeyError:
             gname = str(st.st_gid)
         issues.append(f"groupe {gname} ≠ pm")
+    if want_uid is not None and st.st_uid != want_uid:
+        issues.append(f"propriétaire {_uname(st.st_uid)} ≠ {_uname(want_uid)}")
     return issues
 
 
@@ -85,23 +115,37 @@ def _find_workspace(start: Path) -> Path:
     sys.exit(f"ERREUR : aucun .mmi-pm trouvé en remontant depuis {start}")
 
 
+def _core_paths():
+    """(pm_dir, state_dir) du core, ou (None, None). PMConfig d'abord, PM_CORE_DIR en repli."""
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        from pm_paths import PMConfig  # noqa
+        cfg = PMConfig.load()
+        return cfg.pm_dir, cfg.state_dir
+    except Exception:
+        c = os.environ.get("PM_CORE_DIR")
+        if c:
+            core = Path(c).expanduser().resolve()
+            return core, core / "var"
+        return None, None
+
+
 def _targets(ws: Path, include_var: bool):
-    """[(path, want_mode)] pour les dossiers existants du modèle."""
-    out = [(ws / (rel if rel != "." else ""), m) for rel, m in WORKSPACE_MODEL.items()]
+    """[(path, want_mode, want_uid)] pour les chemins existants du modèle.
+    want_uid : pm pour dossiers, root pour fichiers env, None si user pm absent."""
+    pm_uid = _pm_uid()
+    out = [(ws / (rel if rel != "." else ""), m, pm_uid) for rel, m in WORKSPACE_MODEL.items()]
     if include_var:
-        core = os.environ.get("PM_CORE_DIR")
-        var = Path(core).resolve() / "var" if core else ws.parent  # fallback improbable
-        try:
-            sys.path.insert(0, str(Path(__file__).resolve().parent))
-            from pm_paths import PMConfig  # noqa
-            var = PMConfig.load().state_dir
-        except Exception:
-            pass
-        out += [(var / (rel if rel != "." else ""), m) for rel, m in STATE_MODEL.items()]
-    return [(p, m) for p, m in out if p.exists()]
+        core, state = _core_paths()
+        if state:
+            out += [(state / (rel if rel != "." else ""), m, pm_uid)
+                    for rel, m in STATE_MODEL.items()]
+        if core:
+            out += [(core / f, ENV_FILE_MODE, ROOT_UID) for f in ENV_FILES]
+    return [(p, m, u) for p, m, u in out if p.exists()]
 
 
-def _apply(path: Path, want_mode: int, want_gid, can_chown: bool):
+def _apply(path: Path, want_mode: int, want_gid, want_uid, can_chown: bool):
     done = []
     st = path.stat()
     if stat.S_IMODE(st.st_mode) != want_mode:
@@ -110,13 +154,10 @@ def _apply(path: Path, want_mode: int, want_gid, can_chown: bool):
     if want_gid is not None and st.st_gid != want_gid:
         os.chown(path, -1, want_gid)  # chgrp pm
         done.append("chgrp pm")
-    if can_chown and want_gid is not None:
-        # owner idéal = pm pour les DOSSIERS (fichiers = dernier writer, laissés tels quels)
+    if can_chown and want_uid is not None and st.st_uid != want_uid:
         try:
-            pm_uid = __import__("pwd").getpwnam("pm").pw_uid
-            if st.st_uid != pm_uid:
-                os.chown(path, pm_uid, -1)
-                done.append("chown pm")
+            os.chown(path, want_uid, -1)
+            done.append(f"chown {_uname(want_uid)}")
         except (KeyError, PermissionError):
             pass
     return done
@@ -127,7 +168,8 @@ def main():
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("workspace", nargs="?", default=None)
     ap.add_argument("--apply", action="store_true", help="Applique (défaut : dry-run).")
-    ap.add_argument("--var", action="store_true", help="Inclut aussi le var/ (state_dir).")
+    ap.add_argument("--var", action="store_true",
+                    help="Inclut aussi var/ (state_dir) + pm.env/.env du core.")
     args = ap.parse_args()
 
     ws = Path(args.workspace).resolve() if args.workspace else _find_workspace(Path.cwd())
@@ -140,8 +182,8 @@ def main():
     mode = "APPLY" if args.apply else "DRY-RUN"
     print(f"=== pm-perms [{mode}] {ws} ===")
     drift = 0
-    for path, want in sorted(targets):
-        issues = diagnose(path, want, gid)
+    for path, want, uid in sorted(targets, key=lambda t: str(t[0])):
+        issues = diagnose(path, want, gid, uid)
         if not issues:
             continue
         drift += 1
@@ -149,7 +191,7 @@ def main():
         print(f"  ⚠ {rel} : {'; '.join(issues)}")
         if args.apply:
             try:
-                done = _apply(path, want, gid, can_chown)
+                done = _apply(path, want, gid, uid, can_chown)
                 print(f"      → {', '.join(done) if done else 'rien à faire'}")
             except PermissionError as e:
                 print(f"      ✗ échec ({e}) — relance en `pm` ou `root`")

@@ -132,6 +132,47 @@ if _insts:
     check("Secrets : une ligne par instance de vault déclarée",
           all(f"vault : {n}" in labels for n in _insts))
 
+# ── RM2722 : contrôle de démarrage (badge d'anomalies) ───────────────────────
+# Ce qu'on protège : le PÉRIMÈTRE (une famille bruyante dedans, et le badge
+# clignote tous les jours — donc plus personne ne le regarde), et le fait qu'un
+# `ok` n'y entre jamais (un badge ne compte que ce qui demande un geste).
+GROUPS_2722 = [
+    {"name": "SSH", "checks": [
+        {"label": "agent SSH", "level": "warn", "detail": "agent joignable mais VIDE",
+         "fix": "ssh-add ~/.ssh/id_rsa_root"}]},
+    {"name": "Secrets", "checks": [
+        {"label": "vault-agentd", "level": "error", "detail": "socket absent", "fix": "unlock-vault.sh"},
+        {"label": "vault : perso", "level": "ok", "detail": "joignable"}]},
+    {"name": "Outils & dépendances", "checks": [
+        {"label": "jq", "level": "error", "detail": "binaire introuvable"},
+        {"label": "git", "level": "ok", "detail": "2.43"}]},
+    {"name": "Git / GitLab", "checks": [
+        {"label": "PAT GitLab", "level": "warn", "detail": "un token ≤ 7 j"}]},
+    {"name": "Repos", "checks": [
+        {"label": "iprospective/x", "level": "warn", "detail": "2 commits non poussés"}]},
+    {"name": "PM", "checks": [{"label": "NORMS", "level": "warn", "detail": "version"}]},
+]
+al = ka.env_alerts(GROUPS_2722)
+fams = {i["family"] for i in al["items"]}
+check("démarrage : les quatre familles surveillées remontent",
+      fams == {"SSH", "Secrets", "Outils & dépendances", "Git / GitLab"})
+check("démarrage : « Repos » n'entre PAS dans le badge (bruit quotidien)", "Repos" not in fams)
+check("démarrage : « PM » non plus", "PM" not in fams)
+check("démarrage : un check ok ne compte pas",
+      all(i["level"] in ("warn", "error") for i in al["items"]))
+check("démarrage : le compte est celui des anomalies", al["count"] == 4)
+check("démarrage : les erreurs passent AVANT les avertissements",
+      [i["level"] for i in al["items"]][:2] == ["error", "error"])
+check("démarrage : la remédiation suit l'anomalie (le badge sert à réparer)",
+      any(i["fix"] for i in al["items"]))
+check("démarrage : le pire niveau est exposé", al["worst"] == "error")
+sain = ka.env_alerts([{"name": "SSH", "checks": [{"label": "agent SSH", "level": "ok"}]}])
+check("poste sain : aucune anomalie, aucun badge",
+      sain["count"] == 0 and sain["worst"] == "ok" and sain["items"] == [])
+check("groupes absents tolérés", ka.env_alerts(None)["count"] == 0)
+check("les familles surveillées existent VRAIMENT (pas de nom périmé)",
+      set(ka.ENV_ALERT_FAMILIES) <= {n for n, _ in ka.ENV_FAMILIES})
+
 if fails:
     print(f"\n{len(fails)} test(s) en échec : {fails}")
     sys.exit(1)

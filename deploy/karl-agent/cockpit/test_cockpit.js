@@ -1975,7 +1975,12 @@ console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempl
 // `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
 const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
-      renderCenterTabs = grabFn("renderCenterTabs"), newTicketFormHtml = grabFn("newTicketFormHtml");
+      renderCenterTabs = grabFn("renderCenterTabs");
+// RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
+// qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
+const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
+  { Object, clientProjectPickerHtml: vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
+      { Object, Array, Set, projectRadiosHtml: grabFn("projectRadiosHtml") }) });
 
 let st = { tabs: [], active: null };
 st = upsertTab(st.tabs, "session", "2668", "RM2668");
@@ -2022,13 +2027,13 @@ assert(/event\.stopPropagation\(\);closeTab/.test(tabsHtml), "la croix doit stop
 // formulaire pleine page : les champs qui manquaient à la carte repliée
 const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
                                ["low", "normal", "high", "urgent"],
-                               '<option value="calyclay/infra">calyclay/infra</option>', escFn);
-["ntf-title", "ntf-project", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
+                               [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
+["ntf-title", "ntf-client", "ntf-projects", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
  "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id =>
   assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
 assert(/<option value="feature" selected>/.test(form), "type feature non présélectionné");
 assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
-assert(/calyclay\/infra/.test(form), "liste des projets non injectée");
+assert(/value="calyclay\/infra" checked/.test(form), "la cible du ticket n'est pas proposée");
 assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
 console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");
 
@@ -2229,3 +2234,97 @@ for (const t of ["--warn-soft", "--warn-soft-hover"]) {
 // et aucun autre `.mini` du header n'a été emporté au passage
 assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit toucher tous les .mini");
 console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
+
+// — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
+const ticketSessionsHtml = grabO("ticketSessionsHtml");
+const taskPromptText = grabO("taskPromptText");
+
+// formulation des prompts : une seule source pour le lanceur ET la fiche
+assert.strictEqual(taskPromptText("traiter", "2726", "iprospective", "pm-ai-agents"),
+  "traite la tâche RM2726 du client iprospective projet pm-ai-agents");
+assert.strictEqual(taskPromptText("traiter", "2726", "", ""), "traite la tâche RM2726",
+  "sans client/projet résolus, l'ancrage se réduit au RM-id");
+assert.strictEqual(taskPromptText("traiter", "abc"), "", "un sid non numérique n'est pas un ticket");
+assert.strictEqual(taskPromptText("zzz", "2726"), "", "template inconnu → aucune consigne inventée");
+assert(/relis le \.log\.md/.test(taskPromptText("continuer", "2726")), "template continuer perdu");
+assert(/SANS rien modifier/.test(taskPromptText("etat", "2726")),
+  "l'état du ticket doit rester en lecture seule");
+
+// aucune session : on le dit, et il reste le lancement
+const tsNone = ticketSessionsHtml({ rm_id: "2726", handled: [], candidates: [],
+                                    live: false, own_alive: false }, escFn, jargFn);
+assert(/aucune session ne traite ce ticket/.test(tsNone), "l'absence de session doit être dite");
+assert(/spawnTicketSession\('2726'/.test(tsNone), "le lancement d'une nouvelle session doit rester offert");
+assert(!/disabled/.test(tsNone), "sans session d'ancrage vivante, le lancement n'est pas désactivé");
+assert(/aucune autre session vivante/.test(tsNone), "sans destination, il faut le dire");
+
+// sessions qui le traitent : source affichée, ouverture pour les vivantes seulement
+const tsData = {
+  rm_id: "2726", client: "iprospective", project: "pm-ai-agents", live: true, own_alive: true,
+  handled: [
+    { sid: "2726", alive: true, reasons: ["ancrage"], title: "[WIP] fiche", same_project: true },
+    { sid: "vieille", alive: false, reasons: ["registre"], title: "hier", same_project: true },
+  ],
+  candidates: [
+    { sid: "cockpit", alive: true, title: "cockpit", same_project: true,
+      client: "iprospective", project: "pm-ai-agents" },
+    { sid: "presta", alive: true, title: "presta", same_project: false,
+      client: "acme", project: "boutique" },
+  ],
+};
+const tsOut = ticketSessionsHtml(tsData, escFn, jargFn);
+assert(/karl-RM2726/.test(tsOut) && /karl-vieille/.test(tsOut), "les sessions doivent être nommées");
+assert(/ancrage/.test(tsOut) && /registre/.test(tsOut), "la source doit être affichée");
+assert(/attach\('2726'\)/.test(tsOut), "une session vivante doit pouvoir s'ouvrir");
+assert(!/attach\('vieille'\)/.test(tsOut), "une session éteinte n'a rien à ouvrir");
+assert(/éteinte/.test(tsOut), "une session éteinte doit être dite telle");
+assert(/disabled/.test(tsOut), "session d'ancrage vivante → pas de second /spawn (409)");
+assert(/<optgroup label="iprospective\/pm-ai-agents">[\s\S]*cockpit/.test(tsOut),
+  "les sessions du projet du ticket doivent être groupées en tête");
+assert(tsOut.indexOf('label="iprospective/pm-ai-agents"') < tsOut.indexOf('label="autres projets"'),
+  "le bon projet passe avant les autres");
+assert(/acme\/boutique/.test(tsOut), "une session d'un autre projet doit annoncer lequel");
+assert(/sendTicketToSession\('2726'/.test(tsOut), "l'envoi dans une session existante doit être offert");
+
+// chargement : pas de liste vide trompeuse tant que la réponse n'est pas là
+assert(/recherche des sessions/.test(ticketSessionsHtml(null, escFn, jargFn)),
+  "avant réponse, on annonce la recherche — pas « aucune session »");
+
+// échappement : le titre d'une session est libre (il vient d'un transcript)
+const tsEsc = ticketSessionsHtml({ rm_id: "2726", handled: [
+  { sid: "x", alive: true, reasons: ["worklog"], title: '<img src=x onerror=alert(1)>' }],
+  candidates: [], live: true, own_alive: false }, escFn, jargFn);
+assert(!/<img/.test(tsEsc) && /&lt;img/.test(tsEsc), "titre de session non échappé");
+console.log("✓ sessions du ticket (RM2726) : source affichée, ouverture, envoi ciblé, lancement");
+
+// — RM2726 : création de ticket — filtre client, puis radios des projets —
+const projectRadiosHtml = grabFn("projectRadiosHtml");
+const clientProjectPickerHtml = vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
+  { Object, Array, Set, projectRadiosHtml });
+const PROJ = [
+  { client: "acme", project: "boutique" }, { client: "acme", project: "infra" },
+  { client: "iprospective", project: "pm-ai-agents" }, { client: "vide", project: "" },
+];
+const pick2726 = clientProjectPickerHtml(PROJ, "acme", "infra", escFn);
+assert(/id="ntf-client"/.test(pick2726) && /id="ntf-projects"/.test(pick2726), "filtre client + zone projets");
+assert(/<option value="acme" selected>/.test(pick2726), "le client courant doit être sélectionné");
+assert(/value="acme\/infra" checked/.test(pick2726), "le projet courant doit être coché");
+assert(!/pm-ai-agents/.test(pick2726), "seuls les projets DU client filtré sont proposés");
+assert(/onchange="ntfClientChanged\(\)"/.test(pick2726), "changer de client doit re-rendre les projets");
+
+const pickDefault = clientProjectPickerHtml(PROJ, "inconnu", "", escFn);
+assert(/<option value="acme" selected>/.test(pickDefault),
+  "client inconnu → premier client, pas de sélection vide");
+assert(/value="acme\/boutique" checked/.test(pickDefault),
+  "aucun projet demandé → le premier du client est coché");
+assert.strictEqual((pickDefault.match(/checked/g) || []).length, 1,
+  "un seul projet coché à la fois");
+
+assert(/aucun projet pour ce client/.test(projectRadiosHtml(PROJ, "vide", "", escFn)),
+  "un client sans projet doit le dire (le formulaire refusera l'envoi)");
+assert(/aucun projet connu/.test(clientProjectPickerHtml([], "", "", escFn)),
+  "catalogue vide : on le dit plutôt que de rendre un choix fantôme");
+
+const pickEsc = projectRadiosHtml([{ client: 'a"b', project: 'p"q' }], 'a"b', "", escFn);
+assert(!/value="a"b/.test(pickEsc), "client/projet non échappés dans l'attribut value");
+console.log("✓ création de ticket (RM2726) : filtre client, radios projet, défauts sûrs");

@@ -20,10 +20,18 @@ ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
 Gère des **jeux de sessions** enregistrés (un ensemble de sessions à relancer
 ensemble) :
 
-- **▶ Tout relancer** : ouvre d'un coup toutes les sessions du jeu.
+- **▶ relancer (n)** : ouvre d'un coup les **n** sessions du jeu qui ne tournent
+  pas. Il n'apparaît que dans la vue du jeu : en vue « sessions ouvertes » ou
+  « tous les jeux », ce qui est affiché n'est pas le jeu, et le geste écrirait
+  ailleurs que là où on regarde.
 - Une **tuile grise** = session enregistrée mais non démarrée : clic pour la
   relancer.
-- Options par jeu : enregistrer, autostart, effacer.
+- **＋ jeu** crée un jeu : critères laissés vides = jeu **manuel** (peuplé, si tu
+  le veux, des sessions affichées) ; au moins un critère (client, projet, marque,
+  tickets) = jeu **dérivé**, dont le contenu se calcule tout seul.
+- **☑** passe en sélection, pour choisir les sessions une à une.
+- **💾 → <jeu>** verse les sessions affichées dans le jeu nommé sur le bouton.
+- Options par jeu : autostart, rétention d'affichage, effacer.
 
 ## Terminal
 

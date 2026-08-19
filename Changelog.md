@@ -40,6 +40,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   Passe par `pm_forge` — GitLab n'est pas codé en dur.
 
 ### Cockpit
+- **« ⬆ MAJ dispo » se voit enfin** (RM2721) : le bouton signalant une mise à jour
+  du core (RM2571) portait le style `.mini` de ses six voisins du header — il
+  apparaissait sans que rien ne bouge à l'œil, et une MAJ pouvait rester des jours
+  non appliquée. Il passe en **orange (`--warn`) avec une pulsation du fond**. Deux
+  niveaux volontairement cumulés : la couleur le distingue en permanence (capture
+  d'écran, `prefers-reduced-motion: reduce`), l'animation attire le regard à son
+  apparition. Pas de `kblink` (l'idiome « attention » des pastilles) : fondre à
+  `opacity .25` un bouton **porteur de texte**, affiché tant que la MAJ n'est pas
+  faite, le rendrait illisible la moitié du temps.
 - **Onglets épinglés du panneau central** (RM2672) : une vue ouverte (session, fiche de
   ticket, fiche projet, création) devient un onglet. **Un seul onglet non épinglé à la
   fois** — la vue suivante le remplace ; épingler le conserve. Les épinglés survivent au

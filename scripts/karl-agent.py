@@ -94,6 +94,10 @@ API (JSON, localhost:9876)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  GET  /ticket-sessions/<rm>    → {handled:[…], candidates:[…], live, own_alive}
+                                  (RM2726 : sessions qui traitent le ticket —
+                                  ancrage / registre / worklog — et sessions
+                                  vivantes où l'envoyer, même projet d'abord)
   POST /tickets {title, type, priority, project, description?, tags?}
                                 → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
   POST /spawn  {rm_id, cwd?, engine?, model?, prompt?, width?, height?}
@@ -4354,6 +4358,112 @@ def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
                "filtered": bool(client or project), "cached": False}
     _overview_cache[key] = (now, payload)
     return payload
+
+
+# ── RM2726 : où ce ticket est-il traité, et où le lancer ─────────────────────
+# La fiche d'un ticket ne disait rien de la session qui s'en occupe : il fallait
+# aller la chercher dans la liste de gauche. On rend ici l'index INVERSE de
+# `ticketsOfSession` (RM2673, cockpit) — mêmes trois sources, même vocabulaire :
+#   ancrage  — le sid de la session EST l'id du ticket (karl-RM<id>) ;
+#   registre — pm_session (RM2166) : branche `<id>-…` ou worktree `…-rm<id>` ;
+#   worklog  — la session a ouvert le ticket dans son worklog (RM2466).
+# La troisième est la seule qui couvre une session lancée sur un slug, qui traite
+# des tickets sans qu'aucune branche ne porte leur numéro : sans elle, la fiche
+# aurait affiché « aucune session » à un ticket en cours de traitement.
+TICKET_SESSION_REASONS = ("ancrage", "registre", "worklog")
+
+
+def _sid_sort_key(sid: str):
+    """Tri stable des sids : tickets par NUMÉRO (999 avant 1000 — un tri lexical
+    aurait rangé 1000 en tête), puis les slugs, alphabétiques."""
+    s = str(sid or "")
+    return (0, int(s), "") if s.isdigit() else (1, 0, s)
+
+
+def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
+    """Pur — la vue « sessions » de la fiche d'un ticket.
+
+    `sessions` : entrées /sessions (sid dans `rm_id`, `ghost`, client, projet,
+    `registry`, `title`) ; `wl_refs` : sid → refs du worklog de la session
+    (« RM2726 », …).
+
+    Deux listes, à ne pas confondre :
+      `handled`    — les sessions qui traitent DÉJÀ ce ticket (vivantes d'abord).
+                     Les éteintes y restent : savoir qu'une session existe mais
+                     ne tourne plus, c'est autre chose que « personne ne s'en
+                     occupe ».
+      `candidates` — les sessions VIVANTES où on pourrait l'envoyer, celles du
+                     même projet d'abord. Envoyer « traite RM<id> » dans une
+                     session qui travaille ailleurs reste possible — mais c'est
+                     un choix, pas le défaut, et l'appelant doit le dire."""
+    rm = str(rm_id)
+    refs = {str(k): {str(r).upper() for r in (v or ())}
+            for k, v in (wl_refs or {}).items()}
+    handled, candidates = [], []
+    for s in sessions or []:
+        sid = str(s.get("rm_id") or "")
+        if not sid:
+            continue
+        reg = s.get("registry") or {}
+        reasons = []
+        if sid == rm:
+            reasons.append("ancrage")
+        branches = [b for b in (reg.get("branches") or [])
+                    if (m := _RM_BRANCH.match(str(b))) and m.group(1) == rm]
+        worktrees = [w for w in (reg.get("worktrees") or [])
+                     if (m := _RM_WORKTREE.search(str(w))) and m.group(1) == rm]
+        if branches or worktrees:
+            reasons.append("registre")
+        if ("RM" + rm) in refs.get(sid, ()):
+            reasons.append("worklog")
+        row = {
+            "sid": sid, "alive": not s.get("ghost"),
+            "client": s.get("client"), "project": s.get("project"),
+            "title": s.get("title"), "state": s.get("state"),
+            "is_ticket": bool(s.get("is_ticket")),
+            "same_project": bool(client and project
+                                 and s.get("client") == client
+                                 and s.get("project") == project),
+        }
+        if reasons:
+            handled.append(dict(row, reasons=reasons,
+                                branch=branches[0] if branches else None))
+        elif row["alive"]:
+            candidates.append(row)
+    handled.sort(key=lambda r: (not r["alive"],
+                                TICKET_SESSION_REASONS.index(r["reasons"][0]),
+                                _sid_sort_key(r["sid"])))
+    candidates.sort(key=lambda r: (not r["same_project"], _sid_sort_key(r["sid"])))
+    return {"rm_id": rm, "client": client, "project": project,
+            "handled": handled, "candidates": candidates,
+            # `live` : au moins une session VIVANTE le traite — c'est ce qui
+            # décide si la fiche propose d'ouvrir, ou de lancer.
+            "live": any(r["alive"] for r in handled),
+            # `own_alive` : la session d'ancrage tourne → /spawn refuserait (409).
+            "own_alive": any(r["sid"] == rm and r["alive"] for r in handled)}
+
+
+def op_ticket_sessions(rm_id: str, auth_ctx: dict | None = None) -> dict:
+    """GET /ticket-sessions/<rm> — qui traite ce ticket, et où l'envoyer."""
+    rm = str(rm_id).strip()
+    if not _is_ticket_sid(rm):
+        raise ApiError(400, "id de ticket attendu (^\\d+$)")
+    sessions = _sessions_view({}, auth_ctx)
+    wl_refs = {}
+    for s in sessions:
+        if not s.get("title"):
+            # un sid slug ne dit pas sur quoi la session travaille : sans son
+            # titre, « envoyer dans une session existante » revient à tirer au sort
+            s["title"] = _transcript_title(s.get("session_id"))
+        wl = _overview_worklog(s.get("session_id"))
+        if wl:
+            wl_refs[str(s.get("rm_id"))] = [str(it.get("ref") or "")
+                                            for it in (wl.get("items") or [])]
+    client = project = None
+    tf = _find_task_file(rm)
+    if tf:
+        client, project = _task_client_project(tf)
+    return ticket_sessions_view(rm, sessions, wl_refs, client, project)
 
 
 # ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
@@ -8798,6 +8908,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))
+            if path.startswith("/ticket-sessions/"):   # RM2726 : qui traite ce ticket
+                return self._send_json(200, op_ticket_sessions(
+                    path[len("/ticket-sessions/"):], self.auth_ctx))
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))

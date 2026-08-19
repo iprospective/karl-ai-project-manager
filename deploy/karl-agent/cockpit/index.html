@@ -3478,6 +3478,8 @@ const GLOSSARY = [
   { t: "process", c: "sys", a: ["processus"], inline: false, d: "Programme en cours d'exécution vu par le système, avec sa propre mémoire." },
   { t: "thread", c: "sys", a: ["threads"], inline: false, d: "Fil d'exécution à l'intérieur d'un process : plusieurs threads travaillent en parallèle en partageant la mémoire." },
   { t: "cache", c: "sys", inline: false, d: "Réserve de résultats déjà calculés/chargés pour répondre plus vite sans refaire le travail." },
+  { t: "ownership", c: "sys", a: ["propriété", "owner"], d: "Propriété d'un fichier ou dossier au sens système : quel utilisateur et quel groupe le possèdent. Avec les permissions, c'est ce qui détermine qui peut le lire, l'écrire ou le supprimer (ex. « root:pm » = possédé par root, groupe pm)." },
+  { t: "enforce", c: "sys", a: ["enforcement", "appliquer"], d: "Faire respecter une règle automatiquement et de façon répétable — un outil qui remet en conformité à chaque passage (ex. les permissions d'un dossier) plutôt que compter sur une action manuelle, qui dérive avec le temps." },
   // — Web & interface —
   { t: "HTTPS", c: "web", a: ["secure context", "contexte sécurisé"], d: "Version chiffrée de HTTP : la connexion au site est protégée ; requise pour certaines fonctions (micro, presse-papier)." },
   { t: "endpoint", c: "web", a: ["endpoints", "route", "routes"], d: "Point d'entrée d'une API : une URL/route qui répond à une requête (ex. /health)." },

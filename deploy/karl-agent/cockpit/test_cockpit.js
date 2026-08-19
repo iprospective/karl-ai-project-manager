@@ -2328,3 +2328,63 @@ assert(/aucun projet connu/.test(clientProjectPickerHtml([], "", "", escFn)),
 const pickEsc = projectRadiosHtml([{ client: 'a"b', project: 'p"q' }], 'a"b', "", escFn);
 assert(!/value="a"b/.test(pickEsc), "client/projet non échappés dans l'attribut value");
 console.log("✓ création de ticket (RM2726) : filtre client, radios projet, défauts sûrs");
+
+// — RM2741 : barre du panneau « en cours » — relancer pertinent, création unifiée —
+const relaunchBtnState = grabO("relaunchBtnState");
+const newSetPlan = grabO("newSetPlan", { Object });
+const ruleFormHtml2741 = grabO("ruleFormHtml", { esc: escFn, setFacets: { clients: [] }, Set });
+
+const SET = { exists: true, count: 4, entries: [
+  { sid: "1", alive: true }, { sid: "2", alive: false },
+  { sid: "3", alive: false }, { sid: "4", alive: true }] };
+
+assert.deepEqual(relaunchBtnState(SET, "set"), { show: true, count: 2 },
+  "le compteur doit être celui des sessions ÉTEINTES, pas du jeu entier");
+assert.strictEqual(relaunchBtnState(SET, "live").show, false,
+  "vue « sessions ouvertes » : rien à relancer, le bouton n'a pas à s'y trouver");
+assert.strictEqual(relaunchBtnState(SET, "all").show, false,
+  "vue « tous les jeux » : l'affichage n'est pas le jeu, le geste écrirait ailleurs");
+assert.strictEqual(relaunchBtnState(SET, "client:acme").show, false,
+  "vue par client : idem, l'affichage n'est pas le jeu");
+assert.strictEqual(relaunchBtnState(
+  { exists: true, count: 2, entries: [{ alive: true }, { alive: true }] }, "set").show, false,
+  "tout tourne déjà → rien à relancer");
+assert.strictEqual(relaunchBtnState({ exists: false }, "set").show, false, "pas de jeu → pas de bouton");
+assert.deepEqual(relaunchBtnState({ exists: true, count: 3 }, "set"), { show: true, count: 3 },
+  "payload sans entries : on retombe sur le total plutôt que de masquer un geste utile");
+
+// création unifiée : la nature se déduit des critères
+const EXIST = ["default", "pm"];
+const manual = newSetPlan("chantier", "Chantier", {}, ["1", "2"], true, EXIST);
+assert.strictEqual(manual.kind, "manual", "aucun critère → jeu manuel");
+assert.deepEqual(manual.body, { group: "chantier", label: "Chantier", sids: ["1", "2"] });
+assert.strictEqual(manual.note, "", "rien d'ignoré ici, rien à signaler");
+
+const emptySet2741 = newSetPlan("chantier", "Chantier", {}, ["1"], false, EXIST);
+assert.deepEqual(emptySet2741.body, { group: "chantier", label: "Chantier" },
+  "case décochée → jeu vide, aucune session versée");
+
+const derived = newSetPlan("acme", "Acme", { client: "acme" }, ["1", "2"], true, EXIST);
+assert.strictEqual(derived.kind, "derived", "un critère → jeu dérivé");
+assert.deepEqual(derived.body, { group: "acme", label: "Acme", rule: { client: "acme" } },
+  "un jeu dérivé ne reçoit PAS de sids : son contenu se calcule");
+assert(/pas versées/.test(derived.note),
+  "la case cochée mais sans effet doit être signalée, pas ignorée en silence");
+
+assert.strictEqual(newSetPlan("pm", "PM", {}, [], false, EXIST).ok, false, "nom déjà pris");
+assert(/existe déjà/.test(newSetPlan("pm", "PM", {}, [], false, EXIST).error));
+assert.strictEqual(newSetPlan("x", "", {}, [], false, EXIST).ok, false, "nom vide refusé");
+assert.strictEqual(newSetPlan("", "###", {}, [], false, EXIST).ok, false, "nom inexploitable refusé");
+
+// le formulaire de création porte le nom, la case de peuplement et les critères
+const fNew = ruleFormHtml2741({}, true, 5);
+assert(/id="rf-name"/.test(fNew) && /id="rf-seed"/.test(fNew), "nom + peuplement attendus");
+assert(/5 session\(s\) affichée\(s\)/.test(fNew), "le nombre de sessions affichées doit être dit");
+assert(/checked/.test(fNew), "la case de peuplement est cochée par défaut");
+assert(/manuel/.test(fNew) && /dérivé/.test(fNew), "les deux natures doivent être expliquées");
+assert(!/id="rf-seed"/.test(ruleFormHtml2741({}, true, 0)),
+  "sans session affichée, pas de case à cocher sans objet");
+const fEdit = ruleFormHtml2741({ client: "acme" }, false, 5);
+assert(!/id="rf-name"/.test(fEdit) && !/id="rf-seed"/.test(fEdit),
+  "édition d'une règle existante : ni nom ni peuplement");
+console.log("✓ barre des jeux (RM2741) : relancer restreint et compté, création unifiée");

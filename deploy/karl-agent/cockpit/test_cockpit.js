@@ -2197,3 +2197,35 @@ assert(!/onclick="mergeOneMr\([^"]*"[^"]*"/.test(mrQuote),
 assert(/⇥ merger/.test(mrLineHtml({ iid: 1, url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn)),
   "une MR sans cible connue reste mergeable");
 console.log("✓ ligne de MR (RM2723) : rendu unique session+projet, merge à l'URL, pas de bouton sans URL");
+
+// — RM2721 : « ⬆ MAJ dispo » doit se remarquer, et rester lisible sans animation —
+// Le bouton vivait avec le style `.mini` de ses six voisins du header : rien ne le
+// distinguait de « voix » ou « glossaire ». Deux niveaux exigés — un habillage
+// permanent (--warn) ET une pulsation — le second étant désactivable.
+const mUpd = /#updbtn \{([^}]*)\}/.exec(css);
+assert(mUpd, "règle CSS #updbtn (RM2721) introuvable");
+assert(/animation:\s*updpulse/.test(mUpd[1]), "#updbtn doit pulser (animation updpulse)");
+for (const prop of ["color", "border-color", "background"]) {
+  assert(new RegExp(prop + ":\\s*var\\(--warn").test(mUpd[1]),
+    `#updbtn : ${prop} doit venir d'un token --warn* (jamais une couleur en dur)`);
+}
+assert(/@keyframes updpulse \{[\s\S]*?\}\s*\n\s*\}/.test(css), "@keyframes updpulse introuvable");
+// pas de kblink ici : il fond à opacity .25, ce qui rend un bouton TEXTUEL
+// illisible la moitié du temps — et celui-ci reste affiché tant que la MAJ n'est
+// pas appliquée.
+assert(!/animation:\s*kblink/.test(mUpd[1]), "#updbtn ne doit pas fondre en opacité (kblink)");
+assert(!/opacity/.test(/@keyframes updpulse \{([\s\S]*?)\n  \}/.exec(css)[1]),
+  "updpulse ne doit pas jouer sur l'opacité (le texte doit rester lisible)");
+// mouvement réduit : l'animation tombe, l'habillage --warn reste (le bouton doit
+// encore se distinguer sur une capture d'écran ou pour qui coupe les animations).
+const mRm = /@media \(prefers-reduced-motion: reduce\) \{ #updbtn \{([^}]*)\}/.exec(css);
+assert(mRm, "#updbtn : prefers-reduced-motion non respecté (RM2721)");
+assert(/animation:\s*none/.test(mRm[1]), "mouvement réduit → animation: none");
+// les tokens existent dans les DEUX thèmes (le test 10 verrouille déjà la parité,
+// on vérifie ici qu'ils sont bien nés et pas juste référencés)
+for (const t of ["--warn-soft", "--warn-soft-hover"]) {
+  assert(dark.has(t) && light.has(t), `token ${t} manquant (dark et/ou light)`);
+}
+// et aucun autre `.mini` du header n'a été emporté au passage
+assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit toucher tous les .mini");
+console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");

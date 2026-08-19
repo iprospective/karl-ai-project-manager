@@ -53,6 +53,9 @@ ticket.
 
 ## Mise à jour du code PM
 
-Quand une mise à jour du core est disponible, un bandeau **⬆ MAJ dispo** apparaît.
+Quand une mise à jour du core est disponible, un bouton **⬆ MAJ dispo** apparaît
+dans le header, en orange et **clignotant** — il est resté longtemps grisé au
+milieu des autres, donc invisible. Si tu as coupé les animations dans ton
+système (« mouvement réduit »), il ne clignote pas mais garde sa couleur.
 C'est **informatif** : l'application reste un geste humain au terminal
 (`mmi-pm core update`, mot de passe sudo).

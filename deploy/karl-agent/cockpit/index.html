@@ -37,6 +37,8 @@
     --accent-soft: rgba(78,161,255,.16);
     --accent-soft-hover: rgba(78,161,255,.28);
     --ok-soft: rgba(58,210,159,.16);
+    --warn-soft: rgba(245,167,66,.16);
+    --warn-soft-hover: rgba(245,167,66,.30);
     --danger-soft: rgba(255,93,108,.14);
   }
   :root[data-theme="light"] {
@@ -53,6 +55,8 @@
     --accent-soft: rgba(21,96,184,.13);
     --accent-soft-hover: rgba(21,96,184,.22);
     --ok-soft: rgba(15,115,80,.14);
+    --warn-soft: rgba(163,92,6,.13);
+    --warn-soft-hover: rgba(163,92,6,.24);
     --danger-soft: rgba(198,40,57,.12);
   }
   :root {
@@ -299,6 +303,23 @@
   #envwarn .pill { animation: kblink 1s ease-in-out infinite; }
   #envwarn .pill.ew-error { color: var(--danger); border-color: var(--danger); }
   #envwarn .pill.ew-warn { color: var(--warn); border-color: var(--warn); }
+  /* RM2721 : « ⬆ MAJ dispo » (RM2571) est une info rare et actionnable, mais elle
+     apparaissait comme un `.mini` de plus dans une rangée de six — donc invisible.
+     Deux niveaux, cumulés : la couleur --warn le distingue en PERMANENCE (capture
+     d'écran, mouvement réduit), l'animation attire l'œil à son apparition. On ne
+     reprend PAS `kblink` ici : faire fondre à .25 un bouton porteur de texte le
+     rend illisible la moitié du temps, et il reste affiché tant que la MAJ n'est
+     pas faite. On pulse donc le fond/halo, texte toujours opaque. */
+  @keyframes updpulse {
+    0%, 100% { background: var(--warn-soft); box-shadow: none; }
+    50%      { background: var(--warn-soft-hover); box-shadow: 0 0 0 3px var(--warn-soft); }
+  }
+  #updbtn { color: var(--warn); border-color: var(--warn); background: var(--warn-soft);
+    font-weight: 600; animation: updpulse 1.6s ease-in-out infinite; }
+  /* au survol on fige : le clic est imminent, la pulsation n'a plus rien à signaler
+     (et `button:hover` repasserait la bordure en --accent — on la garde en --warn). */
+  #updbtn:hover { animation: none; background: var(--warn-soft-hover); border-color: var(--warn); }
+  @media (prefers-reduced-motion: reduce) { #updbtn { animation: none; } }
   .notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }
   /* RM2283 : panneau « en cours » — sessions groupées par projet */
   .rgroup { margin-bottom: 16px; }

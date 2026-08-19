@@ -182,8 +182,17 @@
   .cmphist .hitem:last-child { border-bottom: 0; }
   .cmphist .hitem:hover { background: var(--panel2); color: var(--fg); }
   .cmphist .hempty { padding: 8px 10px; font-size: 12px; color: var(--muted); font-style: italic; }
-  .placeholder { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  /* RM2744 : ce conteneur DÉFILE et centre son contenu — combinaison qui coupe.
+     Quand le contenu dépasse la hauteur, un centrage classique répartit le
+     débordement des deux côtés et la partie sortie PAR LE HAUT devient
+     inatteignable au défilement. `safe` bascule sur un alignement en début d'axe
+     dès qu'il y a débordement (et, sur un moteur qui l'ignore, la déclaration
+     entière est écartée — le repli est justement flex-start : sûr des deux
+     côtés). Ceinture : `.dash-on`, posée dès que le tableau de bord est rendu. */
+  .placeholder { flex: 1; display: flex; flex-direction: column; align-items: safe center;
+    justify-content: safe center;
     color: var(--muted); font-size: 14px; text-align: center; padding: 24px; overflow-y: auto; }
+  .placeholder.dash-on { justify-content: flex-start; align-items: center; }
   /* RM2697 : tableau de bord d'attention, au centre quand aucune session n'est attachée */
   #dashboard { width: 100%; max-width: 760px; text-align: left; margin: 0 auto; }
   .dash-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px;
@@ -359,7 +368,11 @@
     border: 1px solid var(--line); background: var(--panel2); color: var(--fg); }
   .chip:hover { border-color: var(--accent); color: var(--accent); }
   .chip:disabled { opacity: .45; cursor: default; }
-  .termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  /* RM2744 : `min-height: 0` est ce qui rend le défilement d'un enfant POSSIBLE
+     dans une colonne flex — sans lui, un enfant en `overflow-y:auto` ne se
+     contraint pas, la colonne grandit avec son contenu et le débordement sort de
+     la zone visible au lieu de défiler. `.termwrap` l'avait, pas `.termarea`. */
+  .termarea { flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   /* RM2466 volet 3 : colonne de DROITE à panneaux commutables — un seul actif à
      la fois, sur le modèle de la gauche (.lnav), au lieu de deux asides empilés
      qui mangeaient chacun leur largeur. Se replie vers SON bord : la droite. */
@@ -1880,6 +1893,8 @@ function renderCurTitle() {
   } else if (currentProjectView) {
     el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
       '<span class="ttitle">fiche projet</span>';
+  } else if (activeTabId === "dash:") {
+    el.innerHTML = '📊 <span class="ttitle">tableau de bord</span>';   // RM2744
   } else {
     el.innerHTML = '<span class="notabs">aucune vue — choisis une session dans « en cours »</span>';
   }
@@ -3102,11 +3117,23 @@ function jarg(s) {
 // il est remplacé par la vue suivante. Épingler, c'est dire « garde-le sous la main ».
 // C'est ce qui évite de recréer la barre d'onglets de SESSIONS retirée en RM2140/2283 :
 // le rail gauche reste la liste de référence, l'onglet est un marque-page.
-let centerTabs = [];        // [{kind, key, label, pinned}]
+let centerTabs = [];        // [{kind, key, label, pinned, fixed}]
 let activeTabId = null;
 try {
   centerTabs = JSON.parse(localStorage.getItem("karlTabs") || "[]").filter(t => t && t.kind);
 } catch (e) { centerTabs = []; }
+
+// >>> ensureDashTab — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2744 — le tableau de bord n'était atteignable qu'en REFERMANT tout : il
+// occupait le vide central, sans rien pour y revenir. Il a donc son onglet, et
+// celui-ci est permanent : toujours en tête, jamais fermable (`fixed`), ce qui
+// donne aussi une destination sûre à la fermeture du dernier autre onglet.
+function ensureDashTab(tabs) {
+  const rest = (tabs || []).filter(t => t && t.kind !== "dash");
+  return [{ kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true }].concat(rest);
+}
+// <<< ensureDashTab
+centerTabs = ensureDashTab(centerTabs);
 
 function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
 
@@ -3146,6 +3173,8 @@ function upsertTab(tabs, kind, key, label, opts) {
 function closeTabAt(tabs, id, activeId) {
   const i = tabs.findIndex(t => t.kind + ":" + (t.key == null ? "" : t.key) === id);
   if (i < 0) return { tabs: tabs.slice(), active: activeId };
+  // RM2744 : un onglet permanent ne se ferme pas — il est le point de retour
+  if (tabs[i].fixed) return { tabs: tabs.slice(), active: activeId };
   const out = tabs.slice(); out.splice(i, 1);
   let active = activeId;
   if (activeId === id) {
@@ -3158,18 +3187,21 @@ function closeTabAt(tabs, id, activeId) {
 
 // >>> renderCenterTabs — pur (testé par test_cockpit.js)
 function renderCenterTabs(tabs, activeId, esc, jarg) {
-  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋" };
+  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊" };
   return tabs.map(t => {
     const id = t.kind + ":" + (t.key == null ? "" : t.key);
     const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
+    // RM2744 : un onglet permanent n'offre ni croix ni épingle — les deux gestes
+    // n'ont pas de sens sur lui, et une croix inopérante se lit comme un bug.
     return '<span class="' + cls + '" onclick="activateTab(' + jarg(id) + ')" title="' +
-      esc(t.label) + (t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
+      esc(t.label) + (t.fixed ? " — toujours là" : t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
       '<span>' + (icon[t.kind] || "•") + '</span>' +
       '<span class="lbl">' + esc(t.label) + '</span>' +
-      '<span class="pin" onclick="event.stopPropagation();togglePin(' + jarg(id) + ')" title="' +
-      (t.pinned ? "Détacher" : "Épingler : garder cet onglet ouvert") + '">' +
-      (t.pinned ? "📌" : "⇧") + '</span>' +
-      '<span class="x" onclick="event.stopPropagation();closeTab(' + jarg(id) + ')" title="Fermer">✕</span>' +
+      (t.fixed ? "" :
+        '<span class="pin" onclick="event.stopPropagation();togglePin(' + jarg(id) + ')" title="' +
+        (t.pinned ? "Détacher" : "Épingler : garder cet onglet ouvert") + '">' +
+        (t.pinned ? "📌" : "⇧") + '</span>' +
+        '<span class="x" onclick="event.stopPropagation();closeTab(' + jarg(id) + ')" title="Fermer">✕</span>') +
       '</span>';
   }).join("");
 }
@@ -3196,11 +3228,12 @@ function activateTab(id) {
   else if (t.kind === "review") openReview(t.key);
   else if (t.kind === "project") openProjectView(t.key);
   else if (t.kind === "newticket") openNewTicket();
+  else if (t.kind === "dash") openDashboard();       // RM2744
 }
 
 function togglePin(id) {
   const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
-  if (!t) return;
+  if (!t || t.fixed) return;      // RM2744 : l'onglet permanent reste épinglé
   t.pinned = !t.pinned;
   saveTabs(); renderTabs();
 }
@@ -3214,6 +3247,20 @@ function closeTab(id) {
     if (attached) detach();
     closeReview(); closeProjectView(); closeNewTicket();
   }
+}
+
+// RM2744 : revenir au tableau de bord depuis son onglet — c'est la même vue
+// qu'au repos (le centre vide), mais atteinte volontairement plutôt qu'en
+// refermant tout un par un.
+function openDashboard() {
+  if (attached) detach();
+  if (currentReview) closeReview(currentReview);
+  if (currentProjectView) closeProjectView();
+  closeNewTicket();
+  document.getElementById("placeholder").style.display = "flex";
+  noteTab("dash", "", "tableau de bord", { pin: true });
+  loadDashboard();
+  renderCurTitle();
 }
 
 // ----- vue « nouveau ticket » en pleine page -----
@@ -7290,7 +7337,12 @@ async function loadDashboard(force) {
 function renderDashboard() {
   const box = document.getElementById("dashboard"), hint = document.getElementById("ph-hint");
   if (!box) return;
-  if (!dashVisible()) { box.style.display = "none"; if (hint) hint.style.display = ""; return; }
+  const ph = document.getElementById("placeholder");
+  if (!dashVisible()) {
+    box.style.display = "none"; if (hint) hint.style.display = "";
+    if (ph) ph.classList.remove("dash-on");
+    return;
+  }
   const rows = attentionRows(dashData, sessCache,
     { client: dashFilter.client, project: dashFilter.project, stale: [...pendStale] });
   // les couples client/projet connus alimentent les deux filtres
@@ -7307,6 +7359,9 @@ function renderDashboard() {
     + alertsHtml(alertsData, esc, jarg)      // RM2698 : la dérive avant l'état
     + attentionHtml(rows, esc, jarg);
   box.style.display = "";
+  // RM2744 : dès qu'il y a du contenu, l'alignement passe en haut — sinon le
+  // débordement sort par le haut, hors d'atteinte du défilement.
+  if (ph) ph.classList.add("dash-on");
   if (hint) hint.style.display = (rows.length || (alertsData.alerts || []).length) ? "none" : "";
 }
 function setDashFilter(k, v) { dashFilter[k] = v; if (k === "client") dashFilter.project = ""; renderDashboard(); }
@@ -8332,6 +8387,10 @@ async function kill(rmId) {
     const last = localStorage.getItem("karlTabActive") || "";
     const t0 = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === last);
     if (t0 && t0.kind !== "session") activateTab(last);
+    // RM2744 : sinon le centre montre le tableau de bord — l'onglet actif doit le
+    // dire. Une session restaurée n'est volontairement PAS rattachée (on ne monte
+    // pas un terminal non demandé) : son onglet reste sous la main, sans être actif.
+    else { activeTabId = "dash:"; renderTabs(); renderCurTitle(); }
   } catch (e) { /* mode privé */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)

@@ -45,6 +45,7 @@ import pm_reporting
 import pm_git
 import pm_scope
 import redmine_utils
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -195,7 +196,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         env_cfg = (yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}).get(
             "env_runtime") or {}
         if not env_cfg.get("auto_session", True):
-            return
+            return          # opt-out global assumé : silence voulu, pas une panne
         # workspace = parent du .mmi-pm contenant la tâche (co-location RM1949)
         real = md_path.resolve()
         ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
@@ -204,13 +205,25 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
             encoding="utf-8")) or {}).get("repos") or []
         if not repos:
+            # RM2578 : ces sorties étaient MUETTES, et `out.info` n'émet qu'en
+            # --verbose. On ne pouvait donc pas distinguer « le hook n'a pas
+            # tourné » de « il a tourné sans rien faire » — un ticket a conclu
+            # au premier alors que rien ne le prouvait.
+            out.warn(f"env de session non créé pour RM{rm_id} : aucun `repos:` "
+                     f"au manifeste ({ws}/.mmi-pm/meta.yml)")
             return
         if len(repos) > 1:
-            out.info(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
-                  f"pm-env-session.py create {rm_id} --repo <name>", file=sys.stderr)
+            out.warn(f"env de session non auto ({len(repos)} repos au manifeste) : "
+                     f"pm-env-session.py create {rm_id} --repo <name>")
             return
         name = repos[0].get("name")
-        if not name or not (ws / "repos" / f"{name}.git").is_dir():
+        if not name:
+            out.warn(f"env de session non créé pour RM{rm_id} : le premier `repos:` "
+                     f"du manifeste n'a pas de `name`")
+            return
+        if not (ws / "repos" / f"{name}.git").is_dir():
+            out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
+                     f"({ws}/repos/{name}.git) — workspace hors layout RM1993 ?")
             return
         if new_status == "en_cours":
             verb = "create"
@@ -232,7 +245,9 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         hook_out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
             last = hook_out.splitlines()[-1] if hook_out else f"✓ {verb} ok"
-            out.info(f"  · env de session ({verb}) : {last}")
+            # RM2578 : VISIBLE, pas réservé au --verbose. Savoir si le worktree
+            # est exécutable (runtime appliqué) fait partie du contrat du take.
+            out.op("env-session", rm=rm_id, extra=f"{verb} — {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.
@@ -245,7 +260,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
 def fetch_issue_basic(rm_id):
     """Récupère subject + author (id, name) du ticket. Retourne dict ou None."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -262,7 +277,7 @@ def fetch_issue_basic(rm_id):
 def fetch_user_email(user_id):
     """Récupère l'email d'un user Redmine via API. None si inaccessible (droits, 404…)."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -451,7 +466,7 @@ def list_next(rm_id):
     # Côté Redmine : statuts réellement posables par CE compte API sur CE ticket.
     allowed_ids = None
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if url and key:
         try:
             req = urllib.request.Request(
@@ -566,7 +581,14 @@ def main():
         except Exception as e:
             out.warn(f"report-on-close échoué (non bloquant) : {e}")
 
-    # 1. Parse + update frontmatter
+    # 1. Parse + update frontmatter — sous VERROU PAR TICKET (T7) : sérialise le RMW
+    # du .md contre un autre writer du même ticket. Volontairement ÉTROIT (read→write
+    # du .md), libéré juste après l'écriture, AVANT les sous-process (metrics-push) et
+    # l'auto-commit → pas d'auto-blocage flock. Les sys.exit intermédiaires libèrent le
+    # verrou via l'OS (flock noyau). Le .log (append-only) et le commit git suivent hors
+    # verrou (git a son propre verrouillage) ; l'atomicité pleine du triplet = daemon (c).
+    _tlock = ticket_lock(cfg.state_dir, args.rm_id)
+    _tlock.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if not m:
@@ -771,8 +793,10 @@ def main():
                  + (f" assign={assigned_to_id}" if assigned_to_id is not None else "")
                  + (f" close={args.close_reason}" if args.close_reason else ""))
 
-    # 3. Write MD
-    md_path.write_text(new_content, encoding="utf-8")
+    # 3. Write MD (atomique) puis LIBÈRE le verrou ticket — les sous-process suivants
+    # (metrics-push, autocommit) reprennent leurs propres verrous sans nesting.
+    atomic_write(md_path, new_content)
+    _tlock.__exit__(None, None, None)
     out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
 
     # 4. Append log
@@ -818,14 +842,21 @@ def main():
     # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.
     # Upsert : crée l'item si le ticket n'avait pas été ouvert dans cette session. Cf RM1875.
     if not args.dry_run:
-        import pm_session_hook
+        # best-effort, JAMAIS bloquant (comme l'étape 6bis) : un checkout sans
+        # pm_session_hook.py (branche antérieure à son ajout, checkout partiel)
+        # ne doit pas planter la clôture APRÈS l'écriture du statut et faire
+        # sauter l'auto-commit de l'étape 8 (incident RM2587).
         try:
-            proj = md_path.relative_to(cfg.projects_root).parts[3]
-        except (ValueError, IndexError):
-            proj = None
-        pm_session_hook.log_to_session(
-            f"RM{args.rm_id}", label=fm.get("title"),
-            status=args.status, project=proj)
+            import pm_session_hook
+            try:
+                proj = md_path.relative_to(cfg.projects_root).parts[3]
+            except (ValueError, IndexError):
+                proj = None
+            pm_session_hook.log_to_session(
+                f"RM{args.rm_id}", label=fm.get("title"),
+                status=args.status, project=proj)
+        except Exception as e:
+            out.warn(f"worklog de session non mis à jour (best-effort) : {e}")
 
     # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
     # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).

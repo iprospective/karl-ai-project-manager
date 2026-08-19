@@ -19,7 +19,8 @@ Rapatrier la PROD vers un environnement **local** de dev/test (base + éventuell
 Le framework vit dans le **repo PM**, sous **`tools/synchro/`** (versionné et distribué
 avec `ai-project-management` — sur cette workstation : `/home/workspaces/ai/project-management/tools/synchro/`).
 **Aucun secret en clair** : auth MySQL admin locale via `~/.my.cnf`, secrets distants/prod
-via **Vaultwarden** (`resolve_secret "vaultwarden://…"`, URI dans la conf). Le dossier
+via un **vault déclaré** (`resolve_secret "secret://…"` ou `"vaultwarden://…"`,
+URI dans la conf). Le dossier
 `environments/` est **gitignoré** (confs machine-spécifiques, sans mot de passe).
 
 ```
@@ -115,7 +116,7 @@ dans une lib partagée par tous les sites PrestaShop.
 
 **Secrets** : ne jamais écrire une clé en clair dans `environments/*.conf` (repo versionné).
 Soit on **désactive** la fonctionnalité (le plus sûr), soit on résout au runtime via
-`resolve_secret "vaultwarden://…"` (cf. `lib/helpers.sh`).
+`resolve_secret "<uri>"` (cf. `lib/helpers.sh`) — trois formes acceptées.
 
 ## Cas 3 — framework inconnu : script ad hoc
 

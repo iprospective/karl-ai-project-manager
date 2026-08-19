@@ -39,8 +39,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+import pm_markdown
+from pm_markdown import checklist_lines
 import pm_git  # auto-commit scopé des écritures (RM2095)
 import pm_scope
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -49,12 +52,14 @@ except ImportError:
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 # Ligne de checklist Markdown : "- [ ] ...", "* [x] ...", indentée ou non.
-CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
+# Source unique de vérité pour « qu'est-ce qu'une ligne de checklist » : les
+# cases citées dans un bloc de code n'en sont pas (RM2540).
+CHECK_LINE_RE = pm_markdown.CHECK_LINE_RE
 
 
 def redmine_creds():
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : $REDMINE_URL et $REDMINE_USER_MAIN_API_KEY requis (.env)")
     return url, key
@@ -97,17 +102,16 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
     """Applique coche/décoche aux lignes de checklist. Retourne (texte, total, checked, changed).
 
     check_idx / uncheck_idx : ensembles d'index 1-based parmi les lignes de checklist.
+
+    Les cases situées dans un bloc de code sont ignorées (RM2540) : une
+    description qui CITE du markdown en exemple ne doit pas voir sa citation
+    réécrite — et ces cases ne sont pas des critères.
     """
     lines = text.split("\n")
-    item_no = 0
-    total = 0
+    items = checklist_lines(text)
+    total = len(items)
     changed = []
-    for i, line in enumerate(lines):
-        m = CHECK_LINE_RE.match(line)
-        if not m:
-            continue
-        item_no += 1
-        total += 1
+    for item_no, (i, m) in enumerate(items, start=1):
         cur = m.group(2).lower() == "x"
         new = cur
         if check_all or item_no in check_idx:
@@ -117,13 +121,9 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
         if new != cur:
             lines[i] = m.group(1) + ("x" if new else " ") + m.group(3)
             changed.append((item_no, new))
-    checked = 0
-    item_no = 0
-    for line in lines:
-        m = CHECK_LINE_RE.match(line)
-        if m:
-            checked += 1 if m.group(2).lower() == "x" else 0
-    return "\n".join(lines), total, checked, changed
+    text = "\n".join(lines)
+    checked = sum(1 for _, m in checklist_lines(text) if m.group(2).lower() == "x")
+    return text, total, checked, changed
 
 
 def parse_idx(spec):
@@ -253,22 +253,33 @@ def main():
         extra = (extra + " " if extra else "") + f"done={done_ratio}%"
     out.op("desc", rm=args.rm_id, extra=extra)
 
-    # 2. Sync MD : applique la même transfo à la checklist du corps + completion_pct
+    # 2. Sync MD sous VERROU par ticket (T7) : RMW du .md (read→write), libéré avant
+    # le log/commit qui suivent. Pas de return dans le bloc if m: → libération unique.
+    _lk = ticket_lock(cfg.state_dir, args.rm_id)
+    _lk.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if m:
         fm = yaml.safe_load(m.group(2)) or {}
         body = m.group(4)
         if args.set_from_file:
-            new_body = body  # on ne réécrit pas le corps MD sur un remplacement libre
+            # RM2578 : le fichier fourni EST la nouvelle description — donc la
+            # nouvelle source de vérité. Laisser le corps MD en arrière faisait
+            # diverger les deux checklists : un `--check n` suivant appliquait
+            # ses index sur l'ANCIENNE liste locale (mauvaises lignes cochées),
+            # et `pm-task-deliver`, qui lit le MD, refusait des livraisons sur
+            # une checklist périmée. Constaté deux fois (RM2573, RM2305).
+            new_body = "\n" + new_desc.strip("\n") + "\n"
         else:
             new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all)
         if done_ratio is not None:
             fm["completion_pct"] = done_ratio
         fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
         new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}", encoding="utf-8")
+        atomic_write(md_path, f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}")
         out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+
+    _lk.__exit__(None, None, None)  # T7 : libère après le RMW du .md (avant log/commit)
 
     # 3. Append log local (notre historique ; peut mentionner le % même si Redmine le journalise nativement).
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")

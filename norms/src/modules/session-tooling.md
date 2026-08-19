@@ -53,7 +53,48 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
+| Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
+| Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
+| Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
+
+## Notifications importantes de session (RM2466)
+
+Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-champ**
+(pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
+Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
+`outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
+canal noyé ne sera pas lu.
+
+**Et referme-la quand elle est traitée** (RM2715) : `notify --resolve <n> --ticket
+RM<id>`. Une notification dit ce qu'il reste à faire ; laissée telle quelle après
+coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'est) et
+use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
+elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
+ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
+
+## Registre des demandes (RM2621)
+
+Une demande formulée en séance n'existe que dans le fil : non ticketée
+sur-le-champ, elle disparaît au premier défilement.
+
+**Règle — enregistre CHAQUE demande dès réception**, avant de savoir si elle
+sera ticketée : `pm-session-status.py request "<la demande>"`. Puis, quand son
+sort est connu : `request --set <n> --status ticketee --ticket RM<id>` (ou
+`repondu` / `annulee` / `fusionnee --merged-into <n>`). Enregistrer coûte une
+ligne ; oublier ne laisse aucune trace.
+
+Ne filtre pas à la réception : « fais une sous-tâche » fait 19 caractères et
+c'est une demande. En cas de doute, enregistre — une entrée en trop se classe,
+une demande perdue ne se retrouve pas. Contrôle : `request --audit` compare le
+registre au transcript. Mode d'emploi : skill `mmi-pm-session-status`.
+
+**N'enregistre pas ce qui ne vient pas du demandeur** (RM2635) : résumé de
+compaction réinjecté dans le fil, collage de console renvoyé à TA demande,
+sortie de commande. Ce ne sont pas des demandes et ils noient les vraies. Si
+l'une s'est glissée dans le registre, elle se range en `non_demande` — pas en
+`annulee` : personne n'a rien annulé, et ranger le bruit sous un statut faux
+rend le registre inexploitable pour la question à laquelle il sert à répondre.
 
 ### Idiomes fréquents (évite de relancer `--help` à chaque session)
 

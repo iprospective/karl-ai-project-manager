@@ -19,6 +19,12 @@ instance: https://tasks.iprospective.fr
 # ── Custom fields (id → définition attendue) ──────────────────────────────────
 # `type` = customized_type Redmine (issue | time_entry | group).
 # NB : ne pas nommer cette clé `on` — YAML 1.1 la parse comme le booléen True.
+# `trackers:` (RM2592, optionnel) — trackers RÉELLEMENT concernés, par clé de la
+# section `trackers` ci-dessous. Absent = tous. Les CF liés au code (GIT Branche,
+# GIT PR, env de test, agent-test, actions au déploiement) ne s'appliquent pas au
+# tracker « Assistance » : de l'assistance ne produit pas de branche. Sans cette
+# déclaration, redmine-config-check signalait un écart assumé à chaque passage —
+# et un contrôle qui crie en permanence finit ignoré.
 custom_fields:
   15: {name: "IA",                  format: list,        type: issue,      used_by: "REDMINE_CF_IA_ID (.env) ; filtrage IA (NORMS)"}
   11: {name: "Raison Fermé",        format: enumeration, type: issue,      used_by: "CF_RAISON_FERME_ID ; close_reason (redmine-post-note, pm-task-sync)"}
@@ -29,12 +35,12 @@ custom_fields:
   25: {name: "LLM prévu",           format: enumeration, type: issue,      used_by: "estimate.estimated_model → palier (RM1806 ; cf. llm_tiers)"}
   16: {name: "Tokens output",       format: int,         type: time_entry, used_by: "delta OUTPUT tokens par saisie (RM2048 ; ex-'Tokens', cache exclu)"}
   28: {name: "Tokens input",        format: int,         type: time_entry, used_by: "delta INPUT tokens par saisie (RM2048 ; cache exclu)"}
-  27: {name: "AI Test par agent",   format: enumeration, type: issue,      used_by: "REDMINE_CF_AGENT_TEST_ID (.env) ; requires_agent_test (routing dev→test ; cf. agent_test_values)"}
-  3:  {name: "GIT Branche",         format: string,      type: issue,      used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
-  4:  {name: "GIT PR",              format: link,        type: issue,      used_by: "URL de la MR de livraison (RM1820 string→link)"}
-  14: {name: "Environnement de test", format: link,      type: issue,      used_by: "URL de l'environnement de test (RM1820 string→link)"}
+  27: {name: "AI Test par agent",   format: enumeration, type: issue,      trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_AGENT_TEST_ID (.env) ; requires_agent_test (routing dev→test ; cf. agent_test_values)"}
+  3:  {name: "GIT Branche",         format: string,      type: issue,      trackers: [bugfix, feature, autre], used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
+  4:  {name: "GIT PR",              format: link,        type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de la MR de livraison (RM1820 string→link)"}
+  14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}
-  8:  {name: "Actions au déploiement", format: text,      type: issue,      used_by: "actions à la MEP ; string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
+  8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "actions à la MEP ; string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
 
 # ── CF27 « AI Test par agent » — faut-il une passe agent-testeur indépendante ──
 # Mapping frontmatter `requires_agent_test` → value id d'énumération Redmine.

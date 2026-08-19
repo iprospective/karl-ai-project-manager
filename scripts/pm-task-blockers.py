@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import redmine_utils  # noqa: E402
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
 
 
 def _blocker_of(rel, me):
@@ -43,7 +43,7 @@ def main():
     args = ap.parse_args()
     me = args.rm_id
 
-    issue = redmine_utils.fetch_issue(me, include="relations,children")
+    issue = get_task_provider().fetch_issue(me, include="relations,children")
     subj = issue.get("subject", "")
     st = (issue.get("status") or {})
 
@@ -55,7 +55,7 @@ def main():
         if not bid or bid in seen:
             continue
         seen.add(bid)
-        b = redmine_utils.fetch_issue(bid)
+        b = get_task_provider().fetch_issue(bid)
         bst = (b.get("status") or {})
         if not bst.get("is_closed"):
             blockers.append({"id": bid, "type": rel.get("relation_type"),
@@ -67,7 +67,7 @@ def main():
         cst = (c.get("status") or {})
         name = cst.get("name")
         if name is None:                       # children sans statut → fetch
-            cc = redmine_utils.fetch_issue(c.get("id"))
+            cc = get_task_provider().fetch_issue(c.get("id"))
             cst = cc.get("status") or {}
             name = cst.get("name")
         if not cst.get("is_closed"):

@@ -36,6 +36,8 @@ from pm_paths import PMConfig
 from pm_output import out
 import pm_git
 import redmine_utils
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -62,7 +64,7 @@ def write_task_fm(md_path, fm, m):
     """Réécrit le MD avec le frontmatter modifié (corps préservé)."""
     fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
     new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
-    md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}", encoding="utf-8")
+    atomic_write(md_path, f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}")
 
 
 def get_metrics(fm):
@@ -78,7 +80,7 @@ def get_metrics(fm):
 
 def _verify_pushed(rm_id, cfs, est_hours):
     """Re-GET et avertit si un CF/estimated_hours poussé n'a pas pris (silent drop)."""
-    iss = redmine_utils.fetch_issue(rm_id)
+    iss = get_task_provider().fetch_issue(rm_id)
     live = {c["id"]: (c.get("value") or "") for c in iss.get("custom_fields", [])}
     present = set(live)
     for c in (cfs or []):
@@ -189,14 +191,18 @@ def main():
     if not args.estimate:
         sys.exit("ERREUR : préciser --estimate (seul mode ; le report conso vit dans pm-task-report.py).")
 
-    md_path, fm, m = read_task(args.rm_id)
-    dirty = do_estimate(args.rm_id, fm, md_path, m, args.dry_run)
+    # T7 : RMW du .md sous verrou par ticket (read→write) ; l'autocommit git suit
+    # HORS verrou (git a son propre verrouillage), pour ne pas tenir le lock trop.
+    cfg = PMConfig.load()
+    with ticket_lock(cfg.state_dir, args.rm_id):
+        md_path, fm, m = read_task(args.rm_id)
+        dirty = do_estimate(args.rm_id, fm, md_path, m, args.dry_run)
+        if dirty and not args.dry_run:
+            write_task_fm(md_path, fm, m)
+            out.info(f"✓ frontmatter métriques mis à jour : {md_path.name}")
 
-    if dirty and not args.dry_run:
-        write_task_fm(md_path, fm, m)
-        out.info(f"✓ frontmatter métriques mis à jour : {md_path.name}")
-        if not args.no_commit:
-            pm_git.autocommit([md_path], f"pm(metrics): RM{args.rm_id} estimation poussée")
+    if dirty and not args.dry_run and not args.no_commit:
+        pm_git.autocommit([md_path], f"pm(metrics): RM{args.rm_id} estimation poussée")
 
 
 if __name__ == "__main__":

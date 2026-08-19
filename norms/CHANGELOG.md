@@ -1,5 +1,89 @@
 # Changelog des normes
 
+## [1.71.0] - 2026-08-18
+
+### Ajouté
+- **session-tooling** — § « Notifications importantes de session » : la règle ne
+  s'arrêtait qu'à la consignation. Elle demande maintenant de **refermer** la
+  notification quand elle est traitée (`notify --resolve <n> --ticket RM<id>`).
+  Cas vécu : une notification « outillage — ticket à ouvrir » est restée au
+  backlog du cockpit après l'ouverture, la livraison ET la MEP du ticket
+  correspondant (RM2691) — elle y portait une consigne devenue fausse. Résoudre
+  sort du backlog **sans** supprimer (archive + ticket qui l'a portée) ; `--clear`
+  détruit et n'est pas le geste courant. Suit le modèle déjà posé par les canaux
+  `requests` (RM2621) et `mrs` (RM2583). Outillage : RM2715.
+
+## [1.70.0] - 2026-08-18
+
+### Modifié
+- **environments** — § « Gestion des secrets » généralisé : le PM n'est plus lié à un
+  gestionnaire unique. Un vault est une **instance déclarée** dans le registre providers
+  (axe `secret`), nommée par un slug, avec un défaut et une surcharge **par client ou par
+  projet** ; les identifiants restent **par développeur** (`SECRET__<SLUG>__…` dans
+  `~/.config/mmi-pm/.env`). Trois formes d'URI documentées — `secret://<instance>/<chemin>`,
+  `secret:<chemin>` et la forme historique `vaultwarden://<org>/<coll>/<item>`, **valide
+  définitivement** : aucun pointeur existant n'est à réécrire. Backends : `vaultwarden`,
+  `keepass`. Le cycle de vie des sessions devient **par instance** (déverrouiller le vault
+  d'un client ne prolonge pas celui d'iProspective), et deux règles s'ajoutent : un
+  diagnostic ne nomme que les **clés** d'identifiants, jamais leurs valeurs ; un URI visant
+  une instance inconnue est **refusé**, jamais rabattu sur le vault par défaut. Rappel
+  ajouté : pour les secrets d'un client, la collection `<client>-agents` du vault
+  iProspective reste la voie normale. (RM2662, lot RM2710.)
+- **KERNEL** — tripwire 11 : « jamais demander le master password Vaultwarden » devient
+  « jamais demander le secret de déverrouillage d'un vault (master password, passphrase) ».
+
+## [1.69.0] - 2026-08-17
+
+### Ajouté
+- **structure-reference** — section « **Contacts d'un client** » : le `meta.yml` du core
+  client porte `contacts[]` au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`, écrit par le seul `pm-client-contact.py`. Deux pièges documentés, tous deux
+  rencontrés en production : `internal: true` marque **nos** adresses (le gabarit de
+  création en pose une chez chaque client — l'utiliser pour identifier un client
+  enverrait tout notre courrier chez un client au hasard, cf. routage RM2669), et une
+  fiche entièrement vide est un résidu de gabarit, pas un contact. Le champ historique
+  `name` reste lu en repli. Annuaire indépendant : à l'étude (RM2703).
+
+## [1.68.0] - 2026-08-11
+
+### Ajouté
+- **governance** — sous-section « **Changements sans ticket** » : certains changements
+  du repo PM (ajout d'un terme au glossaire du cockpit, coquille) ne demandent **pas**
+  de ticket Redmine — le ticket y coûterait plus que le changement. Ce qui **ne change
+  pas**, c'est la **MR** : les branches d'intégration et de prod restent protégées
+  (tripwire #3), « sans ticket » n'est pas « push direct ». Tombent seulement les
+  accroches au ticket (CF *GIT Branche* / *GIT PR*, `git.mr_urls`, transition de
+  statut). Tableau sans-ticket / avec-ticket, et règle de doute : **prendre un ticket**.
+  Outillage : `pm-mr create --no-ticket --title "…"`, qui exige un titre, refuse
+  `--status`, refuse un `rm_id` simultané et refuse une branche préfixée `<id>-`
+  (dans ce mode, elle trahit un ticket oublié). Nouveau déclencheur KERNEL.
+  (RM2644 — déclenché par l'ajout du terme « one-off », dont la MR avait dû être créée
+  à la main faute d'option.)
+
+## [1.67.0] - 2026-08-09
+
+### Ajouté
+- **governance** — sous-section dédiée « **Développement du PM** » : le contrat
+  « docs vivantes » est étendu de 2 à **4 cibles** — `Changelog.md`, `README.md`,
+  **aide cockpit** (`deploy/karl-agent/cockpit/help/`, RM2593) et **doc
+  développeur** (`DEVELOPMENT.md`, RM2594). Toute MR qui change la surface
+  concernée met à jour sa doc dans la même MR (refusable en revue sinon). Nouveau
+  déclencheur KERNEL « je livre un changement de surface ». (RM2595)
+
+## [1.66.1] - 2026-08-07
+
+### Précisé
+- **git-mep** — `pm-mr` vaut pour **tout** dépôt GitLab de l'instance, y compris un
+  dépôt hors conf PM (module en submodule, dépôt neuf) : lui passer l'URL de la MR ou
+  `--repo`. Ne pas supposer qu'il « ne couvre pas ce cas » sans essayer : le repli par
+  appel API inline perd les gotchas encapsulés et peut être refusé par le harnais de
+  l'agent — refus qu'on confond alors avec un refus de GitLab, d'où un faux diagnostic
+  « intervention humaine requise ». (RM2568, vécu en RM2558)
+- **git-mep** — un dépôt GitLab créé en cours de ticket n'hérite que du défaut GitLab
+  (`main` : push *Maintainer*), qui **ressemble** à une protection conforme sans en
+  être une : enchaîner `pm-protect --project-id <id> --no-core` juste après la
+  création. (RM2568)
+
 ## [1.64.0] - 2026-07-30
 
 ### Ajouté

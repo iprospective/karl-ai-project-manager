@@ -40,6 +40,10 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
           - "[ -d vendor ] || cp -r ../matnat_sf7-dev/vendor vendor"
         post_create_container:    # idem mais via ssh env_runtime.ssh_host,
           - "php bin/console cache:clear"   # cwd = worktree (chemin conteneur)
+        teardown_ignore:          # RM2679 — chemins NON SUIVIS que l'appli écrit au
+          - "yaml/*.php"          # runtime et qui ne doivent pas bloquer le teardown
+          - "yaml/*.php.meta"     # (motifs fnmatch, relatifs au worktree). Ne rend
+                                  # JAMAIS jetable un fichier suivi et modifié.
 
     Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
     tranchent sans question ; sinon la question est posée (TTY) avec le défaut
@@ -56,6 +60,8 @@ Worktree/branche enregistrés dans le registre de session (pm_session, RM2034).
 N'auto-committe rien : opère sur les repos du workspace, pas sur le repo PM.
 """
 import argparse
+import fnmatch
+import os
 import re
 import shlex
 import subprocess
@@ -202,10 +208,36 @@ def map_container_path(cfg: dict, host_path: Path) -> str:
     die(f"{host_path} hors des workspace_map de env_runtime — chemin non traduisible")
 
 
+def on_target_box(cfg: dict) -> bool:
+    """Sommes-nous DÉJÀ sur la box qui porte le helper privilégié ? (RM2646)
+
+    Depuis 2026-07-07 les sessions tournent dans le conteneur `dev` : y faire
+    `ssh mathieu@dev.lxc` revient à se joindre soi-même — ça échoue, et comme l'échec
+    est « non bloquant », le vhost n'est jamais posé sans que personne ne le voie.
+
+    Le signal retenu est le **helper présent et exécutable en local** : il n'est
+    déployé que sur la box de dev, et il est exactement ce que la commande veut
+    joindre — pas de devinette sur le hostname (`dev.local` ≠ `dev.lxc`), pas de
+    résolution DNS. `env_runtime.force_ssh: true` rétablit le saut ssh si un jour une
+    machine porte le binaire sans être la cible.
+    """
+    if cfg.get("force_ssh"):
+        return False
+    h = Path(cfg["helper"])
+    return h.is_file() and os.access(h, os.X_OK)
+
+
 def helper(cfg: dict, args: list[str], dry: bool, check=True, stdin: str | None = None):
-    """Invoque le helper privilégié sur la box de dev (ssh + sudo -n)."""
-    cmd = ["ssh", cfg["ssh_host"], "sudo", "-n", cfg["helper"],
-           *(shlex.quote(a) for a in args)]
+    """Invoque le helper privilégié : `sudo -n` en local si on est déjà sur la box
+    (RM2646), sinon `ssh <ssh_host> sudo -n` comme avant."""
+    # En local, subprocess passe argv tel quel : quoter injecterait des guillemets
+    # littéraux. Via ssh, les arguments sont ré-interprétés par un shell distant :
+    # le quoting est indispensable. D'où les deux formes.
+    if on_target_box(cfg):
+        cmd = ["sudo", "-n", cfg["helper"], *args]
+    else:
+        cmd = ["ssh", cfg["ssh_host"], "sudo", "-n", cfg["helper"],
+               *(shlex.quote(a) for a in args)]
     if dry:
         print(f"  [dry] {' '.join(cmd)}" + (" << (sql)" if stdin else ""))
         return None
@@ -264,19 +296,22 @@ def worktree_for_branch(bare: Path, name: str, rmid: int) -> tuple[Path, str] | 
 
 
 def resolve_base(bare: Path, integration_branch: str | None) -> str:
-    """Point de départ de la branche ticket : branche d'intégration locale
-    (têtes des worktrees) sinon tracking remote."""
+    """Point de départ de la branche ticket, résolu sur le REMOTE (RM2646).
+
+    Retenir le ref LOCAL dès qu'il existe — ce que faisait cette fonction — crée des
+    branches sur une base périmée sans le dire : constaté sur le bare pisceen, dont
+    `refs/heads/dev` accusait ~200 commits de retard sur `origin/dev`. Le garde vit
+    dans `pm_git.resolve_base_ref`, partagé avec `pm-branch-start` : il ne doit pas
+    exister d'un seul côté (les deux outils créent des branches de ticket).
+    """
     heads = git(["-C", str(bare), "for-each-ref", "--format=%(refname:short)",
                  "refs/heads"]).stdout.split()
-    cands = [integration_branch] if integration_branch else ["dev", "develop"]
-    for c in cands:
-        if c in heads:
-            return c
     remotes = git(["-C", str(bare), "for-each-ref", "--format=%(refname)",
                    "refs/remotes"]).stdout.splitlines()
+    cands = [integration_branch] if integration_branch else ["dev", "develop"]
     for c in [*cands, "main", "master"]:
-        if f"refs/remotes/origin/{c}" in remotes:
-            return f"origin/{c}"
+        if c in heads or f"refs/remotes/origin/{c}" in remotes:
+            return pm_git.resolve_base_ref(bare, c, warn=lambda m: print(f"  ⚠ {m}"))
     die(f"aucune branche d'intégration résoluble dans {bare.name}")
 
 
@@ -450,14 +485,17 @@ def cmd_create(args):
     csteps = runtime.get("post_create_container") or []
     if csteps:
         wt_c = map_container_path(cfg, wt)
+        # RM2646 : même règle que `helper()` — déjà sur la box, on exécute sur place.
+        local = on_target_box(cfg)
+        where = "local" if local else cfg["ssh_host"]
         for step in csteps:
             step = expand(str(step))
-            print(f"  $ [{cfg['ssh_host']}] {step}")
+            print(f"  $ [{where}] {step}")
             if not dry:
-                r = subprocess.run(
-                    ["ssh", cfg["ssh_host"],
-                     f"cd {shlex.quote(wt_c)} && {step}"],
-                    capture_output=True, text=True)
+                argv = (["bash", "-c", f"cd {shlex.quote(wt_c)} && {step}"] if local
+                        else ["ssh", cfg["ssh_host"],
+                              f"cd {shlex.quote(wt_c)} && {step}"])
+                r = subprocess.run(argv, capture_output=True, text=True)
                 r.returncode == 0 or die(
                     f"post_create_container a échoué ({r.returncode}) : "
                     f"{step}\n{(r.stderr or r.stdout).strip()}")
@@ -472,27 +510,88 @@ def cmd_create(args):
 
 # -------------------------------------------------------------------- teardown
 
+def own_artifacts(docroot):
+    """Chemins des artefacts posés par `create`, **normalisés**.
+
+    RM2679 : la version d'origine concaténait `f"?? {docroot}/pm-env.txt"` et comparait
+    la chaîne à la ligne de `git status`. Avec `docroot: "."` — tout projet servi depuis
+    la racine du checkout — ça produit `./pm-env.txt` alors que git écrit `pm-env.txt` :
+    l'exemption ne matchait jamais et l'outil se bloquait sur son propre canari.
+    """
+    if not docroot:
+        return set()
+    return {os.path.normpath(os.path.join(docroot, n))
+            for n in (".user.ini", "pm-env.txt")}
+
+
+def status_path(line):
+    """Chemin d'une ligne `git status --porcelain`, déquoté et normalisé."""
+    raw = line[3:] if len(line) > 3 else ""
+    if " -> " in raw:                       # renommage : on garde la destination
+        raw = raw.split(" -> ", 1)[1]
+    raw = raw.strip()
+    if len(raw) > 1 and raw[0] == '"' and raw[-1] == '"':
+        raw = raw[1:-1].encode("utf-8").decode("unicode_escape")
+    return os.path.normpath(raw) if raw else raw
+
+
+def is_disposable(line, own, patterns):
+    """Cette entrée de `git status` est-elle jetable ?
+
+    Deux cas, et deux seulement : un artefact que `create` a lui-même posé, ou un chemin
+    NON SUIVI que le projet déclare jetable via `runtime.teardown_ignore` (fnmatch).
+    Tout le reste compte comme du travail non commité et bloque le teardown — un fichier
+    neuf qu'on a oublié d'ajouter ne doit pas disparaître en silence.
+    """
+    if not line.strip():
+        return True
+    if line[:2] != "??":                    # suivi et modifié = du travail, jamais jetable
+        return False
+    path = status_path(line)
+    if path in own:
+        return True
+    return any(fnmatch.fnmatch(path, pat) for pat in patterns)
+
+
 def cmd_teardown(args):
     cfg = load_env_runtime_cfg()
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     repo = pick_repo(load_repos(ws), args.repo)
     name, rmid = repo["name"], args.rmid
+    # `env_name` = identité STABLE du ticket (vhost, logs, clone BDD) — elle ne
+    # dépend PAS du nom du worktree et reste canonique.
     env_name = f"{name}-rm{rmid}"
-    wt = ws / "envs" / env_name
     bare = ws / "repos" / f"{name}.git"
     runtime = repo.get("runtime") or {}
     dry = args.dry_run
-    print(f"workspace : {ws}\nteardown  : envs/{env_name}")
+
+    # RM2523 — le worktree se résout PAR BRANCHE, comme dans `create` (RM2394).
+    # Deviner `envs/<repo>-rm<id>` ratait tous ceux créés par
+    # `pm-branch-start --worktree`, nommés `<repo>-dev-<id>-s<seq>` : teardown
+    # annonçait « worktree déjà absent » et sortait en succès alors que le
+    # worktree était bien monté. Repli sur le chemin canonique quand le ticket
+    # n'a aucune branche checkoutée (worktree déjà démonté, ou jamais créé).
+    found = worktree_for_branch(bare, name, rmid)
+    wt = found[0] if found else ws / "envs" / env_name
+    try:
+        shown = wt.relative_to(ws)
+    except ValueError:
+        shown = wt
+    print(f"workspace : {ws}\nteardown  : {shown}"
+          + (f"  [branche {found[1]}]" if found else ""))
 
     # 1. refuse un worktree sale (sauf --force) — les commits restent sur la branche.
     # Les fichiers posés par create (.user.ini, canari pm-env.txt) ne comptent
     # pas comme dirt (artefacts de l'outil).
     docroot = runtime.get("docroot", "public") if runtime else None
-    own = {f"?? {docroot}/.user.ini", f"?? {docroot}/pm-env.txt"} if docroot else set()
+    own = own_artifacts(docroot)
+    # chemins que le PROJET déclare jetables (caches écrits par l'appli au runtime) :
+    # `.mmi-pm/meta.yml › repos[] › runtime.teardown_ignore`, motifs fnmatch.
+    disposable = list((runtime or {}).get("teardown_ignore") or [])
     if wt.is_dir():
         st = git(["-C", str(wt), "status", "--porcelain"], check=False).stdout
         dirt = [ln for ln in st.splitlines()
-                if ln.strip() and ln.strip() not in own]
+                if not is_disposable(ln, own, disposable)]
         if dirt and not args.force:
             die("worktree sale (modifs non commitées) — commit/stash d'abord, "
                 "ou --force pour perdre :\n" + "\n".join(dirt))
@@ -535,12 +634,36 @@ def cmd_teardown(args):
                 f.is_file() and f.unlink()
         cmd = ["-C", str(bare), "worktree", "remove"]
         args.force and cmd.append("--force")
-        print(f"  git worktree remove envs/{env_name}")
+        print(f"  git worktree remove {shown}")
         if not dry:
-            git([*cmd, str(wt)])
+            r = git([*cmd, str(wt)], check=False)
+            # RM2572 — git refuse CATÉGORIQUEMENT de retirer un worktree contenant
+            # des submodules, même parfaitement propre. Les projets dont les modules
+            # sont en submodules (convention RM2110) tombent tous dans ce cas : sans
+            # ce repli, aucun de leurs envs de session n'est démontable.
+            # Forcer est sûr ICI, et seulement ici : les deux garde-fous qui
+            # protègent quelque chose ont déjà été franchis plus haut — worktree
+            # propre (étape 1) et branche sans commit non poussé (étape 1bis).
+            # Le repli reste ciblé sur ce refus : tout autre échec de git (worktree
+            # verrouillé, chemin introuvable) doit continuer de remonter.
+            if r.returncode != 0 and "submodules" in (r.stderr or ""):
+                print("  · worktree à submodules : git refuse le retrait simple, "
+                      "on force (worktree propre et branche poussée déjà vérifiés)")
+                r = git([*cmd, "--force", str(wt)], check=False)
+            if r.returncode != 0:
+                die("git worktree remove a échoué :\n" + (r.stderr or "").strip())
             pm_session.forget_worktree(str(wt))
     else:
-        print("  · worktree déjà absent")
+        # RM2523 — distinguer « rien à démonter » (cas normal) de « un worktree
+        # existe mais n'a pas été reconnu » (anomalie). L'ancien message unique
+        # « worktree déjà absent » décrivait un succès dans les deux cas.
+        orphans = [p for p, b in list_worktrees(bare)
+                   if b and b.startswith(f"{rmid}-") and Path(p).is_dir()]
+        if orphans:
+            die("un worktree du ticket est monté mais n'a pas pu être résolu :\n  "
+                + "\n  ".join(str(p) for p in orphans)
+                + f"\n(bare : {bare}) — signaler, ne pas démonter à la main.")
+        print(f"  · aucun worktree monté pour RM{rmid} — rien à démonter")
 
     # 4. test_url du ticket (RM2229) : on VIDE frontmatter + CF — une URL
     # morte affichée est exactement le bug d'origine.
@@ -553,18 +676,44 @@ def cmd_teardown(args):
 # ------------------------------------------------------------------------ list
 
 def cmd_list(args):
+    """Envs de session du workspace.
+
+    RM2523 — la liste part des worktrees RÉELLEMENT enregistrés dans les bares,
+    pas d'un glob `*-rm<id>` sur les noms de dossier : ce glob ne voyait pas les
+    worktrees créés par `pm-branch-start --worktree` (`<repo>-dev-<id>-s<seq>`),
+    qui sont pourtant la majorité en pratique. Le RM-id vient de la BRANCHE
+    (`<id>-<slug>`), seule source fiable quel que soit le nom du dossier.
+    """
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
     envs = ws / "envs"
-    found = sorted(p.name for p in envs.glob("*-rm[0-9]*") if p.is_dir()) \
-        if envs.is_dir() else []
-    if not found:
+    rows: dict[str, tuple[str, str]] = {}   # chemin → (rm, branche)
+
+    for repo in load_repos(ws):
+        bare = ws / "repos" / f"{repo['name']}.git"
+        for p, br in list_worktrees(bare):
+            if not Path(p).is_dir() or Path(p).resolve() == bare.resolve():
+                continue
+            m = re.match(r"(\d+)-", br or "")
+            rows[str(p)] = (m.group(1) if m else "?", br or "?")
+
+    # Filet : un dossier `envs/*-rm<id>` dont le worktree n'est plus enregistré
+    # (bare recréé, .git cassé) reste signalé — sinon il disparaîtrait du radar.
+    if envs.is_dir():
+        for p in sorted(envs.glob("*-rm[0-9]*")):
+            if p.is_dir() and str(p) not in rows:
+                m = re.search(r"-rm(\d+)$", p.name)
+                rows[str(p)] = (m.group(1) if m else "?", "non enregistré")
+
+    if not rows:
         print(f"(aucun env de session dans {ws}/envs/)")
         return
-    for n in found:
-        m = re.search(r"-rm(\d+)$", n)
-        br = git(["-C", str(envs / n), "branch", "--show-current"],
-                 check=False).stdout.strip()
-        print(f"  envs/{n}  RM{m.group(1) if m else '?'}  branche={br or '?'}")
+    for path in sorted(rows):
+        rm, br = rows[path]
+        try:
+            shown = Path(path).relative_to(ws)
+        except ValueError:
+            shown = Path(path)
+        print(f"  {shown}  RM{rm}  branche={br}")
 
 
 # ------------------------------------------------------------------------ main

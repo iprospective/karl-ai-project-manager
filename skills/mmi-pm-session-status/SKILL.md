@@ -68,6 +68,104 @@ scripts/pm-session-status.py rm <ref>
 scripts/pm-session-status.py title "Libellé de la session"
 ```
 
+## Notifications importantes (RM2466)
+
+Canal d'**événements**, distinct des items de travail : un incident rencontré en
+séance finissait au mieux dans une phrase de réponse, et se perdait au premier
+défilement. Règle NORMS : `modules/session-tooling.md` § « Notifications
+importantes » (déclencheur au KERNEL).
+
+**Consigner sur-le-champ**, pas « à la fin » — à la fin, on a oublié :
+
+```bash
+scripts/pm-session-status.py notify "<fait court et factuel>" --kind <type> [--ref RM<id>] [--level info|warn|critical]
+scripts/pm-session-status.py notify --list          # relire le canal (numéro + état)
+scripts/pm-session-status.py notify --resolve <n> --ticket RM<id> [--note "…"]
+scripts/pm-session-status.py notify --clear         # SUPPRIME l'archive (traitées)
+scripts/pm-session-status.py notify --clear --all   # supprime TOUT, ouvertes et critiques
+```
+
+**Referme la notification quand elle est traitée** (RM2715). Une notification
+porte une consigne (« ticket à ouvrir », « rotation à faire ») : laissée telle
+quelle une fois faite, elle devient un mensonge affiché au backlog — cas vécu,
+une notif « ticket à ouvrir » y est restée après l'ouverture, la livraison et la
+MEP du ticket. `--resolve` la sort du backlog **sans la supprimer** : elle
+descend en archive avec le ticket qui l'a portée, comme une MR mergée sort des
+« à merger » sans sortir du worklog.
+
+⚠ `--resolve` ≠ `--clear`. Le premier archive, le second **détruit** — et
+`--clear` ne touche par défaut qu'à l'archive : ni les ouvertes, ni les
+`critical` ne partent sans `--all`.
+
+| `--kind` | quand | niveau par défaut |
+|---|---|---|
+| `secret` | un secret a transité en clair (transcript, log, capture, sortie de commande) | `critical` |
+| `refus` | action refusée / permission manquante | `warn` |
+| `garde-fou` | branche protégée, périmètre projet, worktree | `warn` |
+| `outillage` | un script PM ne fait pas ce qu'il annonce | `warn` |
+| `decision` | un arbitrage du demandeur manque et bloque l'avancement | `warn` |
+
+Restitué **en tête** de `show` (donc du récap de session) et repris par le
+cockpit, onglet « état ».
+
+**Deux pièges :**
+- une notification est un fait **notable et actionnable**, pas un commentaire —
+  un canal noyé sous le bruit ne sera pas lu, donc ne servira à rien ;
+- pour un secret exposé, la notification **trace** le fait ; la **rotation** du
+  secret reste à faire, sur le ticket référencé par `--ref`. Consigner sans faire
+  tourner le secret, c'est documenter une faille, pas la fermer.
+
+## MR à merger (RM2583)
+
+`pm-mr.py` inscrit lui-même les MR dans le worklog à la création, et les en sort
+au merge / à la fermeture — rien à faire à la main. `show` liste alors ce qui
+**reste à merger**, et le cockpit l'affiche dans l'onglet « état ».
+
+```bash
+scripts/pm-session-status.py mr --list          # tout l'historique de la session
+```
+
+Le worklog reflète ce que **cette session** a ouvert, pas l'état global de la
+forge : une MR mergée à la main dans l'UI GitLab y restera « à merger ».
+Correction : `pm-session-status.py mr <iid> --state merged`.
+
+## Registre des demandes (RM2621)
+
+Une demande formulée en séance n'existe que dans le fil : non ticketée
+sur-le-champ, elle disparaît au premier défilement. Le registre la retient
+**avant** de savoir ce qu'elle deviendra. Règle NORMS :
+`modules/session-tooling.md` § « Registre des demandes ».
+
+```bash
+scripts/pm-session-status.py request "<la demande, telle que formulée>"
+scripts/pm-session-status.py request --list
+scripts/pm-session-status.py request --set 12 --status ticketee --ticket RM2621
+scripts/pm-session-status.py request --set 12 --status repondu --note "traité sans ticket"
+scripts/pm-session-status.py request --set 12 --status annulee
+scripts/pm-session-status.py request --set 12 --status fusionnee --merged-into 9
+scripts/pm-session-status.py request --audit           # contrôle d'exhaustivité
+scripts/pm-session-status.py request --import-missing   # RATTRAPAGE (voir plus bas)
+```
+
+`--set` prend le **numéro affiché** par `show` / `--list`, pas un identifiant à
+retenir. Seules les demandes `nouveau` apparaissent dans « 📥 Demandes à
+traiter » ; les quatre autres statuts les en sortent sans les effacer.
+
+**Ne filtre pas à la réception.** « fais une sous-tâche » fait 19 caractères et
+c'est une demande ; « core update fait » en fait 17 et n'en est pas une. En cas
+de doute : enregistre. Une entrée en trop se classe d'un geste, une demande
+perdue ne se retrouve pas.
+
+**`--audit` est le filet.** Il compte les messages du transcript, en retire les
+accusés de réception, et compare au registre. Il ne juge pas le contenu — c'est
+un comptage, il ne coûte aucun token, et c'est lui qui transforme « je crois
+n'avoir rien oublié » en fait vérifiable. À lancer en fin de session.
+
+**`--import-missing` est un rattrapage, pas le mode normal.** Il reprend du
+transcript tout ce qui manque et le pose en `nouveau`, à trier. Utile quand la
+règle n'était pas en place ; l'usage courant reste l'enregistrement explicite,
+message par message.
+
 ## Statuts
 
 Texte libre, mais reconnus pour le tri d'affichage :

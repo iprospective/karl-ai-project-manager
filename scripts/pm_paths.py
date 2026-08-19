@@ -37,10 +37,18 @@ _PATTERN_REF_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
 
 def _load_env_file(path: Path) -> None:
-    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant."""
+    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant.
+
+    Tolère un fichier illisible (`PermissionError`) : un dev NON-admin n'a pas le droit
+    de lire le `.env` secret (fallback karl, admin-only) → on l'ignore silencieusement,
+    ses propres clés (`~/.config/mmi-pm/.env`) et le `pm.env` d'instance suffisent."""
     if not path.is_file():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8")
+    except PermissionError:
+        return
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -61,6 +69,42 @@ def _secrets_env(pm_dir: Path) -> Optional[Path]:
     core = os.environ.get("PM_CORE_DIR")
     if core:
         cand = Path(core).expanduser().resolve() / ".env"
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _user_env() -> Optional[Path]:
+    """`.env` de secrets PROPRE à l'utilisateur courant — identité par dev (T1/RM2497).
+
+    Porte la clé API Redmine perso (`REDMINE_API_KEY`) et les tokens forge du dev.
+    Il est chargé AVANT le `.env` d'instance et le prime donc (car `_load_env_file`
+    n'écrase pas l'existant → priorité : env de session > user > instance).
+    Résolution : override `PM_USER_ENV`, sinon `$XDG_CONFIG_HOME/mmi-pm/.env`,
+    sinon `~/.config/mmi-pm/.env`. `None` si absent (→ fallback karl, rétrocompat)."""
+    override = os.environ.get("PM_USER_ENV")
+    if override:
+        cand = Path(override).expanduser()
+        return cand if cand.is_file() else None
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    cand = base / "mmi-pm" / ".env"
+    return cand if cand.is_file() else None
+
+
+def _instance_env(pm_dir: Path) -> Optional[Path]:
+    """`pm.env` d'INSTANCE, NON-secret (URLs Redmine/forge, ids de CF, chemins) —
+    group-readable (`640 root:pm`), lisible par tout le groupe `pm` SANS exposer les
+    secrets karl (RM2438 T1, scission du `.env` monolithique). Résolution symétrique de
+    `_secrets_env` : `pm_dir` sinon `PM_CORE_DIR`. Chargé ENTRE le `.env` user (prime)
+    et le `.env` secret (fallback). Absent → no-op : rétrocompat, tout reste dans le
+    `.env` monolithique tant qu'on ne l'a pas scindé."""
+    here = pm_dir / "pm.env"
+    if here.is_file():
+        return here
+    core = os.environ.get("PM_CORE_DIR")
+    if core:
+        cand = Path(core).expanduser().resolve() / "pm.env"
         if cand.is_file():
             return cand
     return None
@@ -91,10 +135,23 @@ def _deep_merge(base: dict, override: dict) -> dict:
 class PMConfig:
     """Résolveur de chemins du système PM (lecture seule)."""
 
-    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict):
+    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict,
+                 providers: Optional[dict] = None,
+                 conf_dir: Optional[Path] = None,
+                 state_dir: Optional[Path] = None,
+                 log_dir: Optional[Path] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
+        # Racines FHS (RM2580) — séparent config / état / logs du code. Défauts
+        # = layout actuel si non fournies (conf avec le code, var sous pm_dir) →
+        # 0 régression ; un install packagé les surcharge (roots / env).
+        self.state_dir = state_dir or (pm_dir / "var")
+        self.conf_dir = conf_dir or pm_dir
+        self.log_dir = log_dir or (self.state_dir / "log")
+        # Registre de providers (RM2542/P0) — section `providers:` de pm.config.yml
+        # (servers + defaults). Vide si absente. Consommé par pm_registry.
+        self.providers = providers or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -103,7 +160,18 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge le .env de secrets (pm_dir si présent, sinon core via PM_CORE_DIR)
+        # 2. Charge la config/secrets, priorité décroissante (premier-écrit-gagne ;
+        #    `_load_env_file` n'écrase pas l'existant, os.environ de session prime) :
+        #      user  ~/.config/mmi-pm/.env  (identité par dev, RM2497)
+        #      inst  pm.env                 (instance, NON-secret, group-readable, RM2438 T1)
+        #      secr  .env                   (fallback karl, admin-only, peut être illisible)
+        #    Sans user ni pm.env, `.env` monolithique seul → comportement karl inchangé.
+        user_env = _user_env()
+        if user_env:
+            _load_env_file(user_env)
+        inst_env = _instance_env(pm_dir)
+        if inst_env:
+            _load_env_file(inst_env)
         env_file = _secrets_env(pm_dir)
         if env_file:
             _load_env_file(env_file)
@@ -149,18 +217,32 @@ class PMConfig:
         if not projects_root.is_dir():
             sys.exit(f"ERREUR : projects_root introuvable : {projects_root}")
 
+        # Racines FHS (RM2580) — "auto"/absent → défaut relatif au layout actuel
+        # (0 régression). Un install packagé surcharge par env (PM_CONF_DIR, …).
+        # Ces racines sont des SORTIES (créées à la demande) → pas de is_dir()
+        # bloquant, contrairement à projects_root.
+        def _root(key: str, default: Path) -> Path:
+            raw = _expand_env(roots.get(key, "auto"))
+            if not raw or raw == "auto":
+                return default
+            return Path(raw).expanduser().resolve()
+        conf_dir = _root("conf_dir", pm_dir_final)
+        state_dir = _root("state_dir", pm_dir_final / "var")
+        log_dir = _root("log_dir", state_dir / "log")
+
         patterns = cfg.get("paths", {}) or {}
         if not patterns:
             sys.exit("ERREUR : pm.config.yml :: paths est vide")
 
-        return cls(pm_dir_final, projects_root, patterns)
+        return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
+                   conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir)
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:
         """Résout un pattern de chemin par sa clé.
 
         Variables disponibles dans le pattern :
-          - `{pm_dir}` et `{projects_root}` : racines de la config
+          - `{pm_dir}` `{projects_root}` `{conf_dir}` `{state_dir}` `{log_dir}` : racines
           - n'importe quel kwarg passé (ex: `entity="x"`, `project="y"`)
           - n'importe quelle autre clé de `paths.*` (résolue récursivement)
         """
@@ -182,6 +264,12 @@ class PMConfig:
                 return str(self.pm_dir)
             if name == "projects_root":
                 return str(self.projects_root)
+            if name == "conf_dir":
+                return str(self.conf_dir)
+            if name == "state_dir":
+                return str(self.state_dir)
+            if name == "log_dir":
+                return str(self.log_dir)
             # Patterns d'abord (sauf si on est déjà en train de résoudre
             # ce nom — auto-réf → fallback kwargs). Cela permet par exemple
             # à `entity: "{entities_dir}/{entity}"` d'utiliser le kwarg

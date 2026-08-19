@@ -43,7 +43,7 @@ from pm_paths import PMConfig
 from pm_output import out
 import pm_git
 import pm_hierarchy
-from redmine_utils import set_issue_parent
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 try:
     import yaml
@@ -64,7 +64,7 @@ FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 def _redmine_creds():
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : REDMINE_URL et REDMINE_USER_MAIN_API_KEY requis (.env)")
     return url, key
@@ -333,7 +333,7 @@ def cmd_parent(args, cfg):
         sys.exit(f"ERREUR : RM{child} introuvable parmi les projets PM")
 
     # 1. Redmine (attribut natif). Redmine refuse les cycles de lui-même.
-    set_issue_parent(child, parent)
+    get_task_provider().set_parent(child, parent)
 
     # 2. MD local (enfant parent_task + ancien/nouveau parent sub_tasks).
     res = pm_hierarchy.set_parent(cfg, child, parent, source="pm-task-link")

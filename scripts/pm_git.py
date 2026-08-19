@@ -132,6 +132,59 @@ def is_core_repo(path):
     return any((root / m).is_dir() and not (root / m).is_symlink() for m in CORE_MARKERS)
 
 
+def resolve_base_ref(root, base, fetch=True, warn=None, dry_run_note=True):
+    """Résout la base de branchement sur le REMOTE plutôt que sur le ref local (RM2574).
+
+    `git checkout -b <br> dev` résout `dev` en `refs/heads/dev` — la branche LOCALE du
+    clone, que rien ne rafraîchit. Sur un clone où l'on ne travaille jamais `dev`
+    directement, elle décroche silencieusement : la branche du ticket part alors d'un
+    code périmé (vécu RM2574 : 500 lignes de retard sur `scripts/karl-agent.py` ;
+    RM2646 : `refs/heads/dev` du bare pisceen ~200 commits en arrière), sans le moindre
+    signal.
+
+    On fetch, puis on branche depuis `origin/<base>` dès que ce ref existe. Le fetch
+    seul ne suffirait pas : il rafraîchit `origin/*` mais laisse le ref local — et donc
+    la base retenue — au même endroit.
+
+    Repli sur le ref local : pas de remote, `origin/<base>` inexistant (branche locale
+    seulement), ou `base` désignant déjà un ref distant.
+
+    Partagé par `pm-branch-start` et `pm-env-session` (RM2646) : les deux créent des
+    branches de ticket, le garde ne doit pas exister d'un seul côté.
+
+    `warn` : callable(str) pour les avertissements (défaut : `_warn`). `dry_run_note` :
+    signaler qu'on résout sans fetch (à couper quand l'appelant ne fetch jamais).
+    """
+    say = warn or (lambda m: _warn(m))
+    if "/" in base:            # origin/dev, upstream/main… déjà distant
+        return base
+    remote = "origin"
+    if _run(["git", "-C", str(root), "remote", "get-url", remote]).returncode != 0:
+        return base            # pas de remote : rien à rafraîchir
+    if fetch:
+        # Un fetch qui échoue EN SILENCE est le pire cas : la ref origin/* reste périmée
+        # et annonce la base « à jour » alors qu'elle a divergé (cf. NORMS git-mep).
+        r = _run(["git", "-C", str(root), "fetch", "--quiet", remote])
+        if r.returncode != 0:
+            say(f"git fetch {remote} a ÉCHOUÉ ({(r.stderr or r.stdout).strip()[:200]}) — "
+                f"la base '{base}' peut être périmée, et rien ne le dira ensuite")
+    elif dry_run_note:
+        say(f"pas de fetch : base résolue sur les refs '{remote}/*' déjà présentes "
+            f"(possiblement périmées)")
+    tracked = f"{remote}/{base}"
+    if _run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",
+             tracked]).returncode != 0:
+        return base            # branche purement locale (version, wip…) : légitime
+    if _run(["git", "-C", str(root), "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{base}"]).returncode == 0:
+        behind = _run(["git", "-C", str(root), "rev-list", "--count",
+                       f"refs/heads/{base}..{tracked}"]).stdout.strip()
+        if behind.isdigit() and int(behind) > 0:
+            say(f"base locale '{base}' en retard de {behind} commit(s) sur "
+                f"'{tracked}' → branchement depuis '{tracked}'")
+    return tracked
+
+
 def _rebase_onto_remote(root, branch):
     """Rattrape un rejet non-fast-forward sur un CORE : fetch + rebase de nos
     commits au-dessus du remote. Retourne (ok, détail).

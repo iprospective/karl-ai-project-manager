@@ -12,11 +12,13 @@ sources:
   - modules/project-creation.md
   # --- workflow & Redmine ---
   - modules/status-workflow.md
+  - modules/status-workflow-pratique.md   # RM2582 : table des transitions + cas particuliers, hors précharge
   - modules/redmine-sync.md
   - modules/redmine-hygiene.md
   - modules/redmine-reference.md
   # --- git & release ---
   - modules/git-mep.md
+  - modules/git-mep-pratique.md   # RM2582 : mode d'emploi + cas particuliers, hors précharge
   # --- métriques, liens, traçabilité ---
   - modules/roi-pricing.md
   - modules/task-links.md

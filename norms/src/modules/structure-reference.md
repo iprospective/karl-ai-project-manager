@@ -17,12 +17,24 @@ Autour du core, deux dossiers structurent le **code** :
     <repo>.git                   # dépôt de CODE, bare — la SOURCE
   envs/
     <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
-    <repo>-dev-<RMid>-s<seq>     # WORKTREE de ticket (pm-branch-start --worktree)
+    <repo>-rm<RMid>              # WORKTREE de ticket (pm-branch-start --worktree, pm-env-session create)
+    <repo>-rm<RMid>-s<seq>       # … suffixé UNIQUEMENT si le canonique sert déjà une autre branche
   …                              # data/, démos, .claude/ … gitignoré par le core
 ```
 
 Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
 `git-mep` pour le workflow branche/worktree par ticket).
+
+**Nommage des worktrees — convention unique `<repo>-rm<RMid>` (RM2523).** Le nom
+dérive du **dépôt** (`repos/<repo>.git`), jamais du worktree depuis lequel on
+lance la commande. Le faire dériver du worktree courant — ce que faisait
+`pm-branch-start` — concatène son nom à chaque création en cascade et produit des
+`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…` (7 cas sur le workspace PM en 2026-08).
+Même règle pour le champ `git.repo` du frontmatter : il porte le nom canonique du
+dépôt, pas celui d'un worktree ; les valeurs héritées sont normalisées à
+l'écriture. Le suffixe `-s<seq>` ne sert qu'à départager deux sessions sur un même
+ticket. Un worktree se **résout par sa branche** (`<RMid>-<slug>`), jamais par son
+nom deviné — c'est ce qui rend le nommage indifférent à l'outillage.
 
 **Deux dépôts, deux destinations de commit — ne jamais les confondre :**
 
@@ -139,6 +151,44 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.md         # = paths.task_file
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
+
+### Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
+
+Les personnes d'un client vivent dans le `meta.yml` de son core
+(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
+`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+`import-redmine`) — jamais à la main (tripwire #1).
+
+```yaml
+contacts:
+  - last_name: Dupont              # NOM de famille
+    first_name: Claire             # prénom
+    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
+    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
+    role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
+    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
+```
+
+Deux pièges, tous deux rencontrés en production :
+
+- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
+  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
+  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
+  notre courrier chez un client au hasard (cf. routage RM2669).
+- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
+  de gabarit, pas un contact : les outils l'ignorent.
+
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
+Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
+toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
+`last_name` / `first_name`.
+
+> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
+> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
+> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 

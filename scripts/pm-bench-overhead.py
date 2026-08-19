@@ -423,8 +423,8 @@ def main():
         if args.notify_rm:
             try:
                 sys.path.insert(0, str(_HERE))
-                import redmine_utils as ru
-                ru.add_issue_note(args.notify_rm, "**pm-bench-overhead (cron)**\n\n" + text)
+                from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
+                get_task_provider().add_note(args.notify_rm, "**pm-bench-overhead (cron)**\n\n" + text)
                 print("✓ note postée sur #%d" % args.notify_rm)
             except Exception as e:
                 print("⚠ note Redmine non postée : %s" % e)

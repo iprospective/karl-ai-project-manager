@@ -50,8 +50,14 @@ def fmt_tokens(n):
 
 
 def fmt_minutes(mn):
+    # RM2699 : heures TRONQUÉES, jamais arrondies. `{mn/60:.0f}` arrondissait la
+    # partie heures alors que les minutes se calculent à part (`mn % 60`) : toute
+    # durée à plus de 30 minutes gagnait une heure (90 min → « 2h30 »), et
+    # l'arrondi au pair de Python en faisait tomber juste une sur deux (150 →
+    # « 2h30 » correct, 210 → « 4h30 » faux). 47 % des durées d'une journée
+    # étaient fausses — et c'est cet affichage qui sert à arbitrer.
     mn = mn or 0
-    return f"{mn/60:.0f}h{mn%60:02.0f}" if mn >= 60 else f"{mn:.0f}min"
+    return f"{int(mn // 60)}h{int(mn % 60):02d}" if mn >= 60 else f"{mn:.0f}min"
 
 
 def link_status(cfg, rid):
@@ -103,8 +109,8 @@ def unread_redmine(fm, rm_id, live):
     if not live:
         return None if last is None else {"since": last}
     try:
-        import redmine_utils as ru
-        issue = ru.fetch_issue(rm_id, include="journals")
+        from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
+        issue = get_task_provider().fetch_issue(rm_id, include="journals")
         journals = issue.get("journals") or []
         new = [j for j in journals if last is None or j["id"] > last]
         return {"since": last, "unread": len(new)}

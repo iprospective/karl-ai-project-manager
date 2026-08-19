@@ -41,8 +41,9 @@ mmi-pm — provisioning PM (Lot 1)
                                      pm-env-migrate.py)
   mmi-pm env vhost <verbe> [args]    vhost du helper via mmi-pm                   [helper]
                                      (add <name> <docroot> <sock> |
-                                      proxy-add <name> <port> | remove <name> ;
-                                      passe par pm-env-helper NOPASSWD, RM2372)
+                                      proxy-add <name> <port> |
+                                      karl-add <name> <port> (vhost cockpit HTTPS+ttyd, RM2565) |
+                                      remove <name> ; passe par pm-env-helper NOPASSWD, RM2372)
   mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
                                      (post-commit, pre-push, pre-commit ;
                                      --repo <path> pour un seul repo ;
@@ -201,6 +202,14 @@ cmd_core_update(){
     install -o root -g root -m 755 "$_hsrc" "$_hdst"
     log "pm-env-helper déployé → $_hdst (source tools/env-runtime, RM2358)"
   fi
+  # Renderer du vhost karl (RM2565) : co-déployé à côté du helper — c'est LUI qui
+  # l'appelle (verbe vhost-karl-add) pour les vhosts HTTPS des instances de test
+  # cockpit. Source unique partagée avec deploy/karl-agent/apache-vhost-setup.sh.
+  local _rsrc="$CORE_DIR/deploy/karl-agent/karl-vhost-render.sh" _rdst="/usr/local/sbin/karl-vhost-render"
+  if [ -f "$_rsrc" ] && ! cmp -s "$_rsrc" "$_rdst" 2>/dev/null; then
+    install -o root -g root -m 755 "$_rsrc" "$_rdst"
+    log "karl-vhost-render déployé → $_rdst (source deploy/karl-agent, RM2565)"
+  fi
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
@@ -320,8 +329,8 @@ PY
 # privilégiée « mot de passe » de mmi-pm reste `core update`, cf. is_privileged).
 cmd_env_vhost(){
   local verb="${1:-}"; shift || true
-  case "$verb" in add|proxy-add|remove) :;; *)
-    die "env vhost: verbe inconnu '${verb:-}' (add|proxy-add|remove)";; esac
+  case "$verb" in add|proxy-add|karl-add|remove) :;; *)
+    die "env vhost: verbe inconnu '${verb:-}' (add|proxy-add|karl-add|remove)";; esac
   local helper; helper="$(resolve_env_helper)"
   local hargs=("vhost-$verb" "$@")
   if [ "$DRY" = 1 ]; then log "[dry] sudo -n $helper ${hargs[*]}"; return 0; fi
@@ -336,7 +345,9 @@ cmd_env(){
     init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
     migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
     vhost)   shift; cmd_env_vhost "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost)";;
+    # gc (RM2566) : dry-run PAR DÉFAUT (garde son propre --apply, pas de --dry-run injecté).
+    gc)      shift; exec python3 "$CORE_DIR/scripts/pm-env-gc.py" "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost|gc)";;
   esac
 }
 

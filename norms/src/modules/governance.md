@@ -129,6 +129,49 @@ deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
   projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
   sans sa ligne de Changelog.
 
+### Développement du PM — doc vivante à quatre cibles (RM2595)
+
+Le contrat « docs vivantes » ci-dessus est le **contrat de développement du PM**.
+Il porte sur **quatre cibles** : toute livraison qui change la surface concernée
+met à jour, **dans la même MR** que le code, la doc correspondante — un reviewer
+peut refuser une MR « surface » dont la doc n'a pas suivi.
+
+| Cible | Se met à jour quand… | Où |
+|---|---|---|
+| `Changelog.md` | la **surface système** change (outil, skill, flux statuts/envs/cockpit) | entrée jalon courante (`[Unreleased]` ou nouvelle) |
+| `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
+| **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
+| **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+
+Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+(pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
+commit-par-commit (le détail vit dans les tickets).
+
+### Changements sans ticket (RM2644)
+
+Certains changements du repo PM **ne demandent pas de ticket Redmine** : le ticket y
+coûterait plus cher que le changement lui-même, et n'apprendrait rien à personne.
+
+| Sans ticket | Avec ticket |
+|---|---|
+| ajout d'un terme au **glossaire du cockpit** (`GLOSSARY`) | tout changement de **comportement** d'un outil |
+| correction de coquille / reformulation sans changement de sens | toute évolution de **surface** (outil, flux, statuts, envs, cockpit) |
+| — | toute modification de **NORMS** |
+
+**Ce qui ne change pas : la MR.** Les branches d'intégration et de prod restent
+protégées (tripwire #3) — « sans ticket » ne veut pas dire « push direct ». Ce qui
+tombe, faute d'objet, c'est ce qui s'accroche au ticket : CF Redmine *GIT Branche* /
+*GIT PR*, `git.mr_urls` du frontmatter, transition de statut.
+
+Outil : **`pm-mr create --no-ticket --title "…"`**. Il exige un titre (le titre par
+défaut est `RM<id> — <branche>`, qui n'existe pas ici), refuse `--status`, refuse un
+`rm_id` passé en même temps, et **refuse une branche préfixée `<id>-`** — dans ce
+mode, une telle branche trahit un ticket oublié, pas un changement ticketless. Nommer
+la branche par son sujet (`glossaire-one-off`).
+
+En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
+réversible, pas ce qui mérite d'être retrouvé plus tard.
+
 ## Versionning des normes
 
 | Type | Exemple | Règle |

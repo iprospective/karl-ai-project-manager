@@ -61,6 +61,17 @@ def _git(repo, *args, check=True):
     return r
 
 
+def _resolve_base(root, base, fetch=True):
+    """Base de branchement résolue sur le REMOTE — implémentation partagée dans
+    `pm_git.resolve_base_ref` (RM2574 pour la règle, RM2646 pour la factorisation :
+    `pm-env-session` créait des branches sans ce garde).
+
+    En `--dry-run` on ne fetch pas (un essai à blanc n'écrit pas dans `.git`) : la
+    résolution se fait sur les refs `origin/*` telles qu'elles sont, et on le dit.
+    """
+    return pm_git.resolve_base_ref(root, base, fetch=fetch, warn=out.warn)
+
+
 def _is_core(root):
     """Un dépôt est un CORE PM (structure/projet) s'il RÉVISIONNE un `.mmi-pm` /
     `.mmi-pm-client` à sa racine — jamais une cible de branche de code (invariant NORMS
@@ -71,6 +82,51 @@ def _is_core(root):
     tracked = _git(root, "ls-files", "--", ".mmi-pm", ".mmi-pm-client",
                    check=False).stdout.strip()
     return bool(tracked)
+
+
+def repo_name_of(root: Path) -> str:
+    """Nom CANONIQUE du dépôt de code, indépendant du worktree d'où l'on parle.
+
+    Source : le bare `repos/<name>.git` que désigne `--git-common-dir`. Utiliser
+    `root.name` à la place — comme le faisait ce script — fait dériver le nom du
+    worktree courant : lancé depuis le worktree d'un autre ticket, il produisait
+    `<repo>-dev-2394-s29-2431-s29`, puis `…-2431-s29-…` au coup d'après (RM2523).
+    """
+    common = _git(root, "rev-parse", "--git-common-dir", check=False).stdout.strip()
+    if common:
+        p = Path(common)
+        if not p.is_absolute():
+            p = (root / p).resolve()
+        # ORDRE IMPORTANT : ".git".endswith(".git") est vrai, donc le cas du
+        # dépôt classique doit être testé AVANT celui du bare — sinon il tombe
+        # dans la branche `[:-4]` et retourne une chaîne vide.
+        if p.name == ".git":                 # dépôt classique : <repo>/.git
+            return p.parent.name
+        if p.name.endswith(".git"):          # layout RM1993 : repos/<name>.git
+            return p.name[:-4]
+    return root.name                          # repli : ancien comportement
+
+
+def worktree_path(root: Path, rm_id: int, branch: str, seq) -> Path:
+    """Chemin du worktree de session, convention UNIQUE (RM2523).
+
+        envs/<repo>-rm<id>           canonique — même forme que `pm-env-session create`
+        envs/<repo>-rm<id>-s<seq>    si le canonique est déjà pris par une AUTRE branche
+
+    Le suffixe de session n'apparaît donc qu'en cas de collision réelle (deux
+    sessions sur le même ticket), au lieu d'être systématique. `pm-env-session`
+    résout de toute façon par branche : le nom n'est plus qu'un repère humain.
+    """
+    envs = root.parent
+    canonical = envs / f"{repo_name_of(root)}-rm{rm_id}"
+    if not canonical.exists():
+        return canonical
+    # occupé : par NOUS (même branche) → on le réutilise ; par un autre → suffixe
+    head = _git(canonical, "rev-parse", "--abbrev-ref", "HEAD", check=False).stdout.strip()
+    if head == branch:
+        return canonical
+    return envs / f"{repo_name_of(root)}-rm{rm_id}-s{seq}" if seq is not None else \
+        envs / f"{repo_name_of(root)}-rm{rm_id}-s0"
 
 
 def peek_task_frontmatter(md_path):
@@ -146,18 +202,28 @@ def main():
     # Cross-check (RM2360) : si la tâche a déjà enregistré son repo de code, refuser un
     # repo différent (empêche de polluer git.repo/CF depuis le mauvais endroit) — sauf
     # --repo explicite (choix délibéré, ex. le code a changé de dépôt).
+    canonical_repo = repo_name_of(root)
     recorded = ((peek_task_frontmatter(md_path).get("git") or {}).get("repo"))
-    if recorded and recorded != root.name and args.repo is None:
-        sys.exit(
-            f"ERREUR : la tâche RM{args.rm_id} est enregistrée sur le repo de code "
-            f"'{recorded}', mais le cwd résout vers '{root.name}'. Place-toi dans "
-            f"'{recorded}', ou passe --repo explicitement si le repo a changé.")
+    if recorded and recorded != canonical_repo and args.repo is None:
+        # RM2523 — `git.repo` a longtemps été rempli avec `root.name`, donc le nom
+        # du WORKTREE courant (`<repo>-dev`, `<repo>-rm2356-2373-s1-…`). Ces valeurs
+        # héritées désignent bien ce dépôt : on les accepte et on les normalise à
+        # l'écriture, au lieu de bloquer une tâche pour un nom mal enregistré.
+        if recorded.startswith(canonical_repo):
+            out.warn(f"git.repo hérité '{recorded}' (nom de worktree) → normalisé "
+                     f"en '{canonical_repo}' (RM2523)")
+        else:
+            sys.exit(
+                f"ERREUR : la tâche RM{args.rm_id} est enregistrée sur le repo de code "
+                f"'{recorded}', mais le cwd résout vers '{canonical_repo}'. Place-toi "
+                f"dans '{recorded}', ou passe --repo explicitement si le repo a changé.")
 
     current = _git(root, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip()
     base = args.base or current
     if not args.base:
         out.warn(f"--from omis : base = branche courante '{base}' (vérifie que c'est "
                  f"bien la branche d'intégration du projet)")
+    base = _resolve_base(root, base, fetch=not args.dry_run)
 
     # Mode worktree (RM2034) : branche discriminée par session + worktree dédié,
     # pour mener plusieurs tickets en parallèle sans se tromper de cible.
@@ -166,7 +232,14 @@ def main():
         suffix = f"-m{pm_session.machine_id()}-s<seq>" if args.dry_run else pm_session.branch_suffix()
         branch = f"{args.rm_id}-{slug}{suffix}"
         seq = None if args.dry_run else pm_session.get_session_seq()
-        wt = root.parent / (f"{root.name}-{args.rm_id}" + (f"-s{seq}" if seq is not None else ""))
+        # RM2523 — le nom part du REPO, pas du worktree courant. Il dérivait de
+        # `root.name` : lancer pm-branch-start depuis le worktree d'un autre
+        # ticket concaténait son nom, d'où les chaînes observées en juillet 2026
+        # (`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…`, 7 cas sur ce workspace).
+        # Convention unique, alignée sur `pm-env-session create` :
+        #     envs/<repo>-rm<id>            (canonique)
+        #     envs/<repo>-rm<id>-s<seq>     (si le canonique sert déjà à une AUTRE branche)
+        wt = worktree_path(root, args.rm_id, branch, seq)
         # Idempotence indépendante du cwd (RM2240) : si le frontmatter porte déjà
         # le worktree de CETTE branche, le réutiliser — sinon une relance depuis
         # un autre worktree calcule un chemin imbriqué et plante.
@@ -178,10 +251,13 @@ def main():
     exists = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{branch}",
                   check=False).returncode == 0
     if args.dry_run:
-        action = (f"worktree add {wt}" if args.worktree
+        # La base retenue figure dans TOUS les cas de création (RM2574) : c'est
+        # l'information que l'essai à blanc doit permettre de vérifier.
+        action = (f"worktree add {wt}" + ("" if exists else f" (branche depuis {base})")
+                  if args.worktree
                   else ("checkout" if exists else f"création depuis {base} +checkout"))
         print(f"--dry-run : {action} pour '{branch}' dans {root} ; CF '{CF_BRANCH_NAME}'={branch} ; "
-              f"frontmatter git.repo={root.name}, git.branch={branch}")
+              f"frontmatter git.repo={canonical_repo}, git.branch={branch}")
         return
 
     if args.worktree:
@@ -223,7 +299,8 @@ def main():
         sys.exit(f"ERREUR : pas de frontmatter dans {md_path}")
     fm = yaml.safe_load(m.group(2)) or {}
     git_block = fm.get("git") or {}
-    git_block.update({"repo": root.name, "branch": branch})
+    # RM2523 — nom CANONIQUE du dépôt, jamais celui du worktree courant.
+    git_block.update({"repo": canonical_repo, "branch": branch})
     if wt is not None:
         git_block["worktree"] = str(wt)
     fm["git"] = git_block

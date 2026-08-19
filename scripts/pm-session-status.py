@@ -23,18 +23,29 @@ import argparse
 import datetime
 import json
 import os
+import pathlib
 import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout
+from pm_lock import atomic_write  # écriture atomique (T7/RM2551)
 try:
     import pm_session  # registre seq / branches / worktrees (RM2034)
 except Exception:
     pm_session = None
 
-WORKLOG_DIR = os.path.expanduser("~/.claude/session-worklogs")
+# Surchargeable pour les tests : sans ça, éprouver le canal de notifications
+# écrirait dans le worklog RÉEL de la session en cours.
+# Transcripts claude — même résolution que le cockpit et pm-decisions.
+CLAUDE_STORES = [pathlib.Path(x).expanduser()
+                 for x in os.environ.get(
+                     "PM_CLAUDE_STORES", os.path.expanduser("~/.claude/projects")).split(":")
+                 if x.strip()]
+
+WORKLOG_DIR = os.path.expanduser(
+    os.environ.get("PM_SESSION_WORKLOG_DIR") or "~/.claude/session-worklogs")
 
 # statuts considérés comme terminés (filtrés hors du « reste à faire »)
 DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu", "resolu"}
@@ -43,6 +54,177 @@ WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
            "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
+# RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
+HORS_PROJET = "hors projet"
+
+# ─── canal « notifications importantes » (RM2466 volet 1) ────────────────────
+# Un incident notable finissait au mieux dans une phrase de réponse de l'agent,
+# et se perdait au premier défilement de la conversation. Ce canal le retient au
+# niveau SESSION, à côté des items de travail mais distinct d'eux.
+NOTIFY_LEVELS = ("info", "warn", "critical")
+NOTIFY_ICON = {"info": "ℹ️", "warn": "⚠️", "critical": "🔴"}
+# Typologie issue de RM2466. `kind` reste libre, mais nommer les cas que NORMS
+# impose de consigner évite que chaque agent invente son propre vocabulaire.
+NOTIFY_KINDS = {
+    "secret": "secret exposé (transcript, log, capture) — rotation à envisager",
+    "refus": "action refusée / permission manquante",
+    "garde-fou": "garde-fou déclenché (branche protégée, périmètre projet, worktree)",
+    "outillage": "outillage PM en défaut (un script ne fait pas ce qu'il annonce)",
+    "decision": "décision du demandeur attendue — l'avancement est bloqué",
+    "autre": "autre événement notable",
+}
+NOTIFY_KEEP = 100          # garde-fou de taille du canal
+
+
+# ─── registre des demandes (RM2621) ──────────────────────────────────────────
+# Une demande formulée en séance n'existait que dans le fil : non ticketée
+# sur-le-champ, elle disparaissait au premier défilement. Le worklog ne
+# connaissait que les tickets — c'est-à-dire ce qui avait DÉJÀ été formalisé.
+REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee",
+                  "non_demande")
+# Statuts qui sortent une demande du « reste à traiter » : elle a trouvé sa
+# suite. `nouveau` est le seul qui appelle encore une décision.
+# RM2635 : `non_demande` en fait partie, mais il ne dit PAS la même chose que
+# les autres. Ranger un collage de console dans `annulee` serait un mensonge de
+# classement — personne n'a rien annulé. Il lui faut son propre état, sinon le
+# tri se fait au prix d'une donnée fausse.
+REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee", "non_demande")
+REQUEST_ICON = {"nouveau": "🆕", "ticketee": "🎫", "repondu": "💬",
+                "annulee": "🚫", "fusionnee": "⛓", "non_demande": "🗒"}
+
+
+def request_open(requests):
+    """Demandes qui appellent encore une décision. Pure."""
+    return [r for r in (requests or []) if r.get("status", "nouveau") not in REQUEST_DONE]
+
+
+def request_count_by_state(requests):
+    """Décompte par statut. Pure — sert au worklog à afficher les non-demandes
+    à part plutôt que fondues dans « traité »."""
+    out = {}
+    for r in (requests or []):
+        st = r.get("status", "nouveau")
+        out[st] = out.get(st, 0) + 1
+    return out
+
+
+def request_apply(requests, ref, status, ticket=None, note=None, merged_into=None):
+    """Change le statut d'une demande. Rend (liste, trouvée). Pure.
+
+    `ref` est le numéro d'ordre affiché (1-based) : c'est ce que l'agent a sous
+    les yeux dans `show`, pas un identifiant interne qu'il faudrait retenir."""
+    out = [dict(r) for r in (requests or [])]
+    try:
+        i = int(str(ref)) - 1
+    except (TypeError, ValueError):
+        return out, False
+    if i < 0 or i >= len(out):
+        return out, False
+    if status:
+        out[i]["status"] = status
+    if ticket:
+        out[i]["ticket"] = str(ticket)
+    if note is not None:
+        out[i]["note"] = note
+    if merged_into:
+        out[i]["merged_into"] = str(merged_into)
+    return out, True
+
+
+def notify_open(notes):
+    """Notifications qui appellent encore quelque chose. Pure.
+
+    RM2715 : une notification consignée en séance restait au backlog pour
+    toujours, même traitée — celle du 14/08 disait encore « ticket à ouvrir »
+    alors que RM2691 l'avait été. Le canal `mrs` avait déjà tranché la question
+    (`mr_pending`) : ce qui est traité SORT de la liste sans SORTIR du store."""
+    return [n for n in (notes or []) if not n.get("resolved_at")]
+
+
+def notify_done(notes):
+    """L'archive : notifications traitées, gardées pour dire ce que la session a
+    réglé et par quoi. Pure."""
+    return [n for n in (notes or []) if n.get("resolved_at")]
+
+
+def notify_resolve(notes, ref, ticket=None, note=None, when=None):
+    """Marque une notification traitée, SANS la supprimer. Rend (liste, trouvée).
+    Pure.
+
+    `ref` est le numéro d'ordre affiché (1-based) par `--list`, comme pour les
+    demandes (`request_apply`) : l'agent n'a pas d'identifiant interne à retenir.
+    Ré-résoudre une notification déjà traitée met sa résolution à jour plutôt
+    que d'échouer — corriger un ticket mal saisi ne doit pas demander de ruse."""
+    out = [dict(n) for n in (notes or [])]
+    try:
+        i = int(str(ref)) - 1
+    except (TypeError, ValueError):
+        return out, False
+    if i < 0 or i >= len(out):
+        return out, False
+    out[i]["resolved_at"] = when or now()
+    if ticket:
+        out[i]["ticket"] = str(ticket)
+    if note is not None:
+        out[i]["resolution"] = note
+    return out, True
+
+
+def notify_trim(notes, keep=NOTIFY_KEEP):
+    """Rogne les plus anciennes au-delà de `keep`, mais JAMAIS une `critical` :
+    un secret exposé ne doit pas disparaître parce que la session a été bavarde.
+    RM2715 : à l'étroit, l'ARCHIVE est sacrifiée avant les notifications encore
+    ouvertes — une traitée a déjà servi, une ouverte appelle toujours quelque
+    chose. Pure (testable)."""
+    notes = list(notes or [])
+    if len(notes) <= keep:
+        return notes
+    crit = [n for n in notes if n.get("level") == "critical"]
+    reste = [n for n in notes if n.get("level") != "critical"]
+    ouvertes = [n for n in reste if not n.get("resolved_at")]
+    archive = [n for n in reste if n.get("resolved_at")]
+    room = max(0, keep - len(crit))
+    kept = crit + (ouvertes[-room:] if room else [])
+    room = max(0, keep - len(kept))
+    kept = kept + (archive[-room:] if room else [])
+    # ordre chronologique conservé, quel que soit le tri interne ci-dessus
+    return [n for n in notes if n in kept]
+
+
+# ─── canal « merge requests » (RM2583) ───────────────────────────────────────
+# Une session ouvre plusieurs MR au fil du travail (branche → dev, puis promotion
+# dev → main). Rien ne les récapitulait : une MR oubliée ne se voyait qu'au
+# prochain conflit, ou quand le core update ne contenait pas ce qu'on attendait.
+MR_OPEN_STATES = ("opened", "open", "reopened")
+
+
+def mr_upsert(mrs, entry):
+    """Ajoute ou met à jour une MR dans le canal, identifiée par (url) ou (iid,
+    repo). Une MR ne se duplique pas quand elle change d'état. Pure."""
+    mrs = [dict(m) for m in (mrs or [])]
+    for m in mrs:
+        same_url = entry.get("url") and m.get("url") == entry["url"]
+        same_iid = (entry.get("iid") and m.get("iid") == entry["iid"]
+                    and m.get("repo") == entry.get("repo"))
+        if same_url or same_iid:
+            m.update({k: v for k, v in entry.items() if v is not None})
+            return mrs
+    mrs.append({k: v for k, v in entry.items() if v is not None})
+    return mrs
+
+
+def mr_pending(mrs):
+    """Les MR qui restent à merger. Une MR mergée ou fermée SORT de cette liste
+    sans sortir du store : on veut pouvoir dire ce que la session a produit. Pure."""
+    return [m for m in (mrs or []) if (m.get("state") or "opened") in MR_OPEN_STATES]
+
+
+def notify_level_for(kind, level=None):
+    """Niveau d'une notification : explicite, sinon déduit du type. Un secret
+    exposé est critique par nature — ne pas compter sur l'agent pour y penser."""
+    if level:
+        return level
+    return "critical" if kind == "secret" else "warn"
 
 
 def now():
@@ -84,10 +266,10 @@ def save(data, live=None):
             data["docs"] = docs
     data["updated"] = now()
     jpath, mpath = paths(data["session_id"])
-    with open(jpath, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    with open(mpath, "w", encoding="utf-8") as f:
-        f.write(render_md(data, live=live))
+    # T7 : écriture atomique (temp + os.replace). Worklog per-session/per-user → pas de
+    # concurrence (donc pas de verrou), mais évite un fichier à moitié écrit au crash.
+    atomic_write(jpath, json.dumps(data, ensure_ascii=False, indent=2))
+    atomic_write(mpath, render_md(data, live=live))
 
 
 def find(data, ref):
@@ -155,6 +337,19 @@ def _read_fm_lists(path, fields):
     return res
 
 
+def project_from_task_path(path):
+    """`…/clients/<client>/projects/<projet>/tasks/RM123_x.md` → `<projet>`.
+
+    Best-effort : sert de repli quand l'item du worklog a été ouvert sans
+    `--project` (RM2724). Rend None si le chemin n'a pas cette forme."""
+    try:
+        parts = os.path.normpath(str(path)).split(os.sep)
+        i = len(parts) - 1 - parts[::-1].index("tasks")
+    except ValueError:
+        return None
+    return parts[i - 1] if i >= 1 else None
+
+
 def resolve_live(items):
     """map ref→{status,title} depuis le frontmatter des tâches (best-effort).
 
@@ -183,7 +378,7 @@ def resolve_live(items):
             docs = ([[d, "ref"] for d in lists["refs"]]
                     + [[d, "output"] for d in lists["outputs"]])
             live[ref] = {"status": st, "title": _read_fm_field(p, "title"),
-                         "docs": docs}
+                         "project": project_from_task_path(p), "docs": docs}
     return live
 
 
@@ -209,6 +404,55 @@ def render_md(data, live=None):
         out.append("**" + data["title"] + "**")
     suffix = " · live" if live else ""
     out.append("_maj : " + data["updated"] + suffix + "_\n")
+
+    # RM2583 : ce qui reste à merger — juste après les incidents, avant le travail
+    pending = mr_pending(data.get("mrs"))
+    if pending:
+        out.append("## 🔀 MR à merger (%d)" % len(pending))
+        for m in pending:
+            ref = (" **%s**" % m["ref"]) if m.get("ref") else ""
+            cible = (" → `%s`" % m["target"]) if m.get("target") else ""
+            url = (" %s" % m["url"]) if m.get("url") else ""
+            out.append("- `!%s`%s%s%s" % (m.get("iid", "?"), ref, cible, url))
+        out.append("")
+
+    # RM2621 : ce qui n'est pas encore ticketé passe en tête — c'est ce qui se
+    # perd, les tickets ont déjà leur existence propre.
+    ouvertes = request_open(data.get("requests"))
+    if ouvertes:
+        # RM2635 : le décompte des écartées reste visible. Sans lui, l'écart
+        # entre le registre et cette liste ressemblerait à une perte.
+        par_etat = request_count_by_state(data.get("requests"))
+        ecartees = par_etat.get("non_demande", 0)
+        out.append("## 📥 Demandes à traiter (%d)%s" % (
+            len(ouvertes),
+            (" _· %d écartée(s) : accusés, collages_" % ecartees) if ecartees else ""))
+        for r in ouvertes:
+            n = (data.get("requests") or []).index(r) + 1
+            out.append("- `#%d` %s _(%s)_" % (n, r.get("text", ""), r.get("ts", "")))
+        out.append("")
+
+    # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
+    # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
+    notes = data.get("notifications") or []
+    # RM2715 : le backlog ne montre que ce qui appelle encore quelque chose. Les
+    # traitées descendent en archive, en bas — sans disparaître.
+    ouvertes_n, traitees_n = notify_open(notes), notify_done(notes)
+    if ouvertes_n:
+        out.append("## 🔔 Notifications importantes (%d)%s" % (
+            len(ouvertes_n),
+            (" _· %d traitée(s)_" % len(traitees_n)) if traitees_n else ""))
+        for n in ouvertes_n[-20:]:
+            ref = (" **%s**" % n["ref"]) if n.get("ref") else ""
+            kind = (" `%s`" % n["kind"]) if n.get("kind") and n["kind"] != "autre" else ""
+            out.append("- `#%d` %s `%s`%s%s — %s _(%s)_" % (
+                notes.index(n) + 1,
+                NOTIFY_ICON.get(n.get("level"), "•"), n.get("level", "?"), kind, ref,
+                n.get("message", ""), n.get("ts", "")))
+        if len(ouvertes_n) > 20:
+            out.append("_(%d plus anciennes — `pm-session-status.py notify --list`)_"
+                       % (len(ouvertes_n) - 20))
+        out.append("")
 
     # Branches / worktrees ouverts par la session (RM2034). Lecture seule :
     # n'alloue pas de seq (affiché seulement si la session en a déjà un).
@@ -248,8 +492,10 @@ def render_md(data, live=None):
     def line(it):
         st = eff_status(it, live)
         lv = (live or {}).get(it["ref"])
-        label = it.get("label") or (lv["title"] if lv and lv.get("title") else it["ref"])
-        proj = (" _(%s)_" % it["project"]) if it.get("project") else ""
+        label = it.get("label")
+        if (not label or label == it["ref"]) and lv and lv.get("title"):
+            label = lv["title"]          # RM2724 : évite « RM2680 — RM2680 »
+        label = label or it["ref"]
         # dérive : le statut courant diffère de celui d'ouverture dans la session
         opened = it.get("opened_status") or it.get("status")
         drift = ""
@@ -258,16 +504,48 @@ def render_md(data, live=None):
         commit = (" · `%s`" % it["commit"]) if it.get("commit") else ""
         nxt = ("\n  → " + it["next"]) if it.get("next") else ""
         note = ("\n  ↳ " + it["note"]) if it.get("note") else ""
-        return "- `[%s]` **%s** — %s%s%s%s%s%s" % (
-            st, it["ref"], label, proj, drift, commit, nxt, note)
+        return "- `[%s]` **%s** — %s%s%s%s%s" % (
+            st, it["ref"], label, drift, commit, nxt, note)
+
+    # RM2724 : le projet portait en suffixe de ligne, invisible dès que la
+    # session mélange plusieurs projets. Il devient le titre du groupe.
+    def by_project(items):
+        groups, order = {}, []
+        for it in items:
+            lv = (live or {}).get(it["ref"]) or {}
+            proj = it.get("project") or lv.get("project") or HORS_PROJET
+            if proj not in groups:
+                groups[proj] = []
+                order.append(proj)
+            groups[proj].append(it)
+        # ordre d'apparition, sauf « hors projet » qui ferme la marche
+        order.sort(key=lambda p: p == HORS_PROJET)
+        lines = []
+        for proj in order:
+            if lines:
+                lines.append("")
+            lines.append("### %s" % proj)
+            lines += [line(i) for i in groups[proj]]
+        return lines
 
     out.append("## ⏳ Reste à faire")
-    out += [line(i) for i in todo] or ["_(rien)_"]
+    out += by_project(todo) or ["_(rien)_"]
     if wait:
         out.append("\n## ⏸️ En attente / bloqué")
-        out += [line(i) for i in wait]
+        out += by_project(wait)
     out.append("\n## ✅ Fait")
-    out += [line(i) for i in done] or ["_(rien)_"]
+    out += by_project(done) or ["_(rien)_"]
+
+    # RM2715 : l'archive des notifications, tout en bas — elle ne réclame rien,
+    # mais elle dit ce que la session a réglé et PAR QUOI (le ticket qui la porte).
+    if traitees_n:
+        out.append("\n## 🗄 Notifications traitées (%d)" % len(traitees_n))
+        for n in traitees_n[-10:]:
+            tk = (" → **%s**" % n["ticket"]) if n.get("ticket") else ""
+            why = (" _%s_" % n["resolution"]) if n.get("resolution") else ""
+            out.append("- %s%s%s — %s _(traitée %s)_" % (
+                NOTIFY_ICON.get(n.get("level"), "•"), tk, why,
+                n.get("message", ""), n.get("resolved_at", "")))
     return "\n".join(out) + "\n"
 
 
@@ -359,6 +637,273 @@ def cmd_title(data, args):
     pmout.op("worklog", extra="titre : %s" % args.title)
 
 
+# Messages qui ne sont pas des demandes : accusés de réception et relances. La
+# liste sert UNIQUEMENT au contrôle d'exhaustivité, pour ne pas crier au loup —
+# jamais à filtrer ce que l'agent enregistre. Un faux négatif ici ne cache rien :
+# il fait juste monter le nombre attendu, donc le bruit de l'audit. C'est le
+# faux POSITIF qui coûte : il escamote une vraie demande du décompte. En cas de
+# doute, ne pas élargir.
+REQUEST_ACK_RE = re.compile(
+    r"\A(ok|oui|non|go|vas[- ]?y|continue|enchaine[sz]?|merci|parfait|super|"
+    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b"
+    r"[\s!.,…]*(enchaine[sz]?|go|continue|la suite)?[\s!.…]*\Z",
+    re.I)
+
+# RM2635 : les verdicts. « ça a l'air bon ! tous les accents passent » n'est pas
+# une demande, mais l'expression anchorée ci-dessus ne l'attrape pas — un
+# verdict se prolonge presque toujours d'une observation. On tolère donc une
+# suite, à condition qu'elle ne demande rien.
+REQUEST_VERDICT_RE = re.compile(
+    r"\A([cç]?a (a l'air|semble) (bien|bon|ok)|c'est (bien|bon|ok|parfait)|"
+    r"nickel|impeccable|bien vu|core update( ?\+ ?reload)? (fait|faits|ok))\b", re.I)
+# Signaux qu'un message demande quelque chose. Sert de garde-fou dans les DEUX
+# sens : il empêche de prendre un verdict prolongé d'une consigne pour un simple
+# accusé, et il empêche de prendre pour un collage technique un message court
+# qui cite une erreur en demandant de la corriger.
+REQUEST_ASK_RE = re.compile(
+    r"\?|\b(fais|fait[- ]le|ajoute|corrige|fix|répare|repare|mets?|change|"
+    r"remplace|supprime|refais|relance|il faut|faudrait|ce serait bien|"
+    r"peux[- ]tu|pourrais|merge|prends|étudie|etudie|chiffre|regarde|vérifie|"
+    r"verifie|explique|montre)\b", re.I)
+
+# Enveloppes qui ne viennent pas du demandeur : résumé de compaction réinjecté
+# dans le fil, collage de console renvoyé à MA demande. Les compter comme des
+# demandes fait gonfler le registre de choses qui n'appellent aucune décision —
+# et un registre de 41 lignes dont 25 sont du bruit ne protège plus rien.
+REQUEST_PASTE_HEAD_RE = re.compile(
+    r"\A(this session is being continued|the summary below covers|"
+    r"caveat: the messages below|<[a-z-]+>)", re.I)
+REQUEST_PASTE_MARK_RE = re.compile(
+    r"debugger eval code:|\bat [\w.$<>]+ \([^)]*:\d+:\d+\)|\"keyCode\"|"
+    r"\"isComposing\"|console\.(log|error)\(|"
+    r"Traceback \(most recent call last\)|npm ERR!|\w+\.(js|py|php):\d+:\d+", re.I)
+
+
+def looks_like_paste(msg):
+    """Vrai si le message est une enveloppe technique et non une demande. Pure.
+
+    Deux marqueurs suffisent, MAIS jamais quand le message demande quelque
+    chose : « corrige ce TypeError at boot (app.js:12:3) » en porte deux et
+    reste une demande. Le faux négatif coûte une ligne à trier ; le faux
+    positif escamote une demande — c'est tout l'inverse de ce qu'on veut."""
+    m = str(msg or "")
+    if REQUEST_PASTE_HEAD_RE.match(m):
+        return True
+    if REQUEST_ASK_RE.search(m):
+        return False
+    return len(REQUEST_PASTE_MARK_RE.findall(m)) >= 2
+
+
+def request_is_noise(msg):
+    """Rend "ack", "paste" ou None. Pure — source unique pour l'audit ET
+    l'import, sinon l'audit réclamerait sans fin l'enregistrement de ce que
+    l'import refuse de prendre."""
+    m = " ".join(str(msg or "").split())
+    if not m:
+        return "ack"
+    if REQUEST_ACK_RE.match(m):
+        return "ack"
+    if REQUEST_VERDICT_RE.match(m) and not REQUEST_ASK_RE.search(m):
+        return "ack"
+    if looks_like_paste(m):
+        return "paste"
+    return None
+
+
+def transcript_user_messages(path):
+    """Messages utilisateur d'un transcript claude (JSONL), hors enveloppes
+    techniques. Pure quant au format ; lit un fichier."""
+    out = []
+    try:
+        fh = open(path, encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    with fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(o, dict) or o.get("type") != "user" or o.get("isMeta"):
+                continue
+            c = (o.get("message") or {}).get("content")
+            if isinstance(c, str):
+                txt = c
+            elif isinstance(c, list):
+                txt = "\n".join(b.get("text", "") for b in c
+                                 if isinstance(b, dict) and b.get("type") == "text")
+            else:
+                continue
+            txt = " ".join(str(txt).split())
+            if not txt or txt.startswith("<") or txt.startswith("Caveat"):
+                continue
+            out.append(txt)
+    return out
+
+
+def request_audit(messages, requests):
+    """RM2621 : compare ce que le demandeur a écrit à ce qui a été enregistré.
+
+    Ne juge PAS le contenu — il compte. Une règle NORMS réduit l'oubli, elle ne
+    le supprime pas, et un oubli ne laisse aucune trace : ce comptage est ce qui
+    transforme « je crois n'avoir rien oublié » en fait vérifiable. Pure."""
+    msgs = [m for m in (messages or [])]
+    bruit = [request_is_noise(m) for m in msgs]
+    attendus = [m for m, b in zip(msgs, bruit) if not b]
+    return {"messages": len(msgs), "acks": bruit.count("ack"),
+            "pastes": bruit.count("paste"),
+            "expected": len(attendus), "recorded": len(requests or []),
+            "gap": max(0, len(attendus) - len(requests or [])),
+            "samples": attendus[:40]}
+
+
+def cmd_request(data, args):
+    """RM2621 : enregistrer une demande, ou faire évoluer son statut."""
+    reqs = data.get("requests") or []
+    if args.list:
+        if not reqs:
+            pmout.info("aucune demande enregistrée dans cette session")
+            return
+        for i, r in enumerate(reqs, 1):
+            st = r.get("status", "nouveau")
+            sys.stdout.write("#%d [%s] %s%s — %s\n" % (
+                i, st, REQUEST_ICON.get(st, ""),
+                (" " + r["ticket"]) if r.get("ticket") else "", r.get("text", "")))
+        return
+    if args.audit:
+        sid = data["session_id"]
+        path = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None)
+        if not path:
+            pmout.fail("transcript introuvable pour la session %s" % sid)
+        rep = request_audit(transcript_user_messages(path), reqs)
+        sys.stdout.write(
+            "messages du demandeur : %d (dont %d accusés de réception, "
+            "%d collages/résumés)\n"
+            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"],
+                                               rep["pastes"], rep["recorded"]))
+        if rep["gap"]:
+            sys.stdout.write("\n⚠ écart de %d : des demandes n'ont probablement pas été "
+                             "enregistrées.\n  Messages à vérifier :\n" % rep["gap"])
+            enregistres = {r.get("text", "")[:60] for r in reqs}
+            for m in rep["samples"]:
+                if m[:60] not in enregistres:
+                    sys.stdout.write("   · %s\n" % m[:110])
+        else:
+            sys.stdout.write("\n✓ aucun écart détecté.\n")
+        return
+    if args.import_missing:
+        # RATTRAPAGE, pas le mode normal : reprend du transcript les messages
+        # absents du registre et les pose en « nouveau », à trier. Sert quand la
+        # règle n'était pas encore en place — la capture courante reste
+        # explicite, message par message.
+        sid = data["session_id"]
+        path = next((p for root in CLAUDE_STORES for p in root.glob(f"*/{sid}.jsonl")), None)
+        if not path:
+            pmout.fail("transcript introuvable pour la session %s" % sid)
+        connus = {r.get("text", "")[:60] for r in reqs}
+        ajout = 0
+        for m in transcript_user_messages(path):
+            if request_is_noise(m) or m[:60] in connus:
+                continue
+            reqs.append({"ts": now(), "text": " ".join(m.split())[:400],
+                         "status": "nouveau", "note": "importée du transcript (rattrapage)"})
+            connus.add(m[:60])
+            ajout += 1
+        data["requests"] = reqs
+        save(data)
+        pmout.op("worklog", extra="%d demande(s) importée(s) du transcript" % ajout)
+        return
+    if args.set:
+        # `--set` porte le numéro affiché par `show` / `--list`
+        reqs, ok = request_apply(reqs, args.set, args.status, args.ticket,
+                                 args.note, args.merged_into)
+        if not ok:
+            pmout.fail("demande #%s introuvable (voir `request --list`)" % args.set)
+        data["requests"] = reqs
+        save(data)
+        pmout.op("worklog", extra="demande #%s → %s" % (args.set, args.status or "màj"))
+        return
+    if not args.text:
+        pmout.fail("texte requis (ou --list / --set)")
+    reqs.append({"ts": now(), "text": " ".join(str(args.text).split())[:400],
+                 "status": args.status or "nouveau",
+                 **({"ticket": str(args.ticket)} if args.ticket else {}),
+                 **({"note": args.note} if args.note else {})})
+    data["requests"] = reqs
+    save(data)
+    pmout.op("worklog", extra="demande #%d enregistrée" % len(reqs))
+
+
+def cmd_notify(data, args):
+    """RM2466 volet 1 : consigner un événement notable au niveau session."""
+    notes = data.get("notifications") or []
+    if args.list:
+        if not notes:
+            pmout.info("aucune notification dans cette session")
+            return
+        for i, n in enumerate(notes, 1):
+            tags = " ".join(x for x in (n.get("kind"), n.get("ref")) if x)
+            # RM2715 : le numéro est ce que `--resolve` attend, et l'état dit
+            # d'un coup d'œil ce qui appelle encore quelque chose.
+            if n.get("resolved_at"):
+                etat = "✓ traitée%s" % ((" " + n["ticket"]) if n.get("ticket") else "")
+            else:
+                etat = "ouverte"
+            sys.stdout.write("#%d %s [%s] %s %s — %s\n" % (
+                i, n.get("ts", ""), n.get("level", "?"), etat, tags,
+                n.get("message", "")))
+        return
+    if args.resolve:
+        notes, ok = notify_resolve(notes, args.resolve, args.ticket, args.note)
+        if not ok:
+            pmout.fail("notification #%s introuvable (voir `notify --list`)" % args.resolve)
+        data["notifications"] = notes
+        save(data)
+        pmout.op("worklog", extra="notification #%s traitée%s" % (
+            args.resolve, (" → " + str(args.ticket)) if args.ticket else ""))
+        return
+    if args.clear:
+        # RM2715 : `--clear` DÉTRUIT — ce n'est pas « traiter » (→ `--resolve`,
+        # qui archive). Par défaut il ne vide donc que l'ARCHIVE : une
+        # notification encore ouverte ne doit pas disparaître d'un revers de
+        # main, pas plus qu'une `critical` (un secret exposé ne s'acquitte pas
+        # en vidant le canal).
+        kept = [] if args.all else [n for n in notes
+                                    if n.get("level") == "critical" or not n.get("resolved_at")]
+        removed = len(notes) - len(kept)
+        data["notifications"] = kept
+        save(data)
+        pmout.op("worklog", extra="%d notification(s) supprimée(s)%s" % (
+            removed, "" if args.all else ", %d conservée(s) (ouvertes + critiques)" % len(kept)))
+        return
+    if not args.message:
+        pmout.fail("message requis (ou --list / --clear)")
+    kind = args.kind or "autre"
+    note = {"ts": now(), "level": notify_level_for(kind, args.level), "kind": kind,
+            "ref": args.ref, "message": args.message}
+    data["notifications"] = notify_trim(notes + [note])
+    save(data)
+    pmout.op("worklog", extra="notification %s [%s] %s" % (
+        NOTIFY_ICON.get(note["level"], "•"), note["level"], args.message[:60]))
+    pmout.info("  · %s" % paths(data["session_id"])[1])
+
+
+def cmd_mr(data, args):
+    """RM2583 : refléter une MR ouverte / mergée / fermée dans le worklog."""
+    if args.list:
+        for m in (data.get("mrs") or []):
+            sys.stdout.write("!%s [%s] %s %s %s\n" % (
+                m.get("iid", "?"), m.get("state", "?"), m.get("ref") or "",
+                ("→ " + m["target"]) if m.get("target") else "", m.get("url") or ""))
+        return
+    entry = {"iid": args.iid, "url": args.url, "repo": args.repo,
+             "source": args.source, "target": args.target, "ref": args.ref,
+             "state": args.state or "opened", "ts": now()}
+    data["mrs"] = mr_upsert(data.get("mrs"), entry)
+    save(data)
+    pmout.op("worklog", extra="MR !%s %s" % (args.iid, entry["state"]))
+
+
 def main():
     p = argparse.ArgumentParser(description="Suivi d'avancement par session")
     p.add_argument("--session", help="override session id (défaut: $CLAUDE_CODE_SESSION_ID)")
@@ -392,6 +937,49 @@ def main():
     t = sub.add_parser("title", help="définir un titre de session")
     t.add_argument("title")
 
+    m = sub.add_parser("mr", help="refléter une MR dans le worklog (RM2583)")
+    m.add_argument("iid", nargs="?", help="numéro de la MR")
+    m.add_argument("--url")
+    m.add_argument("--repo", help="projet forge (path_with_namespace)")
+    m.add_argument("--source")
+    m.add_argument("--target")
+    m.add_argument("--ref", help="ticket concerné (ex: RM2583)")
+    m.add_argument("--state", choices=["opened", "merged", "closed"])
+    m.add_argument("--list", action="store_true")
+
+    rq = sub.add_parser("request", help="registre des demandes du demandeur (RM2621)")
+    rq.add_argument("text", nargs="?", help="la demande, telle qu'elle a été formulée")
+    rq.add_argument("--status", choices=REQUEST_STATES, help="défaut : nouveau")
+    rq.add_argument("--ticket", help="ticket qui la porte (ex: RM2621)")
+    rq.add_argument("--merged-into", dest="merged_into", help="numéro de la demande qui l'absorbe")
+    rq.add_argument("--note")
+    rq.add_argument("--set", help="numéro de la demande à faire évoluer (voir --list)")
+    rq.add_argument("--list", action="store_true", help="lister toutes les demandes")
+    rq.add_argument("--import-missing", dest="import_missing", action="store_true",
+                    help="RATTRAPAGE : importer du transcript les demandes absentes du registre")
+    rq.add_argument("--audit", action="store_true",
+                    help="comparer le registre au transcript (contrôle d'exhaustivité)")
+
+    n = sub.add_parser("notify", help="consigner un événement notable (RM2466)")
+    n.add_argument("message", nargs="?", help="texte court, factuel")
+    n.add_argument("--kind", choices=sorted(NOTIFY_KINDS),
+                   help="; ".join("%s = %s" % kv for kv in sorted(NOTIFY_KINDS.items())))
+    n.add_argument("--level", choices=NOTIFY_LEVELS,
+                   help="défaut : critical pour --kind secret, warn sinon")
+    n.add_argument("--ref", help="ticket concerné (ex: RM2466)")
+    n.add_argument("--list", action="store_true",
+                   help="lister les notifications (numéro + état)")
+    n.add_argument("--resolve",
+                   help="numéro de la notification traitée (voir --list) — elle sort "
+                        "du backlog et reste consultable en archive")
+    n.add_argument("--ticket", help="avec --resolve : ticket qui l'a portée (ex: RM2691)")
+    n.add_argument("--note", help="avec --resolve : comment elle a été traitée")
+    n.add_argument("--clear", action="store_true",
+                   help="SUPPRIMER l'archive (traitées). Pour marquer traité sans "
+                        "perdre la trace, voir --resolve")
+    n.add_argument("--all", action="store_true",
+                   help="avec --clear : supprimer AUSSI les ouvertes et les critiques")
+
     args = p.parse_args()
     pmout.configure(args)
     data = load(session_id(args.session))
@@ -400,7 +988,8 @@ def main():
     if cmd == "show" and not hasattr(args, "no_live"):
         args.no_live = False
     {"show": cmd_show, "refresh": cmd_refresh, "add": cmd_add, "set": cmd_set,
-     "rm": cmd_rm, "title": cmd_title}[cmd](data, args)
+     "rm": cmd_rm, "title": cmd_title, "notify": cmd_notify,
+     "mr": cmd_mr, "request": cmd_request}[cmd](data, args)
 
 
 if __name__ == "__main__":

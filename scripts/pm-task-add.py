@@ -39,7 +39,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
-from redmine_utils import create_redmine_issue
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
 
@@ -111,6 +111,23 @@ def slugify(s: str, maxlen: int = 50) -> str:
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-zA-Z0-9-]+", "-", s).strip("-").lower()
     return s[:maxlen].rstrip("-")
+
+
+# Titre markdown « Critères d'acceptation » : niveau libre, casse et accents
+# indifférents, apostrophe droite ou typographique, suffixe toléré (« … (DoD) »).
+# Jusqu'à 3 espaces d'indentation — au-delà, markdown y voit un bloc de code.
+CRITERIA_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s*crit[eè]res?\s+d['’]acceptation\b",
+                                 re.M | re.I)
+CODE_FENCE_RE = re.compile(r"^ {0,3}(```|~~~).*?^ {0,3}\1", re.M | re.S)
+
+
+def has_acceptance_criteria(desc: str) -> bool:
+    """La description fournit-elle déjà sa section de critères ?
+
+    Les blocs de code sont retirés d'abord : un titre qui s'y trouve est un
+    exemple cité, pas une section du ticket.
+    """
+    return bool(CRITERIA_HEADING_RE.search(CODE_FENCE_RE.sub("", desc or "")))
 
 
 def detect_project_from_cwd(cfg):
@@ -264,7 +281,7 @@ def main():
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
     target_author = None if args.initiator_agent else load_ia_manager_id()
-    rm_id = create_redmine_issue(
+    rm_id = get_task_provider().create_issue(
         project_id=rm_proj_id,
         tracker_id=tracker_id,
         priority_id=priority_id,
@@ -354,7 +371,14 @@ def main():
     }
     fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False).rstrip()
     desc = args.description or "_(pas de description fournie au moment de la création)_"
-    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
+    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
+    # Le gabarit n'est ajouté que si la description n'apporte pas déjà ses
+    # critères — sinon le ticket en portait DEUX sections, dont un « (à
+    # compléter) » que personne ne coche : done_ratio plafonné et pm-task-deliver
+    # qui refuse la livraison (RM2540, défaut vu sur tous les tickets créés avec
+    # --description-file).
+    if not has_acceptance_criteria(desc):
+        md += "\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
 
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)

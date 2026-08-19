@@ -48,12 +48,11 @@ def main():
            "--issue", str(args.rm_id), "--note", note]
     if args.private:
         cmd.append("--private")
-    # Use Karl (MAIN) as central account for PM operations
-    env = os.environ.copy()
-    main = env.get("REDMINE_USER_MAIN_API_KEY")
-    if main:
-        env["REDMINE_API_KEY"] = main
-    r = subprocess.run(cmd, env=env, check=False, capture_output=True, text=True)
+    # Identité par utilisateur (T1/RM2497) : on ne force PLUS karl. La clé perso du
+    # dev (REDMINE_API_KEY, ~/.config/mmi-pm/.env) est déjà dans l'environnement via
+    # PMConfig ; redmine-post-note.py la préfère (fallback karl). L'action est ainsi
+    # attribuée au bon compte. Le sous-process hérite de os.environ tel quel.
+    r = subprocess.run(cmd, check=False, capture_output=True, text=True)
     out.info((r.stdout or "").rstrip())
     if r.returncode != 0:
         out.fail(f"ERREUR redmine-post-note (exit {r.returncode}) :\n"

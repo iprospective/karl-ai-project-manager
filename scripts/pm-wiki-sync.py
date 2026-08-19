@@ -54,6 +54,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
+from pm_doc import get_doc_provider, DocProviderError  # seam DocProvider (P3/RM2545)  # noqa: E402
+from pm_lock import resource_lock, atomic_write, LockTimeout  # verrous par ressource (T7/RM2551)  # noqa: E402
 
 try:
     import yaml
@@ -206,42 +209,41 @@ def canonicalize_remote(text, human_title):
 
 
 # ── Accès Wiki Redmine ───────────────────────────────────────────────────
+# Les 4 primitives d'I/O documentaire délèguent au seam DocProvider (P3/RM2545,
+# backend wiki Redmine) tout en gardant leur contrat historique (mêmes retours,
+# sys.exit sur erreur). `url`/`key` restent dans la signature des appelants mais
+# le provider résout les creds lui-même (globaux — iso ; par instance = P4).
 def wiki_get(url, key, proj, title):
     """GET d'une page wiki. Retourne (exists, text, version)."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}/wiki/{title}.json", key)
-    if code == 200:
-        wp = body.get("wiki_page", {})
-        return True, wp.get("text", ""), wp.get("version")
-    if code == 404:
-        return False, "", None
-    sys.exit(f"ERREUR Redmine HTTP {code} sur GET wiki/{title} : {body.get('_error', '')}")
+    try:
+        return get_doc_provider().get_doc(proj, title)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def wiki_put(url, key, proj, title, text):
     """PUT (create/update) d'une page wiki. Retourne le code HTTP (200/201/204)."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}/wiki/{title}.json", key,
-                              {"wiki_page": {"text": text}})
-    if code not in (200, 201, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT wiki/{title} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_doc(proj, title, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 # ── Description native du projet (cible P3) ──────────────────────────────
 def proj_desc_get(url, key, proj):
     """Description native du projet Redmine (str, '' si vide). Sys.exit si HTTP≠200."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}.json", key)
-    if code != 200:
-        sys.exit(f"ERREUR Redmine HTTP {code} sur GET projet {proj} : {body.get('_error', '')}")
-    return (body.get("project", {}).get("description") or "")
+    try:
+        return get_doc_provider().get_project_description(proj)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def proj_desc_put(url, key, proj, text):
     """PUT partiel de la description du projet. Sys.exit si échec."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}.json", key,
-                              {"project": {"description": text}})
-    if code not in (200, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT projet {proj} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_project_description(proj, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def canonicalize_desc(text):
@@ -403,60 +405,37 @@ def git_push(repo):
 
 # ── Lock anti-concurrence (.wiki-sync/.lock) ─────────────────────────────
 class LockBusy(Exception):
-    """Levée quand un autre sync détient déjà le lock du projet (process vivant)."""
+    """Levée quand un autre sync du même projet tient déjà le lock au-delà du délai."""
 
 
 class ProjectLock:
     """Sérialise deux syncs concurrents d'un même projet (spec §9).
 
-    Lock-file `.wiki-sync/.lock` (gitignore'd) créé en O_EXCL. Un lock détenu par
-    un PID mort est volé (récupération après crash). Un lock vivant → LockBusy.
-    """
+    Généralisé sur pm_lock (T7/RM2551) : verrou `flock` sur `.wiki-sync/.lock`,
+    libéré par le NOYAU à la mort du process → plus de vol-de-lock par sonde PID
+    (supprime le TOCTOU RM1834). Contention = attente bornée ; au-delà de `timeout`,
+    LockBusy → le projet est skippé et re-tenté au sync suivant (skip préservé)."""
 
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, *, timeout=10.0):
         self.path = state_dir / ".lock"
         self.state_dir = state_dir
-        self.acquired = False
+        self._timeout = timeout
+        self._cm = None
 
     def __enter__(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        self._cm = resource_lock(self.path, timeout=self._timeout)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            if not self._stale():
-                raise LockBusy(str(self.path))
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        os.close(fd)
-        self.acquired = True
+            self._cm.__enter__()
+        except LockTimeout as e:
+            self._cm = None
+            raise LockBusy(str(self.path)) from e
         return self
 
-    def _stale(self):
-        """True si le lock pointe un PID absent/illisible (donc volable)."""
-        try:
-            pid = int(self.path.read_text(encoding="utf-8").strip() or "0")
-        except (OSError, ValueError):
-            return True
-        if pid <= 0:
-            return True
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False  # process vivant (autre utilisateur) → pas volable
-        return False
-
     def __exit__(self, *exc):
-        if self.acquired:
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
+        if self._cm is not None:
+            self._cm.__exit__(*exc)
+            self._cm = None
         return False
 
 
@@ -473,9 +452,9 @@ def load_state(state_dir):
 
 def save_state(state_dir, state):
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "state.json").write_text(
-        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8")
+    atomic_write(  # T7 : écriture atomique — jamais de state.json à moitié écrit
+        state_dir / "state.json",
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 # ── Collecte des aspects ─────────────────────────────────────────────────
@@ -737,7 +716,7 @@ def notify_conflict(a, conflict_path, rproj, url, key, dry=False):
         return
     if rm_ticket:
         try:
-            rm.add_issue_note(int(rm_ticket), msg)
+            get_task_provider().add_note(int(rm_ticket), msg)
             print(f"     → notif postée sur RM{rm_ticket}")
         except SystemExit:
             print(f"     ⚠ notif RM{rm_ticket} échouée (note non postée)", file=sys.stderr)

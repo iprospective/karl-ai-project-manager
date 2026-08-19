@@ -313,6 +313,32 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ---
 
+## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence
+
+Jalon d'architecture **majeur** : le PM passe de *mono-`karl` / single-writer global* à
+*multi-développeur à données communes partagées, accès concurrent sérialisé par ressource*.
+Aboutissement de la convergence **RM2438**. Publié avec **T6 (RM2502)** et **T7 (RM2551)**.
+Le détail normatif est versionné à part (**NORMS v2.0.0**, cf. `norms/CHANGELOG.md`).
+
+### Architecture
+- **Multi-utilisateur au niveau OS** (T6/RM2502) : comptes de rôle `<dev>-pm` dans un groupe
+  **`pm`** ; données communes partagées (squelette `2750` non group-writable, churn `2770`/`2775`
+  setgid **jamais sticky**, bares `core.sharedRepository=group`) → écriture multi-dev **sans
+  sudo**. Opérations privilégiées (prod `.mmi-pm-core` root-owned, branches protégées, tokens,
+  systemd/cron) via **`sudo` humain** — **pas de compte `karl-sudo`**.
+- **Secrets 3 niveaux** : perso `~/.config/mmi-pm/.env` (`600`, par dev, attribution) > instance
+  `pm.env` (non-secret) > commun `.env` (secrets de service / fallback karl, `640 root:pm`).
+- **Contrôle de concurrence** (T7/RM2551) : verrous **par ressource** (`flock` par ticket,
+  écritures atomiques `os.replace`) remplaçant le single-writer global ; verrou optimiste
+  `updated` = arbitre inter-machine ; `pm-lock-gc` (cron) = filet post-crash.
+
+### Outillage
+- **`pm-perms`** : enforcer idempotent et **committé** du modèle de perms multi-user (dossiers
+  + fichiers env communs → `root:pm 640` sous `--var`) — remplace les runbooks scratchpad,
+  source de dérive.
+
+---
+
 ## [1.12.1] - 2026-07-20 — Garde de cible pm-branch-start
 
 ### Outillage

@@ -29,6 +29,11 @@ dans un onglet. On y trouve ce que la carte repliée ne pouvait pas porter : des
 confortable, et sous « Options » la passe agent-testeur, l'environnement cible,
 l'estimation (temps humain, temps IA) et la difficulté.
 
+La cible se choisit en deux temps : **un client**, puis **ses projets** en boutons
+radio. Le client par défaut est celui du contexte client du cockpit (menu en
+en-tête) ; en changer ne touche à rien d'autre du formulaire — la saisie en cours
+reste.
+
 À la création, le ticket créé s'ouvre dans sa fiche — l'onglet de création se referme.
 
 La carte **« Nouveau ticket (saisie éclair) »** du panneau gauche reste là pour noter

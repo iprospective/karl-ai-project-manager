@@ -2388,3 +2388,50 @@ const fEdit = ruleFormHtml2741({ client: "acme" }, false, 5);
 assert(!/id="rf-name"/.test(fEdit) && !/id="rf-seed"/.test(fEdit),
   "édition d'une règle existante : ni nom ni peuplement");
 console.log("✓ barre des jeux (RM2741) : relancer restreint et compté, création unifiée");
+
+// — RM2744 : tableau de bord — contenu atteignable, onglet permanent —
+const ensureDashTab = grabO("ensureDashTab");
+
+// l'onglet est toujours là, toujours en tête, jamais en double
+let dtabs = ensureDashTab([]);
+assert.equal(dtabs.length, 1, "l'onglet du tableau de bord doit exister même sans rien d'ouvert");
+assert.equal(dtabs[0].kind, "dash");
+assert(dtabs[0].pinned && dtabs[0].fixed, "il est épinglé et permanent");
+dtabs = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true },
+                       { kind: "dash", key: "", label: "vieux libellé", pinned: true, fixed: true }]);
+assert.equal(dtabs.length, 2, "pas de doublon après restauration du localStorage");
+assert.equal(dtabs[0].kind, "dash", "il revient en tête");
+assert.equal(dtabs[0].label, "tableau de bord", "son libellé est celui du code, pas celui du storage");
+assert.equal(dtabs[1].kind, "review", "les autres onglets sont conservés dans l'ordre");
+
+// il ne se ferme pas — et reste la destination de la fermeture des autres
+const closeTabAt2744 = grabFn("closeTabAt");
+const withDash = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true }]);
+const kept = closeTabAt2744(withDash, "dash:", "dash:");
+assert.equal(kept.tabs.length, 2, "fermer l'onglet permanent ne doit rien fermer");
+assert.equal(kept.active, "dash:", "et ne change pas l'onglet actif");
+const after = closeTabAt2744(withDash, "review:2744", "review:2744");
+assert.deepEqual(after.tabs.map(t => t.kind), ["dash"], "le dernier autre onglet se ferme");
+assert.equal(after.active, "dash:", "on retombe sur le tableau de bord, jamais sur rien");
+
+// rendu : icône, ni croix ni épingle sur l'onglet permanent
+const dashHtml = renderCenterTabs(withDash, "dash:", escFn, jargFn);
+assert(/📊/.test(dashHtml), "icône du tableau de bord attendue");
+assert(!/closeTab\('dash:'\)/.test(dashHtml), "l'onglet permanent ne doit pas offrir de croix");
+assert(!/togglePin\('dash:'\)/.test(dashHtml), "ni d'épingle");
+assert(/closeTab\('review:2744'\)/.test(dashHtml), "les autres onglets gardent leur croix");
+assert(/activateTab\('dash:'\)/.test(dashHtml), "cliquer l'onglet doit rouvrir le tableau de bord");
+assert(/tableau de bord — toujours là/.test(dashHtml), "son infobulle doit dire qu'il est permanent");
+
+// le correctif d'affichage : la colonne doit pouvoir contraindre son enfant
+// scrollable (min-height:0), et le centrage ne doit pas manger le haut
+assert(/\.termarea \{[^}]*min-height: 0/.test(html),
+  "sans min-height:0 sur la colonne, l'enfant en overflow-y:auto ne défile pas : il déborde");
+const phCss = /\.placeholder \{[^}]*\}/.exec(html)[0];
+assert(/justify-content: safe center/.test(phCss),
+  "un conteneur qui défile ET centre coupe le haut de son contenu : centrage sûr attendu");
+assert(/\.placeholder\.dash-on \{[^}]*justify-content: flex-start/.test(html),
+  "ceinture : le tableau de bord rendu aligne en haut, même sans support de `safe`");
+assert(/ph\.classList\.add\("dash-on"\)/.test(html) && /ph\.classList\.remove\("dash-on"\)/.test(html),
+  "la classe doit être posée ET retirée par le rendu du tableau de bord");
+console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanent non fermable");

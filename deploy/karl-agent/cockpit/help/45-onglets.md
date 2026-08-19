@@ -1,16 +1,22 @@
 # Onglets du panneau central
 
-Le panneau central affiche **une vue à la fois** : un terminal de session, la fiche
-d'un ticket, une fiche projet, ou la création de ticket. Les onglets, en haut, gardent
-sous la main celles que tu veux retrouver.
+Le panneau central affiche **une vue à la fois** : le tableau de bord, un terminal de
+session, la fiche d'un ticket, une fiche projet, ou la création de ticket. Les onglets,
+en haut, gardent sous la main celles que tu veux retrouver.
+
+## 📊 tableau de bord — l'onglet permanent
+
+Le premier onglet est **toujours là** : il rouvre le tableau de bord (« ce qui requiert
+ton attention »). Il ne se ferme pas et ne se détache pas — c'est aussi le point de
+retour quand tu fermes le dernier autre onglet.
 
 ## Épinglé ou pas — la règle
 
 - Une vue que tu ouvres devient un onglet **temporaire** (en italique). Il n'y en a
   **qu'un seul** : la vue suivante prend sa place.
 - **⇧ Épingler** le fige : il reste, et les temporaires défilent à côté.
-- **✕** ferme l'onglet. L'onglet voisin prend le relais ; s'il n'y en a plus, on revient
-  à l'écran d'accueil.
+- **✕** ferme l'onglet. L'onglet voisin prend le relais ; quand il n'y a plus rien
+  d'autre, on retombe sur le tableau de bord.
 
 C'est ce qui évite de recréer la barre d'onglets de sessions retirée parce qu'elle
 devenait illisible dès trois projets : la liste de référence des sessions reste la

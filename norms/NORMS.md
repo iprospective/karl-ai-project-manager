@@ -1,10 +1,10 @@
 ---
-schema_version: "1.71.0"
+schema_version: "2.0.0"
 updated: 2026-08-18
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.71.0
+# Normes de gestion des tâches — v2.0.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -91,9 +91,11 @@ Les tripwires **structurels** (propriété exclusive du fichier, optimistic lock
 
 **Redmine est le mutex. Les fichiers MD sont le contexte de travail.**
 
-L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+L'assignation d'un ticket Redmine à un agent lui confère la **propriété** du fichier MD correspondant (coordination de 1er niveau) ; en multi-dev, l'accès concurrent réel est **sérialisé par ressource** (`flock`), pas garanti par un unique écrivain.
 
 L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). Ce qui doit être coordonné, c'est uniquement l'accès aux fichiers.
+
+**Multi-utilisateur (v2.0.0) :** données communes partagées (groupe `pm`), accès concurrent **sérialisé par ressource** (`flock`), karl = admin via `sudo` humain. → `modules/collaboration.md`.
 
 ### Règles d'écriture
 
@@ -107,7 +109,7 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 
 ### Protocole optimistic locking
 
-Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+Filet inter-machine contre les écritures simultanées ; complète les verrous `flock` (même machine). Rare si propriété et verrous sont respectés.
 
 ```
 1. Agent lit le fichier, note la valeur courante de updated (T1)
@@ -1851,6 +1853,23 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
+### Identités & transport forge (multi-utilisateur) — v2.0.0
+
+En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+
+- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+
 ### Workflow de développement (par ticket)
 
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
@@ -2969,6 +2988,27 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+### Multi-utilisateur & concurrence — v2.0.0
+
+Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes données communes
+(arbo des tâches, dépôts `*-core`, docs). Le modèle mono-`karl` / *single-writer global* est
+remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
+
+- **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
+  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+- **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
+  **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
+- **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),
+  churn (`.mmi-pm/`, `tasks/`, `docs/`, `envs/`) `2770`/`2775` setgid **jamais sticky** (sticky ⊥
+  rename-overwrite atomique → `EPERM`), bares `core.sharedRepository=group` (commits multi-dev sans
+  sudo). Contenu de travail (`envs/<ticket>`) = au créateur. Enforcement idempotent committé :
+  **`pm-perms`**, jamais un runbook jetable.
+- **Sérialisation par ressource.** `flock` par ticket (`var/locks/`) + écritures atomiques
+  `os.replace` remplacent le single-writer ; contention = écriture **différée** bornée, pas rejetée ;
+  crash-safe (`flock` libéré par le noyau ; FS local, pas NFS) ; `pm-lock-gc` (cron) nettoie les
+  anomalies sans casser un verrou vivant. Le verrou optimiste `updated` reste l'arbitre
+  **inter-machine**. Détail : tripwires du KERNEL (§ Propriété, verrou & journal).
 > 📂 **Module `summarizer` — quand lire ceci :** je génère les fichiers auto-générés (Changelog / Pistes / Remarques).
 > **Outils :** — · **Préchargé par :** summarizer.
 

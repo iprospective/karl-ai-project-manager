@@ -1,5 +1,32 @@
 # Changelog des normes
 
+## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence (jalon majeur)
+
+Bump **majeur** : bascule du modèle *mono-`karl` / single-writer global* vers
+*identité par dev / accès concurrent sérialisé par ressource*. Publié avec la
+livraison **T6 (RM2502)** + **T7 (RM2551)** de la convergence **RM2438**.
+
+### Ajouté
+- **collaboration** — nouvelle section **« Multi-utilisateur & concurrence »** :
+  identité par dev (cascade `os.environ` > perso `~/.config/mmi-pm/.env` > instance
+  `pm.env` > commun `.env`) ; `karl` = persona/admin, ops privilégiées via **`sudo`
+  humain** (pas de `karl-sudo`) ; données communes en **groupe `pm`** (squelette
+  `2750` non group-writable, churn `2770`/`2775` setgid **jamais sticky**, bares
+  `sharedRepository=group`), enforcement idempotent committé (`pm-perms`) ;
+  **sérialisation par ressource** (`flock` par ticket + écritures atomiques) qui
+  remplace le single-writer global.
+- **git-mep** — section **« Identités & transport forge (multi-utilisateur) »** :
+  identité forge **par dev + fallback karl** (`<FORGE>_<ROLE>_TOKEN`) ; transport
+  **SSH-first, token en repli** (alias SSH canonique + `insteadOf` global) ;
+  abstraction forge GitLab/Gogs/GitHub (`pm_forge`, `git config pm.forge`).
+
+### Modifié
+- **KERNEL** (§ Propriété, verrou & journal) — **tripwire single-writer reciblé** :
+  d'« un seul writer » à « **isolation par ticket + sérialisation par ressource** ».
+  La propriété par assignation reste la coordination de 1er niveau ; l'optimistic
+  locking `updated` **complète** les verrous `flock` (même machine) et reste
+  l'arbitre **inter-machine**.
+
 ## [1.71.0] - 2026-08-18
 
 ### Ajouté

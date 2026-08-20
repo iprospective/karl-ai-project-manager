@@ -43,4 +43,6 @@ scripts/pm-project-new.py --client X --slug Y --name "..." --workspace /path --r
 
 ## Notes
 
+**Branches protégées (RM2057)** : une fois le dépôt `-core` publié, le script applique `pm-protect` au dépôt créé et aux dépôts de code du workspace (`repos/*.git`) qui ont déjà un remote de forge. Étape non bloquante — si elle échoue (droits *manager* manquants, forge tierce), le projet est créé quand même et la commande de rattrapage est affichée : `pm-protect.py --repo <dépôt>`.
+
 Utilise `REDMINE_USER_MAIN_API_KEY` (Karl) pour les ops Redmine de meta (création projet, memberships). Le `--redmine-parent` peut être un id numérique ou un identifier (ex `outils`). Le bootstrap est `--yes` par défaut (tâches default_checked applicables uniquement), `--interactive-bootstrap` pour choisir.

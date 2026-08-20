@@ -14,6 +14,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **« ⤢ au centre » échouait en « worktree hors du périmètre »** (RM2761) : ouvrir un
+  fichier au centre commence par **détacher** la session et fermer la fiche projet — or
+  la requête n'était construite qu'après, en relisant un contexte que ce détachement
+  venait de vider. Elle partait donc sans portée (`sid=` seul) et le serveur refusait le
+  worktree, à juste titre. La portée est désormais **capturée au clic**, transportée
+  avec la vue et mémorisée dans la clé d'onglet — donc rejouée à la réactivation et
+  après un rechargement de page. Elle garde les **deux** droits quand ils existent
+  (session *et* projet, dont le serveur fait l'union) : le `sid` couvre les worktrees
+  hors projet, `client/projet` survit à la mort de la session.
 - **Déverrouiller le coffre et charger une clé SSH depuis le cockpit** (RM2748) :
   le coffre de secrets se referme tout seul (inactivité, verrouillage nocturne,
   redémarrage) et l'agent SSH démarre vide. Jusqu'ici le cockpit ne savait que

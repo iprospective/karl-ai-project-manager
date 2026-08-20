@@ -509,6 +509,39 @@ def test_link_note_carries_the_url():
                                  "https://tasks.example/issues/2618"]
 
 
+# ── piège YAML 1.1 sur la clé `on` (RM2657) ────────────────────────────────
+
+def test_push_triggers_reads_the_three_forms():
+    """`on:` non quoté est chargé comme le booléen True par YAML 1.1.
+
+    Un `push: {on: [ferme]}` écrit de bonne foi n'activerait rien sans ça — et en
+    silence, ce qui est le pire des deux échecs : on croit la synchro active.
+    """
+    import yaml
+    from pm_registry import Instance, Resolution
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+
+    charge = yaml.safe_load("push: {on: [ferme]}")
+    assert True in charge["push"], "YAML 1.1 : la clé devrait être le booléen"
+    assert pm_partner.push_triggers(
+        Resolution(inst, sync=charge, role="secondary")) == ["ferme"]
+
+    for sync in ({"push": {"on": ["ferme"]}}, {"push": {"on_status": ["ferme"]}}):
+        assert pm_partner.push_triggers(
+            Resolution(inst, sync=sync, role="secondary")) == ["ferme"]
+
+
+def test_push_stays_disabled_by_default():
+    """Aucune clé, liste vide ou `push: true` → rien ne part chez le partenaire."""
+    from pm_registry import Instance, Resolution
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    for sync in ({}, {"push": {}}, {"push": {True: []}}, {"push": True},
+                 {"push": {"on_status": []}}):
+        res = Resolution(inst, sync=sync, role="secondary")
+        assert pm_partner.push_triggers(res) == []
+        assert not pm_partner.should_push(res, "ferme")
+
+
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
 
 if __name__ == "__main__":

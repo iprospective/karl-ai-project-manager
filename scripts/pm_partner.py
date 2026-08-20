@@ -434,11 +434,24 @@ _CLOSE_LABELS = {
 
 
 def push_triggers(resolution):
-    """Statuts NORMS qui déclenchent une note chez ce secondaire (vide = jamais)."""
+    """Statuts NORMS qui déclenchent une note chez ce secondaire (vide = jamais).
+
+    Piège YAML 1.1 : dans `push: {on: [ferme]}`, la clé `on` est chargée comme le
+    **booléen True**, pas comme la chaîne « on » (idem `yes`/`no`/`off`). Une conf
+    écrite ainsi n'activerait donc jamais rien — silencieusement, ce qui est le pire
+    des deux échecs possibles. On lit les deux clés. La forme recommandée est
+    `on_status:`, insensible au piège ; `"on"` et `True` restent acceptés pour les
+    confs déjà écrites (RM2657).
+    """
     push = (resolution.sync or {}).get("push") or {}
     if push is True:                     # `push: true` = tolérance de conf, pas un défaut
         return []
-    return [str(s) for s in (push.get("on") or [])]
+    states = push.get("on_status")
+    if states is None:
+        states = push.get("on")
+    if states is None:
+        states = push.get(True)          # `on:` non quoté → clé booléenne
+    return [str(s) for s in (states or [])]
 
 
 def should_push(resolution, status):

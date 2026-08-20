@@ -9,61 +9,15 @@ staging, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
 **Format** : frontmatter avec liste `environments[]`, chaque entrée décrivant un env.
 Voir `templates/aspects/common/environments.md`.
 
-**Énumération des noms d'env standard :**
-`local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
-
-> **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
-> l'env de non-régression avant prod, déployé depuis **`preprod_branch`** quand le projet
-> est en **flux 3 branches** (opt-in, RM2030), **sinon** depuis `integration_branch`
-> (modèle 2 branches). **Valeur
-> canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
-> id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
-> de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées
-> distinctes pour ce rôle.
-
-Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-archive`,
-`prod-canary`).
-
-**Champs par environnement :**
-- `name` (obligatoire, enum ci-dessus)
-- `status` : `active | disabled | planned`
-- `url`, `admin_url` : URLs publiques/admin
-- `ssh_alias` : **alias SSH** `~/.ssh/config` (avec `ProxyJump`/`HostName`/`User`/clés
-  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `calicote-presta`.
-- `ssh_target` : **cible SSH explicite** `user@hostname` (fallback quand aucun alias
-  n'est défini). Ex: `calicote@srv1.sfy-gestion.com`.
-- `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
-  branche déployée
-- `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
-- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
-- `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
-  env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
-  déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
-  Deux règles **impératives** :
-  - **Déclaratif, NON auto-exécuté** : ce champ *documente* les commandes ; aucun outil
-    ne les lance automatiquement pour l'instant. Un humain les exécute délibérément. Sur
-    la prod, toute commande modifiant l'état exige le **consentement explicite** (cf.
-    « Règle de sécurité prod »).
-  - **Chemins ABSOLUS obligatoires** : ancrer chaque chemin sur `app_path`. Un
-    `rm -rf var/cache/*` *relatif* vise `/var/cache` (dossier système Linux) s'il est
-    lancé du mauvais cwd — écrire `rm -rf /home/<user>/public_html/var/cache/*`.
-- `notes` : libre
+**Format des entrées** — noms d'env admis, champs (`ssh_alias`, `post_deploy`,
+`logs.*`, `env_vars[]`…) et conventions de chemins : `modules/environments-reference.md`
+(hors précharge, ouvert quand on écrit l'aspect).
 
 **Connexion SSH (règle d'usage)** : pour se connecter à un env, utiliser **`ssh_alias`
 s'il est renseigné** (il porte les `ProxyJump`/clés de `~/.ssh/config` — cf. convention
 OVH « alias = nom du conteneur »), **sinon `ssh_target`** (`user@hostname` explicite).
 `host`/`user` restent indicatifs (préfixe des logs distants, contexte) et ne sont pas la
 commande de connexion.
-
-**Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
-l'host si le fichier est sur une machine distante (`<host>:<path>`).
-- `logs.app` : log applicatif (Symfony/PrestaShop, ex: `var/logs/prod.log`).
-- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/calicote-74.error.log`).
-- `logs.access` : access log du serveur web. **Convention prod iProspective (OVH)** :
-  un fichier par vhost sur le serveur hébergeur, à
-  `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`).
-  Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
-  de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
 
 **Cascade** : un `environments.md` peut exister au niveau client (conventions par défaut
 sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
@@ -88,9 +42,6 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 > (idempotent, le helper réécrit le `DocumentRoot`), au lieu d'échouer en `rc=128`.
 > Résolveur partagé : `pm-env-session.worktree_for_branch()`.
 
-**Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
-description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
-soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 
 ### Gestion des secrets — vaults déclarés
 

@@ -25,6 +25,7 @@ sources:
   - modules/traceability.md
   # --- environnements ---
   - modules/environments.md
+  - modules/environments-reference.md   # RM2755 : format de l'aspect, hors précharge
   # --- rôles ---
   - modules/collaboration.md
   - modules/summarizer.md

@@ -1,10 +1,10 @@
 ---
-schema_version: "2.0.0"
+schema_version: "2.1.0"
 updated: 2026-08-18
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.0.0
+# Normes de gestion des tâches — v2.1.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -2865,7 +2865,7 @@ Organization iProspective
 
 | Action | Outil | Acteur |
 |---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) | toi (humain) |
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) ou, dans le **cockpit**, le bouton **🔓 déverrouiller** de l'en-tête, qui n'apparaît que si un coffre est fermé (RM2748) | toi (humain) |
 | Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
 | Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
 | Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
@@ -2882,7 +2882,9 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 **Règles strictes :**
 1. Un agent ne demande **jamais** le secret de déverrouillage (master password,
    passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
-   `unlock-vault.sh` » et attend
+   `unlock-vault.sh`, ou déverrouille depuis le cockpit » et attend. Le mode non
+   interactif (`--stdin`) existe pour un appelant qui **transmet** un secret déjà saisi
+   par l'humain (le cockpit) — jamais pour qu'un agent en fabrique ou en réutilise un
 2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
    inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
    d'identifiants trouvées, jamais leurs valeurs

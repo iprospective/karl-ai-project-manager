@@ -1,5 +1,15 @@
 # Changelog des normes
 
+## [2.1.0] - 2026-08-20 — Déverrouillage du coffre depuis le cockpit
+
+### Ajouté
+- **environments** — le **cockpit** devient un chemin de déverrouillage légitime, à
+  côté de `unlock-vault.sh` : bouton **🔓 déverrouiller** de l'en-tête, visible
+  uniquement quand un coffre est fermé ou que l'agent SSH est vide (RM2748). La règle
+  inchangée : c'est **l'humain** qui saisit, jamais l'agent qui demande. Le mode
+  `unlock-vault.sh --stdin` sert à *transmettre* un secret déjà saisi par l'humain —
+  pas à en fabriquer un.
+
 ## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence (jalon majeur)
 
 Bump **majeur** : bascule du modèle *mono-`karl` / single-writer global* vers

@@ -1,5 +1,32 @@
 # Changelog des normes
 
+## [2.5.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
+
+### Déplacé (aucune règle perdue)
+- **environments → environments-reference** (RM2755) — l'énumération des noms d'env,
+  la liste des champs (`ssh_alias`, `post_deploy`, `logs.*`), les conventions de chemins
+  et le tableau `env_vars[]` passent dans un module **hors précharge**, ouvert par le
+  déclencheur « j'écris ou j'édite un aspect `environments.md` ». C'est de la **forme**
+  de fichier : on la consulte quand on écrit l'aspect, pas à chaque tâche. Les **règles
+  d'usage** restent préchargées dans `environments.md` — quelle commande de connexion
+  (`ssh_alias` puis `ssh_target`), la cascade client→projet, `target_env`/`test_url`,
+  la résolution du worktree par branche (RM2394) et toute la gestion des secrets.
+  Le module préchargé porte un renvoi explicite vers la référence.
+
+- **structure-reference → project-modeling** (RM2755) — le § « Contacts d'un client »
+  (`meta.yml :: contacts[]`) rejoint la modélisation d'entité, où il a toujours eu sa
+  place : ce n'est pas de la résolution de chemins. Déclencheur ajouté au KERNEL
+  (« je note / cherche un contact d'un client ») et renvoi laissé sur place.
+  Motif : `structure-reference` avait franchi le plafond des 5 000 tokens par module
+  préchargé en accueillant le pont d'onboarding (RM1892, v2.4.0).
+
+### Pourquoi
+La précharge `worker-dev` était remontée à 26 496 tokens sur 29 000 — 91,4 %, au-delà
+de la marge de 10 % qu'impose `test_norms_precharge.py`. Cette marge n'est pas un
+confort : RM2582 l'a instaurée après avoir touché le plafond « à 2 tokens près », état
+où la limite ne signale plus une dérive mais **bloque l'écriture de la règle suivante**.
+Retour à 25 661 tokens (88,5 %). La méthode est celle de RM2582 : sortir le mode
+d'emploi, jamais raboter une règle.
 ## [2.4.0] - 2026-08-20 — Le pont d'onboarding des workspaces
 
 ### Ajouté

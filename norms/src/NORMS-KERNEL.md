@@ -41,7 +41,9 @@
 | un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
+| je note / cherche un contact d'un client | `modules/project-modeling.md` (§ Contacts) | `pm-client-contact` |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
+| j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |

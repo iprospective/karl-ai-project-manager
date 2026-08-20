@@ -65,6 +65,22 @@ from pm_task_md import (  # noqa: E402  (re-exportés : d'autres scripts les imp
     build_frontmatter, has_acceptance_criteria, render_log, render_md, slugify,
 )
 
+# RM2752 — valeurs acceptées par validate-task.py pour `bug.reproducibility`.
+# Deux listes qui divergeraient, c'est un ticket refusé à la validation sans que
+# rien ne l'ait dit à la création : test_pm_task_add_bugfix.py les garde alignées.
+VALID_REPRODUCIBILITIES = ("always", "often", "sometimes", "rarely", "never")
+
+
+def _with_bug(fm, reproducibility, steps):
+    """Insère le bloc `bug` juste après `type`, sans réordonner le reste."""
+    out = {}
+    for k, v in fm.items():
+        out[k] = v
+        if k == "type":
+            out["bug"] = {"reproducibility": reproducibility,
+                          "reproduce_steps": steps.rstrip() + "\n"}
+    return out
+
 
 def load_ia_manager_id():
     """Lit pm.config.yml :: ia.default_manager.redmine_id. Defaut 5 (Mathieu)."""
@@ -128,6 +144,16 @@ def main():
                     help="Passe agent-testeur en fin de dev (frontmatter requires_agent_test "
                          "/ CF27). default → hérite du projet (défaut système : non).")
     ap.add_argument("--target-env", default=None)
+    # RM2752 — `validate-task` EXIGE `bug.reproducibility` + `bug.reproduce_steps`
+    # pour type=bugfix. Aucun flag ne permettait de les poser : tout ticket bugfix
+    # créé par l'outil canonique naissait invalide, et il fallait ouvrir le MD.
+    ap.add_argument("--bug-reproducibility", dest="bug_reproducibility",
+                    default=None, choices=list(VALID_REPRODUCIBILITIES),
+                    help="Reproductibilité du bug (type=bugfix ; défaut : always)")
+    ap.add_argument("--bug-steps", dest="bug_steps", default=None,
+                    help="Étapes de reproduction ('-' = stdin). OBLIGATOIRE pour --type bugfix.")
+    ap.add_argument("--bug-steps-file", dest="bug_steps_file", default=None,
+                    help="Étapes de reproduction lues depuis un fichier ('-' = stdin).")
     # Estimation (NORMS § ROI) — poussée vers Redmine (CF21/22/25 + estimated_hours)
     # si au moins un flag est fourni. Cf. pm-task-metrics-push.py --estimate.
     ap.add_argument("--est-tokens", type=int, default=None, help="Tokens prévus (CF21)")
@@ -177,11 +203,43 @@ def main():
     # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
     # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
     # passées sur une seule ligne en argument shell.
+    _DESC_FROM_STDIN = False
     if args.description_file is not None:
+        _DESC_FROM_STDIN = args.description_file == "-"
         args.description = (sys.stdin.read() if args.description_file == "-"
                             else Path(args.description_file).read_text(encoding="utf-8"))
     elif args.description == "-":
+        _DESC_FROM_STDIN = True
         args.description = sys.stdin.read()
+
+    # RM2752 — bloc `bug` du frontmatter, exigé par validate-task pour un bugfix.
+    # Un seul flux stdin est disponible : si la description l'a déjà consommé, on
+    # le dit au lieu de rendre des étapes vides (le symptôme d'origine).
+    _desc_pris_stdin = _DESC_FROM_STDIN
+    bug_steps = None
+    if args.bug_steps_file is not None:
+        if args.bug_steps_file == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = (sys.stdin.read() if args.bug_steps_file == "-"
+                     else Path(args.bug_steps_file).read_text(encoding="utf-8"))
+    elif args.bug_steps is not None:
+        if args.bug_steps == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = sys.stdin.read() if args.bug_steps == "-" else args.bug_steps
+    bug_steps = (bug_steps or "").strip()
+
+    if args.type == "bugfix" and not bug_steps:
+        sys.exit(
+            "ERREUR : --type bugfix exige les étapes de reproduction.\n"
+            "  validate-task.py les impose (`bug.reproduce_steps`) : sans elles le\n"
+            "  ticket naît invalide, et un bug sans repro se rouvre trois fois.\n"
+            "    --bug-steps \"1. …\\n2. …\"        (ou --bug-steps-file <fichier>)\n"
+            "    --bug-reproducibility always|often|sometimes|rarely|never  (défaut : always)"
+        )
+    if args.type != "bugfix" and (bug_steps or args.bug_reproducibility):
+        sys.exit(f"ERREUR : --bug-* n'a de sens que pour --type bugfix (ici : {args.type}).")
 
     if args.start_branch and (args.retro or args.status != "nouveau"):
         sys.exit("ERREUR : --start-branch est incompatible avec --retro/--status "
@@ -278,6 +336,12 @@ def main():
                   "estimated_model": args.est_model,
                   "confidence": args.est_confidence},
     )
+    # RM2752 — le bloc `bug`, posé APRÈS `type` pour que le MD se lise comme les
+    # tickets écrits à la main. Réinsertion ordonnée : `yaml.safe_dump` conserve
+    # l'ordre du dict (sort_keys=False), donc il faut le placer, pas l'ajouter.
+    # Propre à la création : un ticket ADOPTÉ (pm-task-import) n'a pas ces champs.
+    if args.type == "bugfix":
+        fm = _with_bug(fm, args.bug_reproducibility or "always", bug_steps)
     md = render_md(fm, args.description)
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)
@@ -306,7 +370,11 @@ def main():
         if r.returncode != 0:
             detail = f"{r.stdout}{r.stderr}".rstrip()
             n = sum(1 for ln in detail.splitlines() if ln.lstrip().startswith("✗")) or "?"
-            out.warn(f"{n} warning(s) validate → pm-doctor RM{rm_id}")
+            # RM2752 : le remède doit être une commande qui EXISTE et qui accepte
+            # ses arguments. « pm-doctor RM<id> » n'en prenait aucun
+            # (« unrecognized arguments ») — suivre l'indication de bonne foi
+            # menait dans le mur, juste après un ticket déjà invalide.
+            out.warn(f"{n} warning(s) validate → scripts/validate-task.py {md_path}")
             out.info(f"⚠ validate-task.py warnings :\n{detail}")
     except Exception as e:
         out.warn(f"validate-task.py non exécuté : {e}")

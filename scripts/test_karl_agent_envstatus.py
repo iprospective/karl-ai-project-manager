@@ -14,6 +14,13 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from test_support import hermetic_core          # noqa: E402
+
+hermetic_core()   # RM2749 : posé AVANT de charger karl-agent — sinon le rapport
+                  # est bâti sur le runtime de PRODUCTION quand le `.env` s'y
+                  # trouve, et le test meurt sur `sys.exit()` quand il n'y est pas.
+
 spec = importlib.util.spec_from_file_location("karl_agent", HERE / "karl-agent.py")
 ka = importlib.util.module_from_spec(spec)
 sys.modules["karl_agent"] = ka
@@ -26,6 +33,13 @@ def check(name, cond):
     print(("✓ " if cond else "✗ ") + name)
     if not cond:
         fails.append(name)
+
+
+def skip(name, raison):
+    """Contrôle sans matière à examiner ici — il le DIT. Un `all()` sur une
+    liste vide est vrai : le laisser passer pour un succès, c'est transformer
+    une absence de preuve en preuve."""
+    print(f"⊘ {name} — {raison}")
 
 
 # — git_divergence_level : le cœur de la détection d'incident —
@@ -86,8 +100,12 @@ check("« Git / GitLab » garde les contrôles d'accès (PAT, clé, push)",
 # section = client, sur toute ligne de dépôt (les lignes de service, comme la
 # troncature à 120, n'en portent pas — elles ne appartiennent à aucun client)
 _repo_rows = [c for c in repos["checks"] if str(c.get("label", "")).startswith("repo ")]
-check("chaque dépôt porte sa section (client)",
-      all(c.get("section") for c in _repo_rows))
+if _repo_rows:
+    check("chaque dépôt porte sa section (client)",
+          all(c.get("section") for c in _repo_rows))
+else:
+    skip("chaque dépôt porte sa section (client)",
+         "aucun dépôt sous le projects_root du core de test")
 check("env_repo_section : <client>/<projet> → client",
       ka.env_repo_section("calicote/prestashop") == "calicote")
 check("env_repo_section : profondeur 1 → « hors client »",
@@ -126,11 +144,17 @@ try:
     from pm_registry import Registry
     _reg = Registry.from_config(PMConfig.load().providers)
     _insts = [i.name for i in _reg.servers.values() if i.axis == "secret"]
-except Exception:                                    # noqa: BLE001
+except (Exception, SystemExit):                      # noqa: BLE001
+    # `SystemExit` compte : `PMConfig.load()` sort par `sys.exit()`, qui ne
+    # dérive pas d'`Exception`. Sans ce cas, le test mourait ici au lieu de
+    # dire ce qu'il n'avait pas pu vérifier.
     _insts = []
 if _insts:
     check("Secrets : une ligne par instance de vault déclarée",
           all(f"vault : {n}" in labels for n in _insts))
+else:
+    skip("Secrets : une ligne par instance de vault déclarée",
+         "aucune instance de vault lisible dans la configuration")
 
 # ── RM2722 : contrôle de démarrage (badge d'anomalies) ───────────────────────
 # Ce qu'on protège : le PÉRIMÈTRE (une famille bruyante dedans, et le badge
@@ -172,6 +196,31 @@ check("poste sain : aucune anomalie, aucun badge",
 check("groupes absents tolérés", ka.env_alerts(None)["count"] == 0)
 check("les familles surveillées existent VRAIMENT (pas de nom périmé)",
       set(ka.ENV_ALERT_FAMILIES) <= {n for n, _ in ka.ENV_FAMILIES})
+
+# — RM2713 : la clé privée d'un vault `age` n'est protégée QUE par ses droits —
+import tempfile as _tf
+
+
+class _Inst:
+    def __init__(self, name, options=None):
+        self.name, self.type, self.options = name, "age", options or {}
+
+
+_d = _tf.mkdtemp(prefix="rm2713-envstatus-")
+_k = pathlib.Path(_d) / "id.age"
+_k.write_text("AGE-SECRET-KEY-FACTICE\n")
+_k.chmod(0o600)
+check("clé age en 600 → rien à signaler",
+      ka._cle_age_trop_ouverte(_Inst("a", {"identity": str(_k)})) is None)
+_k.chmod(0o644)
+_res = ka._cle_age_trop_ouverte(_Inst("a", {"identity": str(_k)}))
+check("clé age en 644 → signalée avec son mode", _res is not None and _res[1] == "644")
+check("clé age absente → pas de fausse alerte",
+      ka._cle_age_trop_ouverte(_Inst("a", {"identity": _d + "/nope"})) is None)
+check("instance age sans clé déclarée → pas de fausse alerte",
+      ka._cle_age_trop_ouverte(_Inst("a")) is None)
+import shutil as _sh
+_sh.rmtree(_d, ignore_errors=True)
 
 if fails:
     print(f"\n{len(fails)} test(s) en échec : {fails}")

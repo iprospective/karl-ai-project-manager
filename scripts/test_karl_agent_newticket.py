@@ -76,6 +76,31 @@ check("champs optionnels omis quand vides",
       "--agent-test" not in argv and "--est-human-minutes" not in argv
       and "--target-env" not in argv)
 
+# — RM2752 : un bugfix ne part JAMAIS sans ses étapes de reproduction ————————
+# Sans ce garde, `pm-task-add` refuse en aval et le formulaire rend un 500 opaque
+# sur un ticket que l'appelant croit créé.
+check("bugfix sans étapes de reproduction refusé", refuses(type="bugfix"))
+check("bugfix avec étapes vides (espaces) refusé",
+      refuses(type="bugfix", bug_steps="   "))
+check("reproductibilité inventée refusée",
+      refuses(type="bugfix", bug_steps="1. x", bug_reproducibility="parfois"))
+check("champs bug sur un type non-bugfix refusés (erreur de frappe, pas un silence)",
+      refuses(bug_steps="1. x"))
+
+ka.op_create_ticket(dict(BASE, type="bugfix", bug_steps="1. lancer\n2. observer"))
+argv = calls[-1]
+check("étapes transmises à pm-task-add",
+      "--bug-steps" in argv and "1. lancer\n2. observer" in argv)
+check("reproductibilité par défaut = always (le cas courant, pas un vide)",
+      "--bug-reproducibility" in argv
+      and argv[argv.index("--bug-reproducibility") + 1] == "always")
+
+ka.op_create_ticket(dict(BASE, type="bugfix", bug_steps="1. x",
+                         bug_reproducibility="sometimes"))
+argv = calls[-1]
+check("reproductibilité explicite respectée",
+      argv[argv.index("--bug-reproducibility") + 1] == "sometimes")
+
 print()
 if fails:
     print(f"\u2717 {len(fails)} test(s) en échec : {', '.join(fails)}")

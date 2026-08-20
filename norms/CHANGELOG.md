@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.1.0] - 2026-08-20
+## [2.6.0] - 2026-08-20
 
 ### Ajouté
 - **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
@@ -29,6 +29,82 @@
   de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
   `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
   `create.tracker_id` déclaré. (RM2656.)
+
+## [2.5.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
+
+### Déplacé (aucune règle perdue)
+- **environments → environments-reference** (RM2755) — l'énumération des noms d'env,
+  la liste des champs (`ssh_alias`, `post_deploy`, `logs.*`), les conventions de chemins
+  et le tableau `env_vars[]` passent dans un module **hors précharge**, ouvert par le
+  déclencheur « j'écris ou j'édite un aspect `environments.md` ». C'est de la **forme**
+  de fichier : on la consulte quand on écrit l'aspect, pas à chaque tâche. Les **règles
+  d'usage** restent préchargées dans `environments.md` — quelle commande de connexion
+  (`ssh_alias` puis `ssh_target`), la cascade client→projet, `target_env`/`test_url`,
+  la résolution du worktree par branche (RM2394) et toute la gestion des secrets.
+  Le module préchargé porte un renvoi explicite vers la référence.
+
+- **structure-reference → project-modeling** (RM2755) — le § « Contacts d'un client »
+  (`meta.yml :: contacts[]`) rejoint la modélisation d'entité, où il a toujours eu sa
+  place : ce n'est pas de la résolution de chemins. Déclencheur ajouté au KERNEL
+  (« je note / cherche un contact d'un client ») et renvoi laissé sur place.
+  Motif : `structure-reference` avait franchi le plafond des 5 000 tokens par module
+  préchargé en accueillant le pont d'onboarding (RM1892, v2.4.0).
+
+### Pourquoi
+La précharge `worker-dev` était remontée à 26 496 tokens sur 29 000 — 91,4 %, au-delà
+de la marge de 10 % qu'impose `test_norms_precharge.py`. Cette marge n'est pas un
+confort : RM2582 l'a instaurée après avoir touché le plafond « à 2 tokens près », état
+où la limite ne signale plus une dérive mais **bloque l'écriture de la règle suivante**.
+Retour à 25 661 tokens (88,5 %). La méthode est celle de RM2582 : sortir le mode
+d'emploi, jamais raboter une règle.
+## [2.4.0] - 2026-08-20 — Le pont d'onboarding des workspaces
+
+### Ajouté
+- **structure-reference** — § « Le pont d'onboarding des workspaces » (RM1892) : le
+  fichier racine `AGENTS.md` (+ symlink `CLAUDE.md`) lu par remontée d'arborescence,
+  **conditionnel** au `.mmi-pm` du workspace, et ce qu'il implique — il vit hors git
+  (artefact d'instance), sa référence versionnée est `templates/workspace-AGENTS.md`,
+  et son bloc délimité `BEGIN/END INSTANCE` porte la part machine, préservée par les
+  mises à jour.
+- **session-tooling** — `pm-workspace-bridge.py` entre dans la table des outils
+  (contrôle · `--install` · `--update`).
+
+## [2.3.0] - 2026-08-20 — La protection des branches ne s'ajoute plus après coup
+
+### Ajouté
+- **project-creation** — § « Branches protégées, dès la création » (RM2057) :
+  `pm-project-new` applique `pm-protect` dès que le dépôt `-core` est publié, et aux
+  dépôts de code du workspace qui portent déjà un remote de forge. Chaque dépôt reçoit
+  la politique de sa nature — on ne la force pas, `pm-protect` distingue core et code.
+  **Jamais bloquant** : un échec s'annonce avec sa commande de rattrapage, le projet
+  reste créé.
+- **git-mep** — le rappel « dépôt neuf : appliquer aussitôt » (RM2568) précise
+  désormais que le flux de création s'en charge : le geste manuel ne reste requis que
+  pour un dépôt créé hors de ce flux.
+
+## [2.2.0] - 2026-08-20 — Un coffre qui ne se déverrouille pas
+
+### Ajouté
+- **environments** — § « Gestion des secrets » : **backend `age`** (RM2713), un
+  fichier YAML/JSON chiffré déchiffré à la volée, pour le cas « on me partage trois
+  identifiants » — ni serveur, ni compte, ni vault à administrer. Avec lui, la norme
+  acquiert une nuance qui manquait : **tous les vaults ne se déverrouillent pas**. Un
+  backend à clé sur disque n'a pas de session à établir (donc pas de secret humain à
+  saisir), n'est protégé que par les **droits de son fichier de clé** (`0600`, jamais
+  commité, jamais dans la déclaration partagée) et **ne se verrouille pas** —
+  `lock-vault.sh` n'agit que sur ce qui est gardé en mémoire. Précision liée : un
+  code de sortie 4 `unreachable` n'est **pas** un verrou, mais une configuration ou
+  une dépendance manquante.
+
+## [2.1.0] - 2026-08-20 — Déverrouillage du coffre depuis le cockpit
+
+### Ajouté
+- **environments** — le **cockpit** devient un chemin de déverrouillage légitime, à
+  côté de `unlock-vault.sh` : bouton **🔓 déverrouiller** de l'en-tête, visible
+  uniquement quand un coffre est fermé ou que l'agent SSH est vide (RM2748). La règle
+  inchangée : c'est **l'humain** qui saisit, jamais l'agent qui demande. Le mode
+  `unlock-vault.sh --stdin` sert à *transmettre* un secret déjà saisi par l'humain —
+  pas à en fabriquer un.
 
 ## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence (jalon majeur)
 

@@ -52,6 +52,19 @@ onboarding agent), voir d'abord [README.md](README.md).
   `pm-client-contact` (`meta.yml` du client). Côté cockpit, le panneau **📧 emails**
   (RM2671) ne fait que lire `/mail/queue` et déléguer aux scripts : aucune logique de
   triage n'est dupliquée dans l'UI.
+- **Secrets : un seul chemin, et il est étroit (RM2748).** Un secret saisi par un
+  humain (mot de passe maître du coffre, passphrase de clé SSH) n'a le droit
+  d'emprunter que deux canaux vers le processus qui en a besoin : l'**entrée
+  standard** (`unlock-vault.sh --stdin`) ou un **descripteur hérité**
+  (`deploy/karl-agent/karl-askpass.sh`, que `ssh-add` appelle faute de terminal).
+  Jamais argv (`ps` le montrerait), jamais l'environnement (`/proc/<pid>/environ`),
+  jamais un fichier temporaire. Le serveur ne le mémorise pas : il n'existe que le
+  temps de l'appel, et ne ressort ni dans la réponse, ni dans un log. Les routes
+  `/vault/unlock` et `/vault/ssh-add` exigent une session authentifiée ; le
+  formulaire du cockpit ne s'affiche qu'en contexte sécurisé. Le test qui compte
+  (`test_karl_agent_vault.py`) ne vérifie pas que « ça marche » mais **où le secret
+  n'est pas** : il fait tracer argv, environnement et entrée standard par un faux
+  `unlock-vault.sh`.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`
@@ -74,7 +87,8 @@ sur `dev`, puis MR/promote). Boucle type :
 pm-branch-start.py <RM> --take --worktree --from origin/dev
 
 # 2. coder dans le worktree envs/<repo>-rm<RM> ; tester
-python3 -m py_compile scripts/<outil>.py          # scripts modifiés
+mmi-pm test                                        # TOUTE la suite (~10 s)
+mmi-pm test vault session                          # ou seulement ce qu'on touche
 node deploy/karl-agent/cockpit/test_cockpit.js     # si cockpit touché
 
 # 3. livrer : MR vers dev, puis livraison outillée (statut + note + report)
@@ -90,6 +104,23 @@ pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
 ```
+
+**La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`
+purge au contraire les variables qui pointent le runtime (`PM_CORE_DIR`,
+`PROJECTS_PATH`…) : chaque test se fabrique le core jetable dont il a besoin, via
+`scripts/test_support.py`. C'est ce qui rend le verdict reproductible — avant,
+trois tests tombaient avec `PM_CORE_DIR` exporté, cinq autres sans, et « la suite
+passe » ne voulait rien dire tant qu'on ne précisait pas le shell. Deux
+conséquences pratiques :
+
+- un test qui n'y arrive qu'avec le `.env` canonique lit la configuration de
+  PRODUCTION : ce n'est pas un test, c'est une inspection du poste ;
+- `mmi-pm test --inherit` rejoue la suite dans le shell tel quel. Les deux
+  verdicts doivent être identiques ; un écart est un défaut de test, pas un
+  détail d'installation.
+
+Un test sans matière à examiner sort en **77** (ignoré, avec sa raison) plutôt
+que vert : une absence de preuve n'est pas une preuve.
 
 **Docs vivantes (obligatoire à la livraison).** Toute MR qui change la surface met
 à jour la doc concernée **dans la même MR** — voir la norme dédiée « Développement

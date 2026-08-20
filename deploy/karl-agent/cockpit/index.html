@@ -226,6 +226,12 @@
   .toast.show { opacity: 1; transform: none; }
   .toast.err { border-left-color: var(--danger); }
   .lock { font-size: 11px; color: var(--warn); }
+  /* RM2748 : formulaire des verrous (coffre, agent SSH) */
+  .vlt-sec { margin: 0 0 14px; }
+  .vlt-sec h3 { margin: 0 0 6px; font-size: 13px; }
+  .vlt-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
+  .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
   .searchrow input { flex: 1; }
   details.card > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
@@ -748,6 +754,9 @@ if (window.matchMedia) {
   <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
        git/GitLab). Rien ne s'affiche quand tout va bien. -->
   <span id="envwarn" style="display:none" onclick="openEnvStatus()"></span>
+  <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
+       (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
+  <button class="mini" id="lockbtn" style="display:none" onclick="openVault()"></button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -814,11 +823,15 @@ if (window.matchMedia) {
       <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
       <div id="triage-list"><div style="color:var(--muted)">déplie pour calculer le classement…</div></div>
     </details>
-    <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours » -->
-    <div class="card">
-      <h2>Tickets ouverts <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
+    <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours ».
+         RM2757 : repliée par défaut — la liste monte jusqu'à 40 tickets et
+         repoussait la recherche et la création hors de l'écran. -->
+    <details class="card" id="openedcard" ontoggle="openedToggled(this)">
+      <summary>Tickets ouverts <span id="opened-count" style="font-weight:normal;text-transform:none;letter-spacing:0"></span>
+        <button class="helpq" onclick="event.preventDefault();event.stopPropagation();openHelp('tickets')"
+                title="Aide sur ce panneau">?</button></summary>
       <div id="openedbox"></div>
-    </div>
+    </details>
 
     <div class="card">
       <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
@@ -1200,6 +1213,10 @@ if (window.matchMedia) {
         <!-- RM2672 : création de ticket en PLEINE PAGE (la carte repliée du panneau
              gauche était trop étroite pour rédiger une description) -->
         <div id="ntpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2759 : vue centrale générique — fichier, dossier, commit, email.
+             Ces contenus existaient déjà, chacun coincé dans une modale ou une
+             colonne étroite ; ici ils ont la place et le modèle d'onglets. -->
+        <div id="viewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
       </div>
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
@@ -1301,7 +1318,10 @@ if (window.matchMedia) {
 
   <div class="docmodal" id="docmodal" onclick="if(event.target===this)closeDoc()">
     <div class="docbox">
-      <div class="docbar"><span id="doctitle"></span><button class="mini" onclick="closeDoc()">✕</button></div>
+      <div class="docbar"><span id="doctitle"></span>
+        <button class="mini" id="doc2center" style="display:none" onclick="docToCenter()"
+          title="Afficher ce document dans un onglet du panneau central (RM2759)">⤢ au centre</button>
+        <button class="mini" onclick="closeDoc()">✕</button></div>
       <div id="doccontent"></div>
     </div>
   </div>
@@ -1893,6 +1913,10 @@ function renderCurTitle() {
   } else if (currentProjectView) {
     el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
       '<span class="ttitle">fiche projet</span>';
+  } else if (centerView) {                                           // RM2759
+    const ic = { file: "📄", dir: "🗂", commit: "⎇", mail: "📧" }[centerView.kind] || "•";
+    const t = (centerTabs.find(x => x.kind === centerView.kind && x.key === centerView.key) || {}).label;
+    el.innerHTML = ic + ' <span class="ttitle">' + esc(t || parseViewKey(centerView.key).pop() || "") + '</span>';
   } else if (activeTabId === "dash:") {
     el.innerHTML = '📊 <span class="ttitle">tableau de bord</span>';   // RM2744
   } else {
@@ -3187,7 +3211,8 @@ function closeTabAt(tabs, id, activeId) {
 
 // >>> renderCenterTabs — pur (testé par test_cockpit.js)
 function renderCenterTabs(tabs, activeId, esc, jarg) {
-  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊" };
+  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
+                 file: "📄", dir: "🗂", commit: "⎇", mail: "📧" };   // RM2759
   return tabs.map(t => {
     const id = t.kind + ":" + (t.key == null ? "" : t.key);
     const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
@@ -3229,6 +3254,15 @@ function activateTab(id) {
   else if (t.kind === "project") openProjectView(t.key);
   else if (t.kind === "newticket") openNewTicket();
   else if (t.kind === "dash") openDashboard();       // RM2744
+  else if (t.kind === "file") {                     // RM2759
+    const p = parseViewKey(t.key); openCenterFile(p[0], p[1], p[2]);
+  } else if (t.kind === "dir") {
+    const p = parseViewKey(t.key); openCenterDir(p[0], p[1], p[2]);
+  } else if (t.kind === "commit") {
+    const p = parseViewKey(t.key); openCenterCommit(p[0], p[1]);
+  } else if (t.kind === "mail") {
+    openCenterMail(parseViewKey(t.key)[0], t.label);
+  }
 }
 
 function togglePin(id) {
@@ -3257,6 +3291,7 @@ function openDashboard() {
   if (currentReview) closeReview(currentReview);
   if (currentProjectView) closeProjectView();
   closeNewTicket();
+  closeCenterView();                                // RM2759
   document.getElementById("placeholder").style.display = "flex";
   noteTab("dash", "", "tableau de bord", { pin: true });
   loadDashboard();
@@ -3267,7 +3302,9 @@ function openDashboard() {
 function closeNewTicket() {
   const pane = document.getElementById("ntpane");
   if (pane) pane.style.display = "none";
-  if (!attached && !currentReview && !currentProjectView) {
+  // RM2759 : une vue centrale ouverte occupe le centre — y rappeler le tableau
+  // de bord le ferait clignoter et déclencherait une requête pour rien.
+  if (!attached && !currentReview && !currentProjectView && !centerView) {
     document.getElementById("placeholder").style.display = "flex";
     loadDashboard();   // RM2697 : le centre redevient le tableau de bord
   }
@@ -3275,7 +3312,7 @@ function closeNewTicket() {
 
 function openNewTicket() {
   if (attached) detach();
-  closeReview(); closeProjectView();
+  closeReview(); closeProjectView(); closeCenterView();   // RM2759
   document.getElementById("placeholder").style.display = "none";
   const pane = document.getElementById("ntpane");
   pane.style.display = "block";
@@ -3352,12 +3389,21 @@ function newTicketFormHtml(types, priorities, projects, curClient, curProject, e
     '<input id="ntf-title" type="text" placeholder="Ce qu\'il faut faire, en une ligne">' +
     clientProjectPickerHtml(projects, curClient, curProject, esc) +
     '<div class="row2"><div>' +
-    '<label for="ntf-type">Type</label><select id="ntf-type">' +
+    '<label for="ntf-type">Type</label><select id="ntf-type" onchange="ntfTypeChanged()">' +
     types.map(t => opt(t, "feature")).join("") + '</select>' +
     '</div><div>' +
     '<label for="ntf-prio">Priorité</label><select id="ntf-prio">' +
     priorities.map(p => opt(p, "normal")).join("") + '</select>' +
     '</div></div>' +
+    // RM2752 : un `bugfix` EXIGE ses étapes de reproduction (validate-task les
+    // impose ; sans elles le ticket naît invalide). Le bloc ne s'affiche que pour
+    // ce type — un champ « étapes de reproduction » sur une feature est du bruit.
+    '<div id="ntf-bugbox" style="display:none">' +
+    '<label for="ntf-bug-steps">Étapes de reproduction <span style="color:var(--danger)">(requis)</span></label>' +
+    '<textarea id="ntf-bug-steps" rows="5" placeholder="1. …&#10;2. …&#10;3. ce qu\'on observe, et ce qu\'on attendait"></textarea>' +
+    '<label for="ntf-bug-repro">Reproductibilité</label><select id="ntf-bug-repro">' +
+    ["always", "often", "sometimes", "rarely", "never"].map(v => opt(v, "always")).join("") +
+    '</select></div>' +
     '<label for="ntf-tags">Tags <span style="color:var(--muted)">(csv)</span></label>' +
     '<input id="ntf-tags" type="text" placeholder="cockpit, mail">' +
     '<label for="ntf-desc">Description</label>' +
@@ -3384,6 +3430,14 @@ function newTicketFormHtml(types, priorities, projects, curClient, curProject, e
 }
 // <<< newTicketFormHtml
 
+// >>> ntfTypeChanged — le bloc « bug » ne vaut que pour un bugfix (RM2752)
+function ntfTypeChanged() {
+  const t = (document.getElementById("ntf-type") || {}).value;
+  const box = document.getElementById("ntf-bugbox");
+  if (box) box.style.display = (t === "bugfix") ? "" : "none";
+}
+// <<< ntfTypeChanged
+
 async function submitNewTicket(btn) {
   const g = id => (document.getElementById(id) || {}).value || "";
   const title = g("ntf-title").trim();
@@ -3399,6 +3453,14 @@ async function submitNewTicket(btn) {
     est_human_minutes: g("ntf-human"), est_ai_minutes: g("ntf-ai"),
     difficulty: g("ntf-diff"),
   };
+  // RM2752 : dit ICI ce qui manque, plutôt que de laisser le serveur refuser un
+  // formulaire déjà rempli — et n'envoie les champs que quand ils ont un sens.
+  if (body.type === "bugfix") {
+    const steps = g("ntf-bug-steps").trim();
+    if (!steps) { toast("Étapes de reproduction requises pour un bugfix", true); return; }
+    body.bug_steps = steps;
+    body.bug_reproducibility = g("ntf-bug-repro") || "always";
+  }
   btn.disabled = true; btn.textContent = "Création…";
   try {
     const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" },
@@ -3474,6 +3536,9 @@ function renderMailList(emails, openKey, esc, jarg) {
              esc(e.body) + (e.body_truncated ? '\n…(tronqué à la relève)' : '') + '</div></details>';
       }
       h += '<div style="margin-top:8px;display:flex;gap:4px;flex-wrap:wrap">';
+      // RM2759 : le corps ENTIER au centre — la carte du panneau le borne à 220 px
+      h += '<button class="mini" onclick="openCenterMail(' + jarg(e.key) + ',' + jarg(e.subject || "")
+         + ')" title="Afficher cet email dans un onglet du panneau central">⤢ au centre</button>';
       h += '<button class="mini" onclick="mailDraft(' + jarg(e.key) + ', this)">✎ Rédiger</button>';
       h += '<button class="mini primary" onclick="mailCreate(' + jarg(e.key) + ', this)">✓ Créer le ticket</button>';
       h += '<button class="mini" onclick="mailNoteOn(' + jarg(e.key) + ', this)" title="Rattacher à un ticket existant : pose une note au lieu de créer">↩ Note sur…</button>';
@@ -3947,6 +4012,14 @@ function gitRender() {
       + " · " + esc(c.author) + (c.pushed ? "" : " · pas encore poussé") + "</div>";
     d.title = (c.pushed ? "Poussé" : "LOCAL — n'existe sur aucun remote") + " — clic : voir le diff";
     d.onclick = () => gitShowCommit(c.sha);
+    // RM2759 : le patch au centre, où il a la largeur d'un diff. Le clic sur la
+    // ligne garde son comportement — le bouton s'ajoute, il ne le remplace pas.
+    const b = document.createElement("button");
+    b.className = "mini"; b.textContent = "⤢";
+    b.title = "Afficher ce commit dans un onglet du panneau central";
+    b.style.marginLeft = "6px";
+    b.onclick = (ev) => { ev.stopPropagation(); openCenterCommit(attached, c.sha); };
+    d.appendChild(b);
     body.appendChild(d);
   }
 }
@@ -3992,7 +4065,263 @@ async function gitShowDiff(mode) {
   } catch (e) { toast(e.message, true); }
 }
 
+
+// ===== RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email =====
+// Ces quatre contenus étaient déjà lisibles, mais chacun dans un espace contraint
+// (modale par-dessus tout, colonne de droite de trois pouces de large) et sans
+// onglet : impossible d'y revenir, impossible de les comparer. Le panneau central
+// a la place et le modèle d'onglets de RM2672. Rien n'est retiré aux vues
+// existantes — le bouton « ⤢ » s'ajoute à côté, il ne détourne aucun clic.
+
+let centerView = null;      // {kind, key} de la vue centrale, ou null
+
+// >>> viewKey — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// La clé d'un onglet doit SUFFIRE à rouvrir la vue : un onglet épinglé est
+// restauré après un rechargement, moment où plus rien n'est attaché ni navigué.
+// Chaque partie est encodée avant d'être jointe — un chemin peut contenir « | ».
+function viewKey(parts) {
+  return (parts || []).map(p => encodeURIComponent(String(p == null ? "" : p))).join("|");
+}
+// <<< viewKey
+
+// >>> parseViewKey — pur (testé par test_cockpit.js)
+function parseViewKey(key) {
+  const s = String(key == null ? "" : key);
+  if (!s) return [];
+  return s.split("|").map(p => { try { return decodeURIComponent(p); } catch (e) { return p; } });
+}
+// <<< parseViewKey
+
+// >>> viewTabLabel — pur (testé par test_cockpit.js)
+// Nom d'onglet : court, mais reconnaissable entre dix. Le chemin complet reste
+// dans l'infobulle (le titre de l'onglet), jamais tronqué en silence.
+function viewTabLabel(kind, parts, hint) {
+  const p = parts || [];
+  const base = x => String(x || "").replace(/\/+$/, "").split("/").pop();
+  if (kind === "file") return base(p[2]) || base(p[1]) || "fichier";
+  if (kind === "dir") return (base(p[2]) || "racine") + "/";
+  if (kind === "commit") return String(p[1] || "").slice(0, 8) || "commit";
+  if (kind === "mail") {
+    const t = String(hint || p[1] || "email").trim();
+    return t.length > 30 ? t.slice(0, 29) + "…" : t;
+  }
+  return String(hint || "vue");
+}
+// <<< viewTabLabel
+
+// >>> fileViewHtml — pur (testé par test_cockpit.js)
+// `md` est le rendu markdown (injecté) : un .md se lit rendu, le reste en
+// préformaté. On affiche la taille — un fichier tronqué par le serveur doit se
+// voir, pas se deviner.
+function fileViewHtml(f, esc, md) {
+  const d = f || {};
+  const ko = d.size != null ? " · " + (Math.round(d.size / 102.4) / 10) + " Ko" : "";
+  return '<div class="ms"><h4 style="font-family:var(--mono);word-break:break-all">'
+    + esc(d.path || d.name || "fichier") + '<span style="color:var(--muted);font-weight:normal">'
+    + esc(ko) + '</span></h4></div>'
+    + (d.markdown ? '<div class="mdview">' + md(d.content || "") + "</div>"
+                  : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">'
+                    + esc(d.content || "") + "</pre>");
+}
+// <<< fileViewHtml
+
+// >>> dirViewHtml — pur (testé par test_cockpit.js)
+// Un dossier reste NAVIGABLE au centre : sinon ce n'est qu'une capture d'écran.
+// Chaque entrée rouvre une vue centrale — dossier ou fichier — dans le même onglet.
+function dirViewHtml(d, esc, jarg) {
+  const data = d || {};
+  const src = String(data.src || "wt"), wt = String(data.wt || ""), path = String(data.path || "");
+  const entries = data.entries || [];
+  const crumbs = [{ name: data.rootName || "racine", path: "" }];
+  let acc = "";
+  for (const seg of path.split("/").filter(Boolean)) {
+    acc = acc ? acc + "/" + seg : seg;
+    crumbs.push({ name: seg, path: acc });
+  }
+  let h = '<div class="ms"><h4>' + crumbs.map((c, i, a) => i < a.length - 1
+    ? '<a href="#" onclick="openCenterDir(' + jarg(src) + ',' + jarg(wt) + ',' + jarg(c.path)
+      + ');return false">' + esc(c.name) + "</a>"
+    : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</h4></div>";
+  if (!entries.length) return h + '<div class="empty">dossier vide</div>';
+  h += entries.map(e => {
+    const child = (path ? path + "/" : "") + e.name;
+    return e.dir
+      ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="openCenterDir('
+        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ')">🗂 ' + esc(e.name) + "</div>"
+      : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="openCenterFile('
+        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ')">📄 ' + esc(e.name)
+        + (e.size != null ? ' <span style="color:var(--muted);font-size:10px">'
+          + (Math.round(e.size / 102.4) / 10) + " Ko</span>" : "") + "</div>";
+  }).join("");
+  return h;
+}
+// <<< dirViewHtml
+
+// >>> mailViewHtml — pur (testé par test_cockpit.js)
+// Le corps ENTIER, sans troncature d'affichage : c'est la raison d'ouvrir un
+// email au centre plutôt que dans la carte du panneau. Ce qui a été coupé à la
+// relève est signalé — un texte qui s'arrête sans le dire se lit comme complet.
+function mailViewHtml(e, esc) {
+  const m = e || {};
+  const ligne = (k, v) => v ? '<div style="font-size:11.5px"><span style="color:var(--muted)">'
+    + esc(k) + " </span>" + esc(v) + "</div>" : "";
+  const pj = (m.attachment_list || []).map(a => (a && (a.name || a)) || "").filter(Boolean);
+  return '<div class="ms"><h4>' + esc(m.subject || "(sans sujet)") + "</h4>"
+    + ligne("de", m.from_name ? m.from_name + " <" + m.from + ">" : m.from)
+    + ligne("date", m.date) + ligne("dossier", m.folder)
+    + ligne("état", m.state) + ligne("ticket", m.created_rm ? "RM" + m.created_rm : "")
+    + ligne("pièces jointes", pj.join(" · ")) + "</div>"
+    + (m.body
+       ? '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(m.body)
+         + (m.body_truncated ? "\n\n…(tronqué à la relève)" : "") + "</pre>"
+       : '<div class="empty">corps non disponible</div>');
+}
+// <<< mailViewHtml
+
+// >>> viewErrorHtml — pur (testé par test_cockpit.js)
+// Une source disparue (session détruite, fichier supprimé, email traité) DOIT se
+// dire : un onglet épinglé survit à ce qu'il montrait, et un panneau vide se lit
+// comme un bug du cockpit plutôt que comme une absence.
+function viewErrorHtml(quoi, message, esc) {
+  return '<div class="ms"><h4>' + esc(quoi) + "</h4>"
+    + '<div style="color:var(--warn);font-size:12px">' + esc(message || "contenu indisponible") + "</div>"
+    + '<div style="color:var(--muted);font-size:11.5px;margin-top:6px">'
+    + "La source a pu disparaître depuis l'ouverture de cet onglet (session fermée, "
+    + "fichier déplacé, email traité). Ferme l'onglet ou rouvre depuis son panneau.</div></div>";
+}
+// <<< viewErrorHtml
+
+function closeCenterView() {
+  centerView = null;
+  const pane = document.getElementById("viewpane");
+  if (pane) { pane.style.display = "none"; pane.innerHTML = ""; }
+}
+
+// Prépare le centre pour une vue : les autres vues cèdent la place, exactement
+// comme elles le font entre elles.
+function centerViewPane(kind, key, label) {
+  if (attached) detach();
+  if (currentReview) closeReview(currentReview);
+  closeProjectView();
+  closeNewTicket();
+  document.getElementById("placeholder").style.display = "none";
+  const pane = document.getElementById("viewpane");
+  pane.style.display = "block";
+  pane.innerHTML = '<div class="empty">chargement…</div>';
+  centerView = { kind, key };
+  noteTab(kind, key, label);
+  renderCurTitle();
+  return pane;
+}
+
+// Le contenu est chargé APRÈS l'affichage du panneau : la vue s'ouvre tout de
+// suite (« chargement… »), et un échec s'écrit dedans au lieu de ne rien faire.
+async function centerViewLoad(pane, key, charger) {
+  try {
+    const html = await charger();
+    if (centerView && centerView.key === key) pane.innerHTML = html;
+  } catch (e) {
+    if (centerView && centerView.key === key) {
+      pane.innerHTML = viewErrorHtml(centerView.kind === "commit" ? "Commit indisponible"
+        : centerView.kind === "mail" ? "Email indisponible" : "Contenu indisponible",
+        e.message, esc);
+    }
+  }
+}
+
+// `src` : "doc" = document PM servi par /file (chemin sous projects/) ;
+//         "wt"  = fichier d'un worktree servi par /fs/file.
+async function openCenterFile(src, wt, path) {
+  const key = viewKey([src, wt, path]);
+  const pane = centerViewPane("file", key, viewTabLabel("file", [src, wt, path]));
+  await centerViewLoad(pane, key, async () => {
+    if (src === "doc") {
+      const r = await fetch("/file?path=" + encodeURIComponent(path), { headers: headers() });
+      if (!r.ok) throw new Error("erreur " + r.status);
+      return fileViewHtml({ path, markdown: /\.md$/i.test(path), content: await r.text() },
+                          esc, mdToHtml);
+    }
+    const f = await api("/fs/file?" + _fsq(wt) + "&path=" + encodeURIComponent(path));
+    return fileViewHtml(Object.assign({ path: path || f.name }, f), esc, mdToHtml);
+  });
+}
+
+async function openCenterDir(src, wt, path) {
+  const key = viewKey([src, wt, path]);
+  const pane = centerViewPane("dir", key, viewTabLabel("dir", [src, wt, path]));
+  await centerViewLoad(pane, key, async () => {
+    const r = await api("/fs/ls?" + _fsq(wt) + "&path=" + encodeURIComponent(path || ""));
+    return dirViewHtml({ src, wt, path: path || "", rootName: String(wt).split("/").pop(),
+                         entries: r.entries || [] }, esc, jarg);
+  });
+}
+
+async function openCenterCommit(sid, sha) {
+  const key = viewKey([sid, sha]);
+  const pane = centerViewPane("commit", key, viewTabLabel("commit", [sid, sha]));
+  await centerViewLoad(pane, key, async () => {
+    const r = await api("/git/show/" + encodeURIComponent(sid) + "/" + encodeURIComponent(sha));
+    return '<div class="ms"><h4 style="font-family:var(--mono)">' + esc((r.commit || {}).short || sha)
+      + '</h4><div style="white-space:pre-wrap;font-size:12px">' + esc(r.message || "") + "</div></div>"
+      + gitPatchHtml(r);
+  });
+}
+
+async function openCenterMail(mkey, sujet) {
+  const key = viewKey([mkey]);
+  const pane = centerViewPane("mail", key, viewTabLabel("mail", [mkey], sujet));
+  await centerViewLoad(pane, key, async () => {
+    const r = await api("/mail/queue?key=" + encodeURIComponent(mkey));
+    const e = (r.emails || []).find(x => x && x.key === mkey) || (r.emails || [])[0];
+    if (!e) throw new Error("email absent de la file");
+    return mailViewHtml(e, esc);
+  });
+}
+
+// Contexte du panneau fichiers pour un worktree DONNÉ (le `_fq()` existant, lui,
+// suit la navigation courante — inutilisable pour rouvrir un onglet plus tard).
+function _fsq(wt) {
+  const base = (filesData.client && filesData.project && !attached)
+    ? "client=" + encodeURIComponent(filesData.client) + "&project=" + encodeURIComponent(filesData.project)
+    : "sid=" + encodeURIComponent(attached || "");
+  return base + "&worktree=" + encodeURIComponent(wt || "");
+}
+
+// Bouton « ⤢ » posé à côté d'une vue existante — un seul libellé partout, pour
+// qu'on le reconnaisse sans le lire (RM2759).
+function centerBtn(call, quoi) {
+  return '<button class="mini" onclick="' + call + '" title="Afficher ' + quoi
+    + ' dans un onglet du panneau central">⤢ au centre</button>';
+}
+
 // ----- RM2606 : tickets ouverts dans la session cockpit -----
+
+// >>> openedPanelOpen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2757 : la carte s'ouvre-t-elle au chargement ? Repliée tant que
+// l'utilisateur n'a rien dit — elle peut contenir 40 lignes et repoussait la
+// recherche et la création hors de l'écran. Mais un choix explicite prime :
+// une carte qu'on rouvre à chaque F5 se referme contre celui qui l'a ouverte.
+function openedPanelOpen(saved) {
+  return String(saved) === "1";
+}
+// <<< openedPanelOpen
+
+// >>> openedCountLabel — pur (testé par test_cockpit.js)
+// Ce que l'en-tête dit quand la carte est REPLIÉE : sans compte, il faut
+// l'ouvrir pour savoir s'il y avait quelque chose à voir. « vide » est dit
+// explicitement — un blanc laisse croire que le compte n'a pas été calculé.
+function openedCountLabel(n) {
+  const k = Number(n);
+  if (!Number.isFinite(k) || k <= 0) return "(vide)";
+  return "(" + k + ")";
+}
+// <<< openedCountLabel
+
+// Mémorise le geste de l'utilisateur, par navigateur.
+function openedToggled(el) {
+  try { localStorage.setItem("karlOpenedCard", el && el.open ? "1" : "0"); }
+  catch (e) { /* mode privé : le défaut replié s'applique */ }
+}
 
 // >>> openedAdd — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Ouvrir un ticket le remonte en tête, sans doublon — comme l'historique du
@@ -4087,6 +4416,8 @@ function renderOpened() {
     badge.textContent = openedTickets.length;
     badge.style.display = openedTickets.length ? "" : "none";
   }
+  const cnt = document.getElementById("opened-count");
+  if (cnt) cnt.textContent = openedCountLabel(openedTickets.length);
   const box = document.getElementById("openedbox");
   if (!box) return;
   const { keys, groups, clients } = groupOpenedTickets(openedTickets, resolveCache, openedClient);
@@ -5025,21 +5356,34 @@ function renderFiles() {
       + '<span class="pill" style="cursor:pointer" onclick="filesToggleCommits()">' + (fileNav.showCommits ? "▾" : "▸") + " commits</span></div>";
     if (fileNav.showCommits) {
       const cs = fileNav.commits || [];
+      // RM2759 : un commit s'ouvre au centre — mais `/git/show` passe par la
+      // session ; sans session attachée, la ligne reste informative plutôt que
+      // d'offrir un clic qui échouerait.
       h += '<div class="ms">' + (cs.length ? cs.map(c =>
-        '<div class="oline" style="white-space:normal" title="' + esc(c.author) + '"><span class="r-id">' + esc(c.hash)
+        '<div class="oline" style="white-space:normal' + (attached ? ";cursor:pointer" : "") + '"'
+        + (attached ? ' onclick="openCenterCommit(' + jarg(attached) + ',' + jarg(c.hash) + ')"'
+                    : ' title="' + esc(c.author) + ' — attache la session pour ouvrir le patch"')
+        + (attached ? ' title="' + esc(c.author) + ' — ⤢ ouvrir au centre"' : "")
+        + '><span class="r-id">' + esc(c.hash)
         + '</span> ' + esc(c.subject) + ' <span style="color:var(--muted)">· ' + esc(c.date) + "</span></div>").join("")
         : '<div style="color:var(--muted);font-size:11.5px">aucun commit</div>') + "</div>";
     }
   }
   if (fileNav.file) {
     const f = fileNav.file;
+    const fpath = (fileNav.path ? fileNav.path + "/" : "") + f.name;   // RM2759
     h += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'
       + '<button class="mini" onclick="filesLoadDir(fileNav.wt, fileNav.path)">‹ retour</button>'
+      + centerBtn("openCenterFile('wt'," + jarg(fileNav.wt) + "," + jarg(fpath) + ")", "ce fichier")
       + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b>"
       + '<span style="color:var(--muted);font-size:11px">' + (Math.round((f.size || 0) / 102.4) / 10) + " Ko</span></div>";
     h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
                     : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(f.content) + "</pre>";
   } else {
+    // RM2759 : le dossier courant s'ouvre au centre, où il reste navigable
+    h += '<div style="margin:2px 0 4px">'
+      + centerBtn("openCenterDir('wt'," + jarg(fileNav.wt) + "," + jarg(fileNav.path || "") + ")",
+                  "ce dossier") + "</div>";
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
       i < a.length - 1
         ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(c.name) + "</a>"
@@ -6231,8 +6575,19 @@ function mdToHtml(md) {
 }
 // <<< mdToHtml
 
+let docCurrent = null;      // RM2759 : ce que la modale montre, pour l'envoyer au centre
+
+function docToCenter() {
+  if (!docCurrent) return;
+  const d = docCurrent;
+  closeDoc();
+  openCenterFile("doc", "", d.path);
+}
+
 async function openDoc(path, name) {
   const el = document.getElementById("doccontent");
+  docCurrent = { path, name };                       // RM2759
+  const b = document.getElementById("doc2center"); if (b) b.style.display = "";
   document.getElementById("doctitle").textContent = name;
   el.className = ""; el.textContent = "chargement…";
   document.getElementById("docmodal").classList.add("show");
@@ -6252,6 +6607,8 @@ function closeDoc() { document.getElementById("docmodal").classList.remove("show
 let HELP_TOPICS = null;
 async function openHelp(topic) {
   const el = document.getElementById("doccontent");
+  docCurrent = null;                                 // RM2759 : l'aide n'est pas un fichier du projet
+  const b = document.getElementById("doc2center"); if (b) b.style.display = "none";
   document.getElementById("doctitle").textContent = "❓ Aide";
   el.className = ""; el.textContent = "chargement…";
   document.getElementById("docmodal").classList.add("show");
@@ -6518,6 +6875,188 @@ async function esCopy(btn) {
   toast(ok ? "Commande copiée" : "Copie refusée", !ok);
 }
 
+/* ── RM2748 : déverrouiller le vault et charger une clé SSH ─────────────────
+   Le cockpit constatait la panne (« vault verrouillé », « agent SSH vide ») sans
+   pouvoir y remédier : il fallait un terminal. Ici, le bouton n'apparaît QUE
+   quand quelque chose est verrouillé, et disparaît dès que c'est réglé.
+
+   Le mot de passe saisi n'est jamais mémorisé — ni variable qui lui survive, ni
+   localStorage, ni attribut de DOM : il est lu au moment de l'envoi, le champ est
+   vidé juste après. Le formulaire n'est proposé qu'en contexte sécurisé (https ou
+   localhost) : taper un mot de passe maître dans une page en clair, jamais. */
+let vaultStatus = null;
+
+// >>> vaultBtnState — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le bouton d'en-tête : montré uniquement s'il y a un geste à faire, et son
+// libellé DIT lequel — « déverrouiller » tout court ne renseigne sur rien.
+function vaultBtnState(st) {
+  if (!st) return { show: false, label: "", title: "" };
+  const locked = st.locked || [];
+  const keys = (st.ssh && st.ssh.keys) || [];
+  const why = [];
+  if (!st.daemon) why.push("coffre fermé (agent non démarré)");
+  else if (locked.length === 1) why.push("coffre « " + locked[0] + " » verrouillé");
+  else if (locked.length > 1) why.push(locked.length + " coffres verrouillés");
+  if (!keys.length) why.push("agent SSH vide");
+  if (!why.length) return { show: false, label: "", title: "" };
+  return {
+    show: true,
+    label: "🔓 déverrouiller",
+    title: why.join(" · ") + " — clic pour saisir le mot de passe",
+  };
+}
+// <<< vaultBtnState
+
+// >>> vaultFormHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Deux sections indépendantes : le coffre, l'agent SSH. Chacune montre son état
+// AVANT de demander quoi que ce soit — on ne fait pas saisir un mot de passe pour
+// quelque chose qui est déjà ouvert.
+function vaultFormHtml(st, secure) {
+  if (!secure) {
+    return '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">'
+      + "Connexion non sécurisée : un mot de passe maître ne se tape pas dans une page "
+      + "en clair. Ouvre le cockpit en <b>https</b> (ou depuis la machine même) puis réessaie."
+      + "</span></div>";
+  }
+  const st2 = st || {};
+  const locked = st2.locked || [];
+  const inst = st2.instances || [];
+  const ssh = st2.ssh || {};
+  const keys = ssh.keys || [];
+  const cands = ssh.candidates || [];
+  let h = "";
+
+  h += '<div class="vlt-sec"><h3>🔐 Coffre de secrets</h3>';
+  if (!st2.daemon) {
+    h += '<div class="es-detail">Agent non démarré — le déverrouillage le lancera.</div>';
+  }
+  inst.forEach(i => {
+    h += '<div class="es-row ' + (i.unlocked ? "es-ok" : "es-warn") + '">'
+      + '<span class="es-mark">' + (i.unlocked ? "✓" : "!") + "</span>"
+      + '<span class="es-label">' + esc(i.slug) + "</span>"
+      + '<span class="es-detail">' + (i.unlocked
+        ? "ouvert" + (i.since ? " depuis " + esc(i.since) : "")
+        : "verrouillé") + "</span></div>";
+  });
+  if (locked.length || !st2.daemon) {
+    const choices = locked.length ? locked : [st2.default_instance || "vw-ipro"];
+    h += '<div class="vlt-form">'
+      + (choices.length > 1
+        ? '<select id="vlt-inst" class="mini">'
+          + choices.map(s => '<option value="' + esc(s) + '">' + esc(s) + "</option>").join("")
+          + "</select>"
+        : '<input type="hidden" id="vlt-inst" value="' + esc(choices[0]) + '">')
+      + '<input id="vlt-pass" type="password" autocomplete="off" placeholder="mot de passe maître"'
+      + ' onkeydown="if(event.key===\'Enter\')vaultUnlock(this.nextElementSibling)">'
+      + '<button class="mini" onclick="vaultUnlock(this)">Déverrouiller</button>'
+      + '</div><div class="vlt-note">Le mot de passe n\'est pas mémorisé : il sert à ouvrir '
+      + "le coffre, puis il est oublié. Le coffre se reverrouille de lui-même après inactivité.</div>";
+  }
+  h += "</div>";
+
+  h += '<div class="vlt-sec"><h3>🔑 Agent SSH</h3>';
+  if (!ssh.reachable) {
+    h += '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">'
+      + "agent injoignable — rien à charger tant qu'il ne tourne pas</span></div>";
+  } else if (keys.length) {
+    keys.forEach(k => {
+      h += '<div class="es-row es-ok"><span class="es-mark">✓</span>'
+        + '<span class="es-label">' + esc(k.comment || k.hash) + "</span>"
+        + '<span class="es-detail">' + esc(k.type || "") + " " + esc(k.bits || "") + "</span></div>";
+    });
+  } else {
+    h += '<div class="es-row es-warn"><span class="es-mark">!</span>'
+      + '<span class="es-detail">aucune clé chargée</span></div>';
+  }
+  if (ssh.reachable && cands.length) {
+    h += '<div class="vlt-form">'
+      + '<select id="vlt-key" class="mini">'
+      + cands.map(k => '<option value="' + esc(k) + '">' + esc(k) + "</option>").join("")
+      + "</select>"
+      + '<input id="vlt-kpass" type="password" autocomplete="off" placeholder="passphrase de la clé"'
+      + ' onkeydown="if(event.key===\'Enter\')vaultSshAdd(this.nextElementSibling)">'
+      + '<button class="mini" onclick="vaultSshAdd(this)">Charger</button>'
+      + "</div>";
+  }
+  h += "</div>";
+  return h;
+}
+// <<< vaultFormHtml
+
+async function loadVaultStatus() {
+  try {
+    vaultStatus = await api("/vault/status");
+  } catch (e) { return; }        // l'état des verrous est un plus : son échec est muet
+  const el = document.getElementById("lockbtn");
+  if (!el) return;
+  const s = vaultBtnState(vaultStatus);
+  el.style.display = s.show ? "" : "none";
+  el.textContent = s.label;
+  el.title = s.title;
+}
+
+function vaultRender() {
+  const el = document.getElementById("doccontent");
+  if (el) el.innerHTML = vaultFormHtml(vaultStatus, window.isSecureContext);
+}
+
+async function openVault() {
+  document.getElementById("doctitle").textContent = "🔓 Verrous du poste";
+  const el = document.getElementById("doccontent");
+  el.className = "vlt";
+  el.innerHTML = '<div style="color:var(--muted)">lecture de l\'état…</div>';
+  document.getElementById("docmodal").classList.add("show");
+  await loadVaultStatus();
+  vaultRender();
+}
+
+// Envoi d'un secret : lu au dernier moment, champ vidé aussitôt, jamais conservé.
+async function vaultUnlock(btn) {
+  const inst = document.getElementById("vlt-inst");
+  const field = document.getElementById("vlt-pass");
+  if (!field || !field.value) { toast("Mot de passe requis", true); return; }
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const r = await api("/vault/unlock", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instance: inst ? inst.value : "", password: field.value }),
+    });
+    field.value = "";
+    toast(r.ok ? "Coffre déverrouillé" : "Échec : " + (r.detail || "mot de passe refusé"), !r.ok);
+  } catch (e) {
+    field.value = "";
+    toast("Échec : " + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Déverrouiller";
+    await loadVaultStatus();
+    vaultRender();
+    loadEnvCheck(true);          // le badge « poste » doit suivre la réparation
+  }
+}
+
+async function vaultSshAdd(btn) {
+  const key = document.getElementById("vlt-key");
+  const field = document.getElementById("vlt-kpass");
+  if (!field || !field.value) { toast("Passphrase requise", true); return; }
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const r = await api("/vault/ssh-add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key ? key.value : "", passphrase: field.value }),
+    });
+    field.value = "";
+    toast(r.ok ? "Clé chargée dans l'agent" : "Échec : " + (r.detail || "passphrase refusée"), !r.ok);
+  } catch (e) {
+    field.value = "";
+    toast("Échec : " + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Charger";
+    await loadVaultStatus();
+    vaultRender();
+    loadEnvCheck(true);
+  }
+}
+
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
 // cockpit la MAIN sur la surface du terminal — condition des lots suivants de
@@ -6730,6 +7269,7 @@ function composerKey(ev) {
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
   attached = String(rmId);
+  closeCenterView();                          // RM2759 : la vue centrale cède la place
   currentReview = null;                       // la vue revue cède la place
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
@@ -7032,11 +7572,14 @@ let projectData = null;          // RM2531 : dernière fiche chargée (prérempl
 function closeProjectView() {
   currentProjectView = null;
   document.getElementById("projpane").style.display = "none";
-  if (!attached && !currentReview) { document.getElementById("placeholder").style.display = "flex"; loadDashboard(); }   // RM2697
+  if (!attached && !currentReview && !centerView) {   // RM2759 : cf. closeNewTicket
+    document.getElementById("placeholder").style.display = "flex"; loadDashboard();   // RM2697
+  }
   renderCurTitle();
 }
 async function openProjectView(key) {
   if (attached) detach();               // une seule vue active à la fois
+  closeCenterView();                    // RM2759
   currentReview = null;
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = key;
@@ -7617,6 +8160,7 @@ async function submitConfig(scope, btn) {
 
 function openReview(rm) {
   noteOpenedTicket(rm);             // RM2606 : la revue est une consultation aussi
+  closeCenterView();                // RM2759
   rm = String(rm);
   if (!reviewTabs.includes(rm)) reviewTabs.push(rm);
   if (attached) detach();               // une seule vue active à la fois
@@ -7651,8 +8195,10 @@ function closeReview(rm) {
   if (currentReview === rm) {
     currentReview = null; metaTicket = null;
     document.getElementById("reviewpane").style.display = "none";
-    document.getElementById("placeholder").style.display = "flex";
-    loadDashboard();   // RM2697 : le centre redevient le tableau de bord
+    if (!centerView) {                 // RM2759 : cf. closeNewTicket
+      document.getElementById("placeholder").style.display = "flex";
+      loadDashboard();   // RM2697 : le centre redevient le tableau de bord
+    }
     renderMeta();                    // RM2579 : rafraîchit infos + tickets (plus de #metabody)
   }
   renderCurTitle();
@@ -8392,6 +8938,12 @@ async function kill(rmId) {
     // pas un terminal non demandé) : son onglet reste sous la main, sans être actif.
     else { activeTabId = "dash:"; renderTabs(); renderCurTitle(); }
   } catch (e) { /* mode privé */ }
+  // RM2757 : état replié/déplié de la carte, avant le premier rendu — sinon
+  // elle s'ouvre puis se referme sous les yeux.
+  try {
+    const card = document.getElementById("openedcard");
+    if (card) card.open = openedPanelOpen(localStorage.getItem("karlOpenedCard"));
+  } catch (e) { /* mode privé : replié, comme au premier lancement */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
@@ -8411,6 +8963,7 @@ async function kill(rmId) {
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
   loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
   loadEnvCheck();        // RM2722 : contrôle du poste au démarrage (badge si anomalie)
+  loadVaultStatus();     // RM2748 : verrous (coffre, agent SSH) — bouton si besoin
   tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
   // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
@@ -8426,6 +8979,9 @@ async function kill(rmId) {
   // déverrouillé) — le badge doit s'éteindre tout seul. Cadence alignée sur la
   // mémorisation serveur (5 min) : une requête de plus ne relance aucune sonde.
   setInterval(() => { if (!document.hidden) loadEnvCheck(); }, 300000);
+  // Les verrous bougent hors du cockpit (auto-verrouillage, redémarrage) et se
+  // règlent en un geste : on les regarde plus souvent que le diagnostic complet.
+  setInterval(() => { if (!document.hidden) loadVaultStatus(); }, 60000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;          // repassé au premier plan → on rattrape
     refreshHealth(); loadPending();

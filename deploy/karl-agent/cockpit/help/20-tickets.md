@@ -3,6 +3,19 @@
 Le panneau **🎫 tickets** recherche et ouvre les tickets du PM (fichiers
 markdown structurés, synchronisés avec Redmine).
 
+## Tickets ouverts (la carte du haut)
+
+Chaque ticket consulté s'empile dans **Tickets ouverts**, groupé par projet et
+trié par urgence de statut — de quoi revenir à ce qu'on avait sous la main.
+
+La carte est **repliée au départ** et s'ouvre d'un clic sur son en-tête : la
+liste monte jusqu'à 40 lignes et repousserait sinon la recherche et la création
+hors de l'écran. Le nombre entre parenthèses dit ce qu'elle contient sans avoir
+à l'ouvrir (`(vide)` quand il n'y a rien).
+
+Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
+prochain chargement. `✕ vider` remet la liste à zéro.
+
 ## Ouvrir une fiche
 
 Clique un ticket pour sa **fiche** : titre, statut, description, dernière

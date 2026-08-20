@@ -34,6 +34,7 @@ Le champ peut aussi être passé hors URI par l'appelant (2ᵉ argument de
 """
 import json
 import os
+import shutil
 import subprocess
 
 
@@ -491,12 +492,256 @@ def extract_entry_field(entry, field):
     return props.get(field, "")
 
 
+# ── Fichier chiffré age (CLI `age`) ──────────────────────────────────────────
+class AgeBackend(SecretBackend):
+    """Fichier YAML/JSON chiffré avec **age**, déchiffré à la volée en mémoire.
+
+    Le cas « on me partage trois identifiants » : ni serveur, ni compte, ni vault
+    à administrer — un fichier chiffré qu'on s'échange et une clé privée sur le
+    poste. C'est le backend le plus léger du lot.
+
+    Déclaration (registre providers, axe `secret`) :
+        age-acme: { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
+    La **clé privée** ne se déclare jamais dans la conf partagée : elle vient des
+    identifiants par dev, `SECRET__<SLUG>__AGE_KEY_FILE` (chemin d'un fichier
+    d'identité age, à garder en 0600). Le chemin du fichier chiffré peut lui aussi
+    venir de `SECRET__<SLUG>__FILE`.
+
+    **sops écarté** (décision RM2713) : pas de paquet Debian — un binaire à
+    télécharger depuis GitHub, donc une dépendance qu'`apt` ne sait pas vérifier
+    sur chaque poste. Son apport (chiffrement partiel d'un YAML, backends KMS) ne
+    sert pas ici : on chiffre le fichier entier, avec la même brique
+    cryptographique (age). Un `type: sops` déclaré tombera donc sur « type de
+    vault inconnu », avec `age` dans la liste des types connus.
+
+    Pas de déverrouillage interactif : si la clé est lisible, l'instance est
+    utilisable — `caps.needs_unlock = False`. C'est le compromis assumé de ce
+    backend : la clé dort sur le disque, protégée par les droits du fichier, là
+    où Vaultwarden et KeePass exigent une saisie humaine à chaque session.
+
+    Chemin d'un secret : `secret://<slug>/<clé…>[#champ]`, qui suit l'imbrication
+    du document. Un chemin qui tombe sur un mapping sans `password` est REFUSÉ
+    (`not_found`), avec la liste des clés disponibles — à la différence des autres
+    backends, qui rendent `""` pour un champ inconnu. Raison : ici le schéma est
+    libre, donc une faute de frappe ne peut pas être distinguée d'un champ vide, et
+    une chaîne vide injectée en silence dans une conf est pire qu'une erreur.
+    """
+
+    type = "age"
+
+    def __init__(self, name="default", file=None, identity=None, **options):
+        super().__init__(name=name, **options)
+        creds = creds_for(name, legacy=False)
+        self._file = file or creds.get("FILE") or ""
+        self._identity = identity or creds.get("AGE_KEY_FILE") or ""
+
+    @property
+    def caps(self):
+        return Capabilities(needs_unlock=False, listable=True, hierarchical=True)
+
+    # -- accès au fichier ---------------------------------------------------
+    def _paths(self):
+        """(fichier chiffré, fichier d'identité), tous deux vérifiés."""
+        if not self._file:
+            raise UnreachableError(
+                "aucun fichier chiffré : renseigne `file:` dans providers.servers "
+                f"ou {creds_env_key(self.name, 'FILE')}", backend=self.name)
+        chiffre = os.path.expanduser(self._file)
+        if not os.path.isfile(chiffre):
+            raise UnreachableError(f"fichier chiffré introuvable : {chiffre}",
+                                   backend=self.name)
+        if not self._identity:
+            raise UnreachableError(
+                f"aucune clé age : renseigne {creds_env_key(self.name, 'AGE_KEY_FILE')} "
+                "(chemin d'un fichier d'identité age)", backend=self.name)
+        cle = os.path.expanduser(self._identity)
+        if not os.path.isfile(cle):
+            raise UnreachableError(f"clé age introuvable : {cle}", backend=self.name)
+        return chiffre, cle
+
+    def _plaintext(self):
+        """Clair du fichier, en mémoire uniquement — jamais écrit sur disque.
+
+        Ordre des diagnostics = ordre dans lequel on les corrige : la
+        configuration d'abord (un chemin manquant ne dépend pas du binaire), puis
+        la dépendance, puis le déchiffrement lui-même.
+        """
+        chiffre, cle = self._paths()
+        exe = shutil.which("age")
+        if not exe:
+            raise UnreachableError(
+                "binaire `age` absent — installe-le (`sudo apt install age`)",
+                backend=self.name)
+        try:
+            p = subprocess.run([exe, "--decrypt", "-i", cle, chiffre],
+                               capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired:
+            raise UnreachableError("`age` n'a pas répondu en 30 s", backend=self.name)
+        if p.returncode != 0:
+            detail = _derniere_ligne(p.stderr)
+            # Classer sur la sortie ENTIÈRE, pas sur la ligne retenue : `age` fait
+            # suivre son diagnostic d'une ligne d'invitation à signaler le bug, qui
+            # serait la dernière et ne contiendrait aucun des mots-clés.
+            brut = (p.stderr or "").lower()
+            if "identity" in brut or "recipient" in brut:
+                raise DeniedError(f"aucune identité ne déchiffre ce fichier : {detail}",
+                                  backend=self.name)
+            raise UnreachableError(f"échec de `age --decrypt` : {detail}",
+                                   backend=self.name)
+        return p.stdout
+
+    def _doc(self):
+        """Document déchiffré → mapping Python."""
+        txt = self._plaintext()
+        try:
+            import yaml
+        except ImportError:
+            try:
+                doc = json.loads(txt)
+            except ValueError:
+                raise UnreachableError(
+                    "contenu déchiffré illisible (JSON attendu, `pyyaml` absent)",
+                    backend=self.name)
+        else:
+            try:
+                doc = yaml.safe_load(txt)
+            except Exception as e:  # noqa: BLE001 — pyyaml lève des types variés
+                # Un message de parseur CITE la ligne fautive : il ne doit JAMAIS
+                # ressortir, il contiendrait du clair (tripwire 11). Type seul.
+                raise UnreachableError(
+                    f"contenu déchiffré illisible ({type(e).__name__})",
+                    backend=self.name)
+        if not isinstance(doc, dict):
+            raise UnreachableError(
+                "le fichier déchiffré doit être un mapping YAML/JSON (clé → valeur)",
+                backend=self.name)
+        return doc
+
+    def status(self):
+        try:
+            self._paths()
+        except SecretError:
+            return "unreachable"
+        return "unlocked" if shutil.which("age") else "unreachable"
+
+    def unlock(self, **_):
+        raise UnsupportedError(
+            "rien à déverrouiller : la clé age est un fichier "
+            f"({creds_env_key(self.name, 'AGE_KEY_FILE')}) — protège-le en 0600",
+            backend=self.name)
+
+    # -- résolution ---------------------------------------------------------
+    def resolve(self, path, field=None):
+        if not path:
+            raise UriError("aucun item dans le chemin", backend=self.name)
+        node = self._doc()
+        parcouru = []
+        for seg in path:
+            if not isinstance(node, dict) or seg not in node:
+                ou = "/".join(parcouru) or "(racine)"
+                raise NotFoundError(f"clé {seg!r} absente sous {ou} — "
+                                    f"présentes : {_cles_dispo(node)}",
+                                    backend=self.name)
+            node = node[seg]
+            parcouru.append(seg)
+        ou = "/".join(parcouru)
+        if isinstance(node, dict):
+            if field is not None:
+                if field not in node:
+                    raise NotFoundError(f"champ {field!r} absent de {ou} — "
+                                        f"présents : {_cles_dispo(node)}",
+                                        backend=self.name)
+                return _valeur_texte(node[field])
+            if "password" in node:
+                return _valeur_texte(node["password"])
+            raise NotFoundError(
+                f"{ou} est un groupe, pas une valeur — précise un champ "
+                f"(#champ) parmi : {_cles_dispo(node)}", backend=self.name)
+        if field is not None:
+            raise NotFoundError(f"{ou} est une valeur simple : pas de champ {field!r}",
+                                backend=self.name)
+        return _valeur_texte(node)
+
+    def list(self, filt=None):
+        out = []
+        for chemin in _age_records(self._doc()):
+            nom = chemin[-1]
+            if filt is not None and filt.lower() not in nom.lower():
+                continue
+            groupes = "/".join(chemin[:-1])
+            out.append({"id": "/".join(chemin), "org": "-",
+                        "collections": [groupes] if groupes else [], "name": nom})
+        return sorted(out, key=lambda r: r["id"])
+
+
+# `age` termine ses erreurs par une invitation à signaler le bug. Elle serait la
+# « dernière ligne » et masquerait le vrai diagnostic — on l'écarte.
+_AGE_BOILERPLATE = "report unexpected or unhelpful errors"
+
+
+def _derniere_ligne(txt, limite=200):
+    """Dernière ligne UTILE d'une sortie d'erreur, bornée. Jamais de clair :
+    `age` écrit ses diagnostics sur stderr, le déchiffré part sur stdout."""
+    lignes = [l.strip() for l in (txt or "").splitlines()
+              if l.strip() and _AGE_BOILERPLATE not in l]
+    return (lignes[-1] if lignes else "sans message")[:limite]
+
+
+def _cles_dispo(node, limite=12):
+    """Clés d'un mapping, pour guider l'appelant. Des NOMS, jamais des valeurs."""
+    if not isinstance(node, dict):
+        return "(valeur simple)"
+    cles = sorted(node)
+    if not cles:
+        return "(aucune)"
+    if len(cles) > limite:
+        return ", ".join(cles[:limite]) + f", … (+{len(cles) - limite})"
+    return ", ".join(cles)
+
+
+def _valeur_texte(v):
+    """Valeur du document → texte, tel qu'un appelant shell l'attend."""
+    if v is None:
+        return ""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, str):
+        return v
+    if isinstance(v, (int, float)):
+        return str(v)
+    return json.dumps(v, ensure_ascii=False)
+
+
+def _age_records(node, prefix=()):
+    """Chemins « enregistrement » du document, pour `list()`.
+
+    Un enregistrement = un mapping dont toutes les valeurs sont scalaires (le cas
+    courant : un item avec ses champs), ou un scalaire isolé au milieu de
+    sous-mappings. On ne rend que des CHEMINS — jamais les valeurs.
+    """
+    if not isinstance(node, dict):
+        if prefix:
+            yield prefix
+        return
+    sous = {k: v for k, v in node.items() if isinstance(v, dict)}
+    if not sous:
+        if prefix:
+            yield prefix
+        return
+    for k, v in node.items():
+        if isinstance(v, dict):
+            yield from _age_records(v, prefix + (k,))
+        else:
+            yield prefix + (k,)
+
+
 # ── Fabrique ─────────────────────────────────────────────────────────────────
-# Un type par gestionnaire. Les suivants (onepassword, nextcloud_passwords,
-# sops) s'enregistrent ici sans toucher aux appelants.
+# Un type par gestionnaire. Les suivants (onepassword, nextcloud_passwords)
+# s'enregistrent ici sans toucher aux appelants.
 BACKENDS = {
     VaultwardenBackend.type: VaultwardenBackend,
     KeepassBackend.type: KeepassBackend,
+    AgeBackend.type: AgeBackend,
 }
 
 

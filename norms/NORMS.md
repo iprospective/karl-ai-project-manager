@@ -1,10 +1,10 @@
 ---
-schema_version: "2.2.0"
+schema_version: "2.3.0"
 updated: 2026-08-18
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.2.0
+# Normes de gestion des tâches — v2.3.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -892,6 +892,16 @@ Justification :
 - `Agents IA` en Intervenant donne aux **agents IA** (karl & co) l'accès au projet —
   sans ce groupe, un nouveau projet n'est pas accessible aux workers IA (RM1977).
   Rôle universel sur l'instance (`Développeur` est ajouté en plus sur les projets dev).
+
+**Branches protégées, dès la création (RM2057).** Une fois le dépôt `-core` publié —
+donc dès que sa branche de prod existe —, `pm-project-new` applique `pm-protect` au
+dépôt créé, et aux dépôts de code du workspace (`repos/*.git`) qui portent déjà un
+remote de forge. Chaque dépôt reçoit la politique de sa nature : `pm-protect` distingue
+core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (droits,
+token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
+La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
+pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
+protection conforme sans en être une (cf. `git-mep` § Enforcement).
 
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
@@ -2228,6 +2238,9 @@ Points de vigilance :
   **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
   ⚠ **Dépôt neuf : l'appliquer aussitôt** — il n'hérite que du défaut GitLab (`main` :
   push *Maintainer*), qui ressemble à une protection conforme sans en être une. (RM2568)
+  Depuis **RM2057**, `pm-project-new` s'en charge automatiquement pour les dépôts qu'il
+  crée ou trouve déclarés (étape 5b, non bloquante) : le geste manuel ne reste requis
+  que pour un dépôt créé hors de ce flux.
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer

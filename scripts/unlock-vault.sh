@@ -4,6 +4,8 @@
 # Usage :
 #   unlock-vault.sh                  # instance par défaut (VAULT_INSTANCE, défaut vw-ipro)
 #   unlock-vault.sh -i <instance>    # une instance Vaultwarden nommée (RM2683)
+#   unlock-vault.sh --stdin          # mot de passe lu sur l'entrée standard (RM2748),
+#                                    # sans invite : appelants non interactifs (cockpit)
 #
 # Chaque instance a sa propre session côté daemon : déverrouiller le vault d'un
 # client ne prolonge pas celui d'iProspective. Les identifiants d'API sont pris
@@ -36,10 +38,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOCK="${VAULT_SOCK:-/run/user/$(id -u)/vault-agentd.sock}"
 
 INSTANCE="${VAULT_INSTANCE:-vw-ipro}"
-if [ "${1:-}" = "-i" ]; then
-  [ "$#" -ge 2 ] || { echo "Usage: $0 [-i <instance>]" >&2; exit 1; }
-  INSTANCE="$2"; shift 2
-fi
+# --stdin (RM2748) : le mot de passe arrive sur l'entrée standard, sans invite.
+# C'est ce qui permet à un appelant NON INTERACTIF (le cockpit) de déverrouiller
+# sans jamais mettre le secret en argument de commande — `ps` le montrerait.
+STDIN_PWD=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -i)       [ "$#" -ge 2 ] || { echo "Usage: $0 [-i <instance>] [--stdin]" >&2; exit 1; }
+              INSTANCE="$2"; shift 2 ;;
+    --stdin)  STDIN_PWD=1; shift ;;
+    *)        break ;;
+  esac
+done
 
 # Source la config PM depuis la racine du repo (un cran au-dessus de scripts/).
 # Scission RM2438 T1 : pm.env (non-secret, ex. VAULT_URL) + .env (secrets, BW_*) →
@@ -127,8 +137,12 @@ if [ "$TYPE" = "keepass" ]; then
     echo "✗ instance $INSTANCE : aucun fichier .kdbx (providers.servers.$INSTANCE.file ou SECRET__${SLUG}__FILE)" >&2
     exit 1; }
   _start_daemon
-  read -r -s -p "Passphrase KeePass ($INSTANCE) : " KP_PWD
-  echo
+  if [ "$STDIN_PWD" = "1" ]; then
+    IFS= read -r KP_PWD || true
+  else
+    read -r -s -p "Passphrase KeePass ($INSTANCE) : " KP_PWD
+    echo
+  fi
   [ -z "$KP_PWD" ] && { echo "Passphrase vide, abandon." >&2; exit 1; }
   RESP="$(printf 'SET-SESSION %s %s\n' "$INSTANCE" "$KP_PWD" | nc -N -U "$SOCK")"
   KP_PWD=""; unset KP_PWD
@@ -174,8 +188,12 @@ fi
 _start_daemon
 
 # Prompt master password (never echoed, never written)
-read -r -s -p "Master password for karl@: " MASTER_PWD
-echo
+if [ "$STDIN_PWD" = "1" ]; then
+  IFS= read -r MASTER_PWD || true
+else
+  read -r -s -p "Master password for karl@: " MASTER_PWD
+  echo
+fi
 [ -z "$MASTER_PWD" ] && { echo "Empty password, aborting." >&2; exit 1; }
 
 # Unlock via --passwordenv (le mdp passe par une env var temporaire, jamais en arg de `ps`)

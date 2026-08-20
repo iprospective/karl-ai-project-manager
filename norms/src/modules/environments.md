@@ -109,6 +109,7 @@ providers:
   servers:
     vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
     kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
+    age-acme:    { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
@@ -127,8 +128,19 @@ Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
 `vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
 
 **Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
-`.kdbx`, dépendance `python3-pykeepass`). D'autres s'ajoutent par le point d'extension
-`pm_secrets.register_backend()` sans toucher aux appelants.
+`.kdbx`, dépendance `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dépendance
+`age` — le cas « on me partage trois identifiants », sans serveur ni compte). D'autres
+s'ajoutent par le point d'extension `pm_secrets.register_backend()` sans toucher aux
+appelants.
+
+**Tous les vaults ne se déverrouillent pas.** Un fichier `age` s'ouvre avec une clé
+privée posée sur le poste : il n'y a **pas de session à établir**, donc pas de secret
+humain à saisir — l'instance est utilisable tant que la clé est lisible. Le corollaire
+est que **seuls les droits du fichier protègent ce vault** : clé en `0600`, jamais
+commitée, jamais dans la déclaration partagée (elle vit dans
+`SECRET__<SLUG>__AGE_KEY_FILE`). La page de santé du poste signale une clé trop
+ouverte. À l'inverse, un vault sans déverrouillage **ne se verrouille pas** :
+`lock-vault.sh` n'a d'effet que sur les sessions gardées en mémoire.
 
 > **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
 > instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client
@@ -155,7 +167,7 @@ Organization iProspective
 
 | Action | Outil | Acteur |
 |---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) ou, dans le **cockpit**, le bouton **🔓 déverrouiller** de l'en-tête, qui n'apparaît que si un coffre est fermé (RM2748) | toi (humain) |
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) ou, dans le **cockpit**, le bouton **🔓 déverrouiller** de l'en-tête, qui n'apparaît que si un coffre est fermé (RM2748). Sur un vault **sans session** (ex. `age`), il n'y a rien à déverrouiller : la commande ne fait que diagnostiquer l'accès | toi (humain) |
 | Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
 | Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
 | Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
@@ -174,7 +186,9 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
    passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
    `unlock-vault.sh`, ou déverrouille depuis le cockpit » et attend. Le mode non
    interactif (`--stdin`) existe pour un appelant qui **transmet** un secret déjà saisi
-   par l'humain (le cockpit) — jamais pour qu'un agent en fabrique ou en réutilise un
+   par l'humain (le cockpit) — jamais pour qu'un agent en fabrique ou en réutilise un.
+   Un code 4 `unreachable` n'est PAS un verrou : c'est une configuration ou une
+   dépendance manquante — le message dit laquelle
 2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
    inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
    d'identifiants trouvées, jamais leurs valeurs

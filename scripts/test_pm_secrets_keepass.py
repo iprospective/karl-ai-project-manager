@@ -235,6 +235,10 @@ def test_daemon_sert_une_instance_keepass():
                + f'    kdbx-test:   {{ axis: secret, type: keepass, file: "{kdbx}" }}\n'
                + src[fin:])
         (work / "pm.config.yml").write_text(src, encoding="utf-8")
+        # cf. test_vault_agentd_multi : sans `.env`, `PMConfig.load` sort en erreur
+        # et le daemon ne verrait plus l'instance KeePass déclarée ici.
+        (work / ".env").write_text(f"PROJECTS_PATH={work}/projects\n", encoding="utf-8")
+        (work / "projects").mkdir()
 
         sock = str(work / "agentd.sock")
         env = dict(os.environ, VAULT_SOCK=sock, PM_CORE_DIR=str(work),

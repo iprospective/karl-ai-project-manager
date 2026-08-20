@@ -169,6 +169,7 @@ import secrets
 import os
 import re
 import shlex
+import stat
 import uuid
 import signal
 import subprocess
@@ -7375,7 +7376,12 @@ def _envchk_vault_instances():
         prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
         keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
         etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
-        if keys:
+        trop_ouvert = _cle_age_trop_ouverte(inst) if inst.type == "age" else None
+        if trop_ouvert:
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · clé privée en mode {trop_ouvert[1]} "
+                            "— lisible au-delà de toi", f"chmod 600 {trop_ouvert[0]}"))
+        elif keys:
             out.append(_chk(etiquette, "ok",
                             f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
         else:
@@ -7383,6 +7389,27 @@ def _envchk_vault_instances():
                             f"type={inst.type} · aucun identifiant trouvé",
                             f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
     return out
+
+
+def _cle_age_trop_ouverte(inst):
+    """(chemin, mode) si la clé privée d'une instance `age` est trop permissive.
+
+    Un vault `age` n'a pas de mot de passe maître : sa clé dort sur le disque, et
+    ce sont les droits du fichier qui la protègent. C'est exactement le genre de
+    dérive silencieuse que la page de santé du poste doit attraper (RM2713).
+    """
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_secrets
+        chemin = (pm_secrets.creds_for(inst.name, legacy=False).get("AGE_KEY_FILE")
+                  or inst.options.get("identity"))
+        if not chemin:
+            return None
+        p = Path(chemin).expanduser()
+        mode = stat.S_IMODE(p.stat().st_mode)
+        return (str(p), format(mode, "03o")) if mode & 0o077 else None
+    except Exception:  # noqa: BLE001 — un diagnostic ne casse jamais la page
+        return None
 
 
 # >>> gitlab_push_check_line — pure (testée) : ligne de statut du watchdog RM2376.

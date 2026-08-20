@@ -233,6 +233,11 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2768 : icônes d'une ligne du panneau projets — présentes, mais elles ne
+     doivent pas concurrencer le nom qu'on vient lire. */
+  .pjicons { float: right; opacity: .45; }
+  .oline:hover .pjicons { opacity: 1; }
+  .pjicons button { padding: 0 5px; margin-left: 2px; line-height: 1.5; }
   .searchrow input { flex: 1; }
   details.card > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
     color: var(--muted); font-weight: 600; list-style: none; outline: none; }
@@ -1935,7 +1940,8 @@ function renderCurTitle() {
     el.innerHTML = '📁 <span class="tid">' + esc(currentProjectView) + '</span>' +
       '<span class="ttitle">fiche projet</span>';
   } else if (centerView) {                                           // RM2759
-    const ic = { file: "📄", dir: "🗂", commit: "⎇", mail: "📧" }[centerView.kind] || "•";
+    const ic = { file: "📄", dir: "🗂", commit: "⎇", mail: "📧",
+                 client: "🏢", conf: "⚙" }[centerView.kind] || "•";      // RM2768
     const t = (centerTabs.find(x => x.kind === centerView.kind && x.key === centerView.key) || {}).label;
     el.innerHTML = ic + ' <span class="ttitle">' + esc(t || parseViewKey(centerView.key).pop() || "") + '</span>';
   } else if (activeTabId === "dash:") {
@@ -3233,7 +3239,8 @@ function closeTabAt(tabs, id, activeId) {
 // >>> renderCenterTabs — pur (testé par test_cockpit.js)
 function renderCenterTabs(tabs, activeId, esc, jarg) {
   const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
-                 file: "📄", dir: "🗂", commit: "⎇", mail: "📧" };   // RM2759
+                 file: "📄", dir: "🗂", commit: "⎇", mail: "📧",     // RM2759
+                 client: "🏢", conf: "⚙" };                          // RM2768
   return tabs.map(t => {
     const id = t.kind + ":" + (t.key == null ? "" : t.key);
     const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
@@ -3283,6 +3290,10 @@ function activateTab(id) {
     const p = parseViewKey(t.key); openCenterCommit(p[0], p[1]);
   } else if (t.kind === "mail") {
     openCenterMail(parseViewKey(t.key)[0], t.label);
+  } else if (t.kind === "client") {                 // RM2768
+    openCenterClient(parseViewKey(t.key)[0]);
+  } else if (t.kind === "conf") {
+    const p = parseViewKey(t.key); openCenterConf(p[0], p[1], p[2]);
   }
 }
 
@@ -4453,6 +4464,11 @@ function projectsPanelHtml(groups, opts, esc, jarg) {
   return groups.map(g => {
     const ouvert = deplieTout || !!open[g.client] || g.client === ctx;
     const nLive = g.projects.reduce((n, p) => n + (live[p.value] || 0), 0);
+    // RM2768 : les icônes vivent DANS la ligne du client, qui est elle-même un
+    // bouton de pliage — d'où le `stopPropagation` sur chacune : une icône qui
+    // replie le client en même temps qu'elle ouvre une vue fait deux choses,
+    // dont une que personne n'a demandée.
+    const stop = "event.stopPropagation();";
     let h = '<div class="oline" style="white-space:normal;cursor:pointer;font-weight:600"'
       + ' onclick="pjToggle(' + jarg(g.client) + ')" title="'
       + (ouvert ? "Replier" : "Déplier") + " " + esc(g.client) + '">'
@@ -4460,7 +4476,12 @@ function projectsPanelHtml(groups, opts, esc, jarg) {
       + ' <span style="color:var(--muted);font-weight:normal">(' + g.projects.length + ")</span>"
       + (nLive ? ' <span class="pill ok">' + nLive + " ▶</span>" : "")
       + (g.client === ctx ? ' <span class="pill" title="Client du contexte courant">ctx</span>' : "")
-      + "</div>";
+      + ' <span class="pjicons">'
+      + '<button class="mini" onclick="' + stop + "openCenterClient(" + jarg(g.client) + ')"'
+      + ' title="Fiche du client ' + esc(g.client) + ' — contacts, projets, valeurs par défaut">🏢</button>'
+      + '<button class="mini" onclick="' + stop + "openCenterConf('client'," + jarg(g.client) + ',\'\')"'
+      + ' title="Configuration du client (meta.yml)">⚙</button>'
+      + "</span></div>";
     if (!ouvert) return h;
     h += g.projects.map(p => {
       const n = live[p.value] || 0;
@@ -4469,6 +4490,9 @@ function projectsPanelHtml(groups, opts, esc, jarg) {
         + ' title="Ouvrir la fiche de ' + esc(p.value) + ' dans le panneau central">📄 '
         + esc(p.project)
         + (n ? ' <span class="pill ok" title="' + n + ' session(s) en cours">' + n + " ▶</span>" : "")
+        + ' <span class="pjicons"><button class="mini" onclick="' + stop
+        + "openCenterConf('project'," + jarg(p.client) + "," + jarg(p.project) + ')"'
+        + ' title="Configuration du projet (meta.yml)">⚙</button></span>'
         + "</div>";
     }).join("");
     return h;
@@ -4507,6 +4531,105 @@ function renderProjectsPanel() {
 async function loadProjectsPanel() {
   if (!allProjects.length) await loadProjects();
   renderProjectsPanel();
+}
+
+
+// ===== RM2768 : fiche client et confs (client, projet) au centre =====
+
+// >>> clientViewHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Ce qu'un client porte et qui n'était visible nulle part : identité, contacts
+// (RM2702), valeurs par défaut, projets — et les projets qu'il UTILISE sans les
+// posséder (partage cross-client), qu'on cherchait jusqu'ici dans le YAML.
+function clientViewHtml(d, esc, jarg) {
+  const c = d || {};
+  const kv = (k, v) => v ? '<div class="kv"><span class="k">' + esc(k) + '</span><span class="v">'
+    + v + "</span></div>" : "";
+  let h = '<div class="ms"><h4>' + esc(c.name || c.client || "client") + "</h4>"
+    + kv("slug", esc(c.client)) + kv("statut", esc(c.status)) + kv("type", esc(c.type))
+    + kv("créé le", esc(c.created))
+    + kv("Redmine", c.redmine_project_url
+        ? '<a href="' + esc(c.redmine_project_url) + '" target="_blank">'
+          + esc(c.redmine_project_id) + " ↗</a>"
+        : esc(c.redmine_project_id || ""))
+    + "</div>";
+
+  const contacts = c.contacts || [];
+  if (contacts.length) {
+    h += '<div class="ms"><h4>Contacts (' + contacts.length + ")</h4>";
+    for (const p of contacts) {
+      const nom = [p.first_name, p.last_name].filter(Boolean).join(" ") || p.name || "—";
+      const det = [p.title, p.role, p.email, p.phone].filter(Boolean).join(" · ");
+      h += '<div class="kv"><span class="k">' + esc(nom)
+        + (p.internal ? ' <span class="pill">interne</span>' : "")
+        + '</span><span class="v">' + esc(det) + "</span></div>";
+    }
+    h += "</div>";
+  }
+
+  const def = c.defaults || {};
+  const team = (def.team || []).map(t => (t && (t.username || t.email)) || "").filter(Boolean);
+  if (def.priority || team.length) {
+    h += '<div class="ms"><h4>Valeurs par défaut</h4>'
+      + kv("priorité", esc(def.priority || "")) + kv("équipe", esc(team.join(" · "))) + "</div>";
+  }
+
+  const projs = c.projects || [];
+  h += '<div class="ms"><h4>Projets (' + projs.length + ")</h4>";
+  h += projs.length ? projs.map(p =>
+      '<div class="oline" style="white-space:normal;cursor:pointer" onclick="openProjectView('
+      + jarg(p.value) + ')" title="Ouvrir la fiche de ' + esc(p.value) + '">📄 '
+      + esc(p.project) + "</div>").join("")
+    : '<div style="color:var(--muted);font-size:11.5px">aucun projet</div>';
+  h += "</div>";
+
+  const used = c.projects_used || [];
+  if (used.length) {
+    h += '<div class="ms"><h4>Projets utilisés (' + used.length + ")</h4>"
+      + '<div style="font-size:11.5px">' + used.map(u => esc(u)).join(" · ")
+      + '</div><div style="color:var(--muted);font-size:11px;margin-top:4px">'
+      + "Projets d'un autre client, partagés avec celui-ci.</div></div>";
+  }
+
+  const docs = c.docs || [];
+  if (docs.length) {
+    h += '<div class="ms"><h4>Docs client</h4><ul class="doclist">'
+      + docs.map(dd => '<li onclick="openCenterFile(' + jarg("doc") + ',' + jarg("") + ','
+        + jarg(dd.path) + ')">📄 ' + esc(dd.name) + "</li>").join("") + "</ul></div>";
+  }
+  return h;
+}
+// <<< clientViewHtml
+
+// >>> confViewHtml — pur (testé par test_cockpit.js)
+// La conf est rendue TELLE QUELLE : la reformater masquerait ce qui s'y trouve
+// vraiment, et c'est justement ce qu'on vient vérifier.
+function confViewHtml(d, esc) {
+  const c = d || {};
+  return '<div class="ms"><h4>⚙ ' + esc(c.label || c.client || "conf")
+    + ' <span style="color:var(--muted);font-weight:normal;font-family:var(--mono)">'
+    + esc(c.name || "meta.yml") + "</span></h4>"
+    + '<div style="color:var(--muted);font-size:11px">Lecture seule — les mutations passent '
+    + "par l'outillage PM (<code>mmi-pm</code>), jamais par une édition à la main.</div></div>"
+    + '<pre class="logtail" style="white-space:pre-wrap;max-height:none">'
+    + esc(c.content || "") + "</pre>";
+}
+// <<< confViewHtml
+
+async function openCenterClient(client) {
+  const key = viewKey([client]);
+  const pane = centerViewPane("client", key, client);
+  await centerViewLoad(pane, key, async () =>
+    clientViewHtml(await api("/client/" + encodeURIComponent(client)), esc, jarg));
+}
+
+async function openCenterConf(scope, client, project) {
+  const key = viewKey([scope, client, project || ""]);
+  const label = "⚙ " + (scope === "project" ? project : client);
+  const pane = centerViewPane("conf", key, label);
+  await centerViewLoad(pane, key, async () =>
+    confViewHtml(await api("/conf?scope=" + encodeURIComponent(scope)
+      + "&client=" + encodeURIComponent(client)
+      + "&project=" + encodeURIComponent(project || "")), esc));
 }
 
 // ----- RM2606 : tickets ouverts dans la session cockpit -----

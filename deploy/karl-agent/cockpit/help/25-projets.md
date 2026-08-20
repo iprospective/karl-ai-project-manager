@@ -23,6 +23,25 @@ tournait à cet instant. Un projet au repos n'apparaissait nulle part, alors que
 - Une pastille verte `n ▶` indique les **sessions en cours** du projet (une session
   enregistrée mais non démarrée n'y compte pas : elle ne tourne pas).
 
+## Les icônes d'une ligne
+
+Elles apparaissent à droite de la ligne et s'éclairent au survol. Un clic dessus
+n'ouvre ni ne referme le client : il fait ce qu'il annonce, rien d'autre.
+
+| Icône | Sur | Ce qu'elle ouvre au centre |
+|---|---|---|
+| 🏢 | un client | sa **fiche** : identité, statut, contacts, valeurs par défaut, projets, projets utilisés, docs |
+| ⚙ | un client | sa **configuration** — le `meta.yml` intégral |
+| ⚙ | un projet | la **configuration du projet** — `meta.yml` : identifiant Redmine, dépôt GitLab, branche par défaut, aspects, dépôts déclarés |
+
+La conf s'affiche **telle qu'elle est écrite**, en lecture seule : la reformater
+masquerait ce qu'on vient justement y vérifier. Pour la modifier, l'outillage PM
+(`mmi-pm`) — jamais l'édition à la main.
+
+La **fiche client** montre aussi les *projets utilisés* : des projets d'un autre
+client partagés avec celui-ci. Cette relation ne se lisait jusqu'ici qu'en ouvrant
+le YAML.
+
 ## La fiche, au centre
 
 Elle donne la configuration utile (identifiant Redmine, dépôt GitLab, branche par

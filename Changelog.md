@@ -30,6 +30,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
 
 ### Outillage
+- **Le doctor NORMS n'avertit plus à vide** (RM2751) : `pm-norms-doctor` signalait à
+  **chaque** exécution « outils cités INTROUVABLES : mmi-pm-client, mmi-pm-core ».
+  Faux positifs : le motif des skills (`\bmmi-pm-[a-z0-9-]+\b`) capturait les noms
+  de symlinks d'ancrage `.mmi-pm-core` / `.mmi-pm-client` — un point est un non-mot,
+  donc `\b` les acceptait. Un lookbehind les écarte. L'enjeu n'était pas le bruit
+  mais ce qu'il masquait : le jour où les NORMS citeront un outil réellement
+  manquant, l'avertissement ne se confondra plus avec le décor. Les deux sens sont
+  testés — les ancres ne sont plus vues, un skill réellement cité l'est toujours,
+  et un skill absent de `skills/` reste déclaré introuvable.
 - **Le doctor NORMS repasse au vert, et un test l'y maintient** (RM2750) :
   `pm-norms-doctor` était en **échec permanent sur `dev`** depuis le jalon v2.0.0
   (RM2438) — deux lignes de l'oracle réécrites sans entrée au registre. Les deux

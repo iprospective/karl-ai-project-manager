@@ -14,7 +14,8 @@
 #
 # Chaque type de backend a sa sémantique : `vaultwarden` (mot de passe maître +
 # `bw`), `keepass` (passphrase poussée au daemon, RM2684), `age` (rien à
-# déverrouiller — la clé est un fichier, RM2713).
+# déverrouiller — la clé est un fichier, RM2713), `nextcloud_passwords` (rien à
+# déverrouiller non plus — un mot de passe d'application, RM2712).
 #
 # Prompts for the karl@iprospective.fr master password (read -s, never logged or written
 # to disk). Calls `bw unlock --raw` to obtain a session token, then passes it to the
@@ -109,6 +110,14 @@ if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
       [ -n "$(_cred AGE_KEY_FILE "")" ] && found="$found AGE_KEY_FILE"
       cible="file=${VAULT_FILE:-—}"
       ;;
+    nextcloud_passwords)
+      NC_URL="$(_cred URL "")"
+      [ -z "$NC_URL" ] && NC_URL="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field url 2>/dev/null || true)"
+      [ -n "$NC_URL" ] && found="$found URL"
+      [ -n "$(_cred USER "")" ] && found="$found USER"
+      [ -n "$(_cred TOKEN "")" ] && found="$found TOKEN"
+      cible="url=${NC_URL:-—}"
+      ;;
     *)
       [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
       [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
@@ -133,6 +142,36 @@ _start_daemon() {
     for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.1; done
   fi
 }
+
+# ── Nextcloud Passwords : rien à déverrouiller, l'accès se teste ────────────
+# Le mot de passe d'application vit dans le `.env` du dev. Ce que le script peut
+# faire d'utile, c'est répondre à « est-ce que ça marche, là, maintenant ? » —
+# question à laquelle on ne veut pas découvrir la réponse au milieu d'un déploiement.
+if [ "$TYPE" = "nextcloud_passwords" ]; then
+  echo "ℹ instance « $INSTANCE » (nextcloud_passwords) : aucun déverrouillage — mot de passe d'application."
+  # Le diagnostic passe par le backend lui-même : une seule implémentation de la
+  # vérification, pas une seconde écrite en shell qui divergerait de la première.
+  ETAT="$(PM_INSTANCE="$INSTANCE" SCRIPT_DIR="$SCRIPT_DIR" python3 -c '
+import os, sys
+sys.path.insert(0, os.environ["SCRIPT_DIR"])
+import pm_secrets
+from pm_paths import PMConfig
+from pm_registry import Registry
+slug = os.environ["PM_INSTANCE"]
+reg = Registry.from_config(PMConfig.load(os.environ.get("PM_CORE_DIR") or None).providers)
+inst = reg.servers.get(slug)
+opts = dict(inst.options) if inst else {}
+if inst is not None and getattr(inst, "url", None):
+    opts.setdefault("url", inst.url)
+b = pm_secrets.get_backend("nextcloud_passwords", name=slug, **opts)
+print(b.status())
+' 2>&1 | tail -1)"
+  case "$ETAT" in
+    unlocked) echo "✓ instance « $INSTANCE » joignable et identifiants acceptés." ; exit 0 ;;
+    locked)   echo "✗ instance joignable, mais les identifiants sont refusés (SECRET__${SLUG}__USER / __TOKEN)." >&2 ; exit 1 ;;
+    *)        echo "✗ instance injoignable ou mal configurée : $ETAT" >&2 ; exit 1 ;;
+  esac
+fi
 
 # ── age : rien à déverrouiller, mais tout à vérifier ────────────────────────
 # La clé est un fichier : il n'y a pas de session à poser. Le script se rend donc

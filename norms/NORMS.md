@@ -1,10 +1,10 @@
 ---
-schema_version: "2.4.0"
+schema_version: "2.5.0"
 updated: 2026-08-18
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.4.0
+# Normes de gestion des tâches — v2.5.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -49,7 +49,9 @@ updated: 2026-08-18
 | un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
+| je note / cherche un contact d'un client | `modules/project-modeling.md` (§ Contacts) | `pm-client-contact` |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
+| j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
@@ -393,43 +395,9 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
-### Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
-
-Les personnes d'un client vivent dans le `meta.yml` de son core
-(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
-`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
-`import-redmine`) — jamais à la main (tripwire #1).
-
-```yaml
-contacts:
-  - last_name: Dupont              # NOM de famille
-    first_name: Claire             # prénom
-    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
-    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
-    role: technique                # owner | decideur | technique | facturation | autre
-    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
-    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
-```
-
-Deux pièges, tous deux rencontrés en production :
-
-- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
-  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
-  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
-  notre courrier chez un client au hasard (cf. routage RM2669).
-- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
-  de gabarit, pas un contact : les outils l'ignorent.
-
-Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
-légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
-
-Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
-toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
-`last_name` / `first_name`.
-
-> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
-> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
-> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
+**Contacts d'un client** (`meta.yml :: contacts[]`, écriture par
+`pm-client-contact`) : voir `modules/project-modeling.md` — c'est de la
+modélisation d'entité, pas de la résolution de chemins (RM2755).
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 
@@ -722,7 +690,7 @@ pm-task-link add "$ID" 1834 --type relates
 Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
 `--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
 
-> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
+> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC) · je note les contacts d'un client.
 > **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
@@ -748,6 +716,44 @@ module Dolibarr générique utilisé par plusieurs clients) :
 - Si **outil interne** non rattaché à un produit tiers → sous `self` (`paths.project` avec `entity=iprospective`)
 
 Suivre l'engagement de livraison et la responsabilité des données.
+
+## Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
+
+Les personnes d'un client vivent dans le `meta.yml` de son core
+(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
+`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+`import-redmine`) — jamais à la main (tripwire #1).
+
+```yaml
+contacts:
+  - last_name: Dupont              # NOM de famille
+    first_name: Claire             # prénom
+    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
+    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
+    role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
+    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
+```
+
+Deux pièges, tous deux rencontrés en production :
+
+- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
+  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
+  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
+  notre courrier chez un client au hasard (cf. routage RM2669).
+- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
+  de gabarit, pas un contact : les outils l'ignorent.
+
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
+Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
+toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
+`last_name` / `first_name`.
+
+> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
+> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
+> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
 
 ## Partage cross-client (used_by_clients / provided_by)
 
@@ -2756,61 +2762,15 @@ staging, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
 **Format** : frontmatter avec liste `environments[]`, chaque entrée décrivant un env.
 Voir `templates/aspects/common/environments.md`.
 
-**Énumération des noms d'env standard :**
-`local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
-
-> **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
-> l'env de non-régression avant prod, déployé depuis **`preprod_branch`** quand le projet
-> est en **flux 3 branches** (opt-in, RM2030), **sinon** depuis `integration_branch`
-> (modèle 2 branches). **Valeur
-> canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
-> id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
-> de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées
-> distinctes pour ce rôle.
-
-Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-archive`,
-`prod-canary`).
-
-**Champs par environnement :**
-- `name` (obligatoire, enum ci-dessus)
-- `status` : `active | disabled | planned`
-- `url`, `admin_url` : URLs publiques/admin
-- `ssh_alias` : **alias SSH** `~/.ssh/config` (avec `ProxyJump`/`HostName`/`User`/clés
-  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `calicote-presta`.
-- `ssh_target` : **cible SSH explicite** `user@hostname` (fallback quand aucun alias
-  n'est défini). Ex: `calicote@srv1.sfy-gestion.com`.
-- `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
-  branche déployée
-- `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
-- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
-- `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
-  env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
-  déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
-  Deux règles **impératives** :
-  - **Déclaratif, NON auto-exécuté** : ce champ *documente* les commandes ; aucun outil
-    ne les lance automatiquement pour l'instant. Un humain les exécute délibérément. Sur
-    la prod, toute commande modifiant l'état exige le **consentement explicite** (cf.
-    « Règle de sécurité prod »).
-  - **Chemins ABSOLUS obligatoires** : ancrer chaque chemin sur `app_path`. Un
-    `rm -rf var/cache/*` *relatif* vise `/var/cache` (dossier système Linux) s'il est
-    lancé du mauvais cwd — écrire `rm -rf /home/<user>/public_html/var/cache/*`.
-- `notes` : libre
+**Format des entrées** — noms d'env admis, champs (`ssh_alias`, `post_deploy`,
+`logs.*`, `env_vars[]`…) et conventions de chemins : `modules/environments-reference.md`
+(hors précharge, ouvert quand on écrit l'aspect).
 
 **Connexion SSH (règle d'usage)** : pour se connecter à un env, utiliser **`ssh_alias`
 s'il est renseigné** (il porte les `ProxyJump`/clés de `~/.ssh/config` — cf. convention
 OVH « alias = nom du conteneur »), **sinon `ssh_target`** (`user@hostname` explicite).
 `host`/`user` restent indicatifs (préfixe des logs distants, contexte) et ne sont pas la
 commande de connexion.
-
-**Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
-l'host si le fichier est sur une machine distante (`<host>:<path>`).
-- `logs.app` : log applicatif (Symfony/PrestaShop, ex: `var/logs/prod.log`).
-- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/calicote-74.error.log`).
-- `logs.access` : access log du serveur web. **Convention prod iProspective (OVH)** :
-  un fichier par vhost sur le serveur hébergeur, à
-  `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`).
-  Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
-  de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
 
 **Cascade** : un `environments.md` peut exister au niveau client (conventions par défaut
 sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
@@ -2835,9 +2795,6 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 > (idempotent, le helper réécrit le `DocumentRoot`), au lieu d'échouer en `rc=128`.
 > Résolveur partagé : `pm-env-session.worktree_for_branch()`.
 
-**Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
-description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
-soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 
 ### Gestion des secrets — vaults déclarés
 
@@ -2955,6 +2912,74 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 dans `client/security.md` (ou équivalent) la liste des items référencés et leur rôle,
 pour audit humain.
 
+> 📂 **Module `environments-reference` — quand lire ceci :** j'écris ou j'édite un aspect `environments.md` · je cherche le nom exact d'un champ d'environnement · je déclare un `post_deploy` ou un chemin de logs.
+> **Outils :** `templates/aspects/common/environments.md` · **Préchargé par :** *(personne — ouvert à la demande)*.
+
+# Environnements — format de l'aspect (référence)
+
+Détaché de `environments.md` par RM2755 : ces sections décrivent la **forme** du
+fichier d'aspect — noms d'env admis, champs, conventions de chemins. On les ouvre
+quand on ÉCRIT un `environments.md`, pas à chaque tâche. Les **règles d'usage**
+(quelle commande de connexion, cascade, `target_env`, secrets) restent dans
+`environments.md`, préchargé.
+
+### Noms et champs
+
+**Énumération des noms d'env standard :**
+`local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
+
+> **`staging` et `preprod` sont un seul et même environnement** (fusionnés en v1.36.0) :
+> l'env de non-régression avant prod, déployé depuis **`preprod_branch`** quand le projet
+> est en **flux 3 branches** (opt-in, RM2030), **sinon** depuis `integration_branch`
+> (modèle 2 branches). **Valeur
+> canonique = `staging`** ; `preprod` reste accepté comme **alias** (le statut Redmine
+> id 20 s'appelle toujours « MEP/Tester en preprod » et le narratif MEP ci-dessous parle
+> de « preprod » — c'est le même env que `staging`). Ne pas déclarer deux entrées
+> distinctes pour ce rôle.
+
+Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-archive`,
+`prod-canary`).
+
+**Champs par environnement :**
+- `name` (obligatoire, enum ci-dessus)
+- `status` : `active | disabled | planned`
+- `url`, `admin_url` : URLs publiques/admin
+- `ssh_alias` : **alias SSH** `~/.ssh/config` (avec `ProxyJump`/`HostName`/`User`/clés
+  préconfigurés), **à utiliser de préférence** pour toute connexion. Ex: `calicote-presta`.
+- `ssh_target` : **cible SSH explicite** `user@hostname` (fallback quand aucun alias
+  n'est défini). Ex: `calicote@srv1.sfy-gestion.com`.
+- `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
+  branche déployée
+- `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
+- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
+- `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
+  env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
+  déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
+  Deux règles **impératives** :
+  - **Déclaratif, NON auto-exécuté** : ce champ *documente* les commandes ; aucun outil
+    ne les lance automatiquement pour l'instant. Un humain les exécute délibérément. Sur
+    la prod, toute commande modifiant l'état exige le **consentement explicite** (cf.
+    « Règle de sécurité prod »).
+  - **Chemins ABSOLUS obligatoires** : ancrer chaque chemin sur `app_path`. Un
+    `rm -rf var/cache/*` *relatif* vise `/var/cache` (dossier système Linux) s'il est
+    lancé du mauvais cwd — écrire `rm -rf /home/<user>/public_html/var/cache/*`.
+- `notes` : libre
+
+### Conventions de chemins
+
+**Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
+l'host si le fichier est sur une machine distante (`<host>:<path>`).
+- `logs.app` : log applicatif (Symfony/PrestaShop, ex: `var/logs/prod.log`).
+- `logs.fpm` : log du pool PHP-FPM (cf. § conventions FPM, ex: `/var/log/php/calicote-74.error.log`).
+- `logs.access` : access log du serveur web. **Convention prod iProspective (OVH)** :
+  un fichier par vhost sur le serveur hébergeur, à
+  `/var/log/nginx/<domaine>_access.log` (+ `<domaine>_error.log`).
+  Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
+  de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
+
+**Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
+description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
+soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 > 📂 **Module `collaboration` — quand lire ceci :** je suis l'orchestrateur : rôles, assignation, sous-tâches multi-niveaux, propagation de complétion.
 > **Outils :** — · **Préchargé par :** orchestrateur.
 

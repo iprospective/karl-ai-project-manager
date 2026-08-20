@@ -7567,8 +7567,32 @@ def _envchk_ssh():
     return out
 
 
+def _envchk_workspace_bridge():
+    """RM1892 — le pont d'onboarding est-il posé, et à jour du template ?
+
+    Sans lui, un agent lancé dans un workspace de code ignore qu'il est un worker PM.
+    Le fichier vit HORS git (propre à l'instance) : rien ne le rattrape tout seul,
+    d'où ce contrôle. La sonde délègue au script — jamais de seconde implémentation
+    de la comparaison, qui divergerait.
+    """
+    script = REPO_ROOT / "scripts" / "pm-workspace-bridge.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script)], capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("pont d'onboarding", "warn", "contrôle impossible")]
+    if p.returncode == 0:
+        return [_chk("pont d'onboarding", "ok", "AGENTS.md + CLAUDE.md à jour")]
+    lignes = [l.strip() for l in p.stdout.splitlines() if l.strip().startswith("✗")]
+    detail = "; ".join(l.lstrip("✗ ") for l in lignes) or "à vérifier"
+    return [_chk("pont d'onboarding", "warn", detail[:200],
+                 "scripts/pm-workspace-bridge.py --update")]
+
+
 def _envchk_pm():
-    out = []
+    out = _envchk_workspace_bridge()
     vf = REPO_ROOT / "norms" / "VERSION"
     try:
         norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()

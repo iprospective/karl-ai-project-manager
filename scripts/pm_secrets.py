@@ -579,7 +579,11 @@ class AgeBackend(SecretBackend):
             raise UnreachableError("`age` n'a pas répondu en 30 s", backend=self.name)
         if p.returncode != 0:
             detail = _derniere_ligne(p.stderr)
-            if "identity" in detail.lower() or "recipient" in detail.lower():
+            # Classer sur la sortie ENTIÈRE, pas sur la ligne retenue : `age` fait
+            # suivre son diagnostic d'une ligne d'invitation à signaler le bug, qui
+            # serait la dernière et ne contiendrait aucun des mots-clés.
+            brut = (p.stderr or "").lower()
+            if "identity" in brut or "recipient" in brut:
                 raise DeniedError(f"aucune identité ne déchiffre ce fichier : {detail}",
                                   backend=self.name)
             raise UnreachableError(f"échec de `age --decrypt` : {detail}",
@@ -670,10 +674,16 @@ class AgeBackend(SecretBackend):
         return sorted(out, key=lambda r: r["id"])
 
 
+# `age` termine ses erreurs par une invitation à signaler le bug. Elle serait la
+# « dernière ligne » et masquerait le vrai diagnostic — on l'écarte.
+_AGE_BOILERPLATE = "report unexpected or unhelpful errors"
+
+
 def _derniere_ligne(txt, limite=200):
-    """Dernière ligne non vide d'une sortie d'erreur, bornée. Jamais de clair :
+    """Dernière ligne UTILE d'une sortie d'erreur, bornée. Jamais de clair :
     `age` écrit ses diagnostics sur stderr, le déchiffré part sur stdout."""
-    lignes = [l.strip() for l in (txt or "").splitlines() if l.strip()]
+    lignes = [l.strip() for l in (txt or "").splitlines()
+              if l.strip() and _AGE_BOILERPLATE not in l]
     return (lignes[-1] if lignes else "sans message")[:limite]
 
 

@@ -26,6 +26,8 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 DAEMON = _HERE / "vault-agentd.py"
+sys.path.insert(0, str(_HERE))
+from test_support import core_with, core_env  # noqa: E402
 
 # Deux items distincts, un par instance : c'est ce qui rend l'isolation VISIBLE.
 ITEM_IPRO = {"id": "u-ipro", "name": "prod-db",
@@ -51,20 +53,13 @@ if a[:1] == ["sync"]:
 print("unexpected: %%s" %% a, file=sys.stderr); sys.exit(1)
 """ % (json.dumps(ITEM_IPRO), json.dumps(ITEM_CLIENT))
 
-# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée.
-# Repartir du fichier réel évite de maintenir un faux `pm.config.yml` (qui doit
-# porter `paths:`, `roots:`… sous peine de faire échouer `PMConfig.load`).
-EXTRA_INSTANCE = (
-    '    vw-clientx:  { axis: secret, type: vaultwarden, '
-    'url: "https://vault.client-x.test" }\n')
-
-
-def _config_avec_deux_vaults():
-    src = (_HERE.parent / "pm.config.yml").read_text(encoding="utf-8")
-    ancre = "    vw-ipro:"
-    i = src.index(ancre)
-    fin = src.index("\n", i) + 1
-    return src[:fin] + EXTRA_INSTANCE + src[fin:]
+# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée
+# (RM2749 : par `test_support.core_with`, qui produit un core VALIDE — sans son `pm.env`,
+# `PMConfig.load` sortait sur `roots.projects_root` non résolu et le daemon
+# dégradait vers la config livrée, donc vers une seule instance : le test
+# échouait en annonçant « vw-clientx inconnue »).
+EXTRA_INSTANCE = {"vw-clientx": {"axis": "secret", "type": "vaultwarden",
+                                 "url": "https://vault.client-x.test"}}
 
 
 def _ask(sock_path, line, timeout=10):
@@ -105,12 +100,11 @@ class Daemon:
     def __init__(self, work, idle_timeout=None, tag="d", supervisor_interval=None):
         self.work = work
         self.sock = str(work / f"{tag}.sock")
-        self.env = dict(os.environ)
-        self.env["PATH"] = f"{work}/bin:{self.env['PATH']}"
+        self.env = core_env(work)
+        self.env["PATH"] = f"{work}/bin:{os.environ['PATH']}"
         self.env["VAULT_SOCK"] = self.sock
         self.env["VAULT_LOCK_AT_HOUR"] = "-1"
         self.env["PM_CONFIG"] = str(work / "pm.config.yml")
-        self.env["PM_CORE_DIR"] = str(work)
         self.args = [sys.executable, str(DAEMON)]
         if idle_timeout is not None:
             self.args += ["--idle-timeout", str(idle_timeout)]
@@ -150,10 +144,7 @@ def _workdir(td):
     fake = work / "bin" / "bw"
     fake.write_text(FAKE_BW)
     fake.chmod(0o755)
-    (work / "pm.config.yml").write_text(_config_avec_deux_vaults())
-    # `PMConfig.load(<dir>)` cherche aussi les scripts à côté : on lie le dossier
-    # scripts/ du dépôt pour que la config de test reste une simple surcouche.
-    (work / "scripts").symlink_to(_HERE)
+    core_with(work, EXTRA_INSTANCE)
     return work
 
 

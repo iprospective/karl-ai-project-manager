@@ -24,6 +24,9 @@ import tempfile
 from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(_HERE))
+from test_support import core_with, core_env  # noqa: E402
+
 _spec = importlib.util.spec_from_file_location("pm_secrets", str(_HERE / "pm_secrets.py"))
 pm_secrets = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pm_secrets)
@@ -221,24 +224,20 @@ def test_daemon_sert_une_instance_keepass():
 
     with tempfile.TemporaryDirectory(prefix="kp-daemon-") as td:
         work = Path(td)
-        (work / "scripts").symlink_to(_HERE)
         kdbx = work / "test.kdbx"
         if HAS_PYKEEPASS:
             _make_kdbx(str(work))
             kdbx = work / "test.kdbx"
         else:
             kdbx.write_bytes(b"")
-        src = (_HERE.parent / "pm.config.yml").read_text(encoding="utf-8")
-        i = src.index("    vw-ipro:")
-        fin = src.index("\n", i) + 1
-        src = (src[:fin]
-               + f'    kdbx-test:   {{ axis: secret, type: keepass, file: "{kdbx}" }}\n'
-               + src[fin:])
-        (work / "pm.config.yml").write_text(src, encoding="utf-8")
+        # Core de test VALIDE (RM2749) : sans son `pm.env`, `PMConfig.load`
+        # sortait sur `roots.projects_root` non résolu, le daemon dégradait vers
+        # la config livrée et `kdbx-test` n'y était évidemment pas déclarée.
+        core_with(work, {
+            "kdbx-test": {"axis": "secret", "type": "keepass", "file": str(kdbx)}})
 
         sock = str(work / "agentd.sock")
-        env = dict(os.environ, VAULT_SOCK=sock, PM_CORE_DIR=str(work),
-                   VAULT_LOCK_AT_HOUR="-1")
+        env = core_env(work, VAULT_SOCK=sock, VAULT_LOCK_AT_HOUR="-1")
         log = open(work / "daemon.log", "w")
         proc = subprocess.Popen([sys.executable, str(_HERE / "vault-agentd.py")],
                                 env=env, stdout=log, stderr=log, cwd=str(work))

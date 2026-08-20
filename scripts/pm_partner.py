@@ -35,7 +35,7 @@ from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pm_registry import Registry, RegistryError, secondaries
+from pm_registry import Registry, RegistryError, resolve_instance, secondaries
 from pm_task import get_task_provider
 
 REF_TYPE = "partner_issue"
@@ -115,8 +115,11 @@ _INSTANCE_TYPE_PREFIXES = ("redmine-", "gogs-", "gitlab-", "github-", "jira-")
 
 
 def short_instance(name):
-    """Nom d'instance → forme courte pour un affichage contraint (`redmine-matnat`
-    → `matnat`). Le type du serveur n'apporte rien dans une référence de ticket."""
+    """Nom d'instance → forme courte, par DÉDUCTION (`redmine-matnat` → `matnat`).
+
+    Repli de `instance_slug` quand aucun `slug:` n'est déclaré : le type du serveur
+    n'apporte rien dans une référence de ticket.
+    """
     s = str(name or "")
     for p in _INSTANCE_TYPE_PREFIXES:
         if s.startswith(p):
@@ -124,15 +127,38 @@ def short_instance(name):
     return s
 
 
-def cf_ref(ref):
+def instance_slug(instance, registry=None):
+    """Slug du gestionnaire — l'identifiant court et STABLE d'un outil de tickets.
+
+    Il est **déclaré** dans `pm.config.yml :: providers.servers.<inst>.slug` (RM2657).
+    Le déclarer plutôt que le déduire évite qu'un renommage d'instance change des
+    références déjà écrites chez Redmine ou chez le partenaire ; à défaut de
+    déclaration, on retombe sur la déduction (`short_instance`), donc rien à
+    configurer pour les instances dont le nom parle déjà.
+
+    `instance` : une `pm_registry.Instance` ou un nom. Avec un nom, `registry` permet
+    de retrouver la déclaration ; sans registre (ou instance inconnue), déduction.
+    """
+    name = getattr(instance, "name", instance)
+    opts = getattr(instance, "options", None)
+    if opts is None and registry is not None:
+        try:
+            opts = registry.get(str(name)).options
+        except (RegistryError, AttributeError):
+            opts = None
+    slug = str((opts or {}).get("slug") or "").strip()
+    return slug or short_instance(name)
+
+
+def cf_ref(ref, registry=None):
     """Référence compacte d'un lien pour le CF Redmine — **16 caractères max**.
 
     Le champ « Réf ticket outil externe » est un `string` court : une URL n'y entre
-    pas (47 caractères pour un ticket MatNat). On y met donc `<instance courte>#<id>`,
-    ex. `matnat#5576` — lisible, non ambigu entre partenaires, et l'URL complète reste
-    dans le `refs[]` du frontmatter.
+    pas (47 caractères pour un ticket MatNat). On y met donc `<slug>#<id>`, ex.
+    `matnat#5576` — lisible, non ambigu entre partenaires, et l'URL complète reste
+    dans le `refs[]` du frontmatter. Le slug vient du registre quand il est fourni.
     """
-    label = f"{short_instance(ref.get('instance'))}#{ref.get('issue_id')}"
+    label = f"{instance_slug(ref.get('instance'), registry)}#{ref.get('issue_id')}"
     return label[:CF_REF_MAX]
 
 
@@ -140,6 +166,22 @@ def issue_url(resolution, issue_id):
     """URL humaine du ticket distant, d'après l'URL d'instance du registre."""
     base = (resolution.instance.url or "").rstrip("/")
     return f"{base}/issues/{issue_id}" if base else ""
+
+
+def local_issue_url(rm_id, project_meta=None, registry=None):
+    """URL de NOTRE ticket, telle qu'on la donne au partenaire dans la note.
+
+    Résolue depuis le provider **primaire** du projet (jamais une URL en dur) : un
+    projet dont le primaire changerait d'instance donnerait la bonne. Retourne une
+    chaîne vide si elle n'est pas résoluble — la note se poste alors sans lien
+    plutôt que d'échouer.
+    """
+    if registry is None:
+        return ""
+    try:
+        return issue_url(resolve_instance(project_meta or {}, "task", registry), rm_id)
+    except (RegistryError, PartnerError, AttributeError):
+        return ""
 
 
 def build_ref(resolution, issue_id, role="related", url=None, added=None):

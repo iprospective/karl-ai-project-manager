@@ -21,7 +21,8 @@ def _reg():
         "defaults": {"task": "redmine-ipro", "forge": "gitlab-ipro", "doc": "redmine-wiki"},
         "servers": {
             "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.example"},
-            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat"},
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat",
+                               "slug": "matnat"},
             "redmine-pisceen": {"axis": "task", "type": "redmine", "url": "https://rm.pisceen"},
             "gitlab-ipro":    {"axis": "forge", "type": "gitlab", "url": "https://gl.example"},
             "redmine-wiki":   {"axis": "doc", "type": "redmine_wiki", "url": "https://tasks.example"},
@@ -431,6 +432,81 @@ def test_create_remote_passes_declared_ids_and_no_ia_tag():
     assert p.kw["priority_id"] == 4 and p.kw["subject"] == "Sujet"
     # le CF « IA » est une notion iProspective — ne pas l'imposer chez un tiers
     assert p.kw["tag_ia"] is False
+
+
+# ── slug du gestionnaire + référence compacte (RM2657) ─────────────────────
+
+def test_slug_declared_wins():
+    """`slug:` déclaré dans le registre — stable si l'instance est renommée."""
+    inst = _reg().get("redmine-matnat")
+    assert pm_partner.instance_slug(inst) == "matnat"
+
+
+def test_slug_falls_back_to_deduction():
+    """Sans `slug:` déclaré, on retire le préfixe de type — rien à configurer."""
+    inst = _reg().get("redmine-pisceen")
+    assert not inst.options.get("slug")
+    assert pm_partner.instance_slug(inst) == "pisceen"
+    assert pm_partner.instance_slug("redmine-pisceen") == "pisceen"
+    assert pm_partner.instance_slug("jira-acme") == "acme"
+    assert pm_partner.instance_slug("interne") == "interne"
+
+
+def test_slug_by_name_needs_the_registry():
+    """Un nom seul ne porte pas la déclaration : le registre la retrouve."""
+    reg = _reg()
+    assert pm_partner.instance_slug("redmine-matnat") == "matnat"       # déduit, ici identique
+    assert pm_partner.instance_slug("redmine-matnat", reg) == "matnat"  # déclaré
+
+
+def test_slug_declared_differs_from_deduction():
+    """Cas qui prouve que la déclaration prime réellement sur la déduction."""
+    reg = Registry.from_config({
+        "defaults": {"task": "redmine-ipro"},
+        "servers": {
+            "redmine-ipro": {"axis": "task", "type": "redmine", "url": "https://x"},
+            "redmine-vieux-nom": {"axis": "task", "type": "redmine", "url": "https://y",
+                                  "slug": "mn"},
+        },
+    })
+    assert pm_partner.instance_slug("redmine-vieux-nom") == "vieux-nom"      # sans registre
+    assert pm_partner.instance_slug("redmine-vieux-nom", reg) == "mn"        # déclaré
+    assert pm_partner.cf_ref(_ref(instance="redmine-vieux-nom", issue_id=42), reg) == "mn#42"
+
+
+def test_slug_unknown_instance_does_not_raise():
+    """Une instance absente du registre ne doit pas casser un recalage de CF."""
+    assert pm_partner.cf_ref(_ref(instance="redmine-parti", issue_id=7), _reg()) == "parti#7"
+
+
+def test_cf_ref_is_capped():
+    reg = _reg()
+    long_ref = _ref(instance="redmine-un-nom-de-partenaire-tres-long", issue_id=123456)
+    assert len(pm_partner.cf_ref(long_ref, reg)) <= pm_partner.CF_REF_MAX
+
+
+def test_cf_ref_without_registry_is_unchanged():
+    """Rétro-compat : les appelants qui ne passent pas le registre gardent l'ancien rendu."""
+    assert pm_partner.cf_ref(_ref(issue_id=5576)) == "matnat#5576"
+
+
+# ── URL de NOTRE ticket dans la note au partenaire (RM2657) ────────────────
+
+def test_local_issue_url_uses_the_primary():
+    url = pm_partner.local_issue_url(2618, _meta(), _reg())
+    assert url == "https://tasks.example/issues/2618"
+
+
+def test_local_issue_url_empty_without_registry():
+    """Non résoluble → note postée sans lien, jamais d'échec."""
+    assert pm_partner.local_issue_url(2618, _meta(), None) == ""
+
+
+def test_link_note_carries_the_url():
+    note = pm_partner.link_note(2618, "Titre du ticket",
+                                "https://tasks.example/issues/2618")
+    assert note.splitlines() == ["Suivi iProspective : RM2618 — Titre du ticket",
+                                 "https://tasks.example/issues/2618"]
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

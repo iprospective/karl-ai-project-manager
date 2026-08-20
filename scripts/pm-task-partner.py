@@ -152,6 +152,18 @@ def project_context(cfg, ent, proj):
         out.fail(f"registre providers invalide (pm.config.yml) : {e}")
 
 
+def registry_or_none(cfg):
+    """Registre seul (il est GLOBAL, pas par projet) — pour résoudre un `slug:`.
+
+    Best-effort : un registre incohérent ne doit pas empêcher de recaler un CF, on
+    retombe alors sur le slug déduit du nom d'instance.
+    """
+    try:
+        return Registry.from_config(cfg.providers)
+    except RegistryError:
+        return None
+
+
 # ── Sous-commandes ────────────────────────────────────────────────────────
 
 def cmd_link(cfg, args):
@@ -189,7 +201,9 @@ def cmd_link(cfg, args):
             out.op("lien partenaire (dry-run)", rm=rm_id,
                    extra=f"{ref['instance']}#{ref['issue_id']} role={ref['role']}")
             out.info(f"  url  : {ref['url']}")
-            out.info(f"  note : {pm_partner.link_note(rm_id, fm.get('title', ''), '')}")
+            out.info("  note : " + pm_partner.link_note(
+                rm_id, fm.get("title", ""),
+                pm_partner.local_issue_url(rm_id, meta, reg)))
             return
         fm.setdefault("refs", [])
         fm["refs"].append(ref)
@@ -199,12 +213,14 @@ def cmd_link(cfg, args):
     note_posted, cf_pushed, warnings = False, False, []
     if not args.no_remote_note and (res.link or {}).get("note_on_link", True):
         try:
-            pm_partner.post_link_note(res, ref["issue_id"], rm_id, fm.get("title", ""))
+            pm_partner.post_link_note(
+                res, ref["issue_id"], rm_id, fm.get("title", ""),
+                url=pm_partner.local_issue_url(rm_id, meta, reg))
             note_posted = True
         except Exception as e:                                   # noqa: BLE001
             warnings.append(f"note de rattachement non postée chez {res.instance.name} : {e}")
     try:
-        cf_pushed, cf_why = push_cf(rm_id, pm_partner.cf_ref(ref))
+        cf_pushed, cf_why = push_cf(rm_id, pm_partner.cf_ref(ref, reg))
         if not cf_pushed and "non configuré" not in cf_why:
             warnings.append(f"référence externe non posée sur le ticket : {cf_why}")
     except Exception as e:                                       # noqa: BLE001
@@ -215,13 +231,13 @@ def cmd_link(cfg, args):
                      f"(role={ref['role']}) — {ref['url']}\n"
                      f"note distante : {'oui' if note_posted else 'non'} · "
                      f"réf. externe (CF) : "
-                     f"{pm_partner.cf_ref(ref) if cf_pushed else 'non posée — ' + cf_why}")
+                     f"{pm_partner.cf_ref(ref, reg) if cf_pushed else 'non posée — ' + cf_why}")
     autocommit(args, path, f"pm(partner): RM{rm_id} ↔ {ref['instance']}#{ref['issue_id']}")
     for w in warnings:
         out.warn(w)
     out.op("lien partenaire", rm=rm_id,
            extra=f"{ref['instance']}#{ref['issue_id']} role={ref['role']}"
-                 + (f" · réf. {pm_partner.cf_ref(ref)}" if cf_pushed else " (réf. CF non posée)"))
+                 + (f" · réf. {pm_partner.cf_ref(ref, reg)}" if cf_pushed else " (réf. CF non posée)"))
 
 
 def cmd_unlink(cfg, args):
@@ -243,7 +259,9 @@ def cmd_unlink(cfg, args):
     remaining = pm_partner.partner_refs(fm)
     warnings = []
     try:  # le CF porte le lien principal : on le recale sur ce qui reste (ou on le vide)
-        ok, why = push_cf(rm_id, pm_partner.cf_ref(remaining[0]) if remaining else "")
+        reg = registry_or_none(cfg)
+        ok, why = push_cf(
+            rm_id, pm_partner.cf_ref(remaining[0], reg) if remaining else "")
         if not ok and "non configuré" not in why:
             warnings.append(f"référence externe non mise à jour : {why}")
     except Exception as e:                                       # noqa: BLE001
@@ -427,6 +445,7 @@ def cmd_sync_cf(cfg, args):
     un recalage local→notre Redmine.
     """
     targets = ([(args.rm_id, None)] if not args.all else list(_linked_open_tasks(cfg)))
+    reg = registry_or_none(cfg)
     done, skipped = 0, []
     for rm_id, fm in targets:
         if fm is None:
@@ -435,7 +454,7 @@ def cmd_sync_cf(cfg, args):
         if not refs:
             skipped.append((rm_id, "aucun lien partenaire"))
             continue
-        value = pm_partner.cf_ref(refs[0])
+        value = pm_partner.cf_ref(refs[0], reg)
         if args.dry_run:
             print(f"  RM{rm_id} ← {value}")
             done += 1

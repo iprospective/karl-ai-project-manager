@@ -88,8 +88,21 @@ def _make_tree(tmp, secondary=True, policy="required"):
     for rm, status in ((9001, "en_cours"), (9002, "ferme")):
         (proj / "tasks" / f"RM{rm}_test.md").write_text(
             TASK_MD.format(rm=rm, status=status), encoding="utf-8")
+    return _load_cfg(pm_dir), proj
+
+
+def _load_cfg(pm_dir):
+    """Charge la config PM d'un arbre de test, puis REDÉSARME le CF partenaire.
+
+    Nettoyage APRÈS le load, jamais avant : `PMConfig.load` charge le `.env` de
+    l'utilisateur (~/.config/mmi-pm/.env), qui peut porter
+    REDMINE_CF_PARTNER_ISSUE_ID — un pop prématuré serait annulé par le load suivant.
+    Sans ça, `push_cf` part sur le réseau et ces tests dépendent de la machine qui
+    les exécute (RM2657). Tout rechargement de config dans un test passe par ici.
+    """
+    cfg = PMConfig.load(pm_dir)
     os.environ.pop("REDMINE_CF_PARTNER_ISSUE_ID", None)   # CF non configuré → aucun réseau
-    return PMConfig.load(pm_dir), proj
+    return cfg
 
 
 def _args(**kw):
@@ -505,7 +518,7 @@ def test_link_create_remote_creates_then_links():
         meta["providers"]["task"][1]["create"] = {"tracker_id": 3}
         (proj / "meta.yml").write_text(yaml.safe_dump(meta, allow_unicode=True),
                                        encoding="utf-8")
-        cfg = PMConfig.load(Path(d) / "pm")
+        cfg = _load_cfg(Path(d) / "pm")
         orig = pm_partner.create_remote_issue
         pm_partner.create_remote_issue = lambda res, subject, description="", provider=None: 4242
         try:

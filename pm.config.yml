@@ -192,8 +192,13 @@ providers:
     gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022 }
     github-public:  { axis: forge, type: github, url: "https://github.com" }
     # — axe task —
-    redmine-ipro:   { axis: task,  type: redmine, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
-    redmine-matnat: { axis: task,  type: redmine, url: "https://tasks.materiaux-naturels.fr" }
+    # `slug:` = identifiant COURT et stable du gestionnaire, utilisé dans les
+    # références compactes de tickets (CF « Réf ticket outil externe » : 16 car.,
+    # ex. `matnat#5576`). Déclaré plutôt que déduit du nom d'instance : renommer
+    # une instance ne doit pas invalider des références déjà écrites (RM2657).
+    # Absent → déduction (on retire le préfixe de type : redmine-matnat → matnat).
+    redmine-ipro:   { axis: task,  type: redmine, slug: ipro,   url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
+    redmine-matnat: { axis: task,  type: redmine, slug: matnat, url: "https://tasks.materiaux-naturels.fr" }
     # — axe doc —
     redmine-wiki:   { axis: doc,   type: redmine_wiki, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
     nc-ipro:        { axis: doc,   type: nextcloud, url: "https://cloud.iprospective.fr" }

@@ -30,6 +30,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
 
 ### Outillage
+- **Le pont d'onboarding des workspaces cesse d'être un fichier qu'on recopie**
+  (RM1892) : un agent lancé dans un workspace de code n'a aucun contexte PM — il le
+  reçoit d'un `AGENTS.md` posé à la racine des workspaces (+ symlink `CLAUDE.md`), lu
+  par remontée d'arborescence et conditionnel au `.mmi-pm` du projet. Ce fichier vit
+  **hors git** (il est propre à l'instance), et jusqu'ici « garder le template et le
+  déployé synchrones » n'était qu'un vœu : sur cette machine, le déployé avait dérivé
+  du template et avait gagné 48 lignes de contexte local que toute recopie aurait
+  effacées. `pm-workspace-bridge.py` contrôle (présent ? symlink ? à jour ?), pose
+  (`--install`) et met à jour (`--update`) — en **préservant** le bloc délimité
+  `BEGIN/END INSTANCE`, qui porte la part machine. L'`install.sh` de karl-agent le
+  pose au provisioning, et 🩺 **poste** signale la dérive.
 - **Un ticket `bugfix` naît enfin valide** (RM2752) : `validate-task` exige
   `bug.reproducibility` + `bug.reproduce_steps` pour ce type, or `pm-task-add` ne
   posait pas le bloc et n'offrait aucun flag — **tout** bugfix créé par l'outil

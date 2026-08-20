@@ -96,6 +96,7 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     pm-env-*.py                        # init, migrate, session (envs par ticket), deploy
     pm-mr.py · pm-branch-start.py      # branche par ticket, MR fiable (create/merge/get)
     pm-norms-assemble.py · -doctor.py  # gouvernance NORMS (build + invariants)
+    pm-workspace-bridge.py             # pont d'onboarding des workspaces (AGENTS.md + CLAUDE.md)
     karl-mail-*.py                     # boîte de karl : send, fetch (relève), route
                                        # (client/projet), draft (ticket à la validation)
     pm-client-contact.py               # contacts d'un client (nom, prénom, email, tél)

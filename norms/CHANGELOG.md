@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.4.0] - 2026-08-20 — Le pont d'onboarding des workspaces
+
+### Ajouté
+- **structure-reference** — § « Le pont d'onboarding des workspaces » (RM1892) : le
+  fichier racine `AGENTS.md` (+ symlink `CLAUDE.md`) lu par remontée d'arborescence,
+  **conditionnel** au `.mmi-pm` du workspace, et ce qu'il implique — il vit hors git
+  (artefact d'instance), sa référence versionnée est `templates/workspace-AGENTS.md`,
+  et son bloc délimité `BEGIN/END INSTANCE` porte la part machine, préservée par les
+  mises à jour.
+- **session-tooling** — `pm-workspace-bridge.py` entre dans la table des outils
+  (contrôle · `--install` · `--update`).
+
 ## [2.3.0] - 2026-08-20 — La protection des branches ne s'ajoute plus après coup
 
 ### Ajouté

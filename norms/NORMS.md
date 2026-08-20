@@ -1,10 +1,10 @@
 ---
-schema_version: "2.6.0"
+schema_version: "2.7.0"
 updated: 2026-08-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.6.0
+# Normes de gestion des tâches — v2.7.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -2894,9 +2894,18 @@ Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
 
 **Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
 `.kdbx`, dépendance `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dépendance
-`age` — le cas « on me partage trois identifiants », sans serveur ni compte). D'autres
+`age` — le cas « on me partage trois identifiants », sans serveur ni compte),
+`nextcloud_passwords` (app **Passwords** d'une instance Nextcloud, accès par mot de
+passe d'**application** — le cas d'un client qui a déjà son gestionnaire). D'autres
 s'ajoutent par le point d'extension `pm_secrets.register_backend()` sans toucher aux
 appelants.
+
+**Un secret chiffré côté client est refusé, pas rendu.** L'app Passwords sait chiffrer
+un item avec une clé que seul le navigateur détient : l'API n'en rend alors qu'un
+cryptogramme. Le backend REFUSE ce cas explicitement (`unsupported`, en nommant le type
+de chiffrement) au lieu de livrer la valeur — un agent la prendrait pour un mot de
+passe et l'injecterait dans une configuration. Corollaire pratique : un secret destiné
+aux agents ne doit pas être posé dans le périmètre chiffré côté client.
 
 **Tous les vaults ne se déverrouillent pas.** Un fichier `age` s'ouvre avec une clé
 privée posée sur le poste : il n'y a **pas de session à établir**, donc pas de secret

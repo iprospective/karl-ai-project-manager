@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.6.0] - 2026-08-20
+## [2.7.0] - 2026-08-20
 
 ### Ajouté
 - **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
@@ -29,6 +29,19 @@
   de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
   `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
   `create.tracker_id` déclaré. (RM2656.)
+
+## [2.6.0] - 2026-08-20 — Le coffre du client, et ce qu'il ne peut pas rendre
+
+### Ajouté
+- **environments** — § « Gestion des secrets » : backend **`nextcloud_passwords`**
+  (RM2712), pour lire dans l'app Passwords d'une instance Nextcloud — le cas d'un
+  client qui a déjà son gestionnaire (Matériaux Naturels). L'accès se fait par un mot
+  de passe d'**application**, révocable, jamais par celui du compte.
+- **environments** — règle nouvelle et non évidente : **un secret chiffré côté client
+  est refusé, pas rendu**. L'API ne rend qu'un cryptogramme ; le livrer ferait injecter
+  du charabia dans une configuration en le prenant pour un mot de passe. Le backend
+  échoue explicitement en nommant le type de chiffrement. Corollaire : un secret
+  destiné aux agents ne se pose pas dans le périmètre chiffré côté client.
 
 ## [2.5.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
 

@@ -232,6 +232,11 @@ providers:
     # La CLÉ PRIVÉE ne se déclare jamais ici : SECRET__AGE_ACME__AGE_KEY_FILE dans
     # ton .env, fichier en 0600. Diagnostic : `scripts/unlock-vault.sh -i age-acme`.
     # age-acme:     { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
+    # Exemple — coffre d'une instance Nextcloud portant l'app Passwords (RM2712).
+    # Identifiants dans ton .env : SECRET__NCPW_MATNAT__USER et __TOKEN (un mot de
+    # passe d'APPLICATION Nextcloud, révocable — pas celui du compte).
+    # Diagnostic : `scripts/unlock-vault.sh -i ncpw-matnat`.
+    # ncpw-matnat:  { axis: secret, type: nextcloud_passwords, url: "https://cloud.materiaux-naturels.fr" }
 
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés

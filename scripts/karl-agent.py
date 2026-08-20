@@ -102,6 +102,13 @@ API (JSON, localhost:9876)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  GET  /client/<slug>           → fiche client : identité, statut, contacts,
+                                  valeurs par défaut, projets, projets utilisés,
+                                  docs  (RM2768)
+  GET  /conf?scope=client|project&client=&project=
+                                → {label, name, content, size} — `meta.yml`
+                                  INTÉGRAL. Le chemin est reconstruit depuis les
+                                  slugs validés, jamais reçu du client  (RM2768)
   GET  /ticket-sessions/<rm>    → {handled:[…], candidates:[…], live, own_alive}
                                   (RM2726 : sessions qui traitent le ticket —
                                   ancrage / registre / worklog — et sessions
@@ -6517,6 +6524,120 @@ def op_tickets_brief(ids) -> dict:
     return out
 
 
+
+# ── RM2768 : fiche client + confs (client, projet) pour le panneau central ───
+# Le client HTTP ne transmet JAMAIS de chemin : il donne des slugs, le serveur
+# résout. `/file` (RM2303) ne sert que des `.md` sous `projects/` avec une garde
+# lexicale — le `meta.yml` d'un client vit dans le core client, atteignable
+# seulement en traversant `..`, ce que cette garde interdit à juste titre.
+# Élargir `/file` aurait ouvert une lecture arbitraire du disque pour gagner
+# deux fichiers : ces deux fichiers ont donc leur route, qui ne lit qu'eux.
+
+def _client_meta_file(client: str):
+    """`meta.yml` du core client (parent du symlink `client`), ou None."""
+    cdir = PROJECTS_BASE / client / "client"
+    try:
+        meta = cdir.resolve().parent / "meta.yml"
+    except OSError:
+        return None
+    return meta if meta.is_file() else None
+
+
+def _client_docs(client: str) -> list:
+    """Documents du client (`client/*.md`), au format de `_project_docs`."""
+    cdir = PROJECTS_BASE / client / "client"
+    if not cdir.is_dir():
+        return []
+    out = []
+    for f in sorted(cdir.glob("*.md")):
+        try:
+            out.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
+        except ValueError:
+            continue          # hors de l'arbre servi : pas affichable par /file
+    return out
+
+
+def op_client(client: str) -> dict:
+    """RM2768 : fiche client — identité, contacts, valeurs par défaut, projets.
+
+    Les contacts viennent de `meta.yml :: contacts[]` (RM2702) ; ils ne sortent
+    pas d'ici : aucun mot de passe, token ni clé n'a sa place dans ce fichier
+    (les secrets vivent au vault, tripwire #11).
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    cdir = PROJECTS_BASE / client
+    if not cdir.is_dir():
+        raise ApiError(404, f"client inconnu en local : {client}")
+    meta = {}
+    mf = _client_meta_file(client)
+    if mf:
+        try:
+            meta = yaml_safe_load(mf.read_text(encoding="utf-8", errors="replace")) or {}
+        except Exception:  # noqa: BLE001
+            meta = {}       # conf illisible : la fiche reste servie, sans elle
+    projects = []
+    pdir = cdir / "projects"
+    if pdir.is_dir():
+        for d in sorted(pdir.glob("*")):
+            if d.is_dir():
+                projects.append({"project": d.name, "value": f"{client}/{d.name}"})
+    used = []
+    udir = cdir / "projects_used"
+    if udir.is_dir():
+        for d in sorted(udir.glob("*")):
+            used.append(d.name)
+    redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
+    rid = ((meta.get("redmine") or {}).get("default_project_id")
+           if isinstance(meta.get("redmine"), dict) else None)
+    return {
+        "client": client,
+        "name": meta.get("name") or client,
+        "status": meta.get("status") or "",
+        "type": meta.get("type") or "",
+        "created": str(meta.get("created") or ""),
+        "contacts": meta.get("contacts") or [],
+        "defaults": meta.get("defaults") or {},
+        "redmine_project_id": rid,
+        "redmine_project_url": f"{redmine}/projects/{rid}" if redmine and rid else "",
+        "projects": projects,
+        "projects_used": used,
+        "docs": _client_docs(client),
+        "has_conf": bool(mf),
+    }
+
+
+def op_conf(scope: str, client: str, project: str = None) -> dict:
+    """RM2768 : `meta.yml` INTÉGRAL d'un client ou d'un projet, en texte.
+
+    `scope` vaut `client` ou `project` ; le chemin est reconstruit depuis les
+    slugs validés, jamais reçu. Le texte est rendu tel quel : c'est de la
+    configuration, on la lit comme elle est écrite — la reformater masquerait
+    ce qui s'y trouve vraiment.
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    if scope == "client":
+        f = _client_meta_file(client)
+        label = f"{client} (client)"
+    elif scope == "project":
+        if not _PART_RE.match(project or ""):
+            raise ApiError(400, "projet invalide")
+        cand = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+        f = cand if cand.is_file() else None
+        label = f"{client}/{project}"
+    else:
+        raise ApiError(400, "scope attendu : client | project")
+    if not f:
+        raise ApiError(404, f"aucun meta.yml pour {label}")
+    try:
+        content = f.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise ApiError(500, f"lecture impossible : {e}")
+    return {"scope": scope, "client": client, "project": project or "",
+            "label": label, "name": f.name, "content": content, "size": len(content)}
+
+
 def op_list_projects() -> list:
     out = []
     for cl in sorted(PROJECTS_BASE.glob("*")):
@@ -9274,6 +9395,12 @@ class Handler(BaseHTTPRequestHandler):
                     g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path.startswith("/client/"):        # RM2768 : fiche client
+                return self._send_json(200, op_client(path[len("/client/"):]))
+            if path == "/conf":                    # RM2768 : meta.yml client/projet
+                g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_conf(g.get("scope", ""), g.get("client", ""),
+                                                    g.get("project")))
             if path.startswith("/git/log/"):        # RM2602 : lecture seule
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))

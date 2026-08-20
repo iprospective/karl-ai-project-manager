@@ -30,6 +30,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
 
 ### Outillage
+- **Le doctor NORMS repasse au vert, et un test l'y maintient** (RM2750) :
+  `pm-norms-doctor` était en **échec permanent sur `dev`** depuis le jalon v2.0.0
+  (RM2438) — deux lignes de l'oracle réécrites sans entrée au registre. Les deux
+  sont bien des **réécritures assumées**, pas des pertes : le jalon multi-utilisateur
+  a requalifié la « propriété **exclusive** » du fichier MD en propriété de 1ᵉʳ niveau
+  (l'exclusion réelle vient de `flock`, pas de l'assignation Redmine), et repositionné
+  l'optimistic locking comme filet **inter-machine**. Les deux motifs sont désormais
+  au `dedup-ledger.yml`. Surtout : **rien ne lançait le doctor**, d'où trois semaines
+  de rouge inaperçu — `scripts/test_norms_doctor.py` l'exécute maintenant dans la
+  suite, et son message d'échec dit quoi réparer pour chaque contrôle.
 - **`pm-env-session teardown` se bloquait sur son propre canari** (RM2679) : la garde
   « worktree sale » exemptait bien les artefacts posés par `create` (`.user.ini`,
   `pm-env.txt`), mais en **comparant des chaînes concaténées**. Avec `docroot: "."` —

@@ -6,7 +6,8 @@ Opération « je commence à coder un ticket » outillée :
      branche courante du repo) et checkée out — idempotent : si elle existe
      déjà, simple checkout ;
   2. CF Redmine « GIT Branche » renseigné ;
-  3. frontmatter de la tâche (`git.repo` / `git.branch`) + entrée `.log.md` ;
+  3. frontmatter de la tâche (`git.repo` / `git.branch`, et `git.worktree` dès
+     que le dépôt cible est un worktree dédié — RM2754) + entrée `.log.md` ;
   4. auto-commit des fichiers PM écrits (pm_git, RM1834) ;
   5. --take : enchaîne la prise du ticket (pm-task-status-update en_cours,
      auto-assignation NORMS).
@@ -29,6 +30,14 @@ NB : dans un workspace au layout RM1993 (`repos/` + `envs/`), l'env de session
 — créé automatiquement à la prise du ticket (hook en_cours de
 pm-task-status-update, RM1834). Le mode --worktree ci-dessous reste le chemin
 pour les repos hors layout.
+
+`git.worktree` est renseigné dans les DEUX cas (RM2754) : avec `--worktree`, et
+aussi quand le `--repo` reçu est déjà un worktree lié — ce que fait `pm-task-take`
+en passant l'env de session. Sans cela le champ restait vide pour tous les tickets
+pris normalement, `pm-task-cd` répondait « mode in-place » et le garde-fou n°2 de
+`pm-pre-commit` (« tu commites depuis le mauvais worktree ») n'avait rien à
+comparer. Un travail réellement in-place dans le dépôt principal, lui, ne
+renseigne toujours rien : le champ reste le reflet de la réalité.
 """
 import argparse
 import re
@@ -105,6 +114,21 @@ def repo_name_of(root: Path) -> str:
         if p.name.endswith(".git"):          # layout RM1993 : repos/<name>.git
             return p.name[:-4]
     return root.name                          # repli : ancien comportement
+
+
+# >>> is_linked_worktree — pure (testée par test_pm_branch_start_worktree.py)
+def is_linked_worktree(git_dir: str, git_common_dir: str) -> bool:
+    """Le dossier de travail est-il un worktree LIÉ, et non le dépôt principal ?
+
+    Fait, pas heuristique : git donne deux chemins. Dans le dépôt principal ils
+    désignent la même chose ; dans un worktree lié, `--git-dir` pointe sous
+    `<commun>/worktrees/<nom>`. On ne devine donc rien depuis le nom du dossier
+    (`envs/…`), qui n'est qu'une convention et mentirait le jour où elle change.
+    """
+    if not git_dir or not git_common_dir:
+        return False
+    return Path(git_dir).resolve() != Path(git_common_dir).resolve()
+# <<< is_linked_worktree
 
 
 def worktree_path(root: Path, rm_id: int, branch: str, seq) -> Path:
@@ -303,6 +327,19 @@ def main():
     git_block.update({"repo": canonical_repo, "branch": branch})
     if wt is not None:
         git_block["worktree"] = str(wt)
+    elif is_linked_worktree(
+            _git(root, "rev-parse", "--path-format=absolute", "--git-dir",
+                 check=False).stdout.strip(),
+            _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir",
+                 check=False).stdout.strip()):
+        # RM2754 — le dépôt cible EST déjà un worktree dédié, sans que `--worktree`
+        # ait été demandé : c'est le flux normal, `pm-task-take` passe `--repo
+        # <env de session>`. Sans cette ligne le champ restait vide pour TOUS les
+        # tickets pris normalement, donc `pm-task-cd` répondait « mode in-place »
+        # et le contrôle n°2 de `pm-pre-commit` — « tu commites depuis le mauvais
+        # worktree », le garde-fou phare de RM2240 — n'avait rien à comparer et
+        # laissait tout passer.
+        git_block["worktree"] = str(root)
     fm["git"] = git_block
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     fm["updated"] = now

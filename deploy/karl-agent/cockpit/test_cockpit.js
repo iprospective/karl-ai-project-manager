@@ -2604,10 +2604,10 @@ assert(fvTxt.includes("&lt;script&gt;"), "…et lisible tel quel");
 // Dossier : navigable, sinon ce n'est qu'une capture d'écran.
 const dv = dirViewHtml({ src: "wt", wt: "/w/repo", path: "src", rootName: "repo",
   entries: [{ name: "api", dir: true }, { name: "main.py", dir: false, size: 512 }] }, escO, jargFn);
-assert(/openCenterDir\('wt','\/w\/repo','src\/api'\)/.test(dv), "un sous-dossier s'ouvre au centre");
-assert(/openCenterFile\('wt','\/w\/repo','src\/main.py'\)/.test(dv), "un fichier aussi");
+assert(/openCenterDir\('wt','\/w\/repo','src\/api',''\)/.test(dv), "un sous-dossier s'ouvre au centre (avec sa portée — RM2761)");
+assert(/openCenterFile\('wt','\/w\/repo','src\/main.py',''\)/.test(dv), "un fichier aussi");
 assert(dv.includes("repo") && dv.includes("src"), "le fil d'Ariane situe où on est");
-assert(/openCenterDir\('wt','\/w\/repo',''\)/.test(dv), "…et permet de remonter à la racine");
+assert(/openCenterDir\('wt','\/w\/repo','',''\)/.test(dv), "…et permet de remonter à la racine");
 assert(dirViewHtml({ entries: [] }, escO, jargFn).includes("dossier vide"),
   "un dossier vide le dit");
 
@@ -2646,3 +2646,60 @@ const iconLine = /const icon = \{[\s\S]*?\};/.exec(html);
 assert(/!currentProjectView && !centerView/.test(html),
   "closeNewTicket doit tenir compte de la vue centrale");
 console.log("✓ vues centrales (RM2759) : fichier, dossier, commit, email — clé rouvrable, sources absentes annoncées");
+
+// — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
+const fsScope = grabFn("fsScope");
+const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc
+const scopeCtx = vm.runInNewContext(
+  scopeSrc + "; ({scopeTag, scopeFromTag, scopeQuery})",
+  { encodeURIComponent, String, Object });
+const { scopeTag, scopeFromTag, scopeQuery } = scopeCtx;
+
+const FD = { projects: [{ root: "/ws/ipro/pm", client: "ipro", project: "pm" }] };
+let sc = fsScope("/ws/ipro/pm/envs/pm-rm42", FD, "karl-RM42", null);
+assert.equal(sc.client, "ipro"); assert.equal(sc.project, "pm");
+assert.equal(sc.sid, "karl-RM42",
+  "les DEUX portées sont gardées : le serveur autorise l'union session ∪ projet");
+assert.deepEqual(fsScope("/ailleurs/scratch", FD, "karl-RM42", null), { sid: "karl-RM42" },
+  "un worktree hors projet ne doit garder QUE le sid — sinon on perdrait le seul droit qui l'autorise");
+assert.deepEqual(fsScope("/x", { client: "acme", project: "shop" }, null, null),
+  { client: "acme", project: "shop" }, "sans session, la portée projet du panneau suffit");
+assert.deepEqual(fsScope("/x", {}, null, "acme/shop"), { client: "acme", project: "shop" },
+  "à défaut, la fiche projet ouverte donne la portée");
+assert.deepEqual(fsScope("/x", {}, null, null), {}, "rien de connu → aucune portée inventée");
+
+assert.equal(scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" }), "c:ipro/pm;s:karl-RM42");
+assert.deepEqual(scopeFromTag("c:ipro/pm;s:karl-RM42"), { client: "ipro", project: "pm", sid: "karl-RM42" });
+assert.deepEqual(scopeFromTag("s:karl-RM42"), { sid: "karl-RM42" });
+assert.equal(scopeFromTag(""), null, "clé d'onglet d'avant RM2761 → repli sur le contexte courant");
+assert.equal(scopeFromTag("c:incomplet"), null, "portée projet tronquée : ignorée, pas devinée");
+assert.equal(scopeQuery({ client: "ipro", project: "pm", sid: "" }),
+  "client=ipro&project=pm&sid=", "la requête porte les deux moitiés (sid vide accepté)");
+
+// la portée survit à l'aller-retour par la clé d'onglet (localStorage)
+const vkey = grabFn("viewKey"), pkey = grabFn("parseViewKey");
+const tag2761 = scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" });
+const rt = pkey(vkey(["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761]));
+assert.deepEqual(rt, ["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761],
+  "clé d'onglet : la portée doit revenir intacte (séparateurs : ; et /)");
+
+// un dossier ouvert au centre reste navigable : chaque lien emporte la portée
+const dirViewHtml2761 = grabFn("dirViewHtml");
+const dh2761 = dirViewHtml2761({ src: "wt", wt: "/ws/ipro/pm", path: "docs", rootName: "pm",
+  tag: tag2761, entries: [{ name: "sous", dir: true }, { name: "a.md", size: 10 }] },
+  escFn, jargFn);
+assert((dh2761.match(/c:ipro\/pm;s:karl-RM42/g) || []).length >= 3,
+  "fil d'ariane, sous-dossiers et fichiers doivent tous porter la portée");
+assert(/openCenterFile\('wt','\/ws\/ipro\/pm','docs\/a\.md','c:ipro/.test(dh2761),
+  "le fichier s'ouvre avec la portée en 4e argument");
+
+// les boutons « ⤢ au centre » capturent la portée AU RENDU (avant tout detach)
+assert(/openCenterFile\('wt'," \+ jarg\(fileNav\.wt\) \+ "," \+ jarg\(fpath\) \+ ","/.test(html),
+  "le bouton fichier doit passer une 4e valeur : la portée");
+assert(/scopeTag\(fsScope\(fileNav\.wt, filesData, attached, currentProjectView\)\)/.test(html),
+  "et la calculer depuis le contexte encore vivant");
+assert(/openCenterFile\(p\[0\], p\[1\], p\[2\], p\[3\]\)/.test(html),
+  "la réactivation d'onglet doit rejouer la portée mémorisée");
+assert(/const fixed = scopeFromTag\(tag\);/.test(html),
+  "_fsq doit préférer la portée explicite au contexte courant (vidé par centerViewPane)");
+console.log("✓ portée des vues centrales (RM2761) : capturée au clic, transportée, rejouée");

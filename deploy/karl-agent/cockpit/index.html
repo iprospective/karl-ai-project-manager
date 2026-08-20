@@ -3255,9 +3255,9 @@ function activateTab(id) {
   else if (t.kind === "newticket") openNewTicket();
   else if (t.kind === "dash") openDashboard();       // RM2744
   else if (t.kind === "file") {                     // RM2759
-    const p = parseViewKey(t.key); openCenterFile(p[0], p[1], p[2]);
+    const p = parseViewKey(t.key); openCenterFile(p[0], p[1], p[2], p[3]);
   } else if (t.kind === "dir") {
-    const p = parseViewKey(t.key); openCenterDir(p[0], p[1], p[2]);
+    const p = parseViewKey(t.key); openCenterDir(p[0], p[1], p[2], p[3]);
   } else if (t.kind === "commit") {
     const p = parseViewKey(t.key); openCenterCommit(p[0], p[1]);
   } else if (t.kind === "mail") {
@@ -4125,12 +4125,74 @@ function fileViewHtml(f, esc, md) {
 }
 // <<< fileViewHtml
 
+// >>> fsScope — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2761 — la portée qui AUTORISE la lecture d'un worktree. Une vue centrale doit
+// porter la sienne : `centerViewPane` détache la session et ferme la fiche projet
+// AVANT que le chargeur ne construise sa requête, donc lire `attached`/`filesData`
+// à ce moment-là revient à les lire vidés.
+//
+// On garde les DEUX portées quand on les connaît — le serveur autorise l'union
+// (session ∪ projet) : le `sid` couvre les worktrees hors projet, `client/projet`
+// survit à la mort de la session, donc à la réactivation d'un onglet.
+function fsScope(wt, filesData, attached, projectKey) {
+  const wtp = String(wt || ""), fd = filesData || {};
+  const out = {};
+  if (attached) out.sid = attached;
+  const hit = (fd.projects || []).find(p => p && p.root
+    && (wtp === String(p.root) || wtp.indexOf(String(p.root) + "/") === 0));
+  if (hit && hit.client && hit.project) { out.client = hit.client; out.project = hit.project; }
+  else if (fd.client && fd.project) { out.client = fd.client; out.project = fd.project; }
+  else {
+    const k = String(projectKey || "");
+    if (k.indexOf("/") > 0) { out.client = k.split("/")[0]; out.project = k.split("/")[1]; }
+  }
+  return out;
+}
+// <<< fsScope
+
+// >>> scopeTag — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Portée ⇄ étiquette, pour voyager dans la clé d'onglet (donc dans le
+// localStorage) : `c:client/projet;s:sid`, chaque moitié facultative. Une clé
+// d'avant RM2761 n'en a pas — d'où le repli sur le contexte courant, comportement
+// historique.
+function scopeTag(scope) {
+  const s = scope || {}, out = [];
+  if (s.client && s.project) out.push("c:" + s.client + "/" + s.project);
+  if (s.sid) out.push("s:" + s.sid);
+  return out.join(";");
+}
+function scopeFromTag(tag) {
+  const out = {};
+  String(tag || "").split(";").forEach(part => {
+    if (part.indexOf("c:") === 0) {
+      const p = part.slice(2).split("/");
+      if (p.length === 2 && p[0] && p[1]) { out.client = p[0]; out.project = p[1]; }
+    } else if (part.indexOf("s:") === 0 && part.length > 2) {
+      out.sid = part.slice(2);
+    }
+  });
+  return (out.sid || out.client) ? out : null;
+}
+function scopeQuery(scope) {
+  const s = scope || {}, q = [];
+  if (s.client && s.project) {
+    q.push("client=" + encodeURIComponent(s.client));
+    q.push("project=" + encodeURIComponent(s.project));
+  }
+  q.push("sid=" + encodeURIComponent(s.sid || ""));
+  return q.join("&");
+}
+// <<< scopeTag
+
 // >>> dirViewHtml — pur (testé par test_cockpit.js)
 // Un dossier reste NAVIGABLE au centre : sinon ce n'est qu'une capture d'écran.
 // Chaque entrée rouvre une vue centrale — dossier ou fichier — dans le même onglet.
 function dirViewHtml(d, esc, jarg) {
   const data = d || {};
   const src = String(data.src || "wt"), wt = String(data.wt || ""), path = String(data.path || "");
+  // RM2761 : la portée voyage avec chaque lien — un dossier ouvert au centre
+  // reste navigable après que la session a été détachée par l'ouverture même.
+  const tag = String(data.tag || "");
   const entries = data.entries || [];
   const crumbs = [{ name: data.rootName || "racine", path: "" }];
   let acc = "";
@@ -4140,16 +4202,16 @@ function dirViewHtml(d, esc, jarg) {
   }
   let h = '<div class="ms"><h4>' + crumbs.map((c, i, a) => i < a.length - 1
     ? '<a href="#" onclick="openCenterDir(' + jarg(src) + ',' + jarg(wt) + ',' + jarg(c.path)
-      + ');return false">' + esc(c.name) + "</a>"
+      + ',' + jarg(tag) + ');return false">' + esc(c.name) + "</a>"
     : "<b>" + esc(c.name) + "</b>").join(' <span style="color:var(--muted)">/</span> ') + "</h4></div>";
   if (!entries.length) return h + '<div class="empty">dossier vide</div>';
   h += entries.map(e => {
     const child = (path ? path + "/" : "") + e.name;
     return e.dir
       ? '<div class="oline" style="white-space:normal;cursor:pointer" onclick="openCenterDir('
-        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ')">🗂 ' + esc(e.name) + "</div>"
+        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ',' + jarg(tag) + ')">🗂 ' + esc(e.name) + "</div>"
       : '<div class="oline" style="white-space:normal;cursor:pointer" onclick="openCenterFile('
-        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ')">📄 ' + esc(e.name)
+        + jarg(src) + ',' + jarg(wt) + ',' + jarg(child) + ',' + jarg(tag) + ')">📄 ' + esc(e.name)
         + (e.size != null ? ' <span style="color:var(--muted);font-size:10px">'
           + (Math.round(e.size / 102.4) / 10) + " Ko</span>" : "") + "</div>";
   }).join("");
@@ -4231,8 +4293,14 @@ async function centerViewLoad(pane, key, charger) {
 
 // `src` : "doc" = document PM servi par /file (chemin sous projects/) ;
 //         "wt"  = fichier d'un worktree servi par /fs/file.
-async function openCenterFile(src, wt, path) {
-  const key = viewKey([src, wt, path]);
+// `tag` (RM2761) : la portée capturée au clic — `c:client/projet` ou `s:sid`. Sans
+// elle, la requête serait construite APRÈS que `centerViewPane` a détaché la session,
+// donc sans aucune portée : le serveur répondrait « worktree hors du périmètre ».
+// Elle entre dans la clé d'onglet pour que la réactivation (et le rechargement de la
+// page) rejoue la même autorisation.
+async function openCenterFile(src, wt, path, tag) {
+  tag = tag || (src === "doc" ? "" : scopeTag(fsScope(wt, filesData, attached, currentProjectView)));
+  const key = viewKey([src, wt, path, tag]);
   const pane = centerViewPane("file", key, viewTabLabel("file", [src, wt, path]));
   await centerViewLoad(pane, key, async () => {
     if (src === "doc") {
@@ -4241,18 +4309,19 @@ async function openCenterFile(src, wt, path) {
       return fileViewHtml({ path, markdown: /\.md$/i.test(path), content: await r.text() },
                           esc, mdToHtml);
     }
-    const f = await api("/fs/file?" + _fsq(wt) + "&path=" + encodeURIComponent(path));
+    const f = await api("/fs/file?" + _fsq(wt, tag) + "&path=" + encodeURIComponent(path));
     return fileViewHtml(Object.assign({ path: path || f.name }, f), esc, mdToHtml);
   });
 }
 
-async function openCenterDir(src, wt, path) {
-  const key = viewKey([src, wt, path]);
+async function openCenterDir(src, wt, path, tag) {
+  tag = tag || scopeTag(fsScope(wt, filesData, attached, currentProjectView));
+  const key = viewKey([src, wt, path, tag]);
   const pane = centerViewPane("dir", key, viewTabLabel("dir", [src, wt, path]));
   await centerViewLoad(pane, key, async () => {
-    const r = await api("/fs/ls?" + _fsq(wt) + "&path=" + encodeURIComponent(path || ""));
+    const r = await api("/fs/ls?" + _fsq(wt, tag) + "&path=" + encodeURIComponent(path || ""));
     return dirViewHtml({ src, wt, path: path || "", rootName: String(wt).split("/").pop(),
-                         entries: r.entries || [] }, esc, jarg);
+                         entries: r.entries || [], tag }, esc, jarg);
   });
 }
 
@@ -4280,10 +4349,13 @@ async function openCenterMail(mkey, sujet) {
 
 // Contexte du panneau fichiers pour un worktree DONNÉ (le `_fq()` existant, lui,
 // suit la navigation courante — inutilisable pour rouvrir un onglet plus tard).
-function _fsq(wt) {
-  const base = (filesData.client && filesData.project && !attached)
-    ? "client=" + encodeURIComponent(filesData.client) + "&project=" + encodeURIComponent(filesData.project)
-    : "sid=" + encodeURIComponent(attached || "");
+function _fsq(wt, tag) {
+  // RM2761 : une portée explicite (capturée au clic) prime sur le contexte courant.
+  const fixed = scopeFromTag(tag);
+  const base = fixed ? scopeQuery(fixed)
+    : (filesData.client && filesData.project && !attached)
+      ? "client=" + encodeURIComponent(filesData.client) + "&project=" + encodeURIComponent(filesData.project)
+      : "sid=" + encodeURIComponent(attached || "");
   return base + "&worktree=" + encodeURIComponent(wt || "");
 }
 
@@ -5374,7 +5446,9 @@ function renderFiles() {
     const fpath = (fileNav.path ? fileNav.path + "/" : "") + f.name;   // RM2759
     h += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'
       + '<button class="mini" onclick="filesLoadDir(fileNav.wt, fileNav.path)">‹ retour</button>'
-      + centerBtn("openCenterFile('wt'," + jarg(fileNav.wt) + "," + jarg(fpath) + ")", "ce fichier")
+      + centerBtn("openCenterFile('wt'," + jarg(fileNav.wt) + "," + jarg(fpath) + ","
+                  + jarg(scopeTag(fsScope(fileNav.wt, filesData, attached, currentProjectView)))
+                  + ")", "ce fichier")
       + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b>"
       + '<span style="color:var(--muted);font-size:11px">' + (Math.round((f.size || 0) / 102.4) / 10) + " Ko</span></div>";
     h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
@@ -5382,8 +5456,9 @@ function renderFiles() {
   } else {
     // RM2759 : le dossier courant s'ouvre au centre, où il reste navigable
     h += '<div style="margin:2px 0 4px">'
-      + centerBtn("openCenterDir('wt'," + jarg(fileNav.wt) + "," + jarg(fileNav.path || "") + ")",
-                  "ce dossier") + "</div>";
+      + centerBtn("openCenterDir('wt'," + jarg(fileNav.wt) + "," + jarg(fileNav.path || "") + ","
+                  + jarg(scopeTag(fsScope(fileNav.wt, filesData, attached, currentProjectView)))
+                  + ")", "ce dossier") + "</div>";
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(fileNav.path).map((c, i, a) =>
       i < a.length - 1
         ? '<a href="#" onclick="filesLoadDir(fileNav.wt,' + jarg(c.path) + ');return false">' + esc(c.name) + "</a>"

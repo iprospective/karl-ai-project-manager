@@ -2561,3 +2561,88 @@ assert(sumOpened, "summary de la carte introuvable");
 assert(/event\.stopPropagation\(\)/.test(sumOpened[0]) && /event\.preventDefault\(\)/.test(sumOpened[0]),
   "le bouton d'aide ne doit pas replier la carte");
 console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ, compte visible");
+
+// — RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email —
+const viewKey = grabO("viewKey");
+const parseViewKey = grabO("parseViewKey");
+const viewTabLabel = grabO("viewTabLabel");
+const fileViewHtml = grabO("fileViewHtml");
+const dirViewHtml = grabO("dirViewHtml");
+const mailViewHtml = grabO("mailViewHtml");
+const viewErrorHtml = grabO("viewErrorHtml");
+
+// La clé doit survivre à un rechargement ET aux caractères d'un vrai chemin :
+// c'est elle, seule, qui rouvre la vue quand plus rien n'est attaché.
+assert.deepEqual(parseViewKey(viewKey(["wt", "/a/b", "src/x.py"])), ["wt", "/a/b", "src/x.py"]);
+assert.deepEqual(parseViewKey(viewKey(["doc", "", "projects/c/p/docs/cdc.md"])),
+  ["doc", "", "projects/c/p/docs/cdc.md"], "une partie vide reste une partie");
+assert.deepEqual(parseViewKey(viewKey(["wt", "/w", "un|pipe & espace.txt"])),
+  ["wt", "/w", "un|pipe & espace.txt"], "un « | » dans le chemin ne coupe pas la clé");
+assert.deepEqual(parseViewKey(""), [], "clé vide → aucune partie");
+assert.deepEqual(parseViewKey("%ZZ"), ["%ZZ"], "clé illisible : rendue telle quelle, pas d'exception");
+
+// Libellés : courts, mais reconnaissables entre dix onglets.
+assert.strictEqual(viewTabLabel("file", ["wt", "/w", "a/b/cdc.md"]), "cdc.md");
+assert.strictEqual(viewTabLabel("file", ["doc", "", "projects/c/p/docs/cdc.md"]), "cdc.md");
+assert.strictEqual(viewTabLabel("dir", ["wt", "/w", "src/api"]), "api/");
+assert.strictEqual(viewTabLabel("dir", ["wt", "/w", ""]), "racine/", "la racine se nomme");
+assert.strictEqual(viewTabLabel("commit", ["2759", "abcdef1234567890"]), "abcdef12");
+assert.strictEqual(viewTabLabel("mail", ["k1"], "Devis pour le site vitrine"), "Devis pour le site vitrine");
+assert.strictEqual(viewTabLabel("mail", ["k1"], "x".repeat(40)).length, 30,
+  "un sujet trop long est coupé, avec son ellipse");
+
+// Fichier : markdown rendu, le reste préformaté — et la taille visible.
+const fvMd = fileViewHtml({ path: "docs/cdc.md", markdown: true, size: 2048, content: "# Titre" },
+  escO, (x) => "<MD>" + x + "</MD>");
+assert(fvMd.includes("<MD># Titre</MD>"), "un .md passe par le rendu markdown");
+assert(fvMd.includes("2 Ko"), "la taille est affichée");
+const fvTxt = fileViewHtml({ path: "a.py", markdown: false, content: "<script>x</script>" },
+  escO, (x) => "<MD>" + x + "</MD>");
+assert(!fvTxt.includes("<script>"), "le contenu non-markdown est échappé");
+assert(fvTxt.includes("&lt;script&gt;"), "…et lisible tel quel");
+
+// Dossier : navigable, sinon ce n'est qu'une capture d'écran.
+const dv = dirViewHtml({ src: "wt", wt: "/w/repo", path: "src", rootName: "repo",
+  entries: [{ name: "api", dir: true }, { name: "main.py", dir: false, size: 512 }] }, escO, jargFn);
+assert(/openCenterDir\('wt','\/w\/repo','src\/api'\)/.test(dv), "un sous-dossier s'ouvre au centre");
+assert(/openCenterFile\('wt','\/w\/repo','src\/main.py'\)/.test(dv), "un fichier aussi");
+assert(dv.includes("repo") && dv.includes("src"), "le fil d'Ariane situe où on est");
+assert(/openCenterDir\('wt','\/w\/repo',''\)/.test(dv), "…et permet de remonter à la racine");
+assert(dirViewHtml({ entries: [] }, escO, jargFn).includes("dossier vide"),
+  "un dossier vide le dit");
+
+// Email : le corps entier, et ce qui manque se dit.
+const mv = mailViewHtml({ subject: "Devis", from: "a@b.fr", from_name: "Alice",
+  date: "2026-08-20", body: "Bonjour\nà tous", body_truncated: true, state: "à traiter" }, escO);
+assert(mv.includes("Bonjour"), "le corps est rendu");
+assert(mv.includes("tronqué à la relève"), "une troncature amont est signalée");
+assert(mv.includes("Alice") && mv.includes("a@b.fr"), "l'expéditeur est identifiable");
+assert(mailViewHtml({ subject: "x" }, escO).includes("corps non disponible"),
+  "sans corps, la vue le dit au lieu d'afficher un blanc");
+assert(mailViewHtml({}, escO).includes("(sans sujet)"), "un email sans sujet reste ouvrable");
+
+// Source disparue : un onglet épinglé survit à ce qu'il montrait.
+const ev = viewErrorHtml("Commit indisponible", "erreur 404", escO);
+assert(ev.includes("Commit indisponible") && ev.includes("erreur 404"), "l'erreur exacte est reprise");
+assert(ev.includes("session fermée"), "…avec l'explication la plus probable");
+
+// Le câblage : sans lui, les fonctions pures ci-dessus ne s'affichent nulle part.
+assert(/<div id="viewpane"/.test(html), "le panneau central doit avoir sa vue générique");
+["file", "dir", "commit", "mail"].forEach(k =>
+  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
+const iconLine = /const icon = \{[\s\S]*?\};/.exec(html);
+["file:", "dir:", "commit:", "mail:"].forEach(k =>
+  assert(iconLine && iconLine[0].includes(k), "icône d'onglet manquante : " + k));
+// Les vues existantes doivent céder la place — sans ça, deux panneaux se superposent
+["function attach(rmId) {", "function openReview(rm) {", "async function openProjectView(key) {",
+ "function openNewTicket() {", "function openDashboard() {"].forEach(sig => {
+  const i = html.indexOf(sig);
+  assert(i > 0, "ouvreur introuvable : " + sig);
+  assert(html.slice(i, i + 700).includes("closeCenterView()"),
+    "cet ouvreur ne referme pas la vue centrale : " + sig);
+});
+// …et réciproquement : une fermeture ne doit pas rappeler le tableau de bord
+// par-dessus une vue centrale ouverte.
+assert(/!currentProjectView && !centerView/.test(html),
+  "closeNewTicket doit tenir compte de la vue centrale");
+console.log("✓ vues centrales (RM2759) : fichier, dossier, commit, email — clé rouvrable, sources absentes annoncées");

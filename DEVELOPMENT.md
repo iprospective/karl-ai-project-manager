@@ -34,6 +34,24 @@ onboarding agent), voir d'abord [README.md](README.md).
   Apache HTTPS et les units systemd. Aide utilisateur intégrée :
   `deploy/karl-agent/cockpit/help/` (servie via `/help`). Tests UI sans navigateur :
   `deploy/karl-agent/cockpit/test_cockpit.js`.
+- **Sessions tmux et cgroups (RM2690).** tmux crée une scope systemd par pane
+  (`tmux-spawn-<uuid>.scope`, UUID aléatoire ⇒ pas de drop-in déclaratif) : le
+  plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
+  Valeurs dans `pm.config.yml` (`sessions.memory_{high,max,swap}_gib`, éditables
+  depuis le cockpit) ; `KARL_AGENT_MEM_HIGH` / `_MAX` / `_SWAP` du `.env`
+  priment et figent le réglage. Piège : sur `swap`, `0` est un plafond réel
+  (aucun swap, le défaut) et c'est `-1` qui lève la limite.
+- **De l'email au ticket (chantier RM2666).** Quatre scripts, quatre gestes, aucune
+  boîte noire : `karl-mail-fetch` relève la boîte IMAP de karl vers une **file de
+  triage** locale (`$XDG_STATE_HOME/karl-agent/mail/`, **hors git** — c'est du courrier
+  client) ; `karl-mail-route` propose client/projet avec une confiance et une source
+  (fil `[RM<id>]`, table apprise `mail-routing.yml`, compte Redmine, `contacts[]`,
+  indice) ; `karl-mail-draft` rédige (via `claude -p` sans outils, JSON strict) **puis
+  crée à la validation humaine**. CDC : `docs/cdc-rm2666-emails-vers-tickets.md` côté
+  données. Les contacts qui alimentent le routage se saisissent avec
+  `pm-client-contact` (`meta.yml` du client). Côté cockpit, le panneau **📧 emails**
+  (RM2671) ne fait que lire `/mail/queue` et déléguer aux scripts : aucune logique de
+  triage n'est dupliquée dans l'UI.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`
@@ -66,6 +84,11 @@ pm-task-deliver.py <RM> --check-all --protocol - --summary -
 # 4. MEP : promotion dev→main (branche protégée) puis déploiement
 pm-promote.py                 # ouvre + merge une MR dev→main
 mmi-pm core update            # geste HUMAIN au terminal (sudo) : pull + restart
+
+# 0 bis. NAISSANCE d'un dépôt (RM2640) — avant tout le reste, si le dépôt n'existe pas
+pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
+#   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
+#   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
 ```
 
 **Docs vivantes (obligatoire à la livraison).** Toute MR qui change la surface met

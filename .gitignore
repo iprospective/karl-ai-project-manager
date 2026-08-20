@@ -27,6 +27,8 @@ __pycache__/
 
 # Environnement local (credentials, URLs)
 .env
+# Config d'instance non-secrète scindée du .env (RM2438 T1) — chemins machine, non versionnable
+pm.env
 
 # Surcharge locale de pm.config.yml (chemins spécifiques machine)
 pm.config.local.yml

@@ -52,6 +52,23 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
+### Identités & transport forge (multi-utilisateur) — v2.0.0
+
+En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+
+- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+
 ### Workflow de développement (par ticket)
 
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation

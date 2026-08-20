@@ -3,8 +3,9 @@
 
 Lancer : python3 scripts/test_pm_registry.py
 Couvre : construction du registre (+ garde-fous de cohérence), priorité de
-résolution (providers > legacy > default) pour les 3 axes, rétro-compat des
-blocs redmine:/gitlab:, interpolation ${VAR} des URLs. Aucun réseau.
+résolution (providers > legacy > client > default), rétro-compat des blocs
+redmine:/gitlab:, interpolation ${VAR} des URLs, axes déclaratifs et cascade
+client (RM2682/L1). Aucun réseau.
 """
 import importlib.util
 import os
@@ -315,6 +316,118 @@ def test_resolve_providers_axis_mismatch():
         raise AssertionError("attendu RegistryError (axe incohérent)")
     except RegistryError:
         pass
+
+
+# ── Axe secret, axes déclaratifs, cascade client (RM2682/L1) ─────────────────
+def _cfg_secret():
+    """Config avec l'axe `secret` : deux vaults déclarés, un défaut."""
+    cfg = _cfg()
+    cfg["defaults"]["secret"] = "vw-ipro"
+    cfg["servers"]["vw-ipro"] = {"axis": "secret", "type": "vaultwarden",
+                                 "url": "https://vault.example"}
+    cfg["servers"]["kdbx-perso"] = {"axis": "secret", "type": "keepass",
+                                    "file": "~/vaults/ipro.kdbx"}
+    cfg["servers"]["vw-clientx"] = {"axis": "secret", "type": "vaultwarden",
+                                    "url": "https://vault.client-x.tld"}
+    return cfg
+
+
+def test_axe_secret_declarable():
+    reg = Registry.from_config(_cfg_secret())
+    assert "secret" in reg.axes
+    assert reg.default_for("secret").type == "vaultwarden"
+    assert {i.name for i in reg.by_axis("secret")} == {"vw-ipro", "kdbx-perso", "vw-clientx"}
+    assert reg.get("kdbx-perso").options.get("file") == "~/vaults/ipro.kdbx"
+
+
+def test_axes_declaratifs_extension():
+    """Un axe nouveau (monitoring) s'active en conf, sans toucher au code."""
+    cfg = _cfg_secret()
+    cfg["axes"] = ["monitoring"]
+    cfg["servers"]["zabbix-ipro"] = {"axis": "monitoring", "type": "zabbix",
+                                     "url": "https://zabbix.example"}
+    cfg["defaults"]["monitoring"] = "zabbix-ipro"
+    reg = Registry.from_config(cfg)
+    assert "monitoring" in reg.axes
+    assert reg.default_for("monitoring").type == "zabbix"
+    # …et il est résoluble comme les autres.
+    res = resolve({}, "monitoring", reg)
+    assert res.instance.name == "zabbix-ipro" and res.source == "default", res
+
+
+def test_axes_livres_toujours_valides():
+    """Déclarer `axes:` n'ampute jamais les axes livrés (casserait des appelants)."""
+    cfg = _cfg_secret()
+    cfg["axes"] = ["monitoring"]          # ne mentionne aucun axe livré
+    reg = Registry.from_config(cfg)
+    for axe in ("task", "forge", "doc", "secret"):
+        assert axe in reg.axes, axe
+
+
+def test_axe_non_declare_refuse():
+    cfg = _cfg_secret()
+    cfg["servers"]["zabbix-ipro"] = {"axis": "monitoring", "type": "zabbix"}
+    try:
+        Registry.from_config(cfg)          # `monitoring` absent de providers.axes
+    except RegistryError as e:
+        assert "monitoring" in str(e) and "providers.axes" in str(e), e
+    else:
+        raise AssertionError("un axe non déclaré doit être refusé")
+
+
+def test_cascade_client_applique():
+    """Le client impose son vault à tous ses projets qui ne surchargent pas."""
+    reg = Registry.from_config(_cfg_secret())
+    client = {"providers": {"secret": {"instance": "vw-clientx"}}}
+    res = resolve({}, "secret", reg, client_meta=client)
+    assert res.instance.name == "vw-clientx" and res.source == "client", res
+
+
+def test_cascade_projet_gagne_sur_client():
+    reg = Registry.from_config(_cfg_secret())
+    client = {"providers": {"secret": {"instance": "vw-clientx"}}}
+    projet = {"providers": {"secret": {"instance": "kdbx-perso"}}}
+    res = resolve(projet, "secret", reg, client_meta=client)
+    assert res.instance.name == "kdbx-perso" and res.source == "providers", res
+
+
+def test_cascade_client_ignoree_si_projet_legacy():
+    """Documenté : sur task/forge, le bloc legacy du projet reste plus spécifique."""
+    reg = Registry.from_config(_cfg_secret())
+    client = {"providers": {"task": {"instance": "redmine-matnat"}}}
+    projet = {"redmine": {"project_id": "p"}}          # legacy → instance par défaut
+    res = resolve(projet, "task", reg, client_meta=client)
+    assert res.instance.name == "redmine-ipro" and res.source == "legacy", res
+
+
+def test_cascade_defaut_si_rien():
+    reg = Registry.from_config(_cfg_secret())
+    res = resolve({}, "secret", reg, client_meta={})
+    assert res.instance.name == "vw-ipro" and res.source == "default", res
+
+
+def test_client_meta_omis_iso_comportement():
+    """Sans `client_meta`, la résolution est exactement celle d'avant L1."""
+    reg = Registry.from_config(_cfg_secret())
+    for axe, meta in (("task", {"redmine": {"project_id": "p"}}),
+                      ("forge", {"gitlab": {"repo": "g/r"}}),
+                      ("doc", {}),
+                      ("secret", {})):
+        avec = resolve(meta, axe, reg, client_meta=None)
+        sans = resolve(meta, axe, reg)
+        assert avec == sans, (axe, avec, sans)
+
+
+def test_cascade_client_axe_incoherent():
+    """Une instance d'un autre axe côté client doit lever, pas être retenue."""
+    reg = Registry.from_config(_cfg_secret())
+    client = {"providers": {"secret": {"instance": "gitlab-ipro"}}}
+    try:
+        resolve({}, "secret", reg, client_meta=client)
+    except RegistryError as e:
+        assert "gitlab-ipro" in str(e), e
+    else:
+        raise AssertionError("instance d'axe incohérent côté client doit lever")
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

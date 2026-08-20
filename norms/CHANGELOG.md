@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [1.69.0] - 2026-08-12
+## [2.1.0] - 2026-08-20
 
 ### Ajouté
 - **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
@@ -29,6 +29,77 @@
   de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
   `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
   `create.tracker_id` déclaré. (RM2656.)
+
+## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence (jalon majeur)
+
+Bump **majeur** : bascule du modèle *mono-`karl` / single-writer global* vers
+*identité par dev / accès concurrent sérialisé par ressource*. Publié avec la
+livraison **T6 (RM2502)** + **T7 (RM2551)** de la convergence **RM2438**.
+
+### Ajouté
+- **collaboration** — nouvelle section **« Multi-utilisateur & concurrence »** :
+  identité par dev (cascade `os.environ` > perso `~/.config/mmi-pm/.env` > instance
+  `pm.env` > commun `.env`) ; `karl` = persona/admin, ops privilégiées via **`sudo`
+  humain** (pas de `karl-sudo`) ; données communes en **groupe `pm`** (squelette
+  `2750` non group-writable, churn `2770`/`2775` setgid **jamais sticky**, bares
+  `sharedRepository=group`), enforcement idempotent committé (`pm-perms`) ;
+  **sérialisation par ressource** (`flock` par ticket + écritures atomiques) qui
+  remplace le single-writer global.
+- **git-mep** — section **« Identités & transport forge (multi-utilisateur) »** :
+  identité forge **par dev + fallback karl** (`<FORGE>_<ROLE>_TOKEN`) ; transport
+  **SSH-first, token en repli** (alias SSH canonique + `insteadOf` global) ;
+  abstraction forge GitLab/Gogs/GitHub (`pm_forge`, `git config pm.forge`).
+
+### Modifié
+- **KERNEL** (§ Propriété, verrou & journal) — **tripwire single-writer reciblé** :
+  d'« un seul writer » à « **isolation par ticket + sérialisation par ressource** ».
+  La propriété par assignation reste la coordination de 1er niveau ; l'optimistic
+  locking `updated` **complète** les verrous `flock` (même machine) et reste
+  l'arbitre **inter-machine**.
+
+## [1.71.0] - 2026-08-18
+
+### Ajouté
+- **session-tooling** — § « Notifications importantes de session » : la règle ne
+  s'arrêtait qu'à la consignation. Elle demande maintenant de **refermer** la
+  notification quand elle est traitée (`notify --resolve <n> --ticket RM<id>`).
+  Cas vécu : une notification « outillage — ticket à ouvrir » est restée au
+  backlog du cockpit après l'ouverture, la livraison ET la MEP du ticket
+  correspondant (RM2691) — elle y portait une consigne devenue fausse. Résoudre
+  sort du backlog **sans** supprimer (archive + ticket qui l'a portée) ; `--clear`
+  détruit et n'est pas le geste courant. Suit le modèle déjà posé par les canaux
+  `requests` (RM2621) et `mrs` (RM2583). Outillage : RM2715.
+
+## [1.70.0] - 2026-08-18
+
+### Modifié
+- **environments** — § « Gestion des secrets » généralisé : le PM n'est plus lié à un
+  gestionnaire unique. Un vault est une **instance déclarée** dans le registre providers
+  (axe `secret`), nommée par un slug, avec un défaut et une surcharge **par client ou par
+  projet** ; les identifiants restent **par développeur** (`SECRET__<SLUG>__…` dans
+  `~/.config/mmi-pm/.env`). Trois formes d'URI documentées — `secret://<instance>/<chemin>`,
+  `secret:<chemin>` et la forme historique `vaultwarden://<org>/<coll>/<item>`, **valide
+  définitivement** : aucun pointeur existant n'est à réécrire. Backends : `vaultwarden`,
+  `keepass`. Le cycle de vie des sessions devient **par instance** (déverrouiller le vault
+  d'un client ne prolonge pas celui d'iProspective), et deux règles s'ajoutent : un
+  diagnostic ne nomme que les **clés** d'identifiants, jamais leurs valeurs ; un URI visant
+  une instance inconnue est **refusé**, jamais rabattu sur le vault par défaut. Rappel
+  ajouté : pour les secrets d'un client, la collection `<client>-agents` du vault
+  iProspective reste la voie normale. (RM2662, lot RM2710.)
+- **KERNEL** — tripwire 11 : « jamais demander le master password Vaultwarden » devient
+  « jamais demander le secret de déverrouillage d'un vault (master password, passphrase) ».
+
+## [1.69.0] - 2026-08-17
+
+### Ajouté
+- **structure-reference** — section « **Contacts d'un client** » : le `meta.yml` du core
+  client porte `contacts[]` au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`, écrit par le seul `pm-client-contact.py`. Deux pièges documentés, tous deux
+  rencontrés en production : `internal: true` marque **nos** adresses (le gabarit de
+  création en pose une chez chaque client — l'utiliser pour identifier un client
+  enverrait tout notre courrier chez un client au hasard, cf. routage RM2669), et une
+  fiche entièrement vide est un résidu de gabarit, pas un contact. Le champ historique
+  `name` reste lu en repli. Annuaire indépendant : à l'étude (RM2703).
 
 ## [1.68.0] - 2026-08-11
 

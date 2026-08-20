@@ -33,12 +33,25 @@ DEUX TITRES DISTINCTS (RM2570, 2026-08-07) :
   sert de repli quand la session n'a jamais été renommée à la main.
 
 Statuts :
-    done   → "[DONE] <titre>"   (terminée)
-    wip    → "[WIP] <titre>"    (à finir / reprise prévue)   alias: todo, afinir
-    clear  → retire le préfixe de statut
+    done      → "[DONE] <titre>"      (terminée)
+    a-tester  → "[A TESTER] <titre>"  (livrée, le demandeur doit tester)
+                                      alias: atester, tester, test
+    wip       → "[WIP] <titre>"       (à finir / reprise prévue)  alias: todo, afinir
+    clear     → retire le préfixe de statut
+
+POURQUOI UN TROISIÈME STATUT (RM2718, 2026-08-18) :
+  L'état de fin le plus fréquent chez karl n'était représentable par aucun des
+  deux autres : le lot est livré, mais rien n'est fini tant que le demandeur n'a
+  pas testé. `[DONE]` mentait (karl-agent RETIRE du jeu une session terminée
+  marquée [DONE] — or c'est justement celle qu'on rouvre quand le test échoue)
+  et `[WIP]` mentait dans l'autre sens (les [WIP] sont RELANCÉES au démarrage de
+  karl-agent : un TUI et une réhydratation de contexte payés pour une session
+  qui n'a plus rien à faire). `[A TESTER]` tient les deux bouts : conservée dans
+  le jeu, mais pas relancée d'office.
 
 Usage :
     mark-session.py done
+    mark-session.py a-tester
     mark-session.py wip
     mark-session.py clear
     mark-session.py done --title "Texte de titre imposé"
@@ -50,9 +63,18 @@ import os
 import re
 import sys
 
-MARKERS = ("[DONE]", "[WIP]", "[TODO]")
+# Marqueurs de STATUT reconnus en lecture (comparaison en MAJUSCULES). Tout ce
+# qui est ici est retiré avant d'en poser un nouveau — un statut en chasse un
+# autre. La variante accentuée est acceptée en lecture (un titre peut avoir été
+# tapé à la main), mais on n'ÉCRIT que la forme ASCII, pour que le marqueur
+# reste un jeton stable des deux côtés (skill et karl-agent).
+MARKERS = ("[DONE]", "[WIP]", "[TODO]", "[A TESTER]", "[À TESTER]")
 STATUS_PREFIX = {
     "done": "[DONE]",
+    "a-tester": "[A TESTER]",
+    "atester": "[A TESTER]",
+    "tester": "[A TESTER]",
+    "test": "[A TESTER]",
     "wip": "[WIP]",
     "todo": "[WIP]",
     "afinir": "[WIP]",
@@ -125,9 +147,10 @@ def strip_marker(title: str | None) -> str:
     TOUS les marqueurs en tête, on retire ceux de statut où qu'ils soient dans
     la série, et on conserve les autres dans leur ordre.
 
-        "[WIP] Machin"           -> "Machin"
-        "[RM1222] [WIP] Machin"  -> "[RM1222] Machin"
-        "[WIP] [RM1222] Machin"  -> "[RM1222] Machin"
+        "[WIP] Machin"             -> "Machin"
+        "[RM1222] [WIP] Machin"    -> "[RM1222] Machin"
+        "[WIP] [RM1222] Machin"    -> "[RM1222] Machin"
+        "[A TESTER] [WIP] Machin"  -> "Machin"
 
     (L'ancienne version s'arrêtait au premier marqueur non reconnu : un
     "[RM1222]" en tête bloquait le nettoyage du "[WIP]" qui le suivait, d'où
@@ -146,11 +169,24 @@ def strip_marker(title: str | None) -> str:
     return " ".join(kept + [s]).strip() if kept else s
 
 
+def marked_title(status: str, title: str | None) -> str:
+    """Titre marqué : statut demandé + titre débarrassé de tout statut précédent.
+
+    Pure et idempotente : re-marquer un titre déjà marqué du même statut rend le
+    même titre, et changer de statut n'empile jamais (`[A TESTER]` chasse
+    `[WIP]`, et réciproquement). Les marqueurs d'identité en tête ([RM1222]…)
+    survivent — cf. `strip_marker`.
+    """
+    base = strip_marker(title) or "(session sans titre)"
+    prefix = STATUS_PREFIX[status]
+    return base if prefix is None else f"{prefix} {base}"
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Préfixe le titre de la session Claude Code.")
     ap.add_argument("status", nargs="?", default="done",
                     choices=sorted(STATUS_PREFIX.keys()),
-                    help="done | wip (todo/afinir) | clear")
+                    help="done | a-tester (atester/tester/test) | wip (todo/afinir) | clear")
     ap.add_argument("--title", help="Titre de base imposé (sinon réutilise le titre courant).")
     args = ap.parse_args()
 
@@ -168,8 +204,9 @@ def main() -> None:
     if not base:
         base, source = "(session sans titre)", "aucune source"
 
-    prefix = STATUS_PREFIX[args.status]
-    new_title = base if prefix is None else f"{prefix} {base}"
+    # `base` est déjà nettoyé ; marked_title le renettoie (idempotent) et pose
+    # le préfixe — une seule règle de composition, testée à part.
+    new_title = marked_title(args.status, base)
 
     # Provenance sur stderr : ne pollue pas la ligne à coller, mais permet de
     # voir d'où sort le titre quand il surprend.

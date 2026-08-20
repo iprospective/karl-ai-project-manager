@@ -80,14 +80,23 @@ def test_fence_non_ferme_ne_masque_pas_la_suite():
     assert has("```\ndu code\n\n## Critères d'acceptation\n\n- [ ] un\n")
 
 
-def test_gabarit_conditionne_dans_la_source():
-    """Garde de câblage : les cas ci-dessus ne couvrent que le prédicat. On
-    vérifie ici qu'il pilote bien l'ajout du gabarit, et que celui-ci n'est plus
-    concaténé inconditionnellement au corps du ticket."""
-    src = (_HERE / "pm-task-add.py").read_text(encoding="utf-8")
-    assert "if not has_acceptance_criteria(desc):" in src, "prédicat non câblé"
-    assert r"{desc}\n\n## Critères d'acceptation" not in src, \
-        "le gabarit est encore ajouté sans condition"
+def test_gabarit_conditionne_dans_le_rendu():
+    """Garde de câblage : les cas ci-dessus ne couvrent que le prédicat. On vérifie
+    ici qu'il pilote réellement le rendu de la fiche — le gabarit ne doit pas être
+    concaténé au corps quand la description apporte déjà ses critères.
+
+    Porte sur `pm_task_md.render_md`, où le rendu a été extrait (RM2657) pour être
+    partagé avec pm-task-import ; pm-task-add le consomme.
+    """
+    import pm_task_md
+    fm = {"redmine_id": 1}
+    sans = pm_task_md.render_md(fm, "Une description sans critères.")
+    assert sans.count("## Critères d'acceptation") == 1
+    assert "- [ ] (à compléter)" in sans
+    avec = pm_task_md.render_md(fm, "Blabla\n\n## Critères d'acceptation\n\n- [ ] un\n")
+    assert avec.count("## Critères d'acceptation") == 1, "gabarit ajouté en double"
+    assert "(à compléter)" not in avec
+    assert pm_task_add.render_md is pm_task_md.render_md, "pm-task-add doit consommer le rendu partagé"
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

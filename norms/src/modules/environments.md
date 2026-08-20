@@ -1,4 +1,4 @@
-> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (Vaultwarden).
+> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (vault, quel qu'il soit).
 > **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
 
 ### Environnements (aspect `environments.md`)
@@ -35,7 +35,7 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 - `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
-- `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
 - `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
   env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
   déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
@@ -90,23 +90,52 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
-soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.
+soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 
-### Gestion des secrets — Vaultwarden
+### Gestion des secrets — vaults déclarés
 
 Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,
-ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans une instance
-Vaultwarden interne (https://vault.iprospective.fr), et sont **référencés** dans les
-documents PM via un URI dédié.
+ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans un
+**gestionnaire de secrets** et sont **référencés** dans les documents PM par un URI.
 
-**URI :**
+**Plusieurs vaults peuvent coexister** (RM2662) : chacun est une **instance** déclarée
+dans le registre providers (`pm.config.yml :: providers.servers`, axe `secret`), nommée
+par un slug, avec un défaut et une surcharge possible **par client ou par projet**.
+
+```yaml
+providers:
+  defaults:
+    secret: vw-ipro                 # vault par défaut
+  servers:
+    vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
+    kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
 ```
-vaultwarden://<organization>/<collection>/<item>
+
+**Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
+identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+par slug **normalisé** (majuscules, non-alphanum → `_`) :
+`SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
+
+**URI — trois formes, toutes valides :**
+```
+secret://<instance>/<chemin…>[#champ]      instance nommée explicitement
+secret:<chemin…>[#champ]                   instance par défaut (cascade projet/client)
+vaultwarden://<org>/<collection>/<item>    forme historique — supportée définitivement
 ```
 
-Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
+`vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
 
-**Architecture du vault** (chez iprospective) :
+**Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
+`.kdbx`, dépendance `python3-pykeepass`). D'autres s'ajoutent par le point d'extension
+`pm_secrets.register_backend()` sans toucher aux appelants.
+
+> **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
+> instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client
+> qui **impose** son gestionnaire. Pour les secrets d'un client hébergés chez nous, la
+> voie normale reste une collection `-agents` du vault iProspective (ci-dessous).
+
+**Architecture du vault par défaut** (chez iprospective) :
 
 ```
 Organization iProspective
@@ -126,31 +155,40 @@ Organization iProspective
 
 | Action | Outil | Acteur |
 |---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh` (demande master password de karl, jamais stocké) | toi (humain) |
-| Résolution d'un secret | `scripts/resolve-secret.sh "vaultwarden://..."` | agent / script |
-| Verrouillage manuel | `scripts/lock-vault.sh` | toi |
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) | toi (humain) |
+| Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
+| Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
+| Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
+| Quel vault pour ce projet ? | `scripts/pm-providers.py resolve secret` | toi / agent |
 
 Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
-- garde la session BW **en mémoire** uniquement (pas de fichier, pas même tmpfs)
+- garde **une session par instance**, **en mémoire** uniquement (pas de fichier, pas
+  même tmpfs) — déverrouiller le vault d'un client ne prolonge pas celui d'iProspective
 - expose un socket Unix `/run/user/$UID/vault-agentd.sock` (chmod 600)
-- se verrouille automatiquement après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
-  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h)
+- verrouille **chaque instance** après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
+  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h), et ne s'arrête que
+  lorsqu'il ne reste plus aucune instance ouverte
 
 **Règles strictes :**
-1. Un agent ne demande **jamais** le master password ; si `resolve-secret.sh` renvoie
-   "session expirée", l'agent doit dire à l'humain "lance `unlock-vault.sh`" et attendre
+1. Un agent ne demande **jamais** le secret de déverrouillage (master password,
+   passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
+   `unlock-vault.sh` » et attend
 2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
-   inclus dans un commit ou un transcript
-3. La rotation du token API de `karl` est trimestrielle (ou immédiate en cas de doute)
+   inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
+   d'identifiants trouvées, jamais leurs valeurs
+3. La rotation des identifiants d'agent est trimestrielle (ou immédiate en cas de doute)
 4. Les agents 24/7 (cron nocturne, n8n) ne peuvent fonctionner que dans la fenêtre
    d'unlock manuel ou via un sous-scope dédié explicitement autorisé (cas particulier)
+5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
+   défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
 
-**Variables d'env requises** (dans `.env` local) :
-- `VAULT_URL` (URL Vaultwarden)
-- `BW_CLIENTID` + `BW_CLIENTSECRET` (API key de karl, pas de master password)
+**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+(`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
+`BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
 
 **Convention dans `environments.md` et autres aspects** : utiliser
-`secrets_source: vaultwarden://<org>/<coll>/<item>` comme pointeur, jamais la valeur
-brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
-référencés et leur rôle, pour audit humain.
+`secrets_source: secret://<instance>/<chemin>` (ou la forme historique
+`vaultwarden://…`, toujours valide) comme pointeur, jamais la valeur brute. Documenter
+dans `client/security.md` (ou équivalent) la liste des items référencés et leur rôle,
+pour audit humain.
 

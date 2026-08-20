@@ -64,6 +64,14 @@ paths:
   task_file:           "{tasks_dir}/RM{id}_{slug}.md"
   task_log_file:       "{tasks_dir}/RM{id}_{slug}.log.md"
 
+  # Routage des emails entrants → client/projet (RM2669). Table adresse →
+  # client/projet : de la CONFIGURATION, donc sous `conf_dir` (= le repo de code
+  # par défaut, où elle est versionnée). Surtout PAS sous `projects_root` : ce
+  # dossier est `.gitignore`d côté code et n'est le checkout d'aucun dépôt de
+  # données — la table y serait ni versionnée ni sauvegardée. Aucun contenu
+  # d'email ne s'en approche (la file de triage, elle, reste hors git — RM2668).
+  mail_routing_file:   "{conf_dir}/mail-routing.yml"
+
   # Symlinks de liaison code ↔ PM
   # workspace_link  : côté PM, pointe vers le workspace de code
   # reverse_link    : côté workspace de code, pointe vers le projet PM
@@ -153,21 +161,26 @@ context:
     project_docs: 20000   # cascade docs/ par projet (RM2368) — lecture via INDEX.md
 
 # ── Providers par projet — registre de serveurs (RM2530 / P0 RM2542) ────────
-# Fondation de la généralisation forge → 3 axes (task / forge / doc).
+# Fondation de la généralisation forge → axes task / forge / doc / secret.
 # INERTE par défaut : les défauts reproduisent l'état actuel (Redmine global +
-# GitLab), aucun script existant ne consomme encore ce bloc (câblage = P1+).
+# GitLab + Vaultwarden iProspective), aucun script existant n'en change de
+# comportement (câblage task/forge/doc = P1+ ; l'axe secret est consommé par le
+# chantier multi-vault RM2662).
 #
+#   axes          : axes ACTIFS en plus des livrés (task/forge/doc/secret).
+#                   Un axe futur (monitoring…) se déclare ICI, sans toucher au code.
 #   servers.<nom> : une instance déclarée — { axis, type, url, <options…> }
 #                   AUCUN secret ici (URLs + type seulement) ; les identifiants
-#                   sont résolus par instance/dev (P4/RM2546). url accepte
+#                   sont résolus par instance/dev (P4/RM2546 ; pour l'axe secret :
+#                   SECRET__<slug>__* dans ~/.config/mmi-pm/.env). url accepte
 #                   l'interpolation ${VAR} / ${VAR:-defaut} (comme roots).
-#   defaults.<axe>: instance retenue quand un projet ne surcharge pas
-#                   (via son meta.yml : bloc `providers:` ou legacy redmine:/gitlab:).
+#   defaults.<axe>: instance retenue quand ni le projet ni le client ne surchargent.
 #
-# Un projet peut déclarer PLUSIEURS providers sur un axe (RM2653, chantier RM2626) :
-# son `meta.yml :: providers.<axe>` accepte une **liste** — un `role: primary`
-# (obligatoire, unique : la source de vérité PM) puis N `role: secondary`
-# (gestionnaires partenaires), chacun portant ses règles `link:` / `sync:` :
+# Un projet — ou un CLIENT, pour tous ses projets — peut déclarer PLUSIEURS
+# providers sur un axe (RM2653, chantier RM2626) : `providers.<axe>` accepte une
+# **liste** — un `role: primary` (obligatoire, unique : la source de vérité PM)
+# puis N `role: secondary` (gestionnaires partenaires), chacun portant ses règles
+# `link:` / `sync:` :
 #
 #   providers:
 #     task:
@@ -179,13 +192,16 @@ context:
 # ~/.config/mmi-pm/.env — repli sur les clés globales si l'instance déclarée EST
 # l'instance de travail.
 #
-# Résolution : scripts/pm_registry.py :: resolve_instances(project_meta, axis)
-# (liste, primaire en tête) ; resolve_instance(…) = le primaire seul.
+# Résolution : scripts/pm_registry.py :: resolve_instances(project_meta, axis,
+# registry, client_meta) — projet > legacy projet > client > défaut ; liste avec le
+# primaire en tête. resolve_instance(…) = le primaire seul.
 providers:
+  # axes: [monitoring]        # exemple : activer un axe supplémentaire
   defaults:
-    task:  redmine-ipro
-    forge: gitlab-ipro
-    doc:   redmine-wiki
+    task:   redmine-ipro
+    forge:  gitlab-ipro
+    doc:    redmine-wiki
+    secret: vw-ipro
   servers:
     # — axe forge —
     gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}" }
@@ -202,6 +218,15 @@ providers:
     # — axe doc —
     redmine-wiki:   { axis: doc,   type: redmine_wiki, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
     nc-ipro:        { axis: doc,   type: nextcloud, url: "https://cloud.iprospective.fr" }
+    # — axe secret (vaults, RM2662) — le défaut reproduit l'existant.
+    # Les secrets CLIENTS restent dans une collection `<client>-agents` de ce
+    # vault (cf. CDC RM2662 § 3.2 bis) ; déclarer une autre instance sert aux
+    # intervenants qui ont leur propre outil, ou à un client qui impose le sien.
+    vw-ipro:        { axis: secret, type: vaultwarden, url: "${VAULT_URL:-https://vault.iprospective.fr}" }
+    # Exemple — base KeePass locale (RM2684). Décommenter et adapter le chemin ;
+    # dépendance : `sudo apt install python3-pykeepass`. Déverrouillage :
+    # `scripts/unlock-vault.sh -i kdbx-perso` (passphrase, jamais écrite).
+    # kdbx-perso:   { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
 
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés
@@ -211,3 +236,23 @@ providers:
 ui:
   # dark | light | auto (auto = prefers-color-scheme du navigateur)
   theme: auto
+
+# ── Sessions d'agents (cockpit karl) ──────────────────────────────────────
+# Plafond mémoire des scopes systemd `tmux-spawn-*.scope` (RM2690). Sans lui,
+# une session qui fuit sature la machine et c'est le kernel qui choisit la
+# victime — pas forcément le fautif (incident OOM du 2026-08-13, 15,7 Go).
+# Rubrique « Sessions » du panneau 🔧 réglages du cockpit (whitelist RM2213) ;
+# surcharge par instance dans pm.config.local.yml (posée depuis le cockpit).
+# Ne s'applique qu'aux sessions créées ENSUITE (les scopes vivantes gardent
+# leur réglage). `KARL_AGENT_MEM_HIGH` / `KARL_AGENT_MEM_MAX` /
+# `KARL_AGENT_MEM_SWAP` dans le .env FIGENT ces valeurs (le cockpit refuse
+# alors l'écriture).
+sessions:
+  # GiB (systemd compte en puissances de 1024) ; 0 = pas de limite.
+  memory_high_gib: 6    # seuil de pression : throttling + reclaim, pas de kill
+  memory_max_gib: 8     # plafond dur : au-delà, OOM-kill de la SEULE scope
+  # ⚠ Convention INVERSE pour le swap : 0 = aucun swap (plafond réel),
+  # -1 = illimité. Sans swap, une session qui fuit meurt à memory_max au lieu
+  # de saturer le swap et de faire ramer le poste pendant la montée
+  # high → max — c'est le scénario du 2026-08-13 (6 Go de swap saturés).
+  memory_swap_gib: 0

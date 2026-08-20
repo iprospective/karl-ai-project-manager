@@ -1,10 +1,10 @@
 ---
-schema_version: "1.69.0"
-updated: 2026-08-12
+schema_version: "2.1.0"
+updated: 2026-08-20
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v1.69.0
+# Normes de gestion des tâches — v2.1.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -78,7 +78,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 8. **Estimation.** Estimer (tokens + temps) **à la création** d'une tâche, et **à la prise** si l'estimation manque. → `modules/roi-pricing.md`
 9. **Description vivante.** Si le ticket a une **checklist** ou un état décrit en prose : la tenir à jour **dans la description** (pas seulement en note), + `done_ratio` au fil de l'eau. → `modules/redmine-hygiene.md`
 10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. **Point de restauration préalable** : si la cible tourne sur une infra **opensvc / LXC / ZFS**, prendre le **snapshot ZFS du conteneur depuis l'hôte AVANT la MEP** (`om <svc> sync update --rid sync#root_hour`) — il tient lieu de sauvegarde préalable (pas de dump applicatif ad hoc en plus), et son nom se logue avec la procédure de rollback. → `modules/git-mep.md`
-11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
+11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le secret de déverrouillage d'un vault (master password, passphrase). → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
 14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
@@ -91,9 +91,11 @@ Les tripwires **structurels** (propriété exclusive du fichier, optimistic lock
 
 **Redmine est le mutex. Les fichiers MD sont le contexte de travail.**
 
-L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+L'assignation d'un ticket Redmine à un agent lui confère la **propriété** du fichier MD correspondant (coordination de 1er niveau) ; en multi-dev, l'accès concurrent réel est **sérialisé par ressource** (`flock`), pas garanti par un unique écrivain.
 
 L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). Ce qui doit être coordonné, c'est uniquement l'accès aux fichiers.
+
+**Multi-utilisateur (v2.0.0) :** données communes partagées (groupe `pm`), accès concurrent **sérialisé par ressource** (`flock`), karl = admin via `sudo` humain. → `modules/collaboration.md`.
 
 ### Règles d'écriture
 
@@ -107,7 +109,7 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 
 ### Protocole optimistic locking
 
-Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+Filet inter-machine contre les écritures simultanées ; complète les verrous `flock` (même machine). Rare si propriété et verrous sont respectés.
 
 ```
 1. Agent lit le fichier, note la valeur courante de updated (T1)
@@ -391,6 +393,44 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
+### Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
+
+Les personnes d'un client vivent dans le `meta.yml` de son core
+(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
+`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+`import-redmine`) — jamais à la main (tripwire #1).
+
+```yaml
+contacts:
+  - last_name: Dupont              # NOM de famille
+    first_name: Claire             # prénom
+    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
+    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
+    role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
+    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
+```
+
+Deux pièges, tous deux rencontrés en production :
+
+- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
+  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
+  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
+  notre courrier chez un client au hasard (cf. routage RM2669).
+- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
+  de gabarit, pas un contact : les outils l'ignorent.
+
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
+Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
+toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
+`last_name` / `first_name`.
+
+> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
+> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
+> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
+
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 
 > **⚠ Section legacy — décrit l'ancien modèle (symlink `.mmi-pm` *entrant*).** Le
@@ -584,7 +624,14 @@ Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-
 (pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
 Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
 `outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
-canal noyé ne sera pas lu. Mode d'emploi : skill `mmi-pm-session-status`.
+canal noyé ne sera pas lu.
+
+**Et referme-la quand elle est traitée** (RM2715) : `notify --resolve <n> --ticket
+RM<id>`. Une notification dit ce qu'il reste à faire ; laissée telle quelle après
+coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'est) et
+use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
+elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
+ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
 
 ## Registre des demandes (RM2621)
 
@@ -875,7 +922,7 @@ stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
 
 | ID | Titre | Coché par défaut |
 |---|---|---|
-| `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
+| `001-secrets-vaultwarden` | Setup des items de vault + remplir `secrets_source` des envs | ✅ |
 | `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
 | `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
 | `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |
@@ -1806,6 +1853,23 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
+### Identités & transport forge (multi-utilisateur) — v2.0.0
+
+En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+
+- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+
 ### Workflow de développement (par ticket)
 
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
@@ -2705,7 +2769,7 @@ Commit: <repo-alias>@<sha-court> — <message court>
 
 ---
 
-> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (Vaultwarden).
+> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (vault, quel qu'il soit).
 > **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
 
 ### Environnements (aspect `environments.md`)
@@ -2742,7 +2806,7 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 - `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
-- `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
 - `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
   env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
   déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
@@ -2797,23 +2861,52 @@ ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create
 
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
-soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.
+soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 
-### Gestion des secrets — Vaultwarden
+### Gestion des secrets — vaults déclarés
 
 Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,
-ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans une instance
-Vaultwarden interne (https://vault.iprospective.fr), et sont **référencés** dans les
-documents PM via un URI dédié.
+ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans un
+**gestionnaire de secrets** et sont **référencés** dans les documents PM par un URI.
 
-**URI :**
+**Plusieurs vaults peuvent coexister** (RM2662) : chacun est une **instance** déclarée
+dans le registre providers (`pm.config.yml :: providers.servers`, axe `secret`), nommée
+par un slug, avec un défaut et une surcharge possible **par client ou par projet**.
+
+```yaml
+providers:
+  defaults:
+    secret: vw-ipro                 # vault par défaut
+  servers:
+    vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
+    kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
 ```
-vaultwarden://<organization>/<collection>/<item>
+
+**Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
+identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+par slug **normalisé** (majuscules, non-alphanum → `_`) :
+`SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
+
+**URI — trois formes, toutes valides :**
+```
+secret://<instance>/<chemin…>[#champ]      instance nommée explicitement
+secret:<chemin…>[#champ]                   instance par défaut (cascade projet/client)
+vaultwarden://<org>/<collection>/<item>    forme historique — supportée définitivement
 ```
 
-Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
+`vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
 
-**Architecture du vault** (chez iprospective) :
+**Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
+`.kdbx`, dépendance `python3-pykeepass`). D'autres s'ajoutent par le point d'extension
+`pm_secrets.register_backend()` sans toucher aux appelants.
+
+> **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
+> instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client
+> qui **impose** son gestionnaire. Pour les secrets d'un client hébergés chez nous, la
+> voie normale reste une collection `-agents` du vault iProspective (ci-dessous).
+
+**Architecture du vault par défaut** (chez iprospective) :
 
 ```
 Organization iProspective
@@ -2833,33 +2926,42 @@ Organization iProspective
 
 | Action | Outil | Acteur |
 |---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh` (demande master password de karl, jamais stocké) | toi (humain) |
-| Résolution d'un secret | `scripts/resolve-secret.sh "vaultwarden://..."` | agent / script |
-| Verrouillage manuel | `scripts/lock-vault.sh` | toi |
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) | toi (humain) |
+| Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
+| Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
+| Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
+| Quel vault pour ce projet ? | `scripts/pm-providers.py resolve secret` | toi / agent |
 
 Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
-- garde la session BW **en mémoire** uniquement (pas de fichier, pas même tmpfs)
+- garde **une session par instance**, **en mémoire** uniquement (pas de fichier, pas
+  même tmpfs) — déverrouiller le vault d'un client ne prolonge pas celui d'iProspective
 - expose un socket Unix `/run/user/$UID/vault-agentd.sock` (chmod 600)
-- se verrouille automatiquement après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
-  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h)
+- verrouille **chaque instance** après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
+  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h), et ne s'arrête que
+  lorsqu'il ne reste plus aucune instance ouverte
 
 **Règles strictes :**
-1. Un agent ne demande **jamais** le master password ; si `resolve-secret.sh` renvoie
-   "session expirée", l'agent doit dire à l'humain "lance `unlock-vault.sh`" et attendre
+1. Un agent ne demande **jamais** le secret de déverrouillage (master password,
+   passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
+   `unlock-vault.sh` » et attend
 2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
-   inclus dans un commit ou un transcript
-3. La rotation du token API de `karl` est trimestrielle (ou immédiate en cas de doute)
+   inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
+   d'identifiants trouvées, jamais leurs valeurs
+3. La rotation des identifiants d'agent est trimestrielle (ou immédiate en cas de doute)
 4. Les agents 24/7 (cron nocturne, n8n) ne peuvent fonctionner que dans la fenêtre
    d'unlock manuel ou via un sous-scope dédié explicitement autorisé (cas particulier)
+5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
+   défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
 
-**Variables d'env requises** (dans `.env` local) :
-- `VAULT_URL` (URL Vaultwarden)
-- `BW_CLIENTID` + `BW_CLIENTSECRET` (API key de karl, pas de master password)
+**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+(`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
+`BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
 
 **Convention dans `environments.md` et autres aspects** : utiliser
-`secrets_source: vaultwarden://<org>/<coll>/<item>` comme pointeur, jamais la valeur
-brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
-référencés et leur rôle, pour audit humain.
+`secrets_source: secret://<instance>/<chemin>` (ou la forme historique
+`vaultwarden://…`, toujours valide) comme pointeur, jamais la valeur brute. Documenter
+dans `client/security.md` (ou équivalent) la liste des items référencés et leur rôle,
+pour audit humain.
 
 > 📂 **Module `collaboration` — quand lire ceci :** je suis l'orchestrateur : rôles, assignation, sous-tâches multi-niveaux, propagation de complétion.
 > **Outils :** — · **Préchargé par :** orchestrateur.
@@ -2947,6 +3049,27 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+### Multi-utilisateur & concurrence — v2.0.0
+
+Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes données communes
+(arbo des tâches, dépôts `*-core`, docs). Le modèle mono-`karl` / *single-writer global* est
+remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
+
+- **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
+  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+- **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
+  **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
+- **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),
+  churn (`.mmi-pm/`, `tasks/`, `docs/`, `envs/`) `2770`/`2775` setgid **jamais sticky** (sticky ⊥
+  rename-overwrite atomique → `EPERM`), bares `core.sharedRepository=group` (commits multi-dev sans
+  sudo). Contenu de travail (`envs/<ticket>`) = au créateur. Enforcement idempotent committé :
+  **`pm-perms`**, jamais un runbook jetable.
+- **Sérialisation par ressource.** `flock` par ticket (`var/locks/`) + écritures atomiques
+  `os.replace` remplacent le single-writer ; contention = écriture **différée** bornée, pas rejetée ;
+  crash-safe (`flock` libéré par le noyau ; FS local, pas NFS) ; `pm-lock-gc` (cron) nettoie les
+  anomalies sans casser un verrou vivant. Le verrou optimiste `updated` reste l'arbitre
+  **inter-machine**. Détail : tripwires du KERNEL (§ Propriété, verrou & journal).
 > 📂 **Module `summarizer` — quand lire ceci :** je génère les fichiers auto-générés (Changelog / Pistes / Remarques).
 > **Outils :** — · **Préchargé par :** summarizer.
 

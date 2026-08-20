@@ -233,3 +233,11 @@ rewritten:
       > Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
       > manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
       > `project/deployment.md` (template bootstrap `005-deployment`).
+
+  - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : la propriété passe de GARANTIE à CONVENTION de 1er niveau. Le texte d'origine promettait qu'« aucun autre agent ne doit écrire » tant que l'assignation est active — vrai tant qu'un seul dev travaillait sur la machine, faux en multi-utilisateur (données communes groupe `pm`, plusieurs devs, karl admin) où rien n'empêche techniquement la seconde écriture. Le KERNEL v2.0.0 dit désormais ce qui protège RÉELLEMENT : l'assignation confère la propriété (coordination de 1er niveau), et l'accès concurrent est **sérialisé par ressource** (`flock`). La règle n'est pas perdue, elle est requalifiée — et le tableau « Règles d'écriture » (§ Propriété, verrou & journal) continue de porter l'interdit sous forme opérationnelle : les autres workers y sont en `lecture` sur une tâche assignée."
+    old: |
+      L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+
+  - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : corollaire de l'entrée ci-dessus — l'optimistic locking est repositionné par rapport à `flock`. Il ne complète plus seulement « les règles de propriété » mais devient explicitement le filet INTER-MACHINE, là où `flock` sérialise sur une même machine (NFS/multi-serveur : cf. `modules/governance.md`). Sans cette précision, un lecteur pouvait croire les deux mécanismes redondants et n'en appliquer qu'un. Le protocole en 5 étapes et sa portée (tous les `.md`, jamais les `.log.md`) sont conservés verbatim juste en dessous."
+    old: |
+      Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.

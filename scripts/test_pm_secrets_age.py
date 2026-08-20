@@ -182,10 +182,21 @@ check("statut sans binaire → unreachable", b.status() == "unreachable")
 os.environ["PATH"] = f"{bindir}:{PATH_ORIG}"
 
 # — échec de déchiffrement : mauvaise identité —
+# Le VRAI `age` fait suivre son diagnostic d'une ligne d'invitation à signaler le
+# bug : sans elle, ce faux passait alors que le vrai échouait (constaté à
+# l'installation d'`age`). Le faux doit donc imiter la sortie réelle.
 (bindir / "age").write_text(
-    '#!/bin/sh\necho "age: error: no identity matched any of the recipients" >&2\nexit 1\n')
+    '#!/bin/sh\n'
+    'echo "age: error: no identity matched any of the recipients" >&2\n'
+    'echo "age: report unexpected or unhelpful errors at https://filippo.io/age/report" >&2\n'
+    'exit 1\n')
 (bindir / "age").chmod(0o755)
 check("identité qui ne déchiffre pas → denied", erreur(b.resolve, ["acme", "db"]) == "denied")
+try:
+    b.resolve(["acme", "db"])
+except ps.SecretError as e:
+    check("… le message montre le diagnostic, pas l'invitation à signaler le bug",
+          "no identity matched" in str(e) and "filippo.io" not in str(e))
 (bindir / "age").write_text('#!/bin/sh\necho "age: failed to read header" >&2\nexit 1\n')
 (bindir / "age").chmod(0o755)
 check("fichier corrompu → unreachable", erreur(b.resolve, ["acme", "db"]) == "unreachable")

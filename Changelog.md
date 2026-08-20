@@ -13,6 +13,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Cockpit
+- **Déverrouiller le coffre et charger une clé SSH depuis le cockpit** (RM2748) :
+  le coffre de secrets se referme tout seul (inactivité, verrouillage nocturne,
+  redémarrage) et l'agent SSH démarre vide. Jusqu'ici le cockpit ne savait que
+  CONSTATER la panne — il fallait un terminal pour `unlock-vault.sh` ou `ssh-add`,
+  et tout ce qui dépend d'un secret restait à l'arrêt en attendant. Un bouton
+  **🔓 déverrouiller** apparaît désormais en tête, *uniquement* quand il y a un
+  geste à faire, et disparaît une fois l'affaire réglée.
+  Le secret saisi ne laisse **aucune trace** : il descend dans `unlock-vault.sh`
+  par l'**entrée standard** (nouveau `--stdin`) et dans `ssh-add` par un
+  **descripteur hérité** (`deploy/karl-agent/karl-askpass.sh`) — jamais en argument
+  de commande, jamais dans l'environnement, jamais dans un fichier ; il n'est ni
+  journalisé, ni renvoyé, ni mémorisé côté navigateur. Les routes exigent une
+  session authentifiée, et le formulaire refuse de s'afficher hors connexion
+  sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
+
 ### Outillage
 - **`pm-env-session teardown` se bloquait sur son propre canari** (RM2679) : la garde
   « worktree sale » exemptait bien les artefacts posés par `create` (`.user.ini`,

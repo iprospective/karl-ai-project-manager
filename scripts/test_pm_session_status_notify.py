@@ -15,6 +15,15 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from test_support import hermetic_core, subprocess_env   # noqa: E402
+
+hermetic_core()   # RM2749 — cf. test_support : sans core résolu, l'import du
+                  # module ET chaque sous-processus sortaient en erreur `.env`,
+                  # ici en silence (returncode ignoré) → le fichier attendu
+                  # n'était jamais écrit et le test échouait sur un FileNotFound
+                  # qui ne disait rien de la vraie cause.
+
 SCRIPT = HERE / "pm-session-status.py"
 spec = importlib.util.spec_from_file_location("pm_session_status", SCRIPT)
 pss = importlib.util.module_from_spec(spec)
@@ -89,7 +98,7 @@ check("le rognage sacrifie l'archive avant les notifications ouvertes",
 
 # — bout en bout, sur un store jetable —
 with tempfile.TemporaryDirectory() as tmp:
-    env = dict(os.environ, PM_SESSION_WORKLOG_DIR=tmp)
+    env = subprocess_env(PM_SESSION_WORKLOG_DIR=tmp)
 
     def run(*args):
         return subprocess.run([sys.executable, str(SCRIPT), "--session", "t"] + list(args),

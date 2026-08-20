@@ -27,6 +27,8 @@ from pathlib import Path
 
 _HERE = Path(__file__).resolve().parent
 DAEMON = _HERE / "vault-agentd.py"
+sys.path.insert(0, str(_HERE))
+from test_support import core_with, core_env  # noqa: E402
 
 # Deux items distincts, un par instance : c'est ce qui rend l'isolation VISIBLE.
 ITEM_IPRO = {"id": "u-ipro", "name": "prod-db",
@@ -55,17 +57,11 @@ print("unexpected: %%s" %% a, file=sys.stderr); sys.exit(1)
 # Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée.
 # Repartir du fichier réel évite de maintenir un faux `pm.config.yml` (qui doit
 # porter `paths:`, `roots:`… sous peine de faire échouer `PMConfig.load`).
-EXTRA_INSTANCE = (
-    '    vw-clientx:  { axis: secret, type: vaultwarden, '
-    'url: "https://vault.client-x.test" }\n')
-
-
-def _config_avec_deux_vaults():
-    src = (_HERE.parent / "pm.config.yml").read_text(encoding="utf-8")
-    ancre = "    vw-ipro:"
-    i = src.index(ancre)
-    fin = src.index("\n", i) + 1
-    return src[:fin] + EXTRA_INSTANCE + src[fin:]
+# L'ajout passe par `test_support.core_with`, qui manipule le YAML chargé :
+# l'insertion à l'ancre `    vw-ipro:` suivait la mise en page du fichier livré
+# et cassait au premier remaniement, sans dire pourquoi (RM2749).
+EXTRA_INSTANCE = {"vw-clientx": {"axis": "secret", "type": "vaultwarden",
+                                 "url": "https://vault.client-x.test"}}
 
 
 def _ask(sock_path, line, timeout=10):
@@ -107,8 +103,8 @@ class Daemon:
                  env_extra=None):
         self.work = work
         self.sock = str(work / f"{tag}.sock")
-        self.env = dict(os.environ, **(env_extra or {}))
-        self.env["PATH"] = f"{work}/bin:{self.env['PATH']}"
+        self.env = core_env(work, **(env_extra or {}))
+        self.env["PATH"] = f"{work}/bin:{os.environ['PATH']}"
         self.env["VAULT_SOCK"] = self.sock
         self.env["VAULT_LOCK_AT_HOUR"] = "-1"
         self.env["PM_CONFIG"] = str(work / "pm.config.yml")
@@ -164,7 +160,7 @@ def _workdir(td, avec_age=False):
     fake = work / "bin" / "bw"
     fake.write_text(FAKE_BW)
     fake.chmod(0o755)
-    conf = _config_avec_deux_vaults()
+    servers = dict(EXTRA_INSTANCE)
     if avec_age:
         age_bin = work / "bin" / "age"
         age_bin.write_text(FAKE_AGE)
@@ -172,20 +168,13 @@ def _workdir(td, avec_age=False):
         (work / "coffre.yml.age").write_bytes(base64.b64encode(AGE_DOC.encode()))
         (work / "id.age").write_text("AGE-SECRET-KEY-FACTICE\n")
         (work / "id.age").chmod(0o600)
-        ancre = "    vw-ipro:"
-        i = conf.index(ancre); fin = conf.index("\n", i) + 1
-        conf = (conf[:fin] + f'    age-fichier: {{ axis: secret, type: age, '
-                             f'file: "{work}/coffre.yml.age" }}\n' + conf[fin:])
-    (work / "pm.config.yml").write_text(conf)
-    # Un core-dir de test est un core-dir COMPLET : depuis RM2438 T1, `PMConfig.load`
-    # sort en erreur quand il ne trouve aucun `.env` pour résoudre `projects_root`.
-    # Sans ce fichier, le registre serait indisponible et le daemon dégraderait vers
-    # une instance unique — le test passerait à côté de ce qu'il vérifie.
-    (work / ".env").write_text(f"PROJECTS_PATH={work}/projects\n")
-    (work / "projects").mkdir()
-    # `PMConfig.load(<dir>)` cherche aussi les scripts à côté : on lie le dossier
-    # scripts/ du dépôt pour que la config de test reste une simple surcouche.
-    (work / "scripts").symlink_to(_HERE)
+        servers["age-fichier"] = {"axis": "secret", "type": "age",
+                                  "file": f"{work}/coffre.yml.age"}
+    # Un core-dir de test est un core-dir COMPLET : sans le `pm.env` que pose
+    # `core_with`, `PMConfig.load` sort sur `projects_root` non résolu, le
+    # registre devient indisponible et le daemon dégrade vers une instance
+    # unique — le test passerait à côté de ce qu'il vérifie (RM2713, RM2749).
+    core_with(work, servers)
     return work
 
 

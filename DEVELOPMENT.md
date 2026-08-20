@@ -87,7 +87,8 @@ sur `dev`, puis MR/promote). Boucle type :
 pm-branch-start.py <RM> --take --worktree --from origin/dev
 
 # 2. coder dans le worktree envs/<repo>-rm<RM> ; tester
-python3 -m py_compile scripts/<outil>.py          # scripts modifiés
+mmi-pm test                                        # TOUTE la suite (~10 s)
+mmi-pm test vault session                          # ou seulement ce qu'on touche
 node deploy/karl-agent/cockpit/test_cockpit.js     # si cockpit touché
 
 # 3. livrer : MR vers dev, puis livraison outillée (statut + note + report)
@@ -103,6 +104,23 @@ pm-repo-new.py --path <groupe>/<nom> [--push-from <dépôt local>] [--porcelain]
 #   groupe résolu par chemin EXACT, privé par défaut, protections via pm-protect,
 #   remote posé en alias `gitlab:` (jamais HTTPS). --dry-run montre tout sans écrire.
 ```
+
+**La suite de tests n'exige RIEN de l'environnement** (RM2749). `mmi-pm test`
+purge au contraire les variables qui pointent le runtime (`PM_CORE_DIR`,
+`PROJECTS_PATH`…) : chaque test se fabrique le core jetable dont il a besoin, via
+`scripts/test_support.py`. C'est ce qui rend le verdict reproductible — avant,
+trois tests tombaient avec `PM_CORE_DIR` exporté, cinq autres sans, et « la suite
+passe » ne voulait rien dire tant qu'on ne précisait pas le shell. Deux
+conséquences pratiques :
+
+- un test qui n'y arrive qu'avec le `.env` canonique lit la configuration de
+  PRODUCTION : ce n'est pas un test, c'est une inspection du poste ;
+- `mmi-pm test --inherit` rejoue la suite dans le shell tel quel. Les deux
+  verdicts doivent être identiques ; un écart est un défaut de test, pas un
+  détail d'installation.
+
+Un test sans matière à examiner sort en **77** (ignoré, avec sa raison) plutôt
+que vert : une absence de preuve n'est pas une preuve.
 
 **Docs vivantes (obligatoire à la livraison).** Toute MR qui change la surface met
 à jour la doc concernée **dans la même MR** — voir la norme dédiée « Développement

@@ -37,10 +37,16 @@ def _candidates(cmd: str):
 
 
 def _list_commands():
-    """Sous-commandes = scripts `pm-*` (hors modules `pm_*`, hors tests)."""
+    """Sous-commandes = scripts `pm-*` (les modules `pm_*` ne matchent pas le glob).
+
+    Le filtre portait sur « test » n'importe où dans le nom : il masquait des
+    verbes réels — `mmi-pm test` (la suite, RM2749) et `mmi-pm cockpit-test-env`
+    fonctionnaient sans jamais apparaître dans `--list`. Les fichiers de test
+    s'appellent `test_*.py` : ils ne peuvent pas matcher `pm-*`.
+    """
     cmds = set()
     for p in SCRIPTS.glob("pm-*"):
-        if not p.is_file() or "test" in p.name or p.suffix not in ("", ".py"):
+        if not p.is_file() or p.suffix not in ("", ".py"):
             continue
         cmds.add(p.stem[3:] if p.suffix == ".py" else p.name[3:])
     return sorted(cmds)

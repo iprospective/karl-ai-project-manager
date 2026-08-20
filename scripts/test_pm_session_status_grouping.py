@@ -20,6 +20,13 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from test_support import hermetic_core          # noqa: E402
+
+hermetic_core()   # RM2749 : core PM jetable — le rendu passe par PMConfig.load(),
+                  # qui sort en `sys.exit()` sans `.env`. Le test mourait donc dans
+                  # un shell nu et passait dans un shell où PM_CORE_DIR traînait.
+
 spec = importlib.util.spec_from_file_location("pss", HERE / "pm-session-status.py")
 pss = importlib.util.module_from_spec(spec)
 sys.modules["pss"] = pss

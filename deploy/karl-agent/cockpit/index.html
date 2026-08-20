@@ -770,6 +770,7 @@ if (window.matchMedia) {
     <nav class="lnav">
       <button data-panel="running" onclick="switchPanel('running')">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
       <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
+      <button data-panel="projects" onclick="switchPanel('projects')">📁 projets</button>
       <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
       <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
       <button data-panel="mail" onclick="switchPanel('mail')">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
@@ -980,6 +981,22 @@ if (window.matchMedia) {
       <button class="mini" style="margin-top:8px" onclick="loadTestQueue()">⟳ Rafraîchir</button>
       <ul class="results" id="tq-list"></ul>
     </div>
+    </div>
+
+    <!-- RM2760 : la fiche projet (RM2353) n'était atteignable que par le groupe
+         d'une session EN COURS — un projet sans session n'existait nulle part
+         dans le cockpit, alors que sa fiche était prête à être servie. -->
+    <div class="lpanel" id="lp-projects">
+      <div class="card">
+        <h2>📁 Projets <span id="pj-count" style="color:var(--muted);font-weight:normal"></span>
+          <button class="helpq" onclick="openHelp('projets')" title="Aide sur ce panneau">?</button></h2>
+        <div class="searchrow">
+          <input id="pj-filter" type="text" placeholder="filtrer : client ou projet…"
+                 oninput="renderProjectsPanel()" aria-label="Filtrer les clients et projets">
+          <button class="mini" onclick="pjClearFilter()" title="Vider le filtre">✕</button>
+        </div>
+        <div id="pj-list"><div class="empty">chargement…</div></div>
+      </div>
     </div>
 
     <div class="lpanel" id="lp-mail">
@@ -1572,7 +1589,7 @@ function showCoreUpdate() {
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
 // première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), pm: () => loadPmCommands(), settings: () => loadSettings() };
+const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), pm: () => loadPmCommands(), settings: () => loadSettings(), projects: () => loadProjectsPanel() };   // RM2760
 const _panelLoaded = {};
 function switchPanel(name) {
   if (!document.getElementById("lp-" + name)) name = "running";
@@ -1747,6 +1764,10 @@ async function refreshSessions() {
     const frozen = sortFrozen(dynSort, listHot, Date.now() - lastListMove);
     const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort && !frozen);
     hotSessions = counts.attention + counts.choice;   // RM2613 : cadence adaptative du poll
+    // RM2760 : les compteurs « ▶ » du panneau projets suivent le même poll —
+    // recalculés seulement quand ce panneau est affiché (47 lignes à chaque tick
+    // pour un panneau caché ne servirait personne).
+    if (document.getElementById("lp-projects").classList.contains("active")) renderProjectsPanel();
     orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
     groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
     list.innerHTML = "";
@@ -4366,6 +4387,128 @@ function centerBtn(call, quoi) {
     + ' dans un onglet du panneau central">⤢ au centre</button>';
 }
 
+
+// ===== RM2760 : panneau « projets » — clients, projets, fiche au centre =====
+// La fiche projet (RM2353) n'était atteignable que par le groupe d'une session
+// en cours : un projet sans session ouverte n'apparaissait nulle part. Ce
+// panneau donne la porte d'entrée qui manquait — 47 projets chez 20 clients, ce
+// qui interdit une liste à plat.
+
+let pjOpen = {};      // clients dépliés, par nom
+
+// >>> groupProjectsByClient — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Groupe et FILTRE : un filtre qui porte sur le client ramène tous ses projets,
+// un filtre qui porte sur un projet ne ramène que lui — chercher « infra » doit
+// montrer les infra de tous les clients, pas le premier trouvé.
+function groupProjectsByClient(projects, filtre) {
+  const q = String(filtre || "").trim().toLowerCase();
+  const map = new Map();
+  for (const p of (projects || [])) {
+    if (!p || !p.client || !p.project) continue;
+    const surClient = p.client.toLowerCase().includes(q);
+    if (q && !surClient && !p.project.toLowerCase().includes(q)) continue;
+    if (!map.has(p.client)) map.set(p.client, []);
+    map.get(p.client).push({ client: p.client, project: p.project,
+                             value: p.value || (p.client + "/" + p.project) });
+  }
+  return [...map.entries()]
+    .map(([client, items]) => ({
+      client,
+      projects: items.slice().sort((a, b) => a.project.localeCompare(b.project)),
+    }))
+    .sort((a, b) => a.client.localeCompare(b.client));
+}
+// <<< groupProjectsByClient
+
+// >>> liveByProject — pur (testé par test_cockpit.js)
+// Sessions VIVANTES par client/projet. Une session enregistrée non démarrée
+// (`ghost`) ne compte pas : elle ne tourne pas, l'annoncer comme active
+// enverrait ouvrir un terminal qui n'existe pas.
+function liveByProject(sessions, rcache) {
+  const out = {};
+  for (const s of (sessions || [])) {
+    if (!s || s.ghost) continue;
+    const r = (rcache || {})[s.rm_id];
+    const cl = s.client || (r && r.found ? r.client : null);
+    const pr = s.project || (r && r.found ? r.project : null);
+    if (!cl || !pr) continue;
+    const k = cl + "/" + pr;
+    out[k] = (out[k] || 0) + 1;
+  }
+  return out;
+}
+// <<< liveByProject
+
+// >>> projectsPanelHtml — pur (testé par test_cockpit.js)
+// `open` : clients dépliés. `filtre` non vide ⇒ tout est déplié — on vient de
+// demander à voir, replier ce qu'on cherche serait absurde.
+function projectsPanelHtml(groups, opts, esc, jarg) {
+  const o = opts || {};
+  const live = o.live || {}, open = o.open || {}, ctx = o.client || "";
+  const deplieTout = !!String(o.filtre || "").trim();
+  if (!groups.length) {
+    return '<div class="empty">' + (deplieTout ? "aucun client ni projet ne correspond"
+                                               : "aucun projet") + "</div>";
+  }
+  return groups.map(g => {
+    const ouvert = deplieTout || !!open[g.client] || g.client === ctx;
+    const nLive = g.projects.reduce((n, p) => n + (live[p.value] || 0), 0);
+    let h = '<div class="oline" style="white-space:normal;cursor:pointer;font-weight:600"'
+      + ' onclick="pjToggle(' + jarg(g.client) + ')" title="'
+      + (ouvert ? "Replier" : "Déplier") + " " + esc(g.client) + '">'
+      + (ouvert ? "▾ " : "▸ ") + esc(g.client)
+      + ' <span style="color:var(--muted);font-weight:normal">(' + g.projects.length + ")</span>"
+      + (nLive ? ' <span class="pill ok">' + nLive + " ▶</span>" : "")
+      + (g.client === ctx ? ' <span class="pill" title="Client du contexte courant">ctx</span>' : "")
+      + "</div>";
+    if (!ouvert) return h;
+    h += g.projects.map(p => {
+      const n = live[p.value] || 0;
+      return '<div class="oline" style="white-space:normal;cursor:pointer;padding-left:16px"'
+        + ' onclick="openProjectView(' + jarg(p.value) + ')"'
+        + ' title="Ouvrir la fiche de ' + esc(p.value) + ' dans le panneau central">📄 '
+        + esc(p.project)
+        + (n ? ' <span class="pill ok" title="' + n + ' session(s) en cours">' + n + " ▶</span>" : "")
+        + "</div>";
+    }).join("");
+    return h;
+  }).join("");
+}
+// <<< projectsPanelHtml
+
+function pjToggle(client) {
+  pjOpen[client] = !pjOpen[client];
+  renderProjectsPanel();
+}
+
+function pjClearFilter() {
+  const f = document.getElementById("pj-filter");
+  if (f) { f.value = ""; renderProjectsPanel(); }
+}
+
+function renderProjectsPanel() {
+  const box = document.getElementById("pj-list");
+  if (!box) return;
+  const filtre = (document.getElementById("pj-filter") || {}).value || "";
+  const groups = groupProjectsByClient(allProjects, filtre);
+  const cnt = document.getElementById("pj-count");
+  if (cnt) {
+    const n = groups.reduce((a, g) => a + g.projects.length, 0);
+    cnt.textContent = allProjects.length
+      ? (filtre.trim() ? n + " / " + allProjects.length : String(n)) : "";
+  }
+  box.innerHTML = projectsPanelHtml(groups,
+    { live: liveByProject(Object.values(sessCache), resolveCache), open: pjOpen,
+      client: clientContext, filtre }, esc, jarg);
+}
+
+// Le cache `allProjects` est peuplé au démarrage pour la création de ticket ;
+// si le panneau s'ouvre avant, on le réclame plutôt que d'afficher un vide.
+async function loadProjectsPanel() {
+  if (!allProjects.length) await loadProjects();
+  renderProjectsPanel();
+}
+
 // ----- RM2606 : tickets ouverts dans la session cockpit -----
 
 // >>> openedPanelOpen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -5872,6 +6015,7 @@ function setClientContext(c) {
     const rs = document.getElementById("rs-project"); if (rs) rs.value = proj;
   }
   const sb = document.getElementById("search"); if (sb && sb.value.trim()) search();  // recherche
+  renderProjectsPanel();                                       // RM2760 : le client du contexte se déplie
   refreshSessions();                                           // sessions : re-render filtré
 }
 

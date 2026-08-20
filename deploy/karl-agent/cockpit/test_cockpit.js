@@ -2647,6 +2647,78 @@ assert(/!currentProjectView && !centerView/.test(html),
   "closeNewTicket doit tenir compte de la vue centrale");
 console.log("✓ vues centrales (RM2759) : fichier, dossier, commit, email — clé rouvrable, sources absentes annoncées");
 
+// — RM2760 : panneau « projets » —
+const groupProjectsByClient = grabO("groupProjectsByClient");
+const liveByProject = grabO("liveByProject");
+const projectsPanelHtml = grabO("projectsPanelHtml");
+
+const PJ2760 = [
+  { client: "calicote", project: "prestashop", value: "calicote/prestashop" },
+  { client: "abatik", project: "infra", value: "abatik/infra" },
+  { client: "calicote", project: "infra", value: "calicote/infra" },
+  { client: "abatik", project: "site", value: "abatik/site" },
+];
+
+// Groupement : clients triés, projets triés dans chaque client.
+const g2760 = groupProjectsByClient(PJ2760, "");
+assert.deepEqual(g2760.map(g => g.client), ["abatik", "calicote"], "clients par ordre alphabétique");
+assert.deepEqual(g2760[0].projects.map(p => p.project), ["infra", "site"], "projets triés aussi");
+assert.deepEqual(groupProjectsByClient([], "").length, 0, "aucune donnée → aucun groupe");
+assert.deepEqual(groupProjectsByClient(null, "").length, 0, "liste absente tolérée");
+assert.deepEqual(groupProjectsByClient([{ client: "x" }], "").length, 0,
+  "une entrée sans projet n'invente pas un groupe");
+
+// Filtre : sur le client, il ramène TOUS ses projets ; sur un projet, seulement lui.
+const gc2760 = groupProjectsByClient(PJ2760, "abatik");
+assert.deepEqual(gc2760.map(g => g.client), ["abatik"]);
+assert.strictEqual(gc2760[0].projects.length, 2, "filtrer un client garde tous ses projets");
+const gp2760 = groupProjectsByClient(PJ2760, "infra");
+assert.deepEqual(gp2760.map(g => g.client), ["abatik", "calicote"],
+  "chercher « infra » montre les infra de TOUS les clients, pas la première trouvée");
+assert.deepEqual(gp2760[1].projects.map(p => p.project), ["infra"], "…et rien d'autre chez eux");
+assert.strictEqual(groupProjectsByClient(PJ2760, "CALICOTE").length, 1, "filtre insensible à la casse");
+assert.strictEqual(groupProjectsByClient(PJ2760, "zzz").length, 0, "filtre sans résultat → rien");
+
+// Sessions vivantes par projet : un fantôme ne tourne pas.
+const sess2760 = [
+  { rm_id: "1", client: "abatik", project: "infra" },
+  { rm_id: "2", client: "abatik", project: "infra" },
+  { rm_id: "3", ghost: true, client: "abatik", project: "infra" },
+  { rm_id: "4" },                                  // résolu par le cache
+  { rm_id: "5" },                                  // non résolu : ignoré
+];
+const rc2760 = { "4": { found: true, client: "calicote", project: "infra" } };
+assert.deepEqual(liveByProject(sess2760, rc2760), { "abatik/infra": 2, "calicote/infra": 1 },
+  "une session enregistrée non démarrée (ghost) n'est pas comptée comme active");
+assert.deepEqual(liveByProject(null, null), {}, "aucune session → aucun compte");
+
+// Rendu : replié par défaut, déplié pour le contexte, tout déplié sous filtre.
+const hAll2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "", filtre: "" }, escO, jargFn);
+assert(hAll2760.includes("▸ abatik"), "sans contexte ni filtre, un client est replié");
+assert(!/openProjectView\('abatik\/infra'\)/.test(hAll2760), "…et ses projets ne sont pas rendus");
+const hCtx2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "abatik", filtre: "" }, escO, jargFn);
+assert(hCtx2760.includes("▾ abatik") && /openProjectView\('abatik\/infra'\)/.test(hCtx2760),
+  "le client du contexte est déplié d'emblée");
+assert(hCtx2760.includes("ctx"), "…et signalé comme tel");
+assert(hCtx2760.includes("▸ calicote"), "les autres restent repliés");
+const hFil2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "", filtre: "infra" }, escO, jargFn);
+assert(/openProjectView\('calicote\/infra'\)/.test(hFil2760),
+  "sous filtre, tout est déplié — replier ce qu'on vient de chercher serait absurde");
+const hOpen2760 = projectsPanelHtml(g2760, { live: {}, open: { calicote: true }, client: "", filtre: "" }, escO, jargFn);
+assert(/openProjectView\('calicote\/prestashop'\)/.test(hOpen2760), "un client déplié à la main s'ouvre");
+const hLive2760 = projectsPanelHtml(g2760, { live: { "abatik/infra": 3 }, open: {}, client: "abatik", filtre: "" },
+  escO, jargFn);
+assert(hLive2760.includes("3 ▶"), "le nombre de sess2760 vivantes est affiché");
+assert(projectsPanelHtml([], { filtre: "zz" }, escO, jargFn).includes("aucun client ni projet ne correspond"),
+  "un filtre sans résultat le dit — au lieu d'un panneau vide");
+assert(projectsPanelHtml([], {}, escO, jargFn).includes("aucun projet"),
+  "…et l'absence de données a son propre message");
+
+// Le câblage : un panneau que rien n'ouvre n'existe pas.
+assert(/data-panel="projects"/.test(html), "l'onglet gauche doit exister");
+assert(/<div class="lpanel" id="lp-projects">/.test(html), "…avec son panneau");
+assert(/projects: \(\) => loadProjectsPanel\(\)/.test(html), "…et son chargeur");
+console.log("✓ panneau projets (RM2760) : groupé par client, filtré, fiche au centre");
 // — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
 const fsScope = grabFn("fsScope");
 const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc

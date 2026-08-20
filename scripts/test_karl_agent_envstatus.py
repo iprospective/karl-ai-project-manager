@@ -14,6 +14,13 @@ import pathlib
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from test_support import hermetic_core          # noqa: E402
+
+hermetic_core()   # RM2749 : posé AVANT de charger karl-agent — sinon le rapport
+                  # est bâti sur le runtime de PRODUCTION quand le `.env` s'y
+                  # trouve, et le test meurt sur `sys.exit()` quand il n'y est pas.
+
 spec = importlib.util.spec_from_file_location("karl_agent", HERE / "karl-agent.py")
 ka = importlib.util.module_from_spec(spec)
 sys.modules["karl_agent"] = ka
@@ -26,6 +33,13 @@ def check(name, cond):
     print(("✓ " if cond else "✗ ") + name)
     if not cond:
         fails.append(name)
+
+
+def skip(name, raison):
+    """Contrôle sans matière à examiner ici — il le DIT. Un `all()` sur une
+    liste vide est vrai : le laisser passer pour un succès, c'est transformer
+    une absence de preuve en preuve."""
+    print(f"⊘ {name} — {raison}")
 
 
 # — git_divergence_level : le cœur de la détection d'incident —
@@ -86,8 +100,12 @@ check("« Git / GitLab » garde les contrôles d'accès (PAT, clé, push)",
 # section = client, sur toute ligne de dépôt (les lignes de service, comme la
 # troncature à 120, n'en portent pas — elles ne appartiennent à aucun client)
 _repo_rows = [c for c in repos["checks"] if str(c.get("label", "")).startswith("repo ")]
-check("chaque dépôt porte sa section (client)",
-      all(c.get("section") for c in _repo_rows))
+if _repo_rows:
+    check("chaque dépôt porte sa section (client)",
+          all(c.get("section") for c in _repo_rows))
+else:
+    skip("chaque dépôt porte sa section (client)",
+         "aucun dépôt sous le projects_root du core de test")
 check("env_repo_section : <client>/<projet> → client",
       ka.env_repo_section("calicote/prestashop") == "calicote")
 check("env_repo_section : profondeur 1 → « hors client »",
@@ -126,11 +144,17 @@ try:
     from pm_registry import Registry
     _reg = Registry.from_config(PMConfig.load().providers)
     _insts = [i.name for i in _reg.servers.values() if i.axis == "secret"]
-except Exception:                                    # noqa: BLE001
+except (Exception, SystemExit):                      # noqa: BLE001
+    # `SystemExit` compte : `PMConfig.load()` sort par `sys.exit()`, qui ne
+    # dérive pas d'`Exception`. Sans ce cas, le test mourait ici au lieu de
+    # dire ce qu'il n'avait pas pu vérifier.
     _insts = []
 if _insts:
     check("Secrets : une ligne par instance de vault déclarée",
           all(f"vault : {n}" in labels for n in _insts))
+else:
+    skip("Secrets : une ligne par instance de vault déclarée",
+         "aucune instance de vault lisible dans la configuration")
 
 # ── RM2722 : contrôle de démarrage (badge d'anomalies) ───────────────────────
 # Ce qu'on protège : le PÉRIMÈTRE (une famille bruyante dedans, et le badge

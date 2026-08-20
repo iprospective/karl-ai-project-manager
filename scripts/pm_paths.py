@@ -339,6 +339,25 @@ class PMConfig:
     # ── Lookups Redmine ─────────────────────────────────────────────────
     _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
+    def locate_task(self, rm_id: int):
+        """Comme `find_task`, mais rend **(path, entity, project)**.
+
+        Le projet d'appartenance est nécessaire dès qu'une opération dépend de la
+        **config du projet** et pas seulement du fichier de tâche (ex. providers
+        secondaires d'un rattachement partenaire, RM2654). Le déduire du chemin chez
+        chaque appelant serait fragile — les tâches vivent sous un layout configurable.
+        Retourne `(None, None, None)` si la tâche est introuvable.
+        """
+        for ent_slug, proj_slug, _ in self.iter_projects():
+            tasks_dir = self.path("tasks_dir", entity=ent_slug, project=proj_slug)
+            if not tasks_dir.is_dir():
+                continue
+            for f in tasks_dir.glob(f"RM{rm_id}_*.md"):
+                if f.name.endswith(".log.md"):
+                    continue
+                return f, ent_slug, proj_slug
+        return None, None, None
+
     def find_task(self, rm_id: int) -> Optional[Path]:
         """Cherche le fichier `RM{id}_*.md` (hors `.log.md`) parmi tous les
         projets. Retourne le `Path` ou `None`."""

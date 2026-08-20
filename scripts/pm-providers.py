@@ -2,7 +2,11 @@
 """pm-providers — inspecte le registre de serveurs et la résolution d'instance (RM2542/P0).
 
 Outil de **diagnostic** (lecture seule) de la fondation providers (CDC RM2530).
-Ne câble rien : il montre juste ce que `pm_registry.resolve_instance` retiendrait.
+Ne câble rien : il montre ce que `pm_registry.resolve_instances` retiendrait.
+
+Depuis RM2653 (chantier RM2626), `resolve` liste **tous** les providers d'un axe : le
+**primaire** (source de vérité PM) puis les **secondaires** (gestionnaires partenaires)
+avec leurs règles `link:` / `sync:`.
 
 Usage :
     pm-providers.py --list                       # registre (servers + defaults)
@@ -19,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import importlib.util
 
 from pm_paths import PMConfig
-from pm_registry import Registry, RegistryError, resolve_instance
+from pm_registry import AXES, Registry, RegistryError, resolve_instances
 
 _spec = importlib.util.spec_from_file_location(
     "pm_secrets", str(Path(__file__).resolve().parent / "pm_secrets.py"))
@@ -65,18 +69,26 @@ def cmd_resolve(cfg: PMConfig, reg: Registry, axis, client, project):
     print(f"Résolution pour {cible} :")
     for ax in axes:
         try:
-            res = resolve_instance(meta, ax, reg, client_meta=client_meta)
+            resolutions = resolve_instances(meta, ax, reg, client_meta=client_meta)
+        except RegistryError as e:
+            print(f"  {ax:6} → ✗ {e}")
+            continue
+        for n, res in enumerate(resolutions):
             i = res.instance
-            params = f"  params={res.params}" if res.params else ""
-            ligne = (f"  {ax:6} → {i.name:15} (type={i.type}, url={i.url or '—'}, "
-                     f"source={res.source}){params}")
+            head = f"  {ax:6} → " if n == 0 else f"  {'':6}   "
+            tag = "primaire " if res.is_primary else "secondaire"
+            print(f"{head}{i.name:15} [{tag}] (type={i.type}, url={i.url or '—'}, "
+                  f"source={res.source})")
+            if res.params:
+                print(f"  {'':9} params={res.params}")
+            if res.link:
+                print(f"  {'':9} link={res.link}")
+            if res.sync:
+                print(f"  {'':9} sync={res.sync}")
             if ax == "secret":
                 # Identifiants : on ne montre QUE les noms de clés (tripwire 11).
                 keys = pm_secrets.creds_keys(i.name)
-                ligne += f"\n           creds={', '.join(keys) if keys else '— aucun'}"
-            print(ligne)
-        except RegistryError as e:
-            print(f"  {ax:6} → ✗ {e}")
+                print(f"  {'':9} creds={', '.join(keys) if keys else '— aucun'}")
 
 
 def cmd_instance(reg: Registry, name, field):

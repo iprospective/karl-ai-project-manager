@@ -76,6 +76,61 @@ def check_docs_structure(cfg, errors):
                               f"(pm-docs-migrate --project {ent}/{proj})")
 
 
+def check_partner_links(cfg, ovs, errors, warns):
+    """Providers secondaires (RM2653) : conf saine + `link.policy: required` honoré.
+
+    Deux contrôles, l'un structurel l'autre par ticket :
+      * la déclaration `providers.task[]` du projet se résout (un primaire, instances
+        connues du registre, pas de `link:`/`sync:` sur le primaire) → **erreur** ;
+      * quand un secondaire est `required` (cas MatNat : « tout ce que je fais pour eux
+        doit être rattaché chez eux »), tout ticket **ouvert** doit porter son lien
+        `partner_issue` → **avertissement** (le rattachement reste un geste humain).
+    """
+    try:
+        import pm_partner
+        from pm_registry import Registry, RegistryError
+    except ImportError:
+        return
+    try:
+        reg = Registry.from_config(cfg.providers)
+    except RegistryError as e:
+        errors.append(f"registre providers (pm.config.yml) : {e}")
+        return
+
+    for (ent, proj), fm in sorted(ovs.items()):
+        if not fm:
+            continue
+        me = f"{ent}/{proj}"
+        try:
+            required = pm_partner.required_secondaries(fm, reg)
+        except RegistryError as e:
+            errors.append(f"{me} : providers.task invalide — {e}")
+            continue
+        if not required:
+            continue
+        tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if f.name.endswith(".log.md"):
+                continue
+            m = FM_RE.match(f.read_text(encoding="utf-8"))
+            if not m:
+                continue
+            try:
+                tfm = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError:
+                continue
+            if tfm.get("status") == "ferme":
+                continue        # un ticket clos ne se rattache plus utilement
+            missing = pm_partner.missing_links(tfm, fm, reg)
+            if missing:
+                warns.append(f"{me} : RM{tfm.get('redmine_id')} sans lien partenaire "
+                             f"{', '.join(missing)} (link.policy: required) — "
+                             f"pm-task-partner link {tfm.get('redmine_id')} "
+                             f"--instance {missing[0]} --issue <id>")
+
+
 def check_claude_hooks(warns):
     """Hooks PM du profil Claude Code (RM2306) : sans eux, la conso interactive
     n'est pas tickée (tokens_total=0) → sous-comptage silencieux du ROI. Délègue
@@ -109,6 +164,9 @@ def main():
 
     # 4. Hooks PM du profil Claude Code de la machine (RM2306)
     check_claude_hooks(warns)
+
+    # 5. Providers secondaires & rattachements partenaires obligatoires (RM2654)
+    check_partner_links(cfg, ovs, errors, warns)
 
     for (ent, proj), fm in sorted(ovs.items()):
         me = f"{ent}/{proj}"

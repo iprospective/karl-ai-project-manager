@@ -1,5 +1,35 @@
 # Changelog des normes
 
+## [2.7.0] - 2026-08-20
+
+### Ajouté
+- **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
+  partenaire » : quand un projet déclare un **provider secondaire** (`providers.task[]`
+  du `meta.yml`, RM2653), un ticket PM se rattache à un ticket de ce gestionnaire via un
+  `refs[]` typé `{instance, issue_id, url, role, last_seen_journal_id, added}`. `role` ∈
+  `mirror` (mon ticket vu de chez eux, **un seul** par tâche) / `upstream` / `related`.
+  Le lien se pose **par `pm-task-partner`** (tripwire #1) : l'outil valide que l'instance
+  est un secondaire déclaré, refuse doublon et second miroir, pose le CF « Ticket
+  partenaire », journalise et poste la note de rattachement chez le partenaire.
+  Invariant : **un secondaire ne modifie aucun champ du frontmatter** — le primaire reste
+  la seule source de vérité, ce qui vient d'ailleurs s'écrit dans le `.log.md`. Avec
+  `link.policy: required`, `pm-doctor` signale les tickets ouverts non rattachés.
+  (RM2654, chantier RM2626 — clients Pisceen et MatNat.)
+- **task-links** — `pm-task-partner pull` : importe dans le `.log.md` les notes nouvelles
+  du ticket partenaire (citées, en-tête nommant l'instance) et son statut **brut**.
+  Réglable par secondaire (`sync.pull: {notes, status}`), pointeur `last_seen_journal_id`
+  **par lien** — distinct de `redmine_last_journal_id`, qui suit l'instance primaire.
+  Lecture seule : rien n'est répercuté sur le statut/priorité/assignation, et un
+  partenaire injoignable avertit sans faire échouer. (RM2655.)
+- **task-links** — `pm-task-partner push` + déclencheur sur transition de statut : une
+  **note de suivi** part chez le partenaire quand le secondaire déclare ce statut dans
+  `sync.push.on`. **Défaut : rien ne part** — l'activation est un geste explicite par
+  projet, après revue du gabarit. Écriture **pauvre** (note texte seule), **gabarit
+  fermé** (identifiant, titre, état en clair — jamais de jargon NORMS, de chemin, d'hôte,
+  de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
+  `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
+  `create.tracker_id` déclaré. (RM2656.)
+
 ## [2.6.0] - 2026-08-20 — Le coffre du client, et ce qu'il ne peut pas rendre
 
 ### Ajouté

@@ -838,6 +838,27 @@ def main():
     if args.status in ("en_cours", "ferme") and old_status != args.status:
         env_session_hook(md_path, args.rm_id, args.status, old_status)
 
+    # 6ter. Note de suivi chez les gestionnaires PARTENAIRES (RM2656) : seulement si
+    # le projet déclare un secondaire dont `sync.push.on` contient ce statut. Inerte
+    # partout ailleurs, et **jamais bloquant** — un partenaire injoignable ne doit pas
+    # faire échouer une transition déjà écrite côté PM (même règle que 6bis / 7).
+    if not args.dry_run and old_status != args.status:
+        try:
+            r = subprocess.run(
+                [sys.executable, str(Path(__file__).parent / "pm-task-partner.py"),
+                 "push", str(args.rm_id), "--status", args.status, "--quiet",
+                 "--no-commit"], check=False, capture_output=True, text=True, timeout=60)
+            detail = (r.stdout + r.stderr).strip()
+            if r.returncode != 0:
+                # Anormal : sans partenaire configuré, le push sort en 0 sans rien dire.
+                out.warn(f"note de suivi partenaire : échec (exit {r.returncode}) "
+                         f"{detail.splitlines()[-1] if detail else ''}")
+            for line in detail.splitlines():
+                if line.strip():
+                    out.info(f"  partenaire : {line.strip()}")
+        except Exception as e:                                  # noqa: BLE001
+            out.warn(f"note de suivi partenaire non poussée (best-effort) : {e}")
+
     # 7. Worklog de session (best-effort, no-op hors session Claude Code) : reflète
     # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.
     # Upsert : crée l'item si le ticket n'avait pas été ouvert dans cette session. Cf RM1875.

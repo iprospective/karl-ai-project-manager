@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.2.0] - 2026-08-20 — Un coffre qui ne se déverrouille pas
+
+### Ajouté
+- **environments** — § « Gestion des secrets » : **backend `age`** (RM2713), un
+  fichier YAML/JSON chiffré déchiffré à la volée, pour le cas « on me partage trois
+  identifiants » — ni serveur, ni compte, ni vault à administrer. Avec lui, la norme
+  acquiert une nuance qui manquait : **tous les vaults ne se déverrouillent pas**. Un
+  backend à clé sur disque n'a pas de session à établir (donc pas de secret humain à
+  saisir), n'est protégé que par les **droits de son fichier de clé** (`0600`, jamais
+  commité, jamais dans la déclaration partagée) et **ne se verrouille pas** —
+  `lock-vault.sh` n'agit que sur ce qui est gardé en mémoire. Précision liée : un
+  code de sortie 4 `unreachable` n'est **pas** un verrou, mais une configuration ou
+  une dépendance manquante.
+
 ## [2.1.0] - 2026-08-20 — Déverrouillage du coffre depuis le cockpit
 
 ### Ajouté

@@ -11,6 +11,7 @@ Usage :
         <axe> ∈ {task, forge, doc} ; omis → les trois.
 """
 import argparse
+import os
 import sys
 from pathlib import Path
 
@@ -106,7 +107,12 @@ def main():
     r.add_argument("--project", help="slug projet (défaut : détecté du cwd)")
     args = ap.parse_args()
 
-    cfg = PMConfig.load()
+    # `PM_CORE_DIR` = racine du core PM (même sens que dans `mmi-pm.py`, qui y
+    # cherche `scripts/`). Le daemon `vault-agentd` lit DÉJÀ son registre là
+    # (RM2683) : sans cet alignement, `unlock-vault.sh` — qui demande ici le type
+    # d'une instance — et le daemon qui la sert pourraient lire deux configs
+    # différentes, donc être en désaccord sur le backend. Absent → config d'à côté.
+    cfg = PMConfig.load(os.environ.get("PM_CORE_DIR") or None)
     try:
         reg = Registry.from_config(cfg.providers)
     except RegistryError as e:

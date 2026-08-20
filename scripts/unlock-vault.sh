@@ -12,8 +12,9 @@
 # par instance (`SECRET__<slug>__CLIENTID` / `__CLIENTSECRET`, RM2682) avec repli
 # sur BW_CLIENTID / BW_CLIENTSECRET.
 #
-# Ce script ne déverrouille que des instances de type `vaultwarden` : les autres
-# backends (KeePass…) ont leur propre sémantique — cf. RM2684.
+# Chaque type de backend a sa sémantique : `vaultwarden` (mot de passe maître +
+# `bw`), `keepass` (passphrase poussée au daemon, RM2684), `age` (rien à
+# déverrouiller — la clé est un fichier, RM2713).
 #
 # Prompts for the karl@iprospective.fr master password (read -s, never logged or written
 # to disk). Calls `bw unlock --raw` to obtain a session token, then passes it to the
@@ -70,7 +71,8 @@ _cred() {
   local v; v="$(printenv "SECRET__${SLUG}__$1" 2>/dev/null || true)"
   printf '%s' "${v:-$2}"
 }
-KDBX_FILE="$(_cred FILE "")"
+VAULT_FILE="$(_cred FILE "")"       # .kdbx (keepass) ou fichier chiffré (age)
+KDBX_FILE="$VAULT_FILE"
 
 # Type du backend, lu dans le registre providers. Inconnu (registre absent) →
 # `vaultwarden`, le comportement d'avant le chantier.
@@ -101,6 +103,12 @@ if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
       [ -n "$(_cred KEYFILE "")" ] && found="$found KEYFILE"
       cible="file=${KDBX_FILE:-—}"
       ;;
+    age)
+      [ -z "$VAULT_FILE" ] && VAULT_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+      [ -n "$VAULT_FILE" ] && found="$found FILE"
+      [ -n "$(_cred AGE_KEY_FILE "")" ] && found="$found AGE_KEY_FILE"
+      cible="file=${VAULT_FILE:-—}"
+      ;;
     *)
       [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
       [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
@@ -125,6 +133,39 @@ _start_daemon() {
     for _ in $(seq 1 20); do [ -S "$SOCK" ] && break; sleep 0.1; done
   fi
 }
+
+# ── age : rien à déverrouiller, mais tout à vérifier ────────────────────────
+# La clé est un fichier : il n'y a pas de session à poser. Le script se rend donc
+# utile autrement — il dit si l'instance est réellement utilisable, et il alerte
+# quand la clé privée est lisible par d'autres que son propriétaire.
+if [ "$TYPE" = "age" ]; then
+  [ -z "$VAULT_FILE" ] && VAULT_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+  AGE_KEY="$(_cred AGE_KEY_FILE "")"
+  echo "ℹ instance « $INSTANCE » (age) : aucun déverrouillage — la clé est un fichier."
+  rc=0
+  if [ -z "$VAULT_FILE" ]; then
+    echo "✗ aucun fichier chiffré (providers.servers.$INSTANCE.file ou SECRET__${SLUG}__FILE)" >&2; rc=1
+  elif [ ! -f "${VAULT_FILE/#\~/$HOME}" ]; then
+    echo "✗ fichier chiffré introuvable : $VAULT_FILE" >&2; rc=1
+  fi
+  if [ -z "$AGE_KEY" ]; then
+    echo "✗ aucune clé : renseigne SECRET__${SLUG}__AGE_KEY_FILE dans ton .env" >&2; rc=1
+  else
+    AGE_KEY_ABS="${AGE_KEY/#\~/$HOME}"
+    if [ ! -f "$AGE_KEY_ABS" ]; then
+      echo "✗ clé age introuvable : $AGE_KEY" >&2; rc=1
+    else
+      MODE="$(stat -c '%a' "$AGE_KEY_ABS" 2>/dev/null || echo '?')"
+      case "$MODE" in
+        600|400) ;;
+        *) echo "⚠ clé $AGE_KEY en mode $MODE : elle est lisible au-delà de toi — \`chmod 600\`" >&2 ;;
+      esac
+    fi
+  fi
+  command -v age >/dev/null 2>&1 || { echo "✗ binaire \`age\` absent — sudo apt install age" >&2; rc=1; }
+  [ $rc -eq 0 ] && echo "✓ instance « $INSTANCE » utilisable (file=$VAULT_FILE)."
+  exit $rc
+fi
 
 # ── KeePass : pas de `bw`, juste une passphrase poussée au daemon ────────────
 # Même discipline que pour le mot de passe maître : saisie non echo, jamais

@@ -173,6 +173,31 @@ check("groupes absents tolérés", ka.env_alerts(None)["count"] == 0)
 check("les familles surveillées existent VRAIMENT (pas de nom périmé)",
       set(ka.ENV_ALERT_FAMILIES) <= {n for n, _ in ka.ENV_FAMILIES})
 
+# — RM2713 : la clé privée d'un vault `age` n'est protégée QUE par ses droits —
+import tempfile as _tf
+
+
+class _Inst:
+    def __init__(self, name, options=None):
+        self.name, self.type, self.options = name, "age", options or {}
+
+
+_d = _tf.mkdtemp(prefix="rm2713-envstatus-")
+_k = pathlib.Path(_d) / "id.age"
+_k.write_text("AGE-SECRET-KEY-FACTICE\n")
+_k.chmod(0o600)
+check("clé age en 600 → rien à signaler",
+      ka._cle_age_trop_ouverte(_Inst("a", {"identity": str(_k)})) is None)
+_k.chmod(0o644)
+_res = ka._cle_age_trop_ouverte(_Inst("a", {"identity": str(_k)}))
+check("clé age en 644 → signalée avec son mode", _res is not None and _res[1] == "644")
+check("clé age absente → pas de fausse alerte",
+      ka._cle_age_trop_ouverte(_Inst("a", {"identity": _d + "/nope"})) is None)
+check("instance age sans clé déclarée → pas de fausse alerte",
+      ka._cle_age_trop_ouverte(_Inst("a")) is None)
+import shutil as _sh
+_sh.rmtree(_d, ignore_errors=True)
+
 if fails:
     print(f"\n{len(fails)} test(s) en échec : {fails}")
     sys.exit(1)

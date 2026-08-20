@@ -823,11 +823,15 @@ if (window.matchMedia) {
       <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
       <div id="triage-list"><div style="color:var(--muted)">déplie pour calculer le classement…</div></div>
     </details>
-    <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours » -->
-    <div class="card">
-      <h2>Tickets ouverts <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
+    <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours ».
+         RM2757 : repliée par défaut — la liste monte jusqu'à 40 tickets et
+         repoussait la recherche et la création hors de l'écran. -->
+    <details class="card" id="openedcard" ontoggle="openedToggled(this)">
+      <summary>Tickets ouverts <span id="opened-count" style="font-weight:normal;text-transform:none;letter-spacing:0"></span>
+        <button class="helpq" onclick="event.preventDefault();event.stopPropagation();openHelp('tickets')"
+                title="Aide sur ce panneau">?</button></summary>
       <div id="openedbox"></div>
-    </div>
+    </details>
 
     <div class="card">
       <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
@@ -4028,6 +4032,33 @@ async function gitShowDiff(mode) {
 
 // ----- RM2606 : tickets ouverts dans la session cockpit -----
 
+// >>> openedPanelOpen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2757 : la carte s'ouvre-t-elle au chargement ? Repliée tant que
+// l'utilisateur n'a rien dit — elle peut contenir 40 lignes et repoussait la
+// recherche et la création hors de l'écran. Mais un choix explicite prime :
+// une carte qu'on rouvre à chaque F5 se referme contre celui qui l'a ouverte.
+function openedPanelOpen(saved) {
+  return String(saved) === "1";
+}
+// <<< openedPanelOpen
+
+// >>> openedCountLabel — pur (testé par test_cockpit.js)
+// Ce que l'en-tête dit quand la carte est REPLIÉE : sans compte, il faut
+// l'ouvrir pour savoir s'il y avait quelque chose à voir. « vide » est dit
+// explicitement — un blanc laisse croire que le compte n'a pas été calculé.
+function openedCountLabel(n) {
+  const k = Number(n);
+  if (!Number.isFinite(k) || k <= 0) return "(vide)";
+  return "(" + k + ")";
+}
+// <<< openedCountLabel
+
+// Mémorise le geste de l'utilisateur, par navigateur.
+function openedToggled(el) {
+  try { localStorage.setItem("karlOpenedCard", el && el.open ? "1" : "0"); }
+  catch (e) { /* mode privé : le défaut replié s'applique */ }
+}
+
 // >>> openedAdd — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Ouvrir un ticket le remonte en tête, sans doublon — comme l'historique du
 // composer (RM2527). Plafonné : une liste sans fin cesse d'être consultable, et
@@ -4121,6 +4152,8 @@ function renderOpened() {
     badge.textContent = openedTickets.length;
     badge.style.display = openedTickets.length ? "" : "none";
   }
+  const cnt = document.getElementById("opened-count");
+  if (cnt) cnt.textContent = openedCountLabel(openedTickets.length);
   const box = document.getElementById("openedbox");
   if (!box) return;
   const { keys, groups, clients } = groupOpenedTickets(openedTickets, resolveCache, openedClient);
@@ -8608,6 +8641,12 @@ async function kill(rmId) {
     // pas un terminal non demandé) : son onglet reste sous la main, sans être actif.
     else { activeTabId = "dash:"; renderTabs(); renderCurTitle(); }
   } catch (e) { /* mode privé */ }
+  // RM2757 : état replié/déplié de la carte, avant le premier rendu — sinon
+  // elle s'ouvre puis se referme sous les yeux.
+  try {
+    const card = document.getElementById("openedcard");
+    if (card) card.open = openedPanelOpen(localStorage.getItem("karlOpenedCard"));
+  } catch (e) { /* mode privé : replié, comme au premier lancement */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri

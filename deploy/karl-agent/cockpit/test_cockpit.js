@@ -2527,3 +2527,37 @@ assert.strictEqual(d.box.style.display, "none", "retour sur feature → le bloc 
 // robustesse : appelé avant le rendu du formulaire, il ne doit pas lever
 vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: { getElementById: () => null } });
 console.log("✓ ticket bugfix (RM2752) : étapes de reproduction exigées, bloc réservé à ce type");
+
+// — RM2757 : « Tickets ouverts » repliable, replié au démarrage —
+const openedPanelOpen = grabO("openedPanelOpen");
+const openedCountLabel = grabO("openedCountLabel");
+
+// L'état par défaut est le cœur de la demande : la carte peut faire 40 lignes
+// et repoussait la recherche et la création hors de l'écran.
+assert.strictEqual(openedPanelOpen(null), false, "jamais visité → replié");
+assert.strictEqual(openedPanelOpen(undefined), false, "storage indisponible → replié");
+assert.strictEqual(openedPanelOpen(""), false, "valeur vide → replié");
+assert.strictEqual(openedPanelOpen("0"), false, "replié par l'utilisateur → replié");
+assert.strictEqual(openedPanelOpen("1"), true,
+  "déplié par l'utilisateur → rouvert (sinon la carte se referme contre lui)");
+
+// Repliée, l'en-tête doit dire s'il y a matière à ouvrir.
+assert.strictEqual(openedCountLabel(12), "(12)", "le compte est visible sans ouvrir");
+assert.strictEqual(openedCountLabel(1), "(1)");
+assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
+assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
+assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
+
+// Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
+assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),
+  "la carte doit être un <details> qui mémorise le geste");
+assert(/id="opened-count"/.test(html), "l'en-tête doit porter le compteur");
+assert(!/<details class="card" id="openedcard"[^>]*\bopen\b/.test(html),
+  "pas d'attribut open en dur : l'état initial vient du localStorage");
+// Le « ? » d'aide est DANS le summary : sans stopPropagation, le consulter
+// replierait la carte — un clic qui fait deux choses dont une non voulue.
+const sumOpened = /<summary>Tickets ouverts[\s\S]*?<\/summary>/.exec(html);
+assert(sumOpened, "summary de la carte introuvable");
+assert(/event\.stopPropagation\(\)/.test(sumOpened[0]) && /event\.preventDefault\(\)/.test(sumOpened[0]),
+  "le bouton d'aide ne doit pas replier la carte");
+console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ, compte visible");

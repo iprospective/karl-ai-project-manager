@@ -87,7 +87,8 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     mmi-pm                             # CLI d'instance (core update, index, doctor…)
   deploy/
     karl-agent/                        # cockpit web : karl-agent.py (service), cockpit/ (UI),
-                                       # units systemd (service USER dans le conteneur dev)
+                                       # units systemd (service USER dans le conteneur dev),
+                                       # karl-askpass.sh (passphrase SSH par descripteur, RM2748)
   skills/                              # skills mmi-pm-* distribués (pm-skills-sync)
   scripts/                             # ~50 outils pm-*/redmine-* — quelques familles :
     pm_paths.py                        # lib résolution de chemins (PMConfig)
@@ -98,6 +99,9 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
     karl-mail-*.py                     # boîte de karl : send, fetch (relève), route
                                        # (client/projet), draft (ticket à la validation)
     pm-client-contact.py               # contacts d'un client (nom, prénom, email, tél)
+    unlock-vault.sh · lock-vault.sh    # coffre de secrets : ouvrir (invite, ou --stdin pour
+                                       # un appelant non interactif — le cockpit), fermer
+    vault-agentd.py · resolve-secret.sh # daemon en mémoire + résolution `secret://…`
     redmine-fetch-task.py · redmine-post-note.py · pm-project-bootstrap.py …
   templates/
     task.md                            # template tâche

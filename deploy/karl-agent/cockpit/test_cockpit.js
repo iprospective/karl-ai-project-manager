@@ -2435,3 +2435,57 @@ assert(/\.placeholder\.dash-on \{[^}]*justify-content: flex-start/.test(html),
 assert(/ph\.classList\.add\("dash-on"\)/.test(html) && /ph\.classList\.remove\("dash-on"\)/.test(html),
   "la classe doit être posée ET retirée par le rendu du tableau de bord");
 console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanent non fermable");
+
+// — RM2748 : verrous du poste (coffre + agent SSH) —
+const vaultBtnState = grabFn("vaultBtnState");
+const vaultFormHtml = vm.runInNewContext("(" + grab("vaultFormHtml") + ")",
+  { Object, esc: escFn });
+
+assert.equal(vaultBtnState(null).show, false, "sans état connu, pas de bouton");
+assert.equal(vaultBtnState({ daemon: true, locked: [], ssh: { keys: [{ comment: "k" }] } }).show,
+  false, "tout ouvert : le bouton ne doit PAS s'afficher");
+const oneLocked = vaultBtnState({ daemon: true, locked: ["vw-ipro"], ssh: { keys: [{ comment: "k" }] } });
+assert(oneLocked.show, "un coffre verrouillé → bouton visible");
+assert(/vw-ipro/.test(oneLocked.title), "l'infobulle nomme le coffre concerné");
+assert(!/agent SSH/.test(oneLocked.title), "elle ne parle pas d'un problème qui n'existe pas");
+const both = vaultBtnState({ daemon: false, locked: ["a", "b"], ssh: { keys: [] } });
+assert(/coffre fermé/.test(both.title) && /agent SSH vide/.test(both.title),
+  "les deux causes sont annoncées, pas seulement la première");
+assert(/2 coffres/.test(vaultBtnState({ daemon: true, locked: ["a", "b"], ssh: { keys: [{}] } }).title),
+  "plusieurs coffres : on compte au lieu de tout énumérer");
+
+// contexte non sécurisé : AUCUN champ de mot de passe n'est proposé
+const vltInsecure = vaultFormHtml({ daemon: true, locked: ["vw-ipro"], ssh: {} }, false);
+assert(!/type="password"/.test(vltInsecure), "jamais de saisie de secret hors contexte sécurisé");
+assert(/https/.test(vltInsecure), "et l'on dit quoi faire pour y remédier");
+
+const vltForm = vaultFormHtml({
+  daemon: true, default_instance: "vw-ipro", locked: ["vw-ipro"],
+  instances: [{ slug: "vw-ipro", unlocked: false }, { slug: "kp-client", unlocked: true, since: "2026-08-20T10:00" }],
+  ssh: { reachable: true, keys: [], candidates: ["id_rsa_root", "id_ed25519_gitlab"] },
+}, true);
+assert(/id="vlt-pass"/.test(vltForm) && /type="password"/.test(vltForm), "champ mot de passe attendu");
+assert(/vaultUnlock\(this\)/.test(vltForm), "bouton de déverrouillage câblé");
+assert(/id="vlt-inst"/.test(vltForm), "l'instance visée est transmise explicitement");
+assert(/kp-client/.test(vltForm) && /2026-08-20T10:00/.test(vltForm), "l'état de chaque coffre est montré");
+assert(/id="vlt-key"/.test(vltForm) && /id_rsa_root/.test(vltForm), "les clés chargeables sont proposées");
+assert(/vaultSshAdd\(this\)/.test(vltForm), "bouton de chargement de clé câblé");
+assert(!/value="[^"]*mot de passe/.test(vltForm), "aucun secret pré-rempli");
+
+// tout est ouvert : le formulaire ne redemande rien
+const vltOpen = vaultFormHtml({
+  daemon: true, locked: [], instances: [{ slug: "vw-ipro", unlocked: true }],
+  ssh: { reachable: true, keys: [{ comment: "root@web-12", type: "RSA", bits: "4096" }], candidates: [] },
+}, true);
+assert(!/type="password"/.test(vltOpen), "coffre ouvert et clé chargée : plus rien à saisir");
+assert(/root@web-12/.test(vltOpen), "les clés déjà chargées restent lisibles");
+
+// le bouton d'en-tête et son cycle de vie
+assert(/id="lockbtn"[^>]*style="display:none"/.test(html), "le bouton part caché");
+assert(/onclick="openVault\(\)"/.test(html), "et ouvre le formulaire des verrous");
+assert(/loadVaultStatus\(\);/.test(html), "l'état des verrous est lu au démarrage");
+assert(/setInterval\(\(\) => \{ if \(!document\.hidden\) loadVaultStatus\(\); \}/.test(html),
+  "et rafraîchi périodiquement (le coffre se verrouille tout seul)");
+assert(/field\.value = "";/.test(html), "le champ est vidé après envoi — le secret ne traîne pas");
+assert(!/localStorage[^\n]*(pass|secret)/i.test(html), "aucun secret ne va en stockage local");
+console.log("✓ verrous du poste (RM2748) : bouton conditionnel, saisie sûre, rien de mémorisé");

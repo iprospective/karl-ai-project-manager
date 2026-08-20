@@ -4,14 +4,17 @@
 # Usage :
 #   unlock-vault.sh                  # instance par défaut (VAULT_INSTANCE, défaut vw-ipro)
 #   unlock-vault.sh -i <instance>    # une instance Vaultwarden nommée (RM2683)
+#   unlock-vault.sh --stdin          # mot de passe lu sur l'entrée standard (RM2748),
+#                                    # sans invite : appelants non interactifs (cockpit)
 #
 # Chaque instance a sa propre session côté daemon : déverrouiller le vault d'un
 # client ne prolonge pas celui d'iProspective. Les identifiants d'API sont pris
 # par instance (`SECRET__<slug>__CLIENTID` / `__CLIENTSECRET`, RM2682) avec repli
 # sur BW_CLIENTID / BW_CLIENTSECRET.
 #
-# Ce script ne déverrouille que des instances de type `vaultwarden` : les autres
-# backends (KeePass…) ont leur propre sémantique — cf. RM2684.
+# Chaque type de backend a sa sémantique : `vaultwarden` (mot de passe maître +
+# `bw`), `keepass` (passphrase poussée au daemon, RM2684), `age` (rien à
+# déverrouiller — la clé est un fichier, RM2713).
 #
 # Prompts for the karl@iprospective.fr master password (read -s, never logged or written
 # to disk). Calls `bw unlock --raw` to obtain a session token, then passes it to the
@@ -36,10 +39,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SOCK="${VAULT_SOCK:-/run/user/$(id -u)/vault-agentd.sock}"
 
 INSTANCE="${VAULT_INSTANCE:-vw-ipro}"
-if [ "${1:-}" = "-i" ]; then
-  [ "$#" -ge 2 ] || { echo "Usage: $0 [-i <instance>]" >&2; exit 1; }
-  INSTANCE="$2"; shift 2
-fi
+# --stdin (RM2748) : le mot de passe arrive sur l'entrée standard, sans invite.
+# C'est ce qui permet à un appelant NON INTERACTIF (le cockpit) de déverrouiller
+# sans jamais mettre le secret en argument de commande — `ps` le montrerait.
+STDIN_PWD=0
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -i)       [ "$#" -ge 2 ] || { echo "Usage: $0 [-i <instance>] [--stdin]" >&2; exit 1; }
+              INSTANCE="$2"; shift 2 ;;
+    --stdin)  STDIN_PWD=1; shift ;;
+    *)        break ;;
+  esac
+done
 
 # Source la config PM depuis la racine du repo (un cran au-dessus de scripts/).
 # Scission RM2438 T1 : pm.env (non-secret, ex. VAULT_URL) + .env (secrets, BW_*) →
@@ -60,7 +71,8 @@ _cred() {
   local v; v="$(printenv "SECRET__${SLUG}__$1" 2>/dev/null || true)"
   printf '%s' "${v:-$2}"
 }
-KDBX_FILE="$(_cred FILE "")"
+VAULT_FILE="$(_cred FILE "")"       # .kdbx (keepass) ou fichier chiffré (age)
+KDBX_FILE="$VAULT_FILE"
 
 # Type du backend, lu dans le registre providers. Inconnu (registre absent) →
 # `vaultwarden`, le comportement d'avant le chantier.
@@ -91,6 +103,12 @@ if [ "${1:-}" = "--print-instance" ] || [ "${PRINT_INSTANCE:-}" = "1" ]; then
       [ -n "$(_cred KEYFILE "")" ] && found="$found KEYFILE"
       cible="file=${KDBX_FILE:-—}"
       ;;
+    age)
+      [ -z "$VAULT_FILE" ] && VAULT_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+      [ -n "$VAULT_FILE" ] && found="$found FILE"
+      [ -n "$(_cred AGE_KEY_FILE "")" ] && found="$found AGE_KEY_FILE"
+      cible="file=${VAULT_FILE:-—}"
+      ;;
     *)
       [ -n "$BW_CLIENTID" ] && found="$found CLIENTID"
       [ -n "$BW_CLIENTSECRET" ] && found="$found CLIENTSECRET"
@@ -116,6 +134,39 @@ _start_daemon() {
   fi
 }
 
+# ── age : rien à déverrouiller, mais tout à vérifier ────────────────────────
+# La clé est un fichier : il n'y a pas de session à poser. Le script se rend donc
+# utile autrement — il dit si l'instance est réellement utilisable, et il alerte
+# quand la clé privée est lisible par d'autres que son propriétaire.
+if [ "$TYPE" = "age" ]; then
+  [ -z "$VAULT_FILE" ] && VAULT_FILE="$(python3 "$SCRIPT_DIR/pm-providers.py" instance "$INSTANCE" --field file 2>/dev/null || true)"
+  AGE_KEY="$(_cred AGE_KEY_FILE "")"
+  echo "ℹ instance « $INSTANCE » (age) : aucun déverrouillage — la clé est un fichier."
+  rc=0
+  if [ -z "$VAULT_FILE" ]; then
+    echo "✗ aucun fichier chiffré (providers.servers.$INSTANCE.file ou SECRET__${SLUG}__FILE)" >&2; rc=1
+  elif [ ! -f "${VAULT_FILE/#\~/$HOME}" ]; then
+    echo "✗ fichier chiffré introuvable : $VAULT_FILE" >&2; rc=1
+  fi
+  if [ -z "$AGE_KEY" ]; then
+    echo "✗ aucune clé : renseigne SECRET__${SLUG}__AGE_KEY_FILE dans ton .env" >&2; rc=1
+  else
+    AGE_KEY_ABS="${AGE_KEY/#\~/$HOME}"
+    if [ ! -f "$AGE_KEY_ABS" ]; then
+      echo "✗ clé age introuvable : $AGE_KEY" >&2; rc=1
+    else
+      MODE="$(stat -c '%a' "$AGE_KEY_ABS" 2>/dev/null || echo '?')"
+      case "$MODE" in
+        600|400) ;;
+        *) echo "⚠ clé $AGE_KEY en mode $MODE : elle est lisible au-delà de toi — \`chmod 600\`" >&2 ;;
+      esac
+    fi
+  fi
+  command -v age >/dev/null 2>&1 || { echo "✗ binaire \`age\` absent — sudo apt install age" >&2; rc=1; }
+  [ $rc -eq 0 ] && echo "✓ instance « $INSTANCE » utilisable (file=$VAULT_FILE)."
+  exit $rc
+fi
+
 # ── KeePass : pas de `bw`, juste une passphrase poussée au daemon ────────────
 # Même discipline que pour le mot de passe maître : saisie non echo, jamais
 # écrite sur disque, jamais en argument de commande visible dans `ps`.
@@ -127,8 +178,12 @@ if [ "$TYPE" = "keepass" ]; then
     echo "✗ instance $INSTANCE : aucun fichier .kdbx (providers.servers.$INSTANCE.file ou SECRET__${SLUG}__FILE)" >&2
     exit 1; }
   _start_daemon
-  read -r -s -p "Passphrase KeePass ($INSTANCE) : " KP_PWD
-  echo
+  if [ "$STDIN_PWD" = "1" ]; then
+    IFS= read -r KP_PWD || true
+  else
+    read -r -s -p "Passphrase KeePass ($INSTANCE) : " KP_PWD
+    echo
+  fi
   [ -z "$KP_PWD" ] && { echo "Passphrase vide, abandon." >&2; exit 1; }
   RESP="$(printf 'SET-SESSION %s %s\n' "$INSTANCE" "$KP_PWD" | nc -N -U "$SOCK")"
   KP_PWD=""; unset KP_PWD
@@ -174,8 +229,12 @@ fi
 _start_daemon
 
 # Prompt master password (never echoed, never written)
-read -r -s -p "Master password for karl@: " MASTER_PWD
-echo
+if [ "$STDIN_PWD" = "1" ]; then
+  IFS= read -r MASTER_PWD || true
+else
+  read -r -s -p "Master password for karl@: " MASTER_PWD
+  echo
+fi
 [ -z "$MASTER_PWD" ] && { echo "Empty password, aborting." >&2; exit 1; }
 
 # Unlock via --passwordenv (le mdp passe par une env var temporaire, jamais en arg de `ps`)

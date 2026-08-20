@@ -24,6 +24,8 @@ La colonne de droite affiche la session attachée : terminal, worklog, état.
 
 ## Les boutons d'aide
 
+- **🔓 déverrouiller** (en-tête) n'apparaît que si le coffre de secrets ou l'agent
+  SSH est fermé — voir [Verrous](verrous).
 - **❓ aide** (en-tête) ouvre cette documentation.
 - Un **`?`** près d'un panneau ouvre directement la page qui le concerne.
 

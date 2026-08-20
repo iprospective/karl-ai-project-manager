@@ -1,14 +1,38 @@
 # Onglets du panneau central
 
 Le panneau central affiche **une vue à la fois** : le tableau de bord, un terminal de
-session, la fiche d'un ticket, une fiche projet, ou la création de ticket. Les onglets,
-en haut, gardent sous la main celles que tu veux retrouver.
+session, la fiche d'un ticket, une fiche projet, la création de ticket — et, depuis
+RM2759, un **fichier, un dossier, un commit ou un email**. Les onglets, en haut,
+gardent sous la main celles que tu veux retrouver.
 
 ## 📊 tableau de bord — l'onglet permanent
 
 Le premier onglet est **toujours là** : il rouvre le tableau de bord (« ce qui requiert
 ton attention »). Il ne se ferme pas et ne se détache pas — c'est aussi le point de
 retour quand tu fermes le dernier autre onglet.
+
+## ⤢ au centre — fichier, dossier, commit, email
+
+Ces quatre contenus se lisaient déjà, mais à l'étroit : un CDC dans une fenêtre par-dessus
+le reste, un patch dans la colonne de droite. Le bouton **⤢ au centre** les envoie dans un
+onglet, avec la place qu'ils demandent — et de quoi y revenir.
+
+| Où le trouver | Ce qui s'ouvre |
+|---|---|
+| Fenêtre d'un document (fiche projet → *Docs projet*) | 📄 le document, markdown rendu |
+| Panneau 📁 fichiers, sur un fichier ouvert | 📄 le fichier (rendu si `.md`, brut sinon) |
+| Panneau 📁 fichiers, au-dessus du fil d'Ariane | 🗂 le dossier, **navigable** au centre |
+| Panneau ⎇ git, bouton ⤢ d'une ligne de commit | ⎇ le commit et son patch complet |
+| Panneau 📧 emails, sur un email déplié | 📧 l'email, en-têtes et **corps entier** |
+
+Rien ne change dans ces panneaux : le bouton s'ajoute, les clics existants font ce
+qu'ils faisaient. Un commit passe par sa session (`/git/show`) : sans session attachée,
+la ligne reste informative plutôt que d'offrir un clic qui échouerait.
+
+Ces onglets s'épinglent comme les autres et **se rouvrent au rechargement** — leur clé
+porte tout ce qu'il faut pour recharger le contenu. Si la source a disparu entre-temps
+(session fermée, fichier déplacé, email traité), l'onglet **le dit** : un panneau vide
+se lirait comme une panne du cockpit.
 
 ## Épinglé ou pas — la règle
 

@@ -2775,3 +2775,67 @@ assert(/openCenterFile\(p\[0\], p\[1\], p\[2\], p\[3\]\)/.test(html),
 assert(/const fixed = scopeFromTag\(tag\);/.test(html),
   "_fsq doit préférer la portée explicite au contexte courant (vidé par centerViewPane)");
 console.log("✓ portée des vues centrales (RM2761) : capturée au clic, transportée, rejouée");
+
+// — RM2768 : fiche client et confs au centre —
+const clientViewHtml = grabO("clientViewHtml");
+const confViewHtml = grabO("confViewHtml");
+
+const CLI2768 = {
+  client: "calicote", name: "Calicote", status: "active", type: "client",
+  created: "2026-05-19", redmine_project_id: "calicote",
+  redmine_project_url: "https://r.test/projects/calicote",
+  contacts: [
+    { first_name: "Sandrine", last_name: "Roche", email: "s@calicote.test",
+      role: "owner", title: "Gérante" },
+    { name: "Mathieu", email: "m@ipro.test", role: "owner", internal: true },
+  ],
+  defaults: { priority: "normal", team: [{ username: "iprospective" }] },
+  projects: [{ project: "prestashop", value: "calicote/prestashop" }],
+  projects_used: ["iprospective/nc-clients"],
+  docs: [{ name: "overview.md", path: "projects/clients/calicote/client/overview.md" }],
+};
+const cv = clientViewHtml(CLI2768, escO, jargFn);
+assert(cv.includes("Calicote") && cv.includes("calicote"), "identité et slug");
+assert(cv.includes("Sandrine Roche") && cv.includes("Gérante"),
+  "un contact se lit par son nom ET sa fonction");
+assert(cv.includes("interne"), "un contact interne est signalé comme tel");
+assert(/openProjectView\('calicote\/prestashop'\)/.test(cv),
+  "les projets du client mènent à leur fiche");
+assert(cv.includes("Projets utilisés") && cv.includes("iprospective/nc-clients"),
+  "le partage cross-client est visible, il ne se devine pas dans le YAML");
+assert(/openCenterFile\('doc','','projects\/clients\/calicote\/client\/overview\.md'\)/.test(cv),
+  "les docs du client s'ouvrent au centre");
+assert(cv.includes('href="https://r.test/projects/calicote"'), "lien Redmine cliquable");
+// tolérance : une fiche squelettique reste servie
+const cvMin = clientViewHtml({ client: "x" }, escO, jargFn);
+assert(cvMin.includes("aucun projet"), "un client sans projet le dit");
+assert(!cvMin.includes("Contacts"), "…et n'invente pas de section vide");
+assert(clientViewHtml(null, escO, jargFn).includes("client"), "données absentes tolérées");
+
+// Conf : rendue telle quelle, et échappée.
+const cf = confViewHtml({ label: "calicote/prestashop", name: "meta.yml",
+  content: "slug: x\nrepos:\n  - <b>a</b>\n" }, escO);
+assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml"), "on sait ce qu'on lit");
+assert(cf.includes("&lt;b&gt;a&lt;/b&gt;"), "le contenu est échappé, jamais interprété");
+assert(cf.includes("slug: x"), "…et rendu tel quel, sans reformatage");
+assert(cf.includes("mmi-pm"), "la lecture seule renvoie à l'outillage qui, lui, écrit");
+assert(confViewHtml({}, escO).includes("meta.yml"), "conf vide : un titre, pas une erreur");
+
+// Les icônes du panneau : présentes, et sans effet de bord sur le pliage.
+const gIco = groupProjectsByClient(PJ2760, "");
+const hIco = projectsPanelHtml(gIco, { live: {}, open: {}, client: "abatik", filtre: "" },
+  escO, jargFn);
+assert(/openCenterClient\('abatik'\)/.test(hIco), "icône fiche client");
+assert(/openCenterConf\('client','abatik',''\)/.test(hIco), "icône conf client");
+assert(/openCenterConf\('project','abatik','infra'\)/.test(hIco), "icône conf projet");
+// le piège : la ligne du client EST le bouton de pliage
+const ligneClient = /<div class="oline"[^>]*pjToggle\('abatik'\)[\s\S]*?<\/div>/.exec(hIco);
+assert(ligneClient, "ligne client introuvable");
+assert((ligneClient[0].match(/event\.stopPropagation\(\)/g) || []).length === 2,
+  "chaque icône du client doit stopper la propagation, sinon elle replie le client");
+assert(/onclick="event\.stopPropagation\(\);openCenterConf\('project'/.test(hIco),
+  "l'icône d'un projet ne doit pas déclencher l'ouverture de sa fiche");
+// et l'onglet doit savoir se rouvrir
+["client", "conf"].forEach(k =>
+  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
+console.log("✓ fiche client et confs (RM2768) : contacts, partage, meta.yml — icônes sans effet de bord");

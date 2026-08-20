@@ -40,6 +40,12 @@ radio. Le client par défaut est celui du contexte client du cockpit (menu en
 en-tête) ; en changer ne touche à rien d'autre du formulaire — la saisie en cours
 reste.
 
+Choisir le type **bugfix** fait apparaître un bloc **étapes de reproduction**, requis,
+avec la reproductibilité (toujours / souvent / parfois / rarement / jamais). Ce n'est
+pas une formalité : sans ces étapes le ticket était rejeté par la validation, et un
+bug qu'on ne sait pas reproduire se rouvre trois fois. Le bloc disparaît sur les
+autres types.
+
 À la création, le ticket créé s'ouvre dans sa fiche — l'onglet de création se referme.
 
 La carte **« Nouveau ticket (saisie éclair) »** du panneau gauche reste là pour noter

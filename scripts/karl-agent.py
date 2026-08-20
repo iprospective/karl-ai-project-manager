@@ -6552,6 +6552,23 @@ def op_create_ticket(payload: dict) -> dict:
     tags = (payload.get("tags") or "").strip()
     if tags:
         args += ["--tags", tags]
+    # RM2752 — un bugfix EXIGE ses étapes de reproduction (validate-task les
+    # impose). On refuse ici, en 400 lisible : laisser passer, c'est reprendre le
+    # défaut d'origine — pm-task-add sortirait en erreur et le formulaire rendrait
+    # un 500 opaque sur un ticket que l'appelant croit créé.
+    if ttype == "bugfix":
+        steps = (payload.get("bug_steps") or "").strip()
+        if not steps:
+            raise ApiError(400, "bug_steps requis pour un ticket de type bugfix "
+                                "(étapes de reproduction)")
+        repro = (payload.get("bug_reproducibility") or "always").strip()
+        if repro not in ("always", "often", "sometimes", "rarely", "never"):
+            raise ApiError(400, "bug_reproducibility invalide "
+                                "(always|often|sometimes|rarely|never)")
+        args += ["--bug-steps", steps, "--bug-reproducibility", repro]
+    elif payload.get("bug_steps") or payload.get("bug_reproducibility"):
+        raise ApiError(400, "bug_steps / bug_reproducibility n'ont de sens "
+                            "que pour type=bugfix")
     # RM2672 — le formulaire pleine page porte les champs que la carte repliée du
     # panneau gauche n'avait pas : passe agent-testeur, env cible, estimation.
     # Chacun est validé ici : le client ne compose jamais l'argv.

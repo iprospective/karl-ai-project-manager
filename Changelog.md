@@ -30,6 +30,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
 
 ### Outillage
+- **Un ticket `bugfix` naît enfin valide** (RM2752) : `validate-task` exige
+  `bug.reproducibility` + `bug.reproduce_steps` pour ce type, or `pm-task-add` ne
+  posait pas le bloc et n'offrait aucun flag — **tout** bugfix créé par l'outil
+  canonique sortait invalide, et le remède affiché (`pm-doctor RM<id>`) n'accepte
+  pas d'argument RM, donc suivre l'indication menait dans le mur. Nouveaux
+  `--bug-steps` / `--bug-steps-file` / `--bug-reproducibility` (défaut `always`) ;
+  le script **refuse** un bugfix sans étapes plutôt que d'en créer un invalide, et
+  le warning renvoie vers `validate-task.py <chemin>`. Le chemin cockpit suit :
+  choisir « bugfix » ouvre un bloc « étapes de reproduction » requis, et
+  `POST /tickets` répond 400 lisible au lieu d'un 500 sur un ticket qu'on croit
+  créé. Le ticket décrivant le défaut l'avait reproduit en se créant.
 - **Le doctor NORMS n'avertit plus à vide** (RM2751) : `pm-norms-doctor` signalait à
   **chaque** exécution « outils cités INTROUVABLES : mmi-pm-client, mmi-pm-core ».
   Faux positifs : le motif des skills (`\bmmi-pm-[a-z0-9-]+\b`) capturait les noms

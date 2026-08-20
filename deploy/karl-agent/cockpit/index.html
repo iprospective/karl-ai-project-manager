@@ -3361,12 +3361,21 @@ function newTicketFormHtml(types, priorities, projects, curClient, curProject, e
     '<input id="ntf-title" type="text" placeholder="Ce qu\'il faut faire, en une ligne">' +
     clientProjectPickerHtml(projects, curClient, curProject, esc) +
     '<div class="row2"><div>' +
-    '<label for="ntf-type">Type</label><select id="ntf-type">' +
+    '<label for="ntf-type">Type</label><select id="ntf-type" onchange="ntfTypeChanged()">' +
     types.map(t => opt(t, "feature")).join("") + '</select>' +
     '</div><div>' +
     '<label for="ntf-prio">Priorité</label><select id="ntf-prio">' +
     priorities.map(p => opt(p, "normal")).join("") + '</select>' +
     '</div></div>' +
+    // RM2752 : un `bugfix` EXIGE ses étapes de reproduction (validate-task les
+    // impose ; sans elles le ticket naît invalide). Le bloc ne s'affiche que pour
+    // ce type — un champ « étapes de reproduction » sur une feature est du bruit.
+    '<div id="ntf-bugbox" style="display:none">' +
+    '<label for="ntf-bug-steps">Étapes de reproduction <span style="color:var(--danger)">(requis)</span></label>' +
+    '<textarea id="ntf-bug-steps" rows="5" placeholder="1. …&#10;2. …&#10;3. ce qu\'on observe, et ce qu\'on attendait"></textarea>' +
+    '<label for="ntf-bug-repro">Reproductibilité</label><select id="ntf-bug-repro">' +
+    ["always", "often", "sometimes", "rarely", "never"].map(v => opt(v, "always")).join("") +
+    '</select></div>' +
     '<label for="ntf-tags">Tags <span style="color:var(--muted)">(csv)</span></label>' +
     '<input id="ntf-tags" type="text" placeholder="cockpit, mail">' +
     '<label for="ntf-desc">Description</label>' +
@@ -3393,6 +3402,14 @@ function newTicketFormHtml(types, priorities, projects, curClient, curProject, e
 }
 // <<< newTicketFormHtml
 
+// >>> ntfTypeChanged — le bloc « bug » ne vaut que pour un bugfix (RM2752)
+function ntfTypeChanged() {
+  const t = (document.getElementById("ntf-type") || {}).value;
+  const box = document.getElementById("ntf-bugbox");
+  if (box) box.style.display = (t === "bugfix") ? "" : "none";
+}
+// <<< ntfTypeChanged
+
 async function submitNewTicket(btn) {
   const g = id => (document.getElementById(id) || {}).value || "";
   const title = g("ntf-title").trim();
@@ -3408,6 +3425,14 @@ async function submitNewTicket(btn) {
     est_human_minutes: g("ntf-human"), est_ai_minutes: g("ntf-ai"),
     difficulty: g("ntf-diff"),
   };
+  // RM2752 : dit ICI ce qui manque, plutôt que de laisser le serveur refuser un
+  // formulaire déjà rempli — et n'envoie les champs que quand ils ont un sens.
+  if (body.type === "bugfix") {
+    const steps = g("ntf-bug-steps").trim();
+    if (!steps) { toast("Étapes de reproduction requises pour un bugfix", true); return; }
+    body.bug_steps = steps;
+    body.bug_reproducibility = g("ntf-bug-repro") || "always";
+  }
   btn.disabled = true; btn.textContent = "Création…";
   try {
     const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" },

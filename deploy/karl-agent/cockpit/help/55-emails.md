@@ -4,6 +4,11 @@ Le panneau **📧 emails** transforme le courrier reçu sur `karl@iprospective.f
 tickets, en quatre gestes séparés. **Rien n'est créé sans toi** : le système propose,
 tu valides.
 
+**⤢ au centre** (sur un email déplié) l'affiche dans un onglet du panneau
+central : en-têtes et **corps entier**, là où la carte du panneau le borne à
+quelques lignes. L'onglet s'épingle et se rouvre au rechargement — y compris
+sur un email déjà traité (RM2759).
+
 ## Le parcours
 
 1. **📥 Relever** — lit la boîte en IMAP et remplit la file. Les dossiers classés côté

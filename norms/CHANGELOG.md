@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.3.0] - 2026-08-20 — La protection des branches ne s'ajoute plus après coup
+
+### Ajouté
+- **project-creation** — § « Branches protégées, dès la création » (RM2057) :
+  `pm-project-new` applique `pm-protect` dès que le dépôt `-core` est publié, et aux
+  dépôts de code du workspace qui portent déjà un remote de forge. Chaque dépôt reçoit
+  la politique de sa nature — on ne la force pas, `pm-protect` distingue core et code.
+  **Jamais bloquant** : un échec s'annonce avec sa commande de rattrapage, le projet
+  reste créé.
+- **git-mep** — le rappel « dépôt neuf : appliquer aussitôt » (RM2568) précise
+  désormais que le flux de création s'en charge : le geste manuel ne reste requis que
+  pour un dépôt créé hors de ce flux.
+
 ## [2.2.0] - 2026-08-20 — Un coffre qui ne se déverrouille pas
 
 ### Ajouté

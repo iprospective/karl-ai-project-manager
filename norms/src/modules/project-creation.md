@@ -44,6 +44,16 @@ Justification :
   sans ce groupe, un nouveau projet n'est pas accessible aux workers IA (RM1977).
   Rôle universel sur l'instance (`Développeur` est ajouté en plus sur les projets dev).
 
+**Branches protégées, dès la création (RM2057).** Une fois le dépôt `-core` publié —
+donc dès que sa branche de prod existe —, `pm-project-new` applique `pm-protect` au
+dépôt créé, et aux dépôts de code du workspace (`repos/*.git`) qui portent déjà un
+remote de forge. Chaque dépôt reçoit la politique de sa nature : `pm-protect` distingue
+core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (droits,
+token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
+La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
+pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
+protection conforme sans en être une (cf. `git-mep` § Enforcement).
+
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
 

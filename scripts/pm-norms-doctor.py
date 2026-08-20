@@ -39,7 +39,13 @@ LEDGER = SRC / "dedup-ledger.yml"
 KNOWN_GAPS = {"pm-sync-views.py", "pm-sync-links.py"}
 
 TOOL_RE = re.compile(r"\b((?:pm|redmine)-[a-z0-9-]+\.py)\b")
-SKILL_RE = re.compile(r"\b(mmi-pm-[a-z0-9-]+)\b")
+# RM2751 : le point initial est significatif. `.mmi-pm-core` / `.mmi-pm-client`
+# sont des noms de SYMLINKS d'ancrage (cf. modules/structure-reference.md), pas
+# des skills — et il ne doit jamais en exister. Sans le lookbehind, `\b` les
+# acceptait (un point est un non-mot) et le doctor avertissait à CHAQUE
+# exécution que deux outils inexistants manquaient. Un avertissement permanent
+# n'est plus lu : le jour d'un vrai trou d'outillage, il passait dans le bruit.
+SKILL_RE = re.compile(r"(?<!\.)\b(mmi-pm-[a-z0-9-]+)\b")
 LISTNEXT_RE = re.compile(r"--list-next\b")
 
 PASS, WARN, FAIL = "✓", "⚠", "✗"

@@ -11,6 +11,7 @@ La colonne de gauche a un onglet par surface :
 |---|---|---|
 | ▶ **en cours** | sessions ouvertes, celles qui attendent une réponse | [Sessions & terminal](sessions) |
 | 🎫 **tickets** | rechercher/ouvrir un ticket, lien Redmine | [Tickets](tickets) |
+| 📁 **projets** | tous les clients et leurs projets, fiche au centre | [Projets](projets) |
 | 🚀 **sessions** | jeux de sessions enregistrés (relancer, autostart) | [Sessions & terminal](sessions) |
 | 🧪 **à tester** | file de test/revue des tickets livrés | [À tester & revue](tests) |
 | 📧 **emails** | courrier de karl → tickets (relève, routage, rédaction) | [Emails](emails) |

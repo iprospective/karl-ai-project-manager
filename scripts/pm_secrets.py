@@ -735,13 +735,264 @@ def _age_records(node, prefix=()):
             yield prefix + (k,)
 
 
+# ── Nextcloud Passwords (API REST de l'app `passwords`) ──────────────────────
+class NextcloudPasswordsBackend(SecretBackend):
+    """Coffre d'une instance Nextcloud portant l'app **Passwords**.
+
+    C'est le backend du cas « le client a déjà son gestionnaire, et c'est celui
+    de son Nextcloud » — chez Matériaux Naturels notamment, où l'outillage PM est
+    destiné à tourner.
+
+    Déclaration (registre providers, axe `secret`) :
+        ncpw-matnat: { axis: secret, type: nextcloud_passwords,
+                       url: "https://cloud.materiaux-naturels.fr" }
+    Identifiants par dev, jamais dans la conf partagée :
+        SECRET__<SLUG>__USER    compte Nextcloud
+        SECRET__<SLUG>__TOKEN   **mot de passe d'application** (pas le mot de
+                                passe du compte : révocable, à portée limitée)
+
+    Chemin d'un secret : `secret://<slug>/<dossier…>/<label>[#champ]`. Les
+    dossiers de l'app sont un arbre ; le chemin donné est un **suffixe** du chemin
+    réel, comme pour KeePass — l'URI reste lisible sans rejouer la racine.
+
+    **Chiffrement côté client (CSE/E2E)** : l'app sait chiffrer un item avec une
+    clé que seul le navigateur détient. L'API rend alors un cryptogramme, pas le
+    secret. Plutôt que de livrer cette valeur — un agent la prendrait pour un mot
+    de passe et l'injecterait dans une conf —, on REFUSE explicitement en disant
+    quoi faire. C'est le risque que l'étude (CDC § 6) demandait de traiter.
+    """
+
+    type = "nextcloud_passwords"
+    API = "/index.php/apps/passwords/api/1.0"
+
+    def __init__(self, name="default", url=None, timeout=20, **options):
+        super().__init__(name=name, **options)
+        creds = creds_for(name, legacy=False)
+        self._url = (url or creds.get("URL") or "").rstrip("/")
+        self._user = creds.get("USER") or ""
+        self._token = creds.get("TOKEN") or ""
+        self._timeout = int(timeout)
+        self._session = None          # jeton de session API, en mémoire seulement
+
+    @property
+    def caps(self):
+        return Capabilities(needs_unlock=False, listable=True, hierarchical=True)
+
+    # -- transport ----------------------------------------------------------
+    def _check_conf(self):
+        if not self._url:
+            raise UnreachableError(
+                "aucune URL : renseigne `url:` dans providers.servers ou "
+                f"{creds_env_key(self.name, 'URL')}", backend=self.name)
+        if not self._user or not self._token:
+            manque = [creds_env_key(self.name, s) for s, v in
+                      (("USER", self._user), ("TOKEN", self._token)) if not v]
+            raise UnreachableError(
+                "identifiants absents : renseigne " + ", ".join(manque) +
+                " (mot de passe d'application Nextcloud)", backend=self.name)
+
+    def _call(self, endpoint, payload=None, with_session=True):
+        """Un appel d'API. Rend le JSON décodé. Ne journalise JAMAIS le jeton."""
+        import base64
+        import urllib.error
+        import urllib.request
+
+        self._check_conf()
+        url = f"{self._url}{self.API}/{endpoint}"
+        data = json.dumps(payload).encode() if payload is not None else None
+        req = urllib.request.Request(url, data=data,
+                                     method="POST" if data is not None else "GET")
+        jeton = base64.b64encode(f"{self._user}:{self._token}".encode()).decode()
+        req.add_header("Authorization", f"Basic {jeton}")
+        req.add_header("Accept", "application/json")
+        req.add_header("OCS-APIRequest", "true")
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+        if with_session and self._session:
+            req.add_header("X-API-SESSION", self._session)
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as r:
+                corps = r.read().decode("utf-8", errors="replace")
+                jeton_session = r.headers.get("X-API-SESSION")
+                if jeton_session:
+                    self._session = jeton_session
+        except urllib.error.HTTPError as e:
+            raise self._erreur_http(e.code, endpoint)
+        except Exception as e:  # noqa: BLE001 — URLError, socket.timeout, ssl…
+            raise UnreachableError(
+                f"{self._url} injoignable ({type(e).__name__})", backend=self.name)
+        if not corps.strip():
+            return {}
+        try:
+            return json.loads(corps)
+        except ValueError:
+            # Une page de login HTML, un proxy… : ne PAS recopier le corps, il peut
+            # contenir n'importe quoi. Le code de statut a déjà dit l'essentiel.
+            raise UnreachableError(
+                f"réponse non-JSON de {endpoint} — l'app Passwords est-elle "
+                "installée et l'URL exacte ?", backend=self.name)
+
+    def _erreur_http(self, code, endpoint):
+        if code in (401, 403):
+            return DeniedError(
+                "identifiants refusés (compte ou mot de passe d'application) — "
+                f"vérifie {creds_env_key(self.name, 'USER')} / "
+                f"{creds_env_key(self.name, 'TOKEN')}", backend=self.name)
+        if code == 404:
+            return NotFoundError(
+                f"route {endpoint} absente — app Passwords non installée sur "
+                f"{self._url} ?", backend=self.name)
+        if code == 412:
+            # L'app impose d'ouvrir une session, et l'ouverture demande un secret
+            # que seul un humain détient (mot de passe maître de l'app).
+            return LockedError(
+                "l'instance exige une session déverrouillée par un humain "
+                "(mot de passe maître de l'app Passwords) — non automatisable",
+                backend=self.name)
+        return UnreachableError(f"HTTP {code} sur {endpoint}", backend=self.name)
+
+    def _ouvrir_session(self):
+        """Ouvre une session API quand l'instance n'exige aucun défi humain."""
+        if self._session:
+            return
+        infos = self._call("session/request", with_session=False)
+        exige = infos.get("challenge") or infos.get("token")
+        if exige:
+            raise LockedError(
+                "cette instance demande un défi de session (mot de passe maître "
+                "ou 2ᵉ facteur) que seul un humain peut fournir", backend=self.name)
+        self._call("session/open", payload={}, with_session=False)
+
+    # -- lecture ------------------------------------------------------------
+    def status(self):
+        try:
+            self._check_conf()
+        except SecretError:
+            return "unreachable"
+        try:
+            self._call("session/request", with_session=False)
+        except DeniedError:
+            return "locked"          # joignable, mais les identifiants sont refusés
+        except SecretError:
+            return "unreachable"
+        return "unlocked"
+
+    def unlock(self, **_):
+        raise UnsupportedError(
+            "rien à déverrouiller : l'accès passe par un mot de passe "
+            f"d'application ({creds_env_key(self.name, 'TOKEN')})", backend=self.name)
+
+    def _dossiers(self):
+        """{id: chemin} des dossiers, racine comprise."""
+        brut = self._call("folder/list", payload={"details": "model"})
+        par_id = {}
+        for f in brut if isinstance(brut, list) else []:
+            par_id[f.get("id")] = (f.get("label") or "", f.get("parent"))
+        chemins = {}
+
+        def chemin(fid, vus=()):
+            if fid in chemins:
+                return chemins[fid]
+            if fid not in par_id or fid in vus:      # racine, inconnu, ou cycle
+                return ""
+            label, parent = par_id[fid]
+            haut = chemin(parent, vus + (fid,)) if parent else ""
+            chemins[fid] = f"{haut}/{label}" if haut else label
+            return chemins[fid]
+
+        return {fid: chemin(fid) for fid in par_id}
+
+    def _items(self):
+        """(item, chemin de dossier) pour chaque mot de passe visible."""
+        self._ouvrir_session()
+        dossiers = self._dossiers()
+        brut = self._call("password/list", payload={"details": "model"})
+        for it in brut if isinstance(brut, list) else []:
+            yield it, dossiers.get(it.get("folder"), "")
+
+    def resolve(self, path, field=None):
+        if not path:
+            raise UriError("aucun item dans le chemin", backend=self.name)
+        label = path[-1]
+        vise = [s for s in path[:-1] if s]
+        trouve = None
+        homonymes = 0
+        for it, dossier in self._items():
+            if (it.get("label") or "") != label:
+                continue
+            homonymes += 1
+            segs = [s for s in dossier.split("/") if s]
+            if vise and segs[-len(vise):] != vise:
+                continue
+            trouve = it
+            break
+        if trouve is None:
+            ou = "/".join(path)
+            indice = (f" ({homonymes} item(s) portent ce label, dans d'autres "
+                      f"dossiers)" if homonymes else "")
+            raise NotFoundError(f"item introuvable : {ou}{indice}", backend=self.name)
+        cse = trouve.get("cseType") or "none"
+        if cse != "none":
+            raise UnsupportedError(
+                f"« {label} » est chiffré côté client (cseType={cse}) : l'API n'en "
+                "rend qu'un cryptogramme. Déplace-le hors du chiffrement client, ou "
+                "utilise un autre coffre pour ce secret", backend=self.name)
+        return extract_nc_field(trouve, field)
+
+    def list(self, filt=None):
+        out = []
+        for it, dossier in self._items():
+            nom = it.get("label") or ""
+            if filt is not None and filt.lower() not in nom.lower():
+                continue
+            out.append({"id": str(it.get("id") or ""), "org": "-",
+                        "collections": [dossier] if dossier else [], "name": nom})
+        return sorted(out, key=lambda r: (r["collections"], r["name"]))
+
+
+def extract_nc_field(item, field):
+    """Champ d'un item Passwords, aligné sur le contrat des autres backends.
+
+    Sans champ demandé → le mot de passe, sinon un résumé JSON de l'item (jamais
+    de valeur sensible : des noms de champs).
+    """
+    perso = {}
+    brut = item.get("customFields")
+    if isinstance(brut, str) and brut.strip():
+        try:
+            brut = json.loads(brut)
+        except ValueError:
+            brut = []
+    if isinstance(brut, list):                   # [{label, type, value}, …]
+        perso = {c.get("label"): c.get("value") for c in brut if isinstance(c, dict)}
+    elif isinstance(brut, dict):
+        perso = dict(brut)
+
+    if field is None:
+        if item.get("password"):
+            return item["password"]
+        return json.dumps({"label": item.get("label"), "username": item.get("username"),
+                           "url": item.get("url"), "fields": sorted(k for k in perso)},
+                          ensure_ascii=False)
+    if field == "password":
+        return item.get("password") or ""
+    if field == "username":
+        return item.get("username") or ""
+    if field == "notes":
+        return item.get("notes") or ""
+    if field == "uri":
+        return item.get("url") or ""
+    return perso.get(field, "") or ""
+
+
 # ── Fabrique ─────────────────────────────────────────────────────────────────
-# Un type par gestionnaire. Les suivants (onepassword, nextcloud_passwords)
-# s'enregistrent ici sans toucher aux appelants.
+# Un type par gestionnaire. Les suivants (onepassword…) s'enregistrent ici
+# sans toucher aux appelants.
 BACKENDS = {
     VaultwardenBackend.type: VaultwardenBackend,
     KeepassBackend.type: KeepassBackend,
     AgeBackend.type: AgeBackend,
+    NextcloudPasswordsBackend.type: NextcloudPasswordsBackend,
 }
 
 

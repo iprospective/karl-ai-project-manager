@@ -1,4 +1,4 @@
-> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
+> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC) · je note les contacts d'un client.
 > **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
@@ -24,6 +24,44 @@ module Dolibarr générique utilisé par plusieurs clients) :
 - Si **outil interne** non rattaché à un produit tiers → sous `self` (`paths.project` avec `entity=iprospective`)
 
 Suivre l'engagement de livraison et la responsabilité des données.
+
+## Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
+
+Les personnes d'un client vivent dans le `meta.yml` de son core
+(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
+`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+`import-redmine`) — jamais à la main (tripwire #1).
+
+```yaml
+contacts:
+  - last_name: Dupont              # NOM de famille
+    first_name: Claire             # prénom
+    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
+    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
+    role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
+    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
+```
+
+Deux pièges, tous deux rencontrés en production :
+
+- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
+  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
+  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
+  notre courrier chez un client au hasard (cf. routage RM2669).
+- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
+  de gabarit, pas un contact : les outils l'ignorent.
+
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
+Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
+toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
+`last_name` / `first_name`.
+
+> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
+> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
+> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
 
 ## Partage cross-client (used_by_clients / provided_by)
 

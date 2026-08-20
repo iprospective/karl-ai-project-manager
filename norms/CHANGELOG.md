@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.4.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
+## [2.5.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
 
 ### Déplacé (aucune règle perdue)
 - **environments → environments-reference** (RM2755) — l'énumération des noms d'env,
@@ -13,6 +13,13 @@
   la résolution du worktree par branche (RM2394) et toute la gestion des secrets.
   Le module préchargé porte un renvoi explicite vers la référence.
 
+- **structure-reference → project-modeling** (RM2755) — le § « Contacts d'un client »
+  (`meta.yml :: contacts[]`) rejoint la modélisation d'entité, où il a toujours eu sa
+  place : ce n'est pas de la résolution de chemins. Déclencheur ajouté au KERNEL
+  (« je note / cherche un contact d'un client ») et renvoi laissé sur place.
+  Motif : `structure-reference` avait franchi le plafond des 5 000 tokens par module
+  préchargé en accueillant le pont d'onboarding (RM1892, v2.4.0).
+
 ### Pourquoi
 La précharge `worker-dev` était remontée à 26 496 tokens sur 29 000 — 91,4 %, au-delà
 de la marge de 10 % qu'impose `test_norms_precharge.py`. Cette marge n'est pas un
@@ -20,6 +27,17 @@ confort : RM2582 l'a instaurée après avoir touché le plafond « à 2 tokens p
 où la limite ne signale plus une dérive mais **bloque l'écriture de la règle suivante**.
 Retour à 25 661 tokens (88,5 %). La méthode est celle de RM2582 : sortir le mode
 d'emploi, jamais raboter une règle.
+## [2.4.0] - 2026-08-20 — Le pont d'onboarding des workspaces
+
+### Ajouté
+- **structure-reference** — § « Le pont d'onboarding des workspaces » (RM1892) : le
+  fichier racine `AGENTS.md` (+ symlink `CLAUDE.md`) lu par remontée d'arborescence,
+  **conditionnel** au `.mmi-pm` du workspace, et ce qu'il implique — il vit hors git
+  (artefact d'instance), sa référence versionnée est `templates/workspace-AGENTS.md`,
+  et son bloc délimité `BEGIN/END INSTANCE` porte la part machine, préservée par les
+  mises à jour.
+- **session-tooling** — `pm-workspace-bridge.py` entre dans la table des outils
+  (contrôle · `--install` · `--update`).
 
 ## [2.3.0] - 2026-08-20 — La protection des branches ne s'ajoute plus après coup
 

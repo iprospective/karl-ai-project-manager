@@ -152,43 +152,9 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
-### Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
-
-Les personnes d'un client vivent dans le `meta.yml` de son core
-(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
-`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
-`import-redmine`) — jamais à la main (tripwire #1).
-
-```yaml
-contacts:
-  - last_name: Dupont              # NOM de famille
-    first_name: Claire             # prénom
-    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
-    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
-    role: technique                # owner | decideur | technique | facturation | autre
-    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
-    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
-```
-
-Deux pièges, tous deux rencontrés en production :
-
-- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
-  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
-  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
-  notre courrier chez un client au hasard (cf. routage RM2669).
-- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
-  de gabarit, pas un contact : les outils l'ignorent.
-
-Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
-légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
-
-Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
-toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
-`last_name` / `first_name`.
-
-> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
-> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
-> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
+**Contacts d'un client** (`meta.yml :: contacts[]`, écriture par
+`pm-client-contact`) : voir `modules/project-modeling.md` — c'est de la
+modélisation d'entité, pas de la résolution de chemins (RM2755).
 
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 
@@ -317,3 +283,26 @@ logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
 
+
+### Le pont d'onboarding des workspaces (RM1892)
+
+Un agent lancé dans un workspace de code n'a, par défaut, **aucun contexte PM**. Il le
+reçoit d'un fichier unique posé à la **racine des workspaces**, lu par remontée
+d'arborescence depuis n'importe quel sous-dossier :
+
+| Fichier | Rôle |
+|---|---|
+| `<racine>/AGENTS.md` | le pont — vendor-neutral (opencode & autres) |
+| `<racine>/CLAUDE.md` → `AGENTS.md` | symlink : Claude Code ne lit que `CLAUDE.md`, mais suit les liens |
+
+Il est **conditionnel** : « si ton workspace a un `.mmi-pm`, tu es un worker PM — résous-le,
+lis le KERNEL, applique le protocole ; sinon ces règles ne te concernent pas ». Un fichier
+par projet serait à la fois redondant et à maintenir ; la remontée d'arborescence couvre
+les projets présents **et futurs**.
+
+Ce fichier est **hors git** : c'est un artefact de provisioning, propre à l'instance. Sa
+référence versionnée est `templates/workspace-AGENTS.md`, et le déploiement est outillé
+(`pm-workspace-bridge.py` — contrôle, `--install`, `--update`). Le bloc délimité
+`BEGIN/END INSTANCE` porte ce qui est propre à la machine (chemins, hôtes, transport git) :
+`--update` rafraîchit le générique et **préserve ce bloc**, ce qui permet de faire évoluer
+l'onboarding sans faire perdre à une instance ce qu'elle sait d'elle-même.

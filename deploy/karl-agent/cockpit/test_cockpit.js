@@ -2489,3 +2489,41 @@ assert(/setInterval\(\(\) => \{ if \(!document\.hidden\) loadVaultStatus\(\); \}
 assert(/field\.value = "";/.test(html), "le champ est vidé après envoi — le secret ne traîne pas");
 assert(!/localStorage[^\n]*(pass|secret)/i.test(html), "aucun secret ne va en stockage local");
 console.log("✓ verrous du poste (RM2748) : bouton conditionnel, saisie sûre, rien de mémorisé");
+
+// — RM2752 : un bugfix se crée avec ses étapes de reproduction, ou pas du tout —
+// Le formulaire pouvait créer un bugfix sans repro ; `validate-task` le refusait
+// juste après, et le ticket naissait invalide. Les étapes sont désormais un champ
+// à part entière — visible SEULEMENT pour ce type, sinon c'est du bruit sur une
+// feature.
+const form2752 = newTicketFormHtml(
+  [{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
+  ["low", "normal", "high", "urgent"],
+  [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
+["ntf-bugbox", "ntf-bug-steps", "ntf-bug-repro"].forEach(id =>
+  assert(form2752.includes('id="' + id + '"'), "champ bug manquant : " + id));
+assert(/id="ntf-bugbox" style="display:none"/.test(form2752),
+  "le bloc bug doit être masqué tant que le type n'est pas bugfix");
+assert(/<option value="always" selected>/.test(form2752),
+  "reproductibilité par défaut = always (le cas courant, pas un vide à remplir)");
+assert(/onchange="ntfTypeChanged\(\)"/.test(form2752),
+  "le select de type doit prévenir du changement, sinon le bloc ne s'ouvre jamais");
+// les cinq valeurs de validate-task, ni plus ni moins
+["always", "often", "sometimes", "rarely", "never"].forEach(v =>
+  assert(form2752.includes('value="' + v + '"'), "reproductibilité manquante : " + v));
+
+// le toggle lui-même, sur un DOM doublé
+const ntfTypeChanged = grabO("ntfTypeChanged");
+const mkDom = (type) => {
+  const box = { style: { display: "none" } };
+  const els = { "ntf-type": { value: type }, "ntf-bugbox": box };
+  return { doc: { getElementById: (id) => els[id] || null }, box };
+};
+let d = mkDom("bugfix");
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
+assert.strictEqual(d.box.style.display, "", "type bugfix → le bloc s'ouvre");
+d = mkDom("feature");
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
+assert.strictEqual(d.box.style.display, "none", "retour sur feature → le bloc se referme");
+// robustesse : appelé avant le rendu du formulaire, il ne doit pas lever
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: { getElementById: () => null } });
+console.log("✓ ticket bugfix (RM2752) : étapes de reproduction exigées, bloc réservé à ce type");

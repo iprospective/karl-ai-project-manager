@@ -230,9 +230,10 @@ def test_daemon_sert_une_instance_keepass():
             kdbx = work / "test.kdbx"
         else:
             kdbx.write_bytes(b"")
-        # Core de test VALIDE (RM2749) : sans son `pm.env`, `PMConfig.load`
-        # sortait sur `roots.projects_root` non résolu, le daemon dégradait vers
-        # la config livrée et `kdbx-test` n'y était évidemment pas déclarée.
+        # Core de test VALIDE (RM2713, RM2749) : sans le `pm.env` que pose
+        # `core_with`, `PMConfig.load` sort sur `roots.projects_root` non résolu,
+        # le daemon dégrade vers la config livrée — où `kdbx-test` n'est
+        # évidemment pas déclarée — et le test cherche le défaut là où il n'est pas.
         core_with(work, {
             "kdbx-test": {"axis": "secret", "type": "keepass", "file": str(kdbx)}})
 

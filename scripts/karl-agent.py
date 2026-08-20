@@ -86,6 +86,14 @@ API (JSON, localhost:9876)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
   GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
   GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /vault/status            → {daemon, instances[], locked[], ssh{…}} — verrous (RM2748)
+  POST /vault/unlock {instance, password}
+                                → déverrouille une instance de vault. Le mot de
+                                  passe part par l'entrée standard d'unlock-vault.sh,
+                                  n'est ni mémorisé, ni journalisé, ni renvoyé.
+  POST /vault/ssh-add {key, passphrase}
+                                → charge une clé de ~/.ssh dans l'agent SSH
+                                  (passphrase par descripteur hérité, cf. karl-askpass.sh)
   GET  /env-check[?force=1]    → contrôle de DÉMARRAGE : uniquement les familles
                                  surveillées (SSH, secrets, outils, git/GitLab) et
                                  uniquement ce qui est en défaut ; mémorisé 5 min
@@ -161,6 +169,7 @@ import secrets
 import os
 import re
 import shlex
+import stat
 import uuid
 import signal
 import subprocess
@@ -7367,7 +7376,12 @@ def _envchk_vault_instances():
         prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
         keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
         etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
-        if keys:
+        trop_ouvert = _cle_age_trop_ouverte(inst) if inst.type == "age" else None
+        if trop_ouvert:
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · clé privée en mode {trop_ouvert[1]} "
+                            "— lisible au-delà de toi", f"chmod 600 {trop_ouvert[0]}"))
+        elif keys:
             out.append(_chk(etiquette, "ok",
                             f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
         else:
@@ -7375,6 +7389,27 @@ def _envchk_vault_instances():
                             f"type={inst.type} · aucun identifiant trouvé",
                             f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
     return out
+
+
+def _cle_age_trop_ouverte(inst):
+    """(chemin, mode) si la clé privée d'une instance `age` est trop permissive.
+
+    Un vault `age` n'a pas de mot de passe maître : sa clé dort sur le disque, et
+    ce sont les droits du fichier qui la protègent. C'est exactement le genre de
+    dérive silencieuse que la page de santé du poste doit attraper (RM2713).
+    """
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_secrets
+        chemin = (pm_secrets.creds_for(inst.name, legacy=False).get("AGE_KEY_FILE")
+                  or inst.options.get("identity"))
+        if not chemin:
+            return None
+        p = Path(chemin).expanduser()
+        mode = stat.S_IMODE(p.stat().st_mode)
+        return (str(p), format(mode, "03o")) if mode & 0o077 else None
+    except Exception:  # noqa: BLE001 — un diagnostic ne casse jamais la page
+        return None
 
 
 # >>> gitlab_push_check_line — pure (testée) : ligne de statut du watchdog RM2376.
@@ -7640,6 +7675,257 @@ def op_env_check(qs: dict | None = None) -> dict:
     out["cached"] = False
     _env_check_cache.update({"at": now, "data": out})
     return out
+
+
+# ── Vault & clés SSH : déverrouiller depuis le cockpit (RM2748) ──────────────
+# Tout ce qui suit manipule un secret SAISI PAR UN HUMAIN. La règle, sans
+# exception (tripwire 11) : le mot de passe arrive dans le corps JSON d'une
+# requête POST authentifiée, part vers le processus par l'ENTRÉE STANDARD ou un
+# descripteur — jamais en argument (`ps` le montrerait), jamais dans
+# l'environnement (`/proc/<pid>/environ`), jamais dans un fichier temporaire —
+# et ne ressort ni dans la réponse, ni dans un log, ni dans un message d'erreur.
+# Le serveur ne le mémorise pas : il n'existe que le temps de l'appel.
+
+VAULT_SOCK = os.environ.get("VAULT_SOCK") or f"/run/user/{os.getuid()}/vault-agentd.sock"
+_VAULT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+_SSH_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_SECRET_MAX = 1024            # un mot de passe maître n'est pas un fichier
+
+
+def _vault_ask(cmd: str, timeout: float = 3.0) -> str | None:
+    """Une commande au daemon vault, sa réponse brute. None = daemon absent."""
+    import socket as _socket
+    if not os.path.exists(VAULT_SOCK):
+        return None
+    try:
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(VAULT_SOCK)
+        s.sendall((cmd + "\n").encode("utf-8"))
+        chunks = []
+        while True:
+            b = s.recv(4096)
+            if not b:
+                break
+            chunks.append(b)
+        s.close()
+        return b"".join(chunks).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+
+
+# >>> vault_dashboard — pure (testée par test_karl_agent_vault.py)
+def vault_dashboard(text):
+    """Tableau de bord du daemon (`<slug>\\t<état>` par ligne) → instances.
+
+    L'état est une phrase du daemon (`locked` | `unlocked since=… last_access=…`) :
+    on n'en garde que ce que le cockpit affiche. Aucun jeton n'y figure — le
+    daemon ne rend jamais la session, seulement sa présence."""
+    out = []
+    for line in (text or "").splitlines():
+        if "\t" not in line:
+            continue
+        slug, _, etat = line.partition("\t")
+        slug, etat = slug.strip(), etat.strip()
+        if not slug:
+            continue
+        item = {"slug": slug, "unlocked": etat.startswith("unlocked"), "since": None}
+        m = re.search(r"since=(\S+)", etat)
+        if m:
+            item["since"] = m.group(1)
+        out.append(item)
+    return out
+# <<< vault_dashboard
+
+
+# >>> sshKeysParse — pure (testée par test_karl_agent_vault.py)
+def ssh_keys_parse(text):
+    """Sortie de `ssh-add -l` → [{bits, hash, comment, type}].
+
+    Un fingerprint et un commentaire sont PUBLICS (ils identifient une clé, ils
+    ne l'ouvrent pas) : les afficher aide à voir laquelle manque."""
+    keys = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        # Une ligne de clé commence par une taille en bits et une empreinte
+        # (`4096 SHA256:… commentaire (RSA)`). Sans ce filtre, la phrase
+        # « The agent has no identities. » compterait pour une clé.
+        if len(parts) < 3 or not parts[0].isdigit() or ":" not in parts[1]:
+            continue
+        typ = parts[-1].strip("()") if parts[-1].startswith("(") else ""
+        comment = " ".join(parts[2:-1]) if typ else " ".join(parts[2:])
+        keys.append({"bits": parts[0], "hash": parts[1], "comment": comment, "type": typ})
+    return keys
+# <<< sshKeysParse
+
+
+def _ssh_auth_sock() -> str:
+    """Socket de l'agent SSH : celui de l'environnement, sinon celui de la
+    convention poste (`/run/user/<uid>/ssh-agent.sock`). Un service systemd
+    --user n'hérite pas toujours de SSH_AUTH_SOCK."""
+    sock = os.environ.get("SSH_AUTH_SOCK") or ""
+    if sock and os.path.exists(sock):
+        return sock
+    fallback = f"/run/user/{os.getuid()}/ssh-agent.sock"
+    return fallback if os.path.exists(fallback) else sock
+
+
+def _ssh_env() -> dict:
+    env = dict(os.environ)
+    sock = _ssh_auth_sock()
+    if sock:
+        env["SSH_AUTH_SOCK"] = sock
+    return env
+
+
+def _ssh_candidates() -> list:
+    """Clés privées présentes dans ~/.ssh (noms seuls, jamais de contenu)."""
+    d = Path.home() / ".ssh"
+    out = []
+    if not d.is_dir():
+        return out
+    for f in sorted(d.iterdir()):
+        if not f.is_file() or f.suffix == ".pub":
+            continue
+        if f.name in ("known_hosts", "known_hosts.old", "config", "authorized_keys"):
+            continue
+        if not _SSH_KEY_RE.match(f.name):
+            continue
+        if (d / (f.name + ".pub")).is_file():        # une paire = une clé
+            out.append(f.name)
+    return out
+
+
+def op_vault_status() -> dict:
+    """État des verrous : instances de vault, clés chargées dans l'agent SSH.
+
+    Aucun secret : des noms, des empreintes, des dates. C'est ce qui décide de
+    l'affichage du bouton « déverrouiller » en tête du cockpit."""
+    dash = _vault_ask("STATUS")
+    instances = vault_dashboard(dash)
+    daemon = dash is not None
+    ssh_reachable, keys = False, []
+    try:
+        p = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True,
+                           timeout=5, env=_ssh_env())
+        ssh_reachable = p.returncode in (0, 1)
+        if p.returncode == 0:
+            keys = ssh_keys_parse(p.stdout)
+    except (OSError, subprocess.TimeoutExpired):
+        ssh_reachable = False
+    locked = [i["slug"] for i in instances if not i["unlocked"]]
+    return {"daemon": daemon, "instances": instances, "locked": locked,
+            "default_instance": os.environ.get("VAULT_INSTANCE") or "vw-ipro",
+            "ssh": {"reachable": ssh_reachable, "keys": keys,
+                    "candidates": _ssh_candidates()},
+            "needs_action": bool(not daemon or locked or not keys)}
+
+
+def _guard_secret_route(auth_ctx: dict) -> None:
+    """Une route qui reçoit un secret humain exige une session authentifiée.
+
+    Mode « open » = aucune auth configurée : le serveur n'écoute alors que la
+    boucle locale (invariant RM1771), la garde tomberait sur elle-même — sauf
+    sur une instance liée ailleurs (RM2356), où l'on refuse net.
+    """
+    if (auth_ctx or {}).get("mode") == "open":
+        if HOST not in ("127.0.0.1", "::1", "localhost"):
+            raise ApiError(403, "route sensible : écoute non locale sans authentification")
+        return
+    if not (auth_ctx or {}).get("mode"):
+        raise ApiError(401, "authentification requise")
+
+
+def _secret_field(payload: dict, name: str) -> str:
+    """Lit un secret du corps JSON, sans jamais le citer en cas d'erreur."""
+    val = payload.get(name)
+    if not isinstance(val, str) or not val:
+        raise ApiError(400, f"{name} requis")
+    if len(val) > _SECRET_MAX:
+        raise ApiError(400, f"{name} : trop long")
+    return val
+
+
+def op_vault_unlock(payload: dict, auth_ctx: dict) -> dict:
+    """Déverrouille une instance de vault avec le mot de passe maître saisi.
+
+    Le mot de passe descend dans `unlock-vault.sh --stdin` par l'entrée standard
+    et n'est jamais écrit ailleurs. La réponse ne rend que l'état obtenu."""
+    _guard_secret_route(auth_ctx)
+    slug = str(payload.get("instance") or "").strip() or (
+        os.environ.get("VAULT_INSTANCE") or "vw-ipro")
+    if not _VAULT_SLUG_RE.match(slug):
+        raise ApiError(400, "instance invalide")
+    password = _secret_field(payload, "password")
+    script = (REPO_ROOT / "scripts" / "unlock-vault.sh").resolve()
+    if not script.is_file():
+        raise ApiError(500, "unlock-vault.sh introuvable")
+    try:
+        p = subprocess.run([str(script), "-i", slug, "--stdin"],
+                           input=password + "\n", cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=180,
+                           env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "déverrouillage : délai dépassé")
+    finally:
+        password = ""          # ne survit pas à l'appel
+        del password
+    ok = p.returncode == 0
+    detail = _last_line(p.stdout) or _last_line(p.stderr)
+    status = _vault_ask(f"STATUS {slug}") or ""
+    return {"ok": ok, "instance": slug, "unlocked": status.startswith("unlocked"),
+            "detail": detail[:300]}
+
+
+def op_vault_ssh_add(payload: dict, auth_ctx: dict) -> dict:
+    """Charge une clé de ~/.ssh dans l'agent, avec la passphrase saisie.
+
+    `ssh-add` ne lit pas une passphrase sur son entrée standard : il appelle un
+    programme d'assistance. Le nôtre (`karl-askpass.sh`) lit un DESCRIPTEUR
+    hérité — la passphrase transite donc par un tube anonyme, jamais par argv,
+    l'environnement ou un fichier."""
+    _guard_secret_route(auth_ctx)
+    name = str(payload.get("key") or "").strip()
+    if not _SSH_KEY_RE.match(name) or name.endswith(".pub"):
+        raise ApiError(400, "nom de clé invalide")
+    ssh_dir = (Path.home() / ".ssh").resolve()
+    path = (ssh_dir / name).resolve()
+    if path.parent != ssh_dir or not path.is_file():
+        raise ApiError(404, f"clé introuvable : {name}")
+    passphrase = _secret_field(payload, "passphrase")
+    askpass = (REPO_ROOT / "deploy" / "karl-agent" / "karl-askpass.sh").resolve()
+    if not (askpass.is_file() and os.access(askpass, os.X_OK)):
+        raise ApiError(500, "karl-askpass.sh introuvable ou non exécutable")
+    r, w = os.pipe()
+    try:
+        os.write(w, passphrase.encode("utf-8") + b"\n")
+    finally:
+        os.close(w)
+        passphrase = ""
+        del passphrase
+    env = _ssh_env()
+    env["SSH_ASKPASS"] = str(askpass)
+    env["SSH_ASKPASS_REQUIRE"] = "force"
+    env.setdefault("DISPLAY", ":0")        # OpenSSH < 8.4 : askpass exige un DISPLAY
+    try:
+        p = subprocess.run(["ssh-add", str(path)], env=env, pass_fds=(r,),
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "ssh-add : délai dépassé")
+    except OSError as e:
+        raise ApiError(500, f"ssh-add indisponible ({e.__class__.__name__})")
+    finally:
+        os.close(r)
+    ok = p.returncode == 0
+    # `ssh-add` écrit « Identity added… » ou « Bad passphrase » sur stderr : le
+    # message ne contient jamais la passphrase, seulement son verdict.
+    return {"ok": ok, "key": name, "detail": (_last_line(p.stderr) or _last_line(p.stdout))[:300]}
+
+
+def _last_line(text: str) -> str:
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    return lines[-1] if lines else ""
 
 
 # ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
@@ -8970,6 +9256,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_overview(qs, self.auth_ctx))
             if path == "/env-status":              # RM2458 : santé du poste
                 return self._send_json(200, op_env_status())
+            if path == "/vault/status":            # RM2748 : verrous (vault, SSH)
+                return self._send_json(200, op_vault_status())
             if path == "/env-check":               # RM2722 : contrôle de démarrage
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_env_check(qs))
@@ -9099,6 +9387,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
+            # RM2748 — déverrouillage depuis le cockpit. Le corps porte un
+            # secret saisi par un humain : routes authentifiées, rien mémorisé.
+            if path == "/vault/unlock":
+                return self._send_json(200, op_vault_unlock(payload, self.auth_ctx))
+            if path == "/vault/ssh-add":
+                return self._send_json(200, op_vault_ssh_add(payload, self.auth_ctx))
             # RM2671 — panneau « emails » : chaque geste délègue à son script
             if path == "/mail/fetch":
                 return self._send_json(200, op_mail_fetch(payload))

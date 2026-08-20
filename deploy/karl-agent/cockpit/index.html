@@ -226,6 +226,12 @@
   .toast.show { opacity: 1; transform: none; }
   .toast.err { border-left-color: var(--danger); }
   .lock { font-size: 11px; color: var(--warn); }
+  /* RM2748 : formulaire des verrous (coffre, agent SSH) */
+  .vlt-sec { margin: 0 0 14px; }
+  .vlt-sec h3 { margin: 0 0 6px; font-size: 13px; }
+  .vlt-form { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+  .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
+  .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
   .searchrow input { flex: 1; }
   details.card > summary { cursor: pointer; font-size: 12px; text-transform: uppercase; letter-spacing: .8px;
@@ -748,6 +754,9 @@ if (window.matchMedia) {
   <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
        git/GitLab). Rien ne s'affiche quand tout va bien. -->
   <span id="envwarn" style="display:none" onclick="openEnvStatus()"></span>
+  <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
+       (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
+  <button class="mini" id="lockbtn" style="display:none" onclick="openVault()"></button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>
@@ -6518,6 +6527,188 @@ async function esCopy(btn) {
   toast(ok ? "Commande copiée" : "Copie refusée", !ok);
 }
 
+/* ── RM2748 : déverrouiller le vault et charger une clé SSH ─────────────────
+   Le cockpit constatait la panne (« vault verrouillé », « agent SSH vide ») sans
+   pouvoir y remédier : il fallait un terminal. Ici, le bouton n'apparaît QUE
+   quand quelque chose est verrouillé, et disparaît dès que c'est réglé.
+
+   Le mot de passe saisi n'est jamais mémorisé — ni variable qui lui survive, ni
+   localStorage, ni attribut de DOM : il est lu au moment de l'envoi, le champ est
+   vidé juste après. Le formulaire n'est proposé qu'en contexte sécurisé (https ou
+   localhost) : taper un mot de passe maître dans une page en clair, jamais. */
+let vaultStatus = null;
+
+// >>> vaultBtnState — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le bouton d'en-tête : montré uniquement s'il y a un geste à faire, et son
+// libellé DIT lequel — « déverrouiller » tout court ne renseigne sur rien.
+function vaultBtnState(st) {
+  if (!st) return { show: false, label: "", title: "" };
+  const locked = st.locked || [];
+  const keys = (st.ssh && st.ssh.keys) || [];
+  const why = [];
+  if (!st.daemon) why.push("coffre fermé (agent non démarré)");
+  else if (locked.length === 1) why.push("coffre « " + locked[0] + " » verrouillé");
+  else if (locked.length > 1) why.push(locked.length + " coffres verrouillés");
+  if (!keys.length) why.push("agent SSH vide");
+  if (!why.length) return { show: false, label: "", title: "" };
+  return {
+    show: true,
+    label: "🔓 déverrouiller",
+    title: why.join(" · ") + " — clic pour saisir le mot de passe",
+  };
+}
+// <<< vaultBtnState
+
+// >>> vaultFormHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Deux sections indépendantes : le coffre, l'agent SSH. Chacune montre son état
+// AVANT de demander quoi que ce soit — on ne fait pas saisir un mot de passe pour
+// quelque chose qui est déjà ouvert.
+function vaultFormHtml(st, secure) {
+  if (!secure) {
+    return '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">'
+      + "Connexion non sécurisée : un mot de passe maître ne se tape pas dans une page "
+      + "en clair. Ouvre le cockpit en <b>https</b> (ou depuis la machine même) puis réessaie."
+      + "</span></div>";
+  }
+  const st2 = st || {};
+  const locked = st2.locked || [];
+  const inst = st2.instances || [];
+  const ssh = st2.ssh || {};
+  const keys = ssh.keys || [];
+  const cands = ssh.candidates || [];
+  let h = "";
+
+  h += '<div class="vlt-sec"><h3>🔐 Coffre de secrets</h3>';
+  if (!st2.daemon) {
+    h += '<div class="es-detail">Agent non démarré — le déverrouillage le lancera.</div>';
+  }
+  inst.forEach(i => {
+    h += '<div class="es-row ' + (i.unlocked ? "es-ok" : "es-warn") + '">'
+      + '<span class="es-mark">' + (i.unlocked ? "✓" : "!") + "</span>"
+      + '<span class="es-label">' + esc(i.slug) + "</span>"
+      + '<span class="es-detail">' + (i.unlocked
+        ? "ouvert" + (i.since ? " depuis " + esc(i.since) : "")
+        : "verrouillé") + "</span></div>";
+  });
+  if (locked.length || !st2.daemon) {
+    const choices = locked.length ? locked : [st2.default_instance || "vw-ipro"];
+    h += '<div class="vlt-form">'
+      + (choices.length > 1
+        ? '<select id="vlt-inst" class="mini">'
+          + choices.map(s => '<option value="' + esc(s) + '">' + esc(s) + "</option>").join("")
+          + "</select>"
+        : '<input type="hidden" id="vlt-inst" value="' + esc(choices[0]) + '">')
+      + '<input id="vlt-pass" type="password" autocomplete="off" placeholder="mot de passe maître"'
+      + ' onkeydown="if(event.key===\'Enter\')vaultUnlock(this.nextElementSibling)">'
+      + '<button class="mini" onclick="vaultUnlock(this)">Déverrouiller</button>'
+      + '</div><div class="vlt-note">Le mot de passe n\'est pas mémorisé : il sert à ouvrir '
+      + "le coffre, puis il est oublié. Le coffre se reverrouille de lui-même après inactivité.</div>";
+  }
+  h += "</div>";
+
+  h += '<div class="vlt-sec"><h3>🔑 Agent SSH</h3>';
+  if (!ssh.reachable) {
+    h += '<div class="es-row es-error"><span class="es-mark">✗</span><span class="es-detail">'
+      + "agent injoignable — rien à charger tant qu'il ne tourne pas</span></div>";
+  } else if (keys.length) {
+    keys.forEach(k => {
+      h += '<div class="es-row es-ok"><span class="es-mark">✓</span>'
+        + '<span class="es-label">' + esc(k.comment || k.hash) + "</span>"
+        + '<span class="es-detail">' + esc(k.type || "") + " " + esc(k.bits || "") + "</span></div>";
+    });
+  } else {
+    h += '<div class="es-row es-warn"><span class="es-mark">!</span>'
+      + '<span class="es-detail">aucune clé chargée</span></div>';
+  }
+  if (ssh.reachable && cands.length) {
+    h += '<div class="vlt-form">'
+      + '<select id="vlt-key" class="mini">'
+      + cands.map(k => '<option value="' + esc(k) + '">' + esc(k) + "</option>").join("")
+      + "</select>"
+      + '<input id="vlt-kpass" type="password" autocomplete="off" placeholder="passphrase de la clé"'
+      + ' onkeydown="if(event.key===\'Enter\')vaultSshAdd(this.nextElementSibling)">'
+      + '<button class="mini" onclick="vaultSshAdd(this)">Charger</button>'
+      + "</div>";
+  }
+  h += "</div>";
+  return h;
+}
+// <<< vaultFormHtml
+
+async function loadVaultStatus() {
+  try {
+    vaultStatus = await api("/vault/status");
+  } catch (e) { return; }        // l'état des verrous est un plus : son échec est muet
+  const el = document.getElementById("lockbtn");
+  if (!el) return;
+  const s = vaultBtnState(vaultStatus);
+  el.style.display = s.show ? "" : "none";
+  el.textContent = s.label;
+  el.title = s.title;
+}
+
+function vaultRender() {
+  const el = document.getElementById("doccontent");
+  if (el) el.innerHTML = vaultFormHtml(vaultStatus, window.isSecureContext);
+}
+
+async function openVault() {
+  document.getElementById("doctitle").textContent = "🔓 Verrous du poste";
+  const el = document.getElementById("doccontent");
+  el.className = "vlt";
+  el.innerHTML = '<div style="color:var(--muted)">lecture de l\'état…</div>';
+  document.getElementById("docmodal").classList.add("show");
+  await loadVaultStatus();
+  vaultRender();
+}
+
+// Envoi d'un secret : lu au dernier moment, champ vidé aussitôt, jamais conservé.
+async function vaultUnlock(btn) {
+  const inst = document.getElementById("vlt-inst");
+  const field = document.getElementById("vlt-pass");
+  if (!field || !field.value) { toast("Mot de passe requis", true); return; }
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const r = await api("/vault/unlock", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ instance: inst ? inst.value : "", password: field.value }),
+    });
+    field.value = "";
+    toast(r.ok ? "Coffre déverrouillé" : "Échec : " + (r.detail || "mot de passe refusé"), !r.ok);
+  } catch (e) {
+    field.value = "";
+    toast("Échec : " + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Déverrouiller";
+    await loadVaultStatus();
+    vaultRender();
+    loadEnvCheck(true);          // le badge « poste » doit suivre la réparation
+  }
+}
+
+async function vaultSshAdd(btn) {
+  const key = document.getElementById("vlt-key");
+  const field = document.getElementById("vlt-kpass");
+  if (!field || !field.value) { toast("Passphrase requise", true); return; }
+  btn.disabled = true; btn.textContent = "…";
+  try {
+    const r = await api("/vault/ssh-add", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ key: key ? key.value : "", passphrase: field.value }),
+    });
+    field.value = "";
+    toast(r.ok ? "Clé chargée dans l'agent" : "Échec : " + (r.detail || "passphrase refusée"), !r.ok);
+  } catch (e) {
+    field.value = "";
+    toast("Échec : " + e.message, true);
+  } finally {
+    btn.disabled = false; btn.textContent = "Charger";
+    await loadVaultStatus();
+    vaultRender();
+    loadEnvCheck(true);
+  }
+}
+
 // ----- RM2522 : montage du terminal (client maison, repli iframe) -----
 // Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
 // cockpit la MAIN sur la surface du terminal — condition des lots suivants de
@@ -8411,6 +8602,7 @@ async function kill(rmId) {
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
   loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
   loadEnvCheck();        // RM2722 : contrôle du poste au démarrage (badge si anomalie)
+  loadVaultStatus();     // RM2748 : verrous (coffre, agent SSH) — bouton si besoin
   tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
   // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
@@ -8426,6 +8618,9 @@ async function kill(rmId) {
   // déverrouillé) — le badge doit s'éteindre tout seul. Cadence alignée sur la
   // mémorisation serveur (5 min) : une requête de plus ne relance aucune sonde.
   setInterval(() => { if (!document.hidden) loadEnvCheck(); }, 300000);
+  // Les verrous bougent hors du cockpit (auto-verrouillage, redémarrage) et se
+  // règlent en un geste : on les regarde plus souvent que le diagnostic complet.
+  setInterval(() => { if (!document.hidden) loadVaultStatus(); }, 60000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;          // repassé au premier plan → on rattrape
     refreshHealth(); loadPending();

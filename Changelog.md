@@ -13,7 +13,52 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Cockpit
+- **Déverrouiller le coffre et charger une clé SSH depuis le cockpit** (RM2748) :
+  le coffre de secrets se referme tout seul (inactivité, verrouillage nocturne,
+  redémarrage) et l'agent SSH démarre vide. Jusqu'ici le cockpit ne savait que
+  CONSTATER la panne — il fallait un terminal pour `unlock-vault.sh` ou `ssh-add`,
+  et tout ce qui dépend d'un secret restait à l'arrêt en attendant. Un bouton
+  **🔓 déverrouiller** apparaît désormais en tête, *uniquement* quand il y a un
+  geste à faire, et disparaît une fois l'affaire réglée.
+  Le secret saisi ne laisse **aucune trace** : il descend dans `unlock-vault.sh`
+  par l'**entrée standard** (nouveau `--stdin`) et dans `ssh-add` par un
+  **descripteur hérité** (`deploy/karl-agent/karl-askpass.sh`) — jamais en argument
+  de commande, jamais dans l'environnement, jamais dans un fichier ; il n'est ni
+  journalisé, ni renvoyé, ni mémorisé côté navigateur. Les routes exigent une
+  session authentifiée, et le formulaire refuse de s'afficher hors connexion
+  sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
+
 ### Outillage
+- **Le doctor NORMS n'avertit plus à vide** (RM2751) : `pm-norms-doctor` signalait à
+  **chaque** exécution « outils cités INTROUVABLES : mmi-pm-client, mmi-pm-core ».
+  Faux positifs : le motif des skills (`\bmmi-pm-[a-z0-9-]+\b`) capturait les noms
+  de symlinks d'ancrage `.mmi-pm-core` / `.mmi-pm-client` — un point est un non-mot,
+  donc `\b` les acceptait. Un lookbehind les écarte. L'enjeu n'était pas le bruit
+  mais ce qu'il masquait : le jour où les NORMS citeront un outil réellement
+  manquant, l'avertissement ne se confondra plus avec le décor. Les deux sens sont
+  testés — les ancres ne sont plus vues, un skill réellement cité l'est toujours,
+  et un skill absent de `skills/` reste déclaré introuvable.
+- **La protection des branches est posée à la création du projet** (RM2057) :
+  `pm-protect` existait depuis RM2052 mais s'appliquait **à la main, dépôt par dépôt**
+  — donc, en pratique, après les premiers pushes directs. `pm-project-new` l'appelle
+  désormais dès que le dépôt `-core` est publié (sa branche de prod existe), et sur les
+  dépôts de code du workspace qui portent déjà un remote de forge. Chaque dépôt reçoit
+  la politique de sa nature : `pm-protect` distingue core et code, on ne la force pas.
+  L'étape n'est **jamais bloquante** — un échec de droits ou de token s'annonce avec sa
+  commande de rattrapage, et le projet reste créé. Ce que ça ferme : un dépôt neuf
+  n'hérite que du défaut GitLab (`main` en push *Maintainer*), qui ressemble à une
+  protection conforme sans en être une (RM2568).
+- **Le doctor NORMS repasse au vert, et un test l'y maintient** (RM2750) :
+  `pm-norms-doctor` était en **échec permanent sur `dev`** depuis le jalon v2.0.0
+  (RM2438) — deux lignes de l'oracle réécrites sans entrée au registre. Les deux
+  sont bien des **réécritures assumées**, pas des pertes : le jalon multi-utilisateur
+  a requalifié la « propriété **exclusive** » du fichier MD en propriété de 1ᵉʳ niveau
+  (l'exclusion réelle vient de `flock`, pas de l'assignation Redmine), et repositionné
+  l'optimistic locking comme filet **inter-machine**. Les deux motifs sont désormais
+  au `dedup-ledger.yml`. Surtout : **rien ne lançait le doctor**, d'où trois semaines
+  de rouge inaperçu — `scripts/test_norms_doctor.py` l'exécute maintenant dans la
+  suite, et son message d'échec dit quoi réparer pour chaque contrôle.
 - **`pm-env-session teardown` se bloquait sur son propre canari** (RM2679) : la garde
   « worktree sale » exemptait bien les artefacts posés par `create` (`.user.ini`,
   `pm-env.txt`), mais en **comparant des chaînes concaténées**. Avec `docroot: "."` —

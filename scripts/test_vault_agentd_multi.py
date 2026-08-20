@@ -15,6 +15,7 @@ Ce que ça prouve :
   - une instance inconnue est refusée (jamais résolue sur le vault par défaut) ;
   - les appels sans slug continuent de viser l'instance par défaut.
 """
+import base64
 import json
 import os
 import socket
@@ -53,11 +54,12 @@ if a[:1] == ["sync"]:
 print("unexpected: %%s" %% a, file=sys.stderr); sys.exit(1)
 """ % (json.dumps(ITEM_IPRO), json.dumps(ITEM_CLIENT))
 
-# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée
-# (RM2749 : par `test_support.core_with`, qui produit un core VALIDE — sans son `pm.env`,
-# `PMConfig.load` sortait sur `roots.projects_root` non résolu et le daemon
-# dégradait vers la config livrée, donc vers une seule instance : le test
-# échouait en annonçant « vw-clientx inconnue »).
+# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée.
+# Repartir du fichier réel évite de maintenir un faux `pm.config.yml` (qui doit
+# porter `paths:`, `roots:`… sous peine de faire échouer `PMConfig.load`).
+# L'ajout passe par `test_support.core_with`, qui manipule le YAML chargé :
+# l'insertion à l'ancre `    vw-ipro:` suivait la mise en page du fichier livré
+# et cassait au premier remaniement, sans dire pourquoi (RM2749).
 EXTRA_INSTANCE = {"vw-clientx": {"axis": "secret", "type": "vaultwarden",
                                  "url": "https://vault.client-x.test"}}
 
@@ -97,14 +99,16 @@ def _wait_socket(path, timeout=5.0):
 class Daemon:
     """Un daemon de test, avec sa config, son faux `bw` et son socket."""
 
-    def __init__(self, work, idle_timeout=None, tag="d", supervisor_interval=None):
+    def __init__(self, work, idle_timeout=None, tag="d", supervisor_interval=None,
+                 env_extra=None):
         self.work = work
         self.sock = str(work / f"{tag}.sock")
-        self.env = core_env(work)
+        self.env = core_env(work, **(env_extra or {}))
         self.env["PATH"] = f"{work}/bin:{os.environ['PATH']}"
         self.env["VAULT_SOCK"] = self.sock
         self.env["VAULT_LOCK_AT_HOUR"] = "-1"
         self.env["PM_CONFIG"] = str(work / "pm.config.yml")
+        self.env["PM_CORE_DIR"] = str(work)
         self.args = [sys.executable, str(DAEMON)]
         if idle_timeout is not None:
             self.args += ["--idle-timeout", str(idle_timeout)]
@@ -138,13 +142,39 @@ class Daemon:
         return self.proc.poll() is None
 
 
-def _workdir(td):
+AGE_SECRET = "PWD-FICHIER-AGE"
+AGE_DOC = f"acme:\n  db:\n    username: user-age\n    password: {AGE_SECRET}\n"
+
+# Faux `age` : le fichier « chiffré » est du base64, le binaire le décode. Le vrai
+# aller-retour cryptographique est testé dans test_pm_secrets_age.py ; ici on veut
+# seulement prouver que le DAEMON sert une instance sans session.
+FAKE_AGE = ('#!/bin/sh\n'
+            '[ "$1" = "--decrypt" ] || { echo usage >&2; exit 2; }\n'
+            '[ -f "$3" ] || { echo "age: no identity file" >&2; exit 1; }\n'
+            'base64 -d "$4"\n')
+
+
+def _workdir(td, avec_age=False):
     work = Path(td)
     (work / "bin").mkdir()
     fake = work / "bin" / "bw"
     fake.write_text(FAKE_BW)
     fake.chmod(0o755)
-    core_with(work, EXTRA_INSTANCE)
+    servers = dict(EXTRA_INSTANCE)
+    if avec_age:
+        age_bin = work / "bin" / "age"
+        age_bin.write_text(FAKE_AGE)
+        age_bin.chmod(0o755)
+        (work / "coffre.yml.age").write_bytes(base64.b64encode(AGE_DOC.encode()))
+        (work / "id.age").write_text("AGE-SECRET-KEY-FACTICE\n")
+        (work / "id.age").chmod(0o600)
+        servers["age-fichier"] = {"axis": "secret", "type": "age",
+                                  "file": f"{work}/coffre.yml.age"}
+    # Un core-dir de test est un core-dir COMPLET : sans le `pm.env` que pose
+    # `core_with`, `PMConfig.load` sort sur `projects_root` non résolu, le
+    # registre devient indisponible et le daemon dégrade vers une instance
+    # unique — le test passerait à côté de ce qu'il vérifie (RM2713, RM2749).
+    core_with(work, servers)
     return work
 
 
@@ -284,6 +314,57 @@ def test_sans_registre_instance_unique():
             assert d.ask("GET vaultwarden://o/c/prod-db password").strip() == "PWD-IPRO"
             r = d.ask("GET secret://vw-clientx/coll/prod-db").strip()
             assert r.startswith("ERR unsupported"), r
+
+
+def test_instance_sans_session_age():
+    """Un backend SANS déverrouillage (fichier `age`) se sert sans SET-SESSION.
+
+    C'est la conséquence directe de `caps.needs_unlock = False` (RM2713) : le
+    daemon ne doit pas opposer « ERR locked » à une instance qu'aucun humain n'a
+    à déverrouiller — et il doit tout de même laisser remonter les erreurs
+    précises du backend quand la clé n'est pas là.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-age-") as td:
+        work = _workdir(td, avec_age=True)
+        env = {"SECRET__AGE_FICHIER__AGE_KEY_FILE": f"{work}/id.age"}
+        with Daemon(work, tag="age", env_extra=env) as d:
+            # Aucune session posée : la résolution passe quand même.
+            v = d.ask("GET secret://age-fichier/acme/db password").strip()
+            assert v == AGE_SECRET, v
+            etat = d.ask("STATUS age-fichier").strip()
+            assert etat.startswith("unlocked sans-session"), etat
+            tableau = dict(l.split("\t", 1) for l in d.ask("STATUS").strip().splitlines())
+            assert tableau["age-fichier"].startswith("unlocked sans-session"), tableau
+            assert tableau["vw-ipro"] == "locked", tableau   # l'autre reste verrouillée
+            # …et une instance à clé fait remonter SON erreur, pas « locked ».
+            d2 = _ask(d.sock, "GET secret://vw-ipro/coll/prod-db password").strip()
+            assert d2 == "ERR locked", d2
+
+    # Clé absente : `unreachable`, jamais `locked` — le message doit dire quoi faire.
+    with tempfile.TemporaryDirectory(prefix="multi-age2-") as td:
+        work = _workdir(td, avec_age=True)
+        with Daemon(work, tag="agenokey") as d:
+            r = d.ask("GET secret://age-fichier/acme/db password").strip()
+            assert r.startswith("ERR unreachable"), r
+            assert "AGE_KEY_FILE" in r, r
+
+
+def test_lock_ignore_les_instances_sans_session():
+    """`LOCK <slug>` fait quitter le daemon quand plus RIEN n'est gardé en mémoire.
+
+    Une instance `age` se déclare utilisable en permanence : si elle comptait
+    comme « déverrouillée », le daemon ne s'arrêterait plus jamais alors qu'il ne
+    détient plus aucun secret.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-age3-") as td:
+        work = _workdir(td, avec_age=True)
+        env = {"SECRET__AGE_FICHIER__AGE_KEY_FILE": f"{work}/id.age"}
+        with Daemon(work, tag="agelock", env_extra=env) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("GET secret://age-fichier/acme/db password")   # touche l'instance age
+            assert d.ask("LOCK vw-ipro").strip() == "OK"
+            time.sleep(0.6)
+            assert not d.alive, "le daemon aurait dû quitter : plus aucune session"
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

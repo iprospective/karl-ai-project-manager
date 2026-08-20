@@ -193,6 +193,9 @@ Points de vigilance :
   **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
   ⚠ **Dépôt neuf : l'appliquer aussitôt** — il n'hérite que du défaut GitLab (`main` :
   push *Maintainer*), qui ressemble à une protection conforme sans en être une. (RM2568)
+  Depuis **RM2057**, `pm-project-new` s'en charge automatiquement pour les dépôts qu'il
+  crée ou trouve déclarés (étape 5b, non bloquante) : le geste manuel ne reste requis
+  que pour un dépôt créé hors de ce flux.
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer

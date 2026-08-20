@@ -98,11 +98,39 @@ class _InstanceState:
         self.last_access = time.time()
 
     @property
+    def holds_session(self):
+        """Ce daemon garde-t-il un secret EN MÉMOIRE pour cette instance ?
+
+        Distinct de `unlocked` : c'est ce qui décide de l'expiration et de la
+        sortie du daemon — un backend sans session (clé sur disque) n'a rien à
+        expirer et ne justifie pas de garder le processus en vie.
+        """
+        return self.session is not None
+
+    @property
     def unlocked(self):
+        """L'instance est-elle utilisable tout de suite ?
+
+        Tous les vaults ne se déverrouillent pas : un fichier chiffré par `age`
+        s'ouvre avec une clé posée sur le disque, sans saisie humaine (RM2713).
+        Pour ces backends (`caps.needs_unlock = False`), il n'y a rien à
+        déverrouiller — on n'oppose donc pas « ERR locked » à l'appelant, on laisse
+        le backend dire lui-même s'il est joignable, avec son code d'erreur exact.
+        """
+        if not self.backend.caps.needs_unlock:
+            return True
         return self.session is not None
 
     def status_line(self):
         """Format historique, à l'identique — des scripts l'affichent tel quel."""
+        if not self.backend.caps.needs_unlock:
+            # Pas de session : l'état vient du backend (clé lisible ou non).
+            etat = self.backend.status()
+            if etat != "unlocked":
+                return etat
+            last = (datetime.fromtimestamp(self.last_access).isoformat(timespec="seconds")
+                    if self.last_access else "-")
+            return f"unlocked sans-session last_access={last}"
         if not self.unlocked:
             return "locked"
         unlocked = datetime.fromtimestamp(self.unlocked_at).isoformat(timespec="seconds")
@@ -176,6 +204,28 @@ def _slug_of(ref):
     return ref.instance or INSTANCE
 
 
+def _etat_jamais_touchee(slug):
+    """État d'une instance déclarée mais jamais utilisée dans cette session.
+
+    « locked » par défaut — sauf pour un backend qui n'a rien à déverrouiller
+    (fichier `age`) : là, l'état ne dépend pas du daemon mais de la clé sur le
+    poste, donc c'est le backend qu'il faut interroger. On l'instancie sans le
+    mémoriser : le tableau de bord ne doit rien créer de durable.
+    """
+    spec = _instance_spec(slug)
+    if spec is None:
+        return "locked"
+    try:
+        backend = pm_secrets.get_backend(spec[0], name=slug,
+                                         session_getter=lambda: None, **spec[1])
+        if backend.caps.needs_unlock:
+            return "locked"
+        etat = backend.status()
+        return "unlocked sans-session last_access=-" if etat == "unlocked" else etat
+    except Exception:                                    # noqa: BLE001
+        return "unreachable"
+
+
 def _dashboard():
     """Une ligne `<slug>\\t<état>` par instance connue (déclarée ou touchée)."""
     slugs = set(_states)
@@ -186,7 +236,7 @@ def _dashboard():
     for slug in sorted(slugs):
         with _state_lock:
             st = _states.get(slug)
-            etat = st.status_line() if st else "locked"
+        etat = st.status_line() if st else _etat_jamais_touchee(slug)
         lignes.append(f"{slug}\t{etat}")
     return "\n".join(lignes)
 
@@ -239,7 +289,7 @@ class VaultHandler(socketserver.StreamRequestHandler):
                     st = _get_state(parts[1])
                     with _state_lock:
                         st.wipe()
-                        reste = any(s.unlocked for s in _states.values())
+                        reste = any(s.holds_session for s in _states.values())
                     self.wfile.write(b"OK\n")
                     if not reste:
                         _exit_soon()
@@ -322,7 +372,7 @@ def _bg_supervisor(interval=30):
                    and datetime.now().hour == LOCK_AT_HOUR
                    and datetime.now().minute < 1)
         with _state_lock:
-            actives = [s for s in _states.values() if s.unlocked]
+            actives = [s for s in _states.values() if s.holds_session]
             if not actives:
                 continue
             for st in actives:

@@ -52,6 +52,19 @@ onboarding agent), voir d'abord [README.md](README.md).
   `pm-client-contact` (`meta.yml` du client). Côté cockpit, le panneau **📧 emails**
   (RM2671) ne fait que lire `/mail/queue` et déléguer aux scripts : aucune logique de
   triage n'est dupliquée dans l'UI.
+- **Secrets : un seul chemin, et il est étroit (RM2748).** Un secret saisi par un
+  humain (mot de passe maître du coffre, passphrase de clé SSH) n'a le droit
+  d'emprunter que deux canaux vers le processus qui en a besoin : l'**entrée
+  standard** (`unlock-vault.sh --stdin`) ou un **descripteur hérité**
+  (`deploy/karl-agent/karl-askpass.sh`, que `ssh-add` appelle faute de terminal).
+  Jamais argv (`ps` le montrerait), jamais l'environnement (`/proc/<pid>/environ`),
+  jamais un fichier temporaire. Le serveur ne le mémorise pas : il n'existe que le
+  temps de l'appel, et ne ressort ni dans la réponse, ni dans un log. Les routes
+  `/vault/unlock` et `/vault/ssh-add` exigent une session authentifiée ; le
+  formulaire du cockpit ne s'affiche qu'en contexte sécurisé. Le test qui compte
+  (`test_karl_agent_vault.py`) ne vérifie pas que « ça marche » mais **où le secret
+  n'est pas** : il fait tracer argv, environnement et entrée standard par un faux
+  `unlock-vault.sh`.
 - **Layout des workspaces de code (RM1993).** Un workspace de code = un dépôt
   **bare** `repos/<nom>.git` + des **worktrees** `envs/<nom>-rm<id>` (un par
   ticket). `pm-branch-start` crée le worktree, `pm-env-session`/`pm-cockpit-test-env`

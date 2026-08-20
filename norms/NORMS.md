@@ -1,10 +1,10 @@
 ---
-schema_version: "2.0.0"
+schema_version: "2.3.0"
 updated: 2026-08-18
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.0.0
+# Normes de gestion des tâches — v2.3.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -892,6 +892,16 @@ Justification :
 - `Agents IA` en Intervenant donne aux **agents IA** (karl & co) l'accès au projet —
   sans ce groupe, un nouveau projet n'est pas accessible aux workers IA (RM1977).
   Rôle universel sur l'instance (`Développeur` est ajouté en plus sur les projets dev).
+
+**Branches protégées, dès la création (RM2057).** Une fois le dépôt `-core` publié —
+donc dès que sa branche de prod existe —, `pm-project-new` applique `pm-protect` au
+dépôt créé, et aux dépôts de code du workspace (`repos/*.git`) qui portent déjà un
+remote de forge. Chaque dépôt reçoit la politique de sa nature : `pm-protect` distingue
+core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (droits,
+token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
+La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
+pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
+protection conforme sans en être une (cf. `git-mep` § Enforcement).
 
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
@@ -2228,6 +2238,9 @@ Points de vigilance :
   **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
   ⚠ **Dépôt neuf : l'appliquer aussitôt** — il n'hérite que du défaut GitLab (`main` :
   push *Maintainer*), qui ressemble à une protection conforme sans en être une. (RM2568)
+  Depuis **RM2057**, `pm-project-new` s'en charge automatiquement pour les dépôts qu'il
+  crée ou trouve déclarés (étape 5b, non bloquante) : le geste manuel ne reste requis
+  que pour un dépôt créé hors de ce flux.
 - **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
   `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
   les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
@@ -2819,6 +2832,7 @@ providers:
   servers:
     vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
     kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
+    age-acme:    { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
@@ -2837,8 +2851,19 @@ Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
 `vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
 
 **Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
-`.kdbx`, dépendance `python3-pykeepass`). D'autres s'ajoutent par le point d'extension
-`pm_secrets.register_backend()` sans toucher aux appelants.
+`.kdbx`, dépendance `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dépendance
+`age` — le cas « on me partage trois identifiants », sans serveur ni compte). D'autres
+s'ajoutent par le point d'extension `pm_secrets.register_backend()` sans toucher aux
+appelants.
+
+**Tous les vaults ne se déverrouillent pas.** Un fichier `age` s'ouvre avec une clé
+privée posée sur le poste : il n'y a **pas de session à établir**, donc pas de secret
+humain à saisir — l'instance est utilisable tant que la clé est lisible. Le corollaire
+est que **seuls les droits du fichier protègent ce vault** : clé en `0600`, jamais
+commitée, jamais dans la déclaration partagée (elle vit dans
+`SECRET__<SLUG>__AGE_KEY_FILE`). La page de santé du poste signale une clé trop
+ouverte. À l'inverse, un vault sans déverrouillage **ne se verrouille pas** :
+`lock-vault.sh` n'a d'effet que sur les sessions gardées en mémoire.
 
 > **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
 > instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client
@@ -2865,7 +2890,7 @@ Organization iProspective
 
 | Action | Outil | Acteur |
 |---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) | toi (humain) |
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) ou, dans le **cockpit**, le bouton **🔓 déverrouiller** de l'en-tête, qui n'apparaît que si un coffre est fermé (RM2748). Sur un vault **sans session** (ex. `age`), il n'y a rien à déverrouiller : la commande ne fait que diagnostiquer l'accès | toi (humain) |
 | Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
 | Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
 | Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
@@ -2882,7 +2907,11 @@ Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
 **Règles strictes :**
 1. Un agent ne demande **jamais** le secret de déverrouillage (master password,
    passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
-   `unlock-vault.sh` » et attend
+   `unlock-vault.sh`, ou déverrouille depuis le cockpit » et attend. Le mode non
+   interactif (`--stdin`) existe pour un appelant qui **transmet** un secret déjà saisi
+   par l'humain (le cockpit) — jamais pour qu'un agent en fabrique ou en réutilise un.
+   Un code 4 `unreachable` n'est PAS un verrou : c'est une configuration ou une
+   dépendance manquante — le message dit laquelle
 2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
    inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
    d'identifiants trouvées, jamais leurs valeurs

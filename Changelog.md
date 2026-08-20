@@ -30,6 +30,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   sécurisée : on ne tape pas un mot de passe maître dans une page en clair.
 
 ### Outillage
+- **La protection des branches est posée à la création du projet** (RM2057) :
+  `pm-protect` existait depuis RM2052 mais s'appliquait **à la main, dépôt par dépôt**
+  — donc, en pratique, après les premiers pushes directs. `pm-project-new` l'appelle
+  désormais dès que le dépôt `-core` est publié (sa branche de prod existe), et sur les
+  dépôts de code du workspace qui portent déjà un remote de forge. Chaque dépôt reçoit
+  la politique de sa nature : `pm-protect` distingue core et code, on ne la force pas.
+  L'étape n'est **jamais bloquante** — un échec de droits ou de token s'annonce avec sa
+  commande de rattrapage, et le projet reste créé. Ce que ça ferme : un dépôt neuf
+  n'hérite que du défaut GitLab (`main` en push *Maintainer*), qui ressemble à une
+  protection conforme sans en être une (RM2568).
 - **Le doctor NORMS repasse au vert, et un test l'y maintient** (RM2750) :
   `pm-norms-doctor` était en **échec permanent sur `dev`** depuis le jalon v2.0.0
   (RM2438) — deux lignes de l'oracle réécrites sans entrée au registre. Les deux

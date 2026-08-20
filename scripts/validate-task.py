@@ -13,6 +13,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # modules pm_* voisins
+
 try:
     import yaml
 except ImportError:
@@ -176,6 +178,20 @@ class Validator:
             if p.get("effort") and p["effort"] not in VALID_PISTE_EFFORTS:
                 self.err(file, f"pistes[{i}].effort invalide : {p['effort']}")
 
+    def validate_partner_refs(self, file, fm):
+        """`refs[]` de type `partner_issue` (RM2654) — forme seulement.
+
+        La cohérence avec les providers **secondaires déclarés du projet** demande la
+        config projet, indisponible ici (le validateur travaille fichier par fichier) :
+        elle est contrôlée par `pm-task-partner show` et `pm-doctor`.
+        """
+        try:
+            import pm_partner
+        except ImportError:
+            return  # module absent (checkout partiel) → pas de faux négatif bloquant
+        for msg in pm_partner.validate_refs(fm):
+            self.err(file, msg)
+
     def validate_completion_pct(self, file, fm):
         pct = fm.get("completion_pct")
         if pct is not None:
@@ -205,6 +221,7 @@ class Validator:
         self.validate_estimate(file_path, fm)
         self.validate_status_history(file_path, fm)
         self.validate_pistes(file_path, fm)
+        self.validate_partner_refs(file_path, fm)
         self.validate_completion_pct(file_path, fm)
         self.validate_redmine_coherence(file_path, fm)
 

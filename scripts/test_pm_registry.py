@@ -19,6 +19,8 @@ _spec.loader.exec_module(pm_registry)
 
 Registry = pm_registry.Registry
 resolve = pm_registry.resolve_instance
+resolve_all = pm_registry.resolve_instances
+secondaries = pm_registry.secondaries
 RegistryError = pm_registry.RegistryError
 
 
@@ -137,6 +139,173 @@ def test_resolve_unknown_axis():
         raise AssertionError("attendu RegistryError")
     except RegistryError:
         pass
+
+
+# ── Primaire + secondaires (RM2653/L0, CDC RM2626 § 5.1) ───────────────────
+
+def _meta_two_providers(policy="required"):
+    return {"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary", "project_id": "pm-ai-agents"},
+        {"instance": "redmine-matnat", "role": "secondary", "project_id": 12,
+         "link": {"policy": policy},
+         "sync": {"pull": {"notes": True}, "push": {"on": ["ferme"]}}},
+    ]}}
+
+
+def test_resolve_instances_list_primary_first():
+    reg = Registry.from_config(_cfg())
+    out = resolve_all(_meta_two_providers(), "task", reg)
+    assert [r.instance.name for r in out] == ["redmine-ipro", "redmine-matnat"]
+    assert out[0].is_primary and not out[1].is_primary
+    assert out[0].params == {"project_id": "pm-ai-agents"}
+    # les règles vivent sur le secondaire, hors des params projet
+    assert out[1].params == {"project_id": 12}
+    assert out[1].link == {"policy": "required"}
+    assert out[1].sync["push"] == {"on": ["ferme"]}
+
+
+def test_resolve_instance_returns_primary_of_a_list():
+    """L'entrée historique ne voit QUE le primaire — non-régression des ~20 appelants."""
+    reg = Registry.from_config(_cfg())
+    res = resolve(_meta_two_providers(), "task", reg)
+    assert res.instance.name == "redmine-ipro" and res.is_primary
+    assert not res.link and not res.sync
+
+
+def test_secondaries_helper():
+    reg = Registry.from_config(_cfg())
+    sec = secondaries(_meta_two_providers(), "task", reg)
+    assert [r.instance.name for r in sec] == ["redmine-matnat"]
+    # un projet mono-provider n'a aucun secondaire
+    assert secondaries({"redmine": {"project_id": 1}}, "task", reg) == []
+    assert secondaries({}, "forge", reg) == []
+
+
+def test_list_order_preserved_for_secondaries():
+    reg = Registry.from_config(_cfg())
+    meta = {"providers": {"task": [
+        {"instance": "redmine-matnat", "role": "secondary"},
+        {"instance": "redmine-ipro", "role": "primary"},
+    ]}}
+    out = resolve_all(meta, "task", reg)
+    # primaire remonté en tête même déclaré en second
+    assert [r.instance.name for r in out] == ["redmine-ipro", "redmine-matnat"]
+
+
+def test_single_entry_list_defaults_to_primary():
+    reg = Registry.from_config(_cfg())
+    meta = {"providers": {"task": [{"instance": "redmine-matnat", "project_id": 3}]}}
+    out = resolve_all(meta, "task", reg)
+    assert len(out) == 1 and out[0].is_primary and out[0].params == {"project_id": 3}
+
+
+def test_dict_form_still_works():
+    """Forme dict (P0) : inchangée, un seul primaire."""
+    reg = Registry.from_config(_cfg())
+    out = resolve_all({"providers": {"task": {"instance": "redmine-matnat"}}}, "task", reg)
+    assert len(out) == 1 and out[0].is_primary and out[0].source == "providers"
+
+
+def test_legacy_and_default_yield_single_primary():
+    reg = Registry.from_config(_cfg())
+    for meta, want, src in (
+        ({"redmine": {"project_id": "x"}}, "redmine-ipro", "legacy"),
+        ({}, "redmine-ipro", "default"),
+    ):
+        out = resolve_all(meta, "task", reg)
+        assert len(out) == 1 and out[0].is_primary
+        assert out[0].instance.name == want and out[0].source == src
+
+
+def _expect_error(meta, axis, reg, why):
+    try:
+        resolve_all(meta, axis, reg)
+        raise AssertionError(f"attendu RegistryError ({why})")
+    except RegistryError:
+        pass
+
+
+def test_reject_two_primaries():
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary"},
+        {"instance": "redmine-matnat", "role": "primary"},
+    ]}}, "task", reg, "deux primaires")
+
+
+def test_reject_no_primary():
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "secondary"},
+        {"instance": "redmine-matnat", "role": "secondary"},
+    ]}}, "task", reg, "aucun primaire")
+
+
+def test_reject_sync_on_primary():
+    """Le primaire est la source de vérité : il ne se synchronise avec personne."""
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary", "sync": {"pull": {"notes": True}}},
+    ]}}, "task", reg, "sync sur le primaire")
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary", "link": {"policy": "required"}},
+    ]}}, "task", reg, "link sur le primaire")
+
+
+def test_reject_duplicate_instance():
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary"},
+        {"instance": "redmine-ipro", "role": "secondary"},
+    ]}}, "task", reg, "instance dupliquée")
+
+
+def test_reject_unknown_role_and_missing_instance():
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "master"},
+    ]}}, "task", reg, "role inconnu")
+    _expect_error({"providers": {"task": [{"project_id": 4}]}}, "task", reg,
+                  "instance manquante")
+
+
+def test_legacy_instance_given_as_url():
+    """Donnée réelle : `redmine.instance` contient parfois une URL, pas un nom.
+
+    Constaté sur lemathou/mathematicians-db — le champ existait avant d'avoir une
+    sémantique arrêtée. La résolution doit rattacher l'URL à l'instance déclarée.
+    """
+    os.environ["REDMINE_URL"] = "https://tasks.example"
+    reg = Registry.from_config(_cfg())
+    meta = {"redmine": {"instance": "https://tasks.example/", "project_id": "x"}}
+    res = resolve(meta, "task", reg)
+    assert res.instance.name == "redmine-ipro" and res.source == "legacy"
+    assert res.params == {"project_id": "x"}
+
+
+def test_legacy_unknown_url_is_explicit_error():
+    reg = Registry.from_config(_cfg())
+    meta = {"redmine": {"instance": "https://redmine.ailleurs.fr", "project_id": 1}}
+    try:
+        resolve(meta, "task", reg)
+        raise AssertionError("attendu RegistryError (URL non déclarée)")
+    except RegistryError as e:
+        assert "aucune instance déclarée" in str(e)
+
+
+def test_by_url_ignores_trailing_slash_and_axis():
+    reg = Registry.from_config(_cfg())
+    assert reg.by_url("https://tasks.matnat/").name == "redmine-matnat"
+    assert reg.by_url("https://tasks.matnat", axis="forge") is None
+    assert reg.by_url("") is None
+
+
+def test_reject_axis_mismatch_in_list():
+    reg = Registry.from_config(_cfg())
+    _expect_error({"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary"},
+        {"instance": "gitlab-ipro", "role": "secondary"},   # forge posé en task
+    ]}}, "task", reg, "axe incohérent sur un secondaire")
 
 
 def test_resolve_providers_axis_mismatch():

@@ -39,6 +39,9 @@ custom_fields:
   3:  {name: "GIT Branche",         format: string,      type: issue,      trackers: [bugfix, feature, autre], used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
   4:  {name: "GIT PR",              format: link,        type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de la MR de livraison (RM1820 string→link)"}
   14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
+  9:  {name: "Réf ticket outil externe", format: string, type: issue,
+      max_length: 16,
+      used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}
   8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "actions à la MEP ; string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
 

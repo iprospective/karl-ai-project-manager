@@ -41,12 +41,20 @@ def _base_ref():
     """
     if os.environ.get("ISO_BASE_REF"):
         return os.environ["ISO_BASE_REF"]
+    # Parcourir `origin/dev` EXPLICITEMENT : sur une branche de ticket qui a mergé
+    # dev, la simplification d'historique de `git log -- <path>` ne rapporte pas
+    # l'ajout (il arrive par un commit de merge) et la recherche revient vide.
     r = subprocess.run(
         ["git", "-C", str(_HERE.parent), "log", "--diff-filter=A", "--format=%H",
-         "-1", "--", "scripts/pm_secrets.py"],
+         "-1", "origin/dev", "--", "scripts/pm_secrets.py"],
         capture_output=True, text=True)
     sha = r.stdout.strip()
-    return f"{sha}^" if sha else "origin/dev"
+    if not sha:
+        # Pas de repli sur `origin/dev` : ce serait comparer la refonte à
+        # elle-même — un succès qui ne prouve rien (cf. docstring).
+        raise SystemExit("ERREUR : commit d'ajout de scripts/pm_secrets.py "
+                         "introuvable sur origin/dev — passer ISO_BASE_REF=<rev>")
+    return f"{sha}^"
 
 
 BASE_REF = _base_ref()

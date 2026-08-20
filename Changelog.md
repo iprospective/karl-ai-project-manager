@@ -170,6 +170,87 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   réutilisé par `pm-cockpit-test-env` via `pm-env-helper vhost-karl-add` —
   terminal (wss) et micro (getUserMedia) fonctionnels en contexte sécurisé.
 
+### Providers
+- **Raccordement réel du premier partenaire : MatNat** (RM2657, L4 du chantier RM2626) :
+  `matnat/infra` déclare `tasks.materiaux-naturels.fr` en provider **secondaire**
+  (`policy: optional`, pull actif, `push.on: []` — aucune écriture chez eux). Premier
+  rattachement en production : RM2618 ↔ leur #5576. Trois obstacles levés au passage,
+  tous invisibles avant de brancher une vraie instance tierce :
+  * **auth HTTP Basic** devant leur Redmine (Apache, realm « Pas touche minouche ») : la
+    clé API seule prenait un 401 du serveur web, avant d'atteindre l'application.
+    `redmine_creds(instance)` rend désormais un `Creds` — toujours un tuple `(url, key)`
+    pour les appelants — qui transporte l'auth Basic
+    (`REDMINE__<INST>__HTTP_USER` / `__HTTP_PASSWORD`) ; `http_json` pose l'en-tête
+    `Authorization` en plus de la clé API, les deux se cumulent.
+  * **le champ de référence existait déjà** : CF **9 « Réf ticket outil externe »**
+    (`string`, **16 caractères**) — donc pas d'URL possible. On y pousse une référence
+    compacte `matnat#5576` ; l'URL complète reste dans `refs[]`.
+  * **Redmine accepte un CF non activé et l'ignore en silence** (HTTP 200 sans effet) :
+    `push_cf` relisait donc un succès mensonger. Il vérifie maintenant que la valeur a
+    pris et, sinon, dit quoi faire (« CF non activé pour le projet — le cocher dans
+    l'admin »). Nouvelle sous-commande `pm-task-partner sync-cf [--all]` pour rattraper
+    les liens posés avant l'activation du champ.
+- **Rendre compte chez le partenaire** (RM2656, N2 du chantier RM2626) :
+  `pm-task-partner push <RM>` poste une **note de suivi** chez les partenaires du ticket,
+  et une **transition de statut** la déclenche automatiquement — mais **seulement** si le
+  secondaire déclare ce statut dans `sync.push.on`. **Défaut : rien ne part chez
+  personne** ; l'activation est un geste explicite par projet, après revue du gabarit,
+  parce qu'une note poussée chez un tiers ne se rattrape pas. Écriture **pauvre** : une
+  note de texte, jamais un statut, un CF ni une saisie de temps (les ids de
+  `redmine.reference.yml` ne valent que chez nous). **Gabarit fermé** : identifiant de
+  suivi, titre, état **en clair** (`a_tester_demandeur` → « livré, en attente de
+  validation » — le partenaire ne connaît pas notre machine d'états), plus un message
+  rédigé à la main ; ni chemin, ni hôte, ni branche, ni URL interne (notre Redmine ne lui
+  est pas accessible). Le hook est **best-effort** : il n'échoue jamais une transition
+  déjà écrite, et reste muet sur les projets sans partenaire (~80 ms). Enfin,
+  `link --create-remote` crée le ticket manquant chez eux puis le rattache, en exigeant
+  un `create.tracker_id` déclaré — les ids de tracker ne sont pas portables.
+- **Lire ce qui se dit chez le partenaire** (RM2655, N1 du chantier RM2626) :
+  `pm-task-partner pull <RM>` — ou `--all`, câblable en cron (exemple fourni, 30 min) —
+  importe dans le `.log.md` les **notes nouvelles** du ticket rattaché (citées, sous un
+  en-tête qui nomme l'instance : on distingue d'un coup d'œil ce qui vient d'ailleurs)
+  et le **statut brut** de leur côté. Réglable par secondaire
+  (`sync.pull: {notes, status}`). Le pointeur `last_seen_journal_id` vit **dans le
+  lien** — pas dans `redmine_last_journal_id`, qui suit l'instance primaire : deux
+  boucles, deux pointeurs, sinon elles se marchent dessus. Lecture seule et sans effet
+  de bord : **rien** n'est répercuté sur le statut, la priorité ou l'assignation ; un
+  partenaire injoignable produit un avertissement et le balayage continue. `--all` ne
+  scanne que les tickets **ouverts** portant un lien.
+- **Rattacher un ticket à un gestionnaire partenaire** (RM2654, N0 du chantier RM2626,
+  NORMS v1.69.0) : `pm-task-partner link|unlink|show` pose un lien `refs[]` typé
+  `partner_issue` entre un ticket PM et un ticket du **provider secondaire** d'un projet
+  (`role: mirror|upstream|related`, un seul miroir par tâche). L'outil refuse une
+  instance qui n'est pas un secondaire déclaré, un doublon ou un second miroir ; il pose
+  le CF Redmine « Ticket partenaire » quand `REDMINE_CF_PARTNER_ISSUE_ID` est configuré
+  (sinon il saute proprement — la définition d'un CF se crée par l'UI admin), journalise,
+  et poste chez le partenaire une **note de rattachement à gabarit fermé** (identité,
+  titre, URL — jamais de chemin, d'hôte, de branche ni de secret). Les effets distants
+  sont **best-effort** : un partenaire injoignable n'empêche pas de poser le lien. Avec
+  `link.policy: required`, `pm-doctor` signale chaque ticket **ouvert** non rattaché.
+  Aucune synchro de contenu à ce stade (pull = RM2655, push = RM2656).
+  Au passage : `resolve_instance` accepte une **URL** là où un `meta.yml` historique en
+  contient une au lieu d'un nom d'instance (constaté sur `lemathou/mathematicians-db`,
+  qui faisait échouer `pm-doctor`), et `PMConfig.locate_task()` rend enfin le projet
+  d'un ticket — nécessaire dès qu'une opération dépend de la config projet.
+- **Un provider par défaut + des providers secondaires** (RM2653, chantier RM2626) :
+  l'axe **task** d'un projet cesse d'être *une* instance et devient une **liste
+  ordonnée** — un **primaire** (source de vérité PM : états NORMS, reporting
+  temps/tokens, cascade, tag IA) et N **secondaires** (gestionnaires partenaires),
+  chacun portant ses règles `link:` / `sync:` dans `meta.yml`. Deux défauts du socle
+  P0/P1 sont corrigés au passage : `resolve_instance()` ne savait résoudre qu'une
+  instance (→ `resolve_instances()`, `secondaries()`), et surtout
+  **`RedmineTaskProvider` recevait une instance et l'ignorait** — toutes les requêtes
+  partaient sur les globales `REDMINE_URL`/`REDMINE_API_KEY`, ce qui rendait le
+  multi-instance inopérant malgré le registre. `redmine_creds(instance)` résout
+  désormais URL + clé **par instance** (`REDMINE__<INST>__API_KEY`, socle RM2546),
+  avec repli sur les clés globales quand l'instance déclarée *est* l'instance de
+  travail. Conf incohérente refusée d'entrée : zéro ou deux primaires, instance
+  dupliquée, ou `link:`/`sync:` posé sur le primaire (la source de vérité ne se
+  synchronise avec personne). `pm-providers resolve` affiche la liste par axe.
+  **Iso-comportement prouvé** : sans instance, les appels à `redmine_utils` sont
+  littéralement ceux d'avant (pas même un kwarg en plus) ; formes dict, legacy
+  `redmine:`/`gitlab:` et défauts du registre rendent un primaire unique.
+
 ### Outillage
 - **Worklog de session : les tickets sont groupés par projet** (RM2724). Le projet
   n'apparaissait qu'en suffixe de ligne (`_(pisceen-presta)_`), en queue d'une ligne

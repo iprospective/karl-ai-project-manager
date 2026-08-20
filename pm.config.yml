@@ -176,8 +176,25 @@ context:
 #                   l'interpolation ${VAR} / ${VAR:-defaut} (comme roots).
 #   defaults.<axe>: instance retenue quand ni le projet ni le client ne surchargent.
 #
-# Résolution : scripts/pm_registry.py :: resolve_instance(project_meta, axis,
-# registry, client_meta) — projet > legacy projet > client > défaut.
+# Un projet — ou un CLIENT, pour tous ses projets — peut déclarer PLUSIEURS
+# providers sur un axe (RM2653, chantier RM2626) : `providers.<axe>` accepte une
+# **liste** — un `role: primary` (obligatoire, unique : la source de vérité PM)
+# puis N `role: secondary` (gestionnaires partenaires), chacun portant ses règles
+# `link:` / `sync:` :
+#
+#   providers:
+#     task:
+#       - {instance: redmine-ipro, role: primary, project_id: mon-projet}
+#       - {instance: redmine-matnat, role: secondary, project_id: 12,
+#          link: {policy: required}, sync: {pull: {notes: true}}}
+#
+# Clés API par instance (jamais ici) : REDMINE__<INSTANCE>__API_KEY dans
+# ~/.config/mmi-pm/.env — repli sur les clés globales si l'instance déclarée EST
+# l'instance de travail.
+#
+# Résolution : scripts/pm_registry.py :: resolve_instances(project_meta, axis,
+# registry, client_meta) — projet > legacy projet > client > défaut ; liste avec le
+# primaire en tête. resolve_instance(…) = le primaire seul.
 providers:
   # axes: [monitoring]        # exemple : activer un axe supplémentaire
   defaults:
@@ -191,8 +208,13 @@ providers:
     gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022 }
     github-public:  { axis: forge, type: github, url: "https://github.com" }
     # — axe task —
-    redmine-ipro:   { axis: task,  type: redmine, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
-    redmine-matnat: { axis: task,  type: redmine, url: "https://tasks.materiaux-naturels.fr" }
+    # `slug:` = identifiant COURT et stable du gestionnaire, utilisé dans les
+    # références compactes de tickets (CF « Réf ticket outil externe » : 16 car.,
+    # ex. `matnat#5576`). Déclaré plutôt que déduit du nom d'instance : renommer
+    # une instance ne doit pas invalider des références déjà écrites (RM2657).
+    # Absent → déduction (on retire le préfixe de type : redmine-matnat → matnat).
+    redmine-ipro:   { axis: task,  type: redmine, slug: ipro,   url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
+    redmine-matnat: { axis: task,  type: redmine, slug: matnat, url: "https://tasks.materiaux-naturels.fr" }
     # — axe doc —
     redmine-wiki:   { axis: doc,   type: redmine_wiki, url: "${REDMINE_URL:-https://tasks.iprospective.fr}" }
     nc-ipro:        { axis: doc,   type: nextcloud, url: "https://cloud.iprospective.fr" }

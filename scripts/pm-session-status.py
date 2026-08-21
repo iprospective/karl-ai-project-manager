@@ -219,6 +219,56 @@ def mr_pending(mrs):
     return [m for m in (mrs or []) if (m.get("state") or "opened") in MR_OPEN_STATES]
 
 
+def mr_reconcile(mrs, resolve):
+    """Réaligne l'état des MR encore ouvertes sur ce que dit la forge (RM2773).
+
+    Le worklog FIGE l'état à l'écriture : `mrs[].state` ne bouge que si quelqu'un
+    appelle `mr --state merged`, ce que seul `pm-mr merge` fait. Une MR mergée depuis
+    l'interface, fermée automatiquement par la forge (ses commits arrivés dans la cible
+    par une autre MR), ou traitée depuis une autre session, reste donc affichée « à
+    merger » indéfiniment. C'est un état DÉRIVÉ qu'on stockait comme un état PROPRE.
+
+    `resolve(mr) -> state | None` porte l'I/O ; **None = indéterminé** (forge
+    injoignable, URL absente) et l'état connu est alors conservé : mieux vaut un rappel
+    de trop qu'un oubli silencieux. Seules les MR ouvertes sont réinterrogées — une MR
+    mergée ne se rouvre presque jamais, et l'afficher à tort ne coûte rien.
+
+    Retourne `(mrs, changements)` où changements = [(iid, avant, après)]. Pure.
+    """
+    out, changed = [], []
+    for m in (mrs or []):
+        m = dict(m)
+        if (m.get("state") or "opened") in MR_OPEN_STATES:
+            new = resolve(m)
+            if new and new != m.get("state"):
+                changed.append((m.get("iid"), m.get("state") or "opened", new))
+                m["state"] = new
+                m["reconciled_ts"] = now()
+        out.append(m)
+    return out, changed
+
+
+def mr_state_from_forge(mr):
+    """État réel d'une MR d'après sa forge, ou None si indéterminé (RM2773).
+
+    Best-effort par contrat : toute erreur (forge injoignable, hôte non déclaré,
+    droits) rend None — l'appelant garde l'état connu. Le worklog n'a pas à échouer
+    parce qu'une forge est en maintenance.
+    """
+    url = (mr or {}).get("url")
+    if not url:
+        return None                      # sans URL, rien à interroger
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_forge
+        forge, iid = pm_forge.get_forge_from_pr_url(url)
+        token = forge.token("manager")
+        pr = forge.get_pr(forge.resolve_project(token), iid, token)
+        return getattr(pr, "state", None) or None
+    except Exception:                    # noqa: BLE001 — voir docstring
+        return None
+
+
 def notify_level_for(kind, level=None):
     """Niveau d'une notification : explicite, sinon déduit du type. Un secret
     exposé est critique par nature — ne pas compter sur l'agent pour y penser."""
@@ -890,6 +940,16 @@ def cmd_notify(data, args):
 
 def cmd_mr(data, args):
     """RM2583 : refléter une MR ouverte / mergée / fermée dans le worklog."""
+    if getattr(args, "reconcile", False):
+        mrs, changed = mr_reconcile(data.get("mrs"), mr_state_from_forge)
+        if changed:
+            data["mrs"] = mrs
+            save(data)
+        pmout.op("worklog", extra="réconcilié %d MR ouverte(s), %d changement(s)" % (
+            len(mr_pending(data.get("mrs"))) + len(changed), len(changed)))
+        for iid, before, after in changed:
+            pmout.info("  · !%s %s → %s" % (iid, before, after))
+        return
     if args.list:
         for m in (data.get("mrs") or []):
             sys.stdout.write("!%s [%s] %s %s %s\n" % (
@@ -946,6 +1006,10 @@ def main():
     m.add_argument("--ref", help="ticket concerné (ex: RM2583)")
     m.add_argument("--state", choices=["opened", "merged", "closed"])
     m.add_argument("--list", action="store_true")
+    m.add_argument("--reconcile", action="store_true",
+                   help="réinterroge la forge pour les MR encore ouvertes et écrit "
+                        "leur état réel (RM2773) : une MR mergée hors `pm-mr merge` "
+                        "reste sinon affichée « à merger » indéfiniment")
 
     rq = sub.add_parser("request", help="registre des demandes du demandeur (RM2621)")
     rq.add_argument("text", nargs="?", help="la demande, telle qu'elle a été formulée")

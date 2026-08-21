@@ -4070,6 +4070,10 @@ def worklog_buckets(items) -> dict:
 # re-résout qu'au plus 1×/60 s par session).
 _WORKLOG_LIVE_TTL = 60
 _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
+# RM2773 : réconciliation de l'état des MR. TTL bien plus long que le live map des
+# tickets — celui-ci lit des fichiers, celle-là interroge une forge par MR ouverte.
+_WORKLOG_MR_TTL = 600
+_worklog_mr_checked: dict = {}   # session_id → ts du dernier déclenchement
 
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
@@ -4142,6 +4146,38 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
     return live, now
 
 
+def _worklog_reconcile_mrs(session_id: str, mrs, force: bool = False) -> None:
+    """Déclenche, EN ARRIÈRE-PLAN, la réconciliation des MR ouvertes (RM2773).
+
+    Le worklog fige `mrs[].state` à l'écriture : une MR mergée depuis l'interface de
+    la forge, fermée automatiquement par elle, ou traitée par une autre session, reste
+    affichée « à merger » indéfiniment. On délègue à `pm-session-status.py mr
+    --reconcile`, qui possède le store et écrit l'état réel.
+
+    **Sans attendre** : chaque MR ouverte coûte un aller-retour réseau, et le worklog
+    est rendu à chaque rafraîchissement du cockpit. Bloquer dessus rendrait l'onglet
+    lent au mieux, figé si la forge ne répond pas. Le résultat est donc servi au
+    rafraîchissement suivant — un état périmé de quelques secondes de plus, contre une
+    UI qui ne dépend jamais de la disponibilité d'une forge.
+    """
+    if not mrs or not session_id:
+        return
+    now = time.time()
+    if not force and now - _worklog_mr_checked.get(session_id, 0) < _WORKLOG_MR_TTL:
+        return
+    _worklog_mr_checked[session_id] = now
+    script = Path(__file__).resolve().parent / "pm-session-status.py"
+    if not script.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script), "--session", session_id, "mr", "--reconcile"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except OSError:
+        pass                      # jamais fatal : le worklog s'affiche sans ça
+
+
 def _subtasks_status(refs) -> list:
     """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
     ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
@@ -4182,6 +4218,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     # RM2583 : les MR que la session a ouvertes et pas encore mergées.
     mrs = [m for m in (data.get("mrs") or [])
            if (m.get("state") or "opened") in ("opened", "open", "reopened")]
+    # RM2773 : ces états sont FIGÉS dans le store — on déclenche leur réalignement
+    # sur la forge (en tâche de fond, cf. docstring) avant de les servir.
+    _worklog_reconcile_mrs(session_id, mrs, force)
     # RM2581 : le worklog fige le statut à l'ouverture — on le résout en live.
     items = data.get("items")
     live, checked = _worklog_live_map(session_id, items, force)

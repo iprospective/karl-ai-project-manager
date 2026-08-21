@@ -274,11 +274,13 @@
   .pradios input { width: auto; margin: 0; }
   .resolved { font-size: 12px; color: var(--ok); margin: 7px 0 0; }
   .resolved.nf { color: var(--warn); }
-  .tabbar { display: flex; align-items: center; gap: 8px; background: var(--panel);
-    border-bottom: 1px solid var(--line); padding: 0 10px; min-height: 38px; }
+  /* RM2774 : deux lignes — les onglets, puis le titre et les actions. */
+  .tabbar { display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+    background: var(--panel); border-bottom: 1px solid var(--line); padding: 3px 10px 4px; }
+  .tabbar2 { display: flex; align-items: center; gap: 8px; min-height: 26px; }
   /* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
   .ctabs { display: flex; gap: 2px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
-    max-width: 62%; scrollbar-width: thin; }
+    scrollbar-width: thin; }
   .ctab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
     border: 1px solid var(--line); border-bottom: none; border-radius: 5px 5px 0 0;
     background: var(--bg2); color: var(--muted); font-size: 11px; white-space: nowrap;
@@ -1190,6 +1192,12 @@ if (window.matchMedia) {
            la fois (il est remplacé par la vue suivante) : c'est ce qui empêche de
            recréer l'annuaire illisible retiré en RM2140/2283. -->
       <div class="ctabs" id="ctabs"></div>
+      <!-- RM2774 : titre et actions passent sous les onglets. Les onglets étaient
+           bridés à 62 % de la barre pour leur laisser la place ; depuis que leur
+           nombre de types a doublé (tableau de bord, fichier/dossier/commit/email,
+           fiche client/conf), quelques épinglés suffisaient à faire disparaître
+           les suivants dans un défilement. -->
+      <div class="tabbar2">
       <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
         <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
@@ -1217,6 +1225,7 @@ if (window.matchMedia) {
         <!-- RM2631 : « 📋 Copier » / « 📥 Copie » déplacés dans la barre du composer -->
         <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
       </div>
+      </div><!-- /.tabbar2 -->
     </div>
     <div class="termwrap">
       <div class="termarea">

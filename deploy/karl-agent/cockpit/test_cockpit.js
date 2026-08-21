@@ -2901,3 +2901,29 @@ assert(/<select id="sf-source"[\s\S]*?<option value="local"/.test(html),
 assert(/r\.redmine_error/.test(html),
   "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place");
 console.log("✓ recherche multi-source (RM2770) : local par défaut, filtres, absents signalés");
+
+// — RM2774 : la barre centrale tient sur deux lignes —
+const barre2774 = /<div class="tabbar">[\s\S]*?<div class="termwrap">/.exec(html);
+assert(barre2774, "barre centrale introuvable");
+const b2774 = barre2774[0];
+// L'ordre compte : les onglets d'abord, puis la ligne titre + actions.
+assert(b2774.indexOf('id="ctabs"') < b2774.indexOf('class="tabbar2"'),
+  "les onglets doivent précéder la seconde ligne");
+assert(b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="curtitle"')
+  && b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="tabactions"'),
+  "titre et actions doivent être DANS la seconde ligne, pas à côté");
+// Sans direction column, les deux « lignes » se remettraient côte à côte.
+assert(/\.tabbar \{[^}]*flex-direction: column/.test(html),
+  ".tabbar doit empiler ses deux lignes");
+assert(/\.tabbar2 \{[^}]*display: flex/.test(html),
+  ".tabbar2 doit aligner titre et actions sur une ligne");
+// Le bridage à 62 % n'a plus lieu d'être : les onglets ont la largeur entière.
+const ctabsCss = /\.ctabs \{[^}]*\}/.exec(html);
+assert(ctabsCss && !/max-width/.test(ctabsCss[0]),
+  "les onglets ne doivent plus être bridés en largeur");
+// …et rien ne doit avoir bougé du contenu : mêmes actions, même condition d'affichage.
+assert(/<div class="tabactions" id="tabactions" style="display:none">/.test(html),
+  "les actions restent masquées hors session attachée");
+["yesbtn", "autoyes", "micbtn", "readbtn", "monbtn", "layoutsel", "reattach"].forEach(id =>
+  assert(b2774.includes('id="' + id + '"'), "action perdue au déplacement : " + id));
+console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et actions dessous");

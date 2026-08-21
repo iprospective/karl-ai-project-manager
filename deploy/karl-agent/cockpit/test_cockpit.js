@@ -950,6 +950,20 @@ tlo = mkTl({})("42", "T");
 assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
 console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
 
+// — sinceLabel (RM2630) : dater la version de ticket affichée —
+const fSl = />>> sinceLabel[\s\S]*?(function sinceLabel[\s\S]*?)\n\/\/ <<< sinceLabel/.exec(html);
+assert(fSl, "marqueurs >>> sinceLabel / <<< sinceLabel introuvables");
+const sinceLabel = vm.runInNewContext("(" + fSl[1] + ")", {});
+const t0 = Date.parse("2026-08-11T12:00");
+assert.strictEqual(sinceLabel("2026-08-11T12:00", t0), "à l'instant", "même minute");
+assert.strictEqual(sinceLabel("2026-08-11T11:43", t0), "il y a 17 min", "minutes");
+assert.strictEqual(sinceLabel("2026-08-11T09:00", t0), "il y a 3 h", "heures");
+assert.strictEqual(sinceLabel("2026-08-09T12:00", t0), "il y a 2 j", "jours");
+assert.strictEqual(sinceLabel("2026-08-11 11:00", t0), "il y a 1 h", "espace accepté à la place du T");
+assert.strictEqual(sinceLabel("", t0), "", "horodatage absent → pas de mention");
+assert.strictEqual(sinceLabel("pas une date", t0), "", "horodatage illisible → pas de mention");
+console.log("✓ sinceLabel (RM2630) : âge de la version affichée, dégrade en silence");
+
 // — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
 const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
 assert(fWd, "marqueurs >>> worklogDocs / <<< worklogDocs introuvables");
@@ -1974,8 +1988,11 @@ console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempl
 // — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
 // `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
-const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
-      renderCenterTabs = grabFn("renderCenterTabs");
+const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt");
+// RM2775 : le rendu délègue l'infobulle à `tabTooltip` — on l'injecte dans son
+// contexte isolé, sinon le rendu lève dès le premier onglet.
+const renderCenterTabs = vm.runInNewContext("(" + grab("renderCenterTabs") + ")",
+  { Object, tabTooltip: grabFn("tabTooltip") });
 // RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
 // qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
 const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
@@ -2604,10 +2621,10 @@ assert(fvTxt.includes("&lt;script&gt;"), "…et lisible tel quel");
 // Dossier : navigable, sinon ce n'est qu'une capture d'écran.
 const dv = dirViewHtml({ src: "wt", wt: "/w/repo", path: "src", rootName: "repo",
   entries: [{ name: "api", dir: true }, { name: "main.py", dir: false, size: 512 }] }, escO, jargFn);
-assert(/openCenterDir\('wt','\/w\/repo','src\/api'\)/.test(dv), "un sous-dossier s'ouvre au centre");
-assert(/openCenterFile\('wt','\/w\/repo','src\/main.py'\)/.test(dv), "un fichier aussi");
+assert(/openCenterDir\('wt','\/w\/repo','src\/api',''\)/.test(dv), "un sous-dossier s'ouvre au centre (avec sa portée — RM2761)");
+assert(/openCenterFile\('wt','\/w\/repo','src\/main.py',''\)/.test(dv), "un fichier aussi");
 assert(dv.includes("repo") && dv.includes("src"), "le fil d'Ariane situe où on est");
-assert(/openCenterDir\('wt','\/w\/repo',''\)/.test(dv), "…et permet de remonter à la racine");
+assert(/openCenterDir\('wt','\/w\/repo','',''\)/.test(dv), "…et permet de remonter à la racine");
 assert(dirViewHtml({ entries: [] }, escO, jargFn).includes("dossier vide"),
   "un dossier vide le dit");
 
@@ -2760,3 +2777,449 @@ assert(/function vocabShow/.test(html) && /function vocabBodyHtml/.test(html),
   "…avec son chargeur et son corps");
 assert(/glossaire\.md/.test(html), "…et il doit chercher docs/glossaire.md");
 console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/définition/contexte/alias");
+// — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
+const fsScope = grabFn("fsScope");
+const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc
+const scopeCtx = vm.runInNewContext(
+  scopeSrc + "; ({scopeTag, scopeFromTag, scopeQuery})",
+  { encodeURIComponent, String, Object });
+const { scopeTag, scopeFromTag, scopeQuery } = scopeCtx;
+
+const FD = { projects: [{ root: "/ws/ipro/pm", client: "ipro", project: "pm" }] };
+let sc = fsScope("/ws/ipro/pm/envs/pm-rm42", FD, "karl-RM42", null);
+assert.equal(sc.client, "ipro"); assert.equal(sc.project, "pm");
+assert.equal(sc.sid, "karl-RM42",
+  "les DEUX portées sont gardées : le serveur autorise l'union session ∪ projet");
+assert.deepEqual(fsScope("/ailleurs/scratch", FD, "karl-RM42", null), { sid: "karl-RM42" },
+  "un worktree hors projet ne doit garder QUE le sid — sinon on perdrait le seul droit qui l'autorise");
+assert.deepEqual(fsScope("/x", { client: "acme", project: "shop" }, null, null),
+  { client: "acme", project: "shop" }, "sans session, la portée projet du panneau suffit");
+assert.deepEqual(fsScope("/x", {}, null, "acme/shop"), { client: "acme", project: "shop" },
+  "à défaut, la fiche projet ouverte donne la portée");
+assert.deepEqual(fsScope("/x", {}, null, null), {}, "rien de connu → aucune portée inventée");
+
+assert.equal(scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" }), "c:ipro/pm;s:karl-RM42");
+assert.deepEqual(scopeFromTag("c:ipro/pm;s:karl-RM42"), { client: "ipro", project: "pm", sid: "karl-RM42" });
+assert.deepEqual(scopeFromTag("s:karl-RM42"), { sid: "karl-RM42" });
+assert.equal(scopeFromTag(""), null, "clé d'onglet d'avant RM2761 → repli sur le contexte courant");
+assert.equal(scopeFromTag("c:incomplet"), null, "portée projet tronquée : ignorée, pas devinée");
+assert.equal(scopeQuery({ client: "ipro", project: "pm", sid: "" }),
+  "client=ipro&project=pm&sid=", "la requête porte les deux moitiés (sid vide accepté)");
+
+// la portée survit à l'aller-retour par la clé d'onglet (localStorage)
+const vkey = grabFn("viewKey"), pkey = grabFn("parseViewKey");
+const tag2761 = scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" });
+const rt = pkey(vkey(["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761]));
+assert.deepEqual(rt, ["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761],
+  "clé d'onglet : la portée doit revenir intacte (séparateurs : ; et /)");
+
+// un dossier ouvert au centre reste navigable : chaque lien emporte la portée
+const dirViewHtml2761 = grabFn("dirViewHtml");
+const dh2761 = dirViewHtml2761({ src: "wt", wt: "/ws/ipro/pm", path: "docs", rootName: "pm",
+  tag: tag2761, entries: [{ name: "sous", dir: true }, { name: "a.md", size: 10 }] },
+  escFn, jargFn);
+assert((dh2761.match(/c:ipro\/pm;s:karl-RM42/g) || []).length >= 3,
+  "fil d'ariane, sous-dossiers et fichiers doivent tous porter la portée");
+assert(/openCenterFile\('wt','\/ws\/ipro\/pm','docs\/a\.md','c:ipro/.test(dh2761),
+  "le fichier s'ouvre avec la portée en 4e argument");
+
+// les boutons « ⤢ au centre » capturent la portée AU RENDU (avant tout detach)
+assert(/openCenterFile\('wt'," \+ jarg\(fileNav\.wt\) \+ "," \+ jarg\(fpath\) \+ ","/.test(html),
+  "le bouton fichier doit passer une 4e valeur : la portée");
+assert(/scopeTag\(fsScope\(fileNav\.wt, filesData, attached, currentProjectView\)\)/.test(html),
+  "et la calculer depuis le contexte encore vivant");
+assert(/openCenterFile\(p\[0\], p\[1\], p\[2\], p\[3\]\)/.test(html),
+  "la réactivation d'onglet doit rejouer la portée mémorisée");
+assert(/const fixed = scopeFromTag\(tag\);/.test(html),
+  "_fsq doit préférer la portée explicite au contexte courant (vidé par centerViewPane)");
+console.log("✓ portée des vues centrales (RM2761) : capturée au clic, transportée, rejouée");
+
+// — RM2768 : fiche client et confs au centre —
+const clientViewHtml = grabO("clientViewHtml");
+const confViewHtml = grabO("confViewHtml");
+
+const CLI2768 = {
+  client: "calicote", name: "Calicote", status: "active", type: "client",
+  created: "2026-05-19", redmine_project_id: "calicote",
+  redmine_project_url: "https://r.test/projects/calicote",
+  contacts: [
+    { first_name: "Sandrine", last_name: "Roche", email: "s@calicote.test",
+      role: "owner", title: "Gérante" },
+    { name: "Mathieu", email: "m@ipro.test", role: "owner", internal: true },
+  ],
+  defaults: { priority: "normal", team: [{ username: "iprospective" }] },
+  projects: [{ project: "prestashop", value: "calicote/prestashop" }],
+  projects_used: ["iprospective/nc-clients"],
+  docs: [{ name: "overview.md", path: "projects/clients/calicote/client/overview.md" }],
+};
+const cv = clientViewHtml(CLI2768, escO, jargFn);
+assert(cv.includes("Calicote") && cv.includes("calicote"), "identité et slug");
+assert(cv.includes("Sandrine Roche") && cv.includes("Gérante"),
+  "un contact se lit par son nom ET sa fonction");
+assert(cv.includes("interne"), "un contact interne est signalé comme tel");
+assert(/openProjectView\('calicote\/prestashop'\)/.test(cv),
+  "les projets du client mènent à leur fiche");
+assert(cv.includes("Projets utilisés") && cv.includes("iprospective/nc-clients"),
+  "le partage cross-client est visible, il ne se devine pas dans le YAML");
+assert(/openCenterFile\('doc','','projects\/clients\/calicote\/client\/overview\.md'\)/.test(cv),
+  "les docs du client s'ouvrent au centre");
+assert(cv.includes('href="https://r.test/projects/calicote"'), "lien Redmine cliquable");
+// tolérance : une fiche squelettique reste servie
+const cvMin = clientViewHtml({ client: "x" }, escO, jargFn);
+assert(cvMin.includes("aucun projet"), "un client sans projet le dit");
+assert(!cvMin.includes("Contacts"), "…et n'invente pas de section vide");
+assert(clientViewHtml(null, escO, jargFn).includes("client"), "données absentes tolérées");
+
+// Conf : rendue telle quelle, et échappée.
+const cf = confViewHtml({ label: "calicote/prestashop", name: "meta.yml",
+  content: "slug: x\nrepos:\n  - <b>a</b>\n" }, escO);
+assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml"), "on sait ce qu'on lit");
+assert(cf.includes("&lt;b&gt;a&lt;/b&gt;"), "le contenu est échappé, jamais interprété");
+assert(cf.includes("slug: x"), "…et rendu tel quel, sans reformatage");
+assert(cf.includes("mmi-pm"), "la lecture seule renvoie à l'outillage qui, lui, écrit");
+assert(confViewHtml({}, escO).includes("meta.yml"), "conf vide : un titre, pas une erreur");
+
+// Les icônes du panneau : présentes, et sans effet de bord sur le pliage.
+const gIco = groupProjectsByClient(PJ2760, "");
+const hIco = projectsPanelHtml(gIco, { live: {}, open: {}, client: "abatik", filtre: "" },
+  escO, jargFn);
+assert(/openCenterClient\('abatik'\)/.test(hIco), "icône fiche client");
+assert(/openCenterConf\('client','abatik',''\)/.test(hIco), "icône conf client");
+assert(/openCenterConf\('project','abatik','infra'\)/.test(hIco), "icône conf projet");
+// le piège : la ligne du client EST le bouton de pliage
+const ligneClient = /<div class="oline"[^>]*pjToggle\('abatik'\)[\s\S]*?<\/div>/.exec(hIco);
+assert(ligneClient, "ligne client introuvable");
+assert((ligneClient[0].match(/event\.stopPropagation\(\)/g) || []).length === 2,
+  "chaque icône du client doit stopper la propagation, sinon elle replie le client");
+assert(/onclick="event\.stopPropagation\(\);openCenterConf\('project'/.test(hIco),
+  "l'icône d'un projet ne doit pas déclencher l'ouverture de sa fiche");
+// et l'onglet doit savoir se rouvrir
+["client", "conf"].forEach(k =>
+  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
+console.log("✓ fiche client et confs (RM2768) : contacts, partage, meta.yml — icônes sans effet de bord");
+
+// — RM2770 : recherche multi-source et filtres —
+const searchQuery = grabO("searchQuery");
+const searchRowMeta = grabO("searchRowMeta");
+
+// La source par défaut ne doit RIEN changer à la requête d'avant.
+assert.strictEqual(searchQuery("abc", { source: "local" }, ""), "/tickets/search?q=abc",
+  "source locale = requête historique, sans paramètre superflu");
+assert(searchQuery("x", { source: "redmine" }, "").includes("source=redmine"));
+assert(searchQuery("x", { source: "both" }, "").includes("source=both"));
+// Le filtre explicite prime sur le contexte global : sinon le cockpit
+// contredirait en silence le client qu'on vient de choisir.
+assert(searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"),
+  "le filtre explicite prime sur le contexte client");
+assert(searchQuery("x", {}, "calicote").includes("client=calicote"),
+  "…mais sans filtre, le contexte s'applique toujours (RM2639)");
+assert(!searchQuery("x", {}, "").includes("client="), "aucun client → aucun filtre client");
+const qFull = searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, "");
+["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(frag =>
+  assert(qFull.includes(frag), "paramètre manquant : " + frag));
+assert(searchQuery("a b&c", {}, "").includes("q=a%20b%26c"), "la requête est encodée");
+assert.strictEqual(searchQuery(null, null, null), "/tickets/search?q=", "entrées molles tolérées");
+
+// La ligne de contexte : ce qui décide du geste suivant doit être écrit.
+assert.strictEqual(searchRowMeta({ client: "c", project: "p", status: "a_faire" }),
+  "c / p · a_faire", "un résultat local reste sobre — pas de bruit");
+const meta2770 = searchRowMeta({ rm_id: "9", origin: "redmine", synced: false,
+  status: "Nouveau", redmine_project: "Projet X", assigned_to: "Karl" });
+assert(meta2770.includes("⚠ pas en local"),
+  "un ticket que le local ignore DOIT le dire — c'est ce qu'on est venu chercher");
+assert(meta2770.includes("Projet X"), "…et à défaut de client/projet PM, son projet Redmine");
+assert(meta2770.includes("→ Karl"), "…et son assignation, qui vient de Redmine seul");
+assert(searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
+  .includes("🌐 Redmine"), "un ticket vu des deux côtés le signale sans alarmer");
+assert(!searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
+  .includes("pas en local"), "…et surtout pas comme absent");
+assert.strictEqual(searchRowMeta(null), "— · ?", "résultat vide : pas d'exception");
+
+// Câblage : les trois sources et les filtres doivent exister dans la page.
+["sf-source", "sf-client", "sf-project", "sf-status", "sf-warn"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
+["local", "redmine", "both"].forEach(v =>
+  assert(new RegExp('<option value="' + v + '"').test(html), "source manquante : " + v));
+assert(/<select id="sf-source"[\s\S]*?<option value="local"/.test(html),
+  "« local » doit être la première option, donc le défaut");
+assert(/r\.redmine_error/.test(html),
+  "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place");
+console.log("✓ recherche multi-source (RM2770) : local par défaut, filtres, absents signalés");
+
+// — RM2774 : la barre centrale tient sur deux lignes —
+const barre2774 = /<div class="tabbar">[\s\S]*?<div class="termwrap">/.exec(html);
+assert(barre2774, "barre centrale introuvable");
+const b2774 = barre2774[0];
+// L'ordre compte : les onglets d'abord, puis la ligne titre + actions.
+assert(b2774.indexOf('id="ctabs"') < b2774.indexOf('class="tabbar2"'),
+  "les onglets doivent précéder la seconde ligne");
+assert(b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="curtitle"')
+  && b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="tabactions"'),
+  "titre et actions doivent être DANS la seconde ligne, pas à côté");
+// Sans direction column, les deux « lignes » se remettraient côte à côte.
+assert(/\.tabbar \{[^}]*flex-direction: column/.test(html),
+  ".tabbar doit empiler ses deux lignes");
+assert(/\.tabbar2 \{[^}]*display: flex/.test(html),
+  ".tabbar2 doit aligner titre et actions sur une ligne");
+// Le bridage à 62 % n'a plus lieu d'être : les onglets ont la largeur entière.
+const ctabsCss = /\.ctabs \{[^}]*\}/.exec(html);
+assert(ctabsCss && !/max-width/.test(ctabsCss[0]),
+  "les onglets ne doivent plus être bridés en largeur");
+// …et rien ne doit avoir bougé du contenu : mêmes actions, même condition d'affichage.
+assert(/<div class="tabactions" id="tabactions" style="display:none">/.test(html),
+  "les actions restent masquées hors session attachée");
+["yesbtn", "autoyes", "micbtn", "readbtn", "monbtn", "layoutsel", "reattach"].forEach(id =>
+  assert(b2774.includes('id="' + id + '"'), "action perdue au déplacement : " + id));
+console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et actions dessous");
+
+// — RM2775 : l'infobulle d'un onglet dit ce que son libellé ne peut pas dire —
+const tabTooltip = grabO("tabTooltip");
+const parse2775 = parseViewKey;
+const RC2775 = {
+  "2744": { found: true, title: "Tableau de bord : contenu coupé en haut" },
+  "2673": { found: true, title: "Améliorations ergonomiques PM" },
+  "9999": { found: false },
+};
+
+// Le cas de la demande : survoler « RM2744 » ne doit plus afficher « RM2744 ».
+const tipTicket = tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, RC2775, parse2775);
+assert(tipTicket.includes("Tableau de bord : contenu coupé"),
+  "l'infobulle d'un ticket doit porter son titre");
+assert(tipTicket.startsWith("RM2744 — "), "…sans perdre l'identifiant, qui situe");
+// Titre pas encore résolu : ne rien inventer, et surtout pas de tiret orphelin.
+const tipInconnu = tabTooltip({ kind: "review", key: "9999", label: "RM9999" }, RC2775, parse2775);
+assert.strictEqual(tipInconnu, "RM9999", "un titre inconnu ne laisse pas de tiret vide");
+assert(!/undefined|null/.test(tipInconnu), "…ni de « undefined »");
+assert.strictEqual(tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, {}, parse2775),
+  "RM2744", "cache vide toléré");
+
+// Session : titre si connu, forme lisible sinon.
+assert(tabTooltip({ kind: "session", key: "2673" }, RC2775, parse2775)
+  .includes("Améliorations ergonomiques"), "une session ancrée sur un ticket porte son titre");
+assert.strictEqual(tabTooltip({ kind: "session", key: "calymix" }, RC2775, parse2775),
+  "session calymix", "une session à slug reste lisible");
+
+// Les vues centrales : c'est là que le libellé est le plus tronqué.
+assert(tabTooltip({ kind: "file", key: viewKey(["wt", "/w/repo", "src/api/handlers.py"]) },
+  RC2775, parse2775).includes("src/api/handlers.py"), "un fichier montre son chemin entier");
+assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", "src/api"]) }, RC2775, parse2775)
+  .includes("src/api"), "un dossier aussi");
+assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", ""]) }, RC2775, parse2775)
+  .includes("racine"), "…y compris la racine, qui se nomme");
+const tipCommit = tabTooltip({ kind: "commit", key: viewKey(["2749", "abcdef1234567890"]) },
+  RC2775, parse2775);
+assert(tipCommit.includes("abcdef1234567890"), "un commit montre son sha ENTIER (le libellé le coupe à 8)");
+assert(tipCommit.includes("2749"), "…et la session qui le sert");
+assert(tabTooltip({ kind: "mail", key: "k1", label: "Devis pour le site vitrine et…" },
+  RC2775, parse2775).includes("Devis pour le site"), "un email montre son sujet");
+assert(tabTooltip({ kind: "conf", key: viewKey(["project", "calicote", "presta"]) },
+  RC2775, parse2775).includes("calicote/presta"), "une conf projet dit de quel projet");
+assert(tabTooltip({ kind: "client", key: viewKey(["calicote"]) }, RC2775, parse2775)
+  .includes("calicote"), "une fiche client dit lequel");
+assert.strictEqual(tabTooltip({ kind: "dash", key: "" }, RC2775, parse2775), "tableau de bord");
+assert.strictEqual(tabTooltip({}, RC2775, parse2775), "", "onglet vide : pas d'exception");
+assert.strictEqual(tabTooltip(null, null, null), "", "entrées molles tolérées");
+
+// Le rendu doit utiliser l'infobulle, et garder les mentions de fonctionnement.
+const htmlTabs = renderCenterTabs(
+  [{ kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true },
+   { kind: "review", key: "2744", label: "RM2744", pinned: true },
+   { kind: "review", key: "2673", label: "RM2673", pinned: false }],
+  "review:2744", escO, jargFn, RC2775, parse2775);
+assert(htmlTabs.includes("Tableau de bord : contenu coupé"),
+  "le titre du ticket arrive bien dans le title= de l'onglet");
+assert(htmlTabs.includes("toujours là"), "l'onglet permanent garde sa mention");
+assert(htmlTabs.includes("non épinglé"), "…et le temporaire la sienne");
+assert(htmlTabs.includes('<span class="lbl">RM2744</span>'),
+  "le LIBELLÉ affiché ne change pas — seule l'infobulle s'enrichit");
+console.log("✓ infobulle d'onglet (RM2775) : le titre, le chemin, le sha entier — jamais un tiret vide");
+
+// — RM2776 : historique de navigation —
+const histVisit = grabO("histVisit", { Array, Object });
+const histStep = grabO("histStep", { Array });
+const histCloseTarget = grabO("histCloseTarget", { Array });
+const histListHtml = grabO("histListHtml", { Array });
+
+// Visiter : modèle du navigateur.
+let h2776 = { items: [], idx: -1 };
+h2776 = histVisit(h2776, { id: "session:2673", kind: "session", label: "2673" }, 40);
+h2776 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744" }, 40);
+assert.deepEqual(h2776.items.map(e => e.id), ["session:2673", "review:2744"]);
+assert.strictEqual(h2776.idx, 1, "on est sur la dernière visitée");
+// Revisiter la vue courante ne doit pas empiler : deux clics sur le même onglet
+// bloqueraient sinon le retour arrière.
+const h2 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744 (bis)" }, 40);
+assert.strictEqual(h2.items.length, 2, "revisiter la vue courante n'empile pas");
+assert.strictEqual(h2.items[1].label, "RM2744 (bis)", "…mais rafraîchit son libellé");
+assert.strictEqual(histVisit(h2776, {}, 40).items.length, 2, "entrée sans id ignorée");
+assert.deepEqual(histVisit(null, { id: "a:1" }, 40).items.map(e => e.id), ["a:1"],
+  "état absent toléré");
+// Plafond : on garde les plus RÉCENTES.
+let plein2776 = { items: [], idx: -1 };
+for (let i = 0; i < 10; i++) plein2776 = histVisit(plein2776, { id: "review:" + i }, 4);
+assert.deepEqual(plein2776.items.map(e => e.id), ["review:6", "review:7", "review:8", "review:9"],
+  "le plafond coupe les plus anciennes");
+assert.strictEqual(plein2776.idx, 3, "l'index suit la troncature");
+
+// Le cas de la demande : fermer la fiche ouverte depuis une session y ramène.
+const ouvertes2776 = new Set(["session:2673", "review:2744", "dash:"]);
+const isOpen2776 = (id) => ouvertes2776.has(id);
+assert.strictEqual(histCloseTarget(h2776, "review:2744", isOpen2776), "session:2673",
+  "fermer la fiche ramène à la session d'où on venait, pas au voisin de barre");
+// Une vue fermée entre-temps ne doit pas être proposée.
+const ouvertes2 = new Set(["dash:"]);
+let h3 = histVisit(h2776, { id: "dash:", kind: "dash", label: "tableau de bord" }, 40);
+assert.strictEqual(histCloseTarget(h3, "dash:", (id) => ouvertes2.has(id)), null,
+  "aucune destination valide → null, l'appelant retombe sur le voisin (comportement d'avant)");
+assert.strictEqual(histCloseTarget({ items: [], idx: -1 }, "x:1", isOpen2776), null,
+  "historique vide → repli");
+assert.strictEqual(histCloseTarget(h2776, "review:2744", null), "session:2673",
+  "sans test d'ouverture, la dernière autre visitée fait l'affaire");
+
+// Retour arrière / avant, en sautant les vues fermées.
+const parcours2776 = { items: [{ id: "a:1" }, { id: "b:2" }, { id: "c:3" }], idx: 2 };
+assert.strictEqual(histStep(parcours2776, -1, () => true).entry.id, "b:2", "← recule d'un cran");
+assert.strictEqual(histStep(parcours2776, -1, (id) => id !== "b:2").entry.id, "a:1",
+  "une vue fermée est SAUTÉE, pas rouverte");
+assert.strictEqual(histStep(parcours2776, 1, () => true).entry, null, "→ en bout de liste : rien");
+assert.strictEqual(histStep({ items: [{ id: "a:1" }], idx: 0 }, -1, () => true).entry, null,
+  "au début, ← ne fait rien");
+assert.strictEqual(histStep(parcours2776, -1, () => false).entry, null,
+  "tout fermé → aucune destination");
+assert.strictEqual(histStep({ ...parcours2776, idx: 0 }, 1, () => true).entry.id, "b:2",
+  "→ ré-avance après un retour");
+
+// La liste du header.
+const listeHtml2776 = histListHtml(
+  { items: [{ id: "session:2673", kind: "session", label: "2673" },
+            { id: "review:2744", kind: "review", label: "RM2744" }], idx: 1 },
+  (id) => id !== "session:2673", escO, jargFn);
+assert(listeHtml2776.indexOf("RM2744") < listeHtml2776.indexOf("2673"),
+  "la plus récente est en tête");
+assert(/histGoTo\('review:2744'\)/.test(listeHtml2776), "une vue ouverte est cliquable");
+assert(!/histGoTo\('session:2673'\)/.test(listeHtml2776), "une vue fermée ne l'est pas");
+assert(listeHtml2776.includes("fermée"), "…et le dit, au lieu de disparaître de l'historique");
+assert(listeHtml2776.includes("ici"), "la vue courante est repérée");
+assert(histListHtml({ items: [], idx: -1 }, null, escO, jargFn).includes("aucune vue visitée"),
+  "historique vide : un message, pas un panneau blanc");
+
+// Câblage : boutons du header et point d'entrée unique.
+["histback", "histfwd", "histbtn", "histbox"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
+assert(/function noteTab[\s\S]{0,600}histVisit\(/.test(html),
+  "l'historique doit être alimenté par noteTab — le seul passage obligé des vues");
+assert(/navSuspend/.test(html), "un retour arrière ne doit pas s'empiler lui-même");
+assert(/const fermaitLaVueAffichee/.test(html),
+  "fermer un onglet NON affiché ne doit pas changer l'écran");
+console.log("✓ historique de navigation (RM2776) : retour d'où l'on vient, ←/→, liste du header");
+
+// — RM2786 : n'offrir que les actions qui ont du sens —
+const batchButtons = grabO("batchButtons", { Object, Set, String });
+const closeBatchPlan = grabO("closeBatchPlan", { Object, Set, String });
+const ticketVerdicts = grabO("ticketVerdicts", { Set, String });
+
+// La règle vient du serveur : le front la LIT, il ne la redéclare pas.
+const CFG2786 = {
+  batch_modes: {
+    traiter: { statuses: ["a_corriger", "a_etudier_chiffrer", "a_faire", "a_tester_dev",
+                          "en_cours", "etude_chiffrage_en_cours", "nouveau"], skip: { ferme: "fermé" } },
+    atester: { statuses: ["a_corriger", "a_faire", "a_tester_dev", "en_cours"],
+               skip: { a_tester_demandeur: "déjà en test chez toi" } },
+    etudier: { statuses: ["a_etudier_chiffrer", "etude_chiffrage_en_cours", "nouveau"],
+               skip: { a_faire: "déjà chiffré" } },
+  },
+  closable_statuses: ["a_mep", "a_tester_demandeur", "a_tester_dev", "en_mep"],
+  statuses: ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "ferme"],
+};
+const SEL2786 = [
+  { rm_id: "1", status: "nouveau" },
+  { rm_id: "2", status: "en_cours" },
+  { rm_id: "3", status: "a_tester_demandeur" },
+];
+
+// Les compteurs disent ce qui va PARTIR, pas le total coché.
+const nb = batchButtons(SEL2786, ["RM2"], CFG2786);
+assert.strictEqual(nb.etudier, 1, "« analyser » ne compte que le ticket à étudier");
+assert.strictEqual(nb.traiter, 2, "« traiter » ne compte pas le ticket déjà livré");
+assert.strictEqual(nb.atester, 1, "« à tester » ne compte pas ce qui n'est pas en cours");
+assert.strictEqual(nb.fermer, 1, "« fermer » ne compte que le livré");
+assert.strictEqual(nb.mr, 1, "« merger » ne compte que les tickets qui ONT une MR ouverte");
+// Le cas signalé : merger sans MR ne doit pas s'afficher.
+assert.strictEqual(batchButtons(SEL2786, [], CFG2786).mr, 0,
+  "aucune MR ouverte → aucun bouton merger");
+assert.strictEqual(batchButtons(SEL2786, ["2"], CFG2786).mr, 1,
+  "une ref sans préfixe RM est reconnue aussi");
+// Lot homogène déjà livré : plus rien à faire faire à l'agent.
+const livre = batchButtons([{ rm_id: "9", status: "a_tester_demandeur" }], [], CFG2786);
+assert.strictEqual(livre.traiter + livre.atester + livre.etudier, 0,
+  "sur un ticket déjà chez le demandeur, ni traiter ni à tester ni analyser");
+assert.strictEqual(livre.fermer, 1, "…seule la fermeture reste");
+// Statut inconnu : on n'ampute rien.
+const inconnu2786 = batchButtons([{ rm_id: "1", status: "zzz_2786" }], [], CFG2786);
+assert(inconnu2786.traiter === 1 && inconnu2786.fermer === 1,
+  "un statut inconnu laisse les actions proposées (le plan écartera avec sa raison)");
+assert.deepEqual(batchButtons([], [], CFG2786),
+  { traiter: 0, atester: 0, etudier: 0, fermer: 0, mr: 0 }, "sélection vide → rien");
+assert.doesNotThrow(() => batchButtons(null, null, null), "entrées molles tolérées");
+
+// Fermeture en lot : chaque écarté porte sa raison.
+const planClose = closeBatchPlan(SEL2786, CFG2786);
+assert.strictEqual(planClose.count, 1, "un seul fermable");
+assert.deepEqual(planClose.todo.map(t => t.rm_id), ["3"]);
+assert.strictEqual(planClose.skipped.length, 2, "les deux autres sont écartés");
+assert(planClose.skipped.every(t => t.why), "…chacun AVEC sa raison, jamais en silence");
+assert(planClose.skipped.find(t => t.rm_id === "2").why.includes("livré"),
+  "la raison dit pourquoi ce ticket-là ne se ferme pas");
+assert.strictEqual(closeBatchPlan([{ rm_id: "7", status: "zzz" }], CFG2786).skipped[0].why
+  .includes("zzz"), true, "un statut inconnu est écarté en le NOMMANT");
+
+// Verdicts de la fiche : un verdict porte sur du travail livré.
+assert.deepEqual(ticketVerdicts("en_cours", CFG2786), [],
+  "aucun verdict sur un ticket en cours — fermer ce qui n'est pas fait n'a pas de sens");
+assert.strictEqual(ticketVerdicts("a_tester_demandeur", CFG2786).length, 3,
+  "les trois verdicts sur un ticket livré");
+assert.deepEqual(ticketVerdicts("a_mep", CFG2786).map(v => v.kind), ["valider", "renvoyer"],
+  "une MEP déjà demandée ne se re-demande pas");
+assert.strictEqual(ticketVerdicts("statut_inconnu_2786", CFG2786).length, 3,
+  "statut inconnu : on n'ampute rien");
+assert.strictEqual(ticketVerdicts("", CFG2786).length, 3, "statut absent : idem");
+
+// Câblage : les deux nouveaux boutons et la source unique de la règle.
+["batch-etudier-btn", "batch-close-btn"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "bouton manquant : " + id));
+assert(/BATCH_MODES = \{[\s\S]*?etudier:/.test(html), "le mode `etudier` doit être connu du front");
+assert(/batchButtons\(items, refs, CFG\)/.test(html),
+  "l'affichage doit passer par la règle, pas par batchSel.size");
+assert(!/b\.textContent = "▶ traiter \(" \+ batchSel\.size/.test(html),
+  "l'ancien compteur (total coché) ne doit plus exister");
+console.log("✓ actions pertinentes (RM2786) : analyser, fermer, et rien qui ne puisse agir");
+
+// — RM2787 : depuis combien de temps une session s'est-elle tue —
+const agoHM = grabO("agoHM", { Date, Math, String });
+const maintenant2787 = Math.floor(Date.now() / 1000);
+assert.strictEqual(agoHM(maintenant2787 - 42), "42s", "sous la minute : les secondes");
+assert.strictEqual(agoHM(maintenant2787 - 12 * 60), "12min", "sous l'heure : les minutes");
+// Le cœur de la demande : « 2h » couvrait cinquante-neuf minutes d'incertitude.
+assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 14 * 60)), "2h14",
+  "au-delà de l'heure : heures ET minutes");
+assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 4 * 60)), "2h04",
+  "les minutes sont sur deux chiffres — « 2h4 » se lit mal");
+assert.strictEqual(agoHM(maintenant2787 - 3 * 3600), "3h",
+  "une heure pile ne s'encombre pas d'un « 00 »");
+assert.strictEqual(agoHM(maintenant2787 - 3 * 86400), "3j", "au-delà du jour, les jours");
+assert.strictEqual(agoHM(maintenant2787 + 500), "0s", "une date future ne rend pas un négatif");
+assert.strictEqual(agoHM(0), "", "absence d'horodatage → rien, pas « il y a 56 ans »");
+assert.strictEqual(agoHM(null), "", "…y compris null");
+// Le câblage : la donnée doit venir du serveur et être posée sur la tuile.
+assert(/#\{session_name\}/.test(fs.readFileSync(
+  path.join(__dirname, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")),
+  "le format tmux doit rester lisible côté serveur");
+assert(/s\.activity \? '<span class="tquiet"/.test(html),
+  "la tuile doit afficher le silence quand la session a une activité connue");
+assert(/dernière sortie il y a/.test(html),
+  "l'infobulle doit NOMMER la durée — « dernier message » promettrait autre chose");
+assert(/ago\(s\.created\)/.test(html),
+  "l'âge d'ouverture reste : les deux durées ne disent pas la même chose");
+console.log("✓ silence d'une session (RM2787) : heures et minutes, distinct de l'âge d'ouverture");

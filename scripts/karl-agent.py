@@ -57,6 +57,7 @@ API (JSON, localhost:9876)
   GET  /sessions[?engine=&client=&project=&ghosts=0]
                                 → [{rm_id, tmux, created, attached, engine?,
                                    session_id?, client?, project?,
+                                   activity (dernière sortie du terminal, RM2787),
                                    registry?{seq, machine, created, branches[],
                                    worktrees[]}, registry_conflicts?[]}]
                                   (RM1939 ; registre pm_session RM2166)
@@ -101,7 +102,18 @@ API (JSON, localhost:9876)
   GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
+  GET  /tickets/search?q=&status=&client=&project=&tag=&source=local|redmine|both
+                                → {results:[…{origin, synced}], source, redmine_error}
+                                  `source` : MD locaux (défaut), Redmine (tickets
+                                  pas encore fetchés), ou les deux fusionnés  (RM2770)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  GET  /client/<slug>           → fiche client : identité, statut, contacts,
+                                  valeurs par défaut, projets, projets utilisés,
+                                  docs  (RM2768)
+  GET  /conf?scope=client|project&client=&project=
+                                → {label, name, content, size} — `meta.yml`
+                                  INTÉGRAL. Le chemin est reconstruit depuis les
+                                  slugs validés, jamais reçu du client  (RM2768)
   GET  /ticket-sessions/<rm>    → {handled:[…], candidates:[…], live, own_alive}
                                   (RM2726 : sessions qui traitent le ticket —
                                   ancrage / registre / worklog — et sessions
@@ -200,6 +212,7 @@ from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: 
                            content_text as _content_text,
                            question_parts as _question_parts,
                            answer_parts as _answer_parts,
+                           usage_by_message as _usage_by_message,
                            QUESTION_TOOLS as _QUESTION_TOOLS)
 
 # ── Config (env, avec chargement .env léger pour rester stdlib-only) ──────────
@@ -850,7 +863,11 @@ def _log_path(rm_id: str) -> Path:
 def _list_sessions():
     rc, out, _ = _tmux(
         "list-sessions", "-F",
-        "#{session_name}\t#{session_created}\t#{session_attached}",
+        # RM2787 : `session_activity` — dernière SORTIE du terminal. C'est ce qui
+        # décide d'un geste (« muette depuis 2 h »), là où `session_created` ne
+        # dit que l'ancienneté. Un champ de plus dans une commande déjà passée à
+        # chaque poll : aucun appel supplémentaire.
+        "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_activity}",
     )
     if rc != 0:
         return []  # pas de serveur tmux = aucune session
@@ -872,6 +889,9 @@ def _list_sessions():
             "tmux": name,
             "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None,
             "attached": (len(parts) > 2 and parts[2] == "1"),
+            # `activity` est absent des tmux trop anciens pour ce format : None
+            # plutôt que 0, qui afficherait « il y a 56 ans » (RM2787).
+            "activity": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None,
         })
     return sessions
 
@@ -3691,24 +3711,34 @@ def _transcript_usage(lines) -> dict:
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
     cache_creation). `total` = entrée + sortie (RM2519 : le cache est
     complémentaire, hors total). Le dernier tour donne l'occupation de contexte
-    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier).
+
+    RM2628 : la somme est **dédupliquée par `message.id`** (`usage_by_message`,
+    règle partagée avec pm-task-tick). Sans elle, une réponse à N blocs de
+    contenu était comptée N fois — la conso et le coût affichés étaient gonflés
+    d'un facteur ≈ 2,3 sur une session d'agent réelle. `context_last`, lui,
+    n'était PAS touché : c'est une affectation du dernier tour, pas une somme,
+    et les lignes dupliquées portent la même valeur — d'où sa concordance avec
+    le `/context` de Claude Code, qui a servi à circonscrire le bug."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
-    turns = 0
     context_last = 0
     model = None
-    for line in lines:
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(obj, dict) or obj.get("type") != "assistant":
-            continue
-        msg = obj.get("message") or {}
-        if msg.get("model"):
-            model = msg["model"]            # RM2609 : modèle réel (dernier tour vu)
-        usage = msg.get("usage")
-        if not isinstance(usage, dict):
-            continue
+
+    def _assistant_messages():
+        for n, line in enumerate(lines):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "assistant":
+                continue
+            yield f"line-{n}", (obj.get("message") or {})
+
+    per_msg = _usage_by_message(_assistant_messages())
+    turns = len(per_msg)                    # tours = réponses, pas lignes du JSONL
+    for usage, m in per_msg.values():
+        if m:
+            model = m                       # RM2609 : modèle réel (dernier tour vu)
         i = usage.get("input_tokens", 0) or 0
         o = usage.get("output_tokens", 0) or 0
         cr = usage.get("cache_read_input_tokens", 0) or 0
@@ -3720,7 +3750,6 @@ def _transcript_usage(lines) -> dict:
         ctx = i + cr + cc                   # occupation de contexte de ce tour
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
-        turns += 1
     # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
     # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
     # relecture de contexte (souvent >90 %) et mélangerait des catégories aux
@@ -4041,6 +4070,10 @@ def worklog_buckets(items) -> dict:
 # re-résout qu'au plus 1×/60 s par session).
 _WORKLOG_LIVE_TTL = 60
 _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
+# RM2773 : réconciliation de l'état des MR. TTL bien plus long que le live map des
+# tickets — celui-ci lit des fichiers, celle-là interroge une forge par MR ouverte.
+_WORKLOG_MR_TTL = 600
+_worklog_mr_checked: dict = {}   # session_id → ts du dernier déclenchement
 
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
@@ -4113,6 +4146,38 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
     return live, now
 
 
+def _worklog_reconcile_mrs(session_id: str, mrs, force: bool = False) -> None:
+    """Déclenche, EN ARRIÈRE-PLAN, la réconciliation des MR ouvertes (RM2773).
+
+    Le worklog fige `mrs[].state` à l'écriture : une MR mergée depuis l'interface de
+    la forge, fermée automatiquement par elle, ou traitée par une autre session, reste
+    affichée « à merger » indéfiniment. On délègue à `pm-session-status.py mr
+    --reconcile`, qui possède le store et écrit l'état réel.
+
+    **Sans attendre** : chaque MR ouverte coûte un aller-retour réseau, et le worklog
+    est rendu à chaque rafraîchissement du cockpit. Bloquer dessus rendrait l'onglet
+    lent au mieux, figé si la forge ne répond pas. Le résultat est donc servi au
+    rafraîchissement suivant — un état périmé de quelques secondes de plus, contre une
+    UI qui ne dépend jamais de la disponibilité d'une forge.
+    """
+    if not mrs or not session_id:
+        return
+    now = time.time()
+    if not force and now - _worklog_mr_checked.get(session_id, 0) < _WORKLOG_MR_TTL:
+        return
+    _worklog_mr_checked[session_id] = now
+    script = Path(__file__).resolve().parent / "pm-session-status.py"
+    if not script.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script), "--session", session_id, "mr", "--reconcile"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except OSError:
+        pass                      # jamais fatal : le worklog s'affiche sans ça
+
+
 def _subtasks_status(refs) -> list:
     """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
     ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
@@ -4153,6 +4218,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     # RM2583 : les MR que la session a ouvertes et pas encore mergées.
     mrs = [m for m in (data.get("mrs") or [])
            if (m.get("state") or "opened") in ("opened", "open", "reopened")]
+    # RM2773 : ces états sont FIGÉS dans le store — on déclenche leur réalignement
+    # sur la forge (en tâche de fond, cf. docstring) avant de les servir.
+    _worklog_reconcile_mrs(session_id, mrs, force)
     # RM2581 : le worklog fige le statut à l'ouverture — on le résout en live.
     items = data.get("items")
     live, checked = _worklog_live_map(session_id, items, force)
@@ -4510,6 +4578,10 @@ def _batch_points(raw, limit=BATCH_POINTS_MAX):
 # Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
 # une étude se termine en validation, un dev se termine en test demandeur.
 BATCH_ACTIONS = {
+    # RM2786 : l'étude reste ici — un lot « traiter » sur un ticket pas encore
+    # chiffré doit continuer de faire ce qu'il faisait. Le bouton « analyser »
+    # (mode `etudier`) la propose SÉPARÉMENT, ce que l'UI ne pouvait pas faire
+    # tant que les deux vivaient dans la même table.
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
@@ -4556,12 +4628,74 @@ BATCH_ATESTER_SKIP = {
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
 }
 
+# RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
+# (estimation, critères d'acceptation, ROI). L'action existait déjà dans la table
+# « traiter », mais noyée : impossible de la proposer seule, et impossible de
+# savoir depuis l'UI si elle avait un sens pour la sélection.
+BATCH_ETUDIER = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+}
+BATCH_ETUDIER_SKIP = {
+    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+    "a_faire": "déjà chiffré et prêt à faire",
+    "en_cours": "déjà en cours de réalisation",
+    "a_corriger": "livré puis renvoyé : c'est une correction, pas une étude",
+    "a_tester_dev": "livré, en test agent",
+    "a_tester_demandeur": "livré, attend ton verdict",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
 # Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
 # lot (plafond, portée, envoi, garde de session) ne change pas.
 BATCH_MODES = {
     "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
     "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
+    "etudier": {"actions": BATCH_ETUDIER, "skip": BATCH_ETUDIER_SKIP},
 }
+
+
+#: Statuts d'où « fermer / résolu » a un sens : le travail est livré et attend
+#: un verdict ou une MEP. Fermer ailleurs, c'est clore ce qui n'a pas été fait.
+CLOSABLE_STATUSES = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+# >>> batch_modes_for — pure (testée par test_karl_agent_batch_actions.py)
+def batch_modes_for(statuses):
+    """RM2786 : pour une sélection de statuts, combien de tickets chaque mode
+    concerne — c'est ce qui décide des boutons à AFFICHER, et du compte à écrire
+    dessus.
+
+    Un lot est presque toujours mixte : le bouton s'affiche dès qu'un ticket le
+    justifie, et son compteur annonce les tickets CONCERNÉS, pas le total coché.
+    « traiter (3) » sur 5 sélectionnés dit la vérité ; « (5) » ment sur ce qui
+    va partir.
+
+    Un statut INCONNU compte pour tous les modes : mieux vaut un bouton de trop
+    qu'une action devenue inatteignable parce qu'un statut a changé de nom — le
+    plan de lot, lui, écartera le ticket avec sa raison.
+    """
+    connus = set()
+    for m in BATCH_MODES.values():
+        connus |= set(m["actions"]) | set(m["skip"])
+    out = {name: 0 for name in BATCH_MODES}
+    out["fermer"] = 0
+    for st in (statuses or []):
+        st = str(st or "").lower()
+        inconnu = st not in connus
+        for name, m in BATCH_MODES.items():
+            if inconnu or st in m["actions"]:
+                out[name] += 1
+        # « fermer / résolu » n'est pas une consigne à l'agent : c'est le verdict
+        # du demandeur sur un ticket LIVRÉ. Il n'a de sens que là.
+        if inconnu or st in CLOSABLE_STATUSES:
+            out["fermer"] += 1
+    return out
+# <<< batch_modes_for
 
 
 # >>> batch_plan — pure (testée par test_karl_agent_batch.py)
@@ -4641,12 +4775,22 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
     au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
     protocole de test, et interdit de bouger le statut d'un ticket dont le
     travail n'est pas réellement livré. La fin (worklog, notification, bilan)
-    est commune aux deux modes."""
+    est commune aux deux modes.
+
+    RM2762 — **à UN seul ticket il n'y a pas de lot**, et le mot disparaît. Tout le
+    cadre de série (« EN SÉRIE, dans cet ordre », « un ticket à la fois », « passe au
+    suivant », « bilan ticket par ticket », notification de fin de lot) n'a alors pas
+    d'objet : le garder noie l'unique consigne utile sous des règles qui ne
+    s'appliquent à rien. Ce qui est substantiel est conservé — protocole NORMS,
+    statut de fin, interdiction de forcer, portée restreinte."""
+    n = len(todo or [])
+    solo = n == 1
     lignes = []
     scoped = False
     for i, t in enumerate(todo or [], 1):
         titre = (" — " + t["title"]) if t.get("title") else ""
-        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+        puce = "" if solo else f"{i}. "      # rien à ordonner : pas de numérotation
+        lignes.append(f"{puce}RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
         pts = t.get("scope") or []
         if pts:
             scoped = True
@@ -4657,24 +4801,54 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
                 lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
                               "ici : reprends-les depuis la checklist du ticket.)")
     corps = "\n".join(lignes)
-    regle_scope = (
+    regle_scope = ((
+        "- à PORTÉE RESTREINTE, le ticket ne se clôture PAS et ne repart PAS au "
+        "demandeur : traite uniquement les points listés, ne coche que ces "
+        "critères-là, laisse-le en `en_cours` et dis en note ce qui reste ;\n"
+    ) if solo else (
         "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
         "demandeur : traite uniquement les points listés, ne coche que ces "
         "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
-    ) if scoped else ""
+    )) if scoped else ""
     # Fin commune : sans ces trois retours, un lot laisse le demandeur
     # surveiller des sessions pour savoir où ça en est.
+    # `--kind autre` et pas `--kind lot` : `lot` n'existe pas dans NOTIFY_KINDS
+    # (pm-session-status.py), la commande échouait donc telle qu'écrite (RM2762).
     fin = (
         "- consigne l'avancement du lot au worklog "
         "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
         "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
         "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
         "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
-        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "--kind autre \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
         "bilan ticket par ticket."
     )
-    n = len(todo or [])
+    # Fin SOLO : pas de notification de fin de lot — le statut de fin réattribue déjà
+    # au demandeur, et un « lot terminé : 1 rendu » n'apprend rien à personne.
+    solo_worklog = ("- consigne l'avancement au worklog "
+                    "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n")
+    solo_bloc = ("- s'il te bloque (question, dépendance, ambiguïté), NE FORCE PAS : consigne "
+                 "le blocage, laisse le ticket en l'état et dis-le dans ton compte rendu ;\n")
+    solo_cr = "- termine par un compte rendu : ce qui a été fait, ce qui reste."
+    fin_solo = solo_worklog + solo_bloc + solo_cr
+    # En mode « atester », la règle « travail non livré → ne force pas » couvre déjà
+    # le blocage : répéter NE FORCE PAS deux puces plus bas se lit comme du remplissage.
+    fin_solo_atester = solo_worklog + solo_cr
     if mode == "atester":
+        if solo:
+            return (
+                "Passe ce ticket « à tester » en appliquant le protocole worker "
+                "NORMS :\n"
+                f"{corps}\n\n"
+                "Règles :\n"
+                "- passer un ticket « à tester », c'est le LIVRER : il part avec sa "
+                "note de livraison ET son protocole de test (norme RM2229) — pas un "
+                "simple changement de statut ;\n"
+                "- si le travail n'est PAS réellement livré (branche non poussée, MR "
+                "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse "
+                "le statut en l'état et dis pourquoi ;\n"
+                f"{fin_solo_atester}"
+            )
         return (
             f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
             "protocole worker NORMS :\n"
@@ -4688,6 +4862,17 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
             "statut en l'état, dis pourquoi, passe au suivant ;\n"
             "- un ticket à la fois, jusqu'à son statut de fin ;\n"
             f"{fin}"
+        )
+    if solo:
+        return (
+            "Traite ce ticket en appliquant le protocole worker NORMS "
+            "(prise en charge, travail, livraison) :\n"
+            f"{corps}\n\n"
+            "Règles :\n"
+            "- il revient au demandeur par son statut de fin NORMS "
+            "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+            f"{regle_scope}"
+            f"{fin_solo}"
         )
     return (
         f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "
@@ -5230,6 +5415,19 @@ def _task_body(text: str) -> str:
     return text[end + 4:].strip() if end != -1 else ""
 
 
+def _mtime_iso(p: Path) -> str:
+    """Horodatage de dernière écriture du fichier, ISO minute (RM2630).
+
+    Filet quand `updated` du frontmatter n'a pas bougé (édition à la main) :
+    le front a besoin d'un repère de fraîcheur qui ne dépende pas de la
+    discipline des scripts.
+    """
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%dT%H:%M")
+    except (OSError, ValueError):
+        return ""
+
 # >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
 _CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
 
@@ -5358,6 +5556,12 @@ def op_resolve(rm_id: str) -> dict:
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
+        # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
+        # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été
+        # touché (édition à la main). Le front s'en sert pour révalider au retour
+        # sur un ticket et pour dater la version montrée.
+        "updated": str(pick("updated") or ""),
+        "mtime": _mtime_iso(tf),
         "description": _task_body(text)[:6000],
         # Protocole de test (RM2229) : champ canonique = frontmatter
         # `test_protocol` (miroir du CF Redmine, rédigé au fil de l'eau via
@@ -5443,6 +5647,142 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
         })
     out.sort(key=lambda r: -int(r["rm_id"]))
     return out[:limit]
+
+
+
+# ── RM2770 : recherche Redmine (tickets non encore synchronisés en local) ────
+# `op_search` ne voit que les MD. Un ticket créé côté Redmine et jamais fetché
+# est donc introuvable depuis le cockpit, alors qu'il existe et qu'il est
+# peut-être assigné. Cette source-ci le trouve et DIT s'il est synchronisé — le
+# cas d'usage étant précisément de repérer ce qui manque en local.
+
+def _norms_statuses() -> list:
+    """Statuts NORMS canoniques, dans l'ordre du flux. Source : `redmine_utils`
+    (référence partagée) ; repli sur l'ordre de lecture du cockpit si le module
+    n'est pas chargeable — un filtre vide vaut mieux qu'une page en erreur."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import redmine_utils as ru
+        noms = list(ru.status_ids().keys())
+    except Exception:  # noqa: BLE001
+        noms = []
+    ordre = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep",
+             "en_pause", "ferme", "annule"]
+    if not noms:
+        return ordre
+    rang = {v: i for i, v in enumerate(ordre)}
+    return sorted(noms, key=lambda v: (rang.get(v, len(ordre)), v))
+
+
+REDMINE_SEARCH_LIMIT = 50
+REDMINE_SEARCH_TIMEOUT = 10      # le cockpit ne doit pas rester pendu à une API
+
+
+def _redmine_project_id(client: str, project: str = None):
+    """`redmine.project_id` d'un projet, sinon `redmine.default_project_id` du
+    client. None si rien n'est déclaré — auquel cas on ne filtre pas plutôt que
+    d'inventer un identifiant (RM2219 : jamais de résolution approximative)."""
+    if project:
+        meta = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+        if meta.is_file():
+            try:
+                d = yaml_safe_load(meta.read_text(encoding="utf-8", errors="replace")) or {}
+            except Exception:  # noqa: BLE001
+                d = {}
+            rid = (d.get("redmine") or {}).get("project_id") if isinstance(d.get("redmine"), dict) else None
+            if rid:
+                return str(rid)
+        return None
+    return (_client_conf(client) or {}).get("client_redmine_project_id")
+
+
+def op_search_redmine(q="", status=None, client=None, project=None, limit=REDMINE_SEARCH_LIMIT) -> dict:
+    """Tickets Redmine correspondant à la requête, chacun marqué `synced`.
+
+    Retourne {results, error} : une panne côté Redmine (réseau, credentials,
+    HTTP) ne doit JAMAIS faire disparaître les résultats locaux — elle se dit à
+    côté d'eux. `redmine_utils` signale ses erreurs par `sys.exit()`, donc par
+    `SystemExit`, qui ne dérive PAS d'`Exception` : sans le capturer ici, la
+    requête mourrait sans réponse (même mécanisme que RM2749).
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    try:
+        import redmine_utils as ru
+    except Exception as e:  # noqa: BLE001
+        return {"results": [], "error": f"redmine_utils indisponible : {e}"}
+
+    params = {"sort": "updated_on:desc", "limit": min(int(limit or 25), 100)}
+    if status:
+        sid = ru.status_ids().get(status)
+        if sid:
+            params["status_id"] = sid
+        else:
+            params["status_id"] = "*"      # statut inconnu de Redmine : ne pas filtrer
+    else:
+        params["status_id"] = "*"          # sinon Redmine ne rend que les tickets OUVERTS
+    pid = _redmine_project_id(client, project) if client else None
+    if pid:
+        params["project_id"] = pid
+    q = (q or "").strip()
+    if q.isdigit():
+        params["issue_id"] = q             # un id se cherche par id, pas en plein texte
+    elif q:
+        params["subject"] = "~" + q        # `~` = contient (filtre natif Redmine)
+
+    try:
+        issues = ru.list_issues(params=params, limit=params["limit"],
+                                timeout=REDMINE_SEARCH_TIMEOUT)
+    except SystemExit as e:                # cf. docstring : sortie, pas exception
+        return {"results": [], "error": f"Redmine : {e}"}
+    except Exception as e:  # noqa: BLE001
+        return {"results": [], "error": f"Redmine injoignable : {type(e).__name__}: {e}"}
+
+    out = []
+    for it in issues or []:
+        rid = str(it.get("id") or "")
+        if not rid:
+            continue
+        tf = _find_task_file(rid)
+        cl, pr = _task_client_project(tf) if tf else (None, None)
+        out.append({
+            "rm_id": rid,
+            "title": it.get("subject") or "",
+            "status": (it.get("status") or {}).get("name") or "",
+            "priority": (it.get("priority") or {}).get("name") or "",
+            "client": cl or "", "project": pr or "",
+            "redmine_project": (it.get("project") or {}).get("name") or "",
+            "assigned_to": (it.get("assigned_to") or {}).get("name") or "",
+            "updated_on": it.get("updated_on") or "",
+            "tags": [], "origin": "redmine", "synced": bool(tf),
+        })
+    return {"results": out, "error": None}
+
+
+# >>> merge_search_results — pure (testée par test_karl_agent_search_source.py)
+def merge_search_results(locaux, distants):
+    """Fusionne les deux sources : un ticket présent des deux côtés apparaît UNE
+    fois, en gardant les données locales (le MD fait foi — c'est lui que le
+    système édite) enrichies de ce que seul Redmine sait. Tri par id décroissant."""
+    out, seen = [], {}
+    for r in (locaux or []):
+        e = dict(r); e.setdefault("origin", "local"); e["synced"] = True
+        seen[str(e.get("rm_id"))] = e
+        out.append(e)
+    for r in (distants or []):
+        rid = str(r.get("rm_id"))
+        if rid in seen:
+            e = seen[rid]
+            e["origin"] = "both"
+            for k in ("assigned_to", "updated_on", "redmine_project"):
+                if r.get(k) and not e.get(k):
+                    e[k] = r[k]
+            continue
+        out.append(dict(r))
+    out.sort(key=lambda r: -int(str(r.get("rm_id") or 0) or 0))
+    return out
+# <<< merge_search_results
 
 
 # ── RM1952 : triage ROI des tickets ouverts — prochaine action à plus fort levier ─
@@ -6515,6 +6855,120 @@ def op_tickets_brief(ids) -> dict:
             "client": client, "project": project,
         }
     return out
+
+
+
+# ── RM2768 : fiche client + confs (client, projet) pour le panneau central ───
+# Le client HTTP ne transmet JAMAIS de chemin : il donne des slugs, le serveur
+# résout. `/file` (RM2303) ne sert que des `.md` sous `projects/` avec une garde
+# lexicale — le `meta.yml` d'un client vit dans le core client, atteignable
+# seulement en traversant `..`, ce que cette garde interdit à juste titre.
+# Élargir `/file` aurait ouvert une lecture arbitraire du disque pour gagner
+# deux fichiers : ces deux fichiers ont donc leur route, qui ne lit qu'eux.
+
+def _client_meta_file(client: str):
+    """`meta.yml` du core client (parent du symlink `client`), ou None."""
+    cdir = PROJECTS_BASE / client / "client"
+    try:
+        meta = cdir.resolve().parent / "meta.yml"
+    except OSError:
+        return None
+    return meta if meta.is_file() else None
+
+
+def _client_docs(client: str) -> list:
+    """Documents du client (`client/*.md`), au format de `_project_docs`."""
+    cdir = PROJECTS_BASE / client / "client"
+    if not cdir.is_dir():
+        return []
+    out = []
+    for f in sorted(cdir.glob("*.md")):
+        try:
+            out.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
+        except ValueError:
+            continue          # hors de l'arbre servi : pas affichable par /file
+    return out
+
+
+def op_client(client: str) -> dict:
+    """RM2768 : fiche client — identité, contacts, valeurs par défaut, projets.
+
+    Les contacts viennent de `meta.yml :: contacts[]` (RM2702) ; ils ne sortent
+    pas d'ici : aucun mot de passe, token ni clé n'a sa place dans ce fichier
+    (les secrets vivent au vault, tripwire #11).
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    cdir = PROJECTS_BASE / client
+    if not cdir.is_dir():
+        raise ApiError(404, f"client inconnu en local : {client}")
+    meta = {}
+    mf = _client_meta_file(client)
+    if mf:
+        try:
+            meta = yaml_safe_load(mf.read_text(encoding="utf-8", errors="replace")) or {}
+        except Exception:  # noqa: BLE001
+            meta = {}       # conf illisible : la fiche reste servie, sans elle
+    projects = []
+    pdir = cdir / "projects"
+    if pdir.is_dir():
+        for d in sorted(pdir.glob("*")):
+            if d.is_dir():
+                projects.append({"project": d.name, "value": f"{client}/{d.name}"})
+    used = []
+    udir = cdir / "projects_used"
+    if udir.is_dir():
+        for d in sorted(udir.glob("*")):
+            used.append(d.name)
+    redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
+    rid = ((meta.get("redmine") or {}).get("default_project_id")
+           if isinstance(meta.get("redmine"), dict) else None)
+    return {
+        "client": client,
+        "name": meta.get("name") or client,
+        "status": meta.get("status") or "",
+        "type": meta.get("type") or "",
+        "created": str(meta.get("created") or ""),
+        "contacts": meta.get("contacts") or [],
+        "defaults": meta.get("defaults") or {},
+        "redmine_project_id": rid,
+        "redmine_project_url": f"{redmine}/projects/{rid}" if redmine and rid else "",
+        "projects": projects,
+        "projects_used": used,
+        "docs": _client_docs(client),
+        "has_conf": bool(mf),
+    }
+
+
+def op_conf(scope: str, client: str, project: str = None) -> dict:
+    """RM2768 : `meta.yml` INTÉGRAL d'un client ou d'un projet, en texte.
+
+    `scope` vaut `client` ou `project` ; le chemin est reconstruit depuis les
+    slugs validés, jamais reçu. Le texte est rendu tel quel : c'est de la
+    configuration, on la lit comme elle est écrite — la reformater masquerait
+    ce qui s'y trouve vraiment.
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    if scope == "client":
+        f = _client_meta_file(client)
+        label = f"{client} (client)"
+    elif scope == "project":
+        if not _PART_RE.match(project or ""):
+            raise ApiError(400, "projet invalide")
+        cand = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+        f = cand if cand.is_file() else None
+        label = f"{client}/{project}"
+    else:
+        raise ApiError(400, "scope attendu : client | project")
+    if not f:
+        raise ApiError(404, f"aucun meta.yml pour {label}")
+    try:
+        content = f.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise ApiError(500, f"lecture impossible : {e}")
+    return {"scope": scope, "client": client, "project": project or "",
+            "label": label, "name": f.name, "content": content, "size": len(content)}
 
 
 def op_list_projects() -> list:
@@ -9167,6 +9621,17 @@ class Handler(BaseHTTPRequestHandler):
                 "actions": _actions_catalog(),
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
+                # RM2770 : statuts NORMS pour le filtre de recherche — lus depuis
+                # la référence partagée (redmine_utils), jamais redupliqués ici.
+                "statuses": _norms_statuses(),
+                # RM2786 : quels statuts chaque mode de lot accepte. Le cockpit
+                # DÉCIDE des boutons à afficher avec ces tables — il ne les
+                # redéclare pas : deux copies de la règle, c'est deux vérités,
+                # et l'écart se voit d'abord chez l'utilisateur.
+                "batch_modes": {name: {"statuses": sorted(m["actions"]),
+                                       "skip": m["skip"]}
+                                for name, m in BATCH_MODES.items()},
+                "closable_statuses": sorted(CLOSABLE_STATUSES),
                 "engines": list(ENGINES),
                 # RM2539 (correctif) : moteurs dont les conversations sont à la
                 # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les
@@ -9270,10 +9735,28 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/tickets/search":
                 qs = parse_qs(parsed.query)
                 g = lambda k: qs[k][0] if k in qs else None  # noqa: E731
-                return self._send_json(200, {"results": op_search(
-                    g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
+                # RM2770 : `source` = local (défaut, comportement historique) |
+                # redmine | both. Une panne Redmine rend `error` SANS masquer les
+                # résultats locaux — on ne fait jamais disparaître ce qu'on a.
+                src = (g("source") or "local").lower()
+                if src not in ("local", "redmine", "both"):
+                    raise ApiError(400, "source attendue : local | redmine | both")
+                locaux = ([] if src == "redmine" else op_search(
+                    g("q") or "", g("status"), g("client"), g("project"), g("tag")))
+                dist = {"results": [], "error": None}
+                if src in ("redmine", "both"):
+                    dist = op_search_redmine(g("q") or "", g("status"), g("client"), g("project"))
+                return self._send_json(200, {
+                    "results": merge_search_results(locaux, dist["results"]),
+                    "source": src, "redmine_error": dist["error"]})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path.startswith("/client/"):        # RM2768 : fiche client
+                return self._send_json(200, op_client(path[len("/client/"):]))
+            if path == "/conf":                    # RM2768 : meta.yml client/projet
+                g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_conf(g.get("scope", ""), g.get("client", ""),
+                                                    g.get("project")))
             if path.startswith("/git/log/"):        # RM2602 : lecture seule
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))

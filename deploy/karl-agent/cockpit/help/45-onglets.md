@@ -34,6 +34,31 @@ porte tout ce qu'il faut pour recharger le contenu. Si la source a disparu entre
 (session fermée, fichier déplacé, email traité), l'onglet **le dit** : un panneau vide
 se lirait comme une panne du cockpit.
 
+## Revenir d'où l'on vient (historique)
+
+Trois boutons dans l'en-tête du cockpit : **←**, **→** et **🕘 historique**.
+
+Le cockpit retient l'ordre dans lequel tu as visité les vues. Ça change trois choses :
+
+- **Fermer un onglet te ramène à la vue précédente**, celle d'où tu venais — et
+  non plus à l'onglet voisin dans la barre. C'est ce qui rendait le retour
+  imprévisible : la destination dépendait de la position dans la barre, donc de
+  l'ordre où les vues avaient été ouvertes une fois pour toutes, jamais de ton
+  parcours. Ouvrir la fiche d'un ticket depuis une session puis refermer l'onglet
+  te ramène maintenant sur *cette* session.
+- **← / →** remontent et redescendent le parcours, comme dans un navigateur. `→`
+  reste disponible tant que tu n'as pas ouvert une nouvelle vue.
+- **🕘 historique** liste les vues visitées, la plus récente en tête : un clic y
+  retourne. Les vues fermées entre-temps y restent, grisées — les cacher ferait
+  croire que tu n'y es jamais passé.
+
+Une vue fermée n'est jamais rouverte par un retour : elle est **sautée**. Tu l'as
+fermée, te la remettre sous les yeux défairait ton geste. Et si rien de valide ne
+reste dans l'historique, la fermeture retombe sur l'ancien comportement (l'onglet
+voisin) — jamais sur rien.
+
+L'historique vit avec la page : il n'est pas sauvegardé d'une session à l'autre.
+
 ## Épinglé ou pas — la règle
 
 - Une vue que tu ouvres devient un onglet **temporaire** (en italique). Il n'y en a

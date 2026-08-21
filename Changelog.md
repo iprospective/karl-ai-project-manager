@@ -23,6 +23,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   alias). Et surtout, le glossaire est désormais **injecté au contexte des workers**
   (`worker-common.md` §5bis), plafonné à 1 500 tokens avec troncature annoncée : sans quoi un
   agent qui croise un terme qu'il ne connaît pas n'ouvre pas le glossaire, il suppose.
+- **Bouton « traiter » : à UN seul ticket, il n'y a plus de lot** (RM2762). La consigne
+  générée gardait tout le cadre de série — « EN SÉRIE, dans cet ordre », « un ticket à la
+  fois », « passe au suivant », « bilan ticket par ticket », notification de fin de lot —
+  pour un ticket unique : l'unique consigne utile se noyait sous des règles sans objet.
+  Le mot « lot » disparaît entièrement du cas solo (les deux modes, « traiter » et
+  « à tester ») ; ce qui est substantiel est conservé à l'identique (protocole NORMS,
+  statut de fin, interdiction de forcer, portée restreinte). À 2 tickets ou plus, rien ne
+  change. **Second défaut corrigé au passage** : la consigne prescrivait
+  `pm-session-status.py notify --kind lot`, or `lot` n'existe pas dans `NOTIFY_KINDS` — la
+  commande finale d'un lot **échouait telle qu'écrite**, quel que soit le nombre de
+  tickets. Un test vérifie désormais que le `--kind` prescrit est une valeur acceptée.
+- **« ⤢ au centre » échouait en « worktree hors du périmètre »** (RM2761) : ouvrir un
+  fichier au centre commence par **détacher** la session et fermer la fiche projet — or
+  la requête n'était construite qu'après, en relisant un contexte que ce détachement
+  venait de vider. Elle partait donc sans portée (`sid=` seul) et le serveur refusait le
+  worktree, à juste titre. La portée est désormais **capturée au clic**, transportée
+  avec la vue et mémorisée dans la clé d'onglet — donc rejouée à la réactivation et
+  après un rechargement de page. Elle garde les **deux** droits quand ils existent
+  (session *et* projet, dont le serveur fait l'union) : le `sid` couvre les worktrees
+  hors projet, `client/projet` survit à la mort de la session.
 - **Déverrouiller le coffre et charger une clé SSH depuis le cockpit** (RM2748) :
   le coffre de secrets se referme tout seul (inactivité, verrouillage nocturne,
   redémarrage) et l'agent SSH démarre vide. Jusqu'ici le cockpit ne savait que

@@ -16,6 +16,27 @@ hors de l'écran. Le nombre entre parenthèses dit ce qu'elle contient sans avoi
 Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
 prochain chargement. `✕ vider` remet la liste à zéro.
 
+## Rechercher — local, Redmine, ou les deux
+
+Sous le champ de recherche, quatre sélecteurs :
+
+- **Source.** `📁 local` (défaut) cherche dans les fichiers de tickets du PM.
+  `🌐 Redmine` interroge le tracker : c'est le seul moyen de trouver un ticket
+  **jamais fetché**, qui n'a donc aucun fichier local. `📁+🌐 les deux` fusionne,
+  sans doublon.
+- **Client**, **projet**, **statut.** Ils portent sur les deux sources. La liste
+  des projets suit le client choisi. Un filtre explicite l'emporte sur le
+  contexte client global : c'est le dernier choix fait qui vaut.
+
+Un résultat que le local ignore est marqué **« ⚠ pas en local »**, avec son projet
+Redmine et son assignation. Cliquer dessus ouvre le ticket **dans Redmine** : il
+n'a ni fichier ni branche, il n'y a rien à lancer ici. Pour le rapatrier :
+`redmine-fetch-task.py --issue <id>`.
+
+Si Redmine est injoignable (réseau, identifiants), les résultats **locaux restent
+affichés** et l'erreur s'écrit au-dessus. Une API en rade ne doit pas faire croire
+qu'un ticket a disparu.
+
 ## Ouvrir une fiche
 
 Clique un ticket pour sa **fiche** : titre, statut, description, dernière
@@ -52,6 +73,19 @@ Deux façons de lancer le travail depuis la fiche :
   ticket** viennent en tête ; les autres annoncent leur client/projet, et la
   confirmation le répète — envoyer un ticket dans une session qui travaille
   ailleurs reste possible, mais jamais par inadvertance.
+
+## Les actions, en bas de la fiche
+
+Un seul bloc **Actions**, filtré par le statut du ticket :
+
+- les **verdicts** (fermer, demander la MEP, renvoyer en correction) n'apparaissent
+  que sur un ticket **livré** — en test ou en attente de MEP. Un verdict porte sur
+  du travail livré ; le proposer sur un ticket en cours invite à fermer ce qui n'a
+  pas été fait. Sur un ticket déjà `a_mep`, « demander la MEP » disparaît : elle
+  est déjà demandée ;
+- les **actions PM** (passer en cours, commenter, mettre à jour la description…)
+  s'adressent à une session : elles restent grisées tant qu'aucune ne peut les
+  recevoir, et la ligne du dessous dit laquelle serait visée.
 
 ## Cycle de vie (statuts NORMS)
 

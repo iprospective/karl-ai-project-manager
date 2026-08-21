@@ -1339,6 +1339,12 @@ if (window.matchMedia) {
                       title="Merger la MR de chaque ticket coché dans la branche d'intégration (dev), via pm-mr">⇥ merger dev</button>
               <button class="mini" id="mr-prod-btn" style="display:none" onclick="openMrBatch('prod')"
                       title="Promouvoir en production : MR intégration → main (une par dépôt) — elle emporte tout dev, pas seulement les tickets cochés">⇥ merger prod</button>
+              <!-- RM2786 : l'étude était noyée dans « traiter » — impossible de la
+                   demander seule. Et la fermeture manquait tout court. -->
+              <button class="mini" id="batch-etudier-btn" style="display:none" onclick="openBatchPlan('etudier')"
+                      title="Faire étudier et chiffrer les tickets cochés (estimation, critères, ROI), puis soumettre l'étude à validation">🔍 analyser</button>
+              <button class="mini" id="batch-close-btn" style="display:none" onclick="openCloseBatch()"
+                      title="Fermer les tickets cochés (résolu) — ceux dont la checklist ou la branche s'y opposent seront listés avec leur raison">✅ fermer</button>
               <span class="cnt" id="workfresh"></span>
             </div>
             <div class="outbody" id="statebody">
@@ -5452,6 +5458,45 @@ function worklogProgressHtml(it, esc) {
 }
 // <<< worklogProgressHtml
 
+// >>> batchButtons — pur (RM2786, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Quels boutons de lot afficher, et avec quel compte. La RÈGLE ne vit pas ici :
+// elle vient des tables du serveur (`CFG.batch_modes`, `CFG.closable_statuses`),
+// seule source de vérité — une copie dans le front, c'est une seconde vérité,
+// et l'écart se voit d'abord chez l'utilisateur.
+//
+// Deux choix qui se voient à l'usage :
+//   - un lot est presque toujours MIXTE : un bouton s'affiche dès qu'un ticket
+//     le justifie, et son compteur annonce les tickets CONCERNÉS, pas le total
+//     coché — « traiter (3) » sur 5 dit ce qui va partir, « (5) » ment ;
+//   - un statut INCONNU compte partout : mieux vaut un bouton de trop qu'une
+//     action devenue inatteignable parce qu'un statut a changé de nom. Le plan
+//     de lot, lui, écartera le ticket avec sa raison.
+function batchButtons(items, mrRefs, cfg) {
+  const conf = cfg || {};
+  const modes = conf.batch_modes || {};
+  const closables = new Set(conf.closable_statuses || []);
+  const connus = new Set(closables);
+  for (const m of Object.values(modes)) {
+    (m.statuses || []).forEach(v => connus.add(v));
+    Object.keys(m.skip || {}).forEach(v => connus.add(v));
+  }
+  const mrs = new Set((mrRefs || []).map(r => String(r).replace(/^RM/, "")));
+  const out = { traiter: 0, atester: 0, etudier: 0, fermer: 0, mr: 0 };
+  for (const it of (items || [])) {
+    const st = String((it && it.status) || "").toLowerCase();
+    const rm = String((it && it.rm_id) || "").replace(/^RM/, "");
+    const inconnu = !connus.has(st);
+    for (const name of ["traiter", "atester", "etudier"]) {
+      const m = modes[name];
+      if (inconnu || (m && (m.statuses || []).indexOf(st) >= 0)) out[name]++;
+    }
+    if (inconnu || closables.has(st)) out.fermer++;
+    if (mrs.has(rm)) out.mr++;      // « merger » sans MR ouverte ne peut rien faire
+  }
+  return out;
+}
+// <<< batchButtons
+
 // ── RM2716 : sélection de tickets du worklog → traitement en série ───────────
 const batchSel = new Map();      // ref → {rm_id, status, title, points[]}
 const worklogPoints = {};        // RM2719 : ref → critères non cochés du ticket
@@ -5462,20 +5507,27 @@ function batchToggle(ref, status, title, on) {
                         points: wp.points || [], points_truncated: !!wp.points_truncated });
   }
   else batchSel.delete(ref);
-  const b = document.getElementById("batch-btn");
-  if (b) {
-    b.style.display = batchSel.size ? "" : "none";
-    b.textContent = "▶ traiter (" + batchSel.size + ")";
-  }
-  const bt = document.getElementById("batch-atester-btn");
-  if (bt) {
-    bt.style.display = batchSel.size ? "" : "none";
-    bt.textContent = "✔ à tester (" + batchSel.size + ")";
-  }
-  for (const [id, txt] of [["mr-dev-btn", "⇥ merger dev ("], ["mr-prod-btn", "⇥ merger prod ("]]) {
+  renderBatchButtons();
+}
+
+// RM2786 : un bouton qui ne peut rien faire coûte deux fois — on le lit, puis on
+// finit par l'essayer. Chacun n'apparaît que si la sélection le justifie.
+function renderBatchButtons() {
+  const items = [...batchSel.values()];
+  const refs = ((worklog && worklog.mrs_pending) || []).map(m => m && m.ref).filter(Boolean);
+  const n = batchButtons(items, refs, CFG);
+  const pose = (id, txt, compte) => {
     const e = document.getElementById(id);
-    if (e) { e.style.display = batchSel.size ? "" : "none"; e.textContent = txt + batchSel.size + ")"; }
-  }
+    if (!e) return;
+    e.style.display = (items.length && compte) ? "" : "none";
+    e.textContent = txt + " (" + compte + ")";
+  };
+  pose("batch-etudier-btn", "🔍 analyser", n.etudier);
+  pose("batch-btn", "▶ traiter", n.traiter);
+  pose("batch-atester-btn", "✔ à tester", n.atester);
+  pose("mr-dev-btn", "⇥ merger dev", n.mr);
+  pose("mr-prod-btn", "⇥ merger prod", n.mr);
+  pose("batch-close-btn", "✅ fermer", n.fermer);
 }
 // >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
@@ -5533,6 +5585,9 @@ let batchPlanCache = null;
 const BATCH_MODES = {
   traiter: { titre: "▶ Traiter", envoi: "▶ envoyer à la session", points: true },
   atester: { titre: "✔ Passer à tester", envoi: "✔ livrer et passer à tester", points: false },
+  // RM2786 : l'étude ne se découpe pas en points — on ne chiffre pas la moitié
+  // d'un ticket.
+  etudier: { titre: "🔍 Analyser (étude + chiffrage)", envoi: "🔍 envoyer à la session", points: false },
 };
 async function openBatchPlan(mode) {
   if (!attached) { toast("aucune session attachée", true); return; }
@@ -5604,6 +5659,105 @@ function mrBatchHtml(plan, esc) {
 // <<< mrBatchHtml
 
 let mrBatchCache = null;
+// >>> closeBatchPlan — pur (RM2786, testé par test_cockpit.js)
+// Qui peut être fermé, et qui est écarté AVEC sa raison — même contrat que les
+// autres lots : rien ne part sans que le tableau ait été lu. Les raisons
+// viennent des tables du serveur, pas d'une liste écrite ici.
+function closeBatchPlan(items, cfg) {
+  const conf = cfg || {};
+  const closables = new Set(conf.closable_statuses || []);
+  const raisons = {
+    nouveau: "pas encore pris en charge : rien à fermer",
+    a_etudier_chiffrer: "à étudier : rien n'a encore été livré",
+    etude_chiffrage_en_cours: "étude en cours",
+    etude_chiffrage_a_valider: "étude rendue : elle se valide, elle ne se ferme pas ici",
+    a_faire: "pas encore traité",
+    en_cours: "en cours de réalisation : rien n'a été livré",
+    a_corriger: "renvoyé en correction",
+    en_pause: "en pause",
+    ferme: "déjà fermé",
+    annule: "annulé",
+  };
+  const todo = [], skipped = [];
+  for (const it of (items || [])) {
+    const st = String((it && it.status) || "").toLowerCase();
+    const e = { rm_id: String((it && it.rm_id) || "").replace(/^RM/, ""),
+                title: (it && it.title) || "", status: st || "?" };
+    if (closables.has(st)) todo.push(e);
+    else skipped.push(Object.assign({}, e, { why: raisons[st] || "statut " + (st || "?") + " : hors du champ d'une fermeture" }));
+  }
+  return { todo, skipped, count: todo.length };
+}
+// <<< closeBatchPlan
+
+let closeBatchCache = null;
+
+async function openCloseBatch() {
+  if (!batchSel.size) return;
+  closeBatchCache = closeBatchPlan([...batchSel.values()], CFG);
+  const p = closeBatchCache;
+  document.getElementById("doctitle").textContent =
+    "✅ Fermer " + p.count + " ticket(s) — résolu";
+  const el = document.getElementById("doccontent");
+  el.className = "";
+  let h = '<div class="bp">';
+  h += p.todo.length
+    ? '<h4>Seront fermés (' + p.todo.length + ")</h4>"
+      + p.todo.map(t => '<div class="bp-row"><b>RM' + esc(t.rm_id) + "</b> "
+          + esc(t.title) + ' <span class="pill">' + esc(t.status) + "</span></div>").join("")
+    : '<div class="empty">aucun ticket fermable dans la sélection</div>';
+  if (p.skipped.length) {
+    h += "<h4>Écartés (" + p.skipped.length + ")</h4>"
+      + p.skipped.map(t => '<div class="bp-row" style="opacity:.75"><b>RM' + esc(t.rm_id)
+          + "</b> " + esc(t.title) + ' <span style="color:var(--warn)">— ' + esc(t.why)
+          + "</span></div>").join("");
+  }
+  // Ce que le lot NE fait pas : forcer. Un refus du script (checklist non cochée,
+  // branche non mergée) demande un arbitrage — il se prend ticket par ticket,
+  // depuis la fiche, où l'écran sait proposer le forçage explicite.
+  h += '<div class="bp-hint" style="margin-top:8px">Chaque fermeture passe par '
+    + "<code>pm-task-status-update</code>. Un ticket refusé (checklist non cochée, "
+    + "branche non mergée) reste ouvert et sera listé : il se traite depuis sa fiche, "
+    + "où le forçage se demande explicitement.</div></div>";
+  el.innerHTML = h + '<div style="display:flex;gap:8px;margin-top:12px">'
+    + (p.count ? '<button class="primary" onclick="sendCloseBatch(this)">✅ fermer maintenant</button>' : "")
+    + '<button class="mini" onclick="closeDoc()">annuler</button></div>';
+  document.getElementById("docmodal").classList.add("show");
+}
+
+async function sendCloseBatch(btn) {
+  if (!closeBatchCache || !closeBatchCache.count) return;
+  const note = window.prompt("Note de fermeture (commune aux "
+    + closeBatchCache.count + " tickets) :", "Testé et validé.");
+  if (note === null) return;
+  btn.disabled = true;
+  const ok = [], ko = [];
+  for (const t of closeBatchCache.todo) {
+    btn.textContent = "✅ fermeture… (" + (ok.length + ko.length + 1) + "/" + closeBatchCache.count + ")";
+    try {
+      const r = await pmRun("task-status", { rm_id: t.rm_id, status: "ferme",
+        close_reason: "resolu", note: note || "Testé et validé." }, { confirm: true });
+      if (r.ok) ok.push(t.rm_id);
+      else ko.push({ rm_id: t.rm_id, why: ((r.stderr || r.stdout || "").trim().split("\n").pop() || "refus") });
+    } catch (e) { ko.push({ rm_id: t.rm_id, why: e.message }); }
+  }
+  closeDoc();
+  toast(ko.length ? ok.length + " fermé(s), " + ko.length + " refusé(s)"
+                  : "✅ " + ok.length + " ticket(s) fermé(s)", !!ko.length);
+  if (ko.length) {
+    // Un refus ne se résume pas à un compteur : il porte ce qu'il faut faire.
+    document.getElementById("doctitle").textContent = "Fermetures refusées (" + ko.length + ")";
+    document.getElementById("doccontent").innerHTML = '<div class="bp">'
+      + ko.map(k => '<div class="bp-row"><b>RM' + esc(k.rm_id) + '</b> <span style="color:var(--warn)">'
+          + esc(k.why) + "</span></div>").join("")
+      + '<div class="bp-hint" style="margin-top:8px">À reprendre depuis la fiche de chaque '
+      + "ticket : le forçage (checklist, branche) s'y demande explicitement.</div></div>";
+    document.getElementById("docmodal").classList.add("show");
+  }
+  batchSel.clear(); batchToggle();
+  loadWorklog(true);
+}
+
 async function openMrBatch(mode) {
   if (!batchSel.size) return;
   const items = [...batchSel.values()].map(it => ({ rm_id: it.rm_id }));
@@ -9077,24 +9231,37 @@ function renderReviewPane() {
           : '<div style="color:var(--muted)">vérification de la mergeabilité en cours…</div>') +
       '</div>';
   }
-  // — RM2720 : actions PM DU TICKET (elles vivaient au bas de la session) —
+  // — RM2786 : UN SEUL bloc d'actions en bas de fiche, filtré par le statut.
+  // Les « Actions PM » et le « Verdict » vivaient dans deux blocs séparés, et le
+  // verdict s'affichait sur n'importe quel statut — y compris sur un ticket
+  // qu'on n'a pas encore livré, où « testé OK → fermer » n'a aucun sens.
+  const statutRm = String((r && r.found && r.status) || "").toLowerCase();
   const pmActs = (CFG.actions || []).filter(a => a.ticket_only);
-  if (pmActs.length) {
-    const tgt = pmActionTarget(rm, sessCache, attached);
-    h += '<div class="ms"><h4>Actions PM</h4><div class="rels">'
-      + pmActs.map((a, i) => '<button class="chip"' + (tgt.sid ? "" : " disabled")
-          + ' title="' + esc(String(a.text || "").replaceAll("{id}", rm)) + '"'
-          + ' onclick="sendPmAction(' + i + ',' + jarg(String(rm)) + ',this)">'
-          + esc(a.label) + "</button>").join(" ")
-      + '</div><div style="color:var(--muted);font-size:11px;margin-top:4px">'
-      + esc(tgt.why) + "</div></div>";
+  const tgt = pmActionTarget(rm, sessCache, attached);
+  const verdicts = ticketVerdicts(statutRm, CFG);
+  if (pmActs.length || verdicts.length) {
+    h += '<div class="ms"><h4>Actions</h4>';
+    if (verdicts.length) {
+      h += '<div class="rels">' + verdicts.map(v =>
+        '<button class="chip" onclick="tqVerdict(' + jarg(String(rm)) + ',' + jarg(v.kind) + ',this)">'
+        + esc(v.label) + "</button>").join(" ") + "</div>";
+    }
+    if (pmActs.length) {
+      h += '<div class="rels" style="margin-top:6px">'
+        + pmActs.map((a, i) => '<button class="chip"' + (tgt.sid ? "" : " disabled")
+            + ' title="' + esc(String(a.text || "").replaceAll("{id}", rm)) + '"'
+            + ' onclick="sendPmAction(' + i + ',' + jarg(String(rm)) + ',this)">'
+            + esc(a.label) + "</button>").join(" ")
+        + '</div><div style="color:var(--muted);font-size:11px;margin-top:4px">'
+        + esc(tgt.why) + "</div>";
+    }
+    if (!verdicts.length) {
+      h += '<div style="color:var(--muted);font-size:11px;margin-top:4px">'
+        + "Aucun verdict à rendre sur un ticket « " + esc(statutRm || "?")
+        + " » — un verdict porte sur du travail livré.</div>";
+    }
+    h += "</div>";
   }
-  // — verdict —
-  h += '<div class="ms"><h4>Verdict</h4><div class="rels">' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'valider\', this)">✅ testé OK → fermer</button>' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'mep\', this)">🚧 testé OK → demander la MEP</button>' +
-    '<button class="chip" onclick="tqVerdict(\'' + esc(rm) + '\', \'renvoyer\', this)">↩ KO → renvoyer en correction</button>' +
-    '</div></div>';
   h += '</div>';
   pane.innerHTML = h;
 }
@@ -9278,6 +9445,27 @@ async function tqDeployShared(rm, btn) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
+// >>> ticketVerdicts — pur (RM2786, testé par test_cockpit.js)
+// Quels verdicts ont un sens pour ce statut. Un verdict porte sur du travail
+// LIVRÉ : le proposer sur un ticket en cours invite à fermer ce qui n'a pas été
+// fait. Statut inconnu ⇒ on propose tout : mieux vaut un bouton de trop qu'une
+// action inatteignable parce qu'un statut a changé de nom.
+function ticketVerdicts(status, cfg) {
+  const st = String(status || "").toLowerCase();
+  const closables = new Set((cfg && cfg.closable_statuses) || []);
+  const connu = st && ((cfg && (cfg.statuses || [])).indexOf(st) >= 0);
+  const tous = [
+    { kind: "valider", label: "✅ testé OK → fermer" },
+    { kind: "mep", label: "🚧 testé OK → demander la MEP" },
+    { kind: "renvoyer", label: "↩ KO → renvoyer en correction" },
+  ];
+  if (!connu) return tous;                       // statut inconnu : on n'ampute rien
+  if (!closables.has(st)) return [];             // rien de livré : aucun verdict
+  // Une MEP déjà demandée ou en cours ne se re-demande pas.
+  return (st === "a_mep" || st === "en_mep") ? tous.filter(v => v.kind !== "mep") : tous;
+}
+// <<< ticketVerdicts
+
 const _TQ_VERDICTS = {
   valider:  { status: "ferme", label: "Compte-rendu de validation", extra: { close_reason: "resolu" },
               def: "Validé via la console de test du cockpit." },

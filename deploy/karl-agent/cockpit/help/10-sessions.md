@@ -15,6 +15,17 @@ ouvertes · en **attention** (⚠ elles attendent une réponse) · au repos.
 - **🔊 voix** : annonce à voix haute chaque session qui passe en attente et lit
   sa question (synthèse vocale du navigateur).
 
+Chaque tuile porte **deux durées**, qui ne disent pas la même chose : le nombre
+qui suit le titre est l'**âge** de la session (depuis son ouverture), et le
+**⏳** le temps écoulé depuis sa **dernière sortie** — depuis quand elle n'a rien
+produit. C'est la seconde qui décide d'un geste : ouverte depuis cinq heures et
+active il y a trente secondes, une session n'appelle rien ; muette depuis
+`2h14`, si. L'infobulle nomme les deux.
+
+Précision : ⏳ mesure la dernière sortie du **terminal**, pas le dernier message
+d'une conversation. Pour une session d'agent les deux coïncident en pratique —
+l'agent écrit quand il travaille et se tait quand il attend.
+
 ## Panneau « 🚀 sessions »
 
 Gère des **jeux de sessions** enregistrés (un ensemble de sessions à relancer

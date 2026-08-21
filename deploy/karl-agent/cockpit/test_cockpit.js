@@ -3154,3 +3154,31 @@ assert(/batchButtons\(items, refs, CFG\)/.test(html),
 assert(!/b\.textContent = "▶ traiter \(" \+ batchSel\.size/.test(html),
   "l'ancien compteur (total coché) ne doit plus exister");
 console.log("✓ actions pertinentes (RM2786) : analyser, fermer, et rien qui ne puisse agir");
+
+// — RM2787 : depuis combien de temps une session s'est-elle tue —
+const agoHM = grabO("agoHM", { Date, Math, String });
+const maintenant2787 = Math.floor(Date.now() / 1000);
+assert.strictEqual(agoHM(maintenant2787 - 42), "42s", "sous la minute : les secondes");
+assert.strictEqual(agoHM(maintenant2787 - 12 * 60), "12min", "sous l'heure : les minutes");
+// Le cœur de la demande : « 2h » couvrait cinquante-neuf minutes d'incertitude.
+assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 14 * 60)), "2h14",
+  "au-delà de l'heure : heures ET minutes");
+assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 4 * 60)), "2h04",
+  "les minutes sont sur deux chiffres — « 2h4 » se lit mal");
+assert.strictEqual(agoHM(maintenant2787 - 3 * 3600), "3h",
+  "une heure pile ne s'encombre pas d'un « 00 »");
+assert.strictEqual(agoHM(maintenant2787 - 3 * 86400), "3j", "au-delà du jour, les jours");
+assert.strictEqual(agoHM(maintenant2787 + 500), "0s", "une date future ne rend pas un négatif");
+assert.strictEqual(agoHM(0), "", "absence d'horodatage → rien, pas « il y a 56 ans »");
+assert.strictEqual(agoHM(null), "", "…y compris null");
+// Le câblage : la donnée doit venir du serveur et être posée sur la tuile.
+assert(/#\{session_name\}/.test(fs.readFileSync(
+  path.join(__dirname, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")),
+  "le format tmux doit rester lisible côté serveur");
+assert(/s\.activity \? '<span class="tquiet"/.test(html),
+  "la tuile doit afficher le silence quand la session a une activité connue");
+assert(/dernière sortie il y a/.test(html),
+  "l'infobulle doit NOMMER la durée — « dernier message » promettrait autre chose");
+assert(/ago\(s\.created\)/.test(html),
+  "l'âge d'ouverture reste : les deux durées ne disent pas la même chose");
+console.log("✓ silence d'une session (RM2787) : heures et minutes, distinct de l'âge d'ouverture");

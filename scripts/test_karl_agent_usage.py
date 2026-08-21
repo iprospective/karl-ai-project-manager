@@ -58,6 +58,33 @@ check("entrée ≠ sortie (différenciées)", u["input"] != u["output"])
 check("contexte courant ignore un tour final à contexte nul",
       ka._transcript_usage([_asst(200, 40, 10, 0), _asst(0, 15, 0, 0)])["context_last"] == 210)
 
+# — RM2628 : une réponse écrite une fois par bloc de contenu ne compte qu'UNE fois —
+def _asst_id(mid, i, o, cr=0, cc=0):
+    return _l({"type": "assistant", "message": {"id": mid, "usage": {
+        "input_tokens": i, "output_tokens": o,
+        "cache_read_input_tokens": cr, "cache_creation_input_tokens": cc}}})
+
+
+# Le JSONL écrit la MÊME réponse une fois par bloc (thinking, texte, tool_use),
+# chaque ligne portant l'usage complet : sans dédup, ×3 sur la conso et le coût.
+d = ka._transcript_usage([_asst_id("msg_a", 100, 30, 5, 2)] * 3)
+check("RM2628 : 3 blocs d'une même réponse → sortie comptée une fois", d["output"] == 30)
+check("RM2628 : idem pour l'entrée", d["input"] == 100)
+check("RM2628 : idem pour le cache", d["cache_read"] == 5 and d["cache_creation"] == 2)
+check("RM2628 : tours = réponses, pas lignes du JSONL", d["turns"] == 1)
+check("RM2628 : contexte courant inchangé par la duplication",
+      d["context_last"] == 100 + 5 + 2)
+# Deux réponses distinctes, chacune dupliquée : les deux comptent, une fois chacune.
+d2 = ka._transcript_usage([_asst_id("msg_a", 100, 30), _asst_id("msg_a", 100, 30),
+                           _asst_id("msg_b", 200, 40), _asst_id("msg_b", 200, 40)])
+check("RM2628 : réponses distinctes toutes comptées", d2["output"] == 70 and d2["turns"] == 2)
+# Retry API : même id réémis avec un usage corrigé → on garde le dernier.
+d3 = ka._transcript_usage([_asst_id("msg_a", 100, 30), _asst_id("msg_a", 100, 55)])
+check("RM2628 : retry (même id) → dernier usage retenu", d3["output"] == 55)
+# Sans id (lignes synthétiques) : pas de fusion abusive, chaque ligne compte.
+d4 = ka._transcript_usage([_asst(10, 5), _asst(10, 5)])
+check("RM2628 : messages sans id non fusionnés", d4["output"] == 10 and d4["turns"] == 2)
+
 # — bornages : transcript vide / sans tour assistant valide —
 z = ka._transcript_usage([])
 check("vide → tout à zéro", z["total"] == 0 and z["turns"] == 0 and z["context_last"] == 0)

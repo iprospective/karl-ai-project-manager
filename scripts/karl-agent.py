@@ -207,6 +207,7 @@ from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: 
                            content_text as _content_text,
                            question_parts as _question_parts,
                            answer_parts as _answer_parts,
+                           usage_by_message as _usage_by_message,
                            QUESTION_TOOLS as _QUESTION_TOOLS)
 
 # ── Config (env, avec chargement .env léger pour rester stdlib-only) ──────────
@@ -3698,24 +3699,34 @@ def _transcript_usage(lines) -> dict:
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
     cache_creation). `total` = entrée + sortie (RM2519 : le cache est
     complémentaire, hors total). Le dernier tour donne l'occupation de contexte
-    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier).
+
+    RM2628 : la somme est **dédupliquée par `message.id`** (`usage_by_message`,
+    règle partagée avec pm-task-tick). Sans elle, une réponse à N blocs de
+    contenu était comptée N fois — la conso et le coût affichés étaient gonflés
+    d'un facteur ≈ 2,3 sur une session d'agent réelle. `context_last`, lui,
+    n'était PAS touché : c'est une affectation du dernier tour, pas une somme,
+    et les lignes dupliquées portent la même valeur — d'où sa concordance avec
+    le `/context` de Claude Code, qui a servi à circonscrire le bug."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
-    turns = 0
     context_last = 0
     model = None
-    for line in lines:
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(obj, dict) or obj.get("type") != "assistant":
-            continue
-        msg = obj.get("message") or {}
-        if msg.get("model"):
-            model = msg["model"]            # RM2609 : modèle réel (dernier tour vu)
-        usage = msg.get("usage")
-        if not isinstance(usage, dict):
-            continue
+
+    def _assistant_messages():
+        for n, line in enumerate(lines):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "assistant":
+                continue
+            yield f"line-{n}", (obj.get("message") or {})
+
+    per_msg = _usage_by_message(_assistant_messages())
+    turns = len(per_msg)                    # tours = réponses, pas lignes du JSONL
+    for usage, m in per_msg.values():
+        if m:
+            model = m                       # RM2609 : modèle réel (dernier tour vu)
         i = usage.get("input_tokens", 0) or 0
         o = usage.get("output_tokens", 0) or 0
         cr = usage.get("cache_read_input_tokens", 0) or 0
@@ -3727,7 +3738,6 @@ def _transcript_usage(lines) -> dict:
         ctx = i + cr + cc                   # occupation de contexte de ce tour
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
-        turns += 1
     # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
     # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
     # relecture de contexte (souvent >90 %) et mélangerait des catégories aux

@@ -6403,8 +6403,8 @@ function usageHtml(rmId) {
     const tp = reg.created ? throughput(u.total, m && m.cost_usd, Date.parse(reg.created), Date.now()) : null;
     inner =
       '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
-      '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(u.input) + '</span></div>' +
-      '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(u.output) + '</span></div>' +
+      '<div class="kv"><span class="k">↳ entrée<span style="color:var(--muted)"> (hors cache)</span></span><span class="v" title="entrée NON cachée seulement. Tout ce qui est relu à chaque tour (NORMS, historique, résultats d\'outils) est compté sur la ligne « cache lu / écrit » — RM2628">' + fmtTokens(u.input) + '</span></div>' +
+      '<div class="kv"><span class="k">↳ sortie</span><span class="v" title="tokens générés par l\'agent, raisonnement compris — une réponse est comptée une fois, pas une fois par bloc de contenu (RM2628)">' + fmtTokens(u.output) + '</span></div>' +
       '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
       '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + (cp != null ? ' <span style="color:var(--muted)">(' + cp + '% de ' + fmtWin(w) + ')</span>' : '') + '</span></div>' +
       '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>' +

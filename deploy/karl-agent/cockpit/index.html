@@ -233,6 +233,8 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2787 : silence d'une session — lisible, mais après le titre */
+  .tquiet { font-size: 10px; color: var(--muted); white-space: nowrap; flex: none; }
   /* RM2776 : panneau d'historique — flottant sous le header, au-dessus du reste */
   #histbox { position: fixed; top: 42px; right: 12px; z-index: 60; width: 320px;
     max-height: 60vh; overflow-y: auto; background: var(--panel);
@@ -1602,6 +1604,24 @@ function ttydUrl(rmId) {
   const base = CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
   return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId);
 }
+// >>> agoHM — pur (RM2787, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Délai en heures ET minutes : `ago()` tronque à l'heure, et « 2h » couvre
+// cinquante-neuf minutes d'incertitude — de quoi hésiter à relancer une session
+// ou non. Sous l'heure, les minutes suffisent ; au-delà du jour, l'heure exacte
+// n'apporte plus rien.
+function agoHM(ts) {
+  if (!ts) return "";
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+  if (s < 60) return s + "s";
+  if (s < 3600) return Math.floor(s / 60) + "min";
+  if (s < 86400) {
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+    return m ? h + "h" + String(m).padStart(2, "0") : h + "h";
+  }
+  return Math.floor(s / 86400) + "j";
+}
+// <<< agoHM
+
 function ago(ts) {
   if (!ts) return "";
   const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
@@ -1905,6 +1925,11 @@ async function refreshSessions() {
           '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
           (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
           '<span class="rmeta">' + titleLink(s.rm_id, title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
+          // RM2787 : depuis combien de temps la session n'a rien produit — c'est
+          // ce qui décide d'un geste, là où l'âge d'ouverture ne dit que
+          // l'ancienneté. Le sablier le distingue du second nombre voisin.
+          (s.activity ? '<span class="tquiet" title="Dernière sortie du terminal il y a '
+            + esc(agoHM(s.activity)) + '">⏳' + esc(agoHM(s.activity)) + "</span>" : "") +
           badge + auto + stale +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
           // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
@@ -6997,6 +7022,7 @@ function tabTip(s) {
   if (r && r.found) t = "RM" + s.rm_id + " — " + (r.title || "") + "\n" + r.client + "/" + r.project +
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
+  if (s.activity) t += "\ndernière sortie il y a " + agoHM(s.activity);   // RM2787
   if (s.attached) t += " · attaché";
   if (s.state === "attention") t += "\n⚠ demande une réponse OUI/NON (permission/question)";
   else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";

@@ -80,7 +80,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 7. **Filtrage IA.** Tout ticket créé depuis le système PM porte le CF `IA = "IA"` (posé par les outils au POST). Pas de MD local sans CF IA. → `modules/redmine-reference.md`
 8. **Estimation.** Estimer (tokens + temps) **à la création** d'une tâche, et **à la prise** si l'estimation manque. → `modules/roi-pricing.md`
 9. **Description vivante.** Si le ticket a une **checklist** ou un état décrit en prose : la tenir à jour **dans la description** (pas seulement en note), + `done_ratio` au fil de l'eau. → `modules/redmine-hygiene.md`
-10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. **Point de restauration préalable** : si la cible tourne sur une infra **opensvc / LXC / ZFS**, prendre le **snapshot ZFS du conteneur depuis l'hôte AVANT la MEP** (`om <svc> sync update --rid sync#root_hour`) — il tient lieu de sauvegarde préalable (pas de dump applicatif ad hoc en plus), et son nom se logue avec la procédure de rollback. → `modules/git-mep.md`
+10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. **Point de restauration préalable** : si la cible tourne sur une infra **opensvc / LXC / ZFS**, prendre le **snapshot ZFS du conteneur depuis l'hôte AVANT la MEP** (`om <svc> sync update --rid sync#root_hour --force` — **sans `--force` la commande ne prend rien en rendant `rc=0`**, cf. RM2771 ; **vérifier que le snapshot existe** avant de continuer) — il tient lieu de sauvegarde préalable (pas de dump applicatif ad hoc en plus), et son nom se logue avec la procédure de rollback. → `modules/git-mep.md`
 11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le secret de déverrouillage d'un vault (master password, passphrase). → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
@@ -2169,11 +2169,17 @@ conteneur. Le snapshot est pris **depuis l'hôte** (nœud sur lequel le service 
 cf. `om <svc> print status`), pas depuis le conteneur :
 
 ```bash
-om <svc> sync update --rid sync#root_hour     # déclenche la ressource zfssnap "hourly"
-om <svc> sync all    --rid sync#root_hour     # variante : toutes les actions de sync de la ressource
+om <svc> sync update --rid sync#root_hour --force   # déclenche la ressource zfssnap "hourly"
 ```
 
-Vérifier que le snapshot existe avant de continuer :
+⚠ **`--force` n'est pas décoratif** (RM2771) : sans lui, la ressource respecte son
+`schedule` (`@60`) et considère qu'il n'y a rien à faire — la commande **rend `rc=0`
+sans prendre le moindre snapshot**, et un `--dry-run` annonce pourtant l'action. On
+croit alors avoir un point de restauration qui n'existe pas, ce qui est pire que de
+savoir qu'on n'en a pas.
+
+D'où la vérification, qui est le **vrai** contrôle et non une formalité — le snapshot
+attendu porte l'horodatage de l'instant, pas celui du dernier passage du scheduler :
 `zfs list -t snapshot -o name,creation -s creation | grep '<dataset>@hourly'`.
 
 **Ce snapshot tient lieu de sauvegarde préalable** : il couvre le rollback complet du

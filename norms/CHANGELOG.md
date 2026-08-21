@@ -13,6 +13,17 @@
   est un piège : le CF n'est activé que sur le tracker « Tâche », et ailleurs Redmine
   accepte la valeur puis la jette en silence. (RM2772)
 
+### Corrigé
+- **KERNEL (tripwire #10) et git-mep-pratique** — la commande de point de restauration
+  avant MEP était documentée **sans `--force`** : ainsi lancée, `om <svc> sync update
+  --rid sync#root_hour` respecte le `schedule` de la ressource, **rend `rc=0` et ne
+  prend aucun snapshot** (un `--dry-run` annonce pourtant l'action). Un agent suivant la
+  procédure à la lettre croyait donc tenir un point de restauration inexistant — pire
+  que de le savoir absent. Constaté en réalisant RM2771 (mise à jour du serveur
+  Vaultwarden). La commande porte désormais `--force`, et la vérification du snapshot
+  est requalifiée en contrôle réel : c'est l'horodatage de l'instant qu'on doit y lire,
+  pas celui du dernier passage du scheduler. (RM2771)
+
 ## [2.7.1] - 2026-08-21
 
 ### Corrigé

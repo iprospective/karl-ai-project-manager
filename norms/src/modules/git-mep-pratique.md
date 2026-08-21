@@ -84,11 +84,17 @@ conteneur. Le snapshot est pris **depuis l'hôte** (nœud sur lequel le service 
 cf. `om <svc> print status`), pas depuis le conteneur :
 
 ```bash
-om <svc> sync update --rid sync#root_hour     # déclenche la ressource zfssnap "hourly"
-om <svc> sync all    --rid sync#root_hour     # variante : toutes les actions de sync de la ressource
+om <svc> sync update --rid sync#root_hour --force   # déclenche la ressource zfssnap "hourly"
 ```
 
-Vérifier que le snapshot existe avant de continuer :
+⚠ **`--force` n'est pas décoratif** (RM2771) : sans lui, la ressource respecte son
+`schedule` (`@60`) et considère qu'il n'y a rien à faire — la commande **rend `rc=0`
+sans prendre le moindre snapshot**, et un `--dry-run` annonce pourtant l'action. On
+croit alors avoir un point de restauration qui n'existe pas, ce qui est pire que de
+savoir qu'on n'en a pas.
+
+D'où la vérification, qui est le **vrai** contrôle et non une formalité — le snapshot
+attendu porte l'horodatage de l'instant, pas celui du dernier passage du scheduler :
 `zfs list -t snapshot -o name,creation -s creation | grep '<dataset>@hourly'`.
 
 **Ce snapshot tient lieu de sauvegarde préalable** : il couvre le rollback complet du

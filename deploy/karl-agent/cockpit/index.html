@@ -7495,6 +7495,22 @@ function termBase() {
 // <<< termBase
 function mountTerm(rmId) {
   const host = document.getElementById("termhost"), f = document.getElementById("term");
+  // RM2700 : le WebSocket du terminal (et l'iframe ttyd de repli) ne peuvent pas
+  // porter l'en-tête X-Karl-Token (limite de l'API WebSocket / cross-origin iframe),
+  // or le gate Apache de /ttyd valide un cookie de session même-origine. On le pose
+  // ici, depuis le token d'appareil (localStorage), avant d'ouvrir /ttyd — sinon un
+  // utilisateur authentifié par token (et non par login user/mdp, qui reçoit un
+  // cookie HttpOnly serveur) n'a aucun cookie et le terminal est refusé (403).
+  // Non-HttpOnly, mais la valeur == le token déjà présent en localStorage : aucune
+  // exposition nouvelle. Pour un login user/mdp, le cookie HttpOnly serveur existe
+  // déjà et JS ne peut pas l'écraser (write ignoré) : la version durcie l'emporte.
+  if (CFG.auth_required && token()) {
+    try {
+      const secure = location.protocol === "https:" ? "; Secure" : "";
+      document.cookie = "karl_session=" + encodeURIComponent(token())
+        + "; Path=/; SameSite=Strict" + secure;
+    } catch (e) { /* cookies bloqués : le gate refusera, l'UI le signalera */ }
+  }
   if (!termAvailable()) {                                  // repli : iframe ttyd
     host.style.display = "none";
     f.style.display = "block"; f.src = ttydUrl(rmId);

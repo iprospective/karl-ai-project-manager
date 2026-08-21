@@ -5250,7 +5250,8 @@ function openWorklogItem(ref) {
 
 // ── RM2586 : explorateur de fichiers (worktrees de la session) ──────────────
 let filesData = { sid: null, worktrees: [] };
-let fileNav = { wt: null, path: "", entries: [], commits: null, file: null, showCommits: false };
+let fileNav = { wt: null, path: "", entries: [], commits: null, file: null, showCommits: false,
+                vocab: false, vocabQ: "", vocabMd: null };
 
 // >>> filesCrumbs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Fil d'ariane cumulatif d'un chemin : racine « / » puis chaque segment avec son
@@ -5357,6 +5358,9 @@ async function loadFiles(force) {
   filesLoadDir(fileNav.wt, fileNav.path);
 }
 async function filesLoadDir(wt, path) {
+  if (wt !== fileNav.wt || path !== fileNav.path) {
+    fileNav.vocabMd = null; fileNav.vocab = false;   // glossaire propre à CE dossier
+  }
   fileNav.wt = wt; fileNav.path = path; fileNav.file = null;
   if (fileNav.commits != null && wt !== fileNav._commitsWt) fileNav.commits = null;  // commits par worktree
   try {
@@ -5448,6 +5452,52 @@ function filesGroupOf(groups, path) {
 }
 // <<< filesGroupOf
 
+// RM2675 — le sous-onglet « vocabulaire » : le glossaire du projet, FILTRABLE.
+// Le fichier est déjà lisible et rendu par l'explorateur ; ce que le sous-onglet ajoute, c'est
+// la recherche — la seule chose qu'on fait vraiment avec un glossaire.
+function vocabBodyHtml() {
+  if (fileNav.vocabMd == null) return '<div class="empty">chargement du glossaire…</div>';
+  const rows = glossaireFiltre(glossaireRows(fileNav.vocabMd), fileNav.vocabQ);
+  const tot = glossaireRows(fileNav.vocabMd).length;
+  let h = '<div style="margin:2px 0 6px"><input id="vocab-q" placeholder="filtrer un terme, une définition, un alias…"'
+    + ' value="' + esc(fileNav.vocabQ) + '" oninput="vocabFilter(this.value)"'
+    + ' style="width:100%;box-sizing:border-box;font-size:12px;padding:4px 6px"></div>';
+  h += '<div style="font-size:11px;color:var(--muted);margin-bottom:4px">'
+    + rows.length + " / " + tot + " terme(s)</div>";
+  if (!rows.length) return h + '<div class="empty">aucun terme ne correspond.</div>';
+  h += '<table style="width:100%;font-size:12px"><thead><tr><th>Terme</th><th>Définition</th>'
+    + "<th>Contexte</th></tr></thead><tbody>";
+  for (const r of rows) {
+    const al = (r.alias && r.alias !== "—")
+      ? '<div style="color:var(--muted);font-size:11px">alias : ' + esc(r.alias) + "</div>" : "";
+    h += "<tr><td><b>" + esc(r.terme) + "</b>" + al + "</td><td>" + esc(r.definition)
+      + "</td><td style=\"color:var(--muted)\">" + esc(r.contexte === "—" ? "" : r.contexte) + "</td></tr>";
+  }
+  return h + "</tbody></table>";
+}
+
+function vocabFilter(q) {
+  fileNav.vocabQ = q;
+  const b = document.getElementById("filesbody");
+  const box = document.getElementById("vocab-q");
+  const pos = box ? box.selectionStart : null;
+  renderFiles();
+  const nb = document.getElementById("vocab-q");
+  if (nb) { nb.focus(); if (pos != null) nb.setSelectionRange(pos, pos); }
+}
+
+async function vocabShow(on) {
+  fileNav.vocab = !!on;
+  if (on && fileNav.vocabMd == null) {
+    try {
+      const sp = (fileNav.path ? fileNav.path + "/" : "") + "glossaire.md";
+      const f = await api("/fs/file?" + _fq() + "&path=" + encodeURIComponent(sp));
+      fileNav.vocabMd = f.content || "";
+    } catch (e) { fileNav.vocabMd = ""; toast(e.message, true); }
+  }
+  renderFiles();
+}
+
 function renderFiles() {
   const b = document.getElementById("filesbody");
   const groups = filesGroups(filesData.projects, filesData.worktrees);
@@ -5488,6 +5538,22 @@ function renderFiles() {
     h += '<div class="rels" style="margin-bottom:6px"><span class="pill">📄 '
       + esc(cur.label || "documentation du projet") + "</span>"
       + '<span class="pill" title="Hors dépôt de code : ni branche ni commits">PM</span></div>';
+    // RM2675 : sous-onglet « vocabulaire ». Il n'apparaît QUE si le projet a un glossaire —
+    // un onglet vide n'informe de rien (même règle que la barre des projets, RM2659).
+    const aGloss = (fileNav.entries || []).some(e => e.name === "glossaire.md");
+    if (aGloss) {
+      h += '<div class="rsub">'
+        + '<button class="' + (fileNav.vocab ? "" : "active") + '" onclick="vocabShow(false)">fichiers</button>'
+        + '<button class="' + (fileNav.vocab ? "active" : "") + '" title="Vocabulaire métier du projet '
+        + '— ce qu\'il faut savoir pour le comprendre (RM2675)" onclick="vocabShow(true)">📖 vocabulaire</button>'
+        + "</div>";
+    } else if (fileNav.vocab) {
+      fileNav.vocab = false;                       // projet sans glossaire : pas d'onglet fantôme
+    }
+  }
+  if (fileNav.vocab) {
+    b.innerHTML = h + vocabBodyHtml();
+    return;
   }
   if (cur && cur.is_git) {
     h += '<div class="rels" style="margin-bottom:6px">'
@@ -6644,6 +6710,35 @@ function _ticketWorkspaceHtml(rmId, ws) {
   h += '</div>';
   return h;
 }
+
+// >>> glossaireRows — pur (RM2675, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Le glossaire d'un projet est un TABLEAU markdown à 4 colonnes (docs/glossaire.md, écrit par
+// pm-glossaire.py). On le relit ici pour pouvoir FILTRER : c'est la seule chose que le rendu
+// markdown ordinaire ne sait pas faire, et c'est tout l'intérêt d'un sous-onglet dédié.
+function glossaireRows(md) {
+  const out = [];
+  for (const raw of String(md || "").split("\n")) {
+    const l = raw.trim();
+    if (!l.startsWith("|") || l.startsWith("|---") || /^\|\s*Terme\s*\|/i.test(l)) continue;
+    const c = l.replace(/^\||\|$/g, "").split("|").map(x => x.trim());
+    if (!c.length || !c[0]) continue;
+    while (c.length < 4) c.push("");
+    out.push({ terme: c[0], definition: c[1], contexte: c[2], alias: c[3] });
+  }
+  return out;
+}
+// <<< glossaireRows
+
+// >>> glossaireFiltre — pur (RM2675, testé)
+// Filtre sur terme, définition, contexte ET alias : chercher « field of view » doit trouver HFOV,
+// sinon la colonne alias ne sert à rien.
+function glossaireFiltre(rows, q) {
+  const s = String(q || "").trim().toLowerCase();
+  if (!s) return rows || [];
+  return (rows || []).filter(r =>
+    (r.terme + " " + r.definition + " " + r.contexte + " " + r.alias).toLowerCase().includes(s));
+}
+// <<< glossaireFiltre
 
 // >>> mdToHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2309 : mini-rendu markdown auto-suffisant et SÛR — tout le texte est échappé

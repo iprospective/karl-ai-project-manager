@@ -14,6 +14,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Glossaire de projet + sous-onglet « vocabulaire »** (RM2675). Chaque projet peut porter son
+  vocabulaire métier dans `docs/glossaire.md` — tableau `Terme / Définition / Contexte / Alias`,
+  écrit par `pm-glossaire.py` (tri, unicité et format garantis). L'étude a montré que la
+  plomberie existait déjà aux trois quarts : `docs/` est group-writable (RM2043), symlinké dans
+  le workspace de code, wiki-syncé vers Redmine et déjà rendu au cockpit. Le sous-onglet n'ajoute
+  donc que ce qui manquait vraiment — **la recherche** (filtre sur terme, définition, contexte et
+  alias). Et surtout, le glossaire est désormais **injecté au contexte des workers**
+  (`worker-common.md` §5bis), plafonné à 1 500 tokens avec troncature annoncée : sans quoi un
+  agent qui croise un terme qu'il ne connaît pas n'ouvre pas le glossaire, il suppose.
 - **Déverrouiller le coffre et charger une clé SSH depuis le cockpit** (RM2748) :
   le coffre de secrets se referme tout seul (inactivité, verrouillage nocturne,
   redémarrage) et l'agent SSH démarre vide. Jusqu'ici le cockpit ne savait que

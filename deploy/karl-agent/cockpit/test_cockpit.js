@@ -2992,3 +2992,82 @@ assert(htmlTabs.includes("non épinglé"), "…et le temporaire la sienne");
 assert(htmlTabs.includes('<span class="lbl">RM2744</span>'),
   "le LIBELLÉ affiché ne change pas — seule l'infobulle s'enrichit");
 console.log("✓ infobulle d'onglet (RM2775) : le titre, le chemin, le sha entier — jamais un tiret vide");
+
+// — RM2776 : historique de navigation —
+const histVisit = grabO("histVisit", { Array, Object });
+const histStep = grabO("histStep", { Array });
+const histCloseTarget = grabO("histCloseTarget", { Array });
+const histListHtml = grabO("histListHtml", { Array });
+
+// Visiter : modèle du navigateur.
+let h2776 = { items: [], idx: -1 };
+h2776 = histVisit(h2776, { id: "session:2673", kind: "session", label: "2673" }, 40);
+h2776 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744" }, 40);
+assert.deepEqual(h2776.items.map(e => e.id), ["session:2673", "review:2744"]);
+assert.strictEqual(h2776.idx, 1, "on est sur la dernière visitée");
+// Revisiter la vue courante ne doit pas empiler : deux clics sur le même onglet
+// bloqueraient sinon le retour arrière.
+const h2 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744 (bis)" }, 40);
+assert.strictEqual(h2.items.length, 2, "revisiter la vue courante n'empile pas");
+assert.strictEqual(h2.items[1].label, "RM2744 (bis)", "…mais rafraîchit son libellé");
+assert.strictEqual(histVisit(h2776, {}, 40).items.length, 2, "entrée sans id ignorée");
+assert.deepEqual(histVisit(null, { id: "a:1" }, 40).items.map(e => e.id), ["a:1"],
+  "état absent toléré");
+// Plafond : on garde les plus RÉCENTES.
+let plein2776 = { items: [], idx: -1 };
+for (let i = 0; i < 10; i++) plein2776 = histVisit(plein2776, { id: "review:" + i }, 4);
+assert.deepEqual(plein2776.items.map(e => e.id), ["review:6", "review:7", "review:8", "review:9"],
+  "le plafond coupe les plus anciennes");
+assert.strictEqual(plein2776.idx, 3, "l'index suit la troncature");
+
+// Le cas de la demande : fermer la fiche ouverte depuis une session y ramène.
+const ouvertes2776 = new Set(["session:2673", "review:2744", "dash:"]);
+const isOpen2776 = (id) => ouvertes2776.has(id);
+assert.strictEqual(histCloseTarget(h2776, "review:2744", isOpen2776), "session:2673",
+  "fermer la fiche ramène à la session d'où on venait, pas au voisin de barre");
+// Une vue fermée entre-temps ne doit pas être proposée.
+const ouvertes2 = new Set(["dash:"]);
+let h3 = histVisit(h2776, { id: "dash:", kind: "dash", label: "tableau de bord" }, 40);
+assert.strictEqual(histCloseTarget(h3, "dash:", (id) => ouvertes2.has(id)), null,
+  "aucune destination valide → null, l'appelant retombe sur le voisin (comportement d'avant)");
+assert.strictEqual(histCloseTarget({ items: [], idx: -1 }, "x:1", isOpen2776), null,
+  "historique vide → repli");
+assert.strictEqual(histCloseTarget(h2776, "review:2744", null), "session:2673",
+  "sans test d'ouverture, la dernière autre visitée fait l'affaire");
+
+// Retour arrière / avant, en sautant les vues fermées.
+const parcours2776 = { items: [{ id: "a:1" }, { id: "b:2" }, { id: "c:3" }], idx: 2 };
+assert.strictEqual(histStep(parcours2776, -1, () => true).entry.id, "b:2", "← recule d'un cran");
+assert.strictEqual(histStep(parcours2776, -1, (id) => id !== "b:2").entry.id, "a:1",
+  "une vue fermée est SAUTÉE, pas rouverte");
+assert.strictEqual(histStep(parcours2776, 1, () => true).entry, null, "→ en bout de liste : rien");
+assert.strictEqual(histStep({ items: [{ id: "a:1" }], idx: 0 }, -1, () => true).entry, null,
+  "au début, ← ne fait rien");
+assert.strictEqual(histStep(parcours2776, -1, () => false).entry, null,
+  "tout fermé → aucune destination");
+assert.strictEqual(histStep({ ...parcours2776, idx: 0 }, 1, () => true).entry.id, "b:2",
+  "→ ré-avance après un retour");
+
+// La liste du header.
+const listeHtml2776 = histListHtml(
+  { items: [{ id: "session:2673", kind: "session", label: "2673" },
+            { id: "review:2744", kind: "review", label: "RM2744" }], idx: 1 },
+  (id) => id !== "session:2673", escO, jargFn);
+assert(listeHtml2776.indexOf("RM2744") < listeHtml2776.indexOf("2673"),
+  "la plus récente est en tête");
+assert(/histGoTo\('review:2744'\)/.test(listeHtml2776), "une vue ouverte est cliquable");
+assert(!/histGoTo\('session:2673'\)/.test(listeHtml2776), "une vue fermée ne l'est pas");
+assert(listeHtml2776.includes("fermée"), "…et le dit, au lieu de disparaître de l'historique");
+assert(listeHtml2776.includes("ici"), "la vue courante est repérée");
+assert(histListHtml({ items: [], idx: -1 }, null, escO, jargFn).includes("aucune vue visitée"),
+  "historique vide : un message, pas un panneau blanc");
+
+// Câblage : boutons du header et point d'entrée unique.
+["histback", "histfwd", "histbtn", "histbox"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
+assert(/function noteTab[\s\S]{0,600}histVisit\(/.test(html),
+  "l'historique doit être alimenté par noteTab — le seul passage obligé des vues");
+assert(/navSuspend/.test(html), "un retour arrière ne doit pas s'empiler lui-même");
+assert(/const fermaitLaVueAffichee/.test(html),
+  "fermer un onglet NON affiché ne doit pas changer l'écran");
+console.log("✓ historique de navigation (RM2776) : retour d'où l'on vient, ←/→, liste du header");

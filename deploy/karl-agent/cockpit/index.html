@@ -233,6 +233,17 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2776 : panneau d'historique — flottant sous le header, au-dessus du reste */
+  #histbox { position: fixed; top: 42px; right: 12px; z-index: 60; width: 320px;
+    max-height: 60vh; overflow-y: auto; background: var(--panel);
+    border: 1px solid var(--line); border-radius: 6px; padding: 6px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .histrow { padding: 4px 6px; border-radius: 4px; font-size: 11.5px; cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .histrow:hover { background: var(--bg2); }
+  .histrow.cur { color: var(--accent); }
+  .histrow.gone { opacity: .45; cursor: default; }
+  #histback[disabled], #histfwd[disabled] { opacity: .35; cursor: default; }
   /* RM2770 : source + filtres de la recherche — quatre sélecteurs qui doivent
      tenir dans la colonne sans la faire déborder. */
   .srcfilters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
@@ -758,6 +769,14 @@ if (window.matchMedia) {
        `main` est lui-même une décision humaine. -->
   <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
     title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
+  <!-- RM2776 : navigation dans les vues déjà visitées. `←`/`→` comme dans un
+       navigateur ; « historique » ouvre la liste, la plus récente en tête. -->
+  <button class="mini" id="histback" onclick="navGo(-1)"
+    title="Revenir à la vue précédente (les vues fermées entre-temps sont sautées)">←</button>
+  <button class="mini" id="histfwd" onclick="navGo(1)"
+    title="Revenir en avant — tant qu'aucune nouvelle vue n'a été ouverte">→</button>
+  <button class="mini" id="histbtn" onclick="histToggle()"
+    title="Historique des vues visitées dans cette page">🕘 historique</button>
   <!-- RM2593 : aide intégrée du cockpit -->
   <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
@@ -1384,6 +1403,8 @@ if (window.matchMedia) {
   </div>
 </main>
 
+<!-- RM2776 : liste des vues visitées, ancrée sous le header -->
+<div id="histbox" style="display:none"></div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -3221,6 +3242,141 @@ function ensureDashTab(tabs) {
 // <<< ensureDashTab
 centerTabs = ensureDashTab(centerTabs);
 
+
+// ===== RM2776 : historique de navigation du panneau central =====
+// « Ça me paraît un peu aléatoire » : ce n'était pas aléatoire, c'était
+// POSITIONNEL. À la fermeture, `closeTabAt` activait le voisin de barre — donc
+// une destination qui dépend de l'ordre où les vues ont été ouvertes une fois
+// pour toutes, jamais de l'endroit d'où l'on vient. Le cockpit ne gardait
+// aucune trace de l'ordre de VISITE : c'est cette donnée qui manquait, et elle
+// sert les trois demandes (fermeture, retour arrière, liste du header).
+
+const NAV_MAX = 40;
+let navHist = { items: [], idx: -1 };   // items[] = {id, kind, label} · idx = position courante
+let navSuspend = false;                 // un retour ne s'empile pas lui-même
+
+// >>> histVisit — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Modèle du navigateur : visiter tronque ce qui était « en avant ». Revisiter la
+// vue courante ne crée pas de doublon — sinon deux clics sur le même onglet
+// suffiraient à bloquer le retour arrière.
+function histVisit(state, entry, max) {
+  const st = state && Array.isArray(state.items) ? state : { items: [], idx: -1 };
+  const e = entry || {};
+  if (!e.id) return { items: st.items.slice(), idx: st.idx };
+  const cur = st.items[st.idx];
+  if (cur && cur.id === e.id) {
+    const items = st.items.slice();
+    items[st.idx] = Object.assign({}, cur, e);   // libellé rafraîchi, position gardée
+    return { items, idx: st.idx };
+  }
+  const items = st.items.slice(0, st.idx + 1);
+  items.push({ id: e.id, kind: e.kind || "", label: e.label || e.id });
+  const trop = items.length - (max || NAV_MAX);
+  if (trop > 0) items.splice(0, trop);
+  return { items, idx: items.length - 1 };
+}
+// <<< histVisit
+
+// >>> histStep — pur (testé par test_cockpit.js)
+// Déplacement dans l'historique. `isOpen` dit si une vue est encore ouverte :
+// une vue fermée entre-temps est SAUTÉE, pas rouverte — l'utilisateur l'a
+// fermée, la lui remettre sous les yeux serait défaire son geste.
+function histStep(state, delta, isOpen) {
+  const st = state && Array.isArray(state.items) ? state : { items: [], idx: -1 };
+  const pas = delta < 0 ? -1 : 1;
+  let i = st.idx;
+  while (true) {
+    i += pas;
+    if (i < 0 || i >= st.items.length) return { idx: st.idx, entry: null };
+    const e = st.items[i];
+    if (!isOpen || isOpen(e.id)) return { idx: i, entry: e };
+  }
+}
+// <<< histStep
+
+// >>> histCloseTarget — pur (testé par test_cockpit.js)
+// Où atterrir quand on ferme `closedId` : la dernière vue visitée AVANT elle qui
+// soit encore ouverte. C'est la demande — fermer la fiche ouverte depuis une
+// session ramène à CETTE session. Rien d'exploitable ⇒ null, et l'appelant
+// retombe sur le voisin de barre (le comportement d'avant, jamais pire).
+function histCloseTarget(state, closedId, isOpen) {
+  const st = state && Array.isArray(state.items) ? state : { items: [], idx: -1 };
+  const depart = st.idx >= 0 ? st.idx : st.items.length - 1;
+  for (let i = depart; i >= 0; i--) {
+    const e = st.items[i];
+    if (!e || e.id === closedId) continue;
+    if (!isOpen || isOpen(e.id)) return e.id;
+  }
+  return null;
+}
+// <<< histCloseTarget
+
+// >>> histListHtml — pur (testé par test_cockpit.js)
+// La liste du header : la plus récente en tête, la vue courante marquée. Les
+// entrées dont la vue est fermée restent affichées mais grisées — les cacher
+// ferait croire qu'on n'y est jamais passé.
+function histListHtml(state, isOpen, esc, jarg) {
+  const st = state && Array.isArray(state.items) ? state : { items: [], idx: -1 };
+  if (!st.items.length) return '<div class="empty">aucune vue visitée pour l\'instant</div>';
+  const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
+                 file: "📄", dir: "🗂", commit: "⎇", mail: "📧", client: "🏢", conf: "⚙" };
+  const out = [];
+  for (let i = st.items.length - 1; i >= 0; i--) {
+    const e = st.items[i];
+    const ouvert = !isOpen || isOpen(e.id);
+    out.push('<div class="histrow' + (i === st.idx ? " cur" : "") + (ouvert ? "" : " gone") + '"'
+      + (ouvert ? ' onclick="histGoTo(' + jarg(e.id) + ')"' : "")
+      + ' title="' + esc(ouvert ? e.id : e.id + " — vue fermée depuis") + '">'
+      + '<span>' + (icon[e.kind] || "•") + "</span> " + esc(e.label)
+      + (i === st.idx ? ' <span class="pill">ici</span>' : "")
+      + (ouvert ? "" : ' <span class="pill">fermée</span>')
+      + "</div>");
+  }
+  return out.join("");
+}
+// <<< histListHtml
+
+function navIsOpen(id) {
+  return centerTabs.some(t => t && (t.kind + ":" + (t.key == null ? "" : t.key)) === id);
+}
+
+function navRender() {
+  const back = document.getElementById("histback"), fwd = document.getElementById("histfwd");
+  if (back) back.disabled = !histStep(navHist, -1, navIsOpen).entry;
+  if (fwd) fwd.disabled = !histStep(navHist, 1, navIsOpen).entry;
+  const box = document.getElementById("histbox");
+  if (box && box.style.display !== "none") {
+    box.innerHTML = histListHtml(navHist, navIsOpen, esc, jarg);
+  }
+}
+
+function navGo(delta) {
+  const r = histStep(navHist, delta, navIsOpen);
+  if (!r.entry) return;
+  navHist.idx = r.idx;
+  navSuspend = true;                 // sinon l'activation ré-empile et on n'avance jamais
+  try { activateTab(r.entry.id); } finally { navSuspend = false; }
+  navRender();
+}
+
+function histGoTo(id) {
+  const i = navHist.items.map(e => e.id).lastIndexOf(id);
+  if (i < 0) return;
+  navHist.idx = i;
+  navSuspend = true;
+  try { activateTab(id); } finally { navSuspend = false; }
+  histToggle(false);
+  navRender();
+}
+
+function histToggle(force) {
+  const box = document.getElementById("histbox");
+  if (!box) return;
+  const ouvrir = force === undefined ? box.style.display === "none" : !!force;
+  box.style.display = ouvrir ? "block" : "none";
+  if (ouvrir) box.innerHTML = histListHtml(navHist, navIsOpen, esc, jarg);
+}
+
 function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
 
 function saveTabs() {
@@ -3347,6 +3503,12 @@ function noteTab(kind, key, label, opts) {
   const r = upsertTab(centerTabs, kind, key, label, opts);
   centerTabs = r.tabs; activeTabId = r.active;
   saveTabs(); renderTabs();
+  // RM2776 : toute vue affichée passe ici — c'est donc ici que se tient
+  // l'historique. Sauf pendant un retour arrière, qui ne doit pas s'empiler.
+  if (!navSuspend) {
+    navHist = histVisit(navHist, { id: r.active, kind, label: label || r.active }, NAV_MAX);
+  }
+  navRender();
 }
 
 function activateTab(id) {
@@ -3380,10 +3542,20 @@ function togglePin(id) {
 }
 
 function closeTab(id) {
+  const fermaitLaVueAffichee = (id === activeTabId);   // à lire AVANT de réaffecter
   const r = closeTabAt(centerTabs, id, activeTabId);
   centerTabs = r.tabs; activeTabId = r.active;
+  // RM2776 : on revient d'où l'on VIENT, pas chez le voisin de barre — mais
+  // seulement si c'est la vue AFFICHÉE qu'on ferme ; fermer un autre onglet ne
+  // doit rien changer à l'écran. Le voisin reste le repli quand l'historique
+  // n'a rien d'ouvert à proposer.
+  const ouvertApres = (x) => r.tabs.some(t => t && (t.kind + ":" + (t.key == null ? "" : t.key)) === x);
+  if (fermaitLaVueAffichee) {
+    const cible = histCloseTarget(navHist, id, ouvertApres);
+    if (cible) activeTabId = cible;
+  }
   saveTabs(); renderTabs();
-  if (r.active) activateTab(r.active);
+  if (activeTabId) activateTab(activeTabId);
   else {                       // plus rien d'ouvert : on revient à l'écran d'accueil
     if (attached) detach();
     closeReview(); closeProjectView(); closeNewTicket();

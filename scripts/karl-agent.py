@@ -4531,6 +4531,10 @@ def _batch_points(raw, limit=BATCH_POINTS_MAX):
 # Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
 # une étude se termine en validation, un dev se termine en test demandeur.
 BATCH_ACTIONS = {
+    # RM2786 : l'étude reste ici — un lot « traiter » sur un ticket pas encore
+    # chiffré doit continuer de faire ce qu'il faisait. Le bouton « analyser »
+    # (mode `etudier`) la propose SÉPARÉMENT, ce que l'UI ne pouvait pas faire
+    # tant que les deux vivaient dans la même table.
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
@@ -4577,12 +4581,74 @@ BATCH_ATESTER_SKIP = {
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
 }
 
+# RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
+# (estimation, critères d'acceptation, ROI). L'action existait déjà dans la table
+# « traiter », mais noyée : impossible de la proposer seule, et impossible de
+# savoir depuis l'UI si elle avait un sens pour la sélection.
+BATCH_ETUDIER = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+}
+BATCH_ETUDIER_SKIP = {
+    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+    "a_faire": "déjà chiffré et prêt à faire",
+    "en_cours": "déjà en cours de réalisation",
+    "a_corriger": "livré puis renvoyé : c'est une correction, pas une étude",
+    "a_tester_dev": "livré, en test agent",
+    "a_tester_demandeur": "livré, attend ton verdict",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
 # Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
 # lot (plafond, portée, envoi, garde de session) ne change pas.
 BATCH_MODES = {
     "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
     "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
+    "etudier": {"actions": BATCH_ETUDIER, "skip": BATCH_ETUDIER_SKIP},
 }
+
+
+#: Statuts d'où « fermer / résolu » a un sens : le travail est livré et attend
+#: un verdict ou une MEP. Fermer ailleurs, c'est clore ce qui n'a pas été fait.
+CLOSABLE_STATUSES = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+# >>> batch_modes_for — pure (testée par test_karl_agent_batch_actions.py)
+def batch_modes_for(statuses):
+    """RM2786 : pour une sélection de statuts, combien de tickets chaque mode
+    concerne — c'est ce qui décide des boutons à AFFICHER, et du compte à écrire
+    dessus.
+
+    Un lot est presque toujours mixte : le bouton s'affiche dès qu'un ticket le
+    justifie, et son compteur annonce les tickets CONCERNÉS, pas le total coché.
+    « traiter (3) » sur 5 sélectionnés dit la vérité ; « (5) » ment sur ce qui
+    va partir.
+
+    Un statut INCONNU compte pour tous les modes : mieux vaut un bouton de trop
+    qu'une action devenue inatteignable parce qu'un statut a changé de nom — le
+    plan de lot, lui, écartera le ticket avec sa raison.
+    """
+    connus = set()
+    for m in BATCH_MODES.values():
+        connus |= set(m["actions"]) | set(m["skip"])
+    out = {name: 0 for name in BATCH_MODES}
+    out["fermer"] = 0
+    for st in (statuses or []):
+        st = str(st or "").lower()
+        inconnu = st not in connus
+        for name, m in BATCH_MODES.items():
+            if inconnu or st in m["actions"]:
+                out[name] += 1
+        # « fermer / résolu » n'est pas une consigne à l'agent : c'est le verdict
+        # du demandeur sur un ticket LIVRÉ. Il n'a de sens que là.
+        if inconnu or st in CLOSABLE_STATUSES:
+            out["fermer"] += 1
+    return out
+# <<< batch_modes_for
 
 
 # >>> batch_plan — pure (testée par test_karl_agent_batch.py)
@@ -9460,6 +9526,14 @@ class Handler(BaseHTTPRequestHandler):
                 # RM2770 : statuts NORMS pour le filtre de recherche — lus depuis
                 # la référence partagée (redmine_utils), jamais redupliqués ici.
                 "statuses": _norms_statuses(),
+                # RM2786 : quels statuts chaque mode de lot accepte. Le cockpit
+                # DÉCIDE des boutons à afficher avec ces tables — il ne les
+                # redéclare pas : deux copies de la règle, c'est deux vérités,
+                # et l'écart se voit d'abord chez l'utilisateur.
+                "batch_modes": {name: {"statuses": sorted(m["actions"]),
+                                       "skip": m["skip"]}
+                                for name, m in BATCH_MODES.items()},
+                "closable_statuses": sorted(CLOSABLE_STATUSES),
                 "engines": list(ENGINES),
                 # RM2539 (correctif) : moteurs dont les conversations sont à la
                 # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les

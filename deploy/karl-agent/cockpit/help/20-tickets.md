@@ -74,6 +74,19 @@ Deux façons de lancer le travail depuis la fiche :
   confirmation le répète — envoyer un ticket dans une session qui travaille
   ailleurs reste possible, mais jamais par inadvertance.
 
+## Les actions, en bas de la fiche
+
+Un seul bloc **Actions**, filtré par le statut du ticket :
+
+- les **verdicts** (fermer, demander la MEP, renvoyer en correction) n'apparaissent
+  que sur un ticket **livré** — en test ou en attente de MEP. Un verdict porte sur
+  du travail livré ; le proposer sur un ticket en cours invite à fermer ce qui n'a
+  pas été fait. Sur un ticket déjà `a_mep`, « demander la MEP » disparaît : elle
+  est déjà demandée ;
+- les **actions PM** (passer en cours, commenter, mettre à jour la description…)
+  s'adressent à une session : elles restent grisées tant qu'aucune ne peut les
+  recevoir, et la ligne du dessous dit laquelle serait visée.
+
 ## Cycle de vie (statuts NORMS)
 
 Un ticket suit un flux : `nouveau` → `en_cours` → `a_tester_dev` /

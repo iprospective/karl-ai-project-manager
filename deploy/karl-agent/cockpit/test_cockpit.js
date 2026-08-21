@@ -3071,3 +3071,86 @@ assert(/navSuspend/.test(html), "un retour arrière ne doit pas s'empiler lui-m�
 assert(/const fermaitLaVueAffichee/.test(html),
   "fermer un onglet NON affiché ne doit pas changer l'écran");
 console.log("✓ historique de navigation (RM2776) : retour d'où l'on vient, ←/→, liste du header");
+
+// — RM2786 : n'offrir que les actions qui ont du sens —
+const batchButtons = grabO("batchButtons", { Object, Set, String });
+const closeBatchPlan = grabO("closeBatchPlan", { Object, Set, String });
+const ticketVerdicts = grabO("ticketVerdicts", { Set, String });
+
+// La règle vient du serveur : le front la LIT, il ne la redéclare pas.
+const CFG2786 = {
+  batch_modes: {
+    traiter: { statuses: ["a_corriger", "a_etudier_chiffrer", "a_faire", "a_tester_dev",
+                          "en_cours", "etude_chiffrage_en_cours", "nouveau"], skip: { ferme: "fermé" } },
+    atester: { statuses: ["a_corriger", "a_faire", "a_tester_dev", "en_cours"],
+               skip: { a_tester_demandeur: "déjà en test chez toi" } },
+    etudier: { statuses: ["a_etudier_chiffrer", "etude_chiffrage_en_cours", "nouveau"],
+               skip: { a_faire: "déjà chiffré" } },
+  },
+  closable_statuses: ["a_mep", "a_tester_demandeur", "a_tester_dev", "en_mep"],
+  statuses: ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "ferme"],
+};
+const SEL2786 = [
+  { rm_id: "1", status: "nouveau" },
+  { rm_id: "2", status: "en_cours" },
+  { rm_id: "3", status: "a_tester_demandeur" },
+];
+
+// Les compteurs disent ce qui va PARTIR, pas le total coché.
+const nb = batchButtons(SEL2786, ["RM2"], CFG2786);
+assert.strictEqual(nb.etudier, 1, "« analyser » ne compte que le ticket à étudier");
+assert.strictEqual(nb.traiter, 2, "« traiter » ne compte pas le ticket déjà livré");
+assert.strictEqual(nb.atester, 1, "« à tester » ne compte pas ce qui n'est pas en cours");
+assert.strictEqual(nb.fermer, 1, "« fermer » ne compte que le livré");
+assert.strictEqual(nb.mr, 1, "« merger » ne compte que les tickets qui ONT une MR ouverte");
+// Le cas signalé : merger sans MR ne doit pas s'afficher.
+assert.strictEqual(batchButtons(SEL2786, [], CFG2786).mr, 0,
+  "aucune MR ouverte → aucun bouton merger");
+assert.strictEqual(batchButtons(SEL2786, ["2"], CFG2786).mr, 1,
+  "une ref sans préfixe RM est reconnue aussi");
+// Lot homogène déjà livré : plus rien à faire faire à l'agent.
+const livre = batchButtons([{ rm_id: "9", status: "a_tester_demandeur" }], [], CFG2786);
+assert.strictEqual(livre.traiter + livre.atester + livre.etudier, 0,
+  "sur un ticket déjà chez le demandeur, ni traiter ni à tester ni analyser");
+assert.strictEqual(livre.fermer, 1, "…seule la fermeture reste");
+// Statut inconnu : on n'ampute rien.
+const inconnu2786 = batchButtons([{ rm_id: "1", status: "zzz_2786" }], [], CFG2786);
+assert(inconnu2786.traiter === 1 && inconnu2786.fermer === 1,
+  "un statut inconnu laisse les actions proposées (le plan écartera avec sa raison)");
+assert.deepEqual(batchButtons([], [], CFG2786),
+  { traiter: 0, atester: 0, etudier: 0, fermer: 0, mr: 0 }, "sélection vide → rien");
+assert.doesNotThrow(() => batchButtons(null, null, null), "entrées molles tolérées");
+
+// Fermeture en lot : chaque écarté porte sa raison.
+const planClose = closeBatchPlan(SEL2786, CFG2786);
+assert.strictEqual(planClose.count, 1, "un seul fermable");
+assert.deepEqual(planClose.todo.map(t => t.rm_id), ["3"]);
+assert.strictEqual(planClose.skipped.length, 2, "les deux autres sont écartés");
+assert(planClose.skipped.every(t => t.why), "…chacun AVEC sa raison, jamais en silence");
+assert(planClose.skipped.find(t => t.rm_id === "2").why.includes("livré"),
+  "la raison dit pourquoi ce ticket-là ne se ferme pas");
+assert.strictEqual(closeBatchPlan([{ rm_id: "7", status: "zzz" }], CFG2786).skipped[0].why
+  .includes("zzz"), true, "un statut inconnu est écarté en le NOMMANT");
+
+// Verdicts de la fiche : un verdict porte sur du travail livré.
+assert.deepEqual(ticketVerdicts("en_cours", CFG2786), [],
+  "aucun verdict sur un ticket en cours — fermer ce qui n'est pas fait n'a pas de sens");
+assert.strictEqual(ticketVerdicts("a_tester_demandeur", CFG2786).length, 3,
+  "les trois verdicts sur un ticket livré");
+assert.deepEqual(ticketVerdicts("a_mep", CFG2786).map(v => v.kind), ["valider", "renvoyer"],
+  "une MEP déjà demandée ne se re-demande pas");
+assert.strictEqual(ticketVerdicts("statut_inconnu_2786", CFG2786).length, 3,
+  "statut inconnu : on n'ampute rien");
+assert.strictEqual(ticketVerdicts("", CFG2786).length, 3, "statut absent : idem");
+
+// Câblage : les deux nouveaux boutons et la source unique de la règle.
+["batch-etudier-btn", "batch-close-btn"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "bouton manquant : " + id));
+assert(/BATCH_MODES = \{[\s\S]*?etudier:/.test(html), "le mode `etudier` doit être connu du front");
+assert(/batchButtons\(items, refs, CFG\)/.test(html),
+  "l'affichage doit passer par la règle, pas par batchSel.size");
+assert(!/b\.textContent = "▶ traiter \(" \+ batchSel\.size/.test(html),
+  "l'ancien compteur (total coché) ne doit plus exister");
+console.log("✓ actions pertinentes (RM2786) : analyser, fermer, et rien qui ne puisse agir");

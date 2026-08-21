@@ -35,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git  # auto-commit scopé des écritures (RM2095)
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
+from pm_transcript import usage_by_message  # dédup usage par message.id (RM2628)
 
 try:
     import yaml
@@ -433,15 +434,16 @@ def extract_turn_usage(transcript_path, session_id):
         start = humans[-1] if humans else 0
     _save_cursor(session_id, p, len(lines))
 
-    per_msg = {}  # message.id → (usage, model) ; retries écrasés par le dernier vu
-    for i, evt in events:
-        if i < start:
-            continue
-        msg = evt.get("message") if isinstance(evt, dict) else None
-        if isinstance(msg, dict) and msg.get("role") == "assistant":
-            usage = msg.get("usage")
-            if usage:
-                per_msg[msg.get("id") or f"line-{i}"] = (usage, msg.get("model"))
+    # message.id → (usage, model) ; blocs de contenu d'une même réponse et
+    # retries écrasés par le dernier vu — règle partagée avec le cockpit (RM2628).
+    per_msg = usage_by_message(
+        (f"line-{i}", evt.get("message") if isinstance(evt, dict) else None)
+        for i, evt in events
+        if i >= start
+        and isinstance(evt, dict)
+        and isinstance(evt.get("message"), dict)
+        and evt["message"].get("role") == "assistant"
+    )
     if not per_msg:
         return None
 

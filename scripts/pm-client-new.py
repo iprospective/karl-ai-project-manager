@@ -17,6 +17,23 @@ from pm_paths import PMConfig
 
 VALID_TYPES = {"client", "product", "self"}
 
+# RM2702 — le contact par défaut est le NÔTRE : il se pose chez chaque client et
+# n'identifie donc personne. On le découpe au schéma nom/prénom et on le marque.
+OWN_DOMAINS = ("iprospective.fr", "iprospective.net")
+
+
+def _first_name(full: str) -> str:
+    return (full or "").strip().split(" ", 1)[0] if full else ""
+
+
+def _last_name(full: str) -> str:
+    parts = (full or "").strip().split(" ", 1)
+    return parts[1] if len(parts) > 1 else ""
+
+
+def _is_internal(email: str) -> bool:
+    return (email or "").lower().rsplit("@", 1)[-1] in OWN_DOMAINS
+
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -27,6 +44,7 @@ def main():
     ap.add_argument("--redmine-default-project", default="", help="Slug Redmine du projet 'parent' par défaut")
     ap.add_argument("--contact-name", default="Mathieu Moulin")
     ap.add_argument("--contact-email", default="mathieu@iprospective.fr")
+    ap.add_argument("--contact-phone", default="", help="Téléphone du contact (RM2702)")
     ap.add_argument("--force", action="store_true", help="Écrase si le dossier existe déjà")
     args = ap.parse_args()
 
@@ -47,8 +65,15 @@ def main():
         "type": args.type,
         "status": "active",
         "created": now,
+        # RM2702 : schéma nom/prénom/email/téléphone. `internal` marque nos propres
+        # adresses — sans quoi le contact posé par défaut ici se confond avec un vrai
+        # contact client (et servirait à router du courrier entrant, cf. RM2669).
         "contacts": [
-            {"name": args.contact_name, "email": args.contact_email, "role": "owner"}
+            {"last_name": _last_name(args.contact_name),
+             "first_name": _first_name(args.contact_name),
+             "email": args.contact_email, "phone": args.contact_phone,
+             "role": "owner",
+             "internal": _is_internal(args.contact_email)}
         ],
         "defaults": {
             "priority": "normal",

@@ -5,7 +5,9 @@ Unitaire (sans systemd ni réseau) : port déterministe, résolution/refus de
 worktree, dry-run, registre, teardown --if-exists silencieux.
 Lancer : python3 scripts/test_pm_cockpit_test_env.py
 """
+import contextlib
 import importlib.util
+import io
 import pathlib
 import sys
 import tempfile
@@ -58,17 +60,28 @@ expect_exit(lambda: cte.resolve_worktree(ws, 42), "sans karl-agent.py → refus"
 (wt / "scripts" / "karl-agent.py").write_text("# stub\n")
 check("worktree valide résolu", cte.resolve_worktree(ws, 42) == wt)
 
-# — create --dry-run : aucune unité lancée, sortie annoncée —
+# — create --dry-run : rien n'est fait, tout est annoncé —
+# RM2717 : le test exigeait un sondage `ip route`, hérité du pont socat lié à l'IP du
+# conteneur. RM2565 l'a remplacé par un vhost Apache vers 127.0.0.1 et `container_ip()`
+# a disparu du script : l'assertion survivait à ce qu'elle vérifiait. On teste
+# désormais ce que le dry-run doit garantir — l'ANNONCE, et l'absence d'effet.
 calls = []
 cte.subprocess.run = lambda *a, **k: calls.append(a) or types.SimpleNamespace(
-    returncode=0, stdout="1.1.1.1 via 10.0.3.1 dev eth0 src 10.0.3.99 uid 1000", stderr="")
+    returncode=0, stdout="", stderr="")
 args = types.SimpleNamespace(rmid=42, workspace=str(ws), dry_run=True)
-cte.cmd_create(args)
-# dry-run : aucune unité systemd lancée (le résolveur de worktree RM2394 peut
-# faire des lectures git en plus — on vérifie l'absence d'effet, pas le compte).
+buf = io.StringIO()
+with contextlib.redirect_stdout(buf):
+    cte.cmd_create(args)
+said = buf.getvalue()
+check("dry-run : port déterministe annoncé", str(cte.port_for(42)) in said)
+check("dry-run : vhost et test_url annoncés",
+      ".lxc" in said and "test_url" in said and "[dry-run]" in said)
+# le résolveur de worktree (RM2394) peut faire des lectures git : on vérifie
+# l'absence d'EFFET, pas le nombre d'appels.
 _verbs = [c[0][0] for c in calls if c and c[0]]
-check("dry-run : `ip route` sondé", "ip" in _verbs)
 check("dry-run : aucune unité systemd", not any(v in ("systemd-run", "systemctl") for v in _verbs))
+check("dry-run : aucun vhost posé", not any("vhost" in " ".join(map(str, c[0])) for c in calls if c and c[0]))
+check("dry-run : registre non écrit", not cte.REGISTRY.exists())
 
 # — create réel : STATE_DIR partagé + LOG_DIR isolé sur l'unité karl (RM2385) —
 calls.clear()

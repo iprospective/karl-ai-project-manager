@@ -10,6 +10,7 @@ set -euo pipefail
 REPO="/zfs/workspaces/ai/project-management"
 UNIT_SRC="$REPO/deploy/karl-agent"
 UNIT_DST="$HOME/.config/systemd/user"
+WORKSPACES_ROOT="$(dirname "$(dirname "$REPO")")"   # /zfs/workspaces — racine des workspaces
 
 echo "==> Vérification des prérequis"
 need() { command -v "$1" >/dev/null 2>&1 || { echo "  MANQUANT : $1"; MISSING=1; }; }
@@ -105,11 +106,28 @@ if ! ssh -o BatchMode=yes -o ConnectTimeout=5 mmi true 2>/dev/null; then
   echo "  et la clé autorisée côté mmi avant d'activer karl-agent-tunnel.service."
 fi
 
+# RM1892 — pont d'onboarding des workspaces (AGENTS.md + symlink CLAUDE.md à la
+# racine). Sans lui, un agent lancé dans un workspace de code ne sait pas qu'il est
+# un worker PM. Le fichier est hors git (propre à l'instance) : on le POSE s'il
+# manque, on se contente de CONTRÔLER s'il est là — jamais d'écrasement silencieux
+# d'une part machine (le script préserve le bloc INSTANCE, cf. --update).
+echo "==> Pont d'onboarding des workspaces (AGENTS.md)"
+if [ -f "$WORKSPACES_ROOT/AGENTS.md" ]; then
+  python3 "$REPO/scripts/pm-workspace-bridge.py" --root "$WORKSPACES_ROOT" || \
+    echo "  (dérive signalée — 'pm-workspace-bridge.py --update' quand tu veux la reprendre)"
+else
+  python3 "$REPO/scripts/pm-workspace-bridge.py" --root "$WORKSPACES_ROOT" --install || \
+    echo "  (pose échouée — vérifie les droits sur $WORKSPACES_ROOT)"
+fi
+
 echo "==> Installation des units dans $UNIT_DST"
 mkdir -p "$UNIT_DST"
-cp "$UNIT_SRC/karl-agent.service"        "$UNIT_DST/"
-cp "$UNIT_SRC/karl-agent-tunnel.service" "$UNIT_DST/"
-cp "$UNIT_SRC/ttyd.service"              "$UNIT_DST/"
+cp "$UNIT_SRC/karl-agent.service"          "$UNIT_DST/"
+cp "$UNIT_SRC/karl-agent-tunnel.service"   "$UNIT_DST/"
+cp "$UNIT_SRC/ttyd.service"                "$UNIT_DST/"
+# RM2376 : watchdog auth SSH GitLab (« karl peut-il pousser ? ») — timer 15 min
+cp "$UNIT_SRC/karl-gitlab-check.service"   "$UNIT_DST/"
+cp "$UNIT_SRC/karl-gitlab-check.timer"     "$UNIT_DST/"
 systemctl --user daemon-reload
 
 echo "==> Activation du linger (survie aux reboots sans session ouverte)"
@@ -120,6 +138,9 @@ fi
 echo "==> Activation + démarrage des services"
 systemctl --user enable --now karl-agent.service
 systemctl --user enable --now karl-agent-tunnel.service
+# RM2376 : watchdog GitLab — timer périodique (le .service oneshot est lancé par lui)
+systemctl --user enable --now karl-gitlab-check.timer
+systemctl --user start karl-gitlab-check.service 2>/dev/null || true  # premier état tout de suite
 if [ "$HAVE_TTYD" = 1 ]; then
   systemctl --user enable --now ttyd.service
   # RM2323 : si le binaire vient d'être mis à niveau, un restart charge la

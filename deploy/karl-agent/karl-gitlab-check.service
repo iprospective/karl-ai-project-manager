@@ -1,0 +1,18 @@
+[Unit]
+Description=karl-agent — watchdog auth SSH GitLab de karl « peut-il pousser ? » (RM2376)
+Documentation=file:///zfs/workspaces/ai/project-management/scripts/pm-gitlab-push-check.py
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/zfs/workspaces/ai/project-management
+# Comme karl-agent.service : ~/.local/bin en tête (git/ssh utilisateur). %h = home.
+Environment=PATH=%h/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+# Le check neutralise lui-même SSH_AUTH_SOCK (teste la clé dédiée RM2158, pas un
+# agent de passage) et écrit l'état dans <STATE_DIR>/gitlab-push.json, lu par le
+# cockpit (page « 🩺 poste », famille Git / GitLab).
+ExecStart=/usr/bin/python3 /zfs/workspaces/ai/project-management/scripts/pm-gitlab-push-check.py
+# RC 2 = auth KO : SuccessExitStatus l'accepte pour ne pas marquer l'unit « failed »
+# (l'état KO est déjà capturé dans le JSON — le timer n'est pas en panne, GitLab l'est).
+SuccessExitStatus=0 2

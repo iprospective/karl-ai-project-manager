@@ -17,6 +17,61 @@
 removed: []
 
 rewritten:
+  - reason: "RM2551/RM2502 (v2.0.0, jalon multi-utilisateur) : la coordination n'est plus assurée par un écrivain unique. Le KERNEL énonce désormais « Filet inter-machine contre les écritures simultanées ; complète les verrous `flock` (même machine). Rare si propriété et verrous sont respectés. » — l'optimistic locking est CONSERVÉ à l'identique (même protocole en 5 étapes, mêmes fichiers concernés), mais requalifié : il garde les écritures venues de MACHINES différentes, là où `flock` sérialise celles d'une même machine. Rien n'est perdu : la phrase d'origine décrivait un filet contre l'accident dans un modèle où la simultanéité était censée ne pas arriver ; elle serait fausse aujourd'hui, où l'accès concurrent est la norme et non l'accident."
+    old: |
+      Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+
+  - reason: "RM2551/RM2502 (v2.0.0, jalon multi-utilisateur) : le mot « exclusive » est retiré, la propriété reste. Le KERNEL énonce désormais « L'assignation d'un ticket Redmine à un agent lui confère la **propriété** du fichier MD correspondant (coordination de 1er niveau) ; en multi-dev, l'accès concurrent réel est **sérialisé par ressource** (`flock`), pas garanti par un unique écrivain. » Le principe fondamental (« Redmine est le mutex ») et la table des droits d'écriture sont inchangés ; seule tombe la promesse d'exclusivité, que le modèle multi-dev ne tient plus — et qu'il serait dangereux de laisser croire, puisque c'est le verrou, non l'assignation, qui protège désormais l'écriture."
+    old: |
+      L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+
+  - reason: "RM2662 (v1.70.0, lot RM2710) : libellé du template de bootstrap généralisé (« Setup items Vaultwarden » → « Setup des items de vault ») — le PM ne suppose plus un gestionnaire unique. L'**identifiant** du template (`001-secrets-vaultwarden`) est volontairement INCHANGÉ : il est la clé référencée par les `bootstrap.skip`/`done` des projets existants, le renommer les ferait re-proposer."
+    old: |
+      | `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
+
+  - reason: "RM2662 (v1.70.0, lot RM2710) : § « Gestion des secrets » réécrit — le PM n'est plus lié à Vaultwarden. Le texte d'origine présentait UN gestionnaire (URI `vaultwarden://` unique, variables `BW_*`, une seule session BW en mémoire) ; il décrit désormais des vaults DÉCLARÉS (instances du registre providers, axe `secret`, slug + défaut + surcharge client/projet), trois formes d'URI dont l'historique — toujours valide —, des identifiants par développeur (`SECRET__<SLUG>__…`) et un cycle de vie de session PAR INSTANCE. Rien n'est perdu : l'architecture de collections `<client>-agents`, les règles de non-divulgation et la rotation sont conservées et complétées (deux règles ajoutées : un diagnostic ne nomme que les clés, jamais les valeurs ; une instance inconnue est refusée plutôt que rabattue sur le vault par défaut)."
+    old: |
+      ### Gestion des secrets — Vaultwarden
+
+      ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans une instance
+      Vaultwarden interne (https://vault.iprospective.fr), et sont **référencés** dans les
+      documents PM via un URI dédié.
+
+      **URI :**
+      vaultwarden://<organization>/<collection>/<item>
+
+      Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
+
+      **Architecture du vault** (chez iprospective) :
+
+      | Déverrouillage | `scripts/unlock-vault.sh` (demande master password de karl, jamais stocké) | toi (humain) |
+      | Résolution d'un secret | `scripts/resolve-secret.sh "vaultwarden://..."` | agent / script |
+      | Verrouillage manuel | `scripts/lock-vault.sh` | toi |
+
+      - garde la session BW **en mémoire** uniquement (pas de fichier, pas même tmpfs)
+      - se verrouille automatiquement après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
+      et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h)
+
+      1. Un agent ne demande **jamais** le master password ; si `resolve-secret.sh` renvoie
+      "session expirée", l'agent doit dire à l'humain "lance `unlock-vault.sh`" et attendre
+      inclus dans un commit ou un transcript
+      3. La rotation du token API de `karl` est trimestrielle (ou immédiate en cas de doute)
+
+      **Variables d'env requises** (dans `.env` local) :
+      - `VAULT_URL` (URL Vaultwarden)
+      - `BW_CLIENTID` + `BW_CLIENTSECRET` (API key de karl, pas de master password)
+
+      `secrets_source: vaultwarden://<org>/<coll>/<item>` comme pointeur, jamais la valeur
+      brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
+      référencés et leur rôle, pour audit humain.
+
+      - `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+      soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.
+
+  - reason: "Dette ANTÉRIEURE à RM2710, réparée en passant (le doctor échouait déjà sur `dev`) : la phrase de traceability § « Note Redmine » a été prolongée (« — donc **aérée** : sauts… ») sans que la forme d'origine soit enregistrée. Aucune perte de sens : la ligne actuelle contient la précédente."
+    old: |
+      par commit »). C'est la trace que les humains lisent.
+
   - reason: "RM2568 (v1.66.1) : bloc d'exemples `glab api` bruts (create + merge de MR à la main) retiré de git-mep — il illustrait exactement le réflexe que la même section déconseille désormais : se replier sur un appel API artisanal au lieu de `pm-mr`, qui encapsule ces gotchas. Les 4 gotchas restent en puces juste au-dessus, pour les rares appels directs légitimes. Retrait aussi motivé par le budget de contexte de worker-dev, saturé au token près."
     old: |
       ```bash
@@ -178,3 +233,11 @@ rewritten:
       > Ce workflow MEP est une **v1 explicitement provisoire** (déploiement par pull
       > manuel). Il sera remplacé par un mécanisme outillé (CI/CD, rollback) documenté dans
       > `project/deployment.md` (template bootstrap `005-deployment`).
+
+  - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : la propriété passe de GARANTIE à CONVENTION de 1er niveau. Le texte d'origine promettait qu'« aucun autre agent ne doit écrire » tant que l'assignation est active — vrai tant qu'un seul dev travaillait sur la machine, faux en multi-utilisateur (données communes groupe `pm`, plusieurs devs, karl admin) où rien n'empêche techniquement la seconde écriture. Le KERNEL v2.0.0 dit désormais ce qui protège RÉELLEMENT : l'assignation confère la propriété (coordination de 1er niveau), et l'accès concurrent est **sérialisé par ressource** (`flock`). La règle n'est pas perdue, elle est requalifiée — et le tableau « Règles d'écriture » (§ Propriété, verrou & journal) continue de porter l'interdit sous forme opérationnelle : les autres workers y sont en `lecture` sur une tâche assignée."
+    old: |
+      L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+
+  - reason: "RM2438 (jalon v2.0.0, tracé RM2750) : corollaire de l'entrée ci-dessus — l'optimistic locking est repositionné par rapport à `flock`. Il ne complète plus seulement « les règles de propriété » mais devient explicitement le filet INTER-MACHINE, là où `flock` sérialise sur une même machine (NFS/multi-serveur : cf. `modules/governance.md`). Sans cette précision, un lecteur pouvait croire les deux mécanismes redondants et n'en appliquer qu'un. Le protocole en 5 étapes et sa portée (tous les `.md`, jamais les `.log.md`) sont conservés verbatim juste en dessous."
+    old: |
+      Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.

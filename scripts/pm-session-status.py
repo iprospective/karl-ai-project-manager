@@ -54,6 +54,8 @@ WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
            "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
+# RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
+HORS_PROJET = "hors projet"
 
 # ─── canal « notifications importantes » (RM2466 volet 1) ────────────────────
 # Un incident notable finissait au mieux dans une phrase de réponse de l'agent,
@@ -78,17 +80,32 @@ NOTIFY_KEEP = 100          # garde-fou de taille du canal
 # Une demande formulée en séance n'existait que dans le fil : non ticketée
 # sur-le-champ, elle disparaissait au premier défilement. Le worklog ne
 # connaissait que les tickets — c'est-à-dire ce qui avait DÉJÀ été formalisé.
-REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee")
+REQUEST_STATES = ("nouveau", "ticketee", "repondu", "annulee", "fusionnee",
+                  "non_demande")
 # Statuts qui sortent une demande du « reste à traiter » : elle a trouvé sa
 # suite. `nouveau` est le seul qui appelle encore une décision.
-REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee")
+# RM2635 : `non_demande` en fait partie, mais il ne dit PAS la même chose que
+# les autres. Ranger un collage de console dans `annulee` serait un mensonge de
+# classement — personne n'a rien annulé. Il lui faut son propre état, sinon le
+# tri se fait au prix d'une donnée fausse.
+REQUEST_DONE = ("ticketee", "repondu", "annulee", "fusionnee", "non_demande")
 REQUEST_ICON = {"nouveau": "🆕", "ticketee": "🎫", "repondu": "💬",
-                "annulee": "🚫", "fusionnee": "⛓"}
+                "annulee": "🚫", "fusionnee": "⛓", "non_demande": "🗒"}
 
 
 def request_open(requests):
     """Demandes qui appellent encore une décision. Pure."""
     return [r for r in (requests or []) if r.get("status", "nouveau") not in REQUEST_DONE]
+
+
+def request_count_by_state(requests):
+    """Décompte par statut. Pure — sert au worklog à afficher les non-demandes
+    à part plutôt que fondues dans « traité »."""
+    out = {}
+    for r in (requests or []):
+        st = r.get("status", "nouveau")
+        out[st] = out.get(st, 0) + 1
+    return out
 
 
 def request_apply(requests, ref, status, ticket=None, note=None, merged_into=None):
@@ -114,17 +131,62 @@ def request_apply(requests, ref, status, ticket=None, note=None, merged_into=Non
     return out, True
 
 
+def notify_open(notes):
+    """Notifications qui appellent encore quelque chose. Pure.
+
+    RM2715 : une notification consignée en séance restait au backlog pour
+    toujours, même traitée — celle du 14/08 disait encore « ticket à ouvrir »
+    alors que RM2691 l'avait été. Le canal `mrs` avait déjà tranché la question
+    (`mr_pending`) : ce qui est traité SORT de la liste sans SORTIR du store."""
+    return [n for n in (notes or []) if not n.get("resolved_at")]
+
+
+def notify_done(notes):
+    """L'archive : notifications traitées, gardées pour dire ce que la session a
+    réglé et par quoi. Pure."""
+    return [n for n in (notes or []) if n.get("resolved_at")]
+
+
+def notify_resolve(notes, ref, ticket=None, note=None, when=None):
+    """Marque une notification traitée, SANS la supprimer. Rend (liste, trouvée).
+    Pure.
+
+    `ref` est le numéro d'ordre affiché (1-based) par `--list`, comme pour les
+    demandes (`request_apply`) : l'agent n'a pas d'identifiant interne à retenir.
+    Ré-résoudre une notification déjà traitée met sa résolution à jour plutôt
+    que d'échouer — corriger un ticket mal saisi ne doit pas demander de ruse."""
+    out = [dict(n) for n in (notes or [])]
+    try:
+        i = int(str(ref)) - 1
+    except (TypeError, ValueError):
+        return out, False
+    if i < 0 or i >= len(out):
+        return out, False
+    out[i]["resolved_at"] = when or now()
+    if ticket:
+        out[i]["ticket"] = str(ticket)
+    if note is not None:
+        out[i]["resolution"] = note
+    return out, True
+
+
 def notify_trim(notes, keep=NOTIFY_KEEP):
     """Rogne les plus anciennes au-delà de `keep`, mais JAMAIS une `critical` :
     un secret exposé ne doit pas disparaître parce que la session a été bavarde.
-    Pure (testable)."""
+    RM2715 : à l'étroit, l'ARCHIVE est sacrifiée avant les notifications encore
+    ouvertes — une traitée a déjà servi, une ouverte appelle toujours quelque
+    chose. Pure (testable)."""
     notes = list(notes or [])
     if len(notes) <= keep:
         return notes
     crit = [n for n in notes if n.get("level") == "critical"]
-    rest = [n for n in notes if n.get("level") != "critical"]
+    reste = [n for n in notes if n.get("level") != "critical"]
+    ouvertes = [n for n in reste if not n.get("resolved_at")]
+    archive = [n for n in reste if n.get("resolved_at")]
     room = max(0, keep - len(crit))
-    kept = crit + (rest[-room:] if room else [])
+    kept = crit + (ouvertes[-room:] if room else [])
+    room = max(0, keep - len(kept))
+    kept = kept + (archive[-room:] if room else [])
     # ordre chronologique conservé, quel que soit le tri interne ci-dessus
     return [n for n in notes if n in kept]
 
@@ -275,6 +337,19 @@ def _read_fm_lists(path, fields):
     return res
 
 
+def project_from_task_path(path):
+    """`…/clients/<client>/projects/<projet>/tasks/RM123_x.md` → `<projet>`.
+
+    Best-effort : sert de repli quand l'item du worklog a été ouvert sans
+    `--project` (RM2724). Rend None si le chemin n'a pas cette forme."""
+    try:
+        parts = os.path.normpath(str(path)).split(os.sep)
+        i = len(parts) - 1 - parts[::-1].index("tasks")
+    except ValueError:
+        return None
+    return parts[i - 1] if i >= 1 else None
+
+
 def resolve_live(items):
     """map ref→{status,title} depuis le frontmatter des tâches (best-effort).
 
@@ -303,7 +378,7 @@ def resolve_live(items):
             docs = ([[d, "ref"] for d in lists["refs"]]
                     + [[d, "output"] for d in lists["outputs"]])
             live[ref] = {"status": st, "title": _read_fm_field(p, "title"),
-                         "docs": docs}
+                         "project": project_from_task_path(p), "docs": docs}
     return live
 
 
@@ -345,7 +420,13 @@ def render_md(data, live=None):
     # perd, les tickets ont déjà leur existence propre.
     ouvertes = request_open(data.get("requests"))
     if ouvertes:
-        out.append("## 📥 Demandes à traiter (%d)" % len(ouvertes))
+        # RM2635 : le décompte des écartées reste visible. Sans lui, l'écart
+        # entre le registre et cette liste ressemblerait à une perte.
+        par_etat = request_count_by_state(data.get("requests"))
+        ecartees = par_etat.get("non_demande", 0)
+        out.append("## 📥 Demandes à traiter (%d)%s" % (
+            len(ouvertes),
+            (" _· %d écartée(s) : accusés, collages_" % ecartees) if ecartees else ""))
         for r in ouvertes:
             n = (data.get("requests") or []).index(r) + 1
             out.append("- `#%d` %s _(%s)_" % (n, r.get("text", ""), r.get("ts", "")))
@@ -354,17 +435,23 @@ def render_md(data, live=None):
     # RM2466 : les incidents passent AVANT le travail — c'est ce qu'on perd le
     # plus vite, et ce qui coûte le plus cher quand on l'a perdu.
     notes = data.get("notifications") or []
-    if notes:
-        out.append("## 🔔 Notifications importantes (%d)" % len(notes))
-        for n in notes[-20:]:
+    # RM2715 : le backlog ne montre que ce qui appelle encore quelque chose. Les
+    # traitées descendent en archive, en bas — sans disparaître.
+    ouvertes_n, traitees_n = notify_open(notes), notify_done(notes)
+    if ouvertes_n:
+        out.append("## 🔔 Notifications importantes (%d)%s" % (
+            len(ouvertes_n),
+            (" _· %d traitée(s)_" % len(traitees_n)) if traitees_n else ""))
+        for n in ouvertes_n[-20:]:
             ref = (" **%s**" % n["ref"]) if n.get("ref") else ""
             kind = (" `%s`" % n["kind"]) if n.get("kind") and n["kind"] != "autre" else ""
-            out.append("- %s `%s`%s%s — %s _(%s)_" % (
+            out.append("- `#%d` %s `%s`%s%s — %s _(%s)_" % (
+                notes.index(n) + 1,
                 NOTIFY_ICON.get(n.get("level"), "•"), n.get("level", "?"), kind, ref,
                 n.get("message", ""), n.get("ts", "")))
-        if len(notes) > 20:
+        if len(ouvertes_n) > 20:
             out.append("_(%d plus anciennes — `pm-session-status.py notify --list`)_"
-                       % (len(notes) - 20))
+                       % (len(ouvertes_n) - 20))
         out.append("")
 
     # Branches / worktrees ouverts par la session (RM2034). Lecture seule :
@@ -405,8 +492,10 @@ def render_md(data, live=None):
     def line(it):
         st = eff_status(it, live)
         lv = (live or {}).get(it["ref"])
-        label = it.get("label") or (lv["title"] if lv and lv.get("title") else it["ref"])
-        proj = (" _(%s)_" % it["project"]) if it.get("project") else ""
+        label = it.get("label")
+        if (not label or label == it["ref"]) and lv and lv.get("title"):
+            label = lv["title"]          # RM2724 : évite « RM2680 — RM2680 »
+        label = label or it["ref"]
         # dérive : le statut courant diffère de celui d'ouverture dans la session
         opened = it.get("opened_status") or it.get("status")
         drift = ""
@@ -415,16 +504,48 @@ def render_md(data, live=None):
         commit = (" · `%s`" % it["commit"]) if it.get("commit") else ""
         nxt = ("\n  → " + it["next"]) if it.get("next") else ""
         note = ("\n  ↳ " + it["note"]) if it.get("note") else ""
-        return "- `[%s]` **%s** — %s%s%s%s%s%s" % (
-            st, it["ref"], label, proj, drift, commit, nxt, note)
+        return "- `[%s]` **%s** — %s%s%s%s%s" % (
+            st, it["ref"], label, drift, commit, nxt, note)
+
+    # RM2724 : le projet portait en suffixe de ligne, invisible dès que la
+    # session mélange plusieurs projets. Il devient le titre du groupe.
+    def by_project(items):
+        groups, order = {}, []
+        for it in items:
+            lv = (live or {}).get(it["ref"]) or {}
+            proj = it.get("project") or lv.get("project") or HORS_PROJET
+            if proj not in groups:
+                groups[proj] = []
+                order.append(proj)
+            groups[proj].append(it)
+        # ordre d'apparition, sauf « hors projet » qui ferme la marche
+        order.sort(key=lambda p: p == HORS_PROJET)
+        lines = []
+        for proj in order:
+            if lines:
+                lines.append("")
+            lines.append("### %s" % proj)
+            lines += [line(i) for i in groups[proj]]
+        return lines
 
     out.append("## ⏳ Reste à faire")
-    out += [line(i) for i in todo] or ["_(rien)_"]
+    out += by_project(todo) or ["_(rien)_"]
     if wait:
         out.append("\n## ⏸️ En attente / bloqué")
-        out += [line(i) for i in wait]
+        out += by_project(wait)
     out.append("\n## ✅ Fait")
-    out += [line(i) for i in done] or ["_(rien)_"]
+    out += by_project(done) or ["_(rien)_"]
+
+    # RM2715 : l'archive des notifications, tout en bas — elle ne réclame rien,
+    # mais elle dit ce que la session a réglé et PAR QUOI (le ticket qui la porte).
+    if traitees_n:
+        out.append("\n## 🗄 Notifications traitées (%d)" % len(traitees_n))
+        for n in traitees_n[-10:]:
+            tk = (" → **%s**" % n["ticket"]) if n.get("ticket") else ""
+            why = (" _%s_" % n["resolution"]) if n.get("resolution") else ""
+            out.append("- %s%s%s — %s _(traitée %s)_" % (
+                NOTIFY_ICON.get(n.get("level"), "•"), tk, why,
+                n.get("message", ""), n.get("resolved_at", "")))
     return "\n".join(out) + "\n"
 
 
@@ -519,11 +640,74 @@ def cmd_title(data, args):
 # Messages qui ne sont pas des demandes : accusés de réception et relances. La
 # liste sert UNIQUEMENT au contrôle d'exhaustivité, pour ne pas crier au loup —
 # jamais à filtrer ce que l'agent enregistre. Un faux négatif ici ne cache rien :
-# il fait juste baisser le nombre attendu.
+# il fait juste monter le nombre attendu, donc le bruit de l'audit. C'est le
+# faux POSITIF qui coûte : il escamote une vraie demande du décompte. En cas de
+# doute, ne pas élargir.
 REQUEST_ACK_RE = re.compile(
     r"\A(ok|oui|non|go|vas[- ]?y|continue|enchaine[sz]?|merci|parfait|super|"
-    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b[\s!.…]*\Z",
+    r"c'est bon|ca marche|ça marche|core update fait|fait|teste|/\w+)\b"
+    r"[\s!.,…]*(enchaine[sz]?|go|continue|la suite)?[\s!.…]*\Z",
     re.I)
+
+# RM2635 : les verdicts. « ça a l'air bon ! tous les accents passent » n'est pas
+# une demande, mais l'expression anchorée ci-dessus ne l'attrape pas — un
+# verdict se prolonge presque toujours d'une observation. On tolère donc une
+# suite, à condition qu'elle ne demande rien.
+REQUEST_VERDICT_RE = re.compile(
+    r"\A([cç]?a (a l'air|semble) (bien|bon|ok)|c'est (bien|bon|ok|parfait)|"
+    r"nickel|impeccable|bien vu|core update( ?\+ ?reload)? (fait|faits|ok))\b", re.I)
+# Signaux qu'un message demande quelque chose. Sert de garde-fou dans les DEUX
+# sens : il empêche de prendre un verdict prolongé d'une consigne pour un simple
+# accusé, et il empêche de prendre pour un collage technique un message court
+# qui cite une erreur en demandant de la corriger.
+REQUEST_ASK_RE = re.compile(
+    r"\?|\b(fais|fait[- ]le|ajoute|corrige|fix|répare|repare|mets?|change|"
+    r"remplace|supprime|refais|relance|il faut|faudrait|ce serait bien|"
+    r"peux[- ]tu|pourrais|merge|prends|étudie|etudie|chiffre|regarde|vérifie|"
+    r"verifie|explique|montre)\b", re.I)
+
+# Enveloppes qui ne viennent pas du demandeur : résumé de compaction réinjecté
+# dans le fil, collage de console renvoyé à MA demande. Les compter comme des
+# demandes fait gonfler le registre de choses qui n'appellent aucune décision —
+# et un registre de 41 lignes dont 25 sont du bruit ne protège plus rien.
+REQUEST_PASTE_HEAD_RE = re.compile(
+    r"\A(this session is being continued|the summary below covers|"
+    r"caveat: the messages below|<[a-z-]+>)", re.I)
+REQUEST_PASTE_MARK_RE = re.compile(
+    r"debugger eval code:|\bat [\w.$<>]+ \([^)]*:\d+:\d+\)|\"keyCode\"|"
+    r"\"isComposing\"|console\.(log|error)\(|"
+    r"Traceback \(most recent call last\)|npm ERR!|\w+\.(js|py|php):\d+:\d+", re.I)
+
+
+def looks_like_paste(msg):
+    """Vrai si le message est une enveloppe technique et non une demande. Pure.
+
+    Deux marqueurs suffisent, MAIS jamais quand le message demande quelque
+    chose : « corrige ce TypeError at boot (app.js:12:3) » en porte deux et
+    reste une demande. Le faux négatif coûte une ligne à trier ; le faux
+    positif escamote une demande — c'est tout l'inverse de ce qu'on veut."""
+    m = str(msg or "")
+    if REQUEST_PASTE_HEAD_RE.match(m):
+        return True
+    if REQUEST_ASK_RE.search(m):
+        return False
+    return len(REQUEST_PASTE_MARK_RE.findall(m)) >= 2
+
+
+def request_is_noise(msg):
+    """Rend "ack", "paste" ou None. Pure — source unique pour l'audit ET
+    l'import, sinon l'audit réclamerait sans fin l'enregistrement de ce que
+    l'import refuse de prendre."""
+    m = " ".join(str(msg or "").split())
+    if not m:
+        return "ack"
+    if REQUEST_ACK_RE.match(m):
+        return "ack"
+    if REQUEST_VERDICT_RE.match(m) and not REQUEST_ASK_RE.search(m):
+        return "ack"
+    if looks_like_paste(m):
+        return "paste"
+    return None
 
 
 def transcript_user_messages(path):
@@ -564,8 +748,10 @@ def request_audit(messages, requests):
     le supprime pas, et un oubli ne laisse aucune trace : ce comptage est ce qui
     transforme « je crois n'avoir rien oublié » en fait vérifiable. Pure."""
     msgs = [m for m in (messages or [])]
-    attendus = [m for m in msgs if not REQUEST_ACK_RE.match(m)]
-    return {"messages": len(msgs), "acks": len(msgs) - len(attendus),
+    bruit = [request_is_noise(m) for m in msgs]
+    attendus = [m for m, b in zip(msgs, bruit) if not b]
+    return {"messages": len(msgs), "acks": bruit.count("ack"),
+            "pastes": bruit.count("paste"),
             "expected": len(attendus), "recorded": len(requests or []),
             "gap": max(0, len(attendus) - len(requests or [])),
             "samples": attendus[:40]}
@@ -591,8 +777,10 @@ def cmd_request(data, args):
             pmout.fail("transcript introuvable pour la session %s" % sid)
         rep = request_audit(transcript_user_messages(path), reqs)
         sys.stdout.write(
-            "messages du demandeur : %d (dont %d accusés de réception)\n"
-            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"], rep["recorded"]))
+            "messages du demandeur : %d (dont %d accusés de réception, "
+            "%d collages/résumés)\n"
+            "demandes enregistrées  : %d\n" % (rep["messages"], rep["acks"],
+                                               rep["pastes"], rep["recorded"]))
         if rep["gap"]:
             sys.stdout.write("\n⚠ écart de %d : des demandes n'ont probablement pas été "
                              "enregistrées.\n  Messages à vérifier :\n" % rep["gap"])
@@ -615,7 +803,7 @@ def cmd_request(data, args):
         connus = {r.get("text", "")[:60] for r in reqs}
         ajout = 0
         for m in transcript_user_messages(path):
-            if REQUEST_ACK_RE.match(m) or m[:60] in connus:
+            if request_is_noise(m) or m[:60] in connus:
                 continue
             reqs.append({"ts": now(), "text": " ".join(m.split())[:400],
                          "status": "nouveau", "note": "importée du transcript (rattrapage)"})
@@ -653,20 +841,40 @@ def cmd_notify(data, args):
         if not notes:
             pmout.info("aucune notification dans cette session")
             return
-        for n in notes:
+        for i, n in enumerate(notes, 1):
             tags = " ".join(x for x in (n.get("kind"), n.get("ref")) if x)
-            sys.stdout.write("%s [%s] %s — %s\n" % (
-                n.get("ts", ""), n.get("level", "?"), tags, n.get("message", "")))
+            # RM2715 : le numéro est ce que `--resolve` attend, et l'état dit
+            # d'un coup d'œil ce qui appelle encore quelque chose.
+            if n.get("resolved_at"):
+                etat = "✓ traitée%s" % ((" " + n["ticket"]) if n.get("ticket") else "")
+            else:
+                etat = "ouverte"
+            sys.stdout.write("#%d %s [%s] %s %s — %s\n" % (
+                i, n.get("ts", ""), n.get("level", "?"), etat, tags,
+                n.get("message", "")))
+        return
+    if args.resolve:
+        notes, ok = notify_resolve(notes, args.resolve, args.ticket, args.note)
+        if not ok:
+            pmout.fail("notification #%s introuvable (voir `notify --list`)" % args.resolve)
+        data["notifications"] = notes
+        save(data)
+        pmout.op("worklog", extra="notification #%s traitée%s" % (
+            args.resolve, (" → " + str(args.ticket)) if args.ticket else ""))
         return
     if args.clear:
-        # les `critical` ne partent qu'à la demande explicite : un secret exposé
-        # ne s'acquitte pas d'un revers de main en vidant le canal.
-        kept = [] if args.all else [n for n in notes if n.get("level") == "critical"]
+        # RM2715 : `--clear` DÉTRUIT — ce n'est pas « traiter » (→ `--resolve`,
+        # qui archive). Par défaut il ne vide donc que l'ARCHIVE : une
+        # notification encore ouverte ne doit pas disparaître d'un revers de
+        # main, pas plus qu'une `critical` (un secret exposé ne s'acquitte pas
+        # en vidant le canal).
+        kept = [] if args.all else [n for n in notes
+                                    if n.get("level") == "critical" or not n.get("resolved_at")]
         removed = len(notes) - len(kept)
         data["notifications"] = kept
         save(data)
-        pmout.op("worklog", extra="%d notification(s) acquittée(s)%s" % (
-            removed, "" if args.all else ", %d critique(s) conservée(s)" % len(kept)))
+        pmout.op("worklog", extra="%d notification(s) supprimée(s)%s" % (
+            removed, "" if args.all else ", %d conservée(s) (ouvertes + critiques)" % len(kept)))
         return
     if not args.message:
         pmout.fail("message requis (ou --list / --clear)")
@@ -759,11 +967,18 @@ def main():
     n.add_argument("--level", choices=NOTIFY_LEVELS,
                    help="défaut : critical pour --kind secret, warn sinon")
     n.add_argument("--ref", help="ticket concerné (ex: RM2466)")
-    n.add_argument("--list", action="store_true", help="lister les notifications")
+    n.add_argument("--list", action="store_true",
+                   help="lister les notifications (numéro + état)")
+    n.add_argument("--resolve",
+                   help="numéro de la notification traitée (voir --list) — elle sort "
+                        "du backlog et reste consultable en archive")
+    n.add_argument("--ticket", help="avec --resolve : ticket qui l'a portée (ex: RM2691)")
+    n.add_argument("--note", help="avec --resolve : comment elle a été traitée")
     n.add_argument("--clear", action="store_true",
-                   help="acquitter (les critiques sont conservées sauf --all)")
+                   help="SUPPRIMER l'archive (traitées). Pour marquer traité sans "
+                        "perdre la trace, voir --resolve")
     n.add_argument("--all", action="store_true",
-                   help="avec --clear : acquitter AUSSI les critiques")
+                   help="avec --clear : supprimer AUSSI les ouvertes et les critiques")
 
     args = p.parse_args()
     pmout.configure(args)

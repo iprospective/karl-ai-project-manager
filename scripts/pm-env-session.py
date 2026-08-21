@@ -40,6 +40,10 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
           - "[ -d vendor ] || cp -r ../matnat_sf7-dev/vendor vendor"
         post_create_container:    # idem mais via ssh env_runtime.ssh_host,
           - "php bin/console cache:clear"   # cwd = worktree (chemin conteneur)
+        teardown_ignore:          # RM2679 — chemins NON SUIVIS que l'appli écrit au
+          - "yaml/*.php"          # runtime et qui ne doivent pas bloquer le teardown
+          - "yaml/*.php.meta"     # (motifs fnmatch, relatifs au worktree). Ne rend
+                                  # JAMAIS jetable un fichier suivi et modifié.
 
     Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
     tranchent sans question ; sinon la question est posée (TTY) avec le défaut
@@ -56,6 +60,8 @@ Worktree/branche enregistrés dans le registre de session (pm_session, RM2034).
 N'auto-committe rien : opère sur les repos du workspace, pas sur le repo PM.
 """
 import argparse
+import fnmatch
+import os
 import re
 import shlex
 import subprocess
@@ -202,10 +208,36 @@ def map_container_path(cfg: dict, host_path: Path) -> str:
     die(f"{host_path} hors des workspace_map de env_runtime — chemin non traduisible")
 
 
+def on_target_box(cfg: dict) -> bool:
+    """Sommes-nous DÉJÀ sur la box qui porte le helper privilégié ? (RM2646)
+
+    Depuis 2026-07-07 les sessions tournent dans le conteneur `dev` : y faire
+    `ssh mathieu@dev.lxc` revient à se joindre soi-même — ça échoue, et comme l'échec
+    est « non bloquant », le vhost n'est jamais posé sans que personne ne le voie.
+
+    Le signal retenu est le **helper présent et exécutable en local** : il n'est
+    déployé que sur la box de dev, et il est exactement ce que la commande veut
+    joindre — pas de devinette sur le hostname (`dev.local` ≠ `dev.lxc`), pas de
+    résolution DNS. `env_runtime.force_ssh: true` rétablit le saut ssh si un jour une
+    machine porte le binaire sans être la cible.
+    """
+    if cfg.get("force_ssh"):
+        return False
+    h = Path(cfg["helper"])
+    return h.is_file() and os.access(h, os.X_OK)
+
+
 def helper(cfg: dict, args: list[str], dry: bool, check=True, stdin: str | None = None):
-    """Invoque le helper privilégié sur la box de dev (ssh + sudo -n)."""
-    cmd = ["ssh", cfg["ssh_host"], "sudo", "-n", cfg["helper"],
-           *(shlex.quote(a) for a in args)]
+    """Invoque le helper privilégié : `sudo -n` en local si on est déjà sur la box
+    (RM2646), sinon `ssh <ssh_host> sudo -n` comme avant."""
+    # En local, subprocess passe argv tel quel : quoter injecterait des guillemets
+    # littéraux. Via ssh, les arguments sont ré-interprétés par un shell distant :
+    # le quoting est indispensable. D'où les deux formes.
+    if on_target_box(cfg):
+        cmd = ["sudo", "-n", cfg["helper"], *args]
+    else:
+        cmd = ["ssh", cfg["ssh_host"], "sudo", "-n", cfg["helper"],
+               *(shlex.quote(a) for a in args)]
     if dry:
         print(f"  [dry] {' '.join(cmd)}" + (" << (sql)" if stdin else ""))
         return None
@@ -264,19 +296,22 @@ def worktree_for_branch(bare: Path, name: str, rmid: int) -> tuple[Path, str] | 
 
 
 def resolve_base(bare: Path, integration_branch: str | None) -> str:
-    """Point de départ de la branche ticket : branche d'intégration locale
-    (têtes des worktrees) sinon tracking remote."""
+    """Point de départ de la branche ticket, résolu sur le REMOTE (RM2646).
+
+    Retenir le ref LOCAL dès qu'il existe — ce que faisait cette fonction — crée des
+    branches sur une base périmée sans le dire : constaté sur le bare pisceen, dont
+    `refs/heads/dev` accusait ~200 commits de retard sur `origin/dev`. Le garde vit
+    dans `pm_git.resolve_base_ref`, partagé avec `pm-branch-start` : il ne doit pas
+    exister d'un seul côté (les deux outils créent des branches de ticket).
+    """
     heads = git(["-C", str(bare), "for-each-ref", "--format=%(refname:short)",
                  "refs/heads"]).stdout.split()
-    cands = [integration_branch] if integration_branch else ["dev", "develop"]
-    for c in cands:
-        if c in heads:
-            return c
     remotes = git(["-C", str(bare), "for-each-ref", "--format=%(refname)",
                    "refs/remotes"]).stdout.splitlines()
+    cands = [integration_branch] if integration_branch else ["dev", "develop"]
     for c in [*cands, "main", "master"]:
-        if f"refs/remotes/origin/{c}" in remotes:
-            return f"origin/{c}"
+        if c in heads or f"refs/remotes/origin/{c}" in remotes:
+            return pm_git.resolve_base_ref(bare, c, warn=lambda m: print(f"  ⚠ {m}"))
     die(f"aucune branche d'intégration résoluble dans {bare.name}")
 
 
@@ -450,14 +485,17 @@ def cmd_create(args):
     csteps = runtime.get("post_create_container") or []
     if csteps:
         wt_c = map_container_path(cfg, wt)
+        # RM2646 : même règle que `helper()` — déjà sur la box, on exécute sur place.
+        local = on_target_box(cfg)
+        where = "local" if local else cfg["ssh_host"]
         for step in csteps:
             step = expand(str(step))
-            print(f"  $ [{cfg['ssh_host']}] {step}")
+            print(f"  $ [{where}] {step}")
             if not dry:
-                r = subprocess.run(
-                    ["ssh", cfg["ssh_host"],
-                     f"cd {shlex.quote(wt_c)} && {step}"],
-                    capture_output=True, text=True)
+                argv = (["bash", "-c", f"cd {shlex.quote(wt_c)} && {step}"] if local
+                        else ["ssh", cfg["ssh_host"],
+                              f"cd {shlex.quote(wt_c)} && {step}"])
+                r = subprocess.run(argv, capture_output=True, text=True)
                 r.returncode == 0 or die(
                     f"post_create_container a échoué ({r.returncode}) : "
                     f"{step}\n{(r.stderr or r.stdout).strip()}")
@@ -471,6 +509,49 @@ def cmd_create(args):
 
 
 # -------------------------------------------------------------------- teardown
+
+def own_artifacts(docroot):
+    """Chemins des artefacts posés par `create`, **normalisés**.
+
+    RM2679 : la version d'origine concaténait `f"?? {docroot}/pm-env.txt"` et comparait
+    la chaîne à la ligne de `git status`. Avec `docroot: "."` — tout projet servi depuis
+    la racine du checkout — ça produit `./pm-env.txt` alors que git écrit `pm-env.txt` :
+    l'exemption ne matchait jamais et l'outil se bloquait sur son propre canari.
+    """
+    if not docroot:
+        return set()
+    return {os.path.normpath(os.path.join(docroot, n))
+            for n in (".user.ini", "pm-env.txt")}
+
+
+def status_path(line):
+    """Chemin d'une ligne `git status --porcelain`, déquoté et normalisé."""
+    raw = line[3:] if len(line) > 3 else ""
+    if " -> " in raw:                       # renommage : on garde la destination
+        raw = raw.split(" -> ", 1)[1]
+    raw = raw.strip()
+    if len(raw) > 1 and raw[0] == '"' and raw[-1] == '"':
+        raw = raw[1:-1].encode("utf-8").decode("unicode_escape")
+    return os.path.normpath(raw) if raw else raw
+
+
+def is_disposable(line, own, patterns):
+    """Cette entrée de `git status` est-elle jetable ?
+
+    Deux cas, et deux seulement : un artefact que `create` a lui-même posé, ou un chemin
+    NON SUIVI que le projet déclare jetable via `runtime.teardown_ignore` (fnmatch).
+    Tout le reste compte comme du travail non commité et bloque le teardown — un fichier
+    neuf qu'on a oublié d'ajouter ne doit pas disparaître en silence.
+    """
+    if not line.strip():
+        return True
+    if line[:2] != "??":                    # suivi et modifié = du travail, jamais jetable
+        return False
+    path = status_path(line)
+    if path in own:
+        return True
+    return any(fnmatch.fnmatch(path, pat) for pat in patterns)
+
 
 def cmd_teardown(args):
     cfg = load_env_runtime_cfg()
@@ -503,11 +584,14 @@ def cmd_teardown(args):
     # Les fichiers posés par create (.user.ini, canari pm-env.txt) ne comptent
     # pas comme dirt (artefacts de l'outil).
     docroot = runtime.get("docroot", "public") if runtime else None
-    own = {f"?? {docroot}/.user.ini", f"?? {docroot}/pm-env.txt"} if docroot else set()
+    own = own_artifacts(docroot)
+    # chemins que le PROJET déclare jetables (caches écrits par l'appli au runtime) :
+    # `.mmi-pm/meta.yml › repos[] › runtime.teardown_ignore`, motifs fnmatch.
+    disposable = list((runtime or {}).get("teardown_ignore") or [])
     if wt.is_dir():
         st = git(["-C", str(wt), "status", "--porcelain"], check=False).stdout
         dirt = [ln for ln in st.splitlines()
-                if ln.strip() and ln.strip() not in own]
+                if not is_disposable(ln, own, disposable)]
         if dirt and not args.force:
             die("worktree sale (modifs non commitées) — commit/stash d'abord, "
                 "ou --force pour perdre :\n" + "\n".join(dirt))

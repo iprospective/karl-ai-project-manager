@@ -1,5 +1,211 @@
 # Changelog des normes
 
+## [2.7.0] - 2026-08-20
+
+### Ajouté
+- **task-links** — sous-section « `refs: partner_issue` — ticket d'un gestionnaire
+  partenaire » : quand un projet déclare un **provider secondaire** (`providers.task[]`
+  du `meta.yml`, RM2653), un ticket PM se rattache à un ticket de ce gestionnaire via un
+  `refs[]` typé `{instance, issue_id, url, role, last_seen_journal_id, added}`. `role` ∈
+  `mirror` (mon ticket vu de chez eux, **un seul** par tâche) / `upstream` / `related`.
+  Le lien se pose **par `pm-task-partner`** (tripwire #1) : l'outil valide que l'instance
+  est un secondaire déclaré, refuse doublon et second miroir, pose le CF « Ticket
+  partenaire », journalise et poste la note de rattachement chez le partenaire.
+  Invariant : **un secondaire ne modifie aucun champ du frontmatter** — le primaire reste
+  la seule source de vérité, ce qui vient d'ailleurs s'écrit dans le `.log.md`. Avec
+  `link.policy: required`, `pm-doctor` signale les tickets ouverts non rattachés.
+  (RM2654, chantier RM2626 — clients Pisceen et MatNat.)
+- **task-links** — `pm-task-partner pull` : importe dans le `.log.md` les notes nouvelles
+  du ticket partenaire (citées, en-tête nommant l'instance) et son statut **brut**.
+  Réglable par secondaire (`sync.pull: {notes, status}`), pointeur `last_seen_journal_id`
+  **par lien** — distinct de `redmine_last_journal_id`, qui suit l'instance primaire.
+  Lecture seule : rien n'est répercuté sur le statut/priorité/assignation, et un
+  partenaire injoignable avertit sans faire échouer. (RM2655.)
+- **task-links** — `pm-task-partner push` + déclencheur sur transition de statut : une
+  **note de suivi** part chez le partenaire quand le secondaire déclare ce statut dans
+  `sync.push.on`. **Défaut : rien ne part** — l'activation est un geste explicite par
+  projet, après revue du gabarit. Écriture **pauvre** (note texte seule), **gabarit
+  fermé** (identifiant, titre, état en clair — jamais de jargon NORMS, de chemin, d'hôte,
+  de branche ni d'URL interne), best-effort (ne fait jamais échouer une transition).
+  `link --create-remote` crée le ticket chez eux puis le rattache, en exigeant un
+  `create.tracker_id` déclaré. (RM2656.)
+
+## [2.6.0] - 2026-08-20 — Le coffre du client, et ce qu'il ne peut pas rendre
+
+### Ajouté
+- **environments** — § « Gestion des secrets » : backend **`nextcloud_passwords`**
+  (RM2712), pour lire dans l'app Passwords d'une instance Nextcloud — le cas d'un
+  client qui a déjà son gestionnaire (Matériaux Naturels). L'accès se fait par un mot
+  de passe d'**application**, révocable, jamais par celui du compte.
+- **environments** — règle nouvelle et non évidente : **un secret chiffré côté client
+  est refusé, pas rendu**. L'API ne rend qu'un cryptogramme ; le livrer ferait injecter
+  du charabia dans une configuration en le prenant pour un mot de passe. Le backend
+  échoue explicitement en nommant le type de chiffrement. Corollaire : un secret
+  destiné aux agents ne se pose pas dans le périmètre chiffré côté client.
+
+## [2.5.0] - 2026-08-20 — Le format de l'aspect `environments` sort de la précharge
+
+### Déplacé (aucune règle perdue)
+- **environments → environments-reference** (RM2755) — l'énumération des noms d'env,
+  la liste des champs (`ssh_alias`, `post_deploy`, `logs.*`), les conventions de chemins
+  et le tableau `env_vars[]` passent dans un module **hors précharge**, ouvert par le
+  déclencheur « j'écris ou j'édite un aspect `environments.md` ». C'est de la **forme**
+  de fichier : on la consulte quand on écrit l'aspect, pas à chaque tâche. Les **règles
+  d'usage** restent préchargées dans `environments.md` — quelle commande de connexion
+  (`ssh_alias` puis `ssh_target`), la cascade client→projet, `target_env`/`test_url`,
+  la résolution du worktree par branche (RM2394) et toute la gestion des secrets.
+  Le module préchargé porte un renvoi explicite vers la référence.
+
+- **structure-reference → project-modeling** (RM2755) — le § « Contacts d'un client »
+  (`meta.yml :: contacts[]`) rejoint la modélisation d'entité, où il a toujours eu sa
+  place : ce n'est pas de la résolution de chemins. Déclencheur ajouté au KERNEL
+  (« je note / cherche un contact d'un client ») et renvoi laissé sur place.
+  Motif : `structure-reference` avait franchi le plafond des 5 000 tokens par module
+  préchargé en accueillant le pont d'onboarding (RM1892, v2.4.0).
+
+### Pourquoi
+La précharge `worker-dev` était remontée à 26 496 tokens sur 29 000 — 91,4 %, au-delà
+de la marge de 10 % qu'impose `test_norms_precharge.py`. Cette marge n'est pas un
+confort : RM2582 l'a instaurée après avoir touché le plafond « à 2 tokens près », état
+où la limite ne signale plus une dérive mais **bloque l'écriture de la règle suivante**.
+Retour à 25 661 tokens (88,5 %). La méthode est celle de RM2582 : sortir le mode
+d'emploi, jamais raboter une règle.
+## [2.4.0] - 2026-08-20 — Le pont d'onboarding des workspaces
+
+### Ajouté
+- **structure-reference** — § « Le pont d'onboarding des workspaces » (RM1892) : le
+  fichier racine `AGENTS.md` (+ symlink `CLAUDE.md`) lu par remontée d'arborescence,
+  **conditionnel** au `.mmi-pm` du workspace, et ce qu'il implique — il vit hors git
+  (artefact d'instance), sa référence versionnée est `templates/workspace-AGENTS.md`,
+  et son bloc délimité `BEGIN/END INSTANCE` porte la part machine, préservée par les
+  mises à jour.
+- **session-tooling** — `pm-workspace-bridge.py` entre dans la table des outils
+  (contrôle · `--install` · `--update`).
+
+## [2.3.0] - 2026-08-20 — La protection des branches ne s'ajoute plus après coup
+
+### Ajouté
+- **project-creation** — § « Branches protégées, dès la création » (RM2057) :
+  `pm-project-new` applique `pm-protect` dès que le dépôt `-core` est publié, et aux
+  dépôts de code du workspace qui portent déjà un remote de forge. Chaque dépôt reçoit
+  la politique de sa nature — on ne la force pas, `pm-protect` distingue core et code.
+  **Jamais bloquant** : un échec s'annonce avec sa commande de rattrapage, le projet
+  reste créé.
+- **git-mep** — le rappel « dépôt neuf : appliquer aussitôt » (RM2568) précise
+  désormais que le flux de création s'en charge : le geste manuel ne reste requis que
+  pour un dépôt créé hors de ce flux.
+
+## [2.2.0] - 2026-08-20 — Un coffre qui ne se déverrouille pas
+
+### Ajouté
+- **environments** — § « Gestion des secrets » : **backend `age`** (RM2713), un
+  fichier YAML/JSON chiffré déchiffré à la volée, pour le cas « on me partage trois
+  identifiants » — ni serveur, ni compte, ni vault à administrer. Avec lui, la norme
+  acquiert une nuance qui manquait : **tous les vaults ne se déverrouillent pas**. Un
+  backend à clé sur disque n'a pas de session à établir (donc pas de secret humain à
+  saisir), n'est protégé que par les **droits de son fichier de clé** (`0600`, jamais
+  commité, jamais dans la déclaration partagée) et **ne se verrouille pas** —
+  `lock-vault.sh` n'agit que sur ce qui est gardé en mémoire. Précision liée : un
+  code de sortie 4 `unreachable` n'est **pas** un verrou, mais une configuration ou
+  une dépendance manquante.
+
+## [2.1.0] - 2026-08-20 — Déverrouillage du coffre depuis le cockpit
+
+### Ajouté
+- **environments** — le **cockpit** devient un chemin de déverrouillage légitime, à
+  côté de `unlock-vault.sh` : bouton **🔓 déverrouiller** de l'en-tête, visible
+  uniquement quand un coffre est fermé ou que l'agent SSH est vide (RM2748). La règle
+  inchangée : c'est **l'humain** qui saisit, jamais l'agent qui demande. Le mode
+  `unlock-vault.sh --stdin` sert à *transmettre* un secret déjà saisi par l'humain —
+  pas à en fabriquer un.
+
+## [2.0.0] - 2026-08-19 — Multi-utilisateur & concurrence (jalon majeur)
+
+Bump **majeur** : bascule du modèle *mono-`karl` / single-writer global* vers
+*identité par dev / accès concurrent sérialisé par ressource*. Publié avec la
+livraison **T6 (RM2502)** + **T7 (RM2551)** de la convergence **RM2438**.
+
+### Ajouté
+- **collaboration** — nouvelle section **« Multi-utilisateur & concurrence »** :
+  identité par dev (cascade `os.environ` > perso `~/.config/mmi-pm/.env` > instance
+  `pm.env` > commun `.env`) ; `karl` = persona/admin, ops privilégiées via **`sudo`
+  humain** (pas de `karl-sudo`) ; données communes en **groupe `pm`** (squelette
+  `2750` non group-writable, churn `2770`/`2775` setgid **jamais sticky**, bares
+  `sharedRepository=group`), enforcement idempotent committé (`pm-perms`) ;
+  **sérialisation par ressource** (`flock` par ticket + écritures atomiques) qui
+  remplace le single-writer global.
+- **git-mep** — section **« Identités & transport forge (multi-utilisateur) »** :
+  identité forge **par dev + fallback karl** (`<FORGE>_<ROLE>_TOKEN`) ; transport
+  **SSH-first, token en repli** (alias SSH canonique + `insteadOf` global) ;
+  abstraction forge GitLab/Gogs/GitHub (`pm_forge`, `git config pm.forge`).
+
+### Modifié
+- **KERNEL** (§ Propriété, verrou & journal) — **tripwire single-writer reciblé** :
+  d'« un seul writer » à « **isolation par ticket + sérialisation par ressource** ».
+  La propriété par assignation reste la coordination de 1er niveau ; l'optimistic
+  locking `updated` **complète** les verrous `flock` (même machine) et reste
+  l'arbitre **inter-machine**.
+
+## [1.71.0] - 2026-08-18
+
+### Ajouté
+- **session-tooling** — § « Notifications importantes de session » : la règle ne
+  s'arrêtait qu'à la consignation. Elle demande maintenant de **refermer** la
+  notification quand elle est traitée (`notify --resolve <n> --ticket RM<id>`).
+  Cas vécu : une notification « outillage — ticket à ouvrir » est restée au
+  backlog du cockpit après l'ouverture, la livraison ET la MEP du ticket
+  correspondant (RM2691) — elle y portait une consigne devenue fausse. Résoudre
+  sort du backlog **sans** supprimer (archive + ticket qui l'a portée) ; `--clear`
+  détruit et n'est pas le geste courant. Suit le modèle déjà posé par les canaux
+  `requests` (RM2621) et `mrs` (RM2583). Outillage : RM2715.
+
+## [1.70.0] - 2026-08-18
+
+### Modifié
+- **environments** — § « Gestion des secrets » généralisé : le PM n'est plus lié à un
+  gestionnaire unique. Un vault est une **instance déclarée** dans le registre providers
+  (axe `secret`), nommée par un slug, avec un défaut et une surcharge **par client ou par
+  projet** ; les identifiants restent **par développeur** (`SECRET__<SLUG>__…` dans
+  `~/.config/mmi-pm/.env`). Trois formes d'URI documentées — `secret://<instance>/<chemin>`,
+  `secret:<chemin>` et la forme historique `vaultwarden://<org>/<coll>/<item>`, **valide
+  définitivement** : aucun pointeur existant n'est à réécrire. Backends : `vaultwarden`,
+  `keepass`. Le cycle de vie des sessions devient **par instance** (déverrouiller le vault
+  d'un client ne prolonge pas celui d'iProspective), et deux règles s'ajoutent : un
+  diagnostic ne nomme que les **clés** d'identifiants, jamais leurs valeurs ; un URI visant
+  une instance inconnue est **refusé**, jamais rabattu sur le vault par défaut. Rappel
+  ajouté : pour les secrets d'un client, la collection `<client>-agents` du vault
+  iProspective reste la voie normale. (RM2662, lot RM2710.)
+- **KERNEL** — tripwire 11 : « jamais demander le master password Vaultwarden » devient
+  « jamais demander le secret de déverrouillage d'un vault (master password, passphrase) ».
+
+## [1.69.0] - 2026-08-17
+
+### Ajouté
+- **structure-reference** — section « **Contacts d'un client** » : le `meta.yml` du core
+  client porte `contacts[]` au schéma `last_name` / `first_name` / `email` / `phone` /
+  `role`, écrit par le seul `pm-client-contact.py`. Deux pièges documentés, tous deux
+  rencontrés en production : `internal: true` marque **nos** adresses (le gabarit de
+  création en pose une chez chaque client — l'utiliser pour identifier un client
+  enverrait tout notre courrier chez un client au hasard, cf. routage RM2669), et une
+  fiche entièrement vide est un résidu de gabarit, pas un contact. Le champ historique
+  `name` reste lu en repli. Annuaire indépendant : à l'étude (RM2703).
+
+## [1.68.0] - 2026-08-11
+
+### Ajouté
+- **governance** — sous-section « **Changements sans ticket** » : certains changements
+  du repo PM (ajout d'un terme au glossaire du cockpit, coquille) ne demandent **pas**
+  de ticket Redmine — le ticket y coûterait plus que le changement. Ce qui **ne change
+  pas**, c'est la **MR** : les branches d'intégration et de prod restent protégées
+  (tripwire #3), « sans ticket » n'est pas « push direct ». Tombent seulement les
+  accroches au ticket (CF *GIT Branche* / *GIT PR*, `git.mr_urls`, transition de
+  statut). Tableau sans-ticket / avec-ticket, et règle de doute : **prendre un ticket**.
+  Outillage : `pm-mr create --no-ticket --title "…"`, qui exige un titre, refuse
+  `--status`, refuse un `rm_id` simultané et refuse une branche préfixée `<id>-`
+  (dans ce mode, elle trahit un ticket oublié). Nouveau déclencheur KERNEL.
+  (RM2644 — déclenché par l'ajout du terme « one-off », dont la MR avait dû être créée
+  à la main faute d'option.)
+
 ## [1.67.0] - 2026-08-09
 
 ### Ajouté

@@ -66,12 +66,15 @@ API (JSON, localhost:9876)
                                   IDLE, sans processus — `ghosts=0` les exclut.
                                   Les sessions réglées `restart:auto` (défaut des
                                   [WIP]) sont, elles, relancées au démarrage ; une
-                                  session [DONE] terminée sort du jeu  (RM2427)
+                                  session [DONE] terminée sort du jeu  (RM2427).
+                                  Une session [A TESTER] ne fait ni l'un ni
+                                  l'autre : livrée, mais gardée sous la main
+                                  jusqu'au verdict du demandeur  (RM2718)
   GET  /session-registry        → {records, rm_map} — registre pm_session brut
                                   (var/sessions/index.json, RM2034/RM2166)
-  GET  /resumable[?engine=&client=&project=&status=wip|done&q=&limit=]
+  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&limit=]
                                 → sessions REPRENABLES découvertes dans les
-                                  stores claude (titre [WIP]/[DONE] de
+                                  stores claude (titre [WIP]/[DONE]/[A TESTER] de
                                   /session-mark, cwd→projet via .mmi-pm,
                                   tickets liés via l'index local)  (RM1939)
   POST /resume {session_id?, rm_id?, n?, prompt?}
@@ -81,9 +84,35 @@ API (JSON, localhost:9876)
   GET  /resolve/<rm_id>         → métadonnées riches (type, phase, %, git, envs, docs,
                                    description, log…) depuis le MD local (RM1893 §1)
   GET  /workspace-status/<rm_id>→ git du workspace (branche, dirty, ahead/behind) — intérim RM1883
+  GET  /mergecheck/<rm_id>     → mergeabilité de la branche du ticket dans sa cible (RM2384)
+  GET  /env-status             → santé du poste (outils, secrets, git, ssh, pm) — RM2458
+  GET  /vault/status            → {daemon, instances[], locked[], ssh{…}} — verrous (RM2748)
+  POST /vault/unlock {instance, password}
+                                → déverrouille une instance de vault. Le mot de
+                                  passe part par l'entrée standard d'unlock-vault.sh,
+                                  n'est ni mémorisé, ni journalisé, ni renvoyé.
+  POST /vault/ssh-add {key, passphrase}
+                                → charge une clé de ~/.ssh dans l'agent SSH
+                                  (passphrase par descripteur hérité, cf. karl-askpass.sh)
+  GET  /env-check[?force=1]    → contrôle de DÉMARRAGE : uniquement les familles
+                                 surveillées (SSH, secrets, outils, git/GitLab) et
+                                 uniquement ce qui est en défaut ; mémorisé 5 min
+                                 (les sondes coûtent réseau)  (RM2722)
+  GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
+  GET  /client/<slug>           → fiche client : identité, statut, contacts,
+                                  valeurs par défaut, projets, projets utilisés,
+                                  docs  (RM2768)
+  GET  /conf?scope=client|project&client=&project=
+                                → {label, name, content, size} — `meta.yml`
+                                  INTÉGRAL. Le chemin est reconstruit depuis les
+                                  slugs validés, jamais reçu du client  (RM2768)
+  GET  /ticket-sessions/<rm>    → {handled:[…], candidates:[…], live, own_alive}
+                                  (RM2726 : sessions qui traitent le ticket —
+                                  ancrage / registre / worklog — et sessions
+                                  vivantes où l'envoyer, même projet d'abord)
   POST /tickets {title, type, priority, project, description?, tags?}
                                 → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
   POST /spawn  {rm_id, cwd?, engine?, model?, prompt?, width?, height?}
@@ -110,6 +139,16 @@ API (JSON, localhost:9876)
                                   commande du catalogue (allowlist, args
                                   validés par type, argv sans shell,
                                   runs mutants journalisés pm-runs.jsonl)
+  POST /mr/batch {items[], mode:dev|prod, dry_run?, confirm}
+                                → merge un LOT de MR via pm-mr.py : « dev » =
+                                  branche du ticket → intégration (une MR par
+                                  ticket) ; « prod » = PROMOTION intégration →
+                                  production (une MR par dépôt — elle emporte
+                                  tout dev, pas seulement les tickets cochés).
+                                  `dry_run` rend le plan sans rien merger (RM2720)
+  POST /mr/merge {url, confirm} → merge UNE MR désignée par son URL, via
+                                  pm-mr.py (bouton des lignes « MR à merger »
+                                  du worklog)  (RM2723)
   POST /mr/deliver {rm_id, confirm}
                                 → {rc, ok, branch, target, stdout, stderr} —
                                   livre la branche du ticket (MR + merge → dev)
@@ -137,15 +176,27 @@ import secrets
 import os
 import re
 import shlex
+import stat
 import uuid
 import signal
 import subprocess
 import sys
 import threading
 import time
+from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path, PurePosixPath
 from urllib.parse import urlparse, parse_qs
+
+# RM2700 — cookie de session (même origine) : rend le token d'appareil
+# transmissible par cookie EN PLUS de l'en-tête X-Karl-Token. Nécessaire au
+# terminal distant : le handshake ttyd porte son token dans la 1re frame WS (pas
+# dans l'upgrade HTTP), donc le seul credential qu'Apache/mmi peut voir à
+# l'upgrade pour gater `/ttyd` est le cookie même-origine, envoyé automatiquement
+# par le navigateur. HttpOnly (hors de portée du JS), Secure (HTTPS public),
+# SameSite=Strict (anti-CSRF : jamais envoyé en cross-site).
+SESSION_COOKIE = "karl_session"
+SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le token
 
 # RM2305 : le typage questions/réponses (RM2549) vit dans `pm_transcript`, partagé
 # avec les scripts PM — deux copies donneraient deux vérités sur « cette question
@@ -156,6 +207,7 @@ from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: 
                            content_text as _content_text,
                            question_parts as _question_parts,
                            answer_parts as _answer_parts,
+                           usage_by_message as _usage_by_message,
                            QUESTION_TOOLS as _QUESTION_TOOLS)
 
 # ── Config (env, avec chargement .env léger pour rester stdlib-only) ──────────
@@ -318,6 +370,35 @@ def _model_catalog() -> dict:
     return _DEFAULT_MODELS
 DEFAULT_WIDTH = int(os.environ.get("KARL_AGENT_WIDTH", "200"))
 DEFAULT_HEIGHT = int(os.environ.get("KARL_AGENT_HEIGHT", "50"))
+
+# ── Plafond mémoire des scopes tmux de session (RM2690) ──────────────────────
+# tmux (compilé avec support systemd) crée UNE scope par pane,
+# `tmux-spawn-<uuid>.scope`, née avec MemoryHigh/MemoryMax=infinity. L'UUID étant
+# aléatoire, aucun drop-in déclaratif n'est applicable : le seul point d'accroche
+# est le spawn (cf. _apply_memory_limits). Sans plafond, une session qui fuit
+# étouffe toute la workstation et c'est le kernel qui choisit la victime — pas
+# forcément le fautif (incident OOM du 2026-08-13, 15,7 Go de RSS).
+#
+# Trois couches, de la plus forte à la plus faible :
+#   1. variables d'env (.env)  — figent la valeur pour l'instance (le cockpit
+#      refuse alors l'écriture) ; syntaxe systemd : "6G", "6144M", octets nus,
+#      vide / `none` / `infinity` / `-1` = pas de limite ;
+#   2. pm.config[.local].yml `sessions.memory_{high,max,swap}_gib` — en GiB,
+#      édité depuis le cockpit (panneau 🔧 réglages) ;
+#   3. ces constantes, si la conf ne porte pas la clé (déploiement ancien).
+#
+# ⚠ `swap` (MemorySwapMax) ne suit pas la convention des deux autres : 0 y est
+# une limite RÉELLE (aucun swap autorisé), pas une désactivation — c'est `-1`
+# qui lève le plafond. Défaut 0 : sans swap, une session qui fuit meurt à
+# MemoryMax au lieu de saturer le swap et de faire ramer tout le poste pendant
+# la montée MemoryHigh → MemoryMax (c'est ce qui s'est passé le 2026-08-13).
+MEM_LIMIT_DEFAULTS = {"high": 6.0, "max": 8.0, "swap": 0.0}          # GiB
+MEM_LIMIT_ENV = {"high": "KARL_AGENT_MEM_HIGH", "max": "KARL_AGENT_MEM_MAX",
+                 "swap": "KARL_AGENT_MEM_SWAP"}
+MEM_LIMIT_CONF = {"high": ["sessions", "memory_high_gib"],
+                  "max": ["sessions", "memory_max_gib"],
+                  "swap": ["sessions", "memory_swap_gib"]}
+MEM_LIMIT_PROP = {"high": "MemoryHigh", "max": "MemoryMax", "swap": "MemorySwapMax"}
 
 # Répertoire des logs pipe-pane (alimente /stream et /capture étendu).
 LOG_DIR = Path(
@@ -658,6 +739,106 @@ def _tmux(*args, timeout=10):
     return p.returncode, p.stdout, p.stderr
 
 
+# ── Plafond mémoire (RM2690) — voir MEM_LIMIT_* en tête de module ────────────
+_MEM_UNITS = {"K": 1024, "M": 1024 ** 2, "G": 1024 ** 3, "T": 1024 ** 4}
+_MEM_RE = re.compile(r"^([0-9]+(?:\.[0-9]+)?)\s*([KMGT])?i?B?$", re.I)
+
+
+_MEM_UNLIMITED = ("none", "off", "infinity", "-1", "max")
+
+
+def _mem_bytes(raw) -> int | None:
+    """Limite mémoire → octets. `None` = pas de plafond (vide, `none`, `infinity`,
+    `-1`, ou valeur illisible). Un nombre est en GiB (conf/cockpit) ; une chaîne
+    suit la syntaxe systemd ("6G", "6144M", octets nus). **0 est une valeur
+    valide** — c'est l'appelant qui décide si zéro octet a un sens (swap) ou vaut
+    « pas de plafond » (high/max)."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float)):
+        if raw < 0:
+            return None
+        n = float(raw) * 1024 ** 3
+    else:
+        s = str(raw).strip()
+        if not s or s.lower() in _MEM_UNLIMITED:
+            return None
+        m = _MEM_RE.match(s)
+        if not m:
+            return None
+        n = float(m.group(1)) * _MEM_UNITS.get((m.group(2) or "").upper(), 1)
+    return int(n)
+
+
+def _mem_limit(kind: str) -> int | None:
+    """Limite effective en octets pour `high` / `max` / `swap` :
+    env (.env) > conf > défaut. `None` = pas de plafond. Pour `high` et `max`,
+    0 vaut « pas de plafond » (un plafond nul tuerait tout au démarrage) ; pour
+    `swap`, 0 est le plafond réel « aucun swap »."""
+    env = os.environ.get(MEM_LIMIT_ENV[kind])
+    if env is not None:
+        b = _mem_bytes(env)
+    else:
+        cur = _conf_merged()
+        for part in MEM_LIMIT_CONF[kind]:
+            cur = cur.get(part) if isinstance(cur, dict) else None
+        b = _mem_bytes(MEM_LIMIT_DEFAULTS[kind] if cur is None else cur)
+    if b is not None and b < 1 and kind != "swap":
+        return None
+    return b
+
+
+def _pane_scope(name: str, tries: int = 3, delay: float = 0.1) -> str | None:
+    """Nom de la scope systemd du pane de la session tmux `name`, ou None.
+    Ne retient QUE les `tmux-spawn-*.scope` (cgroup v2 : ligne `0::/<chemin>`) —
+    hors délégation cgroup, tmux ne crée pas de scope et il n'y a rien à plafonner.
+    Petit retry : la scope peut n'être pas encore visible juste après new-session."""
+    for i in range(tries):
+        rc, out, _ = _tmux("display-message", "-p", "-t", name, "#{pane_pid}")
+        pid = out.strip()
+        if rc == 0 and pid.isdigit():
+            try:
+                cgroup = Path(f"/proc/{pid}/cgroup").read_text(encoding="utf-8")
+            except OSError:
+                cgroup = ""
+            for line in cgroup.splitlines():
+                if not line.startswith("0::"):
+                    continue
+                unit = line.split("::", 1)[1].rstrip("/").rsplit("/", 1)[-1]
+                if unit.startswith("tmux-spawn-") and unit.endswith(".scope"):
+                    return unit
+        if i + 1 < tries:
+            time.sleep(delay)
+    return None
+
+
+def _apply_memory_limits(name: str) -> str | None:
+    """Plafonne la scope systemd du pane de `name`. Retourne la scope plafonnée,
+    None si rien n'a été appliqué. JAMAIS bloquant : tout échec (systemd absent,
+    délégation `memory` manquante, scope introuvable, set-property KO) est un
+    warning sur stderr — la création de session ne doit pas en dépendre."""
+    limits = {k: _mem_limit(k) for k in MEM_LIMIT_PROP}
+    if all(v is None for v in limits.values()):
+        return None
+    scope = _pane_scope(name)
+    if not scope:
+        sys.stderr.write(f"plafond mémoire : scope tmux-spawn introuvable pour {name}, ignoré\n")
+        return None
+    props = [f"{MEM_LIMIT_PROP[k]}={v if v is not None else 'infinity'}"
+             for k, v in limits.items()]
+    try:
+        p = subprocess.run(["systemctl", "--user", "--runtime", "set-property", scope, *props],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as exc:
+        sys.stderr.write(f"plafond mémoire : systemctl indisponible ({exc}), ignoré\n")
+        return None
+    if p.returncode != 0:
+        sys.stderr.write(f"plafond mémoire : set-property {scope} a échoué : "
+                         f"{(p.stderr or '').strip()[:200]}\n")
+        return None
+    return scope
+
+
 def _session_name(rm_id: str) -> str:
     """sid → nom tmux : karl-RM<id> (ticket) ou karl-<slug> (RM2144)."""
     if _is_ticket_sid(rm_id):
@@ -905,6 +1086,13 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     name = _session_name(rm_id)
 
     _start_session_tmux(rm_id, cmd, cwd, width, height, env_extra)
+    # RM2691 : sans set-at-launch (tout sauf claude), il n'y a NI clé de session
+    # NI adhésion au jeu — une entrée de jeu sans engine/session_id/cwd serait
+    # hollow, donc non relançable, tout en consommant un slot de SESSION_SET_MAX.
+    # On le dit explicitement plutôt que de laisser `joined` non défini : le
+    # `return` le lit inconditionnellement (500 UnboundLocalError sur les spawns
+    # shell/opencode/vibe, alors que la session tmux était bien créée).
+    joined = {"group": None, "joined": False, "reason": "sans-session-id"}
     if session_id:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
@@ -944,6 +1132,15 @@ def _start_session_tmux(rm_id: str, cmd: str, cwd, width: int, height: int,
     )
     if rc != 0:
         raise ApiError(500, f"tmux new-session a échoué : {err.strip()}")
+
+    # RM2690 : plafond mémoire sur la scope systemd du pane — une session qui fuit
+    # se fait tuer SEULE au lieu de laisser le kernel arbitrer. Couvre spawn ET
+    # resume (les deux passent ici). Défensif : un spawn ne doit jamais échouer
+    # à cause du plafond.
+    try:
+        _apply_memory_limits(name)
+    except Exception as exc:
+        sys.stderr.write(f"plafond mémoire non appliqué pour {name} : {exc}\n")
 
     # pipe-pane : capture continue du pane vers un log (alimente /stream).
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -1387,7 +1584,20 @@ def _opencode_session_meta(session_id: str) -> dict:
     ms = updated or created or 0
     return {"title": (title or None), "cwd": (directory or None),
             "mtime": (int(ms) // 1000 if ms else None)}   # epoch ms → s
-_MARK_RE = re.compile(r"^\[(WIP|DONE)\]\s*", re.I)
+# Marqueurs de statut de session posés par /session-mark. Deux registres, à ne
+# pas confondre : le LIBELLÉ est écrit dans le titre et se lit dans
+# `claude --resume` ; la CLÉ (`wip`/`done`/`test`) est ce que manipulent les
+# filtres, les règles de jeu et l'API. « à tester » se dit mal en un mot — d'où
+# la table plutôt qu'un `.lower()` du libellé (RM2718). La variante accentuée
+# est acceptée en lecture (titre tapé à la main) ; le skill n'écrit que l'ASCII.
+MARK_KEYS = {"wip": "wip", "done": "done", "a tester": "test", "à tester": "test"}
+MARKS = ("wip", "done", "test")
+_MARK_RE = re.compile(r"^\[(WIP|DONE|[AÀ] TESTER)\]\s*", re.I)
+
+
+def _mark_key(m) -> str | None:
+    """Clé de statut d'un `_MARK_RE.match`, ou None si pas de marqueur."""
+    return MARK_KEYS.get(m.group(1).lower()) if m else None
 
 
 def _write_json_atomic(path: Path, obj: dict) -> None:
@@ -1519,8 +1729,9 @@ def _rule_norm(rule) -> dict:
             out[k] = [str(x) for x in v]
         elif k == "mark":
             m = str(v).lower()
-            if m not in ("wip", "done", "none"):
-                raise ApiError(400, "rule.mark doit valoir wip, done ou none")
+            if m not in MARKS + ("none",):
+                raise ApiError(400,
+                               f"rule.mark doit valoir {', '.join(MARKS)} ou none")
             out[k] = m
         else:
             out[k] = str(v)
@@ -2636,7 +2847,7 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
         meta = reader(session_id) if reader else {}
         raw = meta.get("title") or ""
         m = _MARK_RE.match(raw)
-        info = {"mark": m.group(1).lower() if m else None,
+        info = {"mark": _mark_key(m),
                 "title": _MARK_RE.sub("", raw).strip() or None,
                 "mtime": meta.get("mtime"), "cwd": meta.get("cwd")} if meta else {}
         _DONE_CACHE["map"][ckey] = info
@@ -2648,7 +2859,7 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
             meta = _jsonl_tail_meta(jf)
             raw = meta.get("title") or ""
             m = _MARK_RE.match(raw)
-            info = {"mark": m.group(1).lower() if m else None,
+            info = {"mark": _mark_key(m),
                     "title": _MARK_RE.sub("", raw).strip() or None,
                     "mtime": meta.get("mtime"), "bytes": jf.stat().st_size}
         except OSError:
@@ -2674,8 +2885,15 @@ def _transcript_age(session_id: str | None):
 
 
 def _session_mark(session_id: str | None) -> str | None:
-    """RM2427 — marqueur `[WIP]` / `[DONE]` posé par /session-mark, en minuscules
-    (None si absent, introuvable ou illisible)."""
+    """RM2427 — statut de session posé par /session-mark, en clé (`wip`, `done`,
+    `test`), ou None si absent, introuvable ou illisible.
+
+    RM2718 — `test` (`[A TESTER]`) dit : le lot est livré, le demandeur doit
+    tester. Il ne déclenche AUCUN des deux automatismes des deux autres — ni
+    l'éviction du jeu de `done` (c'est la session qu'on rouvre si le test
+    échoue), ni la relance au démarrage de `wip` (il n'y a plus rien à y faire
+    tant que le retour n'est pas venu). Voir `_forget_done_entries` et
+    `_default_restart` : l'un comme l'autre ne nomment QUE leur statut."""
     return _transcript_info(session_id).get("mark")
 
 
@@ -2691,6 +2909,9 @@ RESTART_POLICIES = ("auto", "idle")
 
 
 def _default_restart(session_id: str | None) -> str:
+    # `wip` seulement : une session `[A TESTER]` est livrée — la relancer au
+    # démarrage coûterait un TUI et une réhydratation de contexte pour rien.
+    # Elle reste relançable au clic, le jour où le test remonte quelque chose.
     return "auto" if _session_mark(session_id) == "wip" else "idle"
 
 
@@ -2698,7 +2919,11 @@ def _forget_done_entries(user: str, groups: dict) -> bool:
     """RM2427 — une session TERMINÉE (`/exit`, plus aucun tmux) dont le
     transcript est marqué `[DONE]` sort du jeu toute seule : elle a fini son
     travail, sa tuile grise n'a plus lieu d'être. Les sessions vivantes et les
-    non marquées sont conservées. Renvoie True si le store a changé."""
+    non marquées sont conservées. Renvoie True si le store a changé.
+
+    RM2718 — `[A TESTER]` n'est PAS `[DONE]` : le lot est livré mais le verdict
+    n'est pas tombé, et c'est exactement cette session qu'on rouvre si le test
+    échoue. Elle reste dans le jeu."""
     live = {s["rm_id"] for s in _list_sessions()}
     changed = False
     for group, rec in groups.items():
@@ -3019,7 +3244,9 @@ def resume_engines() -> list:
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
-    status (wip|done — marqueurs [WIP]/[DONE] posés par /session-mark), q."""
+    status (wip|done|test — marqueurs [WIP]/[DONE]/[A TESTER] posés par
+    /session-mark ; `not-done` = tout sauf les terminées, défaut du panneau : les
+    « à tester » y restent donc visibles), q."""
     f_engine = qs.get("engine") or None
     f_client = qs.get("client") or None
     f_project = qs.get("project") or None
@@ -3050,7 +3277,7 @@ def op_resumable(qs: dict) -> list:
         return {
             "engine": engine, "session_id": sid,
             "title": _MARK_RE.sub("", title_raw or "") or None,
-            "mark": m.group(1).lower() if m else None,
+            "mark": _mark_key(m),
             "cwd": cwd, "mtime": mtime,
             "client": client, "project": project,
             "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
@@ -3472,24 +3699,34 @@ def _transcript_usage(lines) -> dict:
     assistant — mêmes champs que pm-task-tick (input/output/cache_read/
     cache_creation). `total` = entrée + sortie (RM2519 : le cache est
     complémentaire, hors total). Le dernier tour donne l'occupation de contexte
-    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier)."""
+    courante (input non-caché + cache lu + cache écrit). Pure (testable sans fichier).
+
+    RM2628 : la somme est **dédupliquée par `message.id`** (`usage_by_message`,
+    règle partagée avec pm-task-tick). Sans elle, une réponse à N blocs de
+    contenu était comptée N fois — la conso et le coût affichés étaient gonflés
+    d'un facteur ≈ 2,3 sur une session d'agent réelle. `context_last`, lui,
+    n'était PAS touché : c'est une affectation du dernier tour, pas une somme,
+    et les lignes dupliquées portent la même valeur — d'où sa concordance avec
+    le `/context` de Claude Code, qui a servi à circonscrire le bug."""
     agg = {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0}
-    turns = 0
     context_last = 0
     model = None
-    for line in lines:
-        try:
-            obj = json.loads(line)
-        except ValueError:
-            continue
-        if not isinstance(obj, dict) or obj.get("type") != "assistant":
-            continue
-        msg = obj.get("message") or {}
-        if msg.get("model"):
-            model = msg["model"]            # RM2609 : modèle réel (dernier tour vu)
-        usage = msg.get("usage")
-        if not isinstance(usage, dict):
-            continue
+
+    def _assistant_messages():
+        for n, line in enumerate(lines):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict) or obj.get("type") != "assistant":
+                continue
+            yield f"line-{n}", (obj.get("message") or {})
+
+    per_msg = _usage_by_message(_assistant_messages())
+    turns = len(per_msg)                    # tours = réponses, pas lignes du JSONL
+    for usage, m in per_msg.values():
+        if m:
+            model = m                       # RM2609 : modèle réel (dernier tour vu)
         i = usage.get("input_tokens", 0) or 0
         o = usage.get("output_tokens", 0) or 0
         cr = usage.get("cache_read_input_tokens", 0) or 0
@@ -3501,7 +3738,6 @@ def _transcript_usage(lines) -> dict:
         ctx = i + cr + cc                   # occupation de contexte de ce tour
         if ctx:                             # ignore les tours à contexte nul (sortie seule / synthétiques)
             context_last = ctx              # → dernier tour significatif = contexte courant
-        turns += 1
     # RM2519 : total = entrée + sortie. Le cache (lu/écrit) est une info
     # complémentaire, HORS total : le sommer donnerait un nombre écrasé par la
     # relecture de contexte (souvent >90 %) et mélangerait des catégories aux
@@ -3761,6 +3997,10 @@ WORKLOG_DIR = Path(os.environ.get("KARL_AGENT_WORKLOG_DIR")
 # divergentes du même worklog donneraient deux vérités sur « où on en est ».
 WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
                 "résolu", "resolu"}
+# RM2635 : statuts qui sortent une demande du « à traiter ». Copie de
+# REQUEST_DONE (pm-session-status.py) — un test vérifie qu'elles ne divergent
+# pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
+REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
 WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
                    "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
                    "en_pause"}
@@ -3794,6 +4034,11 @@ def worklog_buckets(items) -> dict:
             "drifted": bool(opened and opened != st),
             "opened_status": it.get("opened_status") or "",
         }
+        # RM2695 : l'avancement DANS le ticket suit son item — un statut dit où
+        # en est le ticket, pas ce qu'il reste à y faire.
+        for k in ("checklist", "sub_tasks"):
+            if it.get(k):
+                entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
         elif st in WORKLOG_WAITING:
@@ -3817,15 +4062,31 @@ _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
 def _worklog_apply_live(items, live):
-    """Superpose le statut LIVE (map ref→statut, résolu du frontmatter) sur les
-    items du worklog : le statut affiché devient le statut réel du ticket, tandis
-    que `opened_status` reste le snapshot d'ouverture (la dérive reste calculable).
-    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son statut
-    stocké. Résolution injectée → pur et testable."""
+    """Superpose l'état LIVE (map ref→{status, checklist, sub_tasks}, résolu du
+    frontmatter) sur les items du worklog : le statut affiché devient le statut
+    réel du ticket, tandis que `opened_status` reste le snapshot d'ouverture (la
+    dérive reste calculable). RM2695 y ajoute l'avancement — la checklist des
+    critères et les sous-tâches, lues au même passage.
+
+    Un ref sans entrée live (chantier hors ticket, MD introuvable) garde son
+    statut stocké. Une entrée sous forme de CHAÎNE reste acceptée : c'était la
+    forme d'avant RM2695, et un cache chaud peut encore en contenir.
+    Résolution injectée → pur et testable."""
     out = []
     for it in items or []:
         lv = (live or {}).get(it.get("ref"))
-        out.append({**it, "status": lv} if lv else it)
+        if not lv:
+            out.append(it)
+            continue
+        if isinstance(lv, str):
+            lv = {"status": lv}
+        merged = {**it}
+        if lv.get("status"):
+            merged["status"] = lv["status"]
+        for k in ("checklist", "sub_tasks"):
+            if lv.get(k):
+                merged[k] = lv[k]
+        out.append(merged)
     return out
 # <<< worklog_apply_live
 
@@ -3844,12 +4105,45 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         if not m:
             continue
         tf = _find_task_file(m.group(1))
-        if tf:
-            st = _read_task_meta(tf).get("status")
-            if st:
-                live[it["ref"]] = st
+        if not tf:
+            continue
+        st = _read_task_meta(tf).get("status")
+        # RM2695 : le fichier est DÉJÀ ouvert pour le statut — on en profite pour
+        # l'avancement (checklist) et les sous-tâches. Une requête par ticket
+        # depuis le cockpit aurait coûté N appels tous les 10 s ; ici c'est une
+        # lecture de plus dans une garde de fraîcheur qui existe déjà.
+        entry = {"status": st} if st else {}
+        try:
+            text = tf.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        if text:
+            cl = parse_checklist(_task_body(text))
+            if cl["total"]:
+                entry["checklist"] = cl
+            subs = _subtasks_status(_parse_frontmatter(text).get("sub_tasks"))
+            if subs:
+                entry["sub_tasks"] = subs
+        if entry:
+            live[it["ref"]] = entry
     _worklog_live_cache[session_id] = (now, live)
     return live, now
+
+
+def _subtasks_status(refs) -> list:
+    """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
+    ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
+    sur l'avancement. Lecture bornée (une sous-tâche = un `_read_task_meta`)."""
+    out = []
+    for ref in (refs or [])[:20]:
+        rid = re.sub(r"^RM", "", str(ref).strip())
+        if not rid.isdigit():
+            continue
+        tf = _find_task_file(rid)
+        meta = _read_task_meta(tf) if tf else {}
+        out.append({"rm_id": rid, "status": meta.get("status") or "",
+                    "title": meta.get("title") or ""})
+    return out
 
 
 def op_worklog(rm_id: str, force: bool = False) -> dict:
@@ -3863,7 +4157,8 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     session_id = k.get("session_id")
     empty = {"rm_id": rm_id, "session_id": session_id, "found": False,
              "title": None, "updated": None, "checked_ts": None,
-             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": []}
+             "buckets": worklog_buckets([]), "notifications": [], "mrs_pending": [],
+             "requests_open": []}
     if not session_id:
         return empty
     path = WORKLOG_DIR / f"{session_id}.json"
@@ -3884,9 +4179,708 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     return {"rm_id": rm_id, "session_id": session_id, "found": True,
             "title": data.get("title"), "updated": data.get("updated"),
             "checked_ts": int(checked), "buckets": worklog_buckets(items),
-            "notifications": (data.get("notifications") or [])[-20:],
+            # RM2715 : seules les notifications OUVERTES — une notification
+            # traitée restait au backlog du cockpit avec sa consigne périmée
+            # (« ticket à ouvrir » alors qu'il l'était). L'archive suit à part,
+            # comme les MR mergées : elle sort de la liste, pas du store.
+            "notifications": [n for n in (data.get("notifications") or [])
+                              if not n.get("resolved_at")][-20:],
+            "notifications_done": [n for n in (data.get("notifications") or [])
+                                   if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM2635 : les demandes pas encore ticketées, là où le demandeur
+            # regarde. Le registre de RM2621 n'existait que dans le worklog
+            # Markdown : sûr, mais invisible depuis le cockpit — donc, de son
+            # point de vue, pas livré.
+            "requests_open": [dict(r, n=i + 1) for i, r
+                              in enumerate(data.get("requests") or [])
+                              if r.get("status", "nouveau") not in REQUEST_DONE_STATES],
             "docs": data.get("docs") or {}}   # RM2584 : documents/outputs des tickets
+
+
+# ── RM2696 (T2 de RM2694) : agrégat consolidé par projet ──────────────────────
+# UN seul calcul, trois vues : le worklog projet (ici), le dashboard global (T3)
+# et, à terme, la vue par session. Trois pipelines auraient produit trois
+# vérités — le worklog en a déjà deux rendus (JSON et Markdown), on ne rejoue pas
+# cette erreur à l'échelle du projet.
+#
+# Aucune source nouvelle : index des tâches (statut, checklist RM2695), index des
+# clés de session (cwd → client/projet), worklogs de session (tickets, MR,
+# demandes), tmux (vivacité). Rien à saisir à la main.
+_OVERVIEW_TTL = 60.0
+_overview_cache: dict = {}      # clé (client, project) → (ts, payload)
+
+# Ce qui compte comme « en cours » vs « en attente d'un geste » dans la vue
+# projet. Volontairement dérivé du flow NORMS, pas d'une liste ad hoc.
+OVERVIEW_ACTIVE = {"en_cours", "a_corriger"}
+OVERVIEW_WAITING = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+def _overview_open_tasks(client=None, project=None) -> list:
+    """Tickets ouverts (actifs ou en attente), en UN parcours de l'index — 1036
+    fichiers en 0,05 s sur ce poste, frontmatter seul. La checklist (corps du
+    fichier) n'est lue que pour les tickets réellement rendus."""
+    wanted = OVERVIEW_ACTIVE | OVERVIEW_WAITING
+    out = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        cl, pr = _task_client_project(tf)
+        if (client and cl != client) or (project and pr != project):
+            continue
+        meta = _read_task_meta(tf)
+        if meta.get("status") not in wanted:
+            continue
+        entry = {"rm_id": m.group(1), "title": meta.get("title") or "",
+                 "status": meta.get("status"), "priority": meta.get("priority") or "",
+                 "client": cl, "project": pr}
+        try:
+            text = tf.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        body = _task_body(text) if text else ""
+        # RM2697 : depuis QUAND ça attend. Sans cette date, un tableau de bord
+        # trie 126 tickets « à tester » par numéro — c'est-à-dire au hasard du
+        # point de vue de l'attention. Le plus ancien est celui qui coince.
+        mu = re.search(r"^updated:\s*'?([0-9T:\- ]+)'?\s*$", text, re.M) if text else None
+        if mu:
+            entry["updated"] = mu.group(1).strip()
+        cl_stats = parse_checklist(body)        # RM2695 : l'avancement, pas juste le statut
+        if cl_stats["total"]:
+            entry["checklist"] = cl_stats
+        out.append(entry)
+    out.sort(key=lambda e: -int(e["rm_id"]))
+    return out
+
+
+def _overview_sessions() -> list:
+    """Sessions connues (index des clés), avec leur projet et leur vivacité.
+
+    Les sessions ÉTEINTES comptent : c'est précisément là que dorment les MR
+    oubliées et les tickets qu'on croit finis. Les omettre reproduirait le trou
+    que cette vue est censée boucher."""
+    live = {s["rm_id"] for s in _list_sessions()}
+    out = []
+    for sid, k in _all_keys():
+        client, project = _pm_project_of_cwd(k.get("cwd"))
+        out.append({"sid": sid, "client": client, "project": project,
+                    "session_id": k.get("session_id"), "cwd": k.get("cwd"),
+                    "alive": sid in live,
+                    "title": _transcript_title(k.get("session_id"))})
+    return out
+
+
+def _overview_worklog(session_id):
+    """Worklog d'une session, lu sur disque (pas d'exigence de session vivante,
+    contrairement à `op_worklog` qui sert l'onglet d'une session attachée)."""
+    if not session_id:
+        return None
+    try:
+        with (WORKLOG_DIR / f"{session_id}.json").open(encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def op_overview(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2696 : état consolidé par (client, projet) — sessions, tickets ouverts
+    avec leur avancement, MR non mergées, demandes non ticketées.
+
+    Filtrable (`?client=&project=`). Garde de fraîcheur de 60 s : le cockpit
+    poll, l'agrégat ne se recalcule pas à chaque passage."""
+    client = (qs or {}).get("client") or None
+    project = (qs or {}).get("project") or None
+    key = (client or "", project or "")
+    now = time.time()
+    hit = _overview_cache.get(key)
+    if hit and now - hit[0] < _OVERVIEW_TTL and not (qs or {}).get("force"):
+        return dict(hit[1], cached=True)
+
+    groups: dict = {}
+
+    def grp(cl, pr):
+        if not cl or not pr:
+            return None
+        if (client and cl != client) or (project and pr != project):
+            return None
+        return groups.setdefault((cl, pr), {
+            "client": cl, "project": pr, "key": f"{cl}/{pr}",
+            "sessions": [], "tickets": [], "mrs": [], "requests": [],
+        })
+
+    # 1. sessions du projet (vivantes ET éteintes)
+    sessions = _overview_sessions()
+    for s in sessions:
+        g = grp(s.get("client"), s.get("project"))
+        if g is not None:
+            g["sessions"].append({k: s[k] for k in ("sid", "session_id", "alive", "title")})
+
+    # 2. tickets ouverts — y compris ceux dont plus aucune session ne parle
+    by_rm: dict = {}
+    for t in _overview_open_tasks(client, project):
+        g = grp(t["client"], t["project"])
+        if g is None:
+            continue
+        row = dict(t, sessions=[], has_live_session=False,
+                   bucket=("waiting" if t["status"] in OVERVIEW_WAITING else "active"))
+        g["tickets"].append(row)
+        by_rm[t["rm_id"]] = row
+
+    # 3. worklogs : qui travaille sur quoi, MR pendantes, demandes non ticketées
+    seen_mr = set()
+    for s in sessions:
+        wl = _overview_worklog(s.get("session_id"))
+        if not wl:
+            continue
+        for it in wl.get("items") or []:
+            m = re.match(r"RM(\d+)$", str(it.get("ref") or ""))
+            if not m:
+                continue
+            row = by_rm.get(m.group(1))
+            if row is None:                 # ticket clos, ou hors périmètre du filtre
+                continue
+            if s["sid"] not in row["sessions"]:
+                row["sessions"].append(s["sid"])
+            if s.get("alive"):
+                row["has_live_session"] = True
+        g = grp(s.get("client"), s.get("project"))
+        if g is None:
+            continue
+        for mr in wl.get("mrs") or []:
+            if (mr.get("state") or "opened") not in ("opened", "open", "reopened"):
+                continue
+            k = (mr.get("repo"), str(mr.get("iid")))
+            if k in seen_mr:
+                continue
+            seen_mr.add(k)
+            g["mrs"].append(dict(mr, sid=s["sid"], alive=s.get("alive")))
+        for i, r in enumerate(wl.get("requests") or []):
+            if r.get("status", "nouveau") in REQUEST_DONE_STATES:
+                continue
+            g["requests"].append(dict(r, n=i + 1, sid=s["sid"]))
+
+    out = []
+    for g in groups.values():
+        # un ticket actif dont AUCUNE session ne parle est le cas qu'on perd de
+        # vue : il monte en tête de sa catégorie plutôt que de se fondre.
+        g["tickets"].sort(key=lambda t: (t["bucket"] != "active",
+                                         t["has_live_session"], -int(t["rm_id"])))
+        g["sessions"].sort(key=lambda s: (not s["alive"], s["sid"]))
+        g["counts"] = {
+            "sessions_live": sum(1 for s in g["sessions"] if s["alive"]),
+            "sessions": len(g["sessions"]),
+            "active": sum(1 for t in g["tickets"] if t["bucket"] == "active"),
+            "waiting": sum(1 for t in g["tickets"] if t["bucket"] == "waiting"),
+            "orphans": sum(1 for t in g["tickets"]
+                           if t["bucket"] == "active" and not t["has_live_session"]),
+            "mrs": len(g["mrs"]), "requests": len(g["requests"]),
+        }
+        out.append(g)
+    out.sort(key=lambda g: (-g["counts"]["active"], g["key"]))
+    payload = {"generated_at": int(now), "projects": out, "count": len(out),
+               "filtered": bool(client or project), "cached": False}
+    _overview_cache[key] = (now, payload)
+    return payload
+
+
+# ── RM2726 : où ce ticket est-il traité, et où le lancer ─────────────────────
+# La fiche d'un ticket ne disait rien de la session qui s'en occupe : il fallait
+# aller la chercher dans la liste de gauche. On rend ici l'index INVERSE de
+# `ticketsOfSession` (RM2673, cockpit) — mêmes trois sources, même vocabulaire :
+#   ancrage  — le sid de la session EST l'id du ticket (karl-RM<id>) ;
+#   registre — pm_session (RM2166) : branche `<id>-…` ou worktree `…-rm<id>` ;
+#   worklog  — la session a ouvert le ticket dans son worklog (RM2466).
+# La troisième est la seule qui couvre une session lancée sur un slug, qui traite
+# des tickets sans qu'aucune branche ne porte leur numéro : sans elle, la fiche
+# aurait affiché « aucune session » à un ticket en cours de traitement.
+TICKET_SESSION_REASONS = ("ancrage", "registre", "worklog")
+
+
+def _sid_sort_key(sid: str):
+    """Tri stable des sids : tickets par NUMÉRO (999 avant 1000 — un tri lexical
+    aurait rangé 1000 en tête), puis les slugs, alphabétiques."""
+    s = str(sid or "")
+    return (0, int(s), "") if s.isdigit() else (1, 0, s)
+
+
+def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
+    """Pur — la vue « sessions » de la fiche d'un ticket.
+
+    `sessions` : entrées /sessions (sid dans `rm_id`, `ghost`, client, projet,
+    `registry`, `title`) ; `wl_refs` : sid → refs du worklog de la session
+    (« RM2726 », …).
+
+    Deux listes, à ne pas confondre :
+      `handled`    — les sessions qui traitent DÉJÀ ce ticket (vivantes d'abord).
+                     Les éteintes y restent : savoir qu'une session existe mais
+                     ne tourne plus, c'est autre chose que « personne ne s'en
+                     occupe ».
+      `candidates` — les sessions VIVANTES où on pourrait l'envoyer, celles du
+                     même projet d'abord. Envoyer « traite RM<id> » dans une
+                     session qui travaille ailleurs reste possible — mais c'est
+                     un choix, pas le défaut, et l'appelant doit le dire."""
+    rm = str(rm_id)
+    refs = {str(k): {str(r).upper() for r in (v or ())}
+            for k, v in (wl_refs or {}).items()}
+    handled, candidates = [], []
+    for s in sessions or []:
+        sid = str(s.get("rm_id") or "")
+        if not sid:
+            continue
+        reg = s.get("registry") or {}
+        reasons = []
+        if sid == rm:
+            reasons.append("ancrage")
+        branches = [b for b in (reg.get("branches") or [])
+                    if (m := _RM_BRANCH.match(str(b))) and m.group(1) == rm]
+        worktrees = [w for w in (reg.get("worktrees") or [])
+                     if (m := _RM_WORKTREE.search(str(w))) and m.group(1) == rm]
+        if branches or worktrees:
+            reasons.append("registre")
+        if ("RM" + rm) in refs.get(sid, ()):
+            reasons.append("worklog")
+        row = {
+            "sid": sid, "alive": not s.get("ghost"),
+            "client": s.get("client"), "project": s.get("project"),
+            "title": s.get("title"), "state": s.get("state"),
+            "is_ticket": bool(s.get("is_ticket")),
+            "same_project": bool(client and project
+                                 and s.get("client") == client
+                                 and s.get("project") == project),
+        }
+        if reasons:
+            handled.append(dict(row, reasons=reasons,
+                                branch=branches[0] if branches else None))
+        elif row["alive"]:
+            candidates.append(row)
+    handled.sort(key=lambda r: (not r["alive"],
+                                TICKET_SESSION_REASONS.index(r["reasons"][0]),
+                                _sid_sort_key(r["sid"])))
+    candidates.sort(key=lambda r: (not r["same_project"], _sid_sort_key(r["sid"])))
+    return {"rm_id": rm, "client": client, "project": project,
+            "handled": handled, "candidates": candidates,
+            # `live` : au moins une session VIVANTE le traite — c'est ce qui
+            # décide si la fiche propose d'ouvrir, ou de lancer.
+            "live": any(r["alive"] for r in handled),
+            # `own_alive` : la session d'ancrage tourne → /spawn refuserait (409).
+            "own_alive": any(r["sid"] == rm and r["alive"] for r in handled)}
+
+
+def op_ticket_sessions(rm_id: str, auth_ctx: dict | None = None) -> dict:
+    """GET /ticket-sessions/<rm> — qui traite ce ticket, et où l'envoyer."""
+    rm = str(rm_id).strip()
+    if not _is_ticket_sid(rm):
+        raise ApiError(400, "id de ticket attendu (^\\d+$)")
+    sessions = _sessions_view({}, auth_ctx)
+    wl_refs = {}
+    for s in sessions:
+        if not s.get("title"):
+            # un sid slug ne dit pas sur quoi la session travaille : sans son
+            # titre, « envoyer dans une session existante » revient à tirer au sort
+            s["title"] = _transcript_title(s.get("session_id"))
+        wl = _overview_worklog(s.get("session_id"))
+        if wl:
+            wl_refs[str(s.get("rm_id"))] = [str(it.get("ref") or "")
+                                            for it in (wl.get("items") or [])]
+    client = project = None
+    tf = _find_task_file(rm)
+    if tf:
+        client, project = _task_client_project(tf)
+    return ticket_sessions_view(rm, sessions, wl_refs, client, project)
+
+
+# ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
+# Le geste : cocher des tickets, cliquer « traiter », et la SESSION ATTACHÉE
+# enchaîne — aucune session créée. La composition de la consigne vit ici, pas
+# dans le cockpit : le mapping statut → action, le plafond et les exclusions sont
+# des règles métier, elles doivent être testables sans navigateur.
+BATCH_MAX = 10          # au-delà : confirmation explicite (`allow_large`)
+
+# RM2719 — portée RESTREINTE : ne faire traiter que certains points d'un ticket
+# (ses critères d'acceptation non cochés, exposés par RM2695). Deux listes, à ne
+# pas confondre : `points` = ce qu'on PROPOSE de cocher (repris tel quel pour
+# l'écran de confirmation), `scope` = ce qui est RETENU (la restriction). Absent
+# ⇒ ticket entier, comportement de RM2716 inchangé.
+BATCH_POINTS_MAX = 12   # points repris dans la consigne, par ticket
+BATCH_POINT_LEN = 300   # un critère est une ligne, pas un paragraphe
+
+
+def _batch_points(raw, limit=BATCH_POINTS_MAX):
+    """Nettoie une liste de points : une ligne chacun, borné, dédoublonné,
+    plafonné. Rend (points, nombre de points laissés de côté) — le reste du code
+    ANNONCE ce nombre : une liste tronquée en silence se lirait comme la liste
+    complète, et l'agent clôturerait un ticket dont il n'a pas vu la fin."""
+    out, seen = [], set()
+    for p in raw or []:
+        t = " ".join(str(p or "").split())
+        if not t or t in seen:
+            continue
+        seen.add(t)
+        if len(t) > BATCH_POINT_LEN:
+            t = t[:BATCH_POINT_LEN - 1].rstrip() + "…"
+        out.append(t)
+    return out[:limit], max(0, len(out) - limit)
+
+# Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
+# une étude se termine en validation, un dev se termine en test demandeur.
+BATCH_ACTIONS = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+    "a_faire": ("traiter", "traiter puis livrer (MR + passage en test demandeur)"),
+    "en_cours": ("traiter", "reprendre là où c'en est, puis livrer"),
+    "a_corriger": ("traiter", "corriger ce qui est remonté, puis relivrer"),
+    "a_tester_dev": ("tester", "faire la passe de test agent et router selon le verdict"),
+}
+# Statuts où l'agent n'a RIEN à faire : la balle est chez le demandeur, en MEP,
+# ou le ticket est clos. Les inclure enverrait l'agent tourner à vide.
+BATCH_SKIP = {
+    "a_tester_demandeur": "attend TON verdict, pas celui de l'agent",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
+# RM2720 — second MODE de lot : « passe ces tickets à tester ». Ce n'est pas un
+# changement de statut en masse : rendre un ticket au demandeur, c'est le
+# LIVRER (note de livraison + protocole de test, NORMS RM2229). Le mode a donc
+# sa propre table de statuts éligibles — et une étude n'y est pas : elle se rend
+# en validation, pas en test.
+BATCH_ATESTER = {
+    "en_cours": ("livrer", "livrer : note de livraison + protocole de test, puis "
+                           "statut à tester approprié (a_tester_dev / a_tester_demandeur "
+                           "selon requires_agent_test)"),
+    "a_corriger": ("livrer", "relivrer la correction : note + protocole, puis statut "
+                             "à tester approprié"),
+    "a_faire": ("livrer", "VÉRIFIER d'abord que le travail est réellement fait "
+                          "(branche, MR, critères) ; si oui livrer, sinon ne rien "
+                          "changer et le dire"),
+    "a_tester_dev": ("tester", "faire la passe de test agent, puis router selon le "
+                               "verdict (a_tester_demandeur si OK)"),
+}
+BATCH_ATESTER_SKIP = {
+    "a_tester_demandeur": "déjà en test chez toi",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "ferme": "fermé",
+    "nouveau": "pas encore pris en charge : rien à livrer",
+    "a_etudier_chiffrer": "à étudier : une étude se rend en validation, pas en test",
+    "etude_chiffrage_en_cours": "étude en cours : elle se rend en validation, pas en test",
+    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+}
+
+# Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
+# lot (plafond, portée, envoi, garde de session) ne change pas.
+BATCH_MODES = {
+    "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
+    "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
+}
+
+
+# >>> batch_plan — pure (testée par test_karl_agent_batch.py)
+def batch_plan(items, mode: str = "traiter") -> dict:
+    """Répartit les tickets demandés entre CE QUI PART et ce qui est écarté.
+
+    Rien n'est écarté en silence : chaque exclusion porte sa raison, que l'UI
+    affiche avant l'envoi. Un statut inconnu (nouveau statut NORMS pas encore
+    connu ici) est écarté aussi — deviner l'action à faire sur un ticket serait
+    pire que de le dire.
+
+    RM2719 — un item peut porter une PORTÉE : `scope` = les seuls points à
+    traiter. Absente, le ticket part en entier (RM2716). Présente mais VIDE,
+    le ticket est écarté avec sa raison — décocher tous les points d'un ticket
+    veut dire « rien à y faire », pas « fais tout ».
+
+    RM2720 — `mode` choisit la table d'actions : « traiter » (défaut) ou
+    « atester » (rendre au demandeur). Un mode inconnu est refusé plutôt que
+    rabattu sur le défaut : envoyer « traite ces tickets » à qui a demandé
+    « passe-les à tester » serait la pire des tolérances."""
+    m = BATCH_MODES.get(mode)
+    if m is None:
+        raise ApiError(400, f"mode de lot inconnu : {mode}")
+    actions, skips = m["actions"], m["skip"]
+    todo, skipped = [], []
+    seen = set()
+    for it in items or []:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        status = str((it or {}).get("status") or "").strip()
+        act = actions.get(status)
+        raw_scope = (it or {}).get("scope")
+        scoped = isinstance(raw_scope, list)
+        scope, scope_cut = _batch_points(raw_scope) if scoped else ([], 0)
+        if act and scoped and not scope:
+            skipped.append({"rm_id": rm, "status": status,
+                            "reason": "aucun point retenu dans la sélection",
+                            "title": (it or {}).get("title") or ""})
+            continue
+        if act:
+            points, pcut = _batch_points((it or {}).get("points"))
+            todo.append({"rm_id": rm, "status": status, "action": act[0],
+                         "instruction": act[1], "title": (it or {}).get("title") or "",
+                         "points": points, "scope": scope,
+                         "scope_truncated": scope_cut,
+                         # La liste des critères peut déjà arriver incomplète du
+                         # worklog (plafond de `parse_checklist`) : on le REDIT
+                         # ici, sinon l'écran de sélection se lirait comme la
+                         # liste complète des points du ticket.
+                         "points_truncated": bool(pcut or (it or {}).get("points_truncated"))})
+        else:
+            todo_reason = skips.get(status) or f"statut « {status or '?'} » : aucune action définie"
+            skipped.append({"rm_id": rm, "status": status, "reason": todo_reason,
+                            "title": (it or {}).get("title") or ""})
+    return {"todo": todo, "skipped": skipped}
+# <<< batch_plan
+
+
+# >>> batch_prompt — pure (testée par test_karl_agent_batch.py)
+def batch_prompt(todo, mode: str = "traiter") -> str:
+    """La consigne envoyée à l'agent. Elle est AUTO-PORTANTE : l'agent qui la
+    reçoit ne voit pas l'écran d'où elle vient.
+
+    Elle exige les trois retours arbitrés : le statut de fin du flux NORMS (qui
+    réattribue au demandeur), la notification de fin de lot, et le récapitulatif
+    au worklog. Sans ça, « traite ces tickets » laisserait le demandeur surveiller
+    des sessions pour savoir où ça en est.
+
+    RM2719 — un ticket à PORTÉE RESTREINTE porte ses points sous sa ligne, et la
+    règle qui va avec : il ne se clôture pas et ne repart pas au demandeur tant
+    qu'il en reste. La règle n'est ajoutée que s'il y a au moins un ticket
+    restreint — une consigne qui liste des cas absents se lit moins bien.
+
+    RM2720 — en mode « atester », la consigne dit autre chose : rendre un ticket
+    au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
+    protocole de test, et interdit de bouger le statut d'un ticket dont le
+    travail n'est pas réellement livré. La fin (worklog, notification, bilan)
+    est commune aux deux modes."""
+    lignes = []
+    scoped = False
+    for i, t in enumerate(todo or [], 1):
+        titre = (" — " + t["title"]) if t.get("title") else ""
+        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+        pts = t.get("scope") or []
+        if pts:
+            scoped = True
+            lignes.append("   PORTÉE RESTREINTE — ne traite QUE ces points :")
+            lignes += [f"   - {p}" for p in pts]
+            cut = t.get("scope_truncated") or 0
+            if cut:
+                lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
+                              "ici : reprends-les depuis la checklist du ticket.)")
+    corps = "\n".join(lignes)
+    regle_scope = (
+        "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
+        "demandeur : traite uniquement les points listés, ne coche que ces "
+        "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
+    ) if scoped else ""
+    # Fin commune : sans ces trois retours, un lot laisse le demandeur
+    # surveiller des sessions pour savoir où ça en est.
+    fin = (
+        "- consigne l'avancement du lot au worklog "
+        "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
+        "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
+        "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
+        "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
+        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "bilan ticket par ticket."
+    )
+    n = len(todo or [])
+    if mode == "atester":
+        return (
+            f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
+            "protocole worker NORMS :\n"
+            f"{corps}\n\n"
+            "Règles du lot :\n"
+            "- passer un ticket « à tester », c'est le LIVRER : chacun part avec sa "
+            "note de livraison ET son protocole de test (norme RM2229) — pas un "
+            "simple changement de statut ;\n"
+            "- si le travail n'est PAS réellement livré (branche non poussée, MR "
+            "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse le "
+            "statut en l'état, dis pourquoi, passe au suivant ;\n"
+            "- un ticket à la fois, jusqu'à son statut de fin ;\n"
+            f"{fin}"
+        )
+    return (
+        f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "
+        "appliquant le protocole worker NORMS à chacun (prise en charge, travail, "
+        "livraison) :\n"
+        f"{corps}\n\n"
+        "Règles du lot :\n"
+        "- un ticket à la fois, jusqu'à son statut de fin ; ne passe au suivant "
+        "qu'une fois le précédent rendu ;\n"
+        "- chaque ticket revient au demandeur par son statut de fin NORMS "
+        "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+        f"{regle_scope}"
+        f"{fin}"
+    )
+# <<< batch_prompt
+
+
+def op_worklog_batch(payload: dict) -> dict:
+    """RM2716 — compose (et, sauf `dry_run`, envoie) la consigne de lot à la
+    session attachée. `dry_run` sert le récapitulatif AVANT confirmation : rien
+    ne part sans que le demandeur ait vu ce qui va être demandé.
+
+    RM2720 — `mode` : « traiter » (défaut) ou « atester »."""
+    sid = str(payload.get("rm_id") or payload.get("sid") or "").strip()
+    if not _valid_sid(sid):
+        raise ApiError(400, "session invalide")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    mode = str(payload.get("mode") or "traiter")
+    plan = batch_plan(items, mode)
+    todo = plan["todo"]
+    dry = bool(payload.get("dry_run"))
+    if not todo:
+        raise ApiError(400, "aucun ticket actionnable dans la sélection")
+    if len(todo) > BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(todo)} tickets : au-delà de {BATCH_MAX}, "
+                            "confirme explicitement (une file trop longue déborde "
+                            "le contexte de l'agent)")
+    prompt = batch_prompt(todo, mode)
+    out = {"sid": sid, "mode": mode, "count": len(todo), "todo": todo,
+           "skipped": plan["skipped"], "prompt": prompt, "sent": False}
+    if dry:
+        return out
+    if not _has_session(sid):
+        raise ApiError(404, f"session absente : {_session_name(sid)}")
+    op_send({"rm_id": sid, "msg": prompt, "enter": True})
+    out["sent"] = True
+    return out
+
+# ── RM2698 (T4 de RM2694) : alertes de DÉRIVE ─────────────────────────────────
+# T2/T3 montrent l'état. Ce qu'on perd en multi-sessions, ce n'est pas ce qu'on
+# voit — c'est ce qu'on ne voit plus : le temps qui passe sur de l'inachevé.
+#
+# Les seuils ne sont pas devinés : ils viennent de l'observation faite pendant
+# T3 sur ce poste (126 tickets en attente de verdict, 36 tickets actifs sans
+# session, ~20 MR ouvertes). Des seuils courts produiraient 150 alertes — donc
+# aucune. Ils sont réglables (panneau 🔧 réglages) parce que ces chiffres sont
+# ceux d'un poste à un instant, pas une vérité.
+ALERT_DEFAULTS = {
+    "orphan_hours": 72,        # ticket actif sans session vivante
+    "mr_days": 7,              # MR ouverte, pas mergée
+    "verdict_days": 14,        # ticket qui attend le verdict du demandeur
+    "mep_days": 3,             # ticket a_mep / en_mep non déployé
+    "max": 12,                 # une alerte permanente n'est plus une alerte
+}
+_ALERT_SNOOZE = STATE_DIR / "alerts-snooze.json"
+
+
+def _alert_thresholds() -> dict:
+    """Seuils effectifs : conf PM si présente, défauts sinon."""
+    conf = (_conf_merged().get("alerts") or {}) if callable(globals().get("_conf_merged")) else {}
+    out = dict(ALERT_DEFAULTS)
+    for k in out:
+        v = conf.get(k)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            out[k] = v
+    return out
+
+
+def _alert_snoozed() -> dict:
+    """Alertes reportées : clé → timestamp de réveil. Un report est EXPLICITE et
+    daté ; il ne supprime jamais l'alerte, il la décale."""
+    d = _read_json_file(_ALERT_SNOOZE) or {}
+    now = time.time()
+    return {k: v for k, v in d.items() if isinstance(v, (int, float)) and v > now}
+
+
+def op_alert_snooze(payload: dict) -> dict:
+    """Reporte une alerte de N jours (défaut 7). Jamais de suppression : ce qui
+    dérive revient à échéance, sinon l'oubli est simplement institutionnalisé."""
+    key = str(payload.get("key") or "").strip()
+    if not key or len(key) > 200:
+        raise ApiError(400, "key requise")
+    days = payload.get("days")
+    days = days if isinstance(days, (int, float)) and 0 < days <= 90 else 7
+    cur = _read_json_file(_ALERT_SNOOZE) or {}
+    cur[key] = int(time.time() + days * 86400)
+    _write_json_atomic(_ALERT_SNOOZE, cur)
+    return {"key": key, "until": cur[key], "days": days}
+
+
+# >>> alert_age_days — pure (testée par test_karl_agent_alerts.py)
+def alert_age_days(stamp, now_ts):
+    """Âge en jours d'un horodatage PM (`2026-08-01T19:36`, ou date seule).
+    Rend None si la date est absente ou illisible — on ne fabrique pas une
+    ancienneté, sous peine d'alerter sur du vide."""
+    s = str(stamp or "").strip()
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            t = time.mktime(time.strptime(s[:len(time.strftime(fmt))], fmt))
+            return max(0.0, (now_ts - t) / 86400.0)
+        except (ValueError, OverflowError):
+            continue
+    return None
+# <<< alert_age_days
+
+
+# >>> build_alerts — pure (testée par test_karl_agent_alerts.py)
+def build_alerts(projects, thresholds, now_ts, snoozed=None):
+    """Les dérives, depuis l'agrégat /overview. Pure : la lecture disque et
+    l'horloge sont injectées, donc testable sans poste ni sessions.
+
+    Chaque alerte porte SA DATE (« depuis 34 j ») : une alerte sans âge ne se
+    hiérarchise pas, et c'est l'âge qui dit laquelle traite en premier."""
+    th, snz = thresholds or ALERT_DEFAULTS, snoozed or {}
+    out = []
+
+    def add(kind, key, age, label, **extra):
+        if key in snz:
+            return
+        out.append(dict({"kind": kind, "key": key, "age_days": round(age, 1),
+                         "label": label}, **extra))
+
+    for g in projects or []:
+        cl, pr = g.get("client"), g.get("project")
+        for t in g.get("tickets") or []:
+            age = alert_age_days(t.get("updated"), now_ts)
+            if age is None:
+                continue
+            st = t.get("status")
+            if t.get("bucket") == "active" and not t.get("has_live_session") \
+                    and age * 24 >= th["orphan_hours"]:
+                add("orphan", f"t:{t['rm_id']}", age,
+                    "ticket en cours, aucune session ne le traite",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+            elif st == "a_tester_demandeur" and age >= th["verdict_days"]:
+                add("verdict", f"t:{t['rm_id']}", age, "livré, attend ton verdict",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+            elif st in ("a_mep", "en_mep") and age >= th["mep_days"]:
+                add("mep", f"t:{t['rm_id']}", age, "validé, pas encore déployé",
+                    rm_id=t["rm_id"], client=cl, project=pr, title=t.get("title") or "")
+        for m in g.get("mrs") or []:
+            age = alert_age_days(m.get("ts"), now_ts)
+            if age is not None and age >= th["mr_days"]:
+                add("mr", f"m:{m.get('repo')}:{m.get('iid')}", age, "MR ouverte, pas mergée",
+                    iid=m.get("iid"), url=m.get("url"), rm_id=str(m.get("ref") or "").replace("RM", ""),
+                    client=cl, project=pr, title=str(m.get("ref") or ""))
+    # le plus vieux d'abord, et un nombre BORNÉ : une liste d'alertes qu'on ne
+    # finit pas de lire se contourne, puis s'ignore
+    out.sort(key=lambda a: -a["age_days"])
+    total = len(out)
+    cap = int(th.get("max") or ALERT_DEFAULTS["max"])
+    return {"alerts": out[:cap], "total": total, "hidden": max(0, total - cap)}
+# <<< build_alerts
+
+
+def op_alerts(qs: dict, auth_ctx: dict | None = None) -> dict:
+    """RM2698 — dérives du moment, calculées depuis l'agrégat RM2696."""
+    ov = op_overview(qs or {}, auth_ctx)
+    res = build_alerts(ov.get("projects"), _alert_thresholds(), time.time(), _alert_snoozed())
+    res["thresholds"] = _alert_thresholds()
+    res["generated_at"] = ov.get("generated_at")
+    return res
 
 
 def op_pending(qs: dict, auth_ctx: dict | None = None) -> dict:
@@ -4266,6 +5260,38 @@ def _mtime_iso(p: Path) -> str:
     except (OSError, ValueError):
         return ""
 
+# >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
+_CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
+
+
+def parse_checklist(body: str, max_items: int = 40) -> dict:
+    """RM2695 : l'avancement d'un ticket, lu là où il est DÉJÀ tenu — la
+    checklist des critères d'acceptation de sa description (tripwire #9
+    « description vivante », miroir du `done_ratio`).
+
+    Aucun référentiel de tâches à créer : un second endroit à maintenir
+    divergerait du premier en une semaine. On lit `- [ ]` / `- [x]`, puces `*` et
+    `+` comprises, indentation tolérée (sous-items d'une liste).
+
+    `items` est plafonné (l'UI n'affiche que le RESTE à faire, et une description
+    n'est pas un backlog) ; `done`/`total` comptent tout, eux, sinon le compteur
+    mentirait sur les tickets longs."""
+    done = total = 0
+    items = []
+    for line in (body or "").splitlines():
+        m = _CHECKLIST_RE.match(line)
+        if not m:
+            continue
+        checked = m.group(1) in ("x", "X")
+        total += 1
+        if checked:
+            done += 1
+        elif len(items) < max_items:
+            items.append(m.group(2))
+    return {"done": done, "total": total, "items": items,
+            "truncated": total - done > len(items)}
+# <<< parse_checklist
+
 
 def _log_tail(tf: Path, n: int = 18) -> str:
     logf = tf.with_name(tf.stem + ".log.md")
@@ -4385,6 +5411,11 @@ def op_resolve(rm_id: str) -> dict:
         "environments": envs, "active_env": _env_for_status(status, envs),
         "git": {"repo": git.get("repo"), "branch": git.get("branch"), "mr_url": git.get("mr_url")},
         "redmine_url": f"{redmine}/issues/{rm_id}" if redmine else "",
+        # RM2695 : avancement = la checklist des critères d'acceptation, seule
+        # mesure déjà tenue à jour (tripwire #9) — et les sous-tâches AVEC leur
+        # statut, une liste d'ids n'apprenant rien sur l'avancement.
+        "checklist": parse_checklist(_task_body(text)),
+        "sub_tasks_status": _subtasks_status(fm.get("sub_tasks")),
         "parent_task": fm.get("parent_task"), "sub_tasks": fm.get("sub_tasks") or [],
         "depends_on": fm.get("depends_on") or [], "blocks": fm.get("blocks") or [],
         "relates": fm.get("relates") or [], "outputs": fm.get("outputs") or [],
@@ -4448,6 +5479,93 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
         })
     out.sort(key=lambda r: -int(r["rm_id"]))
     return out[:limit]
+
+
+# ── RM1952 : triage ROI des tickets ouverts — prochaine action à plus fort levier ─
+# Croise priorité, estimation (temps/tokens), gain attendu (ROI) et dépendances
+# pour répondre « quel ticket travailler maintenant ? ». Le score ROI (€) réutilise
+# priority.py (RM1717) — source unique de vérité, aucun calcul divergent ici.
+_TRIAGE_OPEN = {"nouveau", "a_faire", "en_cours",
+                "a_tester_dev", "a_tester_demandeur", "a_mep"}
+_TRIAGE_VALID = {"a_tester_dev", "a_tester_demandeur", "a_mep"}
+
+
+# >>> triage_flags — pure (testée par test_karl_agent_triage.py)
+def triage_flags(depends_on, status_by_id, unblocks_count, status):
+    """Signaux de levier d'un ticket ouvert. Un dépendant non `ferme` (ou inconnu)
+    le bloque ; unblocks_count = nombre de tickets ouverts qui l'attendent."""
+    blocked_by = [dep for dep in (depends_on or []) if status_by_id.get(dep) != "ferme"]
+    return {
+        "blocked": bool(blocked_by),
+        "blocked_by": blocked_by,
+        "awaiting_validation": status in _TRIAGE_VALID,
+        "unblocks": int(unblocks_count or 0),
+    }
+# <<< triage_flags
+
+
+def op_triage(qs: dict) -> dict:
+    """RM1952 : classement ROI décroissant des tickets ouverts (filtres client/projet).
+    Une passe légère (`_read_task_meta`) donne le statut de TOUS les tickets ; le
+    frontmatter complet (roi/estimate/deps) n'est lu que pour les ouverts."""
+    import priority as _prio
+    rate = _prio.hourly_rate_eur()
+    fq_client = (qs.get("client") or "").strip() or None
+    fq_project = (qs.get("project") or "").strip() or None
+
+    status_by_id, open_files = {}, []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        m = re.match(r"RM(\d+)_", tf.name)
+        if not m:
+            continue
+        rid = int(m.group(1))
+        status_by_id[rid] = _read_task_meta(tf)["status"]
+        if status_by_id[rid] in _TRIAGE_OPEN:
+            open_files.append((tf, rid))
+
+    parsed, unblocks = [], {}
+    for tf, rid in open_files:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        if not isinstance(fm, dict):
+            continue
+        for dep in fm.get("depends_on") or []:
+            unblocks[dep] = unblocks.get(dep, 0) + 1
+        parsed.append((tf, rid, fm))
+
+    tickets = []
+    for tf, rid, fm in parsed:
+        cl, pr = _task_client_project(tf)
+        if fq_client and cl != fq_client:
+            continue
+        if fq_project and pr != fq_project:
+            continue
+        status = str(fm.get("status") or "")
+        est = fm.get("estimate") if isinstance(fm.get("estimate"), dict) else {}
+        roi = fm.get("roi") if isinstance(fm.get("roi"), dict) else {}
+        flags = triage_flags(fm.get("depends_on"), status_by_id, unblocks.get(rid, 0), status)
+        tickets.append({
+            "rm_id": rid,
+            "title": fm.get("title") or "",
+            "status": status,
+            "priority": fm.get("priority") or "normal",
+            "type": fm.get("type") or "",
+            "client": cl, "project": pr,
+            "score": round(_prio.task_score(fm, rate), 1),
+            "time_minutes": est.get("time_minutes"),
+            "tokens": est.get("tokens"),
+            "immediate_benefit": roi.get("immediate_benefit"),
+            "monthly_benefit": roi.get("monthly_benefit"),
+            "completion_pct": fm.get("completion_pct") or 0,
+            **flags,
+        })
+    # score ROI décroissant ; à score égal, ce qui débloque le plus remonte
+    tickets.sort(key=lambda e: (e["score"], e["unblocks"]), reverse=True)
+    return {"rate_eur": rate, "count": len(tickets), "tickets": tickets}
 
 
 # ── Statut du workspace de la tâche (intérim ; outil dédié = RM1883) ─────────
@@ -4713,6 +5831,130 @@ def op_workspace_status(rm_id: str) -> dict:
     }
 
 
+# ── RM2384 : cohérence git d'un ticket livré, AVANT « valider et fermer » ─────
+# À l'affichage d'un ticket a_tester_* dans la fiche de revue, on anticipe l'échec
+# de merge décrit par Mathieu (RM2000 : branche antérieure aux merges de la cible,
+# conflit CHANGELOG, échec sec au moment de l'action). On répond à la vraie
+# question — « cette branche se merge-t-elle proprement dans sa cible ? » — en
+# LOCAL et de façon AUTORITAIRE via `git merge-tree` (simulation de merge, sans
+# toucher le worktree ni pousser). Le retard (behind) reste une heuristique de
+# repli quand merge-tree est indisponible (vieux git, permissions).
+
+# >>> mergecheck_verdict — pure (testée par test_karl_agent_mergecheck.py)
+def mergecheck_verdict(*, is_git, has_worktree, target, behind=0, ahead=0,
+                       mergeable=None, conflicts=None, target_missing=False):
+    """Classe l'état de mergeabilité d'un ticket livré → {level, headline,
+    detail, advice}. `level` ∈ ok|warn|block|unknown. Pur : aucune I/O."""
+    conflicts = conflicts or []
+    if not is_git or not has_worktree:
+        return {"level": "unknown", "headline": "Cohérence git non vérifiable",
+                "detail": "worktree de code introuvable pour ce ticket",
+                "advice": ""}
+    if target_missing:
+        return {"level": "unknown",
+                "headline": "Branche cible introuvable (" + str(target) + ")",
+                "detail": "impossible de comparer la branche à sa cible d'intégration",
+                "advice": "vérifier le fetch de la cible / le manifeste (integration_branch)"}
+    if mergeable is False:
+        n = len(conflicts)
+        shown = ", ".join(conflicts[:6]) + (" …" if n > 6 else "")
+        return {"level": "block",
+                "headline": "Conflit de merge avec " + str(target)
+                            + " (" + str(n) + " fichier(s))",
+                "detail": shown,
+                "advice": "merge " + str(target) + " dans la branche, résous les "
+                          "conflits, pousse — AVANT de fermer / demander la MEP"}
+    if mergeable is True and behind > 0:
+        return {"level": "ok",
+                "headline": "Merge propre — branche en retard de " + str(behind)
+                            + " sur " + str(target),
+                "detail": "aucun conflit malgré le retard : la MR se mergera",
+                "advice": ""}
+    if mergeable is True:
+        return {"level": "ok", "headline": "Branche à jour, merge propre",
+                "detail": "", "advice": ""}
+    # mergeable is None : merge-tree indisponible → heuristique du retard
+    if behind > 0:
+        return {"level": "warn",
+                "headline": "Branche en retard de " + str(behind)
+                            + " commit(s) sur " + str(target),
+                "detail": "mergeabilité non vérifiée (merge-tree indisponible) — conflit possible",
+                "advice": "par prudence, merge " + str(target)
+                          + " dans la branche avant de fermer"}
+    return {"level": "ok", "headline": "Branche à jour",
+            "detail": "mergeabilité non vérifiée", "advice": ""}
+# <<< mergecheck_verdict
+
+
+def _parse_merge_tree_conflicts(rc, out):
+    """(mergeable, conflicts) depuis `git merge-tree --write-tree --name-only`.
+    rc 0 → propre ; rc 1 → conflit, stdout = OID\\n\\n<fichiers en conflit> ;
+    autre → indéterminé (permissions, vieux git)."""
+    if rc == 0:
+        return True, []
+    if rc == 1:
+        lines = (out or "").splitlines()
+        return False, [l for l in lines[1:] if l.strip()]
+    return None, []
+
+
+def op_mergecheck(rm_id: str) -> dict:
+    """RM2384 : la branche du ticket se merge-t-elle proprement dans sa cible ?
+    Lecture seule côté worktree (merge-tree simule, n'applique rien)."""
+    if not _RM_ID_RE.match(rm_id):
+        raise ApiError(400, "rm_id invalide")
+    # cible d'intégration (défaut dev) — best-effort, ne bloque pas la vérif
+    target = "dev"
+    try:
+        _, _, target = _mr_deliver_context(rm_id)
+    except ApiError:
+        target = "dev"
+    cwd, origin_label = _ticket_repo(rm_id)
+    tf = _find_task_file(rm_id)
+    mr_url = None
+    if tf:
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            mr_url = git.get("mr_url")
+        except OSError:
+            pass
+    rc, _, _ = _git(cwd, "rev-parse", "--is-inside-work-tree")
+    is_git = rc == 0
+    has_worktree = is_git and cwd != Path(DEFAULT_CWD) and not _is_pm_data_repo(cwd)
+    base = {"rm_id": rm_id, "cwd": str(cwd), "origin": origin_label,
+            "target": target, "mr_url": mr_url, "is_git": is_git,
+            "has_worktree": has_worktree}
+    if not has_worktree:
+        return {**base, "verdict": mergecheck_verdict(
+            is_git=is_git, has_worktree=False, target=target)}
+    _, branch, _ = _git(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+    # rafraîchir la cible (best-effort) : le behind/mergeable doit refléter la
+    # cible actuelle, pas un origin/<target> figé au dernier fetch de la session.
+    _git(cwd, "fetch", "origin", target, timeout=20)
+    remote_target = "origin/" + target
+    rc, _, _ = _git(cwd, "rev-parse", "--verify", "--quiet", remote_target)
+    target_missing = rc != 0
+    behind = ahead = 0
+    mergeable, conflicts = None, []
+    if not target_missing:
+        rc, ab, _ = _git(cwd, "rev-list", "--left-right", "--count",
+                         remote_target + "...HEAD")
+        if rc == 0 and ab:
+            parts = ab.split()
+            if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+                behind, ahead = int(parts[0]), int(parts[1])
+        rc, out, _ = _git(cwd, "merge-tree", "--write-tree", "--name-only",
+                          remote_target, "HEAD", timeout=30)
+        mergeable, conflicts = _parse_merge_tree_conflicts(rc, out)
+    verdict = mergecheck_verdict(
+        is_git=True, has_worktree=True, target=target, behind=behind, ahead=ahead,
+        mergeable=mergeable, conflicts=conflicts, target_missing=target_missing)
+    return {**base, "branch": branch, "behind": behind, "ahead": ahead,
+            "mergeable": mergeable, "conflicts": conflicts[:20],
+            "target_missing": target_missing, "verdict": verdict}
+
+
 # ── Explorateur de fichiers (RM2586) : worktrees de la session, lecture seule ──
 # Sécurité (défense en profondeur) :
 #  1. le worktree demandé DOIT figurer dans les worktrees de la session (registre
@@ -4722,6 +5964,32 @@ def op_workspace_status(rm_id: str) -> dict:
 #  3. lecture seule, taille bornée, binaires refusés.
 _FS_MAX_BYTES = 512 * 1024
 _FS_SKIP = {".git"}
+
+
+# >>> fs_hide — pure (testée par test_karl_agent_session_files.py)
+def _fs_hide(subpath: str, name: str) -> bool:
+    """RM2659 : entrées invisibles dans l'explorateur.
+
+    `.mmi-pm/tasks` compte ~1 300 fiches de tickets, que le cockpit sait déjà
+    montrer par ailleurs ; les dérouler ici noie `docs/`, `project/` et
+    `memory/`, qui sont ce qu'on vient y chercher. Le masquage vise un CHEMIN,
+    pas un nom : un dossier `tasks/` dans du code reste visible."""
+    if name in _FS_SKIP:
+        return True
+    return (subpath or "").strip("/") == ".mmi-pm" and name == "tasks"
+# <<< fs_hide
+
+
+# >>> fs_hidden_path — pure (testée par test_karl_agent_session_files.py)
+def _fs_hidden_path(subpath: str) -> bool:
+    """Vrai si le chemin EST une entrée masquée, ou se trouve dedans.
+
+    Sans ça, « masqué » ne voudrait dire que « pas cliquable » : le dossier
+    resterait servi à qui devine son chemin. Même règle que `_fs_hide`,
+    appliquée segment par segment — une seule définition du masquage."""
+    parts = [x for x in str(subpath or "").strip("/").split("/") if x]
+    return any(_fs_hide("/".join(parts[:i]), seg) for i, seg in enumerate(parts))
+# <<< fs_hidden_path
 
 
 def _session_worktrees(sid: str) -> list:
@@ -4774,13 +6042,99 @@ def _project_doc_roots(client: str, project: str) -> list:
     return [str(pdir / sub) for sub in ("project", "docs") if (pdir / sub).is_dir()]
 
 
+def _workspace_root(path) -> Path | None:
+    """RM2659 : racine du workspace contenant `path` — 1er ancêtre portant un
+    `.mmi-pm/`. Les worktrees de session vivent sous `<racine>/envs/`, mais un
+    layout ancien les met à côté de la racine : dans ce cas il n'y a rien à
+    remonter et on rend None plutôt qu'une racine devinée."""
+    try:
+        p = Path(path).resolve()
+    except (OSError, TypeError):
+        return None
+    for d in (p, *p.parents):
+        if (d / ".mmi-pm").exists() and (d / ".mmi-pm" / "meta.yml").is_file():
+            return d
+    return None
+
+
+def _root_project(root) -> tuple | None:
+    """(client, projet) d'une racine de workspace, lus dans `.mmi-pm/meta.yml`.
+
+    C'est l'inverse exact de `_resolve_workspace` : `<racine>/.mmi-pm` EST le
+    dossier du projet PM (RM1949, co-localisation), et son `meta.yml` porte le
+    couple. Pas de scan des clients, pas de devinette sur le nom du dossier —
+    un workspace peut s'appeler autrement que son projet (`ai-project-management`
+    pour `pm-ai-agents`)."""
+    meta = Path(root) / ".mmi-pm" / "meta.yml"
+    try:
+        import yaml as _y
+        d = _y.safe_load(meta.read_text(encoding="utf-8")) or {}
+    except Exception:      # absent, illisible, YAML cassé : pas de projet, pas de plantage
+        return None
+    if not isinstance(d, dict):
+        return None
+    client, slug = d.get("client"), d.get("slug")
+    if not (_PART_RE.match(str(client or "")) and _PART_RE.match(str(slug or ""))):
+        return None
+    return str(client), str(slug)
+
+
+def _project_docs_entries(client: str, project: str) -> list:
+    """Racines documentaires d'un projet, au format « racine lisible » de
+    l'explorateur (chemin, nom, nombre de .md, libellé)."""
+    return [{"path": d, "name": Path(d).name,
+             "docs": len(list(Path(d).glob("*.md"))),
+             "label": ("documents du projet" if Path(d).name == "docs"
+                       else "fiches canoniques (overview, environnements)")}
+            for d in _project_doc_roots(client, project)]
+
+
+def _session_projects(sid: str) -> list:
+    """RM2659 : les projets auxquels la session touche — son cwd et chacun de
+    ses worktrees. Une session sur plusieurs projets n'est pas un cas d'école :
+    7 sur 62 au registre (client + PM, deux infras de clients différents…)."""
+    out = {}
+    k = _key_info(sid) or {}
+    for cand in [k.get("cwd"), *(_session_worktrees(sid) or [])]:
+        root = _workspace_root(cand) if cand else None
+        if not root or str(root) in out:
+            continue
+        cp = _root_project(root)
+        if not cp:
+            continue
+        client, project = cp
+        out[str(root)] = {
+            "root": str(root), "name": root.name, "client": client, "project": project,
+            "docs": _project_docs_entries(client, project),
+        }
+    return list(out.values())
+
+
+def _session_project_roots(sid: str) -> set:
+    """Racines lisibles apportées par les projets de la session (racine + doc)."""
+    allowed = set()
+    for pr in _session_projects(sid):
+        allowed.add(pr["root"])
+        allowed |= {d["path"] for d in pr["docs"]}
+    return allowed
+
+
 def _resolve_worktree(sid: str, worktree: str, client: str = None, project: str = None) -> Path:
     """Le worktree demandé doit appartenir au périmètre autorisé : les worktrees de
-    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590."""
+    la SESSION (sid) OU, si fournis, ceux du PROJET (client/project) — RM2586/2590.
+    RM2659 y ajoute les racines des projets de la session : elles REJOIGNENT la
+    liste blanche, elles ne l'ouvrent pas — le modèle reste « une racine
+    déclarée, ou rien »."""
     allowed = set(_session_worktrees(sid)) if sid else set()
+    if sid:
+        allowed |= _session_project_roots(sid)
     if client and project:
         allowed |= set(_project_worktrees(client, project))
         allowed |= set(_project_doc_roots(client, project))   # RM2622
+        # RM2673 : la racine du workspace, même si `git worktree list` n'a rien
+        # rendu (projet non versionné, ou dépôt illisible) — c'est elle que
+        # l'explorateur ouvre quand aucune session n'est attachée.
+        allowed |= _project_root_paths(client, project)
     if worktree in allowed:
         p = Path(worktree)
         if p.is_dir():
@@ -4793,6 +6147,8 @@ def _safe_subpath(base: Path, subpath: str) -> Path:
     sp = PurePosixPath(subpath or "")
     if sp.is_absolute() or ".." in sp.parts:
         raise ApiError(403, "sous-chemin invalide")
+    if _fs_hidden_path(subpath):          # RM2659
+        raise ApiError(403, "dossier masqué dans l'explorateur (les tickets ont leurs propres vues)")
     target = base / sp
     try:
         rp, broot = target.resolve(), base.resolve()
@@ -4846,7 +6202,10 @@ def _git_brief(cwd: Path) -> dict:
 
 
 def op_worktrees(sid: str) -> dict:
-    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers)."""
+    """RM2586 : worktrees de la session + leur état git (pour l'onglet fichiers).
+    RM2659 : et les PROJETS auxquels la session touche — leur racine de
+    workspace et leur documentation. Le « core » cessait ainsi d'apparaître
+    comme un worktree parmi d'autres : il EST la racine."""
     if not _valid_sid(sid):
         raise ApiError(400, "sid invalide")
     out = []
@@ -4856,7 +6215,51 @@ def op_worktrees(sid: str) -> dict:
         if p.is_dir():
             item.update(_git_brief(p))
         out.append(item)
-    return {"sid": sid, "worktrees": out}
+    projects = []
+    for pr in _session_projects(sid):
+        root = Path(pr["root"])
+        item = dict(pr, exists=root.is_dir())
+        if root.is_dir():
+            item.update(_git_brief(root))
+        projects.append(item)
+    return {"sid": sid, "worktrees": out, "projects": projects}
+
+
+def _project_root_paths(client: str, project: str) -> set:
+    """Racines lisibles d'un projet SANS session : racine du workspace + doc."""
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    out = {d["path"] for d in _project_docs_entries(client, project)}
+    if ws:
+        out.add(str(ws))
+    return out
+
+
+def op_project_roots(client: str, project: str) -> dict:
+    """RM2673 : racine du workspace + doc d'un projet, sans passer par une
+    session. L'explorateur de fichiers pouvait déjà lire un projet (RM2590), mais
+    seulement depuis la fiche projet : quand aucune session n'est attachée
+    (fiche de ticket ouverte, par exemple), le panneau restait sur « attache une
+    session… » alors que client/projet étaient parfaitement identifiés.
+
+    Pourquoi pas `/project-worktrees` : il rend TOUS les worktrees avec un
+    `git status` chacun — 65 sur pm-ai-agents. C'est le bon prix pour la fiche
+    projet, pas pour l'ouverture d'un panneau latéral. Ici : la racine (un seul
+    `git status`) et sa doc, soit exactement ce que RM2659 montre déjà d'une
+    session sans worktree."""
+    if not (_PART_RE.match(client or "") and _PART_RE.match(project or "")):
+        raise ApiError(400, "client/projet invalide")
+    pdir = PROJECTS_BASE / client / "projects" / project
+    ws = _resolve_workspace(pdir) if pdir.is_dir() else None
+    docs = _project_docs_entries(client, project)
+    if not ws and not docs:
+        raise ApiError(404, f"projet sans racine lisible : {client}/{project}")
+    item = {"root": str(ws) if ws else "", "name": (Path(ws).name if ws else project),
+            "client": client, "project": project, "docs": docs,
+            "exists": bool(ws) and Path(ws).is_dir()}
+    if item["exists"]:
+        item.update(_git_brief(Path(ws)))
+    return {"client": client, "project": project, "projects": [item], "worktrees": []}
 
 
 def op_project_worktrees(client: str, project: str) -> dict:
@@ -4887,7 +6290,7 @@ def op_fs_ls(sid: str, worktree: str, subpath: str, client: str = None, project:
         raise ApiError(404, "dossier introuvable")
     entries = []
     for e in target.iterdir():
-        if e.name in _FS_SKIP:
+        if _fs_hide(subpath, e.name):
             continue
         try:
             is_dir = e.is_dir()
@@ -5150,6 +6553,120 @@ def op_tickets_brief(ids) -> dict:
     return out
 
 
+
+# ── RM2768 : fiche client + confs (client, projet) pour le panneau central ───
+# Le client HTTP ne transmet JAMAIS de chemin : il donne des slugs, le serveur
+# résout. `/file` (RM2303) ne sert que des `.md` sous `projects/` avec une garde
+# lexicale — le `meta.yml` d'un client vit dans le core client, atteignable
+# seulement en traversant `..`, ce que cette garde interdit à juste titre.
+# Élargir `/file` aurait ouvert une lecture arbitraire du disque pour gagner
+# deux fichiers : ces deux fichiers ont donc leur route, qui ne lit qu'eux.
+
+def _client_meta_file(client: str):
+    """`meta.yml` du core client (parent du symlink `client`), ou None."""
+    cdir = PROJECTS_BASE / client / "client"
+    try:
+        meta = cdir.resolve().parent / "meta.yml"
+    except OSError:
+        return None
+    return meta if meta.is_file() else None
+
+
+def _client_docs(client: str) -> list:
+    """Documents du client (`client/*.md`), au format de `_project_docs`."""
+    cdir = PROJECTS_BASE / client / "client"
+    if not cdir.is_dir():
+        return []
+    out = []
+    for f in sorted(cdir.glob("*.md")):
+        try:
+            out.append({"name": f.name, "path": str(f.relative_to(REPO_ROOT))})
+        except ValueError:
+            continue          # hors de l'arbre servi : pas affichable par /file
+    return out
+
+
+def op_client(client: str) -> dict:
+    """RM2768 : fiche client — identité, contacts, valeurs par défaut, projets.
+
+    Les contacts viennent de `meta.yml :: contacts[]` (RM2702) ; ils ne sortent
+    pas d'ici : aucun mot de passe, token ni clé n'a sa place dans ce fichier
+    (les secrets vivent au vault, tripwire #11).
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    cdir = PROJECTS_BASE / client
+    if not cdir.is_dir():
+        raise ApiError(404, f"client inconnu en local : {client}")
+    meta = {}
+    mf = _client_meta_file(client)
+    if mf:
+        try:
+            meta = yaml_safe_load(mf.read_text(encoding="utf-8", errors="replace")) or {}
+        except Exception:  # noqa: BLE001
+            meta = {}       # conf illisible : la fiche reste servie, sans elle
+    projects = []
+    pdir = cdir / "projects"
+    if pdir.is_dir():
+        for d in sorted(pdir.glob("*")):
+            if d.is_dir():
+                projects.append({"project": d.name, "value": f"{client}/{d.name}"})
+    used = []
+    udir = cdir / "projects_used"
+    if udir.is_dir():
+        for d in sorted(udir.glob("*")):
+            used.append(d.name)
+    redmine = os.environ.get("REDMINE_URL", "").rstrip("/")
+    rid = ((meta.get("redmine") or {}).get("default_project_id")
+           if isinstance(meta.get("redmine"), dict) else None)
+    return {
+        "client": client,
+        "name": meta.get("name") or client,
+        "status": meta.get("status") or "",
+        "type": meta.get("type") or "",
+        "created": str(meta.get("created") or ""),
+        "contacts": meta.get("contacts") or [],
+        "defaults": meta.get("defaults") or {},
+        "redmine_project_id": rid,
+        "redmine_project_url": f"{redmine}/projects/{rid}" if redmine and rid else "",
+        "projects": projects,
+        "projects_used": used,
+        "docs": _client_docs(client),
+        "has_conf": bool(mf),
+    }
+
+
+def op_conf(scope: str, client: str, project: str = None) -> dict:
+    """RM2768 : `meta.yml` INTÉGRAL d'un client ou d'un projet, en texte.
+
+    `scope` vaut `client` ou `project` ; le chemin est reconstruit depuis les
+    slugs validés, jamais reçu. Le texte est rendu tel quel : c'est de la
+    configuration, on la lit comme elle est écrite — la reformater masquerait
+    ce qui s'y trouve vraiment.
+    """
+    if not _PART_RE.match(client or ""):
+        raise ApiError(400, "client invalide")
+    if scope == "client":
+        f = _client_meta_file(client)
+        label = f"{client} (client)"
+    elif scope == "project":
+        if not _PART_RE.match(project or ""):
+            raise ApiError(400, "projet invalide")
+        cand = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+        f = cand if cand.is_file() else None
+        label = f"{client}/{project}"
+    else:
+        raise ApiError(400, "scope attendu : client | project")
+    if not f:
+        raise ApiError(404, f"aucun meta.yml pour {label}")
+    try:
+        content = f.read_text(encoding="utf-8", errors="replace")
+    except OSError as e:
+        raise ApiError(500, f"lecture impossible : {e}")
+    return {"scope": scope, "client": client, "project": project or "",
+            "label": label, "name": f.name, "content": content, "size": len(content)}
+
+
 def op_list_projects() -> list:
     out = []
     for cl in sorted(PROJECTS_BASE.glob("*")):
@@ -5185,6 +6702,54 @@ def op_create_ticket(payload: dict) -> dict:
     tags = (payload.get("tags") or "").strip()
     if tags:
         args += ["--tags", tags]
+    # RM2752 — un bugfix EXIGE ses étapes de reproduction (validate-task les
+    # impose). On refuse ici, en 400 lisible : laisser passer, c'est reprendre le
+    # défaut d'origine — pm-task-add sortirait en erreur et le formulaire rendrait
+    # un 500 opaque sur un ticket que l'appelant croit créé.
+    if ttype == "bugfix":
+        steps = (payload.get("bug_steps") or "").strip()
+        if not steps:
+            raise ApiError(400, "bug_steps requis pour un ticket de type bugfix "
+                                "(étapes de reproduction)")
+        repro = (payload.get("bug_reproducibility") or "always").strip()
+        if repro not in ("always", "often", "sometimes", "rarely", "never"):
+            raise ApiError(400, "bug_reproducibility invalide "
+                                "(always|often|sometimes|rarely|never)")
+        args += ["--bug-steps", steps, "--bug-reproducibility", repro]
+    elif payload.get("bug_steps") or payload.get("bug_reproducibility"):
+        raise ApiError(400, "bug_steps / bug_reproducibility n'ont de sens "
+                            "que pour type=bugfix")
+    # RM2672 — le formulaire pleine page porte les champs que la carte repliée du
+    # panneau gauche n'avait pas : passe agent-testeur, env cible, estimation.
+    # Chacun est validé ici : le client ne compose jamais l'argv.
+    agent_test = (payload.get("agent_test") or "").strip()
+    if agent_test:
+        if agent_test not in ("default", "oui", "non", "demander"):
+            raise ApiError(400, "agent_test invalide (default|oui|non|demander)")
+        args += ["--agent-test", agent_test]
+    target_env = (payload.get("target_env") or "").strip()
+    if target_env:
+        if not re.fullmatch(r"[a-z][a-z0-9-]{0,31}", target_env):
+            raise ApiError(400, "target_env invalide (kebab-case)")
+        args += ["--target-env", target_env]
+    for field, flag, lo, hi in (("est_human_minutes", "--est-human-minutes", 0, 100000),
+                                ("est_ai_minutes", "--est-ai-minutes", 0, 100000),
+                                ("est_tokens", "--est-tokens", 0, 100_000_000)):
+        v = payload.get(field)
+        if v in (None, ""):
+            continue
+        try:
+            n = int(float(v))
+        except (TypeError, ValueError):
+            raise ApiError(400, f"{field} : nombre attendu")
+        if not lo <= n <= hi:
+            raise ApiError(400, f"{field} hors bornes")
+        args += [flag, str(n)]
+    difficulty = (payload.get("difficulty") or "").strip()
+    if difficulty:
+        if difficulty not in ("low", "medium", "high", "critical"):
+            raise ApiError(400, "difficulty invalide")
+        args += ["--est-difficulty", difficulty]
     try:
         p = subprocess.run(args, cwd=str(REPO_ROOT), capture_output=True,
                            text=True, timeout=90, env=os.environ)
@@ -5255,6 +6820,9 @@ _DEFAULT_ACTIONS = [
     {"key": "point", "group": "Session", "label": "📊 point",
      "text": "fais un point synthétique : avancement, reste à faire, blocages, "
              "prochaine étape — sans rien modifier"},
+    {"key": "session-atester", "group": "Session", "label": "🧪 à tester",
+     "text": "marque la session à tester : tout le lot est livré, il ne reste "
+             "qu'à tester côté demandeur (/session-mark a-tester)"},
     {"key": "done", "group": "Session", "label": "🏁 done",
      "text": "marque la session terminée (/session-mark done)"},
 ]
@@ -5338,6 +6906,113 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "project", "label": "Projet", "type": "text", "flag": "--project", "max_len": 64},
          {"name": "top", "label": "Top N", "type": "int", "flag": "--top"},
          {"name": "json", "label": "Sortie JSON", "type": "bool", "flag": "--json"},
+     ]},
+    # Relève de la boîte de karl (RM2668, chantier RM2666). `mutate: False` : le script
+    # ne touche ni Redmine ni la boîte (FETCH en PEEK) — il ne fait qu'alimenter la file
+    # de triage locale. `--mark-seen` n'est délibérément PAS exposé ici : marquer lu est
+    # une action sur la boîte de prod, elle reste en CLI, explicite.
+    {"name": "mail-fetch", "label": "Relever les emails de karl",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "days", "label": "Fenêtre (jours)", "type": "int", "flag": "--days"},
+         {"name": "limit", "label": "Messages max par dossier", "type": "int", "flag": "--limit"},
+         {"name": "folder", "label": "Dossier (défaut : confiance + INBOX)",
+          "type": "text", "flag": "--folder", "max_len": 64},
+         {"name": "unseen_only", "label": "Non lus seulement", "type": "bool",
+          "flag": "--unseen-only"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas la file)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    # Routage de la file (RM2669) : propose client/projet par email, avec confiance.
+    {"name": "mail-route", "label": "Router les emails (client / projet)",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": False, "timeout": 180, "args": [
+         {"name": "redmine", "label": "Interroger Redmine (comptes des expéditeurs)",
+          "type": "bool", "flag": "--redmine"},
+         {"name": "dry_run", "label": "Simulation (n'écrit pas)", "type": "bool",
+          "flag": "--dry-run"},
+     ]},
+    # La correction humaine : elle fait autorité ET s'apprend (mail-routing.yml),
+    # d'où `mutate` + confirmation.
+    {"name": "mail-route-set", "label": "Corriger le client/projet d'un email",
+     "category": "mail", "script": "karl-mail-route.py",
+     "mutate": True, "confirm": True, "args": [
+         {"name": "set", "label": "Clé de l'email (colonne de gauche)", "type": "text",
+          "required": True, "flag": "--set", "max_len": 64},
+         {"name": "to", "label": "Cible : client ou client/projet", "type": "text",
+          "required": True, "flag": "--to", "max_len": 96},
+         {"name": "domain", "label": "Apprendre tout le DOMAINE (pas juste l'adresse)",
+          "type": "bool", "flag": "--domain"},
+     ]},
+    # Rédaction assistée + création à la validation (RM2670). `mail-draft` propose
+    # (aucun ticket créé) ; `mail-create` est la VALIDATION humaine, donc confirmée.
+    {"name": "mail-draft", "label": "Rédiger un ticket depuis un email",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": False, "timeout": 600, "args": [
+         {"name": "draft", "label": "Clé de l'email (ou « all »)", "type": "text",
+          "required": True, "flag": "--draft", "max_len": 64},
+         {"name": "full_body", "label": "Envoyer le corps ENTIER au modèle",
+          "type": "bool", "flag": "--full-body"},
+         {"name": "force", "label": "Refaire une proposition existante", "type": "bool",
+          "flag": "--force"},
+     ]},
+    {"name": "mail-show", "label": "Voir la proposition d'un email",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": False, "args": [
+         {"name": "show", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--show", "max_len": 64},
+     ]},
+    {"name": "mail-create", "label": "Créer le ticket depuis la proposition",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": True, "confirm": True, "timeout": 300, "args": [
+         {"name": "create", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--create", "max_len": 64},
+         {"name": "project", "label": "Projet (client/projet) — corrige la proposition",
+          "type": "text", "flag": "--project", "max_len": 96},
+         {"name": "title", "label": "Titre — corrige la proposition", "type": "text",
+          "flag": "--title", "max_len": 120},
+         {"name": "priority", "label": "Priorité", "type": "enum", "flag": "--priority",
+          "choices": PRIORITIES},
+         {"name": "note_on", "label": "Rattacher à un ticket existant (note)",
+          "type": "rm_id", "flag": "--note-on"},
+     ]},
+    {"name": "mail-dismiss", "label": "Écarter un email de la file",
+     "category": "mail", "script": "karl-mail-draft.py",
+     "mutate": True, "args": [
+         {"name": "dismiss", "label": "Clé de l'email", "type": "text", "required": True,
+          "flag": "--dismiss", "max_len": 64},
+         {"name": "reason", "label": "Motif", "type": "text", "flag": "--reason",
+          "max_len": 200},
+     ]},
+    {"name": "mail-queue", "label": "File des emails à traiter",
+     "category": "mail", "script": "karl-mail-fetch.py",
+     "mutate": False, "args": [
+         {"name": "queue", "type": "bool", "flag": "--queue", "const": True},
+     ]},
+    # Contacts clients (RM2702) — nom, prénom, email, téléphone dans le meta.yml du
+    # client. `list` d'abord (lecture), `add` ensuite (mutation, sans confirmation :
+    # ajouter un contact est anodin et se retire d'un `remove`).
+    {"name": "contact-list", "label": "Contacts d'un client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": False, "args": [
+         {"name": "cmd", "type": "text", "flag": "list", "const": True, "positional": True},
+         {"name": "client", "label": "Client (vide = tous)", "type": "text",
+          "positional": True, "max_len": 48},
+         {"name": "only_real", "label": "Masquer nos propres adresses", "type": "bool",
+          "flag": "--only-real"},
+     ]},
+    {"name": "contact-add", "label": "Ajouter un contact client",
+     "category": "contacts", "script": "pm-client-contact.py",
+     "mutate": True, "args": [
+         {"name": "cmd", "type": "text", "flag": "add", "const": True, "positional": True},
+         {"name": "client", "label": "Client", "type": "text", "required": True,
+          "positional": True, "max_len": 48},
+         {"name": "last_name", "label": "NOM", "type": "text", "flag": "--last-name", "max_len": 64},
+         {"name": "first_name", "label": "Prénom", "type": "text", "flag": "--first-name", "max_len": 64},
+         {"name": "email", "label": "Email", "type": "text", "flag": "--email", "max_len": 96},
+         {"name": "phone", "label": "Téléphone", "type": "text", "flag": "--phone", "max_len": 32},
+         {"name": "role", "label": "Rôle", "type": "enum", "flag": "--role",
+          "choices": ["owner", "decideur", "technique", "facturation", "autre"]},
      ]},
     # Menu Nouveau projet / client (RM2212) — mutations structurantes : confirm,
     # timeouts larges (Redmine + GitLab + arbo + symlinks). Slugs validés par les
@@ -5523,6 +7198,1064 @@ def _probe_cockpit_test_env(host: str) -> tuple:
         return False, f"injoignable ({exc.__class__.__name__})"
 
 
+# ── RM2458 : page de statut de l'environnement (santé du poste) ───────────────
+# Agrège ce qui n'est visible nulle part aujourd'hui — prérequis cassés, repos PM
+# en divergence non poussée, secrets injoignables — et donne, PAR LIGNE, la
+# commande de remédiation (un statut « bw manquant » sans la commande fait perdre
+# autant de temps que pas de statut). Deux incidents fondateurs (2026-07-30,
+# RM2455) doivent toujours être attrapés : `bw` absent, un repo PM en divergence.
+# Aucun secret n'est jamais rendu : présence/absence de variables uniquement.
+
+ENV_TOOLS = [
+    ("git", "sudo apt install git"),
+    ("python3", "sudo apt install python3"),
+    ("psql", "sudo apt install postgresql-client"),
+    ("php", "sudo apt install php-cli"),
+    ("composer", "sudo apt install composer"),
+    ("bw", "npm config set prefix ~/.local && npm i -g @bitwarden/cli"),
+    ("nc", "sudo apt install netcat-openbsd"),
+    ("glab", "installer glab dans ~/.local/bin (gitlab.com/gitlab-org/cli)"),
+]
+_ENV_REPO_SKIP = {"envs", "repos", "node_modules", ".git", "vendor", "var"}
+
+
+def _chk(label, level, detail="", fix="", section=""):
+    """Une ligne de statut : libellé, niveau (ok|info|warn|error), détail, remédiation.
+
+    `section` (RM2708) : sous-groupe DANS une famille — le client, pour les
+    repos. Une famille de 44 dépôts ne se lit pas à plat ; l'UI en fait des
+    sections repliables. Vide = la famille n'a pas de sous-groupe."""
+    c = {"label": label, "level": level, "detail": detail, "fix": fix}
+    if section:
+        c["section"] = section
+    return c
+
+
+# >>> envstatus_summary — pure (testée par test_karl_agent_envstatus.py)
+_ENV_LEVEL_RANK = {"ok": 0, "info": 1, "warn": 2, "error": 3}
+
+
+def envstatus_summary(groups):
+    """Compte par niveau + niveau global (le pire) sur tous les checks. Pur."""
+    counts = {"ok": 0, "info": 0, "warn": 0, "error": 0}
+    worst = "ok"
+    for g in groups or []:
+        for c in g.get("checks", []):
+            lv = c.get("level", "info")
+            if lv not in counts:
+                lv = "info"
+            counts[lv] += 1
+            if _ENV_LEVEL_RANK[lv] > _ENV_LEVEL_RANK[worst]:
+                worst = lv
+    return {"counts": counts, "worst": worst}
+# <<< envstatus_summary
+
+
+# >>> git_divergence_level — pure (testée) : classe un repo git.
+def git_divergence_level(ahead, behind, dirty):
+    """(level, detail) d'un repo. ahead>0 sans push = travail en attente (l'incident
+    pisceen) ; ahead>0 ET behind>0 = divergence non-fast-forward (push refusé)."""
+    a, b, d = int(ahead or 0), int(behind or 0), int(dirty or 0)
+    parts = []
+    if a:
+        parts.append(f"{a} commit(s) non poussé(s)")
+    if b:
+        parts.append(f"{b} commit(s) en retard")
+    if d:
+        parts.append(f"{d} fichier(s) modifié(s)")
+    detail = ", ".join(parts) if parts else "à jour, propre"
+    if a and b:
+        return "error", detail
+    if a or b or d:
+        return "warn", detail
+    return "ok", detail
+# <<< git_divergence_level
+
+
+# >>> path_local_bin_first — pure (testée) : ~/.local/bin en tête de PATH ?
+def path_local_bin_first(path_value, home):
+    """Le prefix npm pointe ~/.local/bin ; il doit précéder les répertoires système."""
+    dirs = [p for p in (path_value or "").split(os.pathsep) if p]
+    target = str(Path(home) / ".local" / "bin")
+    if target not in dirs:
+        return "warn", "~/.local/bin absent du PATH"
+    idx = dirs.index(target)
+    sys_idx = next((i for i, p in enumerate(dirs)
+                    if p in ("/usr/bin", "/usr/local/bin", "/bin")), len(dirs))
+    if idx < sys_idx:
+        return "ok", "~/.local/bin en tête"
+    return "warn", "~/.local/bin présent mais après les répertoires système"
+# <<< path_local_bin_first
+
+
+def _iter_task_files(limit=500):
+    out = []
+    try:
+        for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
+            if p.name.endswith(".log.md"):
+                continue
+            out.append(p)
+            if len(out) >= limit:
+                break
+    except OSError:
+        pass
+    return out
+
+
+def _env_repo_label(root):
+    for base in ALLOWED_ROOTS:
+        try:
+            return str(Path(root).resolve().relative_to(base))
+        except ValueError:
+            continue
+    return Path(root).name
+
+
+def _is_pm_repo(p):
+    """Un repo PM = un workspace de code PM-tracké (porte un `.mmi-pm`) OU un repo
+    de données dont le nom finit en `-core` (l'incident pisceen : infra-core). On
+    exclut ainsi les miroirs de code non-PM (dolibarr/…, libs) du même arbre."""
+    try:
+        if (p / ".mmi-pm").exists():
+            return True
+    except OSError:
+        pass
+    return p.name.endswith("-core")
+
+
+def _enumerate_pm_repos(limit=120):
+    """Repos PM sous les racines autorisées (profondeur 1 = core ; 2 = workspaces
+    client/projet). Saute les worktrees transients (envs/) et les bare (repos/).
+    Dédup par chemin RÉSOLU (un symlink et sa cible ne comptent qu'une fois)."""
+    roots, seen = [], set()
+
+    def add(p):
+        try:
+            rp = str(p.resolve())
+        except OSError:
+            rp = str(p)
+        if rp in seen:
+            return
+        try:                       # .mmi-pm-core (root-owned) : stat de .git peut refuser
+            is_repo = (p / ".git").exists()
+        except OSError:
+            is_repo = False
+        if is_repo and _is_pm_repo(p):
+            seen.add(rp)
+            roots.append(p)
+
+    def _isdir(p):
+        try:
+            return p.is_dir()
+        except OSError:
+            return False
+
+    for base in ALLOWED_ROOTS:
+        if not base.is_dir():
+            continue
+        try:
+            level1 = sorted(base.iterdir())
+        except OSError:
+            continue
+        for d1 in level1:
+            if not _isdir(d1) or d1.name in _ENV_REPO_SKIP:
+                continue
+            add(d1)
+            if len(roots) >= limit:
+                break
+            try:
+                for d2 in sorted(d1.iterdir()):
+                    if not _isdir(d2) or d2.name in _ENV_REPO_SKIP:
+                        continue
+                    add(d2)
+                    if len(roots) >= limit:
+                        break
+            except OSError:
+                pass
+            if len(roots) >= limit:
+                break
+        if len(roots) >= limit:
+            break
+    return roots[:limit]
+
+
+def _probe_repo(root):
+    label = _env_repo_label(root)
+    rc, _, err = _git(root, "rev-parse", "--is-inside-work-tree")
+    if rc != 0:
+        if "permission" in (err or "").lower():
+            return _chk(f"repo {label}", "info",
+                        "root-owned (prod PM) — non ausculté depuis l'hôte")
+        return None
+    _, branch, _ = _git(root, "rev-parse", "--abbrev-ref", "HEAD")
+    ahead = behind = 0
+    ab_known = False
+    rc2, ab, _ = _git(root, "rev-list", "--left-right", "--count", "@{upstream}...HEAD")
+    if rc2 == 0 and ab:
+        parts = ab.split()
+        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit():
+            behind, ahead = int(parts[0]), int(parts[1])
+            ab_known = True
+    rc3, porc, _ = _git(root, "status", "--porcelain")
+    dirty = sum(1 for l in porc.splitlines() if l and not l.startswith("??")) if rc3 == 0 else 0
+    lv, det = git_divergence_level(ahead, behind, dirty)
+    if not ab_known:
+        det += " · pas d'upstream"
+    fix = ""
+    if ahead and behind:
+        fix = f"cd {root} && git pull --rebase --autostash  # puis pousser (main protégée → MR, git-mep)"
+    elif ahead:
+        fix = f"cd {root} && git push  # ou, si main protégée : push origin main:dev + MR (git-mep)"
+    elif behind:
+        fix = f"cd {root} && git pull --rebase --autostash"
+    return _chk(f"repo {label} [{branch}]", lv, det, fix)
+
+
+def _probe_pat():
+    script = REPO_ROOT / "scripts" / "pm-token-check.py"
+    if not script.exists():
+        return _chk("PAT GitLab", "info", "pm-token-check absent")
+    try:
+        p = subprocess.run([sys.executable, str(script), "--threshold", "7"],
+                           capture_output=True, text=True, timeout=25, cwd=str(REPO_ROOT))
+    except (OSError, subprocess.TimeoutExpired):
+        return _chk("PAT GitLab", "warn", "pm-token-check : timeout/erreur")
+    if p.returncode == 0:
+        return _chk("PAT GitLab", "ok", "tous les tokens sains (échéance > 7 j)")
+    if p.returncode == 2:
+        tail = [l for l in (p.stdout or "").splitlines() if l.strip()]
+        return _chk("PAT GitLab", "warn", tail[-1][:120] if tail else "un token ≤ 7 j / inactif",
+                    "scripts/pm-token-check.py --rotate-due")
+    return _chk("PAT GitLab", "warn", "pm-token-check en erreur (réseau/API ?)")
+
+
+def _envchk_tools():
+    import shutil
+    out = []
+    for name, fix in ENV_TOOLS:
+        path = shutil.which(name)
+        if not path:
+            out.append(_chk(name, "error", "binaire introuvable", fix))
+            continue
+        ver = ""
+        try:
+            p = subprocess.run([name, "--version"], capture_output=True, text=True, timeout=4)
+            lines = [l for l in ((p.stdout or "") + (p.stderr or "")).splitlines() if l.strip()]
+            ver = lines[0].strip()[:80] if lines else ""
+            # certains binaires (nc) n'ont pas de --version → sortie « usage/invalid »
+            if re.search(r"invalid option|usage:", ver, re.I):
+                ver = ""
+        except (OSError, subprocess.TimeoutExpired):
+            ver = ""
+        out.append(_chk(name, "ok", ver or path))
+    lv, det = path_local_bin_first(os.environ.get("PATH", ""), os.path.expanduser("~"))
+    out.append(_chk("PATH ~/.local/bin", lv, det,
+                    'export PATH="$HOME/.local/bin:$PATH"' if lv != "ok" else ""))
+    return out
+
+
+def _envchk_secrets():
+    import socket as _socket
+    out = []
+    sock = f"/run/user/{os.getuid()}/vault-agentd.sock"
+    if not os.path.exists(sock):
+        out.append(_chk("vault-agentd", "error", "socket absent (agent non démarré)",
+                        "scripts/unlock-vault.sh"))
+    else:
+        try:
+            s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+            s.settimeout(2)
+            s.connect(sock)
+            s.sendall(b"PING\n")
+            rep = s.recv(64).decode("utf-8", "replace").strip()
+            s.close()
+            if rep.startswith("OK"):
+                out.append(_chk("vault-agentd", "ok", "joignable (PING → OK)"))
+            else:
+                out.append(_chk("vault-agentd", "warn", f"réponse inattendue : {rep[:40]}",
+                                "scripts/unlock-vault.sh"))
+        except OSError as e:
+            out.append(_chk("vault-agentd", "error", f"injoignable ({e.__class__.__name__})",
+                            "scripts/unlock-vault.sh"))
+    out.extend(_envchk_vault_instances())
+    return out
+
+
+def _envchk_vault_instances():
+    """Un diagnostic par instance de vault déclarée (axe `secret`, RM2662).
+
+    Ne montre que les NOMS des identifiants trouvés — jamais leurs valeurs
+    (tripwire 11). Sans registre lisible, on retombe sur le contrôle historique
+    des variables Vaultwarden globales.
+    """
+    envf = REPO_ROOT / ".env"
+
+    def _env_keys():
+        """Variables déclarées dans le `.env` d'instance (noms seuls)."""
+        present = set()
+        try:
+            for line in envf.read_text(encoding="utf-8", errors="replace").splitlines():
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    present.add(line.split("=", 1)[0].strip())
+        except OSError:
+            return None
+        return present
+
+    # Un `.env` d'instance illisible n'est PAS bloquant : les identifiants peuvent
+    # venir de `~/.config/mmi-pm/.env` (par dev) ou de l'environnement. C'est le cas
+    # courant d'un worktree ou d'une instance de test, qui n'ont pas de `.env`.
+    present = _env_keys()
+    env_absent = present is None
+    if env_absent:
+        present = set()
+
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        import pm_secrets
+        reg = Registry.from_config(PMConfig.load().providers)
+        instances = [i for i in reg.servers.values() if i.axis == "secret"]
+        defaut = reg.defaults.get("secret")
+    except Exception:  # noqa: BLE001 — registre absent : contrôle historique
+        instances = []
+        defaut = None
+
+    if not instances:
+        if env_absent:
+            return [_chk("vault : .env", "warn", f".env d'instance illisible ({envf})",
+                         "normal dans un worktree : les identifiants viennent alors de "
+                         "~/.config/mmi-pm/.env")]
+        needed = ["BW_CLIENTID", "BW_CLIENTSECRET", "VAULT_URL"]
+        missing = [v for v in needed if v not in present]
+        if missing:
+            return [_chk("vault : .env", "warn",
+                         "variable(s) absente(s) : " + ", ".join(missing),
+                         "renseigner dans " + str(envf))]
+        return [_chk("vault : .env", "ok",
+                     "BW_CLIENTID / BW_CLIENTSECRET / VAULT_URL présents")]
+
+    out = []
+    for inst in sorted(instances, key=lambda i: i.name):
+        # Clés du dev (os.environ, superposé par pm_paths) + celles du .env d'instance.
+        keys = set(pm_secrets.creds_keys(inst.name, legacy=(inst.name == defaut)))
+        prefix = f"SECRET__{pm_secrets.env_slug(inst.name)}__"
+        keys |= {k[len(prefix):] for k in present if k.startswith(prefix)}
+        etiquette = f"vault : {inst.name}" + (" (défaut)" if inst.name == defaut else "")
+        trop_ouvert = _cle_age_trop_ouverte(inst) if inst.type == "age" else None
+        if trop_ouvert:
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · clé privée en mode {trop_ouvert[1]} "
+                            "— lisible au-delà de toi", f"chmod 600 {trop_ouvert[0]}"))
+        elif keys:
+            out.append(_chk(etiquette, "ok",
+                            f"type={inst.type} · identifiants : " + ", ".join(sorted(keys))))
+        else:
+            out.append(_chk(etiquette, "warn",
+                            f"type={inst.type} · aucun identifiant trouvé",
+                            f"renseigner {prefix}… dans ~/.config/mmi-pm/.env"))
+    return out
+
+
+def _cle_age_trop_ouverte(inst):
+    """(chemin, mode) si la clé privée d'une instance `age` est trop permissive.
+
+    Un vault `age` n'a pas de mot de passe maître : sa clé dort sur le disque, et
+    ce sont les droits du fichier qui la protègent. C'est exactement le genre de
+    dérive silencieuse que la page de santé du poste doit attraper (RM2713).
+    """
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import pm_secrets
+        chemin = (pm_secrets.creds_for(inst.name, legacy=False).get("AGE_KEY_FILE")
+                  or inst.options.get("identity"))
+        if not chemin:
+            return None
+        p = Path(chemin).expanduser()
+        mode = stat.S_IMODE(p.stat().st_mode)
+        return (str(p), format(mode, "03o")) if mode & 0o077 else None
+    except Exception:  # noqa: BLE001 — un diagnostic ne casse jamais la page
+        return None
+
+
+# >>> gitlab_push_check_line — pure (testée) : ligne de statut du watchdog RM2376.
+def gitlab_push_check_line(state, age_seconds):
+    """(level, detail, fix) à partir de l'état du watchdog push GitLab. Pur."""
+    if not state:
+        return ("warn", "jamais vérifié (watchdog non exécuté)",
+                "scripts/pm-gitlab-push-check.py")
+    age = ""
+    if age_seconds is not None:
+        mins = int(age_seconds // 60)
+        age = " · il y a " + (str(mins) + " min" if mins else "moins d'1 min")
+    stale = age_seconds is not None and age_seconds > 3600
+    if state.get("ok"):
+        lvl = "warn" if stale else "ok"
+        det = (state.get("detail") or "auth OK") + age + (" (périmé)" if stale else "")
+        return (lvl, det, "scripts/pm-gitlab-push-check.py" if stale else "")
+    return ("error", (state.get("detail") or "auth KO") + age,
+            state.get("remediation") or "voir RM2158 (clé dédiée)")
+# <<< gitlab_push_check_line
+
+
+def _gitlab_push_state(max_age=900):
+    """État du watchdog push GitLab (RM2376). Lit le JSON écrit par
+    pm-gitlab-push-check ; le rafraîchit EN DIRECT s'il manque ou est périmé — le
+    cockpit tourne dans le conteneur dev, là où l'auth de la clé dédiée est valide."""
+    sp = Path(os.environ.get("KARL_GITLAB_CHECK_STATE") or (STATE_DIR / "gitlab-push.json"))
+
+    def _read():
+        try:
+            return json.loads(sp.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return None
+
+    def _age(st):
+        if not st or not st.get("checked_at"):
+            return None
+        try:
+            return time.time() - time.mktime(time.strptime(st["checked_at"], "%Y-%m-%dT%H:%M:%S"))
+        except (ValueError, TypeError):
+            return None
+
+    st = _read()
+    age = _age(st)
+    if st is None or age is None or age > max_age:
+        script = REPO_ROOT / "scripts" / "pm-gitlab-push-check.py"
+        if script.exists():
+            try:
+                subprocess.run([sys.executable, str(script)], capture_output=True,
+                               text=True, timeout=15)
+                st = _read() or st
+                age = _age(st)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+    return st, age
+
+
+# >>> env_repo_section — pure (testée par test_karl_agent_envstatus.py)
+def env_repo_section(label):
+    """RM2708 : le CLIENT d'un repo, depuis son label (`<client>/<projet>` sous
+    une racine autorisée). Un repo de profondeur 1 (le core PM, un dépôt posé à
+    la racine) n'a pas de client : il va dans « hors client » plutôt que de
+    fabriquer une section d'un seul élément portant son propre nom."""
+    lab = str(label or "").strip().strip("/")
+    return lab.split("/")[0] if "/" in lab else "hors client"
+# <<< env_repo_section
+
+
+def _envchk_repos():
+    """RM2708 : les dépôts, dans leur propre famille et sectionnés par client.
+
+    Ils étaient mêlés aux contrôles d'accès de « Git / GitLab » — 44 lignes sur
+    ce poste, qui noyaient les trois qui comptent (PAT périmé, push cassé). Ce
+    sont deux questions distinctes : « mes dépôts sont-ils à jour ? » et
+    « puis-je pousser ? »."""
+    import concurrent.futures
+    pairs = []
+    roots = _enumerate_pm_repos()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        futs = {pool.submit(_probe_repo, r): r for r in roots}
+        for fut in concurrent.futures.as_completed(futs):
+            try:
+                chk = fut.result()
+            except Exception:
+                chk = None
+            if chk:
+                label = _env_repo_label(futs[fut])
+                chk["section"] = env_repo_section(label)
+                pairs.append((label, chk))
+    out = [c for _, c in sorted(pairs, key=lambda x: x[0])]
+    if len(roots) >= 120:   # cap atteint : le DIRE plutôt que laisser croire à l'exhaustivité
+        out.append(_chk("repos PM", "info",
+                        "liste tronquée à 120 repos — certains non auscultés"))
+    return out
+
+
+def _envchk_git():
+    """Accès GitLab : jeton, clé dédiée, capacité de push. Les dépôts eux-mêmes
+    vivent dans leur propre famille depuis RM2708 (`_envchk_repos`)."""
+    out = [_probe_pat()]
+    key = Path(os.path.expanduser("~/.ssh/id_ed25519_gitlab"))
+    if key.exists():
+        out.append(_chk("clé GitLab dédiée", "ok",
+                        "id_ed25519_gitlab présente (push sans agent)"))
+    else:
+        out.append(_chk("clé GitLab dédiée", "warn", "~/.ssh/id_ed25519_gitlab absente",
+                        "repli HTTPS+token possible ; installer la clé pour SSH-first"))
+    # RM2376 : « karl peut-il pousser ? » — auth SSH GitLab vérifiée en direct
+    st, age = _gitlab_push_state()
+    lvl, det, fix = gitlab_push_check_line(st, age)
+    out.append(_chk("push GitLab (karl)", lvl, det, fix))
+    return out
+
+
+def _envchk_ssh():
+    out = []
+    sock = os.environ.get("SSH_AUTH_SOCK", "")
+    fix_sock = "export SSH_AUTH_SOCK=/run/user/$(id -u)/ssh-agent.sock"
+    if not sock:
+        out.append(_chk("agent SSH", "warn", "SSH_AUTH_SOCK non défini", fix_sock))
+        return out
+    try:
+        p = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True, timeout=5)
+    except (OSError, subprocess.TimeoutExpired):
+        out.append(_chk("agent SSH", "warn", "ssh-add indisponible"))
+        return out
+    if p.returncode == 0:
+        keys = [line.split()[-1] for line in p.stdout.splitlines() if len(line.split()) >= 3]
+        out.append(_chk("agent SSH", "ok",
+                        f"joignable, {len(keys)} clé(s) : " + ", ".join(keys[:6])))
+    elif p.returncode == 1:
+        out.append(_chk("agent SSH", "warn",
+                        "agent joignable mais VIDE (push GitLab OK via la clé dédiée)",
+                        "ssh-add ~/.ssh/id_rsa_root  # Mathieu ; clés sous passphrase"))
+    else:
+        out.append(_chk("agent SSH", "warn",
+                        "agent injoignable (SSH_AUTH_SOCK pointe ailleurs ?)", fix_sock))
+    return out
+
+
+def _envchk_workspace_bridge():
+    """RM1892 — le pont d'onboarding est-il posé, et à jour du template ?
+
+    Sans lui, un agent lancé dans un workspace de code ignore qu'il est un worker PM.
+    Le fichier vit HORS git (propre à l'instance) : rien ne le rattrape tout seul,
+    d'où ce contrôle. La sonde délègue au script — jamais de seconde implémentation
+    de la comparaison, qui divergerait.
+    """
+    script = REPO_ROOT / "scripts" / "pm-workspace-bridge.py"
+    if not script.is_file():
+        return []
+    try:
+        p = subprocess.run([sys.executable, str(script)], capture_output=True,
+                           text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return [_chk("pont d'onboarding", "warn", "contrôle impossible")]
+    if p.returncode == 0:
+        return [_chk("pont d'onboarding", "ok", "AGENTS.md + CLAUDE.md à jour")]
+    lignes = [l.strip() for l in p.stdout.splitlines() if l.strip().startswith("✗")]
+    detail = "; ".join(l.lstrip("✗ ") for l in lignes) or "à vérifier"
+    return [_chk("pont d'onboarding", "warn", detail[:200],
+                 "scripts/pm-workspace-bridge.py --update")]
+
+
+def _envchk_pm():
+    out = _envchk_workspace_bridge()
+    vf = REPO_ROOT / "norms" / "VERSION"
+    try:
+        norms_v = vf.read_text(encoding="utf-8").strip().splitlines()[0].strip()
+    except (OSError, IndexError):
+        norms_v = ""
+    schemas = {}
+    orphans = []
+    for tf in _iter_task_files(limit=600):
+        try:
+            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
+        except OSError:
+            continue
+        sv = str(fm.get("schema_version") or "")
+        if sv:
+            schemas[sv] = schemas.get(sv, 0) + 1
+        if str(fm.get("status") or "") == "en_cours":
+            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
+            if not git.get("branch"):
+                m = re.search(r"RM(\d+)_", tf.name)
+                orphans.append("RM" + (m.group(1) if m else "?"))
+    if norms_v and len(schemas) > 1:
+        out.append(_chk("versions PM", "info",
+                        f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))
+    else:
+        modal = max(schemas, key=schemas.get) if schemas else "?"
+        out.append(_chk("versions PM", "ok",
+                        f"norms/VERSION={norms_v or '?'} · schema_version={modal}"))
+    if orphans:
+        out.append(_chk("tâches en_cours", "warn",
+                        f"{len(orphans)} sans branche (git.branch vide) : "
+                        + ", ".join(orphans[:8]),
+                        "reprendre via pm-branch-start (RM2224) ou clôturer"))
+    else:
+        out.append(_chk("tâches en_cours", "ok", "toutes ont une branche résoluble"))
+    return out
+
+
+ENV_FAMILIES = [
+    ("Outils & dépendances", _envchk_tools),
+    ("Secrets", _envchk_secrets),
+    ("Git / GitLab", _envchk_git),
+    ("Repos", _envchk_repos),            # RM2708 : les dépôts, sectionnés par client
+    ("SSH", _envchk_ssh),
+    ("PM", _envchk_pm),
+]
+
+# RM2722 — les familles dont une anomalie doit se VOIR sans qu'on ouvre le
+# panneau : elles cassent le travail en cours, et se découvrent sinon au milieu
+# d'une commande qui échoue. « Repos » et « PM » en sont VOLONTAIREMENT absentes :
+# un dépôt sale ou en avance, c'est l'ordinaire de la journée (et la dérive est
+# déjà suivie par les alertes RM2698) — un badge qui clignote tous les jours ne
+# se regarde plus.
+ENV_ALERT_FAMILIES = ("SSH", "Secrets", "Outils & dépendances", "Git / GitLab")
+
+
+def _env_groups(only=None) -> list:
+    """Lance les familles demandées (toutes par défaut). Chaque famille est
+    isolée : une sonde qui casse ne fait jamais échouer la page."""
+    groups = []
+    for name, fn in ENV_FAMILIES:
+        if only is not None and name not in only:
+            continue
+        try:
+            checks = fn()
+        except Exception as exc:  # une famille ne doit jamais tuer la page
+            checks = [_chk(name, "warn", f"contrôle en erreur ({exc.__class__.__name__})")]
+        groups.append({"name": name, "checks": checks})
+    return groups
+
+
+def op_env_status() -> dict:
+    """RM2458 : santé du poste, groupée par familles, chaque ligne portant sa
+    remédiation. Aucun secret rendu (noms de variables uniquement)."""
+    groups = _env_groups()
+    return {"generated_at": time.strftime("%Y-%m-%dT%H:%M:%S"),
+            "groups": groups, "summary": envstatus_summary(groups)}
+
+
+# >>> env_alerts — pure (testée par test_karl_agent_envstatus.py)
+def env_alerts(groups):
+    """Les lignes en DÉFAUT des familles surveillées, à plat, avec leur famille.
+
+    Pure : ce qui compte ici est le tri, pas la sonde. Une ligne `ok`/`info` n'y
+    entre pas — un badge ne doit compter que ce qui demande un geste. L'ordre
+    met les `error` avant les `warn` : quand il y en a plusieurs, la première
+    ligne du survol doit être la plus grave."""
+    items = []
+    for g in groups or []:
+        fam = g.get("name") or ""
+        if fam not in ENV_ALERT_FAMILIES:
+            continue
+        for c in g.get("checks", []):
+            if c.get("level") in ("warn", "error"):
+                items.append({"family": fam, "label": c.get("label") or "",
+                              "level": c.get("level"), "detail": c.get("detail") or "",
+                              "fix": c.get("fix") or ""})
+    items.sort(key=lambda i: (0 if i["level"] == "error" else 1, i["family"], i["label"]))
+    return {"items": items, "count": len(items),
+            "worst": "error" if any(i["level"] == "error" for i in items)
+                     else ("warn" if items else "ok")}
+# <<< env_alerts
+
+
+# Le diagnostic des familles surveillées coûte cher (pm-token-check interroge
+# l'API GitLab, la sonde de push ouvre une connexion SSH) : sans mémorisation,
+# chaque ouverture du cockpit — et chaque onglet — le rejouerait.
+_ENV_CHECK_TTL = 300.0
+_env_check_cache: dict = {"at": 0.0, "data": None}
+
+
+def op_env_check(qs: dict | None = None) -> dict:
+    """RM2722 — contrôle de démarrage : uniquement les familles surveillées, et
+    uniquement ce qui est en défaut. `force=1` rejoue les sondes (après une
+    réparation, on veut le savoir tout de suite, pas dans cinq minutes)."""
+    force = bool((qs or {}).get("force"))
+    now = time.time()
+    if not force and _env_check_cache["data"] and now - _env_check_cache["at"] < _ENV_CHECK_TTL:
+        return dict(_env_check_cache["data"], cached=True)
+    out = env_alerts(_env_groups(ENV_ALERT_FAMILIES))
+    out["generated_at"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+    out["cached"] = False
+    _env_check_cache.update({"at": now, "data": out})
+    return out
+
+
+# ── Vault & clés SSH : déverrouiller depuis le cockpit (RM2748) ──────────────
+# Tout ce qui suit manipule un secret SAISI PAR UN HUMAIN. La règle, sans
+# exception (tripwire 11) : le mot de passe arrive dans le corps JSON d'une
+# requête POST authentifiée, part vers le processus par l'ENTRÉE STANDARD ou un
+# descripteur — jamais en argument (`ps` le montrerait), jamais dans
+# l'environnement (`/proc/<pid>/environ`), jamais dans un fichier temporaire —
+# et ne ressort ni dans la réponse, ni dans un log, ni dans un message d'erreur.
+# Le serveur ne le mémorise pas : il n'existe que le temps de l'appel.
+
+VAULT_SOCK = os.environ.get("VAULT_SOCK") or f"/run/user/{os.getuid()}/vault-agentd.sock"
+_VAULT_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")
+_SSH_KEY_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+_SECRET_MAX = 1024            # un mot de passe maître n'est pas un fichier
+
+
+def _vault_ask(cmd: str, timeout: float = 3.0) -> str | None:
+    """Une commande au daemon vault, sa réponse brute. None = daemon absent."""
+    import socket as _socket
+    if not os.path.exists(VAULT_SOCK):
+        return None
+    try:
+        s = _socket.socket(_socket.AF_UNIX, _socket.SOCK_STREAM)
+        s.settimeout(timeout)
+        s.connect(VAULT_SOCK)
+        s.sendall((cmd + "\n").encode("utf-8"))
+        chunks = []
+        while True:
+            b = s.recv(4096)
+            if not b:
+                break
+            chunks.append(b)
+        s.close()
+        return b"".join(chunks).decode("utf-8", "replace").strip()
+    except OSError:
+        return None
+
+
+# >>> vault_dashboard — pure (testée par test_karl_agent_vault.py)
+def vault_dashboard(text):
+    """Tableau de bord du daemon (`<slug>\\t<état>` par ligne) → instances.
+
+    L'état est une phrase du daemon (`locked` | `unlocked since=… last_access=…`) :
+    on n'en garde que ce que le cockpit affiche. Aucun jeton n'y figure — le
+    daemon ne rend jamais la session, seulement sa présence."""
+    out = []
+    for line in (text or "").splitlines():
+        if "\t" not in line:
+            continue
+        slug, _, etat = line.partition("\t")
+        slug, etat = slug.strip(), etat.strip()
+        if not slug:
+            continue
+        item = {"slug": slug, "unlocked": etat.startswith("unlocked"), "since": None}
+        m = re.search(r"since=(\S+)", etat)
+        if m:
+            item["since"] = m.group(1)
+        out.append(item)
+    return out
+# <<< vault_dashboard
+
+
+# >>> sshKeysParse — pure (testée par test_karl_agent_vault.py)
+def ssh_keys_parse(text):
+    """Sortie de `ssh-add -l` → [{bits, hash, comment, type}].
+
+    Un fingerprint et un commentaire sont PUBLICS (ils identifient une clé, ils
+    ne l'ouvrent pas) : les afficher aide à voir laquelle manque."""
+    keys = []
+    for line in (text or "").splitlines():
+        parts = line.split()
+        # Une ligne de clé commence par une taille en bits et une empreinte
+        # (`4096 SHA256:… commentaire (RSA)`). Sans ce filtre, la phrase
+        # « The agent has no identities. » compterait pour une clé.
+        if len(parts) < 3 or not parts[0].isdigit() or ":" not in parts[1]:
+            continue
+        typ = parts[-1].strip("()") if parts[-1].startswith("(") else ""
+        comment = " ".join(parts[2:-1]) if typ else " ".join(parts[2:])
+        keys.append({"bits": parts[0], "hash": parts[1], "comment": comment, "type": typ})
+    return keys
+# <<< sshKeysParse
+
+
+def _ssh_auth_sock() -> str:
+    """Socket de l'agent SSH : celui de l'environnement, sinon celui de la
+    convention poste (`/run/user/<uid>/ssh-agent.sock`). Un service systemd
+    --user n'hérite pas toujours de SSH_AUTH_SOCK."""
+    sock = os.environ.get("SSH_AUTH_SOCK") or ""
+    if sock and os.path.exists(sock):
+        return sock
+    fallback = f"/run/user/{os.getuid()}/ssh-agent.sock"
+    return fallback if os.path.exists(fallback) else sock
+
+
+def _ssh_env() -> dict:
+    env = dict(os.environ)
+    sock = _ssh_auth_sock()
+    if sock:
+        env["SSH_AUTH_SOCK"] = sock
+    return env
+
+
+def _ssh_candidates() -> list:
+    """Clés privées présentes dans ~/.ssh (noms seuls, jamais de contenu)."""
+    d = Path.home() / ".ssh"
+    out = []
+    if not d.is_dir():
+        return out
+    for f in sorted(d.iterdir()):
+        if not f.is_file() or f.suffix == ".pub":
+            continue
+        if f.name in ("known_hosts", "known_hosts.old", "config", "authorized_keys"):
+            continue
+        if not _SSH_KEY_RE.match(f.name):
+            continue
+        if (d / (f.name + ".pub")).is_file():        # une paire = une clé
+            out.append(f.name)
+    return out
+
+
+def op_vault_status() -> dict:
+    """État des verrous : instances de vault, clés chargées dans l'agent SSH.
+
+    Aucun secret : des noms, des empreintes, des dates. C'est ce qui décide de
+    l'affichage du bouton « déverrouiller » en tête du cockpit."""
+    dash = _vault_ask("STATUS")
+    instances = vault_dashboard(dash)
+    daemon = dash is not None
+    ssh_reachable, keys = False, []
+    try:
+        p = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True,
+                           timeout=5, env=_ssh_env())
+        ssh_reachable = p.returncode in (0, 1)
+        if p.returncode == 0:
+            keys = ssh_keys_parse(p.stdout)
+    except (OSError, subprocess.TimeoutExpired):
+        ssh_reachable = False
+    locked = [i["slug"] for i in instances if not i["unlocked"]]
+    return {"daemon": daemon, "instances": instances, "locked": locked,
+            "default_instance": os.environ.get("VAULT_INSTANCE") or "vw-ipro",
+            "ssh": {"reachable": ssh_reachable, "keys": keys,
+                    "candidates": _ssh_candidates()},
+            "needs_action": bool(not daemon or locked or not keys)}
+
+
+def _guard_secret_route(auth_ctx: dict) -> None:
+    """Une route qui reçoit un secret humain exige une session authentifiée.
+
+    Mode « open » = aucune auth configurée : le serveur n'écoute alors que la
+    boucle locale (invariant RM1771), la garde tomberait sur elle-même — sauf
+    sur une instance liée ailleurs (RM2356), où l'on refuse net.
+    """
+    if (auth_ctx or {}).get("mode") == "open":
+        if HOST not in ("127.0.0.1", "::1", "localhost"):
+            raise ApiError(403, "route sensible : écoute non locale sans authentification")
+        return
+    if not (auth_ctx or {}).get("mode"):
+        raise ApiError(401, "authentification requise")
+
+
+def _secret_field(payload: dict, name: str) -> str:
+    """Lit un secret du corps JSON, sans jamais le citer en cas d'erreur."""
+    val = payload.get(name)
+    if not isinstance(val, str) or not val:
+        raise ApiError(400, f"{name} requis")
+    if len(val) > _SECRET_MAX:
+        raise ApiError(400, f"{name} : trop long")
+    return val
+
+
+def op_vault_unlock(payload: dict, auth_ctx: dict) -> dict:
+    """Déverrouille une instance de vault avec le mot de passe maître saisi.
+
+    Le mot de passe descend dans `unlock-vault.sh --stdin` par l'entrée standard
+    et n'est jamais écrit ailleurs. La réponse ne rend que l'état obtenu."""
+    _guard_secret_route(auth_ctx)
+    slug = str(payload.get("instance") or "").strip() or (
+        os.environ.get("VAULT_INSTANCE") or "vw-ipro")
+    if not _VAULT_SLUG_RE.match(slug):
+        raise ApiError(400, "instance invalide")
+    password = _secret_field(payload, "password")
+    script = (REPO_ROOT / "scripts" / "unlock-vault.sh").resolve()
+    if not script.is_file():
+        raise ApiError(500, "unlock-vault.sh introuvable")
+    try:
+        p = subprocess.run([str(script), "-i", slug, "--stdin"],
+                           input=password + "\n", cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=180,
+                           env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "déverrouillage : délai dépassé")
+    finally:
+        password = ""          # ne survit pas à l'appel
+        del password
+    ok = p.returncode == 0
+    detail = _last_line(p.stdout) or _last_line(p.stderr)
+    status = _vault_ask(f"STATUS {slug}") or ""
+    return {"ok": ok, "instance": slug, "unlocked": status.startswith("unlocked"),
+            "detail": detail[:300]}
+
+
+def op_vault_ssh_add(payload: dict, auth_ctx: dict) -> dict:
+    """Charge une clé de ~/.ssh dans l'agent, avec la passphrase saisie.
+
+    `ssh-add` ne lit pas une passphrase sur son entrée standard : il appelle un
+    programme d'assistance. Le nôtre (`karl-askpass.sh`) lit un DESCRIPTEUR
+    hérité — la passphrase transite donc par un tube anonyme, jamais par argv,
+    l'environnement ou un fichier."""
+    _guard_secret_route(auth_ctx)
+    name = str(payload.get("key") or "").strip()
+    if not _SSH_KEY_RE.match(name) or name.endswith(".pub"):
+        raise ApiError(400, "nom de clé invalide")
+    ssh_dir = (Path.home() / ".ssh").resolve()
+    path = (ssh_dir / name).resolve()
+    if path.parent != ssh_dir or not path.is_file():
+        raise ApiError(404, f"clé introuvable : {name}")
+    passphrase = _secret_field(payload, "passphrase")
+    askpass = (REPO_ROOT / "deploy" / "karl-agent" / "karl-askpass.sh").resolve()
+    if not (askpass.is_file() and os.access(askpass, os.X_OK)):
+        raise ApiError(500, "karl-askpass.sh introuvable ou non exécutable")
+    r, w = os.pipe()
+    try:
+        os.write(w, passphrase.encode("utf-8") + b"\n")
+    finally:
+        os.close(w)
+        passphrase = ""
+        del passphrase
+    env = _ssh_env()
+    env["SSH_ASKPASS"] = str(askpass)
+    env["SSH_ASKPASS_REQUIRE"] = "force"
+    env.setdefault("DISPLAY", ":0")        # OpenSSH < 8.4 : askpass exige un DISPLAY
+    try:
+        p = subprocess.run(["ssh-add", str(path)], env=env, pass_fds=(r,),
+                           stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "ssh-add : délai dépassé")
+    except OSError as e:
+        raise ApiError(500, f"ssh-add indisponible ({e.__class__.__name__})")
+    finally:
+        os.close(r)
+    ok = p.returncode == 0
+    # `ssh-add` écrit « Identity added… » ou « Bad passphrase » sur stderr : le
+    # message ne contient jamais la passphrase, seulement son verdict.
+    return {"ok": ok, "key": name, "detail": (_last_line(p.stderr) or _last_line(p.stdout))[:300]}
+
+
+def _last_line(text: str) -> str:
+    lines = [l.strip() for l in (text or "").splitlines() if l.strip()]
+    return lines[-1] if lines else ""
+
+
+# ── Panneau « emails » (RM2671, chantier RM2666) ─────────────────────────────
+# Le cockpit ne réimplémente RIEN du pipeline : il lit la file déposée par
+# karl-mail-fetch et délègue chaque action au script correspondant (argv strict,
+# jamais de shell). La file vit hors git (courrier client) — cf. RM2668.
+MAIL_DIR = STATE_DIR / "mail"
+
+
+def _mail_queue_dir() -> Path:
+    return MAIL_DIR / "queue"
+
+
+def op_mail_queue(qs: dict) -> dict:
+    """File de triage : un email = expéditeur, sujet, routage proposé, état.
+
+    Le corps n'est renvoyé QUE sur demande (`key=`) : la liste n'a pas à trimballer
+    des milliers de caractères de courrier client dans chaque rafraîchissement.
+    """
+    d = _mail_queue_dir()
+    wanted = (qs.get("key") or "").strip()
+    show_done = qs.get("done") == "1"
+    items = []
+    if d.is_dir():
+        for f in sorted(d.glob("*.json")):
+            try:
+                e = json.loads(f.read_text(encoding="utf-8"))
+            except (ValueError, OSError):
+                continue
+            done = bool(e.get("created_rm") or e.get("dismissed"))
+            if done and not show_done and e.get("key") != wanted:
+                continue
+            item = {k: e.get(k) for k in (
+                "key", "from", "from_name", "subject", "date", "folder", "rm_id",
+                "kind", "created_rm", "outcome", "message_id")}
+            item["attachments"] = len(e.get("attachments") or [])
+            item["routing"] = e.get("routing") or {}
+            item["draft"] = e.get("draft") or {}
+            item["dismissed"] = e.get("dismissed") or None
+            item["state"] = ("créé" if e.get("created_rm") else
+                             "écarté" if e.get("dismissed") else
+                             "proposé" if e.get("draft") else "à traiter")
+            if e.get("key") == wanted:          # détail : corps complet
+                item["body"] = e.get("body") or ""
+                item["body_truncated"] = bool(e.get("body_truncated"))
+                item["attachment_list"] = e.get("attachments") or []
+            items.append(item)
+    items.sort(key=lambda e: e.get("date") or "", reverse=True)
+    pending = sum(1 for e in items if e["state"] in ("à traiter", "proposé"))
+    return {"emails": items, "pending": pending}
+
+
+def _mail_script(script: str, args: list, timeout: int = 300) -> dict:
+    """Exécute un script de la chaîne mail. Même modèle que le catalogue ⚙ :
+    argv strict, script en allowlist, aucune interpolation shell."""
+    if script not in ("karl-mail-fetch.py", "karl-mail-route.py", "karl-mail-draft.py"):
+        raise ApiError(400, f"script mail inconnu : {script}")
+    path = (REPO_ROOT / "scripts" / script).resolve()
+    if not path.is_file():
+        raise ApiError(500, f"script introuvable : {script}")
+    for a in args:
+        if not isinstance(a, str):
+            raise ApiError(400, "arguments : chaînes attendues")
+    try:
+        p = subprocess.run([sys.executable, str(path)] + args, cwd=str(REPO_ROOT),
+                           capture_output=True, text=True, timeout=timeout,
+                           env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, f"{script} : timeout ({timeout}s)")
+    return {"ok": p.returncode == 0, "rc": p.returncode,
+            "stdout": (p.stdout or "")[-4000:], "stderr": (p.stderr or "")[-2000:]}
+
+
+def _mail_key(payload: dict) -> str:
+    key = str(payload.get("key") or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{6,32}", key):
+        raise ApiError(400, "clé d'email invalide")
+    return key
+
+
+def op_mail_fetch(payload: dict) -> dict:
+    """Relève la boîte. Lecture seule côté IMAP (--mark-seen n'est pas exposé ici)."""
+    args = []
+    days = payload.get("days")
+    if days:
+        args += ["--days", str(int(days))]
+    if payload.get("dry_run"):
+        args.append("--dry-run")
+    return _mail_script("karl-mail-fetch.py", args)
+
+
+def op_mail_route(payload: dict) -> dict:
+    args = ["--redmine"] if payload.get("redmine") else []
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_route_set(payload: dict) -> dict:
+    """Correction humaine du routage : elle fait autorité ET s'apprend (RM2669)."""
+    target = str(payload.get("to") or "").strip()
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,47}(/[a-z0-9][a-z0-9._-]{0,47})?", target):
+        raise ApiError(400, "cible attendue : client ou client/projet")
+    args = ["--set", _mail_key(payload), "--to", target]
+    if payload.get("domain"):
+        args.append("--domain")
+    return _mail_script("karl-mail-route.py", args)
+
+
+def op_mail_draft(payload: dict) -> dict:
+    args = ["--draft", _mail_key(payload)]
+    if payload.get("full_body"):
+        args.append("--full-body")
+    if payload.get("force"):
+        args.append("--force")
+    return _mail_script("karl-mail-draft.py", args, timeout=600)
+
+
+def op_mail_create(payload: dict) -> dict:
+    """Création du ticket — c'est la VALIDATION humaine (CDC D1)."""
+    args = ["--create", _mail_key(payload)]
+    for flag, field, pattern in (("--project", "project", r"[a-z0-9._/-]{3,96}"),
+                                 ("--title", "title", r".{1,120}"),
+                                 ("--priority", "priority", r"low|normal|high|urgent"),
+                                 ("--note-on", "note_on", r"\d{1,8}")):
+        v = str(payload.get(field) or "").strip()
+        if v:
+            if not re.fullmatch(pattern, v, re.S):
+                raise ApiError(400, f"{field} invalide")
+            args += [flag, v]
+    return _mail_script("karl-mail-draft.py", args)
+
+
+def op_mail_dismiss(payload: dict) -> dict:
+    args = ["--dismiss", _mail_key(payload)]
+    reason = str(payload.get("reason") or "").strip()
+    if reason:
+        args += ["--reason", reason[:200]]
+    return _mail_script("karl-mail-draft.py", args)
+
+
 def op_test_queue(qs: dict) -> list:
     """File de test (RM2210) : tickets a_tester_dev / a_tester_demandeur enrichis
     (branche du ticket, env de session monté ET vivant, déployabilité)."""
@@ -5607,9 +8340,37 @@ _PM_SETTINGS_CONF = [
     # RM2386 — rubrique « Design front » : apparence du cockpit web. Le type
     # `enum` est générique (options[] + défaut), pas ad hoc au thème : les
     # prochains réglages de mise en page s'ajoutent ici sans toucher au rendu.
+    # RM2698 — seuils des alertes de dérive. Défauts issus de l'observation faite
+    # pendant T3 (RM2697) : trop courts, ils produiraient 150 alertes, donc aucune.
+    {"key": "conf:alerts.orphan_hours", "label": "Alerte — ticket en cours sans session (heures)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "orphan_hours"], "default": 72},
+    {"key": "conf:alerts.mr_days", "label": "Alerte — MR ouverte non mergée (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "mr_days"], "default": 7},
+    {"key": "conf:alerts.verdict_days", "label": "Alerte — ticket qui attend ton verdict (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "verdict_days"], "default": 14},
+    {"key": "conf:alerts.mep_days", "label": "Alerte — validé mais pas déployé (jours)",
+     "group": "Alertes", "type": "number", "path": ["alerts", "mep_days"], "default": 3},
     {"key": "conf:ui.theme", "label": "Thème",
      "group": "Design front", "type": "enum", "path": ["ui", "theme"],
      "options": ["dark", "light", "auto"], "default": "auto"},
+    # RM2690 — plafond mémoire des scopes tmux, en GiB (0 = pas de limite).
+    # `mem_kind` branche le réglage sur _mem_limit() : la valeur servie est la
+    # limite EFFECTIVE (env > conf > défaut), et une variable d'env la fige.
+    # Ne s'applique qu'aux sessions créées ENSUITE (les scopes vivantes gardent
+    # leur réglage — hors périmètre, cf. RM2690).
+    {"key": "conf:sessions.memory_high_gib", "mem_kind": "high",
+     "label": "Mémoire — seuil de pression, GiB (0 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_high_gib"],
+     "min": 0, "max": 512},
+    {"key": "conf:sessions.memory_max_gib", "mem_kind": "max",
+     "label": "Mémoire — plafond dur, GiB (0 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_max_gib"],
+     "min": 0, "max": 512},
+    # Le swap inverse la convention : 0 = aucun swap (plafond réel), -1 = illimité.
+    {"key": "conf:sessions.memory_swap_gib", "mem_kind": "swap",
+     "label": "Mémoire — swap autorisé, GiB (0 = aucun, -1 = illimité)",
+     "group": "Sessions", "type": "number", "path": ["sessions", "memory_swap_gib"],
+     "min": -1, "max": 512},
 ]
 _PRICE_FIELDS = ("input_per_mtok_usd", "output_per_mtok_usd",
                  "cache_read_per_mtok_usd", "cache_creation_per_mtok_usd")
@@ -5644,6 +8405,12 @@ def _pm_settings() -> list:
     out = []
     conf = _conf_merged()
     for e in _PM_SETTINGS_CONF:
+        if e.get("mem_kind"):
+            # RM2690 : on sert la limite EFFECTIVE, pas la seule clé de conf —
+            # `pinned` dit au front qu'une variable d'env la fige (champ grisé).
+            val, pin = _mem_setting_value(e["mem_kind"])
+            out.append({**e, "value": val, **({"pinned": pin} if pin else {})})
+            continue
         cur = conf
         for part in e["path"]:
             cur = cur.get(part) if isinstance(cur, dict) else None
@@ -5652,6 +8419,9 @@ def _pm_settings() -> list:
         if e["type"] == "enum":
             # valeur hors options (conf éditée à la main) → on retombe sur le défaut
             val = cur if cur in e["options"] else e.get("default", e["options"][0])
+        elif e["type"] == "number":
+            val = cur if isinstance(cur, (int, float)) and not isinstance(cur, bool) \
+                else e.get("default")
         else:
             val = bool(cur)
         out.append({**e, "value": val})
@@ -5672,6 +8442,19 @@ def _pm_settings() -> list:
     return out
 
 
+def _mem_setting_value(kind: str) -> tuple[float, str | None]:
+    """(GiB effectifs, variable d'env qui fige la valeur ou None) — RM2690.
+    « Pas de plafond » se dit 0 pour high/max et -1 pour swap (où 0 signifie
+    « aucun swap ») — même convention que les champs du cockpit."""
+    b = _mem_limit(kind)
+    env = MEM_LIMIT_ENV[kind]
+    if b is None:
+        val = -1.0 if kind == "swap" else 0.0
+    else:
+        val = round(b / 1024 ** 3, 2)
+    return val, (env if os.environ.get(env) is not None else None)
+
+
 def _ui_theme() -> str:
     """Défaut d'apparence de l'instance (RM2386), lu depuis la whitelist."""
     spec = next((e for e in _pm_settings() if e["key"] == "conf:ui.theme"), None)
@@ -5685,6 +8468,13 @@ def op_pm_settings_set(payload: dict) -> dict:
         raise ApiError(400, f"clé inconnue/hors whitelist : {key!r}")
     if payload.get("confirm") is not True:
         raise ApiError(400, "confirmation requise (confirm: true)")
+    if spec.get("mem_kind"):
+        # RM2690 : écrire dans la conf serait sans effet tant que le .env fige la
+        # valeur — on le dit au lieu de laisser croire que le réglage a pris.
+        env = MEM_LIMIT_ENV[spec["mem_kind"]]
+        if os.environ.get(env) is not None:
+            raise ApiError(400, f"réglage figé par la variable d'environnement {env} "
+                                f"(.env du repo) — édite le .env puis redémarre karl-agent")
     raw = payload.get("value")
     if spec["type"] == "bool":
         val = raw in (True, "1", "true", "on")
@@ -5816,14 +8606,23 @@ def op_pm_run(payload: dict) -> dict:
     given = payload.get("args") or {}
     if not isinstance(given, dict):
         raise ApiError(400, "args : objet {nom: valeur} attendu")
-    # les args `server:` sont calculés ici — un client qui les fournit est rejeté
-    known = {a["name"] for a in cmd.get("args") or [] if not a.get("server")}
+    # les args `server:` (calculés ici) et `const:` (imposés par le catalogue) ne se
+    # fournissent pas côté client — un client qui les envoie est rejeté
+    known = {a["name"] for a in cmd.get("args") or []
+             if not a.get("server") and not a.get("const")}
     unknown = set(given) - known
     if unknown:
         raise ApiError(400, f"args inconnus pour {name} : {sorted(unknown)}")
     positionals, flags = [], []
     for spec in cmd.get("args") or []:
         aname = spec["name"]
+        if spec.get("const"):
+            # valeur imposée par le catalogue (mode figé d'un script : `--queue`, ou
+            # une sous-commande `list` / `add`) — jamais négociable par le client,
+            # jamais affichée comme champ. Positionnelle, elle garde son rang de
+            # déclaration : une sous-commande doit précéder ses arguments.
+            (positionals if spec.get("positional") else flags).append(spec["flag"])
+            continue
         if spec.get("server") == "workspace_of_rm":
             # workspace du projet du ticket, résolu depuis le MD local
             rmv = str(given.get("rm_id") or "")
@@ -5935,6 +8734,206 @@ def op_mr_deliver(payload: dict) -> dict:
     return {"name": "mr-deliver", "rc": r.returncode, "ok": r.returncode == 0,
             "branch": branch, "target": integration,
             "stdout": r.stdout[-30000:], "stderr": r.stderr[-10000:]}
+
+
+# ── RM2720 (suite) : merger un LOT de MR depuis le worklog ───────────────────
+# Le merge passe par `pm-mr.py` — jamais par un appel API réimplémenté ici. Le
+# script est le seul écrivain du couple (MR, ticket) : il pose le champ CF GIT
+# PR, écrit la note Redmine et le log du ticket, et connaît les branches
+# protégées. karl-agent ne fait que composer l'argv (jamais de shell) et rendre
+# le résultat.
+#
+# Deux cibles, deux gestes DIFFÉRENTS — et c'est la principale chose à ne pas
+# confondre :
+#   « dev »  : la branche du ticket → branche d'intégration. Un ticket, une MR.
+#   « prod » : la branche d'INTÉGRATION → branche de production. C'est une
+#              PROMOTION : elle emporte tout ce que dev contient, pas seulement
+#              les tickets cochés. Une MR par dépôt concerné, pas par ticket.
+# Merger la branche d'un ticket directement dans main sauterait l'intégration :
+# ce n'est pas proposé.
+MR_BATCH_MAX = 10
+PROD_BRANCH_DEFAULT = "main"
+
+
+def _mr_prod_branch(ws) -> str:
+    """Branche de production d'un workspace (manifeste `production_branch`,
+    défaut `main`)."""
+    try:
+        meta = yaml_safe_load((ws / ".mmi-pm" / "meta.yml").read_text(encoding="utf-8")) or {}
+    except OSError:
+        return PROD_BRANCH_DEFAULT
+    repos = meta.get("repos") or []
+    if len(repos) == 1 and repos[0].get("production_branch"):
+        return str(repos[0]["production_branch"])
+    return PROD_BRANCH_DEFAULT
+
+
+# >>> mr_batch_plan — pure (testée par test_karl_agent_mr_batch.py)
+def mr_batch_plan(resolved, mode: str) -> dict:
+    """Range les tickets résolus en ce qui PART et ce qui est écarté.
+
+    `resolved` : [{rm_id, branch?, integration?, prod?, repo?, live?, error?}].
+    Rien d'écarté en silence — un ticket sans branche (jamais démarré) ou qu'on
+    n'a pas su résoudre porte sa raison.
+
+    En mode « prod », les tickets sont regroupés PAR DÉPÔT : une promotion
+    dev→main par dépôt, pas une par ticket — sinon on lancerait dix fois la même
+    MR, et les neuf dernières échoueraient sur « rien à merger »."""
+    todo, skipped = [], []
+    for r in resolved or []:
+        if r.get("error"):
+            skipped.append({"rm_id": r.get("rm_id"), "reason": r["error"]})
+        else:
+            todo.append(r)
+    if mode == "prod":
+        groups, order = {}, []
+        for r in todo:
+            key = r.get("repo") or ""
+            if key not in groups:
+                groups[key] = {"repo": key, "source": r.get("integration"),
+                               "target": r.get("prod"), "rm_ids": []}
+                order.append(key)
+            groups[key]["rm_ids"].append(r["rm_id"])
+        runs = [groups[k] for k in order]
+    else:
+        runs = [{"repo": r.get("repo"), "source": r.get("branch"),
+                 "target": r.get("integration"), "rm_ids": [r["rm_id"]]} for r in todo]
+    return {"mode": mode, "runs": runs, "todo": todo, "skipped": skipped,
+            "count": len(runs),
+            # Un ticket dont la session TOURNE ENCORE : on ne l'écarte pas (c'est
+            # peut-être voulu), on le SIGNALE — merger sous les pieds d'un agent
+            # au travail est le genre de chose qu'on veut voir avant de cliquer.
+            "live": [r["rm_id"] for r in todo if r.get("live")]}
+# <<< mr_batch_plan
+
+
+def _mr_batch_resolve(rm_id: str, mode: str) -> dict:
+    """Contexte git d'un ticket pour le lot, ou {error} — jamais d'exception :
+    un ticket bancal ne doit pas emporter le lot entier."""
+    out = {"rm_id": rm_id}
+    try:
+        bare, branch, integration = _mr_deliver_context(rm_id)
+    except ApiError as e:
+        out["error"] = e.msg
+        return out
+    ws = bare.parent.parent
+    out.update({"repo": str(bare), "branch": branch, "integration": integration,
+                "prod": _mr_prod_branch(ws), "live": _has_session(rm_id)})
+    return out
+
+
+def op_mr_batch(payload: dict) -> dict:
+    """RM2720 — merge les MR d'une sélection de tickets, via `pm-mr.py`.
+
+    `mode` : « dev » (branche du ticket → intégration) ou « prod » (promotion
+    intégration → production, une par dépôt). `dry_run` rend le plan sans rien
+    merger : c'est l'écran de confirmation, et il dit ce qu'une promotion
+    emporte. Le run réel exige `confirm` (comme /mr/deliver)."""
+    mode = str(payload.get("mode") or "dev")
+    if mode not in ("dev", "prod"):
+        raise ApiError(400, f"mode inconnu : {mode} (dev | prod)")
+    items = payload.get("items")
+    if not isinstance(items, list) or not items:
+        raise ApiError(400, "items (liste non vide) requis")
+    seen, resolved = set(), []
+    for it in items:
+        rm = re.sub(r"^RM", "", str((it or {}).get("rm_id") or "").strip())
+        if not rm.isdigit() or rm in seen:
+            continue
+        seen.add(rm)
+        resolved.append(_mr_batch_resolve(rm, mode))
+    plan = mr_batch_plan(resolved, mode)
+    if not plan["runs"]:
+        raise ApiError(400, "aucun ticket mergeable dans la sélection")
+    if len(plan["runs"]) > MR_BATCH_MAX and not payload.get("allow_large"):
+        raise ApiError(409, f"{len(plan['runs'])} merges : au-delà de {MR_BATCH_MAX}, "
+                            "confirme explicitement")
+    if payload.get("dry_run"):
+        return dict(plan, ran=False)
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    results = []
+    for run in plan["runs"]:
+        if mode == "prod":
+            argv = [sys.executable, str(script), "create", "--no-ticket",
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--no-push", "--merge",
+                    "--title", f"promotion {run['source']}→{run['target']} : "
+                               + ", ".join("RM" + i for i in run["rm_ids"])]
+        else:
+            argv = [sys.executable, str(script), "create", run["rm_ids"][0],
+                    "--repo", run["repo"], "--source", run["source"],
+                    "--target", run["target"], "--merge"]
+        try:
+            r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                               cwd=str(REPO_ROOT))
+            rc, out, err = r.returncode, r.stdout, r.stderr
+        except subprocess.TimeoutExpired:
+            rc, out, err = 124, "", "timeout (300 s)"
+        results.append({"rm_ids": run["rm_ids"], "repo": run["repo"],
+                        "source": run["source"], "target": run["target"],
+                        "rc": rc, "ok": rc == 0,
+                        "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]})
+        try:
+            PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+            with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+                f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"),
+                                    "name": "mr-batch", "args": {"mode": mode,
+                                    "rm_ids": run["rm_ids"], "target": run["target"]},
+                                    "rc": rc}, ensure_ascii=False) + "\n")
+        except OSError:
+            pass                 # le journal ne doit jamais faire échouer le run
+    return dict(plan, ran=True, results=results,
+                ok=all(r["ok"] for r in results),
+                failed=[r for r in results if not r["ok"]])
+
+
+# >>> mr_url_iid — pure (testée par test_karl_agent_mr_batch.py)
+_MR_URL_RE = re.compile(r"^https?://[^/\s]+/[^\s?#]+/-/merge_requests/(\d+)/?$")
+
+
+def mr_url_iid(url):
+    """iid d'une URL de MR GitLab, ou None si ce n'est pas une URL de MR.
+
+    On ne valide PAS l'hôte ici : `pm-mr.py` refuse déjà toute forge non
+    déclarée avant le moindre appel — un PAT ne doit jamais partir vers un hôte
+    inconnu, et cette règle n'a qu'un seul endroit où vivre. Ce contrôle-ci sert
+    à échouer TÔT et clairement sur une entrée qui n'est pas une MR (le worklog
+    est écrit par des agents : son contenu se vérifie)."""
+    m = _MR_URL_RE.match(str(url or "").strip())
+    return m.group(1) if m else None
+# <<< mr_url_iid
+
+
+def op_mr_merge(payload: dict) -> dict:
+    """RM2723 — merge UNE MR, désignée par son URL, via `pm-mr.py merge`.
+
+    L'URL est la forme canonique et auto-portante (hôte → forge, chemin →
+    projet, fin → iid) : un iid nu exigerait un dépôt explicite (RM2541), que le
+    worklog ne porte pas. Confirmation obligatoire — le geste ne se défait pas."""
+    url = str(payload.get("url") or "").strip()
+    if not mr_url_iid(url):
+        raise ApiError(400, "URL de MR attendue (…/-/merge_requests/<iid>)")
+    if payload.get("confirm") is not True:
+        raise ApiError(400, "confirmation requise (confirm: true)")
+    script = (REPO_ROOT / "scripts" / "pm-mr.py").resolve()
+    argv = [sys.executable, str(script), "merge", url]
+    try:
+        r = subprocess.run(argv, capture_output=True, text=True, timeout=300,
+                           cwd=str(REPO_ROOT))
+        rc, out, err = r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        rc, out, err = 124, "", "timeout (300 s)"
+    try:
+        PM_RUNS_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with PM_RUNS_LOG.open("a", encoding="utf-8") as f:
+            f.write(json.dumps({"ts": time.strftime("%Y-%m-%dT%H:%M:%S"), "name": "mr-merge",
+                                "args": {"url": url}, "rc": rc}, ensure_ascii=False) + "\n")
+    except OSError:
+        pass                     # le journal ne doit jamais faire échouer le run
+    return {"name": "mr-merge", "url": url, "iid": mr_url_iid(url), "rc": rc,
+            "ok": rc == 0, "stdout": (out or "")[-8000:], "stderr": (err or "")[-4000:]}
 
 
 def op_monitor(payload: dict) -> dict:
@@ -6108,11 +9107,13 @@ class Handler(BaseHTTPRequestHandler):
         sys.stderr.write(f"{self.address_string()} {fmt % args}\n")
 
     # -- utilitaires de réponse --
-    def _send_json(self, code: int, obj: dict):
+    def _send_json(self, code: int, obj: dict, extra_headers=None):
         body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        for name, value in (extra_headers or ()):  # RM2700 : Set-Cookie au login/logout
+            self.send_header(name, value)
         self.end_headers()
         self.wfile.write(body)
 
@@ -6167,6 +9168,32 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _session_cookie_value(self):
+        """Valeur du cookie de session `karl_session` présentée par le client
+        (ou None). RM2700."""
+        raw = self.headers.get("Cookie")
+        if not raw:
+            return None
+        try:
+            jar = SimpleCookie()
+            jar.load(raw)
+        except Exception:  # noqa: BLE001 — en-tête Cookie malformé
+            return None
+        morsel = jar.get(SESSION_COOKIE)
+        return morsel.value if morsel else None
+
+    @staticmethod
+    def _session_cookie(token: str) -> str:
+        """En-tête Set-Cookie déposant le token comme cookie de session. RM2700."""
+        return (f"{SESSION_COOKIE}={token}; Max-Age={SESSION_COOKIE_MAX_AGE}; "
+                "Path=/; HttpOnly; Secure; SameSite=Strict")
+
+    @staticmethod
+    def _clear_cookie() -> str:
+        """En-tête Set-Cookie purgeant le cookie de session (logout). RM2700."""
+        return (f"{SESSION_COOKIE}=; Max-Age=0; "
+                "Path=/; HttpOnly; Secure; SameSite=Strict")
+
     def _check_auth(self) -> bool:
         """Vraie si le client présente le token partagé, un TOKEN D'APPAREIL
         (RM2334) ou des credentials Basic valides (RM2139). Sans aucune auth
@@ -6185,6 +9212,18 @@ class Handler(BaseHTTPRequestHandler):
             if hit:
                 did, rec = hit
                 self.auth_ctx = {"mode": "device", "user": rec.get("user"),
+                                 "admin": bool(rec.get("admin")), "device_id": did}
+                return True
+        # RM2700 : cookie de session même-origine = token d'appareil transmis par
+        # cookie. Seul credential visible à l'upgrade WS de `/ttyd` (le handshake
+        # ttyd cache son token dans la 1re frame). SameSite=Strict au dépôt →
+        # jamais envoyé en cross-site, donc pas de vecteur CSRF.
+        cookie_tok = self._session_cookie_value()
+        if cookie_tok:
+            hit = _device_auth(cookie_tok)
+            if hit:
+                did, rec = hit
+                self.auth_ctx = {"mode": "cookie", "user": rec.get("user"),
                                  "admin": bool(rec.get("admin")), "device_id": did}
                 return True
         if BASIC_USER is not None and BASIC_PASS is not None:
@@ -6334,6 +9373,9 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"commands": _pm_commands()})
             if path == "/pm/settings":
                 return self._send_json(200, {"settings": _pm_settings()})
+            if path == "/mail/queue":          # RM2671 : file de triage des emails
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_mail_queue(qs))
             if path == "/pm/test-queue":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"queue": op_test_queue(qs)})
@@ -6343,6 +9385,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))
+            if path.startswith("/ticket-sessions/"):   # RM2726 : qui traite ce ticket
+                return self._send_json(200, op_ticket_sessions(
+                    path[len("/ticket-sessions/"):], self.auth_ctx))
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))
@@ -6379,6 +9424,12 @@ class Handler(BaseHTTPRequestHandler):
                     g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
+            if path.startswith("/client/"):        # RM2768 : fiche client
+                return self._send_json(200, op_client(path[len("/client/"):]))
+            if path == "/conf":                    # RM2768 : meta.yml client/projet
+                g = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_conf(g.get("scope", ""), g.get("client", ""),
+                                                    g.get("project")))
             if path.startswith("/git/log/"):        # RM2602 : lecture seule
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_git_log(path[len("/git/log/"):], qs))
@@ -6392,11 +9443,34 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_git_diff(path[len("/git/diff/"):], qs))
             if path.startswith("/workspace-status/"):
                 return self._send_json(200, op_workspace_status(path[len("/workspace-status/"):]))
+            if path.startswith("/mergecheck/"):   # RM2384 : mergeabilité avant verdict
+                return self._send_json(200, op_mergecheck(path[len("/mergecheck/"):]))
+            if path == "/alerts":                  # RM2698 : dérives (tickets, MR)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_alerts(qs, self.auth_ctx))
+            if path == "/overview":                # RM2696 : agrégat par projet
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_overview(qs, self.auth_ctx))
+            if path == "/env-status":              # RM2458 : santé du poste
+                return self._send_json(200, op_env_status())
+            if path == "/vault/status":            # RM2748 : verrous (vault, SSH)
+                return self._send_json(200, op_vault_status())
+            if path == "/env-check":               # RM2722 : contrôle de démarrage
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_env_check(qs))
+            if path == "/triage":                  # RM1952 : triage ROI des tickets ouverts
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_triage(qs))
             if path == "/file":
                 qs = parse_qs(parsed.query)
                 return self._send_text(200, op_file(qs["path"][0] if "path" in qs else ""))
             if path.startswith("/worktrees/"):    # RM2586 : worktrees de la session
                 return self._send_json(200, op_worktrees(path[len("/worktrees/"):]))
+            if path.startswith("/project-roots/"):   # RM2673 : racine + doc du projet
+                parts = path[len("/project-roots/"):].split("/")
+                if len(parts) != 2:
+                    return self._send_json(400, {"error": "attendu : /project-roots/<client>/<projet>"})
+                return self._send_json(200, op_project_roots(parts[0], parts[1]))
             if path.startswith("/project-worktrees/"):   # RM2590 : worktrees du projet
                 parts = path[len("/project-worktrees/"):].split("/")
                 if len(parts) != 2:
@@ -6423,8 +9497,12 @@ class Handler(BaseHTTPRequestHandler):
         # progressif par IP dans op_auth_login).
         if path == "/auth/login":
             try:
-                return self._send_json(200, op_auth_login(
-                    self._read_json(), self.client_address[0]))
+                res = op_auth_login(self._read_json(), self.client_address[0])
+                # RM2700 : pose AUSSI le token en cookie de session même-origine
+                # (en plus de la réponse JSON que le cockpit met en localStorage).
+                # Sert exclusivement au gate du terminal distant `/ttyd`.
+                return self._send_json(200, res, extra_headers=[
+                    ("Set-Cookie", self._session_cookie(res["token"]))])
             except ApiError as e:
                 return self._send_json(e.code, {"error": e.msg})
             except Exception as e:  # noqa: BLE001
@@ -6470,6 +9548,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(201, op_create_ticket(payload))
             if path == "/send":
                 return self._send_json(200, op_send(payload))
+            if path == "/alerts/snooze":       # RM2698 : reporter une alerte
+                return self._send_json(200, op_alert_snooze(payload))
+            if path == "/worklog/batch":       # RM2716/RM2720 : lot en série (mode)
+                return self._send_json(200, op_worklog_batch(payload))
             if path == "/approve":
                 return self._send_json(200, op_approve(payload))
             if path == "/scroll":
@@ -6494,10 +9576,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, op_layout(payload))
             if path == "/pm/run":
                 return self._send_json(200, op_pm_run(payload))
+            if path == "/mr/batch":            # RM2720 : merger un lot de MR
+                return self._send_json(200, op_mr_batch(payload))
+            if path == "/mr/merge":            # RM2723 : merger UNE MR (par URL)
+                return self._send_json(200, op_mr_merge(payload))
             if path == "/mr/deliver":
                 return self._send_json(200, op_mr_deliver(payload))
             if path == "/pm/settings":
                 return self._send_json(200, op_pm_settings_set(payload))
+            # RM2748 — déverrouillage depuis le cockpit. Le corps porte un
+            # secret saisi par un humain : routes authentifiées, rien mémorisé.
+            if path == "/vault/unlock":
+                return self._send_json(200, op_vault_unlock(payload, self.auth_ctx))
+            if path == "/vault/ssh-add":
+                return self._send_json(200, op_vault_ssh_add(payload, self.auth_ctx))
+            # RM2671 — panneau « emails » : chaque geste délègue à son script
+            if path == "/mail/fetch":
+                return self._send_json(200, op_mail_fetch(payload))
+            if path == "/mail/route":
+                return self._send_json(200, op_mail_route(payload))
+            if path == "/mail/route-set":
+                return self._send_json(200, op_mail_route_set(payload))
+            if path == "/mail/draft":
+                return self._send_json(200, op_mail_draft(payload))
+            if path == "/mail/create":
+                return self._send_json(200, op_mail_create(payload))
+            if path == "/mail/dismiss":
+                return self._send_json(200, op_mail_dismiss(payload))
             return self._send_json(404, {"error": f"route inconnue : {path}"})
         except ApiError as e:
             return self._send_json(e.code, {"error": e.msg})
@@ -6538,7 +9643,13 @@ class Handler(BaseHTTPRequestHandler):
                 n = _revoke_devices(device_ids={did})
                 if not n:
                     raise ApiError(404, f"appareil inconnu : {did}")
-                return self._send_json(200, {"device_id": did, "revoked": True})
+                # RM2700 : logout de l'appareil courant → purge son cookie de
+                # session (le token est déjà révoqué côté serveur ; on évite un
+                # cookie mort qui repartirait à chaque requête).
+                extra = ([("Set-Cookie", self._clear_cookie())]
+                         if did == self.auth_ctx.get("device_id") else None)
+                return self._send_json(200, {"device_id": did, "revoked": True},
+                                       extra_headers=extra)
             if path.startswith("/auth/users/"):
                 self._require_admin()
                 return self._send_json(200, op_auth_user_delete(path[len("/auth/users/"):]))

@@ -34,10 +34,14 @@ def main():
     assert cands == [HERE / "pm-task-add.py", HERE / "pm-task-add"], cands
     print("✓ _candidates = [pm-<cmd>.py, pm-<cmd>]")
 
-    # 3. _list_commands : contient des commandes connues, exclut modules pm_* et tests
+    # 3. _list_commands : contient les commandes réelles, exclut les modules pm_*
+    #    et les fichiers de test. RM2749 : le filtre portait sur « test » n'importe
+    #    où dans le nom et masquait des VERBES réels (`test`, `cockpit-test-env`) —
+    #    utilisables mais invisibles, donc introuvables pour qui ne les connaît pas.
     cmds = mmi._list_commands()
     assert "task-add" in cmds and "session-status" in cmds, cmds[:5]
-    assert not any(c.startswith("_") or "test" in c for c in cmds)
+    assert "test" in cmds and "cockpit-test-env" in cmds, "les verbes réels sont listés"
+    assert not any(c.startswith("_") or c.startswith("test_") for c in cmds), cmds
     assert "paths" not in cmds  # pm_paths.py = module (underscore), pas une commande
     print(f"✓ _list_commands ({len(cmds)}) : commandes connues présentes, modules/tests exclus")
 

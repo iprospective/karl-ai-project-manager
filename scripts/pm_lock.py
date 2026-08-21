@@ -59,7 +59,7 @@ def resource_lock(lock_file: _PathLike, *, timeout: float = 10.0, poll: float = 
     qu'il arrive, à la mort du process (flock noyau)."""
     lp = Path(lock_file)
     lp.parent.mkdir(parents=True, exist_ok=True)
-    # 0o664 : group-writable → tout membre du groupe `pm` peut verrouiller (dirs 3770).
+    # 0o664 : group-writable → tout membre du groupe `pm` peut verrouiller (dirs 2770).
     fd = os.open(lp, os.O_CREAT | os.O_RDWR, 0o664)
     deadline = time.monotonic() + max(0.0, timeout)
     try:
@@ -113,7 +113,17 @@ def atomic_write(
             os.chmod(tmp, os.stat(p).st_mode & 0o7777)
         except FileNotFoundError:
             pass  # nouveau fichier → mode par défaut (umask)
-        os.replace(tmp, p)  # atomique si tmp et p sont sur le même FS (même dir → oui)
+        try:
+            os.replace(tmp, p)  # atomique si tmp et p sont sur le même FS (même dir → oui)
+        except PermissionError as e:
+            # `os.replace` doit SUPPRIMER la cible existante. Dans un dossier **sticky**
+            # (bit `t`), seul le propriétaire du fichier peut le faire → EPERM quand un
+            # writer réécrit un fichier partagé qu'il ne possède pas (bug RM2438). Le
+            # churn PM doit être `2770` (setgid, group-write, SANS sticky), jamais `3770`.
+            raise PermissionError(
+                f"{e} — écriture atomique impossible sur {p} : le dossier {p.parent} "
+                f"est-il sticky (3770) ? Le churn PM doit être 2770 (voir pm-perms)."
+            ) from e
         return p
     finally:
         try:

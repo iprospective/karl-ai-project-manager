@@ -1,0 +1,382 @@
+#!/usr/bin/env python3
+"""Tests du daemon multi-instances — L2/RM2683.
+
+Lancer : python3 scripts/test_vault_agentd_multi.py
+
+Fait tourner un vrai `vault-agentd` sur un socket temporaire, avec un faux `bw` en
+tête de PATH et un `pm.config.yml` de test déclarant DEUX instances de vault. Aucun
+vault réel, aucun secret réel, aucun réseau.
+
+Ce que ça prouve :
+  - deux instances déverrouillées en parallèle, sans interférence ;
+  - `LOCK <slug>` n'atteint que la sienne, et le daemon survit ;
+  - l'expiration d'inactivité est **par instance** ;
+  - `STATUS <slug>` garde le format historique, `STATUS` nu liste tout ;
+  - une instance inconnue est refusée (jamais résolue sur le vault par défaut) ;
+  - les appels sans slug continuent de viser l'instance par défaut.
+"""
+import base64
+import json
+import os
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+from pathlib import Path
+
+_HERE = Path(__file__).resolve().parent
+DAEMON = _HERE / "vault-agentd.py"
+sys.path.insert(0, str(_HERE))
+from test_support import core_with, core_env  # noqa: E402
+
+# Deux items distincts, un par instance : c'est ce qui rend l'isolation VISIBLE.
+ITEM_IPRO = {"id": "u-ipro", "name": "prod-db",
+             "login": {"password": "PWD-IPRO", "username": "user-ipro"}}
+ITEM_CLIENT = {"id": "u-cli", "name": "prod-db",
+               "login": {"password": "PWD-CLIENT", "username": "user-client"}}
+
+# Le faux `bw` distingue les instances par l'URL passée dans la session de test :
+# le daemon appelle `bw --session <token>`, et nos tokens encodent l'instance.
+FAKE_BW = """#!/usr/bin/env python3
+import json, sys
+IPRO = json.loads(%r)
+CLI  = json.loads(%r)
+a = sys.argv[1:]
+session = a[a.index("--session") + 1] if "--session" in a else ""
+item = CLI if "client" in session else IPRO
+if a[:2] == ["get", "item"]:
+    print(json.dumps(item)); sys.exit(0)
+if a[:2] == ["list", "items"]:
+    print(json.dumps([item])); sys.exit(0)
+if a[:1] == ["sync"]:
+    sys.exit(0)
+print("unexpected: %%s" %% a, file=sys.stderr); sys.exit(1)
+""" % (json.dumps(ITEM_IPRO), json.dumps(ITEM_CLIENT))
+
+# Config de test : celle du dépôt, avec une SECONDE instance de vault ajoutée.
+# Repartir du fichier réel évite de maintenir un faux `pm.config.yml` (qui doit
+# porter `paths:`, `roots:`… sous peine de faire échouer `PMConfig.load`).
+# L'ajout passe par `test_support.core_with`, qui manipule le YAML chargé :
+# l'insertion à l'ancre `    vw-ipro:` suivait la mise en page du fichier livré
+# et cassait au premier remaniement, sans dire pourquoi (RM2749).
+EXTRA_INSTANCE = {"vw-clientx": {"axis": "secret", "type": "vaultwarden",
+                                 "url": "https://vault.client-x.test"}}
+
+
+def _ask(sock_path, line, timeout=10):
+    s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    s.settimeout(timeout)
+    s.connect(sock_path)
+    s.sendall((line + "\n").encode())
+    chunks = []
+    try:
+        while True:
+            b = s.recv(65536)
+            if not b:
+                break
+            chunks.append(b)
+    except socket.timeout:
+        pass
+    s.close()
+    return b"".join(chunks).decode("utf-8", errors="replace")
+
+
+def _wait_socket(path, timeout=5.0):
+    fin = time.time() + timeout
+    while time.time() < fin:
+        if os.path.exists(path):
+            try:
+                s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                s.settimeout(0.3); s.connect(path); s.close()
+                return True
+            except OSError:
+                pass
+        time.sleep(0.05)
+    return False
+
+
+class Daemon:
+    """Un daemon de test, avec sa config, son faux `bw` et son socket."""
+
+    def __init__(self, work, idle_timeout=None, tag="d", supervisor_interval=None,
+                 env_extra=None):
+        self.work = work
+        self.sock = str(work / f"{tag}.sock")
+        self.env = core_env(work, **(env_extra or {}))
+        self.env["PATH"] = f"{work}/bin:{os.environ['PATH']}"
+        self.env["VAULT_SOCK"] = self.sock
+        self.env["VAULT_LOCK_AT_HOUR"] = "-1"
+        self.env["PM_CONFIG"] = str(work / "pm.config.yml")
+        self.env["PM_CORE_DIR"] = str(work)
+        self.args = [sys.executable, str(DAEMON)]
+        if idle_timeout is not None:
+            self.args += ["--idle-timeout", str(idle_timeout)]
+        if supervisor_interval is not None:
+            self.args += ["--supervisor-interval", str(supervisor_interval)]
+        self.log = open(work / f"{tag}.log", "w")
+        self.proc = None
+
+    def __enter__(self):
+        self.proc = subprocess.Popen(self.args, env=self.env,
+                                     stdout=self.log, stderr=self.log,
+                                     cwd=str(self.work))
+        if not _wait_socket(self.sock):
+            raise RuntimeError("daemon de test non démarré")
+        return self
+
+    def __exit__(self, *_):
+        if self.proc:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+        self.log.close()
+
+    def ask(self, line):
+        return _ask(self.sock, line)
+
+    @property
+    def alive(self):
+        return self.proc.poll() is None
+
+
+AGE_SECRET = "PWD-FICHIER-AGE"
+AGE_DOC = f"acme:\n  db:\n    username: user-age\n    password: {AGE_SECRET}\n"
+
+# Faux `age` : le fichier « chiffré » est du base64, le binaire le décode. Le vrai
+# aller-retour cryptographique est testé dans test_pm_secrets_age.py ; ici on veut
+# seulement prouver que le DAEMON sert une instance sans session.
+FAKE_AGE = ('#!/bin/sh\n'
+            '[ "$1" = "--decrypt" ] || { echo usage >&2; exit 2; }\n'
+            '[ -f "$3" ] || { echo "age: no identity file" >&2; exit 1; }\n'
+            'base64 -d "$4"\n')
+
+
+def _workdir(td, avec_age=False):
+    work = Path(td)
+    (work / "bin").mkdir()
+    fake = work / "bin" / "bw"
+    fake.write_text(FAKE_BW)
+    fake.chmod(0o755)
+    servers = dict(EXTRA_INSTANCE)
+    if avec_age:
+        age_bin = work / "bin" / "age"
+        age_bin.write_text(FAKE_AGE)
+        age_bin.chmod(0o755)
+        (work / "coffre.yml.age").write_bytes(base64.b64encode(AGE_DOC.encode()))
+        (work / "id.age").write_text("AGE-SECRET-KEY-FACTICE\n")
+        (work / "id.age").chmod(0o600)
+        servers["age-fichier"] = {"axis": "secret", "type": "age",
+                                  "file": f"{work}/coffre.yml.age"}
+    # Un core-dir de test est un core-dir COMPLET : sans le `pm.env` que pose
+    # `core_with`, `PMConfig.load` sort sur `projects_root` non résolu, le
+    # registre devient indisponible et le daemon dégrade vers une instance
+    # unique — le test passerait à côté de ce qu'il vérifie (RM2713, RM2749).
+    core_with(work, servers)
+    return work
+
+
+# ── Tests ────────────────────────────────────────────────────────────────────
+def test_deux_instances_isolees():
+    """Deux vaults déverrouillés en parallèle rendent CHACUN son propre secret."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            assert d.ask("SET-SESSION vw-ipro tok-ipro").strip() == "OK"
+            assert d.ask("SET-SESSION vw-clientx tok-client").strip() == "OK"
+            a = d.ask("GET secret://vw-ipro/coll/prod-db password").strip()
+            b = d.ask("GET secret://vw-clientx/coll/prod-db password").strip()
+            assert a == "PWD-IPRO", a
+            assert b == "PWD-CLIENT", b
+            # …et l'URI sans slug vise bien l'instance par défaut.
+            c = d.ask("GET secret:coll/prod-db password").strip()
+            assert c == "PWD-IPRO", c
+
+
+def test_lock_par_instance():
+    """`LOCK <slug>` ne verrouille que la sienne ; le daemon survit."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("SET-SESSION vw-clientx tok-client")
+            assert d.ask("LOCK vw-clientx").strip() == "OK"
+            time.sleep(0.3)
+            assert d.alive, "le daemon ne doit pas quitter : une instance reste ouverte"
+            assert d.ask("GET secret://vw-clientx/coll/prod-db").strip() == "ERR locked"
+            assert d.ask("GET secret://vw-ipro/coll/prod-db password").strip() == "PWD-IPRO"
+
+
+def test_lock_global_quitte():
+    """`LOCK` nu garde le comportement historique : tout verrouiller et quitter."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("SET-SESSION vw-clientx tok-client")
+            assert d.ask("LOCK").strip() == "OK"
+            fin = time.time() + 3
+            while time.time() < fin and d.alive:
+                time.sleep(0.05)
+            assert not d.alive, "le daemon doit quitter après un LOCK global"
+
+
+def test_lock_derniere_instance_quitte():
+    """Verrouiller la DERNIÈRE instance ouverte fait quitter le daemon (iso mono-instance)."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            assert d.ask("LOCK vw-ipro").strip() == "OK"
+            fin = time.time() + 3
+            while time.time() < fin and d.alive:
+                time.sleep(0.05)
+            assert not d.alive, "plus aucune instance ouverte → le daemon quitte"
+
+
+def test_expiration_par_instance():
+    """L'inactivité expire instance par instance, pas globalement.
+
+    TTL d'1 s, superviseur toutes les 0,25 s : on maintient UNE des deux instances
+    active par des accès réguliers. Attendu : l'inactive tombe, l'active survit —
+    c'est tout l'intérêt d'un compteur par instance.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work, idle_timeout=1, supervisor_interval=0.25, tag="exp") as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("SET-SESSION vw-clientx tok-client")
+            fin = time.time() + 3
+            while time.time() < fin:
+                d.ask("GET secret://vw-ipro/coll/prod-db password")
+                time.sleep(0.3)
+            assert d.alive, "une instance reste active : le daemon ne doit pas quitter"
+            actif = d.ask("GET secret://vw-ipro/coll/prod-db password").strip()
+            assert actif == "PWD-IPRO", f"l'instance utilisée a expiré : {actif!r}"
+            inactif = d.ask("STATUS vw-clientx").strip()
+            assert inactif == "locked", f"l'instance inactive devait expirer : {inactif!r}"
+            assert d.ask("GET secret://vw-clientx/coll/prod-db").strip() == "ERR locked"
+
+
+def test_status_formats():
+    """`STATUS <slug>` = format historique ; `STATUS` nu = une ligne par instance."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            assert d.ask("STATUS vw-ipro").strip() == "locked"
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            un = d.ask("STATUS vw-ipro").strip()
+            assert un.startswith("unlocked since=") and "idle_timeout=" in un, un
+            tableau = d.ask("STATUS").strip().splitlines()
+            slugs = {l.split("\t")[0] for l in tableau}
+            assert slugs == {"vw-ipro", "vw-clientx"}, slugs
+            etats = dict(l.split("\t", 1) for l in tableau)
+            assert etats["vw-ipro"].startswith("unlocked "), etats
+            assert etats["vw-clientx"] == "locked", etats
+
+
+def test_instance_inconnue_refusee():
+    """Une instance non déclarée est refusée — jamais rabattue sur le défaut."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            r = d.ask("GET secret://vw-inexistant/coll/prod-db password").strip()
+            assert r.startswith("ERR unsupported"), r
+            assert "vw-inexistant" in r, r
+            assert "PWD-IPRO" not in r, "un slug inconnu ne doit RIEN résoudre"
+
+
+def test_list_et_sync_par_instance():
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        with Daemon(work) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("SET-SESSION vw-clientx tok-client")
+            # LIST nu → instance par défaut ; LIST-IN <slug> → instance nommée.
+            assert "u-ipro" in d.ask("LIST")
+            assert "u-cli" in d.ask("LIST-IN vw-clientx")
+            assert d.ask("SYNC").strip() == "OK"
+            assert d.ask("SYNC vw-clientx").strip() == "OK"
+            # LIST-IN sans argument : erreur explicite, pas de plantage.
+            assert d.ask("LIST-IN").startswith("ERR")
+
+
+def test_sans_registre_instance_unique():
+    """Sans config providers lisible, le daemon sert la seule instance par défaut."""
+    with tempfile.TemporaryDirectory(prefix="multi-") as td:
+        work = _workdir(td)
+        (work / "pm.config.yml").unlink()          # plus de registre du tout
+        with Daemon(work, tag="noreg") as d:
+            assert d.ask("SET-SESSION tok-ipro").strip() == "OK"   # forme sans slug
+            assert d.ask("GET vaultwarden://o/c/prod-db password").strip() == "PWD-IPRO"
+            r = d.ask("GET secret://vw-clientx/coll/prod-db").strip()
+            assert r.startswith("ERR unsupported"), r
+
+
+def test_instance_sans_session_age():
+    """Un backend SANS déverrouillage (fichier `age`) se sert sans SET-SESSION.
+
+    C'est la conséquence directe de `caps.needs_unlock = False` (RM2713) : le
+    daemon ne doit pas opposer « ERR locked » à une instance qu'aucun humain n'a
+    à déverrouiller — et il doit tout de même laisser remonter les erreurs
+    précises du backend quand la clé n'est pas là.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-age-") as td:
+        work = _workdir(td, avec_age=True)
+        env = {"SECRET__AGE_FICHIER__AGE_KEY_FILE": f"{work}/id.age"}
+        with Daemon(work, tag="age", env_extra=env) as d:
+            # Aucune session posée : la résolution passe quand même.
+            v = d.ask("GET secret://age-fichier/acme/db password").strip()
+            assert v == AGE_SECRET, v
+            etat = d.ask("STATUS age-fichier").strip()
+            assert etat.startswith("unlocked sans-session"), etat
+            tableau = dict(l.split("\t", 1) for l in d.ask("STATUS").strip().splitlines())
+            assert tableau["age-fichier"].startswith("unlocked sans-session"), tableau
+            assert tableau["vw-ipro"] == "locked", tableau   # l'autre reste verrouillée
+            # …et une instance à clé fait remonter SON erreur, pas « locked ».
+            d2 = _ask(d.sock, "GET secret://vw-ipro/coll/prod-db password").strip()
+            assert d2 == "ERR locked", d2
+
+    # Clé absente : `unreachable`, jamais `locked` — le message doit dire quoi faire.
+    with tempfile.TemporaryDirectory(prefix="multi-age2-") as td:
+        work = _workdir(td, avec_age=True)
+        with Daemon(work, tag="agenokey") as d:
+            r = d.ask("GET secret://age-fichier/acme/db password").strip()
+            assert r.startswith("ERR unreachable"), r
+            assert "AGE_KEY_FILE" in r, r
+
+
+def test_lock_ignore_les_instances_sans_session():
+    """`LOCK <slug>` fait quitter le daemon quand plus RIEN n'est gardé en mémoire.
+
+    Une instance `age` se déclare utilisable en permanence : si elle comptait
+    comme « déverrouillée », le daemon ne s'arrêterait plus jamais alors qu'il ne
+    détient plus aucun secret.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-age3-") as td:
+        work = _workdir(td, avec_age=True)
+        env = {"SECRET__AGE_FICHIER__AGE_KEY_FILE": f"{work}/id.age"}
+        with Daemon(work, tag="agelock", env_extra=env) as d:
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            d.ask("GET secret://age-fichier/acme/db password")   # touche l'instance age
+            assert d.ask("LOCK vw-ipro").strip() == "OK"
+            time.sleep(0.6)
+            assert not d.alive, "le daemon aurait dû quitter : plus aucune session"
+
+
+CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
+
+if __name__ == "__main__":
+    fails = 0
+    for fn in CASES:
+        try:
+            fn(); print(f"  ✓ {fn.__name__}")
+        except AssertionError as e:
+            fails += 1; print(f"  ✗ {fn.__name__} — {e}")
+        except Exception as e:  # noqa: BLE001
+            fails += 1; print(f"  ✗ {fn.__name__} — ERREUR {type(e).__name__}: {e}")
+    print(f"\n{len(CASES) - fails}/{len(CASES)} ok")
+    sys.exit(1 if fails else 0)

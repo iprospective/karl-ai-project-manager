@@ -233,6 +233,12 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2770 : source + filtres de la recherche — quatre sélecteurs qui doivent
+     tenir dans la colonne sans la faire déborder. */
+  .srcfilters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+  .srcfilters select { flex: 1 1 46%; min-width: 0; font-size: 11px; padding: 2px 4px; }
+  .sfwarn { margin-top: 6px; font-size: 11px; color: var(--warn);
+    border-left: 2px solid var(--warn); padding-left: 6px; }
   /* RM2768 : icônes d'une ligne du panneau projets — présentes, mais elles ne
      doivent pas concurrencer le nom qu'on vient lire. */
   .pjicons { float: right; opacity: .45; }
@@ -845,6 +851,26 @@ if (window.matchMedia) {
         <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
         <button class="mini" id="searchclear" onclick="clearSearch()" title="Vider la recherche">✕</button>
       </div>
+      <!-- RM2770 : source + filtres. La source par défaut reste « local » —
+           le comportement d'avant, pour qui ne touche à rien. -->
+      <div class="srcfilters">
+        <select id="sf-source" onchange="search()"
+                title="Où chercher. « Redmine » trouve les tickets qui n'ont pas encore de fichier local (jamais fetchés)">
+          <option value="local">📁 local</option>
+          <option value="redmine">🌐 Redmine</option>
+          <option value="both">📁+🌐 les deux</option>
+        </select>
+        <select id="sf-client" onchange="sfClientChanged()" title="Filtrer par client">
+          <option value="">tous les clients</option>
+        </select>
+        <select id="sf-project" onchange="search()" title="Filtrer par projet (du client choisi)">
+          <option value="">tous les projets</option>
+        </select>
+        <select id="sf-status" onchange="search()" title="Filtrer par statut NORMS">
+          <option value="">tous les statuts</option>
+        </select>
+      </div>
+      <div id="sf-warn" class="sfwarn" style="display:none"></div>
       <ul class="results" id="results"></ul>
     </div>
 
@@ -6061,12 +6087,88 @@ function clearSearch() {
   document.getElementById("results").innerHTML = "";
   document.getElementById("search").focus();
 }
+// >>> searchQuery — pur (RM2770, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Construit la requête. Le filtre explicite PRIME sur le contexte client global
+// (RM2639) : quand on choisit un client dans la barre, c'est ce choix-là qui
+// vaut — sinon le contexte contredirait en silence ce qu'on vient de demander.
+function searchQuery(q, f, ctxClient) {
+  const o = f || {};
+  const p = ["q=" + encodeURIComponent(q || "")];
+  const client = o.client || ctxClient || "";
+  if (client) p.push("client=" + encodeURIComponent(client));
+  if (o.project) p.push("project=" + encodeURIComponent(o.project));
+  if (o.status) p.push("status=" + encodeURIComponent(o.status));
+  const src = o.source || "local";
+  if (src !== "local") p.push("source=" + encodeURIComponent(src));
+  return "/tickets/search?" + p.join("&");
+}
+// <<< searchQuery
+
+// >>> searchRowMeta — pur (RM2770, testé par test_cockpit.js)
+// Ligne de contexte d'un résultat. Un ticket vu côté Redmine et absent en local
+// DOIT le dire : c'est ce qu'on est venu chercher, et ça décide du geste suivant
+// (le fetcher). Un ticket local n'affiche rien de tel — pas de bruit.
+function searchRowMeta(t) {
+  const r = t || {};
+  const où = (r.client && r.project) ? r.client + " / " + r.project
+           : (r.redmine_project || "—");
+  const bits = [où, r.status || "?"];
+  if (r.origin === "redmine" && !r.synced) bits.push("⚠ pas en local");
+  else if (r.origin === "redmine" || r.origin === "both") bits.push("🌐 Redmine");
+  if (r.assigned_to) bits.push("→ " + r.assigned_to);
+  return bits.join(" · ");
+}
+// <<< searchRowMeta
+
+// Le sélecteur de projet ne montre QUE les projets du client choisi : proposer
+// les 47 projets de tous les clients ferait chercher dans une liste où presque
+// rien ne peut correspondre.
+function sfFillProjects() {
+  const sel = document.getElementById("sf-project");
+  if (!sel) return;
+  const cl = (document.getElementById("sf-client") || {}).value || clientContext || "";
+  const garde = sel.value;
+  const items = (allProjects || []).filter(p => !cl || p.client === cl);
+  sel.innerHTML = '<option value="">tous les projets</option>'
+    + items.map(p => '<option value="' + esc(p.project) + '">' + esc(p.project) + "</option>").join("");
+  if (items.some(p => p.project === garde)) sel.value = garde;
+}
+
+function sfClientChanged() { sfFillProjects(); search(); }
+
+function sfInit() {
+  const cs = document.getElementById("sf-client");
+  if (cs) {
+    cs.innerHTML = '<option value="">tous les clients</option>'
+      + clientCtxList(allProjects).map(c =>
+          '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
+  }
+  const st = document.getElementById("sf-status");
+  if (st && st.options.length <= 1) {
+    st.innerHTML = '<option value="">tous les statuts</option>'
+      + (CFG.statuses || []).map(v =>
+          '<option value="' + esc(v) + '">' + esc(v) + "</option>").join("");
+  }
+  sfFillProjects();
+}
+
 async function search() {
   const q = document.getElementById("search").value.trim();
   const ul = document.getElementById("results");
+  const warn = document.getElementById("sf-warn");
+  const val = id => (document.getElementById(id) || {}).value || "";
+  const filtres = { source: val("sf-source"), client: val("sf-client"),
+                    project: val("sf-project"), status: val("sf-status") };
   try {
-    const cq = clientContext ? "&client=" + encodeURIComponent(clientContext) : "";   // RM2639
-    const { results } = await api("/tickets/search?q=" + encodeURIComponent(q) + cq);
+    if (warn) warn.style.display = "none";
+    const r = await api(searchQuery(q, filtres, clientContext));   // RM2770
+    const results = r.results || [];
+    // RM2770 : une panne Redmine s'affiche À CÔTÉ des résultats locaux, jamais
+    // à leur place — sinon une API en rade fait croire à un ticket disparu.
+    if (r.redmine_error && warn) {
+      warn.textContent = "⚠ " + r.redmine_error;
+      warn.style.display = "";
+    }
     if (!results.length) { ul.innerHTML = '<div class="empty">aucun résultat</div>'; return; }
     ul.innerHTML = "";
     for (const t of results) {
@@ -6074,8 +6176,22 @@ async function search() {
       li.innerHTML =
         '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' +
         '<span class="r-title">' + titleLink(t.rm_id, t.title || "(sans titre)") + '</span></div>' +
-        '<div class="r-meta">' + t.client + " / " + t.project + " · " + (t.status || "?") + '</div>';
+        '<div class="r-meta">' + esc(searchRowMeta(t)) + '</div>';
+      // RM2770 : un ticket que Redmine connaît mais que le local ignore n'a rien
+      // à faire dans le lanceur de session — il n'y a pas de fichier, pas de
+      // branche, rien à reprendre. Le clic l'ouvre chez Redmine, là où il vit.
+      const absent = t.origin === "redmine" && !t.synced;
+      const base = (CFG && CFG.redmine_url) || "";
+      li.title = absent
+        ? "Pas encore de fichier local — clic : ouvrir RM" + t.rm_id + " dans Redmine"
+          + (base ? "" : " (URL Redmine non configurée)")
+        : "Clic : préparer une session sur RM" + t.rm_id;
       li.onclick = () => {
+        if (absent) {
+          if (base) window.open(base + "/issues/" + t.rm_id, "_blank", "noopener");
+          else toast("URL Redmine non configurée sur cette instance", true);
+          return;
+        }
         document.getElementById("rm").value = t.rm_id;
         resolveRm();
         switchPanel("sessions");   // RM2283 : le lanceur vit dans le panneau « sessions »
@@ -6103,6 +6219,7 @@ async function loadProjects() {
       const o2 = o.cloneNode(true); o2.selected = false; rsSel.appendChild(o2);
     }
     fillClientCtx();                                   // RM2639 : peuple le menu client
+    sfInit();                                          // RM2770 : filtres de recherche
     if (clientContext) {                               // pré-filtre appliqué au chargement
       openedClient = clientContext; renderOpened();
       const proj = clientCtxProject(allProjects, clientContext);
@@ -6139,6 +6256,7 @@ function setClientContext(c) {
   }
   const sb = document.getElementById("search"); if (sb && sb.value.trim()) search();  // recherche
   renderProjectsPanel();                                       // RM2760 : le client du contexte se déplie
+  sfFillProjects();                                            // RM2770 : projets du filtre de recherche
   refreshSessions();                                           // sessions : re-render filtré
 }
 

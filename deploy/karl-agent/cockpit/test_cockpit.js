@@ -2853,3 +2853,51 @@ assert(/onclick="event\.stopPropagation\(\);openCenterConf\('project'/.test(hIco
 ["client", "conf"].forEach(k =>
   assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
 console.log("✓ fiche client et confs (RM2768) : contacts, partage, meta.yml — icônes sans effet de bord");
+
+// — RM2770 : recherche multi-source et filtres —
+const searchQuery = grabO("searchQuery");
+const searchRowMeta = grabO("searchRowMeta");
+
+// La source par défaut ne doit RIEN changer à la requête d'avant.
+assert.strictEqual(searchQuery("abc", { source: "local" }, ""), "/tickets/search?q=abc",
+  "source locale = requête historique, sans paramètre superflu");
+assert(searchQuery("x", { source: "redmine" }, "").includes("source=redmine"));
+assert(searchQuery("x", { source: "both" }, "").includes("source=both"));
+// Le filtre explicite prime sur le contexte global : sinon le cockpit
+// contredirait en silence le client qu'on vient de choisir.
+assert(searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"),
+  "le filtre explicite prime sur le contexte client");
+assert(searchQuery("x", {}, "calicote").includes("client=calicote"),
+  "…mais sans filtre, le contexte s'applique toujours (RM2639)");
+assert(!searchQuery("x", {}, "").includes("client="), "aucun client → aucun filtre client");
+const qFull = searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, "");
+["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(frag =>
+  assert(qFull.includes(frag), "paramètre manquant : " + frag));
+assert(searchQuery("a b&c", {}, "").includes("q=a%20b%26c"), "la requête est encodée");
+assert.strictEqual(searchQuery(null, null, null), "/tickets/search?q=", "entrées molles tolérées");
+
+// La ligne de contexte : ce qui décide du geste suivant doit être écrit.
+assert.strictEqual(searchRowMeta({ client: "c", project: "p", status: "a_faire" }),
+  "c / p · a_faire", "un résultat local reste sobre — pas de bruit");
+const meta2770 = searchRowMeta({ rm_id: "9", origin: "redmine", synced: false,
+  status: "Nouveau", redmine_project: "Projet X", assigned_to: "Karl" });
+assert(meta2770.includes("⚠ pas en local"),
+  "un ticket que le local ignore DOIT le dire — c'est ce qu'on est venu chercher");
+assert(meta2770.includes("Projet X"), "…et à défaut de client/projet PM, son projet Redmine");
+assert(meta2770.includes("→ Karl"), "…et son assignation, qui vient de Redmine seul");
+assert(searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
+  .includes("🌐 Redmine"), "un ticket vu des deux côtés le signale sans alarmer");
+assert(!searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
+  .includes("pas en local"), "…et surtout pas comme absent");
+assert.strictEqual(searchRowMeta(null), "— · ?", "résultat vide : pas d'exception");
+
+// Câblage : les trois sources et les filtres doivent exister dans la page.
+["sf-source", "sf-client", "sf-project", "sf-status", "sf-warn"].forEach(id =>
+  assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
+["local", "redmine", "both"].forEach(v =>
+  assert(new RegExp('<option value="' + v + '"').test(html), "source manquante : " + v));
+assert(/<select id="sf-source"[\s\S]*?<option value="local"/.test(html),
+  "« local » doit être la première option, donc le défaut");
+assert(/r\.redmine_error/.test(html),
+  "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place");
+console.log("✓ recherche multi-source (RM2770) : local par défaut, filtres, absents signalés");

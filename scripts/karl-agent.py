@@ -57,6 +57,7 @@ API (JSON, localhost:9876)
   GET  /sessions[?engine=&client=&project=&ghosts=0]
                                 → [{rm_id, tmux, created, attached, engine?,
                                    session_id?, client?, project?,
+                                   activity (dernière sortie du terminal, RM2787),
                                    registry?{seq, machine, created, branches[],
                                    worktrees[]}, registry_conflicts?[]}]
                                   (RM1939 ; registre pm_session RM2166)
@@ -862,7 +863,11 @@ def _log_path(rm_id: str) -> Path:
 def _list_sessions():
     rc, out, _ = _tmux(
         "list-sessions", "-F",
-        "#{session_name}\t#{session_created}\t#{session_attached}",
+        # RM2787 : `session_activity` — dernière SORTIE du terminal. C'est ce qui
+        # décide d'un geste (« muette depuis 2 h »), là où `session_created` ne
+        # dit que l'ancienneté. Un champ de plus dans une commande déjà passée à
+        # chaque poll : aucun appel supplémentaire.
+        "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_activity}",
     )
     if rc != 0:
         return []  # pas de serveur tmux = aucune session
@@ -884,6 +889,9 @@ def _list_sessions():
             "tmux": name,
             "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None,
             "attached": (len(parts) > 2 and parts[2] == "1"),
+            # `activity` est absent des tmux trop anciens pour ce format : None
+            # plutôt que 0, qui afficherait « il y a 56 ans » (RM2787).
+            "activity": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None,
         })
     return sessions
 

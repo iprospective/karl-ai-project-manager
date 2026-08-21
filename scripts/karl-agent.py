@@ -5247,6 +5247,19 @@ def _task_body(text: str) -> str:
     return text[end + 4:].strip() if end != -1 else ""
 
 
+def _mtime_iso(p: Path) -> str:
+    """Horodatage de dernière écriture du fichier, ISO minute (RM2630).
+
+    Filet quand `updated` du frontmatter n'a pas bougé (édition à la main) :
+    le front a besoin d'un repère de fraîcheur qui ne dépende pas de la
+    discipline des scripts.
+    """
+    try:
+        from datetime import datetime as _dt
+        return _dt.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%dT%H:%M")
+    except (OSError, ValueError):
+        return ""
+
 # >>> parse_checklist — pure (testée par test_karl_agent_worklog_checklist.py)
 _CHECKLIST_RE = re.compile(r"^\s*[-*+]\s+\[([ xX])\]\s+(.*\S)\s*$")
 
@@ -5375,6 +5388,12 @@ def op_resolve(rm_id: str) -> dict:
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
+        # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
+        # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été
+        # touché (édition à la main). Le front s'en sert pour révalider au retour
+        # sur un ticket et pour dater la version montrée.
+        "updated": str(pick("updated") or ""),
+        "mtime": _mtime_iso(tf),
         "description": _task_body(text)[:6000],
         # Protocole de test (RM2229) : champ canonique = frontmatter
         # `test_protocol` (miroir du CF Redmine, rédigé au fil de l'eau via

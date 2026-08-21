@@ -44,6 +44,7 @@ custom_fields:
       used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}
   8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "actions à la MEP ; string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
+  7:  {name: "Recurrence",           format: enumeration, type: issue,      trackers: [autre], used_by: "périodicité d'un ticket récurrent → frontmatter `recurrence` (RM2772 ; cf. recurrence_cf). Activé sur le seul tracker « Tâche » côté instance : une vérification périodique n'est ni une anomalie ni une évolution. L'étendre à un autre tracker suppose de l'activer d'abord dans Redmine — sinon l'API accepte la valeur (2xx) et la jette en silence."}
 
 # ── CF27 « AI Test par agent » — faut-il une passe agent-testeur indépendante ──
 # Mapping frontmatter `requires_agent_test` → value id d'énumération Redmine.
@@ -169,3 +170,21 @@ task_type_cf:
     documentation: 42  # "Documentation"
     database: 44       # "Database"
     configuration: 22  # "Config"
+
+# ── CF7 « Recurrence » — périodicité d'un ticket récurrent (RM2772) ────────────
+# Certains tickets ne se ferment pas définitivement : ils décrivent une
+# vérification périodique rejouée à intervalle régulier (ex. RM2771, mise à jour
+# mensuelle du serveur Vaultwarden). Le ticket est UNIQUE et rouvert à chaque
+# passage — pas un ticket par run (arbitrage Mathieu 2026-08-21).
+# Mapping frontmatter `recurrence` → value id d'énumération Redmine. Vide côté
+# Redmine = pas de récurrence (`null`). Source unique : lue par
+# `redmine_utils.recurrence_cf()` — ne pas redupliquer en dur.
+recurrence_cf:
+  id: 7                # CF « Recurrence » (enumeration, issue)
+  values:
+    quotidienne:  6    # "Quotidienne"
+    hebdomadaire: 7    # "Hebdomadaire"
+    mensuelle:    8    # "Mensuelle"
+    annuelle:     9    # "Annuelle"
+  # Pas de périodicité en jours ici : le calcul de la date de prochain run
+  # (lot 2) doit rester calendaire (« le 21 du mois suivant »), pas un delta fixe.

@@ -169,6 +169,16 @@ def diff_fields(fm, issue):
     if fm.get("parent_task") != rm_parent:
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
 
+    # Recurrence (CF7) — périodicité d'un ticket récurrent (RM2772).
+    # Redmine rend le *label* de l'énumération ; `recurrence_from_cf` accepte
+    # label ou value id. Une valeur vidée côté Redmine repasse le champ à None.
+    from redmine_utils import recurrence_cf, recurrence_from_cf
+    rec_cf_id, _ = recurrence_cf()
+    if rec_cf_id:
+        new_rec = recurrence_from_cf(cf_value(issue, rec_cf_id))
+        if (fm.get("recurrence") or None) != new_rec:
+            diffs["recurrence"] = (fm.get("recurrence"), new_rec)
+
     # Updated timestamp (always refresh)
     new_updated = api_ts_local(issue.get("updated_on"))
     if new_updated and fm.get("updated") != new_updated:

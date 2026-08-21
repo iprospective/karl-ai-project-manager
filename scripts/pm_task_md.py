@@ -19,7 +19,7 @@ try:
 except ImportError:                                            # pragma: no cover
     raise SystemExit("ERREUR : PyYAML requis (pip install pyyaml)")
 
-SCHEMA_VERSION = "1.11.0"
+SCHEMA_VERSION = "1.12.0"
 
 TYPE_TO_TRACKER = {
     "feature": 2,         # Évolution            (worker-dev)
@@ -105,7 +105,7 @@ def has_acceptance_criteria(desc: str) -> bool:
 
 def build_frontmatter(rm_id, title, *, type="feature", priority="normal",
                       status="nouveau", parent=None, tags=None, target_env=None,
-                      agent_test="default", created=None, now=None,
+                      agent_test="default", recurrence=None, created=None, now=None,
                       estimate=None, creator="iprospective",
                       team=None, estimated_by="pm-task-add"):
     """Frontmatter d'une fiche neuve. `estimate` : dict partiel des champs d'estimation.
@@ -136,6 +136,7 @@ def build_frontmatter(rm_id, title, *, type="feature", priority="normal",
         "status": status,
         "close_reason": None,
         "requires_agent_test": agent_test,
+        "recurrence": recurrence,
         "completion_pct": 0,
         "priority": priority,
         "roi": {"immediate_benefit": 3, "monthly_benefit": 3,

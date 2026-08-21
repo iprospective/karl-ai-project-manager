@@ -115,6 +115,37 @@ def task_type_cf():
     return ref.get("id"), dict(ref.get("values") or {})
 
 
+def recurrence_cf():
+    """(cf_id, {recurrence_NORMS: value_id}) pour le CF « Recurrence » (RM2772).
+
+    Périodicité d'un ticket récurrent — un ticket UNIQUE rouvert à chaque
+    passage, pas un ticket par run. Source unique :
+    `redmine.reference.yml :: recurrence_cf`. Retourne (None, {}) si non
+    configuré.
+    """
+    ref = load_reference().get("recurrence_cf") or {}
+    return ref.get("id"), dict(ref.get("values") or {})
+
+
+def recurrence_from_cf(value):
+    """Label d'énumération Redmine (ou value id) → recurrence NORMS, ou None.
+
+    Redmine renvoie le *label* dans `custom_fields[].value` (ex. "Mensuelle") ;
+    la référence indexe par value id. On accepte les deux, et le label est
+    comparé sans casse pour ne pas dépendre de la typographie de l'instance.
+    """
+    if value in (None, "", []):
+        return None
+    raw = str(value).strip()
+    if not raw:
+        return None
+    _, values = recurrence_cf()
+    for name, vid in values.items():
+        if raw == str(vid) or raw.lower() == name.lower():
+            return name
+    return None
+
+
 def status_aliases():
     """Mapping {statut_déprécié: statut_canonique} depuis la référence (+ fallback)."""
     ref = load_reference().get("status_aliases")

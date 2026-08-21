@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.8.0] - 2026-08-21
+
+### Ajouté
+- **KERNEL** — champ conditionnel **`recurrence`** (`quotidienne` | `hebdomadaire` |
+  `mensuelle` | `annuelle`) et son énumération : périodicité d'un ticket **récurrent**,
+  mappée sur le CF Redmine 7 « Recurrence ». Le modèle est **un ticket unique par sujet,
+  rouvert et retraité à chaque passage** — pas un ticket par run (arbitrage Mathieu
+  2026-08-21) : un ticket par run noierait le suivi sous des doublons sans mémoire du
+  passage précédent. Déclencheur ajouté à la table (« un ticket décrit une vérification
+  PÉRIODIQUE ») pointant sur l'outil canonique `pm-task-recurrence` — la pose à la main
+  est un piège : le CF n'est activé que sur le tracker « Tâche », et ailleurs Redmine
+  accepte la valeur puis la jette en silence. (RM2772)
+
 ## [2.7.1] - 2026-08-21
 
 ### Corrigé

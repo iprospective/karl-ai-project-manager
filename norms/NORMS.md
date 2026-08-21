@@ -1,10 +1,10 @@
 ---
-schema_version: "2.7.1"
+schema_version: "2.8.0"
 updated: 2026-08-21
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
 
-# Normes de gestion des tâches — v2.7.1
+# Normes de gestion des tâches — v2.8.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -55,6 +55,7 @@ updated: 2026-08-21
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
+| un ticket décrit une vérification PÉRIODIQUE (on le rouvre à chaque passage) | **§ Champs conditionnels** (`recurrence`) — un seul ticket, jamais un par run | `pm-task-recurrence` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
 | micro-tâche (≤ 30 min, sans code) | `modules/status-workflow.md` § flux court | `pm-task-take --no-branch`, `pm-task-add --retro` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
@@ -189,6 +190,12 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 - `requires_agent_test` — `default` (défaut) | `oui` | `non` | `demander` : conditionne la
   passe agent-testeur en fin de dev (cf. § « Passe agent-testeur indépendante »). Mappé sur
   le CF Redmine 27. Absent ⇔ `default`.
+- `recurrence` — `null` (défaut) | `quotidienne` | `hebdomadaire` | `mensuelle` |
+  `annuelle` : périodicité d'un ticket **récurrent**, mappée sur le CF Redmine 7
+  « Recurrence ». Un sujet récurrent tient dans **un seul ticket, rouvert et retraité à
+  chaque passage** — pas un ticket par run. Se pose **uniquement** via
+  `pm-task-recurrence` (le CF n'est activé que sur le tracker « Tâche » : ailleurs,
+  l'API accepte la valeur et la jette en silence).
 
 ## Valeurs énumérées
 
@@ -206,6 +213,9 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 
 ### close_reason
 `resolu` | `abandonne` | `doublon` | `wont_fix` | `invalide` | `hors_perimetre`
+
+### recurrence
+`null` | `quotidienne` | `hebdomadaire` | `mensuelle` | `annuelle`
 
 ### bug.reproducibility
 `always` | `often` | `sometimes` | `rarely` | `never`

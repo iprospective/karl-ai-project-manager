@@ -13,6 +13,27 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Tickets récurrents
+- **La périodicité d'un ticket récurrent est enfin portée par le modèle** (RM2772,
+  lot 1) : certains tickets ne se ferment pas définitivement — ils décrivent une
+  vérification rejouée à intervalle régulier (mise à jour mensuelle d'un serveur,
+  contrôle de sauvegardes…). Redmine avait déjà le CF 7 « Recurrence », que rien dans
+  l'outillage ne lisait ni n'écrivait : la périodicité vivait au mieux dans la prose du
+  ticket. Elle est désormais un champ de première classe, `recurrence` au frontmatter
+  (`quotidienne` | `hebdomadaire` | `mensuelle` | `annuelle`), synchronisé dans les deux
+  sens — `pm-task-add --recurrence` à la création, **`pm-task-recurrence set|clear|show|
+  list`** sur un ticket existant, et rapatriement par `pm-task-sync` quand la valeur
+  change côté Redmine. Le modèle retenu est **un ticket unique par sujet, rouvert et
+  retraité à chaque passage** — pas un ticket par run. `pm-task-recurrence list` donne
+  déjà la vue « qui est récurrent, et de quand date son dernier passage », le plus ancien
+  en tête. Deux pièges désamorcés : Redmine rend le *label* de l'énumération et non son
+  id (une comparaison par id seul conclurait à tort que l'écriture a été ignorée), et il
+  **accepte puis jette en silence** la valeur d'un CF non activé pour le tracker — d'où
+  une relecture systématique après écriture, et le CF déclaré dans la référence sur le
+  seul tracker « Tâche », où il est réellement activé. Restent à faire : le CF « date de
+  prochain run » et son recalcul à la clôture (lot 2), l'entrée en tête de cockpit
+  (lot 3).
+
 ### Cockpit
 - **« ⤢ au centre » échouait en « worktree hors du périmètre »** (RM2761) : ouvrir un
   fichier au centre commence par **détacher** la session et fermer la fiche projet — or

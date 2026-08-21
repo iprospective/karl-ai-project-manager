@@ -1,5 +1,5 @@
 ---
-schema_version: "1.11.0"
+schema_version: "1.12.0"
 
 # Identification
 redmine_id:                   # OBLIGATOIRE — entier, doit correspondre au RM{id} du nom de fichier
@@ -26,6 +26,10 @@ status: a_etudier_chiffrer
 close_reason: null
 # resolu | abandonne | doublon | wont_fix | invalide | hors_perimetre
 completion_pct: 0
+recurrence: null
+# null | quotidienne | hebdomadaire | mensuelle | annuelle — ticket RÉCURRENT
+# (vérification périodique rejouée : UN ticket rouvert à chaque passage, pas un
+#  ticket par run). CF Redmine 7 « Recurrence » ; se pose via pm-task-recurrence.
 
 # Priorité & ROI (cf. NORMS — section "ROI assisté par IA")
 priority: normal

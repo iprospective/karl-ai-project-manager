@@ -139,6 +139,11 @@ def main():
                          "privilégier pour une description structurée multi-ligne "
                          "(évite les descriptions sur une seule ligne illisibles).")
     ap.add_argument("--tags", default="", help="Liste csv de tags")
+    ap.add_argument("--recurrence", choices=["quotidienne", "hebdomadaire",
+                                             "mensuelle", "annuelle"],
+                    help="Périodicité d'un ticket RÉCURRENT (frontmatter `recurrence` "
+                         "/ CF7). Le ticket est unique et rouvert à chaque passage — "
+                         "on ne crée pas un ticket par run (RM2772).")
     ap.add_argument("--agent-test", dest="agent_test", default="default",
                     choices=["default", "oui", "non", "demander"],
                     help="Passe agent-testeur en fin de dev (frontmatter requires_agent_test "
@@ -284,6 +289,17 @@ def main():
     if tt_cf_id and args.type in tt_values:
         extra_cf.append({"id": tt_cf_id, "value": str(tt_values[args.type])})
 
+    # CF « Recurrence » (RM2772) : posé seulement si --recurrence est donné —
+    # vide côté Redmine = ticket non récurrent.
+    from redmine_utils import recurrence_cf
+    rec_cf_id, rec_values = recurrence_cf()
+    if args.recurrence and rec_cf_id and args.recurrence in rec_values:
+        extra_cf.append({"id": rec_cf_id,
+                         "value": str(rec_values[args.recurrence])})
+    elif args.recurrence and not (rec_cf_id and args.recurrence in rec_values):
+        out.warn(f"CF Recurrence non poussé : {args.recurrence!r} absent de "
+                 "recurrence_cf (redmine.reference.yml)")
+
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
     target_author = None if args.initiator_agent else load_ia_manager_id()
@@ -302,8 +318,10 @@ def main():
     if args.porcelain:
         out.value(rm_id)
 
-    if extra_cf:
+    if tt_cf_id and args.type in tt_values:
         out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+    if args.recurrence and rec_cf_id and args.recurrence in rec_values:
+        out.info(f"  · CF{rec_cf_id} recurrence → {args.recurrence}")
     if target_author is not None:
         out.info(f"  · author_id → {target_author}")
 
@@ -328,7 +346,7 @@ def main():
     fm = build_frontmatter(
         rm_id, args.title, type=args.type, priority=args.priority,
         parent=args.parent, tags=tags, target_env=args.target_env,
-        agent_test=args.agent_test, now=now,
+        agent_test=args.agent_test, recurrence=args.recurrence, now=now,
         estimate={"difficulty": args.est_difficulty,
                   "human_time_minutes": args.est_human_minutes,
                   "ai_time_minutes": args.est_ai_minutes,

@@ -43,6 +43,9 @@ VALID_STATUSES = {
 
 VALID_PRIORITIES = {"low", "normal", "high", "urgent"}
 
+# Périodicité d'un ticket récurrent (CF Redmine 7 « Recurrence », RM2772).
+VALID_RECURRENCES = {"quotidienne", "hebdomadaire", "mensuelle", "annuelle"}
+
 VALID_CLOSE_REASONS = {
     "resolu", "abandonne", "doublon", "wont_fix", "invalide", "hors_perimetre",
 }
@@ -127,6 +130,8 @@ class Validator:
             self.err(file, f"priority invalide : {fm['priority']}")
         if fm.get("close_reason") and fm["close_reason"] not in VALID_CLOSE_REASONS:
             self.err(file, f"close_reason invalide : {fm['close_reason']}")
+        if fm.get("recurrence") and fm["recurrence"] not in VALID_RECURRENCES:
+            self.err(file, f"recurrence invalide : {fm['recurrence']}")
 
     def validate_conditional(self, file, fm):
         # close_reason obligatoire si status = ferme

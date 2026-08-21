@@ -26,6 +26,7 @@ Lancer : python3 scripts/test_karl_agent_batch.py
 """
 import importlib.util
 import pathlib
+import re
 import sys
 
 HERE = pathlib.Path(__file__).resolve().parent
@@ -89,6 +90,48 @@ check("elle exige la notification de fin de lot", "notify" in p and "lot termin�
 check("elle exige le récapitulatif au worklog", "pm-session-status" in p)
 check("elle interdit de forcer un ticket bloqué", "NE FORCE PAS" in p)
 check("consigne vide tolérée", isinstance(ka.batch_prompt([]), str))
+
+# — RM2762 : le --kind prescrit doit EXISTER côté pm-session-status —
+# La consigne prescrivait `--kind lot`, absent de NOTIFY_KINDS : la commande finale
+# d'un lot échouait telle qu'écrite. Constaté en séance en traitant RM2675.
+NOTIFY_KINDS = {"autre", "decision", "garde-fou", "outillage", "refus", "secret"}
+_m = re.search(r"--kind (\S+)", p)
+check("le --kind prescrit est une valeur acceptée par pm-session-status",
+      bool(_m) and _m.group(1) in NOTIFY_KINDS)
+
+# — RM2762 : à UN ticket il n'y a pas de lot — le mot et son cadre disparaissent —
+s1 = ka.batch_prompt(ka.batch_plan([{"rm_id": "10", "status": "a_faire"}])["todo"])
+for _mot in ("EN SÉRIE", "un ticket à la fois", "passe au suivant", "lot terminé",
+             "ticket par ticket", "Règles du lot"):
+    check(f"solo : « {_mot} » a disparu", _mot not in s1)
+check("solo : le mot « lot » a disparu entièrement", "lot" not in s1.lower())
+check("solo : pas de numérotation (rien à ordonner)", "1. RM10" not in s1 and "RM10" in s1)
+check("solo : le protocole NORMS est conservé", "protocole worker NORMS" in s1)
+check("solo : le statut de fin NORMS est conservé",
+      "etude_chiffrage_a_valider" in s1 and "a_tester_demandeur" in s1)
+check("solo : l'interdiction de forcer est conservée", "NE FORCE PAS" in s1)
+check("solo : le worklog est conservé", "pm-session-status" in s1)
+check("solo : un compte rendu est demandé", "compte rendu" in s1)
+
+s1a = ka.batch_prompt(ka.batch_plan([{"rm_id": "22", "status": "a_tester_dev"}])["todo"],
+                      mode="atester")
+check("solo atester : pas de lot non plus", "lot" not in s1a.lower())
+check("solo atester : la livraison reste exigée", "LIVRER" in s1a and "RM2229" in s1a)
+check("solo atester : un seul NE FORCE PAS (pas de doublon)", s1a.count("NE FORCE PAS") == 1)
+
+# — la PORTÉE RESTREINTE (RM2719) survit au cas solo —
+s1s = ka.batch_prompt(ka.batch_plan(
+    [{"rm_id": "10", "status": "a_faire", "scope": ["point A", "point B"]}])["todo"])
+check("solo : la portée restreinte est portée", "PORTÉE RESTREINTE" in s1s and "point A" in s1s)
+check("solo : sa règle est là, sans le mot « lot »",
+      "ne se clôture PAS" in s1s and "lot" not in s1s.lower())
+
+# — à 2 tickets, le cadre de lot est INCHANGÉ —
+s2 = ka.batch_prompt(ka.batch_plan(
+    [{"rm_id": "10", "status": "a_faire"}, {"rm_id": "11", "status": "a_faire"}])["todo"])
+check("2 tickets : le cadre de lot est conservé",
+      "EN SÉRIE" in s2 and "un ticket à la fois" in s2 and "lot terminé" in s2)
+check("2 tickets : la numérotation revient", "1. RM10" in s2 and "2. RM11" in s2)
 
 # — op_worklog_batch : gardes —
 sent = []

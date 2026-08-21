@@ -14,6 +14,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Glossaire de projet + sous-onglet « vocabulaire »** (RM2675). Chaque projet peut porter son
+  vocabulaire métier dans `docs/glossaire.md` — tableau `Terme / Définition / Contexte / Alias`,
+  écrit par `pm-glossaire.py` (tri, unicité et format garantis). L'étude a montré que la
+  plomberie existait déjà aux trois quarts : `docs/` est group-writable (RM2043), symlinké dans
+  le workspace de code, wiki-syncé vers Redmine et déjà rendu au cockpit. Le sous-onglet n'ajoute
+  donc que ce qui manquait vraiment — **la recherche** (filtre sur terme, définition, contexte et
+  alias). Et surtout, le glossaire est désormais **injecté au contexte des workers**
+  (`worker-common.md` §5bis), plafonné à 1 500 tokens avec troncature annoncée : sans quoi un
+  agent qui croise un terme qu'il ne connaît pas n'ouvre pas le glossaire, il suppose.
+- **Bouton « traiter » : à UN seul ticket, il n'y a plus de lot** (RM2762). La consigne
+  générée gardait tout le cadre de série — « EN SÉRIE, dans cet ordre », « un ticket à la
+  fois », « passe au suivant », « bilan ticket par ticket », notification de fin de lot —
+  pour un ticket unique : l'unique consigne utile se noyait sous des règles sans objet.
+  Le mot « lot » disparaît entièrement du cas solo (les deux modes, « traiter » et
+  « à tester ») ; ce qui est substantiel est conservé à l'identique (protocole NORMS,
+  statut de fin, interdiction de forcer, portée restreinte). À 2 tickets ou plus, rien ne
+  change. **Second défaut corrigé au passage** : la consigne prescrivait
+  `pm-session-status.py notify --kind lot`, or `lot` n'existe pas dans `NOTIFY_KINDS` — la
+  commande finale d'un lot **échouait telle qu'écrite**, quel que soit le nombre de
+  tickets. Un test vérifie désormais que le `--kind` prescrit est une valeur acceptée.
 - **« ⤢ au centre » échouait en « worktree hors du périmètre »** (RM2761) : ouvrir un
   fichier au centre commence par **détacher** la session et fermer la fiche projet — or
   la requête n'était construite qu'après, en relisant un contexte que ce détachement

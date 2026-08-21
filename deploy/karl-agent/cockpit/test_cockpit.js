@@ -2736,6 +2736,47 @@ assert(/data-panel="projects"/.test(html), "l'onglet gauche doit exister");
 assert(/<div class="lpanel" id="lp-projects">/.test(html), "…avec son panneau");
 assert(/projects: \(\) => loadProjectsPanel\(\)/.test(html), "…et son chargeur");
 console.log("✓ panneau projets (RM2760) : groupé par client, filtré, fiche au centre");
+
+// ── RM2675 : glossaire de projet — lecture du tableau et filtre ───────────────
+// Ce qu'on protège : le sous-onglet « vocabulaire » n'ajoute qu'UNE chose au rendu markdown
+// déjà existant — la recherche. Si le filtre ne trouve pas un terme par son ALIAS, la colonne
+// alias ne sert à rien et le sous-onglet non plus.
+const gr = />>> glossaireRows[\s\S]*?(function glossaireRows[\s\S]*?)\n\/\/ <<< glossaireRows/.exec(html);
+assert(gr, "marqueurs >>> glossaireRows introuvables");
+const glossaireRows = vm.runInNewContext("(" + gr[1] + ")");
+const gf = />>> glossaireFiltre[\s\S]*?(function glossaireFiltre[\s\S]*?)\n\/\/ <<< glossaireFiltre/.exec(html);
+assert(gf, "marqueurs >>> glossaireFiltre introuvables");
+const glossaireFiltre = vm.runInNewContext("(" + gf[1] + ")");
+
+const MD2675 = [
+  "---", "wiki_sync: true", "---", "", "# Glossaire — calyclay/calymix", "",
+  "| Terme | Définition | Contexte d'usage | Alias |",
+  "|---|---|---|---|",
+  "| HFOV | Champ horizontal d'une optique. | 24 mm ⇒ 74°. | horizontal field of view |",
+  "| rampe | Barre portant la rangée de guillotines. | 75 vannes × 40 mm. | — |",
+].join("\n");
+const rows2675 = glossaireRows(MD2675);
+assert(rows2675.length === 2, "le frontmatter, le titre et le séparateur ne sont PAS des termes");
+assert(rows2675[0].terme === "HFOV" && rows2675[0].alias.includes("field of view"),
+  "les 4 colonnes sont lues");
+assert(glossaireRows("").length === 0 && glossaireRows(null).length === 0,
+  "glossaire vide ou absent toléré");
+assert(glossaireRows("| a | b |")[0].contexte === "" , "une ligne courte est complétée, pas rejetée");
+
+assert(glossaireFiltre(rows2675, "").length === 2, "filtre vide = tout");
+assert(glossaireFiltre(rows2675, "RAMP").length === 1, "le filtre est insensible à la casse");
+assert(glossaireFiltre(rows2675, "field of view")[0].terme === "HFOV",
+  "on trouve un terme par son ALIAS — sinon la colonne alias est inutile");
+assert(glossaireFiltre(rows2675, "guillotines")[0].terme === "rampe",
+  "…et par le CONTEXTE, pas seulement par le terme");
+assert(glossaireFiltre(rows2675, "zzz").length === 0, "un filtre sans résultat rend une liste vide");
+
+// Le câblage : un sous-onglet que rien n'affiche n'existe pas.
+assert(/onclick="vocabShow\(true\)"/.test(html), "le sous-onglet vocabulaire doit être cliquable");
+assert(/function vocabShow/.test(html) && /function vocabBodyHtml/.test(html),
+  "…avec son chargeur et son corps");
+assert(/glossaire\.md/.test(html), "…et il doit chercher docs/glossaire.md");
+console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/définition/contexte/alias");
 // — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
 const fsScope = grabFn("fsScope");
 const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc

@@ -1988,8 +1988,11 @@ console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempl
 // — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
 // `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
-const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
-      renderCenterTabs = grabFn("renderCenterTabs");
+const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt");
+// RM2775 : le rendu délègue l'infobulle à `tabTooltip` — on l'injecte dans son
+// contexte isolé, sinon le rendu lève dès le premier onglet.
+const renderCenterTabs = vm.runInNewContext("(" + grab("renderCenterTabs") + ")",
+  { Object, tabTooltip: grabFn("tabTooltip") });
 // RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
 // qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
 const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
@@ -2927,3 +2930,65 @@ assert(/<div class="tabactions" id="tabactions" style="display:none">/.test(html
 ["yesbtn", "autoyes", "micbtn", "readbtn", "monbtn", "layoutsel", "reattach"].forEach(id =>
   assert(b2774.includes('id="' + id + '"'), "action perdue au déplacement : " + id));
 console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et actions dessous");
+
+// — RM2775 : l'infobulle d'un onglet dit ce que son libellé ne peut pas dire —
+const tabTooltip = grabO("tabTooltip");
+const parse2775 = parseViewKey;
+const RC2775 = {
+  "2744": { found: true, title: "Tableau de bord : contenu coupé en haut" },
+  "2673": { found: true, title: "Améliorations ergonomiques PM" },
+  "9999": { found: false },
+};
+
+// Le cas de la demande : survoler « RM2744 » ne doit plus afficher « RM2744 ».
+const tipTicket = tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, RC2775, parse2775);
+assert(tipTicket.includes("Tableau de bord : contenu coupé"),
+  "l'infobulle d'un ticket doit porter son titre");
+assert(tipTicket.startsWith("RM2744 — "), "…sans perdre l'identifiant, qui situe");
+// Titre pas encore résolu : ne rien inventer, et surtout pas de tiret orphelin.
+const tipInconnu = tabTooltip({ kind: "review", key: "9999", label: "RM9999" }, RC2775, parse2775);
+assert.strictEqual(tipInconnu, "RM9999", "un titre inconnu ne laisse pas de tiret vide");
+assert(!/undefined|null/.test(tipInconnu), "…ni de « undefined »");
+assert.strictEqual(tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, {}, parse2775),
+  "RM2744", "cache vide toléré");
+
+// Session : titre si connu, forme lisible sinon.
+assert(tabTooltip({ kind: "session", key: "2673" }, RC2775, parse2775)
+  .includes("Améliorations ergonomiques"), "une session ancrée sur un ticket porte son titre");
+assert.strictEqual(tabTooltip({ kind: "session", key: "calymix" }, RC2775, parse2775),
+  "session calymix", "une session à slug reste lisible");
+
+// Les vues centrales : c'est là que le libellé est le plus tronqué.
+assert(tabTooltip({ kind: "file", key: viewKey(["wt", "/w/repo", "src/api/handlers.py"]) },
+  RC2775, parse2775).includes("src/api/handlers.py"), "un fichier montre son chemin entier");
+assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", "src/api"]) }, RC2775, parse2775)
+  .includes("src/api"), "un dossier aussi");
+assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", ""]) }, RC2775, parse2775)
+  .includes("racine"), "…y compris la racine, qui se nomme");
+const tipCommit = tabTooltip({ kind: "commit", key: viewKey(["2749", "abcdef1234567890"]) },
+  RC2775, parse2775);
+assert(tipCommit.includes("abcdef1234567890"), "un commit montre son sha ENTIER (le libellé le coupe à 8)");
+assert(tipCommit.includes("2749"), "…et la session qui le sert");
+assert(tabTooltip({ kind: "mail", key: "k1", label: "Devis pour le site vitrine et…" },
+  RC2775, parse2775).includes("Devis pour le site"), "un email montre son sujet");
+assert(tabTooltip({ kind: "conf", key: viewKey(["project", "calicote", "presta"]) },
+  RC2775, parse2775).includes("calicote/presta"), "une conf projet dit de quel projet");
+assert(tabTooltip({ kind: "client", key: viewKey(["calicote"]) }, RC2775, parse2775)
+  .includes("calicote"), "une fiche client dit lequel");
+assert.strictEqual(tabTooltip({ kind: "dash", key: "" }, RC2775, parse2775), "tableau de bord");
+assert.strictEqual(tabTooltip({}, RC2775, parse2775), "", "onglet vide : pas d'exception");
+assert.strictEqual(tabTooltip(null, null, null), "", "entrées molles tolérées");
+
+// Le rendu doit utiliser l'infobulle, et garder les mentions de fonctionnement.
+const htmlTabs = renderCenterTabs(
+  [{ kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true },
+   { kind: "review", key: "2744", label: "RM2744", pinned: true },
+   { kind: "review", key: "2673", label: "RM2673", pinned: false }],
+  "review:2744", escO, jargFn, RC2775, parse2775);
+assert(htmlTabs.includes("Tableau de bord : contenu coupé"),
+  "le titre du ticket arrive bien dans le title= de l'onglet");
+assert(htmlTabs.includes("toujours là"), "l'onglet permanent garde sa mention");
+assert(htmlTabs.includes("non épinglé"), "…et le temporaire la sienne");
+assert(htmlTabs.includes('<span class="lbl">RM2744</span>'),
+  "le LIBELLÉ affiché ne change pas — seule l'infobulle s'enrichit");
+console.log("✓ infobulle d'onglet (RM2775) : le titre, le chemin, le sha entier — jamais un tiret vide");

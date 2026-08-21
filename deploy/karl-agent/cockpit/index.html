@@ -3271,8 +3271,46 @@ function closeTabAt(tabs, id, activeId) {
 }
 // <<< closeTabAt
 
+// >>> tabTooltip — pur (RM2775, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// L'infobulle disait ce que le libellé affiche déjà : survoler « RM2744 »
+// donnait « RM2744 ». Elle doit dire ce que le libellé ne PEUT pas dire, faute
+// de place — le titre du ticket, le chemin entier, le sha complet. Et quand ce
+// complément est inconnu, elle s'en tient à ce qu'on sait : mieux vaut un
+// libellé répété qu'un tiret suivi de rien.
+function tabTooltip(t, rcache, parse) {
+  const tab = t || {};
+  const cache = rcache || {};
+  const parts = parse ? parse(tab.key || "") : [];
+  const key = String(tab.key == null ? "" : tab.key);
+  const lbl = String(tab.label || "");
+  const resolu = (id) => {
+    const r = cache[String(id)];
+    return (r && r.found && r.title) ? String(r.title) : "";
+  };
+  const avec = (tete, suite) => suite ? tete + " — " + suite : tete;
+  switch (tab.kind) {
+    case "review":   return avec("RM" + key, resolu(key));
+    case "session":  return avec(/^\d+$/.test(key) ? "session RM" + key : "session " + key,
+                                 resolu(key));
+    case "project":  return avec("fiche projet", key);
+    case "client":   return avec("fiche client", parts[0] || key);
+    case "conf":     return avec("configuration",
+                                 parts[0] === "project" ? (parts[1] || "") + "/" + (parts[2] || "")
+                                                        : (parts[1] || ""));
+    case "file":     return avec("fichier", parts[2] || parts[1] || lbl);
+    case "dir":      return avec("dossier", parts[2] || "racine du dépôt");
+    case "commit":   return avec("commit " + (parts[1] || lbl),
+                                 parts[0] ? "session " + parts[0] : "");
+    case "mail":     return avec("email", lbl);
+    case "newticket": return "nouveau ticket";
+    case "dash":     return "tableau de bord";
+    default:         return lbl || key;
+  }
+}
+// <<< tabTooltip
+
 // >>> renderCenterTabs — pur (testé par test_cockpit.js)
-function renderCenterTabs(tabs, activeId, esc, jarg) {
+function renderCenterTabs(tabs, activeId, esc, jarg, rcache, parse) {
   const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
                  file: "📄", dir: "🗂", commit: "⎇", mail: "📧",     // RM2759
                  client: "🏢", conf: "⚙" };                          // RM2768
@@ -3282,7 +3320,8 @@ function renderCenterTabs(tabs, activeId, esc, jarg) {
     // RM2744 : un onglet permanent n'offre ni croix ni épingle — les deux gestes
     // n'ont pas de sens sur lui, et une croix inopérante se lit comme un bug.
     return '<span class="' + cls + '" onclick="activateTab(' + jarg(id) + ')" title="' +
-      esc(t.label) + (t.fixed ? " — toujours là" : t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
+      esc(tabTooltip(t, rcache, parse)) +      // RM2775 : le titre, pas l'identifiant
+      (t.fixed ? " — toujours là" : t.pinned ? "" : " — non épinglé : la prochaine vue le remplace") + '">' +
       '<span>' + (icon[t.kind] || "•") + '</span>' +
       '<span class="lbl">' + esc(t.label) + '</span>' +
       (t.fixed ? "" :
@@ -3297,7 +3336,8 @@ function renderCenterTabs(tabs, activeId, esc, jarg) {
 
 function renderTabs() {
   const el = document.getElementById("ctabs");
-  if (el) el.innerHTML = renderCenterTabs(centerTabs, activeTabId, esc, jarg);
+  if (el) el.innerHTML = renderCenterTabs(centerTabs, activeTabId, esc, jarg,
+                                          resolveCache, parseViewKey);   // RM2775
 }
 
 // Enregistre la vue courante comme onglet. Appelé PAR les ouvreurs existants
@@ -6442,6 +6482,11 @@ async function ensureResolved(rmId, force) {
   if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
   try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
   resolveAt[rmId] = Date.now();
+  // RM2775 : un titre arrivé après coup doit atteindre l'infobulle de son onglet.
+  // Re-rendu SEULEMENT si un onglet porte cet id — la résolution est appelée pour
+  // chaque session à chaque poll, redessiner la barre à chaque fois serait absurde.
+  if (centerTabs.some(t => t && String(t.key) === rmId
+                           && (t.kind === "review" || t.kind === "session"))) renderTabs();
   return resolveCache[rmId];
 }
 // Révalidation silencieuse au retour sur un ticket : sert le cache tout de

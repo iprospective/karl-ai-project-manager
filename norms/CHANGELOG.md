@@ -1,5 +1,19 @@
 # Changelog des normes
 
+## [2.7.1] - 2026-08-21
+
+### Corrigé
+- **roi-pricing** — la description du résolveur de `pm-task-tick` décrivait encore
+  la cascade d'avant **RM1823** (« sentinel, puis *seule tâche `en_cours`* du
+  projet », plus une « V2 prévue » déjà livrée). Le code résout depuis longtemps
+  **par ce que le tour a réellement touché** (signal fort→faible : mutation PM >
+  édition de fichier ticket > mention textuelle ; puis continuation de session ;
+  puis sentinel), et **aucun statut n'est filtré hormis la garde `ferme`**. Écart
+  coûteux : la doc laissait croire qu'une phase d'`etude_chiffrage_en_cours`
+  n'était pas comptée — diagnostic faux, vérification faite (une étude a bien été
+  tickée : 67 k tokens, 23 min). Le point 4 est aligné aussi : la somme porte sur
+  **tous** les messages assistant du tour, **dédupliqués par `message.id`**
+  (RM2628), pas sur « le dernier message assistant ». (RM2627)
 ## [2.7.0] - 2026-08-20
 
 ### Ajouté

@@ -24,6 +24,10 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   fiable, matcher le path complet — cf. RM2219), MR
 - [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
   (`agent refused operation`), bascule vers un vrai ssh-agent
+- [prestashop](./prestashop/) — procédure de **MEP commune aux 4 boutiques** du parc :
+  maintenance (`PS_SHOP_ENABLE` + garde-fou `PS_MAINTENANCE_IP`), `php7.4` obligatoire,
+  `--ff-only` sur arbre sale, le faux « rien à faire » de l'upgrade de module en CLI,
+  vérification par présentation de panier
 - [karl-agent](./karl-agent/) — sessions Claude Code du cockpit : stockage
   (transcript partagé hôte↔conteneur, store per-session NON partagé), les 3 ancrages
   d'une session à un projet, déplacer une session (`/move-session`, `karl-move-session`)

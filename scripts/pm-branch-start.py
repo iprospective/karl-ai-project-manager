@@ -6,7 +6,8 @@ Opération « je commence à coder un ticket » outillée :
      branche courante du repo) et checkée out — idempotent : si elle existe
      déjà, simple checkout ;
   2. CF Redmine « GIT Branche » renseigné ;
-  3. frontmatter de la tâche (`git.repo` / `git.branch`) + entrée `.log.md` ;
+  3. frontmatter de la tâche (`git.repo` / `git.branch`, et `git.worktree` dès
+     que le dépôt cible est un worktree dédié — RM2754) + entrée `.log.md` ;
   4. auto-commit des fichiers PM écrits (pm_git, RM1834) ;
   5. --take : enchaîne la prise du ticket (pm-task-status-update en_cours,
      auto-assignation NORMS).
@@ -29,6 +30,14 @@ NB : dans un workspace au layout RM1993 (`repos/` + `envs/`), l'env de session
 — créé automatiquement à la prise du ticket (hook en_cours de
 pm-task-status-update, RM1834). Le mode --worktree ci-dessous reste le chemin
 pour les repos hors layout.
+
+`git.worktree` est renseigné dans les DEUX cas (RM2754) : avec `--worktree`, et
+aussi quand le `--repo` reçu est déjà un worktree lié — ce que fait `pm-task-take`
+en passant l'env de session. Sans cela le champ restait vide pour tous les tickets
+pris normalement, `pm-task-cd` répondait « mode in-place » et le garde-fou n°2 de
+`pm-pre-commit` (« tu commites depuis le mauvais worktree ») n'avait rien à
+comparer. Un travail réellement in-place dans le dépôt principal, lui, ne
+renseigne toujours rien : le champ reste le reflet de la réalité.
 """
 import argparse
 import re
@@ -62,51 +71,14 @@ def _git(repo, *args, check=True):
 
 
 def _resolve_base(root, base, fetch=True):
-    """Résout la base de branchement sur le REMOTE plutôt que sur le ref local (RM2574).
+    """Base de branchement résolue sur le REMOTE — implémentation partagée dans
+    `pm_git.resolve_base_ref` (RM2574 pour la règle, RM2646 pour la factorisation :
+    `pm-env-session` créait des branches sans ce garde).
 
-    `git checkout -b <br> dev` résout `dev` en `refs/heads/dev` — la branche LOCALE du
-    clone, que rien ne rafraîchit. Sur un clone où l'on ne travaille jamais `dev`
-    directement, elle décroche silencieusement : la branche du ticket part alors d'un
-    code périmé (vécu RM2574 : 500 lignes de retard sur `scripts/karl-agent.py`), sans
-    le moindre signal.
-
-    On fetch, puis on branche depuis `origin/<base>` dès que ce ref existe. Le fetch
-    seul ne suffirait pas : il rafraîchit `origin/*` mais laisse le ref local — et donc
-    la base retenue — au même endroit.
-
-    Repli sur le ref local : pas de remote, `origin/<base>` inexistant (branche locale
-    seulement), ou `--from` désignant déjà un ref distant.
+    En `--dry-run` on ne fetch pas (un essai à blanc n'écrit pas dans `.git`) : la
+    résolution se fait sur les refs `origin/*` telles qu'elles sont, et on le dit.
     """
-    if "/" in base:            # --from origin/dev, upstream/main… déjà distant
-        return base
-    remote = "origin"
-    if _git(root, "remote", "get-url", remote, check=False).returncode != 0:
-        return base            # pas de remote : rien à rafraîchir
-    if fetch:
-        # Un fetch qui échoue EN SILENCE est le pire cas : la ref origin/* reste périmée
-        # et annonce la base « à jour » alors qu'elle a divergé (cf. NORMS git-mep).
-        r = _git(root, "fetch", "--quiet", remote, check=False)
-        if r.returncode != 0:
-            out.warn(f"git fetch {remote} a ÉCHOUÉ ({(r.stderr or r.stdout).strip()[:200]}) — "
-                     f"la base '{base}' peut être périmée, et rien ne le dira ensuite")
-    else:
-        # --dry-run : un essai à blanc n'écrit pas dans .git, fetch compris. On
-        # résout donc sur les refs origin/* telles qu'elles sont déjà.
-        out.warn(f"--dry-run : pas de fetch, base résolue sur les refs '{remote}/*' "
-                 f"déjà présentes (possiblement périmées)")
-    tracked = f"{remote}/{base}"
-    if _git(root, "rev-parse", "--verify", "--quiet", tracked,
-            check=False).returncode != 0:
-        return base            # branche purement locale (version, wip…) : légitime
-    local = _git(root, "rev-parse", "--verify", "--quiet", f"refs/heads/{base}",
-                 check=False)
-    if local.returncode == 0:
-        behind = _git(root, "rev-list", "--count", f"refs/heads/{base}..{tracked}",
-                      check=False).stdout.strip()
-        if behind.isdigit() and int(behind) > 0:
-            out.warn(f"base locale '{base}' en retard de {behind} commit(s) sur "
-                     f"'{tracked}' → branchement depuis '{tracked}'")
-    return tracked
+    return pm_git.resolve_base_ref(root, base, fetch=fetch, warn=out.warn)
 
 
 def _is_core(root):
@@ -142,6 +114,21 @@ def repo_name_of(root: Path) -> str:
         if p.name.endswith(".git"):          # layout RM1993 : repos/<name>.git
             return p.name[:-4]
     return root.name                          # repli : ancien comportement
+
+
+# >>> is_linked_worktree — pure (testée par test_pm_branch_start_worktree.py)
+def is_linked_worktree(git_dir: str, git_common_dir: str) -> bool:
+    """Le dossier de travail est-il un worktree LIÉ, et non le dépôt principal ?
+
+    Fait, pas heuristique : git donne deux chemins. Dans le dépôt principal ils
+    désignent la même chose ; dans un worktree lié, `--git-dir` pointe sous
+    `<commun>/worktrees/<nom>`. On ne devine donc rien depuis le nom du dossier
+    (`envs/…`), qui n'est qu'une convention et mentirait le jour où elle change.
+    """
+    if not git_dir or not git_common_dir:
+        return False
+    return Path(git_dir).resolve() != Path(git_common_dir).resolve()
+# <<< is_linked_worktree
 
 
 def worktree_path(root: Path, rm_id: int, branch: str, seq) -> Path:
@@ -340,6 +327,19 @@ def main():
     git_block.update({"repo": canonical_repo, "branch": branch})
     if wt is not None:
         git_block["worktree"] = str(wt)
+    elif is_linked_worktree(
+            _git(root, "rev-parse", "--path-format=absolute", "--git-dir",
+                 check=False).stdout.strip(),
+            _git(root, "rev-parse", "--path-format=absolute", "--git-common-dir",
+                 check=False).stdout.strip()):
+        # RM2754 — le dépôt cible EST déjà un worktree dédié, sans que `--worktree`
+        # ait été demandé : c'est le flux normal, `pm-task-take` passe `--repo
+        # <env de session>`. Sans cette ligne le champ restait vide pour TOUS les
+        # tickets pris normalement, donc `pm-task-cd` répondait « mode in-place »
+        # et le contrôle n°2 de `pm-pre-commit` — « tu commites depuis le mauvais
+        # worktree », le garde-fou phare de RM2240 — n'avait rien à comparer et
+        # laissait tout passer.
+        git_block["worktree"] = str(root)
     fm["git"] = git_block
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
     fm["updated"] = now

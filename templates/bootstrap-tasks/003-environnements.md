@@ -36,12 +36,12 @@ Référence : `norms/NORMS.md` § "Environnements (aspect `environments.md`)".
       sont déclarés avec leurs champs renseignés :
   - `name`, `status`, `url`, `host`, `user`, `app_path`, `branch`
   - `logs.app` et `logs.fpm` si applicable
-  - `secrets_source` (renvoie vers Vaultwarden, ou null si setup secrets pas encore fait)
+  - `secrets_source` (renvoie vers un vault déclaré, ou null si setup secrets pas encore fait)
 - [ ] Le tableau `env_vars[]` liste les variables d'environnement attendues (sans
       valeurs) avec description + envs où elles existent
 - [ ] La section "Procédure de déploiement par env" décrit comment déployer/restart
       pour chaque env
-- [ ] La section "Accès et credentials" pointe vers Vaultwarden ou explique où trouver
+- [ ] La section "Accès et credentials" pointe vers un vault ou explique où trouver
 
 ## Instructions
 

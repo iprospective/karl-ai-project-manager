@@ -22,6 +22,36 @@ NO_ANSWER_MARKERS = ("[Request interrupted by user",
 ANSWER_PAIR_RE = re.compile(r'"[^"]*"="([^"]*)"')
 
 
+def usage_by_message(items) -> dict:
+    """Usages d'un transcript, dédupliqués par `message.id` (RM2628).
+
+    Une même réponse API est écrite dans le JSONL **une fois par bloc de
+    contenu** (thinking, texte, chaque tool_use) et chaque ligne porte l'usage
+    COMPLET de la réponse : sommer les lignes multiplie la consommation par le
+    nombre de blocs (facteur mesuré ≈ 2,3 sur une session d'agent). On garde
+    donc le dernier usage vu par id — ce qui traite du même coup les retries
+    API, qui réémettent le même `message.id`.
+
+    Source unique de la règle : `karl-agent` (vue cockpit) et `pm-task-tick`
+    (métriques des tickets) doivent compter pareil, sinon les deux vues
+    divergent sur la conso d'une même session.
+
+    `items` : itérable de `(clé_de_repli, message)` — la clé sert quand le
+    message n'a pas d'`id` (lignes synthétiques). Retourne
+    `{id → (usage, model)}` dans l'ordre d'apparition (dict ordonné) : le
+    dernier élément est donc le dernier tour du transcript.
+    """
+    per_msg = {}
+    for key, msg in items:
+        if not isinstance(msg, dict):
+            continue
+        usage = msg.get("usage")
+        if not isinstance(usage, dict):
+            continue
+        per_msg[msg.get("id") or key] = (usage, msg.get("model"))
+    return per_msg
+
+
 def content_text(content) -> str:
     """Texte d'un `content` (message ou tool_result) : chaîne, ou blocs texte."""
     if isinstance(content, str):

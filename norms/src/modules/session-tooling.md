@@ -44,6 +44,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
 | Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
+| Instance | pont d'onboarding des workspaces (`AGENTS.md` + `CLAUDE.md`) | `pm-workspace-bridge.py` (nu = contrôle · `--install` · `--update`, RM1892) |
 | Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |
 | Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
 | Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
@@ -64,7 +65,14 @@ Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-
 (pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
 Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
 `outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
-canal noyé ne sera pas lu. Mode d'emploi : skill `mmi-pm-session-status`.
+canal noyé ne sera pas lu.
+
+**Et referme-la quand elle est traitée** (RM2715) : `notify --resolve <n> --ticket
+RM<id>`. Une notification dit ce qu'il reste à faire ; laissée telle quelle après
+coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'est) et
+use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
+elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
+ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
 
 ## Registre des demandes (RM2621)
 

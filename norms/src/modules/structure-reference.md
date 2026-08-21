@@ -152,6 +152,10 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
+**Contacts d'un client** (`meta.yml :: contacts[]`, écriture par
+`pm-client-contact`) : voir `modules/project-modeling.md` — c'est de la
+modélisation d'entité, pas de la résolution de chemins (RM2755).
+
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
 
 > **⚠ Section legacy — décrit l'ancien modèle (symlink `.mmi-pm` *entrant*).** Le
@@ -279,3 +283,26 @@ logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
 
+
+### Le pont d'onboarding des workspaces (RM1892)
+
+Un agent lancé dans un workspace de code n'a, par défaut, **aucun contexte PM**. Il le
+reçoit d'un fichier unique posé à la **racine des workspaces**, lu par remontée
+d'arborescence depuis n'importe quel sous-dossier :
+
+| Fichier | Rôle |
+|---|---|
+| `<racine>/AGENTS.md` | le pont — vendor-neutral (opencode & autres) |
+| `<racine>/CLAUDE.md` → `AGENTS.md` | symlink : Claude Code ne lit que `CLAUDE.md`, mais suit les liens |
+
+Il est **conditionnel** : « si ton workspace a un `.mmi-pm`, tu es un worker PM — résous-le,
+lis le KERNEL, applique le protocole ; sinon ces règles ne te concernent pas ». Un fichier
+par projet serait à la fois redondant et à maintenir ; la remontée d'arborescence couvre
+les projets présents **et futurs**.
+
+Ce fichier est **hors git** : c'est un artefact de provisioning, propre à l'instance. Sa
+référence versionnée est `templates/workspace-AGENTS.md`, et le déploiement est outillé
+(`pm-workspace-bridge.py` — contrôle, `--install`, `--update`). Le bloc délimité
+`BEGIN/END INSTANCE` porte ce qui est propre à la machine (chemins, hôtes, transport git) :
+`--update` rafraîchit le générique et **préserve ce bloc**, ce qui permet de faire évoluer
+l'onboarding sans faire perdre à une instance ce qu'elle sait d'elle-même.

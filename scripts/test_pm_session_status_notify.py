@@ -15,6 +15,15 @@ import sys
 import tempfile
 
 HERE = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+from test_support import hermetic_core, subprocess_env   # noqa: E402
+
+hermetic_core()   # RM2749 — cf. test_support : sans core résolu, l'import du
+                  # module ET chaque sous-processus sortaient en erreur `.env`,
+                  # ici en silence (returncode ignoré) → le fichier attendu
+                  # n'était jamais écrit et le test échouait sur un FileNotFound
+                  # qui ne disait rien de la vraie cause.
+
 SCRIPT = HERE / "pm-session-status.py"
 spec = importlib.util.spec_from_file_location("pm_session_status", SCRIPT)
 pss = importlib.util.module_from_spec(spec)
@@ -57,9 +66,39 @@ check("canal vide ou absent toléré",
 only_crit = [{"ts": "t%03d" % i, "level": "critical", "message": str(i)} for i in range(100)]
 check("un canal saturé de critiques ne perd rien", len(pss.notify_trim(only_crit, keep=10)) == 100)
 
+# — RM2715 : backlog vs archive (fonctions pures) —
+mixte = [{"ts": "t1", "level": "warn", "message": "ouverte"},
+         {"ts": "t2", "level": "warn", "message": "traitée", "resolved_at": "t3",
+          "ticket": "RM2691"}]
+check("le backlog ne retient que ce qui appelle encore quelque chose",
+      [n["message"] for n in pss.notify_open(mixte)] == ["ouverte"])
+check("l'archive retient ce qui a été traité",
+      [n["ticket"] for n in pss.notify_done(mixte)] == ["RM2691"])
+check("une notification sans champ de résolution est ouverte (rétrocompat)",
+      pss.notify_open([{"ts": "t", "message": "ancienne"}]) != [])
+
+resolues, ok = pss.notify_resolve(mixte, 1, ticket="RM2715", note="pris en compte")
+check("résoudre marque, ne supprime pas",
+      ok and len(resolues) == 2 and resolues[0]["ticket"] == "RM2715"
+      and resolues[0]["resolution"] == "pris en compte" and resolues[0]["resolved_at"])
+check("l'entrée d'origine n'est pas mutée (fonction pure)",
+      "resolved_at" not in mixte[0])
+check("un numéro hors bornes ou illisible ne casse rien",
+      pss.notify_resolve(mixte, 0)[1] is False
+      and pss.notify_resolve(mixte, "x")[1] is False
+      and pss.notify_resolve(mixte, 99)[1] is False)
+
+# à l'étroit, c'est l'ARCHIVE qui saute avant les ouvertes
+serre = ([{"ts": "a%02d" % i, "level": "warn", "message": "traitée",
+           "resolved_at": "r"} for i in range(20)]
+         + [{"ts": "o%02d" % i, "level": "warn", "message": "ouverte"} for i in range(5)])
+kept = pss.notify_trim(serre, keep=6)
+check("le rognage sacrifie l'archive avant les notifications ouvertes",
+      len([n for n in kept if not n.get("resolved_at")]) == 5 and len(kept) == 6)
+
 # — bout en bout, sur un store jetable —
 with tempfile.TemporaryDirectory() as tmp:
-    env = dict(os.environ, PM_SESSION_WORKLOG_DIR=tmp)
+    env = subprocess_env(PM_SESSION_WORKLOG_DIR=tmp)
 
     def run(*args):
         return subprocess.run([sys.executable, str(SCRIPT), "--session", "t"] + list(args),
@@ -82,10 +121,40 @@ with tempfile.TemporaryDirectory() as tmp:
     out = run("notify", "--list").stdout
     check("--list restitue le canal", "secret vu dans un log" in out and "RM1" in out)
 
+    # — RM2715 : résoudre ≠ supprimer —
+    run("notify", "--resolve", "2", "--ticket", "RM2691", "--note", "corrigé et livré")
+    data = json.loads(pathlib.Path(tmp, "t.json").read_text(encoding="utf-8"))
+    n2 = data["notifications"][1]
+    check("une notification résolue garde sa place dans le store",
+          len(data["notifications"]) == 2 and n2.get("ticket") == "RM2691"
+          and n2.get("resolution") == "corrigé et livré" and n2.get("resolved_at"))
+
+    md = pathlib.Path(tmp, "t.md").read_text(encoding="utf-8")
+    check("le backlog ne compte plus que les ouvertes",
+          "Notifications importantes (1)" in md and "_· 1 traitée(s)_" in md)
+    check("la traitée n'est plus dans le backlog mais dans l'archive",
+          "Notifications traitées (1)" in md
+          and md.index("Notifications importantes") < md.index("Notifications traitées"))
+    check("l'archive dit PAR QUOI la notification a été traitée",
+          "**RM2691**" in md.split("Notifications traitées")[1])
+    check("l'archive passe après le travail, elle ne réclame rien",
+          md.index("Reste à faire") < md.index("Notifications traitées"))
+
+    out = run("notify", "--list").stdout
+    check("--list numérote et distingue ouverte / traitée",
+          "#1 " in out and "ouverte" in out and "✓ traitée RM2691" in out)
+    check("résoudre un numéro inconnu échoue proprement",
+          run("notify", "--resolve", "99").returncode != 0)
+    run("notify", "--resolve", "2", "--ticket", "RM9999")
+    data = json.loads(pathlib.Path(tmp, "t.json").read_text(encoding="utf-8"))
+    check("re-résoudre corrige la résolution au lieu d'échouer",
+          data["notifications"][1]["ticket"] == "RM9999")
+
     run("notify", "--clear")
     data = json.loads(pathlib.Path(tmp, "t.json").read_text(encoding="utf-8"))
-    check("un acquittement ordinaire épargne les critiques",
-          [n["level"] for n in data["notifications"]] == ["critical"])
+    check("--clear ne vide que l'archive : une notification OUVERTE survit",
+          [n["level"] for n in data["notifications"]] == ["critical"]
+          and not data["notifications"][0].get("resolved_at"))
 
     run("notify", "--clear", "--all")
     data = json.loads(pathlib.Path(tmp, "t.json").read_text(encoding="utf-8"))

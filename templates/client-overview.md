@@ -6,11 +6,18 @@ type: client                   # client (tiers commercial) | product (écosystè
 status: active                 # active | paused | archived
 created: 2026-04-27
 
-# Contacts principaux
+# Contacts du client (RM2702) — outil : `pm-client-contact.py add|list|set|remove`
+# Champs : last_name (NOM), first_name (prénom), email, phone (chaîne : le « + » et
+# les zéros de tête comptent), role (owner|decideur|technique|facturation|autre).
+# `internal: true` marque NOS adresses : posé automatiquement, elles n'identifient
+# aucun client et ne servent jamais à router un email entrant (RM2669).
 contacts:
-  - name: ""
+  - last_name: ""
+    first_name: ""
     email: ""
+    phone: ""
     role: owner
+    title: ""
 
 # Cascade — valeurs héritées par tous les projets du client
 defaults:

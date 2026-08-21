@@ -167,6 +167,114 @@ def test_gitlab_issues_write_out_of_scope():
             pass
 
 
+# ── Instance honorée + fabrique en liste (RM2653/L0) ──────────────────────
+
+def _reg_two_instances():
+    return Registry.from_config({
+        "defaults": {"task": "redmine-ipro"},
+        "servers": {
+            "redmine-ipro":   {"axis": "task", "type": "redmine", "url": "https://tasks.example"},
+            "redmine-matnat": {"axis": "task", "type": "redmine", "url": "https://tasks.matnat"},
+        },
+    })
+
+
+def _with_env(**kv):
+    """Contexte d'env restauré à la sortie (tests hermétiques)."""
+    import contextlib
+    import os
+
+    @contextlib.contextmanager
+    def _cm():
+        old = {k: os.environ.get(k) for k in kv}
+        os.environ.update({k: v for k, v in kv.items() if v is not None})
+        for k, v in kv.items():
+            if v is None:
+                os.environ.pop(k, None)
+        try:
+            yield
+        finally:
+            for k, v in old.items():
+                if v is None:
+                    os.environ.pop(k, None)
+                else:
+                    os.environ[k] = v
+    return _cm()
+
+
+def test_provider_without_instance_calls_are_unchanged():
+    """Mono-instance : AUCUN kwarg de creds ajouté (délégation littéralement d'avant)."""
+    seen = {}
+    orig = pm_task._ru.fetch_issue
+
+    def stub(iid, include=None):          # signature d'origine, sans `creds`
+        seen["kw"] = (iid, include)
+        return {"id": iid}
+    pm_task._ru.fetch_issue = stub
+    try:
+        pm_task.RedmineTaskProvider().fetch_issue(7)
+        assert seen["kw"] == (7, None)
+    finally:
+        pm_task._ru.fetch_issue = orig
+
+
+def test_provider_honours_its_instance():
+    """Le bug corrigé : l'instance ciblée doit atteindre l'appel HTTP (url + clé)."""
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    seen = {}
+    orig = pm_task._ru.add_issue_note
+    pm_task._ru.add_issue_note = lambda iid, note, **kw: seen.setdefault("kw", kw)
+    try:
+        with _with_env(REDMINE__REDMINE_MATNAT__API_KEY="k-matnat",
+                       REDMINE_URL="https://tasks.example", REDMINE_API_KEY="k-ipro"):
+            pm_task.RedmineTaskProvider(inst).add_note(1, "coucou")
+        assert seen["kw"]["creds"] == ("https://tasks.matnat", "k-matnat"), seen
+    finally:
+        pm_task._ru.add_issue_note = orig
+
+
+def test_creds_are_resolved_once_and_lazily():
+    inst = Instance("redmine-matnat", "task", "redmine", "https://tasks.matnat")
+    p = pm_task.RedmineTaskProvider(inst)       # aucune clé requise à la construction
+    with _with_env(REDMINE__REDMINE_MATNAT__API_KEY="k1"):
+        assert p.creds == ("https://tasks.matnat", "k1")
+    # clé retirée de l'env : la valeur déjà résolue reste servie (pas de re-résolution)
+    assert p.creds == ("https://tasks.matnat", "k1")
+
+
+def test_get_task_providers_primary_then_secondary():
+    reg = _reg_two_instances()
+    meta = {"providers": {"task": [
+        {"instance": "redmine-ipro", "role": "primary", "project_id": "pm-ai-agents"},
+        {"instance": "redmine-matnat", "role": "secondary", "project_id": 12,
+         "sync": {"push": {"on": ["ferme"]}}},
+    ]}}
+    out = pm_task.get_task_providers(project_meta=meta, registry=reg)
+    assert [r.instance.name for r, _ in out] == ["redmine-ipro", "redmine-matnat"]
+    assert all(isinstance(p, pm_task.RedmineTaskProvider) for _, p in out)
+    # chaque provider est bien attaché à SON instance
+    assert [p.instance.name for _, p in out] == ["redmine-ipro", "redmine-matnat"]
+    # les règles restent portées par la Resolution, pas par le provider
+    assert out[1][0].sync["push"] == {"on": ["ferme"]}
+
+
+def test_get_task_providers_without_registry_is_mono_instance():
+    out = pm_task.get_task_providers()
+    assert len(out) == 1
+    res, p = out[0]
+    assert res is None and isinstance(p, pm_task.RedmineTaskProvider) and p.instance is None
+
+
+def test_get_task_provider_still_returns_primary():
+    reg = _reg_two_instances()
+    meta = {"providers": {"task": [
+        {"instance": "redmine-matnat", "role": "secondary"},
+        {"instance": "redmine-ipro", "role": "primary"},
+    ]}}
+    p = pm_task.get_task_provider(project_meta=meta, registry=reg)
+    assert p.instance.name == "redmine-ipro"
+
+
 def test_generic_contract_not_implemented():
     base = pm_task.TaskProvider()
     for call in (lambda: base.fetch_issue(1), lambda: base.add_note(1, "x"),

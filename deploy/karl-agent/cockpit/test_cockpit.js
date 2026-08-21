@@ -950,6 +950,20 @@ tlo = mkTl({})("42", "T");
 assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
 console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
 
+// — sinceLabel (RM2630) : dater la version de ticket affichée —
+const fSl = />>> sinceLabel[\s\S]*?(function sinceLabel[\s\S]*?)\n\/\/ <<< sinceLabel/.exec(html);
+assert(fSl, "marqueurs >>> sinceLabel / <<< sinceLabel introuvables");
+const sinceLabel = vm.runInNewContext("(" + fSl[1] + ")", {});
+const t0 = Date.parse("2026-08-11T12:00");
+assert.strictEqual(sinceLabel("2026-08-11T12:00", t0), "à l'instant", "même minute");
+assert.strictEqual(sinceLabel("2026-08-11T11:43", t0), "il y a 17 min", "minutes");
+assert.strictEqual(sinceLabel("2026-08-11T09:00", t0), "il y a 3 h", "heures");
+assert.strictEqual(sinceLabel("2026-08-09T12:00", t0), "il y a 2 j", "jours");
+assert.strictEqual(sinceLabel("2026-08-11 11:00", t0), "il y a 1 h", "espace accepté à la place du T");
+assert.strictEqual(sinceLabel("", t0), "", "horodatage absent → pas de mention");
+assert.strictEqual(sinceLabel("pas une date", t0), "", "horodatage illisible → pas de mention");
+console.log("✓ sinceLabel (RM2630) : âge de la version affichée, dégrade en silence");
+
 // — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
 const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
 assert(fWd, "marqueurs >>> worklogDocs / <<< worklogDocs introuvables");
@@ -1048,6 +1062,28 @@ assert(filtered.length >= 1 && filtered.every(g => g.items.length > 0), "sur rec
 assert.strictEqual(glossGroups([{ t: "x", d: "y" }])[0].cat, "gen", "entrée sans catégorie → Général");
 assert.strictEqual(glossGroups([{ t: "z", d: "w", c: "zzz" }])[0].cat, "zzz", "catégorie inconnue conservée (rejetée en fin), jamais perdue");
 console.log("✓ glossaire enrichi (RM2634) : catégories ordonnées, tri alpha, filtrage, rien de perdu");
+
+// — RM2639 : contexte client (pré-filtre global du cockpit) —
+const clientCtxList = grabO("clientCtxList");
+const clientCtxProject = grabO("clientCtxProject");
+const sessionInClient = grabO("sessionInClient");
+const PJ = [
+  { client: "iprospective", project: "pm-ai-agents", value: "iprospective/pm-ai-agents" },
+  { client: "acme", project: "site", value: "acme/site" },
+  { client: "iprospective", project: "infra", value: "iprospective/infra" },
+];
+assert.deepStrictEqual([...clientCtxList(PJ)], ["acme", "iprospective"], "clients uniques, triés alpha");
+assert.deepStrictEqual([...clientCtxList([])], [], "aucun projet → []");
+assert.strictEqual(clientCtxProject(PJ, "iprospective"), "iprospective/pm-ai-agents", "1er projet du client");
+assert.strictEqual(clientCtxProject(PJ, "inconnu"), "", "client introuvable → ''");
+assert.strictEqual(clientCtxProject(PJ, ""), "", "client vide → ''");
+assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, ""), true, "ctx vide → visible");
+assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, "acme"), true, "même client → visible");
+assert.strictEqual(sessionInClient({ client: "bob", state: "working" }, null, "acme"), false, "autre client, non en attente → masqué");
+assert.strictEqual(sessionInClient({ client: "bob", state: "attention" }, null, "acme"), true, "autre client mais en attente → jamais masqué (RM2445)");
+assert.strictEqual(sessionInClient({ client: "bob", state: "choice" }, null, "acme"), true, "autre client mais choix → jamais masqué");
+assert.strictEqual(sessionInClient({ state: "working" }, { found: true, client: "acme" }, "acme"), true, "client résolu via resolveCache");
+console.log("✓ contexte client (RM2639) : liste, projet par défaut, filtre (attente jamais masquée)");
 
 // — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
 const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
@@ -1252,7 +1288,18 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 // — RM2614 : situer un ticket dans son client / projet —
 const fPb = />>> projectBriefHtml[\s\S]*?(function projectBriefHtml[\s\S]*?)\n\/\/ <<< projectBriefHtml/.exec(html);
 assert(fPb, "marqueurs >>> projectBriefHtml introuvables");
-const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")");
+// RM2714 : `cval` (nettoyeur des valeurs YAML « null ») est désormais une
+// fonction GLOBALE — elle doit être fournie au sandbox, sinon on rejouerait le
+// bug qu'on vient de corriger : un identifiant hors de portée.
+const mCval = />>> cval[\s\S]*?(function cval[\s\S]*?)\n\/\/ <<< cval/.exec(html);
+assert(mCval, "marqueurs >>> cval introuvables");
+const cval = vm.runInNewContext("(" + mCval[1] + ")");
+const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")", { cval });
+assert.strictEqual(cval("null"), "", "cval : la CHAÎNE « null » vaut vide (piège YAML)");
+assert.strictEqual(cval("~"), "", "cval : « ~ » aussi");
+assert.strictEqual(cval("None"), "", "cval : « None » aussi");
+assert.strictEqual(cval(null), "", "cval : null réel");
+assert.strictEqual(cval("  x  "), "x", "cval : trim");
 const e = s => String(s);
 const j = s => '"' + String(s) + '"';
 
@@ -1367,4 +1414,1442 @@ assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
   "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
 console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
 
+// — RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue —
+const mcBanner = grabO("mcBanner", { esc: escO });
+assert.strictEqual(mcBanner(null), "", "mc absent → pas de bannière");
+assert.strictEqual(mcBanner({}), "", "mc sans verdict → pas de bannière");
+const bOk = mcBanner({ verdict: { level: "ok", headline: "Branche à jour, merge propre" } });
+assert(/class="mcbanner mc-ok"/.test(bOk) && /✅/.test(bOk), "niveau ok → classe + icône vertes");
+assert(/Branche à jour/.test(bOk) && !/mc-advice/.test(bOk), "titre rendu, pas de conseil sans advice");
+const bBlock = mcBanner({
+  mr_url: "https://gitlab.x/mr/1",
+  verdict: { level: "block", headline: "Conflit de merge avec dev (2 fichier(s))",
+             detail: "CHANGELOG.md, src/app.py",
+             advice: "merge dev dans la branche, résous, pousse" } });
+assert(/class="mcbanner mc-block"/.test(bBlock) && /⛔/.test(bBlock), "conflit → bannière rouge");
+assert(/mc-advice[^>]*>→ /.test(bBlock), "la remédiation est mise en avant (→)");
+assert(/CHANGELOG.md/.test(bBlock), "les fichiers en conflit apparaissent");
+assert(/href="https:\/\/gitlab\.x\/mr\/1"/.test(bBlock), "le lien MR est proposé quand il existe");
+const bXss = mcBanner({ verdict: { level: "warn", headline: "en retard <b>x</b>" } });
+assert(/&lt;b&gt;/.test(bXss) && !/<b>/.test(bXss), "le titre est échappé (anti-XSS)");
+const bUnk = mcBanner({ verdict: {} });
+assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
+console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
+
+// — RM2458 : rendu de la page de santé du poste —
+// RM2708 : envStatusHtml compose désormais avec quatre fonctions pures — on les
+// évalue dans UN sandbox partagé, sinon chacune serait aveugle aux autres.
+const envCtx = { esc: escO, jarg: jargFn };
+for (const n of ["envStatusTabs", "envStatusDefaultTab", "envStatusSections",
+                 "envStatusBadge", "envStatusGroupHtml", "envStatusHtml"]) {
+  envCtx[n] = grabO(n, envCtx);
+}
+const envStatusHtml = envCtx.envStatusHtml;
+assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
+const rep = {
+  generated_at: "2026-08-12T20:00:00",
+  summary: { counts: { ok: 3, info: 0, warn: 1, error: 1 } },
+  groups: [
+    { name: "Outils & dépendances", checks: [
+      { label: "bw", level: "error", detail: "binaire introuvable", fix: "npm i -g @bitwarden/cli" },
+      { label: "git", level: "ok", detail: "git version 2.43.0" } ] },
+    { name: "Git / GitLab", checks: [
+      { label: "repo pisceen/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard",
+        fix: "cd /w && git pull --rebase --autostash" } ] },
+  ],
+};
+// RM2708 : une famille à la fois → on force l'onglet pour les assertions de rendu
+const esh = envStatusHtml(rep, "Outils & dépendances")
+  + envStatusHtml(rep, "Git / GitLab");
+assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
+assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
+  "la ligne rouge montre le détail ET la commande de remédiation");
+assert(/onclick="esCopy\(this\)"/.test(esh), "chaque remédiation a son bouton copier (sans arg dans l'onclick)");
+assert(esh.indexOf('<code class="es-fix">') < esh.indexOf('esCopy'),
+  "la commande vit dans le <code> AVANT le bouton (esCopy lit le voisin) — pas dans l'attribut");
+assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est affiché");
+const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
+assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
+console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
+
+// — RM2708 : familles en onglets, dépôts en sections par client —
+const G6 = [
+  { name: "Outils & dépendances", checks: [{ label: "git", level: "ok" }] },
+  { name: "Git / GitLab", checks: [{ label: "PAT", level: "warn" }, { label: "push", level: "ok" }] },
+  { name: "Repos", checks: [
+    { label: "repo calicote/presta [main]", level: "ok", section: "calicote" },
+    { label: "repo calicote/dolibarr [dev]", level: "ok", section: "calicote" },
+    { label: "repo pisceen/presta [main]", level: "error", detail: "9 non poussés", section: "pisceen" },
+    { label: "repo perso/maths [main]", level: "warn", section: "perso" },
+    { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" } ] },
+];
+const tabs2708 = envCtx.envStatusTabs(G6);
+assert.deepStrictEqual([...tabs2708.map(t => t.name)],
+  ["Outils & dépendances", "Git / GitLab", "Repos"], "un onglet par famille, dans l'ordre du serveur");
+assert.deepStrictEqual({ ...tabs2708[2] }, { name: "Repos", warn: 1, error: 1, n: 5 },
+  "chaque onglet porte ses compteurs de défauts (visibles sans cliquer)");
+assert.strictEqual(envCtx.envStatusDefaultTab(tabs2708), "Repos",
+  "on ouvre sur la première famille EN ERREUR, pas sur la première tout court");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A", warn: 2, error: 0 }, { name: "B", warn: 0, error: 0 }]),
+  "A", "à défaut d'erreur, la première en avertissement");
+assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A" }, { name: "B" }]), "A",
+  "tout est vert → la première famille");
+assert.strictEqual(envCtx.envStatusDefaultTab([]), "", "aucune famille toléré");
+// sections : défauts en tête, sans-section d'abord (lignes de service)
+const secs2708 = envCtx.envStatusSections(G6[2].checks);
+assert.deepStrictEqual([...secs2708.map(s => s.name)], ["", "pisceen", "perso", "calicote"],
+  "lignes hors client en tête, puis les sections EN DÉFAUT, puis le reste par ordre alpha");
+assert.strictEqual(secs2708[3].checks.length, 2, "les dépôts d'un client sont regroupés");
+assert.strictEqual(envCtx.envStatusSections([]).length, 0, "aucune ligne → aucune section");
+// rendu : replié quand tout va bien, déplié quand ça coince
+const rep2 = { summary: { counts: {} }, groups: G6 };
+const hRepos = envStatusHtml(rep2, "Repos");
+assert(/<details class="es-sec" open><summary>pisceen/.test(hRepos),
+  "une section en erreur est DÉPLIÉE — c'est ce qu'on vient voir");
+assert(/<details class="es-sec"><summary>calicote/.test(hRepos),
+  "une section sans défaut est repliée (20 clients, presque tous sans rien à signaler)");
+assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos),
+  "les lignes sans client restent visibles, sans section fantôme");
+assert(!/repo calicote\/presta/.test(envStatusHtml(rep2, "Git / GitLab")),
+  "un onglet ne montre QUE sa famille");
+assert(/es-badge es-error">✗ 1/.test(hRepos) && /es-badge es-warn">! 1/.test(hRepos),
+  "les pastilles de défaut sont rendues sur les onglets");
+assert(/onclick="setEnvTab\('Repos'\)"/.test(hRepos),
+  "l'onglet se change par setEnvTab, argument passé en guillemets simples (jarg)");
+// une famille à plat (sans section) ne fabrique aucun <details>
+assert(!/es-sec/.test(envStatusHtml(rep2, "Outils & dépendances")),
+  "une famille sans section reste une liste à plat");
+console.log("✓ santé du poste (RM2708) : onglets par famille, dépôts sectionnés par client");
+
+// — RM2659 : les racines de la session, groupées par projet —
+// Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
+// panneau doit les distinguer au lieu de supposer qu'il n'y en a qu'un.
+const mFg = />>> filesGroups[\s\S]*?(function filesGroups[\s\S]*?)\n\/\/ <<< filesGroups/.exec(html);
+assert(mFg, "marqueurs >>> filesGroups introuvables");
+const filesGroups = vm.runInNewContext("(" + mFg[1] + ")");
+const P1 = { root: "/w/appli", name: "appli", client: "ca", project: "appli",
+             docs: [{ path: "/pm/ca/appli/docs", name: "docs", label: "documents du projet", docs: 4 }] };
+const P2 = { root: "/w/infra", name: "infra", client: "cb", project: "infra", docs: [] };
+const W = [{ path: "/w/appli/envs/appli-rm42", name: "appli-rm42", exists: true },
+           { path: "/w/infra/envs/infra-rm7", name: "infra-rm7", exists: true }];
+let gs = filesGroups([P1, P2], W);
+assert.strictEqual(gs.length, 2, "deux projets → deux groupes");
+assert.deepStrictEqual(Array.from(gs.map(g => g.label)), ["appli", "infra"],
+  "l'ordre du serveur est conservé");
+assert.strictEqual(gs[0].roots[0].kind, "root", "la racine du workspace vient en premier");
+assert.strictEqual(gs[0].roots[0].path, "/w/appli", "…et c'est bien la racine, pas un worktree");
+assert(gs[0].roots.some(r => r.kind === "doc" && r.name === "docs"), "la doc du projet suit");
+assert(gs[0].roots.some(r => r.path === "/w/appli/envs/appli-rm42"),
+  "le worktree de la session est rattaché à SON projet");
+assert(!gs[0].roots.some(r => r.path === "/w/infra/envs/infra-rm7"),
+  "et pas à l'autre projet");
+// un seul projet : c'est le cas courant (84 % des sessions)
+gs = filesGroups([P1], [W[0]]);
+assert.strictEqual(gs.length, 1, "un seul projet → un seul groupe");
+// un worktree hors de toute racine connue ne doit pas disparaître
+gs = filesGroups([P1], [{ path: "/ailleurs/vieux-layout", name: "vieux", exists: true }]);
+assert.strictEqual(gs.length, 2, "un worktree orphelin forme son propre groupe");
+assert.strictEqual(gs[1].label, "hors projet", "…nommé pour ce qu'il est");
+assert.strictEqual(gs[1].roots[0].name, "vieux", "…et il est bien dedans");
+// un worktree disparu du disque n'est pas proposé
+gs = filesGroups([P1], [{ path: "/w/appli/envs/x", name: "x", exists: false }]);
+assert(!gs[0].roots.some(r => r.name === "x"), "un worktree absent du disque n'est pas listé");
+// pas de préfixe accidentel : /w/appli ne doit pas capturer /w/appli-autre
+gs = filesGroups([P1], [{ path: "/w/appli-autre/envs/y", name: "y", exists: true }]);
+assert.strictEqual(gs.length, 2, "un chemin voisin n'est pas avalé par la racine");
+// entrées vides / absentes : le panneau ne doit pas tomber
+assert.strictEqual(filesGroups(null, null).length, 0, "aucune donnée → aucun groupe");
+assert.strictEqual(filesGroups([{ name: "sans racine" }], []).length, 0,
+  "un projet sans racine est ignoré plutôt que rendu à moitié");
+console.log("✓ fichiers (RM2659) : racines groupées par projet, multi-projets couvert");
+const mGo = />>> filesGroupOf[\s\S]*?(function filesGroupOf[\s\S]*?)\n\/\/ <<< filesGroupOf/.exec(html);
+assert(mGo, "marqueurs >>> filesGroupOf introuvables");
+const filesGroupOf = vm.runInNewContext("(" + mGo[1] + ")");
+const G = filesGroups([P1, P2], W);
+assert.strictEqual(filesGroupOf(G, "/w/infra").label, "infra",
+  "le groupe actif suit la racine ouverte");
+assert.strictEqual(filesGroupOf(G, "/w/appli/envs/appli-rm42").label, "appli",
+  "…y compris depuis un worktree");
+assert.strictEqual(filesGroupOf(G, "/inconnu").label, "appli",
+  "un chemin inconnu retombe sur le premier groupe, pas sur rien");
+assert.strictEqual(filesGroupOf([], "/x"), null, "sans groupe, pas de groupe actif");
+console.log("✓ fichiers (RM2659) : le projet actif suit ce qu'on lit");
+// la racine du projet a son icône et se distingue d'un worktree
+const rootLbl = fileRootLabel({ kind: "root", name: "ai-project-management",
+                                label: "racine du workspace", path: "/w/x" });
+assert.strictEqual(rootLbl.icon, "🏠", "la racine du projet porte sa propre icône");
+assert(/racine du workspace/.test(rootLbl.tip), "l'infobulle dit ce que c'est");
+// le rendu : barre des projets seulement s'il y en a plusieurs
+const mRf2 = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/groups\.length > 1/.test(mRf2[0]),
+  "la barre des projets n'apparaît qu'à partir de deux projets");
+const mLf = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
+assert(/filesGroups\(/.test(mLf[0]),
+  "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
+console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
+
+// — RM1952 : triage ROI des tickets ouverts —
+const triageFilter = grabO("triageFilter");
+const triageRowHtml = grabO("triageRowHtml", { esc: escO });
+const TT = [
+  { rm_id: 1, client: "iprospective", project: "atlas", awaiting_validation: false },
+  { rm_id: 2, client: "iprospective", project: "infra", awaiting_validation: true },
+  { rm_id: 3, client: "calicote", project: "prestashop", awaiting_validation: false },
+];
+assert.strictEqual(triageFilter(TT, "", "", false).length, 3, "sans filtre → tout");
+assert.strictEqual(triageFilter(TT, "iprospective", "", false).length, 2, "filtre client");
+assert.strictEqual(triageFilter(TT, "iprospective", "infra", false).length, 1, "filtre client+projet");
+assert.strictEqual(triageFilter(TT, "", "", true).length, 2, "masquer la validation retire les a_tester_*");
+assert.strictEqual([...triageFilter(null, "", "", false)].length, 0, "liste absente tolérée");
+// rendu d'une ligne : score, RM cliquable (numérique), badges, échappement
+assert.strictEqual(triageRowHtml(null, 1), "", "entrée absente → vide");
+const row = triageRowHtml({ rm_id: 42, title: "Fix <b>x</b>", status: "nouveau", priority: "high",
+  score: 200, time_minutes: 90, unblocks: 3, blocked: true, blocked_by: [7, 8], awaiting_validation: false }, 1);
+assert(/onclick="showTicket\(42\)"/.test(row), "clic → showTicket avec id numérique (pas d'injection)");
+assert(/tr-score[^>]*>200</.test(row) && />RM42</.test(row), "score et RM affichés");
+assert(/🔓 3/.test(row) && /tr-blocked/.test(row), "badges débloque + bloqué");
+assert(/bloqué par : 7, 8/.test(row), "l'infobulle liste les bloqueurs");
+assert(/Fix &lt;b&gt;x&lt;\/b&gt;/.test(row) && !/<b>/.test(row), "titre échappé (anti-XSS)");
+assert(/90 min/.test(row), "estimation de temps affichée");
+const rv = triageRowHtml({ rm_id: 9, title: "v", status: "a_mep", priority: "normal", score: 5, awaiting_validation: true }, 2);
+assert(/⏳/.test(rv) && !/🔓/.test(rv), "en validation → ⏳ ; pas de badge débloque sans unblocks");
+console.log("✓ triage (RM1952) : filtres, score, débloquants/bloqués, échappement");
+
+// — RM2673 : écriture dans un jeu, tickets du worklog, fichiers sans session —
+const setWritable = grabO("setWritable");
+const SETS = [
+  { name: "default", label: "default" },
+  { name: "pm", label: "PM", derived: true, rule: { client: "iprospective", project: "pm-ai-agents" } },
+];
+assert.strictEqual(setWritable(SETS, "default", "set"), true, "jeu manuel → écriture possible");
+assert.strictEqual(setWritable(SETS, "pm", "set"), false, "jeu dérivé → aucune écriture");
+assert.strictEqual(setWritable(SETS, "pm", "live"), false,
+  "le jeu dérivé reste la cible en vue « sessions ouvertes » — le bouton ne doit pas revenir");
+assert.strictEqual(setWritable(SETS, "pm", "all"), false, "…ni en vue « tous les jeux »");
+assert.strictEqual(setWritable(SETS, "default", "client:acme"), false,
+  "une vue par client ne désigne aucun jeu (RM2536)");
+assert.strictEqual(setWritable(SETS, "inconnu", "set"), true,
+  "jeu pas encore chargé : on n'interdit pas à l'aveugle");
+assert.strictEqual(setWritable(null, "pm", null), true, "cache vide toléré");
+// les trois gestes partagent la même question
+const mRss2673 = /async function refreshSessionSets\(\)[\s\S]*?\n\}/.exec(html);
+assert(/setWritable\(setsCache, currentSet, currentView\)/.test(mRss2673[0]),
+  "le bouton d'enregistrement s'appuie sur setWritable");
+const mGhost2673 = /const inSet = ([^;]+);/.exec(html);
+assert(/setWritable\(/.test(mGhost2673[1]), "⊖ et ⟳ des tuiles grises aussi");
+const mSetList2673 = /async function loadSessionSet\(\)[\s\S]*?\n\}/.exec(html);
+assert(/r\.derived \? "" :/.test(mSetList2673[0]),
+  "la liste des entrées n'offre ni ⊖ ni ⟳ sur un jeu dérivé");
+// une session VIVANTE appartient aussi aux jeux dérivés (RM2537) : son ⊖ doit
+// tomber sous la même règle que celui des tuiles grises
+const mLive2673 = /\(s\.sets \|\| \[\]\)\.includes\(currentSet\)([^?]*)\?/.exec(html);
+assert(mLive2673 && /setWritable\(/.test(mLive2673[1]),
+  "⊖ d'une session vivante : masqué quand le jeu courant est dérivé");
+// déplacer / scinder touchent eux aussi les entrées d'un jeu
+const mMove2673 = /const canMove = ([^;]+);/.exec(html);
+assert(mMove2673 && /setWritable\(/.test(mMove2673[1]),
+  "« → déplacer » exige un jeu source inscriptible");
+assert(/s\.name !== currentSet && !s\.derived/.test(html),
+  "…et les destinations dérivées ne sont pas proposées");
+const mSplit2673 = /const split = ([^;]+);/.exec(html);
+assert(mSplit2673 && /setWritable\(/.test(mSplit2673[1]),
+  "la scission n'est pas proposée depuis un jeu dérivé");
+console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu dérivé, quelle que soit la vue");
+
+const ticketsOfSession = grabO("ticketsOfSession");
+const REG = { branches: ["2673-ergonomie-pm", "sans-ticket"], worktrees: ["/w/appli/envs/appli-rm2605"] };
+const WL = { todo: [{ ref: "RM2661" }], waiting: [{ ref: "RM2663" }], done: [{ ref: "RM2673" }],
+             unknown: [{ ref: "chantier-libre" }] };
+assert.deepStrictEqual([...ticketsOfSession("2673", REG, null)], ["2673", "2605"],
+  "ancrage puis registre (branche déjà connue, non dupliquée)");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, WL)], ["2661", "2663", "2673"],
+  "session slug : ses tickets viennent du worklog, reste-à-faire d'abord");
+assert.deepStrictEqual([...ticketsOfSession("2673", REG, WL)], ["2673", "2605", "2661", "2663"],
+  "toutes sources fusionnées, sans doublon, dans l'ordre de proximité");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, null)], [],
+  "rien de connu → aucune invention");
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, { todo: [{ ref: "libre" }] })], [],
+  "un chantier hors ticket n'est pas un RM-id");
+const mRt2673 = /function renderTickets\(\)[\s\S]*?\n\}/.exec(html);
+assert(/loadWorklog\(\)/.test(mRt2673[0]),
+  "l'onglet tickets charge le worklog lui-même (il ne dépend pas de l'onglet état)");
+assert(/aucun ticket dans son worklog/.test(mRt2673[0]),
+  "le message vide ne parle du worklog qu'une fois celui-ci lu");
+console.log("✓ tickets (RM2673) : le worklog de session compte comme source, sans doublon");
+
+const filesContext = grabO("filesContext");
+const filesCtxKey = grabO("filesCtxKey");
+assert.deepStrictEqual(Object.assign({}, filesContext({ attached: "2673", currentReview: "10" })),
+  { kind: "session", sid: "2673" }, "session attachée : elle prime sur tout");
+const fcTicket = filesContext({ currentReview: "2605",
+  resolveCache: { 2605: { found: true, client: "acme", project: "shop" } } });
+assert.strictEqual(fcTicket.kind + " " + fcTicket.client + "/" + fcTicket.project, "project acme/shop",
+  "fiche de ticket ouverte → son projet");
+assert(/RM2605/.test(fcTicket.from), "…et le panneau peut dire d'où ça vient");
+assert.strictEqual(filesContext({ currentProjectView: "beta/api" }).project, "api",
+  "fiche projet ouverte → ce projet");
+assert.strictEqual(filesContext({ currentSet: "pm", sets: SETS }).project, "pm-ai-agents",
+  "à défaut, la règle du jeu courant désigne un projet");
+assert.strictEqual(filesContext({ currentSet: "default", sets: SETS }).kind, "none",
+  "un jeu manuel ne désigne aucun projet : on ne devine pas");
+assert.strictEqual(filesContext({ currentReview: "9", resolveCache: { 9: { found: false } } }).kind, "none",
+  "ticket non résolu → pas de projet inventé");
+assert.strictEqual(filesContext(null).kind, "none", "contexte absent toléré");
+assert.strictEqual(filesCtxKey({ kind: "session", sid: "7" }), "s:7", "clé de session");
+assert.strictEqual(filesCtxKey({ kind: "project", client: "a", project: "b" }), "p:a/b", "clé de projet");
+assert.strictEqual(filesCtxKey({ kind: "none" }), "none", "clé du vide");
+const mLf3 = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
+assert(/project-roots\//.test(mLf3[0]),
+  "sans session, le panneau lit la racine + la doc du projet (endpoint léger)");
+assert(!/attache une session pour parcourir/.test(html),
+  "plus de cul-de-sac « attache une session » quand un projet est identifié");
+// la doc d'un projet sans workspace résolu ne disparaît pas avec la racine
+const gsDoc = filesGroups([{ client: "a", project: "b", docs: [{ path: "/pm/b/docs", name: "docs" }] }], []);
+assert.strictEqual(gsDoc.length, 1, "projet sans racine mais avec doc → groupe conservé");
+assert.strictEqual(gsDoc[0].roots[0].kind, "doc", "…et c'est bien sa doc qu'on lit");
+assert.strictEqual(filesGroups([{ client: "a", project: "b", docs: [] }],
+  [{ path: "/ailleurs/x", name: "x", exists: true }])[0].label, "hors projet",
+  "une racine vide n'aspire pas les worktrees des autres");
+console.log("✓ fichiers (RM2673) : repli sur le projet courant, provenance affichée");
+
+// — RM2695 : avancement d'un ticket dans le worklog —
+const worklogProgressHtml = grabO("worklogProgressHtml");
+const wpNone = worklogProgressHtml({ ref: "RM1", status: "en_cours" }, escO);
+assert.strictEqual(wpNone, "",
+  "un ticket sans checklist ne rend RIEN — « 0/0 » se lirait comme un ticket vide");
+assert.strictEqual(worklogProgressHtml(null, escO), "", "item absent toléré");
+assert.strictEqual(worklogProgressHtml({ checklist: { done: 0, total: 0, items: [] } }, escO), "",
+  "checklist vide = pas de checklist");
+const wp = worklogProgressHtml({ checklist: { done: 3, total: 6, items: ["reste A", "reste B"] } }, escO);
+assert(/>3\/6 ✓</.test(wp), "le compteur x/y est affiché");
+assert(/☐ reste A/.test(wp) && /☐ reste B/.test(wp), "les critères RESTANTS sont listés");
+assert(!/pill ok/.test(wp), "tant que ce n'est pas fini, pas de pastille verte");
+const wpDone = worklogProgressHtml({ checklist: { done: 6, total: 6, items: [] } }, escO);
+assert(/pill ok/.test(wpDone) && />6\/6 ✓</.test(wpDone),
+  "tout coché → pastille verte, et rien à lister (ce qui est fait se compte)");
+const wpZero = worklogProgressHtml({ checklist: { done: 0, total: 4, items: ["a"] } }, escO);
+assert(/pill warn/.test(wpZero), "aucun critère coché → pastille d'alerte");
+const wpTrunc = worklogProgressHtml({ checklist: { done: 0, total: 60, items: ["a"], truncated: true } }, escO);
+assert(/…/.test(wpTrunc), "une liste tronquée le DIT (pas de silence sur ce qui manque)");
+// sous-tâches : leur statut, pas juste leur numéro
+const wpSub = worklogProgressHtml({ sub_tasks: [{ rm_id: "2696", status: "a_faire", title: "T2" }] }, escO);
+assert(/RM2696 · a_faire/.test(wpSub), "une sous-tâche porte son statut");
+assert(/title="sous-tâche — T2"/.test(wpSub), "…et son titre en infobulle");
+// échappement (le texte d'un critère vient de la description du ticket)
+const wpXss = worklogProgressHtml({ checklist: { done: 0, total: 1, items: ["<img src=x onerror=1>"] },
+  sub_tasks: [{ rm_id: "1<b>", status: "a<b>", title: "t<b>" }] }, escO);
+assert(!/<img/.test(wpXss) && /&lt;img/.test(wpXss), "le texte d'un critère est échappé");
+assert(!/<b>/.test(wpXss), "id, statut et titre de sous-tâche échappés aussi");
+// le rendu du worklog appelle bien l'avancement
+const mItem = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
+  "chaque ligne du worklog rend l'avancement de son ticket");
+console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
+
+// — RM2696 : worklog PROJET (toutes sessions confondues) —
+// RM2723 : la ligne de MR est désormais une fonction partagée (session + projet).
+const mrLineHtml = grabO("mrLineHtml");
+const projWorklogHtml = grabO("projWorklogHtml", { mrLineHtml });
+assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
+  "projet sans activité → message, pas de crash");
+const GRP = {
+  key: "acme/shop",
+  counts: { sessions_live: 1, sessions: 2, active: 2, waiting: 1, orphans: 1, mrs: 1, requests: 1 },
+  tickets: [
+    { rm_id: "11", status: "en_cours", title: "orphelin", bucket: "active",
+      sessions: [], has_live_session: false },
+    { rm_id: "10", status: "en_cours", title: "suivi", bucket: "active",
+      sessions: ["70"], has_live_session: true, checklist: { done: 1, total: 2, items: ["b"] } },
+    { rm_id: "12", status: "a_tester_demandeur", title: "en attente", bucket: "waiting",
+      sessions: ["71"], has_live_session: false },
+  ],
+  mrs: [{ iid: "9", ref: "RM12", target: "dev", url: "https://x/9", alive: false }],
+  requests: [{ text: "une demande", n: 1 }],
+  sessions: [{ sid: "70", alive: true, title: "T" }, { sid: "71", alive: false, title: "U" }],
+};
+const pw = projWorklogHtml(GRP, escO, jargFn);
+assert(/1 session\(s\) ouverte\(s\)/.test(pw) && /15|2 en cours/.test(pw), "bandeau de compteurs");
+assert(/💤 à reprendre/.test(pw), "un ticket actif sans session vivante est SIGNALÉ (le cas qu'on perd de vue)");
+assert(pw.indexOf("RM11") < pw.indexOf("RM10"), "…et il passe avant les tickets suivis");
+assert(/>1\/2 ✓</.test(pw), "l'avancement (RM2695) est repris dans la vue projet");
+assert(/🔀 MR à merger \(1\)/.test(pw) && /!9/.test(pw), "les MR non mergées sont listées");
+assert(/session éteinte/.test(pw), "une MR laissée par une session éteinte le dit");
+assert(/📥 demandes non ticketées \(1\)/.test(pw), "les demandes non ticketées remontent");
+assert(/a_tester_demandeur : 1/.test(pw), "les attentes sont comptées par statut (le geste diffère)");
+assert(/onclick="attach\('70'\)"/.test(pw), "les sessions sont attachables (arg en guillemets simples, jarg)");
+assert(/onclick="showTicket\(11\)"/.test(pw), "un ticket ouvre sa fiche (id numérique, pas d'injection)");
+// plafond d'affichage : borné ET annoncé
+const many = { counts: {}, tickets: Array.from({ length: 33 }, (_, i) =>
+  ({ rm_id: String(200 + i), status: "a_tester_demandeur", title: "t", bucket: "waiting",
+     sessions: [], has_live_session: false })), mrs: [], requests: [], sessions: [] };
+const pwMany = projWorklogHtml(many, escO, jargFn);
+assert((pwMany.match(/class="r-id"/g) || []).length === 20, "la liste est bornée à 20 lignes");
+assert(/… et 13 autre\(s\)/.test(pwMany), "…et la troncature est ANNONCÉE (jamais muette)");
+// échappement : titres et textes viennent des tickets et des demandes
+const pwXss = projWorklogHtml({ counts: {}, tickets: [{ rm_id: "1", status: "<b>s", title: "<img src=x>",
+  bucket: "active", sessions: ["<b>"], has_live_session: false }],
+  mrs: [], requests: [{ text: "<script>" }], sessions: [] }, escO, jargFn);
+assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss),
+  "titre, statut, session et demande échappés (anti-XSS)");
+console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées");
+
+
+// — RM2716 : sélection de tickets du worklog → traitement en série —
+const batchPlanHtml = grabO("batchPlanHtml");
+const PLAN = {
+  count: 2,
+  todo: [{ rm_id: "10", status: "a_faire", title: "dev", instruction: "traiter puis livrer" },
+         { rm_id: "11", status: "a_etudier_chiffrer", title: "étude", instruction: "étudier et chiffrer" }],
+  skipped: [{ rm_id: "12", status: "a_tester_demandeur", title: "chez toi",
+              reason: "attend TON verdict, pas celui de l'agent" }],
+};
+const bp = batchPlanHtml(PLAN, escO);
+assert(/▶ à traiter \(2\)/.test(bp), "le récapitulatif compte ce qui va partir");
+assert(/1\.<\/b> <span class="r-id">RM10/.test(bp), "les tickets sont numérotés dans l'ordre d'exécution");
+assert(/traiter puis livrer/.test(bp) && /étudier et chiffrer/.test(bp),
+  "chaque ticket affiche l'action qui sera demandée");
+assert(/⊘ écartés \(1\)/.test(bp) && /attend TON verdict/.test(bp),
+  "les écartés sont listés AVEC leur raison — rien n'est retiré en silence");
+assert(!/au-delà de 10/.test(bp), "pas d'avertissement de volume sur un petit lot");
+const bpBig = batchPlanHtml({ todo: Array.from({ length: 12 }, (_, i) =>
+  ({ rm_id: String(i), status: "a_faire", instruction: "traiter" })), skipped: [] }, escO);
+assert(/au-delà de 10/.test(bpBig), "au-delà de 10 tickets, l'avertissement de volume s'affiche");
+const bpEmpty = batchPlanHtml({ todo: [], skipped: [] }, escO);
+assert(/aucun ticket actionnable/.test(bpEmpty), "sélection sans actionnable : dit clairement qu'il n'y a rien");
+assert(/à traiter \(0\)/.test(batchPlanHtml(null, escO)), "plan absent toléré");
+const bpXss = batchPlanHtml({ todo: [{ rm_id: "1<b>", status: "<img src=x>", title: "<script>",
+  instruction: "<b>i" }], skipped: [{ rm_id: "2", reason: "<script>" }] }, escO);
+assert(!/<img|<script>/.test(bpXss), "titre, statut, instruction et raison échappés (anti-XSS)");
+// la case à cocher ne détourne pas le clic de la ligne, et n'existe que sur un ticket
+const mItem2716 = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
+assert(/event\.stopPropagation\(\);batchToggle\(/.test(mItem2716[0]),
+  "cocher ne doit pas ouvrir la fiche du ticket");
+assert(/\/\^RM\\d\+\$\/i\.test/.test(mItem2716[0]),
+  "seul un TICKET est sélectionnable (un chantier libre n'a pas de protocole)");
+// l'envoi passe par le récapitulatif : jamais d'appel direct sans dry_run d'abord
+const mOpen = /async function openBatchPlan\([\s\S]*?\n\}/.exec(html);
+assert(mOpen, "openBatchPlan introuvable");
+assert(/dry_run: true/.test(mOpen[0]), "le récapitulatif s'obtient en dry_run (aucun envoi)");
+const mSend = /async function sendBatch\([\s\S]*?\n\}/.exec(html);
+assert(/batchPlanCache/.test(mSend[0]),
+  "l'envoi n'est possible qu'après avoir chargé — donc affiché — le récapitulatif");
+console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
+
+
+// — RM2697 : tableau de bord « ce qui requiert mon attention » —
+const attentionRows = grabO("attentionRows", { tmuxNameOf: sid => String(sid) });
+const attentionHtml = grabO("attentionHtml");
+const OV = { projects: [
+  { client: "acme", project: "shop", counts: {},
+    tickets: [{ rm_id: "10", status: "a_tester_demandeur", title: "livré", bucket: "waiting" },
+              { rm_id: "11", status: "en_cours", title: "en cours", bucket: "active" },
+              { rm_id: "12", status: "a_mep", title: "à déployer", bucket: "waiting" }],
+    mrs: [{ iid: "9", ref: "RM11", url: "https://x/9", alive: false }],
+    requests: [{ text: "une demande" }],
+    sessions: [{ sid: "70", alive: true, title: "S70" }] },
+] };
+const SESS = { "70": { state: "idle", client: "acme", project: "shop", title: "S70" },
+               "71": { state: "attention", client: "acme", project: "shop", title: "S71" } };
+const rows = attentionRows(OV, SESS, { stale: [] });
+assert.deepStrictEqual([...rows.map(r => r.kind)],
+  ["question", "test", "mr", "mep", "idle", "request"],
+  "l'ordre suit le COÛT de l'attente, pas le projet");
+assert.strictEqual(rows[0].verb, "réponds", "une session qui attend une réponse passe avant tout");
+assert.strictEqual(rows[1].rm_id, "10", "puis ce qui attend TON verdict");
+assert(rows[2].text.includes("session éteinte"), "une MR d'une session éteinte le dit");
+assert.strictEqual(rows[4].kind, "idle", "une session au repos avec du travail actif remonte");
+assert(/1 ticket\(s\) en cours/.test(rows[4].text), "…en disant combien de travail reste");
+// une question restée sans réponse (RM2598) compte comme attente, même sans état ⚠
+const stale = attentionRows({ projects: [] }, { "80": { client: "a", project: "b", title: "S" } }, { stale: ["80"] });
+assert.strictEqual(stale.length === 1 && stale[0].icon, "🕓", "question laissée sans réponse : signalée");
+// filtres
+assert.strictEqual(attentionRows(OV, SESS, { client: "autre" }).length, 0, "filtre client");
+assert.strictEqual(attentionRows(OV, SESS, { project: "shop" }).length, rows.length, "filtre projet");
+assert.deepStrictEqual([...attentionRows(null, null, {})], [], "données absentes tolérées");
+// une session au repos SANS travail actif n'encombre pas
+const calme = attentionRows({ projects: [{ client: "a", project: "b", tickets: [], mrs: [],
+  requests: [], sessions: [{ sid: "9", alive: true }] }] }, {}, {});
+assert.strictEqual(calme.length, 0, "pas de ligne pour une session au repos sans rien à faire");
+// rendu
+const dh = attentionHtml(rows, escO, jargFn);
+assert(/dash-sec/.test(dh) && /une session attend ta réponse/.test(dh), "les lignes sont groupées par nature d'attente");
+assert(/onclick="attach\('71'\)"/.test(dh), "une session s'attache en un clic");
+assert(/onclick="openReview\('10'\)"/.test(dh), "un ticket ouvre sa fiche");
+assert(/window\.open\('https:\/\/x\/9'/.test(dh), "une MR s'ouvre sur la forge");
+assert(/rien n’attend de toi/.test(attentionHtml([], escO, jargFn)),
+  "rien à faire est une bonne nouvelle, pas un écran mort");
+// volume : sur ce poste la liste brute fait 175 lignes — un tableau de bord qui
+// les afficherait toutes rejouerait le problème qu'il corrige
+const many2697 = Array.from({ length: 40 }, (_, i) =>
+  ({ rank: 2, kind: "test", icon: "🧪", verb: "teste", client: "a", project: "b",
+     rm_id: String(1000 + i), text: "t", since: "2026-08-" + String(10 + (i % 20)).padStart(2, "0") }));
+const dhMany = attentionHtml(many2697, escO, jargFn);
+assert.strictEqual((dhMany.match(/dash-row/g) || []).length, 5, "au plus 5 lignes par nature d'attente");
+assert(/… et 35 autre/.test(dhMany), "…et le reste est ANNONCÉ, jamais coupé en silence");
+assert(/dash-chip[^>]*>🧪 40</.test(dhMany), "le compte RÉEL reste visible en tête (vue d'ensemble)");
+assert(/\(40\)/.test(dhMany), "chaque section porte son total, pas le nombre affiché");
+// ancienneté : ce qui attend depuis le plus longtemps passe devant
+const parAge = attentionRows({ projects: [{ client: "a", project: "b", mrs: [], requests: [], sessions: [],
+  tickets: [{ rm_id: "2", status: "a_tester_demandeur", title: "récent", updated: "2026-08-17" },
+            { rm_id: "1", status: "a_tester_demandeur", title: "vieux", updated: "2026-06-01" }] }] }, {}, {});
+assert.deepStrictEqual([...parAge.map(r => r.rm_id)], ["1", "2"],
+  "dans une nature, le plus ancien d'abord — trier par numéro trierait au hasard");
+assert(/2026-06-01/.test(attentionHtml(parAge, escO, jargFn)), "la date d'attente est affichée");
+const dhXss = attentionHtml([{ rank: 1, kind: "test", icon: "🧪", verb: "<b>v", client: "<img src=x>",
+  project: "p", rm_id: "1", text: "<script>" }], escO, jargFn);
+assert(!/<img|<script>|<b>v/.test(dhXss), "verbe, client et texte échappés (anti-XSS)");
+console.log("✓ dashboard (RM2697) : tri par nature d'attente, verbes d'action, écran vide parlant");
+
+// — RM2698 : alertes de dérive, en tête du tableau de bord —
+const alertsHtml = grabO("alertsHtml");
+assert.strictEqual(alertsHtml({ alerts: [] }, escO, jargFn), "",
+  "rien à signaler ⇒ RIEN d'affiché (une bannière permanente cesse d'être lue)");
+assert.strictEqual(alertsHtml(null, escO, jargFn), "", "données absentes tolérées");
+const AL = { total: 30, hidden: 18, alerts: [
+  { kind: "verdict", key: "t:4", age_days: 48.2, rm_id: "4", client: "acme", project: "shop",
+    label: "livré, attend ton verdict", title: "un titre" },
+  { kind: "mr", key: "m:r:9", age_days: 29, iid: "9", url: "https://x/9", client: "acme",
+    project: "shop", label: "MR ouverte, pas mergée" },
+] };
+const ah = alertsHtml(AL, escO, jargFn);
+assert(/⚠ dérives \(30\)/.test(ah), "l'en-tête porte le TOTAL, pas le nombre affiché");
+assert(/48 j/.test(ah) && /29 j/.test(ah), "chaque alerte porte son âge — sans lui, on ne priorise pas");
+assert(/… et 18 dérive/.test(ah), "ce qui est masqué est annoncé, avec le renvoi aux réglages");
+assert(/onclick="snoozeAlert\('t:4'\)"/.test(ah), "chaque alerte se REPORTE (jamais de suppression)");
+assert(/⏳ 7 j/.test(ah), "le report est daté et explicite");
+assert(/onclick="openReview\('4'\)"/.test(ah), "le ticket s'ouvre en un clic");
+assert(/href="https:\/\/x\/9"/.test(ah), "une MR renvoie à la forge");
+const ahXss = alertsHtml({ alerts: [{ kind: "mr", key: "<b>k", age_days: 1, client: "<img src=x>",
+  project: "p", label: "<script>", title: "<b>t" }] }, escO, jargFn);
+assert(!/<img|<script>|<b>t/.test(ahXss), "client, label et titre échappés (anti-XSS)");
+// les alertes passent AVANT l'état dans le rendu du tableau de bord
+const mRd = /function renderDashboard\(\)[\s\S]*?\n\}/.exec(html);
+assert(mRd && mRd[0].indexOf("alertsHtml") < mRd[0].indexOf("attentionHtml"),
+  "la dérive s'affiche avant l'état courant");
+console.log("✓ alertes (RM2698) : datées, bornées, reportables, silencieuses quand tout va bien");
+
 console.log("OK — tous les tests cockpit passent");
+
+// — renderMailList (RM2671) : file de triage des emails —
+const fml = />>> renderMailList[\s\S]*?(function renderMailList[\s\S]*?)\n\/\/ <<< renderMailList/.exec(html);
+assert(fml, "marqueurs >>> renderMailList / <<< renderMailList introuvables");
+const renderMailList = vm.runInNewContext("(" + fml[1] + ")", {});
+// escFn / jargFn sont déjà définis plus haut dans ce fichier (RM2612/RM2623) :
+// on les réutilise tels quels, pour tester avec les MÊMES échappements que la page.
+
+assert(/file vide/.test(renderMailList([], null, escFn, jargFn)), "file vide non signalée");
+
+const mails = [
+  { key: "aaa1", subject: "Panne de caisse", from_name: "CalyClay", from: "a@b.fr",
+    date: "2026-08-17T09:00", folder: "INBOX.Clients", state: "à traiter", attachments: 2,
+    routing: { client: "calyclay", project: null, source: "contacts", confidence: 0.8 } },
+  { key: "bbb2", subject: "Re: suite", from: "c@d.fr", date: "2026-08-16T09:00",
+    state: "créé", created_rm: 2710, rm_id: 2661, routing: {} },
+  { key: "ccc3", subject: "Merci", from: "e@f.fr", date: "2026-08-15T09:00",
+    state: "écarté", dismissed: { reason: "accusé de réception" }, routing: {} },
+];
+let out = renderMailList(mails, null, escFn, jargFn);
+assert(/calyclay\/\?/.test(out), "client sans projet doit rester « /? » (pas de choix silencieux)");
+assert(/80%/.test(out) && /contacts/.test(out), "confiance et source absentes");
+assert(/📎2/.test(out), "pièces jointes non signalées");
+assert(/↩ RM2661/.test(out), "réponse à un fil non signalée");
+assert(/→ RM2710/.test(out), "ticket créé non signalé");
+assert(/accusé de réception/.test(out), "motif d'écartement absent");
+assert(!/Créer le ticket/.test(out), "les actions ne doivent apparaître que sur l'email déplié");
+
+// — email déplié : formulaire pré-rempli et éditable, actions présentes —
+const open = [Object.assign({}, mails[0], {
+  body: "Bonjour,\nça plante.", body_truncated: true,
+  draft: { title: "Caisse HS", project: "calyclay/dolibarr", priority: "high",
+           description: "Le TPE ne répond plus.", confidence: 0.75, actionable: true,
+           warnings: ["projet hors liste (x) → écarté"] },
+})];
+out = renderMailList(open, "aaa1", escFn, jargFn);
+assert(/id="ml-title" value="Caisse HS"/.test(out), "titre non pré-rempli");
+assert(/id="ml-project" value="calyclay\/dolibarr"/.test(out), "projet non pré-rempli");
+assert(/<option selected>high<\/option>|selected>high/.test(out), "priorité non pré-sélectionnée");
+assert(/projet hors liste/.test(out), "avertissement de la proposition non affiché");
+assert(/tronqué à la relève/.test(out), "troncature du corps non signalée");
+["Rédiger", "Créer le ticket", "Note sur…", "Reclasser", "Écarter"].forEach(a =>
+  assert(out.includes(a), "action manquante : " + a));
+
+// — RM2588/mémoire : un argument chaîne passé en onclick doit être en quotes SIMPLES
+//   (jarg), sinon l'attribut se referme et le handler meurt au clic —
+assert(/onclick="mailToggle\('aaa1'\)"/.test(out), "clé non passée via jarg dans onclick");
+assert(!/onclick="[^"]*\{&quot;/.test(out), "objet JSON injecté dans un onclick");
+
+// — échappement : un sujet hostile ne doit pas sortir tel quel —
+out = renderMailList([{ key: "ddd4", subject: '<img src=x onerror=alert(1)>',
+                        from: "x@y.fr", date: "2026-08-14", state: "à traiter", routing: {} }],
+                     null, escFn, jargFn);
+assert(!/<img/.test(out) && /&lt;img/.test(out), "sujet non échappé");
+console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempli, échappement");
+
+// — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
+// `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
+const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
+const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt"),
+      renderCenterTabs = grabFn("renderCenterTabs");
+// RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
+// qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
+const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
+  { Object, clientProjectPickerHtml: vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
+      { Object, Array, Set, projectRadiosHtml: grabFn("projectRadiosHtml") }) });
+
+let st = { tabs: [], active: null };
+st = upsertTab(st.tabs, "session", "2668", "RM2668");
+assert.equal(st.tabs.length, 1); assert.equal(st.active, "session:2668");
+assert.equal(st.tabs[0].pinned, false, "un onglet est temporaire par défaut");
+
+// règle du temporaire unique : la vue suivante REMPLACE le temporaire précédent
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review"], "le temporaire précédent doit céder la place");
+
+// épinglé : il reste, et le temporaire vient à côté
+st = upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true });
+st = upsertTab(st.tabs, "project", "calyclay/infra", "calyclay/infra");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "project"], "un onglet épinglé survit");
+st = upsertTab(st.tabs, "newticket", "", "nouveau ticket");
+assert.deepEqual(st.tabs.map(t => t.kind), ["review", "newticket"], "un seul temporaire à la fois");
+
+// ré-ouvrir un onglet existant l'active sans le dupliquer
+const before = st.tabs.length;
+st = upsertTab(st.tabs, "review", "2670", "RM2670");
+assert.equal(st.tabs.length, before, "pas de doublon d'onglet");
+assert.equal(st.active, "review:2670");
+
+// fermeture : voisin de gauche, puis de droite, puis plus rien
+let c = closeTabAt(st.tabs, "review:2670", "review:2670");
+assert.equal(c.active, "newticket:", "à défaut de voisin gauche, on prend le droit");
+c = closeTabAt(c.tabs, "newticket:", "newticket:");
+assert.equal(c.tabs.length, 0); assert.equal(c.active, null, "plus d'onglet → aucune vue active");
+c = closeTabAt([{ kind: "review", key: "1" }], "review:404", "review:1");
+assert.equal(c.tabs.length, 1, "fermer un onglet inconnu ne casse rien");
+
+// rendu : actif, épinglé, échappement, et onclick en quotes simples (jarg)
+const tabsHtml = renderCenterTabs(
+  [{ kind: "review", key: "2670", label: "RM2670", pinned: true },
+   { kind: "project", key: "x/y", label: '<b>x</b>', pinned: false }],
+  "review:2670", escFn, jargFn);
+assert(/class="ctab active"/.test(tabsHtml), "onglet actif non marqué");
+assert(/📌/.test(tabsHtml) && /⇧/.test(tabsHtml), "état d'épinglage non rendu");
+assert(/ctab temp/.test(tabsHtml), "onglet temporaire non signalé");
+assert(!/<b>x<\/b>/.test(tabsHtml) && /&lt;b&gt;/.test(tabsHtml), "libellé non échappé");
+assert(/onclick="activateTab\('review:2670'\)"/.test(tabsHtml), "id non passé via jarg");
+assert(/event\.stopPropagation\(\);closeTab/.test(tabsHtml), "la croix doit stopper la propagation");
+
+// formulaire pleine page : les champs qui manquaient à la carte repliée
+const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
+                               ["low", "normal", "high", "urgent"],
+                               [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
+["ntf-title", "ntf-client", "ntf-projects", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
+ "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id =>
+  assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
+assert(/<option value="feature" selected>/.test(form), "type feature non présélectionné");
+assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
+assert(/value="calyclay\/infra" checked/.test(form), "la cible du ticket n'est pas proposée");
+assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
+console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");
+
+// — RM2718 : pastille du statut de session ([WIP] / [A TESTER] / [DONE]) —
+const markPillHtml2718 = grabO("markPillHtml");
+assert(/pill warn">WIP</.test(markPillHtml2718("wip")), "WIP : pastille d'attention");
+assert(/pill test">À TESTER</.test(markPillHtml2718("test")), "test : pastille « À TESTER »");
+assert(/pill ok">DONE</.test(markPillHtml2718("done")), "DONE : pastille ok");
+assert.strictEqual(markPillHtml2718(null), "", "pas de marqueur → pas de pastille");
+assert.strictEqual(markPillHtml2718("zzz"), "", "statut inconnu → rien d'inventé");
+assert.strictEqual(markPillHtml2718("constructor"), "",
+  "une clé héritée d'Object ne doit pas produire de pastille");
+assert(markPillHtml2718("test").endsWith("</span> "),
+  "la pastille garde son espace de séparation avec le titre");
+console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'inventé");
+
+// — RM2719 : portée restreinte — les points d'un ticket, cochables avant envoi —
+const bpPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", title: "dev",
+  instruction: "traiter puis livrer", points: ["critère A", "critère B"] }], skipped: [] }, escO);
+assert(/class="bp-point"/.test(bpPts), "les points du ticket sont rendus");
+assert((bpPts.match(/type="checkbox" checked/g) || []).length === 2,
+  "chaque point est coché par défaut : l'état de départ = ticket entier");
+assert(/data-ref="10"/.test(bpPts), "chaque case porte le ticket auquel elle appartient");
+assert(/value="critère A"/.test(bpPts), "la case porte le libellé exact du point (c'est lui qui part)");
+assert(/aucun coché = ticket écarté/.test(bpPts),
+  "la conséquence de tout décocher doit être écrite, pas devinée");
+const bpNoPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter" }],
+                                skipped: [] }, escO);
+assert(!/bp-point/.test(bpNoPts), "un ticket sans critère ne rend aucune case (pas de bloc vide)");
+const bpPtsXss = batchPlanHtml({ todo: [{ rm_id: "1", status: "a_faire",
+  instruction: "x", points: ['<img src=x onerror=1> "guillemet"'] }], skipped: [] }, escO);
+assert(!/<img/.test(bpPtsXss), "un libellé de critère est échappé dans le texte");
+assert(!/value="[^"]*"guillemet/.test(bpPtsXss), "…et dans l'attribut value (sinon l'attribut se ferme)");
+console.log("✓ portée restreinte d'un ticket (RM2719) : points cochables, échappés, conséquence écrite");
+const bpTrunc = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter",
+  points: ["critère A"], points_truncated: true }], skipped: [] }, escO);
+assert(/liste de critères incomplète/.test(bpTrunc),
+  "une liste de critères tronquée doit se dire : sinon elle se lit comme complète");
+assert(!/liste de critères incomplète/.test(bpPts), "…et ne s'affiche pas quand elle est complète");
+console.log("✓ portée restreinte (RM2719) : une liste de critères incomplète est annoncée");
+
+// — RM2720 : les actions PM portent sur un TICKET, plus sur la session —
+const pmActionTarget = grabO("pmActionTarget");
+const SESS2720 = { "123": { rm_id: "123" }, "77": { rm_id: "77" }, "88": { rm_id: "88", ghost: true } };
+const tOwn = pmActionTarget("123", SESS2720, "77");
+assert.strictEqual(tOwn.sid, "123", "la session DU ticket est la cible naturelle");
+assert.strictEqual(tOwn.own, true, "…et elle est signalée comme telle (pas de confirmation à demander)");
+const tFallback = pmActionTarget("999", SESS2720, "77");
+assert.strictEqual(tFallback.sid, "77", "sans session du ticket, repli sur la session attachée");
+assert.strictEqual(tFallback.own, false, "…mais le repli n'est pas la session du ticket");
+assert(/pas la session du ticket/.test(tFallback.why),
+  "le repli doit être DIT : injecter une consigne ailleurs n'est pas neutre");
+assert.strictEqual(pmActionTarget("999", SESS2720, null).sid, null,
+  "sans session vivante : aucune cible (le bouton se désactive)");
+assert(/aucune session/.test(pmActionTarget("999", SESS2720, null).why), "…avec sa raison");
+assert.strictEqual(pmActionTarget("88", SESS2720, null).sid, null,
+  "un fantôme (tuile grise, aucun processus) n'est pas une cible");
+assert.strictEqual(pmActionTarget("999", {}, "77").sid, null,
+  "une session attachée absente du cache n'est pas une cible");
+
+// la barre de session ne rend plus les actions de ticket
+const mChips = /function renderChips\(\)[\s\S]*?\n\}/.exec(html);
+assert(mChips, "renderChips introuvable");
+assert(/if \(a\.ticket_only\) continue;/.test(mChips[0]),
+  "les actions ticket_only ne doivent plus être rendues au niveau session");
+assert(!/isTicket/.test(mChips[0]),
+  "plus de distinction session-ticket / session-slug dans la barre (elle n'a plus lieu d'être)");
+// sendAction sait viser un ticket ET une session distincts
+const mSend2720 = /async function sendAction\([\s\S]*?\n\}/.exec(html);
+assert(mSend2720, "sendAction introuvable");
+assert(/async function sendAction\(a, btn, id, sid\)/.test(mSend2720[0]),
+  "sendAction doit distinguer le ticket visé de la session destinataire");
+assert(/replaceAll\("\{id\}", rid\)/.test(mSend2720[0]), "{id} vaut le TICKET, plus la session");
+console.log("✓ actions PM sur le ticket (RM2720) : cible résolue, repli annoncé, barre session nettoyée");
+
+// — RM2720 : le second mode de lot se lit dans l'écran de confirmation —
+const mModes = /const BATCH_MODES = (\{[\s\S]*?\n\});/.exec(html);
+assert(mModes, "BATCH_MODES (cockpit) introuvable");
+const MODES2720 = vm.runInNewContext("(" + mModes[1] + ")");
+assert(MODES2720.atester && MODES2720.traiter, "deux modes de lot");
+assert.notStrictEqual(MODES2720.atester.envoi, MODES2720.traiter.envoi,
+  "le bouton d'envoi doit dire lequel des deux part");
+assert.strictEqual(MODES2720.atester.points, false,
+  "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
+console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");
+
+// — RM2722 : badge d'anomalies du poste (contrôle de démarrage) —
+const envWarnBadge = grabO("envWarnBadge");
+assert.strictEqual(envWarnBadge({ items: [], count: 0, worst: "ok" }, escO), "",
+  "poste sain : AUCUN badge (un indicateur permanent ne se lit plus)");
+assert.strictEqual(envWarnBadge(null, escO), "", "données absentes tolérées");
+const ewWarn = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "agent joignable mais VIDE" }] }, escO);
+assert(/>🩺 1</.test(ewWarn), "le badge porte le NOMBRE d'anomalies");
+assert(/pill ew-warn/.test(ewWarn), "niveau warn : couleur d'avertissement");
+assert(/agent joignable mais VIDE/.test(ewWarn),
+  "le survol dit QUOI — sans ça il faut ouvrir le panneau pour savoir quoi réparer");
+const ewErr = envWarnBadge({ worst: "error", items: [
+  { family: "Secrets", label: "vault-agentd", level: "error", detail: "socket absent" },
+  { family: "SSH", label: "agent SSH", level: "warn", detail: "vide" }] }, escO);
+assert(/pill ew-error/.test(ewErr), "une erreur l'emporte sur un avertissement");
+assert(/>🩺 2</.test(ewErr), "…et les deux sont comptées");
+const ewMany = envWarnBadge({ worst: "warn", items: Array.from({ length: 12 }, (_, i) =>
+  ({ family: "Outils & dépendances", label: "outil" + i, level: "warn", detail: "absent" })) }, escO);
+assert(/>🩺 12</.test(ewMany), "le compte reste exact même si le survol est tronqué");
+assert(/et 4 autre\(s\)/.test(ewMany), "…et la troncature du survol est annoncée");
+const ewXss = envWarnBadge({ worst: "warn", items: [
+  { family: "SSH", label: '"><img src=x>', level: "warn", detail: "x" }] }, escO);
+assert(!/<img/.test(ewXss), "le détail d'un check est échappé dans l'attribut title");
+console.log("✓ badge d'anomalies du poste (RM2722) : silencieux si sain, compté, expliqué au survol");
+
+// — RM2720 (suite) : écran de confirmation d'un lot de merges —
+const mrBatchHtml = grabO("mrBatchHtml");
+const PLAN_DEV = { mode: "dev", live: [], skipped: [], runs: [
+  { rm_ids: ["10"], source: "10-x", target: "dev" },
+  { rm_ids: ["11"], source: "11-y", target: "dev" }] };
+const mbDev = mrBatchHtml(PLAN_DEV, escO);
+assert(/10-x → dev/.test(mbDev), "chaque MR dit d'OÙ vers OÙ elle merge");
+assert(!/promotion emporte/.test(mbDev), "pas d'avertissement de promotion sur un merge d'intégration");
+const mbProd = mrBatchHtml({ mode: "prod", live: [], skipped: [],
+  runs: [{ rm_ids: ["10", "11"], source: "dev", target: "main" }] }, escO);
+assert(/emporte TOUT/.test(mbProd),
+  "une promotion emporte plus que les tickets cochés : ça doit être écrit avant le clic");
+assert(/dev → main/.test(mbProd), "…et la promotion dit sa source et sa cible");
+const mbLive = mrBatchHtml({ mode: "dev", live: ["11"], skipped: [],
+  runs: [{ rm_ids: ["11"], source: "11-y", target: "dev" }] }, escO);
+assert(/session encore vivante/.test(mbLive) && /RM11/.test(mbLive),
+  "merger sous les pieds d'un agent au travail doit se voir AVANT");
+const mbSkip = mrBatchHtml({ mode: "dev", live: [], runs: [],
+  skipped: [{ rm_id: "13", reason: "aucune branche au frontmatter" }] }, escO);
+assert(/⊘ écartés \(1\)/.test(mbSkip) && /aucune branche/.test(mbSkip),
+  "un ticket écarté porte sa raison");
+assert(/rien à merger/.test(mbSkip), "un plan vide le dit");
+assert(/à merger/.test(mrBatchHtml(null, escO)), "plan absent toléré");
+const mbXss = mrBatchHtml({ mode: "dev", live: [], skipped: [],
+  runs: [{ rm_ids: ["1"], source: "<img src=x>", target: "dev" }] }, escO);
+assert(!/<img/.test(mbXss), "un nom de branche est échappé");
+console.log("✓ lot de merges (RM2720) : cible dite, promotion avertie, session vivante signalée");
+
+// — RM2723 : bouton « merger » sur chaque MR du worklog —
+const mrOk = mrLineHtml({ iid: 571, ref: "RM2720", target: "dev",
+  url: "https://gl.x/g/p/-/merge_requests/571" }, escO, jargFn);
+assert(/!571/.test(mrOk) && /RM2720/.test(mrOk), "la ligne garde ce qu'elle disait");
+assert(/⇥ merger<\/button>/.test(mrOk), "…et porte le bouton de merge");
+assert(/onclick="mergeOneMr\('https:\/\/gl\.x\/g\/p\/-\/merge_requests\/571'/.test(mrOk),
+  "la MR est désignée par son URL (un iid nu exigerait un dépôt — RM2541)");
+assert(!/onclick="[^"]*"[^"]*"/.test(mrOk.replace(/title="[^"]*"/g, "")),
+  "l'attribut onclick ne doit contenir aucun guillemet double non échappé");
+assert(/ouvrir ↗/.test(mrOk), "le lien d'ouverture reste");
+const mrNoUrl = mrLineHtml({ iid: 12, target: "dev" }, escO, jargFn);
+assert(!/mergeOneMr/.test(mrNoUrl),
+  "sans URL, pas de bouton : rien à quoi rattacher le merge");
+assert(/!12/.test(mrNoUrl), "…mais la ligne s'affiche quand même");
+const mrDead = mrLineHtml({ iid: 3, url: "https://gl.x/g/p/-/merge_requests/3", alive: false },
+  escO, jargFn);
+assert(/session éteinte/.test(mrDead), "l'état de la session qui l'a ouverte est conservé");
+const mrXss = mrLineHtml({ iid: '<img src=x>', ref: '"><b>', target: "<i>",
+  url: "https://gl.x/g/p/-/merge_requests/9" }, escO, jargFn);
+// (la ligne contient un <b> légitime — on cherche les charges injectées)
+assert(!/<img|<i>/.test(mrXss),
+  "iid, ref et cible sont échappés — y compris dans l'argument onclick, où jarg "
+  + "ne protège que du guillemet SIMPLE (l'attribut, lui, est en double)");
+const mrQuote = mrLineHtml({ iid: 'a"b', url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn);
+assert(!/onclick="mergeOneMr\([^"]*"[^"]*"/.test(mrQuote),
+  "un guillemet double dans un libellé ne doit pas fermer l'attribut onclick");
+assert(/⇥ merger/.test(mrLineHtml({ iid: 1, url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn)),
+  "une MR sans cible connue reste mergeable");
+console.log("✓ ligne de MR (RM2723) : rendu unique session+projet, merge à l'URL, pas de bouton sans URL");
+
+// — RM2721 : « ⬆ MAJ dispo » doit se remarquer, et rester lisible sans animation —
+// Le bouton vivait avec le style `.mini` de ses six voisins du header : rien ne le
+// distinguait de « voix » ou « glossaire ». Deux niveaux exigés — un habillage
+// permanent (--warn) ET une pulsation — le second étant désactivable.
+const mUpd = /#updbtn \{([^}]*)\}/.exec(css);
+assert(mUpd, "règle CSS #updbtn (RM2721) introuvable");
+assert(/animation:\s*updpulse/.test(mUpd[1]), "#updbtn doit pulser (animation updpulse)");
+for (const prop of ["color", "border-color", "background"]) {
+  assert(new RegExp(prop + ":\\s*var\\(--warn").test(mUpd[1]),
+    `#updbtn : ${prop} doit venir d'un token --warn* (jamais une couleur en dur)`);
+}
+assert(/@keyframes updpulse \{[\s\S]*?\}\s*\n\s*\}/.test(css), "@keyframes updpulse introuvable");
+// pas de kblink ici : il fond à opacity .25, ce qui rend un bouton TEXTUEL
+// illisible la moitié du temps — et celui-ci reste affiché tant que la MAJ n'est
+// pas appliquée.
+assert(!/animation:\s*kblink/.test(mUpd[1]), "#updbtn ne doit pas fondre en opacité (kblink)");
+assert(!/opacity/.test(/@keyframes updpulse \{([\s\S]*?)\n  \}/.exec(css)[1]),
+  "updpulse ne doit pas jouer sur l'opacité (le texte doit rester lisible)");
+// mouvement réduit : l'animation tombe, l'habillage --warn reste (le bouton doit
+// encore se distinguer sur une capture d'écran ou pour qui coupe les animations).
+const mRm = /@media \(prefers-reduced-motion: reduce\) \{ #updbtn \{([^}]*)\}/.exec(css);
+assert(mRm, "#updbtn : prefers-reduced-motion non respecté (RM2721)");
+assert(/animation:\s*none/.test(mRm[1]), "mouvement réduit → animation: none");
+// les tokens existent dans les DEUX thèmes (le test 10 verrouille déjà la parité,
+// on vérifie ici qu'ils sont bien nés et pas juste référencés)
+for (const t of ["--warn-soft", "--warn-soft-hover"]) {
+  assert(dark.has(t) && light.has(t), `token ${t} manquant (dark et/ou light)`);
+}
+// et aucun autre `.mini` du header n'a été emporté au passage
+assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit toucher tous les .mini");
+console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
+
+// — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
+const ticketSessionsHtml = grabO("ticketSessionsHtml");
+const taskPromptText = grabO("taskPromptText");
+
+// formulation des prompts : une seule source pour le lanceur ET la fiche
+assert.strictEqual(taskPromptText("traiter", "2726", "iprospective", "pm-ai-agents"),
+  "traite la tâche RM2726 du client iprospective projet pm-ai-agents");
+assert.strictEqual(taskPromptText("traiter", "2726", "", ""), "traite la tâche RM2726",
+  "sans client/projet résolus, l'ancrage se réduit au RM-id");
+assert.strictEqual(taskPromptText("traiter", "abc"), "", "un sid non numérique n'est pas un ticket");
+assert.strictEqual(taskPromptText("zzz", "2726"), "", "template inconnu → aucune consigne inventée");
+assert(/relis le \.log\.md/.test(taskPromptText("continuer", "2726")), "template continuer perdu");
+assert(/SANS rien modifier/.test(taskPromptText("etat", "2726")),
+  "l'état du ticket doit rester en lecture seule");
+
+// aucune session : on le dit, et il reste le lancement
+const tsNone = ticketSessionsHtml({ rm_id: "2726", handled: [], candidates: [],
+                                    live: false, own_alive: false }, escFn, jargFn);
+assert(/aucune session ne traite ce ticket/.test(tsNone), "l'absence de session doit être dite");
+assert(/spawnTicketSession\('2726'/.test(tsNone), "le lancement d'une nouvelle session doit rester offert");
+assert(!/disabled/.test(tsNone), "sans session d'ancrage vivante, le lancement n'est pas désactivé");
+assert(/aucune autre session vivante/.test(tsNone), "sans destination, il faut le dire");
+
+// sessions qui le traitent : source affichée, ouverture pour les vivantes seulement
+const tsData = {
+  rm_id: "2726", client: "iprospective", project: "pm-ai-agents", live: true, own_alive: true,
+  handled: [
+    { sid: "2726", alive: true, reasons: ["ancrage"], title: "[WIP] fiche", same_project: true },
+    { sid: "vieille", alive: false, reasons: ["registre"], title: "hier", same_project: true },
+  ],
+  candidates: [
+    { sid: "cockpit", alive: true, title: "cockpit", same_project: true,
+      client: "iprospective", project: "pm-ai-agents" },
+    { sid: "presta", alive: true, title: "presta", same_project: false,
+      client: "acme", project: "boutique" },
+  ],
+};
+const tsOut = ticketSessionsHtml(tsData, escFn, jargFn);
+assert(/karl-RM2726/.test(tsOut) && /karl-vieille/.test(tsOut), "les sessions doivent être nommées");
+assert(/ancrage/.test(tsOut) && /registre/.test(tsOut), "la source doit être affichée");
+assert(/attach\('2726'\)/.test(tsOut), "une session vivante doit pouvoir s'ouvrir");
+assert(!/attach\('vieille'\)/.test(tsOut), "une session éteinte n'a rien à ouvrir");
+assert(/éteinte/.test(tsOut), "une session éteinte doit être dite telle");
+assert(/disabled/.test(tsOut), "session d'ancrage vivante → pas de second /spawn (409)");
+assert(/<optgroup label="iprospective\/pm-ai-agents">[\s\S]*cockpit/.test(tsOut),
+  "les sessions du projet du ticket doivent être groupées en tête");
+assert(tsOut.indexOf('label="iprospective/pm-ai-agents"') < tsOut.indexOf('label="autres projets"'),
+  "le bon projet passe avant les autres");
+assert(/acme\/boutique/.test(tsOut), "une session d'un autre projet doit annoncer lequel");
+assert(/sendTicketToSession\('2726'/.test(tsOut), "l'envoi dans une session existante doit être offert");
+
+// chargement : pas de liste vide trompeuse tant que la réponse n'est pas là
+assert(/recherche des sessions/.test(ticketSessionsHtml(null, escFn, jargFn)),
+  "avant réponse, on annonce la recherche — pas « aucune session »");
+
+// échappement : le titre d'une session est libre (il vient d'un transcript)
+const tsEsc = ticketSessionsHtml({ rm_id: "2726", handled: [
+  { sid: "x", alive: true, reasons: ["worklog"], title: '<img src=x onerror=alert(1)>' }],
+  candidates: [], live: true, own_alive: false }, escFn, jargFn);
+assert(!/<img/.test(tsEsc) && /&lt;img/.test(tsEsc), "titre de session non échappé");
+console.log("✓ sessions du ticket (RM2726) : source affichée, ouverture, envoi ciblé, lancement");
+
+// — RM2726 : création de ticket — filtre client, puis radios des projets —
+const projectRadiosHtml = grabFn("projectRadiosHtml");
+const clientProjectPickerHtml = vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
+  { Object, Array, Set, projectRadiosHtml });
+const PROJ = [
+  { client: "acme", project: "boutique" }, { client: "acme", project: "infra" },
+  { client: "iprospective", project: "pm-ai-agents" }, { client: "vide", project: "" },
+];
+const pick2726 = clientProjectPickerHtml(PROJ, "acme", "infra", escFn);
+assert(/id="ntf-client"/.test(pick2726) && /id="ntf-projects"/.test(pick2726), "filtre client + zone projets");
+assert(/<option value="acme" selected>/.test(pick2726), "le client courant doit être sélectionné");
+assert(/value="acme\/infra" checked/.test(pick2726), "le projet courant doit être coché");
+assert(!/pm-ai-agents/.test(pick2726), "seuls les projets DU client filtré sont proposés");
+assert(/onchange="ntfClientChanged\(\)"/.test(pick2726), "changer de client doit re-rendre les projets");
+
+const pickDefault = clientProjectPickerHtml(PROJ, "inconnu", "", escFn);
+assert(/<option value="acme" selected>/.test(pickDefault),
+  "client inconnu → premier client, pas de sélection vide");
+assert(/value="acme\/boutique" checked/.test(pickDefault),
+  "aucun projet demandé → le premier du client est coché");
+assert.strictEqual((pickDefault.match(/checked/g) || []).length, 1,
+  "un seul projet coché à la fois");
+
+assert(/aucun projet pour ce client/.test(projectRadiosHtml(PROJ, "vide", "", escFn)),
+  "un client sans projet doit le dire (le formulaire refusera l'envoi)");
+assert(/aucun projet connu/.test(clientProjectPickerHtml([], "", "", escFn)),
+  "catalogue vide : on le dit plutôt que de rendre un choix fantôme");
+
+const pickEsc = projectRadiosHtml([{ client: 'a"b', project: 'p"q' }], 'a"b', "", escFn);
+assert(!/value="a"b/.test(pickEsc), "client/projet non échappés dans l'attribut value");
+console.log("✓ création de ticket (RM2726) : filtre client, radios projet, défauts sûrs");
+
+// — RM2741 : barre du panneau « en cours » — relancer pertinent, création unifiée —
+const relaunchBtnState = grabO("relaunchBtnState");
+const newSetPlan = grabO("newSetPlan", { Object });
+const ruleFormHtml2741 = grabO("ruleFormHtml", { esc: escFn, setFacets: { clients: [] }, Set });
+
+const SET = { exists: true, count: 4, entries: [
+  { sid: "1", alive: true }, { sid: "2", alive: false },
+  { sid: "3", alive: false }, { sid: "4", alive: true }] };
+
+assert.deepEqual(relaunchBtnState(SET, "set"), { show: true, count: 2 },
+  "le compteur doit être celui des sessions ÉTEINTES, pas du jeu entier");
+assert.strictEqual(relaunchBtnState(SET, "live").show, false,
+  "vue « sessions ouvertes » : rien à relancer, le bouton n'a pas à s'y trouver");
+assert.strictEqual(relaunchBtnState(SET, "all").show, false,
+  "vue « tous les jeux » : l'affichage n'est pas le jeu, le geste écrirait ailleurs");
+assert.strictEqual(relaunchBtnState(SET, "client:acme").show, false,
+  "vue par client : idem, l'affichage n'est pas le jeu");
+assert.strictEqual(relaunchBtnState(
+  { exists: true, count: 2, entries: [{ alive: true }, { alive: true }] }, "set").show, false,
+  "tout tourne déjà → rien à relancer");
+assert.strictEqual(relaunchBtnState({ exists: false }, "set").show, false, "pas de jeu → pas de bouton");
+assert.deepEqual(relaunchBtnState({ exists: true, count: 3 }, "set"), { show: true, count: 3 },
+  "payload sans entries : on retombe sur le total plutôt que de masquer un geste utile");
+
+// création unifiée : la nature se déduit des critères
+const EXIST = ["default", "pm"];
+const manual = newSetPlan("chantier", "Chantier", {}, ["1", "2"], true, EXIST);
+assert.strictEqual(manual.kind, "manual", "aucun critère → jeu manuel");
+assert.deepEqual(manual.body, { group: "chantier", label: "Chantier", sids: ["1", "2"] });
+assert.strictEqual(manual.note, "", "rien d'ignoré ici, rien à signaler");
+
+const emptySet2741 = newSetPlan("chantier", "Chantier", {}, ["1"], false, EXIST);
+assert.deepEqual(emptySet2741.body, { group: "chantier", label: "Chantier" },
+  "case décochée → jeu vide, aucune session versée");
+
+const derived = newSetPlan("acme", "Acme", { client: "acme" }, ["1", "2"], true, EXIST);
+assert.strictEqual(derived.kind, "derived", "un critère → jeu dérivé");
+assert.deepEqual(derived.body, { group: "acme", label: "Acme", rule: { client: "acme" } },
+  "un jeu dérivé ne reçoit PAS de sids : son contenu se calcule");
+assert(/pas versées/.test(derived.note),
+  "la case cochée mais sans effet doit être signalée, pas ignorée en silence");
+
+assert.strictEqual(newSetPlan("pm", "PM", {}, [], false, EXIST).ok, false, "nom déjà pris");
+assert(/existe déjà/.test(newSetPlan("pm", "PM", {}, [], false, EXIST).error));
+assert.strictEqual(newSetPlan("x", "", {}, [], false, EXIST).ok, false, "nom vide refusé");
+assert.strictEqual(newSetPlan("", "###", {}, [], false, EXIST).ok, false, "nom inexploitable refusé");
+
+// le formulaire de création porte le nom, la case de peuplement et les critères
+const fNew = ruleFormHtml2741({}, true, 5);
+assert(/id="rf-name"/.test(fNew) && /id="rf-seed"/.test(fNew), "nom + peuplement attendus");
+assert(/5 session\(s\) affichée\(s\)/.test(fNew), "le nombre de sessions affichées doit être dit");
+assert(/checked/.test(fNew), "la case de peuplement est cochée par défaut");
+assert(/manuel/.test(fNew) && /dérivé/.test(fNew), "les deux natures doivent être expliquées");
+assert(!/id="rf-seed"/.test(ruleFormHtml2741({}, true, 0)),
+  "sans session affichée, pas de case à cocher sans objet");
+const fEdit = ruleFormHtml2741({ client: "acme" }, false, 5);
+assert(!/id="rf-name"/.test(fEdit) && !/id="rf-seed"/.test(fEdit),
+  "édition d'une règle existante : ni nom ni peuplement");
+console.log("✓ barre des jeux (RM2741) : relancer restreint et compté, création unifiée");
+
+// — RM2744 : tableau de bord — contenu atteignable, onglet permanent —
+const ensureDashTab = grabO("ensureDashTab");
+
+// l'onglet est toujours là, toujours en tête, jamais en double
+let dtabs = ensureDashTab([]);
+assert.equal(dtabs.length, 1, "l'onglet du tableau de bord doit exister même sans rien d'ouvert");
+assert.equal(dtabs[0].kind, "dash");
+assert(dtabs[0].pinned && dtabs[0].fixed, "il est épinglé et permanent");
+dtabs = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true },
+                       { kind: "dash", key: "", label: "vieux libellé", pinned: true, fixed: true }]);
+assert.equal(dtabs.length, 2, "pas de doublon après restauration du localStorage");
+assert.equal(dtabs[0].kind, "dash", "il revient en tête");
+assert.equal(dtabs[0].label, "tableau de bord", "son libellé est celui du code, pas celui du storage");
+assert.equal(dtabs[1].kind, "review", "les autres onglets sont conservés dans l'ordre");
+
+// il ne se ferme pas — et reste la destination de la fermeture des autres
+const closeTabAt2744 = grabFn("closeTabAt");
+const withDash = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true }]);
+const kept = closeTabAt2744(withDash, "dash:", "dash:");
+assert.equal(kept.tabs.length, 2, "fermer l'onglet permanent ne doit rien fermer");
+assert.equal(kept.active, "dash:", "et ne change pas l'onglet actif");
+const after = closeTabAt2744(withDash, "review:2744", "review:2744");
+assert.deepEqual(after.tabs.map(t => t.kind), ["dash"], "le dernier autre onglet se ferme");
+assert.equal(after.active, "dash:", "on retombe sur le tableau de bord, jamais sur rien");
+
+// rendu : icône, ni croix ni épingle sur l'onglet permanent
+const dashHtml = renderCenterTabs(withDash, "dash:", escFn, jargFn);
+assert(/📊/.test(dashHtml), "icône du tableau de bord attendue");
+assert(!/closeTab\('dash:'\)/.test(dashHtml), "l'onglet permanent ne doit pas offrir de croix");
+assert(!/togglePin\('dash:'\)/.test(dashHtml), "ni d'épingle");
+assert(/closeTab\('review:2744'\)/.test(dashHtml), "les autres onglets gardent leur croix");
+assert(/activateTab\('dash:'\)/.test(dashHtml), "cliquer l'onglet doit rouvrir le tableau de bord");
+assert(/tableau de bord — toujours là/.test(dashHtml), "son infobulle doit dire qu'il est permanent");
+
+// le correctif d'affichage : la colonne doit pouvoir contraindre son enfant
+// scrollable (min-height:0), et le centrage ne doit pas manger le haut
+assert(/\.termarea \{[^}]*min-height: 0/.test(html),
+  "sans min-height:0 sur la colonne, l'enfant en overflow-y:auto ne défile pas : il déborde");
+const phCss = /\.placeholder \{[^}]*\}/.exec(html)[0];
+assert(/justify-content: safe center/.test(phCss),
+  "un conteneur qui défile ET centre coupe le haut de son contenu : centrage sûr attendu");
+assert(/\.placeholder\.dash-on \{[^}]*justify-content: flex-start/.test(html),
+  "ceinture : le tableau de bord rendu aligne en haut, même sans support de `safe`");
+assert(/ph\.classList\.add\("dash-on"\)/.test(html) && /ph\.classList\.remove\("dash-on"\)/.test(html),
+  "la classe doit être posée ET retirée par le rendu du tableau de bord");
+console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanent non fermable");
+
+// — RM2748 : verrous du poste (coffre + agent SSH) —
+const vaultBtnState = grabFn("vaultBtnState");
+const vaultFormHtml = vm.runInNewContext("(" + grab("vaultFormHtml") + ")",
+  { Object, esc: escFn });
+
+assert.equal(vaultBtnState(null).show, false, "sans état connu, pas de bouton");
+assert.equal(vaultBtnState({ daemon: true, locked: [], ssh: { keys: [{ comment: "k" }] } }).show,
+  false, "tout ouvert : le bouton ne doit PAS s'afficher");
+const oneLocked = vaultBtnState({ daemon: true, locked: ["vw-ipro"], ssh: { keys: [{ comment: "k" }] } });
+assert(oneLocked.show, "un coffre verrouillé → bouton visible");
+assert(/vw-ipro/.test(oneLocked.title), "l'infobulle nomme le coffre concerné");
+assert(!/agent SSH/.test(oneLocked.title), "elle ne parle pas d'un problème qui n'existe pas");
+const both = vaultBtnState({ daemon: false, locked: ["a", "b"], ssh: { keys: [] } });
+assert(/coffre fermé/.test(both.title) && /agent SSH vide/.test(both.title),
+  "les deux causes sont annoncées, pas seulement la première");
+assert(/2 coffres/.test(vaultBtnState({ daemon: true, locked: ["a", "b"], ssh: { keys: [{}] } }).title),
+  "plusieurs coffres : on compte au lieu de tout énumérer");
+
+// contexte non sécurisé : AUCUN champ de mot de passe n'est proposé
+const vltInsecure = vaultFormHtml({ daemon: true, locked: ["vw-ipro"], ssh: {} }, false);
+assert(!/type="password"/.test(vltInsecure), "jamais de saisie de secret hors contexte sécurisé");
+assert(/https/.test(vltInsecure), "et l'on dit quoi faire pour y remédier");
+
+const vltForm = vaultFormHtml({
+  daemon: true, default_instance: "vw-ipro", locked: ["vw-ipro"],
+  instances: [{ slug: "vw-ipro", unlocked: false }, { slug: "kp-client", unlocked: true, since: "2026-08-20T10:00" }],
+  ssh: { reachable: true, keys: [], candidates: ["id_rsa_root", "id_ed25519_gitlab"] },
+}, true);
+assert(/id="vlt-pass"/.test(vltForm) && /type="password"/.test(vltForm), "champ mot de passe attendu");
+assert(/vaultUnlock\(this\)/.test(vltForm), "bouton de déverrouillage câblé");
+assert(/id="vlt-inst"/.test(vltForm), "l'instance visée est transmise explicitement");
+assert(/kp-client/.test(vltForm) && /2026-08-20T10:00/.test(vltForm), "l'état de chaque coffre est montré");
+assert(/id="vlt-key"/.test(vltForm) && /id_rsa_root/.test(vltForm), "les clés chargeables sont proposées");
+assert(/vaultSshAdd\(this\)/.test(vltForm), "bouton de chargement de clé câblé");
+assert(!/value="[^"]*mot de passe/.test(vltForm), "aucun secret pré-rempli");
+
+// tout est ouvert : le formulaire ne redemande rien
+const vltOpen = vaultFormHtml({
+  daemon: true, locked: [], instances: [{ slug: "vw-ipro", unlocked: true }],
+  ssh: { reachable: true, keys: [{ comment: "root@web-12", type: "RSA", bits: "4096" }], candidates: [] },
+}, true);
+assert(!/type="password"/.test(vltOpen), "coffre ouvert et clé chargée : plus rien à saisir");
+assert(/root@web-12/.test(vltOpen), "les clés déjà chargées restent lisibles");
+
+// le bouton d'en-tête et son cycle de vie
+assert(/id="lockbtn"[^>]*style="display:none"/.test(html), "le bouton part caché");
+assert(/onclick="openVault\(\)"/.test(html), "et ouvre le formulaire des verrous");
+assert(/loadVaultStatus\(\);/.test(html), "l'état des verrous est lu au démarrage");
+assert(/setInterval\(\(\) => \{ if \(!document\.hidden\) loadVaultStatus\(\); \}/.test(html),
+  "et rafraîchi périodiquement (le coffre se verrouille tout seul)");
+assert(/field\.value = "";/.test(html), "le champ est vidé après envoi — le secret ne traîne pas");
+assert(!/localStorage[^\n]*(pass|secret)/i.test(html), "aucun secret ne va en stockage local");
+console.log("✓ verrous du poste (RM2748) : bouton conditionnel, saisie sûre, rien de mémorisé");
+
+// — RM2752 : un bugfix se crée avec ses étapes de reproduction, ou pas du tout —
+// Le formulaire pouvait créer un bugfix sans repro ; `validate-task` le refusait
+// juste après, et le ticket naissait invalide. Les étapes sont désormais un champ
+// à part entière — visible SEULEMENT pour ce type, sinon c'est du bruit sur une
+// feature.
+const form2752 = newTicketFormHtml(
+  [{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
+  ["low", "normal", "high", "urgent"],
+  [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
+["ntf-bugbox", "ntf-bug-steps", "ntf-bug-repro"].forEach(id =>
+  assert(form2752.includes('id="' + id + '"'), "champ bug manquant : " + id));
+assert(/id="ntf-bugbox" style="display:none"/.test(form2752),
+  "le bloc bug doit être masqué tant que le type n'est pas bugfix");
+assert(/<option value="always" selected>/.test(form2752),
+  "reproductibilité par défaut = always (le cas courant, pas un vide à remplir)");
+assert(/onchange="ntfTypeChanged\(\)"/.test(form2752),
+  "le select de type doit prévenir du changement, sinon le bloc ne s'ouvre jamais");
+// les cinq valeurs de validate-task, ni plus ni moins
+["always", "often", "sometimes", "rarely", "never"].forEach(v =>
+  assert(form2752.includes('value="' + v + '"'), "reproductibilité manquante : " + v));
+
+// le toggle lui-même, sur un DOM doublé
+const ntfTypeChanged = grabO("ntfTypeChanged");
+const mkDom = (type) => {
+  const box = { style: { display: "none" } };
+  const els = { "ntf-type": { value: type }, "ntf-bugbox": box };
+  return { doc: { getElementById: (id) => els[id] || null }, box };
+};
+let d = mkDom("bugfix");
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
+assert.strictEqual(d.box.style.display, "", "type bugfix → le bloc s'ouvre");
+d = mkDom("feature");
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
+assert.strictEqual(d.box.style.display, "none", "retour sur feature → le bloc se referme");
+// robustesse : appelé avant le rendu du formulaire, il ne doit pas lever
+vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: { getElementById: () => null } });
+console.log("✓ ticket bugfix (RM2752) : étapes de reproduction exigées, bloc réservé à ce type");
+
+// — RM2757 : « Tickets ouverts » repliable, replié au démarrage —
+const openedPanelOpen = grabO("openedPanelOpen");
+const openedCountLabel = grabO("openedCountLabel");
+
+// L'état par défaut est le cœur de la demande : la carte peut faire 40 lignes
+// et repoussait la recherche et la création hors de l'écran.
+assert.strictEqual(openedPanelOpen(null), false, "jamais visité → replié");
+assert.strictEqual(openedPanelOpen(undefined), false, "storage indisponible → replié");
+assert.strictEqual(openedPanelOpen(""), false, "valeur vide → replié");
+assert.strictEqual(openedPanelOpen("0"), false, "replié par l'utilisateur → replié");
+assert.strictEqual(openedPanelOpen("1"), true,
+  "déplié par l'utilisateur → rouvert (sinon la carte se referme contre lui)");
+
+// Repliée, l'en-tête doit dire s'il y a matière à ouvrir.
+assert.strictEqual(openedCountLabel(12), "(12)", "le compte est visible sans ouvrir");
+assert.strictEqual(openedCountLabel(1), "(1)");
+assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
+assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
+assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
+
+// Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
+assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),
+  "la carte doit être un <details> qui mémorise le geste");
+assert(/id="opened-count"/.test(html), "l'en-tête doit porter le compteur");
+assert(!/<details class="card" id="openedcard"[^>]*\bopen\b/.test(html),
+  "pas d'attribut open en dur : l'état initial vient du localStorage");
+// Le « ? » d'aide est DANS le summary : sans stopPropagation, le consulter
+// replierait la carte — un clic qui fait deux choses dont une non voulue.
+const sumOpened = /<summary>Tickets ouverts[\s\S]*?<\/summary>/.exec(html);
+assert(sumOpened, "summary de la carte introuvable");
+assert(/event\.stopPropagation\(\)/.test(sumOpened[0]) && /event\.preventDefault\(\)/.test(sumOpened[0]),
+  "le bouton d'aide ne doit pas replier la carte");
+console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ, compte visible");
+
+// — RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email —
+const viewKey = grabO("viewKey");
+const parseViewKey = grabO("parseViewKey");
+const viewTabLabel = grabO("viewTabLabel");
+const fileViewHtml = grabO("fileViewHtml");
+const dirViewHtml = grabO("dirViewHtml");
+const mailViewHtml = grabO("mailViewHtml");
+const viewErrorHtml = grabO("viewErrorHtml");
+
+// La clé doit survivre à un rechargement ET aux caractères d'un vrai chemin :
+// c'est elle, seule, qui rouvre la vue quand plus rien n'est attaché.
+assert.deepEqual(parseViewKey(viewKey(["wt", "/a/b", "src/x.py"])), ["wt", "/a/b", "src/x.py"]);
+assert.deepEqual(parseViewKey(viewKey(["doc", "", "projects/c/p/docs/cdc.md"])),
+  ["doc", "", "projects/c/p/docs/cdc.md"], "une partie vide reste une partie");
+assert.deepEqual(parseViewKey(viewKey(["wt", "/w", "un|pipe & espace.txt"])),
+  ["wt", "/w", "un|pipe & espace.txt"], "un « | » dans le chemin ne coupe pas la clé");
+assert.deepEqual(parseViewKey(""), [], "clé vide → aucune partie");
+assert.deepEqual(parseViewKey("%ZZ"), ["%ZZ"], "clé illisible : rendue telle quelle, pas d'exception");
+
+// Libellés : courts, mais reconnaissables entre dix onglets.
+assert.strictEqual(viewTabLabel("file", ["wt", "/w", "a/b/cdc.md"]), "cdc.md");
+assert.strictEqual(viewTabLabel("file", ["doc", "", "projects/c/p/docs/cdc.md"]), "cdc.md");
+assert.strictEqual(viewTabLabel("dir", ["wt", "/w", "src/api"]), "api/");
+assert.strictEqual(viewTabLabel("dir", ["wt", "/w", ""]), "racine/", "la racine se nomme");
+assert.strictEqual(viewTabLabel("commit", ["2759", "abcdef1234567890"]), "abcdef12");
+assert.strictEqual(viewTabLabel("mail", ["k1"], "Devis pour le site vitrine"), "Devis pour le site vitrine");
+assert.strictEqual(viewTabLabel("mail", ["k1"], "x".repeat(40)).length, 30,
+  "un sujet trop long est coupé, avec son ellipse");
+
+// Fichier : markdown rendu, le reste préformaté — et la taille visible.
+const fvMd = fileViewHtml({ path: "docs/cdc.md", markdown: true, size: 2048, content: "# Titre" },
+  escO, (x) => "<MD>" + x + "</MD>");
+assert(fvMd.includes("<MD># Titre</MD>"), "un .md passe par le rendu markdown");
+assert(fvMd.includes("2 Ko"), "la taille est affichée");
+const fvTxt = fileViewHtml({ path: "a.py", markdown: false, content: "<script>x</script>" },
+  escO, (x) => "<MD>" + x + "</MD>");
+assert(!fvTxt.includes("<script>"), "le contenu non-markdown est échappé");
+assert(fvTxt.includes("&lt;script&gt;"), "…et lisible tel quel");
+
+// Dossier : navigable, sinon ce n'est qu'une capture d'écran.
+const dv = dirViewHtml({ src: "wt", wt: "/w/repo", path: "src", rootName: "repo",
+  entries: [{ name: "api", dir: true }, { name: "main.py", dir: false, size: 512 }] }, escO, jargFn);
+assert(/openCenterDir\('wt','\/w\/repo','src\/api',''\)/.test(dv), "un sous-dossier s'ouvre au centre (avec sa portée — RM2761)");
+assert(/openCenterFile\('wt','\/w\/repo','src\/main.py',''\)/.test(dv), "un fichier aussi");
+assert(dv.includes("repo") && dv.includes("src"), "le fil d'Ariane situe où on est");
+assert(/openCenterDir\('wt','\/w\/repo','',''\)/.test(dv), "…et permet de remonter à la racine");
+assert(dirViewHtml({ entries: [] }, escO, jargFn).includes("dossier vide"),
+  "un dossier vide le dit");
+
+// Email : le corps entier, et ce qui manque se dit.
+const mv = mailViewHtml({ subject: "Devis", from: "a@b.fr", from_name: "Alice",
+  date: "2026-08-20", body: "Bonjour\nà tous", body_truncated: true, state: "à traiter" }, escO);
+assert(mv.includes("Bonjour"), "le corps est rendu");
+assert(mv.includes("tronqué à la relève"), "une troncature amont est signalée");
+assert(mv.includes("Alice") && mv.includes("a@b.fr"), "l'expéditeur est identifiable");
+assert(mailViewHtml({ subject: "x" }, escO).includes("corps non disponible"),
+  "sans corps, la vue le dit au lieu d'afficher un blanc");
+assert(mailViewHtml({}, escO).includes("(sans sujet)"), "un email sans sujet reste ouvrable");
+
+// Source disparue : un onglet épinglé survit à ce qu'il montrait.
+const ev = viewErrorHtml("Commit indisponible", "erreur 404", escO);
+assert(ev.includes("Commit indisponible") && ev.includes("erreur 404"), "l'erreur exacte est reprise");
+assert(ev.includes("session fermée"), "…avec l'explication la plus probable");
+
+// Le câblage : sans lui, les fonctions pures ci-dessus ne s'affichent nulle part.
+assert(/<div id="viewpane"/.test(html), "le panneau central doit avoir sa vue générique");
+["file", "dir", "commit", "mail"].forEach(k =>
+  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
+const iconLine = /const icon = \{[\s\S]*?\};/.exec(html);
+["file:", "dir:", "commit:", "mail:"].forEach(k =>
+  assert(iconLine && iconLine[0].includes(k), "icône d'onglet manquante : " + k));
+// Les vues existantes doivent céder la place — sans ça, deux panneaux se superposent
+["function attach(rmId) {", "function openReview(rm) {", "async function openProjectView(key) {",
+ "function openNewTicket() {", "function openDashboard() {"].forEach(sig => {
+  const i = html.indexOf(sig);
+  assert(i > 0, "ouvreur introuvable : " + sig);
+  assert(html.slice(i, i + 700).includes("closeCenterView()"),
+    "cet ouvreur ne referme pas la vue centrale : " + sig);
+});
+// …et réciproquement : une fermeture ne doit pas rappeler le tableau de bord
+// par-dessus une vue centrale ouverte.
+assert(/!currentProjectView && !centerView/.test(html),
+  "closeNewTicket doit tenir compte de la vue centrale");
+console.log("✓ vues centrales (RM2759) : fichier, dossier, commit, email — clé rouvrable, sources absentes annoncées");
+
+// — RM2760 : panneau « projets » —
+const groupProjectsByClient = grabO("groupProjectsByClient");
+const liveByProject = grabO("liveByProject");
+const projectsPanelHtml = grabO("projectsPanelHtml");
+
+const PJ2760 = [
+  { client: "calicote", project: "prestashop", value: "calicote/prestashop" },
+  { client: "abatik", project: "infra", value: "abatik/infra" },
+  { client: "calicote", project: "infra", value: "calicote/infra" },
+  { client: "abatik", project: "site", value: "abatik/site" },
+];
+
+// Groupement : clients triés, projets triés dans chaque client.
+const g2760 = groupProjectsByClient(PJ2760, "");
+assert.deepEqual(g2760.map(g => g.client), ["abatik", "calicote"], "clients par ordre alphabétique");
+assert.deepEqual(g2760[0].projects.map(p => p.project), ["infra", "site"], "projets triés aussi");
+assert.deepEqual(groupProjectsByClient([], "").length, 0, "aucune donnée → aucun groupe");
+assert.deepEqual(groupProjectsByClient(null, "").length, 0, "liste absente tolérée");
+assert.deepEqual(groupProjectsByClient([{ client: "x" }], "").length, 0,
+  "une entrée sans projet n'invente pas un groupe");
+
+// Filtre : sur le client, il ramène TOUS ses projets ; sur un projet, seulement lui.
+const gc2760 = groupProjectsByClient(PJ2760, "abatik");
+assert.deepEqual(gc2760.map(g => g.client), ["abatik"]);
+assert.strictEqual(gc2760[0].projects.length, 2, "filtrer un client garde tous ses projets");
+const gp2760 = groupProjectsByClient(PJ2760, "infra");
+assert.deepEqual(gp2760.map(g => g.client), ["abatik", "calicote"],
+  "chercher « infra » montre les infra de TOUS les clients, pas la première trouvée");
+assert.deepEqual(gp2760[1].projects.map(p => p.project), ["infra"], "…et rien d'autre chez eux");
+assert.strictEqual(groupProjectsByClient(PJ2760, "CALICOTE").length, 1, "filtre insensible à la casse");
+assert.strictEqual(groupProjectsByClient(PJ2760, "zzz").length, 0, "filtre sans résultat → rien");
+
+// Sessions vivantes par projet : un fantôme ne tourne pas.
+const sess2760 = [
+  { rm_id: "1", client: "abatik", project: "infra" },
+  { rm_id: "2", client: "abatik", project: "infra" },
+  { rm_id: "3", ghost: true, client: "abatik", project: "infra" },
+  { rm_id: "4" },                                  // résolu par le cache
+  { rm_id: "5" },                                  // non résolu : ignoré
+];
+const rc2760 = { "4": { found: true, client: "calicote", project: "infra" } };
+assert.deepEqual(liveByProject(sess2760, rc2760), { "abatik/infra": 2, "calicote/infra": 1 },
+  "une session enregistrée non démarrée (ghost) n'est pas comptée comme active");
+assert.deepEqual(liveByProject(null, null), {}, "aucune session → aucun compte");
+
+// Rendu : replié par défaut, déplié pour le contexte, tout déplié sous filtre.
+const hAll2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "", filtre: "" }, escO, jargFn);
+assert(hAll2760.includes("▸ abatik"), "sans contexte ni filtre, un client est replié");
+assert(!/openProjectView\('abatik\/infra'\)/.test(hAll2760), "…et ses projets ne sont pas rendus");
+const hCtx2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "abatik", filtre: "" }, escO, jargFn);
+assert(hCtx2760.includes("▾ abatik") && /openProjectView\('abatik\/infra'\)/.test(hCtx2760),
+  "le client du contexte est déplié d'emblée");
+assert(hCtx2760.includes("ctx"), "…et signalé comme tel");
+assert(hCtx2760.includes("▸ calicote"), "les autres restent repliés");
+const hFil2760 = projectsPanelHtml(g2760, { live: {}, open: {}, client: "", filtre: "infra" }, escO, jargFn);
+assert(/openProjectView\('calicote\/infra'\)/.test(hFil2760),
+  "sous filtre, tout est déplié — replier ce qu'on vient de chercher serait absurde");
+const hOpen2760 = projectsPanelHtml(g2760, { live: {}, open: { calicote: true }, client: "", filtre: "" }, escO, jargFn);
+assert(/openProjectView\('calicote\/prestashop'\)/.test(hOpen2760), "un client déplié à la main s'ouvre");
+const hLive2760 = projectsPanelHtml(g2760, { live: { "abatik/infra": 3 }, open: {}, client: "abatik", filtre: "" },
+  escO, jargFn);
+assert(hLive2760.includes("3 ▶"), "le nombre de sess2760 vivantes est affiché");
+assert(projectsPanelHtml([], { filtre: "zz" }, escO, jargFn).includes("aucun client ni projet ne correspond"),
+  "un filtre sans résultat le dit — au lieu d'un panneau vide");
+assert(projectsPanelHtml([], {}, escO, jargFn).includes("aucun projet"),
+  "…et l'absence de données a son propre message");
+
+// Le câblage : un panneau que rien n'ouvre n'existe pas.
+assert(/data-panel="projects"/.test(html), "l'onglet gauche doit exister");
+assert(/<div class="lpanel" id="lp-projects">/.test(html), "…avec son panneau");
+assert(/projects: \(\) => loadProjectsPanel\(\)/.test(html), "…et son chargeur");
+console.log("✓ panneau projets (RM2760) : groupé par client, filtré, fiche au centre");
+// — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
+const fsScope = grabFn("fsScope");
+const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc
+const scopeCtx = vm.runInNewContext(
+  scopeSrc + "; ({scopeTag, scopeFromTag, scopeQuery})",
+  { encodeURIComponent, String, Object });
+const { scopeTag, scopeFromTag, scopeQuery } = scopeCtx;
+
+const FD = { projects: [{ root: "/ws/ipro/pm", client: "ipro", project: "pm" }] };
+let sc = fsScope("/ws/ipro/pm/envs/pm-rm42", FD, "karl-RM42", null);
+assert.equal(sc.client, "ipro"); assert.equal(sc.project, "pm");
+assert.equal(sc.sid, "karl-RM42",
+  "les DEUX portées sont gardées : le serveur autorise l'union session ∪ projet");
+assert.deepEqual(fsScope("/ailleurs/scratch", FD, "karl-RM42", null), { sid: "karl-RM42" },
+  "un worktree hors projet ne doit garder QUE le sid — sinon on perdrait le seul droit qui l'autorise");
+assert.deepEqual(fsScope("/x", { client: "acme", project: "shop" }, null, null),
+  { client: "acme", project: "shop" }, "sans session, la portée projet du panneau suffit");
+assert.deepEqual(fsScope("/x", {}, null, "acme/shop"), { client: "acme", project: "shop" },
+  "à défaut, la fiche projet ouverte donne la portée");
+assert.deepEqual(fsScope("/x", {}, null, null), {}, "rien de connu → aucune portée inventée");
+
+assert.equal(scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" }), "c:ipro/pm;s:karl-RM42");
+assert.deepEqual(scopeFromTag("c:ipro/pm;s:karl-RM42"), { client: "ipro", project: "pm", sid: "karl-RM42" });
+assert.deepEqual(scopeFromTag("s:karl-RM42"), { sid: "karl-RM42" });
+assert.equal(scopeFromTag(""), null, "clé d'onglet d'avant RM2761 → repli sur le contexte courant");
+assert.equal(scopeFromTag("c:incomplet"), null, "portée projet tronquée : ignorée, pas devinée");
+assert.equal(scopeQuery({ client: "ipro", project: "pm", sid: "" }),
+  "client=ipro&project=pm&sid=", "la requête porte les deux moitiés (sid vide accepté)");
+
+// la portée survit à l'aller-retour par la clé d'onglet (localStorage)
+const vkey = grabFn("viewKey"), pkey = grabFn("parseViewKey");
+const tag2761 = scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" });
+const rt = pkey(vkey(["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761]));
+assert.deepEqual(rt, ["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761],
+  "clé d'onglet : la portée doit revenir intacte (séparateurs : ; et /)");
+
+// un dossier ouvert au centre reste navigable : chaque lien emporte la portée
+const dirViewHtml2761 = grabFn("dirViewHtml");
+const dh2761 = dirViewHtml2761({ src: "wt", wt: "/ws/ipro/pm", path: "docs", rootName: "pm",
+  tag: tag2761, entries: [{ name: "sous", dir: true }, { name: "a.md", size: 10 }] },
+  escFn, jargFn);
+assert((dh2761.match(/c:ipro\/pm;s:karl-RM42/g) || []).length >= 3,
+  "fil d'ariane, sous-dossiers et fichiers doivent tous porter la portée");
+assert(/openCenterFile\('wt','\/ws\/ipro\/pm','docs\/a\.md','c:ipro/.test(dh2761),
+  "le fichier s'ouvre avec la portée en 4e argument");
+
+// les boutons « ⤢ au centre » capturent la portée AU RENDU (avant tout detach)
+assert(/openCenterFile\('wt'," \+ jarg\(fileNav\.wt\) \+ "," \+ jarg\(fpath\) \+ ","/.test(html),
+  "le bouton fichier doit passer une 4e valeur : la portée");
+assert(/scopeTag\(fsScope\(fileNav\.wt, filesData, attached, currentProjectView\)\)/.test(html),
+  "et la calculer depuis le contexte encore vivant");
+assert(/openCenterFile\(p\[0\], p\[1\], p\[2\], p\[3\]\)/.test(html),
+  "la réactivation d'onglet doit rejouer la portée mémorisée");
+assert(/const fixed = scopeFromTag\(tag\);/.test(html),
+  "_fsq doit préférer la portée explicite au contexte courant (vidé par centerViewPane)");
+console.log("✓ portée des vues centrales (RM2761) : capturée au clic, transportée, rejouée");
+
+// — RM2768 : fiche client et confs au centre —
+const clientViewHtml = grabO("clientViewHtml");
+const confViewHtml = grabO("confViewHtml");
+
+const CLI2768 = {
+  client: "calicote", name: "Calicote", status: "active", type: "client",
+  created: "2026-05-19", redmine_project_id: "calicote",
+  redmine_project_url: "https://r.test/projects/calicote",
+  contacts: [
+    { first_name: "Sandrine", last_name: "Roche", email: "s@calicote.test",
+      role: "owner", title: "Gérante" },
+    { name: "Mathieu", email: "m@ipro.test", role: "owner", internal: true },
+  ],
+  defaults: { priority: "normal", team: [{ username: "iprospective" }] },
+  projects: [{ project: "prestashop", value: "calicote/prestashop" }],
+  projects_used: ["iprospective/nc-clients"],
+  docs: [{ name: "overview.md", path: "projects/clients/calicote/client/overview.md" }],
+};
+const cv = clientViewHtml(CLI2768, escO, jargFn);
+assert(cv.includes("Calicote") && cv.includes("calicote"), "identité et slug");
+assert(cv.includes("Sandrine Roche") && cv.includes("Gérante"),
+  "un contact se lit par son nom ET sa fonction");
+assert(cv.includes("interne"), "un contact interne est signalé comme tel");
+assert(/openProjectView\('calicote\/prestashop'\)/.test(cv),
+  "les projets du client mènent à leur fiche");
+assert(cv.includes("Projets utilisés") && cv.includes("iprospective/nc-clients"),
+  "le partage cross-client est visible, il ne se devine pas dans le YAML");
+assert(/openCenterFile\('doc','','projects\/clients\/calicote\/client\/overview\.md'\)/.test(cv),
+  "les docs du client s'ouvrent au centre");
+assert(cv.includes('href="https://r.test/projects/calicote"'), "lien Redmine cliquable");
+// tolérance : une fiche squelettique reste servie
+const cvMin = clientViewHtml({ client: "x" }, escO, jargFn);
+assert(cvMin.includes("aucun projet"), "un client sans projet le dit");
+assert(!cvMin.includes("Contacts"), "…et n'invente pas de section vide");
+assert(clientViewHtml(null, escO, jargFn).includes("client"), "données absentes tolérées");
+
+// Conf : rendue telle quelle, et échappée.
+const cf = confViewHtml({ label: "calicote/prestashop", name: "meta.yml",
+  content: "slug: x\nrepos:\n  - <b>a</b>\n" }, escO);
+assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml"), "on sait ce qu'on lit");
+assert(cf.includes("&lt;b&gt;a&lt;/b&gt;"), "le contenu est échappé, jamais interprété");
+assert(cf.includes("slug: x"), "…et rendu tel quel, sans reformatage");
+assert(cf.includes("mmi-pm"), "la lecture seule renvoie à l'outillage qui, lui, écrit");
+assert(confViewHtml({}, escO).includes("meta.yml"), "conf vide : un titre, pas une erreur");
+
+// Les icônes du panneau : présentes, et sans effet de bord sur le pliage.
+const gIco = groupProjectsByClient(PJ2760, "");
+const hIco = projectsPanelHtml(gIco, { live: {}, open: {}, client: "abatik", filtre: "" },
+  escO, jargFn);
+assert(/openCenterClient\('abatik'\)/.test(hIco), "icône fiche client");
+assert(/openCenterConf\('client','abatik',''\)/.test(hIco), "icône conf client");
+assert(/openCenterConf\('project','abatik','infra'\)/.test(hIco), "icône conf projet");
+// le piège : la ligne du client EST le bouton de pliage
+const ligneClient = /<div class="oline"[^>]*pjToggle\('abatik'\)[\s\S]*?<\/div>/.exec(hIco);
+assert(ligneClient, "ligne client introuvable");
+assert((ligneClient[0].match(/event\.stopPropagation\(\)/g) || []).length === 2,
+  "chaque icône du client doit stopper la propagation, sinon elle replie le client");
+assert(/onclick="event\.stopPropagation\(\);openCenterConf\('project'/.test(hIco),
+  "l'icône d'un projet ne doit pas déclencher l'ouverture de sa fiche");
+// et l'onglet doit savoir se rouvrir
+["client", "conf"].forEach(k =>
+  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
+console.log("✓ fiche client et confs (RM2768) : contacts, partage, meta.yml — icônes sans effet de bord");

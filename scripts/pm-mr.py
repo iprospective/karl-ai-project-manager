@@ -109,13 +109,37 @@ def integration_branch(repo_path):
 
 
 # ── Politique PM (indépendante de la forge) ──────────────────────────────────
+# >>> branche_de_ticket — pure (testée par test_pm_mr_cf_branche.py)
+def branche_de_ticket(rm_id, branch):
+    """Vrai si `branch` est LA branche de travail du ticket (`<id>-<slug>`).
+
+    RM2701 : le flux normal appelle `create` deux fois — la MR du ticket
+    (`<id>-…` → `dev`), puis la MR de promotion (`dev` → `main`). La seconde
+    écrasait « GIT Branche » par `dev`, qui ne désigne rien : toutes les
+    livraisons y passent. Une valeur générique qu'on croit spécifique est pire
+    qu'un champ vide. Même discernement que `_assert_mr_belongs_to`, qui sait
+    déjà distinguer une branche de ticket d'une branche d'intégration."""
+    return bool(re.match(r"^%s-" % re.escape(str(rm_id)), str(branch or "")))
+# <<< branche_de_ticket
+
+
 def _post_git_cf(rm_id, branch, pr_url):
     """Pose les CF Redmine GIT Branche + GIT PR, et VÉRIFIE (RM2219 : Redmine
-    ignore silencieusement un CF non activé sur le tracker)."""
+    ignore silencieusement un CF non activé sur le tracker).
+
+    RM2701 : « GIT Branche » n'est écrit que si la source EST la branche du
+    ticket. « GIT PR » l'est toujours — l'URL d'une MR de promotion reste une
+    information juste sur ce ticket."""
     try:
         import redmine_utils
         cfs = []
-        for name, val in (("GIT Branche", branch), ("GIT PR", pr_url)):
+        champs = [("GIT PR", pr_url)]
+        if branche_de_ticket(rm_id, branch):
+            champs.insert(0, ("GIT Branche", branch))
+        else:
+            out.info(f"  · « GIT Branche » laissé tel quel : `{branch}` n'est pas la "
+                     f"branche du ticket #{rm_id} (MR de promotion)")
+        for name, val in champs:
             cid = redmine_utils.cf_id_by_name(name)
             if cid:
                 cfs.append({"id": cid, "value": val})
@@ -271,8 +295,33 @@ def cmd_get(args, forge, token):
     print(f"  {pr.web_url}")
 
 
+def check_no_ticket_args(args):
+    """Cohérence du mode sans ticket (RM2644) — refuse tôt et en nommant la cause.
+
+    « Sans ticket » ne veut pas dire « sans MR » : la branche d'intégration reste
+    protégée. Ce mode retire seulement ce qui n'a pas de sens faute de ticket — CF
+    Redmine, `git.mr_urls` du frontmatter, transition de statut.
+    """
+    if not args.no_ticket:
+        if args.rm_id is None:
+            sys.exit("ERREUR : rm_id manquant. Un changement rattaché à un ticket passe "
+                     "son id ; un changement qui n'en a pas (ajout au glossaire…) passe "
+                     "`--no-ticket --title \"…\"`.")
+        return
+    if args.rm_id is not None:
+        sys.exit(f"ERREUR : --no-ticket et un rm_id (RM{args.rm_id}) sont contradictoires. "
+                 f"Choisis : la MR référence un ticket, ou elle n'en a pas.")
+    if not args.title:
+        sys.exit("ERREUR : --title est obligatoire avec --no-ticket — le titre par défaut "
+                 "est `RM<id> — <branche>`, qui n'existe pas sans ticket.")
+    if args.status:
+        sys.exit("ERREUR : --status n'a pas de sens avec --no-ticket : il n'y a pas de "
+                 "ticket à faire transiter.")
+
+
 def cmd_create(args, forge, token):
     repo = args.repo
+    check_no_ticket_args(args)
     project = forge.resolve_project(token)
     out.info(f"→ projet {project.path} (id {project.id})")
     src = args.source or current_branch(repo)
@@ -281,7 +330,13 @@ def cmd_create(args, forge, token):
     # Garde anti-prédiction d'id (RM2224, tripwire #13) : une PR de ticket part
     # d'une branche `<RMid>-…` du MÊME id. Branches non préfixées (dev, promotion) OK.
     m = re.match(r"^(\d+)-", src)
-    if m and int(m.group(1)) != args.rm_id:
+    if m and args.no_ticket:
+        # Le garde s'inverse en mode sans ticket : une branche `<id>-…` trahit un ticket
+        # oublié, pas un changement ticketless (RM2644).
+        sys.exit(f"ERREUR : --no-ticket sur la branche `{src}`, qui porte l'id "
+                 f"{m.group(1)}. Ticket oublié ? Passe `pm-mr create {m.group(1)}`, ou "
+                 f"renomme la branche si le changement n'a vraiment pas de ticket.")
+    if m and not args.no_ticket and int(m.group(1)) != args.rm_id:
         sys.exit(f"ERREUR : la branche courante `{src}` porte l'id {m.group(1)} mais la MR "
                  f"est demandée pour RM{args.rm_id}. Id prédit/erroné (tripwire #13) ? "
                  f"Renomme la branche (`git branch -m {args.rm_id}-<slug>`) ou corrige le rm_id.")
@@ -297,8 +352,12 @@ def cmd_create(args, forge, token):
         out.info(f"✓ push {src} → origin")
 
     caps = forge.capabilities
-    title = args.title or f"RM{args.rm_id} — {src}"
-    desc = args.description or f"Ref RM{args.rm_id}."
+    if args.no_ticket:
+        title = args.title                       # exigé par check_no_ticket_args
+        desc = args.description or "Changement sans ticket (cf. NORMS governance)."
+    else:
+        title = args.title or f"RM{args.rm_id} — {src}"
+        desc = args.description or f"Ref RM{args.rm_id}."
 
     if caps.pull_request_api:
         pr = forge.find_open_pr(project, src, tgt, token)
@@ -311,7 +370,8 @@ def cmd_create(args, forge, token):
         # RM2583 : la session retient ce qu'elle a ouvert — sinon une MR se perd
         # jusqu'au prochain conflit, ou jusqu'à un core update incomplet.
         _hook_mr(pr.iid, url=pr.web_url, repo=project.path, source=src, target=tgt,
-                 ref=f"RM{args.rm_id}", state="opened")
+                 ref="sans ticket" if args.no_ticket else f"RM{args.rm_id}",
+                 state="opened")
         if args.porcelain:
             out.value(pr.iid)
         # Garde RM2219 : une PR saine référence le sha de sa branche source.
@@ -326,8 +386,10 @@ def cmd_create(args, forge, token):
         out.info(f"→ PR à ouvrir (forge sans API PR) : {pr.web_url}")
         out.op("mr", extra=f"compare {src}→{tgt} {pr.web_url}")
 
-    _post_git_cf(args.rm_id, src, pr.web_url)
-    _record_pr_url(args.rm_id, pr.web_url)
+    if not args.no_ticket:
+        # Sans ticket, il n'y a ni CF Redmine à poser ni frontmatter où mémoriser l'URL.
+        _post_git_cf(args.rm_id, src, pr.web_url)
+        _record_pr_url(args.rm_id, pr.web_url)
 
     if args.status:
         scr = Path(__file__).resolve().parent / "pm-task-status-update.py"
@@ -339,8 +401,10 @@ def cmd_create(args, forge, token):
 
     if getattr(args, "merge", False) and caps.pull_request_api:
         # Atomique (RM2232) : merge immédiat via la casquette MANAGER (branches protégées).
+        # Sans ticket, la garde `expect_rm` n'a rien à vérifier (aucun id attendu).
         _merge_with_policy(forge, project, pr.iid, forge.token("manager"),
-                           expect_rm=args.rm_id if src.startswith(f"{args.rm_id}-") else None)
+                           expect_rm=None if args.no_ticket else
+                           (args.rm_id if src.startswith(f"{args.rm_id}-") else None))
 
 
 def main():
@@ -352,7 +416,13 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     pc = sub.add_parser("create", help="push + crée/réutilise la PR + CF")
-    pc.add_argument("rm_id", type=int)
+    pc.add_argument("rm_id", type=int, nargs="?",
+                    help="ticket porté par la MR (omis avec --no-ticket)")
+    pc.add_argument("--no-ticket", action="store_true",
+                    help="MR sans ticket Redmine (ajout au glossaire, correction de "
+                         "coquille… — cf. NORMS governance). Exige --title ; ne pose ni CF "
+                         "ni frontmatter, refuse --status. La MR reste obligatoire : la "
+                         "branche d'intégration est protégée.")
     pc.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
     pc.add_argument("--source", help="branche source explicite (défaut : branche courante "
                                      "du --repo). RM2355.")

@@ -101,6 +101,10 @@ API (JSON, localhost:9876)
   GET  /triage[?client&project]→ triage ROI des tickets ouverts (score, débloquants) — RM1952
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
+  GET  /tickets/search?q=&status=&client=&project=&tag=&source=local|redmine|both
+                                → {results:[…{origin, synced}], source, redmine_error}
+                                  `source` : MD locaux (défaut), Redmine (tickets
+                                  pas encore fetchés), ou les deux fusionnés  (RM2770)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   GET  /client/<slug>           → fiche client : identité, statut, contacts,
                                   valeurs par défaut, projets, projets utilisés,
@@ -5481,6 +5485,142 @@ def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) 
     return out[:limit]
 
 
+
+# ── RM2770 : recherche Redmine (tickets non encore synchronisés en local) ────
+# `op_search` ne voit que les MD. Un ticket créé côté Redmine et jamais fetché
+# est donc introuvable depuis le cockpit, alors qu'il existe et qu'il est
+# peut-être assigné. Cette source-ci le trouve et DIT s'il est synchronisé — le
+# cas d'usage étant précisément de repérer ce qui manque en local.
+
+def _norms_statuses() -> list:
+    """Statuts NORMS canoniques, dans l'ordre du flux. Source : `redmine_utils`
+    (référence partagée) ; repli sur l'ordre de lecture du cockpit si le module
+    n'est pas chargeable — un filtre vide vaut mieux qu'une page en erreur."""
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        import redmine_utils as ru
+        noms = list(ru.status_ids().keys())
+    except Exception:  # noqa: BLE001
+        noms = []
+    ordre = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
+             "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep",
+             "en_pause", "ferme", "annule"]
+    if not noms:
+        return ordre
+    rang = {v: i for i, v in enumerate(ordre)}
+    return sorted(noms, key=lambda v: (rang.get(v, len(ordre)), v))
+
+
+REDMINE_SEARCH_LIMIT = 50
+REDMINE_SEARCH_TIMEOUT = 10      # le cockpit ne doit pas rester pendu à une API
+
+
+def _redmine_project_id(client: str, project: str = None):
+    """`redmine.project_id` d'un projet, sinon `redmine.default_project_id` du
+    client. None si rien n'est déclaré — auquel cas on ne filtre pas plutôt que
+    d'inventer un identifiant (RM2219 : jamais de résolution approximative)."""
+    if project:
+        meta = PROJECTS_BASE / client / "projects" / project / "meta.yml"
+        if meta.is_file():
+            try:
+                d = yaml_safe_load(meta.read_text(encoding="utf-8", errors="replace")) or {}
+            except Exception:  # noqa: BLE001
+                d = {}
+            rid = (d.get("redmine") or {}).get("project_id") if isinstance(d.get("redmine"), dict) else None
+            if rid:
+                return str(rid)
+        return None
+    return (_client_conf(client) or {}).get("client_redmine_project_id")
+
+
+def op_search_redmine(q="", status=None, client=None, project=None, limit=REDMINE_SEARCH_LIMIT) -> dict:
+    """Tickets Redmine correspondant à la requête, chacun marqué `synced`.
+
+    Retourne {results, error} : une panne côté Redmine (réseau, credentials,
+    HTTP) ne doit JAMAIS faire disparaître les résultats locaux — elle se dit à
+    côté d'eux. `redmine_utils` signale ses erreurs par `sys.exit()`, donc par
+    `SystemExit`, qui ne dérive PAS d'`Exception` : sans le capturer ici, la
+    requête mourrait sans réponse (même mécanisme que RM2749).
+    """
+    sys.path.insert(0, str(REPO_ROOT / "scripts"))
+    try:
+        import redmine_utils as ru
+    except Exception as e:  # noqa: BLE001
+        return {"results": [], "error": f"redmine_utils indisponible : {e}"}
+
+    params = {"sort": "updated_on:desc", "limit": min(int(limit or 25), 100)}
+    if status:
+        sid = ru.status_ids().get(status)
+        if sid:
+            params["status_id"] = sid
+        else:
+            params["status_id"] = "*"      # statut inconnu de Redmine : ne pas filtrer
+    else:
+        params["status_id"] = "*"          # sinon Redmine ne rend que les tickets OUVERTS
+    pid = _redmine_project_id(client, project) if client else None
+    if pid:
+        params["project_id"] = pid
+    q = (q or "").strip()
+    if q.isdigit():
+        params["issue_id"] = q             # un id se cherche par id, pas en plein texte
+    elif q:
+        params["subject"] = "~" + q        # `~` = contient (filtre natif Redmine)
+
+    try:
+        issues = ru.list_issues(params=params, limit=params["limit"],
+                                timeout=REDMINE_SEARCH_TIMEOUT)
+    except SystemExit as e:                # cf. docstring : sortie, pas exception
+        return {"results": [], "error": f"Redmine : {e}"}
+    except Exception as e:  # noqa: BLE001
+        return {"results": [], "error": f"Redmine injoignable : {type(e).__name__}: {e}"}
+
+    out = []
+    for it in issues or []:
+        rid = str(it.get("id") or "")
+        if not rid:
+            continue
+        tf = _find_task_file(rid)
+        cl, pr = _task_client_project(tf) if tf else (None, None)
+        out.append({
+            "rm_id": rid,
+            "title": it.get("subject") or "",
+            "status": (it.get("status") or {}).get("name") or "",
+            "priority": (it.get("priority") or {}).get("name") or "",
+            "client": cl or "", "project": pr or "",
+            "redmine_project": (it.get("project") or {}).get("name") or "",
+            "assigned_to": (it.get("assigned_to") or {}).get("name") or "",
+            "updated_on": it.get("updated_on") or "",
+            "tags": [], "origin": "redmine", "synced": bool(tf),
+        })
+    return {"results": out, "error": None}
+
+
+# >>> merge_search_results — pure (testée par test_karl_agent_search_source.py)
+def merge_search_results(locaux, distants):
+    """Fusionne les deux sources : un ticket présent des deux côtés apparaît UNE
+    fois, en gardant les données locales (le MD fait foi — c'est lui que le
+    système édite) enrichies de ce que seul Redmine sait. Tri par id décroissant."""
+    out, seen = [], {}
+    for r in (locaux or []):
+        e = dict(r); e.setdefault("origin", "local"); e["synced"] = True
+        seen[str(e.get("rm_id"))] = e
+        out.append(e)
+    for r in (distants or []):
+        rid = str(r.get("rm_id"))
+        if rid in seen:
+            e = seen[rid]
+            e["origin"] = "both"
+            for k in ("assigned_to", "updated_on", "redmine_project"):
+                if r.get(k) and not e.get(k):
+                    e[k] = r[k]
+            continue
+        out.append(dict(r))
+    out.sort(key=lambda r: -int(str(r.get("rm_id") or 0) or 0))
+    return out
+# <<< merge_search_results
+
+
 # ── RM1952 : triage ROI des tickets ouverts — prochaine action à plus fort levier ─
 # Croise priorité, estimation (temps/tokens), gain attendu (ROI) et dépendances
 # pour répondre « quel ticket travailler maintenant ? ». Le score ROI (€) réutilise
@@ -9317,6 +9457,9 @@ class Handler(BaseHTTPRequestHandler):
                 "actions": _actions_catalog(),
                 "task_types": _task_types(),
                 "priorities": PRIORITIES,
+                # RM2770 : statuts NORMS pour le filtre de recherche — lus depuis
+                # la référence partagée (redmine_utils), jamais redupliqués ici.
+                "statuses": _norms_statuses(),
                 "engines": list(ENGINES),
                 # RM2539 (correctif) : moteurs dont les conversations sont à la
                 # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les
@@ -9420,8 +9563,20 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/tickets/search":
                 qs = parse_qs(parsed.query)
                 g = lambda k: qs[k][0] if k in qs else None  # noqa: E731
-                return self._send_json(200, {"results": op_search(
-                    g("q") or "", g("status"), g("client"), g("project"), g("tag"))})
+                # RM2770 : `source` = local (défaut, comportement historique) |
+                # redmine | both. Une panne Redmine rend `error` SANS masquer les
+                # résultats locaux — on ne fait jamais disparaître ce qu'on a.
+                src = (g("source") or "local").lower()
+                if src not in ("local", "redmine", "both"):
+                    raise ApiError(400, "source attendue : local | redmine | both")
+                locaux = ([] if src == "redmine" else op_search(
+                    g("q") or "", g("status"), g("client"), g("project"), g("tag")))
+                dist = {"results": [], "error": None}
+                if src in ("redmine", "both"):
+                    dist = op_search_redmine(g("q") or "", g("status"), g("client"), g("project"))
+                return self._send_json(200, {
+                    "results": merge_search_results(locaux, dist["results"]),
+                    "source": src, "redmine_error": dist["error"]})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
             if path.startswith("/client/"):        # RM2768 : fiche client

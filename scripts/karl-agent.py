@@ -4775,12 +4775,22 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
     au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
     protocole de test, et interdit de bouger le statut d'un ticket dont le
     travail n'est pas réellement livré. La fin (worklog, notification, bilan)
-    est commune aux deux modes."""
+    est commune aux deux modes.
+
+    RM2762 — **à UN seul ticket il n'y a pas de lot**, et le mot disparaît. Tout le
+    cadre de série (« EN SÉRIE, dans cet ordre », « un ticket à la fois », « passe au
+    suivant », « bilan ticket par ticket », notification de fin de lot) n'a alors pas
+    d'objet : le garder noie l'unique consigne utile sous des règles qui ne
+    s'appliquent à rien. Ce qui est substantiel est conservé — protocole NORMS,
+    statut de fin, interdiction de forcer, portée restreinte."""
+    n = len(todo or [])
+    solo = n == 1
     lignes = []
     scoped = False
     for i, t in enumerate(todo or [], 1):
         titre = (" — " + t["title"]) if t.get("title") else ""
-        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+        puce = "" if solo else f"{i}. "      # rien à ordonner : pas de numérotation
+        lignes.append(f"{puce}RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
         pts = t.get("scope") or []
         if pts:
             scoped = True
@@ -4791,24 +4801,54 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
                 lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
                               "ici : reprends-les depuis la checklist du ticket.)")
     corps = "\n".join(lignes)
-    regle_scope = (
+    regle_scope = ((
+        "- à PORTÉE RESTREINTE, le ticket ne se clôture PAS et ne repart PAS au "
+        "demandeur : traite uniquement les points listés, ne coche que ces "
+        "critères-là, laisse-le en `en_cours` et dis en note ce qui reste ;\n"
+    ) if solo else (
         "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
         "demandeur : traite uniquement les points listés, ne coche que ces "
         "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
-    ) if scoped else ""
+    )) if scoped else ""
     # Fin commune : sans ces trois retours, un lot laisse le demandeur
     # surveiller des sessions pour savoir où ça en est.
+    # `--kind autre` et pas `--kind lot` : `lot` n'existe pas dans NOTIFY_KINDS
+    # (pm-session-status.py), la commande échouait donc telle qu'écrite (RM2762).
     fin = (
         "- consigne l'avancement du lot au worklog "
         "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
         "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
         "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
         "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
-        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "--kind autre \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
         "bilan ticket par ticket."
     )
-    n = len(todo or [])
+    # Fin SOLO : pas de notification de fin de lot — le statut de fin réattribue déjà
+    # au demandeur, et un « lot terminé : 1 rendu » n'apprend rien à personne.
+    solo_worklog = ("- consigne l'avancement au worklog "
+                    "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n")
+    solo_bloc = ("- s'il te bloque (question, dépendance, ambiguïté), NE FORCE PAS : consigne "
+                 "le blocage, laisse le ticket en l'état et dis-le dans ton compte rendu ;\n")
+    solo_cr = "- termine par un compte rendu : ce qui a été fait, ce qui reste."
+    fin_solo = solo_worklog + solo_bloc + solo_cr
+    # En mode « atester », la règle « travail non livré → ne force pas » couvre déjà
+    # le blocage : répéter NE FORCE PAS deux puces plus bas se lit comme du remplissage.
+    fin_solo_atester = solo_worklog + solo_cr
     if mode == "atester":
+        if solo:
+            return (
+                "Passe ce ticket « à tester » en appliquant le protocole worker "
+                "NORMS :\n"
+                f"{corps}\n\n"
+                "Règles :\n"
+                "- passer un ticket « à tester », c'est le LIVRER : il part avec sa "
+                "note de livraison ET son protocole de test (norme RM2229) — pas un "
+                "simple changement de statut ;\n"
+                "- si le travail n'est PAS réellement livré (branche non poussée, MR "
+                "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse "
+                "le statut en l'état et dis pourquoi ;\n"
+                f"{fin_solo_atester}"
+            )
         return (
             f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
             "protocole worker NORMS :\n"
@@ -4822,6 +4862,17 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
             "statut en l'état, dis pourquoi, passe au suivant ;\n"
             "- un ticket à la fois, jusqu'à son statut de fin ;\n"
             f"{fin}"
+        )
+    if solo:
+        return (
+            "Traite ce ticket en appliquant le protocole worker NORMS "
+            "(prise en charge, travail, livraison) :\n"
+            f"{corps}\n\n"
+            "Règles :\n"
+            "- il revient au demandeur par son statut de fin NORMS "
+            "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+            f"{regle_scope}"
+            f"{fin_solo}"
         )
     return (
         f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "

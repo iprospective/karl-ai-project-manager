@@ -3257,3 +3257,57 @@ assert(!/s\.activity \? '<span class="tquiet"/.test(html),
   "l'ancien affichage direct de l'activité tmux ne doit plus exister");
 assert(/dernier message il y a/.test(html), "l'infobulle de tuile nomme la mesure");
 console.log("✓ silence réel (RM2793) : les recaps automatiques ne remettent plus le compteur à zéro");
+
+// — RM2795 : la marque d'épinglage, la même partout —
+const pinMark = grabO("pinMark");
+const TABS2795 = [
+  { kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true },
+  { kind: "review", key: "2744", label: "RM2744", pinned: true },
+  { kind: "session", key: "2673", label: "2673", pinned: false },
+  { kind: "project", key: "calicote/infra", label: "calicote/infra", pinned: true },
+];
+assert(pinMark(TABS2795, "review", "2744").includes("📌"), "un ticket épinglé porte la marque");
+assert(pinMark(TABS2795, "project", "calicote/infra").includes("📌"), "un projet épinglé aussi");
+assert.strictEqual(pinMark(TABS2795, "session", "2673"), "",
+  "un onglet ouvert mais NON épinglé n'est pas marqué — c'est l'épingle qu'on signale");
+assert.strictEqual(pinMark(TABS2795, "review", "9999"), "", "un objet sans onglet n'est pas marqué");
+assert.strictEqual(pinMark(TABS2795, "session", "2744"), "",
+  "le type compte : une session et un ticket de même id sont deux objets");
+// L'onglet permanent est épinglé par construction : le marquer n'aurait aucun sens.
+assert.strictEqual(pinMark(TABS2795, "dash", ""), "",
+  "l'onglet permanent n'est pas une épingle qu'on choisit");
+assert.strictEqual(pinMark([], "review", "1"), "", "aucun onglet → aucune marque");
+assert.strictEqual(pinMark(null, "review", "1"), "", "liste absente tolérée");
+assert.strictEqual(pinMark(TABS2795, "review", 2744), "".length ? "" : pinMark(TABS2795, "review", "2744"),
+  "un id numérique vaut son équivalent texte");
+assert(/title="Épinglé dans les onglets/.test(pinMark(TABS2795, "review", "2744")),
+  "l'infobulle dit ce que la marque signifie");
+
+// Les cinq surfaces doivent appeler la MÊME fonction — cinq variantes d'un même
+// signal, ce serait cinq signaux.
+const surfaces2795 = [
+  ['pinOf("session", s.rm_id)', "tuiles de session"],
+  ['pinOf("review", rm)', "revues ouvertes"],
+  ['pinOf("review", t.rm_id)', "résultats de recherche"],
+  ['pinOf("review", e.rm_id)', "file à tester"],
+  ['pinOf("review", it.rm_id)', "tickets ouverts"],
+];
+surfaces2795.forEach(([frag, quoi]) =>
+  assert(html.includes(frag), "marque absente : " + quoi));
+assert(/pin\("project", p\.value\)/.test(html), "marque absente : panneau projets");
+assert(/pinOf\("review", String\(it\.ref/.test(html), "marque absente : worklog");
+// …et l'état doit suivre le geste, sans attendre le prochain poll.
+assert(/function togglePin[\s\S]{0,400}renderPinMarks\(\)/.test(html),
+  "détacher un onglet doit rafraîchir les listes tout de suite");
+assert(/opts && opts\.pin\) renderPinMarks/.test(html),
+  "…et épingler à l'ouverture aussi");
+// Le panneau projets reçoit la marque en option : sans elle, il rend comme avant.
+const sansPin = projectsPanelHtml(groupProjectsByClient(PJ2760, ""),
+  { live: {}, open: {}, client: "abatik", filtre: "" }, escO, jargFn);
+assert(!/📌/.test(sansPin), "sans fonction de marque, le rendu est inchangé (rétrocompat)");
+const avecPin = projectsPanelHtml(groupProjectsByClient(PJ2760, ""),
+  { live: {}, open: {}, client: "abatik", filtre: "",
+    pin: (k, v) => pinMark([{ kind: "project", key: "abatik/infra", pinned: true }], k, v) },
+  escO, jargFn);
+assert(/📌/.test(avecPin), "avec la marque, le projet épinglé la porte");
+console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes, à jour au clic");

@@ -233,6 +233,9 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable
+     (l'épingle se retire depuis l'onglet, seul endroit où le geste existe) */
+  .pinmark { font-size: 9px; opacity: .8; margin-left: 3px; cursor: default; }
   /* RM2787 : silence d'une session — lisible, mais après le titre */
   .tquiet { font-size: 10px; color: var(--muted); white-space: nowrap; flex: none; }
   /* RM2776 : panneau d'historique — flottant sous le header, au-dessus du reste */
@@ -1954,7 +1957,8 @@ async function refreshSessions() {
         it.innerHTML = '<span class="tdot tdisp st-' + esc(s.state || "idle") +
           (disp && disp !== "a_traiter" ? " disp-" + disp : "") +
           '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
-          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' + stag +
+          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
+          pinOf("session", s.rm_id) + stag +      // RM2795
           '<span class="rmeta">' + titleLink(s.rm_id, title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
           // RM2787 : depuis combien de temps la session n'a rien produit — c'est
           // ce qui décide d'un geste, là où l'âge d'ouverture ne dit que
@@ -2005,7 +2009,7 @@ async function refreshSessions() {
         it.className = "runitem" + (currentReview === rm && !attached ? " active" : "");
         it.title = "Revue RM" + rm + (r && r.found ? " — " + (r.title || "") : "");
         it.innerHTML = '<span class="tdot" style="background:var(--warn)"></span>' +
-          '<span class="tid">RM' + esc(rm) + '</span>' +
+          '<span class="tid">RM' + esc(rm) + '</span>' + pinOf("review", rm) +   // RM2795
           '<span class="rmeta">' + titleLink(rm, r && r.found ? r.title : "") + '</span>' +
           '<span class="tkill" title="Fermer la revue">✕</span>';
         it.onclick = () => openReview(rm);
@@ -3440,6 +3444,26 @@ function histToggle(force) {
   if (ouvrir) box.innerHTML = histListHtml(navHist, navIsOpen, esc, jarg);
 }
 
+
+// >>> pinMark — pur (RM2795, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// La MÊME icône que sur l'onglet, partout où l'objet est listé. L'épinglage ne
+// vivait que dans la barre centrale : les listes latérales parlaient des mêmes
+// sessions, tickets et projets sans dire lesquels étaient déjà sous la main —
+// d'où des ré-ouvertures qui remplaçaient l'onglet temporaire en cours.
+//
+// L'onglet permanent (📊) est exclu : il n'apparaît dans aucune liste, et son
+// épinglage n'est pas un choix qu'on puisse défaire.
+function pinMark(tabs, kind, key) {
+  const id = kind + ":" + (key == null ? "" : key);
+  const pin = (tabs || []).some(t => t && t.pinned && !t.fixed
+    && (t.kind + ":" + (t.key == null ? "" : t.key)) === id);
+  return pin ? '<span class="pinmark" title="Épinglé dans les onglets du panneau central">📌</span>' : "";
+}
+// <<< pinMark
+
+// Raccourci d'appel : les rendus n'ont pas à connaître `centerTabs`.
+function pinOf(kind, key) { return pinMark(centerTabs, kind, key); }
+
 function tabId(kind, key) { return kind + ":" + (key == null ? "" : key); }
 
 function saveTabs() {
@@ -3572,6 +3596,7 @@ function noteTab(kind, key, label, opts) {
     navHist = histVisit(navHist, { id: r.active, kind, label: label || r.active }, NAV_MAX);
   }
   navRender();
+  if (opts && opts.pin) renderPinMarks();     // RM2795 : épinglé à l'ouverture
 }
 
 function activateTab(id) {
@@ -3602,6 +3627,17 @@ function togglePin(id) {
   if (!t || t.fixed) return;      // RM2744 : l'onglet permanent reste épinglé
   t.pinned = !t.pinned;
   saveTabs(); renderTabs();
+  renderPinMarks();               // RM2795 : les listes portent la même marque
+}
+
+// RM2795 : rafraîchit les listes qui affichent 📌. Elles se redessinent déjà au
+// poll, mais un épinglage doit se voir TOUT DE SUITE — une marque qui apparaît
+// trois secondes plus tard se lit comme un raté du clic.
+function renderPinMarks() {
+  try { renderOpened(); } catch (e) { /* panneau absent */ }
+  try { renderProjectsPanel(); } catch (e) { /* idem */ }
+  try { if (worklog && worklog.found) renderWorklog(); } catch (e) { /* idem */ }
+  try { refreshSessions(); } catch (e) { /* idem */ }
 }
 
 function closeTab(id) {
@@ -4766,6 +4802,7 @@ function liveByProject(sessions, rcache) {
 function projectsPanelHtml(groups, opts, esc, jarg) {
   const o = opts || {};
   const live = o.live || {}, open = o.open || {}, ctx = o.client || "";
+  const pin = o.pin || (() => "");      // RM2795 : marque d'épinglage, injectée
   const deplieTout = !!String(o.filtre || "").trim();
   if (!groups.length) {
     return '<div class="empty">' + (deplieTout ? "aucun client ni projet ne correspond"
@@ -4798,7 +4835,7 @@ function projectsPanelHtml(groups, opts, esc, jarg) {
       return '<div class="oline" style="white-space:normal;cursor:pointer;padding-left:16px"'
         + ' onclick="openProjectView(' + jarg(p.value) + ')"'
         + ' title="Ouvrir la fiche de ' + esc(p.value) + ' dans le panneau central">📄 '
-        + esc(p.project)
+        + esc(p.project) + pin("project", p.value)
         + (n ? ' <span class="pill ok" title="' + n + ' session(s) en cours">' + n + " ▶</span>" : "")
         + ' <span class="pjicons"><button class="mini" onclick="' + stop
         + "openCenterConf('project'," + jarg(p.client) + "," + jarg(p.project) + ')"'
@@ -4833,7 +4870,7 @@ function renderProjectsPanel() {
   }
   box.innerHTML = projectsPanelHtml(groups,
     { live: liveByProject(Object.values(sessCache), resolveCache), open: pjOpen,
-      client: clientContext, filtre }, esc, jarg);
+      client: clientContext, filtre, pin: pinOf }, esc, jarg);
 }
 
 // Le cache `allProjects` est peuplé au démarrage pour la création de ticket ;
@@ -5097,6 +5134,7 @@ function renderOpened() {
         + ' onclick="showTicket(' + it.rm_id + ')" title="Ouvrir la fiche">'
         + '<div class="otix-head">'
         + '<span class="pill"' + tipAttr(it.rm_id) + ">RM" + esc(it.rm_id) + "</span>"
+        + pinOf("review", it.rm_id)      // RM2795
         + '<span class="pill" style="opacity:.85">' + esc(it.status) + "</span>"
         + '<span style="flex:1"></span>'
         + '<button class="mini" title="Retirer de la liste"'
@@ -5398,6 +5436,7 @@ function renderWorklog() {
     return '<div class="oline" style="white-space:normal" title="' + esc(it.label || it.ref)
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
       + box
+      + pinOf("review", String(it.ref || "").replace(/^RM/, ""))      // RM2795
       + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
@@ -6672,7 +6711,7 @@ async function search() {
     for (const t of results) {
       const li = document.createElement("li");
       li.innerHTML =
-        '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' +
+        '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' + pinOf("review", t.rm_id) +   // RM2795
         '<span class="r-title">' + titleLink(t.rm_id, t.title || "(sans titre)") + '</span></div>' +
         '<div class="r-meta">' + esc(searchRowMeta(t)) + '</div>';
       // RM2770 : un ticket que Redmine connaît mais que le local ignore n'a rien
@@ -9511,7 +9550,7 @@ function renderTQ() {
       const li = document.createElement("li");
       li.style.cursor = "default";
       const dem = e.status === "a_tester_demandeur";
-      let h = '<div class="r-top"><span class="r-id">RM' + e.rm_id + '</span>' +
+      let h = '<div class="r-top"><span class="r-id">RM' + e.rm_id + '</span>' + pinOf("review", e.rm_id) +   // RM2795
         '<span class="pill ' + (dem ? "warn" : "") + '">' + (dem ? "demandeur" : "dev") + '</span>' +
         '<span class="r-title" title="' + esc(e.title) + '">' + esc(e.title) + '</span></div>';
       h += '<div class="r-meta">' + esc((e.client || "?") + "/" + (e.project || "?")) +

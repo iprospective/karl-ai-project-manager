@@ -71,6 +71,17 @@ C'est ce qui évite de recréer la barre d'onglets de sessions retirée parce qu
 devenait illisible dès trois projets : la liste de référence des sessions reste la
 colonne de gauche, l'onglet est un **marque-page**, pas un annuaire.
 
+## 📌 dans les listes
+
+Un objet **épinglé** en onglet porte la même 📌 partout où il apparaît : tuiles
+de sessions, revues ouvertes, tickets ouverts, résultats de recherche, file
+« à tester », worklog, et projets. Plus besoin de chercher dans la barre si
+l'onglet existe : la liste le dit.
+
+Un onglet simplement **ouvert** (temporaire, en italique) n'est pas marqué — il
+disparaîtra à la vue suivante ; ce qu'on signale, c'est l'épingle. La marque
+apparaît et disparaît **au clic**, sans attendre le rafraîchissement.
+
 ## Ce qui survit au rechargement
 
 Les onglets **épinglés** sont restaurés à l'ouverture de la page, et celui qui était

@@ -10,6 +10,18 @@ personne ne peut cocher.
 
 `checklist_lines()` est la source unique de vérité : elle rend les lignes de
 checklist réelles, blocs de code exclus.
+
+RM2789 — deux ajouts, sur le même principe « ce qui ressemble à X n'est pas X » :
+
+  · `is_placeholder()` — « (à compléter) » n'est PAS un critère d'acceptation.
+    Posé en case à cocher, il bloquait la livraison sans que personne puisse le
+    cocher, et le seul recours (`--allow-unchecked`) désactivait le garde-fou
+    pour les VRAIS critères aussi : le contournement était plus grossier que le
+    problème.
+  · `unwrap()` — l'outillage compose du markdown enveloppé à ~95 colonnes ;
+    Redmine rend chaque retour à la ligne comme un `<br>`, donc le texte arrive
+    haché. Ce qui est lisible dans un fichier source ne l'est pas dans un
+    navigateur, qui sait envelopper tout seul.
 """
 import re
 
@@ -17,6 +29,11 @@ CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
 FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
 LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d+[.)])\s")
 INDENTED_RE = re.compile(r"^(?: {4,}|\t)")
+# Un item de checklist qui ne désigne aucun travail : gabarit de création, reste
+# de rédaction. Il ne compte ni comme critère à cocher ni comme critère manquant.
+PLACEHOLDER_RE = re.compile(r"^\W*(à compléter|a completer|à définir|a definir|tbd|todo)\W*$", re.I)
+# Lignes dont le retour à la ligne PORTE du sens : les dé-envelopper les casserait.
+STRUCT_RE = re.compile(r"^ {0,3}(#{1,6} |>|\||[-*+] |\d+[.)] |(-{3,}|\*{3,}|_{3,})\s*$)")
 
 
 def code_line_flags(lines):
@@ -81,3 +98,54 @@ def checklist_lines(text):
         if m:
             out.append((i, m))
     return out
+
+
+def is_placeholder(label):
+    """Le libellé d'un item de checklist est-il un simple gabarit ? (RM2789)
+
+    « (à compléter) », « à définir », « TBD »… : personne ne peut les cocher, ils ne
+    désignent aucun travail. Les compter comme des critères non satisfaits bloquait la
+    livraison — et le contournement (`--allow-unchecked`) faisait sauter le contrôle pour
+    les vrais critères en même temps.
+    """
+    return bool(PLACEHOLDER_RE.match((label or "").strip()))
+
+
+def real_checklist_lines(text):
+    """Les items de checklist qui désignent un VRAI travail (gabarits exclus)."""
+    return [(i, m) for i, m in checklist_lines(text) if not is_placeholder(m.group(3)[1:])]
+
+
+def unwrap(text):
+    """Dé-enveloppe les paragraphes : joint les lignes d'un même paragraphe (RM2789).
+
+    Préserve tout ce dont le retour à la ligne porte le sens : blocs de code (clôturés
+    ou indentés), titres, listes, tableaux, citations, règles horizontales, lignes vides,
+    et les **sauts durs** markdown (deux espaces en fin de ligne, ou backslash final).
+
+    Idempotent : un texte déjà dé-enveloppé en ressort inchangé.
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    flags = code_line_flags(lines)
+    out, buf = [], []
+
+    def flush():
+        if buf:
+            out.append(" ".join(buf))
+            buf.clear()
+
+    for i, line in enumerate(lines):
+        strip = line.strip()
+        dur = line.endswith("  ") or line.rstrip().endswith("\\")
+        if flags[i] or not strip or STRUCT_RE.match(line) or CHECK_LINE_RE.match(line):
+            flush()
+            out.append(line)
+            continue
+        buf.append(strip)
+        if dur:                                  # saut DUR voulu : on ne le mange pas
+            flush()
+            out[-1] = out[-1] + "  "
+    flush()
+    return "\n".join(out)

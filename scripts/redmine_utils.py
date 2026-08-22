@@ -274,6 +274,40 @@ def issue_is_ia_tagged(issue):
     return False
 
 
+# Champs de texte long dont Redmine rend CHAQUE retour à la ligne comme un <br>.
+# L'outillage compose du markdown enveloppé à ~95 colonnes (lisible dans un fichier),
+# ce qui arrive haché dans le navigateur — qui sait pourtant envelopper tout seul.
+_UNWRAP_FIELDS = ("description", "notes")
+
+
+def _unwrap_payload(payload):
+    """Dé-enveloppe les champs de texte long d'un payload Redmine (RM2789).
+
+    Fait ICI, au point de passage UNIQUE vers l'API, plutôt qu'à chaque appelant : il y en
+    a une douzaine (add, description-update, comment, status-update, report…) et en oublier
+    un laisserait le défaut revenir par une porte de côté.
+
+    Ne touche qu'aux champs listés, jamais aux autres, et le dé-enveloppement préserve
+    blocs de code, listes, tableaux, titres et sauts durs (cf. `pm_markdown.unwrap`).
+    """
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        from pm_markdown import unwrap
+    except ImportError:                          # pragma: no cover - dépendance optionnelle
+        return payload
+    out = dict(payload)
+    for racine, corps in out.items():
+        if not isinstance(corps, dict):
+            continue
+        neuf = dict(corps)
+        for champ in _UNWRAP_FIELDS:
+            if isinstance(neuf.get(champ), str):
+                neuf[champ] = unwrap(neuf[champ])
+        out[racine] = neuf
+    return out
+
+
 def http_json(method, url, key, payload=None, timeout=20, basic=None):
     """Requête HTTP JSON simple. Retourne (status_code, body_dict_or_error).
 
@@ -281,6 +315,7 @@ def http_json(method, url, key, payload=None, timeout=20, basic=None):
     serveur web protège l'instance en amont de Redmine (RM2657) ; la clé API seule
     reçoit alors un 401 du serveur web, avant même d'atteindre Redmine.
     """
+    payload = _unwrap_payload(payload)
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Content-Type": "application/json", "X-Redmine-API-Key": key,
                "Accept": "application/json"}

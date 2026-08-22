@@ -110,8 +110,22 @@ UNCHECKED_RE = re.compile(r"^\s*[-*]\s*\[ \]\s", re.MULTILINE)
 
 
 def count_unchecked(description):
-    """Nombre d'items de checklist non cochés dans la description Redmine."""
-    return len(UNCHECKED_RE.findall(description or ""))
+    """Items de checklist RÉELS et non cochés (RM2789).
+
+    Passe par `pm_markdown` plutôt que par un `findall` à l'aveugle : une description qui
+    CITE une checklist en exemple, dans un bloc de code, comptait des cases fantômes
+    (c'est déjà la raison d'être de RM2540). Et les gabarits « (à compléter) » ne sont pas
+    des critères — les compter bloquait la livraison sans recours proportionné.
+    """
+    from pm_markdown import real_checklist_lines
+    return sum(1 for _, m in real_checklist_lines(description or "")
+               if m.group(2).strip() == "")
+
+
+def has_criteria(description):
+    """La description définit-elle au moins un critère RÉEL ? (gabarits exclus)"""
+    from pm_markdown import real_checklist_lines
+    return bool(real_checklist_lines(description or ""))
 
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
@@ -661,7 +675,8 @@ def main():
     gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
         args.status == "ferme" and args.close_reason == "resolu")
     if gate_status and issue and not args.allow_unchecked:
-        n_unchecked = count_unchecked(issue.get("description"))
+        desc = issue.get("description")
+        n_unchecked = count_unchecked(desc)
         if n_unchecked:
             sys.exit(
                 f"ERREUR : {n_unchecked} item(s) de checklist non coché(s) dans la description de "
@@ -669,6 +684,14 @@ def main():
                 f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
                 f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
             )
+        # RM2789 — « aucun critère jamais défini » n'est PAS « des critères non tenus » :
+        # ça n'a rien à voir avec la qualité de la livraison, et bloquer là-dessus n'aurait
+        # fait qu'entraîner l'usage réflexe de --allow-unchecked, qui désarme le vrai
+        # contrôle. On avertit, on ne bloque pas.
+        elif not has_criteria(desc):
+            print(f"⚠ RM{args.rm_id} n'a AUCUN critère d'acceptation défini — livré quand même.\n"
+                  f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>",
+                  file=sys.stderr)
     # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
     # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
     # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde

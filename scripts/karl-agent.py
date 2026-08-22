@@ -58,6 +58,8 @@ API (JSON, localhost:9876)
                                 → [{rm_id, tmux, created, attached, engine?,
                                    session_id?, client?, project?,
                                    activity (dernière sortie du terminal, RM2787),
+                                   last_msg (dernier message RÉEL du transcript —
+                                   les récapitulatifs auto en sont exclus, RM2793),
                                    registry?{seq, machine, created, branches[],
                                    worktrees[]}, registry_conflicts?[]}]
                                   (RM1939 ; registre pm_session RM2166)
@@ -174,6 +176,7 @@ Lancement :
     KARL_AGENT_PORT=9999 python3 scripts/karl-agent.py
 """
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -2880,6 +2883,93 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     return info
 
 
+
+# ── RM2793 : dernier message RÉEL d'une session ──────────────────────────────
+# `session_activity` de tmux (RM2787) compte toute écriture au terminal — y
+# compris celles que Claude Code produit SEUL : la ligne « ※ recap: … » qu'il
+# affiche quand la session reste sans réponse (`system` / `away_summary` au
+# transcript). Le compteur retombait alors à zéro et la session paraissait
+# active alors que personne n'y avait touché — l'indicateur mentait dans le sens
+# le plus coûteux, en rendant invisible une session à relancer.
+#
+# Le transcript, lui, distingue la nature de chaque entrée. On y lit le dernier
+# VRAI message, et rien d'autre.
+
+#: Ce qui compte comme action. Les `system` (dont `away_summary`) et toutes les
+#: métadonnées (`ai-title`, `mode`, `permission-mode`, `atis-latch`,
+#: `last-prompt`, `file-history-snapshot`) en sont exclus par construction.
+LAST_MSG_TYPES = ("user", "assistant")
+#: Fin de fichier lue pour y chercher ce message. Un transcript pèse plusieurs
+#: Mo ; les derniers messages tiennent dans une fraction de cette taille, et la
+#: lecture est bornée pour rester au prix d'un poll.
+LAST_MSG_TAIL_BYTES = 262144
+_LAST_MSG_CACHE: dict = {"at": 0.0, "map": {}}
+
+
+# >>> last_message_ts — pure (testée par test_karl_agent_last_msg.py)
+def last_message_ts(lines):
+    """Horodatage (epoch) du dernier vrai message parmi des lignes JSONL.
+
+    Parcours à l'ENVERS : on s'arrête au premier message utile, sans lire le
+    reste. `None` si aucun — l'appelant retombe alors sur l'activité tmux plutôt
+    que d'afficher un vide là où il y avait une durée.
+    """
+    for line in reversed(list(lines or [])):
+        line = (line or "").strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue            # ligne tronquée (écriture en cours) : on remonte
+        if d.get("type") not in LAST_MSG_TYPES:
+            continue            # system/away_summary, ai-title, mode… : pas une action
+        if d.get("isMeta") or d.get("isSidechain"):
+            continue            # hook, rappel système, sous-agent : pas le fil principal
+        ts = d.get("timestamp")
+        if not ts:
+            continue
+        try:
+            return int(datetime.datetime.fromisoformat(
+                str(ts).replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            continue
+    return None
+# <<< last_message_ts
+
+
+def _last_message_at(session_id: str | None, engine: str | None = None):
+    """Dernier message réel de la session (epoch), ou None.
+
+    Mémorisé comme `_transcript_info` : `/sessions` est polled en continu, et
+    une lecture par session et par appel se paierait à chaque tour. Réservé aux
+    transcripts claude — un moteur tiers n'a pas ce format, il gardera l'activité
+    tmux (dégradation visible : une durée reste affichée).
+    """
+    if not session_id or engine not in (None, "claude") or not _SID_RE.match(session_id):
+        return None
+    now = time.time()
+    if now - _LAST_MSG_CACHE["at"] > _DONE_CACHE_TTL:
+        _LAST_MSG_CACHE.update({"at": now, "map": {}})
+    if session_id in _LAST_MSG_CACHE["map"]:
+        return _LAST_MSG_CACHE["map"][session_id]
+    ts = None
+    jf = _transcript_jsonl(session_id)
+    if jf:
+        try:
+            size = jf.stat().st_size
+            with jf.open("rb") as fh:
+                if size > LAST_MSG_TAIL_BYTES:
+                    fh.seek(size - LAST_MSG_TAIL_BYTES)
+                    fh.readline()          # la première ligne lue est tronquée
+                lines = fh.read().decode("utf-8", errors="replace").splitlines()
+            ts = last_message_ts(lines)
+        except OSError:
+            ts = None
+    _LAST_MSG_CACHE["map"][session_id] = ts
+    return ts
+
+
 def _transcript_title(session_id: str | None) -> str | None:
     """RM2439 — titre du transcript, marqueur `[WIP]`/`[DONE]` ôté. Sert à NOMMER
     une entrée de jeu : un sid nu ne dit pas de quelle session il s'agit, et le
@@ -5133,6 +5223,14 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        # RM2793 : dernier message RÉEL, quand le transcript le dit. `activity`
+        # (tmux) compte aussi ce que Claude Code écrit seul — son « ※ recap: … »
+        # remettait le compteur à zéro sur une session que personne n'a touchée.
+        # Absent (moteur tiers, transcript illisible) : `activity` reste la
+        # mesure affichée, plutôt qu'un vide là où il y avait une durée.
+        lm = _last_message_at(s.get("session_id"), s.get("engine"))
+        if lm:
+            s["last_msg"] = lm
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():

@@ -3216,10 +3216,44 @@ assert.strictEqual(agoHM(null), "", "…y compris null");
 assert(/#\{session_name\}/.test(fs.readFileSync(
   path.join(__dirname, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")),
   "le format tmux doit rester lisible côté serveur");
-assert(/s\.activity \? '<span class="tquiet"/.test(html),
-  "la tuile doit afficher le silence quand la session a une activité connue");
+// RM2793 : la tuile délègue à `quietHtml`, qui préfère le dernier message réel
+// à l'activité tmux (laquelle comptait les récapitulatifs automatiques).
+assert(/quietHtml\(s, esc\)/.test(html),
+  "la tuile doit afficher le silence de la session");
 assert(/dernière sortie il y a/.test(html),
   "l'infobulle doit NOMMER la durée — « dernier message » promettrait autre chose");
 assert(/ago\(s\.created\)/.test(html),
   "l'âge d'ouverture reste : les deux durées ne disent pas la même chose");
 console.log("✓ silence d'une session (RM2787) : heures et minutes, distinct de l'âge d'ouverture");
+
+// — RM2793 : le silence ne se remet pas à zéro sur un recap automatique —
+const quietSince = grabO("quietSince");
+const quietHtml = grabO("quietHtml", { quietSince: grabO("quietSince"), agoHM });
+
+// Le dernier MESSAGE prime : c'est lui qui exclut les récapitulatifs auto.
+assert.deepEqual(quietSince({ last_msg: 100, activity: 900 }), { ts: 100, exact: true },
+  "le dernier message prime sur l'activité tmux, même plus récente");
+assert.deepEqual(quietSince({ activity: 900 }), { ts: 900, exact: false },
+  "sans transcript exploitable, l'activité tmux reste la mesure");
+assert.deepEqual(quietSince({}), { ts: null, exact: false }, "aucune source → rien à afficher");
+assert.deepEqual(quietSince(null), { ts: null, exact: false }, "session absente tolérée");
+
+// Le rendu doit DIRE laquelle des deux mesures il montre : « dernier message »
+// et « dernière sortie » ne recouvrent pas la même chose.
+const qExact = quietHtml({ last_msg: Math.floor(Date.now() / 1000) - 3600 }, escO);
+assert(/Dernier message il y a/.test(qExact), "mesure exacte : l'infobulle le dit");
+assert(/récapitulatifs automatiques ne comptent pas/.test(qExact),
+  "…et rappelle ce qui en est exclu");
+assert(/⏳1h/.test(qExact), "la durée est affichée");
+assert(!/~/.test(qExact), "aucune marque d'approximation sur une mesure exacte");
+const qApprox = quietHtml({ activity: Math.floor(Date.now() / 1000) - 3600 }, escO);
+assert(/Dernière sortie du terminal/.test(qApprox), "repli : l'infobulle le dit aussi");
+assert(/⏳1h~/.test(qApprox), "…et la durée porte un « ~ », l'approximation se voit");
+assert.strictEqual(quietHtml({}, escO), "", "rien à mesurer → rien d'affiché");
+assert.strictEqual(quietHtml(null, escO), "", "session absente tolérée");
+// Le câblage : la tuile passe par le helper, plus par s.activity en direct.
+assert(/quietHtml\(s, esc\)/.test(html), "la tuile doit utiliser le helper");
+assert(!/s\.activity \? '<span class="tquiet"/.test(html),
+  "l'ancien affichage direct de l'activité tmux ne doit plus exister");
+assert(/dernier message il y a/.test(html), "l'infobulle de tuile nomme la mesure");
+console.log("✓ silence réel (RM2793) : les recaps automatiques ne remettent plus le compteur à zéro");

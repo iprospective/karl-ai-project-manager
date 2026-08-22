@@ -80,10 +80,23 @@ def main():
 
     # 1. Pousser les commits locaux en attente vers la branche d'intégration
     #    (repli pm_git déjà fait en temps normal — ceci rattrape les différés).
+    #
+    # RM2790 — en `--dry-run`, ce push doit rester une SIMULATION. Il s'exécutait
+    # avant que `args.dry_run` ne soit testé (le test n'arrivait qu'à l'étape 2),
+    # si bien qu'un `--dry-run` lancé pour *voir* le lot versait le travail local
+    # dans l'intégration et court-circuitait la revue par MR (tripwire NORMS #3).
+    # On garde le même chemin de code et on délègue à `git push --dry-run`, pour
+    # qu'un refus (branche protégée, non-fast-forward) reste visible en simulation.
+    flushed = False
     if not args.no_flush:
-        p = _git(repo, "push", "origin", f"HEAD:{src}")
+        p = _git(repo, "push", *(["--dry-run"] if args.dry_run else []),
+                 "origin", f"HEAD:{src}")
         if p.returncode == 0:
-            print(f"✓ commits locaux poussés → {src}")
+            flushed = True
+            if args.dry_run:
+                print(f"  (dry-run) commits locaux seraient poussés → {src}")
+            else:
+                print(f"✓ commits locaux poussés → {src}")
         else:
             last = (p.stderr or "").strip().splitlines()[-1] if (p.stderr or "").strip() else "?"
             print(f"  ⚠ flush local → {src} impossible ({last}) — promotion du lot déjà distant seulement")
@@ -107,7 +120,11 @@ def main():
                   f"sur le remote.")
             return
 
-    d = _git(repo, "rev-list", "--count", f"origin/{tgt}..origin/{src}")
+    # RM2790 — en simulation, `origin/<src>` n'a pas bougé : compter le lot depuis
+    # la ref distante sous-estimerait ce qui serait réellement promu. Quand un flush
+    # aurait eu lieu, on compte donc depuis le HEAD local.
+    count_from = "HEAD" if (args.dry_run and flushed) else f"origin/{src}"
+    d = _git(repo, "rev-list", "--count", f"origin/{tgt}..{count_from}")
     if d.returncode != 0:
         last = (d.stderr or "").strip().splitlines()
         sys.exit(f"ERREUR : comptage {origin_range(tgt, src)} impossible "

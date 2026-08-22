@@ -22,9 +22,17 @@ produit. C'est la seconde qui décide d'un geste : ouverte depuis cinq heures et
 active il y a trente secondes, une session n'appelle rien ; muette depuis
 `2h14`, si. L'infobulle nomme les deux.
 
-Précision : ⏳ mesure la dernière sortie du **terminal**, pas le dernier message
-d'une conversation. Pour une session d'agent les deux coïncident en pratique —
-l'agent écrit quand il travaille et se tait quand il attend.
+⏳ mesure le **dernier vrai message** de la conversation : une question, une
+réponse, une action de l'agent. Ce que l'agent écrit tout seul n'y compte pas —
+en particulier le récapitulatif `※ recap: …` que Claude Code affiche quand une
+session reste sans réponse. Il écrivait au terminal sans que personne n'agisse,
+et remettait le compteur à zéro : sur ce poste, onze sessions sur douze
+paraissaient récentes alors qu'elles n'avaient rien produit depuis des heures —
+jusqu'à deux jours pour certaines.
+
+Un `~` après la durée (`⏳2h14~`) signale une mesure approchée : pour les moteurs
+sans transcript exploitable, on retombe sur la dernière sortie du terminal. Une
+durée approchée reste plus utile qu'un blanc.
 
 ## Panneau « 🚀 sessions »
 

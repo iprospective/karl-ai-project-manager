@@ -1604,6 +1604,37 @@ function ttydUrl(rmId) {
   const base = CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
   return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId);
 }
+// >>> quietSince — pur (RM2793, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Depuis quand la session ne fait RIEN. Deux sources, dans cet ordre :
+//   1. `last_msg` — dernier vrai message du transcript. Les récapitulatifs que
+//      Claude Code affiche seul (`※ recap: …`) n'en sont pas : ils écrivaient au
+//      terminal sans qu'on agisse, et remettaient le compteur à zéro sur une
+//      session que personne n'avait touchée ;
+//   2. `activity` — dernière sortie du terminal (tmux). Repli pour les moteurs
+//      sans transcript exploitable : une durée approchée vaut mieux qu'un vide.
+function quietSince(s) {
+  const sess = s || {};
+  if (sess.last_msg) return { ts: sess.last_msg, exact: true };
+  if (sess.activity) return { ts: sess.activity, exact: false };
+  return { ts: null, exact: false };
+}
+// <<< quietSince
+
+// >>> quietHtml — pur (RM2793, testé par test_cockpit.js)
+// L'infobulle DIT laquelle des deux mesures est affichée : « dernier message »
+// et « dernière sortie » ne recouvrent pas la même chose, et l'écart entre les
+// deux est précisément le sujet de ce ticket.
+function quietHtml(s, esc) {
+  const q = quietSince(s);
+  if (!q.ts) return "";
+  const d = agoHM(q.ts);
+  return '<span class="tquiet" title="'
+    + (q.exact ? "Dernier message il y a " + d + " (les récapitulatifs automatiques ne comptent pas)"
+               : "Dernière sortie du terminal il y a " + d + " — transcript indisponible pour cette session")
+    + '">⏳' + esc(d) + (q.exact ? "" : "~") + "</span>";
+}
+// <<< quietHtml
+
 // >>> agoHM — pur (RM2787, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Délai en heures ET minutes : `ago()` tronque à l'heure, et « 2h » couvre
 // cinquante-neuf minutes d'incertitude — de quoi hésiter à relancer une session
@@ -1928,8 +1959,9 @@ async function refreshSessions() {
           // RM2787 : depuis combien de temps la session n'a rien produit — c'est
           // ce qui décide d'un geste, là où l'âge d'ouverture ne dit que
           // l'ancienneté. Le sablier le distingue du second nombre voisin.
-          (s.activity ? '<span class="tquiet" title="Dernière sortie du terminal il y a '
-            + esc(agoHM(s.activity)) + '">⏳' + esc(agoHM(s.activity)) + "</span>" : "") +
+          // RM2793 : le dernier MESSAGE prime sur l'activité tmux, qui comptait
+          // aussi les récapitulatifs que Claude Code écrit tout seul.
+          quietHtml(s, esc) +
           badge + auto + stale +
           (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
           // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
@@ -7088,7 +7120,8 @@ function tabTip(s) {
   if (r && r.found) t = "RM" + s.rm_id + " — " + (r.title || "") + "\n" + r.client + "/" + r.project +
     (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
   if (s.created) t += "\nouvert il y a " + ago(s.created);
-  if (s.activity) t += "\ndernière sortie il y a " + agoHM(s.activity);   // RM2787
+  if (s.last_msg) t += "\ndernier message il y a " + agoHM(s.last_msg);    // RM2793
+  else if (s.activity) t += "\ndernière sortie il y a " + agoHM(s.activity);   // RM2787
   if (s.attached) t += " · attaché";
   if (s.state === "attention") t += "\n⚠ demande une réponse OUI/NON (permission/question)";
   else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";

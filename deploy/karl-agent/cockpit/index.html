@@ -233,6 +233,19 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
+     La description et l'historique étaient bridés à 160 et 130 px, au bas
+     d'une colonne qu'il fallait déjà faire défiler pour les atteindre. */
+  .facetfull { max-height: none; height: auto; overflow: visible; }
+  .facetfull.desc { white-space: normal; padding: 10px; font-size: 12px; line-height: 1.5; }
+  .logfeed { display: flex; flex-direction: column; gap: 8px; }
+  .logent { border-left: 2px solid var(--line); padding: 2px 0 2px 8px; }
+  .logent-h { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline;
+    font-size: 11px; margin-bottom: 2px; }
+  .logent-ts { font-family: var(--mono); color: var(--accent); }
+  .logent-h span:not(.logent-ts) { color: var(--fg); font-weight: 600; }
+  .logent-b { font-size: 11.5px; color: var(--muted); }
+  .logent-b p { margin: 2px 0; }
   /* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable
      (l'épingle se retire depuis l'onglet, seul endroit où le geste existe) */
   .pinmark { font-size: 9px; opacity: .8; margin-left: 3px; cursor: default; }
@@ -3445,6 +3458,26 @@ function histToggle(force) {
 }
 
 
+// >>> statusPill — pur (RM2796, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// UNE pastille : le statut courant. La dérive — statut modifié par une AUTRE
+// session — se dit par la couleur, et son détail au survol.
+//
+// Avant : deux pastilles collées, dont la seconde répétait la première en lui
+// ajoutant l'ancien statut (`[a_tester_demandeur] [en_cours → a_tester_demandeur]`).
+// Sur une colonne étroite, elles se lisaient comme un seul bloc, et le signal
+// utile — « ça a bougé ailleurs » — se noyait dans la redondance.
+function statusPill(it, esc) {
+  const item = it || {};
+  const st = String(item.status || "?");
+  const from = String(item.opened_status || "");
+  if (!item.drifted || !from || from === st) {
+    return '<span class="pill">' + esc(st) + "</span>";
+  }
+  return '<span class="pill warn" title="Statut modifié hors de cette session : '
+    + esc(from) + " → " + esc(st) + '">' + esc(st) + "</span>";
+}
+// <<< statusPill
+
 // >>> pinMark — pur (RM2795, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // La MÊME icône que sur l'onglet, partout où l'objet est listé. L'épinglage ne
 // vivait que dans la barre centrale : les listes latérales parlaient des mêmes
@@ -5410,9 +5443,6 @@ function renderWorklog() {
   }
   const usedBr = new Set();
   const itemHtml = (it) => {
-    const drift = it.drifted
-      ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
-        + esc(it.opened_status) + " → " + esc(it.status) + "</span>" : "";
     const brs = brByRm[it.ref] || [];
     brs.forEach(b => usedBr.add(b));
     // RM2716 : cocher pour faire traiter en série. La case ne s'affiche que sur
@@ -5437,7 +5467,7 @@ function renderWorklog() {
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
       + box
       + pinOf("review", String(it.ref || "").replace(/^RM/, ""))      // RM2795
-      + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
+      + worklogRefHtml(it.ref, esc, tipAttr) + " " + statusPill(it, esc)      // RM2796
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")
@@ -7380,19 +7410,22 @@ function renderTickets() {
   }
   const sel = (metaTicket && list.indexOf(metaTicket) >= 0) ? metaTicket : list[0];
   list.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(() => renderTickets()); });
-  const facet = ["detail", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
+  const facet = ["detail", "desc", "log", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
   if (facet === "workspace" && wsCache[sel] === undefined) refreshWorkspace(sel);
   // niveau 1 : un sous-onglet par ticket
   let h = '<div class="rsub">' + list.map(t =>
     '<button class="' + (t === sel ? 'active' : '') + '" onclick="setTicketTab(\'' + esc(t) + '\')">RM' + esc(t) + '</button>'
   ).join('') + '</div>';
   // niveau 2 : facettes du ticket sélectionné
-  h += '<div class="rsub facets">' + [["detail", "détail"], ["conso", "conso"], ["workspace", "workspace"]].map(f =>
+  h += '<div class="rsub facets">' + [["detail", "détail"], ["desc", "description"], ["log", "historique"],
+                                     ["conso", "conso"], ["workspace", "workspace"]].map(f =>
     '<button class="' + (f[0] === facet ? 'active' : '') + '" onclick="setTicketFacet(\'' + f[0] + '\')">' + esc(f[1]) + '</button>'
   ).join('') + '</div>';
   const r = resolveCache[sel];
   if (r === undefined) h += '<div class="ms">chargement…</div>';
   else if (!r || !r.found) h += '<div class="ms"><h4>Ticket</h4>RM' + esc(sel) + ' <span style="color:var(--muted)">non trouvé en local</span></div>';
+  else if (facet === "desc") h += _ticketDescHtml(sel, r);          // RM2797
+  else if (facet === "log") h += _ticketLogHtml(sel, r);            // RM2797
   else if (facet === "conso") h += _ticketConsoHtml(r);
   else if (facet === "workspace") h += _ticketWorkspaceHtml(sel, wsCache[sel]);
   else h += _ticketDetailHtml(sel, r);
@@ -7406,7 +7439,69 @@ function setTicketTab(rm) {
 }
 function setTicketFacet(f) { metaFacet = f; renderTickets(); }
 
-// ── Facette « détail » : identité + environnement + git + relations + desc + log ──
+
+// ── RM2797 : description et historique, en facettes pleine hauteur ───────────
+
+// >>> logEntries — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Découpe le journal d'un ticket en entrées `## <horodatage> — <titre>`. Il est
+// servi en markdown structuré ; l'afficher en préformaté monospace jetait cette
+// structure — on ne distinguait plus une entrée de la suivante, ni sa date de
+// son contenu.
+function logEntries(text) {
+  const lignes = String(text || "").split("\n");
+  const out = [];
+  let cur = null;
+  for (const l of lignes) {
+    if (l.startsWith("## ")) {
+      if (cur) out.push(cur);
+      const titre = l.slice(3).trim();
+      const m = /^(\S+)\s+—\s+(.*)$/.exec(titre);
+      cur = { ts: m ? m[1] : "", title: m ? m[2] : titre, body: [] };
+    } else if (cur) {
+      cur.body.push(l);
+    } else if (l.trim()) {
+      cur = { ts: "", title: "", body: [l] };     // journal sans en-tête : rien n'est perdu
+    }
+  }
+  if (cur) out.push(cur);
+  return out.map(e => ({ ts: e.ts, title: e.title, body: e.body.join("\n").trim() }))
+            .filter(e => e.ts || e.title || e.body);
+}
+// <<< logEntries
+
+// >>> logHtml — pur (testé par test_cockpit.js)
+// La plus RÉCENTE en tête : on ouvre l'historique pour savoir ce qui vient de se
+// passer, pas pour relire le début. `md` rend le corps (injecté).
+function logHtml(entries, esc, md) {
+  const list = entries || [];
+  if (!list.length) {
+    return '<div class="empty">aucune activité enregistrée pour ce ticket</div>';
+  }
+  return '<div class="logfeed">' + list.slice().reverse().map(e => {
+    const quand = String(e.ts || "").replace("T", " ");
+    return '<div class="logent">'
+      + (quand || e.title
+          ? '<div class="logent-h">' + (quand ? '<span class="logent-ts">' + esc(quand) + "</span>" : "")
+            + (e.title ? "<span>" + esc(e.title) + "</span>" : "") + "</div>"
+          : "")
+      + (e.body ? '<div class="logent-b">' + md(e.body) + "</div>" : "")
+      + "</div>";
+  }).join("") + "</div>";
+}
+// <<< logHtml
+
+function _ticketDescHtml(rmId, r) {
+  if (!r || !r.description) {
+    return '<div class="empty">ce ticket n\'a pas de description</div>';
+  }
+  return '<div class="facetfull desc">' + mdToHtml(r.description) + "</div>";
+}
+
+function _ticketLogHtml(rmId, r) {
+  return '<div class="facetfull">' + logHtml(logEntries(r && r.log_tail), esc, mdToHtml) + "</div>";
+}
+
+// ── Facette « détail » : identité + environnement + git + relations ──
 // >>> projectBriefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2614 : situer le ticket dans son client et son projet, en trois lignes.
 // >>> cval — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -7532,8 +7627,15 @@ function _ticketDetailHtml(rmId, r) {
     rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
     h += '</div>';
   }
-  if (r.description) h += '<div class="ms"><h4>Description</h4><div class="desc">' + mdToHtml(r.description) + '</div></div>';
-  if (r.log_tail) h += '<div class="ms"><h4>Dernières activités</h4><div class="logtail">' + esc(r.log_tail) + '</div></div>';
+  // RM2797 : la description et l'historique ont leur propre facette, pleine
+  // hauteur — les répéter ici les remettrait dans une fenêtre de dix lignes, au
+  // bas d'une colonne où il faut déjà défiler pour les atteindre.
+  h += '<div class="ms"><h4>Contenu</h4><div class="rels">'
+    + '<button class="chip" onclick="setTicketFacet(\'desc\')">'
+    + (r.description ? "📄 description" : "📄 description (vide)") + "</button>"
+    + '<button class="chip" onclick="setTicketFacet(\'log\')">'
+    + (r.log_tail ? "🕘 historique" : "🕘 historique (vide)") + "</button>"
+    + "</div></div>";
   return h;
 }
 

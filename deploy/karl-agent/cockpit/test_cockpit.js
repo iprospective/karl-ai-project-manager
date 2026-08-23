@@ -870,10 +870,14 @@ console.log("✓ état (RM2466) : worklog en sections, vides masquées");
 
 // la dérive doit rester visible : sans elle on croirait que le statut affiché
 // est le fait de la session courante, alors qu'une autre l'a fait avancer
+// RM2796 : le signal a changé de FORME (une pastille jaune + infobulle, au lieu
+// d'une seconde pastille), pas de nature — il doit toujours exister.
 const mRw = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
 assert(mRw, "renderWorklog introuvable");
-assert(/it\.drifted/.test(mRw[0]) && /opened_status/.test(mRw[0]),
+assert(/statusPill\(it, esc\)/.test(mRw[0]),
   "un statut modifié hors de la session doit être signalé comme tel");
+assert(/item\.drifted/.test(html) && /opened_status/.test(html),
+  "…et la dérive doit rester lue depuis les données du worklog");
 assert(/id="workbody"/.test(html) && !/id="pendbody"/.test(html),
   "le panneau droit ne contient plus que le worklog (RM2581)");
 // RM2581 : signal de fraîcheur de la résolution live
@@ -3311,3 +3315,85 @@ const avecPin = projectsPanelHtml(groupProjectsByClient(PJ2760, ""),
   escO, jargFn);
 assert(/📌/.test(avecPin), "avec la marque, le projet épinglé la porte");
 console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes, à jour au clic");
+
+// — RM2796 : une seule pastille de statut, la dérive dans la couleur —
+const statusPill = grabO("statusPill");
+const neutre2796 = statusPill({ status: "en_cours" }, escO);
+assert.strictEqual(neutre2796, '<span class="pill">en_cours</span>',
+  "sans dérive : une pastille nue, aucune infobulle à lire pour rien");
+const derive2796 = statusPill(
+  { status: "a_tester_demandeur", opened_status: "en_cours", drifted: true }, escO);
+assert(/class="pill warn"/.test(derive2796), "dérive : la couleur porte le signal");
+assert(/>a_tester_demandeur</.test(derive2796), "le statut COURANT est ce qui s'affiche");
+assert(!/en_cours →/.test(derive2796.replace(/title="[^"]*"/, "")),
+  "l'ancien statut ne s'affiche plus dans la pastille — il ne s'y lisait pas");
+assert(/title="[^"]*en_cours → a_tester_demandeur/.test(derive2796),
+  "…il passe dans l'infobulle, avec le nouveau");
+// Cas limites : rien ne doit produire de pastille bavarde ou fausse.
+assert(!/warn/.test(statusPill({ status: "en_cours", opened_status: "en_cours", drifted: true }, escO)),
+  "un « changement » vers le même statut n'est pas une dérive");
+assert(!/warn/.test(statusPill({ status: "a_faire", drifted: true }, escO)),
+  "dérive annoncée sans ancien statut : pas de promesse qu'on ne peut pas tenir");
+assert.strictEqual(statusPill({}, escO), '<span class="pill">?</span>',
+  "item vide : un statut inconnu se dit, il ne disparaît pas");
+assert.strictEqual(statusPill(null, escO), '<span class="pill">?</span>', "item absent toléré");
+assert(!/<b>/.test(statusPill({ status: "<b>x</b>" }, escO)), "le statut est échappé");
+// Câblage : l'ancienne double pastille ne doit plus exister.
+assert(/statusPill\(it, esc\)/.test(html), "le worklog doit passer par la fonction");
+assert(!/const drift = it\.drifted/.test(html), "l'ancienne seconde pastille doit avoir disparu");
+console.log("✓ statut du worklog (RM2796) : une pastille, la dérive en couleur et au survol");
+
+// — RM2797 : description et historique en facettes, l'historique structuré —
+const logEntries = grabO("logEntries");
+const logHtml = grabO("logHtml");
+
+const JOURNAL = [
+  "## 2026-08-22T20:04 — report → Redmine",
+  "note (commit 55ca4bda)",
+  "",
+  "## 2026-08-22T20:08 — Protocole de test remplacé",
+  "Tokens : 0 | Durée : 0 min",
+  "détail sur deux lignes",
+].join("\n");
+
+const ent2797 = logEntries(JOURNAL);
+assert.strictEqual(ent2797.length, 2, "une entrée par en-tête ##");
+assert.strictEqual(ent2797[0].ts, "2026-08-22T20:04", "l'horodatage est isolé");
+assert.strictEqual(ent2797[0].title, "report → Redmine", "…et le titre aussi");
+assert(ent2797[1].body.includes("détail sur deux lignes"), "le corps garde ses lignes");
+assert(!ent2797[0].body.includes("##"), "l'en-tête ne se retrouve pas dans le corps");
+// Robustesse : un journal n'est pas toujours bien formé.
+assert.deepEqual(logEntries(""), [], "journal vide → aucune entrée");
+assert.deepEqual(logEntries(null), [], "journal absent toléré");
+const sansEntete = logEntries("juste du texte\nsans en-tête");
+assert.strictEqual(sansEntete.length, 1, "un journal sans en-tête n'est pas perdu");
+assert(sansEntete[0].body.includes("juste du texte"), "…son contenu est conservé");
+assert.strictEqual(logEntries("## titre sans horodatage")[0].title, "titre sans horodatage",
+  "un en-tête sans horodatage garde son titre");
+assert.strictEqual(logEntries("## titre sans horodatage")[0].ts, "",
+  "…et n'invente pas de date");
+
+// Rendu : la plus récente en tête — on ouvre l'historique pour voir ce qui vient
+// de se passer, pas pour relire le début.
+const lh = logHtml(ent2797, escO, (x) => "<MD>" + x + "</MD>");
+assert(lh.indexOf("20:08") < lh.indexOf("20:04"), "la plus récente est en tête");
+assert(/<MD>/.test(lh), "le corps passe par le rendu markdown, plus par un bloc préformaté");
+assert(/class="logent-ts"/.test(lh), "l'horodatage est distingué du titre");
+assert(logHtml([], escO, String).includes("aucune activité"),
+  "sans activité, un message — pas un cadre vide");
+assert(logHtml(null, escO, String).includes("aucune activité"), "liste absente tolérée");
+assert(!/<script>/.test(logHtml(logEntries("## <script>x</script> — t"), escO, String)),
+  "les en-têtes sont échappés");
+
+// Câblage : les deux facettes existent, et « détail » ne répète plus les blocs.
+assert(/\["desc", "description"\]/.test(html), "facette description absente");
+assert(/\["log", "historique"\]/.test(html), "facette historique absente");
+assert(/facet === "desc"/.test(html) && /facet === "log"/.test(html),
+  "les facettes doivent être routées");
+assert(!/<h4>Dernières activités<\/h4><div class="logtail">/.test(html),
+  "le bloc bridé de 130 px ne doit plus exister dans « détail »");
+assert(/setTicketFacet\(\\?'desc\\?'\)/.test(html) && /setTicketFacet\(\\?'log\\?'\)/.test(html),
+  "« détail » doit renvoyer vers les deux facettes");
+assert(/\.facetfull \{[^}]*max-height: none/.test(html),
+  "une facette doit pouvoir occuper toute la hauteur");
+console.log("✓ fiche ticket (RM2797) : description et historique en facettes, journal structuré");

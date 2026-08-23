@@ -233,6 +233,10 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2798 : groupes client/projet du worklog — un en-tête discret, pas un titre */
+  .wlgroup { margin-bottom: 6px; }
+  .wlghead { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+    color: var(--muted); margin: 6px 0 2px; display: flex; gap: 6px; align-items: baseline; }
   /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
      La description et l'historique étaient bridés à 160 et 130 px, au bas
      d'une colonne qu'il fallait déjà faire défiler pour les atteindre. */
@@ -3458,6 +3462,42 @@ function histToggle(force) {
 }
 
 
+
+// >>> groupWorklogItems — pur (RM2798, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Groupe les tickets d'un bucket par client/projet. C'est un RENDU, pas un tri :
+// l'ordre DANS un groupe reste celui de la session, et l'ordre des groupes celui
+// de leur première apparition — sauf « hors projet », qui ferme la marche.
+// Même règle que RM2724 côté worklog Markdown : dès qu'une session touche à deux
+// chantiers, une liste à plat ne dit plus à quoi on touche.
+function groupWorklogItems(items) {
+  const HORS = "hors projet";
+  const ordre = [];
+  const par = new Map();
+  for (const it of (items || [])) {
+    const cl = (it && it.client) || "", pr = (it && it.project) || "";
+    const key = (cl && pr) ? cl + " / " + pr : (pr || cl || HORS);
+    if (!par.has(key)) { par.set(key, []); ordre.push(key); }
+    par.get(key).push(it);
+  }
+  const cles = ordre.filter(k => k !== HORS).concat(ordre.includes(HORS) ? [HORS] : []);
+  return cles.map(k => ({ key: k, items: par.get(k) }));
+}
+// <<< groupWorklogItems
+
+// >>> worklogGroupedHtml — pur (RM2798, testé par test_cockpit.js)
+// `render` rend une ligne de ticket (injecté). Un SEUL groupe ⇒ pas d'en-tête :
+// un groupement à une entrée n'informe de rien et coûte une ligne dans une
+// colonne étroite (même règle que la barre des projets, RM2659).
+function worklogGroupedHtml(items, render, esc) {
+  const groupes = groupWorklogItems(items);
+  if (groupes.length <= 1) return (items || []).map(render).join("");
+  return groupes.map(g =>
+    '<div class="wlgroup"><div class="wlghead">' + esc(g.key)
+    + ' <span class="gcnt">' + g.items.length + "</span></div>"
+    + g.items.map(render).join("") + "</div>").join("");
+}
+// <<< worklogGroupedHtml
+
 // >>> statusPill — pur (RM2796, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // UNE pastille : le statut courant. La dérive — statut modifié par une AUTRE
 // session — se dit par la couleur, et son détail au survol.
@@ -5477,7 +5517,9 @@ function renderWorklog() {
   };
   // RM2610 : le contenu de chaque STATUT est un sous-onglet (pré-rendu → remplit usedBr).
   const bucketHtml = {};
-  for (const s of secs) bucketHtml[s.key] = s.items.map(itemHtml).join("");
+  // RM2798 : par client/projet dans chaque statut — une session touche souvent
+  // deux chantiers, et à plat on ne voit plus à quoi on touche.
+  for (const s of secs) bucketHtml[s.key] = worklogGroupedHtml(s.items, itemHtml, esc);
   // documents (groupés par ticket)
   let docsHtml = "";
   let dcur = null;

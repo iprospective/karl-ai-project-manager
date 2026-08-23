@@ -4132,6 +4132,7 @@ def worklog_buckets(items) -> dict:
         entry = {
             "ref": it.get("ref"), "label": it.get("label") or "",
             "status": it.get("status") or "?", "project": it.get("project"),
+            "client": it.get("client"),      # RM2798 : groupement par client/projet
             "note": it.get("note") or "", "next": it.get("next") or "",
             "drifted": bool(opened and opened != st),
             "opened_status": it.get("opened_status") or "",
@@ -4189,7 +4190,7 @@ def _worklog_apply_live(items, live):
         merged = {**it}
         if lv.get("status"):
             merged["status"] = lv["status"]
-        for k in ("checklist", "sub_tasks"):
+        for k in ("checklist", "sub_tasks", "client", "project"):   # RM2798 : + client/projet
             if lv.get(k):
                 merged[k] = lv[k]
         out.append(merged)
@@ -4219,6 +4220,14 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         # depuis le cockpit aurait coûté N appels tous les 10 s ; ici c'est une
         # lecture de plus dans une garde de fraîcheur qui existe déjà.
         entry = {"status": st} if st else {}
+        # RM2798 : le CLIENT, pour grouper le worklog par client/projet. Le
+        # fichier est déjà localisé pour le statut — la jonction ne coûte rien
+        # de plus, et le worklog ne portait que le projet, sans son client.
+        cl_, pr_ = _task_client_project(tf)
+        if cl_:
+            entry["client"] = cl_
+            if pr_:
+                entry["project"] = pr_
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:

@@ -12,6 +12,14 @@ session » sans rescanner tout le contexte.
 - Le **statut est live** ; la **fraîcheur** est affichée, et une éventuelle
   **dérive** (l'état réel diverge du dernier point) est signalée.
 
+Dans chaque statut, les tickets sont **groupés par client / projet**, avec le
+compte de chaque groupe. Une session touche souvent deux chantiers : à plat, on
+ne voyait plus à quoi on touchait. Le groupement est un rendu, pas un tri —
+l'ordre des tickets dans un groupe reste celui de la session, et l'ordre des
+groupes celui de leur première apparition ; « hors projet » ferme la marche.
+Quand tout appartient au même projet, aucun en-tête n'apparaît : il coûterait une
+ligne pour ne rien dire.
+
 ## Agir sur plusieurs tickets à la fois
 
 Cocher des tickets du worklog fait apparaître les actions **qui ont un sens pour

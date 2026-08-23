@@ -3445,6 +3445,26 @@ function histToggle(force) {
 }
 
 
+// >>> statusPill — pur (RM2796, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// UNE pastille : le statut courant. La dérive — statut modifié par une AUTRE
+// session — se dit par la couleur, et son détail au survol.
+//
+// Avant : deux pastilles collées, dont la seconde répétait la première en lui
+// ajoutant l'ancien statut (`[a_tester_demandeur] [en_cours → a_tester_demandeur]`).
+// Sur une colonne étroite, elles se lisaient comme un seul bloc, et le signal
+// utile — « ça a bougé ailleurs » — se noyait dans la redondance.
+function statusPill(it, esc) {
+  const item = it || {};
+  const st = String(item.status || "?");
+  const from = String(item.opened_status || "");
+  if (!item.drifted || !from || from === st) {
+    return '<span class="pill">' + esc(st) + "</span>";
+  }
+  return '<span class="pill warn" title="Statut modifié hors de cette session : '
+    + esc(from) + " → " + esc(st) + '">' + esc(st) + "</span>";
+}
+// <<< statusPill
+
 // >>> pinMark — pur (RM2795, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // La MÊME icône que sur l'onglet, partout où l'objet est listé. L'épinglage ne
 // vivait que dans la barre centrale : les listes latérales parlaient des mêmes
@@ -5410,9 +5430,6 @@ function renderWorklog() {
   }
   const usedBr = new Set();
   const itemHtml = (it) => {
-    const drift = it.drifted
-      ? ' <span class="pill warn" title="Statut modifié hors de cette session">'
-        + esc(it.opened_status) + " → " + esc(it.status) + "</span>" : "";
     const brs = brByRm[it.ref] || [];
     brs.forEach(b => usedBr.add(b));
     // RM2716 : cocher pour faire traiter en série. La case ne s'affiche que sur
@@ -5437,7 +5454,7 @@ function renderWorklog() {
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
       + box
       + pinOf("review", String(it.ref || "").replace(/^RM/, ""))      // RM2795
-      + worklogRefHtml(it.ref, esc, tipAttr) + ' <span class="pill">' + esc(it.status) + "</span>" + drift
+      + worklogRefHtml(it.ref, esc, tipAttr) + " " + statusPill(it, esc)      // RM2796
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")

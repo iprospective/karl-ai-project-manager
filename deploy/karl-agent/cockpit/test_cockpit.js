@@ -870,10 +870,14 @@ console.log("✓ état (RM2466) : worklog en sections, vides masquées");
 
 // la dérive doit rester visible : sans elle on croirait que le statut affiché
 // est le fait de la session courante, alors qu'une autre l'a fait avancer
+// RM2796 : le signal a changé de FORME (une pastille jaune + infobulle, au lieu
+// d'une seconde pastille), pas de nature — il doit toujours exister.
 const mRw = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
 assert(mRw, "renderWorklog introuvable");
-assert(/it\.drifted/.test(mRw[0]) && /opened_status/.test(mRw[0]),
+assert(/statusPill\(it, esc\)/.test(mRw[0]),
   "un statut modifié hors de la session doit être signalé comme tel");
+assert(/item\.drifted/.test(html) && /opened_status/.test(html),
+  "…et la dérive doit rester lue depuis les données du worklog");
 assert(/id="workbody"/.test(html) && !/id="pendbody"/.test(html),
   "le panneau droit ne contient plus que le worklog (RM2581)");
 // RM2581 : signal de fraîcheur de la résolution live
@@ -3311,3 +3315,30 @@ const avecPin = projectsPanelHtml(groupProjectsByClient(PJ2760, ""),
   escO, jargFn);
 assert(/📌/.test(avecPin), "avec la marque, le projet épinglé la porte");
 console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes, à jour au clic");
+
+// — RM2796 : une seule pastille de statut, la dérive dans la couleur —
+const statusPill = grabO("statusPill");
+const neutre2796 = statusPill({ status: "en_cours" }, escO);
+assert.strictEqual(neutre2796, '<span class="pill">en_cours</span>',
+  "sans dérive : une pastille nue, aucune infobulle à lire pour rien");
+const derive2796 = statusPill(
+  { status: "a_tester_demandeur", opened_status: "en_cours", drifted: true }, escO);
+assert(/class="pill warn"/.test(derive2796), "dérive : la couleur porte le signal");
+assert(/>a_tester_demandeur</.test(derive2796), "le statut COURANT est ce qui s'affiche");
+assert(!/en_cours →/.test(derive2796.replace(/title="[^"]*"/, "")),
+  "l'ancien statut ne s'affiche plus dans la pastille — il ne s'y lisait pas");
+assert(/title="[^"]*en_cours → a_tester_demandeur/.test(derive2796),
+  "…il passe dans l'infobulle, avec le nouveau");
+// Cas limites : rien ne doit produire de pastille bavarde ou fausse.
+assert(!/warn/.test(statusPill({ status: "en_cours", opened_status: "en_cours", drifted: true }, escO)),
+  "un « changement » vers le même statut n'est pas une dérive");
+assert(!/warn/.test(statusPill({ status: "a_faire", drifted: true }, escO)),
+  "dérive annoncée sans ancien statut : pas de promesse qu'on ne peut pas tenir");
+assert.strictEqual(statusPill({}, escO), '<span class="pill">?</span>',
+  "item vide : un statut inconnu se dit, il ne disparaît pas");
+assert.strictEqual(statusPill(null, escO), '<span class="pill">?</span>', "item absent toléré");
+assert(!/<b>/.test(statusPill({ status: "<b>x</b>" }, escO)), "le statut est échappé");
+// Câblage : l'ancienne double pastille ne doit plus exister.
+assert(/statusPill\(it, esc\)/.test(html), "le worklog doit passer par la fonction");
+assert(!/const drift = it\.drifted/.test(html), "l'ancienne seconde pastille doit avoir disparu");
+console.log("✓ statut du worklog (RM2796) : une pastille, la dérive en couleur et au survol");

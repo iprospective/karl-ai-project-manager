@@ -3397,3 +3397,49 @@ assert(/setTicketFacet\(\\?'desc\\?'\)/.test(html) && /setTicketFacet\(\\?'log\\
 assert(/\.facetfull \{[^}]*max-height: none/.test(html),
   "une facette doit pouvoir occuper toute la hauteur");
 console.log("✓ fiche ticket (RM2797) : description et historique en facettes, journal structuré");
+
+// — RM2798 : le worklog groupé par client / projet —
+const groupWorklogItems = grabO("groupWorklogItems", { Map });
+const worklogGroupedHtml = grabO("worklogGroupedHtml", { Map, groupWorklogItems: grabO("groupWorklogItems", { Map }) });
+
+const WL2798 = [
+  { ref: "RM1", client: "calicote", project: "presta" },
+  { ref: "RM2", client: "abatik", project: "infra" },
+  { ref: "RM3", client: "calicote", project: "presta" },
+  { ref: "RM4" },                                    // chantier libre
+];
+const g2798 = groupWorklogItems(WL2798);
+// L'ordre des GROUPES est celui de leur première apparition — pas alphabétique :
+// c'est un rendu, pas un tri, et la session a son propre ordre de travail.
+assert.deepEqual(g2798.map(x => x.key), ["calicote / presta", "abatik / infra", "hors projet"],
+  "groupes dans l'ordre d'apparition, « hors projet » en dernier");
+assert.deepEqual(g2798[0].items.map(i => i.ref), ["RM1", "RM3"],
+  "l'ordre DANS un groupe reste celui de la session");
+assert.strictEqual(g2798[2].items[0].ref, "RM4", "un ticket sans projet n'est pas perdu");
+// Cas partiels : ne jamais fabriquer un « client / » ou un « / projet ».
+assert.strictEqual(groupWorklogItems([{ ref: "A", project: "infra" }])[0].key, "infra",
+  "projet seul : pas de séparateur orphelin");
+assert.strictEqual(groupWorklogItems([{ ref: "A", client: "abatik" }])[0].key, "abatik",
+  "client seul : idem");
+assert.deepEqual(groupWorklogItems([]), [], "aucun item → aucun groupe");
+assert.deepEqual(groupWorklogItems(null), [], "liste absente tolérée");
+
+// Rendu : un seul groupe ne s'annonce pas.
+const rendu = (it) => "<i>" + it.ref + "</i>";
+const mono = worklogGroupedHtml(
+  [{ ref: "RM1", client: "c", project: "p" }, { ref: "RM2", client: "c", project: "p" }],
+  rendu, escO);
+assert.strictEqual(mono, "<i>RM1</i><i>RM2</i>",
+  "un worklog mono-projet n'affiche aucun en-tête — il coûterait une ligne pour rien");
+const multi = worklogGroupedHtml(WL2798, rendu, escO);
+assert(/class="wlghead">calicote \/ presta/.test(multi), "en-tête du groupe");
+assert(/<span class="gcnt">2<\/span>/.test(multi), "…avec son compte");
+assert(multi.indexOf("calicote") < multi.indexOf("abatik"), "ordre d'apparition conservé");
+assert(multi.indexOf("hors projet") > multi.indexOf("abatik"), "« hors projet » ferme la marche");
+assert.strictEqual(worklogGroupedHtml([], rendu, escO), "", "aucun item → rien");
+// Câblage : le rendu des buckets doit passer par le groupement.
+assert(/worklogGroupedHtml\(s\.items, itemHtml, esc\)/.test(html),
+  "chaque bucket doit être groupé");
+assert(!/bucketHtml\[s\.key\] = s\.items\.map\(itemHtml\)\.join/.test(html),
+  "l'ancien rendu à plat ne doit plus exister");
+console.log("✓ worklog groupé (RM2798) : par client/projet, ordre de session préservé");

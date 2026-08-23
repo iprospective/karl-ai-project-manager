@@ -5559,13 +5559,45 @@ def parse_checklist(body: str, max_items: int = 40) -> dict:
 # <<< parse_checklist
 
 
-def _log_tail(tf: Path, n: int = 18) -> str:
+#: Nombre d'ENTRÉES de journal servies, et taille maximale du tout. RM2797 :
+#: couper aux N dernières LIGNES tranchait au milieu d'une entrée — un corps
+#: sans son horodatage, qu'aucun affichage ne peut rattacher à quoi que ce soit.
+LOG_TAIL_ENTRIES = 8
+LOG_TAIL_MAX_BYTES = 12000
+
+
+def _log_tail(tf: Path, n: int = LOG_TAIL_ENTRIES) -> str:
+    """Fin du `.log.md` d'un ticket, par ENTRÉES complètes (`## <ts> — <titre>`).
+
+    Le journal est du markdown structuré ; le servir par lignes le décapitait.
+    On rend les `n` dernières entrées entières, plafonnées en octets — un
+    journal de ticket peut porter des centaines d'entrées, et la colonne qui
+    l'affiche n'en montre qu'une poignée.
+    """
     logf = tf.with_name(tf.stem + ".log.md")
     try:
-        lines = [l for l in logf.read_text(encoding="utf-8").splitlines() if l.strip()]
+        text = logf.read_text(encoding="utf-8")
     except OSError:
         return ""
-    return "\n".join(lines[-n:])
+    entries, cur = [], []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if cur:
+                entries.append("\n".join(cur).strip())
+            cur = [line]
+        elif cur:
+            cur.append(line)
+    if cur:
+        entries.append("\n".join(cur).strip())
+    if not entries:                     # journal sans en-tête : on rend la fin telle quelle
+        lignes = [l for l in text.splitlines() if l.strip()]
+        return "\n".join(lignes[-18:])
+    out = [e for e in entries[-max(1, n):] if e]
+    texte = "\n\n".join(out)
+    while len(texte.encode("utf-8")) > LOG_TAIL_MAX_BYTES and len(out) > 1:
+        out.pop(0)                      # on sacrifie les PLUS ANCIENNES, jamais la dernière
+        texte = "\n\n".join(out)
+    return texte
 
 
 _PROTO_HEAD_RE = re.compile(

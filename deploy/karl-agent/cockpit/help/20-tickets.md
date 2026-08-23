@@ -74,6 +74,21 @@ Deux façons de lancer le travail depuis la fiche :
   confirmation le répète — envoyer un ticket dans une session qui travaille
   ailleurs reste possible, mais jamais par inadvertance.
 
+## La fiche dans la colonne de droite
+
+L'onglet **tickets** de la colonne de droite montre le ticket courant en
+facettes : **détail** (identité, projet, environnements, git, relations),
+**description**, **historique**, **conso** et **workspace**.
+
+La description et l'historique ont leur propre facette, **pleine hauteur** : ils
+vivaient auparavant en bas du détail, bridés à une dizaine de lignes chacun,
+après plusieurs blocs qu'il fallait faire défiler.
+
+L'**historique** est le journal du ticket, structuré : une entrée par événement,
+son horodatage à gauche, son titre, puis son corps rendu. **La plus récente en
+tête** — on l'ouvre pour savoir ce qui vient de se passer, pas pour relire le
+début.
+
 ## Les actions, en bas de la fiche
 
 Un seul bloc **Actions**, filtré par le statut du ticket :

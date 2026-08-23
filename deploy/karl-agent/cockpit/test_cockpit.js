@@ -3342,3 +3342,58 @@ assert(!/<b>/.test(statusPill({ status: "<b>x</b>" }, escO)), "le statut est éc
 assert(/statusPill\(it, esc\)/.test(html), "le worklog doit passer par la fonction");
 assert(!/const drift = it\.drifted/.test(html), "l'ancienne seconde pastille doit avoir disparu");
 console.log("✓ statut du worklog (RM2796) : une pastille, la dérive en couleur et au survol");
+
+// — RM2797 : description et historique en facettes, l'historique structuré —
+const logEntries = grabO("logEntries");
+const logHtml = grabO("logHtml");
+
+const JOURNAL = [
+  "## 2026-08-22T20:04 — report → Redmine",
+  "note (commit 55ca4bda)",
+  "",
+  "## 2026-08-22T20:08 — Protocole de test remplacé",
+  "Tokens : 0 | Durée : 0 min",
+  "détail sur deux lignes",
+].join("\n");
+
+const ent2797 = logEntries(JOURNAL);
+assert.strictEqual(ent2797.length, 2, "une entrée par en-tête ##");
+assert.strictEqual(ent2797[0].ts, "2026-08-22T20:04", "l'horodatage est isolé");
+assert.strictEqual(ent2797[0].title, "report → Redmine", "…et le titre aussi");
+assert(ent2797[1].body.includes("détail sur deux lignes"), "le corps garde ses lignes");
+assert(!ent2797[0].body.includes("##"), "l'en-tête ne se retrouve pas dans le corps");
+// Robustesse : un journal n'est pas toujours bien formé.
+assert.deepEqual(logEntries(""), [], "journal vide → aucune entrée");
+assert.deepEqual(logEntries(null), [], "journal absent toléré");
+const sansEntete = logEntries("juste du texte\nsans en-tête");
+assert.strictEqual(sansEntete.length, 1, "un journal sans en-tête n'est pas perdu");
+assert(sansEntete[0].body.includes("juste du texte"), "…son contenu est conservé");
+assert.strictEqual(logEntries("## titre sans horodatage")[0].title, "titre sans horodatage",
+  "un en-tête sans horodatage garde son titre");
+assert.strictEqual(logEntries("## titre sans horodatage")[0].ts, "",
+  "…et n'invente pas de date");
+
+// Rendu : la plus récente en tête — on ouvre l'historique pour voir ce qui vient
+// de se passer, pas pour relire le début.
+const lh = logHtml(ent2797, escO, (x) => "<MD>" + x + "</MD>");
+assert(lh.indexOf("20:08") < lh.indexOf("20:04"), "la plus récente est en tête");
+assert(/<MD>/.test(lh), "le corps passe par le rendu markdown, plus par un bloc préformaté");
+assert(/class="logent-ts"/.test(lh), "l'horodatage est distingué du titre");
+assert(logHtml([], escO, String).includes("aucune activité"),
+  "sans activité, un message — pas un cadre vide");
+assert(logHtml(null, escO, String).includes("aucune activité"), "liste absente tolérée");
+assert(!/<script>/.test(logHtml(logEntries("## <script>x</script> — t"), escO, String)),
+  "les en-têtes sont échappés");
+
+// Câblage : les deux facettes existent, et « détail » ne répète plus les blocs.
+assert(/\["desc", "description"\]/.test(html), "facette description absente");
+assert(/\["log", "historique"\]/.test(html), "facette historique absente");
+assert(/facet === "desc"/.test(html) && /facet === "log"/.test(html),
+  "les facettes doivent être routées");
+assert(!/<h4>Dernières activités<\/h4><div class="logtail">/.test(html),
+  "le bloc bridé de 130 px ne doit plus exister dans « détail »");
+assert(/setTicketFacet\(\\?'desc\\?'\)/.test(html) && /setTicketFacet\(\\?'log\\?'\)/.test(html),
+  "« détail » doit renvoyer vers les deux facettes");
+assert(/\.facetfull \{[^}]*max-height: none/.test(html),
+  "une facette doit pouvoir occuper toute la hauteur");
+console.log("✓ fiche ticket (RM2797) : description et historique en facettes, journal structuré");

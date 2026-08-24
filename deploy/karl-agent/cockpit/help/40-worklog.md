@@ -20,6 +20,22 @@ groupes celui de leur première apparition ; « hors projet » ferme la marche.
 Quand tout appartient au même projet, aucun en-tête n'apparaît : il coûterait une
 ligne pour ne rien dire.
 
+Chaque ticket qui a une **merge request** porte son état sur sa ligne :
+
+| Badge | Ce que ça veut dire |
+|---|---|
+| `⇥ MR` (orange) | MR ouverte : elle reste à merger |
+| `✓ dev` (vert) | mergée dans la branche d'intégration |
+| `✓ prod` (vert) | une MR de ce ticket a été mergée en production |
+
+Un ticket **sans MR** n'affiche rien. Le badge mène à la MR, et son infobulle
+détaille chacune quand il y en a plusieurs (dépôts distincts, reprise après un
+renvoi) — la ligne, elle, ne montre que l'étape la plus avancée.
+
+`✓ dev` est l'état normal d'un ticket livré : la **promotion** en production se
+fait par lot (`dev → main`) et n'appartient à aucun ticket en particulier. Ce
+n'est donc pas une promotion oubliée — l'infobulle le rappelle.
+
 ## Agir sur plusieurs tickets à la fois
 
 Cocher des tickets du worklog fait apparaître les actions **qui ont un sens pour

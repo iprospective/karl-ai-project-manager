@@ -4245,6 +4245,84 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
     return live, now
 
 
+
+def _integration_branch() -> str:
+    """Branche d'intégration déclarée en configuration (défaut `dev`). Lue une
+    fois par processus : elle ne change pas sous les pieds du daemon."""
+    global _INTEGRATION_BRANCH
+    if _INTEGRATION_BRANCH is None:
+        b = "dev"
+        try:
+            sys.path.insert(0, str(REPO_ROOT / "scripts"))
+            from pm_paths import PMConfig
+            cfg = PMConfig.load()
+            git = getattr(cfg, "git", None) or {}
+            b = (git.get("integration_branch") if isinstance(git, dict) else None) or "dev"
+        except (Exception, SystemExit):  # noqa: BLE001
+            b = "dev"                    # config illisible : le défaut du système
+        _INTEGRATION_BRANCH = str(b)
+    return _INTEGRATION_BRANCH
+
+
+_INTEGRATION_BRANCH = None
+
+
+#: Une référence de ticket, et rien d'autre — cf. `mr_stage_by_ref`.
+_WL_REF_RE = re.compile(r"^RM\d+$", re.I)
+
+
+# >>> mr_stage_by_ref — pure (testée par test_karl_agent_mr_stage.py)
+def mr_stage_by_ref(mrs, integration: str = "dev") -> dict:
+    """RM2801 — par ticket, l'étape la plus avancée atteinte par ses MR.
+
+    Le cycle a deux marches, et savoir laquelle est franchie décide de la suite :
+    une MR mergée dans l'intégration attend une promotion ; une MR promue attend
+    un déploiement. Le worklog ne montrait que les MR OUVERTES (`mrs_pending`) :
+    une MR mergée en sortait sans sortir du store, si bien qu'on ne distinguait
+    pas « pas de MR » de « MR mergée ».
+
+    La cible d'intégration vient de la CONFIGURATION (`integration_branch`), pas
+    d'une liste de noms écrite ici : un projet peut appeler sa branche autrement,
+    et une liste en dur se serait trompée en silence sur celui-là.
+
+    Rend {ref: {stage, target, url, count, mrs:[…]}} où `stage` vaut
+    `prod` > `integration` > `open` — l'ordre dans lequel on les préfère quand un
+    ticket a plusieurs MR (dépôts distincts, reprise après un renvoi).
+    """
+    ordre = {"open": 1, "integration": 2, "prod": 3}
+    out: dict = {}
+    for m in (mrs or []):
+        ref = str((m or {}).get("ref") or "").strip()
+        # Une MR de PROMOTION (dev → main) est enregistrée `ref: "sans ticket"` :
+        # elle emporte tout l'intégration et n'appartient à aucun ticket. La
+        # ranger sous cette clé créerait une entrée fantôme que rien n'affiche.
+        if not _WL_REF_RE.match(ref):
+            continue
+        state = str(m.get("state") or "opened").lower()
+        target = str(m.get("target") or "").strip()
+        if state in ("closed", "declined"):
+            continue                      # fermée sans merge : rien n'est franchi
+        if state in ("opened", "open", "reopened"):
+            stage = "open"
+        elif target and target != integration:
+            stage = "prod"                # mergée vers autre chose que l'intégration
+        else:
+            stage = "integration"
+        cur = out.get(ref)
+        detail = {"iid": m.get("iid"), "url": m.get("url"), "target": target,
+                  "state": state, "repo": m.get("repo"), "stage": stage}
+        if cur is None:
+            out[ref] = {"stage": stage, "target": target, "url": m.get("url"),
+                        "count": 1, "mrs": [detail]}
+            continue
+        cur["count"] += 1
+        cur["mrs"].append(detail)
+        if ordre[stage] > ordre[cur["stage"]]:
+            cur.update({"stage": stage, "target": target, "url": m.get("url")})
+    return out
+# <<< mr_stage_by_ref
+
+
 def _worklog_reconcile_mrs(session_id: str, mrs, force: bool = False) -> None:
     """Déclenche, EN ARRIÈRE-PLAN, la réconciliation des MR ouvertes (RM2773).
 
@@ -4338,6 +4416,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "notifications_done": [n for n in (data.get("notifications") or [])
                                    if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
+            # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
+            "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),
             # RM2635 : les demandes pas encore ticketées, là où le demandeur
             # regarde. Le registre de RM2621 n'existait que dans le worklog
             # Markdown : sûr, mais invisible depuis le cockpit — donc, de son

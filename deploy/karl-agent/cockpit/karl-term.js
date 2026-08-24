@@ -15,7 +15,8 @@
  * Protocole ttyd (vérifié en lisant le bundle servi par ttyd 1.7.7) :
  *   - WebSocket, sous-protocole « tty », URL <base>/ws?arg=<sid> ;
  *   - handshake  : {"AuthToken":…,"columns":…,"rows":…} encodé UTF-8 ;
- *   - client→srv : premier octet INPUT='0' | RESIZE='1' | PAUSE='2' | RESUME='3' ;
+ *   - client→srv : premier octet INPUT='0' | RESIZE='1' | PAUSE='2' | RESUME='3'
+ *     (PAUSE/RESUME = contrôle de flux, émis depuis RM2807 — cf. ttydFlow) ;
  *   - srv→client : premier octet OUTPUT='0' | SET_WINDOW_TITLE='1' | SET_PREFERENCES='2'.
  *
  * Les fonctions pures du protocole sont encadrées par des marqueurs >>> / <<<
@@ -62,6 +63,24 @@
     return { cmd: String.fromCharCode(bytes[0]), payload: bytes.slice(1) };
   }
   // <<< ttydDecode
+
+  // >>> ttydFlow
+  // Contrôle de flux (RM2807). xterm met les octets reçus dans une file
+  // d'écriture interne et les parse par tranches ; si le PTY débite plus vite
+  // que le rendu (session claude en plein stream + renderer DOM), cette file
+  // grossit SANS LIMITE — des Go de chaînes JS dans le processus de l'onglet,
+  // jusqu'à l'OOM de Firefox (constaté : 3 Go au premier attach). Le protocole
+  // ttyd prévoit la parade — PAUSE='2' / RESUME='3', que son propre client
+  // envoie — mais ce client-ci ne les émettait jamais.
+  // Comptabilité pure : au-delà de `limit` octets écrits depuis le dernier
+  // point de contrôle, on demande une PAUSE (le serveur cesse de lire le PTY,
+  // tmux bloque, rien n'est perdu) et le RESUME partira quand xterm aura
+  // réellement consommé le retard (callback de write, cf. attach()).
+  function ttydFlow(written, byteLength, limit) {
+    var w = written + byteLength;
+    return w >= limit ? { written: 0, pause: true } : { written: w, pause: false };
+  }
+  // <<< ttydFlow
 
   // >>> bracketedPaste
   // Encadre un texte en « collage entre crochets » (mode 2004 : ESC[200~ … ESC[201~).
@@ -238,6 +257,10 @@
     fit.fit();
 
     var socket = null, closed = false, retry = 0, retryTimer = null;
+    // RM2807 : état du contrôle de flux — même seuil que le client ttyd amont.
+    var FLOW_LIMIT = 100000;
+    var FRAME_PAUSE = ENC.encode("2"), FRAME_RESUME = ENC.encode("3");
+    var flowWritten = 0, flowPending = 0;
 
     function send(frame) {
       if (socket && socket.readyState === WebSocket.OPEN) socket.send(frame);
@@ -249,13 +272,31 @@
 
       socket.onopen = function () {
         retry = 0;
+        flowWritten = 0; flowPending = 0;   // RM2807 : nouvelle socket, état de flux neuf
         send(ENC.encode(ttydHandshake(opts.token, term.cols, term.rows)));
       };
 
       socket.onmessage = function (ev) {
         var msg = ttydDecode(new Uint8Array(ev.data));
         if (!msg) return;
-        if (msg.cmd === "0") term.write(msg.payload);              // OUTPUT
+        if (msg.cmd === "0") {                                     // OUTPUT
+          // RM2807 : contre-pression. Tous les FLOW_LIMIT octets, PAUSE au
+          // serveur + RESUME seulement quand xterm a VRAIMENT consommé ce
+          // point de contrôle (callback de write) — la file d'écriture reste
+          // bornée quel que soit le débit du PTY.
+          var f = ttydFlow(flowWritten, msg.payload.length, FLOW_LIMIT);
+          flowWritten = f.written;
+          if (f.pause) {
+            flowPending++;
+            send(FRAME_PAUSE);
+            term.write(msg.payload, function () {
+              flowPending = Math.max(flowPending - 1, 0);
+              if (flowPending === 0) send(FRAME_RESUME);
+            });
+          } else {
+            term.write(msg.payload);
+          }
+        }
         else if (msg.cmd === "1") { /* SET_WINDOW_TITLE : ignoré (le cockpit a son entête) */ }
         else if (msg.cmd === "2") { /* SET_PREFERENCES : le cockpit impose les siennes */ }
       };
@@ -353,6 +394,7 @@
     ttydEncodeInput: ttydEncodeInput,
     ttydEncodeResize: ttydEncodeResize,
     ttydDecode: ttydDecode,
+    ttydFlow: ttydFlow,
     bracketedPaste: bracketedPaste,
     composerFrames: composerFrames,
   };

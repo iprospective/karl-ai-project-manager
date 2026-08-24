@@ -8482,11 +8482,14 @@ async function vaultSshAdd(btn) {
 // RM2467 — et corrige la saisie des accents (RM2323). Si le bundle n'a pas
 // chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
 let termSession = null;                 // { term, fit, dispose } du client maison
-// Diagnostic RAM (2026-08-24) : `localStorage.setItem("karl_noxterm","1")` force
-// le repli iframe ttyd (persistant, `removeItem` pour revenir) — permet d'isoler
-// le client xterm maison quand Firefox gonfle à l'attach.
+// RM2807 : le client xterm maison est OPT-IN le temps de l'enquête mémoire
+// (OOM Firefox à l'attach, non résolu par le contrôle de flux ni par la
+// rétrogradation 5.5.0) — l'iframe ttyd, stable, redevient le DÉFAUT.
+// Réactiver le client maison : `localStorage.setItem("karl_xterm","1")` + reload
+// (`removeItem` pour revenir à l'iframe). On perd temporairement le fix accents
+// RM2323 ; le composer retombe de lui-même sur POST /send (RM2527).
 function termAvailable() {
-  if (localStorage.getItem("karl_noxterm") === "1") return false;
+  if (localStorage.getItem("karl_xterm") !== "1") return false;
   return !!(window.KarlTerm && window.Terminal);
 }
 // Origine du WebSocket ttyd pour le client maison (RM2561). Servi par le vhost

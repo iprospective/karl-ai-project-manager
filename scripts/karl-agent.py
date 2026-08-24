@@ -10131,6 +10131,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_auth_required()
         try:
             payload = self._read_json()
+            if path == "/memdebug":
+                # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
+                # échantillons JSONL à lire à froid pendant l'enquête OOM.
+                payload["at"] = datetime.datetime.now().isoformat(timespec="seconds")
+                with (STATE_DIR / "memdebug.jsonl").open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                return self._send_json(200, {"ok": True})
             if path == "/auth/users":
                 self._require_admin()
                 return self._send_json(201, op_auth_user_create(payload))

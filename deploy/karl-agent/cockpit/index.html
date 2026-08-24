@@ -8507,6 +8507,32 @@ function termBase() {
                  : location.protocol + "//" + location.hostname + ":7681";
 }
 // <<< termBase
+// RM2807 : sonde mémoire opt-in — `localStorage karl_memdebug=1` (avec le
+// client xterm actif). Toutes les 2 s : compte de nœuds DOM, lignes du buffer
+// xterm, file d'écriture interne, heap JS (Chrome) → POST /memdebug, lu à
+// froid côté serveur pendant l'enquête OOM. Best-effort : ne casse jamais.
+let memProbeTimer = null;
+function memProbeSample(rmId) {
+  try {
+    const t = termSession && termSession.term;
+    const core = (t && t._core) || {};
+    const wb = core._writeBuffer || {};
+    api("/memdebug", { method: "POST", body: JSON.stringify({
+      rm: String(rmId),
+      dom_all: document.getElementsByTagName("*").length,
+      dom_term: document.getElementById("termhost").getElementsByTagName("*").length,
+      buf_len: (t && t.buffer && t.buffer.active) ? t.buffer.active.length : -1,
+      wq_len: Array.isArray(wb._writeBuffer) ? wb._writeBuffer.length : -1,
+      wq_bytes: typeof wb._pendingData === "number" ? wb._pendingData : -1,
+      heap: (performance.memory && performance.memory.usedJSHeapSize) || -1,
+    }) }).catch(() => {});
+  } catch (e) { /* sonde best-effort */ }
+}
+function memProbeStart(rmId) {
+  if (localStorage.getItem("karl_memdebug") !== "1" || memProbeTimer) return;
+  memProbeTimer = setInterval(() => memProbeSample(rmId), 2000);
+}
+function memProbeStop() { if (memProbeTimer) { clearInterval(memProbeTimer); memProbeTimer = null; } }
 function mountTerm(rmId) {
   const host = document.getElementById("termhost"), f = document.getElementById("term");
   // RM2700 : le WebSocket du terminal (et l'iframe ttyd de repli) ne peuvent pas
@@ -8534,11 +8560,13 @@ function mountTerm(rmId) {
   unmountTerm();
   host.style.display = "block";
   termSession = window.KarlTerm.attach(host, String(rmId), { base: termBase() });
+  memProbeStart(rmId);                                           // RM2807
   composerShow(true);                                            // RM2527
   setTimeout(() => { if (termSession) termSession.fit(); }, 0);   // après le 1er rendu
 }
 function unmountTerm() {
   const host = document.getElementById("termhost"), f = document.getElementById("term");
+  memProbeStop();                                                // RM2807
   if (termSession) { try { termSession.dispose(); } catch (e) {} termSession = null; }
   host.innerHTML = ""; host.style.display = "none";
   f.src = "about:blank"; f.style.display = "none";

@@ -435,6 +435,27 @@ assert.strictEqual(ttydDecode(new Uint8Array([0x31])).payload.length, 0,
   "decode : commande sans charge utile");
 console.log("✓ protocole ttyd (handshake, input, resize, decode)");
 
+// — contrôle de flux (RM2807) : PAUSE tous les FLOW_LIMIT octets écrits —
+// Sans lui, la file d'écriture d'xterm grossit sans borne sur un PTY qui
+// débite plus vite que le rendu (OOM Firefox constaté : 3 Go à l'attach).
+const ttydFlow = pick("ttydFlow");
+let stFlow = { written: 0, pause: false };
+stFlow = ttydFlow(stFlow.written, 40000, 100000);
+assert.deepStrictEqual({ ...stFlow }, { written: 40000, pause: false }, "flux : sous le seuil, on cumule");
+stFlow = ttydFlow(stFlow.written, 59999, 100000);
+assert.deepStrictEqual({ ...stFlow }, { written: 99999, pause: false }, "flux : toujours sous le seuil");
+stFlow = ttydFlow(stFlow.written, 1, 100000);
+assert.deepStrictEqual({ ...stFlow }, { written: 0, pause: true }, "flux : seuil atteint → PAUSE + compteur remis");
+assert.deepStrictEqual({ ...ttydFlow(0, 250000, 100000) }, { written: 0, pause: true },
+  "flux : un seul message énorme déclenche aussi la PAUSE");
+// le client émet réellement les trames PAUSE/RESUME et le RESUME attend le drain
+assert(/send\(FRAME_PAUSE\)/.test(termSrc), "la trame PAUSE ('2') est émise");
+assert(/if \(flowPending === 0\) send\(FRAME_RESUME\)/.test(termSrc),
+  "la trame RESUME ('3') n'est émise qu'une fois la file d'xterm drainée (callback write)");
+assert(/flowWritten = 0; flowPending = 0;/.test(termSrc),
+  "l'état de flux repart à zéro sur une nouvelle socket (reconnexion)");
+console.log("✓ contrôle de flux ttyd (RM2807) : PAUSE au seuil, RESUME au drain");
+
 // — 6. palette ANSI du terminal (RM2522) —
 // Retour de test : le fond était repris de --term-bg (#000, un invariant qui ne
 // décrivait que le CADRE de l'ancienne iframe) et la palette ANSI était celle,

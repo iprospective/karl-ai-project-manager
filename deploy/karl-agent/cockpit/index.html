@@ -3511,6 +3511,42 @@ function worklogGroupedHtml(items, render, esc) {
 }
 // <<< worklogGroupedHtml
 
+
+// >>> mrStageHtml — pur (RM2801, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Où en est la MR du ticket. Le worklog ne montrait que les MR OUVERTES : une
+// MR mergée sortait de la liste sans sortir du store, si bien que « pas de MR »
+// et « MR mergée » se ressemblaient — alors que l'un demande du travail et
+// l'autre une promotion, puis un déploiement.
+//
+// Un ticket SANS MR ne rend rien : l'absence n'est pas un état à afficher sur
+// chaque ligne d'une colonne étroite.
+function mrStageHtml(st, esc, jarg) {
+  const d = st || {};
+  const etapes = {
+    open: { txt: "⇥ MR", cls: "warn", quoi: "MR ouverte, à merger" },
+    // La promotion (intégration → production) est une MR de LOT, qui n'appartient
+    // à aucun ticket : « ✓ dev » est donc l'étape maximale qu'une MR de ticket
+    // atteint normalement. Le dire évite de lire un oubli là où il n'y en a pas.
+    integration: { txt: "✓ dev", cls: "ok",
+                   quoi: "mergée dans l'intégration — la promotion en production se fait "
+                         + "par lot (dev → main), hors MR du ticket" },
+    prod: { txt: "✓ prod", cls: "ok", quoi: "promue en production" },
+  };
+  const e = etapes[d.stage];
+  if (!e) return "";
+  const detail = (d.mrs || []).map(m =>
+    "!" + (m.iid || "?") + " " + (m.state || "?") + (m.target ? " → " + m.target : "")
+    + (m.repo ? " (" + m.repo + ")" : "")).join("\n");
+  const tip = e.quoi + (detail ? "\n" + detail : "")
+    + (d.count > 1 ? "\n(" + d.count + " MR — l'étape la plus avancée est affichée)" : "");
+  const cls = "pill " + e.cls + (d.url ? "" : "");
+  if (!d.url) return '<span class="' + cls + '" title="' + esc(tip) + '">' + esc(e.txt) + "</span>";
+  return '<span class="' + cls + '" style="cursor:pointer" title="' + esc(tip)
+    + '" onclick="event.stopPropagation();window.open(' + jarg(String(d.url))
+    + ',\'_blank\',\'noopener\')">' + esc(e.txt) + "</span>";
+}
+// <<< mrStageHtml
+
 // >>> statusPill — pur (RM2796, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // UNE pastille : le statut courant. La dérive — statut modifié par une AUTRE
 // session — se dit par la couleur, et son détail au survol.
@@ -5523,6 +5559,7 @@ function renderWorklog() {
       + box
       + pinOf("review", String(it.ref || "").replace(/^RM/, ""))      // RM2795
       + worklogRefHtml(it.ref, esc, tipAttr) + " " + statusPill(it, esc)      // RM2796
+      + " " + mrStageHtml((worklog.mr_stage || {})[it.ref], esc, jarg)        // RM2801
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
       + (it.next ? '<div style="color:var(--muted);font-size:11px">→ ' + esc(it.next) + "</div>" : "")

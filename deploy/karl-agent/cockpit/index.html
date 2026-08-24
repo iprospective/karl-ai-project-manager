@@ -8482,7 +8482,13 @@ async function vaultSshAdd(btn) {
 // RM2467 — et corrige la saisie des accents (RM2323). Si le bundle n'a pas
 // chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
 let termSession = null;                 // { term, fit, dispose } du client maison
-function termAvailable() { return !!(window.KarlTerm && window.Terminal); }
+// Diagnostic RAM (2026-08-24) : `localStorage.setItem("karl_noxterm","1")` force
+// le repli iframe ttyd (persistant, `removeItem` pour revenir) — permet d'isoler
+// le client xterm maison quand Firefox gonfle à l'attach.
+function termAvailable() {
+  if (localStorage.getItem("karl_noxterm") === "1") return false;
+  return !!(window.KarlTerm && window.Terminal);
+}
 // Origine du WebSocket ttyd pour le client maison (RM2561). Servi par le vhost
 // Apache (port implicite 80/443), on passe par le proxy de MÊME ORIGINE
 // « /ttyd/ws » : sous HTTPS le cert auto-signé n'est accepté que pour le

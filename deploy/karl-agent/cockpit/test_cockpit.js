@@ -3398,6 +3398,8 @@ assert(/setTicketFacet\(\\?'desc\\?'\)/.test(html) && /setTicketFacet\(\\?'log\\
   "« détail » doit renvoyer vers les deux facettes");
 assert(/\.facetfull \{[^}]*max-height: none/.test(html),
   "une facette doit pouvoir occuper toute la hauteur");
+// RM2806 : …et l'annoncer ne suffit pas — cf. le bloc RM2806 plus bas, qui
+// vérifie que la facette n'emprunte plus la classe qui écrasait cette règle.
 console.log("✓ fiche ticket (RM2797) : description et historique en facettes, journal structuré");
 
 // — RM2798 : le worklog groupé par client / projet —
@@ -3517,3 +3519,32 @@ assert(!/window\.open/.test(mrStageHtml({ stage: "prod", count: 1, mrs: [] }, es
 assert(/mrStageHtml\(\(worklog\.mr_stage \|\| \{\}\)\[it\.ref\], esc, jarg\)/.test(html),
   "chaque ligne de ticket doit afficher l'étape de sa MR");
 console.log("✓ étape de MR (RM2801) : ouverte, intégration, production — sur la ligne du ticket");
+
+// — RM2806 : la facette description n'emprunte plus le style du bloc encadré —
+// Le piège corrigé ici est un piège de CASCADE : `.facetfull { max-height: none }`
+// existait bien, mais `.desc { max-height: 160px }` est déclarée plus loin, à
+// spécificité égale — elle gagnait, et la bride annoncée levée ne l'a jamais été.
+// Un test qui se contenterait de chercher `max-height: none` dans la page serait
+// passé au vert sur du code inerte : on vérifie donc que la facette n'utilise
+// plus la classe en conflit.
+const mDescFacet = /function _ticketDescHtml\([\s\S]*?\n\}/.exec(html);
+assert(mDescFacet, "_ticketDescHtml introuvable");
+assert(!/class="facetfull desc"/.test(mDescFacet[0]),
+  "la facette ne doit plus reprendre `.desc` — c'est elle qui bridait à 160 px");
+assert(/descfull/.test(mDescFacet[0]), "…mais une classe qui lui est propre");
+assert(/mdview/.test(mDescFacet[0]), "…et le rendu markdown standard");
+const cssDescFull = /\.descfull \{[^}]*\}/.exec(html);
+assert(cssDescFull, ".descfull introuvable");
+assert(/background: none/.test(cssDescFull[0]) && /border: 0/.test(cssDescFull[0]),
+  "ni fond ni bordure : la description occupe la zone, elle n'est pas encadrée");
+assert(/max-height: none/.test(cssDescFull[0]) && /overflow: visible/.test(cssDescFull[0]),
+  "aucune bride : c'est la colonne qui défile");
+// …et le bloc encadré d'origine doit rester intact là où il sert encore.
+const cssDesc2806 = /\n  \.desc \{[^}]*\}/.exec(html);
+assert(cssDesc2806 && /max-height: 160px/.test(cssDesc2806[0]),
+  "le bloc `.desc` d'origine n'a pas à changer : il sert ailleurs");
+// Le piège de cascade, une seconde fois : `.descfull` ne doit pas redéclarer ce
+// que `.mdview` porte, sous peine de reproduire le conflit qu'on vient de régler.
+assert(!/font-size/.test(cssDescFull[0]) && !/line-height/.test(cssDescFull[0]),
+  "`.descfull` ne redéclare pas ce que `.mdview` porte déjà");
+console.log("✓ facette description (RM2806) : plus de cadre ni de bride, la colonne défile");

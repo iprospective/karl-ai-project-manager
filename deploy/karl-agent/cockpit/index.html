@@ -253,8 +253,16 @@
   /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
      La description et l'historique étaient bridés à 160 et 130 px, au bas
      d'une colonne qu'il fallait déjà faire défiler pour les atteindre. */
+  /* RM2806 : une facette pleine hauteur n'emprunte PAS le style du bloc encadré.
+     `.desc` (cadre, fond, `max-height: 160px`) est déclarée plus loin dans cette
+     feuille : à spécificité égale, c'est elle qui gagnait, et la bride annoncée
+     levée par RM2797 ne l'a jamais été. Le correctif existait, il était inerte. */
   .facetfull { max-height: none; height: auto; overflow: visible; }
-  .facetfull.desc { white-space: normal; padding: 10px; font-size: 12px; line-height: 1.5; }
+  /* Rien ici que `.mdview` porte déjà (taille, interligne, retour à la ligne) :
+     elle est déclarée plus loin et gagnerait, ce qui reproduirait exactement le
+     défaut qu'on corrige. `.descfull` ne dit que ce qui lui est propre. */
+  .descfull { padding: 2px 2px 10px; color: var(--fg);
+    background: none; border: 0; max-height: none; overflow: visible; }
   .logfeed { display: flex; flex-direction: column; gap: 8px; }
   .logent { border-left: 2px solid var(--line); padding: 2px 0 2px 8px; }
   .logent-h { display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline;
@@ -7588,7 +7596,9 @@ function _ticketDescHtml(rmId, r) {
   if (!r || !r.description) {
     return '<div class="empty">ce ticket n\'a pas de description</div>';
   }
-  return '<div class="facetfull desc">' + mdToHtml(r.description) + "</div>";
+  // La colonne défile déjà : un second défilement à l'intérieur enfermerait la
+  // description dans une fenêtre de dix lignes au milieu d'un panneau vide.
+  return '<div class="facetfull descfull mdview">' + mdToHtml(r.description) + "</div>";
 }
 
 function _ticketLogHtml(rmId, r) {

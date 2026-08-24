@@ -233,10 +233,23 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
-  /* RM2798 : groupes client/projet du worklog — un en-tête discret, pas un titre */
-  .wlgroup { margin-bottom: 6px; }
+  /* RM2798/RM2799 : un groupe client/projet est une SECTION. Un en-tête sans
+     délimitation se lisait comme une ligne de plus, pas comme un titre : rien ne
+     disait où un groupe finissait et où le suivant commençait. */
+  .wlgroup { margin: 0 0 10px; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--panel2); overflow: hidden; }
   .wlghead { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
-    color: var(--muted); margin: 6px 0 2px; display: flex; gap: 6px; align-items: baseline; }
+    color: var(--muted); padding: 4px 8px; margin: 0; display: flex; gap: 6px;
+    align-items: baseline; background: var(--bg); border-bottom: 1px solid var(--line); }
+  .wlgroup > .oline { padding-left: 8px; padding-right: 8px; }
+  /* RM2799 : le NUMÉRO identifie la ligne — il doit se lire en premier, quelle
+     que soit la couleur de ce qui l'entoure. Il partageait la classe `.pill`
+     avec le statut : même taille, même bordure, donc même poids visuel — et dès
+     que le statut virait au jaune (dérive, RM2796), le numéro s'effaçait. */
+  .rmref { display: inline-block; font-family: var(--mono); font-size: 11.5px;
+    font-weight: 600; color: var(--accent); padding: 1px 5px; border-radius: 4px;
+    border: 1px solid transparent; background: var(--bg); cursor: pointer; }
+  .rmref:hover { border-color: var(--accent); }
   /* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
      La description et l'historique étaient bridés à 160 et 130 px, au bas
      d'une colonne qu'il fallait déjà faire défiler pour les atteindre. */
@@ -4403,7 +4416,9 @@ function worklogRefHtml(ref, esc, tipAttr) {
   if (!m) return "<b>" + esc(s) + "</b>";
   // `tipAttr` est passé en paramètre, pas capturé : une fonction marquée pure
   // qui appelle une globale n'est pas testable isolément (piège vu 3 fois ici).
-  return '<span class="pill" style="cursor:pointer"' + (tipAttr ? tipAttr(m[1]) : "")
+  // RM2799 : classe propre, pas `.pill` — le numéro et le statut ne se valent
+  // pas, et partager le même style les mettait à égalité de lecture.
+  return '<span class="rmref"' + (tipAttr ? tipAttr(m[1]) : "")
     + ' onclick="event.stopPropagation();showTicket(' + m[1] + ')">' + esc(s) + "</span>";
 }
 // <<< worklogRefHtml

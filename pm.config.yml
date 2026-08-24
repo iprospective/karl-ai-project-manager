@@ -103,9 +103,12 @@ notifications:
 # ── Traçabilité — note Redmine par commit (cf. NORMS § « Unité de traçabilité ») ──
 # Niveau auquel un commit rattaché à une tâche déclenche une note Redmine.
 # Permet de calibrer le bruit à l'usage (mode `all` = test/observation).
-#   work : commits de travail/livraison/structurants uniquement (défaut)
+#   work : commits de travail/livraison/structurants uniquement (défaut) —
+#          les commits d'outillage (`pm(*):`, `chore(…):`) reportent sans note
 #   all  : tout commit rattaché à une tâche (mesurer le bruit réel)
 #   none : aucune note auto par commit (.log.md + time_entry conservés)
+# Override par projet : même clé dans le meta.yml du projet (RM2409).
+# Appliqué par le hook scripts/pm-post-commit.py.
 traceability:
   commit_note_level: work
 

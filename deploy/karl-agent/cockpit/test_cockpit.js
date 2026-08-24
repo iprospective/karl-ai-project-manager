@@ -2507,8 +2507,8 @@ assert(/root@web-12/.test(vltOpen), "les clés déjà chargées restent lisibles
 assert(/id="lockbtn"[^>]*style="display:none"/.test(html), "le bouton part caché");
 assert(/onclick="openVault\(\)"/.test(html), "et ouvre le formulaire des verrous");
 assert(/loadVaultStatus\(\);/.test(html), "l'état des verrous est lu au démarrage");
-assert(/setInterval\(\(\) => \{ if \(!document\.hidden\) loadVaultStatus\(\); \}/.test(html),
-  "et rafraîchi périodiquement (le coffre se verrouille tout seul)");
+assert(/vault: 60000/.test(html) && /if \(b\.vault\)/.test(html),
+  "et rafraîchi périodiquement via la pile /refresh (le coffre se verrouille tout seul, RM2763)");
 assert(/field\.value = "";/.test(html), "le champ est vidé après envoi — le secret ne traîne pas");
 assert(!/localStorage[^\n]*(pass|secret)/i.test(html), "aucun secret ne va en stockage local");
 console.log("✓ verrous du poste (RM2748) : bouton conditionnel, saisie sûre, rien de mémorisé");
@@ -3556,8 +3556,9 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
   const ctx = {
     Date, Object, Promise, JSON, encodeURIComponent,
     attached: null, worklog: null,
-    rightVisible: () => true,
+    rightVisible: () => true, dashVisible: () => false,
     resolveCache: {}, resolveAt: {},
+    pendStale: null, pendStaleSet: (e) => new Set((e || []).map(x => x.rm_id)),
     api: async (u) => { calls.api.push(u); return ctx._resp; },
     renderHealth: (h) => calls.health.push(h),
     renderHealthKo: (m) => calls.ko.push(m),
@@ -3569,16 +3570,18 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
 
   // specs : sessions à chaque tick (période 0), worklog seulement si attaché
   let specs = vm.runInContext("refreshSpecs([])", ctx);
-  assert.deepStrictEqual([...specs], ["sessions:", "health:"], "1er tick : sessions + health, pas de worklog détaché");
+  assert.deepStrictEqual([...specs], ["sessions:", "health:", "pending:", "vault:", "envcheck:", "coreupdate:"],
+    "1er tick : tous les blocs dus, sauf worklog (détaché) et dashboard (non visible)");
   ctx.attached = "2763";
   specs = vm.runInContext("refreshSpecs([])", ctx);
-  assert.strictEqual(specs[2], "worklog:2763:", "attaché : le worklog embarque");
+  assert.strictEqual([...specs].pop(), "worklog:2763:", "attaché : le worklog embarque");
 
   // fetch : dispatch des blocs reçus + mémorisation des hashs
   ctx._resp = { blocks: {
     sessions: { hash: "s1", data: { sessions: [{ rm_id: "2763" }], briefs: { 2763: { found: true, title: "T" } } } },
     health: { hash: "h1", data: { sessions: 1, tmux: true } },
     worklog: { hash: "w1", data: { rm_id: "2763", found: true } },
+    pending: { hash: "p1", data: { entries: [{ rm_id: "2763", kind: "stale" }] } },
   }, skipped: [], errors: {} };
   await vm.runInContext("refreshFetch([])", ctx);
   assert.strictEqual(calls.api.length, 1, "UNE requête composite");
@@ -3586,6 +3589,7 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
   assert.strictEqual(calls.health.length, 1, "bloc health dispatché");
   assert.strictEqual(calls.worklog, 1, "bloc worklog dispatché");
   assert(ctx.resolveCache["2763"] && ctx.resolveCache["2763"].partial, "brief semé en partial");
+  assert(ctx.pendStale && ctx.pendStale.has("2763"), "bloc pending dispatché (pendStale recalculé)");
 
   // tick suivant AVANT les périodes health/worklog : seul sessions repart, avec son hash
   specs = vm.runInContext("refreshSpecs([])", ctx);

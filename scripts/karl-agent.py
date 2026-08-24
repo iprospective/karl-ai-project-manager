@@ -4403,6 +4403,22 @@ def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
                 data = {"status": "ok", "sessions": len(_list_sessions()),
                         "tmux": _tmux("-V")[0] == 0}
                 client_hash = rest[0] if rest else ""
+            elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
+                data = op_pending({}, auth_ctx)
+                client_hash = rest[0] if rest else ""
+            elif name == "coreupdate":  # RM2571 : ls-remote sous garde de fraîcheur serveur
+                data = op_core_update_status({})
+                client_hash = rest[0] if rest else ""
+            elif name == "envcheck":    # RM2722 : sondes sous mémorisation serveur (5 min)
+                data = op_env_check({})
+                client_hash = rest[0] if rest else ""
+            elif name == "vault":       # RM2748 : verrous (coffre, agent SSH)
+                data = op_vault_status()
+                client_hash = rest[0] if rest else ""
+            elif name == "dashboard":   # RM2696/2698 : overview + alerts (même garde de fraîcheur)
+                data = {"overview": op_overview({}, auth_ctx),
+                        "alerts": op_alerts({}, auth_ctx)}
+                client_hash = rest[0] if rest else ""
             elif name == "worklog":
                 # le sid peut porter des caractères hors [0-9] (ancrage slug) ;
                 # le hash est le DERNIER segment, le sid tout ce qui précède.

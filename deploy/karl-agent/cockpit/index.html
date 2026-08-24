@@ -1720,11 +1720,15 @@ function refreshHealth() { return refreshFetch(["health"]); }
 // humain — décision assumée : la barrière humaine est au merge vers `main`, et
 // `mmi-pm core update` mute du code root-owned.
 let _coreUpd = null;
+// RM2763 : le poll périodique passe par la pile /refresh (bloc coreupdate) ;
+// le chemin direct ne sert plus qu'au rafraîchissement manuel forcé.
 async function refreshCoreUpdate(force) {
+  if (!force) return refreshFetch(["coreupdate"]);
+  try { renderCoreUpdate(await api("/core/update-status?force=1")); } catch (e) { /* silencieux */ }
+}
+function renderCoreUpdate(d) {
   const b = document.getElementById("updbtn");
-  try {
-    _coreUpd = await api("/core/update-status" + (force ? "?force=1" : ""));
-  } catch (e) { return; }          // silencieux : un cockpit ne crie pas pour ça
+  _coreUpd = d;
   const on = !!_coreUpd.available;
   b.style.display = on ? "" : "none";
   if (!on) return;
@@ -1902,7 +1906,8 @@ let sessTimer = null;     // timer auto-replanifié du tick de refresh (RM2613)
 // afficher), chacun dispatché à son renderer. Un seul tick au rythme sessions
 // (pollDelay) ; chaque bloc garde sa période propre — inclus quand son âge la
 // dépasse, ou d'office après une action (spawn, kill…). ~19 → ~8 req/min.
-const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000 };
+const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000, pending: 45000,
+                            dashboard: 30000, vault: 60000, envcheck: 300000, coreupdate: 300000 };
 const refreshHash = {};        // bloc → hash de la dernière donnée reçue
 const refreshAt = {};          // bloc → Date.now() de la dernière inclusion
 let refreshWorklogSid = null;  // sid du hash worklog courant (reset au ré-attach)
@@ -1917,6 +1922,11 @@ function refreshSpecs(includes) {
   const specs = [];
   if (refreshDue("sessions", includes)) specs.push("sessions:" + (refreshHash.sessions || ""));
   if (refreshDue("health", includes)) specs.push("health:" + (refreshHash.health || ""));
+  if (refreshDue("pending", includes)) specs.push("pending:" + (refreshHash.pending || ""));
+  if (dashVisible() && refreshDue("dashboard", includes)) specs.push("dashboard:" + (refreshHash.dashboard || ""));
+  if (refreshDue("vault", includes)) specs.push("vault:" + (refreshHash.vault || ""));
+  if (refreshDue("envcheck", includes)) specs.push("envcheck:" + (refreshHash.envcheck || ""));
+  if (refreshDue("coreupdate", includes)) specs.push("coreupdate:" + (refreshHash.coreupdate || ""));
   if (attached && rightVisible("state") && refreshDue("worklog", includes)) {
     if (refreshWorklogSid !== String(attached)) { delete refreshHash.worklog; refreshWorklogSid = String(attached); }
     specs.push("worklog:" + String(attached) + ":" + (refreshHash.worklog || ""));
@@ -1937,6 +1947,11 @@ function refreshFetch(includes) {
     specs.forEach(sp => { refreshAt[sp.split(":")[0]] = now; });
     const b = r.blocks || {};
     if (b.health) { refreshHash.health = b.health.hash; renderHealth(b.health.data); }
+    if (b.pending) { refreshHash.pending = b.pending.hash; pendStale = pendStaleSet((b.pending.data || {}).entries || []); }
+    if (b.dashboard) { refreshHash.dashboard = b.dashboard.hash; dashData = b.dashboard.data.overview; alertsData = b.dashboard.data.alerts; renderDashboard(); }
+    if (b.vault) { refreshHash.vault = b.vault.hash; renderVaultStatus(b.vault.data); }
+    if (b.envcheck) { refreshHash.envcheck = b.envcheck.hash; renderEnvCheck(b.envcheck.data); }
+    if (b.coreupdate) { refreshHash.coreupdate = b.coreupdate.hash; renderCoreUpdate(b.coreupdate.data); }
     if (b.sessions) {
       refreshHash.sessions = b.sessions.hash;
       seedBriefs(b.sessions.data.briefs);
@@ -5471,10 +5486,10 @@ function pendStaleSet(entries) {
 // <<< pendStaleSet
 
 let pendStale = new Set();   // rm_ids ayant une question sans réponse
-async function loadPending() {
-  try { const r = await api("/pending"); pendStale = pendStaleSet(r.entries || []); }
-  catch (e) { /* pas connecté, ou pas de sessions : on laisse l'ensemble en l'état */ }
-}
+// RM2763 (suite) : /pending rejoint la pile de refresh — période 45 s (RM2598 :
+// l'op est lourd, tmux + transcripts) ; le hash évite de re-livrer l'agrégat
+// inchangé, et le composite évite deux calculs concurrents.
+function loadPending() { return refreshFetch(["pending"]); }
 
 // — RM2466 étape 2 : où en est le travail de la session (worklog PM) —
 
@@ -8111,10 +8126,13 @@ function envWarnBadge(data, esc) {
 // <<< envWarnBadge
 
 let envCheckCache = null;
+// RM2763 : poll périodique via la pile /refresh (bloc envcheck) ; direct = forcé.
 async function loadEnvCheck(force) {
-  try {
-    envCheckCache = await api("/env-check" + (force ? "?force=1" : ""));
-  } catch (e) { return; }        // le badge est un plus : son échec ne dit rien à l'écran
+  if (!force) return refreshFetch(["envcheck"]);
+  try { renderEnvCheck(await api("/env-check?force=1")); } catch (e) { /* badge muet */ }
+}
+function renderEnvCheck(d) {
+  envCheckCache = d;
   const el = document.getElementById("envwarn");
   if (!el) return;
   el.innerHTML = envWarnBadge(envCheckCache, esc);
@@ -8384,10 +8402,10 @@ function vaultFormHtml(st, secure) {
 }
 // <<< vaultFormHtml
 
-async function loadVaultStatus() {
-  try {
-    vaultStatus = await api("/vault/status");
-  } catch (e) { return; }        // l'état des verrous est un plus : son échec est muet
+// RM2763 : poll périodique via la pile /refresh (bloc vault).
+function loadVaultStatus() { return refreshFetch(["vault"]); }
+function renderVaultStatus(d) {
+  vaultStatus = d;
   const el = document.getElementById("lockbtn");
   if (!el) return;
   const s = vaultBtnState(vaultStatus);
@@ -9286,10 +9304,12 @@ function dashVisible() {
 }
 async function loadDashboard(force) {
   if (!dashVisible()) return;
+  // RM2763 : le poll passe par la pile /refresh (bloc dashboard = overview +
+  // alerts servis ensemble, même garde de fraîcheur serveur RM2696/RM2698) ;
+  // le chemin direct ne sert plus qu'au rafraîchissement manuel forcé.
+  if (!force) return refreshFetch(["dashboard"]);
   try {
-    // /alerts recalcule l'agrégat au besoin puis le SERT depuis la même garde de
-    // fraîcheur : les deux appels ne coûtent qu'un calcul (RM2696/RM2698).
-    dashData = await api("/overview" + (force ? "?force=1" : ""));
+    dashData = await api("/overview?force=1");
     alertsData = await api("/alerts");
   } catch (e) { dashData = { projects: [], error: e.message }; alertsData = { alerts: [] }; }
   renderDashboard();
@@ -10434,26 +10454,16 @@ async function kill(rmId) {
   loadVaultStatus();     // RM2748 : verrous (coffre, agent SSH) — bouton si besoin
   // RM2763 : health (15 s) et worklog (10 s) n'ont plus de timer propre — ils
   // voyagent dans le composite /refresh du tick ci-dessous, chacun à sa période.
+  // RM2763 : PLUS AUCUN setInterval — tous les pollers voyagent dans le
+  // composite /refresh du tick unique, chacun à sa période (REFRESH_PERIOD_MS) :
+  // dashboard 30 s (gated dashVisible), vault 60 s, env-check et MAJ core 5 min
+  // (alignés sur la mémorisation serveur), pending 45 s, health 15 s,
+  // worklog 10 s. Les cadences lentes gardent leur raison d'être d'origine
+  // (RM2697, RM2722, RM2571, RM2598) — seule la mécanique de transport change.
   tickSessions();        // pile /refresh : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
-  // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
-  // la requête dès qu'une session est attachée (l'écran central sert alors au
-  // terminal). L'agrégat a sa propre garde de fraîcheur de 60 s côté serveur.
-  setInterval(() => { if (!document.hidden) loadDashboard(); }, 30000);
-  setInterval(() => { if (!document.hidden) loadPending(); }, 45000);   // RM2598 lourd (tmux+transcripts) → 45 s
-  // MAJ du core : lente et désalignée du cache serveur (TTL 600 s) ; ls-remote réseau.
-  setInterval(() => { if (!document.hidden) refreshCoreUpdate(); }, 300000);
-  // RM2722 : le poste change en cours de journée (un `ssh-add` fait, un vault
-  // déverrouillé) — le badge doit s'éteindre tout seul. Cadence alignée sur la
-  // mémorisation serveur (5 min) : une requête de plus ne relance aucune sonde.
-  setInterval(() => { if (!document.hidden) loadEnvCheck(); }, 300000);
-  // Les verrous bougent hors du cockpit (auto-verrouillage, redémarrage) et se
-  // règlent en un geste : on les regarde plus souvent que le diagnostic complet.
-  setInterval(() => { if (!document.hidden) loadVaultStatus(); }, 60000);
   document.addEventListener("visibilitychange", () => {
     if (document.hidden) return;          // repassé au premier plan → on rattrape
-    refreshHealth(); loadPending();
-    if (!sessTimer) tickSessions();
-    if (rightVisible("state")) loadWorklog();
+    if (!sessTimer) tickSessions();       // le tick rattrape tous les blocs dus
   });
 })();
 </script>

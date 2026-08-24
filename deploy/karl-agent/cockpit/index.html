@@ -7097,17 +7097,27 @@ function resolveStale(rmId) {
   const t = resolveAt[String(rmId)];
   return t === undefined || (Date.now() - t) > RESOLVE_TTL_MS;
 }
+// RM2763 : dédup des résolutions EN VOL — le cache n'est rempli qu'à la réponse,
+// donc au chargement chaque rendu concurrent (double init sessions, tickets
+// ouverts, triage, chacun re-rendant à chaque réponse) relançait un
+// GET /resolve/<rm> pour le même id tant que le premier n'était pas revenu
+// (rafale quasi quadratique). La promesse en vol est servie à tous les appelants.
+const resolveInflight = {};       // rm_id → promesse de la résolution en cours
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
   if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
-  try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
-  resolveAt[rmId] = Date.now();
-  // RM2775 : un titre arrivé après coup doit atteindre l'infobulle de son onglet.
-  // Re-rendu SEULEMENT si un onglet porte cet id — la résolution est appelée pour
-  // chaque session à chaque poll, redessiner la barre à chaque fois serait absurde.
-  if (centerTabs.some(t => t && String(t.key) === rmId
-                           && (t.kind === "review" || t.kind === "session"))) renderTabs();
-  return resolveCache[rmId];
+  if (resolveInflight[rmId]) return resolveInflight[rmId];
+  resolveInflight[rmId] = (async () => {
+    try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
+    resolveAt[rmId] = Date.now();
+    // RM2775 : un titre arrivé après coup doit atteindre l'infobulle de son onglet.
+    // Re-rendu SEULEMENT si un onglet porte cet id — la résolution est appelée pour
+    // chaque session à chaque poll, redessiner la barre à chaque fois serait absurde.
+    if (centerTabs.some(t => t && String(t.key) === rmId
+                             && (t.kind === "review" || t.kind === "session"))) renderTabs();
+    return resolveCache[rmId];
+  })().finally(() => { delete resolveInflight[rmId]; });
+  return resolveInflight[rmId];
 }
 // Révalidation silencieuse au retour sur un ticket : sert le cache tout de
 // suite (pas de clignotement), puis re-rend si le serveur a du neuf.

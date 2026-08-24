@@ -2691,6 +2691,21 @@ function warnSetFull(r) {
     toast("⚠ le jeu « " + setLabel(s.group) + " » est plein (" + s.max +
           ") : la session tourne mais n'y a PAS été enregistrée", true);
 }
+// RM2808 : le serveur dit désormais si le prompt initial a bien été LIVRÉ. Un
+// prompt non livré était perdu en silence (l'agent démarrait vide, cf. l'écran
+// de confiance de dossier qui avalait la frappe). Retourne true si livré.
+function warnPromptNotSent(r, rm) {
+  const st = r && r.prompt;
+  if (!st || st === "envoye" || st === "absent") return true;
+  if (st === "differe-dialogue")
+    toast("⚠ RM" + rm + " : la session attend une réponse à l'écran de confiance du "
+          + "dossier. Ton prompt N'A PAS été envoyé (il est conservé) — réponds dans "
+          + "le terminal, puis renvoie-le.", true);
+  else
+    toast("⚠ RM" + rm + " : le terminal n'a pas pris le prompt (" + st +
+          "). Il est conservé : renvoie-le une fois la session prête.", true);
+  return false;
+}
 function onSetPick(v) {
   if (!v) return;
   if (v.startsWith("view:")) switchView(v.slice(5));
@@ -10300,7 +10315,9 @@ async function spawn() {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
     warnSetFull(sp);   // RM2450 : un jeu plein ne doit plus échouer en silence
-    document.getElementById("prompt").value = "";
+    // RM2808 : ne vider le champ QUE si le prompt est effectivement parti —
+    // sinon on effacerait un texte que personne n'a reçu.
+    if (warnPromptNotSent(sp, rm)) document.getElementById("prompt").value = "";
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(rm), 400);
   } catch (e) {

@@ -272,7 +272,9 @@ DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 # Templates de moteur. {cwd} déjà validé ; jamais d'entrée client brute ici.
 # Chaque moteur : `cmd` (ligne lancée par tmux) + `ready_markers` (sous-chaînes dont
 # l'apparition dans le pane signale « TUI prêt à recevoir le prompt » ; vide = pas
-# d'attente, simple délai). Le prompt initial est TOUJOURS livré par send-keys APRÈS
+# d'attente, simple délai) + `blocking_markers` (RM2808 — sous-chaînes des écrans
+# MODAUX qui capturent le clavier : tant que l'une est visible, le TUI n'est PAS
+# prêt, même si un ready_marker matche par ailleurs). Le prompt initial est TOUJOURS livré par send-keys APRÈS
 # le spawn (jamais concaténé dans la cmd — invariant sécu #4 : pas d'entrée client en
 # argv), bien qu'opencode/vibe sachent le prendre à l'invocation.
 # RM2539 — CONTRAT DE REPRISE, par moteur. La reprise était codée en dur sur
@@ -286,7 +288,18 @@ DEFAULT_CWD = os.environ.get("KARL_AGENT_DEFAULT_CWD", str(REPO_ROOT))
 ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
-        "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
+        # RM2808 : « ❯ » RETIRÉ — trop lâche, il matchait le « ❯ 1. Yes, I trust
+        # this folder » de l'écran de confiance de dossier, donc l'injection
+        # partait dedans (prompt perdu + Enter validant la confiance à la place
+        # de l'humain). On ne garde que des marqueurs de la BARRE DE STATUT, qui
+        # n'existe que sur le TUI réellement prêt. Même leçon que vibe ci-dessous.
+        "ready_markers": ("for shortcuts", "accept edits", "for agents",
+                          "shift+tab to cycle"),
+        # Écran de confiance première-ouverture d'un dossier (« Quick safety
+        # check: Is this a project you created or one you trust? »). Y taper est
+        # sans effet, mais l'Enter qui suit y VAUT une réponse : jamais injecter.
+        "blocking_markers": ("trust this folder", "Quick safety check",
+                             "Do you trust the files"),
         "model_flag": "--model",
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
@@ -972,23 +985,65 @@ def _require_rm_id(payload: dict) -> str:
     return rm_id
 
 
-def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
+def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> str:
     """Attend que le TUI du moteur soit prêt à recevoir une entrée, avant
     d'injecter le prompt initial. Sans ça, les touches envoyées trop tôt partent
     dans le vide pendant le splash de démarrage (course observée sur claude, RM1873).
-    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout."""
+
+    Retourne (RM2808) :
+      "ready"   — un marqueur d'invite est visible, aucun écran modal : on peut écrire ;
+      "blocked" — un écran MODAL est resté affiché jusqu'au bout (confiance de
+                  dossier…) : l'appelant ne DOIT rien injecter, le texte serait
+                  avalé et l'Enter répondrait au dialogue à la place de l'humain ;
+      "timeout" — ni marqueur ni modal : best-effort historique, l'appelant écrit
+                  quand même (moteur lent ou barre de statut inconnue).
+    """
     # Marqueurs propres au moteur (cf. ENGINES). Vide (ex. shell) → pas d'attente.
-    markers = ENGINES.get(engine, {}).get("ready_markers", ())
+    spec = ENGINES.get(engine, {})
+    markers = spec.get("ready_markers", ())
+    blockers = spec.get("blocking_markers", ())
     if not markers:
         time.sleep(0.3)
-        return
+        return "ready"
     name = _session_name(rm_id)
     deadline = time.time() + timeout
+    modal_seen = False
     while time.time() < deadline:
         rc, out, _ = _tmux("capture-pane", "-p", "-t", name)
-        if rc == 0 and any(m in out for m in markers):
-            return
+        if rc == 0:
+            if any(b in out for b in blockers):
+                # Écran modal : surtout ne rien taper — et ne pas se laisser
+                # abuser par un ready_marker qui figurerait dans le dialogue.
+                modal_seen = True
+            elif any(m in out for m in markers):
+                return "ready"
         time.sleep(0.3)
+    return "blocked" if modal_seen else "timeout"
+
+
+def _send_initial_prompt(rm_id: str, engine: str, prompt: str) -> str:
+    """Livre le prompt initial dans le TUI, sans jamais écrire à l'aveugle (RM2808).
+
+    Retourne l'état à remonter au client :
+      "envoye"            — texte visible dans le pane puis soumis ;
+      "differe-dialogue"  — un écran modal bloque (confiance de dossier…) : RIEN
+                            n'a été tapé, l'humain doit répondre puis renvoyer ;
+      "non-pris"          — le pane n'a pas bougé après le send-keys : le TUI n'a
+                            pas pris le texte, on s'abstient d'envoyer Enter
+                            (mieux vaut un prompt à renvoyer qu'un Enter perdu
+                            dans un écran qu'on n'a pas su identifier).
+    """
+    name = _session_name(rm_id)
+    if _wait_engine_ready(rm_id, engine) == "blocked":
+        return "differe-dialogue"
+    _, before, _ = _tmux("capture-pane", "-p", "-t", name)
+    op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
+    time.sleep(0.3)
+    _, after, _ = _tmux("capture-pane", "-p", "-t", name)
+    if after == before:
+        return "non-pris"
+    _tmux("send-keys", "-t", name, "Enter")
+    return "envoye"
 
 
 def _ticket_model(rm_id: str) -> str | None:
@@ -1118,20 +1173,19 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
+    prompt_state = "absent"
     if prompt:
         # RM2284 : l'ancrage ticket transite TOUJOURS, même en prompt libre —
         # si le texte ne mentionne pas déjà RM<id>, on préfixe le contexte
         # (incident : session lancée pour RM2140 sans que l'agent le sache).
         if _is_ticket_sid(rm_id) and f"rm{rm_id}" not in str(prompt).lower():
             prompt = _anchor_context(rm_id) + " " + str(prompt)
-        _wait_engine_ready(rm_id, engine)
-        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
-        time.sleep(0.3)
-        _tmux("send-keys", "-t", name, "Enter")
+        prompt_state = _send_initial_prompt(rm_id, engine, prompt)
 
     return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
             "model": model_value, "model_source": model_source,
             "session_id": session_id, "created": True,
+            "prompt": prompt_state,   # RM2808 : un prompt non livré se dit
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
@@ -3619,14 +3673,13 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
+    prompt_state = "absent"
     if prompt:
-        _wait_engine_ready(rm_id, engine)
-        op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
-        time.sleep(0.3)
-        _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
+        prompt_state = _send_initial_prompt(rm_id, engine, prompt)
 
     return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": engine,
             "session_id": session_id, "cwd": str(cwd), "resumed": True,
+            "prompt": prompt_state,   # RM2808 : un prompt non livré se dit
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 

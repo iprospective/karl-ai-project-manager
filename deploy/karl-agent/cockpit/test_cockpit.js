@@ -3478,3 +3478,42 @@ assert(/showTicket\(2799\)/.test(ref2799), "le numéro reste cliquable");
 assert(/title="x"/.test(ref2799), "…et garde son infobulle");
 assert(!/class="pill"/.test(ref2799), "…sans reprendre le style de la pastille");
 console.log("✓ lisibilité du worklog (RM2799) : sections délimitées, numéro qui prime sur le statut");
+
+// — RM2801 : l'état de la MR sur la ligne du ticket —
+const mrStageHtml = grabO("mrStageHtml");
+// Un ticket sans MR ne rend RIEN : l'absence n'est pas un état à afficher sur
+// chaque ligne d'une colonne étroite.
+assert.strictEqual(mrStageHtml(null, escO, jargFn), "", "pas de MR → rien");
+assert.strictEqual(mrStageHtml({}, escO, jargFn), "", "étape absente → rien");
+assert.strictEqual(mrStageHtml({ stage: "inconnue" }, escO, jargFn), "",
+  "étape inconnue → rien plutôt qu'un badge muet");
+// Les trois étapes se distinguent, et disent ce qu'elles attendent.
+const ouv = mrStageHtml({ stage: "open", url: "https://g/mr/1", count: 1,
+  mrs: [{ iid: "1", state: "opened", target: "dev" }] }, escO, jargFn);
+assert(/⇥ MR/.test(ouv) && /pill warn/.test(ouv), "MR ouverte : signalée comme un reste à faire");
+assert(/à merger/.test(ouv), "…et l'infobulle dit quoi en faire");
+const integ = mrStageHtml({ stage: "integration", url: "u", count: 1, mrs: [] }, escO, jargFn);
+assert(/✓ dev/.test(integ) && /pill ok/.test(integ), "mergée dans l'intégration");
+// La promotion est une MR de LOT, hors ticket : l'infobulle le dit, sinon
+// « ✓ dev » se lirait comme une promotion oubliée.
+assert(/par lot \(dev → main\)/.test(integ), "…et ce qui reste à faire est dit");
+const prod = mrStageHtml({ stage: "prod", url: "u", count: 1, mrs: [] }, escO, jargFn);
+assert(/✓ prod/.test(prod), "promue en production");
+// Plusieurs MR : le détail au survol, pas sur la ligne.
+const multi2801 = mrStageHtml({ stage: "prod", url: "u", count: 2,
+  mrs: [{ iid: "1", state: "merged", target: "dev", repo: "a/b" },
+        { iid: "2", state: "merged", target: "main" }] }, escO, jargFn);
+assert(/!1 merged → dev/.test(multi2801) && /!2 merged → main/.test(multi2801),
+  "chaque MR est détaillée dans l'infobulle");
+assert(/2 MR/.test(multi2801), "…et le nombre est annoncé");
+assert(!/!1/.test(multi2801.replace(/title="[^"]*"/, "")),
+  "le détail reste DANS l'infobulle — la ligne n'a pas la place");
+// Le badge mène à la MR, sans déclencher le clic de la ligne.
+assert(/window\.open\('https:\/\/g\/mr\/1'/.test(ouv), "le badge ouvre la MR");
+assert(/event\.stopPropagation/.test(ouv), "…sans ouvrir aussi la fiche du ticket");
+assert(!/window\.open/.test(mrStageHtml({ stage: "prod", count: 1, mrs: [] }, escO, jargFn)),
+  "sans URL connue, pas de lien mort");
+// Câblage : la ligne du worklog doit porter le badge.
+assert(/mrStageHtml\(\(worklog\.mr_stage \|\| \{\}\)\[it\.ref\], esc, jarg\)/.test(html),
+  "chaque ligne de ticket doit afficher l'étape de sa MR");
+console.log("✓ étape de MR (RM2801) : ouverte, intégration, production — sur la ligne du ticket");

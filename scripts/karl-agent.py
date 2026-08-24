@@ -4371,6 +4371,60 @@ def _subtasks_status(refs) -> list:
     return out
 
 
+def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
+    """RM2763 : pile de refresh — endpoint composite des pollers continus du
+    cockpit (/sessions, /health, /worklog/<sid>).
+
+    `blocks` = specs séparées par des virgules : `sessions:<hash>`,
+    `health:<hash>`, `worklog:<sid>:<hash>` — `<hash>` est celui de la dernière
+    donnée reçue par le client (vide au premier appel). Un bloc dont la donnée
+    n'a pas changé est listé dans `skipped` sans payload ; sinon il revient dans
+    `blocks` avec `hash` + `data` prêtes à afficher. Un bloc en échec atterrit
+    dans `errors` sans priver les autres (retour partiel — pas de timeout dur
+    par bloc en V1 : le seul op lent, sessions/tmux, est aussi le payload
+    principal ; le ticker V2/SSE reprendra la question).
+
+    Le bloc `sessions` embarque `briefs` (op_tickets_brief des tickets des
+    sessions) : la liste n'a plus AUCUN GET /resolve à faire côté client."""
+    out_blocks: dict = {}
+    errors: dict = {}
+    skipped: list = []
+    for spec in [s for s in (blocks_qs or "").split(",") if s]:
+        name, *rest = spec.split(":")
+        try:
+            if name == "sessions":
+                sessions = _sessions_view({}, auth_ctx)
+                ids = sorted({str(s.get("rm_id")) for s in sessions
+                              if s.get("is_ticket") is not False
+                              and str(s.get("rm_id", "")).isdigit()})
+                data = {"sessions": sessions, "briefs": op_tickets_brief(ids)}
+                client_hash = rest[0] if rest else ""
+            elif name == "health":
+                data = {"status": "ok", "sessions": len(_list_sessions()),
+                        "tmux": _tmux("-V")[0] == 0}
+                client_hash = rest[0] if rest else ""
+            elif name == "worklog":
+                # le sid peut porter des caractères hors [0-9] (ancrage slug) ;
+                # le hash est le DERNIER segment, le sid tout ce qui précède.
+                client_hash = rest[-1] if len(rest) >= 2 else ""
+                sid = ":".join(rest[:-1]) if len(rest) >= 2 else (rest[0] if rest else "")
+                if not sid:
+                    continue
+                data = op_worklog(sid)
+            else:
+                errors[name] = "bloc inconnu"
+                continue
+            h = hashlib.sha1(json.dumps(data, sort_keys=True,
+                                        default=str).encode()).hexdigest()[:12]
+            if h == client_hash:
+                skipped.append(name)
+            else:
+                out_blocks[name] = {"hash": h, "data": data}
+        except Exception as e:      # noqa: BLE001 — retour partiel voulu
+            errors[name] = str(e)[:200]
+    return {"blocks": out_blocks, "skipped": skipped, "errors": errors}
+
+
 def op_worklog(rm_id: str, force: bool = False) -> dict:
     """RM2466 volet 2 étape 2 : où en est le travail de CETTE session — les
     tickets qu'elle a ouverts et leur statut. Statut résolu LIVE (RM2581)."""
@@ -9885,6 +9939,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
+            if path == "/refresh":       # RM2763 : pile de refresh (composite)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
             if path == "/voice/caps":
                 return self._send_json(200, op_voice_caps())
             if path == "/session-registry":

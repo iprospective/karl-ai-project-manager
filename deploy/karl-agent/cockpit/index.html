@@ -1703,16 +1703,17 @@ function ago(ts) {
   return Math.floor(s / 86400) + "j";
 }
 
-async function refreshHealth() {
+// RM2763 : le fetch passe par la pile /refresh ; ici il ne reste que le rendu.
+function renderHealth(h) {
   const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
-  try {
-    const h = await api("/health");
-    el.className = "dot ok";
-    tx.textContent = h.sessions + " session(s) · tmux " + (h.tmux ? "ok" : "absent");
-  } catch (e) {
-    el.className = "dot ko"; tx.textContent = "injoignable — " + e.message;
-  }
+  el.className = "dot ok";
+  tx.textContent = h.sessions + " session(s) · tmux " + (h.tmux ? "ok" : "absent");
 }
+function renderHealthKo(msg) {
+  const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
+  el.className = "dot ko"; tx.textContent = "injoignable — " + msg;
+}
+function refreshHealth() { return refreshFetch(["health"]); }
 // ── MAJ du core (RM2571) ────────────────────────────────────────────────────
 // Détection SEULE : le serveur sonde le remote en lecture (`git ls-remote`, sans
 // privilège) et met son résultat en cache. Appliquer la MAJ reste un geste
@@ -1893,18 +1894,93 @@ function renderAttnBand(list, sessions) {
 function pollDelay(hot) { return hot ? 3000 : 7000; }
 // <<< pollDelay
 let hotSessions = 0;      // nb de sessions en attention/choix (règle la cadence)
-let sessTimer = null;     // timer auto-replanifié du poll /sessions (RM2613)
+let sessTimer = null;     // timer auto-replanifié du tick de refresh (RM2613)
+// >>> refresh — RM2763 : pile de refresh. Les 3 pollers continus (/sessions
+// 3–7 s, /health 15 s, /worklog/<sid> 10 s) fusionnent en UN
+// GET /refresh?blocks=… : le client joint le hash de la dernière donnée reçue
+// par bloc, le serveur ne renvoie QUE les blocs changés (données prêtes à
+// afficher), chacun dispatché à son renderer. Un seul tick au rythme sessions
+// (pollDelay) ; chaque bloc garde sa période propre — inclus quand son âge la
+// dépasse, ou d'office après une action (spawn, kill…). ~19 → ~8 req/min.
+const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000 };
+const refreshHash = {};        // bloc → hash de la dernière donnée reçue
+const refreshAt = {};          // bloc → Date.now() de la dernière inclusion
+let refreshWorklogSid = null;  // sid du hash worklog courant (reset au ré-attach)
+let refreshInFlight = null;    // promesse du composite en vol (un seul à la fois)
+let refreshQueued = null;      // includes arrivés pendant le vol → rejoués après
+function refreshDue(name, includes) {
+  if (includes.includes(name)) return true;
+  const t = refreshAt[name];
+  return t === undefined || (Date.now() - t) >= REFRESH_PERIOD_MS[name];
+}
+function refreshSpecs(includes) {
+  const specs = [];
+  if (refreshDue("sessions", includes)) specs.push("sessions:" + (refreshHash.sessions || ""));
+  if (refreshDue("health", includes)) specs.push("health:" + (refreshHash.health || ""));
+  if (attached && rightVisible("state") && refreshDue("worklog", includes)) {
+    if (refreshWorklogSid !== String(attached)) { delete refreshHash.worklog; refreshWorklogSid = String(attached); }
+    specs.push("worklog:" + String(attached) + ":" + (refreshHash.worklog || ""));
+  }
+  return specs;
+}
+function refreshFetch(includes) {
+  includes = includes || [];
+  if (refreshInFlight) {         // un seul composite en vol ; on rejoue après
+    refreshQueued = (refreshQueued || []).concat(includes);
+    return refreshInFlight;
+  }
+  const specs = refreshSpecs(includes);
+  if (!specs.length) return Promise.resolve();
+  refreshInFlight = (async () => {
+    const r = await api("/refresh?blocks=" + encodeURIComponent(specs.join(",")));
+    const now = Date.now();
+    specs.forEach(sp => { refreshAt[sp.split(":")[0]] = now; });
+    const b = r.blocks || {};
+    if (b.health) { refreshHash.health = b.health.hash; renderHealth(b.health.data); }
+    if (b.sessions) {
+      refreshHash.sessions = b.sessions.hash;
+      seedBriefs(b.sessions.data.briefs);
+      renderSessions(b.sessions.data.sessions);
+    }
+    // garde : une réponse worklog d'une session qu'on a quittée entre-temps est jetée
+    if (b.worklog && b.worklog.data && String(b.worklog.data.rm_id) === String(attached)) {
+      refreshHash.worklog = b.worklog.hash;
+      worklog = b.worklog.data; renderWorklog();
+    }
+  })().catch(e => { renderHealthKo(e.message); })
+     .finally(() => {
+       refreshInFlight = null;
+       if (refreshQueued) { const q = refreshQueued; refreshQueued = null; refreshFetch(q); }
+     });
+  return refreshInFlight;
+}
+// Le bloc sessions embarque la résolution brève (op_tickets_brief) : plus aucun
+// GET /resolve pour la LISTE. Une entrée `partial` est surclassée en résolution
+// riche par ensureResolved dès qu'une vue de détail la demande.
+function seedBriefs(briefs) {
+  Object.entries(briefs || {}).forEach(([rm, br]) => {
+    const cur = resolveCache[rm];
+    if (cur === undefined || (cur && cur.partial)) {
+      resolveCache[rm] = Object.assign({}, br, { partial: true });
+      resolveAt[rm] = Date.now();
+    }
+  });
+}
+// <<< refresh
 function tickSessions() {
   sessTimer = null;
   if (document.hidden) return;   // pause en arrière-plan ; relancé par visibilitychange
-  Promise.resolve(refreshSessions()).finally(() => {
+  Promise.resolve(refreshFetch()).finally(() => {
     if (!document.hidden) sessTimer = setTimeout(tickSessions, pollDelay(hotSessions > 0));
   });
 }
-async function refreshSessions() {
+// Entrée des rafraîchissements événementiels (spawn, kill, move…) : force le
+// bloc sessions dans le prochain composite — signature inchangée pour la
+// vingtaine d'appelants existants (RM2763).
+function refreshSessions() { return refreshFetch(["sessions"]); }
+function renderSessions(sessions) {
   const list = document.getElementById("runlist");
   try {
-    const { sessions } = await api("/sessions");
     // RM2515 : « terminé » (idle marqué à fermer) coule en bas ; sinon ordre stable par id.
     const done = s => effDisposition(s.state, s.disposition) === "termine" ? 1 : 0;
     sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
@@ -7105,7 +7181,11 @@ function resolveStale(rmId) {
 const resolveInflight = {};       // rm_id → promesse de la résolution en cours
 async function ensureResolved(rmId, force) {
   rmId = String(rmId);
-  if (!force && resolveCache[rmId] !== undefined) return resolveCache[rmId];
+  // RM2763 : une entrée `partial` (brief embarqué par le bloc sessions de
+  // /refresh) suffit aux listes mais pas aux vues de détail (cwd, prompt…) —
+  // ces dernières passent ici et déclenchent la résolution riche.
+  const cached = resolveCache[rmId];
+  if (!force && cached !== undefined && !(cached && cached.partial)) return cached;
   if (resolveInflight[rmId]) return resolveInflight[rmId];
   resolveInflight[rmId] = (async () => {
     try { resolveCache[rmId] = await api("/resolve/" + rmId); } catch (e) { resolveCache[rmId] = null; }
@@ -10352,15 +10432,14 @@ async function kill(rmId) {
   loadDashboard();       // RM2697 : l'écran d'ouverture dit ce qui attend
   loadEnvCheck();        // RM2722 : contrôle du poste au démarrage (badge si anomalie)
   loadVaultStatus();     // RM2748 : verrous (coffre, agent SSH) — bouton si besoin
-  tickSessions();        // /sessions : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
-  setInterval(() => { if (!document.hidden) refreshHealth(); }, 15000);
+  // RM2763 : health (15 s) et worklog (10 s) n'ont plus de timer propre — ils
+  // voyagent dans le composite /refresh du tick ci-dessous, chacun à sa période.
+  tickSessions();        // pile /refresh : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
   // RM2697 : le tableau de bord suit le poll existant — et `dashVisible()` coupe
   // la requête dès qu'une session est attachée (l'écran central sert alors au
   // terminal). L'agrégat a sa propre garde de fraîcheur de 60 s côté serveur.
   setInterval(() => { if (!document.hidden) loadDashboard(); }, 30000);
   setInterval(() => { if (!document.hidden) loadPending(); }, 45000);   // RM2598 lourd (tmux+transcripts) → 45 s
-  // « en attente de toi » ne se périme pas en 3 s ; gated visible + onglet état actif.
-  setInterval(() => { if (!document.hidden && rightVisible("state")) loadWorklog(); }, 10000);
   // MAJ du core : lente et désalignée du cache serveur (TTL 600 s) ; ls-remote réseau.
   setInterval(() => { if (!document.hidden) refreshCoreUpdate(); }, 300000);
   // RM2722 : le poste change en cours de journée (un `ssh-add` fait, un vault

@@ -3548,3 +3548,68 @@ assert(cssDesc2806 && /max-height: 160px/.test(cssDesc2806[0]),
 assert(!/font-size/.test(cssDescFull[0]) && !/line-height/.test(cssDescFull[0]),
   "`.descfull` ne redéclare pas ce que `.mdview` porte déjà");
 console.log("✓ facette description (RM2806) : plus de cadre ni de bride, la colonne défile");
+// — pile de refresh (RM2763) : specs par période, dispatch par bloc, briefs —
+const mRefresh = />>> refresh[\s\S]*?(const REFRESH_PERIOD_MS[\s\S]*?)\n\/\/ <<< refresh/.exec(html);
+assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
+(async () => {
+  const calls = { api: [], health: [], ko: [], sessions: [], worklog: 0 };
+  const ctx = {
+    Date, Object, Promise, JSON, encodeURIComponent,
+    attached: null, worklog: null,
+    rightVisible: () => true,
+    resolveCache: {}, resolveAt: {},
+    api: async (u) => { calls.api.push(u); return ctx._resp; },
+    renderHealth: (h) => calls.health.push(h),
+    renderHealthKo: (m) => calls.ko.push(m),
+    renderSessions: (s) => calls.sessions.push(s),
+    renderWorklog: () => { calls.worklog++; },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(mRefresh[1], ctx, { filename: "refresh-block" });
+
+  // specs : sessions à chaque tick (période 0), worklog seulement si attaché
+  let specs = vm.runInContext("refreshSpecs([])", ctx);
+  assert.deepStrictEqual([...specs], ["sessions:", "health:"], "1er tick : sessions + health, pas de worklog détaché");
+  ctx.attached = "2763";
+  specs = vm.runInContext("refreshSpecs([])", ctx);
+  assert.strictEqual(specs[2], "worklog:2763:", "attaché : le worklog embarque");
+
+  // fetch : dispatch des blocs reçus + mémorisation des hashs
+  ctx._resp = { blocks: {
+    sessions: { hash: "s1", data: { sessions: [{ rm_id: "2763" }], briefs: { 2763: { found: true, title: "T" } } } },
+    health: { hash: "h1", data: { sessions: 1, tmux: true } },
+    worklog: { hash: "w1", data: { rm_id: "2763", found: true } },
+  }, skipped: [], errors: {} };
+  await vm.runInContext("refreshFetch([])", ctx);
+  assert.strictEqual(calls.api.length, 1, "UNE requête composite");
+  assert.strictEqual(calls.sessions.length, 1, "bloc sessions dispatché");
+  assert.strictEqual(calls.health.length, 1, "bloc health dispatché");
+  assert.strictEqual(calls.worklog, 1, "bloc worklog dispatché");
+  assert(ctx.resolveCache["2763"] && ctx.resolveCache["2763"].partial, "brief semé en partial");
+
+  // tick suivant AVANT les périodes health/worklog : seul sessions repart, avec son hash
+  specs = vm.runInContext("refreshSpecs([])", ctx);
+  assert.deepStrictEqual([...specs], ["sessions:s1"], "périodes respectées + hash mémorisé");
+  // une action force un bloc hors période
+  specs = vm.runInContext('refreshSpecs(["health"])', ctx);
+  assert(specs.includes("health:h1"), "include force le bloc avec son hash");
+
+  // blocs inchangés (skipped) : aucun re-rendu
+  ctx._resp = { blocks: {}, skipped: ["sessions"], errors: {} };
+  await vm.runInContext("refreshFetch([])", ctx);
+  assert.strictEqual(calls.sessions.length, 1, "inchangé → pas de re-rendu");
+
+  // worklog d'une session quittée entre-temps : jeté ; échec réseau → dot ko
+  ctx._resp = { blocks: { worklog: { hash: "w2", data: { rm_id: "999", found: true } } }, skipped: [], errors: {} };
+  await vm.runInContext('refreshFetch(["worklog"])', ctx);
+  assert.strictEqual(calls.worklog, 1, "worklog d'une autre session jeté");
+  ctx.api = async () => { throw new Error("down"); };
+  await vm.runInContext("refreshFetch([])", ctx);
+  assert.strictEqual(calls.ko.length, 1, "échec réseau → renderHealthKo");
+
+  // seedBriefs ne dégrade jamais une résolution riche
+  ctx.resolveCache["42"] = { found: true, title: "riche", cwd: "/x" };
+  vm.runInContext('seedBriefs({ 42: { found: true, title: "brief" } })', ctx);
+  assert.strictEqual(ctx.resolveCache["42"].title, "riche", "une entrée riche n'est pas écrasée");
+  console.log("✓ pile de refresh (RM2763) : specs par période, dispatch par bloc, briefs partial");
+})().catch((e) => { console.error("✗ pile de refresh (RM2763) :", e.message); process.exit(1); });

@@ -1161,7 +1161,9 @@ const worklogRefHtml = vm.runInNewContext("(" + fWr[1] + ")");
 const escId = s => String(s);
 const lien = worklogRefHtml("RM2467", escId, () => "");
 assert(/showTicket\(2467\)/.test(lien), "un ticket ouvre sa fiche");
-assert(/pill/.test(lien) && /cursor:pointer/.test(lien), "et SE VOIT comme cliquable");
+// RM2799 : classe propre au numéro (le curseur vient du CSS `.rmref`) — il ne
+// partage plus `.pill` avec le statut, qui l'écrasait dès qu'il virait au jaune.
+assert(/class="rmref"/.test(lien), "et SE VOIT comme cliquable");
 assert(/event\.stopPropagation/.test(lien),
   "le clic sur le lien ne doit pas aussi déclencher celui de la ligne");
 const libre = worklogRefHtml("pisceen-facettes", escId, () => "");
@@ -3443,3 +3445,36 @@ assert(/worklogGroupedHtml\(s\.items, itemHtml, esc\)/.test(html),
 assert(!/bucketHtml\[s\.key\] = s\.items\.map\(itemHtml\)\.join/.test(html),
   "l'ancien rendu à plat ne doit plus exister");
 console.log("✓ worklog groupé (RM2798) : par client/projet, ordre de session préservé");
+
+// — RM2799 : hiérarchie de lecture — la section, puis le numéro, puis le statut —
+// Le groupe doit être une SECTION : sans délimitation, son en-tête se lisait
+// comme une ligne de plus.
+const cssGroup2799 = /\.wlgroup \{[^}]*\}/.exec(html);
+assert(cssGroup2799, ".wlgroup introuvable");
+assert(/border:/.test(cssGroup2799[0]) && /background:/.test(cssGroup2799[0]),
+  "un groupe doit se distinguer par un fond ET une bordure");
+const cssHead2799 = /\.wlghead \{[^}]*\}/.exec(html);
+assert(/background:/.test(cssHead2799[0]) && /border-bottom:/.test(cssHead2799[0]),
+  "l'en-tête doit appartenir à la section, pas flotter au-dessus");
+
+// Le numéro identifie la ligne : il doit primer sur le statut, y compris jaune.
+const cssRef2799 = /\.rmref \{[^}]*\}/.exec(html);
+assert(cssRef2799, ".rmref introuvable — le numéro doit avoir son propre style");
+const cssPill2799 = /\n  \.pill \{[^}]*\}/.exec(html);
+const taille = (css) => parseFloat((/font-size: ([\d.]+)px/.exec(css) || [])[1]);
+assert(taille(cssRef2799[0]) > taille(cssPill2799[0]),
+  "le numéro doit être PLUS GRAND que la pastille de statut");
+assert(/font-weight: 600/.test(cssRef2799[0]), "…et plus gras");
+assert(/color: var\(--accent\)/.test(cssRef2799[0]), "…et en couleur d'accent");
+assert(/font-family: var\(--mono\)/.test(cssRef2799[0]),
+  "…en chasse fixe : un identifiant se lit comme un identifiant");
+// Le signal de dérive ne doit pas disparaître pour autant.
+assert(/class="pill warn"/.test(statusPill(
+  { status: "a_mep", opened_status: "en_cours", drifted: true }, escO)),
+  "le statut jaune reste le signal de dérive — il cesse d'écraser, il ne s'efface pas");
+// Le numéro reste un point d'entrée vers la fiche.
+const ref2799 = worklogRefHtml("RM2799", escId, () => ' title="x"');
+assert(/showTicket\(2799\)/.test(ref2799), "le numéro reste cliquable");
+assert(/title="x"/.test(ref2799), "…et garde son infobulle");
+assert(!/class="pill"/.test(ref2799), "…sans reprendre le style de la pastille");
+console.log("✓ lisibilité du worklog (RM2799) : sections délimitées, numéro qui prime sur le statut");

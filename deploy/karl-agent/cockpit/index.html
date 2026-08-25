@@ -103,6 +103,10 @@
   h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .8px; color: var(--muted);
     margin: 0 0 10px; font-weight: 600; }
   .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 8px; padding: 14px; margin-bottom: 18px; }
+  /* RM2816 : panneaux « commandes pm » / « réglages » au centre. Bridés en
+     largeur : les champs font 100 % de leur colonne, et un formulaire étalé
+     sur 1 400 px se lit moins bien qu'à l'étroit. */
+  .cpanel { max-width: 760px; }
   /* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
   #authgate { position: fixed; inset: 0; z-index: 1000; background: var(--bg);
     display: none; align-items: center; justify-content: center; padding: 20px; }
@@ -820,6 +824,12 @@ if (window.matchMedia) {
     title="Revenir en avant — tant qu'aucune nouvelle vue n'a été ouverte">→</button>
   <button class="mini" id="histbtn" onclick="histToggle()"
     title="Historique des vues visitées dans cette page">🕘 historique</button>
+  <!-- RM2816 : les deux surfaces d'action du cockpit, au menu du haut. Leur
+       contenu s'ouvre au CENTRE, dans le modèle d'onglets (épinglable). -->
+  <button class="mini" id="pmbtn" onclick="openCenterPanel('pm')"
+    title="Commandes PM : le catalogue des actions du PM en un clic (ouvre un onglet central)">⚙ commandes pm</button>
+  <button class="mini" id="setbtn" onclick="openCenterPanel('settings')"
+    title="Réglages : thème, voix, appareils, conf PM (ouvre un onglet central)">🔧 réglages</button>
   <!-- RM2593 : aide intégrée du cockpit -->
   <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
@@ -849,8 +859,9 @@ if (window.matchMedia) {
       <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
       <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
       <button data-panel="mail" onclick="switchPanel('mail')">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
-      <button data-panel="pm" onclick="switchPanel('pm')">⚙ commandes pm</button>
-      <button data-panel="settings" onclick="switchPanel('settings')">🔧 réglages</button>
+      <!-- RM2816 : « ⚙ commandes pm » et « 🔧 réglages » sont passés au menu du
+           haut — ce sont des surfaces d'ACTION (on y va, on fait, on sort), pas
+           des listes qu'on garde sous l'œil pendant qu'une session tourne. -->
     </nav>
     <div class="lbody">
 
@@ -1118,133 +1129,6 @@ if (window.matchMedia) {
     </div>
     </div>
 
-    <div class="lpanel" id="lp-pm">
-    <div class="card" id="pmcard">
-      <h2>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span> <button class="helpq" onclick="openHelp('commandes')" title="Aide sur ce panneau">?</button></h2>
-      <div id="pm-menu" style="margin-top:8px"></div>
-      <div id="pm-form"></div>
-      <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
-    </div>
-    </div>
-
-    <div class="lpanel" id="lp-settings">
-    <div class="card" id="authcard" style="display:none">
-      <h2>Authentification</h2>
-      <!-- RM2334 : le login vit dans l'écran plein-cadre #authgate ; ici, seule
-           la gestion de session (une fois connecté). -->
-      <div id="auth-session">
-        <div id="auth-me" style="margin-bottom:8px"></div>
-        <button class="mini" onclick="logout()">Se déconnecter (révoque cet appareil)</button>
-        <div id="auth-devices" style="margin-top:10px"></div>
-      </div>
-    </div>
-    <div class="card" id="userscard" style="display:none">
-      <h2>👥 Utilisateurs <span style="color:var(--muted);font-weight:normal">(superadmin — RM2334)</span></h2>
-      <div id="users-list" style="margin-top:8px"></div>
-      <div class="row2" style="margin-top:8px">
-        <div>
-          <label for="nu-name">Nouveau compte</label>
-          <input id="nu-name" type="text" placeholder="login (a-z, 0-9, ._-)">
-        </div>
-        <div>
-          <label for="nu-pass">Mot de passe (≥ 8)</label>
-          <input id="nu-pass" type="password" autocomplete="new-password" placeholder="mot de passe">
-        </div>
-      </div>
-      <button class="mini" style="margin-top:8px" onclick="createUser()">Créer le compte</button>
-      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
-        Le superadmin (fichier de conf .env) n'apparaît pas ici et ne peut pas
-        être supprimé. Désactiver ou changer le mot de passe d'un compte révoque
-        ses appareils.
-      </div>
-    </div>
-    <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
-    <div class="card" id="voicecard">
-      <h2>🔊 Voix <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
-      <label for="vx-lang">Langue (dictée + lecture)</label>
-      <select id="vx-lang" onchange="setVoiceLang(this.value)">
-        <option value="fr-FR">français</option>
-        <option value="en-US">anglais</option>
-      </select>
-      <label for="vx-voice">Voix de synthèse</label>
-      <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
-      <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
-      <div id="vx-server-row" style="display:none;margin-top:8px">
-        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-          <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
-          <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
-        </label>
-        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
-          Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
-        </div>
-      </div>
-      <!-- RM2533 : bascule STT serveur (Whisper) — n'apparaît que si le sidecar répond -->
-      <div id="vx-stt-row" style="display:none;margin-top:8px">
-        <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-          <input type="checkbox" id="vx-stt" onchange="setSttServer(this.checked)">
-          <span>Dictée serveur haute précision (Whisper) <span style="color:var(--ok)">★</span></span>
-        </label>
-        <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
-          Transcription locale, tout navigateur (pas de verrou Chrome). Décochez pour la reconnaissance du navigateur.
-        </div>
-      </div>
-      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
-        Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
-        La liste dépend du navigateur — Chrome recommandé.
-      </div>
-      <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
-    </div>
-    <!-- RM2386 : surcharge de thème locale à CE navigateur (localStorage) —
-         le défaut d'instance reste piloté par la rubrique « Design front ». -->
-    <div class="card" id="themecard">
-      <h2>🎨 Thème <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
-      <label for="th-local">Apparence</label>
-      <select id="th-local" onchange="setLocalTheme(this.value)">
-        <option value="server">suivre la conf serveur</option>
-        <option value="auto">auto (thème système)</option>
-        <option value="dark">sombre</option>
-        <option value="light">clair</option>
-      </select>
-      <div id="th-hint" style="color:var(--muted);font-size:11.5px;margin-top:6px"></div>
-    </div>
-    <!-- RM2579 : démarrage de la colonne de droite (local à CE navigateur) -->
-    <div class="card" id="rightcard">
-      <h2>🧩 Colonne de droite <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px">
-        <input type="checkbox" id="rp-startopen" onchange="setRightStartOpen(this.checked)">
-        <span>Démarrer dépliée</span>
-      </label>
-      <label for="rp-deftab">Onglet affiché par défaut</label>
-      <select id="rp-deftab" onchange="setRightDefaultTab(this.value)">
-        <option value="infos">ℹ infos</option>
-        <option value="tickets">🎫 tickets</option>
-        <option value="outline">🗺 conversation</option>
-        <option value="state">🗒 état</option>
-      </select>
-      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
-        S'applique au prochain chargement du cockpit.
-      </div>
-    </div>
-    <!-- RM2658 : préférences d'affichage des sessions (locales à CE navigateur) —
-         accueille le tri dynamique (RM2344), déplacé hors de la colonne « en cours ». -->
-    <div class="card" id="sessprefcard">
-      <h2>🗂 Sessions <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
-      <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-        <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)">
-        <span>Tri dynamique de la colonne « en cours »</span>
-      </label>
-      <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
-        ⚠ et activité en tête ; l'ordre se réordonne à chaque refresh (gelé tant que
-        tu survoles/interagis). Décoché : ordre stable alphabétique — rien ne bouge
-        sous la souris. Défaut : décoché.
-      </div>
-    </div>
-    <div class="card" id="reglages-card">
-      <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span> <button class="helpq" onclick="openHelp('reglages')" title="Aide sur ce panneau">?</button></h2>
-      <div id="reglages-body" style="margin-top:8px"></div>
-    </div>
-    </div>
-
     </div><!-- /.lbody -->
   </section>
 
@@ -1336,6 +1220,137 @@ if (window.matchMedia) {
              Ces contenus existaient déjà, chacun coincé dans une modale ou une
              colonne étroite ; ici ils ont la place et le modèle d'onglets. -->
         <div id="viewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
+        <!-- RM2816 : « commandes pm » et « réglages » se donnent au CENTRE.
+             Le contenu n'a pas changé — il a seulement cessé d'être à l'étroit
+             dans une colonne de 300 px, et de coûter deux onglets permanents à
+             une barre de gauche qui liste, elle, du travail en cours. -->
+        <div id="panelpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain">
+          <div class="cpanel" id="cp-pm" style="display:none">
+            <div class="card" id="pmcard">
+              <h2>⚙ Commandes PM <span style="color:var(--muted);font-weight:normal">(catalogue RM2209)</span> <button class="helpq" onclick="openHelp('commandes')" title="Aide sur ce panneau">?</button></h2>
+              <div id="pm-menu" style="margin-top:8px"></div>
+              <div id="pm-form"></div>
+              <pre id="pm-result" class="logtail" style="display:none;margin-top:10px;max-height:220px;overflow-y:auto"></pre>
+            </div>
+          </div>
+          <div class="cpanel" id="cp-settings" style="display:none">
+            <div class="card" id="authcard" style="display:none">
+              <h2>Authentification</h2>
+              <!-- RM2334 : le login vit dans l'écran plein-cadre #authgate ; ici, seule
+                   la gestion de session (une fois connecté). -->
+              <div id="auth-session">
+                <div id="auth-me" style="margin-bottom:8px"></div>
+                <button class="mini" onclick="logout()">Se déconnecter (révoque cet appareil)</button>
+                <div id="auth-devices" style="margin-top:10px"></div>
+              </div>
+            </div>
+            <div class="card" id="userscard" style="display:none">
+              <h2>👥 Utilisateurs <span style="color:var(--muted);font-weight:normal">(superadmin — RM2334)</span></h2>
+              <div id="users-list" style="margin-top:8px"></div>
+              <div class="row2" style="margin-top:8px">
+                <div>
+                  <label for="nu-name">Nouveau compte</label>
+                  <input id="nu-name" type="text" placeholder="login (a-z, 0-9, ._-)">
+                </div>
+                <div>
+                  <label for="nu-pass">Mot de passe (≥ 8)</label>
+                  <input id="nu-pass" type="password" autocomplete="new-password" placeholder="mot de passe">
+                </div>
+              </div>
+              <button class="mini" style="margin-top:8px" onclick="createUser()">Créer le compte</button>
+              <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+                Le superadmin (fichier de conf .env) n'apparaît pas ici et ne peut pas
+                être supprimé. Désactiver ou changer le mot de passe d'un compte révoque
+                ses appareils.
+              </div>
+            </div>
+            <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
+            <div class="card" id="voicecard">
+              <h2>🔊 Voix <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+              <label for="vx-lang">Langue (dictée + lecture)</label>
+              <select id="vx-lang" onchange="setVoiceLang(this.value)">
+                <option value="fr-FR">français</option>
+                <option value="en-US">anglais</option>
+              </select>
+              <label for="vx-voice">Voix de synthèse</label>
+              <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
+              <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
+              <div id="vx-server-row" style="display:none;margin-top:8px">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+                  <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
+                  <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
+                </label>
+                <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+                  Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
+                </div>
+              </div>
+              <!-- RM2533 : bascule STT serveur (Whisper) — n'apparaît que si le sidecar répond -->
+              <div id="vx-stt-row" style="display:none;margin-top:8px">
+                <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+                  <input type="checkbox" id="vx-stt" onchange="setSttServer(this.checked)">
+                  <span>Dictée serveur haute précision (Whisper) <span style="color:var(--ok)">★</span></span>
+                </label>
+                <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
+                  Transcription locale, tout navigateur (pas de verrou Chrome). Décochez pour la reconnaissance du navigateur.
+                </div>
+              </div>
+              <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+                Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
+                La liste dépend du navigateur — Chrome recommandé.
+              </div>
+              <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
+            </div>
+            <!-- RM2386 : surcharge de thème locale à CE navigateur (localStorage) —
+                 le défaut d'instance reste piloté par la rubrique « Design front ». -->
+            <div class="card" id="themecard">
+              <h2>🎨 Thème <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+              <label for="th-local">Apparence</label>
+              <select id="th-local" onchange="setLocalTheme(this.value)">
+                <option value="server">suivre la conf serveur</option>
+                <option value="auto">auto (thème système)</option>
+                <option value="dark">sombre</option>
+                <option value="light">clair</option>
+              </select>
+              <div id="th-hint" style="color:var(--muted);font-size:11.5px;margin-top:6px"></div>
+            </div>
+            <!-- RM2579 : démarrage de la colonne de droite (local à CE navigateur) -->
+            <div class="card" id="rightcard">
+              <h2>🧩 Colonne de droite <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px">
+                <input type="checkbox" id="rp-startopen" onchange="setRightStartOpen(this.checked)">
+                <span>Démarrer dépliée</span>
+              </label>
+              <label for="rp-deftab">Onglet affiché par défaut</label>
+              <select id="rp-deftab" onchange="setRightDefaultTab(this.value)">
+                <option value="infos">ℹ infos</option>
+                <option value="tickets">🎫 tickets</option>
+                <option value="outline">🗺 conversation</option>
+                <option value="state">🗒 état</option>
+              </select>
+              <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+                S'applique au prochain chargement du cockpit.
+              </div>
+            </div>
+            <!-- RM2658 : préférences d'affichage des sessions (locales à CE navigateur) —
+                 accueille le tri dynamique (RM2344), déplacé hors de la colonne « en cours ». -->
+            <div class="card" id="sessprefcard">
+              <h2>🗂 Sessions <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
+              <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
+                <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)">
+                <span>Tri dynamique de la colonne « en cours »</span>
+              </label>
+              <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
+                ⚠ et activité en tête ; l'ordre se réordonne à chaque refresh (gelé tant que
+                tu survoles/interagis). Décoché : ordre stable alphabétique — rien ne bouge
+                sous la souris. Défaut : décoché.
+              </div>
+            </div>
+            <div class="card" id="reglages-card">
+              <h2>🔧 Réglages <span style="color:var(--muted);font-weight:normal">(whitelist RM2213)</span> <button class="helpq" onclick="openHelp('reglages')" title="Aide sur ce panneau">?</button></h2>
+              <div id="reglages-body" style="margin-top:8px"></div>
+            </div>
+          </div>
+        </div><!-- /#panelpane -->
       </div>
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
@@ -1753,7 +1768,7 @@ function showCoreUpdate() {
 // RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
 // persisté (localStorage) ; les panneaux à contenu serveur chargent à la
 // première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), pm: () => loadPmCommands(), settings: () => loadSettings(), projects: () => loadProjectsPanel() };   // RM2760
+const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => loadTestQueue(), mail: () => loadMail(), projects: () => loadProjectsPanel() };   // RM2760, RM2816
 const _panelLoaded = {};
 function switchPanel(name) {
   if (!document.getElementById("lp-" + name)) name = "running";
@@ -2196,6 +2211,9 @@ function renderCurTitle() {
                  client: "🏢", conf: "⚙" }[centerView.kind] || "•";      // RM2768
     const t = (centerTabs.find(x => x.kind === centerView.kind && x.key === centerView.key) || {}).label;
     el.innerHTML = ic + ' <span class="ttitle">' + esc(t || parseViewKey(centerView.key).pop() || "") + '</span>';
+  } else if (centerPanel) {                                          // RM2816
+    el.innerHTML = (centerPanel === "pm" ? "⚙" : "🔧") +
+      ' <span class="ttitle">' + esc((CENTER_PANELS[centerPanel] || {}).label || centerPanel) + '</span>';
   } else if (activeTabId === "dash:") {
     el.innerHTML = '📊 <span class="ttitle">tableau de bord</span>';   // RM2744
   } else {
@@ -3768,6 +3786,8 @@ function tabTooltip(t, rcache, parse) {
     case "mail":     return avec("email", lbl);
     case "newticket": return "nouveau ticket";
     case "dash":     return "tableau de bord";
+    case "pm":       return "commandes PM";          // RM2816
+    case "settings": return "réglages du cockpit";
     default:         return lbl || key;
   }
 }
@@ -3777,7 +3797,8 @@ function tabTooltip(t, rcache, parse) {
 function renderCenterTabs(tabs, activeId, esc, jarg, rcache, parse) {
   const icon = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
                  file: "📄", dir: "🗂", commit: "⎇", mail: "📧",     // RM2759
-                 client: "🏢", conf: "⚙" };                          // RM2768
+                 client: "🏢", conf: "⚙",                            // RM2768
+                 pm: "⚙", settings: "🔧" };                          // RM2816
   return tabs.map(t => {
     const id = t.kind + ":" + (t.key == null ? "" : t.key);
     const cls = "ctab" + (id === activeId ? " active" : "") + (t.pinned ? "" : " temp");
@@ -3840,6 +3861,8 @@ function activateTab(id) {
     openCenterClient(parseViewKey(t.key)[0]);
   } else if (t.kind === "conf") {
     const p = parseViewKey(t.key); openCenterConf(p[0], p[1], p[2]);
+  } else if (t.kind === "pm" || t.kind === "settings") {   // RM2816
+    openCenterPanel(t.kind);
   }
 }
 
@@ -3878,7 +3901,8 @@ function closeTab(id) {
   if (activeTabId) activateTab(activeTabId);
   else {                       // plus rien d'ouvert : on revient à l'écran d'accueil
     if (attached) detach();
-    closeReview(); closeProjectView(); closeNewTicket();
+    closeReview(); closeProjectView(); closeCenterView(); closeCenterPanel();   // RM2816
+    closeNewTicket();          // en dernier : c'est lui qui rallume le tableau de bord
   }
 }
 
@@ -3891,10 +3915,50 @@ function openDashboard() {
   if (currentProjectView) closeProjectView();
   closeNewTicket();
   closeCenterView();                                // RM2759
+  closeCenterPanel();                               // RM2816
   document.getElementById("placeholder").style.display = "flex";
   noteTab("dash", "", "tableau de bord", { pin: true });
   loadDashboard();
   renderCurTitle();
+}
+
+// ----- RM2816 : « commandes pm » et « réglages » en vue centrale -----
+// Le contenu est du HTML statique (#cp-pm / #cp-settings) déplacé depuis la
+// colonne de gauche : on ne le re-rend pas, on le montre. Chaque panneau charge
+// sa donnée serveur à la PREMIÈRE ouverture, comme le faisaient les onglets de
+// gauche (PANEL_LOADERS) — rouvrir l'onglet ne relance pas de requête.
+const CENTER_PANELS = {
+  pm:       { label: "commandes pm", load: () => loadPmCommands() },
+  settings: { label: "réglages",     load: () => loadSettings() },
+};
+const _centerPanelLoaded = {};
+
+function closeCenterPanel() {
+  centerPanel = null;
+  const pane = document.getElementById("panelpane");
+  if (pane) pane.style.display = "none";
+}
+
+function openCenterPanel(name) {
+  const spec = CENTER_PANELS[name];
+  if (!spec) return;
+  // Posé AVANT les fermetures : elles rallumeraient sinon le tableau de bord
+  // (et sa requête) pour le masquer dans la foulée.
+  centerPanel = name;
+  if (attached) detach();
+  if (currentReview) closeReview(currentReview);
+  closeProjectView();
+  closeNewTicket();
+  closeCenterView();
+  document.getElementById("placeholder").style.display = "none";
+  document.getElementById("panelpane").style.display = "block";
+  Object.keys(CENTER_PANELS).forEach(k => {
+    const el = document.getElementById("cp-" + k);
+    if (el) el.style.display = (k === name) ? "block" : "none";
+  });
+  noteTab(name, "", spec.label);
+  renderCurTitle();
+  if (!_centerPanelLoaded[name]) { _centerPanelLoaded[name] = 1; spec.load(); }
 }
 
 // ----- vue « nouveau ticket » en pleine page -----
@@ -3903,7 +3967,7 @@ function closeNewTicket() {
   if (pane) pane.style.display = "none";
   // RM2759 : une vue centrale ouverte occupe le centre — y rappeler le tableau
   // de bord le ferait clignoter et déclencherait une requête pour rien.
-  if (!attached && !currentReview && !currentProjectView && !centerView) {
+  if (!attached && !currentReview && !currentProjectView && !centerView && !centerPanel) {
     document.getElementById("placeholder").style.display = "flex";
     loadDashboard();   // RM2697 : le centre redevient le tableau de bord
   }
@@ -3912,6 +3976,7 @@ function closeNewTicket() {
 function openNewTicket() {
   if (attached) detach();
   closeReview(); closeProjectView(); closeCenterView();   // RM2759
+  closeCenterPanel();                                     // RM2816
   document.getElementById("placeholder").style.display = "none";
   const pane = document.getElementById("ntpane");
   pane.style.display = "block";
@@ -4675,6 +4740,7 @@ async function gitShowDiff(mode) {
 // existantes — le bouton « ⤢ » s'ajoute à côté, il ne détourne aucun clic.
 
 let centerView = null;      // {kind, key} de la vue centrale, ou null
+let centerPanel = null;     // RM2816 : "pm" | "settings" quand le panneau est au centre
 
 // >>> viewKey — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // La clé d'un onglet doit SUFFIRE à rouvrir la vue : un onglet épinglé est
@@ -4867,6 +4933,7 @@ function centerViewPane(kind, key, label) {
   if (currentReview) closeReview(currentReview);
   closeProjectView();
   closeNewTicket();
+  closeCenterPanel();                               // RM2816
   document.getElementById("placeholder").style.display = "none";
   const pane = document.getElementById("viewpane");
   pane.style.display = "block";
@@ -8742,6 +8809,7 @@ function composerKey(ev) {
 function attach(rmId) {
   attached = String(rmId);
   closeCenterView();                          // RM2759 : la vue centrale cède la place
+  closeCenterPanel();                         // RM2816 : le panneau central aussi
   currentReview = null;                       // la vue revue cède la place
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = null;                  // RM2353 : la fiche projet aussi
@@ -9044,7 +9112,7 @@ let projectData = null;          // RM2531 : dernière fiche chargée (prérempl
 function closeProjectView() {
   currentProjectView = null;
   document.getElementById("projpane").style.display = "none";
-  if (!attached && !currentReview && !centerView) {   // RM2759 : cf. closeNewTicket
+  if (!attached && !currentReview && !centerView && !centerPanel) {   // RM2759/RM2816 : cf. closeNewTicket
     document.getElementById("placeholder").style.display = "flex"; loadDashboard();   // RM2697
   }
   renderCurTitle();
@@ -9052,6 +9120,7 @@ function closeProjectView() {
 async function openProjectView(key) {
   if (attached) detach();               // une seule vue active à la fois
   closeCenterView();                    // RM2759
+  closeCenterPanel();                   // RM2816
   currentReview = null;
   document.getElementById("reviewpane").style.display = "none";
   currentProjectView = key;
@@ -9635,6 +9704,7 @@ async function submitConfig(scope, btn) {
 function openReview(rm) {
   noteOpenedTicket(rm);             // RM2606 : la revue est une consultation aussi
   closeCenterView();                // RM2759
+  closeCenterPanel();               // RM2816
   rm = String(rm);
   if (!reviewTabs.includes(rm)) reviewTabs.push(rm);
   if (attached) detach();               // une seule vue active à la fois
@@ -9674,7 +9744,7 @@ function closeReview(rm) {
   if (currentReview === rm) {
     currentReview = null; metaTicket = null;
     document.getElementById("reviewpane").style.display = "none";
-    if (!centerView) {                 // RM2759 : cf. closeNewTicket
+    if (!centerView && !centerPanel) { // RM2759/RM2816 : cf. closeNewTicket
       document.getElementById("placeholder").style.display = "flex";
       loadDashboard();   // RM2697 : le centre redevient le tableau de bord
     }
@@ -10446,9 +10516,8 @@ async function kill(rmId) {
   // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap)
   document.getElementById("cmptext").addEventListener("keydown", composerKey);
   loadProjects();
-  // RM2283 : restaure le panneau gauche actif ; auth requise sans token → réglages
-  switchPanel((CFG.auth_required && !token()) ? "settings"
-    : (localStorage.getItem("karlPanel") || "running"));
+  // RM2283 : restaure le panneau gauche actif (RM2816 : les réglages n'y sont plus)
+  switchPanel(localStorage.getItem("karlPanel") || "running");
   restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
   // RM2672 : les onglets ÉPINGLÉS survivent au rechargement. On les réaffiche, et on
   // rouvre celui qui était actif — mais jamais une session : la rattacher au boot
@@ -10463,6 +10532,10 @@ async function kill(rmId) {
     // pas un terminal non demandé) : son onglet reste sous la main, sans être actif.
     else { activeTabId = "dash:"; renderTabs(); renderCurTitle(); }
   } catch (e) { /* mode privé */ }
+  // RM2334/RM2816 : auth requise et pas encore de jeton → les réglages (carte
+  // « Authentification », appareils) sont ce qu'on vient chercher. Après la
+  // restauration des onglets : cette intention-là prime sur le dernier onglet.
+  if (CFG.auth_required && !token()) openCenterPanel("settings");
   // RM2757 : état replié/déplié de la carte, avant le premier rendu — sinon
   // elle s'ouvre puis se referme sous les yeux.
   try {

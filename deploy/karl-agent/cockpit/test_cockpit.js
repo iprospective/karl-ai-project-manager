@@ -3638,3 +3638,85 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
   assert.strictEqual(ctx.resolveCache["42"].title, "riche", "une entrée riche n'est pas écrasée");
   console.log("✓ pile de refresh (RM2763) : specs par période, dispatch par bloc, briefs partial");
 })().catch((e) => { console.error("✗ pile de refresh (RM2763) :", e.message); process.exit(1); });
+
+// — RM2816 : « commandes pm » et « réglages » quittent la colonne de gauche —
+// Deux surfaces d'action (pas de consultation) qui prenaient deux onglets sur
+// huit à la barre de gauche, dans une colonne trop étroite pour leurs
+// formulaires. Elles passent au menu du haut et s'ouvrent au centre.
+const nav2816 = /<nav class="lnav">[\s\S]*?<\/nav>/.exec(html);
+assert(nav2816, "barre d'onglets de la colonne gauche introuvable");
+assert(!/data-panel="pm"/.test(nav2816[0]) && !/data-panel="settings"/.test(nav2816[0]),
+  "les deux onglets ne doivent plus être dans la colonne de gauche");
+const head2816 = /<header>[\s\S]*?<\/header>/.exec(html)[0];
+assert(/openCenterPanel\('pm'\)/.test(head2816) && /openCenterPanel\('settings'\)/.test(head2816),
+  "les deux entrées doivent vivre dans le menu principal du haut");
+// Le contenu déménage tel quel : une carte oubliée derrière serait invisible.
+const pane2816 = /<div id="panelpane"[\s\S]*?<!-- \/#panelpane -->/.exec(html);
+assert(pane2816, "conteneur central des panneaux (#panelpane) introuvable");
+["pmcard", "authcard", "userscard", "voicecard", "themecard", "rightcard",
+ "sessprefcard", "reglages-card"].forEach(id =>
+  assert(pane2816[0].includes('id="' + id + '"'), "carte perdue au déplacement : " + id));
+assert(pane2816[0].includes('id="cp-pm"') && pane2816[0].includes('id="cp-settings"'),
+  "les deux panneaux centraux doivent être distincts (un visible à la fois)");
+const left2816 = /<section class="left">[\s\S]*?<\/section>/.exec(html)[0];
+assert(!left2816.includes('id="panelpane"') && !left2816.includes('id="pmcard"')
+  && !left2816.includes('id="reglages-card"'),
+  "plus rien de ces panneaux ne doit rester dans la colonne de gauche");
+// …et il est bien dans la zone centrale, avec les autres vues.
+const termarea2816 = /<div class="termarea">[\s\S]*?<div id="panelpane"/.exec(html);
+assert(termarea2816, "#panelpane doit vivre dans la zone centrale (.termarea)");
+const loaders2816 = /const PANEL_LOADERS = \{[^}]*\}/.exec(html)[0];
+assert(!/\bpm:/.test(loaders2816) && !/\bsettings:/.test(loaders2816),
+  "les loaders de la colonne gauche ne doivent plus référencer pm/settings");
+
+// L'onglet central : icône propre à chaque panneau, infobulle qui dit la surface.
+assert.strictEqual(tabTooltip({ kind: "pm", key: "", label: "commandes pm" }, {}, parseViewKey),
+  "commandes PM", "infobulle de l'onglet commandes pm");
+assert.strictEqual(tabTooltip({ kind: "settings", key: "", label: "réglages" }, {}, parseViewKey),
+  "réglages du cockpit", "infobulle de l'onglet réglages");
+const tabs2816 = renderCenterTabs(
+  [{ kind: "pm", key: "", label: "commandes pm", pinned: true },
+   { kind: "settings", key: "", label: "réglages", pinned: false }],
+  "settings:", escFn, jargFn, {}, parseViewKey);
+assert(/<span>⚙<\/span><span class="lbl">commandes pm<\/span>/.test(tabs2816),
+  "l'onglet commandes pm garde son icône");
+assert(/<span>🔧<\/span><span class="lbl">réglages<\/span>/.test(tabs2816),
+  "l'onglet réglages garde son icône");
+assert(!/•<\/span><span class="lbl">réglages/.test(tabs2816), "pas d'icône générique");
+
+// Réactiver l'onglet (clic, restauration au boot) rouvre le panneau central.
+const act2816 = /(function activateTab\([\s\S]*?\n\})/.exec(html);
+assert(act2816, "activateTab introuvable");
+const ctx2816 = { centerTabs: [{ kind: "pm", key: "" }, { kind: "settings", key: "" }],
+                  calls: [], parseViewKey };
+["attach", "openReview", "openProjectView", "openNewTicket", "openDashboard",
+ "openCenterFile", "openCenterDir", "openCenterCommit", "openCenterMail",
+ "openCenterClient", "openCenterConf"].forEach(n => { ctx2816[n] = () => ctx2816.calls.push(n); });
+ctx2816.openCenterPanel = (n) => ctx2816.calls.push("panel:" + n);
+vm.runInNewContext(act2816[1] + "\nactivateTab('pm:');activateTab('settings:');", ctx2816);
+assert.deepStrictEqual(ctx2816.calls, ["panel:pm", "panel:settings"],
+  "réactiver l'onglet doit rouvrir le panneau central correspondant");
+
+// Le panneau central cède la place aux autres vues, et réciproquement.
+["function attach(", "function openReview(", "async function openProjectView(",
+ "function openNewTicket(", "function centerViewPane(", "function openDashboard("].forEach(sig => {
+  const i = html.indexOf(sig);
+  assert(i > 0, "fonction introuvable : " + sig);
+  const corps = html.slice(i, i + 1400);
+  assert(corps.includes("closeCenterPanel()"), sig + " doit fermer le panneau central");
+});
+// …et son propre ouvreur ferme les autres.
+const ocp2816 = /function openCenterPanel\([\s\S]*?\n\}/.exec(html);
+assert(ocp2816, "openCenterPanel introuvable");
+["closeCenterView()", "closeNewTicket()", "closeProjectView()", "noteTab(", "renderCurTitle()"]
+  .forEach(s => assert(ocp2816[0].includes(s), "openCenterPanel doit appeler " + s));
+// Le retour au tableau de bord ne doit pas passer par-dessus un panneau ouvert.
+["function closeNewTicket(", "function closeProjectView("].forEach(sig => {
+  const i = html.indexOf(sig);
+  const corps = html.slice(i, i + 700);
+  assert(/!centerPanel/.test(corps), sig + " doit tenir compte du panneau central ouvert");
+});
+// Démarrage « auth requise sans jeton » : on atterrit toujours sur les réglages.
+assert(/CFG\.auth_required && !token\(\)[\s\S]{0,200}openCenterPanel\("settings"\)/.test(html),
+  "auth requise sans jeton doit ouvrir les réglages au centre");
+console.log("✓ commandes pm & réglages (RM2816) : menu du haut, contenu en onglet central");

@@ -15,6 +15,13 @@ La colonne de gauche a un onglet par surface :
 | 🚀 **sessions** | jeux de sessions enregistrés (relancer, autostart) | [Sessions & terminal](sessions) |
 | 🧪 **à tester** | file de test/revue des tickets livrés | [À tester & revue](tests) |
 | 📧 **emails** | courrier de karl → tickets (relève, routage, rédaction) | [Emails](emails) |
+
+Deux surfaces ne sont **pas** dans cette colonne — on y va pour faire un geste, pas
+pour surveiller du travail. Elles vivent dans le **menu du haut** et s'ouvrent au
+centre, en [onglet](onglets) :
+
+| Menu du haut | À quoi ça sert | Aide |
+|---|---|---|
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 

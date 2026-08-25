@@ -14,6 +14,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **« ⚙ commandes pm » et « 🔧 réglages » quittent la colonne de gauche** (RM2816). Ces deux
+  surfaces ne sont pas des listes de travail : on y va pour faire un geste — lancer une action
+  PM, changer un réglage — puis on en sort. Elles occupaient pourtant deux des huit onglets
+  d'une colonne dédiée à ce qui tourne, et leurs formulaires y tenaient dans 300 px de large.
+  Elles passent au **menu du haut** (à côté de ❓ aide, 📖 glossaire, 🩺 poste) et leur contenu
+  s'ouvre au **centre**, dans le modèle d'onglets RM2672 : temporaire par défaut, épinglable
+  quand on enchaîne plusieurs actions, refermable, restauré au rechargement. Rien n'est perdu
+  au déplacement (catalogue PM, authentification, utilisateurs, voix, thème, colonne de droite,
+  sessions, réglages whitelist) et chaque panneau charge sa donnée serveur à la première
+  ouverture, comme avant. Le démarrage « auth requise sans jeton » mène toujours aux réglages.
 - **Glossaire de projet + sous-onglet « vocabulaire »** (RM2675). Chaque projet peut porter son
   vocabulaire métier dans `docs/glossaire.md` — tableau `Terme / Définition / Contexte / Alias`,
   écrit par `pm-glossaire.py` (tri, unicité et format garantis). L'étude a montré que la

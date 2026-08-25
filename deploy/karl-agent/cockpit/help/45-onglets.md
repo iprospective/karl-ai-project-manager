@@ -1,8 +1,9 @@
 # Onglets du panneau central
 
 Le panneau central affiche **une vue à la fois** : le tableau de bord, un terminal de
-session, la fiche d'un ticket, une fiche projet, la création de ticket — et, depuis
-RM2759, un **fichier, un dossier, un commit ou un email**. Les onglets, en haut,
+session, la fiche d'un ticket, une fiche projet, la création de ticket, un **fichier,
+un dossier, un commit ou un email** (RM2759) — et, depuis RM2816, les **⚙ commandes
+pm** et les **🔧 réglages**, appelés depuis le menu du haut. Les onglets, en haut,
 gardent sous la main celles que tu veux retrouver.
 
 ## 📊 tableau de bord — l'onglet permanent

@@ -3736,3 +3736,55 @@ assert(/<button class="mini" id="updbtn" style="display:none" onclick="showCoreU
 assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test(html),
   "…et son infobulle");
 console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");
+
+// — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
+// Deux agents sur le même ticket, c'est un worktree, une branche et un statut
+// Redmine disputés — et on ne s'en aperçoit qu'après. Le serveur refuse déjà
+// (409) une seconde session ANCRÉE ; ce qui passait sans bruit, c'est le ticket
+// traité par une session ancrée AILLEURS (registre, worklog) — le cas courant.
+const _effDisp2818 = grabO("effDisposition");
+const ticketBusySessions = grabO("ticketBusySessions", { effDisposition: _effDisp2818 });
+const P2818 = { handled: [
+  { sid: "2700", alive: true,  state: "working", disposition: "",        title: "en cours" },
+  { sid: "cockpit", alive: true, state: "idle",  disposition: "termine", title: "fini" },
+  { sid: "vieille", alive: false, state: "ghost", disposition: "",       title: "hier" },
+  { sid: "parke", alive: true,  state: "idle",   disposition: "parke",   title: "parké" },
+] };
+const b2818 = ticketBusySessions(P2818);
+assert.deepStrictEqual(b2818.alive.map(s => s.sid), ["2700", "parke"],
+  "vivantes non terminées : celle qui travaille et celle qui est parkée (parké ≠ terminé)");
+assert.deepStrictEqual(b2818.stopped.map(s => s.sid), ["vieille"],
+  "éteinte non terminée : signalée, mais elle n'occupe rien");
+assert(!b2818.alive.some(s => s.sid === "cockpit"),
+  "une session MARQUÉE terminée ne doit rien déclencher — c'est tout l'intérêt du marquage");
+const vide2818 = (p) => { const r = ticketBusySessions(p); return !r.alive.length && !r.stopped.length; };
+assert(vide2818(null), "payload absent → rien");
+assert(vide2818({}), "payload sans handled → rien");
+assert(vide2818({ handled: [] }),
+  "aucune session : aucune alerte, le cas nominal reste sans friction");
+// `state` prime sur la marque : une session qui travaille n'est jamais « terminée »
+assert.deepStrictEqual(
+  ticketBusySessions({ handled: [{ sid: "x", alive: true, state: "attention", disposition: "termine" }] })
+    .alive.map(s => s.sid), ["x"],
+  "une session qui attend une réponse compte, quelle que soit sa marque");
+
+// Le texte d'alerte doit NOMMER ce qu'il a trouvé (sinon on confirme à l'aveugle)
+const dupText = grabO("duplicateSessionText", { effDisposition: _effDisp2818 });
+const txt2818 = dupText("2816", b2818);
+assert(txt2818.includes("2700") && txt2818.includes("parke"), "les sessions vivantes sont nommées");
+assert(txt2818.includes("RM2816"), "le ticket est nommé");
+assert(/éteinte/i.test(txt2818), "les sessions éteintes sont mentionnées, pas tues");
+
+// Câblage : les DEUX points de lancement passent par la garde
+["async function spawnTicketSession(", "async function spawn("].forEach(sig => {
+  const i = html.indexOf(sig);
+  assert(i > 0, "fonction introuvable : " + sig);
+  const corps = html.slice(i, i + 2200);
+  assert(/confirmSecondSession\(/.test(corps), sig + " doit passer par confirmSecondSession");
+});
+const css2818 = /async function confirmSecondSession\([\s\S]*?\n\}/.exec(html);
+assert(css2818, "confirmSecondSession introuvable");
+assert(/ensureTicketSessions\(.*true\)/.test(css2818[0]),
+  "l'état des sessions du ticket doit être RELU (un cache périmé dirait « libre » à tort)");
+assert(/attach\(/.test(css2818[0]), "…et proposer de REJOINDRE la session existante");
+console.log("✓ 2e session sur un ticket pris (RM2818) : alerte nommée, rejoindre plutôt que doubler");

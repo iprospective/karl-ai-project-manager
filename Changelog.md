@@ -14,6 +14,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Alerte avant d'ouvrir une 2e session sur un ticket déjà pris** (RM2818). Le serveur
+  refusait déjà (409) une seconde session ANCRÉE sur l'id ; ce qui passait sans bruit, c'est
+  le ticket traité par une session ancrée AILLEURS — branche du registre, worklog —, soit le
+  cas courant du ticket ramassé en cours de route. Les deux points de lancement (fiche du
+  ticket, lanceur du panneau sessions) montrent désormais ce qui existe — sid, titre, état,
+  et à quel titre la session le traite — puis proposent de **rejoindre** avant d'offrir
+  d'ouvrir quand même. Une session marquée « terminé » (RM2515) ne déclenche rien : c'est
+  exactement ce que la marque sert à dire ; « parké » ou éteinte, si — le travail n'est pas
+  fini. L'état est relu avant de trancher, un cache périmé dirait « libre » à tort.
 - **Déverrouillage de clé SSH : « bad file descriptor » corrigé** (RM2822). Le cockpit passe
   la passphrase à `ssh-add` par un tube anonyme, lu par `karl-askpass.sh` — qui lisait le
   descripteur **3 en dur**. Or `pass_fds` conserve le numéro du tube au lieu de le remapper :

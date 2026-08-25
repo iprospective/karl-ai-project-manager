@@ -14,6 +14,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Déverrouillage de clé SSH : « bad file descriptor » corrigé** (RM2822). Le cockpit passe
+  la passphrase à `ssh-add` par un tube anonyme, lu par `karl-askpass.sh` — qui lisait le
+  descripteur **3 en dur**. Or `pass_fds` conserve le numéro du tube au lieu de le remapper :
+  dans un processus nu `os.pipe()` rend 3 (d'où des tests verts et une fonction réputée
+  bonne), mais dans karl-agent, dont les sockets tiennent les descripteurs bas, le tube tombe
+  sur 8 ou 11 et l'askpass lisait dans le vide — **aucun chargement de clé ne pouvait
+  aboutir**. Le serveur dit désormais quel descripteur lire (`KARL_ASKPASS_FD`, repli sur 3 :
+  un numéro de descripteur n'est pas un secret, la passphrase reste dans le tube), et la
+  lecture passe par `/dev/fd/<n>` — `<&$fd` ne sait pas dépasser le descripteur 9 (« Bad fd
+  number »), justement la zone où atterrit le tube d'un serveur. Le test reproduit maintenant
+  le cas réel en occupant les descripteurs bas, au lieu de partir d'un processus vierge.
 - **« ⚙ commandes pm » et « 🔧 réglages » quittent la colonne de gauche** (RM2816). Ces deux
   surfaces ne sont pas des listes de travail : on y va pour faire un geste — lancer une action
   PM, changer un réglage — puis on en sort. Elles occupaient pourtant deux des huit onglets

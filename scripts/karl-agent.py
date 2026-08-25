@@ -8692,6 +8692,12 @@ def op_vault_ssh_add(payload: dict, auth_ctx: dict) -> dict:
     env["SSH_ASKPASS"] = str(askpass)
     env["SSH_ASKPASS_REQUIRE"] = "force"
     env.setdefault("DISPLAY", ":0")        # OpenSSH < 8.4 : askpass exige un DISPLAY
+    # RM2822 : `pass_fds` CONSERVE le numéro du descripteur, il ne le remappe pas
+    # sur 3. Dans un processus nu `os.pipe()` rend 3 et le montage marchait par
+    # coïncidence ; dans karl-agent, dont les sockets tiennent les descripteurs
+    # bas, le tube atterrit sur 8 ou 9 et l'askpass lisait dans le vide. On lui
+    # dit donc lequel lire — un numéro de descripteur n'est pas un secret.
+    env["KARL_ASKPASS_FD"] = str(r)
     try:
         p = subprocess.run(["ssh-add", str(path)], env=env, pass_fds=(r,),
                            stdin=subprocess.DEVNULL, capture_output=True,

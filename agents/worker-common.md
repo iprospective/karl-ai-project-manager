@@ -65,6 +65,18 @@ symlinks n'est pas fiable).
 
 Respecter le `context_budget` du frontmatter.
 
+## Phase d'étude : le CDC porte une section « Implémentation »
+
+Quel que soit ton rôle, si tu produis un CDC en `etude_chiffrage_en_cours` et que
+l'étude **débouche sur du code**, le CDC doit porter une section `## Implémentation` :
+l'esquisse technique issue de ton audit (modèle de données, composants, **points
+d'insertion `fichier:fonction`**, vues, flux, migration, pièges relevés). 15 à 40 lignes,
+elle **oriente sans prescrire**. Pas d'exemption pour les petits développements.
+
+Sans elle, l'agent qui reprend le ticket refait ton audit — et souvent avec un modèle
+moins capable que le tien. Détail complet, dispenses et condition de sortie :
+`norms/src/modules/status-workflow-pratique.md` § *La section « Implémentation » du CDC*.
+
 ## Vérification initiale
 
 ```

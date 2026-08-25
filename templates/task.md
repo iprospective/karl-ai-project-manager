@@ -123,6 +123,22 @@ tags: []
 - [ ]
 - [ ]
 
+## Implémentation
+<!-- Rempli en phase d'étude (etude_chiffrage_en_cours), OBLIGATOIRE dès que l'étude
+     débouche sur du code — y compris pour un petit développement.
+     Esquisse technique issue de l'audit : elle ORIENTE l'implémenteur, elle ne
+     prescrit pas. 15 à 40 lignes ; pas de bloc de code sauf un DDL, une requête ou
+     une signature réellement décisifs. Les rubriques sans objet se taisent.
+       - Modèle de données  : tables/colonnes ajoutées ou modifiées (nom + type + rôle)
+       - Composants         : classes/modules/scripts à créer ou modifier (1 ligne chacun)
+       - Points d'insertion : `fichier:fonction` où le code se greffe  ← le plus précieux
+       - Vues / UI          : écrans, colonnes, filtres impactés
+       - Flux & déclencheurs: ce qui appelle quoi (hook, trigger, cron, webservice)
+       - Migration / init   : backfill, scripts rejouables, ordre des opérations
+       - Pièges identifiés  : les surprises de l'audit
+     Dispense : ticket audit/research/documentation dont le livrable EST l'étude.
+     Détail : norms/src/modules/status-workflow-pratique.md § La section « Implémentation » du CDC -->
+
 ## Instructions
 <!-- Étapes, contraintes, ressources, accès nécessaires -->
 

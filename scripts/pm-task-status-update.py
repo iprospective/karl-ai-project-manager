@@ -702,6 +702,25 @@ def main():
         except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
             pass
 
+    # Section « Implémentation » du CDC (RM2563) — WARNING non bloquant : une étude
+    # soumise sans esquisse technique oblige l'implémenteur à refaire l'audit qui vient
+    # d'être payé, souvent avec un modèle moins capable que celui qui l'a mené.
+    # Dispense : tickets dont le livrable EST l'étude (audit / research / documentation).
+    if args.status == "etude_chiffrage_a_valider":
+        try:
+            _m = FRONTMATTER_RE.match(md_path.read_text(encoding="utf-8"))
+            _fm_now = yaml.safe_load(_m.group(2)) or {}
+            if str(_fm_now.get("type") or "").strip() not in (
+                    "audit", "research", "documentation"):
+                _desc = ((issue or {}).get("description") or "").strip() or _m.group(4)
+                if not re.search(r"(?mi)^#{1,4}\s*Impl[ée]mentations?\b", _desc):
+                    out.warn(
+                        f"pas de section « Implémentation » dans le CDC de RM{args.rm_id} "
+                        f"→ l'implémenteur devra refaire l'audit "
+                        f"(NORMS status-workflow-pratique § La section « Implémentation » du CDC)")
+        except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
+
     # Résolution de l'assignation Redmine.
     #
     # Priorité (du plus explicite au plus implicite) :

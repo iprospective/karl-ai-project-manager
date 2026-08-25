@@ -1,9 +1,9 @@
 ---
-schema_version: "2.8.0"
-updated: 2026-08-24
+schema_version: "2.9.0"
+updated: 2026-08-25
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.8.0
+# Normes de gestion des tâches — v2.9.0
 # Normes de gestion des tâches — v2.7.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
@@ -33,7 +33,7 @@ updated: 2026-08-24
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
-| je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
+| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC** (section `## Implémentation` obligatoire dès que l'étude débouche sur du code), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
@@ -1281,7 +1281,7 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC (section « Implémentation ») · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
 > **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
@@ -1402,16 +1402,19 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
+- **Esquisse d'implémentation** — la section `## Implémentation` du CDC (§ dédiée
+  ci-dessous). **Obligatoire dès que l'étude débouche sur du code**, quelle que soit la
+  taille du développement.
 
 **Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
-à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
+est terminée (CDC rédigé — **section `## Implémentation` comprise** —, `estimate.*`
+complet), l'agent **ne passe pas directement à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
 **ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
 que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
 développement. C'est le pendant amont du `a_tester_demandeur` aval.
 
 **Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC (section `## Implémentation` comprise) + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
@@ -1424,6 +1427,54 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+#### La section « Implémentation » du CDC — v2.9.0 (RM2563)
+
+Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et au **combien**
+(chiffrage). Il doit aussi porter le **comment** : une section `## Implémentation` qui
+fixe par écrit l'esquisse technique que l'audit vient de produire. Sans elle, l'agent qui
+reprend le ticket en `a_faire` **refait l'audit** — travail payé deux fois, et refait
+moins bien, puisqu'il repart sans les conclusions déjà acquises.
+
+**Contenu attendu.** Les rubriques sans objet se taisent : on ne les remplit pas pour
+faire nombre.
+
+| Rubrique | Ce qu'on y met |
+|---|---|
+| Modèle de données | tables / colonnes / champs ajoutés ou modifiés — nom + type + rôle en une ligne. Pas le DDL complet. |
+| Composants | classes / modules / scripts à créer ou modifier, un rôle par ligne. Pas les signatures. |
+| **Points d'insertion** | `fichier:fonction` où le code se greffe dans l'existant. **La rubrique la plus précieuse** : c'est le fruit le plus périssable de l'audit, celui qui coûte le plus cher à retrouver. |
+| Vues / UI | écrans, colonnes, filtres impactés. |
+| Flux & déclencheurs | ce qui appelle quoi — hook, trigger, cron, webservice. |
+| Migration / initialisation | backfill, scripts rejouables, ordre des opérations. |
+| Pièges identifiés | les surprises de l'audit : règle métier contre-intuitive, incohérence de l'existant, contrainte d'environnement. |
+
+**Niveau de détail.** Assez pour ne pas refaire l'audit, pas assez pour figer le code :
+**l'esquisse oriente, elle ne prescrit pas.** L'implémenteur garde la main sur le détail
+et peut s'en écarter — en le justifiant dans le `.log.md`. Ordre de grandeur : **15 à 40
+lignes**, aucun bloc de code sauf un DDL, une requête ou une signature réellement
+décisifs. L'excès inverse est un échec symétrique : une esquisse qui devient une spec
+détaillée alourdit la phase d'étude et confisque le travail de l'implémenteur.
+
+**Quand elle est exigée.** Dès que l'étude **débouche sur du code** — **sans exemption
+pour les petits développements**. Sur un dev simple la section fera cinq lignes, mais
+elle sera là : c'est précisément là qu'on se dispense d'écrire ce qu'on a compris, faute
+d'enjeu apparent. Seul un ticket `audit` / `research` / `documentation` dont le livrable
+**est** l'étude en est dispensé — et si cette étude débouche sur un ticket de code, c'est
+le CDC de ce ticket-là qui porte la section.
+
+**Pourquoi une obligation, pas un conseil.** Le rationnel n'est pas la taille de la tâche
+mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plus fort,
+l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
+section Implémentation est le canal par lequel le raisonnement du modèle fort survit à ce
+transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
+(calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
+l'audit sous forme actionnable.
+
+**Condition de sortie.** Un CDC sans section `## Implémentation` (hors tickets dispensés)
+n'est **pas** un CDC complet : le passage en `etude_chiffrage_a_valider` ne doit pas être
+demandé. `pm-task-status-update.py` émet un **avertissement non bloquant** sur cette
+transition quand la section manque — même forme que le garde-fou « protocole de test ».
+
 ### Transitions « assignee-only » — v1.31.0
 
 Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket

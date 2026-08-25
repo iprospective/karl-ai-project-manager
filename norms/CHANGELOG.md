@@ -1,5 +1,28 @@
 # Changelog des normes
 
+## [2.9.0] - 2026-08-25
+
+### Ajouté
+- **Phase d'étude — section « Implémentation » obligatoire dans le CDC** (RM2563).
+  Le CDC répondait au *quoi* et au *combien* mais laissait le *comment* implicite :
+  l'agent qui reprenait le ticket en `a_faire` **refaisait l'audit** déjà payé, et
+  repartait sans les conclusions acquises. Nouvelle § dans
+  `modules/status-workflow-pratique.md` : contenu attendu (modèle de données,
+  composants, **points d'insertion `fichier:fonction`**, vues, flux & déclencheurs,
+  migration, pièges), niveau de détail (**15 à 40 lignes ; l'esquisse oriente, elle
+  ne prescrit pas**), et condition de sortie de `etude_chiffrage_en_cours`.
+  **Exigée dès que l'étude débouche sur du code, sans exemption pour les petits
+  développements** — le rationnel n'est pas la taille de la tâche mais l'asymétrie
+  de compétence entre le modèle qui mène l'étude et celui qui implémente. Dispense :
+  tickets `audit` / `research` / `documentation` dont le livrable *est* l'étude.
+  Répercussions : déclencheur KERNEL (« je rédige un CDC »), `agents/worker-common.md`
+  (§ *Phase d'étude*, tous rôles), `agents/worker-analyst.md` (phase 2, vérifications
+  pré-soumission, outputs `audit`), `templates/task.md` (section + commentaire guide),
+  `templates/RM9999_exemple-tache-complete.md` (exemple rempli).
+  Garde-fou **non bloquant** dans `pm-task-status-update.py` au passage en
+  `etude_chiffrage_a_valider` (même forme que le garde-fou « protocole de test »,
+  RM2229). Cas déclencheur : RM2560 (calicote/dolibarr).
+
 ## [2.8.0] - 2026-08-24
 
 ### Modifié

@@ -3846,10 +3846,52 @@ function noteTab(kind, key, label, opts) {
   if (opts && opts.pin) renderPinMarks();     // RM2795 : épinglé à l'ouverture
 }
 
+// >>> sessionTabAction — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2819 — que faire quand on clique l'onglet d'une session ? Un onglet épinglé
+// survit à ce qu'il montrait (RM2672) : la session peut être vivante, seulement
+// ENREGISTRÉE (fantôme RM2427), ou avoir disparu. On attachait dans les trois
+// cas — donc un terminal vide dans deux d'entre eux, sans un mot d'explication
+// et sans le seul geste utile : la relancer.
+// Une même session peut figurer deux fois (son fantôme dans un jeu + l'entrée
+// vivante) : la vivante l'emporte, sinon on relancerait ce qui tourne déjà.
+function sessionTabAction(sid, sessions) {
+  const key = String(sid == null ? "" : sid);
+  const list = Array.isArray(sessions) ? sessions : Object.values(sessions || {});
+  const match = list.filter(s => s && String(s.rm_id) === key);
+  const vivante = match.find(s => !s.ghost);
+  if (vivante) return { action: "attach", session: vivante };
+  if (match.length) return { action: "relaunch", session: match[0] };
+  return { action: "missing", session: null };
+}
+// <<< sessionTabAction
+
+// Le clic sur un onglet de session passe par ici. `sessCache` ne connaît que ce
+// que la colonne affiche — le jeu courant : une session d'un autre jeu, ou
+// éteinte depuis le dernier refresh, n'y est pas. On redemande donc la liste
+// COMPLÈTE (fantômes inclus) avant de conclure à la disparition ; conclure sur
+// le seul cache ferait dire « introuvable » à une session parfaitement relançable.
+async function openSessionTab(sid) {
+  let acte = sessionTabAction(sid, sessCache);
+  if (acte.action !== "attach") {
+    try {
+      const d = await api("/sessions?ghosts=1");
+      acte = sessionTabAction(sid, d.sessions || []);
+    } catch (e) { /* réseau : on s'en tient à ce que le cache disait */ }
+  }
+  if (acte.action === "attach") return attach(sid);
+  // relaunchGhost demande confirmation, appelle /resume, puis attache : c'est le
+  // MÊME chemin que le clic sur la tuile grise (RM2427/RM2536), pas un second.
+  if (acte.action === "relaunch") return relaunchGhost(acte.session);
+  // Ni vivante ni enregistrée : l'onglet montre quelque chose qui n'existe plus.
+  // On le dit, et on propose le seul geste qui reste — le refermer.
+  toastAction("session " + sid + " introuvable — ni vivante, ni enregistrée",
+              "fermer l'onglet", () => closeTab("session:" + String(sid)));
+}
+
 function activateTab(id) {
   const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
   if (!t) return;
-  if (t.kind === "session") attach(t.key);
+  if (t.kind === "session") openSessionTab(t.key);   // RM2819 : éteinte → relance
   else if (t.kind === "review") openReview(t.key);
   else if (t.kind === "project") openProjectView(t.key);
   else if (t.kind === "newticket") openNewTicket();

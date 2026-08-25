@@ -3736,3 +3736,42 @@ assert(/<button class="mini" id="updbtn" style="display:none" onclick="showCoreU
 assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test(html),
   "…et son infobulle");
 console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");
+
+// — RM2819 : cliquer l'onglet d'une session éteinte doit la RELANCER —
+// Un onglet épinglé survit à ce qu'il montrait : la session peut être vivante,
+// seulement enregistrée (fantôme), ou avoir disparu. On attachait dans les trois
+// cas — terminal vide dans deux d'entre eux, sans rien dire.
+const sessionTabAction = grabO("sessionTabAction");
+const S2819 = [
+  { rm_id: "100", state: "working" },
+  { rm_id: "200", ghost: true, engine: "claude", session_id: "abc", resumable: true },
+  // même id, deux entrées (un fantôme du jeu + la session relancée) : la vivante prime
+  { rm_id: "300", ghost: true }, { rm_id: "300", state: "idle" },
+];
+assert.strictEqual(sessionTabAction("100", S2819).action, "attach", "session vivante → attach");
+const r2819 = sessionTabAction("200", S2819);
+assert.strictEqual(r2819.action, "relaunch", "session enregistrée non démarrée → relance");
+assert.strictEqual(r2819.session.session_id, "abc",
+  "…avec SON entrée : relaunchGhost a besoin de engine/session_id");
+assert.strictEqual(sessionTabAction("300", S2819).action, "attach",
+  "un fantôme homonyme ne doit pas masquer la session vivante");
+assert.strictEqual(sessionTabAction("999", S2819).action, "missing", "inconnue → on le dit");
+assert.strictEqual(sessionTabAction("100", {}).action, "missing", "cache vide → inconnue");
+// sessCache est un objet {rm_id: session}, la réponse /sessions un tableau : les deux passent
+const parCle = { "200": { rm_id: "200", ghost: true } };
+assert.strictEqual(sessionTabAction("200", parCle).action, "relaunch",
+  "la fonction accepte le cache indexé comme la liste");
+assert.strictEqual(sessionTabAction(200, parCle).action, "relaunch", "id numérique accepté");
+
+// Câblage : l'onglet passe par le routeur, plus par attach() en direct.
+const act2819 = /(function activateTab\([\s\S]*?\n\})/.exec(html)[1];
+assert(/t\.kind === "session"\) openSessionTab\(/.test(act2819),
+  "activateTab doit router la session vers openSessionTab");
+const ost2819 = /async function openSessionTab\([\s\S]*?\n\}/.exec(html);
+assert(ost2819, "openSessionTab introuvable");
+// Le cache ne voit que le jeu courant : ne pas conclure à la disparition sans redemander.
+assert(/\/sessions\?ghosts=1/.test(ost2819[0]),
+  "openSessionTab doit relire la liste COMPLÈTE avant de conclure à l'absence");
+assert(/relaunchGhost\(/.test(ost2819[0]), "…et déléguer la relance au chemin existant");
+assert(/toastAction\(/.test(ost2819[0]), "…et proposer de fermer l'onglet d'une session disparue");
+console.log("✓ onglet de session éteinte (RM2819) : relance au clic, jamais un terminal vide");

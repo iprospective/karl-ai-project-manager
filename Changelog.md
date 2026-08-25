@@ -14,6 +14,10 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **« ⬆ MAJ dispo » passe en bout de rangée** (RM2821). Bouton intermittent posé au milieu
+  du header : son apparition décalait tous les boutons suivants, juste au moment où on visait
+  autre chose. Dernier de la rangée, il ne pousse plus personne — comportement inchangé par
+  ailleurs (masqué par défaut, même infobulle, même clic).
 - **« ⚙ commandes pm » et « 🔧 réglages » quittent la colonne de gauche** (RM2816). Ces deux
   surfaces ne sont pas des listes de travail : on y va pour faire un geste — lancer une action
   PM, changer un réglage — puis on en sort. Elles occupaient pourtant deux des huit onglets

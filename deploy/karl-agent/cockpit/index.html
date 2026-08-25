@@ -811,11 +811,6 @@ if (window.matchMedia) {
   <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
   <button class="mini" id="voicebtn" onclick="toggleVoice()"
     title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
-  <!-- RM2571 : une MAJ du core est disponible. Purement INFORMATIF — l'application
-       reste un geste humain au terminal (mot de passe sudo), et ce qui atteint
-       `main` est lui-même une décision humaine. -->
-  <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
-    title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
   <!-- RM2776 : navigation dans les vues déjà visitées. `←`/`→` comme dans un
        navigateur ; « historique » ouvre la liste, la plus récente en tête. -->
   <button class="mini" id="histback" onclick="navGo(-1)"
@@ -842,6 +837,13 @@ if (window.matchMedia) {
   <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
        (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
   <button class="mini" id="lockbtn" style="display:none" onclick="openVault()"></button>
+  <!-- RM2571 : une MAJ du core est disponible. Purement INFORMATIF — l'application
+       reste un geste humain au terminal (mot de passe sudo), et ce qui atteint
+       `main` est lui-même une décision humaine.
+       RM2821 : DERNIER de la rangée. Il n'apparaît qu'à l'occasion ; au milieu de
+       la barre, son arrivée décalait tous les boutons suivants sous la souris. -->
+  <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
+    title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
 </header>

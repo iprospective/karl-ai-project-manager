@@ -3720,3 +3720,19 @@ assert(ocp2816, "openCenterPanel introuvable");
 assert(/CFG\.auth_required && !token\(\)[\s\S]{0,200}openCenterPanel\("settings"\)/.test(html),
   "auth requise sans jeton doit ouvrir les réglages au centre");
 console.log("✓ commandes pm & réglages (RM2816) : menu du haut, contenu en onglet central");
+
+// — RM2821 : « ⬆ MAJ dispo » en bout de rangée —
+// Bouton intermittent (il n'apparaît que quand une MAJ existe) : au milieu de la
+// barre, son apparition décalait tous les suivants juste au moment où on visait
+// autre chose. Dernier de la rangée, il ne pousse plus personne.
+const head2821 = /<header>[\s\S]*?<\/header>/.exec(html)[0];
+const btns2821 = [...head2821.matchAll(/<button[^>]*\bid="([^"]+)"/g)].map(m => m[1]);
+assert(btns2821.includes("updbtn"), "le bouton MAJ doit rester dans le header");
+assert.strictEqual(btns2821[btns2821.length - 1], "updbtn",
+  "« MAJ dispo » doit être le DERNIER bouton du header (ordre : " + btns2821.join(", ") + ")");
+// Rien d'autre ne bouge : même déclencheur, même clic, même infobulle.
+assert(/<button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate\(\)"/.test(html),
+  "le bouton MAJ garde son comportement (masqué par défaut, showCoreUpdate au clic)");
+assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test(html),
+  "…et son infobulle");
+console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");

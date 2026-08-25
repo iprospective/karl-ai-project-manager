@@ -137,6 +137,31 @@ check("unlock : aucun fichier temporaire laissé avec le secret",
       not any(SECRET in p.read_text(encoding="utf-8", errors="ignore")
               for p in tmp.glob("*.tmp")))
 
+# ── RM2822 : le programme d'assistance lui-même ──────────────────────────────
+# Contrat : il lit le descripteur que $KARL_ASKPASS_FD désigne, et garde le 3 en
+# repli pour un appelant qui ne dit rien (le montage d'avant RM2822).
+_ASKPASS = HERE.parent / "deploy" / "karl-agent" / "karl-askpass.sh"
+_SANS_VAR = (
+    "import os, subprocess, sys\n"
+    "r, w = os.pipe()\n"
+    "os.write(w, b'secret-fd3\\n'); os.close(w)\n"
+    "p = subprocess.run([sys.argv[1], 'invite'], pass_fds=(r,), stdin=subprocess.DEVNULL,\n"
+    "                   capture_output=True, text=True)\n"
+    "print(r, p.returncode, p.stdout.strip(), p.stderr.strip())\n"
+)
+# processus neuf : os.pipe() y rend 3, c'est-à-dire le cas de l'appelant historique
+_env_sans = {k: v for k, v in os.environ.items() if k != "KARL_ASKPASS_FD"}
+_out = subprocess.run([sys.executable, "-c", _SANS_VAR, str(_ASKPASS)],
+                      capture_output=True, text=True, env=_env_sans).stdout.split()
+check("askpass : sans KARL_ASKPASS_FD, le descripteur 3 reste lu (repli)",
+      _out[:3] == ["3", "0", "secret-fd3"])
+
+_bad = subprocess.run([str(_ASKPASS), "invite"], capture_output=True, text=True,
+                      stdin=subprocess.DEVNULL,
+                      env={**os.environ, "KARL_ASKPASS_FD": "3; rm -rf /"})
+check("askpass : un KARL_ASKPASS_FD non numérique est refusé (pas d'eval sauvage)",
+      _bad.returncode == 2 and "invalide" in _bad.stderr)
+
 # ── ssh-add : agent jetable, clé jetable, passphrase par descripteur ─────────
 if not shutil.which("ssh-agent") or not shutil.which("ssh-keygen"):
     print("… ssh-agent/ssh-keygen absents : partie SSH non jouée")
@@ -174,6 +199,29 @@ else:
         st = ka.op_vault_status()
         check("statut : la clé chargée apparaît",
               any(k["comment"] == "rm2748-test" for k in st["ssh"]["keys"]))
+
+        # RM2822 — le cas RÉEL : karl-agent est un serveur, ses sockets occupent
+        # déjà les descripteurs bas, et le tube de la passphrase n'atterrit donc
+        # JAMAIS sur 3. Un test lancé dans un processus nu, lui, obtient 3 par
+        # hasard et ne voit rien. On occupe les descripteurs bas pour reproduire
+        # le serveur : sans le correctif, l'askpass lit un fd inexistant et
+        # ssh-add échoue en « Bad file descriptor ».
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-f", str(home / ".ssh" / "tkey2"),
+                        "-N", PASS, "-C", "rm2822-test"], check=True)
+        garde = [os.open(os.devnull, os.O_RDONLY) for _ in range(8)]
+        try:
+            res2 = ka.op_vault_ssh_add({"key": "tkey2", "passphrase": PASS}, CTX)
+        finally:
+            for fd in garde:
+                os.close(fd)
+        check("ssh-add : clé chargée alors que les descripteurs bas sont pris (RM2822)",
+              res2["ok"] is True)
+        check("ssh-add : aucun « bad file descriptor » (RM2822)",
+              "file descriptor" not in (res2.get("detail") or "").lower())
+        listed2 = subprocess.run(["ssh-add", "-l"], capture_output=True, text=True,
+                                 env=dict(os.environ)).stdout
+        check("ssh-add : la 2e clé est bien dans l'agent (RM2822)", "rm2822-test" in listed2)
+        check("ssh-add : passphrase ABSENTE de la réponse (RM2822)", PASS not in json.dumps(res2))
     finally:
         if old_home is not None:
             os.environ["HOME"] = old_home

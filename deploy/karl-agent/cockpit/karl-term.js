@@ -246,11 +246,22 @@
 
     var fit = new global.FitAddon.FitAddon();
     term.loadAddon(fit);
-    try {
-      var u11 = new global.Unicode11Addon.Unicode11Addon();
-      term.loadAddon(u11);
-      term.unicode.activeVersion = "11";
-    } catch (e) { /* addon absent : largeurs de caractères par défaut */ }
+    // RM2807 : l'addon Unicode11 recalcule la largeur de CHAQUE graphème (emoji
+    // ZWJ, combinés, box-drawing) que le TUI Claude Code émet en masse. C'est le
+    // seul poste lourd que notre montage a en plus de la référence stable (le
+    // client ttyd de repli, sans unicode11). Suspect n°1 de l'emballement mémoire
+    // Firefox → OPT-IN désormais : par défaut on adopte le calcul de largeur natif
+    // (identique à ttyd, éprouvé stable) ; `localStorage.karl_u11 = "1"` le
+    // réactive pour un A/B à chaud sur l'onglet même qui gonfle, sans redéploiement.
+    var u11On = false;
+    try { u11On = global.localStorage && global.localStorage.getItem("karl_u11") === "1"; } catch (e) {}
+    if (u11On) {
+      try {
+        var u11 = new global.Unicode11Addon.Unicode11Addon();
+        term.loadAddon(u11);
+        term.unicode.activeVersion = "11";
+      } catch (e) { /* addon absent : largeurs de caractères par défaut */ }
+    }
 
     term.open(container);
     var uninstallAccentFix = installAccentFix(container, term);

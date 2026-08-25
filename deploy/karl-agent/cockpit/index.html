@@ -1187,8 +1187,13 @@ if (window.matchMedia) {
           </div>
         </div>
         <div id="termhost" style="display:none"></div>
+        <!-- repli si le bundle xterm ne charge pas (RM2522) -->
+        <iframe id="term" style="display:none"></iframe>
         <!-- RM2527 : composer — écrire sans passer par le clavier du terminal.
-             Reste sous le terminal, ne prend le focus que si on clique dedans. -->
+             RM2807 : placé APRÈS les deux surfaces terminal (#termhost xterm ET
+             #term iframe) pour rester visuellement SOUS le terminal dans les deux
+             modes. Auparavant intercalé entre #termhost et l'iframe, il flottait
+             AU-DESSUS de l'iframe de repli (ordre du flux flex). -->
         <div id="composer" style="display:none">
           <div class="cmpwarn" id="cmpwarn" style="display:none"></div>
           <textarea id="cmptext" rows="2" spellcheck="false"
@@ -1208,8 +1213,6 @@ if (window.matchMedia) {
           </div>
           <div class="cmphist" id="cmphist" style="display:none"></div>
         </div>
-        <!-- repli si le bundle xterm ne charge pas (RM2522) -->
-        <iframe id="term" style="display:none"></iframe>
         <div id="reviewpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>
         <!-- RM2353 : fiche projet (clic sur un groupe de la colonne gauche) -->
         <div id="projpane" style="display:none;flex:1;overflow-y:auto;padding:22px 26px;overscroll-behavior:contain"></div>

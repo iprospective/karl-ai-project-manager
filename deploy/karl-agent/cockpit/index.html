@@ -1406,6 +1406,11 @@ if (window.matchMedia) {
                    demander seule. Et la fermeture manquait tout court. -->
               <button class="mini" id="batch-etudier-btn" style="display:none" onclick="openBatchPlan('etudier')"
                       title="Faire étudier et chiffrer les tickets cochés (estimation, critères, ROI), puis soumettre l'étude à validation">🔍 analyser</button>
+              <!-- RM2823 : les tickets d'un AUTRE projet ramassés en cours de
+                   route partent dans une session à eux, ancrée sur leur projet.
+                   La session courante retrouve son seul chantier. -->
+              <button class="mini" id="batch-offload-btn" style="display:none" onclick="offloadToNewSession(this)"
+                      title="Ouvrir une NOUVELLE session, ancrée sur le projet des tickets cochés, qui les prend en charge (ils doivent être d'un même projet)">⇱ nouvelle session</button>
               <button class="mini" id="batch-close-btn" style="display:none" onclick="openCloseBatch()"
                       title="Fermer les tickets cochés (résolu) — ceux dont la checklist ou la branche s'y opposent seront listés avec leur raison">✅ fermer</button>
               <span class="cnt" id="workfresh"></span>
@@ -5919,6 +5924,9 @@ function renderBatchButtons() {
   pose("mr-dev-btn", "⇥ merger dev", n.mr);
   pose("mr-prod-btn", "⇥ merger prod", n.mr);
   pose("batch-close-btn", "✅ fermer", n.fermer);
+  // RM2823 : embarquer ne dépend d'aucun statut — n'importe quel ticket coché
+  // peut partir ailleurs. Le compte est celui de la sélection.
+  pose("batch-offload-btn", "⇱ nouvelle session", items.length);
 }
 // >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
@@ -6210,6 +6218,103 @@ function batchScopedItems() {
     return Object.assign({}, it, { scope: e.kept });
   });
 }
+// >>> offloadPlan — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2823 — que devient une sélection de tickets qu'on veut sortir de la session
+// courante ? Une session est ancrée sur UN projet : un lot qui en mélange deux
+// n'a pas d'ancrage possible, et on le dit AVANT plutôt que de créer une session
+// bancale. Un ticket dont le projet n'est pas résolu ne part pas — mais il ne
+// retient pas les autres : il reste sur place, signalé.
+function offloadPlan(items, rcache) {
+  const cache = rcache || {};
+  const targets = [], blocked = [], vus = [];
+  for (const it of items || []) {
+    const rm = String((it && it.rm_id) || "").replace(/^RM/i, "");
+    if (!rm) continue;
+    const r = cache[rm];
+    if (!r || !r.found || !r.client || !r.project) { blocked.push({ rm_id: rm }); continue; }
+    const cle = r.client + "/" + r.project;
+    if (vus.indexOf(cle) < 0) vus.push(cle);
+    targets.push({ rm_id: rm, client: r.client, project: r.project, cwd: r.cwd || "", title: r.title || "" });
+  }
+  const mixed = vus.length > 1;
+  const first = targets[0] || null;
+  return {
+    targets, blocked, mixed, projects: vus,
+    client: mixed || !first ? null : first.client,
+    project: mixed || !first ? null : first.project,
+    // le cwd vient du ticket (résolu par le serveur), jamais reconstruit ici
+    cwd: mixed || !first ? "" : (targets.find(t => t.cwd) || {}).cwd || "",
+    anchor: mixed || !first ? null : first.rm_id,
+  };
+}
+// <<< offloadPlan
+
+// RM2823 — embarque les tickets cochés dans une session neuve. Deux emprunts
+// volontaires : la CONSIGNE vient du serveur (`/worklog/batch` en `dry_run`,
+// le même générateur que « ▶ traiter » — pas un second à maintenir), et la
+// session est créée par `/spawn`, l'endpoint existant.
+// La garde « 2e session » (RM2818) ne s'applique PAS ici : la session qui traite
+// déjà ces tickets est justement celle qu'on veut soulager.
+async function offloadToNewSession(btn) {
+  if (!batchSel.size) return;
+  const items = [...batchSel.values()];
+  // le projet d'un ticket coché peut ne pas être encore résolu : on le demande
+  // avant de conclure « projet inconnu » (le cache se remplit à la demande).
+  await Promise.all(items.map(it => {
+    const rm = String(it.rm_id).replace(/^RM/i, "");
+    return resolveCache[rm] === undefined ? ensureResolved(rm) : Promise.resolve();
+  }));
+  const plan = offloadPlan(items, resolveCache);
+  if (plan.mixed) {
+    alert("Ces tickets appartiennent à plusieurs projets :\n\n  " + plan.projects.join("\n  ") +
+          "\n\nUne session s'ancre sur UN projet — décoche pour n'en garder qu'un.");
+    return;
+  }
+  if (!plan.anchor) {
+    alert("Aucun de ces tickets n'a de projet résolu : impossible de savoir où ancrer la session.");
+    return;
+  }
+  let plan2;
+  try {
+    plan2 = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached || plan.anchor, mode: "traiter",
+                             items, dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  const engine = (document.getElementById("engine") || {}).value || "claude";
+  const model = (document.getElementById("model") || {}).value || "";
+  const lignes = [
+    "Ouvrir une nouvelle session pour " + plan.targets.length + " ticket(s) ?", "",
+    "projet : " + plan.client + " / " + plan.project,
+    "ancrage : RM" + plan.anchor,
+    "cwd : " + (plan.cwd || "(défaut du serveur)"),
+    "moteur : " + engine + (model ? "  ·  modèle : " + model : ""), "",
+    "tickets : " + plan.targets.map(t => "RM" + t.rm_id).join(", "),
+  ];
+  if (plan.blocked.length) {
+    lignes.push("", "⊘ restent ici (projet non résolu) : " +
+                plan.blocked.map(t => "RM" + t.rm_id).join(", "));
+  }
+  lignes.push("", "La consigne de prise en charge est celle de « ▶ traiter ».");
+  if (!confirm(lignes.join("\n"))) return;
+  if (btn) btn.disabled = true;
+  try {
+    const body = { rm_id: plan.anchor, engine, prompt: plan2.prompt };
+    if (model) body.model = model;
+    if (plan.cwd) body.cwd = plan.cwd;
+    const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
+                                     body: JSON.stringify(body) });
+    toast("⇱ " + plan.targets.length + " ticket(s) → session karl-RM" + plan.anchor);
+    warnSetFull(sp);                       // RM2450 : un jeu plein ne passe pas inaperçu
+    // Ils ne sont plus « ouverts ici » : c'est la nouvelle session qui les porte.
+    plan.targets.forEach(t => { openedForget(t.rm_id); tsCache[t.rm_id] = undefined; });
+    batchSel.clear(); batchToggle();
+    await refreshSessions();
+    setTimeout(() => attach(plan.anchor), 400);
+  } catch (e) { toast(e.message, true); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 async function sendBatch(btn) {
   if (!batchPlanCache || !attached) return;
   btn.disabled = true;

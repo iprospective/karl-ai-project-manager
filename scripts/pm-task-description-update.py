@@ -55,6 +55,9 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
+# Clés qui signent un frontmatter de FICHE PM — et pas un simple `---` de
+# séparation Markdown ouvrant un document (RM2820).
+TASK_FM_KEYS_RE = re.compile(r"^(schema_version|redmine_id):", re.M)
 # Ligne de checklist Markdown : "- [ ] ...", "* [x] ...", indentée ou non.
 # Source unique de vérité pour « qu'est-ce qu'une ligne de checklist » : les
 # cases citées dans un bloc de code n'en sont pas (RM2540).
@@ -128,6 +131,29 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
     text = "\n".join(lines)
     checked = sum(1 for _, m in checklist_lines(text) if m.group(2).lower() == "x")
     return text, total, checked, changed
+
+
+def strip_task_frontmatter(text):
+    """Retire un frontmatter de fiche PM en tête de `text`. Pure (RM2820).
+
+    Un `--set-from-file` recevant la fiche `RM<id>.md` COMPLÈTE poussait son
+    frontmatter YAML (schema_version, tokens_total, reporting…) dans la
+    description Redmine, où il n'a aucun sens — et, depuis RM2578, le recopiait
+    dans le CORPS du MD, qui se retrouvait avec deux blocs frontmatter. Constaté
+    sur RM2426 : posé le 2026-07-30, réparé le jour même, rejoué le 07-31 et
+    resté en place un mois. Rien n'empêchait la récidive.
+
+    L'intention de l'appelant est toujours « pousser le corps » : on nettoie et
+    on avertit, plutôt que de refuser. Ne matche qu'en TÊTE de texte et
+    seulement si le bloc porte une clé de fiche — un corps qui cite du YAML plus
+    bas, ou qui s'ouvre sur un `---` de séparation, reste intact.
+
+    Retourne (texte, stripped: bool).
+    """
+    m = FRONTMATTER_RE.match(text or "")
+    if not m or not TASK_FM_KEYS_RE.search(m.group(2)):
+        return text, False
+    return m.group(4).lstrip("\n"), True
 
 
 def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
@@ -207,6 +233,10 @@ def main():
         if not p.is_file():
             sys.exit(f"ERREUR : fichier introuvable : {p}")
         file_text = p.read_text(encoding="utf-8")
+        file_text, _stripped = strip_task_frontmatter(file_text)
+        if _stripped:
+            out.warn(f"frontmatter de fiche PM retiré de {p.name} — seul le corps "
+                     "est poussé (une description Redmine n'a pas de frontmatter).")
 
     # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
     new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(

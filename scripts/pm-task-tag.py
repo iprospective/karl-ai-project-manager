@@ -74,6 +74,8 @@ def main():
     ap.add_argument("--no-commit", action="store_true", help="Pas d'auto-commit git")
     ap.add_argument("--cross-project", action="store_true",
                     help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
+    ap.add_argument("--free", action="store_true",
+                    help="Accepte une étiquette hors vocabulaire : mot-clé LOCAL, jamais poussé au CF")
     ap.add_argument("--porcelain", action="store_true", help="N'imprime que les étiquettes, une par ligne")
     args = ap.parse_args()
 
@@ -97,10 +99,42 @@ def main():
         return
 
     pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-tag")
+
+    # RM2836 — garde à l'écriture. Trois cas, dans cet ordre :
+    #   alias      → on écrit la valeur CANONIQUE, et on le dit (une étiquette
+    #                réécrite en silence donne l'impression d'un geste ignoré) ;
+    #   vocabulaire→ on écrit ;
+    #   inconnu    → on REFUSE, sauf --free. Sans ce refus, le vocabulaire
+    #                contrôlé se remplirait de variantes en quelques semaines —
+    #                c'est exactement comme ça qu'on en est arrivé à 747 mots-clés.
+    entrants = pm_tags.parse_csv(args.add) + (
+        [] if args.set_ is None else pm_tags.parse_csv(args.set_))
+    vocab, convertis, inconnus = set(pm_tags.vocabulary()), [], []
+    reecrit = {}
+    for t in entrants:
+        canon, origine = pm_tags.canonical(t)
+        if origine:
+            convertis.append((origine, canon))
+            reecrit[t] = canon
+        elif canon not in vocab:
+            inconnus.append(canon)
+    if inconnus and not args.free:
+        print(f"✗ hors vocabulaire : {', '.join(sorted(set(inconnus)))}", file=sys.stderr)
+        print(f"  valeurs acceptées : {', '.join(pm_tags.vocabulary()) or '—'}", file=sys.stderr)
+        print(f"  · pour un mot-clé purement LOCAL (jamais poussé au CF) : --free", file=sys.stderr)
+        print(f"  · pour l'ajouter au vocabulaire : UI admin Redmine, puis "
+              f"{pm_tags.REGISTRY} (voir pm-tags-audit.py)", file=sys.stderr)
+        sys.exit(2)
+
+    canon_csv = lambda raw: ",".join(  # noqa: E731
+        reecrit.get(t, t) for t in pm_tags.parse_csv(raw))
     new = pm_tags.apply_change(current,
-                               add=pm_tags.parse_csv(args.add),
+                               add=pm_tags.parse_csv(canon_csv(args.add)),
                                remove=pm_tags.parse_csv(args.remove),
-                               replace=None if args.set_ is None else pm_tags.parse_csv(args.set_))
+                               replace=None if args.set_ is None
+                               else pm_tags.parse_csv(canon_csv(args.set_)))
+    for origine, canon in convertis:
+        print(f"  ↳ « {origine} » est un alias : écrit « {canon} »")
     if new == current:
         print(f"= RM{args.rm_id} étiquettes inchangées : {', '.join(new) or '(aucune)'}")
         return
@@ -118,10 +152,26 @@ def main():
     print(f"✓ RM{args.rm_id} étiquettes : {', '.join(new) or '(aucune)'}"
           + (" (frontmatter + Redmine)" if ok else " (frontmatter)"))
     if ok and inconnues:
-        print(f"  ⓘ hors registre, non poussée(s) au CF « {pm_tags.CF_NAME} » : "
-              f"{', '.join(inconnues)}")
-        print(f"    (valeurs acceptées : {', '.join(pm_tags.known_values()) or '—'} ; "
-              f"pour en ajouter une : UI admin Redmine puis {pm_tags.REGISTRY})")
+        # Deux raisons très différentes de ne pas monter : la valeur est décidée
+        # mais pas encore créée côté Redmine, ou c'est un mot-clé local assumé.
+        attente = [t for t in inconnues if t in set(pm_tags.pending_values())]
+        locaux = [t for t in inconnues if t not in set(pm_tags.pending_values())]
+        if attente:
+            print(f"  ⏳ au vocabulaire mais pas encore créée(s) dans Redmine : "
+                  f"{', '.join(attente)} — non poussée(s) (voir pm-tags-audit.py)")
+        # Un alias DÉJÀ présent au frontmatter n'est pas réécrit en silence :
+        # l'historique appartient au ticket. Mais le dire évite de le prendre
+        # pour un mot-clé local alors qu'une valeur du vocabulaire le couvre.
+        al = pm_tags.load_aliases()
+        residus = [(t, al[t]) for t in locaux if t in al]
+        vrais_locaux = [t for t in locaux if t not in al]
+        if residus:
+            print("  ↯ alias déjà présent(s) : "
+                  + ", ".join(f"« {t} » → « {c} »" for t, c in residus)
+                  + f" — `pm-task-tag {args.rm_id} --set …` pour normaliser")
+        if vrais_locaux:
+            print(f"  ⓘ mot(s)-clé(s) local(aux), non poussé(s) au CF "
+                  f"« {pm_tags.CF_NAME} » : {', '.join(vrais_locaux)}")
     if not ok:
         print(f"⚠ CF Redmine non poussé : {why}", file=sys.stderr)
 

@@ -123,6 +123,73 @@ def load_registry():
     return out
 
 
+def load_aliases():
+    """{alias: valeur canonique} — le mapping n-1 (RM2836), aplati et normalisé.
+
+    Un alias qui serait AUSSI une valeur canonique est ignoré : il se router ait
+    lui-même, et l'erreur passerait inaperçue.
+    """
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+    except Exception:       # noqa: BLE001
+        return {}
+    vals = {normalize(v.get("slug") or v.get("label"))
+            for v in (data.get("values") or []) if isinstance(v, dict)}
+    out = {}
+    for canon, liste in (data.get("aliases") or {}).items():
+        c = normalize(canon)
+        if c not in vals:
+            continue
+        for a in liste or []:
+            k = normalize(a)
+            if k and k not in vals:
+                out[k] = c
+    return out
+
+
+def canonical(tag):
+    """(valeur retenue, alias d'origine) — `ui` → (`front`, `ui`).
+
+    Rendre l'origine permet de le DIRE : une étiquette silencieusement réécrite
+    donne l'impression que le geste a été ignoré.
+    """
+    t = normalize(tag)
+    if not t:
+        return "", None
+    a = load_aliases()
+    return (a[t], t) if t in a else (t, None)
+
+
+def pending_values():
+    """Valeurs déclarées au registre mais pas encore créées côté Redmine (sans id).
+
+    Acceptées à l'écriture locale — le vocabulaire est décidé —, mais impossibles
+    à pousser : l'outillage le dit au lieu d'échouer sur un 422.
+    """
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+    except Exception:       # noqa: BLE001
+        return []
+    return sorted(normalize(v.get("slug") or v.get("label"))
+                  for v in (data.get("values") or [])
+                  if isinstance(v, dict) and v.get("id") is None
+                  and normalize(v.get("slug") or v.get("label")))
+
+
+def vocabulary():
+    """Tous les slugs du vocabulaire décidé — actifs ET en attente."""
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+    except Exception:       # noqa: BLE001
+        return []
+    return sorted({normalize(v.get("slug") or v.get("label"))
+                   for v in (data.get("values") or []) if isinstance(v, dict)
+                   and normalize(v.get("slug") or v.get("label"))})
+
+
 def known_values():
     """Slugs acceptés par le CF (vocabulaire contrôlé). Vide = registre absent."""
     return sorted(load_registry())

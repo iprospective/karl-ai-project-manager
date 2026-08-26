@@ -14,6 +14,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Cockpit
+- **Cliquer l'onglet d'une session éteinte la relance** (RM2819). Un onglet épinglé survit à
+  la session qu'il montrait ; le clic appelait pourtant `attach()` dans tous les cas — donc un
+  terminal vide dès que la session ne tournait plus, sans un mot ni le geste utile. Le clic
+  route désormais sur l'état réel : vivante → attach, seulement enregistrée → la relance
+  (exactement le chemin de la tuile grise, RM2427/RM2536 — pas un second), disparue → on le dit
+  et on propose de fermer l'onglet. Le cache de sessions ne connaissant que le jeu affiché, la
+  liste complète est redemandée avant de conclure à une disparition.
 - **Déverrouillage de clé SSH : « bad file descriptor » corrigé** (RM2822). Le cockpit passe
   la passphrase à `ssh-add` par un tube anonyme, lu par `karl-askpass.sh` — qui lisait le
   descripteur **3 en dur**. Or `pass_fds` conserve le numéro du tube au lieu de le remapper :

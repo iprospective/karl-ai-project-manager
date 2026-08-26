@@ -272,6 +272,12 @@
     var FLOW_LIMIT = 100000;
     var FRAME_PAUSE = ENC.encode("2"), FRAME_RESUME = ENC.encode("3");
     var flowWritten = 0, flowPending = 0;
+    // RM2807 : compteurs cumulés pour la sonde mémoire. L'OOM corrèle avec « je
+    // clique pour écrire » → on trace ce que le rendu synthétique ne couvre pas :
+    // écritures & plus grosse écriture (rafale PTY), resize (SIGWINCH → redraw
+    // plein écran), fit (ResizeObserver), et déclenchements des observers.
+    var stat = { writes: 0, writeBytes: 0, maxWrite: 0, data: 0, resizes: 0,
+                 fits: 0, roFires: 0, themeFires: 0 };
 
     function send(frame) {
       if (socket && socket.readyState === WebSocket.OPEN) socket.send(frame);
@@ -291,6 +297,8 @@
         var msg = ttydDecode(new Uint8Array(ev.data));
         if (!msg) return;
         if (msg.cmd === "0") {                                     // OUTPUT
+          stat.writes++; stat.writeBytes += msg.payload.length;
+          if (msg.payload.length > stat.maxWrite) stat.maxWrite = msg.payload.length;
           // RM2807 : contre-pression. Tous les FLOW_LIMIT octets, PAUSE au
           // serveur + RESUME seulement quand xterm a VRAIMENT consommé ce
           // point de contrôle (callback de write) — la file d'écriture reste
@@ -321,12 +329,12 @@
       };
     }
 
-    term.onData(function (data) { send(ttydEncodeInput(data, function (s) { return ENC.encode(s); })); });
-    term.onResize(function (size) { send(ENC.encode(ttydEncodeResize(size.cols, size.rows))); });
+    term.onData(function (data) { stat.data++; send(ttydEncodeInput(data, function (s) { return ENC.encode(s); })); });
+    term.onResize(function (size) { stat.resizes++; send(ENC.encode(ttydEncodeResize(size.cols, size.rows))); });
 
     connect();
 
-    var refit = function () { try { fit.fit(); } catch (e) {} };
+    var refit = function () { stat.fits++; try { fit.fit(); } catch (e) {} };
 
     // Le terminal ne bouge pas qu'avec la fenêtre : déplier l'encart de session
     // ou un panneau change sa largeur SANS évènement resize. Un ResizeObserver
@@ -335,6 +343,7 @@
     if (global.ResizeObserver) {
       var pending = null;
       ro = new global.ResizeObserver(function () {          // groupé : le dépliage
+        stat.roFires++;
         clearTimeout(pending);                              // est animé, on ne
         pending = setTimeout(refit, 60);                    // refit qu'à la fin
       });
@@ -344,6 +353,7 @@
 
     // Bascule de thème du cockpit (RM2386) : relire les tokens et réappliquer.
     var mo = new MutationObserver(function () {
+      stat.themeFires++;
       try { term.options.theme = readThemeTokens(container); } catch (e) {}
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -351,6 +361,13 @@
     return {
       term: term,
       fit: refit,
+      // RM2807 : instantané cumulé des compteurs, lu par la sonde mémoire.
+      stats: function () {
+        return { writes: stat.writes, writeBytes: stat.writeBytes,
+                 maxWrite: stat.maxWrite, data: stat.data, resizes: stat.resizes,
+                 fits: stat.fits, roFires: stat.roFires, themeFires: stat.themeFires,
+                 cols: term.cols, rows: term.rows };
+      },
       // Envoi d'un message composé hors du terminal (RM2527). Passe par la même
       // socket que la frappe, donc par le même PTY : le TUI ne fait aucune
       // différence. Retourne false si la socket n'est pas prête — l'appelant en

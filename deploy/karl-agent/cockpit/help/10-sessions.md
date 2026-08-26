@@ -52,6 +52,12 @@ ensemble) :
 - **💾 → <jeu>** verse les sessions affichées dans le jeu nommé sur le bouton.
 - Options par jeu : autostart, rétention d'affichage, effacer.
 
+La carte **« Reprendre une session »** filtre d'abord par **client**, et la liste
+des projets se réduit aux siens (« tous » la rétablit). Client seul, sans projet :
+toutes les sessions de ce client, tous projets confondus. Le contexte client du
+bandeau pré-sélectionne le client sans figer le choix, et changer de client
+n'y laisse jamais le projet d'un autre.
+
 ## Un ticket, une session à la fois
 
 Lancer une session sur un ticket **déjà pris en charge** ailleurs — depuis la

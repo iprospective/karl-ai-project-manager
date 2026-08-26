@@ -178,6 +178,31 @@ surtout pas rester des **alias** de leur parent — ils seraient rabattus dessus
 l'écriture, c'est-à-dire que la précision serait perdue au moment même où on la
 demande.
 
+### Sens de la synchronisation (RM2840)
+
+| Geste | Effet |
+|---|---|
+| tag ajouté **en local** | poussé au CF |
+| tag ajouté **dans Redmine** | descend au frontmatter (refresh, ou prochaine écriture locale) |
+| tag retiré **en local** | retiré du CF |
+| tag retiré **dans Redmine** | retiré du frontmatter — **uniquement si le retrait est attesté** |
+
+Le dernier point est la règle importante. « Absent du CF » ne veut pas dire
+« retiré » : un mot-clé local (`cockpit`) n'a pas d'équivalent et n'en aura
+jamais. Rabattre le frontmatter sur la liste du CF l'effacerait à chaque
+refresh — c'est interdit. Ce qui a été retiré, les **journaux** le disent (un CF
+multi-valeurs émet une entrée par valeur, `old_value=45, new_value=null`), et on
+ne lit que les journaux postérieurs au dernier vu.
+
+Sans repère de journal exploitable — première synchro d'un ticket, par exemple —
+la relecture est **additive** : on n'ôte rien. Une suppression faite avant ce
+repère n'est donc jamais rattrapée, et c'est voulu : mieux vaut un tag de trop
+qu'un tag effacé sans qu'on puisse dire par qui.
+
+Symétriquement, une écriture locale **relit** le CF avant de pousser : une valeur
+ajoutée depuis l'UI et pas encore connue ici serait sinon écrasée par la liste
+locale — une suppression que personne n'a demandée.
+
 ### Tenir le registre synchrone
 
     pm-tags-audit.py

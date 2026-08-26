@@ -14,6 +14,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Synchro des tags : additive dans les deux sens, suppression seulement quand elle est
+  attestée** (RM2840). Deux pertes silencieuses corrigées. À la **relecture**, `pm-task-sync`
+  remplaçait la liste locale par celle du CF : un ticket portant `cockpit` (mot-clé local, sans
+  équivalent possible) et `front` perdait `cockpit` à chaque refresh. À l'**écriture**,
+  `pm-task-tag` poussait la liste locale telle quelle : une valeur ajoutée depuis l'UI Redmine
+  et pas encore connue ici était écrasée. Désormais : ajout bidirectionnel ; suppression
+  PM→Redmine ; suppression Redmine→PM **uniquement** pour ce que les **journaux** attestent
+  comme retiré depuis la dernière synchro (un CF multi-valeurs émet une entrée par valeur). Sans
+  repère de journal exploitable, la relecture est additive et le dit — mieux vaut un tag de trop
+  qu'un tag effacé sans qu'on sache par qui. Vérifié en réel sur un ticket de bout en bout.
 - **`pm-task-add` : KeyError après le POST quand `--tags` remplit `extra_cf`** (RM2842,
   régression de RM2829). La ligne qui logue le CF « Task type » lisait
   `tt_values[args.type]` sous la seule condition `if extra_cf:` — vrai depuis que le CF « Tags »

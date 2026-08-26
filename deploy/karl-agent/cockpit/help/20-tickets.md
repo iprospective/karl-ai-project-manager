@@ -34,6 +34,13 @@ Sous le champ de recherche, cinq sélecteurs :
   levier ») et comme critère de **jeu de sessions dérivé** — un jeu « étiquette =
   refacto » se remplit alors tout seul.
 
+Dans le **triage ROI**, une fois la liste filtrée (par étiquette, client, projet),
+le bouton **⇱ session sur ce lot** ouvre une session qui prend en charge les
+tickets **affichés** — rien à cocher : ce qu'on voit est le lot. Mêmes règles que
+partout : un seul projet (sinon la session n'a pas d'ancrage), et les dix
+premiers seulement — au-delà, la file déborde le contexte de l'agent, et ce qui
+ne part pas t'est annoncé.
+
 Un résultat que le local ignore est marqué **« ⚠ pas en local »**, avec son projet
 Redmine et son assignation. Cliquer dessus ouvre le ticket **dans Redmine** : il
 n'a ni fichier ni branche, il n'y a rien à lancer ici. Pour le rapatrier :

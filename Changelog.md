@@ -30,6 +30,12 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **⇱ session sur un lot filtré par domaine** (RM2831, chantier RM2828). RM2823 sortait les
+  intrus d'une session, un par un ; ici la **liste de triage filtrée par étiquette EST le lot** —
+  rien à cocher. Le chemin de lancement est factorisé avec RM2823 (`spawnBatchSession`) : deux
+  copies auraient divergé au premier correctif. La consigne reste celle de « ▶ traiter », rendue
+  par le serveur, et la session vient de `/spawn`. Les dix premiers tickets partent ; ce qui est
+  laissé de côté est annoncé plutôt que tronqué en silence.
 - **Filtrer par étiquette : recherche, triage ROI, jeux dérivés** (RM2830, chantier RM2828).
   Une étiquette ne sert à rien si elle ne sert pas à choisir quoi faire. Nouvel endpoint
   `GET /tags` (les étiquettes réellement en usage, avec leur compte — jamais une liste écrite

@@ -909,6 +909,10 @@ if (window.matchMedia) {
         <select id="tr-tag" onchange="renderTriage()" title="Filtrer par étiquette (domaine du ticket)"><option value="">toutes les étiquettes</option></select>
         <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid" onchange="renderTriage()"> masquer la validation</label>
         <button class="mini" onclick="loadTriage(true)" title="Recalculer le classement">↻</button>
+        <!-- RM2831 : ce que la liste montre (filtrée par étiquette, client,
+             projet) devient une session — rien à cocher. -->
+        <button class="mini" id="tr-spawn" style="display:none" onclick="triageSpawnSession(this)"
+                title="Ouvrir une session qui prend en charge les tickets affichés (10 premiers, même projet)">⇱ session sur ce lot</button>
       </div>
       <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
       <div id="triage-list"><div style="color:var(--muted)">déplie pour calculer le classement…</div></div>
@@ -6317,11 +6321,31 @@ function offloadPlan(items, rcache) {
 // session est créée par `/spawn`, l'endpoint existant.
 // La garde « 2e session » (RM2818) ne s'applique PAS ici : la session qui traite
 // déjà ces tickets est justement celle qu'on veut soulager.
-async function offloadToNewSession(btn) {
-  if (!batchSel.size) return;
-  const items = [...batchSel.values()];
-  // le projet d'un ticket coché peut ne pas être encore résolu : on le demande
-  // avant de conclure « projet inconnu » (le cache se remplit à la demande).
+// >>> triageBatchItems — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2831 — la liste de triage AFFICHÉE (donc déjà filtrée : client, projet,
+// étiquette) devient le lot. Le statut voyage avec chaque ticket : c'est lui qui
+// décide de l'action côté serveur (`batch_plan`), et le titre sert à l'écran de
+// confirmation. Plafonné à ce qu'on annonce — une file trop longue déborde le
+// contexte de l'agent, et le serveur la refuserait de toute façon.
+function triageBatchItems(rows, max) {
+  const n = Number(max) > 0 ? Number(max) : 10;
+  return (rows || []).slice(0, n).map(t => ({
+    rm_id: String(t.rm_id), status: t.status || "", title: t.title || "", points: [],
+  }));
+}
+// <<< triageBatchItems
+
+// RM2831 (avec RM2823) — CHEMIN PARTAGÉ de lancement d'un lot dans une session
+// neuve. Deux entrées l'empruntent : les tickets cochés du worklog (sortir les
+// intrus d'une session) et la liste de triage filtrée (rassembler un domaine).
+// Une seule fonction : deux copies divergeraient au premier correctif.
+// La consigne vient du serveur (`/worklog/batch` en dry_run — celle de
+// « ▶ traiter ») et la session de `/spawn` : rien n'est réinventé ici.
+async function spawnBatchSession(items, btn, opts) {
+  const o = opts || {};
+  if (!items || !items.length) return;
+  // le projet d'un ticket peut ne pas être encore résolu : on le demande avant
+  // de conclure « projet inconnu » (le cache se remplit à la demande).
   await Promise.all(items.map(it => {
     const rm = String(it.rm_id).replace(/^RM/i, "");
     return resolveCache[rm] === undefined ? ensureResolved(rm) : Promise.resolve();
@@ -6329,24 +6353,26 @@ async function offloadToNewSession(btn) {
   const plan = offloadPlan(items, resolveCache);
   if (plan.mixed) {
     alert("Ces tickets appartiennent à plusieurs projets :\n\n  " + plan.projects.join("\n  ") +
-          "\n\nUne session s'ancre sur UN projet — décoche pour n'en garder qu'un.");
+          "\n\nUne session s'ancre sur UN projet — restreins la sélection à un seul.");
     return;
   }
   if (!plan.anchor) {
     alert("Aucun de ces tickets n'a de projet résolu : impossible de savoir où ancrer la session.");
     return;
   }
+  const retenus = new Set(plan.targets.map(t => t.rm_id));
+  const envoyes = items.filter(it => retenus.has(String(it.rm_id).replace(/^RM/i, "")));
   let plan2;
   try {
     plan2 = await api("/worklog/batch", { method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ rm_id: attached || plan.anchor, mode: "traiter",
-                             items, dry_run: true, allow_large: true }) });
+                             items: envoyes, dry_run: true, allow_large: true }) });
   } catch (e) { toast(e.message, true); return; }
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
   const lignes = [
-    "Ouvrir une nouvelle session pour " + plan.targets.length + " ticket(s) ?", "",
+    (o.titre || "Ouvrir une nouvelle session") + " pour " + plan.targets.length + " ticket(s) ?", "",
     "projet : " + plan.client + " / " + plan.project,
     "ancrage : RM" + plan.anchor,
     "cwd : " + (plan.cwd || "(défaut du serveur)"),
@@ -6354,9 +6380,10 @@ async function offloadToNewSession(btn) {
     "tickets : " + plan.targets.map(t => "RM" + t.rm_id).join(", "),
   ];
   if (plan.blocked.length) {
-    lignes.push("", "⊘ restent ici (projet non résolu) : " +
+    lignes.push("", "⊘ écartés (projet non résolu) : " +
                 plan.blocked.map(t => "RM" + t.rm_id).join(", "));
   }
+  if (o.reste) lignes.push("", o.reste);
   lignes.push("", "La consigne de prise en charge est celle de « ▶ traiter ».");
   if (!confirm(lignes.join("\n"))) return;
   if (btn) btn.disabled = true;
@@ -6368,14 +6395,42 @@ async function offloadToNewSession(btn) {
                                      body: JSON.stringify(body) });
     toast("⇱ " + plan.targets.length + " ticket(s) → session karl-RM" + plan.anchor);
     warnSetFull(sp);                       // RM2450 : un jeu plein ne passe pas inaperçu
-    // Ils ne sont plus « ouverts ici » : c'est la nouvelle session qui les porte.
-    plan.targets.forEach(t => { openedForget(t.rm_id); tsCache[t.rm_id] = undefined; });
-    batchSel.clear(); batchToggle();
+    plan.targets.forEach(t => { tsCache[t.rm_id] = undefined; });
+    if (o.apres) o.apres(plan);
     await refreshSessions();
     setTimeout(() => attach(plan.anchor), 400);
   } catch (e) { toast(e.message, true); }
   finally { if (btn) btn.disabled = false; }
 }
+
+// RM2823 — les tickets cochés du worklog : ils quittent en plus la liste des
+// tickets ouverts, puisque c'est la nouvelle session qui les porte désormais.
+async function offloadToNewSession(btn) {
+  if (!batchSel.size) return;
+  await spawnBatchSession([...batchSel.values()], btn, {
+    apres: (plan) => {
+      plan.targets.forEach(t => openedForget(t.rm_id));
+      batchSel.clear(); batchToggle();
+    },
+  });
+}
+
+// RM2831 — la liste de triage AFFICHÉE (filtrée par étiquette, client, projet)
+// part dans une session à elle. Rien n'est coché : ce qu'on voit EST le lot.
+async function triageSpawnSession(btn) {
+  const rows = triageVisibleRows();
+  if (!rows.length) { toast("aucun ticket dans cette liste", true); return; }
+  const max = 10;
+  const items = triageBatchItems(rows, max);
+  await spawnBatchSession(items, btn, {
+    titre: "Ouvrir une session sur ce lot",
+    reste: rows.length > max
+      ? "⊘ " + (rows.length - max) + " ticket(s) au-delà des " + max +
+        " premiers ne partent pas (une file trop longue déborde le contexte de l'agent)."
+      : "",
+  });
+}
+
 
 async function sendBatch(btn) {
   if (!batchPlanCache || !attached) return;
@@ -7878,11 +7933,20 @@ function renderTriage() {
   const hideValid = document.getElementById("tr-hidevalid").checked;
   const tg = (document.getElementById("tr-tag") || {}).value || "";
   const rows = triageFilter(triageData.tickets, c, p, hideValid, tg);
+  triageRows = rows;                     // RM2831 : ce qui est affiché EST le lot
+  const sp = document.getElementById("tr-spawn");
+  if (sp) sp.style.display = rows.length ? "" : "none";
   if (!rows.length) { box.innerHTML = '<div style="color:var(--muted)">aucun ticket ouvert avec ces filtres</div>'; return; }
   box.innerHTML = '<div class="tr-count">' + rows.length + ' ticket(s) · triés par levier ROI</div>' +
     rows.slice(0, 60).map((e, i) => triageRowHtml(e, i + 1)).join("") +
     (rows.length > 60 ? '<div class="tr-more">… ' + (rows.length - 60) + ' de plus (affine les filtres)</div>' : "");
 }
+// RM2831 : dernières lignes rendues par le triage (déjà filtrées) — le lot que
+// « ⇱ session » enverra. Mémorisées au rendu plutôt que recalculées : le bouton
+// doit envoyer exactement ce que l'utilisateur a sous les yeux.
+let triageRows = [];
+function triageVisibleRows() { return triageRows.slice(); }
+
 // >>> triageFilter — pur (testé par test_cockpit.js)
 function triageFilter(tickets, client, project, hideValid, tag) {
   // RM2830 : l'étiquette se compare NORMALISÉE (même vocabulaire qu'à

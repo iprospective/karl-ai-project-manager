@@ -18,7 +18,7 @@ prochain chargement. `✕ vider` remet la liste à zéro.
 
 ## Rechercher — local, Redmine, ou les deux
 
-Sous le champ de recherche, quatre sélecteurs :
+Sous le champ de recherche, cinq sélecteurs :
 
 - **Source.** `📁 local` (défaut) cherche dans les fichiers de tickets du PM.
   `🌐 Redmine` interroge le tracker : c'est le seul moyen de trouver un ticket
@@ -27,6 +27,12 @@ Sous le champ de recherche, quatre sélecteurs :
 - **Client**, **projet**, **statut.** Ils portent sur les deux sources. La liste
   des projets suit le client choisi. Un filtre explicite l'emporte sur le
   contexte client global : c'est le dernier choix fait qui vaut.
+- **Étiquette** — le domaine du ticket (`front`, `bo`, `bdd`, `refacto`,
+  `livraison`…). Le menu ne propose que les étiquettes **réellement en usage**,
+  avec leur nombre de tickets ; les étiquettes d'un résultat s'affichent sur sa
+  ligne (🏷). Le même filtre existe dans le **triage ROI** (« les refactos par
+  levier ») et comme critère de **jeu de sessions dérivé** — un jeu « étiquette =
+  refacto » se remplit alors tout seul.
 
 Un résultat que le local ignore est marqué **« ⚠ pas en local »**, avec son projet
 Redmine et son assignation. Cliquer dessus ouvre le ticket **dans Redmine** : il

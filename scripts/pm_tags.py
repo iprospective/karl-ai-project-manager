@@ -230,6 +230,78 @@ def split_known(tags):
     return [t for t in tt if t in reg], [t for t in tt if t not in reg]
 
 
+def pull_plan(local, distants, retires):
+    """Ce que devient la liste LOCALE à la relecture d'un ticket (RM2840).
+
+    Règle : **additive**, sauf pour ce qui a été RÉELLEMENT supprimé côté Redmine.
+    « Absent du CF » ne veut pas dire « retiré » — un mot-clé local (`cockpit`)
+    n'a pas d'équivalent et n'en aura jamais ; le rabattre sur la liste du CF
+    l'effacerait à chaque refresh. C'est le comportement que cette fonction
+    interdit.
+
+    `retires` : les slugs dont les journaux Redmine attestent le retrait depuis la
+    dernière synchro. `None` = journaux non exploitables (première synchro, id de
+    journal inconnu) → on ne supprime rien, et on le dit (`additif`).
+    """
+    loc = clean(local)
+    dist = clean(distants)
+    additif = retires is None
+    ajouts = [t for t in dist if t not in loc]
+    # un tag retiré côté Redmine PUIS re-ajouté est dans `dist` : l'état courant
+    # prime sur l'historique, sinon on le supprimerait à tort.
+    supprimes = [] if additif else [t for t in clean(retires) if t in loc and t not in dist]
+    tags = sorted((set(loc) | set(ajouts)) - set(supprimes))
+    return {"tags": tags, "ajouts": sorted(ajouts), "supprimes": sorted(supprimes),
+            "additif": additif}
+
+
+def push_plan(avant, apres, distants):
+    """Ce qu'il faut écrire des deux côtés lors d'une ÉCRITURE locale (RM2840).
+
+    Un `pm-task-tag` pousse la liste complète du CF : sans précaution, une valeur
+    ajoutée depuis l'UI Redmine et pas encore connue en local serait **écrasée**.
+    On relit donc le distant et on fusionne : union des deux, moins ce que le
+    geste local retire explicitement — et ce que le distant apporte descend aussi
+    dans le frontmatter (parité).
+    """
+    av, ap, dist = set(clean(avant)), set(clean(apres)), set(clean(distants))
+    retires = av - ap
+    cf = sorted((dist | ap) - retires)
+    local = sorted(ap | (dist - retires))
+    return {"cf": cf, "local": local, "retires": sorted(retires)}
+
+
+def removed_since(journals, last_seen_id, cf_id_):
+    """Slugs retirés du CF d'après les journaux Redmine (RM2840), ou None.
+
+    Un CF multi-valeurs journalise UNE entrée par valeur :
+    `{property: "cf", name: "<cf id>", old_value: "45", new_value: None}` pour un
+    retrait. On ne lit que les journaux postérieurs au dernier vu — sans ce
+    repère, on ne peut pas dire ce qui est nouveau : `None` (donc additif).
+    """
+    if last_seen_id in (None, "", 0) or journals is None:
+        return None
+    try:
+        seen = int(last_seen_id)
+    except (TypeError, ValueError):
+        return None
+    par_id = {spec["id"]: slug for slug, spec in load_registry().items()}
+    out = []
+    for j in journals or []:
+        try:
+            if int(j.get("id") or 0) <= seen:
+                continue
+        except (TypeError, ValueError):
+            continue
+        for d in j.get("details") or []:
+            if d.get("property") != "cf" or str(d.get("name")) != str(cf_id_):
+                continue
+            if d.get("new_value") in (None, "") and d.get("old_value") not in (None, ""):
+                v = str(d["old_value"]).strip()
+                out.append(par_id.get(v, normalize(v)))
+    return clean(out)
+
+
 def cf_id():
     """Id du CF « Tags » : override `.env`, sinon le registre, sinon la référence.
 

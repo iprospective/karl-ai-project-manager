@@ -39,6 +39,27 @@ except ImportError:
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
+def read_cf(rm_id):
+    """Étiquettes actuellement portées par le ticket côté Redmine, ou None.
+
+    RM2840 : sans cette relecture, pousser la liste locale ÉCRASERAIT une valeur
+    ajoutée depuis l'UI et pas encore connue ici — une suppression que personne
+    n'a demandée. None = lecture impossible : on s'abstient alors de conclure.
+    """
+    base = (os.environ.get("REDMINE_URL") or "").rstrip("/")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
+    if not base or not key:
+        return None
+    req = urllib.request.Request(f"{base}/issues/{rm_id}.json",
+                                 headers={"X-Redmine-API-Key": key})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            issue = json.loads(r.read()).get("issue") or {}
+    except (urllib.error.HTTPError, OSError, ValueError):
+        return None
+    return pm_tags.from_issue(issue)
+
+
 def push_cf(rm_id, tags):
     """PUT du CF Redmine. (poussé?, raison) — un échec n'est jamais fatal : le
     frontmatter reste la source de travail, et le silence serait pire."""
@@ -138,6 +159,18 @@ def main():
     if new == current:
         print(f"= RM{args.rm_id} étiquettes inchangées : {', '.join(new) or '(aucune)'}")
         return
+
+    # RM2840 : fusion avec l'état distant AVANT d'écrire — une valeur ajoutée
+    # depuis l'UI Redmine ne doit pas disparaître parce qu'on a touché aux tags
+    # ici. Ce que le geste retire explicitement part quand même : la suppression
+    # PM → Redmine reste voulue.
+    distants = read_cf(args.rm_id)
+    if distants is not None:
+        plan = pm_tags.push_plan(current, new, distants)
+        recus = [t for t in plan["local"] if t not in new]
+        if recus:
+            print(f"  ↓ repris de Redmine (ajouté(s) côté UI) : {', '.join(recus)}")
+        new = plan["local"]
 
     fm["tags"] = new
     fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")

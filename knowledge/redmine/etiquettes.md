@@ -24,6 +24,24 @@ Constat vérifié sur l'instance le 2026-08-25 :
 Les catégories restent disponibles, plus tard, pour un vocabulaire **propre à un
 projet** — elles ne sont pas en concurrence avec les étiquettes.
 
+## Ce qui a été créé (2026-08-26)
+
+**CF id 32, nom « Tags »**, `customized_type: issue`, **format `enumeration`**,
+`multiple: true`, `is_filter: true`, trackers Anomalie / Evolution / Assistance /
+Tâche. Valeurs initiales : Front, DB, Refacto, BO, Config, Debug,
+Tunnel de commande.
+
+⚠ **Format `enumeration`, pas `list`** : chaque valeur possible a un **id**
+(45, 46…) et c'est **cet id** que l'API attend — pousser un libellé est refusé.
+La table `slug ↔ label ↔ id` vit dans **`tags.registry.yml`** (racine du dépôt PM,
+comme `redmine.reference.yml`), lue par `pm_tags`. Le registre doit rester
+synchrone avec la définition Redmine : une valeur ajoutée dans l'UI et absente du
+registre ne peut pas être poussée.
+
+Conséquence directe : une étiquette du frontmatter **hors registre** reste locale.
+Elle n'est pas perdue (`pm-task-list --tag`, recherche cockpit continuent de la
+voir) et `pm-task-tag` l'annonce plutôt que de laisser croire qu'elle est montée.
+
 ## Création — geste HUMAIN, l'API ne le fait pas
 
 L'API REST de Redmine expose les custom fields en **lecture seule** : il n'y a
@@ -35,7 +53,7 @@ pas de `POST /custom_fields.json`. La création passe par l'UI admin.
 |---|---|
 | Type d'objet | **Demande** |
 | Format | **Liste** |
-| Nom | **Étiquettes** |
+| Nom | **Tags** (nom retenu à la création) |
 | Valeurs possibles | `front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande` (une par ligne, en **slug minuscule** — c'est la forme que `pm_tags.normalize` produit) |
 | Valeurs multiples | **coché** — sans lui, un ticket ne peut porter qu'un domaine |
 | Pour tous les projets | **coché** — c'est ce qui rend le vocabulaire transverse |

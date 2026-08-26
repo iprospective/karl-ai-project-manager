@@ -19,13 +19,20 @@ ET « refacto ».
 seule). Tant qu'il n'existe pas, TOUT ici fonctionne côté frontmatter et le push
 Redmine se dégrade avec un message : la parité est un objectif, pas un blocage.
 Marche à suivre : `knowledge/redmine/etiquettes.md`.
+
+⚠⚠ Le CF livré est en format **enumeration** (et non « liste ») : l'API attend
+l'**id** de chaque valeur (45, 46…), jamais son libellé — un push de labels est
+refusé. La table slug ↔ label ↔ id vit dans `tags.registry.yml`, qui doit rester
+synchrone avec la définition Redmine. Une étiquette hors registre ne peut pas
+être poussée : le dire ici vaut mieux qu'un 422 opaque au moment du PUT.
 """
 import os
 import re
 import sys
 import unicodedata
 
-CF_NAME = "Étiquettes"          # nom du CF côté Redmine (référence : redmine.reference.yml)
+CF_NAME = "Tags"                # nom du CF côté Redmine (id 32, créé le 2026-08-26)
+REGISTRY = "tags.registry.yml"  # valeurs possibles : slug ↔ label ↔ id (RM2829)
 ENV_VAR = "REDMINE_CF_TAGS_ID"  # override explicite, comme les autres CF
 MAX_TAGS = 12                   # un ticket étiqueté douze fois n'est plus étiqueté
 MAX_LEN = 40
@@ -81,14 +88,79 @@ def apply_change(current, add=None, remove=None, replace=None):
     return sorted([t for t in out if t not in drop])[:MAX_TAGS]
 
 
+def _registry_path():
+    """Chemin du registre.
+
+    Le registre voyage AVEC le code (il est versionné à la racine du dépôt, comme
+    `redmine.reference.yml` — même résolution, volontairement) : le code qui
+    s'exécute doit lire SON registre, sinon un worktree de développement pousserait
+    des ids venus d'un autre checkout. `PM_CORE_DIR` reste un repli explicite.
+    """
+    import os
+    from pathlib import Path
+    ici = Path(__file__).resolve().parent.parent / REGISTRY
+    if ici.is_file():
+        return ici
+    core = os.environ.get("PM_CORE_DIR")
+    return (Path(core).expanduser() / REGISTRY) if core else ici
+
+
+def load_registry():
+    """{slug: {label, id}} — les valeurs possibles du CF. Vide si le registre est
+    absent ou illisible : on dégrade vers le frontmatter seul plutôt que d'échouer."""
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+    except Exception:       # noqa: BLE001 — registre absent/cassé : miroir local
+        return {}
+    out = {}
+    for v in data.get("values") or []:
+        if not isinstance(v, dict):
+            continue
+        slug = normalize(v.get("slug") or v.get("label"))
+        if slug and v.get("id") is not None:
+            out[slug] = {"label": str(v.get("label") or slug), "id": str(v["id"])}
+    return out
+
+
+def known_values():
+    """Slugs acceptés par le CF (vocabulaire contrôlé). Vide = registre absent."""
+    return sorted(load_registry())
+
+
+def split_known(tags):
+    """(connues, inconnues) — une étiquette hors registre ne peut pas être poussée.
+
+    Registre absent : on ne prétend pas savoir, tout est « connu » et le push
+    échouera franchement s'il doit échouer.
+    """
+    reg = load_registry()
+    tt = clean(tags)
+    if not reg:
+        return tt, []
+    return [t for t in tt if t in reg], [t for t in tt if t not in reg]
+
+
 def cf_id():
-    """Id du CF « Étiquettes » : override `.env`, sinon `redmine.reference.yml`.
+    """Id du CF « Tags » : override `.env`, sinon le registre, sinon la référence.
+
+    Le registre passe avant `redmine.reference.yml` parce qu'il porte DÉJÀ l'id
+    (il en a besoin pour les valeurs) : une seule source à tenir à jour plutôt que
+    deux qui peuvent diverger.
 
     None = CF non configuré (pas encore créé) → miroir frontmatter seul.
     """
     v = (os.environ.get(ENV_VAR) or "").strip()
     if v.isdigit():
         return int(v)
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+        rid = ((data.get("cf") or {}).get("id"))
+        if isinstance(rid, int) or (isinstance(rid, str) and rid.isdigit()):
+            return int(rid)
+    except Exception:       # noqa: BLE001 — registre absent : on continue
+        pass
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
         import redmine_utils
@@ -98,16 +170,25 @@ def cf_id():
 
 
 def cf_payload(tags):
-    """Le CF tel que l'API l'attend : une LISTE de valeurs (CF multiple).
+    """Le CF tel que l'API l'attend : une LISTE d'**ids de valeurs** (enumeration).
 
-    Redmine veut `value: []` pour vider un CF multi-valeurs — pas `""`, qui est
-    refusé sur ce format. Le cas « plus aucune étiquette » doit donc rester
-    exprimable, sinon on ne peut jamais retirer la dernière.
+    Envoyer les libellés serait refusé (422) : le format `enumeration` désigne ses
+    valeurs par id. Les étiquettes hors registre sont écartées — les pousser
+    ferait échouer TOUT le PUT, y compris les étiquettes valides.
+
+    Redmine veut `value: []` pour vider un CF multi-valeurs — pas `""`, refusé sur
+    ce format : le cas « plus aucune étiquette » doit rester exprimable, sinon on
+    ne peut jamais retirer la dernière.
     """
     cid = cf_id()
     if cid is None:
         return None
-    return {"id": cid, "value": clean(tags)}
+    reg = load_registry()
+    if not reg:
+        # Pas de registre : on envoie les slugs. C'est le comportement d'un CF
+        # « liste » ; sur un CF enumeration, Redmine refusera — franchement.
+        return {"id": cid, "value": clean(tags)}
+    return {"id": cid, "value": [reg[t]["id"] for t in clean(tags) if t in reg]}
 
 
 def from_issue(issue):
@@ -124,7 +205,14 @@ def from_issue(issue):
         if cid is None and c.get("name") != CF_NAME:
             continue
         v = c.get("value")
-        if isinstance(v, list):
-            return clean(v)
-        return parse_csv(v)
+        vals = v if isinstance(v, list) else re.split(r"[;,]", str(v or ""))
+        # Une valeur d'enumeration revient en ID (« 45 ») ; un CF « liste »
+        # renverrait le libellé. On accepte les deux plutôt que de perdre
+        # l'information sur un changement de format côté Redmine.
+        par_id = {spec["id"]: slug for slug, spec in load_registry().items()}
+        out = []
+        for x in vals:
+            k = str(x).strip()
+            out.append(par_id.get(k, k))
+        return clean(out)
     return []

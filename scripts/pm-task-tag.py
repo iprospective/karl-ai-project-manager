@@ -111,8 +111,17 @@ def main():
     md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}", encoding="utf-8")
 
     ok, why = push_cf(args.rm_id, new)
+    # RM2829 : le CF n'accepte QUE les valeurs de son registre. Celles qui n'y
+    # sont pas restent au frontmatter et ne montent pas — le taire donnerait un
+    # « ✓ frontmatter + Redmine » qui ment sur la moitié des étiquettes.
+    connues, inconnues = pm_tags.split_known(new)
     print(f"✓ RM{args.rm_id} étiquettes : {', '.join(new) or '(aucune)'}"
           + (" (frontmatter + Redmine)" if ok else " (frontmatter)"))
+    if ok and inconnues:
+        print(f"  ⓘ hors registre, non poussée(s) au CF « {pm_tags.CF_NAME} » : "
+              f"{', '.join(inconnues)}")
+        print(f"    (valeurs acceptées : {', '.join(pm_tags.known_values()) or '—'} ; "
+              f"pour en ajouter une : UI admin Redmine puis {pm_tags.REGISTRY})")
     if not ok:
         print(f"⚠ CF Redmine non poussé : {why}", file=sys.stderr)
 

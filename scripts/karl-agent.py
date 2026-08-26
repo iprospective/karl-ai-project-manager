@@ -4747,6 +4747,10 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
             "sid": sid, "alive": not s.get("ghost"),
             "client": s.get("client"), "project": s.get("project"),
             "title": s.get("title"), "state": s.get("state"),
+            # RM2818 : « qui traite ce ticket » ne suffit pas pour alerter avant
+            # d'ouvrir une 2e session — une session idle MARQUÉE terminée (RM2515)
+            # ne doit rien déclencher. La disposition voyage donc avec la ligne.
+            "disposition": s.get("disposition") or "",
             "is_ticket": bool(s.get("is_ticket")),
             "same_project": bool(client and project
                                  and s.get("client") == client

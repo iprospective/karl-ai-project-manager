@@ -13,7 +13,48 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Outillage PM
+- **Étiquettes de ticket — le socle** (RM2829, chantier RM2828). Le domaine d'un ticket
+  (`front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande`…) vivait à moitié :
+  `tags:` au frontmatter, écrit par `pm-task-add --tags` et filtré par `pm-task-list --tag`,
+  mais invisible côté Redmine. Constat vérifié sur l'instance : Redmine n'a pas de tags en
+  standard, aucun plugin n'est installé, et les catégories natives sont mono-valeur ET propres
+  à chaque projet — « refacto » serait à recréer partout. Le porteur retenu est donc un
+  **custom field « liste » multi-valeurs partagé à tous les projets**. Livré : `pm_tags`
+  (normalisation en slug — « Tunnel de Commande » et « tunnel_de_commande » sont UNE étiquette
+  —, tri stable, plafond, payload et lecture du CF), la commande `pm-task-tag` (add / rm / set
+  / lecture, frontmatter + Redmine + journal), le push au POST de `pm-task-add` et la
+  relecture par `pm-task-sync`. Le CF lui-même se crée à la main (l'API Redmine ne crée pas de
+  custom fields) : marche à suivre dans `knowledge/redmine/etiquettes.md`. Tant qu'il n'existe
+  pas, tout fonctionne côté frontmatter et le push est annoncé comme non fait — jamais en
+  silence.
+
 ### Cockpit
+- **⇱ sortir des tickets d'une session vers une session dédiée** (RM2823). Une session est
+  ancrée sur un projet, mais le fil ramasse des tickets d'ailleurs : un de temps en temps on
+  le traite au vol, et quand ça s'accumule la session porte deux chantiers — contexte pollué,
+  worktree du mauvais projet, tickets oubliés à la fermeture. Cocher les intrus dans le
+  worklog et « ⇱ nouvelle session » ouvre une session ancrée sur LEUR projet qui les prend en
+  charge. La consigne vient du même générateur que « ▶ traiter » (`/worklog/batch` en dry_run)
+  et la session de `/spawn` : aucun second chemin. Garde-fous : un seul projet par lot (les
+  projets en présence sont nommés en cas de mélange), et un ticket au projet non résolu reste
+  sur place sans retenir les autres.
+- **Alerte avant d'ouvrir une 2e session sur un ticket déjà pris** (RM2818). Le serveur
+  refusait déjà (409) une seconde session ANCRÉE sur l'id ; ce qui passait sans bruit, c'est
+  le ticket traité par une session ancrée AILLEURS — branche du registre, worklog —, soit le
+  cas courant du ticket ramassé en cours de route. Les deux points de lancement (fiche du
+  ticket, lanceur du panneau sessions) montrent désormais ce qui existe — sid, titre, état,
+  et à quel titre la session le traite — puis proposent de **rejoindre** avant d'offrir
+  d'ouvrir quand même. Une session marquée « terminé » (RM2515) ne déclenche rien : c'est
+  exactement ce que la marque sert à dire ; « parké » ou éteinte, si — le travail n'est pas
+  fini. L'état est relu avant de trancher, un cache périmé dirait « libre » à tort.
+- **Cliquer l'onglet d'une session éteinte la relance** (RM2819). Un onglet épinglé survit à
+  la session qu'il montrait ; le clic appelait pourtant `attach()` dans tous les cas — donc un
+  terminal vide dès que la session ne tournait plus, sans un mot ni le geste utile. Le clic
+  route désormais sur l'état réel : vivante → attach, seulement enregistrée → la relance
+  (exactement le chemin de la tuile grise, RM2427/RM2536 — pas un second), disparue → on le dit
+  et on propose de fermer l'onglet. Le cache de sessions ne connaissant que le jeu affiché, la
+  liste complète est redemandée avant de conclure à une disparition.
 - **Déverrouillage de clé SSH : « bad file descriptor » corrigé** (RM2822). Le cockpit passe
   la passphrase à `ssh-add` par un tube anonyme, lu par `karl-askpass.sh` — qui lisait le
   descripteur **3 en dur**. Or `pass_fds` conserve le numéro du tube au lieu de le remapper :

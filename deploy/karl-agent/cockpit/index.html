@@ -1406,6 +1406,11 @@ if (window.matchMedia) {
                    demander seule. Et la fermeture manquait tout court. -->
               <button class="mini" id="batch-etudier-btn" style="display:none" onclick="openBatchPlan('etudier')"
                       title="Faire étudier et chiffrer les tickets cochés (estimation, critères, ROI), puis soumettre l'étude à validation">🔍 analyser</button>
+              <!-- RM2823 : les tickets d'un AUTRE projet ramassés en cours de
+                   route partent dans une session à eux, ancrée sur leur projet.
+                   La session courante retrouve son seul chantier. -->
+              <button class="mini" id="batch-offload-btn" style="display:none" onclick="offloadToNewSession(this)"
+                      title="Ouvrir une NOUVELLE session, ancrée sur le projet des tickets cochés, qui les prend en charge (ils doivent être d'un même projet)">⇱ nouvelle session</button>
               <button class="mini" id="batch-close-btn" style="display:none" onclick="openCloseBatch()"
                       title="Fermer les tickets cochés (résolu) — ceux dont la checklist ou la branche s'y opposent seront listés avec leur raison">✅ fermer</button>
               <span class="cnt" id="workfresh"></span>
@@ -3846,10 +3851,52 @@ function noteTab(kind, key, label, opts) {
   if (opts && opts.pin) renderPinMarks();     // RM2795 : épinglé à l'ouverture
 }
 
+// >>> sessionTabAction — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2819 — que faire quand on clique l'onglet d'une session ? Un onglet épinglé
+// survit à ce qu'il montrait (RM2672) : la session peut être vivante, seulement
+// ENREGISTRÉE (fantôme RM2427), ou avoir disparu. On attachait dans les trois
+// cas — donc un terminal vide dans deux d'entre eux, sans un mot d'explication
+// et sans le seul geste utile : la relancer.
+// Une même session peut figurer deux fois (son fantôme dans un jeu + l'entrée
+// vivante) : la vivante l'emporte, sinon on relancerait ce qui tourne déjà.
+function sessionTabAction(sid, sessions) {
+  const key = String(sid == null ? "" : sid);
+  const list = Array.isArray(sessions) ? sessions : Object.values(sessions || {});
+  const match = list.filter(s => s && String(s.rm_id) === key);
+  const vivante = match.find(s => !s.ghost);
+  if (vivante) return { action: "attach", session: vivante };
+  if (match.length) return { action: "relaunch", session: match[0] };
+  return { action: "missing", session: null };
+}
+// <<< sessionTabAction
+
+// Le clic sur un onglet de session passe par ici. `sessCache` ne connaît que ce
+// que la colonne affiche — le jeu courant : une session d'un autre jeu, ou
+// éteinte depuis le dernier refresh, n'y est pas. On redemande donc la liste
+// COMPLÈTE (fantômes inclus) avant de conclure à la disparition ; conclure sur
+// le seul cache ferait dire « introuvable » à une session parfaitement relançable.
+async function openSessionTab(sid) {
+  let acte = sessionTabAction(sid, sessCache);
+  if (acte.action !== "attach") {
+    try {
+      const d = await api("/sessions?ghosts=1");
+      acte = sessionTabAction(sid, d.sessions || []);
+    } catch (e) { /* réseau : on s'en tient à ce que le cache disait */ }
+  }
+  if (acte.action === "attach") return attach(sid);
+  // relaunchGhost demande confirmation, appelle /resume, puis attache : c'est le
+  // MÊME chemin que le clic sur la tuile grise (RM2427/RM2536), pas un second.
+  if (acte.action === "relaunch") return relaunchGhost(acte.session);
+  // Ni vivante ni enregistrée : l'onglet montre quelque chose qui n'existe plus.
+  // On le dit, et on propose le seul geste qui reste — le refermer.
+  toastAction("session " + sid + " introuvable — ni vivante, ni enregistrée",
+              "fermer l'onglet", () => closeTab("session:" + String(sid)));
+}
+
 function activateTab(id) {
   const t = centerTabs.find(x => x.kind + ":" + (x.key == null ? "" : x.key) === id);
   if (!t) return;
-  if (t.kind === "session") attach(t.key);
+  if (t.kind === "session") openSessionTab(t.key);   // RM2819 : éteinte → relance
   else if (t.kind === "review") openReview(t.key);
   else if (t.kind === "project") openProjectView(t.key);
   else if (t.kind === "newticket") openNewTicket();
@@ -5919,6 +5966,9 @@ function renderBatchButtons() {
   pose("mr-dev-btn", "⇥ merger dev", n.mr);
   pose("mr-prod-btn", "⇥ merger prod", n.mr);
   pose("batch-close-btn", "✅ fermer", n.fermer);
+  // RM2823 : embarquer ne dépend d'aucun statut — n'importe quel ticket coché
+  // peut partir ailleurs. Le compte est celui de la sélection.
+  pose("batch-offload-btn", "⇱ nouvelle session", items.length);
 }
 // >>> batchPlanHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le récapitulatif AVANT envoi : ce qui va partir, et ce qui est écarté avec sa
@@ -6210,6 +6260,103 @@ function batchScopedItems() {
     return Object.assign({}, it, { scope: e.kept });
   });
 }
+// >>> offloadPlan — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2823 — que devient une sélection de tickets qu'on veut sortir de la session
+// courante ? Une session est ancrée sur UN projet : un lot qui en mélange deux
+// n'a pas d'ancrage possible, et on le dit AVANT plutôt que de créer une session
+// bancale. Un ticket dont le projet n'est pas résolu ne part pas — mais il ne
+// retient pas les autres : il reste sur place, signalé.
+function offloadPlan(items, rcache) {
+  const cache = rcache || {};
+  const targets = [], blocked = [], vus = [];
+  for (const it of items || []) {
+    const rm = String((it && it.rm_id) || "").replace(/^RM/i, "");
+    if (!rm) continue;
+    const r = cache[rm];
+    if (!r || !r.found || !r.client || !r.project) { blocked.push({ rm_id: rm }); continue; }
+    const cle = r.client + "/" + r.project;
+    if (vus.indexOf(cle) < 0) vus.push(cle);
+    targets.push({ rm_id: rm, client: r.client, project: r.project, cwd: r.cwd || "", title: r.title || "" });
+  }
+  const mixed = vus.length > 1;
+  const first = targets[0] || null;
+  return {
+    targets, blocked, mixed, projects: vus,
+    client: mixed || !first ? null : first.client,
+    project: mixed || !first ? null : first.project,
+    // le cwd vient du ticket (résolu par le serveur), jamais reconstruit ici
+    cwd: mixed || !first ? "" : (targets.find(t => t.cwd) || {}).cwd || "",
+    anchor: mixed || !first ? null : first.rm_id,
+  };
+}
+// <<< offloadPlan
+
+// RM2823 — embarque les tickets cochés dans une session neuve. Deux emprunts
+// volontaires : la CONSIGNE vient du serveur (`/worklog/batch` en `dry_run`,
+// le même générateur que « ▶ traiter » — pas un second à maintenir), et la
+// session est créée par `/spawn`, l'endpoint existant.
+// La garde « 2e session » (RM2818) ne s'applique PAS ici : la session qui traite
+// déjà ces tickets est justement celle qu'on veut soulager.
+async function offloadToNewSession(btn) {
+  if (!batchSel.size) return;
+  const items = [...batchSel.values()];
+  // le projet d'un ticket coché peut ne pas être encore résolu : on le demande
+  // avant de conclure « projet inconnu » (le cache se remplit à la demande).
+  await Promise.all(items.map(it => {
+    const rm = String(it.rm_id).replace(/^RM/i, "");
+    return resolveCache[rm] === undefined ? ensureResolved(rm) : Promise.resolve();
+  }));
+  const plan = offloadPlan(items, resolveCache);
+  if (plan.mixed) {
+    alert("Ces tickets appartiennent à plusieurs projets :\n\n  " + plan.projects.join("\n  ") +
+          "\n\nUne session s'ancre sur UN projet — décoche pour n'en garder qu'un.");
+    return;
+  }
+  if (!plan.anchor) {
+    alert("Aucun de ces tickets n'a de projet résolu : impossible de savoir où ancrer la session.");
+    return;
+  }
+  let plan2;
+  try {
+    plan2 = await api("/worklog/batch", { method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rm_id: attached || plan.anchor, mode: "traiter",
+                             items, dry_run: true, allow_large: true }) });
+  } catch (e) { toast(e.message, true); return; }
+  const engine = (document.getElementById("engine") || {}).value || "claude";
+  const model = (document.getElementById("model") || {}).value || "";
+  const lignes = [
+    "Ouvrir une nouvelle session pour " + plan.targets.length + " ticket(s) ?", "",
+    "projet : " + plan.client + " / " + plan.project,
+    "ancrage : RM" + plan.anchor,
+    "cwd : " + (plan.cwd || "(défaut du serveur)"),
+    "moteur : " + engine + (model ? "  ·  modèle : " + model : ""), "",
+    "tickets : " + plan.targets.map(t => "RM" + t.rm_id).join(", "),
+  ];
+  if (plan.blocked.length) {
+    lignes.push("", "⊘ restent ici (projet non résolu) : " +
+                plan.blocked.map(t => "RM" + t.rm_id).join(", "));
+  }
+  lignes.push("", "La consigne de prise en charge est celle de « ▶ traiter ».");
+  if (!confirm(lignes.join("\n"))) return;
+  if (btn) btn.disabled = true;
+  try {
+    const body = { rm_id: plan.anchor, engine, prompt: plan2.prompt };
+    if (model) body.model = model;
+    if (plan.cwd) body.cwd = plan.cwd;
+    const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
+                                     body: JSON.stringify(body) });
+    toast("⇱ " + plan.targets.length + " ticket(s) → session karl-RM" + plan.anchor);
+    warnSetFull(sp);                       // RM2450 : un jeu plein ne passe pas inaperçu
+    // Ils ne sont plus « ouverts ici » : c'est la nouvelle session qui les porte.
+    plan.targets.forEach(t => { openedForget(t.rm_id); tsCache[t.rm_id] = undefined; });
+    batchSel.clear(); batchToggle();
+    await refreshSessions();
+    setTimeout(() => attach(plan.anchor), 400);
+  } catch (e) { toast(e.message, true); }
+  finally { if (btn) btn.disabled = false; }
+}
+
 async function sendBatch(btn) {
   if (!batchPlanCache || !attached) return;
   btn.disabled = true;
@@ -10150,6 +10297,62 @@ async function ensureTicketSessions(rm, force) {
   return tsCache[rm];
 }
 
+// >>> ticketBusySessions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2818 — qui s'occupe DÉJÀ de ce ticket, sans avoir fini ? Le serveur refuse
+// une seconde session ANCRÉE sur l'id (409) ; ce qui passait sans bruit, c'est le
+// ticket traité par une session ancrée ailleurs — registre ou worklog —, c'est-à-dire
+// le cas courant du ticket ramassé en cours de route.
+// Une session marquée « terminé » (RM2515) ne compte pas : c'est précisément ce
+// que le marquage sert à dire. « Parké » si — le travail n'est pas fini.
+// Les éteintes sont rendues à part : elles n'occupent rien, mais leur contexte
+// existe encore (relançable), et le taire reviendrait à conseiller un doublon.
+function ticketBusySessions(payload) {
+  const rows = ((payload || {}).handled) || [];
+  const busy = rows.filter(r => r && effDisposition(r.state, r.disposition) !== "termine");
+  return { alive: busy.filter(r => r.alive), stopped: busy.filter(r => !r.alive) };
+}
+// <<< ticketBusySessions
+
+// >>> duplicateSessionText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2818 — ce que l'alerte DIT. Une alerte qui ne nomme pas ce qu'elle a trouvé
+// se confirme à l'aveugle : on veut le sid, le titre et l'état de chaque session
+// qui travaille déjà le ticket.
+function duplicateSessionText(rm, busy) {
+  const b = busy || { alive: [], stopped: [] };
+  const ligne = (r) => "  · " + (r.is_ticket === false ? r.sid : "RM" + r.sid) +
+    (r.title ? " — " + r.title : "") +
+    " [" + (r.state || "?") + (effDisposition(r.state, r.disposition) === "parke" ? ", parké" : "") + "]" +
+    ((r.reasons && r.reasons.length) ? " (" + r.reasons.join(", ") + ")" : "");
+  const out = ["RM" + rm + " est déjà pris en charge par " +
+               (b.alive.length > 1 ? b.alive.length + " sessions ouvertes :" : "une session ouverte :"), ""];
+  b.alive.forEach(r => out.push(ligne(r)));
+  if (b.stopped.length) {
+    out.push("", "Également, non terminée mais éteinte (relançable) :");
+    b.stopped.forEach(r => out.push(ligne(r)));
+  }
+  return out.join("\n");
+}
+// <<< duplicateSessionText
+
+// RM2818 — garde commune aux deux points de lancement. Rend `true` s'il faut
+// poursuivre le lancement, `false` si le geste est consommé (session rejointe)
+// ou abandonné. L'état est RELU (`force`) : un cache périmé dirait « libre »
+// pour un ticket qu'une session vient de prendre — exactement le cas qu'on veut
+// attraper.
+async function confirmSecondSession(rm) {
+  const busy = ticketBusySessions(await ensureTicketSessions(String(rm), true));
+  if (!busy.alive.length) return true;
+  const txt = duplicateSessionText(rm, busy);
+  if (window.confirm(txt + "\n\nRejoindre cette session plutôt que d'en ouvrir une seconde ?\n" +
+                     "(OK : rejoindre  ·  Annuler : voir l'autre option)")) {
+    attach(busy.alive[0].sid);
+    return false;
+  }
+  return window.confirm("Ouvrir QUAND MÊME une seconde session sur RM" + rm + " ?\n\n" +
+    "Deux agents travailleraient le même ticket : même branche, même worktree, " +
+    "même statut Redmine — et le second écrase les décisions du premier sans le savoir.");
+}
+
 // >>> taskPromptText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2726 — la formulation des prompts de lancement vivait dans applyTemplate,
 // collée au DOM du formulaire de gauche. La fiche du ticket lance elle aussi
@@ -10255,6 +10458,7 @@ async function sendTicketToSession(rm, btn) {
 // la confirmation les DIT, plutôt que de lancer sur des défauts invisibles.
 async function spawnTicketSession(rm, btn) {
   rm = String(rm);
+  if (!await confirmSecondSession(rm)) return;      // RM2818
   const r = resolveCache[rm] || {};
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
@@ -10393,6 +10597,7 @@ async function setLayout() {
 async function spawn() {
   const rm = document.getElementById("rm").value.trim();
   if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
+  if (!await confirmSecondSession(rm)) return;      // RM2818
   const body = { rm_id: rm, engine: document.getElementById("engine").value };
   const model = document.getElementById("model").value;
   if (model) body.model = model;

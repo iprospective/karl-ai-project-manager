@@ -63,6 +63,20 @@ arbitrage, qui se prend depuis la fiche du ticket.
 Chaque lot montre d'abord un **récapitulatif** : ce qui part, et ce qui est
 écarté avec le motif. Rien ne part sans que ce tableau ait été lu.
 
+### ⇱ nouvelle session — sortir les intrus
+
+Une session est ancrée sur **un** projet ; le fil, lui, ramasse des tickets
+d'ailleurs. Cocher ces tickets puis **⇱ nouvelle session** ouvre une session
+neuve, ancrée sur **leur** projet, qui les prend en charge — avec la consigne de
+« ▶ traiter », et la session courante retrouve son seul chantier.
+
+Deux garde-fous : les tickets cochés doivent appartenir **au même projet** (sinon
+la session n'a pas d'ancrage — les projets en présence te sont nommés), et un
+ticket dont le projet n'est pas résolu **reste sur place**, signalé, sans retenir
+les autres. Les tickets embarqués quittent la liste « tickets ouverts » : c'est la
+nouvelle session qui les porte. Le worklog, lui, n'est pas réécrit — il raconte ce
+que la session a fait, et elle l'a fait.
+
 ## État de la session
 
 L'onglet état distingue les situations d'une session :

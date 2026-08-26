@@ -17,3 +17,6 @@ Capitalisation sur Redmine (project management/issue tracking). Validé sur :
 - [textile-to-markdown-migration.md](./textile-to-markdown-migration.md) — procédure
   de migration du format texte (Textile → Markdown CommonMark), validée
 - [gotchas.md](./gotchas.md) — pièges et comportements surprenants observés
+- [etiquettes.md](./etiquettes.md) — le CF « Étiquettes » (liste multi-valeurs, tous
+  projets) : pourquoi lui plutôt que les catégories ou un plugin, comment le créer
+  (geste admin — l'API ne crée pas de CF), et comment y brancher l'outillage PM

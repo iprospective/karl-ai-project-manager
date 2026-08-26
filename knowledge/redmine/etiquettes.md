@@ -157,6 +157,15 @@ pas. C'est le cas voulu des produits ou composants mono-projet — `cockpit`,
 Sans ce refus, le vocabulaire contrôlé se remplirait de variantes en quelques
 semaines — c'est précisément ainsi qu'on est arrivé à 747 mots-clés libres.
 
+### Le slug n'est pas le libellé
+
+Le registre distingue volontairement les deux : `label` est ce que Redmine
+affiche, `slug` ce qui s'écrit au frontmatter. « Debug/Bugfix » s'écrit `debug`,
+« Tooling » couvre `outillage`, « Archi » couvre `architecture`, « Backup »
+couvre `sauvegarde`. Un slug est fait pour être tapé à la main : quand le libellé
+est composé ou moins courant que son synonyme, l'autre forme devient un alias —
+rien n'est perdu, et rien n'oblige à réécrire les tickets existants.
+
 ### Tenir le registre synchrone
 
     pm-tags-audit.py
@@ -164,8 +173,11 @@ semaines — c'est précisément ainsi qu'on est arrivé à 747 mots-clés libre
 Compare la définition Redmine, le registre et les usages réels, et rend quatre
 listes : **à créer** dans l'UI admin (avec le volume concerné, alias inclus), **à
 recopier** au registre (valeurs qui existent côté Redmine avec leur id), les
-**orphelines** (au registre mais supprimées du CF) et les mots-clés **libres** les
-plus utilisés. L'audit ne corrige rien : créer une valeur est un geste humain
+**orphelines** (au registre mais supprimées du CF), les **renommées** (même id,
+libellé changé côté Redmine) et les mots-clés **libres** les plus utilisés. La
+comparaison se fait par **id**, jamais par libellé : c'est la seule clé stable, et
+comparer les libellés ferait voir un écart là où le slug diffère volontairement du
+libellé. L'audit ne corrige rien : créer une valeur est un geste humain
 dans l'UI, recopier son id en est un autre — une commande qui écrirait en base
 pour « synchroniser » serait plus rapide et bien plus dangereuse.
 

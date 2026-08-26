@@ -14,6 +14,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Registre des Tags remappé sur les 22 valeurs réelles** (RM2837). Les valeurs ont été créées
+  avec des libellés parfois différents de ceux proposés — « Tooling » pour Outillage, « Archi »
+  pour Architecture, « Backup » pour Sauvegarde, « Debug/Bugfix » pour Debug — plus deux
+  familles non prévues, **Notifications** et **Audit**. Le registre porte désormais l'id et le
+  libellé exact de chacune, et le synonyme proposé devient un alias : rien n'est perdu et aucun
+  ticket n'a à être réécrit. Le slug reste distinct du libellé quand celui-ci est composé
+  (« Debug/Bugfix » s'écrit `debug`) — un slug se tape à la main. Deux familles nouvelles
+  cartographiées (telegram, communication, bot → Notifications ; analyse, revue, inventaire →
+  Audit) et le paiement rejoint « Tunnel de commande » sans créer de valeur (`etransactions`,
+  `mmipayments`, `panier`…). **Correctif d'audit** : la comparaison se fait par **id** et non
+  par libellé — sinon un slug volontairement différent du libellé passait pour un écart — et
+  les **renommages** côté Redmine sont désormais détectés. Couverture : 53 % des usages.
 - **Registre des Tags : vocabulaire multi-projet, mapping n-1, audit et garde** (RM2836,
   chantier RM2828). Le CF portait 7 valeurs quand les frontmatters comptaient **747 mots-clés
   sur 2 578 usages** : deux objets différents qu'il fallait réconcilier sans réécrire

@@ -30,6 +30,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être
+  montrées, elles ne servaient qu'aux filtres — personne ne savait ce qu'un ticket portait.
+  La fiche du ticket les affiche (🏷) et chacune est **cliquable** : elle emmène vers la
+  recherche réglée sur cette étiquette, plutôt que d'inventer une vue de plus. Côté outillage,
+  `pm-conso-report --by tag` ventile coût, tokens et temps par domaine ; c'est la seule
+  dimension multi-valuée, donc un ticket `front` + `refacto` compte dans les deux et la somme
+  des lignes dépasse le total — annoncé dans le rapport lui-même, un total qui semble faux
+  ferait douter de l'ensemble. La marche à suivre pour la vue Redmine équivalente (une fois le
+  CF créé) est dans `knowledge/redmine/etiquettes.md`.
 - **⇱ session sur un lot filtré par domaine** (RM2831, chantier RM2828). RM2823 sortait les
   intrus d'une session, un par un ; ici la **liste de triage filtrée par étiquette EST le lot** —
   rien à cocher. Le chemin de lancement est factorisé avec RM2823 (`spawnBatchSession`) : deux

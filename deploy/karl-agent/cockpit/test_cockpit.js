@@ -3988,3 +3988,24 @@ assert(tri2831 && /spawnBatchSession\(/.test(tri2831[0]),
   "le geste du triage aussi — sinon deux comportements divergeraient");
 assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
 console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");
+
+// — RM2832 : les étiquettes se VOIENT (fiche) et se comptent (conso) —
+const tagPills = grabO("tagPillsHtml");
+const h2832 = tagPills(["front", "refacto"], escFn, jargFn);
+assert(/front/.test(h2832) && /refacto/.test(h2832), "chaque étiquette est rendue");
+assert(/🏷/.test(h2832), "…avec la marque qui les identifie d'un coup d'œil");
+assert(/filterByTag\(/.test(h2832),
+  "cliquer une étiquette doit mener aux tickets qui la portent — sinon elle est décorative");
+assert.strictEqual(tagPills([], escFn, jargFn), "", "aucune étiquette : rien, pas un cadre vide");
+assert.strictEqual(tagPills(null, escFn, jargFn), "", "liste absente : idem");
+// Le risque réel dans un attribut : en SORTIR. Un guillemet double doit être
+// neutralisé (helper `jarg`, RM2579), et le texte affiché échappé comme ailleurs.
+const piege2832 = tagPills(['a" onclick="alert(1)'], escFn, jargFn);
+assert(!/onclick="alert/.test(piege2832), "une étiquette ne peut pas sortir de l'attribut");
+assert(/&quot;/.test(piege2832), "…le guillemet est neutralisé, pas laissé tel quel");
+assert(/&lt;b&gt;/.test(tagPills(["<b>"], escFn, jargFn)), "le texte affiché est échappé");
+// la fiche l'utilise
+const rrp2832 = html.indexOf("function renderReviewPane(");
+assert(rrp2832 > 0 && /tagPillsHtml\(/.test(html.slice(rrp2832, rrp2832 + 3000)),
+  "la fiche du ticket doit afficher les étiquettes");
+console.log("✓ étiquettes visibles (RM2832) : sur la fiche, cliquables, et ventilées en conso");

@@ -7,8 +7,13 @@ hook Stop `pm-task-tick.py`, cf. NORMS § ROI assisté par IA) : `tokens_total`,
 `human_time_total_minutes`, `time_total_minutes`.
 
 Dimensions d'agrégation (`--by`) : `project`, `client`, `type`, `status`,
-`day`, `week`, `month` (temporel = champ `updated`). Toujours affiché : un
+`tag`, `day`, `week`, `month` (temporel = champ `updated`). Toujours affiché : un
 total global + le top-N des tickets les plus coûteux.
+
+⚠ `--by tag` (RM2832) est la seule dimension MULTI-VALUÉE : un ticket étiqueté
+`front` ET `refacto` compte dans les deux groupes. La somme des groupes dépasse
+donc le total global — c'est voulu (« combien coûte le front » inclut ce qui est
+aussi de la refacto), et le rapport le dit en clair.
 
 Périmètre = tous les projets PM (via `PMConfig.iter_projects`, qui suit les
 symlinks de bascule et déduplique) ; filtrable par entité/projet.
@@ -16,6 +21,7 @@ symlinks de bascule et déduplique) ; filtrable par entité/projet.
 Usage :
     ./pm-conso-report.py                       # tout, groupé par projet
     ./pm-conso-report.py --by type             # par typologie de ticket
+    ./pm-conso-report.py --by tag              # par domaine (étiquettes, RM2832)
     ./pm-conso-report.py --by month --top 15   # par mois + 15 tickets top
     ./pm-conso-report.py --status ferme        # seulement la conso livrée
     ./pm-conso-report.py --entity iprospective # une entité ; --project pm-ai-agents
@@ -37,7 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
-DIMENSIONS = ("project", "client", "type", "status", "day", "week", "month")
+DIMENSIONS = ("project", "client", "type", "status", "tag", "day", "week", "month")   # RM2832 : + tag
 
 
 def parse_frontmatter(path: Path) -> dict | None:
@@ -83,6 +89,19 @@ def _iso_week(day: str) -> str:
         return f"{iso[0]}-W{iso[1]:02d}"
     except ValueError:
         return "?"
+
+
+def dimension_keys(r: dict, by: str) -> list:
+    """Groupes auxquels un ticket appartient. Une seule clé partout, SAUF `tag`
+    (RM2832) : les étiquettes sont multi-valuées, et un ticket `front` +
+    `refacto` doit apparaître dans les deux ventilations — sinon « combien coûte
+    le front » exclurait la moitié du front. Sans étiquette : un groupe explicite
+    plutôt qu'une disparition silencieuse."""
+    if by != "tag":
+        return [dimension_key(r, by)]
+    tags = [str(t).strip().lower() for t in (r["fm"].get("tags") or []) if str(t).strip()]
+    uniques = sorted(set(tags))
+    return uniques or ["(sans étiquette)"]
 
 
 def dimension_key(r: dict, by: str) -> str:
@@ -165,12 +184,12 @@ def fmt_min(m: float) -> str:
 def aggregate(rows: list[dict], by: str) -> dict:
     agg = {}
     for r in rows:
-        k = dimension_key(r, by)
-        a = agg.setdefault(k, {"n": 0, "tokens": 0.0, "cost": 0.0,
-                               "ai_min": 0.0, "human_min": 0.0})
-        a["n"] += 1
-        for f in ("tokens", "cost", "ai_min", "human_min"):
-            a[f] += r[f]
+        for k in dimension_keys(r, by):
+            a = agg.setdefault(k, {"n": 0, "tokens": 0.0, "cost": 0.0,
+                                   "ai_min": 0.0, "human_min": 0.0})
+            a["n"] += 1
+            for f in ("tokens", "cost", "ai_min", "human_min"):
+                a[f] += r[f]
     return agg
 
 
@@ -221,6 +240,11 @@ def main():
         return
 
     print(f"Consommation — {total['n']} ticket(s) — par {args.by}")
+    if args.by == "tag":
+        # RM2832 : le dire ICI, pas seulement dans l'aide — un total qui semble
+        # faux fait douter de tout le rapport.
+        print("(un ticket peut porter plusieurs étiquettes : la somme des lignes "
+              "dépasse le total)")
     print(f"{'':<28}{'tickets':>8}{'tokens':>10}{'coût $':>10}{'IA':>9}{'humain':>9}")
     print("-" * 74)
     for k, a in sorted(agg.items(), key=lambda kv: kv[1]["cost"], reverse=True):

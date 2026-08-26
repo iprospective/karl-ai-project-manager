@@ -69,6 +69,21 @@ par Redmine. Pour en ajouter une, on l'ajoute là — et l'outillage suit.
 Un **override** ponctuel reste possible sans toucher la référence :
 `REDMINE_CF_TAGS_ID=<id>` dans le `.env` (même convention que les autres CF).
 
+## Une vue Redmine par étiquette (une fois le CF créé)
+
+Le CF étant **utilisé comme filtre** et **pour tous les projets**, il apparaît
+dans les filtres de la liste des demandes :
+
+1. *Demandes → Filtres → Étiquettes* → `est` → choisir une ou plusieurs valeurs ;
+2. *Options → Grouper par : Étiquettes* pour une vue ventilée ;
+3. « Enregistrer » la requête (cocher « Pour tous les projets » si la vue doit
+   suivre le vocabulaire transverse).
+
+Côté PM, la même ventilation existe hors Redmine :
+`pm-conso-report.py --by tag` — coût, tokens et temps par domaine. ⚠ un ticket
+portant deux étiquettes compte dans les deux groupes : la somme des lignes
+dépasse le total, et le rapport le dit.
+
 ## Tant que le CF n'existe pas
 
 Rien ne casse : `pm-task-tag` écrit le frontmatter, `pm-task-list --tag` filtre,

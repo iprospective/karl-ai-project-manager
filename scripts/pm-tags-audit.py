@@ -210,6 +210,12 @@ def main():
     if not (r["a_creer"] or r["a_recopier"] or r["orphelines"] or r["renommees"]):
         print("✓ registre et CF Redmine sont synchrones.\n")
 
+    filles = pm_tags.specializations()
+    if filles:
+        print("spécialisations (le champ est multi-valeurs : un ticket peut porter les deux) :")
+        for fille, parent in sorted(filles.items()):
+            print(f"   {fille} précise {parent}")
+        print()
     print(f"mots-clés LIBRES les plus utilisés ({r['libres_total']} au total, "
           "hors vocabulaire et hors alias — ils restent locaux) :")
     for e in r["libres"]:

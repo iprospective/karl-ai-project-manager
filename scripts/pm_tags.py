@@ -178,6 +178,28 @@ def pending_values():
                   and normalize(v.get("slug") or v.get("label")))
 
 
+def specializations():
+    """{fille: parent} — les valeurs qui en PRÉCISENT une autre (`precise:`).
+
+    Le CF est multi-valeurs : `review` ne remplace pas `audit`, il l'affine, et un
+    ticket peut porter les deux. La relation est déclarée pour être MONTRÉE — une
+    valeur fille présentée à plat se lit comme un doublon de son parent.
+    """
+    try:
+        import yaml
+        data = yaml.safe_load(_registry_path().read_text(encoding="utf-8")) or {}
+    except Exception:       # noqa: BLE001
+        return {}
+    out = {}
+    for v in data.get("values") or []:
+        if isinstance(v, dict) and v.get("precise"):
+            fille = normalize(v.get("slug") or v.get("label"))
+            parent = normalize(v.get("precise"))
+            if fille and parent:
+                out[fille] = parent
+    return out
+
+
 def vocabulary():
     """Tous les slugs du vocabulaire décidé — actifs ET en attente."""
     try:

@@ -94,6 +94,24 @@ check("les familles ajoutées à la création sont cartographiées",
       pm_tags.canonical("telegram")[0] == "notifications"
       and pm_tags.canonical("analyses")[0] == "audit")
 
+# — RM2839 : 2e lot et SPÉCIALISATIONS —
+filles = pm_tags.specializations()
+check("les spécialisations sont déclarées", set(filles) >= {"review", "veille", "hooks", "cli"}, filles)
+check("chaque fille précise une valeur existante", all(p in slugs for p in filles.values()), filles)
+for fille in ("review", "veille", "hooks", "cli"):
+    check(f"« {fille} » s'écrit tel quel et n'est plus rabattu sur son parent",
+          pm_tags.canonical(fille) == (fille, None), pm_tags.canonical(fille))
+check("une fille reste poussable (elle a son propre id)",
+      all(pm_tags.cf_payload([f])["value"] for f in filles))
+check("le parent reste écrivable de son côté (les deux coexistent)",
+      pm_tags.canonical("audit") == ("audit", None)
+      and pm_tags.canonical("tooling") == ("tooling", None))
+for mot, attendu in (("charte", "design"), ("parc", "inventaire"), ("curation", "data"),
+                     ("benchmark", "perf"), ("pricing-watch", "veille"), ("hook", "hooks"),
+                     ("revue", "review")):
+    check(f"remappé vers la bonne famille : {mot} → {attendu}",
+          pm_tags.canonical(mot)[0] == attendu, pm_tags.canonical(mot))
+
 # — garde à l'écriture : ce que le script doit refuser —
 src = (HERE / "pm-task-tag.py").read_text(encoding="utf-8")
 check("le refus est explicite et sort en erreur", "hors vocabulaire" in src and "sys.exit(2)" in src)

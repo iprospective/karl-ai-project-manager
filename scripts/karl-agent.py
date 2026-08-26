@@ -108,6 +108,7 @@ API (JSON, localhost:9876)
                                 → {results:[…{origin, synced}], source, redmine_error}
                                   `source` : MD locaux (défaut), Redmine (tickets
                                   pas encore fetchés), ou les deux fusionnés  (RM2770)
+  GET  /tags                    → {tags:[{tag,count}]} — étiquettes en usage (RM2830)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   GET  /client/<slug>           → fiche client : identité, statut, contacts,
                                   valeurs par défaut, projets, projets utilisés,
@@ -1725,7 +1726,7 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
 # Un jeu DÉRIVÉ est défini par une RÈGLE, pas par une liste : il ne dérive jamais,
 # rien à curer, et une session neuve qui satisfait la règle y entre sans geste.
 # La résolution se fait à la LECTURE : rien n'est stocké, donc rien à synchroniser.
-RULE_KEYS = ("client", "project", "mark", "tickets")
+RULE_KEYS = ("client", "project", "mark", "tickets", "tag")   # RM2830 : + étiquette
 
 
 def _rule_norm(rule) -> dict:
@@ -1742,6 +1743,12 @@ def _rule_norm(rule) -> dict:
             if not isinstance(v, list):
                 raise ApiError(400, "rule.tickets doit être une liste d'id")
             out[k] = [str(x) for x in v]
+        elif k == "tag":
+            # RM2830 : normalisée comme partout ailleurs, sinon « Front » ne
+            # retrouverait pas les tickets étiquetés « front ».
+            out[k] = _tag_norm(v)
+            if not out[k]:
+                raise ApiError(400, "rule.tag vide après normalisation")
         elif k == "mark":
             m = str(v).lower()
             if m not in MARKS + ("none",):
@@ -1776,6 +1783,19 @@ def _all_keys() -> list:
     return out
 
 
+def _sid_tags(sid: str) -> list:
+    """Étiquettes du TICKET d'une session (RM2830). Une session ancrée sur un
+    slug n'a pas de ticket : elle n'a donc pas d'étiquette — et ne doit jamais
+    matcher une règle par étiquette « au cas où »."""
+    s = str(sid or "")
+    if not s.isdigit():
+        return []
+    tf = _find_task_file(s)
+    if not tf:
+        return []
+    return [_tag_norm(t) for t in (_read_task_meta(tf).get("tags") or []) if _tag_norm(t)]
+
+
 def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     client, project = _pm_project_of_cwd(k.get("cwd"))
     if "client" in rule and client != rule["client"]:
@@ -1783,6 +1803,12 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     if "project" in rule and project != rule["project"]:
         return False
     if "tickets" in rule and sid not in rule["tickets"]:
+        return False
+    # Normalisé ici AUSSI : `_rule_norm` s'en charge à l'écriture, mais une règle
+    # déjà persistée (ou éditée à la main dans le JSON du jeu) doit continuer de
+    # matcher — sinon elle échoue en silence, et un jeu dérivé vide ne dit pas
+    # pourquoi il est vide.
+    if "tag" in rule and _tag_norm(rule["tag"]) not in _sid_tags(sid):
         return False
     if "mark" in rule:
         mark = _session_mark(k.get("session_id"))
@@ -1873,7 +1899,17 @@ def _session_facets() -> dict:
     out = [{"slug": c["slug"], "count": c["count"], "projects": sorted(c["projects"])}
            for c in clients.values()]
     out.sort(key=lambda c: (-c["count"], c["slug"]))
-    return {"clients": out, "marks": sorted(marks)}
+    # RM2830 : les étiquettes des tickets des sessions connues — de quoi proposer
+    # le critère « étiquette » du formulaire de règle sans le saisir à la main.
+    # Comptées sur les SESSIONS (pas sur tous les tickets) : c'est ce que la règle
+    # va effectivement retenir.
+    tag_counts: dict = {}
+    for sid, _k in _all_keys():
+        for t in set(_sid_tags(sid)):
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    tags = [{"tag": t, "count": c}
+            for t, c in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {"clients": out, "marks": sorted(marks), "tags": tags}
 
 
 def _set_entries(rec: dict) -> list:
@@ -5908,6 +5944,49 @@ def _safe_ticket_model(rm_id: str):
         return None
 
 
+def _tag_norm(t) -> str:
+    """Même normalisation qu'à l'écriture (pm_tags) : slug minuscule sans accent.
+
+    Sans elle, « Front » et « front » feraient deux entrées de menu et deux
+    filtres disjoints — l'utilisateur en conclurait que le filtre est cassé.
+    Le module PM n'est pas importable ici (karl-agent ne dépend pas de scripts/) :
+    on refait la même règle, volontairement simple.
+    """
+    import unicodedata
+    x = unicodedata.normalize("NFKD", str(t or ""))
+    x = "".join(c for c in x if not unicodedata.combining(c)).lower().strip()
+    return re.sub(r"[^a-z0-9]+", "-", x).strip("-")[:40].rstrip("-")
+
+
+def tags_in_use(metas) -> list:
+    """[{tag, count}] — les étiquettes réellement portées par des tickets.
+
+    Trié par usage décroissant puis alphabétique : un menu dont l'ordre change à
+    chaque rafraîchissement ne se lit pas. Les étiquettes viennent des tickets,
+    jamais d'une liste écrite en dur qui dériverait au premier vocabulaire ajouté.
+    """
+    counts = {}
+    for m in metas or []:
+        vus = set()
+        for t in (m or {}).get("tags") or []:
+            n = _tag_norm(t)
+            if n and n not in vus:
+                vus.add(n)
+                counts[n] = counts.get(n, 0) + 1
+    return [{"tag": t, "count": c}
+            for t, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def op_tags() -> list:
+    """GET /tags — inventaire des étiquettes en usage (RM2830)."""
+    metas = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        metas.append(_read_task_meta(tf))
+    return tags_in_use(metas)
+
+
 def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
     """Recherche sur les MD de tâches locaux (RM1893 §7). Match q sur id/titre/tags ;
     filtres status/client/project/tag. Trié par rm_id décroissant."""
@@ -6153,6 +6232,7 @@ def op_triage(qs: dict) -> dict:
             "priority": fm.get("priority") or "normal",
             "type": fm.get("type") or "",
             "client": cl, "project": pr,
+            "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],   # RM2830
             "score": round(_prio.task_score(fm, rate), 1),
             "time_minutes": est.get("time_minutes"),
             "tokens": est.get("tokens"),
@@ -10052,6 +10132,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {
                     "results": merge_search_results(locaux, dist["results"]),
                     "source": src, "redmine_error": dist["error"]})
+            if path == "/tags":                    # RM2830 : étiquettes en usage
+                return self._send_json(200, {"tags": op_tags()})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
             if path.startswith("/client/"):        # RM2768 : fiche client

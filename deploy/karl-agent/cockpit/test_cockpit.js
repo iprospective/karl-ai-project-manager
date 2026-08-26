@@ -3911,3 +3911,41 @@ assert(/rs-client/.test(lr2834),
   "loadResumable doit envoyer le client — un client seul liste TOUS ses projets");
 assert(/client=/.test(lr2834), "…sous forme de filtre client=");
 console.log("✓ reprise de session (RM2834) : filtre client, qui filtre les projets");
+
+// — RM2830 : filtrer par étiquette (recherche, triage, jeux dérivés) —
+// L'étiquette ne sert à rien si elle ne sert pas à CHOISIR quoi faire.
+const searchQuery2830 = grabO("searchQuery");
+assert(/tag=refacto/.test(searchQuery2830("x", { tag: "refacto" }, "")),
+  "la recherche doit transmettre l'étiquette au serveur");
+assert(!/tag=/.test(searchQuery2830("x", {}, "")), "…et ne rien ajouter quand aucune n'est choisie");
+
+// Le triage filtre sur la même notion, sans confondre « aucune étiquette » et « toutes »
+const triageFilter2830 = grabO("triageFilter");
+const T2830 = [
+  { rm_id: "1", client: "a", project: "p", tags: ["front", "refacto"] },
+  { rm_id: "2", client: "a", project: "p", tags: ["bdd"] },
+  { rm_id: "3", client: "a", project: "p" },
+];
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "front").map(t => t.rm_id).join(","), "1",
+  "filtre par étiquette");
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "").length, 3,
+  "aucune étiquette choisie → tout, y compris les tickets sans étiquette");
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "Front").map(t => t.rm_id).join(","), "1",
+  "la casse ne change rien (même vocabulaire qu'à l'écriture)");
+assert.strictEqual(triageFilter2830(T2830, "a", "p", false, "bdd").map(t => t.rm_id).join(","), "2",
+  "cumulable avec client/projet");
+
+// Les étiquettes se VOIENT sur la ligne de résultat, sinon on filtre à l'aveugle
+const rowMeta2830 = grabO("searchRowMeta");
+assert(/refacto/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire", tags: ["refacto"] })),
+  "les étiquettes d'un ticket apparaissent dans sa ligne");
+assert(!/·\s*·/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire" })),
+  "aucune étiquette : pas de séparateur orphelin");
+
+// Câblage : menu d'étiquettes alimenté par le serveur, jamais écrit en dur
+assert(/<select id="sf-tag"/.test(html), "filtre étiquette dans la recherche");
+assert(/<select id="tr-tag"/.test(html), "filtre étiquette dans le triage ROI");
+const lt2830 = /async function loadTags\([\s\S]*?\n\}/.exec(html);
+assert(lt2830 && /\/tags/.test(lt2830[0]), "les étiquettes proposées viennent de GET /tags");
+assert(/rf-tag/.test(html), "le formulaire de jeu dérivé propose le critère étiquette");
+console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");

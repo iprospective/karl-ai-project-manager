@@ -1,0 +1,95 @@
+# tags.registry.yml — registre du CF Redmine « Tags » (RM2829/RM2836, chantier RM2828)
+#
+# DEUX rôles, à ne pas confondre :
+#
+#   `values`  — le VOCABULAIRE CONTRÔLÉ. Ce que le CF accepte, et donc la seule
+#               chose qui monte dans Redmine. Chaque entrée porte l'`id` de la
+#               valeur côté Redmine : le CF est en format `enumeration`, l'API
+#               désigne ses valeurs par id (jamais par libellé).
+#   `aliases` — le MAPPING n-1 des mots-clés existants vers ces valeurs. Le champ
+#               `tags:` des frontmatters porte 747 mots-clés accumulés ; les
+#               regrouper évite d'avoir à réécrire l'historique, et `pm-task-tag`
+#               canonicalise à l'écriture.
+#
+# Ce qui n'est NI une valeur NI un alias reste un mot-clé purement local : il vit
+# au frontmatter (filtres `pm-task-list --tag`, recherche cockpit) et ne monte pas.
+# C'est le cas voulu pour les noms de produits ou composants mono-projet
+# (`cockpit`, `karl`, `karl-agent`, `norms`, `graph`, `atlas`…).
+#
+# ⚠ SYNCHRONISATION. Les valeurs possibles ne se créent pas par API (les
+# définitions de CF sont en lecture seule) : on les ajoute dans l'UI admin
+# Redmine, puis on recopie leur id ici. `pm-tags-audit.py` compare le CF live, ce
+# registre et les usages réels, et dit exactement ce qui manque de chaque côté.
+# Une valeur sans `id` est « en attente » : elle est acceptée à l'écriture locale
+# mais ne peut pas être poussée, et l'outillage le dit plutôt que d'échouer.
+cf:
+  id: 32
+  name: Tags
+  format: enumeration
+  multiple: true
+
+values:
+  # — créées côté Redmine (id connu) —
+  - {slug: front, label: "Front", id: 45}
+  - {slug: db, label: "DB", id: 46}
+  - {slug: refacto, label: "Refacto", id: 47}
+  - {slug: bo, label: "BO", id: 48}
+  - {slug: config, label: "Config", id: 49}
+  - {slug: debug, label: "Debug", id: 50}
+  - {slug: tunnel-de-commande, label: "Tunnel de commande", id: 51}
+  # — proposées, EN ATTENTE de création dans l'UI admin (RM2836) —
+  #   volumes mesurés sur les frontmatters au 2026-08-26 (usages · projets)
+  - {slug: securite, label: "Sécurité"}        # 135 · 26
+  - {slug: outillage, label: "Outillage"}      # 176 ·  8
+  - {slug: infra, label: "Infra"}              # 146 · 23
+  - {slug: git, label: "Git"}                  # 122 · 23
+  - {slug: bootstrap, label: "Bootstrap"}      #  69 · 22
+  - {slug: migration, label: "Migration"}      #  64 · 11
+  - {slug: monitoring, label: "Monitoring"}    #  64 ·  7
+  - {slug: deploiement, label: "Déploiement"}  #  56 · 13
+  - {slug: mail, label: "Mail"}                #  56 ·  5
+  - {slug: doc, label: "Doc"}                  #  44 ·  8
+  - {slug: architecture, label: "Architecture"} # 30 · 10
+  - {slug: tests, label: "Tests"}              #  24 ·  6
+  - {slug: sauvegarde, label: "Sauvegarde"}    #  19 ·  6
+
+# Mapping n-1 : mot-clé existant → valeur canonique. Ce qui n'est pas listé reste
+# un mot-clé local. Les noms de produits mono-projet sont volontairement absents.
+aliases:
+  front: [ui, ux, web, theme, css, layout, htmx, twig, navigation, nav, affichage,
+          menu, ergonomie, web-ui, public-ui, branding, charte]
+  db: [bdd, database, databases, mariadb, postgresql, pgsql, sqlite, orm, doctrine,
+       schema, sql-dump, migrations, query, transaction, savepoint, dbname]
+  bo: [admin, back-office, easyadmin]          # ⚠ « admin » est ambigu (système / back-office)
+  config: [configuration, conf, settings, reglages, environments, env, env-dev, dev-env, meta]
+  debug: [bug, bugfix, incident, regression, anomalies, diagnostic, prod-incident, correctness]
+  refacto: [refactoring, refactor, dette, dette-technique, cleanup, optimisation,
+            qualite, quality, hygiene, dead-code, normalisation, harmonisation,
+            restructuration, robustesse]
+  securite: [security, secrets, vaultwarden, vault, hardening, durcissement, privsep,
+             permissions, droits, auth, sso, tls, firewall, nftables, iptables, csrf,
+             access-control, sudoers, sudo, crowdsec, abuse, injection, cles, ssh-ca]
+  infra: [infrastructure, lxc, lxc-dev, lxc-net, zfs, systemd, dns, dnsmasq, reseau,
+          lan, apache, nginx, vhost, vhosts, opensvc, proxmox, serveur, bare-metal,
+          hosting, hebergement, reverse-proxy, conteneur, boot, reboot, ipv6, vpn,
+          cgroup, lxcfs, ram, oom, ssd, disque, scrub, failover, replication, cluster,
+          srv3, srv4, srv5, srv9, srve, workstation, parc]
+  monitoring: [supervision, zabbix, observabilite, alerting, metriques, obs, watchdog,
+               sla, web-scenario, smartd, stats]
+  git: [gitlab, submodule, submodules, sous-modules, branches, mr, remotes, commit,
+        push, worktree, worktrees, bare, 3-branches, versionning, versioning, versions]
+  mail: [email, postfix, dovecot, antispam, amavis, clamav, sieve, roundcube, smtp,
+         dkim, spf, dmarc, dnsbl, postscreen, backscatter, relances, notif]
+  migration: [import, ingestion, sync, synchro, mmi-sync, backfill, export, csv, textile]
+  deploiement: [deploy, deployment, mep, prod, preprod, provisioning, install, setup,
+                ci, pipeline, cron, automation, automate, core-update, unattended-upgrades]
+  doc: [documentation, wiki, wiki-sync, cdc, cahier-des-charges, changelog, markdown,
+        glossaire, convention, naming, nommage, aide, docs]
+  tests: [test, testing, phpunit, test-env, benchmark, poc, simulation, validation]
+  architecture: [archi, architecture-pm, conception, modelisation, modele, structure,
+                 arborescence, socle, foundation, stack, taxonomie]
+  outillage: [tooling, pm-tooling, cli, script, scripts, hook, hooks, skill, skills,
+              mmi-pm, pm, pm-system, pm-itself, pm-scripts, doctor, redmine, outil,
+              outil-pm, tools, batch]
+  bootstrap: [onboarding, amorcage, template, templates]
+  sauvegarde: [backup, bkp, autosnap, replic, data-safety, perte-de-donnees, retention]

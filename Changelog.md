@@ -14,6 +14,26 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Registre des Tags : vocabulaire multi-projet, mapping n-1, audit et garde** (RM2836,
+  chantier RM2828). Le CF portait 7 valeurs quand les frontmatters comptaient **747 mots-clés
+  sur 2 578 usages** : deux objets différents qu'il fallait réconcilier sans réécrire
+  l'historique. Le registre porte désormais le vocabulaire contrôlé (7 valeurs actives + **13
+  proposées**, choisies sur un critère mesurable — fréquentes ET multi-projets, hors produits
+  mono-projet) et **265 alias** qui y ramènent les mots-clés existants ; le reste demeure
+  mot-clé local, filtrable comme avant. `pm-task-tag` canonicalise un alias en l'annonçant,
+  **refuse** une étiquette hors vocabulaire (avec les valeurs acceptées et l'échappatoire
+  `--free`), et distingue « décidée mais pas encore créée dans Redmine » de « mot-clé local » —
+  deux raisons très différentes de ne pas monter. `pm-tags-audit` compare définition Redmine,
+  registre et usages, et rend les quatre écarts : à créer dans l'UI, à recopier au registre,
+  orphelines, libres. Il ne corrige rien : créer une valeur reste un geste humain.
+- **Socle étiquettes branché sur le CF réel** (RM2829). Le champ a été créé côté Redmine sous
+  le nom **« Tags » (id 32)** et en format **`enumeration`** — pas « liste » : l'API y désigne
+  ses valeurs par **id** (45, 46…), et pousser un libellé est refusé. Le socle apprend donc à
+  traduire : `tags.registry.yml` (racine du dépôt, comme `redmine.reference.yml`) porte la table
+  `slug ↔ label ↔ id`, et le registre voyage avec le code plutôt qu'avec l'instance — sinon un
+  worktree de dev pousserait les ids d'un autre checkout. Une étiquette hors registre reste
+  locale et `pm-task-tag` le DIT : sans ça, un « ✓ frontmatter + Redmine » mentirait sur la
+  moitié des étiquettes. Vérifié de bout en bout sur RM2829 (frontmatter `front` → CF valeur 45).
 - **L'étiquette propose un rôle d'agent** (RM2833, chantier RM2828). Table `tag_roles` déclarée
   en conf (`meta.yml`, cascade client → projet — un vocabulaire métier n'a pas à être connu du
   code) : `pm-task-brief` affiche le rôle suggéré, et l'écran de lancement d'une session le

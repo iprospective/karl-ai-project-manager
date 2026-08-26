@@ -59,6 +59,27 @@ check("replace vide = tout retirer", pm_tags.apply_change(["front"], replace=[])
 check("aucun geste = liste normalisée, pas de perte",
       pm_tags.apply_change(["Front", "bo"]) == ["bo", "front"])
 
+# — RM2829 (reprise) : le CF livré est en format ENUMERATION —
+# L'API veut l'id de chaque valeur, pas son libellé : un push de labels est
+# refusé (422). Le registre porte la table slug ↔ label ↔ id.
+reg = pm_tags.load_registry()
+if reg:
+    check("registre chargé (tags.registry.yml)", "front" in reg and reg["front"]["id"].isdigit(), reg)
+    p32 = pm_tags.cf_payload(["Front", "refacto"])
+    check("payload = ids d'énumération, pas des libellés",
+          p32 and all(str(v).isdigit() for v in p32["value"]), p32)
+    check("étiquette hors registre écartée du push (elle ferait échouer TOUT le PUT)",
+          pm_tags.cf_payload(["front", "cockpit-inconnu"])["value"] == [reg["front"]["id"]])
+    check("split_known sépare ce qui peut monter de ce qui reste local",
+          pm_tags.split_known(["front", "zzz-inconnu"]) == (["front"], ["zzz-inconnu"]))
+    check("lecture : les ids reviennent en slugs",
+          pm_tags.from_issue({"custom_fields": [{"id": pm_tags.cf_id(),
+                                                 "value": [reg["front"]["id"]]}]}) == ["front"])
+    check("vider reste exprimable (liste vide, pas chaîne vide)",
+          pm_tags.cf_payload([])["value"] == [])
+else:
+    print("… registre absent : partie enumeration non jouée")
+
 # — CF absent : rien ne casse (il se crée à la main) —
 os.environ.pop(pm_tags.ENV_VAR, None)
 if pm_tags.cf_id() is None:
@@ -74,8 +95,11 @@ else:
 os.environ[pm_tags.ENV_VAR] = "99"
 check("override .env pris en compte", pm_tags.cf_id() == 99)
 p = pm_tags.cf_payload(["Front", "front", "BO"])
-check("payload : id + LISTE de valeurs propres (CF multiple)",
-      p == {"id": 99, "value": ["bo", "front"]}, p)
+# Le CF réel est en ENUMERATION : la valeur est une liste d'ids, dans l'ordre des
+# slugs (dédoublonnés, triés). Sans registre, ce seraient les slugs eux-mêmes.
+attendu = ([reg[t]["id"] for t in ("bo", "front")] if reg else ["bo", "front"])
+check("payload : id du CF + LISTE de valeurs (ids si registre)",
+      p == {"id": 99, "value": attendu}, p)
 check("payload vide = liste vide (Redmine refuse \"\" sur un CF multiple)",
       pm_tags.cf_payload([]) == {"id": 99, "value": []})
 check("lecture d'une issue : valeur en liste",

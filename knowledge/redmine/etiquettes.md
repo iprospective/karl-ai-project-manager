@@ -24,6 +24,24 @@ Constat vérifié sur l'instance le 2026-08-25 :
 Les catégories restent disponibles, plus tard, pour un vocabulaire **propre à un
 projet** — elles ne sont pas en concurrence avec les étiquettes.
 
+## Ce qui a été créé (2026-08-26)
+
+**CF id 32, nom « Tags »**, `customized_type: issue`, **format `enumeration`**,
+`multiple: true`, `is_filter: true`, trackers Anomalie / Evolution / Assistance /
+Tâche. Valeurs initiales : Front, DB, Refacto, BO, Config, Debug,
+Tunnel de commande.
+
+⚠ **Format `enumeration`, pas `list`** : chaque valeur possible a un **id**
+(45, 46…) et c'est **cet id** que l'API attend — pousser un libellé est refusé.
+La table `slug ↔ label ↔ id` vit dans **`tags.registry.yml`** (racine du dépôt PM,
+comme `redmine.reference.yml`), lue par `pm_tags`. Le registre doit rester
+synchrone avec la définition Redmine : une valeur ajoutée dans l'UI et absente du
+registre ne peut pas être poussée.
+
+Conséquence directe : une étiquette du frontmatter **hors registre** reste locale.
+Elle n'est pas perdue (`pm-task-list --tag`, recherche cockpit continuent de la
+voir) et `pm-task-tag` l'annonce plutôt que de laisser croire qu'elle est montée.
+
 ## Création — geste HUMAIN, l'API ne le fait pas
 
 L'API REST de Redmine expose les custom fields en **lecture seule** : il n'y a
@@ -35,7 +53,7 @@ pas de `POST /custom_fields.json`. La création passe par l'UI admin.
 |---|---|
 | Type d'objet | **Demande** |
 | Format | **Liste** |
-| Nom | **Étiquettes** |
+| Nom | **Tags** (nom retenu à la création) |
 | Valeurs possibles | `front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande` (une par ligne, en **slug minuscule** — c'est la forme que `pm_tags.normalize` produit) |
 | Valeurs multiples | **coché** — sans lui, un ticket ne peut porter qu'un domaine |
 | Pour tous les projets | **coché** — c'est ce qui rend le vocabulaire transverse |
@@ -112,6 +130,44 @@ quoi charger `agents/worker-<rôle>.md`).
 propriétaire — donc le verrou d'écriture (« Redmine est le mutex ») — et cela
 reste un geste humain. Quand plusieurs étiquettes routent, le départage est
 alphabétique : arbitraire mais stable, et les autres candidates sont nommées.
+
+## Le registre, les alias, et ce qui reste local (RM2836)
+
+`tags.registry.yml` porte **deux** choses :
+
+- **`values`** — le vocabulaire CONTRÔLÉ : ce que le CF accepte, donc la seule
+  chose qui monte dans Redmine. Chaque entrée porte l'`id` de la valeur ; une
+  entrée **sans `id`** est décidée mais **pas encore créée** côté Redmine : elle
+  s'écrit localement et l'outillage annonce qu'elle n'est pas poussée.
+- **`aliases`** — le mapping **n-1** des mots-clés existants vers ces valeurs
+  (`ui`, `ux`, `web` → `front` ; `zabbix`, `supervision` → `monitoring`…). Il
+  évite de réécrire l'historique : `pm-task-tag` canonicalise à l'écriture.
+
+Ce qui n'est ni valeur ni alias reste un **mot-clé local** : il vit au
+frontmatter, se filtre (`pm-task-list --tag`, recherche du cockpit) et ne monte
+pas. C'est le cas voulu des produits ou composants mono-projet — `cockpit`,
+`karl`, `karl-agent`, `norms`, `graph`, `atlas`.
+
+### Garde à l'écriture
+
+    pm-task-tag <RM> --add ui          → écrit « front », et le dit
+    pm-task-tag <RM> --add nawak       → REFUSE, liste les valeurs acceptées
+    pm-task-tag <RM> --add nawak --free → mot-clé LOCAL assumé, jamais poussé
+
+Sans ce refus, le vocabulaire contrôlé se remplirait de variantes en quelques
+semaines — c'est précisément ainsi qu'on est arrivé à 747 mots-clés libres.
+
+### Tenir le registre synchrone
+
+    pm-tags-audit.py
+
+Compare la définition Redmine, le registre et les usages réels, et rend quatre
+listes : **à créer** dans l'UI admin (avec le volume concerné, alias inclus), **à
+recopier** au registre (valeurs qui existent côté Redmine avec leur id), les
+**orphelines** (au registre mais supprimées du CF) et les mots-clés **libres** les
+plus utilisés. L'audit ne corrige rien : créer une valeur est un geste humain
+dans l'UI, recopier son id en est un autre — une commande qui écrirait en base
+pour « synchroniser » serait plus rapide et bien plus dangereuse.
 
 ## Vocabulaire
 

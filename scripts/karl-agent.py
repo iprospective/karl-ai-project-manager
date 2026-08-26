@@ -5885,6 +5885,10 @@ def op_resolve(rm_id: str) -> dict:
         "found": True, "rm_id": rm_id, "client": client, "project": project,
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
+        # RM2832 : le domaine du ticket, là où la fiche l'affiche — stocké sans
+        # être montré, il ne sert qu'aux filtres et personne ne sait ce qu'un
+        # ticket porte.
+        "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
         # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été

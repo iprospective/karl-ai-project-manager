@@ -10089,6 +10089,39 @@ function closeReview(rm) {
   renderCurTitle();
   refreshSessions();
 }
+// >>> tagPillsHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2832 — les étiquettes d'un ticket, là où on lit le ticket. Stockées sans
+// être montrées, elles ne servaient qu'aux filtres : personne ne savait ce qu'un
+// ticket portait. Cliquables, parce qu'une étiquette qu'on voit appelle « montre
+// -moi les autres » — sinon elle est décorative.
+function tagPillsHtml(tags, esc, jarg) {
+  const list = (tags || []).filter(t => String(t || "").trim());
+  if (!list.length) return "";
+  return ' · 🏷 ' + list.map(t =>
+    '<span class="pill" style="cursor:pointer" title="Voir les tickets étiquetés « ' + esc(t) +
+    ' »" onclick="filterByTag(' + jarg(String(t)) + ')">' + esc(t) + "</span>").join(" ");
+}
+// <<< tagPillsHtml
+
+// RM2832 — clic sur une étiquette : la recherche de tickets s'y règle. On ne
+// réinvente pas de vue « par étiquette », on emmène là où le filtre existe déjà.
+function filterByTag(tag) {
+  switchPanel("tickets");
+  const sel = document.getElementById("sf-tag");
+  if (sel) {
+    if (![...sel.options].some(o => o.value === tag)) {
+      // l'inventaire n'a pas encore été rechargé : on ajoute l'entrée plutôt que
+      // d'ignorer le clic en silence.
+      const o = document.createElement("option");
+      o.value = tag; o.textContent = tag;
+      sel.appendChild(o);
+    }
+    sel.value = tag;
+  }
+  const q = document.getElementById("search"); if (q) q.value = "";
+  search();
+}
+
 function renderReviewPane() {
   const pane = document.getElementById("reviewpane");
   if (!currentReview) return;
@@ -10099,6 +10132,7 @@ function renderReviewPane() {
     h += '<div style="color:var(--muted);margin-bottom:6px">' + esc(r.client + "/" + r.project) +
       ' · <span class="pill">' + esc(r.status || "?") + '</span>' +
       (r.priority ? ' · <span class="pill">' + esc(r.priority) + '</span>' : "") +
+      tagPillsHtml(r.tags, esc, jarg) +                       // RM2832
       (q && q.branch ? ' · branche <span class="pill" title="' + esc(q.branch) + '">' + esc(q.branch) + '</span>' : "") +
       // RM2630 : dater la version + pouvoir la recharger, ici plus qu'ailleurs —
       // c'est sur cette fiche qu'on accepte ou refuse une livraison.

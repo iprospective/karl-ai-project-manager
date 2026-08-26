@@ -1,0 +1,26 @@
+# tags.registry.yml — registre des valeurs du CF Redmine « Tags » (RM2829/RM2828)
+#
+# Le CF est en format **enumeration** : l'API attend l'**id** de chaque valeur
+# (45, 46…), jamais son libellé. Ce fichier est donc indispensable au push — sans
+# lui, `pm-task-tag` ne peut pas traduire `front` en `45`.
+#
+# ⚠ Il doit rester SYNCHRONE avec la définition Redmine. Les valeurs ne se créent
+# pas par API (les définitions de CF sont en lecture seule) : on les ajoute dans
+# l'UI admin, puis on régénère/complète ce fichier. Le contrôle d'écart est
+# outillé (audit) — cf. knowledge/redmine/etiquettes.md.
+#
+# `slug` = la forme normalisée (pm_tags.normalize) : c'est elle qui vit dans le
+# frontmatter `tags:`. `label` = ce que Redmine affiche. `id` = ce que l'API veut.
+cf:
+  id: 32
+  name: Tags
+  format: enumeration
+  multiple: true
+values:
+  - {slug: front, label: "Front", id: 45}
+  - {slug: db, label: "DB", id: 46}
+  - {slug: refacto, label: "Refacto", id: 47}
+  - {slug: bo, label: "BO", id: 48}
+  - {slug: config, label: "Config", id: 49}
+  - {slug: debug, label: "Debug", id: 50}
+  - {slug: tunnel-de-commande, label: "Tunnel de commande", id: 51}

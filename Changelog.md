@@ -14,6 +14,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Socle étiquettes branché sur le CF réel** (RM2829). Le champ a été créé côté Redmine sous
+  le nom **« Tags » (id 32)** et en format **`enumeration`** — pas « liste » : l'API y désigne
+  ses valeurs par **id** (45, 46…), et pousser un libellé est refusé. Le socle apprend donc à
+  traduire : `tags.registry.yml` (racine du dépôt, comme `redmine.reference.yml`) porte la table
+  `slug ↔ label ↔ id`, et le registre voyage avec le code plutôt qu'avec l'instance — sinon un
+  worktree de dev pousserait les ids d'un autre checkout. Une étiquette hors registre reste
+  locale et `pm-task-tag` le DIT : sans ça, un « ✓ frontmatter + Redmine » mentirait sur la
+  moitié des étiquettes. Vérifié de bout en bout sur RM2829 (frontmatter `front` → CF valeur 45).
 - **L'étiquette propose un rôle d'agent** (RM2833, chantier RM2828). Table `tag_roles` déclarée
   en conf (`meta.yml`, cascade client → projet — un vocabulaire métier n'a pas à être connu du
   code) : `pm-task-brief` affiche le rôle suggéré, et l'écran de lancement d'une session le

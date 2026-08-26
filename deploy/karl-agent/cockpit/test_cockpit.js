@@ -3776,9 +3776,14 @@ assert.strictEqual(offloadPlan([{ rm_id: "RM10" }], RC2823).anchor, "10",
 assert(/id="batch-offload-btn"/.test(html), "le bouton d'embarquement doit exister");
 const off2823 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
 assert(off2823, "offloadToNewSession introuvable");
-assert(/\/worklog\/batch/.test(off2823[0]) && /dry_run/.test(off2823[0]),
+// RM2831 a factorisé le lancement : la garantie porte désormais sur le chemin
+// partagé, que ce geste emprunte.
+const shared2823 = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
+assert(shared2823, "chemin partagé de lancement introuvable");
+assert(/\/worklog\/batch/.test(shared2823[0]) && /dry_run/.test(shared2823[0]),
   "la consigne doit venir du serveur (dry_run), pas d'un second générateur dans le front");
-assert(/\/spawn/.test(off2823[0]), "…et la session être créée par l'endpoint existant");
+assert(/\/spawn/.test(shared2823[0]), "…et la session être créée par l'endpoint existant");
+assert(/spawnBatchSession\(/.test(off2823[0]), "le geste du worklog emprunte ce chemin");
 assert(/openedForget\(/.test(off2823[0]),
   "les tickets embarqués quittent la liste des tickets ouverts de la session d'origine");
 console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne du serveur, session neuve");
@@ -3949,3 +3954,37 @@ const lt2830 = /async function loadTags\([\s\S]*?\n\}/.exec(html);
 assert(lt2830 && /\/tags/.test(lt2830[0]), "les étiquettes proposées viennent de GET /tags");
 assert(/rf-tag/.test(html), "le formulaire de jeu dérivé propose le critère étiquette");
 console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");
+
+// — RM2831 : constituer un lot par domaine et ouvrir une session dessus —
+// RM2823 sortait des tickets d'une session polluée, un par un. Ici on les
+// rassemble par ÉTIQUETTE : la liste filtrée est déjà le lot.
+const triageBatchItems = grabO("triageBatchItems");
+const TB = [
+  { rm_id: "10", status: "a_faire", title: "un", client: "a", project: "p" },
+  { rm_id: "11", status: "en_cours", title: "deux", client: "a", project: "p" },
+  { rm_id: "12", status: "ferme", title: "trois", client: "a", project: "p" },
+];
+const items2831 = triageBatchItems(TB, 10);
+assert.strictEqual(items2831.map(i => i.rm_id).join(","), "10,11,12",
+  "les lignes affichées deviennent les items du lot, dans l'ordre du triage");
+assert.strictEqual(items2831[0].status, "a_faire",
+  "le statut voyage : c'est lui qui décide de l'action côté serveur");
+assert.strictEqual(items2831[0].title, "un", "…et le titre, pour l'écran de confirmation");
+assert.strictEqual(triageBatchItems(TB, 2).length, 2,
+  "plafonné à ce qu'on annonce — une file trop longue déborde le contexte de l'agent");
+assert.strictEqual(triageBatchItems([], 10).length, 0, "liste vide");
+assert.strictEqual(triageBatchItems(null, 10).length, 0, "liste absente");
+
+// Le chemin de lancement est CELUI de RM2823 : une seule fonction, pas deux
+const sbs = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
+assert(sbs, "spawnBatchSession introuvable (chemin partagé RM2823/RM2831)");
+assert(/offloadPlan\(/.test(sbs[0]) && /\/worklog\/batch/.test(sbs[0]) && /\/spawn/.test(sbs[0]),
+  "le chemin partagé garde le plan, la consigne du serveur et /spawn");
+const off2831 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
+assert(/spawnBatchSession\(/.test(off2831[0]),
+  "le geste du worklog (RM2823) passe par le chemin partagé");
+const tri2831 = /async function triageSpawnSession\([\s\S]*?\n\}/.exec(html);
+assert(tri2831 && /spawnBatchSession\(/.test(tri2831[0]),
+  "le geste du triage aussi — sinon deux comportements divergeraient");
+assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
+console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");

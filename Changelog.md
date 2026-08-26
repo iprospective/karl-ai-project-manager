@@ -39,6 +39,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   et la session de `/spawn` : aucun second chemin. Garde-fous : un seul projet par lot (les
   projets en présence sont nommés en cas de mélange), et un ticket au projet non résolu reste
   sur place sans retenir les autres.
+- **Alerte avant d'ouvrir une 2e session sur un ticket déjà pris** (RM2818). Le serveur
+  refusait déjà (409) une seconde session ANCRÉE sur l'id ; ce qui passait sans bruit, c'est
+  le ticket traité par une session ancrée AILLEURS — branche du registre, worklog —, soit le
+  cas courant du ticket ramassé en cours de route. Les deux points de lancement (fiche du
+  ticket, lanceur du panneau sessions) montrent désormais ce qui existe — sid, titre, état,
+  et à quel titre la session le traite — puis proposent de **rejoindre** avant d'offrir
+  d'ouvrir quand même. Une session marquée « terminé » (RM2515) ne déclenche rien : c'est
+  exactement ce que la marque sert à dire ; « parké » ou éteinte, si — le travail n'est pas
+  fini. L'état est relu avant de trancher, un cache périmé dirait « libre » à tort.
 - **Cliquer l'onglet d'une session éteinte la relance** (RM2819). Un onglet épinglé survit à
   la session qu'il montrait ; le clic appelait pourtant `attach()` dans tous les cas — donc un
   terminal vide dès que la session ne tournait plus, sans un mot ni le geste utile. Le clic

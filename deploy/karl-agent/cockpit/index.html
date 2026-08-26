@@ -10297,6 +10297,62 @@ async function ensureTicketSessions(rm, force) {
   return tsCache[rm];
 }
 
+// >>> ticketBusySessions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2818 — qui s'occupe DÉJÀ de ce ticket, sans avoir fini ? Le serveur refuse
+// une seconde session ANCRÉE sur l'id (409) ; ce qui passait sans bruit, c'est le
+// ticket traité par une session ancrée ailleurs — registre ou worklog —, c'est-à-dire
+// le cas courant du ticket ramassé en cours de route.
+// Une session marquée « terminé » (RM2515) ne compte pas : c'est précisément ce
+// que le marquage sert à dire. « Parké » si — le travail n'est pas fini.
+// Les éteintes sont rendues à part : elles n'occupent rien, mais leur contexte
+// existe encore (relançable), et le taire reviendrait à conseiller un doublon.
+function ticketBusySessions(payload) {
+  const rows = ((payload || {}).handled) || [];
+  const busy = rows.filter(r => r && effDisposition(r.state, r.disposition) !== "termine");
+  return { alive: busy.filter(r => r.alive), stopped: busy.filter(r => !r.alive) };
+}
+// <<< ticketBusySessions
+
+// >>> duplicateSessionText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2818 — ce que l'alerte DIT. Une alerte qui ne nomme pas ce qu'elle a trouvé
+// se confirme à l'aveugle : on veut le sid, le titre et l'état de chaque session
+// qui travaille déjà le ticket.
+function duplicateSessionText(rm, busy) {
+  const b = busy || { alive: [], stopped: [] };
+  const ligne = (r) => "  · " + (r.is_ticket === false ? r.sid : "RM" + r.sid) +
+    (r.title ? " — " + r.title : "") +
+    " [" + (r.state || "?") + (effDisposition(r.state, r.disposition) === "parke" ? ", parké" : "") + "]" +
+    ((r.reasons && r.reasons.length) ? " (" + r.reasons.join(", ") + ")" : "");
+  const out = ["RM" + rm + " est déjà pris en charge par " +
+               (b.alive.length > 1 ? b.alive.length + " sessions ouvertes :" : "une session ouverte :"), ""];
+  b.alive.forEach(r => out.push(ligne(r)));
+  if (b.stopped.length) {
+    out.push("", "Également, non terminée mais éteinte (relançable) :");
+    b.stopped.forEach(r => out.push(ligne(r)));
+  }
+  return out.join("\n");
+}
+// <<< duplicateSessionText
+
+// RM2818 — garde commune aux deux points de lancement. Rend `true` s'il faut
+// poursuivre le lancement, `false` si le geste est consommé (session rejointe)
+// ou abandonné. L'état est RELU (`force`) : un cache périmé dirait « libre »
+// pour un ticket qu'une session vient de prendre — exactement le cas qu'on veut
+// attraper.
+async function confirmSecondSession(rm) {
+  const busy = ticketBusySessions(await ensureTicketSessions(String(rm), true));
+  if (!busy.alive.length) return true;
+  const txt = duplicateSessionText(rm, busy);
+  if (window.confirm(txt + "\n\nRejoindre cette session plutôt que d'en ouvrir une seconde ?\n" +
+                     "(OK : rejoindre  ·  Annuler : voir l'autre option)")) {
+    attach(busy.alive[0].sid);
+    return false;
+  }
+  return window.confirm("Ouvrir QUAND MÊME une seconde session sur RM" + rm + " ?\n\n" +
+    "Deux agents travailleraient le même ticket : même branche, même worktree, " +
+    "même statut Redmine — et le second écrase les décisions du premier sans le savoir.");
+}
+
 // >>> taskPromptText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2726 — la formulation des prompts de lancement vivait dans applyTemplate,
 // collée au DOM du formulaire de gauche. La fiche du ticket lance elle aussi
@@ -10402,6 +10458,7 @@ async function sendTicketToSession(rm, btn) {
 // la confirmation les DIT, plutôt que de lancer sur des défauts invisibles.
 async function spawnTicketSession(rm, btn) {
   rm = String(rm);
+  if (!await confirmSecondSession(rm)) return;      // RM2818
   const r = resolveCache[rm] || {};
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
@@ -10540,6 +10597,7 @@ async function setLayout() {
 async function spawn() {
   const rm = document.getElementById("rm").value.trim();
   if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
+  if (!await confirmSecondSession(rm)) return;      // RM2818
   const body = { rm_id: rm, engine: document.getElementById("engine").value };
   const model = document.getElementById("model").value;
   if (model) body.model = model;

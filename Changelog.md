@@ -13,6 +13,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Outillage PM
+- **Étiquettes de ticket — le socle** (RM2829, chantier RM2828). Le domaine d'un ticket
+  (`front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande`…) vivait à moitié :
+  `tags:` au frontmatter, écrit par `pm-task-add --tags` et filtré par `pm-task-list --tag`,
+  mais invisible côté Redmine. Constat vérifié sur l'instance : Redmine n'a pas de tags en
+  standard, aucun plugin n'est installé, et les catégories natives sont mono-valeur ET propres
+  à chaque projet — « refacto » serait à recréer partout. Le porteur retenu est donc un
+  **custom field « liste » multi-valeurs partagé à tous les projets**. Livré : `pm_tags`
+  (normalisation en slug — « Tunnel de Commande » et « tunnel_de_commande » sont UNE étiquette
+  —, tri stable, plafond, payload et lecture du CF), la commande `pm-task-tag` (add / rm / set
+  / lecture, frontmatter + Redmine + journal), le push au POST de `pm-task-add` et la
+  relecture par `pm-task-sync`. Le CF lui-même se crée à la main (l'API Redmine ne crée pas de
+  custom fields) : marche à suivre dans `knowledge/redmine/etiquettes.md`. Tant qu'il n'existe
+  pas, tout fonctionne côté frontmatter et le push est annoncé comme non fait — jamais en
+  silence.
+
 ### Cockpit
 - **Cliquer l'onglet d'une session éteinte la relance** (RM2819). Un onglet épinglé survit à
   la session qu'il montrait ; le clic appelait pourtant `attach()` dans tous les cas — donc un

@@ -42,6 +42,7 @@ from pm_output import out
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
+import pm_tags
 
 try:
     import yaml
@@ -283,6 +284,12 @@ def main():
     tt_cf_id, tt_values = task_type_cf()
     if tt_cf_id and args.type in tt_values:
         extra_cf.append({"id": tt_cf_id, "value": str(tt_values[args.type])})
+    # RM2829 : les étiquettes (`--tags`) n'existaient qu'au frontmatter — donc
+    # invisibles dans l'UI et dans les vues Redmine. Elles partent avec le POST
+    # quand le CF est configuré ; sinon le frontmatter reste seul, sans échec.
+    _tags_cf = pm_tags.cf_payload(pm_tags.parse_csv(args.tags))
+    if _tags_cf and _tags_cf["value"]:
+        extra_cf.append(_tags_cf)
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
@@ -322,7 +329,9 @@ def main():
 
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+    # RM2829 : même normalisation que le CF Redmine — « Front » et « front »
+    # doivent être LA MÊME étiquette des deux côtés, sinon le filtre ment.
+    tags = pm_tags.parse_csv(args.tags)
 
     # Build MD — gabarit partagé avec pm-task-import (pm_task_md)
     fm = build_frontmatter(

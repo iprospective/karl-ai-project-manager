@@ -40,24 +40,10 @@ except ImportError:
     sys.exit(2)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
 
-FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 DIMENSIONS = ("project", "client", "type", "status", "tag", "day", "week", "month")   # RM2832 : + tag
-
-
-def parse_frontmatter(path: Path) -> dict | None:
-    try:
-        m = FRONTMATTER_PATTERN.match(path.read_text(encoding="utf-8"))
-    except OSError:
-        return None
-    if not m:
-        return None
-    try:
-        d = yaml.safe_load(m.group(1))
-        return d if isinstance(d, dict) else None
-    except yaml.YAMLError:
-        return None
 
 
 def _num(v) -> float:

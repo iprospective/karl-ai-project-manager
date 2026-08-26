@@ -30,6 +30,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **« Reprendre une session » : filtre par client** (RM2834). La liste des projets était plate
+  — tous clients mêlés, des dizaines d'entrées où retrouver le sien supposait de le connaître
+  par cœur. Un sélecteur client s'ajoute au-dessus et filtre les projets ; client seul, sans
+  projet, liste toutes ses sessions (`/resumable` filtre déjà client et projet séparément — pas
+  de changement serveur). Le contexte client du bandeau pré-sélectionne le client, et changer
+  de client abandonne explicitement un projet qui n'est pas le sien : le couple incohérent
+  renvoyait une liste vide sans dire pourquoi.
 - **⇱ sortir des tickets d'une session vers une session dédiée** (RM2823). Une session est
   ancrée sur un projet, mais le fil ramasse des tickets d'ailleurs : un de temps en temps on
   le traite au vol, et quand ça s'accumule la session porte deux chantiers — contexte pollué,

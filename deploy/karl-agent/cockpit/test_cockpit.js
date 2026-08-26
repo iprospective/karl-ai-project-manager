@@ -3871,3 +3871,43 @@ assert(/\/sessions\?ghosts=1/.test(ost2819[0]),
 assert(/relaunchGhost\(/.test(ost2819[0]), "…et déléguer la relance au chemin existant");
 assert(/toastAction\(/.test(ost2819[0]), "…et proposer de fermer l'onglet d'une session disparue");
 console.log("✓ onglet de session éteinte (RM2819) : relance au clic, jamais un terminal vide");
+
+// — RM2834 : filtre par client dans « Reprendre une session » —
+// La liste des projets était PLATE : tous les clients mêlés, des dizaines
+// d'entrées. Le client filtre désormais les projets — et changer de client ne
+// doit jamais laisser sélectionné le projet d'un autre.
+const rsProjectOptions = grabO("rsProjectOptions");
+const PR2834 = [
+  { client: "acme", project: "shop", value: "acme/shop" },
+  { client: "acme", project: "bo", value: "acme/bo" },
+  { client: "beta", project: "api", value: "beta/api" },
+  { client: "", project: "", value: "" },            // entrée incomplète : ignorée
+];
+const r1 = rsProjectOptions(PR2834, "acme", "acme/shop");
+assert.strictEqual(r1.options.map(o => o.value).join(","), "acme/bo,acme/shop",
+  "seuls les projets du client, triés");
+assert.strictEqual(r1.value, "acme/shop", "un projet du client reste sélectionné");
+const r2 = rsProjectOptions(PR2834, "acme", "beta/api");
+assert.strictEqual(r2.value, "", "changer de client abandonne le projet d'un autre client");
+const r3 = rsProjectOptions(PR2834, "", "beta/api");
+assert.strictEqual(r3.options.map(o => o.value).join(","), "acme/bo,acme/shop,beta/api",
+  "sans client : tous les projets");
+assert.strictEqual(r3.value, "beta/api", "…et la sélection courante est conservée");
+assert.strictEqual(rsProjectOptions(PR2834, "inconnu", "acme/shop").options.length, 0,
+  "client sans projet connu → aucune option (et pas une liste complète trompeuse)");
+assert.strictEqual(rsProjectOptions(null, "acme", "").options.length, 0, "liste absente");
+
+// Les clients proposés viennent des projets connus, dédoublonnés et triés
+const rsClients = grabO("rsClientOptions");
+assert.strictEqual(rsClients(PR2834).join(","), "acme,beta", "clients distincts, triés");
+assert.strictEqual(rsClients([]).length, 0, "aucun projet → aucun client");
+
+// Câblage
+assert(/<select id="rs-client"/.test(html), "le sélecteur client doit exister dans la carte");
+assert(/id="rs-client"[^>]*onchange="rsClientChanged\(\)"/.test(html),
+  "changer de client doit refiltrer les projets, pas seulement recharger");
+const lr2834 = /async function loadResumable\([\s\S]*?\n\}/.exec(html)[0];
+assert(/rs-client/.test(lr2834),
+  "loadResumable doit envoyer le client — un client seul liste TOUS ses projets");
+assert(/client=/.test(lr2834), "…sous forme de filtre client=");
+console.log("✓ reprise de session (RM2834) : filtre client, qui filtre les projets");

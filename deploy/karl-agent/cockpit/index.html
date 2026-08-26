@@ -1012,11 +1012,20 @@ if (window.matchMedia) {
 
     <div class="card" id="rescard">
       <h2>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></h2>
+      <!-- RM2834 : le client d'abord — la liste des projets était plate, tous
+           clients mêlés, des dizaines d'entrées où retrouver le sien supposait
+           de le connaître par cœur. -->
       <div class="row2">
+        <div>
+          <label for="rs-client">Client</label>
+          <select id="rs-client" onchange="rsClientChanged()"><option value="">tous</option></select>
+        </div>
         <div>
           <label for="rs-project">Projet</label>
           <select id="rs-project" onchange="loadResumable()"><option value="">tous</option></select>
         </div>
+      </div>
+      <div class="row2">
         <div>
           <label for="rs-status">Statut</label>
           <select id="rs-status" onchange="loadResumable()">
@@ -1027,6 +1036,7 @@ if (window.matchMedia) {
             <option value="">toutes</option>
           </select>
         </div>
+        <div></div>
       </div>
       <label for="rs-engine">Moteur</label>
       <!-- RM2539 : peuplé depuis /cockpit-config (resume_engines). En dur sur
@@ -7197,10 +7207,19 @@ async function loadProjects() {
       sel.appendChild(o);
       const o2 = o.cloneNode(true); o2.selected = false; rsSel.appendChild(o2);
     }
+    // RM2834 : le menu client de la carte de reprise, alimenté par les mêmes projets
+    const rsc = document.getElementById("rs-client");
+    if (rsc) {
+      rsc.innerHTML = '<option value="">tous</option>' +
+        rsClientOptions(projects).map(c => '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
+    }
     fillClientCtx();                                   // RM2639 : peuple le menu client
     sfInit();                                          // RM2770 : filtres de recherche
     if (clientContext) {                               // pré-filtre appliqué au chargement
       openedClient = clientContext; renderOpened();
+      // RM2834 : le contexte client pré-sélectionne le client, donc les projets
+      // proposés — sans figer le choix (les deux restent modifiables).
+      if (rsc) { rsc.value = clientContext; rsFillProjects(); }
       const proj = clientCtxProject(allProjects, clientContext);
       if (proj) { sel.value = proj; rsSel.value = proj; }
     }
@@ -7233,6 +7252,14 @@ function setClientContext(c) {
     const nt = document.getElementById("nt-project"); if (nt) nt.value = proj;
     const rs = document.getElementById("rs-project"); if (rs) rs.value = proj;
   }
+  // RM2834 : la carte de reprise suit le contexte — le client d'abord (il décide
+  // des projets proposés), puis le projet du contexte s'il en fait partie.
+  const rsc = document.getElementById("rs-client");
+  if (rsc) {
+    rsc.value = clientContext;
+    rsFillProjects();
+    if (proj) { const rs2 = document.getElementById("rs-project"); if (rs2) rs2.value = proj; }
+  }
   const sb = document.getElementById("search"); if (sb && sb.value.trim()) search();  // recherche
   renderProjectsPanel();                                       // RM2760 : le client du contexte se déplie
   sfFillProjects();                                            // RM2770 : projets du filtre de recherche
@@ -7249,17 +7276,68 @@ function renderClientCtxBanner(list, hidden) {
 }
 
 // ----- RM1939 : sessions reprenables (resume natif du moteur) -----
+// >>> rsClientOptions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2834 — les clients proposés viennent des projets connus (`/projects`, déjà
+// chargés) : pas d'appel de plus, et aucune liste écrite à la main qui dériverait
+// du jour où un client est créé.
+function rsClientOptions(projects) {
+  const out = [];
+  for (const p of projects || []) {
+    if (p && p.client && out.indexOf(p.client) < 0) out.push(p.client);
+  }
+  return out.sort();
+}
+// <<< rsClientOptions
+
+// >>> rsProjectOptions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2834 — les projets d'UN client, et ce qu'il advient de la sélection courante.
+// Le piège à éviter : garder « beta/api » sélectionné après être passé au client
+// « acme » — le couple serait incohérent, et la liste renverrait vide sans qu'on
+// comprenne pourquoi. Un projet qui n'appartient pas au client choisi est donc
+// abandonné, explicitement.
+function rsProjectOptions(projects, client, current) {
+  const list = (projects || []).filter(p => p && p.client && p.project
+                                        && (!client || p.client === client));
+  const options = list.map(p => ({ value: p.value || (p.client + "/" + p.project),
+                                   label: client ? p.project : (p.client + "/" + p.project) }))
+                      .sort((a, b) => a.value < b.value ? -1 : a.value > b.value ? 1 : 0);
+  const cur = String(current || "");
+  return { options, value: options.some(o => o.value === cur) ? cur : "" };
+}
+// <<< rsProjectOptions
+
+// Applique le filtre client au sélecteur de projets (et rend la valeur retenue).
+function rsFillProjects() {
+  const cs = document.getElementById("rs-client"), ps = document.getElementById("rs-project");
+  if (!cs || !ps) return "";
+  const r = rsProjectOptions(allProjects, cs.value, ps.value);
+  ps.innerHTML = '<option value="">tous</option>' +
+    r.options.map(o => '<option value="' + esc(o.value) + '">' + esc(o.label) + "</option>").join("");
+  ps.value = r.value;
+  return r.value;
+}
+
+function rsClientChanged() {
+  rsFillProjects();      // le projet d'un autre client ne survit pas au changement
+  loadResumable();
+}
+
 async function loadResumable() {
   const ul = document.getElementById("rs-list");
   ul.innerHTML = '<div class="empty">chargement…</div>';
   const q = [];
   const eng = document.getElementById("rs-engine").value;
   const proj = document.getElementById("rs-project").value;
+  const cli = (document.getElementById("rs-client") || {}).value || "";
   const st = document.getElementById("rs-status").value;
   if (eng) q.push("engine=" + encodeURIComponent(eng));
   if (proj) {
     const [c, p] = proj.split("/");
     q.push("client=" + encodeURIComponent(c), "project=" + encodeURIComponent(p));
+  } else if (cli) {
+    // RM2834 : client seul — /resumable filtre client et projet séparément, on
+    // obtient donc TOUS les projets de ce client, ce qui est le sens du geste.
+    q.push("client=" + encodeURIComponent(cli));
   }
   if (st) q.push("status=" + st);
   try {

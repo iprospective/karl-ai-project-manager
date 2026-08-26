@@ -166,6 +166,18 @@ couvre `sauvegarde`. Un slug est fait pour être tapé à la main : quand le lib
 est composé ou moins courant que son synonyme, l'autre forme devient un alias —
 rien n'est perdu, et rien n'oblige à réécrire les tickets existants.
 
+### Spécialiser une valeur
+
+Certaines valeurs en **précisent** une autre : `review` et `veille` affinent
+`audit`, `hooks` et `cli` affinent `tooling`. La relation se déclare au registre
+(`precise: audit`) et l'audit l'affiche.
+
+Le champ étant **multi-valeurs**, la fille ne remplace pas le parent : un ticket
+peut porter `audit` ET `review`. Conséquence pratique : ces mots-clés ne doivent
+surtout pas rester des **alias** de leur parent — ils seraient rabattus dessus à
+l'écriture, c'est-à-dire que la précision serait perdue au moment même où on la
+demande.
+
 ### Tenir le registre synchrone
 
     pm-tags-audit.py

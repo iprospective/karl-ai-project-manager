@@ -56,12 +56,24 @@ values:
   - {slug: migration, label: "Migration", id: 64}
   - {slug: deploiement, label: "Deploiement", id: 65}
   - {slug: audit, label: "Audit", id: 66}            # ajouté malgré le recoupement avec `type: audit`
+  - {slug: design, label: "Design", id: 67}
+  - {slug: inventaire, label: "Inventaire", id: 68}
+  - {slug: data, label: "Data", id: 69}
+  - {slug: perf, label: "Bench/Perf", id: 70}        # libellé composé → slug court
+  # `precise:` — valeur FILLE : elle affine un tag plus large, sans le remplacer.
+  # Le champ étant multi-valeurs, un ticket peut porter les deux (`audit` +
+  # `review`). Ces quatre-là étaient des ALIAS jusqu'ici : les garder en alias
+  # les rabattrait sur leur parent, c'est-à-dire perdrait la précision voulue.
+  - {slug: review, label: "Review", id: 71, precise: audit}
+  - {slug: veille, label: "Veille", id: 72, precise: audit}
+  - {slug: hooks, label: "Hooks", id: 73, precise: tooling}
+  - {slug: cli, label: "CLI", id: 74, precise: tooling}
 
 # Mapping n-1 : mot-clé existant → valeur canonique. Ce qui n'est pas listé reste
 # un mot-clé local. Les noms de produits mono-projet sont volontairement absents.
 aliases:
   front: [ui, ux, web, theme, css, layout, htmx, twig, navigation, nav, affichage,
-          menu, ergonomie, web-ui, public-ui, branding, charte]
+          menu, ergonomie, web-ui, public-ui]
   db: [bdd, database, databases, mariadb, postgresql, pgsql, sqlite, orm, doctrine,
        schema, sql-dump, migrations, query, transaction, savepoint, dbname]
   bo: [admin, back-office, easyadmin]          # ⚠ « admin » est ambigu (système / back-office)
@@ -77,31 +89,41 @@ aliases:
           lan, apache, nginx, vhost, vhosts, opensvc, proxmox, serveur, bare-metal,
           hosting, hebergement, reverse-proxy, conteneur, boot, reboot, ipv6, vpn,
           cgroup, lxcfs, ram, oom, ssd, disque, scrub, failover, replication, cluster,
-          srv3, srv4, srv5, srv9, srve, workstation, parc]
+          srv3, srv4, srv5, srv9, srve, workstation]
   monitoring: [supervision, zabbix, observabilite, alerting, metriques, obs, watchdog,
                sla, web-scenario, smartd, stats]
   git: [gitlab, submodule, submodules, sous-modules, branches, mr, remotes, commit,
         push, worktree, worktrees, bare, 3-branches, versionning, versioning, versions]
   mail: [email, postfix, dovecot, antispam, amavis, clamav, sieve, roundcube, smtp,
          dkim, spf, dmarc, dnsbl, postscreen, backscatter, relances]
-  migration: [import, ingestion, sync, synchro, mmi-sync, backfill, export, csv, textile]
+  migration: [import, sync, synchro, mmi-sync, backfill, export, csv, textile]
   deploiement: [deploy, deployment, mep, prod, preprod, provisioning, install, setup,
                 ci, pipeline, cron, automation, automate, core-update, unattended-upgrades]
   doc: [documentation, wiki, wiki-sync, cdc, cahier-des-charges, changelog, markdown,
         glossaire, convention, naming, nommage, aide, docs]
-  tests: [test, testing, phpunit, test-env, benchmark, poc, simulation, validation]
+  tests: [test, testing, phpunit, test-env, poc, simulation, validation]
   archi: [architecture, architecture-pm, conception, modelisation, modele, structure,
                  arborescence, socle, foundation, stack, taxonomie]
-  tooling: [outillage, pm-tooling, cli, script, scripts, hook, hooks, skill, skills,
+  tooling: [outillage, pm-tooling, script, scripts, skill, skills,
               mmi-pm, pm, pm-system, pm-itself, pm-scripts, doctor, redmine, outil,
               outil-pm, tools, batch]
   bootstrap: [onboarding, amorcage, template, templates]
   backup: [sauvegarde, bkp, autosnap, replic, data-safety, perte-de-donnees, retention]
   tunnel-de-commande: [paiement, paiements, etransactions, mbietransactions,
                        mmipayments, panier, checkout, commande, remise,
-                       specific-price, tarification, pricing-watch]
+                       specific-price, tarification]
   notifications: [notif, notification, telegram, bot-telegram, rocketchat,
                   nextcloud-talk, talk, communication, bot, webhook, sms,
                   messenger, alertes]
-  audit: [audits, analyse, analyses, etude, revue, review, inventaire,
-          cartographie, veille, comparatif, benchmark-audit]
+  audit: [audits, analyse, analyses, etude]
+  design: [maquettes, penpot, charte, branding, 3d, rendu, visualisation, dataviz,
+           svg, mockup, images, animation]
+  inventaire: [inventory, cartographie, parc, placement, recensement]
+  data: [donnees, contenu, content, curation, fragments, fragment, atomes, atome,
+         corpus, dataset, metadata, provenance, ingestion, catalogue]
+  perf: [performance, scaling, capacite, resilience, reliability, benchmark,
+         profiling, latence]
+  review: [revue, relecture, code-review, mr-review]
+  veille: [comparatif, pricing-watch, watch, benchmark-concurrence]
+  hooks: [hook, git-hooks, pre-commit, post-commit, pre-push]
+  cli: [ligne-de-commande, argv]

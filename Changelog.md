@@ -14,6 +14,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **`pm-task-add` : KeyError après le POST quand `--tags` remplit `extra_cf`** (RM2842,
+  régression de RM2829). La ligne qui logue le CF « Task type » lisait
+  `tt_values[args.type]` sous la seule condition `if extra_cf:` — vrai depuis que le CF « Tags »
+  s'y ajoute aussi. Résultat : toute création avec `--tags` et un type absent de la table
+  task-type (soit tout sauf documentation / database / configuration) levait une exception
+  **après** le POST, laissant un ticket côté Redmine **sans fichier local** (incident RM2840,
+  rattrapé par `redmine-fetch-task`). Chaque CF se logue désormais sous sa propre garde, et un
+  test statique vérifie qu'aucune lecture de `tt_values` ne précède la sienne.
 - **Tags : 2e lot et spécialisations** (RM2839). Le CF passe à **30 valeurs**. Quatre familles
   nouvelles cartographiées — Design (charte, branding, maquettes, 3d, rendu…), Inventaire
   (inventory, cartographie, parc), Data (curation, fragments, contenu, catalogue…) et

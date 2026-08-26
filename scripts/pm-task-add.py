@@ -287,7 +287,8 @@ def main():
     # RM2829 : les étiquettes (`--tags`) n'existaient qu'au frontmatter — donc
     # invisibles dans l'UI et dans les vues Redmine. Elles partent avec le POST
     # quand le CF est configuré ; sinon le frontmatter reste seul, sans échec.
-    _tags_cf = pm_tags.cf_payload(pm_tags.parse_csv(args.tags))
+    tags_norm = pm_tags.parse_csv(args.tags)
+    _tags_cf = pm_tags.cf_payload(tags_norm)
     if _tags_cf and _tags_cf["value"]:
         extra_cf.append(_tags_cf)
 
@@ -309,8 +310,15 @@ def main():
     if args.porcelain:
         out.value(rm_id)
 
-    if extra_cf:
+    # RM2842 : chaque CF se logue sous SA garde. `extra_cf` porte plusieurs CF
+    # depuis RM2829 (task-type ET Tags) : le tester en bloc pour lire
+    # `tt_values[args.type]` levait un KeyError dès qu'un ticket était créé avec
+    # --tags et un type absent de la table task-type — après le POST, donc en
+    # laissant un ticket Redmine sans fichier local (incident RM2840).
+    if tt_cf_id and args.type in tt_values:
         out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+    if _tags_cf and _tags_cf.get("value"):
+        out.info(f"  · CF{_tags_cf['id']} tags → {', '.join(tags_norm)}")
     if target_author is not None:
         out.info(f"  · author_id → {target_author}")
 

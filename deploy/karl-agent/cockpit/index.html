@@ -7131,7 +7131,7 @@ function applyTemplate() {
   const r = resolved && resolved.found ? resolved : null;
   // RM2726 : la formulation vit dans taskPromptText — la fiche du ticket lance
   // avec exactement le même texte.
-  const txt = taskPromptText(tpl, rm, r && r.client, r && r.project);
+  const txt = taskPromptText(tpl, rm, r && r.client, r && r.project, r && r.role_hint);  // RM2833
   if (txt) ta.value = txt;
 }
 
@@ -10577,13 +10577,21 @@ async function confirmSecondSession(rm) {
 // maintenant : une seule formulation pour les deux, sinon l'ancrage client/projet
 // (RM2284 : l'agent doit savoir sur quel ticket il travaille) dépend du bouton
 // par lequel on est passé.
-function taskPromptText(tpl, rm, client, project) {
+// RM2833 — `hint` (optionnel) : le rôle d'agent suggéré par les étiquettes du
+// ticket. Cité DANS la consigne pour que l'agent charge le bon fichier de rôle
+// (worker-common + worker-<rôle>) ; il reste libre d'en juger — la table de
+// routage est une conf de projet, pas une vérité sur ce ticket-là.
+function taskPromptText(tpl, rm, client, project, hint) {
   const id = String(rm == null ? "" : rm).trim();
   if (!/^\d+$/.test(id)) return "";
   const cp = (client && project) ? (" du client " + client + " projet " + project) : "";
-  if (tpl === "traiter") return "traite la tâche RM" + id + cp;
+  const h = (hint && hint.role)
+    ? " (rôle suggéré par ses étiquettes : " + hint.role + " — lis "
+      + (hint.file || ("agents/worker-" + hint.role + ".md")) + ")"
+    : "";
+  if (tpl === "traiter") return "traite la tâche RM" + id + cp + h;
   if (tpl === "continuer") return "continue la tâche RM" + id + cp + " : relis le .log.md et reprends où tu t'es arrêté";
-  if (tpl === "chiffrer") return "étudie et chiffre la tâche RM" + id + cp;
+  if (tpl === "chiffrer") return "étudie et chiffre la tâche RM" + id + cp + h;
   if (tpl === "etat") return "fais un état du ticket RM" + id + cp + " : relis la tâche, son .log.md et ses outputs, et donne un point synthétique (avancement, reste à faire, blocages, prochaine étape) SANS rien modifier ni changer de statut";
   if (tpl === "reviewer") return "review la tâche RM" + id;
   return "";                        // template inconnu : on n'invente pas de consigne
@@ -10674,6 +10682,16 @@ async function sendTicketToSession(rm, btn) {
 
 // Nouvelle session : mêmes réglages que le lanceur de gauche (moteur, modèle) —
 // la confirmation les DIT, plutôt que de lancer sur des défauts invisibles.
+// >>> roleHintLine — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2833 — ce que l'écran de lancement dit du rôle suggéré. Une suggestion qu'on
+// n'affiche pas ne se conteste pas : elle doit être lisible AVANT de lancer.
+function roleHintLine(hint) {
+  const h = hint || {};
+  if (!h.role) return "";
+  return " (rôle suggéré : " + h.role + " — " + (h.file || ("agents/worker-" + h.role + ".md")) + ")";
+}
+// <<< roleHintLine
+
 async function spawnTicketSession(rm, btn) {
   rm = String(rm);
   if (!await confirmSecondSession(rm)) return;      // RM2818
@@ -10681,8 +10699,9 @@ async function spawnTicketSession(rm, btn) {
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
   const cwd = r.cwd || "";
-  const prompt = taskPromptText("traiter", rm, r.client, r.project);
-  if (!confirm("Lancer une nouvelle session pour RM" + rm + " ?\n\n" +
+  const prompt = taskPromptText("traiter", rm, r.client, r.project, r.role_hint);   // RM2833
+  if (!confirm("Lancer une nouvelle session pour RM" + rm + " ?" +
+               roleHintLine(r.role_hint) + "\n\n" +
                "moteur : " + engine + (model ? "  ·  modèle : " + model : "") + "\n" +
                "cwd : " + (cwd || "(défaut du serveur)") + "\n\n" + prompt)) return;
   btn.disabled = true;

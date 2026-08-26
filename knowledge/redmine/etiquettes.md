@@ -90,6 +90,29 @@ Rien ne casse : `pm-task-tag` écrit le frontmatter, `pm-task-list --tag` filtre
 et le push Redmine est **annoncé comme non fait** (jamais silencieux). La parité
 est un objectif, pas un blocage.
 
+## Router le travail : étiquette → rôle d'agent (RM2833)
+
+Une étiquette dit le **domaine** ; les rôles (`agents/worker-*.md`) disent **qui
+sait le traiter**. La table se déclare dans le `meta.yml` du projet (ou du
+client — cascade NORMS, le projet surcharge), jamais en dur :
+
+```yaml
+tag_roles:
+  front: dev
+  bdd: db
+  infra: infra
+  design: design
+```
+
+Ce qu'on en fait : `pm-task-brief` affiche « rôle suggéré », et l'écran de
+lancement d'une session du cockpit le montre puis le cite dans la consigne (de
+quoi charger `agents/worker-<rôle>.md`).
+
+**Ça propose, ça n'assigne pas.** Réassigner un ticket, c'est changer son
+propriétaire — donc le verrou d'écriture (« Redmine est le mutex ») — et cela
+reste un geste humain. Quand plusieurs étiquettes routent, le départage est
+alphabétique : arbitraire mais stable, et les autres candidates sont nommées.
+
 ## Vocabulaire
 
 Un slug : minuscules, sans accent, tirets — `pm_tags.normalize` s'en charge, si

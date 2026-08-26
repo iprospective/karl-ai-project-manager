@@ -4009,3 +4009,24 @@ const rrp2832 = html.indexOf("function renderReviewPane(");
 assert(rrp2832 > 0 && /tagPillsHtml\(/.test(html.slice(rrp2832, rrp2832 + 3000)),
   "la fiche du ticket doit afficher les étiquettes");
 console.log("✓ étiquettes visibles (RM2832) : sur la fiche, cliquables, et ventilées en conso");
+
+// — RM2833 : l'étiquette propose un rôle d'agent (elle ne l'impose pas) —
+const roleHintLine = grabO("roleHintLine");
+assert.strictEqual(
+  roleHintLine({ role: "db", why: "étiquette « bdd » → rôle db", file: "agents/worker-db.md" }),
+  " (rôle suggéré : db — agents/worker-db.md)",
+  "la suggestion se lit dans l'écran de lancement");
+assert.strictEqual(roleHintLine(null), "", "aucune suggestion : rien à afficher");
+assert.strictEqual(roleHintLine({}), "", "suggestion vide : rien non plus");
+
+// La consigne envoyée à l'agent nomme le rôle — c'est elle qui lui fait charger
+// le bon fichier d'instructions.
+const tpt2833 = grabO("taskPromptText");
+const p2833 = tpt2833("traiter", "42", "acme", "shop", { role: "db", file: "agents/worker-db.md" });
+assert(/RM42/.test(p2833) && /acme/.test(p2833), "l'ancrage ticket/projet est préservé");
+assert(/worker-db\.md/.test(p2833), "…et le rôle suggéré est cité à l'agent");
+assert(!/worker-/.test(tpt2833("traiter", "42", "acme", "shop")),
+  "sans suggestion, la consigne est celle d'avant — aucune régression");
+assert(!/worker-/.test(tpt2833("reviewer", "42", "acme", "shop", { role: "db" })),
+  "une review n'est pas routée par étiquette : son rôle est la review");
+console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais imposé");

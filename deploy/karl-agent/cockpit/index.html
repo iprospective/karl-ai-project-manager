@@ -906,6 +906,7 @@ if (window.matchMedia) {
       <div class="triagefilters">
         <select id="tr-client" onchange="renderTriage()" title="Filtrer par client"><option value="">tous les clients</option></select>
         <select id="tr-project" onchange="renderTriage()" title="Filtrer par projet"><option value="">tous les projets</option></select>
+        <select id="tr-tag" onchange="renderTriage()" title="Filtrer par étiquette (domaine du ticket)"><option value="">toutes les étiquettes</option></select>
         <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid" onchange="renderTriage()"> masquer la validation</label>
         <button class="mini" onclick="loadTriage(true)" title="Recalculer le classement">↻</button>
       </div>
@@ -945,6 +946,11 @@ if (window.matchMedia) {
         </select>
         <select id="sf-status" onchange="search()" title="Filtrer par statut NORMS">
           <option value="">tous les statuts</option>
+        </select>
+        <!-- RM2830 : le domaine du ticket (front, bo, bdd, refacto…). Le menu
+             vient des étiquettes RÉELLEMENT en usage — jamais d'une liste en dur. -->
+        <select id="sf-tag" onchange="search()" title="Filtrer par étiquette (domaine du ticket)">
+          <option value="">toutes les étiquettes</option>
         </select>
       </div>
       <div id="sf-warn" class="sfwarn" style="display:none"></div>
@@ -2288,7 +2294,7 @@ try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /
 // celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
 const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
 let currentView = "set";                        // RM2446 : set | live | all | client:<slug>
-let setFacets = { clients: [], marks: [] };     // RM2452 : clients/projets connus
+let setFacets = { clients: [], marks: [], tags: [] };   // RM2452 : clients/projets connus ; RM2830 : étiquettes
 let ruleFormFor = null;                         // jeu dont on édite la règle ("__new__" = création)
 // RM2448 : groupes repliés (persistés) et mode sélection
 // RM2452 : « hors du jeu courant » est REPLIÉ par défaut — c'est un rappel de
@@ -2384,7 +2390,7 @@ async function refreshSessionSets() {
     if (setsCache.length && !setsCache.some(s => s.name === currentSet))
       switchSet(setsCache[0].name, true);
     currentView = r.view || "set";
-    setFacets = r.facets || { clients: [], marks: [] };
+    setFacets = r.facets || { clients: [], marks: [], tags: [] };
     if (!sel) return;
     // RM2446 : les VUES d'abord (elles ne s'enregistrent pas), les jeux ensuite
     const vopt = (v, txt) => '<option value="view:' + v + '"' +
@@ -2591,6 +2597,9 @@ function ruleFormHtml(rule, isNew, shownCount) {
     '<label style="font-size:11px">projet<select id="rf-project" style="width:100%">' +
       opt("", rule.project) + projects.map(pr => opt(pr, rule.project)).join("") +
     '</select></label>' +
+    '<label style="font-size:11px">étiquette<select id="rf-tag" style="width:100%">' +
+      opt("", rule.tag) + (setFacets.tags || []).map(t => opt(t.tag, rule.tag, t.tag + " (" + t.count + ")")).join("") +
+    '</select></label>' +
     '<label style="font-size:11px">marque<select id="rf-mark" style="width:100%">' +
       opt("", rule.mark) + ["wip", "test", "done", "none"].map(m => opt(m, rule.mark)).join("") +
     '</select></label>' +
@@ -2631,6 +2640,7 @@ function readRuleForm() {
   if (g("rf-client")) rule.client = g("rf-client");
   if (g("rf-project")) rule.project = g("rf-project");
   if (g("rf-mark")) rule.mark = g("rf-mark");
+  if (g("rf-tag")) rule.tag = g("rf-tag");        // RM2830
   const tk = g("rf-tickets").split(",").map(x => x.trim()).filter(Boolean);
   if (tk.length) rule.tickets = tk;
   return rule;
@@ -7087,6 +7097,7 @@ function searchQuery(q, f, ctxClient) {
   if (client) p.push("client=" + encodeURIComponent(client));
   if (o.project) p.push("project=" + encodeURIComponent(o.project));
   if (o.status) p.push("status=" + encodeURIComponent(o.status));
+  if (o.tag) p.push("tag=" + encodeURIComponent(o.tag));      // RM2830
   const src = o.source || "local";
   if (src !== "local") p.push("source=" + encodeURIComponent(src));
   return "/tickets/search?" + p.join("&");
@@ -7105,6 +7116,9 @@ function searchRowMeta(t) {
   if (r.origin === "redmine" && !r.synced) bits.push("⚠ pas en local");
   else if (r.origin === "redmine" || r.origin === "both") bits.push("🌐 Redmine");
   if (r.assigned_to) bits.push("→ " + r.assigned_to);
+  // RM2830 : filtrer par étiquette sans les VOIR, c'est filtrer à l'aveugle.
+  const tags = (r.tags || []).filter(Boolean);
+  if (tags.length) bits.push("🏷 " + tags.join(", "));
   return bits.join(" · ");
 }
 // <<< searchRowMeta
@@ -7141,13 +7155,34 @@ function sfInit() {
   sfFillProjects();
 }
 
+// RM2830 — les étiquettes proposées sont celles qui EXISTENT (GET /tags), avec
+// leur nombre d'usages. Une liste écrite en dur dériverait dès le premier
+// vocabulaire ajouté, et proposerait des filtres qui ne rendent rien.
+let tagsCache = [];
+async function loadTags() {
+  try {
+    const r = await api("/tags");
+    tagsCache = r.tags || [];
+  } catch (e) { tagsCache = []; }
+  const opts = tagsCache.map(t =>
+    '<option value="' + esc(t.tag) + '">' + esc(t.tag) + " (" + t.count + ")</option>").join("");
+  for (const [id, vide] of [["sf-tag", "toutes les étiquettes"], ["tr-tag", "toutes les étiquettes"]]) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    const cur = el.value;
+    el.innerHTML = '<option value="">' + vide + "</option>" + opts;
+    el.value = cur;                     // un rafraîchissement ne doit pas défaire le filtre
+  }
+}
+
 async function search() {
   const q = document.getElementById("search").value.trim();
   const ul = document.getElementById("results");
   const warn = document.getElementById("sf-warn");
   const val = id => (document.getElementById(id) || {}).value || "";
   const filtres = { source: val("sf-source"), client: val("sf-client"),
-                    project: val("sf-project"), status: val("sf-status") };
+                    project: val("sf-project"), status: val("sf-status"),
+                    tag: val("sf-tag") };                       // RM2830
   try {
     if (warn) warn.style.display = "none";
     const r = await api(searchQuery(q, filtres, clientContext));   // RM2770
@@ -7213,6 +7248,7 @@ async function loadProjects() {
       rsc.innerHTML = '<option value="">tous</option>' +
         rsClientOptions(projects).map(c => '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
     }
+    loadTags();                                        // RM2830 : étiquettes en usage
     fillClientCtx();                                   // RM2639 : peuple le menu client
     sfInit();                                          // RM2770 : filtres de recherche
     if (clientContext) {                               // pré-filtre appliqué au chargement
@@ -7840,18 +7876,24 @@ function renderTriage() {
   const c = document.getElementById("tr-client").value;
   const p = document.getElementById("tr-project").value;
   const hideValid = document.getElementById("tr-hidevalid").checked;
-  const rows = triageFilter(triageData.tickets, c, p, hideValid);
+  const tg = (document.getElementById("tr-tag") || {}).value || "";
+  const rows = triageFilter(triageData.tickets, c, p, hideValid, tg);
   if (!rows.length) { box.innerHTML = '<div style="color:var(--muted)">aucun ticket ouvert avec ces filtres</div>'; return; }
   box.innerHTML = '<div class="tr-count">' + rows.length + ' ticket(s) · triés par levier ROI</div>' +
     rows.slice(0, 60).map((e, i) => triageRowHtml(e, i + 1)).join("") +
     (rows.length > 60 ? '<div class="tr-more">… ' + (rows.length - 60) + ' de plus (affine les filtres)</div>' : "");
 }
 // >>> triageFilter — pur (testé par test_cockpit.js)
-function triageFilter(tickets, client, project, hideValid) {
+function triageFilter(tickets, client, project, hideValid, tag) {
+  // RM2830 : l'étiquette se compare NORMALISÉE (même vocabulaire qu'à
+  // l'écriture) ; vide = aucun filtre, et surtout pas « les tickets sans
+  // étiquette » — ce serait l'inverse de ce que le menu « toutes » annonce.
+  const t0 = String(tag || "").toLowerCase();
   return (tickets || []).filter(function (t) {
     if (client && t.client !== client) return false;
     if (project && t.project !== project) return false;
     if (hideValid && t.awaiting_validation) return false;
+    if (t0 && !((t.tags || []).some(x => String(x).toLowerCase() === t0))) return false;
     return true;
   });
 }

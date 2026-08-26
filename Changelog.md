@@ -30,6 +30,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **Filtrer par étiquette : recherche, triage ROI, jeux dérivés** (RM2830, chantier RM2828).
+  Une étiquette ne sert à rien si elle ne sert pas à choisir quoi faire. Nouvel endpoint
+  `GET /tags` (les étiquettes réellement en usage, avec leur compte — jamais une liste écrite
+  en dur, qui dériverait au premier vocabulaire ajouté) ; filtre étiquette dans la recherche de
+  tickets, avec les étiquettes affichées sur chaque ligne (filtrer sans les voir, c'est filtrer
+  à l'aveugle) ; même filtre dans le triage ROI ; et nouveau critère de **jeu de sessions
+  dérivé** — un jeu « étiquette = refacto » se remplit tout seul. Une session ancrée sur un
+  slug n'a pas de ticket, donc pas d'étiquette : elle ne matche jamais « au cas où ».
 - **« Reprendre une session » : filtre par client** (RM2834). La liste des projets était plate
   — tous clients mêlés, des dizaines d'entrées où retrouver le sien supposait de le connaître
   par cœur. Un sélecteur client s'ajoute au-dessus et filtre les projets ; client seul, sans

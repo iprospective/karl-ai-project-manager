@@ -8920,6 +8920,9 @@ function memProbeSample(rmId) {
     const t = termSession && termSession.term;
     const core = (t && t._core) || {};
     const wb = core._writeBuffer || {};
+    // RM2807 : compteurs cumulés du client (écritures, resize, saisie, fit,
+    // observers) — le taux entre deux échantillons dit si ça part en rafale.
+    const st = (termSession && termSession.stats) ? termSession.stats() : {};
     api("/memdebug", { method: "POST", body: JSON.stringify({
       rm: String(rmId),
       dom_all: document.getElementsByTagName("*").length,
@@ -8928,6 +8931,10 @@ function memProbeSample(rmId) {
       wq_len: Array.isArray(wb._writeBuffer) ? wb._writeBuffer.length : -1,
       wq_bytes: typeof wb._pendingData === "number" ? wb._pendingData : -1,
       heap: (performance.memory && performance.memory.usedJSHeapSize) || -1,
+      writes: st.writes, write_bytes: st.writeBytes, max_write: st.maxWrite,
+      data: st.data, resizes: st.resizes, fits: st.fits,
+      ro_fires: st.roFires, theme_fires: st.themeFires,
+      cols: st.cols, rows: st.rows,
     }) }).catch(() => {});
   } catch (e) { /* sonde best-effort */ }
 }

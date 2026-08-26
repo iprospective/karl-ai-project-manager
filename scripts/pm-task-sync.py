@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_tags
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 from redmine_utils import api_ts_local
@@ -146,6 +147,16 @@ def diff_fields(fm, issue):
                 new_close = CLOSE_REASON_FROM_CF.get(str(cf_value(issue, CF_RAISON_FERME_ID)))
             if new_close:
                 diffs["close_reason"] = (fm.get("close_reason"), new_close)
+
+    # Étiquettes (RM2829) — le CF « Étiquettes » fait foi quand quelqu'un les a
+    # changées côté Redmine : sans cette relecture, la parité serait à sens
+    # unique et le frontmatter dirait le contraire de ce que l'UI montre.
+    # CF non configuré (pas encore créé) : `from_issue` rend [] — on ne prend
+    # alors PAS le silence pour un effacement.
+    rm_tags = pm_tags.from_issue(issue)
+    cur_tags = pm_tags.clean(fm.get("tags") or [])
+    if rm_tags and rm_tags != cur_tags:
+        diffs["tags"] = (cur_tags, rm_tags)
 
     # Assigned_to (id Redmine du responsable courant)
     rm_assignee = (issue.get("assigned_to") or {}).get("id")

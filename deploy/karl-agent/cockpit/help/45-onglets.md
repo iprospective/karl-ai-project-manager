@@ -68,6 +68,16 @@ L'historique vit avec la page : il n'est pas sauvegardé d'une session à l'autr
 - **✕** ferme l'onglet. L'onglet voisin prend le relais ; quand il n'y a plus rien
   d'autre, on retombe sur le tableau de bord.
 
+## Une session épinglée qui ne tourne plus
+
+Un onglet épinglé survit à la session qu'il montrait — c'est son intérêt. Cliquer
+l'onglet d'une session **éteinte** propose donc de la **relancer** (mêmes questions
+que le clic sur sa tuile grise dans « ▶ en cours » : moteur, dossier, conversation
+reprise ou non), puis l'attache une fois relancée. Annuler ne change rien.
+
+Si la session a vraiment disparu — ni vivante, ni enregistrée dans un jeu — le
+cockpit le dit et propose de refermer l'onglet, au lieu d'ouvrir un terminal vide.
+
 C'est ce qui évite de recréer la barre d'onglets de sessions retirée parce qu'elle
 devenait illisible dès trois projets : la liste de référence des sessions reste la
 colonne de gauche, l'onglet est un **marque-page**, pas un annuaire.

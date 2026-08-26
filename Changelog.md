@@ -14,6 +14,18 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Tags : 2e lot et spécialisations** (RM2839). Le CF passe à **30 valeurs**. Quatre familles
+  nouvelles cartographiées — Design (charte, branding, maquettes, 3d, rendu…), Inventaire
+  (inventory, cartographie, parc), Data (curation, fragments, contenu, catalogue…) et
+  « Bench/Perf » (performance, scaling, benchmark, résilience) — avec les déplacements que ça
+  implique : `charte`/`branding` quittent Front pour Design, `parc` quitte Infra pour
+  Inventaire, `benchmark` quitte Tests pour Perf, `pricing-watch` quitte Tunnel de commande
+  pour Veille. Et surtout, **Review, Veille, Hooks et CLI deviennent des valeurs** là où
+  c'étaient des alias d'Audit et de Tooling : le registre porte désormais la relation
+  `precise:`, montrée par l'audit. Le point qui compte : les garder en alias les aurait
+  rabattus sur leur parent à l'écriture — la précision aurait été perdue au moment même où on
+  la demande. Le champ étant multi-valeurs, un ticket porte `audit` ET `review`. Couverture :
+  56 % des usages.
 - **Registre des Tags remappé sur les 22 valeurs réelles** (RM2837). Les valeurs ont été créées
   avec des libellés parfois différents de ceux proposés — « Tooling » pour Outillage, « Archi »
   pour Architecture, « Backup » pour Sauvegarde, « Debug/Bugfix » pour Debug — plus deux

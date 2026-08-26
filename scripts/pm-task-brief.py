@@ -22,6 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_roles
 from pm_output import out
 
 try:
@@ -143,6 +144,32 @@ def main():
             links.append({"kind": kind, "rm_id": rid, "status": link_status(cfg, rid)})
     subs = [{"rm_id": rid, "status": link_status(cfg, rid)}
             for rid in fm.get("sub_tasks") or []]
+    # RM2833 : rôle d'agent SUGGÉRÉ par les étiquettes du ticket (cascade
+    # client → projet). Une suggestion, pas une assignation : changer le
+    # propriétaire d'un ticket, c'est changer le verrou d'écriture.
+    tags = [t for t in (fm.get("tags") or []) if isinstance(t, str)]
+    role, role_why = None, ""
+    try:
+        ent, proj = cfg.entity_project_of_task(md_path) if hasattr(cfg, "entity_project_of_task") \
+            else (None, None)
+    except Exception:  # noqa: BLE001 — la suggestion ne doit jamais casser un brief
+        ent = proj = None
+    if ent is None:
+        # chemin : …/clients/<entity>/projects/<project>/tasks/RM….md
+        parts = md_path.resolve().parts
+        if "projects" in parts:
+            i = len(parts) - 1 - parts[::-1].index("projects")
+            proj = parts[i + 1] if i + 1 < len(parts) else None
+            if "clients" in parts:
+                j = parts.index("clients")
+                ent = parts[j + 1] if j + 1 < len(parts) else None
+    if tags and ent and proj:
+        try:
+            table = pm_roles.merge_table(cfg.client_meta(ent), cfg.project_meta(ent, proj))
+            role, role_why = pm_roles.suggest(tags, table)
+        except Exception:  # noqa: BLE001
+            role, role_why = None, ""
+
     entries = log_entries(md_path, args.log)
     unread = unread_redmine(fm, args.rm_id, args.redmine)
 
@@ -166,6 +193,8 @@ def main():
         "log": entries,
         "redmine_unread": unread,
         "task_file": str(md_path),
+        "tags": tags,
+        "role_hint": {"role": role, "why": role_why} if role else None,
     }
     if args.json:
         print(json.dumps(data, ensure_ascii=False, indent=1, default=str))
@@ -181,6 +210,9 @@ def main():
              + (f" (conf {est.get('confidence')})" if est.get("confidence") else "")
              + f" | réel : {fmt_tokens(fm.get('tokens_total'))} tok · "
              f"{fm.get('cost_total_usd') or 0:.2f}$ · {fmt_minutes(fm.get('ai_time_total_minutes'))} IA")
+    if tags:
+        L.append("étiquettes : " + ", ".join(tags)
+                 + (f" · rôle suggéré : {role} ({pm_roles.agent_file(role)})" if role else ""))
     L.append(f"git : branche={git.get('branch') or '—'} MR={git.get('mr_url') or '—'}"
              + (f" test={fm.get('test_url')}" if fm.get("test_url") else ""))
     if links:

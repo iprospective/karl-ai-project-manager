@@ -5885,6 +5885,14 @@ def op_resolve(rm_id: str) -> dict:
         "found": True, "rm_id": rm_id, "client": client, "project": project,
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
+        # RM2832 : le domaine du ticket, là où la fiche l'affiche — stocké sans
+        # être montré, il ne sert qu'aux filtres et personne ne sait ce qu'un
+        # ticket porte.
+        "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],
+        # RM2833 : rôle d'agent SUGGÉRÉ par ces étiquettes (table `tag_roles` du
+        # meta.yml, cascade client → projet). Une suggestion : le cockpit la
+        # montre, il n'assigne rien.
+        "role_hint": _role_hint(fm.get("tags"), client, project),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
         # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été
@@ -5933,6 +5941,48 @@ def op_resolve(rm_id: str) -> dict:
             "updated": str(pick("updated")),
         },
     }
+
+
+def _tag_roles_table(client: str, project: str) -> dict:
+    """Table `tag_roles` effective d'un projet : celle du client, surchargée par
+    celle du projet (cascade NORMS). Lue à chaque appel — ces fichiers changent à
+    la main, un cache donnerait une réponse périmée sans moyen de s'en rendre
+    compte."""
+    import yaml as _y
+    out = {}
+    base = PROJECTS_BASE / client
+    for p in (base / ".mmi-pm-client" / "meta.yml",
+              base / "projects" / project / "meta.yml"):
+        try:
+            if not p.is_file():
+                continue
+            table = ((_y.safe_load(p.read_text(encoding="utf-8")) or {}).get("tag_roles")) or {}
+            if isinstance(table, dict):
+                for k, v in table.items():
+                    kk, vv = _tag_norm(k), str(v or "").strip().lower()
+                    if kk and vv:
+                        out[kk] = vv
+        except (OSError, Exception):    # noqa: BLE001 — une conf illisible ne casse pas /resolve
+            continue
+    return out
+
+
+def _role_hint(tags, client, project):
+    """{role, why} ou None. Départage STABLE (alphabétique) quand plusieurs
+    étiquettes routent — arbitraire, mais annoncé plutôt que silencieux."""
+    if not tags or not client or not project:
+        return None
+    table = _tag_roles_table(client, project)
+    if not table:
+        return None
+    matches = sorted({_tag_norm(t) for t in tags if _tag_norm(t)} & set(table))
+    if not matches:
+        return None
+    role = table[matches[0]]
+    why = f"étiquette « {matches[0]} » → rôle {role}"
+    if len(matches) > 1:
+        why += f" (aussi : {', '.join(matches[1:])})"
+    return {"role": role, "why": why, "file": f"agents/worker-{role}.md"}
 
 
 def _safe_ticket_model(rm_id: str):

@@ -3737,6 +3737,51 @@ assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test
   "…et son infobulle");
 console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");
 
+// — RM2823 : sortir des tickets d'une session vers une session dédiée —
+// Une session est ancrée sur UN projet ; le fil, lui, ramasse des tickets
+// d'ailleurs. Le lot part alors dans une session neuve, ancrée sur LEUR projet.
+const offloadPlan = grabO("offloadPlan");
+const RC2823 = {
+  "10": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
+  "11": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
+  "20": { found: true, client: "beta", project: "api", cwd: "/w/beta/api" },
+  "30": { found: false },
+};
+const homogene = offloadPlan([{ rm_id: "10" }, { rm_id: "11" }], RC2823);
+assert.strictEqual(homogene.mixed, false, "même projet → pas de mélange");
+assert.strictEqual(homogene.targets.map(t => t.rm_id).join(","), "10,11", "les deux partent");
+assert.strictEqual(homogene.client, "acme", "client du lot");
+assert.strictEqual(homogene.project, "boutique", "projet du lot");
+assert.strictEqual(homogene.cwd, "/w/acme/boutique", "cwd repris du ticket, pas deviné");
+assert.strictEqual(homogene.anchor, "10", "l'ancrage est le premier ticket du lot");
+
+const melange = offloadPlan([{ rm_id: "10" }, { rm_id: "20" }], RC2823);
+assert.strictEqual(melange.mixed, true, "deux projets → refus : la session n'aurait pas d'ancrage");
+assert.strictEqual(melange.projects.slice().sort().join(" "), "acme/boutique beta/api",
+  "…et le refus doit NOMMER les projets en présence");
+
+const inconnu = offloadPlan([{ rm_id: "10" }, { rm_id: "30" }], RC2823);
+assert.strictEqual(inconnu.blocked.map(t => t.rm_id).join(","), "30",
+  "ticket sans projet résolu : il reste sur place");
+assert.strictEqual(inconnu.targets.map(t => t.rm_id).join(","), "10", "…et n'empêche pas les autres de partir");
+assert.strictEqual(inconnu.mixed, false, "un ticket non résolu n'est pas un second projet");
+assert.strictEqual(offloadPlan([], RC2823).targets.length, 0, "sélection vide");
+assert.strictEqual(offloadPlan([{ rm_id: "30" }], RC2823).anchor, null,
+  "aucun ticket embarquable → pas d'ancrage, donc rien à lancer");
+// un ticket coché sous la forme « RM10 » (référence de worklog) doit être compris
+assert.strictEqual(offloadPlan([{ rm_id: "RM10" }], RC2823).anchor, "10",
+  "la référence RM<id> est normalisée");
+
+// Câblage
+assert(/id="batch-offload-btn"/.test(html), "le bouton d'embarquement doit exister");
+const off2823 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
+assert(off2823, "offloadToNewSession introuvable");
+assert(/\/worklog\/batch/.test(off2823[0]) && /dry_run/.test(off2823[0]),
+  "la consigne doit venir du serveur (dry_run), pas d'un second générateur dans le front");
+assert(/\/spawn/.test(off2823[0]), "…et la session être créée par l'endpoint existant");
+assert(/openedForget\(/.test(off2823[0]),
+  "les tickets embarqués quittent la liste des tickets ouverts de la session d'origine");
+console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne du serveur, session neuve");
 // — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
 // Deux agents sur le même ticket, c'est un worktree, une branche et un statut
 // Redmine disputés — et on ne s'en aperçoit qu'après. Le serveur refuse déjà

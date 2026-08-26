@@ -30,6 +30,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **⇱ sortir des tickets d'une session vers une session dédiée** (RM2823). Une session est
+  ancrée sur un projet, mais le fil ramasse des tickets d'ailleurs : un de temps en temps on
+  le traite au vol, et quand ça s'accumule la session porte deux chantiers — contexte pollué,
+  worktree du mauvais projet, tickets oubliés à la fermeture. Cocher les intrus dans le
+  worklog et « ⇱ nouvelle session » ouvre une session ancrée sur LEUR projet qui les prend en
+  charge. La consigne vient du même générateur que « ▶ traiter » (`/worklog/batch` en dry_run)
+  et la session de `/spawn` : aucun second chemin. Garde-fous : un seul projet par lot (les
+  projets en présence sont nommés en cas de mélange), et un ticket au projet non résolu reste
+  sur place sans retenir les autres.
 - **Alerte avant d'ouvrir une 2e session sur un ticket déjà pris** (RM2818). Le serveur
   refusait déjà (409) une seconde session ANCRÉE sur l'id ; ce qui passait sans bruit, c'est
   le ticket traité par une session ancrée AILLEURS — branche du registre, worklog —, soit le

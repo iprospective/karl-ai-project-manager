@@ -64,8 +64,11 @@ def cf_live(cf_id):
         return None
     for cf in data.get("custom_fields") or []:
         if cf.get("id") == cf_id:
-            return {pm_tags.normalize(v.get("label")): (str(v.get("value")), v.get("label"))
-                    for v in cf.get("possible_values") or []}
+            # Indexé par ID, pas par libellé : l'id est la clé STABLE côté
+            # Redmine, et le registre autorise un slug différent du libellé
+            # (« Debug/Bugfix » s'écrit `debug`). Comparer par libellé ferait
+            # voir un écart là où il n'y en a pas — et raterait un renommage.
+            return {str(v.get("value")): v.get("label") for v in cf.get("possible_values") or []}
     return {}
 
 
@@ -113,18 +116,29 @@ def audit(top=20, with_redmine=True):
         n, p = us.get(slug, (0, 0))
         via = sum(us.get(a, (0, 0))[0] for a, c in alias.items() if c == slug)
         a_creer.append({"slug": slug, "tickets": n, "via_alias": via, "projets": p})
+    ids_registre = {spec["id"]: slug for slug, spec in reg.items()}
     # 2. créées côté Redmine mais absentes du registre → id à recopier
     a_recopier = []
     if live:
-        for slug, (vid, label) in sorted(live.items()):
-            if slug not in reg:
-                a_recopier.append({"slug": slug, "label": label, "id": vid})
+        for vid, label in sorted(live.items(), key=lambda kv: int(kv[0])):
+            if vid not in ids_registre:
+                a_recopier.append({"slug": pm_tags.normalize(label), "label": label, "id": vid})
     # 3. au registre (avec id) mais plus dans le CF → valeur supprimée côté Redmine
     orphelines = []
     if live is not None:
         for slug, spec in sorted(reg.items()):
-            if slug not in live:
+            if spec["id"] not in live:
                 orphelines.append({"slug": slug, "id": spec["id"], "label": spec["label"]})
+    # 4. même id, libellé DIFFÉRENT → renommage côté Redmine à répercuter. Sans
+    # ce contrôle, le registre afficherait éternellement l'ancien libellé et
+    # personne ne saurait pourquoi l'UI dit autre chose.
+    renommees = []
+    if live:
+        for slug, spec in sorted(reg.items()):
+            vif = live.get(spec["id"])
+            if vif is not None and vif != spec["label"]:
+                renommees.append({"slug": slug, "id": spec["id"],
+                                  "registre": spec["label"], "redmine": vif})
     # 4. usages non couverts (ni valeur ni alias) — le vocabulaire libre
     vocab = set(pm_tags.vocabulary())
     libres = sorted(((s, n, p) for s, (n, p) in us.items()
@@ -134,6 +148,7 @@ def audit(top=20, with_redmine=True):
         "cf_id": pm_tags.cf_id(), "cf_name": pm_tags.CF_NAME,
         "redmine_lu": live is not None,
         "a_creer": a_creer, "a_recopier": a_recopier, "orphelines": orphelines,
+        "renommees": renommees,
         "libres": [{"slug": s, "tickets": n, "projets": p} for s, n, p in libres[:top]],
         "libres_total": len(libres),
         "couverture": {
@@ -185,7 +200,14 @@ def main():
         for e in r["orphelines"]:
             print(f"   {e['slug']} (id {e['id']}, « {e['label']} »)")
         print()
-    if not (r["a_creer"] or r["a_recopier"] or r["orphelines"]):
+    if r["renommees"]:
+        print(f"→ RENOMMÉES côté Redmine ({len(r['renommees'])}) — libellé à mettre à jour "
+              f"dans {pm_tags.REGISTRY} :")
+        for e in r["renommees"]:
+            print(f"   {e['slug']} (id {e['id']}) : registre « {e['registre']} » "
+                  f"≠ Redmine « {e['redmine']} »")
+        print()
+    if not (r["a_creer"] or r["a_recopier"] or r["orphelines"] or r["renommees"]):
         print("✓ registre et CF Redmine sont synchrones.\n")
 
     print(f"mots-clés LIBRES les plus utilisés ({r['libres_total']} au total, "

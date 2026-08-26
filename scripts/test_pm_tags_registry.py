@@ -78,6 +78,22 @@ check("les produits mono-projet sont VOLONTAIREMENT hors registre",
 check("zabbix est mappé (Monitoring) sans être une valeur",
       pm_tags.canonical("zabbix") == ("monitoring", "zabbix"))
 
+# — RM2837 : le registre est remappé sur les valeurs RÉELLES —
+check("toutes les valeurs ont un id (le vocabulaire est entièrement créé)",
+      all(v.get("id") is not None for v in values),
+      [v.get("slug") for v in values if v.get("id") is None])
+check("un slug peut différer du libellé (« Debug/Bugfix » s'écrit `debug`)",
+      any(pm_tags.normalize(v.get("label")) != v.get("slug") for v in values))
+for court, long in (("tooling", "outillage"), ("archi", "architecture"),
+                    ("backup", "sauvegarde"), ("debug", "debug-bugfix")):
+    check(f"le libellé retenu garde son synonyme en alias : {long} → {court}",
+          pm_tags.canonical(long) == (court, long), pm_tags.canonical(long))
+check("le paiement rejoint « Tunnel de commande » sans créer de valeur",
+      pm_tags.canonical("etransactions")[0] == "tunnel-de-commande")
+check("les familles ajoutées à la création sont cartographiées",
+      pm_tags.canonical("telegram")[0] == "notifications"
+      and pm_tags.canonical("analyses")[0] == "audit")
+
 # — garde à l'écriture : ce que le script doit refuser —
 src = (HERE / "pm-task-tag.py").read_text(encoding="utf-8")
 check("le refus est explicite et sort en erreur", "hors vocabulaire" in src and "sys.exit(2)" in src)

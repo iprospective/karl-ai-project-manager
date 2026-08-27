@@ -368,6 +368,31 @@ def git_short_sha(repo, relpath):
     return "?"
 
 
+# Dépôts réellement modifiés pendant ce run : c'est EUX qu'on pousse à la fin, un
+# par un. Avant RM2862, `--push` poussait `projects_root` — le dépôt des projets —
+# quels que soient les projets synchronisés, donc le mauvais dépôt (et un échec sur
+# une divergence sans rapport) dès qu'un projet-core autonome était concerné.
+REPOS_TOUCHES = set()
+
+
+def git_toplevel(path):
+    """Racine du dépôt git qui porte `path`, ou None.
+
+    Les projets PM ne vivent plus tous dans le dépôt `projects_root` : beaucoup
+    sont des dépôts-cores autonomes (`<client>/<projet>-core`), montés par
+    symlink. Commiter ou pousser `projects_root` pour un projet qui n'y est pas
+    échoue — ou pire, pousse un dépôt sans rapport (RM2862).
+    """
+    try:
+        out = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=20)
+        if out.returncode != 0:
+            return None
+        return Path(out.stdout.strip() or ".").resolve()
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def git_commit_paths(repo, paths, message):
     """Commit ciblé de `paths` (relatifs au repo) avec `message`. Retourne ok: bool."""
     try:
@@ -805,18 +830,33 @@ def sync_one_project(cfg, url, key, slug, args):
         # Auto-commit des fold-back (défaut P4) — commit ciblé par chemin (jamais
         # `git add -A` : le repo projects est partagé/dirty). `--no-commit` les signale.
         folded = counts.get("folded", 0) + counts.get("merged", 0)
-        if folded and not args.dry_run:
+        # L'ÉTAT (`.wiki-sync/`) doit être commité même sans fold-back : il naît au
+        # premier sync, et non commité il fait repartir le suivant en « réamorçage »
+        # — l'outil ne sait plus ce qu'il a déjà poussé (RM2862).
+        pushed = counts.get("pushed", 0)
+        if (folded or pushed) and not args.dry_run:
             if args.no_commit:
                 print(f"  ℹ {folded} fichier(s) modifié(s) par fold-back — non commité(s) "
                       f"(--no-commit)")
             else:
-                paths = [str(a["path"].relative_to(repo)) for a in aspects]
-                paths += [str((state_dir / "state.json").relative_to(repo))]
-                paths += [str(p.relative_to(repo)) for p in state_dir.glob("*.base")]
+                # Le dépôt qui porte CE projet, pas `projects_root` : un projet-core
+                # autonome n'est pas dans le dépôt des projets (RM2862).
+                prepo = git_toplevel(project_dir) or repo
+                def _rel(x):
+                    try:
+                        return str(Path(x).relative_to(prepo))
+                    except ValueError:
+                        return None
+                paths = [_rel(a["path"]) for a in aspects]
+                paths.append(_rel(state_dir / "state.json"))
+                paths += [_rel(b) for b in state_dir.glob("*.base")]
                 if do_desc:
-                    paths.append(str((project_dir / "overview.md").relative_to(repo)))
-                if git_commit_paths(repo, paths, f"chore(wiki): fold-back {proj} [wiki-sync]"):
-                    print(f"  ✓ {folded} fold-back commité(s) [wiki-sync]")
+                    paths.append(_rel(project_dir / "overview.md"))
+                paths = [x for x in paths if x]
+                quoi = f"fold-back {proj}" if folded else f"état de sync {proj}"
+                if paths and git_commit_paths(prepo, paths, f"chore(wiki): {quoi} [wiki-sync]"):
+                    print(f"  ✓ {quoi} commité [wiki-sync] ({prepo.name})")
+                    REPOS_TOUCHES.add(prepo)
 
     summary = " ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "rien"
     print(f"— {proj}: {summary}")
@@ -880,9 +920,12 @@ def main():
         for k, v in counts.items():
             total[k] = total.get(k, 0) + v
 
-    # `git push` après tous les projets (repo projects partagé → un seul push suffit).
+    # `git push` après tous les projets, sur CHAQUE dépôt réellement touché.
     if args.push and not args.dry_run:
-        git_push(repo)
+        cibles = sorted(REPOS_TOUCHES) or [Path(repo)]
+        for r in cibles:
+            print(f"  → push {Path(r).name}")
+            git_push(r)
 
     if args.all or len(slugs) > 1:
         summary = " ".join(f"{k}={v}" for k, v in sorted(total.items())) or "rien"

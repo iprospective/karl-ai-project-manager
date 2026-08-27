@@ -74,14 +74,22 @@ Une session vivante s'ouvre d'un clic (**⇱ ouvrir**). Une session éteinte res
 affichée : « a été traité ici, mais plus rien ne tourne » n'est pas « personne ne
 s'en occupe ».
 
+Un champ **Prompt initial** surplombe les deux boutons : le même choix de modèle
+de consigne que le lanceur de gauche (traiter / continuer / étudier-chiffrer /
+état / reviewer / libre) et le même champ éditable, pré-rempli. Changer de modèle
+remplace le texte ; **libre** ne touche jamais à la saisie. La consigne vaut pour
+les **deux** gestes ci-dessous — lire une consigne et en envoyer une autre serait
+un piège. Changer de ticket repart d'une consigne propre, et un rafraîchissement
+de la fiche ne perd pas ce qui est tapé.
+
 Deux façons de lancer le travail depuis la fiche :
 
 - **▶ nouvelle session** — lance `karl-RM<id>` avec le moteur et le modèle
-  sélectionnés dans le lanceur (panneau 🖥 sessions). La confirmation les
-  rappelle, ainsi que le répertoire et la consigne envoyée. Le bouton est
+  sélectionnés dans le lanceur (panneau 🖥 sessions), et la consigne du champ.
+  La confirmation les rappelle, ainsi que le répertoire. Le bouton est
   désactivé quand la session du ticket tourne déjà : il n'y en a qu'une par
   ticket, ouvre-la.
-- **➜ envoyer dans cette session** — pousse « traite la tâche RM<id> » dans une
+- **➜ envoyer dans cette session** — pousse la consigne dans une
   session **déjà ouverte**, choisie dans la liste. Les sessions du **projet du
   ticket** viennent en tête ; les autres annoncent leur client/projet, et la
   confirmation le répète — envoyer un ticket dans une session qui travaille

@@ -5550,9 +5550,16 @@ def _scalar(line: str) -> str:
 
 def _read_task_meta(path: Path) -> dict:
     """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
-    Retourne {title, status, priority, type, test_url, target_env, tags:[...]}."""
+    Retourne {title, status, priority, type, test_url, target_env, schema_version,
+    git_branch, tags:[...]}.
+
+    Volontairement ligne à ligne plutôt que `yaml.safe_load` : sur le parc entier,
+    70 fois plus rapide (0,06 s contre 4,2 s pour 1 140 fiches). Un contrôle qui
+    balaie tout le parc doit passer par ici (RM2783).
+    """
     meta = {"title": "", "status": "", "priority": "", "type": "",
-            "test_url": "", "target_env": "", "tags": []}
+            "test_url": "", "target_env": "", "schema_version": "",
+            "git_branch": "", "tags": []}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -5562,6 +5569,7 @@ def _read_task_meta(path: Path) -> dict:
     end = text.find("\n---", 3)
     fm = text[3:end] if end != -1 else text
     in_tags = False
+    in_git = False
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -5569,7 +5577,17 @@ def _read_task_meta(path: Path) -> dict:
                 meta["tags"].append(s[2:].strip().strip("'\""))
                 continue
             in_tags = False
-        if line.startswith("title:"):
+        if in_git:
+            if line.startswith("  "):
+                if line.strip().startswith("branch:"):
+                    meta["git_branch"] = _scalar(line)
+                continue
+            in_git = False
+        if line.startswith("schema_version:"):
+            meta["schema_version"] = _scalar(line)
+        elif line.startswith("git:"):
+            in_git = True
+        elif line.startswith("title:"):
             meta["title"] = _scalar(line)
         elif line.startswith("status:"):
             meta["status"] = _scalar(line)
@@ -8116,14 +8134,22 @@ def path_local_bin_first(path_value, home):
 # <<< path_local_bin_first
 
 
-def _iter_task_files(limit=500):
+def _iter_task_files(limit=None):
+    """Fiches de tâches de tous les projets, triées par chemin.
+
+    `limit` borne le nombre de fichiers RENDUS. Elle vaut None par défaut : un
+    appelant qui agrège (compter, détecter des anomalies) doit tout voir, sinon il
+    conclut sur un échantillon en annonçant un total — la borne d'origine à 500
+    cachait un tiers du parc sans le dire (RM2783). Ne la passer que pour un
+    aperçu, jamais pour un décompte.
+    """
     out = []
     try:
         for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
             if p.name.endswith(".log.md"):
                 continue
             out.append(p)
-            if len(out) >= limit:
+            if limit is not None and len(out) >= limit:
                 break
     except OSError:
         pass
@@ -8578,19 +8604,17 @@ def _envchk_pm():
         norms_v = ""
     schemas = {}
     orphans = []
-    for tf in _iter_task_files(limit=600):
-        try:
-            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
-        except OSError:
-            continue
-        sv = str(fm.get("schema_version") or "")
-        if sv:
-            schemas[sv] = schemas.get(sv, 0) + 1
-        if str(fm.get("status") or "") == "en_cours":
-            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
-            if not git.get("branch"):
-                m = re.search(r"RM(\d+)_", tf.name)
-                orphans.append("RM" + (m.group(1) if m else "?"))
+    # Sans borne : ce bloc COMPTE (schema_version) et DÉTECTE (en_cours sans
+    # branche). Sur un échantillon, il affirmait « toutes ont une branche » en
+    # n'ayant regardé que les premiers clients par ordre alphabétique. La lecture
+    # passe par `_read_task_meta`, assez rapide pour balayer le parc entier.
+    for tf in _iter_task_files():
+        meta = _read_task_meta(tf)
+        if meta["schema_version"]:
+            schemas[meta["schema_version"]] = schemas.get(meta["schema_version"], 0) + 1
+        if meta["status"] == "en_cours" and not meta["git_branch"]:
+            m = re.search(r"RM(\d+)_", tf.name)
+            orphans.append("RM" + (m.group(1) if m else "?"))
     if norms_v and len(schemas) > 1:
         out.append(_chk("versions PM", "info",
                         f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))

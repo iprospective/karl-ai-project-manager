@@ -108,15 +108,23 @@ check("statut hors référentiel → « statut inconnu », jamais « reste à fa
 check("un statut mal orthographié se voit au lieu de se fondre",
       any(e["ref"] == "RM10" for e in inc["unknown"]))
 check("les statuts NORMS actifs restent bien dans « reste à faire »",
-      len(ka.worklog_buckets([{"ref": "RM11", "status": "a_mep"},
-                              {"ref": "RM12", "status": "etude_chiffrage_en_cours"},
-                              {"ref": "RM13", "status": "a_corriger"}])["todo"]) == 3)
+      len(ka.worklog_buckets([{"ref": "RM12", "status": "etude_chiffrage_en_cours"},
+                              {"ref": "RM13", "status": "a_corriger"}])["todo"]) == 2)
+# RM2860 : la MEP a son bucket. Un ticket dont le dev est fini n'a rien à faire
+# parmi ceux qui restent à écrire — et il doit rester ATTEINGNABLE, pas escamoté.
+_mep = ka.worklog_buckets([{"ref": "RM11", "status": "a_mep"},
+                           {"ref": "RM14", "status": "en_mep"},
+                           {"ref": "RM13", "status": "a_corriger"}])
+check("a_mep et en_mep vont dans « à mettre en prod », pas dans « reste à faire »",
+      len(_mep["mep"]) == 2 and len(_mep["todo"]) == 1)
+check("le statut exact reste lisible dans le bucket MEP (a_mep ≠ en_mep)",
+      sorted(e["status"] for e in _mep["mep"]) == ["a_mep", "en_mep"])
 check("aucun item n'est perdu, quel que soit son statut",
       sum(len(v) for v in ka.worklog_buckets(ITEMS + [{"ref": "RMX", "status": "?"}]).values())
       == len(ITEMS) + 1)
+_vide = {"todo": [], "mep": [], "waiting": [], "done": [], "unknown": []}
 check("worklog vide ou absent toléré",
-      ka.worklog_buckets([]) == {"todo": [], "waiting": [], "done": [], "unknown": []}
-      and ka.worklog_buckets(None) == {"todo": [], "waiting": [], "done": [], "unknown": []})
+      ka.worklog_buckets([]) == _vide and ka.worklog_buckets(None) == _vide)
 # la classification DOIT rester celle de pm-session-status : deux vérités
 # divergentes sur « où on en est » seraient pires que pas de panneau du tout
 import re as _re
@@ -125,6 +133,10 @@ _done = eval(_re.search(r"^DONE = (\{[^}]*\})", _src, _re.M).group(1))
 _wait = eval(_re.search(r"^WAITING = (\{[^}]*\})", _src, _re.M | _re.S).group(1))
 check("DONE identique à celui de pm-session-status.py", ka.WORKLOG_DONE == _done)
 check("WAITING identique à celui de pm-session-status.py", ka.WORKLOG_WAITING == _wait)
+_mep_set = eval(_re.search(r"^MEP = (\{[^}]*\})", _src, _re.M).group(1))
+check("MEP identique à celui de pm-session-status.py (RM2860)", ka.WORKLOG_MEP == _mep_set)
+check("un statut MEP n'est plus un statut « à faire »",
+      not (ka.WORKLOG_MEP & ka.WORKLOG_TODO))
 
 # — RM2581 : superposition du statut LIVE sur le worklog —
 _items = [

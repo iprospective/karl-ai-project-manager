@@ -881,6 +881,15 @@ const worklogSections = vm.runInNewContext("(" + fWs[1] + ")");
 const secs = worklogSections({ todo: [{ ref: "RM1" }], waiting: [{ ref: "RM2" }], done: [{ ref: "RM3" }] });
 assert.deepStrictEqual(Array.from(secs.map(s => s.key)), ["todo", "waiting", "done"],
   "ce qui reste d'abord, ce qui est fait en dernier");
+// RM2860 : la MEP est un travail d'une autre nature (dev fini, reste la mise en
+// prod) — son propre onglet, entre ce qui reste à écrire et ce qui est fait.
+const secsMep = worklogSections({ todo: [{ ref: "RM1" }], mep: [{ ref: "RM2" }, { ref: "RM3" }], done: [{ ref: "RM4" }] });
+assert.deepStrictEqual(Array.from(secsMep.map(s => s.key)), ["todo", "mep", "done"],
+  "l'onglet MEP se place après « reste à faire » et avant « fait »");
+assert.strictEqual(secsMep.filter(s => s.key === "mep")[0].items.length, 2,
+  "les tickets a_mep/en_mep sont dans la section MEP");
+assert.strictEqual(worklogSections({ mep: [] }).length, 0,
+  "pas de MEP en cours → pas d'onglet MEP (règle des sections vides)");
 assert(secs.every(s => s.icon && s.label), "chaque section porte une icône ET un libellé");
 assert.strictEqual(worklogSections({ todo: [], waiting: [{ ref: "RM2" }], done: [] }).length, 1,
   "les sections vides disparaissent (pas de titre sans contenu)");
@@ -1283,6 +1292,12 @@ assert.strictEqual(worklogTabList([], 2, 0)[0].key, "documents", "documents seul
 // branches orphelines sans bucket todo -> cree un onglet a faire en tete
 const tabs3 = worklogTabList([{ key: "done", icon: "x", label: "fait", items: [1] }], 0, 2);
 assert.strictEqual(tabs3[0].key, "todo", "orphelines -> onglet a faire cree");
+// RM2860 : l'onglet MEP se fabrique comme les autres — un bucket non vide en
+// donne un, avec son compte.
+const tabsMep = worklogTabList([{ key: "todo", icon: "\u23f3", label: "reste a faire", items: [1] },
+                                { key: "mep", icon: "\ud83d\ude80", label: "a mettre en prod", items: [1, 2] }], 0, 0);
+assert.strictEqual(JSON.stringify(tabsMep.map(t => [t.key, t.n])),
+  JSON.stringify([["todo", 1], ["mep", 2]]), "onglet MEP avec son compte");
 console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
 
 // — RM2611 : fenêtre de contexte par modèle + % + débit —
@@ -1697,6 +1712,10 @@ assert.deepStrictEqual([...ticketsOfSession("calymix", null, null)], [],
   "rien de connu → aucune invention");
 assert.deepStrictEqual([...ticketsOfSession("calymix", null, { todo: [{ ref: "libre" }] })], [],
   "un chantier hors ticket n'est pas un RM-id");
+// RM2860 : le bucket MEP est une NOUVELLE clé — oubliée ici, elle ferait
+// disparaître de l'onglet « tickets » les tickets dont le dev est fini.
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, { mep: [{ ref: "RM2860" }] })], ["2860"],
+  "un ticket à mettre en prod reste un ticket de la session");
 const mRt2673 = /function renderTickets\(\)[\s\S]*?\n\}/.exec(html);
 assert(/loadWorklog\(\)/.test(mRt2673[0]),
   "l'onglet tickets charge le worklog lui-même (il ne dépend pas de l'onglet état)");

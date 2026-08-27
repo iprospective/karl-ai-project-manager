@@ -4146,13 +4146,19 @@ WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "wai
 # attente, plus les variantes libres qu'emploient les chantiers hors ticket.
 WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
                 "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
-                "a_mep", "en_mep", "a_corriger", "todo", "à faire", "en cours"}
+                "a_corriger", "todo", "à faire", "en cours"}
+# RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
+# ce qui reste est une mise en production — batchée (plusieurs tickets montent
+# ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
+# n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
+# entre des tickets encore à écrire ; elle a donc son propre bucket.
+WORKLOG_MEP = {"a_mep", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
 def worklog_buckets(items) -> dict:
     """RM2466 : range les items du worklog en « reste à faire » / « en attente »
-    / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
+    / « à mettre en prod » (RM2860) / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
     son ouverture dans la session (souvent : une autre session l'a fait avancer).
     `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé.
 
@@ -4161,7 +4167,7 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "waiting": [], "done": [], "unknown": []}
+    out = {"todo": [], "mep": [], "waiting": [], "done": [], "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
         opened = str(it.get("opened_status") or "").lower()
@@ -4180,6 +4186,8 @@ def worklog_buckets(items) -> dict:
                 entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
+        elif st in WORKLOG_MEP:      # RM2860 : avant TODO — a_mep n'y est plus
+            out["mep"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
         elif st in WORKLOG_TODO:

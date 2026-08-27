@@ -14,6 +14,16 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Worklog : la MEP a son onglet** (RM2860). Les tickets `a_mep` et `en_mep` étaient comptés
+  dans « reste à faire », où ils se noyaient entre des tickets encore à écrire. C'est pourtant
+  un travail d'une autre nature : le développement est fini, ce qui reste est une mise en
+  production — batchée (plusieurs tickets montent ensemble), souvent portée par un autre acteur.
+  Ils ont désormais leur bucket `mep` et un sous-onglet **🚀 à mettre en prod**, entre « reste à
+  faire » et « fait ». La même section apparaît dans le worklog Markdown de session
+  (`pm-session-status`) : les deux vues du même worklog ne doivent pas donner deux vérités sur
+  « où on en est », et un test vérifie que les deux tables de statuts ne divergent pas. Piège
+  traité au passage : `ticketsOfSession` énumère les buckets par une liste en dur — un bucket
+  neuf oublié là aurait fait disparaître ces tickets de l'onglet « tickets » de la session.
 - **Synchro des tags : additive dans les deux sens, suppression seulement quand elle est
   attestée** (RM2840). Deux pertes silencieuses corrigées. À la **relecture**, `pm-task-sync`
   remplaçait la liste locale par celle du CF : un ticket portant `cockpit` (mot-clé local, sans

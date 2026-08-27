@@ -105,6 +105,7 @@ API (JSON, localhost:9876)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /tickets/search?q=&status=&client=&project=&tag=&source=local|redmine|both
+  GET  /tickets/brief?ids=<csv>&remote=1|0   (remote : replier sur Redmine si pas de MD local)
                                 → {results:[…{origin, synced}], source, redmine_error}
                                   `source` : MD locaux (défaut), Redmine (tickets
                                   pas encore fetchés), ou les deux fusionnés  (RM2770)
@@ -7264,10 +7265,101 @@ def _task_completion(path) -> int | None:
     return None
 
 
-def op_tickets_brief(ids) -> dict:
+def _pm_project_for_redmine(project_id, identifier) -> tuple:
+    """(entity, project) du projet PM déclarant ce projet Redmine, sinon (None, None).
+
+    Sert à proposer l'adoption d'un ticket avec le BON `--project` : sans lui, on
+    afficherait un titre sans savoir où adopter. La comparaison porte sur les deux
+    formes qu'un `meta.yml` peut déclarer (identifiant textuel — le cas normal — ou
+    id numérique), jamais sur le nom humain du projet, qui est modifiable.
+
+    Aucun choix silencieux si deux projets PM déclarent le même projet Redmine :
+    on rend (None, None) plutôt que le premier venu (tripwire #14).
+    """
+    if not project_id and not identifier:
+        return (None, None)
+    voulu = {str(x) for x in (project_id, identifier) if x}
+    trouves = []
+    try:
+        from pm_paths import PMConfig
+        cfg = PMConfig.load()
+        for ent, proj, _path in cfg.iter_projects():
+            try:
+                meta = cfg.project_meta(ent, proj) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            declares = []
+            for entry in ((meta.get("providers") or {}).get("task") or []):
+                if isinstance(entry, dict) and entry.get("role", "primary") == "primary":
+                    declares.append(entry.get("project_id"))
+            declares.append((meta.get("redmine") or {}).get("project_id"))
+            if voulu & {str(d) for d in declares if d}:
+                trouves.append((ent, proj))
+    except Exception:  # noqa: BLE001
+        return (None, None)
+    return trouves[0] if len(trouves) == 1 else (None, None)
+
+
+def _brief_from_redmine(rm_id: str) -> dict:
+    """Fiche minimale d'un ticket qui n'a pas (encore) de MD local — RM2782.
+
+    Un ticket existant côté Redmine mais jamais adopté était strictement invisible
+    du cockpit : ni titre, ni client, ni projet, et le panneau retombait sur
+    « divers ». Le glob filesystem ne peut pas le voir, par construction.
+
+    Rend `found: False` **et** `remote: True` : l'appelant sait qu'il s'agit d'un
+    ticket réel non adopté, et non d'un id inexistant — la distinction est tout
+    l'intérêt. Une panne Redmine ramène au comportement d'avant (found: False nu),
+    jamais une erreur : le brief est un confort d'affichage.
+    """
+    base = {"found": False, "rm_id": rm_id}
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_task import get_task_provider
+        issue = get_task_provider().fetch_issue(rm_id) or {}
+    except (Exception, SystemExit):  # noqa: BLE001
+        # redmine_utils signale ses erreurs par sys.exit() donc SystemExit, qui ne
+        # dérive PAS d'Exception (même piège que RM2749/RM2770).
+        return base
+    if not issue:
+        return base
+    rp = issue.get("project") or {}
+    # `/issues/<id>.json` ne rend du projet que {id, name} — jamais son identifier,
+    # qui est pourtant la forme déclarée dans les meta.yml (RM2784). Sans lui, la
+    # correspondance échoue et on afficherait un titre sans savoir où adopter. On le
+    # résout si le provider sait le faire ; sinon on se contente de l'id numérique,
+    # qui suffit aux fiches le déclarant sous cette forme.
+    if not rp.get("identifier"):
+        try:
+            fetch_project = getattr(get_task_provider(), "fetch_project", None)
+            if callable(fetch_project) and rp.get("id"):
+                rp["identifier"] = (fetch_project(rp["id"]) or {}).get("identifier")
+        except (Exception, SystemExit):  # noqa: BLE001
+            pass
+    ent, proj = _pm_project_for_redmine(rp.get("id"), rp.get("identifier"))
+    base.update({
+        "remote": True,
+        "title": issue.get("subject") or "",
+        "status": (issue.get("status") or {}).get("name") or "",
+        "priority": (issue.get("priority") or {}).get("name") or "",
+        "redmine_project": rp.get("name") or "",
+        "client": ent or "", "project": proj or "",
+        "adopt_cmd": (f"pm-task-import.py {rm_id} --project {ent}/{proj}"
+                      if ent and proj else ""),
+    })
+    return base
+
+
+def op_tickets_brief(ids, remote=True) -> dict:
     """RM2619 : {rm_id: {title, status, type, priority, completion_pct, client,
     project}} pour une liste de tickets. Un id inconnu rend `found: false` —
-    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre."""
+    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre.
+
+    RM2782 : un id sans MD local est retenté côté Redmine (`remote=True`, défaut),
+    ce qui rend `remote: True` + titre/projet réels + la commande d'adoption. Les
+    ids résolus localement ne coûtent aucun appel réseau ; seuls les inconnus en
+    déclenchent un, et le nombre d'ids est déjà borné par BRIEF_MAX_IDS.
+    """
     out = {}
     for rm_id in list(ids or [])[:BRIEF_MAX_IDS]:
         rm_id = str(rm_id).strip()
@@ -7275,7 +7367,7 @@ def op_tickets_brief(ids) -> dict:
             continue
         tf = _find_task_file(rm_id)
         if not tf:
-            out[rm_id] = {"found": False, "rm_id": rm_id}
+            out[rm_id] = _brief_from_redmine(rm_id) if remote else {"found": False, "rm_id": rm_id}
             continue
         meta = _read_task_meta(tf)
         client, project = _task_client_project(tf)
@@ -10170,7 +10262,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/tickets/brief":     # RM2619 : résolution en lot, légère
                 qs = parse_qs(parsed.query)
                 ids = [x for v in qs.get("ids", []) for x in v.split(",") if x.strip()]
-                return self._send_json(200, {"tickets": op_tickets_brief(ids)})
+                # RM2782 : `remote=0` pour rester strictement local (le comportement
+                # d'avant), utile à un appelant qui ne veut aucun appel réseau.
+                remote = (qs.get("remote", ["1"])[0] or "1") not in ("0", "false", "no")
+                return self._send_json(200, {"tickets": op_tickets_brief(ids, remote=remote)})
             if path.startswith("/resolve/"):
                 return self._send_json(200, op_resolve(path[len("/resolve/"):]))
             if path == "/tickets/search":

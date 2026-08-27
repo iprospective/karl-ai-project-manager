@@ -3,10 +3,10 @@
 ## [2.9.0] - 2026-08-25
 
 ### Ajouté
-- **Phase d'étude — section « Implémentation » obligatoire dans le CDC** (RM2563).
-  Le CDC répondait au *quoi* et au *combien* mais laissait le *comment* implicite :
-  l'agent qui reprenait le ticket en `a_faire` **refaisait l'audit** déjà payé, et
-  repartait sans les conclusions acquises. Nouvelle § dans
+- **Phase d'étude — proposition d'implémentation obligatoire** (RM2563). Le CDC
+  répondait au *quoi* et au *combien* mais laissait le *comment* implicite :
+  l'agent qui reprenait le ticket en `a_faire` **refaisait l'audit** déjà payé,
+  sans les conclusions acquises. Nouvelle § dans
   `modules/status-workflow-pratique.md` : contenu attendu (modèle de données,
   composants, **points d'insertion `fichier:fonction`**, vues, flux & déclencheurs,
   migration, pièges), niveau de détail (**15 à 40 lignes ; l'esquisse oriente, elle
@@ -15,13 +15,38 @@
   développements** — le rationnel n'est pas la taille de la tâche mais l'asymétrie
   de compétence entre le modèle qui mène l'étude et celui qui implémente. Dispense :
   tickets `audit` / `research` / `documentation` dont le livrable *est* l'étude.
-  Répercussions : déclencheur KERNEL (« je rédige un CDC »), `agents/worker-common.md`
-  (§ *Phase d'étude*, tous rôles), `agents/worker-analyst.md` (phase 2, vérifications
-  pré-soumission, outputs `audit`), `templates/task.md` (section + commentaire guide),
-  `templates/RM9999_exemple-tache-complete.md` (exemple rempli).
-  Garde-fou **non bloquant** dans `pm-task-status-update.py` au passage en
-  `etude_chiffrage_a_valider` (même forme que le garde-fou « protocole de test »,
-  RM2229). Cas déclencheur : RM2560 (calicote/dolibarr).
+  Champ canonique : **CF Redmine 31 « Proposition d'implémentation »**, miroir
+  frontmatter `implementation`, outil **`pm-task-implementation`** (`--set`,
+  `--append`, `--from-description` pour migrer un CDC d'avant).
+  Cas déclencheur : RM2560 (calicote/dolibarr).
+- **Actions au déploiement enfin câblées** (RM2563). Le frontmatter `deploy_actions`
+  et le CF Redmine **8 « Actions au déploiement »** coexistaient depuis l'origine
+  **sans aucun lien** : le champ n'était qu'initialisé à `[]` (redmine-fetch-task,
+  pm_task_md, pm-project-bootstrap), jamais lu ni poussé — ce qu'on y écrivait ne
+  ressortait nulle part. Nouvelle § dans `modules/git-mep.md`, outil
+  **`pm-task-deploy`** (`--add` / `--set` / `--clear` / `--pull`), et **rappel de la
+  liste au passage en `a_mep`** : une action notée que personne ne relit au bon
+  moment ne sert à rien.
+- `scripts/pm_cf_mirror.py` — contrat commun « champ frontmatter ↔ CF Redmine »
+  (résolution de l'id par `.env` puis `redmine.reference.yml`, push **jamais fatal**,
+  pull pour rattraper une saisie faite dans l'UI web). Mutualise les trois miroirs :
+  `test_protocol`/CF 30, `implementation`/CF 31, `deploy_actions`/CF 8 —
+  `pm-task-protocol.py` recâblé dessus.
+
+### Modifié
+- Déclencheurs KERNEL : « je rédige un CDC » (→ proposition d'implémentation) et
+  mention de `pm-task-deploy` sur la ligne MEP.
+- `agents/worker-common.md` : § *Deux champs à tenir au fil de l'eau* (tous rôles) ;
+  `agents/worker-analyst.md` aligné (phase 2, vérifications pré-soumission, outputs
+  `audit`).
+- `templates/task.md` : `deploy_actions` documenté + les deux champs miroirs signalés
+  comme « jamais à la main » ; `templates/RM9999_exemple-tache-complete.md` porte un
+  `implementation` rempli (26 lignes) et deux `deploy_actions`.
+- `redmine.reference.yml` : CF 31 déclaré, `used_by` du CF 8 corrigé.
+- `pm-task-status-update.py` : avertissement **non bloquant** au passage en
+  `etude_chiffrage_a_valider` quand la proposition manque (même forme que le
+  garde-fou « protocole de test », RM2229 ; tolère une section `## Implémentation`
+  en corps pour les CDC d'avant).
 
 ## [2.8.0] - 2026-08-24
 

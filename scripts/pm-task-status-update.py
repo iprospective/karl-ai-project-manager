@@ -702,9 +702,12 @@ def main():
         except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
             pass
 
-    # Section « Implémentation » du CDC (RM2563) — WARNING non bloquant : une étude
-    # soumise sans esquisse technique oblige l'implémenteur à refaire l'audit qui vient
-    # d'être payé, souvent avec un modèle moins capable que celui qui l'a mené.
+    # Esquisse d'implémentation (RM2563) — WARNING non bloquant : une étude soumise
+    # sans esquisse technique oblige l'implémenteur à refaire l'audit qui vient d'être
+    # payé, souvent avec un modèle moins capable que celui qui l'a mené.
+    # Champ canonique : CF Redmine 31, miroir frontmatter `implementation`
+    # (pm-task-implementation). Tolérance : une section `## Implémentation` dans le
+    # corps est acceptée — c'est la forme des CDC rédigés avant que le CF n'existe.
     # Dispense : tickets dont le livrable EST l'étude (audit / research / documentation).
     if args.status == "etude_chiffrage_a_valider":
         try:
@@ -712,13 +715,31 @@ def main():
             _fm_now = yaml.safe_load(_m.group(2)) or {}
             if str(_fm_now.get("type") or "").strip() not in (
                     "audit", "research", "documentation"):
-                _desc = ((issue or {}).get("description") or "").strip() or _m.group(4)
-                if not re.search(r"(?mi)^#{1,4}\s*Impl[ée]mentations?\b", _desc):
+                _has = bool(str(_fm_now.get("implementation") or "").strip())
+                if not _has:
+                    _desc = ((issue or {}).get("description") or "").strip() or _m.group(4)
+                    _has = bool(re.search(r"(?mi)^#{1,4}\s*Impl[ée]mentations?\b", _desc))
+                if not _has:
                     out.warn(
-                        f"pas de section « Implémentation » dans le CDC de RM{args.rm_id} "
+                        f"pas d'esquisse d'implémentation sur RM{args.rm_id} "
                         f"→ l'implémenteur devra refaire l'audit "
-                        f"(NORMS status-workflow-pratique § La section « Implémentation » du CDC)")
+                        f"(pm-task-implementation {args.rm_id} --set -)")
         except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
+
+    # Actions au déploiement (RM2563) — à l'entrée en a_mep, les rappeler à qui
+    # déploie : elles ne servent à rien si personne ne les lit au bon moment.
+    if args.status == "a_mep":
+        try:
+            _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
+                md_path.read_text(encoding="utf-8")).group(2)) or {}
+            _acts = list(_fm_now.get("deploy_actions") or [])
+            if _acts:
+                # out.info() est verbose-only : ce rappel doit être vu par défaut,
+                # c'est toute sa raison d'être.
+                out.warn(f"RM{args.rm_id} — {len(_acts)} action(s) au déploiement :\n"
+                         + "\n".join(f"    · {_a}" for _a in _acts))
+        except Exception:  # noqa: BLE001 — rappel informatif, jamais bloquant
             pass
 
     # Résolution de l'assignation Redmine.

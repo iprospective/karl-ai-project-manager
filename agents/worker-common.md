@@ -65,17 +65,26 @@ symlinks n'est pas fiable).
 
 Respecter le `context_budget` du frontmatter.
 
-## Phase d'étude : le CDC porte une section « Implémentation »
+## Deux champs à tenir au fil de l'eau
 
-Quel que soit ton rôle, si tu produis un CDC en `etude_chiffrage_en_cours` et que
-l'étude **débouche sur du code**, le CDC doit porter une section `## Implémentation` :
-l'esquisse technique issue de ton audit (modèle de données, composants, **points
-d'insertion `fichier:fonction`**, vues, flux, migration, pièges relevés). 15 à 40 lignes,
-elle **oriente sans prescrire**. Pas d'exemption pour les petits développements.
+Ni l'un ni l'autre ne se rattrape après coup : ce qu'on ne note pas au moment où on le
+comprend est perdu. Tous deux ont un CF Redmine canonique et un miroir frontmatter —
+on n'écrit ni dans l'un ni dans l'autre à la main, on passe par l'outil.
 
-Sans elle, l'agent qui reprend le ticket refait ton audit — et souvent avec un modèle
-moins capable que le tien. Détail complet, dispenses et condition de sortie :
-`norms/src/modules/status-workflow-pratique.md` § *La section « Implémentation » du CDC*.
+**Proposition d'implémentation** (`pm-task-implementation <id> --set -`). Quel que soit
+ton rôle, si tu produis un CDC en `etude_chiffrage_en_cours` et que l'étude **débouche
+sur du code**, tu poses l'esquisse technique issue de ton audit : modèle de données,
+composants, **points d'insertion `fichier:fonction`**, vues, flux, migration, pièges
+relevés. 15 à 40 lignes, elle **oriente sans prescrire**. Pas d'exemption pour les
+petits développements. Sans elle, l'agent qui reprend le ticket refait ton audit — et
+souvent avec un modèle moins capable que le tien. Détail, dispenses et condition de
+sortie : `norms/src/modules/status-workflow-pratique.md` § *La proposition
+d'implémentation*.
+
+**Actions au déploiement** (`pm-task-deploy <id> --add "…"`). Dès que ton dev exige
+autre chose qu'un `git pull` à la MEP — migration à jouer, cache à vider, constante à
+créer, cron à installer, ordre entre deux dépôts — tu l'ajoutes **à ce moment-là**.
+Cf. `norms/src/modules/git-mep.md` § *Actions au déploiement*.
 
 ## Vérification initiale
 

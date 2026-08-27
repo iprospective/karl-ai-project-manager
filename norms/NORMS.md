@@ -29,11 +29,11 @@ updated: 2026-08-25
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
-| je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
+| je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
-| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC** (section `## Implémentation` obligatoire dès que l'étude débouche sur du code), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
+| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
@@ -1281,7 +1281,7 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC (section « Implémentation ») · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
 > **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
@@ -1402,19 +1402,19 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
-- **Esquisse d'implémentation** — la section `## Implémentation` du CDC (§ dédiée
-  ci-dessous). **Obligatoire dès que l'étude débouche sur du code**, quelle que soit la
-  taille du développement.
+- **Proposition d'implémentation** — l'esquisse technique, dans le CF 31 via
+  `pm-task-implementation` (§ dédiée ci-dessous). **Obligatoire dès que l'étude débouche
+  sur du code**, quelle que soit la taille du développement.
 
 **Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé — **section `## Implémentation` comprise** —, `estimate.*`
+est terminée (CDC rédigé, **proposition d'implémentation** posée, `estimate.*`
 complet), l'agent **ne passe pas directement à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
 **ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
 que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
 développement. C'est le pendant amont du `a_tester_demandeur` aval.
 
 **Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC (section `## Implémentation` comprise) + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + proposition d'implémentation + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
@@ -1427,13 +1427,20 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
-#### La section « Implémentation » du CDC — v2.9.0 (RM2563)
+#### La proposition d'implémentation — v2.9.0 (RM2563)
 
-Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et au **combien**
-(chiffrage). Il doit aussi porter le **comment** : une section `## Implémentation` qui
-fixe par écrit l'esquisse technique que l'audit vient de produire. Sans elle, l'agent qui
-reprend le ticket en `a_faire` **refait l'audit** — travail payé deux fois, et refait
-moins bien, puisqu'il repart sans les conclusions déjà acquises.
+Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et le chiffrage au
+**combien**. Il manquait le **comment** : l'esquisse technique que l'audit vient de
+produire. Sans elle, l'agent qui reprend le ticket en `a_faire` **refait l'audit** —
+travail payé deux fois, et refait moins bien, puisqu'il repart sans les conclusions déjà
+acquises.
+
+**Où elle vit.** Champ canonique : le CF Redmine **31 « Proposition d'implémentation »**
+(texte long, visible sur la fiche) ; miroir local dans le frontmatter `implementation`
+(c'est le miroir que lit la fiche de revue du cockpit — karl-agent ne lit que le local).
+Outil unique : **`pm-task-implementation`** (`--set` / `--append`), jamais d'écriture à la
+main dans l'un ou l'autre. Un CDC rédigé avant l'existence du CF, qui porte l'esquisse en
+section `## Implémentation` du corps, se migre par `--from-description`.
 
 **Contenu attendu.** Les rubriques sans objet se taisent : on ne les remplit pas pour
 faire nombre.
@@ -1456,24 +1463,26 @@ décisifs. L'excès inverse est un échec symétrique : une esquisse qui devient
 détaillée alourdit la phase d'étude et confisque le travail de l'implémenteur.
 
 **Quand elle est exigée.** Dès que l'étude **débouche sur du code** — **sans exemption
-pour les petits développements**. Sur un dev simple la section fera cinq lignes, mais
+pour les petits développements**. Sur un dev simple elle fera cinq lignes, mais
 elle sera là : c'est précisément là qu'on se dispense d'écrire ce qu'on a compris, faute
 d'enjeu apparent. Seul un ticket `audit` / `research` / `documentation` dont le livrable
 **est** l'étude en est dispensé — et si cette étude débouche sur un ticket de code, c'est
-le CDC de ce ticket-là qui porte la section.
+ce ticket-là qui porte la proposition.
 
 **Pourquoi une obligation, pas un conseil.** Le rationnel n'est pas la taille de la tâche
 mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plus fort,
 l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
-section Implémentation est le canal par lequel le raisonnement du modèle fort survit à ce
-transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
+proposition d'implémentation est le canal par lequel le raisonnement du modèle fort
+survit à ce transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
 (calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
 l'audit sous forme actionnable.
 
-**Condition de sortie.** Un CDC sans section `## Implémentation` (hors tickets dispensés)
-n'est **pas** un CDC complet : le passage en `etude_chiffrage_a_valider` ne doit pas être
-demandé. `pm-task-status-update.py` émet un **avertissement non bloquant** sur cette
-transition quand la section manque — même forme que le garde-fou « protocole de test ».
+**Condition de sortie.** Une étude sans proposition d'implémentation (hors tickets
+dispensés) n'est **pas** finie : le passage en `etude_chiffrage_a_valider` ne doit pas
+être demandé. `pm-task-status-update.py` émet un **avertissement non bloquant** sur cette
+transition quand elle manque — même forme que le garde-fou « protocole de test » (RM2229).
+La garde lit le frontmatter `implementation`, et **accepte aussi** une section
+`## Implémentation` dans le corps, pour ne pas crier sur les CDC d'avant.
 
 ### Transitions « assignee-only » — v1.31.0
 
@@ -1890,7 +1899,7 @@ silence** — c'est la même classe de bug que le drift de config Redmine ci-des
 côté *écriture* cette fois. Avant de clore : vérifier la cohérence
 `pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
 
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · actions au déploiement.
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -1984,6 +1993,23 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
+
+#### Actions au déploiement — v2.9.0 (RM2563)
+
+Ce que la MEP exige **en plus** d'un `git pull` se note **au fil de l'eau**, pendant le
+dev : migration SQL à jouer, cache à vider, constante à créer, cron à (ré)installer,
+service à recharger, ordre imposé entre deux dépôts. C'est au moment où on écrit la
+migration qu'on sait qu'il faudra la jouer — pas trois semaines plus tard devant la prod.
+
+Champ canonique : le CF Redmine **8 « Actions au déploiement »** ; miroir local dans le
+frontmatter `deploy_actions` (liste, une action par ligne). Outil : **`pm-task-deploy`**
+(`--add` / `--set` / `--clear`, et `--pull` quand la saisie a été faite directement dans
+l'UI web). Le passage en `a_mep` **rappelle la liste** à qui déploie : une action notée
+que personne ne relit au bon moment ne sert à rien.
+
+> Le champ `deploy_actions` et le CF 8 coexistaient depuis l'origine **sans être reliés**
+> — le champ n'était qu'initialisé à `[]`, jamais lu ni poussé. RM2563 ferme le circuit ;
+> avant lui, ce qui y était écrit ne ressortait nulle part.
 
 #### Commit + push systématique (obligatoire)
 

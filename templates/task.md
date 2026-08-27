@@ -80,6 +80,19 @@ git:
   mr_url: null            # ex: https://gitlab.iprospective.fr/org/repo/-/merge_requests/42
 deploy_actions: []
 # - "Description de l'action à effectuer au déploiement"
+# Ne pas éditer à la main : pm-task-deploy <id> --add "…" (miroir du CF Redmine 8).
+# Ce que la MEP exige EN PLUS d'un git pull : migration à jouer, cache à vider,
+# constante à créer, cron à installer, ordre entre deux dépôts. À noter AU FIL DE L'EAU.
+
+# Champs miroirs de CF Redmine, ajoutés par leur outil — jamais à la main :
+#   implementation  ← pm-task-implementation <id> --set -   (CF 31, esquisse technique
+#                     de la phase d'étude : modèle de données, composants, points
+#                     d'insertion fichier:fonction, vues, flux, migration, pièges.
+#                     15 à 40 lignes ; ORIENTE sans prescrire. Obligatoire dès que
+#                     l'étude débouche sur du code — y compris un petit dev.
+#                     Dispense : audit/research/documentation dont le livrable EST
+#                     l'étude. Cf. NORMS status-workflow-pratique.)
+#   test_protocol   ← pm-task-protocol <id> --set -          (CF 30, quoi tester)
 
 # Métriques cumulées effectives (auto-incrémentées par le hook pm-task-tick)
 tokens_total: 0                # somme tous types
@@ -122,22 +135,6 @@ tags: []
 ## Critères d'acceptation
 - [ ]
 - [ ]
-
-## Implémentation
-<!-- Rempli en phase d'étude (etude_chiffrage_en_cours), OBLIGATOIRE dès que l'étude
-     débouche sur du code — y compris pour un petit développement.
-     Esquisse technique issue de l'audit : elle ORIENTE l'implémenteur, elle ne
-     prescrit pas. 15 à 40 lignes ; pas de bloc de code sauf un DDL, une requête ou
-     une signature réellement décisifs. Les rubriques sans objet se taisent.
-       - Modèle de données  : tables/colonnes ajoutées ou modifiées (nom + type + rôle)
-       - Composants         : classes/modules/scripts à créer ou modifier (1 ligne chacun)
-       - Points d'insertion : `fichier:fonction` où le code se greffe  ← le plus précieux
-       - Vues / UI          : écrans, colonnes, filtres impactés
-       - Flux & déclencheurs: ce qui appelle quoi (hook, trigger, cron, webservice)
-       - Migration / init   : backfill, scripts rejouables, ordre des opérations
-       - Pièges identifiés  : les surprises de l'audit
-     Dispense : ticket audit/research/documentation dont le livrable EST l'étude.
-     Détail : norms/src/modules/status-workflow-pratique.md § La section « Implémentation » du CDC -->
 
 ## Instructions
 <!-- Étapes, contraintes, ressources, accès nécessaires -->

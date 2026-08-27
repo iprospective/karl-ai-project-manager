@@ -1,4 +1,4 @@
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · actions au déploiement.
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -92,6 +92,23 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
+
+#### Actions au déploiement — v2.9.0 (RM2563)
+
+Ce que la MEP exige **en plus** d'un `git pull` se note **au fil de l'eau**, pendant le
+dev : migration SQL à jouer, cache à vider, constante à créer, cron à (ré)installer,
+service à recharger, ordre imposé entre deux dépôts. C'est au moment où on écrit la
+migration qu'on sait qu'il faudra la jouer — pas trois semaines plus tard devant la prod.
+
+Champ canonique : le CF Redmine **8 « Actions au déploiement »** ; miroir local dans le
+frontmatter `deploy_actions` (liste, une action par ligne). Outil : **`pm-task-deploy`**
+(`--add` / `--set` / `--clear`, et `--pull` quand la saisie a été faite directement dans
+l'UI web). Le passage en `a_mep` **rappelle la liste** à qui déploie : une action notée
+que personne ne relit au bon moment ne sert à rien.
+
+> Le champ `deploy_actions` et le CF 8 coexistaient depuis l'origine **sans être reliés**
+> — le champ n'était qu'initialisé à `[]`, jamais lu ni poussé. RM2563 ferme le circuit ;
+> avant lui, ce qui y était écrit ne ressortait nulle part.
 
 #### Commit + push systématique (obligatoire)
 

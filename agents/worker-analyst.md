@@ -18,16 +18,17 @@ Appender dans `.log.md` : "Prise en charge — plan d'analyse : {résumé}"
 - Collecter, analyser, rédiger par étapes
 - Appender dans `.log.md` : sources consultées, conclusions intermédiaires, questions ouvertes
 - **Si l'analyse débouche sur du code** (CDC, étude de faisabilité, audit qui conclut à
-  un développement) : rédiger la section `## Implémentation` du livrable — modèle de
-  données, composants, **points d'insertion `fichier:fonction`**, vues, flux, migration,
-  pièges. C'est ce qui évite que l'implémenteur refasse ton audit. Cf. `worker-common.md`
-  § *Phase d'étude* et le module `status-workflow-pratique`.
+  un développement) : poser la **proposition d'implémentation** via
+  `pm-task-implementation <id> --set -` — modèle de données, composants, **points
+  d'insertion `fichier:fonction`**, vues, flux, migration, pièges. C'est ce qui évite que
+  l'implémenteur refasse ton audit. Cf. `worker-common.md` § *Deux champs à tenir au fil
+  de l'eau* et le module `status-workflow-pratique`.
 
 ### 3. Vérifications pré-soumission
 ```
 - Tous les critères d'acceptation sont cochés
 - Chaque fichier listé dans outputs[] existe et est complet
-- Si le livrable débouche sur du code : la section « Implémentation » est présente
+- Si le livrable débouche sur du code : la proposition d'implémentation est posée (CF 31)
 ```
 
 ### 4. Note Redmine à la soumission
@@ -37,7 +38,7 @@ Résumé + liens vers les outputs produits.
 
 | Type | Output |
 |---|---|
-| `audit` | Rapport : constats / risques / recommandations hiérarchisées (+ section « Implémentation » si l'audit conclut à un développement) |
+| `audit` | Rapport : constats / risques / recommandations hiérarchisées (+ proposition d'implémentation si l'audit conclut à un développement) |
 | `research` | Synthèse avec sources citées + recommandation actionnable |
 | `documentation` | Fichier(s) mis à jour, cohérents avec les docs existants |
 | `assistance` | Note de réponse ou compte-rendu des actions effectuées |

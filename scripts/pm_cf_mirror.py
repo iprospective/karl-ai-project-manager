@@ -40,6 +40,36 @@ import redmine_utils
 # numéros, pas la forme canonique.
 import re as _re
 
+_H_RE = _re.compile(r"^(#{1,6})\s*(.*)$")
+_IMPL_RE = _re.compile(r"(?i)^impl[ée]mentations?\b")
+
+
+def extract_implementation_section(body: str):
+    """Corps de la section `## Implémentation` d'un MD, ou None.
+
+    La section court jusqu'au prochain titre de niveau **inférieur ou égal** au sien,
+    pas jusqu'au prochain titre tout court : une esquisse structurée en sous-parties
+    (`### Modèle de données`, `### Composants`…) serait sinon tronquée à sa phrase
+    d'introduction. Constaté sur RM2560 — 160 caractères repris sur 6057.
+    """
+    lines = (body or "").splitlines()
+    start = level = None
+    for i, line in enumerate(lines):
+        m = _H_RE.match(line)
+        if m and _IMPL_RE.match(m.group(2).strip()):
+            start, level = i, len(m.group(1))
+            break
+    if start is None:
+        return None
+    end = len(lines)
+    for j in range(start + 1, len(lines)):
+        m = _H_RE.match(lines[j])
+        if m and len(m.group(1)) <= level:
+            end = j
+            break
+    return "\n".join(lines[start + 1:end]).strip() or None
+
+
 def normalize_text(value) -> str:
     """Texte comparable des deux côtés du miroir.
 

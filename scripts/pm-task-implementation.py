@@ -46,21 +46,13 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
-# Section `## Implémentation` du corps : tolérante aux accents, au pluriel et aux
-# niveaux # 1 à 4 — même expression que la garde de pm-task-status-update.
-SECTION_RE = re.compile(r"(?mi)^(?P<h>#{1,4})\s*Impl[ée]mentations?\b[^\n]*\n(?P<body>.*?)"
-                        r"(?=^\#{1,4}\s|\Z)", re.DOTALL)
 ENV_VAR = "REDMINE_CF_IMPLEMENTATION_ID"
 CF_NAME = "Proposition d'implémentation"
 
 
-def extract_from_description(body: str):
-    """Corps de la section `## Implémentation` du MD, ou None."""
-    m = SECTION_RE.search(body)
-    if not m:
-        return None
-    txt = m.group("body").strip()
-    return txt or None
+# Extraction mutualisée (pm_cf_mirror) : la section court jusqu'au prochain titre de
+# niveau <= au sien, sinon une esquisse en sous-parties est tronquée à son intro.
+extract_from_description = pm_cf_mirror.extract_implementation_section
 
 
 def main():

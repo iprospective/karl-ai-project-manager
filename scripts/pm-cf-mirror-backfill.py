@@ -58,8 +58,6 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
-SECTION_RE = re.compile(r"(?mi)^(?P<h>#{1,4})\s*Impl[ée]mentations?\b[^\n]*\n(?P<body>.*?)"
-                        r"(?=^\#{1,4}\s|\Z)", re.DOTALL)
 
 # (clé frontmatter, variable .env, nom du CF, liste ?)
 MIRRORS = {
@@ -78,11 +76,7 @@ def norm(value, is_list):
     return pm_cf_mirror.normalize_text(value) or None
 
 
-def section_of(body):
-    m = SECTION_RE.search(body or "")
-    if not m:
-        return None
-    return m.group("body").strip() or None
+section_of = pm_cf_mirror.extract_implementation_section
 
 
 def main():
@@ -131,9 +125,18 @@ def main():
         base, key = creds[0].rstrip("/"), creds[1]
         off, total = 0, None
         while total is None or off < total:
-            st, d = redmine_utils.http_json(
-                "GET", f"{base}/issues.json?status_id=*&limit=100&offset={off}",
-                key, basic=creds.basic)
+            # ~30 pages : un hoquet réseau sur une seule ne doit pas perdre le balayage.
+            for attempt in range(3):
+                try:
+                    st, d = redmine_utils.http_json(
+                        "GET", f"{base}/issues.json?status_id=*&limit=100&offset={off}",
+                        key, basic=creds.basic)
+                    break
+                except Exception as e:  # noqa: BLE001
+                    if attempt == 2:
+                        sys.exit(f"ERREUR : lecture Redmine impossible à l'offset {off} "
+                                 f"après 3 essais ({e}). Rien n'a été écrit.")
+                    print(f"  ⚠ offset {off} : {e} — nouvel essai", file=sys.stderr)
             total = d.get("total_count", 0)
             for i in d.get("issues", []):
                 issues[i["id"]] = i

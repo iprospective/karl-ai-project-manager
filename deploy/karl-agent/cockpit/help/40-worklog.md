@@ -12,6 +12,17 @@ session » sans rescanner tout le contexte.
 - Le **statut est live** ; la **fraîcheur** est affichée, et une éventuelle
   **dérive** (l'état réel diverge du dernier point) est signalée.
 
+Les tickets sont répartis en **sous-onglets par statut** : ⏳ reste à faire,
+🚀 à mettre en prod, ⏸ en attente / bloqué, ✅ fait, et ❔ statut inconnu quand
+un statut n'est pas reconnu. Un onglet n'apparaît que s'il a du contenu.
+
+L'onglet **🚀 à mettre en prod** rassemble les tickets `a_mep` et `en_mep`. Ils
+étaient auparavant comptés dans « reste à faire », ce qui était trompeur : le
+développement y est terminé, ce qui reste est une mise en production — un geste
+batché (plusieurs tickets montent ensemble), souvent porté par un autre acteur.
+Le worklog Markdown de session (`mmi-pm session-status show`) a la même section,
+au même endroit : les deux vues ne doivent pas raconter deux histoires.
+
 Dans chaque statut, les tickets sont **groupés par client / projet**, avec le
 compte de chaque groupe. Une session touche souvent deux chantiers : à plat, on
 ne voyait plus à quoi on touchait. Le groupement est un rendu, pas un tri —

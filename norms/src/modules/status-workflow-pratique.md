@@ -157,7 +157,12 @@ acquises.
 (c'est le miroir que lit la fiche de revue du cockpit — karl-agent ne lit que le local).
 Outil unique : **`pm-task-implementation`** (`--set` / `--append`), jamais d'écriture à la
 main dans l'un ou l'autre. Un CDC rédigé avant l'existence du CF, qui porte l'esquisse en
-section `## Implémentation` du corps, se migre par `--from-description`.
+section `## Implémentation` du corps, se migre par `--from-description` (en masse :
+`pm-cf-mirror-backfill --adopt-sections` — le corps est **conservé**, rien n'est effacé).
+
+**Synchronisation.** PM → Redmine à l'écriture ; Redmine → PM à chaque `pm-task-sync`,
+pour rattraper une saisie faite dans l'UI web. Un CF vide ne remet **jamais** le miroir
+local à zéro.
 
 **Contenu attendu.** Les rubriques sans objet se taisent : on ne les remplit pas pour
 faire nombre.

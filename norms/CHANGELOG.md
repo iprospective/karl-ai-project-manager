@@ -29,9 +29,24 @@
   moment ne sert à rien.
 - `scripts/pm_cf_mirror.py` — contrat commun « champ frontmatter ↔ CF Redmine »
   (résolution de l'id par `.env` puis `redmine.reference.yml`, push **jamais fatal**,
-  pull pour rattraper une saisie faite dans l'UI web). Mutualise les trois miroirs :
-  `test_protocol`/CF 30, `implementation`/CF 31, `deploy_actions`/CF 8 —
+  pull pour rattraper une saisie faite dans l'UI web, sérialisation liste↔texte pour
+  `deploy_actions`, et **normalisation CRLF** — Redmine restitue les champs texte en
+  CRLF, sans quoi un contenu identique paraît différer à chaque lecture). Mutualise les
+  trois miroirs : `test_protocol`/CF 30, `implementation`/CF 31, `deploy_actions`/CF 8 —
   `pm-task-protocol.py` recâblé dessus.
+- **Synchronisation Redmine → PM automatique** : `pm-task-sync` rapatrie désormais les
+  trois miroirs, pour rattraper une saisie faite dans l'UI web. Un CF **vide** ne remet
+  **jamais** le miroir local à zéro (« vide » = « pas d'information », pas « efface ») ;
+  le vidage volontaire passe par l'outil dédié, qui écrit les deux côtés.
+- `scripts/pm-cf-mirror-backfill.py` — **reprise de l'existant**, dry-run par défaut.
+  Règle cardinale : on ne remplace jamais du contenu par du vide, dans aucun sens, et un
+  désaccord entre les deux côtés est **signalé, pas tranché**. `--adopt-sections` reprend
+  les sections `## Implémentation` des CDC d'avant le CF 31 **sans toucher au corps**.
+  Commit **par dépôt** (un backfill global touche des fiches réparties sur plusieurs
+  dépôts de données ; `pm_git.autocommit` n'en gère qu'un et ignorerait les autres en
+  silence). Passe de reprise effectuée : **31 opérations, 0 conflit** — 21 procédures de
+  MEP remontées vers le CF 8, 9 esquisses adoptées vers le CF 31, 1 protocole rapatrié ;
+  état final vérifié à **344 miroirs synchrones, 0 opération restante**.
 
 ### Modifié
 - Déclencheurs KERNEL : « je rédige un CDC » (→ proposition d'implémentation) et

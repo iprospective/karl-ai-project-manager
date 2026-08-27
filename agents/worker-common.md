@@ -81,10 +81,14 @@ souvent avec un modèle moins capable que le tien. Détail, dispenses et conditi
 sortie : `norms/src/modules/status-workflow-pratique.md` § *La proposition
 d'implémentation*.
 
-**Actions au déploiement** (`pm-task-deploy <id> --add "…"`). Dès que ton dev exige
-autre chose qu'un `git pull` à la MEP — migration à jouer, cache à vider, constante à
-créer, cron à installer, ordre entre deux dépôts — tu l'ajoutes **à ce moment-là**.
-Cf. `norms/src/modules/git-mep.md` § *Actions au déploiement*.
+**Actions au déploiement** (`pm-task-deploy <id> --add "…"`). C'est la **procédure de
+MEP de ton ticket** — une suite **ordonnée** d'étapes, pas un pense-bête : migration à
+jouer et dans quel ordre, constante à créer avant le premier passage, service à
+recharger, dépôt A avant dépôt B, rollback s'il ne se réduit pas au commit précédent.
+Tu l'écris **au moment où tu découvres l'étape**, pas à la livraison. Ce qui est
+systématique pour l'environnement n'y va pas : c'est `environments[].post_deploy`. Rien
+de particulier ⇒ liste **vide**, c'est une réponse. Cf. `norms/src/modules/git-mep.md`
+§ *Actions au déploiement*.
 
 ## Vérification initiale
 

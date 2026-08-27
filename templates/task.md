@@ -81,8 +81,11 @@ git:
 deploy_actions: []
 # - "Description de l'action à effectuer au déploiement"
 # Ne pas éditer à la main : pm-task-deploy <id> --add "…" (miroir du CF Redmine 8).
-# Ce que la MEP exige EN PLUS d'un git pull : migration à jouer, cache à vider,
-# constante à créer, cron à installer, ordre entre deux dépôts. À noter AU FIL DE L'EAU.
+# C'est la PROCÉDURE DE MEP du ticket : suite ORDONNÉE d'étapes (l'ordre de la liste
+# est l'ordre d'exécution) — migration à jouer, constante à créer, service à recharger,
+# dépôt A avant dépôt B, rollback. À noter AU FIL DE L'EAU, pas à la livraison.
+# N'y va PAS ce qui est systématique pour l'env : c'est environments[].post_deploy.
+# Rien de particulier ⇒ liste vide : c'est une réponse, pas un oubli.
 
 # Champs miroirs de CF Redmine, ajoutés par leur outil — jamais à la main :
 #   implementation  ← pm-task-implementation <id> --set -   (CF 31, esquisse technique

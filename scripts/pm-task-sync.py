@@ -28,6 +28,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_cf_mirror
 import pm_git
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
@@ -115,6 +116,40 @@ def fmt_journal_md(j):
     return "\n".join(lines) + "\n"
 
 
+# Miroirs « champ frontmatter ↔ CF Redmine » (RM2563). Le CF est canonique, le
+# frontmatter est le miroir local — et c'est LUI que lit la fiche de revue du cockpit.
+# Ici on ne fait que le sens REDMINE → PM : rattraper une saisie faite dans l'UI web.
+# Le sens PM → Redmine est poussé à l'écriture par les outils dédiés
+# (pm-task-implementation, pm-task-deploy, pm-task-protocol).
+#   (clé frontmatter, variable .env, nom du CF, liste ?)
+CF_MIRRORS = (
+    ("implementation", "REDMINE_CF_IMPLEMENTATION_ID", "Proposition d'implémentation", False),
+    ("test_protocol",  "REDMINE_CF_TEST_PROTOCOL_ID",  "Protocole de test",            False),
+    ("deploy_actions", "REDMINE_CF_DEPLOY_ACTIONS_ID", "Actions au déploiement",       True),
+)
+
+
+def diff_cf_mirrors(fm, issue):
+    """Diffs des champs miroirs. Un CF VIDE ne remet jamais le miroir local à zéro :
+    « vide côté Redmine » veut dire « pas d'information », pas « efface ». Le
+    vidage volontaire passe par l'outil dédié (`pm-task-deploy --clear`), qui écrit
+    les deux côtés."""
+    diffs = {}
+    for fm_key, env_var, cf_name, is_list in CF_MIRRORS:
+        cid = pm_cf_mirror.resolve_cf_id(env_var, cf_name)
+        if cid is None:
+            continue
+        raw = pm_cf_mirror.normalize_text(cf_value(issue, cid))
+        if not raw:
+            continue
+        new = pm_cf_mirror.text_to_list(raw) if is_list else raw
+        cur = fm.get(fm_key)
+        cur = list(cur or []) if is_list else pm_cf_mirror.normalize_text(cur)
+        if cur != new:
+            diffs[fm_key] = (cur, new)
+    return diffs
+
+
 def diff_fields(fm, issue):
     """Retourne un dict {field: (old, new)} des changements à appliquer côté MD."""
     diffs = {}
@@ -168,6 +203,9 @@ def diff_fields(fm, issue):
     rm_parent = (issue.get("parent") or {}).get("id")
     if fm.get("parent_task") != rm_parent:
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
+
+    # Miroirs de CF (RM2563) : implementation / test_protocol / deploy_actions.
+    diffs.update(diff_cf_mirrors(fm, issue))
 
     # Updated timestamp (always refresh)
     new_updated = api_ts_local(issue.get("updated_on"))

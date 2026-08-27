@@ -52,19 +52,10 @@ ENV_VAR = "REDMINE_CF_DEPLOY_ACTIONS_ID"
 CF_NAME = "Actions au déploiement"
 
 
-def to_text(actions) -> str:
-    """Liste → texte du CF (une action par ligne, puce `- `)."""
-    return "\n".join(f"- {a}" for a in actions)
-
-
-def from_text(text: str):
-    """Texte du CF → liste. Tolère les puces `-`/`*`/`•` et la numérotation."""
-    out = []
-    for line in (text or "").splitlines():
-        line = re.sub(r"^\s*(?:[-*•]|\d+[.)])\s*", "", line).strip()
-        if line:
-            out.append(line)
-    return out
+# Sérialisation liste ↔ texte : mutualisée avec pm-task-sync (RM2563), qui rapatrie
+# le même CF dans l'autre sens.
+to_text = pm_cf_mirror.list_to_text
+from_text = pm_cf_mirror.text_to_list
 
 
 def read_fm(md_path):

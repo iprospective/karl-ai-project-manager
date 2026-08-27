@@ -17,6 +17,11 @@
 removed: []
 
 rewritten:
+  - reason: "RM2563 (v2.9.0) : l'étape « merge de la MR ⇒ le ticket passe a_mep » est complétée pour router vers la § « Actions au déploiement » — le passage en a_mep affiche désormais la procédure de MEP propre au ticket. Rien n'est retiré : la phrase d'origine est reprise puis prolongée."
+    old: |
+      the workflow MEP.
+      le workflow MEP.
+
   - reason: "RM2563 (v2.9.0) : la section « Implémentation » devient une pièce obligatoire du CDC. Les trois lignes réécrites énuméraient le livrable de fin d'étude (« CDC + estimate.* complets ») sans mentionner l'esquisse technique ; elles sont reprises pour inscrire la section en condition de sortie de `etude_chiffrage_en_cours`. Contenu identique par ailleurs — aucune règle retirée, seule la définition de « CDC complet » est précisée."
     old: |
       - `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).

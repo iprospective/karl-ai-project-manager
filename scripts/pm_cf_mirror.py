@@ -33,6 +33,45 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import redmine_utils
 
 
+# ── Sérialisation liste ↔ texte (deploy_actions / CF 8) ───────────────────────
+# Le frontmatter porte une LISTE ordonnée (l'ordre est l'ordre d'exécution) ; le CF
+# Redmine est un texte. La conversion doit être symétrique dans les deux sens, et le
+# parseur tolérant : un humain qui saisit dans l'UI web tapera des puces ou des
+# numéros, pas la forme canonique.
+import re as _re
+
+def normalize_text(value) -> str:
+    """Texte comparable des deux côtés du miroir.
+
+    Redmine restitue les champs texte en **CRLF** : sans cette normalisation, un
+    contenu pourtant identique paraît différer à chaque lecture — faux conflit dans
+    le backfill, et diff permanent (donc réécriture en boucle) dans `pm-task-sync`.
+    Constaté sur RM2400 : 1077 caractères en local, 1092 côté Redmine, zéro ligne
+    de différence.
+    """
+    if value is None:
+        return ""
+    return str(value).replace("\r\n", "\n").replace("\r", "\n").strip()
+
+
+_BULLET_RE = _re.compile(r"^\s*(?:[-*•]|\d+[.)])\s*")
+
+
+def list_to_text(items) -> str:
+    """Liste → texte du CF : une entrée par ligne, puce `- `."""
+    return "\n".join(f"- {i}" for i in items)
+
+
+def text_to_list(text: str):
+    """Texte du CF → liste. Tolère `-`, `*`, `•` et la numérotation `1.` / `1)`."""
+    out = []
+    for line in normalize_text(text).splitlines():
+        line = _BULLET_RE.sub("", line).strip()
+        if line:
+            out.append(line)
+    return out
+
+
 def resolve_cf_id(env_var: str, cf_name: str):
     """Id du CF : override `.env` (entier), sinon `redmine.reference.yml`, sinon None."""
     v = os.environ.get(env_var, "").strip()

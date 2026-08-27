@@ -56,8 +56,13 @@ git:
   branch: feature/RM9999-exemple
   mr_url: null
 deploy_actions:
-  - "Jouer la migration 2026-08-25-demo-flag.sql (AVANT la première synchro)"
-  - "Lancer scripts/backfill-demo.php --go une fois, après la migration"
+  # Procédure de MEP du ticket : l'ordre de la liste EST l'ordre d'exécution.
+  - "Snapshot ZFS du conteneur depuis l'hôte (point de restauration préalable)"
+  - "Jouer la migration 2026-08-25-demo-flag.sql — AVANT tout déploiement de code, sinon l'UPDATE échoue en silence"
+  - "Déployer le code (MR mergée dans la branche de prod), puis recharger PHP-FPM"
+  - "Lancer scripts/backfill-demo.php --go une fois — POINT DE NON-RETOUR : le flag est recalculé pour toutes les fiches"
+  - "Contrôle : la colonne « Demo » apparaît dans la liste et le filtre booléen répond"
+  - "Rollback : revenir au commit précédent + DROP de la colonne (aucune autre donnée touchée)"
 implementation: |
   Exemple de la maille attendue : concret, court, orienté « où ça se greffe ».
   Obligatoire dès que l'étude débouche sur du code, même pour un petit dev.

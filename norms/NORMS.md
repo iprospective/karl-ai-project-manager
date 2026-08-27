@@ -1,9 +1,9 @@
 ---
-schema_version: "2.8.0"
+schema_version: "2.9.0"
 updated: 2026-08-24
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.8.0
+# Normes de gestion des tâches — v2.9.0
 # Normes de gestion des tâches — v2.7.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
@@ -2899,6 +2899,7 @@ providers:
     vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
     kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
     age-acme:    { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
+    op-ipro:     { axis: secret, type: onepassword, vault: "Agents" }
 ```
 
 **Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
@@ -2916,29 +2917,33 @@ vaultwarden://<org>/<collection>/<item>    forme historique — supportée défi
 Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
 `vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
 
-**Backends disponibles** : `vaultwarden` (défaut iProspective), `keepass` (fichier
-`.kdbx`, dépendance `python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dépendance
-`age` — le cas « on me partage trois identifiants », sans serveur ni compte),
-`nextcloud_passwords` (app **Passwords** d'une instance Nextcloud, accès par mot de
-passe d'**application** — le cas d'un client qui a déjà son gestionnaire). D'autres
-s'ajoutent par le point d'extension `pm_secrets.register_backend()` sans toucher aux
-appelants.
+**Backends disponibles** : `vaultwarden` (défaut), `keepass` (`.kdbx`, dép.
+`python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dép. `age` — « on me partage
+trois identifiants », sans serveur ni compte), `nextcloud_passwords` (app **Passwords**
+d'un Nextcloud, mot de passe d'**application**) et `onepassword` (CLI `op` + *service
+account* ; CLI hors dépôts Debian, jeton machine sur plan payant). D'autres s'ajoutent
+par `pm_secrets.register_backend()` sans toucher aux appelants.
 
-**Un secret chiffré côté client est refusé, pas rendu.** L'app Passwords sait chiffrer
-un item avec une clé que seul le navigateur détient : l'API n'en rend alors qu'un
-cryptogramme. Le backend REFUSE ce cas explicitement (`unsupported`, en nommant le type
-de chiffrement) au lieu de livrer la valeur — un agent la prendrait pour un mot de
-passe et l'injecterait dans une configuration. Corollaire pratique : un secret destiné
-aux agents ne doit pas être posé dans le périmètre chiffré côté client.
+**Un secret chiffré côté client est refusé, pas rendu.** Quand l'app Passwords chiffre
+un item avec une clé que seul le navigateur détient, l'API n'en rend qu'un cryptogramme :
+le backend REFUSE (`unsupported`, en nommant le chiffrement) plutôt que de livrer une
+valeur qu'un agent injecterait dans une conf en la prenant pour un mot de passe. Donc :
+un secret destiné aux agents ne se pose pas dans le périmètre chiffré côté client.
 
 **Tous les vaults ne se déverrouillent pas.** Un fichier `age` s'ouvre avec une clé
-privée posée sur le poste : il n'y a **pas de session à établir**, donc pas de secret
-humain à saisir — l'instance est utilisable tant que la clé est lisible. Le corollaire
-est que **seuls les droits du fichier protègent ce vault** : clé en `0600`, jamais
-commitée, jamais dans la déclaration partagée (elle vit dans
-`SECRET__<SLUG>__AGE_KEY_FILE`). La page de santé du poste signale une clé trop
-ouverte. À l'inverse, un vault sans déverrouillage **ne se verrouille pas** :
-`lock-vault.sh` n'a d'effet que sur les sessions gardées en mémoire.
+privée posée sur le poste ; un accès par jeton (service account 1Password, mot de passe
+d'application Nextcloud) tient par ce jeton : **pas de session à établir**, donc pas de
+secret humain à saisir. Deux conséquences. Ces vaults **ne se verrouillent pas** —
+`lock-vault.sh` n'agit que sur les sessions gardées en mémoire. Et leur refus ne
+s'ouvre pas : un jeton refusé se rapporte `locked`, faute d'une quatrième valeur au
+contrat, mais il faut en **émettre un nouveau**, pas chercher un mot de passe maître
+qui n'existe pas. Pour `age`, **seuls les droits du fichier protègent le vault** : clé
+en `0600` (`SECRET__<SLUG>__AGE_KEY_FILE`), jamais commitée, jamais dans la déclaration
+partagée — la page de santé du poste signale une clé trop ouverte.
+
+**Un secret ne passe jamais en argument de commande** : `ps` est lisible par tous les
+processus de la machine, et le shell en garde l'historique. Il se transmet par variable
+d'environnement ou sur l'entrée standard (`unlock-vault.sh --stdin`).
 
 > **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
 > instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client

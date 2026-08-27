@@ -154,7 +154,21 @@ FAKE_AGE = ('#!/bin/sh\n'
             'base64 -d "$4"\n')
 
 
-def _workdir(td, avec_age=False):
+# Faux `op` minimal — même parti pris que `FAKE_AGE` : le contrat de la CLI est
+# testé pour de bon dans `test_pm_secrets_onepassword.py`. Ici on veut seulement
+# prouver que le DAEMON sert une instance dont le jeton EST la session.
+FAKE_OP = ('#!/bin/sh\n'
+           '[ -n "$OP_SERVICE_ACCOUNT_TOKEN" ] || { echo "[ERROR] authentication '
+           'required: no account found" >&2; exit 1; }\n'
+           'case "$1 $2" in\n'
+           '  "whoami --format") echo \'{"user_type":"SERVICE_ACCOUNT"}\' ;;\n'
+           '  "item get") echo \'{"title":"prod-db","fields":[{"purpose":"PASSWORD",'
+           '"label":"password","value":"PWD-OP"}]}\' ;;\n'
+           '  *) echo "[ERROR] unknown" >&2; exit 1 ;;\n'
+           'esac\n')
+
+
+def _workdir(td, avec_age=False, avec_op=False):
     work = Path(td)
     (work / "bin").mkdir()
     fake = work / "bin" / "bw"
@@ -170,6 +184,12 @@ def _workdir(td, avec_age=False):
         (work / "id.age").chmod(0o600)
         servers["age-fichier"] = {"axis": "secret", "type": "age",
                                   "file": f"{work}/coffre.yml.age"}
+    if avec_op:
+        op_bin = work / "bin" / "op"
+        op_bin.write_text(FAKE_OP)
+        op_bin.chmod(0o755)
+        servers["op-test"] = {"axis": "secret", "type": "onepassword",
+                              "vault": "Agents"}
     # Un core-dir de test est un core-dir COMPLET : sans le `pm.env` que pose
     # `core_with`, `PMConfig.load` sort sur `projects_root` non résolu, le
     # registre devient indisponible et le daemon dégrade vers une instance
@@ -347,6 +367,45 @@ def test_instance_sans_session_age():
             r = d.ask("GET secret://age-fichier/acme/db password").strip()
             assert r.startswith("ERR unreachable"), r
             assert "AGE_KEY_FILE" in r, r
+
+
+def test_instance_sans_session_onepassword():
+    """Un jeton de service account tient lieu de session (RM2711).
+
+    Même règle que `age`, par un autre chemin : `caps.needs_unlock = False`. Ce
+    que ce test ajoute, c'est le cas où une instance sans session est en plus
+    INUTILISABLE (jeton absent) — le daemon doit rendre l'erreur du backend et
+    continuer de servir les autres, pas se déclarer verrouillé ni mourir.
+    """
+    with tempfile.TemporaryDirectory(prefix="multi-op-") as td:
+        work = _workdir(td, avec_op=True)
+        env = {"SECRET__OP_TEST__SERVICE_ACCOUNT_TOKEN": "ops_JETON-FACTICE"}
+        with Daemon(work, tag="op", env_extra=env) as d:
+            v = d.ask("GET secret://op-test/Agents/prod-db password").strip()
+            assert v == "PWD-OP", v
+            etat = d.ask("STATUS op-test").strip()
+            assert etat.startswith("unlocked sans-session"), etat
+            # Bout en bout par le SCRIPT CONSOMMATEUR, pas seulement par le
+            # protocole : c'est lui que les agents appellent.
+            r = subprocess.run(
+                ["bash", str(_HERE / "resolve-secret.sh"),
+                 "secret://op-test/Agents/prod-db", "password"],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "VAULT_SOCK": str(d.sock)})
+            assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+            assert r.stdout.strip() == "PWD-OP", r.stdout
+
+    # Jeton absent : le backend dit `unreachable` et nomme la variable à poser ;
+    # l'instance Vaultwarden voisine reste servie normalement.
+    with tempfile.TemporaryDirectory(prefix="multi-op2-") as td:
+        work = _workdir(td, avec_op=True)
+        with Daemon(work, tag="opnotoken") as d:
+            r = d.ask("GET secret://op-test/Agents/prod-db password").strip()
+            assert r.startswith("ERR unreachable"), r
+            assert "SERVICE_ACCOUNT_TOKEN" in r, r
+            assert d.alive, "une instance mal configurée ne doit pas tuer le daemon"
+            d.ask("SET-SESSION vw-ipro tok-ipro")
+            assert d.ask("GET secret://vw-ipro/coll/prod-db password").strip() == "PWD-IPRO"
 
 
 def test_lock_ignore_les_instances_sans_session():

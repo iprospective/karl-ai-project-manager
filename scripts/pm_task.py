@@ -66,6 +66,15 @@ class TaskProvider:
     def fetch_issue(self, issue_id, include=None):
         raise NotImplementedError
 
+    def fetch_project(self, project_id):
+        """Fiche du projet côté forge, ou {} si le backend ne sait pas la rendre.
+
+        Défaut neutre volontaire : seul Redmine en a besoin aujourd'hui (résoudre
+        l'`identifier` absent de `/issues/<id>.json`, RM2784), et un appelant qui
+        reçoit {} doit simplement s'abstenir de trancher.
+        """
+        return {}
+
     def list_issues(self, params=None, limit=25):
         raise NotImplementedError
 
@@ -129,6 +138,9 @@ class RedmineTaskProvider(TaskProvider):
     # ── contrat générique (délégation stricte) ───────────────────────────
     def fetch_issue(self, issue_id, include=None):
         return _ru.fetch_issue(issue_id, include=include, **self._kw())
+
+    def fetch_project(self, project_id):
+        return _ru.fetch_project(project_id, **self._kw())
 
     def list_issues(self, params=None, limit=25):
         return _ru.list_issues(params=params, limit=limit, **self._kw())

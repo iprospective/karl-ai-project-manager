@@ -212,6 +212,7 @@ SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le t
 # a-t-elle été tranchée ». Le sys.path est explicite : le service démarre avec un
 # cwd quelconque, et l'import échouerait silencieusement au boot sans lui.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
                            question_parts as _question_parts,
@@ -3668,22 +3669,19 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
 
 def _session_live(session_id: str, engine: str = "claude") -> bool:
     """Vrai si un tmux karl-* ancré à cette session tourne, ou si un process
-    `<engine> --resume <session_id>` vit encore. Garde de op_move_session : ne
-    jamais déplacer une session vivante (elle ré-estampille sa queue / peut
-    recréer le transcript — RM2418)."""
+    `<engine>` porte ce session_id. Garde de op_move_session : ne jamais déplacer
+    une session vivante (elle ré-estampille sa queue / peut recréer le transcript
+    — RM2418).
+
+    RM2810 : la détection process délègue à `pm_proclive`. L'ancienne version
+    exigeait le drapeau de reprise sur la ligne de commande et ratait donc toute
+    session neuve (`--session-id`), tout en se déclenchant sur n'importe quelle
+    ligne de `pgrep` citant le sid.
+    """
     for r in _runs_by_session().get(session_id, []):
         if _has_session(r["rm_id"]):
             return True
-    try:
-        out = subprocess.run(["pgrep", "-af", engine],
-                             capture_output=True, text=True, timeout=5).stdout
-        # RM2539 : `--resume` (claude) ou `--session` (opencode) selon le moteur
-        flag = (_resume_support(engine) or {}).get("resume_flag", "--resume")
-        if any(session_id in ln and flag in ln for ln in out.splitlines()):
-            return True
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return False
+    return _live_session_pids(session_id, engine) != []
 
 
 def op_move_session(payload: dict) -> dict:

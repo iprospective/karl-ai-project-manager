@@ -44,6 +44,13 @@ projects/
 deploy/karl-agent/cockpit/models.json
 deploy/karl-agent/cockpit/monitors.json
 
+# Réglages Claude Code du checkout — permissions et hooks propres à CHAQUE machine
+# (les règles versionnées jusqu'ici portaient des chemins absolus de MathouDell,
+# donc inapplicables ailleurs). Le fichier reste en place localement ; il sort
+# simplement du suivi. ⚠ Au premier pull après ce changement, git SUPPRIME le
+# fichier des autres checkouts — sauvegarder avant de déployer.
+.claude/
+
 # État runtime machine-local (compteur de session, registre branches/worktrees —
 # RM2034). Présent dans l'arbre mais jamais versionné (par machine).
 var/

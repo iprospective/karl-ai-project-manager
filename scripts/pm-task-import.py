@@ -30,6 +30,7 @@ sys.path.insert(0, str(HERE))
 from pm_paths import PMConfig
 from pm_output import out
 from pm_task import get_task_provider
+import redmine_utils
 from pm_task_md import (TYPE_TO_TRACKER, build_frontmatter, priority_id_to_name,
                         render_log, render_md, slugify, tracker_to_type)
 import pm_git
@@ -52,15 +53,30 @@ def project_redmine_id(cfg, entity, project):
 
 
 def same_project(declared, issue_project):
-    """Le ticket appartient-il bien au projet PM visé ?
+    """Le ticket appartient-il bien au projet PM visé ? (`None` = rien de déclaré)
 
-    L'overview déclare tantôt l'identifiant textuel, tantôt l'id numérique : on
-    compare aux deux formes rendues par l'API. Comparaison lâche (str) volontaire.
+    RM2870 — le manifeste déclare le plus souvent un `project_id` **textuel**
+    (`calicote-dolibarr`), alors que `GET /issues/<id>.json` ne rend du projet que
+    `{id, name}` : **jamais** d'`identifier`. Comparer les deux formes à l'aveugle
+    revenait donc à comparer `"calicote-dolibarr"` à `{"11"}` — toujours faux, y
+    compris sur le cas nominal. Le garde-fou se déclenchait sur les tickets
+    correctement placés, et `--force` (prévu pour l'écart assumé) devenait le
+    chemin normal, ce qui le vidait de son sens.
+
+    On résout donc la référence déclarée en **id numérique** (`GET /projects/<ref>`,
+    qui accepte l'id comme l'`identifier`) avant de comparer. Projet déclaré
+    introuvable côté Redmine ⇒ `None` : on ne tranche pas plutôt que de conclure à
+    tort à un écart.
     """
     if declared is None:
         return None                                              # rien de déclaré → on ne tranche pas
-    cands = {str(issue_project.get("id")), str(issue_project.get("identifier") or "")}
-    return str(declared) in {c for c in cands if c}
+    got = issue_project.get("id")
+    if str(declared).isdigit():
+        return str(declared) == str(got)                         # id numérique : rien à résoudre
+    target = redmine_utils.fetch_project(declared)
+    if not target:
+        return None
+    return str(target.get("id")) == str(got)
 
 
 def main():

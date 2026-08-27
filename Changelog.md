@@ -14,6 +14,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **`pm-task-import` acceptait mal les tickets bien placés, et `pm-task-add` pouvait laisser un
+  ticket orphelin** (RM2870). Deux défauts révélés par le même incident. (a) `same_project()`
+  comparait le `redmine.project_id` **textuel** du manifeste (`calicote-dolibarr`) au dict projet
+  de l'API des issues — qui ne rend jamais que `{id, name}`, **jamais** d'`identifier`. La
+  comparaison était donc toujours fausse, y compris sur le cas nominal : le garde-fou se
+  déclenchait sur les tickets correctement placés, et `--force`, prévu pour l'écart assumé,
+  devenait le chemin normal. La référence déclarée est désormais résolue en id numérique via
+  `redmine_utils.fetch_project` (livré par RM2866) — et un `project_id` déjà numérique se compare
+  sans requête. (b) `pm-task-add … --porcelain | head -1` **tuait le script** sur
+  `BrokenPipeError` : le tube se ferme dès la première ligne lue, l'écriture suivante lève, et
+  le processus mourait **après** le POST Redmine — ticket créé, aucune fiche PM (c'est ainsi
+  qu'est né RM2868). `pm_output` avale désormais l'écriture sur un flux mort et bascule sur
+  `os.devnull` : l'affichage n'est jamais une raison d'interrompre une mutation en cours.
 - **Déplacer une tâche d'un projet PM à un autre : `mmi-pm task-move`** (RM2866). Un ticket
   ouvert depuis le mauvais cwd — ou déplacé dans l'UI Redmine par un humain — laissait sa
   fiche PM orpheline dans le projet d'origine, sans outil pour la suivre : `cp` + `git rm` à

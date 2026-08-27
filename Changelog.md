@@ -14,6 +14,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Déplacer une tâche d'un projet PM à un autre : `mmi-pm task-move`** (RM2866). Un ticket
+  ouvert depuis le mauvais cwd — ou déplacé dans l'UI Redmine par un humain — laissait sa
+  fiche PM orpheline dans le projet d'origine, sans outil pour la suivre : `cp` + `git rm` à
+  la main, soit exactement ce que le tripwire #1 interdit (« pas d'outil = trou à combler »).
+  Incident fondateur : RM2865, créé dans `pm-ai-agents` puis déplacé vers `calicote/dolibarr`
+  deux minutes plus tard. `pm-task-move <id> --to <client>/<projet>` déplace la fiche, son
+  `.log.md` et son `.reporting.yml`, et aligne le `project_id` Redmine. Trois pièges traités :
+  (a) la cible se résout par `resolve_project_ref(require_redmine=True)` — un slug nu ambigu
+  est refusé (tripwire #14) ; (b) le PUT Redmine est **vérifié par relecture**, parce que sans
+  la permission « Move issues » Redmine répond 204 en droppant l'attribut — l'échec serait
+  muet et laisserait la divergence que l'outil est censé supprimer ; (c) source et cible ne
+  vivent pas forcément dans le **même dépôt de données** (un workspace par projet), d'où deux
+  commits path-scopés au lieu d'un rename — ce qui a demandé d'apprendre à `pm_git.autocommit`
+  à committer une **suppression** (`allow_missing`, opt-in : hors ce cas un chemin manquant
+  reste une erreur d'appelant). Le cas « Redmine déjà à jour » ne fait aucune écriture
+  distante, et une tâche portant une branche de code est refusée : une branche ne se déplace
+  pas de dépôt.
 - **Cockpit : un fichier ouvert s'affiche en pleine hauteur** (RM2861). Dans l'onglet 📁 fichiers,
   un `.md` atterrissait dans un bloc de **160 px** avec son propre ascenseur, au milieu d'un
   panneau qui défile déjà : le contenu était rendu dans `.desc`, le style du bloc « description

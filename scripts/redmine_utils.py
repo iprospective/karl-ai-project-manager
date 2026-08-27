@@ -396,6 +396,62 @@ def add_issue_note(issue_id, note, timeout=20, creds=None):
     return True
 
 
+def fetch_project(project_ref, timeout=20, creds=None):
+    """`GET /projects/<ref>.json` — `ref` accepte l'**id numérique** ou l'`identifier`.
+
+    Rend le dict projet (`id`, `identifier`, `name`, …) ou `None` si introuvable.
+    Nécessaire parce que l'API des issues ne rend que `{id, name}` pour le projet :
+    comparer un `redmine.project_id` textuel (`calicote-dolibarr`) à une issue
+    demande de résoudre d'abord ce texte en id numérique — sinon la comparaison
+    échoue toujours, en silence.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("GET", f"{url}/projects/{project_ref}.json", key,
+                           timeout=timeout, basic=_basic)
+    if code != 200:
+        return None
+    return body.get("project")
+
+
+def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=None):
+    """DÉPLACE une issue vers un autre projet (`PUT project_id`) — RM2866.
+
+    `project_id` : id numérique ou `identifier`. `notes` : note jointe au même PUT.
+    Retourne `(ok: bool, err: str)`.
+
+    ⚠ Le PUT est **vérifié par relecture**, contrairement à `update_issue_fields` :
+    sans la permission « Move issues » (ni « Edit issues »), Redmine répond 204 et
+    *drop* l'attribut — un déplacement qui échoue silencieusement laisserait la
+    fiche PM et le ticket dans deux projets différents, soit exactement l'incohérence
+    que l'outil est censé supprimer.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+
+    target = fetch_project(project_id, timeout=timeout, creds=creds)
+    if not target:
+        return False, f"projet Redmine '{project_id}' introuvable"
+
+    issue = {"project_id": target["id"]}
+    if notes:
+        issue["notes"] = notes
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,
+                           {"issue": issue}, timeout=timeout, basic=_basic)
+    if code not in (200, 204):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+
+    after = fetch_issue(issue_id, creds=creds) or {}
+    got = (after.get("project") or {}).get("id")
+    if str(got) != str(target["id"]):
+        return False, (f"Redmine a accepté le PUT (HTTP {code}) mais l'issue est "
+                       f"toujours dans le projet {got} — permission « Move issues » "
+                       f"manquante (cf. knowledge/redmine/gotchas.md)")
+    return True, ""
+
+
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
                         notes=None, timeout=20, creds=None):
     """PUT générique sur une issue : custom_fields + estimated_hours + note.

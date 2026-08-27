@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.9.1] - 2026-08-27
+
+### Ajouté
+- KERNEL — déclencheur **« une tâche est dans le mauvais projet PM (ou déplacée côté
+  Redmine) »** → `pm-task-move` (RM2866). Le cas se produit dès qu'un ticket est ouvert
+  depuis le mauvais cwd, ou qu'un humain le déplace dans l'UI Redmine : la fiche PM
+  restait alors dans le projet d'origine, sans outil pour la suivre — un `cp`/`git rm`
+  à la main, soit exactement ce que le tripwire #1 interdit.
+- Module `session-tooling` — la table de couverture gagne la ligne **Tâche / déplacer
+  vers un autre projet PM** (fiche + `.log.md` + `.reporting.yml`, et `project_id`
+  Redmine **vérifié par relecture** : sans la permission « Move issues », Redmine
+  répond 204 en droppant l'attribut, et l'échec serait muet).
+
 ## [2.9.0] - 2026-08-27
 
 ### Ajouté

@@ -52,6 +52,10 @@ DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu
 # statuts considérés bloqués/en attente externe (affichés à part)
 WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
            "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
+# RM2860 : le dev est fini, reste la mise en prod — un travail batché, souvent
+# porté par un autre acteur. Section à part, ici comme dans le cockpit : deux
+# vues divergentes du même worklog donneraient deux vérités sur « où on en est ».
+MEP = {"a_mep", "en_mep"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
@@ -440,6 +444,10 @@ def is_waiting(status):
     return (status or "").lower() in WAITING
 
 
+def is_mep(status):
+    return (status or "").lower() in MEP
+
+
 def eff_status(it, live):
     """Statut effectif : courant (frontmatter) s'il est résolu, sinon stocké."""
     lv = (live or {}).get(it["ref"])
@@ -534,10 +542,11 @@ def render_md(data, live=None):
         out += doc_lines
         out.append("")
 
-    todo, wait, done = [], [], []
+    todo, mep, wait, done = [], [], [], []
     for it in data["items"]:
         st = eff_status(it, live)
-        (done if is_done(st) else wait if is_waiting(st) else todo).append(it)
+        (done if is_done(st) else mep if is_mep(st)
+         else wait if is_waiting(st) else todo).append(it)
 
     def line(it):
         st = eff_status(it, live)
@@ -580,6 +589,9 @@ def render_md(data, live=None):
 
     out.append("## ⏳ Reste à faire")
     out += by_project(todo) or ["_(rien)_"]
+    if mep:
+        out.append("\n## 🚀 À mettre en prod")
+        out += by_project(mep)
     if wait:
         out.append("\n## ⏸️ En attente / bloqué")
         out += by_project(wait)

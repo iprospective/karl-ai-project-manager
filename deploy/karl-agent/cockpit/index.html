@@ -4852,6 +4852,29 @@ function viewTabLabel(kind, parts, hint) {
 }
 // <<< viewTabLabel
 
+// >>> fileBodyHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2861 : le CORPS d'un fichier ouvert — le contenu seul, sans en-tête. Il se
+// rendait en TROIS exemplaires — panneau droit (RM2586), vue projet (RM2590) et
+// vue centrale (RM2759) — donc une correction n'en touchait qu'un, et les autres
+// gardaient le défaut (même raison que mrLineHtml, RM2723). C'est arrivé : la
+// vue centrale rendait déjà son Markdown en pleine hauteur, les deux autres non.
+// Le Markdown allait dans `.desc`, c'est-à-dire le bloc « description encadrée »
+// et son plafond de 160 px : on lisait un fichier par une fenêtre, à l'intérieur
+// d'un panneau qui défile déjà. Il prend les classes pleine hauteur introduites
+// par RM2797/RM2806 pour la fiche de ticket, où le défaut était le même.
+// ⚠ `.desc` est déclarée PLUS LOIN dans la feuille : la laisser dans la liste de
+// classes rendrait le correctif INERTE (à spécificité égale, la dernière
+// déclarée gagne — c'est très exactement le piège de RM2806).
+// Le fichier non-markdown, lui, s'affichait déjà en entier : son rendu ne change
+// pas, il est juste rapatrié ici pour que les deux vues n'en aient qu'un.
+function fileBodyHtml(f, esc, md) {
+  const file = f || {};
+  const content = String(file.content == null ? "" : file.content);
+  return file.markdown
+    ? '<div class="facetfull descfull mdview">' + md(content) + "</div>"
+    : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(content) + "</pre>";
+}
+// <<< fileBodyHtml
 // >>> fileViewHtml — pur (testé par test_cockpit.js)
 // `md` est le rendu markdown (injecté) : un .md se lit rendu, le reste en
 // préformaté. On affiche la taille — un fichier tronqué par le serveur doit se
@@ -4862,9 +4885,7 @@ function fileViewHtml(f, esc, md) {
   return '<div class="ms"><h4 style="font-family:var(--mono);word-break:break-all">'
     + esc(d.path || d.name || "fichier") + '<span style="color:var(--muted);font-weight:normal">'
     + esc(ko) + '</span></h4></div>'
-    + (d.markdown ? '<div class="mdview">' + md(d.content || "") + "</div>"
-                  : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">'
-                    + esc(d.content || "") + "</pre>");
+    + fileBodyHtml(d, esc, md);     // RM2861 : le corps est rendu à un seul endroit
 }
 // <<< fileViewHtml
 
@@ -6801,8 +6822,7 @@ function renderFiles() {
                   + ")", "ce fichier")
       + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b>"
       + '<span style="color:var(--muted);font-size:11px">' + (Math.round((f.size || 0) / 102.4) / 10) + " Ko</span></div>";
-    h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
-                    : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(f.content) + "</pre>";
+    h += fileBodyHtml(f, esc, mdToHtml);      // RM2861 : pleine hauteur, rendu unique
   } else {
     // RM2759 : le dossier courant s'ouvre au centre, où il reste navigable
     h += '<div style="margin:2px 0 4px">'
@@ -9957,8 +9977,7 @@ function renderProjFiles() {
     h += '<div style="display:flex;align-items:center;gap:8px;margin:4px 0">'
       + '<button class="mini" onclick="projBrowse(projFiles.wt, projFiles.path)">‹ retour</button>'
       + '<b style="font-family:var(--mono);font-size:12px;word-break:break-all">' + esc(f.name) + "</b></div>";
-    h += f.markdown ? '<div class="desc">' + mdToHtml(f.content) + "</div>"
-                    : '<pre class="logtail" style="white-space:pre-wrap;max-height:none">' + esc(f.content) + "</pre>";
+    h += fileBodyHtml(f, esc, mdToHtml);      // RM2861 : pleine hauteur, rendu unique
   } else {
     h += '<div style="font-size:11px;margin:2px 0 6px">' + filesCrumbs(projFiles.path).map((cc, i, a) =>
       i < a.length - 1

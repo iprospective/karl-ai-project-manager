@@ -14,6 +14,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Cockpit : un fichier ouvert s'affiche en pleine hauteur** (RM2861). Dans l'onglet 📁 fichiers,
+  un `.md` atterrissait dans un bloc de **160 px** avec son propre ascenseur, au milieu d'un
+  panneau qui défile déjà : le contenu était rendu dans `.desc`, le style du bloc « description
+  encadrée ». Il prend désormais les classes pleine hauteur `.facetfull .descfull .mdview`
+  introduites par RM2797/RM2806 pour le même défaut sur la fiche de ticket — avec le piège que
+  RM2806 avait documenté : `.desc` est déclarée plus loin dans la feuille, la garder aurait rendu
+  le correctif inerte. Cause de fond traitée : le corps d'un fichier se rendait en **trois
+  exemplaires** (panneau droit RM2586, vue projet RM2590, vue centrale RM2759) — d'où le fait que
+  seule la vue centrale était déjà correcte. Un `fileBodyHtml` unique et testé les sert tous.
 - **Worklog : la MEP a son onglet** (RM2860). Les tickets `a_mep` et `en_mep` étaient comptés
   dans « reste à faire », où ils se noyaient entre des tickets encore à écrire. C'est pourtant
   un travail d'une autre nature : le développement est fini, ce qui reste est une mise en

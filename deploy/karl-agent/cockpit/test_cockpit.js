@@ -2299,7 +2299,14 @@ assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit tou
 console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
 
 // — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
-const ticketSessionsHtml = grabO("ticketSessionsHtml");
+// RM2873 : le bloc de lancement rend aussi le choix de consigne — la fonction
+// pure qui liste les modèles lui est injectée (elle est partagée avec le
+// lanceur de gauche).
+const promptTemplates = grabO("promptTemplates");
+const promptTemplateOptions = grabO("promptTemplateOptions", { promptTemplates });
+const ticketPromptFor = grabO("ticketPromptFor");
+const promptFillOnChange = grabO("promptFillOnChange");
+const ticketSessionsHtml = grabO("ticketSessionsHtml", { promptTemplateOptions });
 const taskPromptText = grabO("taskPromptText");
 
 // formulation des prompts : une seule source pour le lanceur ET la fiche
@@ -4081,3 +4088,61 @@ assert(/fileBodyHtml\(d, esc, md\)/.test(html),
 assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
   "plus aucun contenu de fichier rendu dans le bloc encadré");
 console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");
+
+// — RM2873 : consigne choisie et éditable depuis la fiche du ticket —
+// Le lanceur de gauche offrait un modèle de consigne et un champ ; la fiche
+// lançait avec une consigne imposée, visible seulement dans la confirmation.
+
+// La liste des modèles n'existe qu'à UN endroit : une liste en dur dans le HTML
+// de gauche aurait divergé de celle de la fiche au premier ajout.
+const tpls2873 = promptTemplates();
+assert(tpls2873.length >= 5 && tpls2873.every(t => t.value && t.label),
+  "chaque modèle a une valeur ET un libellé");
+assert.strictEqual(tpls2873[tpls2873.length - 1].value, "libre",
+  "« libre » ferme la marche : c'est le mode de saisie manuelle");
+assert(tpls2873.every(t => t.value === "libre" || taskPromptText(t.value, "42")),
+  "tout modèle proposé produit une consigne (sauf « libre »)");
+const optsHtml = promptTemplateOptions("chiffrer", escFn);
+assert(/<option value="chiffrer" selected>/.test(optsHtml), "le modèle retenu est marqué");
+assert.strictEqual((optsHtml.match(/selected/g) || []).length, 1, "un seul modèle retenu");
+assert(!/<option value="traiter"[^>]*>Traiter la tâche<\/option>[\s\S]*<option value="traiter"/.test(html),
+  "le <select> de gauche ne re-déclare pas la liste en dur");
+assert(/getElementById\("ptpl"\)\.innerHTML = promptTemplateOptions\(/.test(html),
+  "…il est peuplé depuis la source unique");
+
+// La règle de remplissage est la même des deux côtés.
+assert.strictEqual(promptFillOnChange("libre", "ma consigne à moi", "traite la tâche RM42"),
+  "ma consigne à moi", "« libre » n'écrase jamais la saisie");
+assert.strictEqual(promptFillOnChange("traiter", "vieux texte", "traite la tâche RM42"),
+  "traite la tâche RM42", "changer de modèle remplace le texte");
+assert.strictEqual(promptFillOnChange("traiter", "déjà tapé", ""), "déjà tapé",
+  "un modèle qu'on ne sait pas calculer ne VIDE pas le champ");
+
+// L'état du champ suit le ticket affiché — et survit à un re-rendu de la fiche.
+const st1 = ticketPromptFor(null, "42", "traite la tâche RM42");
+assert.strictEqual(st1.text, "traite la tâche RM42", "consigne par défaut au premier rendu");
+const st2 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "42", "traite la tâche RM42");
+assert.strictEqual(st2.text, "fais autre chose",
+  "un re-rendu de la fiche ne perd pas la saisie en cours (renderReviewPane est appelé sur événement)");
+assert.strictEqual(st2.tpl, "libre", "…ni le modèle choisi");
+const st3 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "43", "traite la tâche RM43");
+assert.strictEqual(st3.text, "traite la tâche RM43",
+  "changer de ticket repart d'une consigne propre — sinon on lance RM43 avec la consigne de RM42");
+
+// Le bloc de la fiche rend bien le sélecteur et le champ, pré-remplis.
+const tsPr = ticketSessionsHtml({ rm_id: "42", handled: [], candidates: [], own_alive: false },
+  escFn, jargFn, { tpl: "chiffrer", text: "étudie et chiffre la tâche RM42" });
+assert(/id="ts-tpl"/.test(tsPr) && /id="ts-prompt"/.test(tsPr),
+  "la fiche offre le modèle de consigne ET le champ");
+assert(/<option value="chiffrer" selected>/.test(tsPr), "le modèle en cours est celui affiché");
+assert(/étudie et chiffre la tâche RM42<\/textarea>/.test(tsPr), "le champ est pré-rempli");
+assert(/oninput="tsPromptEdited\(/.test(tsPr), "la saisie est mémorisée hors du DOM");
+
+// Câblage : les deux gestes du bloc utilisent la consigne affichée.
+const mSpawn2873 = /async function spawnTicketSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSpawn2873[0]),
+  "le lancement utilise la consigne éditée, plus une consigne imposée");
+const mSend2873 = /async function sendTicketToSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSend2873[0]),
+  "l'envoi dans une session existante aussi : un champ au-dessus d'un bouton qui l'ignore serait un piège");
+console.log("✓ consigne depuis la fiche (RM2873) : modèle + champ éditable, partagés avec le lanceur");

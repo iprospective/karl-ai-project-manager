@@ -1008,14 +1008,9 @@ if (window.matchMedia) {
       <label for="cwd">Répertoire de travail <span style="color:var(--muted)">(auto-résolu)</span></label>
       <input id="cwd" type="text" placeholder="/zfs/workspaces/…">
       <label for="ptpl">Prompt initial</label>
-      <select id="ptpl" onchange="applyTemplate()">
-        <option value="traiter">Traiter la tâche</option>
-        <option value="continuer">Continuer la tâche</option>
-        <option value="chiffrer">Étudier / chiffrer</option>
-        <option value="etat">État du ticket</option>
-        <option value="reviewer">Reviewer</option>
-        <option value="libre">Libre (saisie manuelle)</option>
-      </select>
+      <!-- RM2873 : peuplé depuis promptTemplates() — la fiche du ticket propose
+           la même liste, et une liste en dur ici aurait divergé au 1er ajout. -->
+      <select id="ptpl" onchange="applyTemplate()"></select>
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
@@ -7150,13 +7145,13 @@ function applyTemplate() {
   const tpl = document.getElementById("ptpl").value;
   const rm = document.getElementById("rm").value.trim();
   const ta = document.getElementById("prompt");
-  if (tpl === "libre") return;        // ne pas écraser la saisie manuelle
-  if (!/^\d+$/.test(rm)) { return; }
   const r = resolved && resolved.found ? resolved : null;
   // RM2726 : la formulation vit dans taskPromptText — la fiche du ticket lance
-  // avec exactement le même texte.
+  // avec exactement le même texte. RM2873 : et la RÈGLE de remplissage
+  // (« libre » intouché, calcul impossible → on ne vide pas) vit dans
+  // promptFillOnChange, partagée elle aussi avec la fiche.
   const txt = taskPromptText(tpl, rm, r && r.client, r && r.project, r && r.role_hint);  // RM2833
-  if (txt) ta.value = txt;
+  ta.value = promptFillOnChange(tpl, ta.value, txt);
 }
 
 // ----- §7 : recherche de tickets (MD locaux) -----
@@ -10174,7 +10169,8 @@ function renderReviewPane() {
     if (r.git && r.git.mr_url) links.push('<a href="' + esc(r.git.mr_url) + '" target="_blank">MR ↗</a>');
     if (links.length) h += '<div style="margin-bottom:12px">' + links.join(" · ") + '</div>';
     // — RM2726 : où ce ticket est-il traité, et où le lancer —
-    h += '<div class="ms"><h4>Sessions</h4>' + ticketSessionsHtml(tsCache[rm], esc, jarg) + '</div>';
+    h += '<div class="ms"><h4>Sessions</h4>'
+      + ticketSessionsHtml(tsCache[rm], esc, jarg, tsPromptSync(rm)) + '</div>';   // RM2873
     // — protocole de test (RM2229) : la section « À tester » de la dernière
     //   note de livraison — l'essentiel pour tester sans relire tout le ticket —
     if (r.test_protocol) {
@@ -10601,6 +10597,63 @@ async function confirmSecondSession(rm) {
     "même statut Redmine — et le second écrase les décisions du premier sans le savoir.");
 }
 
+// >>> promptTemplates — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — le CHOIX du modèle de consigne. `taskPromptText` (RM2726) rendait déjà
+// la formulation commune aux deux lanceurs, mais la liste des modèles, elle,
+// vivait en dur dans le <select> du formulaire de gauche : un modèle ajouté là
+// n'aurait jamais atteint la fiche du ticket. Une seule liste, deux formulaires.
+// `libre` ferme la marche et ne produit aucun texte — c'est le mode où la saisie
+// manuelle fait foi, et où l'on ne doit surtout rien réécrire par-dessus.
+function promptTemplates() {
+  return [
+    { value: "traiter", label: "Traiter la tâche" },
+    { value: "continuer", label: "Continuer la tâche" },
+    { value: "chiffrer", label: "Étudier / chiffrer" },
+    { value: "etat", label: "État du ticket" },
+    { value: "reviewer", label: "Reviewer" },
+    { value: "libre", label: "Libre (saisie manuelle)" },
+  ];
+}
+// <<< promptTemplates
+
+// >>> promptTemplateOptions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Les <option> du sélecteur, avec celui qui est retenu. Rendu ici plutôt que
+// dans le HTML : c'est ce qui garantit que les deux formulaires proposent la
+// même chose.
+function promptTemplateOptions(sel, esc) {
+  const cur = String(sel == null ? "" : sel);
+  return promptTemplates().map(t => '<option value="' + esc(t.value) + '"'
+    + (t.value === cur ? " selected" : "") + ">" + esc(t.label) + "</option>").join("");
+}
+// <<< promptTemplateOptions
+
+// >>> promptFillOnChange — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — que devient le champ quand on change de modèle de consigne ? La règle
+// est la même des deux côtés (lanceur de gauche et fiche du ticket), donc elle
+// s'écrit une fois : « libre » ne touche à rien — c'est le mode où la saisie
+// manuelle fait foi — et un modèle dont on ne sait rien dire (ticket non résolu,
+// id absent) laisse le texte en place plutôt que de VIDER ce qui est écrit.
+function promptFillOnChange(tpl, current, computed) {
+  if (String(tpl) === "libre") return String(current || "");
+  return computed ? String(computed) : String(current || "");
+}
+// <<< promptFillOnChange
+
+// >>> ticketPromptFor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — l'état du champ de consigne de la FICHE. Il ne peut pas vivre dans le
+// DOM : `renderReviewPane()` re-rend la section sur événement (fin d'action PM,
+// file de test rechargée), et un textarea re-rendu perdrait la saisie en cours.
+// Changer de TICKET repart d'une consigne propre : garder le texte tapé pour
+// RM_A et lancer RM_B avec, ce serait lancer le mauvais travail sans le dire.
+function ticketPromptFor(prev, rm, deflt) {
+  const p = prev || {};
+  const id = String(rm == null ? "" : rm);
+  if (String(p.rm || "") === id && p.text)
+    return { rm: id, tpl: p.tpl || "traiter", text: p.text };
+  return { rm: id, tpl: "traiter", text: String(deflt || "") };
+}
+// <<< ticketPromptFor
+
 // >>> taskPromptText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2726 — la formulation des prompts de lancement vivait dans applyTemplate,
 // collée au DOM du formulaire de gauche. La fiche du ticket lance elle aussi
@@ -10634,7 +10687,7 @@ function taskPromptText(tpl, rm, client, project, hint) {
 // qui porte juste la branche n'est pas la même chose qu'une session qui l'a au
 // worklog), puis où l'envoyer. Une session éteinte s'affiche mais ne se propose
 // pas : il n'y a personne pour lire le prompt.
-function ticketSessionsHtml(data, esc, jarg) {
+function ticketSessionsHtml(data, esc, jarg, prompt) {
   if (!data) return '<div style="color:var(--muted)">recherche des sessions qui traitent ce ticket…</div>';
   const rm = String(data.rm_id || "");
   const name = s => "karl-" + (/^\d+$/.test(String(s.sid)) ? "RM" + s.sid : s.sid);
@@ -10654,10 +10707,21 @@ function ticketSessionsHtml(data, esc, jarg) {
           ' onclick="attach(' + esc(jarg(String(s.sid))) + ')">⇱ ouvrir</button>' : '') +
       '</span></div>').join("");
   }
+  // RM2873 : la consigne se choisit et se relit AVANT de lancer. Elle vaut pour
+  // les deux gestes de ce bloc — ouvrir une session neuve, ou envoyer le ticket
+  // dans une session existante : un champ affiché juste au-dessus d'un bouton
+  // qui l'ignorerait serait un piège.
+  const pr = prompt || {};
+  h += '<div style="margin-top:10px">'
+    + '<label for="ts-tpl" style="display:block;font-size:11px;color:var(--muted)">Prompt initial</label>'
+    + '<select id="ts-tpl" style="width:auto;max-width:340px" onchange="tsTplChanged()">'
+    + promptTemplateOptions(pr.tpl || "traiter", esc) + '</select>'
+    + '<textarea id="ts-prompt" rows="2" style="margin-top:4px" oninput="tsPromptEdited(this.value)"'
+    + ' placeholder="traite la tâche RM…">' + esc(pr.text || "") + '</textarea></div>';
   h += '<div class="rels" style="margin-top:8px">';
   h += '<button class="chip"' +
     (data.own_alive ? ' disabled title="la session du ticket tourne déjà — ouvre-la plutôt"' :
-                      ' title="Lance karl-RM' + esc(rm) + ' avec le moteur et le modèle du lanceur"') +
+                      ' title="Lance karl-RM' + esc(rm) + ' avec le moteur et le modèle du lanceur, et la consigne ci-dessus"') +
     ' onclick="spawnTicketSession(' + esc(jarg(rm)) + ',this)">▶ nouvelle session</button>';
   if (cands.length) {
     const mine = cands.filter(c => c.same_project), other = cands.filter(c => !c.same_project);
@@ -10672,8 +10736,8 @@ function ticketSessionsHtml(data, esc, jarg) {
                      '">' + opts(mine) + '</optgroup>' : '') +
       (other.length ? '<optgroup label="autres projets">' + opts(other) + '</optgroup>' : '') +
       '</select>';
-    h += '<button class="chip" title="Envoie « traite la tâche RM' + esc(rm) +
-      ' » dans la session choisie" onclick="sendTicketToSession(' + esc(jarg(rm)) +
+    h += '<button class="chip" title="Envoie la consigne ci-dessus dans la session choisie"'
+      + ' onclick="sendTicketToSession(' + esc(jarg(rm)) +
       ',this)">➜ envoyer dans cette session</button>';
   } else {
     h += '<span style="color:var(--muted);font-size:11px">aucune autre session vivante où l’envoyer</span>';
@@ -10693,7 +10757,11 @@ async function sendTicketToSession(rm, btn) {
   if (!sid) { toast("aucune session choisie", true); return; }
   const c = ((tsCache[rm] || {}).candidates || []).find(x => String(x.sid) === sid) || {};
   const r = resolveCache[rm] || {};
-  const msg = taskPromptText("traiter", rm, r.client, r.project);
+  // RM2873 : le champ de consigne surplombe les DEUX boutons — il vaut aussi
+  // pour l'envoi, sinon on lirait une consigne et on en enverrait une autre.
+  const msg = (String(tsPrompt.rm || "") === rm && tsPrompt.text)
+    ? tsPrompt.text
+    : taskPromptText("traiter", rm, r.client, r.project, r.role_hint);
   const warn = c.same_project ? "" :
     "\n\n⚠ cette session travaille sur " + (c.client || "?") + "/" + (c.project || "?") +
     ", pas sur le projet du ticket.";
@@ -10722,6 +10790,32 @@ function roleHintLine(hint) {
 }
 // <<< roleHintLine
 
+// RM2873 : la consigne saisie sur la FICHE. Hors du DOM, parce que
+// `renderReviewPane()` re-rend la section sur événement — une saisie en cours
+// serait perdue au premier rafraîchissement.
+let tsPrompt = { rm: null, tpl: "traiter", text: "" };
+
+// Le texte par défaut d'un ticket : la même formulation que le lanceur de gauche
+// (taskPromptText, RM2726), rôle suggéré compris (RM2833).
+function tsPromptDefault(rm, tpl) {
+  const r = resolveCache[String(rm)] || {};
+  return taskPromptText(tpl || "traiter", rm, r.client, r.project, r.role_hint);
+}
+// Le champ suit le ticket affiché : changer de fiche repart d'une consigne
+// propre (ticketPromptFor), sans écraser ce qu'on est en train d'écrire.
+function tsPromptSync(rm) {
+  tsPrompt = ticketPromptFor(tsPrompt, rm, tsPromptDefault(rm, "traiter"));
+  return tsPrompt;
+}
+function tsTplChanged() {
+  const sel = document.getElementById("ts-tpl"), ta = document.getElementById("ts-prompt");
+  if (!sel || !ta) return;
+  tsPrompt.tpl = sel.value;
+  tsPrompt.text = promptFillOnChange(sel.value, ta.value, tsPromptDefault(tsPrompt.rm, sel.value));
+  ta.value = tsPrompt.text;
+}
+function tsPromptEdited(v) { tsPrompt.text = v; }
+
 async function spawnTicketSession(rm, btn) {
   rm = String(rm);
   if (!await confirmSecondSession(rm)) return;      // RM2818
@@ -10729,7 +10823,11 @@ async function spawnTicketSession(rm, btn) {
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
   const cwd = r.cwd || "";
-  const prompt = taskPromptText("traiter", rm, r.client, r.project, r.role_hint);   // RM2833
+  // RM2873 : la consigne éditée sur la fiche fait foi ; à défaut (champ vide,
+  // fiche pas encore rendue) on retombe sur la formulation par défaut.
+  const prompt = (String(tsPrompt.rm || "") === rm && tsPrompt.text)
+    ? tsPrompt.text
+    : taskPromptText("traiter", rm, r.client, r.project, r.role_hint);   // RM2833
   if (!confirm("Lancer une nouvelle session pour RM" + rm + " ?" +
                roleHintLine(r.role_hint) + "\n\n" +
                "moteur : " + engine + (model ? "  ·  modèle : " + model : "") + "\n" +
@@ -10956,6 +11054,8 @@ async function kill(rmId) {
   const ls = document.getElementById("layoutsel");
   (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
   populateModels();   // RM1941 : catalogue des modèles du moteur courant
+  // RM2873 : modèles de consigne — même source que la fiche du ticket
+  document.getElementById("ptpl").innerHTML = promptTemplateOptions("traiter", esc);
   // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
   const ntType = document.getElementById("nt-type");
   (CFG.task_types || []).forEach(t => {

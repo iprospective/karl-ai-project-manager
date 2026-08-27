@@ -2629,7 +2629,10 @@ console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ
 const viewKey = grabO("viewKey");
 const parseViewKey = grabO("parseViewKey");
 const viewTabLabel = grabO("viewTabLabel");
-const fileViewHtml = grabO("fileViewHtml");
+// RM2861 : le corps du fichier est rendu par fileBodyHtml, partagé avec les
+// panneaux — la vue centrale ne fait plus qu'y ajouter son en-tête.
+const fileBodyHtml = grabO("fileBodyHtml");
+const fileViewHtml = grabO("fileViewHtml", { fileBodyHtml });
 const dirViewHtml = grabO("dirViewHtml");
 const mailViewHtml = grabO("mailViewHtml");
 const viewErrorHtml = grabO("viewErrorHtml");
@@ -4049,3 +4052,32 @@ assert(!/worker-/.test(tpt2833("traiter", "42", "acme", "shop")),
 assert(!/worker-/.test(tpt2833("reviewer", "42", "acme", "shop", { role: "db" })),
   "une review n'est pas routée par étiquette : son rôle est la review");
 console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais imposé");
+
+// — RM2861 : un fichier ouvert s'affiche en pleine hauteur —
+// Le Markdown partait dans `.desc`, le bloc « description encadrée » plafonné à
+// 160 px : on lisait un fichier par une fenêtre, dans un panneau qui défile déjà.
+const mdStub = (t) => "<md>" + t + "</md>";
+const vMd = fileBodyHtml({ markdown: true, content: "# titre" }, escO, mdStub);
+assert(/facetfull/.test(vMd) && /descfull/.test(vMd) && /mdview/.test(vMd),
+  "le Markdown prend les classes pleine hauteur (RM2797/2806)");
+assert(!/class="[^"]*\bdesc\b/.test(vMd),
+  "…et PAS `.desc` : déclarée plus loin dans la feuille, elle regagnerait et le correctif serait inerte (RM2806)");
+assert(/<md># titre<\/md>/.test(vMd), "le rendu Markdown reste stylé, pas du texte brut");
+
+const vTxt = fileBodyHtml({ markdown: false, content: "a < b & c" }, escO, mdStub);
+assert(/max-height:none/.test(vTxt), "le fichier non-markdown reste sans plafond");
+assert(/a &lt; b &amp; c/.test(vTxt), "…et son contenu est échappé (ce n'est pas du HTML)");
+assert(!/<md>/.test(vTxt), "un fichier non-markdown ne passe pas par le rendu Markdown");
+assert(fileBodyHtml(null, escO, mdStub) !== "", "fichier absent toléré");
+assert(!/undefined/.test(fileBodyHtml({ markdown: false }, escO, mdStub)),
+  "contenu absent → vide, jamais « undefined » à l'écran");
+
+// Câblage : le rendu vivait en DOUBLE (panneau droit RM2586, vue projet RM2590).
+// Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
+assert.strictEqual((html.match(/fileBodyHtml\(f, esc, mdToHtml\)/g) || []).length, 2,
+  "les deux panneaux de fichier passent par le rendu commun");
+assert(/fileBodyHtml\(d, esc, md\)/.test(html),
+  "…et la vue centrale aussi : un seul endroit décide comment un fichier s'affiche");
+assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
+  "plus aucun contenu de fichier rendu dans le bloc encadré");
+console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");

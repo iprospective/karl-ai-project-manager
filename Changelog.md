@@ -14,6 +14,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Fiche ticket : la consigne de lancement se choisit et s'édite** (RM2873). Le bouton
+  « ▶ nouvelle session » lançait avec une consigne **imposée** (`traite la tâche RM…`), visible
+  seulement dans la boîte de confirmation : vouloir « étudie et chiffre » obligeait à repasser
+  par le formulaire de gauche. La fiche offre maintenant le même sélecteur de modèle et le même
+  champ éditable — et par **réutilisation**, pas par copie : `taskPromptText` rendait déjà la
+  formulation commune (RM2726), la **liste des modèles** (jusqu'ici en dur dans le HTML de
+  gauche) et la **règle de remplissage** (« libre » intouché, calcul impossible → on ne vide pas)
+  le deviennent. La consigne vaut aussi pour « ➜ envoyer dans cette session » : un champ affiché
+  au-dessus d'un bouton qui l'ignorerait serait un piège. L'état vit hors du DOM — la fiche est
+  re-rendue sur événement et une saisie en cours y serait perdue — et changer de ticket repart
+  d'une consigne propre.
 - **Cockpit : un fichier ouvert s'affiche en pleine hauteur** (RM2861). Dans l'onglet 📁 fichiers,
   un `.md` atterrissait dans un bloc de **160 px** avec son propre ascenseur, au milieu d'un
   panneau qui défile déjà : le contenu était rendu dans `.desc`, le style du bloc « description

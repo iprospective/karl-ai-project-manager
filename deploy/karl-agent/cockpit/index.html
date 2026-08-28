@@ -4414,7 +4414,11 @@ const GLOSSARY = [
   { t: "orchestrateur", c: "pm", a: ["orchestrateurs", "orchestration"], d: "Celui qui répartit et coordonne le travail entre les workers (agents exécutants), sans le faire lui-même." },
   { t: "NORMS", c: "pm", d: "Le corps de règles du système PM (protocole worker, statuts, git) que les agents doivent suivre." },
   { t: "KERNEL", c: "pm", a: ["kernel"], d: "Le « noyau » des normes : le document obligatoire listant déclencheurs et garde-fous, à lire avant d'ouvrir les modules détaillés." },
-  { t: "tripwire", c: "pm", a: ["tripwires", "garde-fou"], d: "Garde-fou : une règle qui se déclenche pour empêcher une erreur (ex. interdire un push direct sur main)." },
+  { t: "tripwire", c: "pm", a: ["tripwires", "garde-fou"], d: "Garde-fou : une règle qui se déclenche pour empêcher une erreur (ex. interdire un push direct sur main). Ce qui l'applique concrètement dans un outil s'appelle une garde." },
+  // `inline: false` : « garde » est aussi un mot français ordinaire (« il garde
+  // son statut ») — le souligner partout produirait surtout des faux positifs.
+  // Il reste cherchable dans le glossaire, il n'est simplement pas surligné.
+  { t: "garde", c: "pm", a: ["gardes"], inline: false, d: "Vérification posée dans le code, qui refuse une opération tant que ses conditions ne sont pas réunies (ex. refuser d'écrire sur un ticket d'un autre projet sans --cross-project). Le tripwire est la règle ; la garde est le cran d'arrêt qui la fait respecter." },
   { t: "optimistic locking", c: "pm", a: ["verrouillage optimiste"], d: "Verrouillage optimiste : avant d'écrire, on vérifie que personne n'a modifié la donnée entre-temps (via un champ de version)." },
   { t: "porcelain", c: "pm", d: "Mode « machine » d'une commande : sortie stable et simple à lire par un script (ex. juste l'identifiant)." },
   { t: "CF", c: "pm", inline: false, d: "Custom Field : un champ personnalisé d'un ticket Redmine (ex. « protocole de test »)." },

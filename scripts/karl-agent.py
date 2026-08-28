@@ -7715,8 +7715,11 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "note", "label": "Note (compte-rendu)", "type": "text", "flag": "--note"},
          {"name": "close_reason", "label": "Motif de fermeture", "type": "enum",
           "flag": "--close-reason", "choices": _PM_CLOSE_REASONS},
-         {"name": "allow_unchecked", "label": "Forcer malgré checklist non cochée",
-          "type": "bool", "flag": "--allow-unchecked"},
+         # Champ TEXTE et non booléen (RM2884) : l'option exige désormais un motif,
+         # qui est tracé dans la note et le journal. Une case à cocher redonnerait
+         # le contournement muet qu'on vient de fermer.
+         {"name": "allow_unchecked", "label": "Laisser des critères décochés — motif obligatoire",
+          "type": "text", "flag": "--allow-unchecked"},
          {"name": "allow_unmerged", "label": "Forcer malgré branche non mergée (RM2319)",
           "type": "bool", "flag": "--allow-unmerged"},
      ]},

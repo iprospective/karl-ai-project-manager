@@ -95,7 +95,7 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
 
-#### Actions au déploiement = la procédure de MEP du ticket — v2.9.0 (RM2563)
+#### Actions au déploiement = la procédure de MEP du ticket — v2.10.0 (RM2563)
 
 Le § *Workflow de développement* ci-dessus décrit la MEP **générique** : MR vers
 `integration_branch`, puis `preprod`, puis `prod_branch`. Ce qu'il ne peut pas dire,

@@ -105,9 +105,11 @@ API (JSON, localhost:9876)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /tickets/search?q=&status=&client=&project=&tag=&source=local|redmine|both
+  GET  /tickets/brief?ids=<csv>&remote=1|0   (remote : replier sur Redmine si pas de MD local)
                                 → {results:[…{origin, synced}], source, redmine_error}
                                   `source` : MD locaux (défaut), Redmine (tickets
                                   pas encore fetchés), ou les deux fusionnés  (RM2770)
+  GET  /tags                    → {tags:[{tag,count}]} — étiquettes en usage (RM2830)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   GET  /client/<slug>           → fiche client : identité, statut, contacts,
                                   valeurs par défaut, projets, projets utilisés,
@@ -1725,7 +1727,7 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
 # Un jeu DÉRIVÉ est défini par une RÈGLE, pas par une liste : il ne dérive jamais,
 # rien à curer, et une session neuve qui satisfait la règle y entre sans geste.
 # La résolution se fait à la LECTURE : rien n'est stocké, donc rien à synchroniser.
-RULE_KEYS = ("client", "project", "mark", "tickets")
+RULE_KEYS = ("client", "project", "mark", "tickets", "tag")   # RM2830 : + étiquette
 
 
 def _rule_norm(rule) -> dict:
@@ -1742,6 +1744,12 @@ def _rule_norm(rule) -> dict:
             if not isinstance(v, list):
                 raise ApiError(400, "rule.tickets doit être une liste d'id")
             out[k] = [str(x) for x in v]
+        elif k == "tag":
+            # RM2830 : normalisée comme partout ailleurs, sinon « Front » ne
+            # retrouverait pas les tickets étiquetés « front ».
+            out[k] = _tag_norm(v)
+            if not out[k]:
+                raise ApiError(400, "rule.tag vide après normalisation")
         elif k == "mark":
             m = str(v).lower()
             if m not in MARKS + ("none",):
@@ -1776,6 +1784,19 @@ def _all_keys() -> list:
     return out
 
 
+def _sid_tags(sid: str) -> list:
+    """Étiquettes du TICKET d'une session (RM2830). Une session ancrée sur un
+    slug n'a pas de ticket : elle n'a donc pas d'étiquette — et ne doit jamais
+    matcher une règle par étiquette « au cas où »."""
+    s = str(sid or "")
+    if not s.isdigit():
+        return []
+    tf = _find_task_file(s)
+    if not tf:
+        return []
+    return [_tag_norm(t) for t in (_read_task_meta(tf).get("tags") or []) if _tag_norm(t)]
+
+
 def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     client, project = _pm_project_of_cwd(k.get("cwd"))
     if "client" in rule and client != rule["client"]:
@@ -1783,6 +1804,12 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     if "project" in rule and project != rule["project"]:
         return False
     if "tickets" in rule and sid not in rule["tickets"]:
+        return False
+    # Normalisé ici AUSSI : `_rule_norm` s'en charge à l'écriture, mais une règle
+    # déjà persistée (ou éditée à la main dans le JSON du jeu) doit continuer de
+    # matcher — sinon elle échoue en silence, et un jeu dérivé vide ne dit pas
+    # pourquoi il est vide.
+    if "tag" in rule and _tag_norm(rule["tag"]) not in _sid_tags(sid):
         return False
     if "mark" in rule:
         mark = _session_mark(k.get("session_id"))
@@ -1873,7 +1900,17 @@ def _session_facets() -> dict:
     out = [{"slug": c["slug"], "count": c["count"], "projects": sorted(c["projects"])}
            for c in clients.values()]
     out.sort(key=lambda c: (-c["count"], c["slug"]))
-    return {"clients": out, "marks": sorted(marks)}
+    # RM2830 : les étiquettes des tickets des sessions connues — de quoi proposer
+    # le critère « étiquette » du formulaire de règle sans le saisir à la main.
+    # Comptées sur les SESSIONS (pas sur tous les tickets) : c'est ce que la règle
+    # va effectivement retenir.
+    tag_counts: dict = {}
+    for sid, _k in _all_keys():
+        for t in set(_sid_tags(sid)):
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    tags = [{"tag": t, "count": c}
+            for t, c in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {"clients": out, "marks": sorted(marks), "tags": tags}
 
 
 def _set_entries(rec: dict) -> list:
@@ -4110,13 +4147,19 @@ WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "wai
 # attente, plus les variantes libres qu'emploient les chantiers hors ticket.
 WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
                 "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
-                "a_mep", "en_mep", "a_corriger", "todo", "à faire", "en cours"}
+                "a_corriger", "todo", "à faire", "en cours"}
+# RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
+# ce qui reste est une mise en production — batchée (plusieurs tickets montent
+# ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
+# n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
+# entre des tickets encore à écrire ; elle a donc son propre bucket.
+WORKLOG_MEP = {"a_mep", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
 def worklog_buckets(items) -> dict:
     """RM2466 : range les items du worklog en « reste à faire » / « en attente »
-    / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
+    / « à mettre en prod » (RM2860) / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
     son ouverture dans la session (souvent : une autre session l'a fait avancer).
     `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé.
 
@@ -4125,7 +4168,7 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "waiting": [], "done": [], "unknown": []}
+    out = {"todo": [], "mep": [], "waiting": [], "done": [], "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
         opened = str(it.get("opened_status") or "").lower()
@@ -4144,6 +4187,8 @@ def worklog_buckets(items) -> dict:
                 entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
+        elif st in WORKLOG_MEP:      # RM2860 : avant TODO — a_mep n'y est plus
+            out["mep"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
         elif st in WORKLOG_TODO:
@@ -4747,6 +4792,10 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
             "sid": sid, "alive": not s.get("ghost"),
             "client": s.get("client"), "project": s.get("project"),
             "title": s.get("title"), "state": s.get("state"),
+            # RM2818 : « qui traite ce ticket » ne suffit pas pour alerter avant
+            # d'ouvrir une 2e session — une session idle MARQUÉE terminée (RM2515)
+            # ne doit rien déclencher. La disposition voyage donc avec la ligne.
+            "disposition": s.get("disposition") or "",
             "is_ticket": bool(s.get("is_ticket")),
             "same_project": bool(client and project
                                  and s.get("client") == client
@@ -5501,9 +5550,16 @@ def _scalar(line: str) -> str:
 
 def _read_task_meta(path: Path) -> dict:
     """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
-    Retourne {title, status, priority, type, test_url, target_env, tags:[...]}."""
+    Retourne {title, status, priority, type, test_url, target_env, schema_version,
+    git_branch, tags:[...]}.
+
+    Volontairement ligne à ligne plutôt que `yaml.safe_load` : sur le parc entier,
+    70 fois plus rapide (0,06 s contre 4,2 s pour 1 140 fiches). Un contrôle qui
+    balaie tout le parc doit passer par ici (RM2783).
+    """
     meta = {"title": "", "status": "", "priority": "", "type": "",
-            "test_url": "", "target_env": "", "tags": []}
+            "test_url": "", "target_env": "", "schema_version": "",
+            "git_branch": "", "tags": []}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -5513,6 +5569,7 @@ def _read_task_meta(path: Path) -> dict:
     end = text.find("\n---", 3)
     fm = text[3:end] if end != -1 else text
     in_tags = False
+    in_git = False
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -5520,7 +5577,17 @@ def _read_task_meta(path: Path) -> dict:
                 meta["tags"].append(s[2:].strip().strip("'\""))
                 continue
             in_tags = False
-        if line.startswith("title:"):
+        if in_git:
+            if line.startswith("  "):
+                if line.strip().startswith("branch:"):
+                    meta["git_branch"] = _scalar(line)
+                continue
+            in_git = False
+        if line.startswith("schema_version:"):
+            meta["schema_version"] = _scalar(line)
+        elif line.startswith("git:"):
+            in_git = True
+        elif line.startswith("title:"):
             meta["title"] = _scalar(line)
         elif line.startswith("status:"):
             meta["status"] = _scalar(line)
@@ -5845,6 +5912,14 @@ def op_resolve(rm_id: str) -> dict:
         "found": True, "rm_id": rm_id, "client": client, "project": project,
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
+        # RM2832 : le domaine du ticket, là où la fiche l'affiche — stocké sans
+        # être montré, il ne sert qu'aux filtres et personne ne sait ce qu'un
+        # ticket porte.
+        "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],
+        # RM2833 : rôle d'agent SUGGÉRÉ par ces étiquettes (table `tag_roles` du
+        # meta.yml, cascade client → projet). Une suggestion : le cockpit la
+        # montre, il n'assigne rien.
+        "role_hint": _role_hint(fm.get("tags"), client, project),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
         # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été
@@ -5895,6 +5970,48 @@ def op_resolve(rm_id: str) -> dict:
     }
 
 
+def _tag_roles_table(client: str, project: str) -> dict:
+    """Table `tag_roles` effective d'un projet : celle du client, surchargée par
+    celle du projet (cascade NORMS). Lue à chaque appel — ces fichiers changent à
+    la main, un cache donnerait une réponse périmée sans moyen de s'en rendre
+    compte."""
+    import yaml as _y
+    out = {}
+    base = PROJECTS_BASE / client
+    for p in (base / ".mmi-pm-client" / "meta.yml",
+              base / "projects" / project / "meta.yml"):
+        try:
+            if not p.is_file():
+                continue
+            table = ((_y.safe_load(p.read_text(encoding="utf-8")) or {}).get("tag_roles")) or {}
+            if isinstance(table, dict):
+                for k, v in table.items():
+                    kk, vv = _tag_norm(k), str(v or "").strip().lower()
+                    if kk and vv:
+                        out[kk] = vv
+        except (OSError, Exception):    # noqa: BLE001 — une conf illisible ne casse pas /resolve
+            continue
+    return out
+
+
+def _role_hint(tags, client, project):
+    """{role, why} ou None. Départage STABLE (alphabétique) quand plusieurs
+    étiquettes routent — arbitraire, mais annoncé plutôt que silencieux."""
+    if not tags or not client or not project:
+        return None
+    table = _tag_roles_table(client, project)
+    if not table:
+        return None
+    matches = sorted({_tag_norm(t) for t in tags if _tag_norm(t)} & set(table))
+    if not matches:
+        return None
+    role = table[matches[0]]
+    why = f"étiquette « {matches[0]} » → rôle {role}"
+    if len(matches) > 1:
+        why += f" (aussi : {', '.join(matches[1:])})"
+    return {"role": role, "why": why, "file": f"agents/worker-{role}.md"}
+
+
 def _safe_ticket_model(rm_id: str):
     """_ticket_model sans lever : /resolve ne doit pas échouer pour un ai_model
     malformé (le spawn, lui, refuse). Renvoie la valeur ou None."""
@@ -5902,6 +6019,49 @@ def _safe_ticket_model(rm_id: str):
         return _ticket_model(rm_id)
     except ApiError:
         return None
+
+
+def _tag_norm(t) -> str:
+    """Même normalisation qu'à l'écriture (pm_tags) : slug minuscule sans accent.
+
+    Sans elle, « Front » et « front » feraient deux entrées de menu et deux
+    filtres disjoints — l'utilisateur en conclurait que le filtre est cassé.
+    Le module PM n'est pas importable ici (karl-agent ne dépend pas de scripts/) :
+    on refait la même règle, volontairement simple.
+    """
+    import unicodedata
+    x = unicodedata.normalize("NFKD", str(t or ""))
+    x = "".join(c for c in x if not unicodedata.combining(c)).lower().strip()
+    return re.sub(r"[^a-z0-9]+", "-", x).strip("-")[:40].rstrip("-")
+
+
+def tags_in_use(metas) -> list:
+    """[{tag, count}] — les étiquettes réellement portées par des tickets.
+
+    Trié par usage décroissant puis alphabétique : un menu dont l'ordre change à
+    chaque rafraîchissement ne se lit pas. Les étiquettes viennent des tickets,
+    jamais d'une liste écrite en dur qui dériverait au premier vocabulaire ajouté.
+    """
+    counts = {}
+    for m in metas or []:
+        vus = set()
+        for t in (m or {}).get("tags") or []:
+            n = _tag_norm(t)
+            if n and n not in vus:
+                vus.add(n)
+                counts[n] = counts.get(n, 0) + 1
+    return [{"tag": t, "count": c}
+            for t, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def op_tags() -> list:
+    """GET /tags — inventaire des étiquettes en usage (RM2830)."""
+    metas = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        metas.append(_read_task_meta(tf))
+    return tags_in_use(metas)
 
 
 def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
@@ -6149,6 +6309,7 @@ def op_triage(qs: dict) -> dict:
             "priority": fm.get("priority") or "normal",
             "type": fm.get("type") or "",
             "client": cl, "project": pr,
+            "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],   # RM2830
             "score": round(_prio.task_score(fm, rate), 1),
             "time_minutes": est.get("time_minutes"),
             "tokens": est.get("tokens"),
@@ -7122,10 +7283,101 @@ def _task_completion(path) -> int | None:
     return None
 
 
-def op_tickets_brief(ids) -> dict:
+def _pm_project_for_redmine(project_id, identifier) -> tuple:
+    """(entity, project) du projet PM déclarant ce projet Redmine, sinon (None, None).
+
+    Sert à proposer l'adoption d'un ticket avec le BON `--project` : sans lui, on
+    afficherait un titre sans savoir où adopter. La comparaison porte sur les deux
+    formes qu'un `meta.yml` peut déclarer (identifiant textuel — le cas normal — ou
+    id numérique), jamais sur le nom humain du projet, qui est modifiable.
+
+    Aucun choix silencieux si deux projets PM déclarent le même projet Redmine :
+    on rend (None, None) plutôt que le premier venu (tripwire #14).
+    """
+    if not project_id and not identifier:
+        return (None, None)
+    voulu = {str(x) for x in (project_id, identifier) if x}
+    trouves = []
+    try:
+        from pm_paths import PMConfig
+        cfg = PMConfig.load()
+        for ent, proj, _path in cfg.iter_projects():
+            try:
+                meta = cfg.project_meta(ent, proj) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            declares = []
+            for entry in ((meta.get("providers") or {}).get("task") or []):
+                if isinstance(entry, dict) and entry.get("role", "primary") == "primary":
+                    declares.append(entry.get("project_id"))
+            declares.append((meta.get("redmine") or {}).get("project_id"))
+            if voulu & {str(d) for d in declares if d}:
+                trouves.append((ent, proj))
+    except Exception:  # noqa: BLE001
+        return (None, None)
+    return trouves[0] if len(trouves) == 1 else (None, None)
+
+
+def _brief_from_redmine(rm_id: str) -> dict:
+    """Fiche minimale d'un ticket qui n'a pas (encore) de MD local — RM2782.
+
+    Un ticket existant côté Redmine mais jamais adopté était strictement invisible
+    du cockpit : ni titre, ni client, ni projet, et le panneau retombait sur
+    « divers ». Le glob filesystem ne peut pas le voir, par construction.
+
+    Rend `found: False` **et** `remote: True` : l'appelant sait qu'il s'agit d'un
+    ticket réel non adopté, et non d'un id inexistant — la distinction est tout
+    l'intérêt. Une panne Redmine ramène au comportement d'avant (found: False nu),
+    jamais une erreur : le brief est un confort d'affichage.
+    """
+    base = {"found": False, "rm_id": rm_id}
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_task import get_task_provider
+        issue = get_task_provider().fetch_issue(rm_id) or {}
+    except (Exception, SystemExit):  # noqa: BLE001
+        # redmine_utils signale ses erreurs par sys.exit() donc SystemExit, qui ne
+        # dérive PAS d'Exception (même piège que RM2749/RM2770).
+        return base
+    if not issue:
+        return base
+    rp = issue.get("project") or {}
+    # `/issues/<id>.json` ne rend du projet que {id, name} — jamais son identifier,
+    # qui est pourtant la forme déclarée dans les meta.yml (RM2784). Sans lui, la
+    # correspondance échoue et on afficherait un titre sans savoir où adopter. On le
+    # résout si le provider sait le faire ; sinon on se contente de l'id numérique,
+    # qui suffit aux fiches le déclarant sous cette forme.
+    if not rp.get("identifier"):
+        try:
+            fetch_project = getattr(get_task_provider(), "fetch_project", None)
+            if callable(fetch_project) and rp.get("id"):
+                rp["identifier"] = (fetch_project(rp["id"]) or {}).get("identifier")
+        except (Exception, SystemExit):  # noqa: BLE001
+            pass
+    ent, proj = _pm_project_for_redmine(rp.get("id"), rp.get("identifier"))
+    base.update({
+        "remote": True,
+        "title": issue.get("subject") or "",
+        "status": (issue.get("status") or {}).get("name") or "",
+        "priority": (issue.get("priority") or {}).get("name") or "",
+        "redmine_project": rp.get("name") or "",
+        "client": ent or "", "project": proj or "",
+        "adopt_cmd": (f"pm-task-import.py {rm_id} --project {ent}/{proj}"
+                      if ent and proj else ""),
+    })
+    return base
+
+
+def op_tickets_brief(ids, remote=True) -> dict:
     """RM2619 : {rm_id: {title, status, type, priority, completion_pct, client,
     project}} pour une liste de tickets. Un id inconnu rend `found: false` —
-    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre."""
+    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre.
+
+    RM2782 : un id sans MD local est retenté côté Redmine (`remote=True`, défaut),
+    ce qui rend `remote: True` + titre/projet réels + la commande d'adoption. Les
+    ids résolus localement ne coûtent aucun appel réseau ; seuls les inconnus en
+    déclenchent un, et le nombre d'ids est déjà borné par BRIEF_MAX_IDS.
+    """
     out = {}
     for rm_id in list(ids or [])[:BRIEF_MAX_IDS]:
         rm_id = str(rm_id).strip()
@@ -7133,7 +7385,7 @@ def op_tickets_brief(ids) -> dict:
             continue
         tf = _find_task_file(rm_id)
         if not tf:
-            out[rm_id] = {"found": False, "rm_id": rm_id}
+            out[rm_id] = _brief_from_redmine(rm_id) if remote else {"found": False, "rm_id": rm_id}
             continue
         meta = _read_task_meta(tf)
         client, project = _task_client_project(tf)
@@ -7882,14 +8134,22 @@ def path_local_bin_first(path_value, home):
 # <<< path_local_bin_first
 
 
-def _iter_task_files(limit=500):
+def _iter_task_files(limit=None):
+    """Fiches de tâches de tous les projets, triées par chemin.
+
+    `limit` borne le nombre de fichiers RENDUS. Elle vaut None par défaut : un
+    appelant qui agrège (compter, détecter des anomalies) doit tout voir, sinon il
+    conclut sur un échantillon en annonçant un total — la borne d'origine à 500
+    cachait un tiers du parc sans le dire (RM2783). Ne la passer que pour un
+    aperçu, jamais pour un décompte.
+    """
     out = []
     try:
         for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
             if p.name.endswith(".log.md"):
                 continue
             out.append(p)
-            if len(out) >= limit:
+            if limit is not None and len(out) >= limit:
                 break
     except OSError:
         pass
@@ -8344,19 +8604,17 @@ def _envchk_pm():
         norms_v = ""
     schemas = {}
     orphans = []
-    for tf in _iter_task_files(limit=600):
-        try:
-            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
-        except OSError:
-            continue
-        sv = str(fm.get("schema_version") or "")
-        if sv:
-            schemas[sv] = schemas.get(sv, 0) + 1
-        if str(fm.get("status") or "") == "en_cours":
-            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
-            if not git.get("branch"):
-                m = re.search(r"RM(\d+)_", tf.name)
-                orphans.append("RM" + (m.group(1) if m else "?"))
+    # Sans borne : ce bloc COMPTE (schema_version) et DÉTECTE (en_cours sans
+    # branche). Sur un échantillon, il affirmait « toutes ont une branche » en
+    # n'ayant regardé que les premiers clients par ordre alphabétique. La lecture
+    # passe par `_read_task_meta`, assez rapide pour balayer le parc entier.
+    for tf in _iter_task_files():
+        meta = _read_task_meta(tf)
+        if meta["schema_version"]:
+            schemas[meta["schema_version"]] = schemas.get(meta["schema_version"], 0) + 1
+        if meta["status"] == "en_cours" and not meta["git_branch"]:
+            m = re.search(r"RM(\d+)_", tf.name)
+            orphans.append("RM" + (m.group(1) if m else "?"))
     if norms_v and len(schemas) > 1:
         out.append(_chk("versions PM", "info",
                         f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))
@@ -8692,6 +8950,12 @@ def op_vault_ssh_add(payload: dict, auth_ctx: dict) -> dict:
     env["SSH_ASKPASS"] = str(askpass)
     env["SSH_ASKPASS_REQUIRE"] = "force"
     env.setdefault("DISPLAY", ":0")        # OpenSSH < 8.4 : askpass exige un DISPLAY
+    # RM2822 : `pass_fds` CONSERVE le numéro du descripteur, il ne le remappe pas
+    # sur 3. Dans un processus nu `os.pipe()` rend 3 et le montage marchait par
+    # coïncidence ; dans karl-agent, dont les sockets tiennent les descripteurs
+    # bas, le tube atterrit sur 8 ou 9 et l'askpass lisait dans le vide. On lui
+    # dit donc lequel lire — un numéro de descripteur n'est pas un secret.
+    env["KARL_ASKPASS_FD"] = str(r)
     try:
         p = subprocess.run(["ssh-add", str(path)], env=env, pass_fds=(r,),
                            stdin=subprocess.DEVNULL, capture_output=True,
@@ -10022,7 +10286,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/tickets/brief":     # RM2619 : résolution en lot, légère
                 qs = parse_qs(parsed.query)
                 ids = [x for v in qs.get("ids", []) for x in v.split(",") if x.strip()]
-                return self._send_json(200, {"tickets": op_tickets_brief(ids)})
+                # RM2782 : `remote=0` pour rester strictement local (le comportement
+                # d'avant), utile à un appelant qui ne veut aucun appel réseau.
+                remote = (qs.get("remote", ["1"])[0] or "1") not in ("0", "false", "no")
+                return self._send_json(200, {"tickets": op_tickets_brief(ids, remote=remote)})
             if path.startswith("/resolve/"):
                 return self._send_json(200, op_resolve(path[len("/resolve/"):]))
             if path == "/tickets/search":
@@ -10042,6 +10309,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {
                     "results": merge_search_results(locaux, dist["results"]),
                     "source": src, "redmine_error": dist["error"]})
+            if path == "/tags":                    # RM2830 : étiquettes en usage
+                return self._send_json(200, {"tags": op_tags()})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
             if path.startswith("/client/"):        # RM2768 : fiche client

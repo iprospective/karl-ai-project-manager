@@ -51,16 +51,41 @@ def project_redmine_id(cfg, entity, project):
     return (meta.get("redmine") or {}).get("project_id")
 
 
-def same_project(declared, issue_project):
+def same_project(declared, issue_project, provider=None):
     """Le ticket appartient-il bien au projet PM visé ?
 
-    L'overview déclare tantôt l'identifiant textuel, tantôt l'id numérique : on
-    compare aux deux formes rendues par l'API. Comparaison lâche (str) volontaire.
+    L'overview déclare tantôt l'identifiant textuel (`calicote-dolibarr`, le cas
+    normal), tantôt l'id numérique : on compare aux deux formes. Comparaison lâche
+    (str) volontaire.
+
+    Piège corrigé par RM2784 : `GET /issues/<id>.json` ne rend du projet que
+    `{id, name}` — **jamais** son `identifier`. Se contenter de ce que porte le
+    ticket mettait donc en faux négatif TOUTE fiche déclarant la forme textuelle,
+    et rendait `--force` obligatoire dans le cas nominal — ce qui vidait le
+    garde-fou de son sens. On résout donc l'identifier par un appel projet, sur
+    l'id NUMÉRIQUE (le front rejette les `%2F`).
+
+    Le `name` n'est délibérément pas comparé : c'est un libellé humain, modifiable.
     """
     if declared is None:
         return None                                              # rien de déclaré → on ne tranche pas
+    declared = str(declared)
     cands = {str(issue_project.get("id")), str(issue_project.get("identifier") or "")}
-    return str(declared) in {c for c in cands if c}
+    if declared in {c for c in cands if c}:
+        return True
+    # Pas d'identifier dans la réponse : on le résout, une seule fois, et seulement
+    # si la comparaison directe a échoué.
+    if not issue_project.get("identifier") and provider is not None:
+        pid = issue_project.get("id")
+        if pid:
+            try:
+                ident = (provider.fetch_project(pid) or {}).get("identifier")
+            except Exception:                                    # noqa: BLE001
+                ident = None                                     # forge muette → on ne tranche pas mieux qu'avant
+            if ident:
+                issue_project["identifier"] = ident              # mémorisé pour le message d'erreur
+                return declared == str(ident)
+    return False
 
 
 def main():
@@ -99,17 +124,22 @@ def main():
                      remede="--project entity/project")
         entity, project = det
 
-    issue = get_task_provider().fetch_issue(rm_id)
+    provider = get_task_provider()
+    issue = provider.fetch_issue(rm_id)
     if not issue:
         out.fail(f"ticket {rm_id} introuvable côté Redmine")
 
     declared = project_redmine_id(cfg, entity, project)
-    ok = same_project(declared, issue.get("project") or {})
+    ok = same_project(declared, issue.get("project") or {}, provider=provider)
     if ok is False and not args.force:
         rp = (issue.get("project") or {})
-        out.fail(f"RM{rm_id} appartient au projet Redmine "
-                 f"« {rp.get('name')} » (id {rp.get('id')}), or {entity}/{project} "
-                 f"déclare project_id={declared!r}",
+        # same_project a pu renseigner l'identifier au passage : l'afficher évite
+        # de renvoyer l'utilisateur vers un GET /projects/<id>.json manuel.
+        ident = rp.get("identifier")
+        qui = f"« {rp.get('name')} » (id {rp.get('id')}"
+        qui += f", identifier {ident!r})" if ident else ")"
+        out.fail(f"RM{rm_id} appartient au projet Redmine {qui}, "
+                 f"or {entity}/{project} déclare project_id={declared!r}",
                  remede="corriger --project, ou --force si l'écart est voulu")
     if ok is None:
         out.warn(f"{entity}/{project} ne déclare pas de redmine.project_id — "

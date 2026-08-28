@@ -144,7 +144,7 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
-#### La proposition d'implémentation — v2.9.0 (RM2563)
+#### La proposition d'implémentation — v2.10.0 (RM2563)
 
 Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et le chiffrage au
 **combien**. Il manquait le **comment** : l'esquisse technique que l'audit vient de

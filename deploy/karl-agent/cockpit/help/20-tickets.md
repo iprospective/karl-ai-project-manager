@@ -13,12 +13,20 @@ liste monte jusqu'à 40 lignes et repousserait sinon la recherche et la créatio
 hors de l'écran. Le nombre entre parenthèses dit ce qu'elle contient sans avoir
 à l'ouvrir (`(vide)` quand il n'y a rien).
 
+Deux barres de filtres, **cumulables** : par **client** (quand la liste en
+contient plusieurs) et par **statut** — à faire, en cours, à tester, à MEP, en
+pause, fermé. Comme ailleurs dans le cockpit, un bouton n'apparaît que si la
+famille est **présente** dans la liste : un filtre qui ne filtre rien coûterait
+une place dans une colonne étroite. « à MEP » est distingué de « à faire »,
+comme au worklog : le développement y est terminé. Quand un filtre est actif,
+l'en-tête affiche `(vu / total)`.
+
 Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
-prochain chargement. `✕ vider` remet la liste à zéro.
+prochain chargement. `✕ vider` remet la liste à zéro (filtres compris).
 
 ## Rechercher — local, Redmine, ou les deux
 
-Sous le champ de recherche, quatre sélecteurs :
+Sous le champ de recherche, cinq sélecteurs :
 
 - **Source.** `📁 local` (défaut) cherche dans les fichiers de tickets du PM.
   `🌐 Redmine` interroge le tracker : c'est le seul moyen de trouver un ticket
@@ -27,6 +35,19 @@ Sous le champ de recherche, quatre sélecteurs :
 - **Client**, **projet**, **statut.** Ils portent sur les deux sources. La liste
   des projets suit le client choisi. Un filtre explicite l'emporte sur le
   contexte client global : c'est le dernier choix fait qui vaut.
+- **Étiquette** — le domaine du ticket (`front`, `bo`, `bdd`, `refacto`,
+  `livraison`…). Le menu ne propose que les étiquettes **réellement en usage**,
+  avec leur nombre de tickets ; les étiquettes d'un résultat s'affichent sur sa
+  ligne (🏷). Le même filtre existe dans le **triage ROI** (« les refactos par
+  levier ») et comme critère de **jeu de sessions dérivé** — un jeu « étiquette =
+  refacto » se remplit alors tout seul.
+
+Dans le **triage ROI**, une fois la liste filtrée (par étiquette, client, projet),
+le bouton **⇱ session sur ce lot** ouvre une session qui prend en charge les
+tickets **affichés** — rien à cocher : ce qu'on voit est le lot. Mêmes règles que
+partout : un seul projet (sinon la session n'a pas d'ancrage), et les dix
+premiers seulement — au-delà, la file déborde le contexte de l'agent, et ce qui
+ne part pas t'est annoncé.
 
 Un résultat que le local ignore est marqué **« ⚠ pas en local »**, avec son projet
 Redmine et son assignation. Cliquer dessus ouvre le ticket **dans Redmine** : il
@@ -61,14 +82,22 @@ Une session vivante s'ouvre d'un clic (**⇱ ouvrir**). Une session éteinte res
 affichée : « a été traité ici, mais plus rien ne tourne » n'est pas « personne ne
 s'en occupe ».
 
+Un champ **Prompt initial** surplombe les deux boutons : le même choix de modèle
+de consigne que le lanceur de gauche (traiter / continuer / étudier-chiffrer /
+état / reviewer / libre) et le même champ éditable, pré-rempli. Changer de modèle
+remplace le texte ; **libre** ne touche jamais à la saisie. La consigne vaut pour
+les **deux** gestes ci-dessous — lire une consigne et en envoyer une autre serait
+un piège. Changer de ticket repart d'une consigne propre, et un rafraîchissement
+de la fiche ne perd pas ce qui est tapé.
+
 Deux façons de lancer le travail depuis la fiche :
 
 - **▶ nouvelle session** — lance `karl-RM<id>` avec le moteur et le modèle
-  sélectionnés dans le lanceur (panneau 🖥 sessions). La confirmation les
-  rappelle, ainsi que le répertoire et la consigne envoyée. Le bouton est
+  sélectionnés dans le lanceur (panneau 🖥 sessions), et la consigne du champ.
+  La confirmation les rappelle, ainsi que le répertoire. Le bouton est
   désactivé quand la session du ticket tourne déjà : il n'y en a qu'une par
   ticket, ouvre-la.
-- **➜ envoyer dans cette session** — pousse « traite la tâche RM<id> » dans une
+- **➜ envoyer dans cette session** — pousse la consigne dans une
   session **déjà ouverte**, choisie dans la liste. Les sessions du **projet du
   ticket** viennent en tête ; les autres annoncent leur client/projet, et la
   confirmation le répète — envoyer un ticket dans une session qui travaille

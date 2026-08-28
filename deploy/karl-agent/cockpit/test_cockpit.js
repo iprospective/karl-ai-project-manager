@@ -881,6 +881,15 @@ const worklogSections = vm.runInNewContext("(" + fWs[1] + ")");
 const secs = worklogSections({ todo: [{ ref: "RM1" }], waiting: [{ ref: "RM2" }], done: [{ ref: "RM3" }] });
 assert.deepStrictEqual(Array.from(secs.map(s => s.key)), ["todo", "waiting", "done"],
   "ce qui reste d'abord, ce qui est fait en dernier");
+// RM2860 : la MEP est un travail d'une autre nature (dev fini, reste la mise en
+// prod) — son propre onglet, entre ce qui reste à écrire et ce qui est fait.
+const secsMep = worklogSections({ todo: [{ ref: "RM1" }], mep: [{ ref: "RM2" }, { ref: "RM3" }], done: [{ ref: "RM4" }] });
+assert.deepStrictEqual(Array.from(secsMep.map(s => s.key)), ["todo", "mep", "done"],
+  "l'onglet MEP se place après « reste à faire » et avant « fait »");
+assert.strictEqual(secsMep.filter(s => s.key === "mep")[0].items.length, 2,
+  "les tickets a_mep/en_mep sont dans la section MEP");
+assert.strictEqual(worklogSections({ mep: [] }).length, 0,
+  "pas de MEP en cours → pas d'onglet MEP (règle des sections vides)");
 assert(secs.every(s => s.icon && s.label), "chaque section porte une icône ET un libellé");
 assert.strictEqual(worklogSections({ todo: [], waiting: [{ ref: "RM2" }], done: [] }).length, 1,
   "les sections vides disparaissent (pas de titre sans contenu)");
@@ -1240,9 +1249,13 @@ assert(ticketStatusRank("statut_exotique") < ticketStatusRank("ferme"),
   "un statut inconnu se voit, il n'est pas rangé avec les fermés");
 console.log("✓ tickets ouverts (RM2606) : ordre de lecture, pas alphabétique");
 
+// RM2883 : familles de statut — le filtre de la carte les propose
+const ticketStatusFamily = vm.runInNewContext("(" + grab("ticketStatusFamily") + ")");
+const statusFamilyTabs = vm.runInNewContext("(" + grab("statusFamilyTabs") + ")",
+  { ticketStatusFamily });
 // groupOpenedTickets appelle ticketStatusRank : le contexte isolé doit l'avoir
 const groupOpenedTickets = vm.runInNewContext("(" + grab("groupOpenedTickets") + ")",
-  { ticketStatusRank });
+  { ticketStatusRank, ticketStatusFamily, statusFamilyTabs });
 const tkCache = {
   "1": { found: true, client: "acme", project: "shop", title: "A", status: "ferme" },
   "2": { found: true, client: "acme", project: "shop", title: "B", status: "en_cours" },
@@ -1261,6 +1274,48 @@ assert.deepStrictEqual(Array.from(f.keys), ["beta/api"], "le filtre client rédu
 assert.deepStrictEqual(Array.from(groupOpenedTickets([], {}, null).keys), [], "liste vide tolérée");
 assert.deepStrictEqual(Array.from(groupOpenedTickets(null, null, null).keys), [], "entrées absentes tolérées");
 console.log("✓ tickets ouverts (RM2606) : groupés par projet, filtrés par client");
+
+// — RM2883 : filtre par statut dans la carte des tickets ouverts —
+// Aucun statut connu ne doit tomber dans « autre » : un statut ajouté un jour au
+// classement d'affichage sans famille disparaîtrait du filtre en silence.
+const statutsConnus = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+  "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
+for (const st of statutsConnus)
+  assert.notStrictEqual(ticketStatusFamily(st), "autre",
+    "statut NORMS sans famille : « " + st + " » (il disparaîtrait du filtre)");
+assert.strictEqual(ticketStatusFamily("statut_exotique"), "autre",
+  "un statut inconnu a sa propre famille — jamais rangé d'office dans « à faire »");
+assert.strictEqual(ticketStatusFamily("a_mep"), "mep",
+  "à MEP n'est pas « à faire » : le dev y est fini (même distinction qu'au worklog, RM2860)");
+assert.strictEqual(ticketStatusFamily("a_corriger"), "todo",
+  "ce qui revient corrigé est du travail à faire");
+
+// Seules les familles présentes ont un bouton — la colonne est étroite.
+const tabs2883 = statusFamilyTabs([{ status: "en_cours" }, { status: "en_cours" },
+                                   { status: "ferme" }]);
+assert.strictEqual(JSON.stringify(tabs2883.map(t => [t.key, t.n])),
+  JSON.stringify([["encours", 2], ["ferme", 1]]),
+  "un bouton par famille présente, avec son compte");
+assert.strictEqual(statusFamilyTabs([]).length, 0, "liste vide → aucun filtre proposé");
+assert.strictEqual(tabs2883[0].key, "encours",
+  "ordre de lecture : ce qui réclame une action avant ce qui est clos");
+
+// Le filtre statut se cumule avec le filtre client…
+const fs2883 = groupOpenedTickets(["1", "2", "3"], tkCache, null, "encours");
+assert.deepStrictEqual(Array.from(fs2883.keys), ["acme/shop"], "le filtre statut réduit la liste");
+assert.deepStrictEqual(Array.from(fs2883.groups.get("acme/shop").map(x => x.rm_id)), ["2"],
+  "…et ne garde que les tickets de la famille");
+// …mais les autres familles restent proposées, sinon on ne pourrait plus changer
+// de filtre sans repasser par « tous ».
+assert(fs2883.families.length > 1,
+  "les familles proposées se calculent AVANT le filtre statut");
+assert.deepStrictEqual(Array.from(groupOpenedTickets(["1"], tkCache, null, "encours").keys), [],
+  "un filtre qui ne laisse rien rend une liste vide (le rendu le dit)");
+assert(/aucun ticket dans ce filtre/.test(html),
+  "…et l'interface l'annonce plutôt que de paraître vidée");
+
+console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, familles présentes seules");
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
@@ -1283,6 +1338,12 @@ assert.strictEqual(worklogTabList([], 2, 0)[0].key, "documents", "documents seul
 // branches orphelines sans bucket todo -> cree un onglet a faire en tete
 const tabs3 = worklogTabList([{ key: "done", icon: "x", label: "fait", items: [1] }], 0, 2);
 assert.strictEqual(tabs3[0].key, "todo", "orphelines -> onglet a faire cree");
+// RM2860 : l'onglet MEP se fabrique comme les autres — un bucket non vide en
+// donne un, avec son compte.
+const tabsMep = worklogTabList([{ key: "todo", icon: "\u23f3", label: "reste a faire", items: [1] },
+                                { key: "mep", icon: "\ud83d\ude80", label: "a mettre en prod", items: [1, 2] }], 0, 0);
+assert.strictEqual(JSON.stringify(tabsMep.map(t => [t.key, t.n])),
+  JSON.stringify([["todo", 1], ["mep", 2]]), "onglet MEP avec son compte");
 console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
 
 // — RM2611 : fenêtre de contexte par modèle + % + débit —
@@ -1697,6 +1758,10 @@ assert.deepStrictEqual([...ticketsOfSession("calymix", null, null)], [],
   "rien de connu → aucune invention");
 assert.deepStrictEqual([...ticketsOfSession("calymix", null, { todo: [{ ref: "libre" }] })], [],
   "un chantier hors ticket n'est pas un RM-id");
+// RM2860 : le bucket MEP est une NOUVELLE clé — oubliée ici, elle ferait
+// disparaître de l'onglet « tickets » les tickets dont le dev est fini.
+assert.deepStrictEqual([...ticketsOfSession("calymix", null, { mep: [{ ref: "RM2860" }] })], ["2860"],
+  "un ticket à mettre en prod reste un ticket de la session");
 const mRt2673 = /function renderTickets\(\)[\s\S]*?\n\}/.exec(html);
 assert(/loadWorklog\(\)/.test(mRt2673[0]),
   "l'onglet tickets charge le worklog lui-même (il ne dépend pas de l'onglet état)");
@@ -2280,7 +2345,14 @@ assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit tou
 console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
 
 // — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
-const ticketSessionsHtml = grabO("ticketSessionsHtml");
+// RM2873 : le bloc de lancement rend aussi le choix de consigne — la fonction
+// pure qui liste les modèles lui est injectée (elle est partagée avec le
+// lanceur de gauche).
+const promptTemplates = grabO("promptTemplates");
+const promptTemplateOptions = grabO("promptTemplateOptions", { promptTemplates });
+const ticketPromptFor = grabO("ticketPromptFor");
+const promptFillOnChange = grabO("promptFillOnChange");
+const ticketSessionsHtml = grabO("ticketSessionsHtml", { promptTemplateOptions });
 const taskPromptText = grabO("taskPromptText");
 
 // formulation des prompts : une seule source pour le lanceur ET la fiche
@@ -2591,6 +2663,12 @@ assert.strictEqual(openedCountLabel(1), "(1)");
 assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
 assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
 assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
+// RM2883 : avec un filtre actif, l'en-tête dit ce qu'on voit ET le total — sans
+// les deux, « (3) » sur une pile de quarante se lit comme une liste vidée.
+assert.strictEqual(openedCountLabel(3, 40), "(3 / 40)", "filtre actif : vu / total");
+assert.strictEqual(openedCountLabel(40, 40), "(40)", "sans filtre : le total seul");
+assert.strictEqual(openedCountLabel(0, 40), "(vide)",
+  "un filtre qui ne laisse rien se dit « vide », pas « 0 / 40 »");
 
 // Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
 assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),
@@ -2610,7 +2688,10 @@ console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ
 const viewKey = grabO("viewKey");
 const parseViewKey = grabO("parseViewKey");
 const viewTabLabel = grabO("viewTabLabel");
-const fileViewHtml = grabO("fileViewHtml");
+// RM2861 : le corps du fichier est rendu par fileBodyHtml, partagé avec les
+// panneaux — la vue centrale ne fait plus qu'y ajouter son en-tête.
+const fileBodyHtml = grabO("fileBodyHtml");
+const fileViewHtml = grabO("fileViewHtml", { fileBodyHtml });
 const dirViewHtml = grabO("dirViewHtml");
 const mailViewHtml = grabO("mailViewHtml");
 const viewErrorHtml = grabO("viewErrorHtml");
@@ -3720,3 +3801,400 @@ assert(ocp2816, "openCenterPanel introuvable");
 assert(/CFG\.auth_required && !token\(\)[\s\S]{0,200}openCenterPanel\("settings"\)/.test(html),
   "auth requise sans jeton doit ouvrir les réglages au centre");
 console.log("✓ commandes pm & réglages (RM2816) : menu du haut, contenu en onglet central");
+
+// — RM2821 : « ⬆ MAJ dispo » en bout de rangée —
+// Bouton intermittent (il n'apparaît que quand une MAJ existe) : au milieu de la
+// barre, son apparition décalait tous les suivants juste au moment où on visait
+// autre chose. Dernier de la rangée, il ne pousse plus personne.
+const head2821 = /<header>[\s\S]*?<\/header>/.exec(html)[0];
+const btns2821 = [...head2821.matchAll(/<button[^>]*\bid="([^"]+)"/g)].map(m => m[1]);
+assert(btns2821.includes("updbtn"), "le bouton MAJ doit rester dans le header");
+assert.strictEqual(btns2821[btns2821.length - 1], "updbtn",
+  "« MAJ dispo » doit être le DERNIER bouton du header (ordre : " + btns2821.join(", ") + ")");
+// Rien d'autre ne bouge : même déclencheur, même clic, même infobulle.
+assert(/<button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate\(\)"/.test(html),
+  "le bouton MAJ garde son comportement (masqué par défaut, showCoreUpdate au clic)");
+assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test(html),
+  "…et son infobulle");
+console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");
+
+// — RM2823 : sortir des tickets d'une session vers une session dédiée —
+// Une session est ancrée sur UN projet ; le fil, lui, ramasse des tickets
+// d'ailleurs. Le lot part alors dans une session neuve, ancrée sur LEUR projet.
+const offloadPlan = grabO("offloadPlan");
+const RC2823 = {
+  "10": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
+  "11": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
+  "20": { found: true, client: "beta", project: "api", cwd: "/w/beta/api" },
+  "30": { found: false },
+};
+const homogene = offloadPlan([{ rm_id: "10" }, { rm_id: "11" }], RC2823);
+assert.strictEqual(homogene.mixed, false, "même projet → pas de mélange");
+assert.strictEqual(homogene.targets.map(t => t.rm_id).join(","), "10,11", "les deux partent");
+assert.strictEqual(homogene.client, "acme", "client du lot");
+assert.strictEqual(homogene.project, "boutique", "projet du lot");
+assert.strictEqual(homogene.cwd, "/w/acme/boutique", "cwd repris du ticket, pas deviné");
+assert.strictEqual(homogene.anchor, "10", "l'ancrage est le premier ticket du lot");
+
+const melange = offloadPlan([{ rm_id: "10" }, { rm_id: "20" }], RC2823);
+assert.strictEqual(melange.mixed, true, "deux projets → refus : la session n'aurait pas d'ancrage");
+assert.strictEqual(melange.projects.slice().sort().join(" "), "acme/boutique beta/api",
+  "…et le refus doit NOMMER les projets en présence");
+
+const inconnu = offloadPlan([{ rm_id: "10" }, { rm_id: "30" }], RC2823);
+assert.strictEqual(inconnu.blocked.map(t => t.rm_id).join(","), "30",
+  "ticket sans projet résolu : il reste sur place");
+assert.strictEqual(inconnu.targets.map(t => t.rm_id).join(","), "10", "…et n'empêche pas les autres de partir");
+assert.strictEqual(inconnu.mixed, false, "un ticket non résolu n'est pas un second projet");
+assert.strictEqual(offloadPlan([], RC2823).targets.length, 0, "sélection vide");
+assert.strictEqual(offloadPlan([{ rm_id: "30" }], RC2823).anchor, null,
+  "aucun ticket embarquable → pas d'ancrage, donc rien à lancer");
+// un ticket coché sous la forme « RM10 » (référence de worklog) doit être compris
+assert.strictEqual(offloadPlan([{ rm_id: "RM10" }], RC2823).anchor, "10",
+  "la référence RM<id> est normalisée");
+
+// Câblage
+assert(/id="batch-offload-btn"/.test(html), "le bouton d'embarquement doit exister");
+const off2823 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
+assert(off2823, "offloadToNewSession introuvable");
+// RM2831 a factorisé le lancement : la garantie porte désormais sur le chemin
+// partagé, que ce geste emprunte.
+const shared2823 = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
+assert(shared2823, "chemin partagé de lancement introuvable");
+assert(/\/worklog\/batch/.test(shared2823[0]) && /dry_run/.test(shared2823[0]),
+  "la consigne doit venir du serveur (dry_run), pas d'un second générateur dans le front");
+assert(/\/spawn/.test(shared2823[0]), "…et la session être créée par l'endpoint existant");
+assert(/spawnBatchSession\(/.test(off2823[0]), "le geste du worklog emprunte ce chemin");
+assert(/openedForget\(/.test(off2823[0]),
+  "les tickets embarqués quittent la liste des tickets ouverts de la session d'origine");
+console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne du serveur, session neuve");
+// — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
+// Deux agents sur le même ticket, c'est un worktree, une branche et un statut
+// Redmine disputés — et on ne s'en aperçoit qu'après. Le serveur refuse déjà
+// (409) une seconde session ANCRÉE ; ce qui passait sans bruit, c'est le ticket
+// traité par une session ancrée AILLEURS (registre, worklog) — le cas courant.
+const _effDisp2818 = grabO("effDisposition");
+const ticketBusySessions = grabO("ticketBusySessions", { effDisposition: _effDisp2818 });
+const P2818 = { handled: [
+  { sid: "2700", alive: true,  state: "working", disposition: "",        title: "en cours" },
+  { sid: "cockpit", alive: true, state: "idle",  disposition: "termine", title: "fini" },
+  { sid: "vieille", alive: false, state: "ghost", disposition: "",       title: "hier" },
+  { sid: "parke", alive: true,  state: "idle",   disposition: "parke",   title: "parké" },
+] };
+const b2818 = ticketBusySessions(P2818);
+assert.deepStrictEqual(b2818.alive.map(s => s.sid), ["2700", "parke"],
+  "vivantes non terminées : celle qui travaille et celle qui est parkée (parké ≠ terminé)");
+assert.deepStrictEqual(b2818.stopped.map(s => s.sid), ["vieille"],
+  "éteinte non terminée : signalée, mais elle n'occupe rien");
+assert(!b2818.alive.some(s => s.sid === "cockpit"),
+  "une session MARQUÉE terminée ne doit rien déclencher — c'est tout l'intérêt du marquage");
+const vide2818 = (p) => { const r = ticketBusySessions(p); return !r.alive.length && !r.stopped.length; };
+assert(vide2818(null), "payload absent → rien");
+assert(vide2818({}), "payload sans handled → rien");
+assert(vide2818({ handled: [] }),
+  "aucune session : aucune alerte, le cas nominal reste sans friction");
+// `state` prime sur la marque : une session qui travaille n'est jamais « terminée »
+assert.deepStrictEqual(
+  ticketBusySessions({ handled: [{ sid: "x", alive: true, state: "attention", disposition: "termine" }] })
+    .alive.map(s => s.sid), ["x"],
+  "une session qui attend une réponse compte, quelle que soit sa marque");
+
+// Le texte d'alerte doit NOMMER ce qu'il a trouvé (sinon on confirme à l'aveugle)
+const dupText = grabO("duplicateSessionText", { effDisposition: _effDisp2818 });
+const txt2818 = dupText("2816", b2818);
+assert(txt2818.includes("2700") && txt2818.includes("parke"), "les sessions vivantes sont nommées");
+assert(txt2818.includes("RM2816"), "le ticket est nommé");
+assert(/éteinte/i.test(txt2818), "les sessions éteintes sont mentionnées, pas tues");
+
+// Câblage : les DEUX points de lancement passent par la garde
+["async function spawnTicketSession(", "async function spawn("].forEach(sig => {
+  const i = html.indexOf(sig);
+  assert(i > 0, "fonction introuvable : " + sig);
+  const corps = html.slice(i, i + 2200);
+  assert(/confirmSecondSession\(/.test(corps), sig + " doit passer par confirmSecondSession");
+});
+const css2818 = /async function confirmSecondSession\([\s\S]*?\n\}/.exec(html);
+assert(css2818, "confirmSecondSession introuvable");
+assert(/ensureTicketSessions\(.*true\)/.test(css2818[0]),
+  "l'état des sessions du ticket doit être RELU (un cache périmé dirait « libre » à tort)");
+assert(/attach\(/.test(css2818[0]), "…et proposer de REJOINDRE la session existante");
+console.log("✓ 2e session sur un ticket pris (RM2818) : alerte nommée, rejoindre plutôt que doubler");
+// — RM2819 : cliquer l'onglet d'une session éteinte doit la RELANCER —
+// Un onglet épinglé survit à ce qu'il montrait : la session peut être vivante,
+// seulement enregistrée (fantôme), ou avoir disparu. On attachait dans les trois
+// cas — terminal vide dans deux d'entre eux, sans rien dire.
+const sessionTabAction = grabO("sessionTabAction");
+const S2819 = [
+  { rm_id: "100", state: "working" },
+  { rm_id: "200", ghost: true, engine: "claude", session_id: "abc", resumable: true },
+  // même id, deux entrées (un fantôme du jeu + la session relancée) : la vivante prime
+  { rm_id: "300", ghost: true }, { rm_id: "300", state: "idle" },
+];
+assert.strictEqual(sessionTabAction("100", S2819).action, "attach", "session vivante → attach");
+const r2819 = sessionTabAction("200", S2819);
+assert.strictEqual(r2819.action, "relaunch", "session enregistrée non démarrée → relance");
+assert.strictEqual(r2819.session.session_id, "abc",
+  "…avec SON entrée : relaunchGhost a besoin de engine/session_id");
+assert.strictEqual(sessionTabAction("300", S2819).action, "attach",
+  "un fantôme homonyme ne doit pas masquer la session vivante");
+assert.strictEqual(sessionTabAction("999", S2819).action, "missing", "inconnue → on le dit");
+assert.strictEqual(sessionTabAction("100", {}).action, "missing", "cache vide → inconnue");
+// sessCache est un objet {rm_id: session}, la réponse /sessions un tableau : les deux passent
+const parCle = { "200": { rm_id: "200", ghost: true } };
+assert.strictEqual(sessionTabAction("200", parCle).action, "relaunch",
+  "la fonction accepte le cache indexé comme la liste");
+assert.strictEqual(sessionTabAction(200, parCle).action, "relaunch", "id numérique accepté");
+
+// Câblage : l'onglet passe par le routeur, plus par attach() en direct.
+const act2819 = /(function activateTab\([\s\S]*?\n\})/.exec(html)[1];
+assert(/t\.kind === "session"\) openSessionTab\(/.test(act2819),
+  "activateTab doit router la session vers openSessionTab");
+const ost2819 = /async function openSessionTab\([\s\S]*?\n\}/.exec(html);
+assert(ost2819, "openSessionTab introuvable");
+// Le cache ne voit que le jeu courant : ne pas conclure à la disparition sans redemander.
+assert(/\/sessions\?ghosts=1/.test(ost2819[0]),
+  "openSessionTab doit relire la liste COMPLÈTE avant de conclure à l'absence");
+assert(/relaunchGhost\(/.test(ost2819[0]), "…et déléguer la relance au chemin existant");
+assert(/toastAction\(/.test(ost2819[0]), "…et proposer de fermer l'onglet d'une session disparue");
+console.log("✓ onglet de session éteinte (RM2819) : relance au clic, jamais un terminal vide");
+
+// — RM2834 : filtre par client dans « Reprendre une session » —
+// La liste des projets était PLATE : tous les clients mêlés, des dizaines
+// d'entrées. Le client filtre désormais les projets — et changer de client ne
+// doit jamais laisser sélectionné le projet d'un autre.
+const rsProjectOptions = grabO("rsProjectOptions");
+const PR2834 = [
+  { client: "acme", project: "shop", value: "acme/shop" },
+  { client: "acme", project: "bo", value: "acme/bo" },
+  { client: "beta", project: "api", value: "beta/api" },
+  { client: "", project: "", value: "" },            // entrée incomplète : ignorée
+];
+const r1 = rsProjectOptions(PR2834, "acme", "acme/shop");
+assert.strictEqual(r1.options.map(o => o.value).join(","), "acme/bo,acme/shop",
+  "seuls les projets du client, triés");
+assert.strictEqual(r1.value, "acme/shop", "un projet du client reste sélectionné");
+const r2 = rsProjectOptions(PR2834, "acme", "beta/api");
+assert.strictEqual(r2.value, "", "changer de client abandonne le projet d'un autre client");
+const r3 = rsProjectOptions(PR2834, "", "beta/api");
+assert.strictEqual(r3.options.map(o => o.value).join(","), "acme/bo,acme/shop,beta/api",
+  "sans client : tous les projets");
+assert.strictEqual(r3.value, "beta/api", "…et la sélection courante est conservée");
+assert.strictEqual(rsProjectOptions(PR2834, "inconnu", "acme/shop").options.length, 0,
+  "client sans projet connu → aucune option (et pas une liste complète trompeuse)");
+assert.strictEqual(rsProjectOptions(null, "acme", "").options.length, 0, "liste absente");
+
+// Les clients proposés viennent des projets connus, dédoublonnés et triés
+const rsClients = grabO("rsClientOptions");
+assert.strictEqual(rsClients(PR2834).join(","), "acme,beta", "clients distincts, triés");
+assert.strictEqual(rsClients([]).length, 0, "aucun projet → aucun client");
+
+// Câblage
+assert(/<select id="rs-client"/.test(html), "le sélecteur client doit exister dans la carte");
+assert(/id="rs-client"[^>]*onchange="rsClientChanged\(\)"/.test(html),
+  "changer de client doit refiltrer les projets, pas seulement recharger");
+const lr2834 = /async function loadResumable\([\s\S]*?\n\}/.exec(html)[0];
+assert(/rs-client/.test(lr2834),
+  "loadResumable doit envoyer le client — un client seul liste TOUS ses projets");
+assert(/client=/.test(lr2834), "…sous forme de filtre client=");
+console.log("✓ reprise de session (RM2834) : filtre client, qui filtre les projets");
+
+// — RM2830 : filtrer par étiquette (recherche, triage, jeux dérivés) —
+// L'étiquette ne sert à rien si elle ne sert pas à CHOISIR quoi faire.
+const searchQuery2830 = grabO("searchQuery");
+assert(/tag=refacto/.test(searchQuery2830("x", { tag: "refacto" }, "")),
+  "la recherche doit transmettre l'étiquette au serveur");
+assert(!/tag=/.test(searchQuery2830("x", {}, "")), "…et ne rien ajouter quand aucune n'est choisie");
+
+// Le triage filtre sur la même notion, sans confondre « aucune étiquette » et « toutes »
+const triageFilter2830 = grabO("triageFilter");
+const T2830 = [
+  { rm_id: "1", client: "a", project: "p", tags: ["front", "refacto"] },
+  { rm_id: "2", client: "a", project: "p", tags: ["bdd"] },
+  { rm_id: "3", client: "a", project: "p" },
+];
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "front").map(t => t.rm_id).join(","), "1",
+  "filtre par étiquette");
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "").length, 3,
+  "aucune étiquette choisie → tout, y compris les tickets sans étiquette");
+assert.strictEqual(triageFilter2830(T2830, "", "", false, "Front").map(t => t.rm_id).join(","), "1",
+  "la casse ne change rien (même vocabulaire qu'à l'écriture)");
+assert.strictEqual(triageFilter2830(T2830, "a", "p", false, "bdd").map(t => t.rm_id).join(","), "2",
+  "cumulable avec client/projet");
+
+// Les étiquettes se VOIENT sur la ligne de résultat, sinon on filtre à l'aveugle
+const rowMeta2830 = grabO("searchRowMeta");
+assert(/refacto/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire", tags: ["refacto"] })),
+  "les étiquettes d'un ticket apparaissent dans sa ligne");
+assert(!/·\s*·/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire" })),
+  "aucune étiquette : pas de séparateur orphelin");
+
+// Câblage : menu d'étiquettes alimenté par le serveur, jamais écrit en dur
+assert(/<select id="sf-tag"/.test(html), "filtre étiquette dans la recherche");
+assert(/<select id="tr-tag"/.test(html), "filtre étiquette dans le triage ROI");
+const lt2830 = /async function loadTags\([\s\S]*?\n\}/.exec(html);
+assert(lt2830 && /\/tags/.test(lt2830[0]), "les étiquettes proposées viennent de GET /tags");
+assert(/rf-tag/.test(html), "le formulaire de jeu dérivé propose le critère étiquette");
+console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");
+
+// — RM2831 : constituer un lot par domaine et ouvrir une session dessus —
+// RM2823 sortait des tickets d'une session polluée, un par un. Ici on les
+// rassemble par ÉTIQUETTE : la liste filtrée est déjà le lot.
+const triageBatchItems = grabO("triageBatchItems");
+const TB = [
+  { rm_id: "10", status: "a_faire", title: "un", client: "a", project: "p" },
+  { rm_id: "11", status: "en_cours", title: "deux", client: "a", project: "p" },
+  { rm_id: "12", status: "ferme", title: "trois", client: "a", project: "p" },
+];
+const items2831 = triageBatchItems(TB, 10);
+assert.strictEqual(items2831.map(i => i.rm_id).join(","), "10,11,12",
+  "les lignes affichées deviennent les items du lot, dans l'ordre du triage");
+assert.strictEqual(items2831[0].status, "a_faire",
+  "le statut voyage : c'est lui qui décide de l'action côté serveur");
+assert.strictEqual(items2831[0].title, "un", "…et le titre, pour l'écran de confirmation");
+assert.strictEqual(triageBatchItems(TB, 2).length, 2,
+  "plafonné à ce qu'on annonce — une file trop longue déborde le contexte de l'agent");
+assert.strictEqual(triageBatchItems([], 10).length, 0, "liste vide");
+assert.strictEqual(triageBatchItems(null, 10).length, 0, "liste absente");
+
+// Le chemin de lancement est CELUI de RM2823 : une seule fonction, pas deux
+const sbs = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
+assert(sbs, "spawnBatchSession introuvable (chemin partagé RM2823/RM2831)");
+assert(/offloadPlan\(/.test(sbs[0]) && /\/worklog\/batch/.test(sbs[0]) && /\/spawn/.test(sbs[0]),
+  "le chemin partagé garde le plan, la consigne du serveur et /spawn");
+const off2831 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
+assert(/spawnBatchSession\(/.test(off2831[0]),
+  "le geste du worklog (RM2823) passe par le chemin partagé");
+const tri2831 = /async function triageSpawnSession\([\s\S]*?\n\}/.exec(html);
+assert(tri2831 && /spawnBatchSession\(/.test(tri2831[0]),
+  "le geste du triage aussi — sinon deux comportements divergeraient");
+assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
+console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");
+
+// — RM2832 : les étiquettes se VOIENT (fiche) et se comptent (conso) —
+const tagPills = grabO("tagPillsHtml");
+const h2832 = tagPills(["front", "refacto"], escFn, jargFn);
+assert(/front/.test(h2832) && /refacto/.test(h2832), "chaque étiquette est rendue");
+assert(/🏷/.test(h2832), "…avec la marque qui les identifie d'un coup d'œil");
+assert(/filterByTag\(/.test(h2832),
+  "cliquer une étiquette doit mener aux tickets qui la portent — sinon elle est décorative");
+assert.strictEqual(tagPills([], escFn, jargFn), "", "aucune étiquette : rien, pas un cadre vide");
+assert.strictEqual(tagPills(null, escFn, jargFn), "", "liste absente : idem");
+// Le risque réel dans un attribut : en SORTIR. Un guillemet double doit être
+// neutralisé (helper `jarg`, RM2579), et le texte affiché échappé comme ailleurs.
+const piege2832 = tagPills(['a" onclick="alert(1)'], escFn, jargFn);
+assert(!/onclick="alert/.test(piege2832), "une étiquette ne peut pas sortir de l'attribut");
+assert(/&quot;/.test(piege2832), "…le guillemet est neutralisé, pas laissé tel quel");
+assert(/&lt;b&gt;/.test(tagPills(["<b>"], escFn, jargFn)), "le texte affiché est échappé");
+// la fiche l'utilise
+const rrp2832 = html.indexOf("function renderReviewPane(");
+assert(rrp2832 > 0 && /tagPillsHtml\(/.test(html.slice(rrp2832, rrp2832 + 3000)),
+  "la fiche du ticket doit afficher les étiquettes");
+console.log("✓ étiquettes visibles (RM2832) : sur la fiche, cliquables, et ventilées en conso");
+
+// — RM2833 : l'étiquette propose un rôle d'agent (elle ne l'impose pas) —
+const roleHintLine = grabO("roleHintLine");
+assert.strictEqual(
+  roleHintLine({ role: "db", why: "étiquette « bdd » → rôle db", file: "agents/worker-db.md" }),
+  " (rôle suggéré : db — agents/worker-db.md)",
+  "la suggestion se lit dans l'écran de lancement");
+assert.strictEqual(roleHintLine(null), "", "aucune suggestion : rien à afficher");
+assert.strictEqual(roleHintLine({}), "", "suggestion vide : rien non plus");
+
+// La consigne envoyée à l'agent nomme le rôle — c'est elle qui lui fait charger
+// le bon fichier d'instructions.
+const tpt2833 = grabO("taskPromptText");
+const p2833 = tpt2833("traiter", "42", "acme", "shop", { role: "db", file: "agents/worker-db.md" });
+assert(/RM42/.test(p2833) && /acme/.test(p2833), "l'ancrage ticket/projet est préservé");
+assert(/worker-db\.md/.test(p2833), "…et le rôle suggéré est cité à l'agent");
+assert(!/worker-/.test(tpt2833("traiter", "42", "acme", "shop")),
+  "sans suggestion, la consigne est celle d'avant — aucune régression");
+assert(!/worker-/.test(tpt2833("reviewer", "42", "acme", "shop", { role: "db" })),
+  "une review n'est pas routée par étiquette : son rôle est la review");
+console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais imposé");
+
+// — RM2861 : un fichier ouvert s'affiche en pleine hauteur —
+// Le Markdown partait dans `.desc`, le bloc « description encadrée » plafonné à
+// 160 px : on lisait un fichier par une fenêtre, dans un panneau qui défile déjà.
+const mdStub = (t) => "<md>" + t + "</md>";
+const vMd = fileBodyHtml({ markdown: true, content: "# titre" }, escO, mdStub);
+assert(/facetfull/.test(vMd) && /descfull/.test(vMd) && /mdview/.test(vMd),
+  "le Markdown prend les classes pleine hauteur (RM2797/2806)");
+assert(!/class="[^"]*\bdesc\b/.test(vMd),
+  "…et PAS `.desc` : déclarée plus loin dans la feuille, elle regagnerait et le correctif serait inerte (RM2806)");
+assert(/<md># titre<\/md>/.test(vMd), "le rendu Markdown reste stylé, pas du texte brut");
+
+const vTxt = fileBodyHtml({ markdown: false, content: "a < b & c" }, escO, mdStub);
+assert(/max-height:none/.test(vTxt), "le fichier non-markdown reste sans plafond");
+assert(/a &lt; b &amp; c/.test(vTxt), "…et son contenu est échappé (ce n'est pas du HTML)");
+assert(!/<md>/.test(vTxt), "un fichier non-markdown ne passe pas par le rendu Markdown");
+assert(fileBodyHtml(null, escO, mdStub) !== "", "fichier absent toléré");
+assert(!/undefined/.test(fileBodyHtml({ markdown: false }, escO, mdStub)),
+  "contenu absent → vide, jamais « undefined » à l'écran");
+
+// Câblage : le rendu vivait en DOUBLE (panneau droit RM2586, vue projet RM2590).
+// Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
+assert.strictEqual((html.match(/fileBodyHtml\(f, esc, mdToHtml\)/g) || []).length, 2,
+  "les deux panneaux de fichier passent par le rendu commun");
+assert(/fileBodyHtml\(d, esc, md\)/.test(html),
+  "…et la vue centrale aussi : un seul endroit décide comment un fichier s'affiche");
+assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
+  "plus aucun contenu de fichier rendu dans le bloc encadré");
+console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");
+
+// — RM2873 : consigne choisie et éditable depuis la fiche du ticket —
+// Le lanceur de gauche offrait un modèle de consigne et un champ ; la fiche
+// lançait avec une consigne imposée, visible seulement dans la confirmation.
+
+// La liste des modèles n'existe qu'à UN endroit : une liste en dur dans le HTML
+// de gauche aurait divergé de celle de la fiche au premier ajout.
+const tpls2873 = promptTemplates();
+assert(tpls2873.length >= 5 && tpls2873.every(t => t.value && t.label),
+  "chaque modèle a une valeur ET un libellé");
+assert.strictEqual(tpls2873[tpls2873.length - 1].value, "libre",
+  "« libre » ferme la marche : c'est le mode de saisie manuelle");
+assert(tpls2873.every(t => t.value === "libre" || taskPromptText(t.value, "42")),
+  "tout modèle proposé produit une consigne (sauf « libre »)");
+const optsHtml = promptTemplateOptions("chiffrer", escFn);
+assert(/<option value="chiffrer" selected>/.test(optsHtml), "le modèle retenu est marqué");
+assert.strictEqual((optsHtml.match(/selected/g) || []).length, 1, "un seul modèle retenu");
+assert(!/<option value="traiter"[^>]*>Traiter la tâche<\/option>[\s\S]*<option value="traiter"/.test(html),
+  "le <select> de gauche ne re-déclare pas la liste en dur");
+assert(/getElementById\("ptpl"\)\.innerHTML = promptTemplateOptions\(/.test(html),
+  "…il est peuplé depuis la source unique");
+
+// La règle de remplissage est la même des deux côtés.
+assert.strictEqual(promptFillOnChange("libre", "ma consigne à moi", "traite la tâche RM42"),
+  "ma consigne à moi", "« libre » n'écrase jamais la saisie");
+assert.strictEqual(promptFillOnChange("traiter", "vieux texte", "traite la tâche RM42"),
+  "traite la tâche RM42", "changer de modèle remplace le texte");
+assert.strictEqual(promptFillOnChange("traiter", "déjà tapé", ""), "déjà tapé",
+  "un modèle qu'on ne sait pas calculer ne VIDE pas le champ");
+
+// L'état du champ suit le ticket affiché — et survit à un re-rendu de la fiche.
+const st1 = ticketPromptFor(null, "42", "traite la tâche RM42");
+assert.strictEqual(st1.text, "traite la tâche RM42", "consigne par défaut au premier rendu");
+const st2 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "42", "traite la tâche RM42");
+assert.strictEqual(st2.text, "fais autre chose",
+  "un re-rendu de la fiche ne perd pas la saisie en cours (renderReviewPane est appelé sur événement)");
+assert.strictEqual(st2.tpl, "libre", "…ni le modèle choisi");
+const st3 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "43", "traite la tâche RM43");
+assert.strictEqual(st3.text, "traite la tâche RM43",
+  "changer de ticket repart d'une consigne propre — sinon on lance RM43 avec la consigne de RM42");
+
+// Le bloc de la fiche rend bien le sélecteur et le champ, pré-remplis.
+const tsPr = ticketSessionsHtml({ rm_id: "42", handled: [], candidates: [], own_alive: false },
+  escFn, jargFn, { tpl: "chiffrer", text: "étudie et chiffre la tâche RM42" });
+assert(/id="ts-tpl"/.test(tsPr) && /id="ts-prompt"/.test(tsPr),
+  "la fiche offre le modèle de consigne ET le champ");
+assert(/<option value="chiffrer" selected>/.test(tsPr), "le modèle en cours est celui affiché");
+assert(/étudie et chiffre la tâche RM42<\/textarea>/.test(tsPr), "le champ est pré-rempli");
+assert(/oninput="tsPromptEdited\(/.test(tsPr), "la saisie est mémorisée hors du DOM");
+
+// Câblage : les deux gestes du bloc utilisent la consigne affichée.
+const mSpawn2873 = /async function spawnTicketSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSpawn2873[0]),
+  "le lancement utilise la consigne éditée, plus une consigne imposée");
+const mSend2873 = /async function sendTicketToSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSend2873[0]),
+  "l'envoi dans une session existante aussi : un champ au-dessus d'un bouton qui l'ignore serait un piège");
+console.log("✓ consigne depuis la fiche (RM2873) : modèle + champ éditable, partagés avec le lanceur");

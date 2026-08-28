@@ -240,6 +240,15 @@ providers:
     # passe d'APPLICATION Nextcloud, révocable — pas celui du compte).
     # Diagnostic : `scripts/unlock-vault.sh -i ncpw-matnat`.
     # ncpw-matnat:  { axis: secret, type: nextcloud_passwords, url: "https://cloud.materiaux-naturels.fr" }
+    # Exemple — 1Password via la CLI `op` et un *service account* (RM2711). La
+    # CLI n'est pas dans les dépôts Debian (dépôt APT 1Password) et un service
+    # account suppose un plan payant. Le JETON ne se déclare jamais ici :
+    # SECRET__OP_IPRO__SERVICE_ACCOUNT_TOKEN dans ton .env — il est passé à `op`
+    # par l'environnement, jamais en argument (`ps` le montrerait).
+    # `vault:` est le coffre par défaut ; l'URI peut le surcharger
+    # (secret://op-ipro/<coffre>/<item>#champ).
+    # Diagnostic : `scripts/unlock-vault.sh -i op-ipro`.
+    # op-ipro:      { axis: secret, type: onepassword, vault: "Agents" }
 
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés

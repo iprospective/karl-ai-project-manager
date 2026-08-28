@@ -985,14 +985,297 @@ def extract_nc_field(item, field):
     return perso.get(field, "") or ""
 
 
+# ── 1Password (CLI `op`, service account) — RM2711/L3b ───────────────────────
+class OnePasswordBackend(SecretBackend):
+    """1Password via la CLI `op` v2, authentifiée par un **service account**.
+
+    Déclaration (registre providers, axe `secret`) :
+        op-ipro: { axis: secret, type: onepassword, vault: "Agents" }
+    `vault:` est le coffre par défaut ; il reste surchargeable par l'URI.
+
+    Le jeton du service account ne se déclare JAMAIS dans le registre : il vit
+    dans le `.env` du dev, sous `SECRET__<SLUG>__SERVICE_ACCOUNT_TOKEN`. Il est
+    passé à `op` par l'ENVIRONNEMENT (`OP_SERVICE_ACCOUNT_TOKEN`), jamais en
+    argument : un argument est lisible par tout le monde dans `ps`.
+
+    Chemin d'un secret : `secret://<slug>/<coffre>/<item>[#champ]`, ou
+    `secret://<slug>/<item>` quand `vault:` est déclaré.
+
+    Capabilities : `needs_unlock=False` — le jeton EST la session, il n'y a rien
+    à déverrouiller (comme `age` et `nextcloud_passwords`, RM2713/RM2712). Un
+    jeton refusé n'est donc pas `locked` mais `denied` : personne ne peut « le
+    déverrouiller », il faut en émettre un autre.
+
+    Dépendance **optionnelle** : la CLI `op` n'est pas dans les dépôts Debian
+    (paquet 1Password). Absente ⇒ l'instance se déclare `unreachable` avec la
+    procédure d'installation, sans gêner les autres coffres.
+    """
+
+    type = "onepassword"
+
+    # Le jeton passe par l'environnement ; ces variables-là, au contraire, sont
+    # neutralisées : une session `op signin` héritée du shell prendrait le pas
+    # sur le service account et l'on résoudrait avec la mauvaise identité.
+    _ENV_NEUTRALISEES = ("OP_SESSION", "OP_CONNECT_HOST", "OP_CONNECT_TOKEN")
+
+    def __init__(self, name="default", vault=None, account=None, timeout=30,
+                 **options):
+        super().__init__(name=name, **options)
+        creds = creds_for(name, legacy=False)
+        self._vault = vault or creds.get("VAULT") or ""
+        self._account = account or creds.get("ACCOUNT") or ""
+        # `TOKEN` est toléré en second nom : c'est celui qu'on tape spontanément,
+        # et le refuser ne protège rien.
+        self._token = (creds.get("SERVICE_ACCOUNT_TOKEN")
+                       or creds.get("TOKEN") or "")
+        self._timeout = timeout
+
+    @property
+    def caps(self):
+        return Capabilities(needs_unlock=False, listable=True, hierarchical=True)
+
+    # -- invocation de la CLI -----------------------------------------------
+    def _exe(self):
+        exe = shutil.which("op")
+        if not exe:
+            raise UnreachableError(
+                "CLI `op` absente — elle n'est pas dans les dépôts Debian : "
+                "https://developer.1password.com/docs/cli/get-started/ "
+                "(dépôt APT 1Password, paquet `1password-cli`)", backend=self.name)
+        return exe
+
+    def _env(self):
+        """Environnement de l'appel : le jeton par variable, jamais en argument."""
+        if not self._token:
+            raise UnreachableError(
+                "aucun jeton de service account : renseigne "
+                f"{creds_env_key(self.name, 'SERVICE_ACCOUNT_TOKEN')} dans ton .env",
+                backend=self.name)
+        env = {k: v for k, v in os.environ.items()
+               if not k.startswith(self._ENV_NEUTRALISEES)}
+        env["OP_SERVICE_ACCOUNT_TOKEN"] = self._token
+        # Sans cela, `op` peut tenter l'intégration avec l'application de bureau
+        # et rester bloquée sur une invite biométrique qu'aucun agent ne verra.
+        env["OP_BIOMETRIC_UNLOCK_ENABLED"] = "false"
+        return env
+
+    def _op(self, args, timeout=None):
+        """`op <args>` avec le service account. Sortie brute, erreurs traduites."""
+        exe = self._exe()
+        env = self._env()
+        argv = [exe, *args]
+        if self._account:
+            argv += ["--account", self._account]
+        try:
+            p = subprocess.run(argv, capture_output=True, text=True, env=env,
+                               stdin=subprocess.DEVNULL,
+                               timeout=timeout or self._timeout)
+        except subprocess.TimeoutExpired:
+            raise UnreachableError(
+                f"`op` n'a pas répondu en {timeout or self._timeout} s",
+                backend=self.name)
+        if p.returncode != 0:
+            raise self._erreur(p.stderr)
+        return p.stdout
+
+    def _erreur(self, stderr):
+        """Message d'échec de `op` → erreur normalisée.
+
+        Classé sur la sortie ENTIÈRE, pas sur sa dernière ligne : `op` préfixe
+        ses diagnostics (`[ERROR] <horodatage> …`) et peut les faire suivre d'une
+        ligne d'aide. Retenir « la dernière ligne » avait déjà produit, sur
+        `age`, deux diagnostics opposés pour la même cause (RM2713).
+        """
+        brut = (stderr or "").lower()
+        detail = _derniere_ligne_op(stderr)
+        if any(m in brut for m in (
+                "isn't an item", "isn't a vault", "no item matching",
+                "no vault matching", "not found", "doesn't exist")):
+            classe = NotFoundError
+        # Le réseau AVANT l'autorisation : un échec de connexion mentionne
+        # souvent le point d'accès du service account, et serait sinon rapporté
+        # comme un jeton refusé — on enverrait le lecteur en émettre un nouveau
+        # pour rien.
+        elif any(m in brut for m in (
+                "connect", "network", "dns", "no such host", "timed out",
+                "unreachable", "tls", "certificate")):
+            classe = UnreachableError
+        elif any(m in brut for m in (
+                "unauthorized", "forbidden", "access denied", "not allowed",
+                "authentication required", "no account found", "invalid token",
+                "token is invalid", "invalid service account token", "expired",
+                "401", "403")):
+            classe = DeniedError
+        else:
+            classe = SecretError
+        return classe(detail, backend=self.name)
+
+    # -- état ---------------------------------------------------------------
+    def status(self):
+        """'unlocked' | 'locked' | 'unreachable' — les trois valeurs du contrat.
+
+        Un jeton refusé se rapporte en `locked` : joignable, mais l'accès n'est
+        pas accordé. `unlock-vault.sh` le traduit en clair — il faut un AUTRE
+        jeton, il n'y a rien à déverrouiller ici.
+        """
+        try:
+            self._exe()
+            self._env()
+        except SecretError:
+            return "unreachable"
+        try:
+            self._op(["whoami", "--format", "json"], timeout=min(self._timeout, 15))
+        except DeniedError:
+            return "locked"
+        except SecretError:
+            return "unreachable"
+        return "unlocked"
+
+    def unlock(self, **_):
+        raise UnsupportedError(
+            "rien à déverrouiller : l'accès passe par un jeton de service account "
+            f"({creds_env_key(self.name, 'SERVICE_ACCOUNT_TOKEN')}) — pour le "
+            "changer, émets-en un nouveau depuis 1Password", backend=self.name)
+
+    # -- résolution ---------------------------------------------------------
+    def _cible(self, path):
+        """(coffre, item) depuis le chemin de l'URI, `vault:` en repli."""
+        segs = [s for s in path if s]
+        if not segs:
+            raise UriError("aucun item dans le chemin", backend=self.name)
+        item = segs[-1]
+        amont = segs[:-1]
+        if amont:
+            # 1Password n'imbrique pas les coffres : le segment utile est le
+            # dernier avant l'item. On ignore ce qui précède plutôt que de
+            # refuser une URI écrite avec la profondeur d'un autre backend.
+            return amont[-1], item
+        if not self._vault:
+            raise UriError(
+                "coffre non précisé : écris secret://<slug>/<coffre>/<item> ou "
+                "déclare `vault:` sur l'instance", backend=self.name)
+        return self._vault, item
+
+    def resolve(self, path, field=None):
+        coffre, item = self._cible(path)
+        out = self._op(["item", "get", item, "--vault", coffre, "--format", "json"])
+        try:
+            item_json = json.loads(out)
+        except ValueError:
+            raise UnreachableError("réponse `op` illisible (JSON attendu)",
+                                   backend=self.name)
+        return extract_op_field(item_json, field)
+
+    def list(self, filt=None):
+        coffres = [self._vault] if self._vault else [
+            v.get("name") or v.get("id") for v in self._coffres()]
+        out = []
+        for coffre in [c for c in coffres if c]:
+            brut = self._op(["item", "list", "--vault", coffre, "--format", "json"])
+            try:
+                items = json.loads(brut or "[]")
+            except ValueError:
+                raise UnreachableError("réponse `op` illisible (JSON attendu)",
+                                       backend=self.name)
+            for it in items if isinstance(items, list) else []:
+                nom = it.get("title") or ""
+                if filt is not None and filt.lower() not in nom.lower():
+                    continue
+                out.append({"id": str(it.get("id") or ""), "org": "-",
+                            "collections": [coffre], "name": nom})
+        return sorted(out, key=lambda r: (r["collections"], r["name"]))
+
+    def _coffres(self):
+        try:
+            brut = json.loads(self._op(["vault", "list", "--format", "json"]) or "[]")
+        except ValueError:
+            raise UnreachableError("réponse `op` illisible (JSON attendu)",
+                                   backend=self.name)
+        return brut if isinstance(brut, list) else []
+
+
+_OP_PREFIXE = ("[error]", "[warn]", "[info]")
+
+
+def _derniere_ligne_op(txt, limite=200):
+    """Diagnostic lisible extrait de la sortie d'erreur de `op`.
+
+    On garde la PREMIÈRE ligne d'erreur (celle qui dit la cause) débarrassée de
+    son préfixe `[ERROR] <date> <heure> `, et non la dernière : `op` termine
+    volontiers par une ligne d'usage qui ne dit rien du problème.
+    """
+    for ligne in (txt or "").splitlines():
+        l = ligne.strip()
+        if not l:
+            continue
+        if l.lower().startswith(_OP_PREFIXE):
+            # `[ERROR] 2026/08/27 10:15:42 message…` → `message…`
+            morceaux = l.split(None, 3)
+            l = morceaux[3] if len(morceaux) >= 4 else l
+        return l[:limite]
+    return "sans message"
+
+
+def extract_op_field(item_json, field):
+    """Champ d'un item 1Password, aligné sur le contrat des autres backends.
+
+    Les champs d'un item `op` portent un `purpose` normalisé (USERNAME,
+    PASSWORD, NOTES) pour les trois champs standards, et un `label` libre pour
+    les autres. On lit le `purpose` en premier : c'est lui qui est stable, le
+    label suivant la langue de l'interface.
+    """
+    champs = [f for f in (item_json.get("fields") or []) if isinstance(f, dict)]
+
+    def par_purpose(purpose):
+        for f in champs:
+            if (f.get("purpose") or "").upper() == purpose:
+                return f.get("value") or ""
+        return ""
+
+    def par_label(nom):
+        for f in champs:
+            if f.get("label") == nom or f.get("id") == nom:
+                return f.get("value") or ""
+        return ""
+
+    def uri():
+        urls = [u for u in (item_json.get("urls") or []) if isinstance(u, dict)]
+        for u in urls:
+            if u.get("primary"):
+                return u.get("href") or ""
+        return urls[0].get("href", "") if urls else ""
+
+    if field is None:
+        mdp = par_purpose("PASSWORD")
+        if mdp:
+            return mdp
+        # Pas de mot de passe : un résumé qui ne cite que des NOMS de champs
+        # (tripwire 11) — de quoi comprendre quoi demander en `#champ`.
+        return json.dumps(
+            {"title": item_json.get("title"),
+             "vault": (item_json.get("vault") or {}).get("name"),
+             "category": item_json.get("category"),
+             "fields": sorted(f.get("label") or f.get("id") or "" for f in champs)},
+            ensure_ascii=False)
+    if field == "password":
+        return par_purpose("PASSWORD") or par_label("password")
+    if field == "username":
+        return par_purpose("USERNAME") or par_label("username")
+    if field == "notes":
+        return par_purpose("NOTES") or par_label("notesPlain")
+    if field == "uri":
+        return uri()
+    return par_label(field)
+
 # ── Fabrique ─────────────────────────────────────────────────────────────────
-# Un type par gestionnaire. Les suivants (onepassword…) s'enregistrent ici
-# sans toucher aux appelants.
+# Un type par gestionnaire. Les suivants s'enregistrent ici, ou de l'extérieur
+# via `register_backend()`, sans toucher aux appelants.
 BACKENDS = {
     VaultwardenBackend.type: VaultwardenBackend,
     KeepassBackend.type: KeepassBackend,
     AgeBackend.type: AgeBackend,
     NextcloudPasswordsBackend.type: NextcloudPasswordsBackend,
+    OnePasswordBackend.type: OnePasswordBackend,
 }
 
 

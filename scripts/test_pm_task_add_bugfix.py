@@ -30,8 +30,8 @@ _vspec.loader.exec_module(vt)
 fails = []
 
 
-def check(name, cond):
-    print(("✓ " if cond else "✗ ") + name)
+def check(name, cond, detail=""):
+    print(("✓ " if cond else "✗ ") + name + (f" — {detail}" if detail and not cond else ""))
     if not cond:
         fails.append(name)
 
@@ -124,3 +124,22 @@ if fails:
     print("\nÉCHEC :", ", ".join(fails))
     sys.exit(1)
 print("\nOK — un bugfix créé par pm-task-add naît valide (RM2752)")
+
+# — RM2842 : chaque CF se logue sous SA garde ——————————————————————————————
+# `extra_cf` porte plusieurs CF depuis RM2829 (task-type ET Tags). Le tester en
+# bloc pour lire `tt_values[args.type]` levait un KeyError sur tout type absent
+# de la table task-type — APRÈS le POST, donc en laissant un ticket Redmine sans
+# fichier local (incident RM2840).
+src2842 = (HERE / "pm-task-add.py").read_text(encoding="utf-8")
+bloc = src2842[src2842.index("    if args.porcelain:"):src2842.index("    if target_author is not None:")]
+check("le log task-type n'est plus sous « if extra_cf »",
+      "if extra_cf:" not in bloc)
+check("il est sous la MÊME garde que l'ajout du CF",
+      "if tt_cf_id and args.type in tt_values:" in bloc)
+check("les tags ont leur propre ligne, sous leur propre garde",
+      '_tags_cf.get("value")' in bloc and "tags →" in bloc)
+# Les commentaires citent l'expression fautive : on ne regarde que le CODE.
+code2842 = "\n".join(l for l in bloc.splitlines() if not l.strip().startswith("#"))
+avant_garde = code2842.split("if tt_cf_id and args.type in tt_values:")[0]
+check("aucune lecture de tt_values avant sa garde",
+      "tt_values[" not in avant_garde, avant_garde.strip()[-120:])

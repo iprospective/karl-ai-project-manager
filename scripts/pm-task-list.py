@@ -32,6 +32,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 from pm_output import out
+from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
 
 try:
     import yaml
@@ -49,7 +50,6 @@ except ImportError:
     console = None
 
 
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 
 PRIORITY_ORDER = {"urgent": 0, "high": 1, "normal": 2, "low": 3, None: 9}
@@ -63,20 +63,6 @@ STATUS_ORDER = {
     "ferme": 9,
     None: 99,
 }
-
-
-def parse_frontmatter(path: Path):
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    m = FRONTMATTER_RE.match(content)
-    if not m:
-        return None
-    try:
-        return yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        return None
 
 
 def detect_project_from_cwd(cfg: PMConfig):

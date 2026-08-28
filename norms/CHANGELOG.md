@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.9.0] - 2026-08-25
+## [2.10.0] - 2026-08-28
 
 ### Ajouté
 - **Phase d'étude — proposition d'implémentation obligatoire** (RM2563). Le CDC
@@ -62,6 +62,26 @@
   `etude_chiffrage_a_valider` quand la proposition manque (même forme que le
   garde-fou « protocole de test », RM2229 ; tolère une section `## Implémentation`
   en corps pour les CDC d'avant).
+
+## [2.9.0] - 2026-08-27
+
+### Ajouté
+- Module `environments` — backend **`onepassword`** (CLI `op` + *service account*,
+  RM2711) dans la liste des vaults déclarables : le gestionnaire en ligne le plus
+  répandu côté dev. La CLI n'est pas dans les dépôts Debian et le jeton machine
+  suppose un plan payant — l'instance se déclare `unreachable` avec la marche à
+  suivre plutôt que de casser les autres coffres.
+- Module `environments` — **« Un jeton machine n'est pas un verrou »** : un accès
+  par jeton (service account 1Password, mot de passe d'application Nextcloud) qui
+  est refusé se rapporte `locked`, faute d'une quatrième valeur au contrat, mais
+  le geste correctif est l'inverse d'un déverrouillage — il faut **émettre un
+  nouveau jeton** et remplacer la variable du `.env`, pas chercher un mot de passe
+  maître qui n'existe pas.
+- Module `environments` — **« Un secret ne passe jamais en argument de commande »** :
+  `ps` est lisible par tous les processus de la machine, et l'historique du shell
+  garde la ligne. Un secret se transmet par variable d'environnement ou sur
+  l'entrée standard. La règle existait dans le code (`unlock-vault.sh --stdin`,
+  RM2748) sans être écrite ; elle vaut pour tout appel qu'un agent compose.
 
 ## [2.8.0] - 2026-08-24
 

@@ -12,6 +12,17 @@ session » sans rescanner tout le contexte.
 - Le **statut est live** ; la **fraîcheur** est affichée, et une éventuelle
   **dérive** (l'état réel diverge du dernier point) est signalée.
 
+Les tickets sont répartis en **sous-onglets par statut** : ⏳ reste à faire,
+🚀 à mettre en prod, ⏸ en attente / bloqué, ✅ fait, et ❔ statut inconnu quand
+un statut n'est pas reconnu. Un onglet n'apparaît que s'il a du contenu.
+
+L'onglet **🚀 à mettre en prod** rassemble les tickets `a_mep` et `en_mep`. Ils
+étaient auparavant comptés dans « reste à faire », ce qui était trompeur : le
+développement y est terminé, ce qui reste est une mise en production — un geste
+batché (plusieurs tickets montent ensemble), souvent porté par un autre acteur.
+Le worklog Markdown de session (`mmi-pm session-status show`) a la même section,
+au même endroit : les deux vues ne doivent pas raconter deux histoires.
+
 Dans chaque statut, les tickets sont **groupés par client / projet**, avec le
 compte de chaque groupe. Une session touche souvent deux chantiers : à plat, on
 ne voyait plus à quoi on touchait. Le groupement est un rendu, pas un tri —
@@ -62,6 +73,20 @@ arbitrage, qui se prend depuis la fiche du ticket.
 
 Chaque lot montre d'abord un **récapitulatif** : ce qui part, et ce qui est
 écarté avec le motif. Rien ne part sans que ce tableau ait été lu.
+
+### ⇱ nouvelle session — sortir les intrus
+
+Une session est ancrée sur **un** projet ; le fil, lui, ramasse des tickets
+d'ailleurs. Cocher ces tickets puis **⇱ nouvelle session** ouvre une session
+neuve, ancrée sur **leur** projet, qui les prend en charge — avec la consigne de
+« ▶ traiter », et la session courante retrouve son seul chantier.
+
+Deux garde-fous : les tickets cochés doivent appartenir **au même projet** (sinon
+la session n'a pas d'ancrage — les projets en présence te sont nommés), et un
+ticket dont le projet n'est pas résolu **reste sur place**, signalé, sans retenir
+les autres. Les tickets embarqués quittent la liste « tickets ouverts » : c'est la
+nouvelle session qui les porte. Le worklog, lui, n'est pas réécrit — il raconte ce
+que la session a fait, et elle l'a fait.
 
 ## État de la session
 

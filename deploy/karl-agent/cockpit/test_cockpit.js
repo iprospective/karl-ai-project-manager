@@ -1249,9 +1249,13 @@ assert(ticketStatusRank("statut_exotique") < ticketStatusRank("ferme"),
   "un statut inconnu se voit, il n'est pas rangé avec les fermés");
 console.log("✓ tickets ouverts (RM2606) : ordre de lecture, pas alphabétique");
 
+// RM2883 : familles de statut — le filtre de la carte les propose
+const ticketStatusFamily = vm.runInNewContext("(" + grab("ticketStatusFamily") + ")");
+const statusFamilyTabs = vm.runInNewContext("(" + grab("statusFamilyTabs") + ")",
+  { ticketStatusFamily });
 // groupOpenedTickets appelle ticketStatusRank : le contexte isolé doit l'avoir
 const groupOpenedTickets = vm.runInNewContext("(" + grab("groupOpenedTickets") + ")",
-  { ticketStatusRank });
+  { ticketStatusRank, ticketStatusFamily, statusFamilyTabs });
 const tkCache = {
   "1": { found: true, client: "acme", project: "shop", title: "A", status: "ferme" },
   "2": { found: true, client: "acme", project: "shop", title: "B", status: "en_cours" },
@@ -1270,6 +1274,48 @@ assert.deepStrictEqual(Array.from(f.keys), ["beta/api"], "le filtre client rédu
 assert.deepStrictEqual(Array.from(groupOpenedTickets([], {}, null).keys), [], "liste vide tolérée");
 assert.deepStrictEqual(Array.from(groupOpenedTickets(null, null, null).keys), [], "entrées absentes tolérées");
 console.log("✓ tickets ouverts (RM2606) : groupés par projet, filtrés par client");
+
+// — RM2883 : filtre par statut dans la carte des tickets ouverts —
+// Aucun statut connu ne doit tomber dans « autre » : un statut ajouté un jour au
+// classement d'affichage sans famille disparaîtrait du filtre en silence.
+const statutsConnus = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+  "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
+for (const st of statutsConnus)
+  assert.notStrictEqual(ticketStatusFamily(st), "autre",
+    "statut NORMS sans famille : « " + st + " » (il disparaîtrait du filtre)");
+assert.strictEqual(ticketStatusFamily("statut_exotique"), "autre",
+  "un statut inconnu a sa propre famille — jamais rangé d'office dans « à faire »");
+assert.strictEqual(ticketStatusFamily("a_mep"), "mep",
+  "à MEP n'est pas « à faire » : le dev y est fini (même distinction qu'au worklog, RM2860)");
+assert.strictEqual(ticketStatusFamily("a_corriger"), "todo",
+  "ce qui revient corrigé est du travail à faire");
+
+// Seules les familles présentes ont un bouton — la colonne est étroite.
+const tabs2883 = statusFamilyTabs([{ status: "en_cours" }, { status: "en_cours" },
+                                   { status: "ferme" }]);
+assert.strictEqual(JSON.stringify(tabs2883.map(t => [t.key, t.n])),
+  JSON.stringify([["encours", 2], ["ferme", 1]]),
+  "un bouton par famille présente, avec son compte");
+assert.strictEqual(statusFamilyTabs([]).length, 0, "liste vide → aucun filtre proposé");
+assert.strictEqual(tabs2883[0].key, "encours",
+  "ordre de lecture : ce qui réclame une action avant ce qui est clos");
+
+// Le filtre statut se cumule avec le filtre client…
+const fs2883 = groupOpenedTickets(["1", "2", "3"], tkCache, null, "encours");
+assert.deepStrictEqual(Array.from(fs2883.keys), ["acme/shop"], "le filtre statut réduit la liste");
+assert.deepStrictEqual(Array.from(fs2883.groups.get("acme/shop").map(x => x.rm_id)), ["2"],
+  "…et ne garde que les tickets de la famille");
+// …mais les autres familles restent proposées, sinon on ne pourrait plus changer
+// de filtre sans repasser par « tous ».
+assert(fs2883.families.length > 1,
+  "les familles proposées se calculent AVANT le filtre statut");
+assert.deepStrictEqual(Array.from(groupOpenedTickets(["1"], tkCache, null, "encours").keys), [],
+  "un filtre qui ne laisse rien rend une liste vide (le rendu le dit)");
+assert(/aucun ticket dans ce filtre/.test(html),
+  "…et l'interface l'annonce plutôt que de paraître vidée");
+
+console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, familles présentes seules");
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
@@ -2617,6 +2663,12 @@ assert.strictEqual(openedCountLabel(1), "(1)");
 assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
 assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
 assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
+// RM2883 : avec un filtre actif, l'en-tête dit ce qu'on voit ET le total — sans
+// les deux, « (3) » sur une pile de quarante se lit comme une liste vidée.
+assert.strictEqual(openedCountLabel(3, 40), "(3 / 40)", "filtre actif : vu / total");
+assert.strictEqual(openedCountLabel(40, 40), "(40)", "sans filtre : le total seul");
+assert.strictEqual(openedCountLabel(0, 40), "(vide)",
+  "un filtre qui ne laisse rien se dit « vide », pas « 0 / 40 »");
 
 // Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
 assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),

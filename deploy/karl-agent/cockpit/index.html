@@ -5381,9 +5381,14 @@ function openedPanelOpen(saved) {
 // Ce que l'en-tête dit quand la carte est REPLIÉE : sans compte, il faut
 // l'ouvrir pour savoir s'il y avait quelque chose à voir. « vide » est dit
 // explicitement — un blanc laisse croire que le compte n'a pas été calculé.
-function openedCountLabel(n) {
+// RM2883 : `total` (optionnel) — quand un filtre est actif, l'en-tête dit ce
+// qu'on voit ET ce que la liste contient. Sans les deux, « (3) » sur une pile de
+// quarante tickets se lit comme une liste vidée.
+function openedCountLabel(n, total) {
   const k = Number(n);
+  const t = Number(total);
   if (!Number.isFinite(k) || k <= 0) return "(vide)";
+  if (Number.isFinite(t) && t > k) return "(" + k + " / " + t + ")";
   return "(" + k + ")";
 }
 // <<< openedCountLabel
@@ -5423,17 +5428,59 @@ function ticketStatusRank(status) {
 }
 // <<< ticketStatusRank
 
+// >>> ticketStatusFamily — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2883 — la FAMILLE d'un statut, pour filtrer la carte des tickets ouverts.
+// Quatre familles demandées ; deux de plus que les statuts NORMS imposent de ne
+// pas noyer : « à MEP » (le dev est fini — même distinction qu'au worklog,
+// RM2860) et « en pause » (ni à faire, ni en cours). Un statut inconnu tombe
+// dans « autre » plutôt que dans « à faire » : le ranger d'office parmi ce qui
+// reste à faire affirmerait quelque chose qu'on ne sait pas.
+function ticketStatusFamily(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "ferme" || s === "fermé") return "ferme";
+  if (s === "en_pause") return "pause";
+  if (s === "a_mep" || s === "en_mep") return "mep";
+  if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
+  if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
+  if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider",
+       "a_corriger"].indexOf(s) >= 0) return "todo";
+  return "autre";
+}
+// <<< ticketStatusFamily
+
+// >>> statusFamilyTabs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Les filtres à PROPOSER, avec leur compte. Comme la barre de clients et les
+// sous-onglets du worklog : une famille absente n'a pas de bouton — la colonne
+// est étroite, un filtre qui ne filtre rien y coûte une place et une lecture.
+// L'ordre est celui de la lecture (ce qui réclame une action d'abord), pas
+// l'ordre alphabétique.
+function statusFamilyTabs(items) {
+  const LABELS = [["todo", "à faire"], ["encours", "en cours"], ["test", "à tester"],
+                  ["mep", "à MEP"], ["pause", "en pause"], ["ferme", "fermé"],
+                  ["autre", "autre"]];
+  const n = {};
+  for (const it of items || []) {
+    const f = ticketStatusFamily(it && it.status);
+    n[f] = (n[f] || 0) + 1;
+  }
+  return LABELS.filter(([k]) => n[k]).map(([k, label]) => ({ key: k, label, n: n[k] }));
+}
+// <<< statusFamilyTabs
+
 // >>> groupOpenedTickets — pur (testé par test_cockpit.js)
 // Groupe les tickets ouverts par projet, chaque groupe trié par urgence de
 // statut. `client` filtre ; un ticket non encore résolu reste affiché (sous
 // « … ») plutôt que de disparaître le temps d'un aller-retour réseau.
-function groupOpenedTickets(ids, cache, client) {
+function groupOpenedTickets(ids, cache, client, family) {
   const groups = new Map();
   const clients = new Set();
-  for (const id of (ids || [])) {
+  const all = [];                     // RM2883 : avant filtre statut — c'est
+  for (const id of (ids || [])) {     // lui qui donne les familles à proposer
     const r = (cache || {})[id] || null;
     if (r && r.found && r.client) clients.add(r.client);
     if (client && (!r || !r.found || r.client !== client)) continue;
+    all.push({ status: (r && r.status) || "?" });
+    if (family && ticketStatusFamily((r && r.status) || "?") !== family) continue;
     const key = (r && r.found && r.client)
       ? r.client + "/" + (r.project || "?") : "…";
     if (!groups.has(key)) groups.set(key, []);
@@ -5452,7 +5499,10 @@ function groupOpenedTickets(ids, cache, client) {
   }
   const keys = [...groups.keys()].sort((a, b) =>
     (a === "…") - (b === "…") || a.localeCompare(b));
-  return { keys, groups, clients: [...clients].sort() };
+  // `families` se calcule sur la liste filtrée par CLIENT mais pas par statut :
+  // sinon choisir « à tester » ferait disparaître tous les autres boutons, et on
+  // ne pourrait plus en changer sans repasser par « tous ».
+  return { keys, groups, clients: [...clients].sort(), families: statusFamilyTabs(all) };
 }
 // <<< groupOpenedTickets
 
@@ -5460,6 +5510,7 @@ let openedTickets = [];
 try { openedTickets = JSON.parse(localStorage.getItem("karlOpenedTickets") || "[]"); }
 catch (e) { openedTickets = []; }   // valeur corrompue : on repart d'une liste vide
 let openedClient = null;
+let openedFamily = null;      // RM2883 : famille de statut retenue (null = toutes)
 
 function openedSave() {
   try { localStorage.setItem("karlOpenedTickets", JSON.stringify(openedTickets)); }
@@ -5477,9 +5528,11 @@ function openedForget(id) {
   openedSave(); renderOpened();
 }
 function openedClear() {
-  openedTickets = []; openedClient = null; openedSave(); renderOpened();
+  openedTickets = []; openedClient = null; openedFamily = null; openedSave(); renderOpened();
 }
 function openedFilter(c) { openedClient = c || null; renderOpened(); }
+// RM2883 : filtre par famille de statut, cumulable avec le filtre client.
+function openedFilterStatus(f) { openedFamily = f || null; renderOpened(); }
 
 function renderOpened() {
   const badge = document.getElementById("ln-tickets");
@@ -5487,11 +5540,13 @@ function renderOpened() {
     badge.textContent = openedTickets.length;
     badge.style.display = openedTickets.length ? "" : "none";
   }
-  const cnt = document.getElementById("opened-count");
-  if (cnt) cnt.textContent = openedCountLabel(openedTickets.length);
   const box = document.getElementById("openedbox");
   if (!box) return;
-  const { keys, groups, clients } = groupOpenedTickets(openedTickets, resolveCache, openedClient);
+  const { keys, groups, clients, families } =
+    groupOpenedTickets(openedTickets, resolveCache, openedClient, openedFamily);   // RM2883
+  const shown = keys.reduce((n, k) => n + groups.get(k).length, 0);
+  const cnt = document.getElementById("opened-count");
+  if (cnt) cnt.textContent = openedCountLabel(shown, openedTickets.length);
   if (!openedTickets.length) {
     box.innerHTML = '<div style="color:var(--muted);font-size:11.5px">'
       + "Aucun ticket ouvert pour l'instant. Ceux que tu consultes s'empilent ici.</div>";
@@ -5508,6 +5563,14 @@ function renderOpened() {
   } else {
     h += '<div class="cmpbar" style="margin-bottom:6px"><span style="flex:1"></span>'
       + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
+  }
+  // RM2883 : filtres par statut — seules les familles présentes ont un bouton.
+  if (families.length > 1) {
+    h += '<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">'
+      + '<button class="mini' + (openedFamily ? "" : " primary") + '" onclick="openedFilterStatus(null)">tous</button>'
+      + families.map(f => '<button class="mini' + (openedFamily === f.key ? " primary" : "")
+          + '" onclick="openedFilterStatus(' + jarg(f.key) + ')">' + esc(f.label)
+          + " (" + f.n + ")</button>").join("") + "</div>";
   }
   for (const k of keys) {
     h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
@@ -5530,6 +5593,8 @@ function renderOpened() {
         + "</div>";
     }
   }
+  if (!keys.length) h += '<div style="color:var(--muted);font-size:11.5px">'
+    + "aucun ticket dans ce filtre — « tous » les ramène.</div>";   // RM2883
   box.innerHTML = h;
 }
 

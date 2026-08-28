@@ -231,6 +231,9 @@ def main():
         sys.exit(f"env '{args.env}' absent du manifeste (dispo : {', '.join(envs) or '—'})")
     env = envs[args.env]
 
+    # samples par env (ex. produit en stock différent) surchargent le global.
+    samples = {**samples, **env.get("samples", {})}
+
     results = run_pages(checks, env, surface, samples)
 
     # workflows : inclus en --full, ou si nommés dans le subset

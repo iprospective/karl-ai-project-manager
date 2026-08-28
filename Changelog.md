@@ -14,6 +14,13 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Cockpit : filtre par statut dans « Tickets ouverts »** (RM2883). La carte empile jusqu'à
+  40 tickets consultés, tous statuts mêlés. Elle offre maintenant, à côté du filtre par client et
+  cumulable avec lui, un filtre par **famille de statut** : à faire / en cours / à tester / à MEP
+  / en pause / fermé. Seules les familles **présentes** ont un bouton, et l'en-tête passe à
+  `(vu / total)` dès qu'un filtre est actif. « à MEP » est distingué de « à faire » par cohérence
+  avec le worklog (RM2860). Un test vérifie que **tous** les statuts NORMS ont une famille : sans
+  lui, un statut ajouté un jour disparaîtrait silencieusement du filtre.
 - **Fiche ticket : la consigne de lancement se choisit et s'édite** (RM2873). Le bouton
   « ▶ nouvelle session » lançait avec une consigne **imposée** (`traite la tâche RM…`), visible
   seulement dans la boîte de confirmation : vouloir « étudie et chiffre » obligeait à repasser

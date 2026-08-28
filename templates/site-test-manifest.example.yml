@@ -30,11 +30,15 @@ extra_pages:
   #   contains: ["cinsslider"]   # marqueur qui doit apparaître → sinon FAIL
 
 # Environnements cibles. resolve = "host:ip" pour les vhosts non résolus (conteneur).
+# samples: (par env) surcharge le global — utile car le workflow checkout exige un
+# produit EN STOCK, or le stock diffère d'un env à l'autre.
 envs:
   dev:
     base_url: "http://calicote-presta.lxc"
     resolve: "calicote-presta.lxc:127.0.0.1"
+    samples: { id_product: 32 }      # en stock en dev
   preprod:
     base_url: "https://calicote.sfy.iprospective.fr"
   prod:
     base_url: "https://calicote.com"
+    samples: { id_product: 1234 }    # en stock en prod (32 y est en rupture)

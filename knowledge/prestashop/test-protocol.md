@@ -53,6 +53,11 @@ n'est pas un succès. Les faux positifs (attributs `exceptions"`…) sont filtr�
   déclaré, pas à 200 en dur.
 - **DB partagée en dev** : les envs de ticket partagent souvent la base dev ; le
   workflow checkout crée un panier réel (pollution mineure, acceptable en dev).
+- **Checkout = produit EN STOCK** : PS refuse d'ajouter au panier un produit en
+  rupture → le check `checkout` échoue en « panier vide » (faux négatif). Le stock
+  diffère d'un env à l'autre : utiliser `envs.<env>.samples.id_product` (surcharge
+  le global) pour pointer un produit en stock sur chaque env. Constaté MEP RM2576
+  (produit 32 en stock en dev mais en rupture en prod).
 
 ## Usage
 

@@ -13,8 +13,16 @@ liste monte jusqu'à 40 lignes et repousserait sinon la recherche et la créatio
 hors de l'écran. Le nombre entre parenthèses dit ce qu'elle contient sans avoir
 à l'ouvrir (`(vide)` quand il n'y a rien).
 
+Deux barres de filtres, **cumulables** : par **client** (quand la liste en
+contient plusieurs) et par **statut** — à faire, en cours, à tester, à MEP, en
+pause, fermé. Comme ailleurs dans le cockpit, un bouton n'apparaît que si la
+famille est **présente** dans la liste : un filtre qui ne filtre rien coûterait
+une place dans une colonne étroite. « à MEP » est distingué de « à faire »,
+comme au worklog : le développement y est terminé. Quand un filtre est actif,
+l'en-tête affiche `(vu / total)`.
+
 Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
-prochain chargement. `✕ vider` remet la liste à zéro.
+prochain chargement. `✕ vider` remet la liste à zéro (filtres compris).
 
 ## Rechercher — local, Redmine, ou les deux
 

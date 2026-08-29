@@ -4198,3 +4198,93 @@ const mSend2873 = /async function sendTicketToSession[\s\S]*?\n\}/.exec(html);
 assert(/tsPrompt\.text/.test(mSend2873[0]),
   "l'envoi dans une session existante aussi : un champ au-dessus d'un bouton qui l'ignore serait un piège");
 console.log("✓ consigne depuis la fiche (RM2873) : modèle + champ éditable, partagés avec le lanceur");
+
+// ── RM2888 : changer le statut depuis la fiche et le worklog ────────────────
+// Le menu ne doit RIEN savoir du workflow : il rend ce que le serveur envoie.
+// Un test qui vérifierait « en_cours propose a_tester_dev » recopierait la règle
+// NORMS dans le harnais — exactement ce que le ticket interdit.
+const statusMenuHtml = grabO("statusMenuHtml");
+const stData = {
+  status: "en_cours", redmine_checked: true,
+  transitions: [
+    { status: "a_tester_dev", condition: "dev terminé", redmine_ok: true, needs_close_reason: false },
+    { status: "a_mep", condition: "validé", redmine_ok: false, needs_close_reason: false },
+    { status: "ferme", condition: "close_reason requis", redmine_ok: true, needs_close_reason: true },
+  ],
+};
+const stHtml = statusMenuHtml(stData, escO);
+assert(/data-st="a_tester_dev"/.test(stHtml), "chaque transition servie devient un bouton");
+assert(/data-st="a_mep"[^>]*disabled/.test(stHtml),
+  "une transition que CE compte ne peut pas poser reste visible, mais désactivée");
+assert(/Redmine refusera/.test(stHtml),
+  "…et dit pourquoi : sinon le bouton grisé passe pour un bug");
+assert(/data-st="ferme"[^>]*data-reason="1"/.test(stHtml),
+  "la fermeture est marquée comme exigeant un motif, AVANT de soumettre");
+assert(!/⚠ transitions NORMS seules/.test(stHtml),
+  "pas d'avertissement quand le workflow Redmine a bien été interrogé");
+
+// Redmine injoignable : on n'ampute rien, on prévient. Une panne de l'API ne doit
+// pas rendre le geste inatteignable — c'est le mode dégradé de --list-next.
+const stDeg = statusMenuHtml(
+  { status: "a_faire", redmine_checked: false,
+    transitions: [{ status: "en_cours", condition: "prise en charge", redmine_ok: null,
+                    needs_close_reason: false }] }, escO);
+assert(/data-st="en_cours"/.test(stDeg) && !/disabled/.test(/data-st="en_cours"[^>]*>/.exec(stDeg)[0]),
+  "sans vérification live, la transition reste proposable");
+assert(/⚠ transitions NORMS seules/.test(stDeg), "…et l'UI dit que le contrôle des droits manque");
+
+// Statut terminal / liste vide : dire « rien à faire ici », pas un menu muet.
+assert(/aucune transition/.test(statusMenuHtml({ status: "ferme", transitions: [] }, escO)),
+  "une liste vide s'explique au lieu de s'afficher creuse");
+assert(/aucune transition/.test(statusMenuHtml(null, escO)), "données absentes tolérées");
+console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus et mode dégradé compris");
+
+// Ce qu'il faut demander avant de soumettre. La règle vient du serveur
+// (needs_close_reason / needs_note), jamais d'un test sur le nom du statut.
+const statusPromptSpec = grabO("statusPromptSpec");
+const spFerme = statusPromptSpec("ferme", true, ["abandonne", "resolu", "doublon"], false);
+assert.strictEqual(spFerme.needs_reason, true, "fermeture : motif réclamé");
+assert.strictEqual(spFerme.default_reason, "resolu",
+  "« resolu » est proposé par défaut — le cas courant, mais modifiable");
+assert(/facultatif/.test(spFerme.note_label), "la note reste facultative si rien ne l'exige");
+const spReopen = statusPromptSpec("a_faire", false, [], true);
+assert.strictEqual(spReopen.needs_note, true, "réouverture : la note est exigée par le workflow");
+assert(/requise/.test(spReopen.note_label), "…et l'invite le dit, au lieu de refuser après coup");
+const spPlain = statusPromptSpec("en_cours", false, [], false);
+assert.strictEqual(spPlain.needs_reason, false, "une transition ordinaire ne réclame rien");
+assert.strictEqual(statusPromptSpec("ferme", true, [], false).default_reason, "",
+  "aucun motif servi : pas de valeur inventée");
+console.log("✓ invites de statut (RM2888) : motif et note exigés par le serveur, pas devinés");
+
+// Câblage : les deux points d'entrée demandés (fiche + worklog) appellent le menu,
+// et la mécanique de gardes n'est plus dupliquée dans la console de test.
+const mDetail2888 = /function _ticketDetailHtml[\s\S]*?\n\}/.exec(html);
+assert(/openStatusMenu\(/.test(mDetail2888[0]),
+  "la fiche du ticket ouvre le menu depuis sa pastille de phase");
+const mRw2888 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/openStatusMenu\(/.test(mRw2888[0]),
+  "le worklog aussi : c'est le second point d'entrée demandé");
+assert(/event\.stopPropagation\(\);openStatusMenu/.test(mRw2888[0]),
+  "…sans ouvrir la fiche par-dessus le menu");
+const mTq2888 = /async function tqVerdict[\s\S]*?\n\}/.exec(html);
+assert(/runTaskStatusGated\(/.test(mTq2888[0]) && !/allow_unchecked = true/.test(mTq2888[0]),
+  "la console de test partage la mécanique de gardes au lieu de la recopier");
+const mGate2888 = /async function runTaskStatusGated[\s\S]*?\n\}/.exec(html);
+assert(/checklist non coché/.test(mGate2888[0]) && /non mergée|RM2319/.test(mGate2888[0]),
+  "les deux gardes NORMS restent franchissables explicitement, jamais d'office");
+// La garde qui compte : le menu se construit UNIQUEMENT à partir des données du
+// serveur. Un nom de statut écrit en dur dedans serait le début de la seconde
+// table que le ticket interdit. (Ailleurs dans le front, citer un statut reste
+// légitime — `ticketVerdicts` ou `_TQ_VERDICTS` visent un statut précis.)
+const mMenu2888 = />>> statusMenuHtml[\s\S]*?<<< statusMenuHtml/.exec(html)[0];
+const mOpen2888 = /async function openStatusMenu[\s\S]*?\n\}/.exec(html)[0];
+const STATUTS_NORMS = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev", "a_tester_demandeur",
+  "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
+for (const st of STATUTS_NORMS) {
+  assert(!mMenu2888.includes('"' + st + '"') && !mMenu2888.includes("'" + st + "'"),
+    "statusMenuHtml ne doit citer aucun statut en dur (trouvé : " + st + ")");
+  assert(!mOpen2888.includes('"' + st + '"') && !mOpen2888.includes("'" + st + "'"),
+    "openStatusMenu ne doit citer aucun statut en dur (trouvé : " + st + ")");
+}
+console.log("✓ câblage (RM2888) : fiche + worklog, gardes partagées, zéro règle recopiée");

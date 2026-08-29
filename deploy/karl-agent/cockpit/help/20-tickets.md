@@ -24,6 +24,34 @@ l'en-tête affiche `(vu / total)`.
 Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
 prochain chargement. `✕ vider` remet la liste à zéro (filtres compris).
 
+## Changer le statut
+
+Sur la facette **détail**, la pastille de la ligne **phase** est cliquable
+(`en_cours ⇄`) : elle ouvre les statuts réellement posables depuis l'état
+courant. La liste ne vient pas du cockpit mais du **workflow lui-même**
+(`pm-task-status-update --list-next`) — c'est la même règle que celle appliquée
+en ligne de commande, il n'y a pas deux vérités.
+
+- Une transition **grisée** existe dans le workflow, mais **ce compte** ne peut
+  pas la poser (droits Redmine, ticket assigné à quelqu'un d'autre). La raison
+  s'affiche au survol. Elle reste visible : la cacher ferait croire que la
+  transition n'existe pas.
+- 🔒 devant un statut = il **réclame un motif** avant d'être posé (fermeture),
+  et certaines transitions exigent une **note** (réouverture). Les deux sont
+  demandés à l'écran, plutôt que refusés après coup.
+- Si Redmine est injoignable, la liste reste complète et le menu le dit : une
+  panne de l'API ne doit pas rendre le geste inatteignable.
+
+Deux garde-fous des NORMS peuvent **refuser** le changement, avec leur motif :
+des items de checklist non cochés dans la description, ou une branche de ticket
+non mergée dans `dev`. Le cockpit propose alors le forçage (ou la livraison
+MR + merge) — c'est un choix **explicite**, jamais automatique : un ticket
+validé puis fermé dont le code n'a jamais été livré est l'incident qui a motivé
+cette garde.
+
+Le même geste est disponible sur chaque ligne du **worklog** (voir l'aide
+« worklog »), pour ne pas avoir à ouvrir la fiche.
+
 ## Rechercher — local, Redmine, ou les deux
 
 Sous le champ de recherche, cinq sélecteurs :

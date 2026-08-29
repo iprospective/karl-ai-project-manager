@@ -122,6 +122,13 @@ API (JSON, localhost:9876)
                                   (RM2726 : sessions qui traitent le ticket —
                                   ancrage / registre / worklog — et sessions
                                   vivantes où l'envoyer, même projet d'abord)
+  GET  /ticket-transitions/<rm>[?force=1]
+                                → {status, transitions:[{status, condition,
+                                  redmine_ok, needs_close_reason}],
+                                  redmine_checked, close_reasons}
+                                  (RM2888 : les statuts posables ICI, demandés à
+                                  pm-task-status-update --list-next --json —
+                                  la règle NORMS n'est jamais recopiée côté UI)
   POST /tickets {title, type, priority, project, description?, tags?}
                                 → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
   POST /spawn  {rm_id, cwd?, engine?, model?, prompt?, width?, height?}
@@ -4840,6 +4847,51 @@ def op_ticket_sessions(rm_id: str, auth_ctx: dict | None = None) -> dict:
     if tf:
         client, project = _task_client_project(tf)
     return ticket_sessions_view(rm, sessions, wl_refs, client, project)
+
+
+# ── RM2888 : les transitions de statut proposables sur un ticket ─────────────
+# La règle vit dans `pm-task-status-update.py` (`NORMS_TRANSITIONS`, source
+# unique) : le cockpit ne la recopie pas, il l'INTERROGE. Recopier la table ici
+# aurait fabriqué une seconde vérité, qui diverge au premier statut ajouté — et
+# c'est exactement ce que faisait `_PM_STATUSES` du catalogue, qui propose les 14
+# statuts quel que soit l'état du ticket.
+_TRANSITIONS_TTL = 20            # s — le temps d'ouvrir une fiche, pas davantage
+_transitions_cache: dict = {}
+
+
+def op_ticket_transitions(rm_id: str, force: bool = False) -> dict:
+    """GET /ticket-transitions/<rm> — statut courant + transitions valides.
+
+    `redmine_checked: false` dit que la vérification live n'a pas eu lieu : les
+    transitions restent celles des NORMS, sans le marquage « ce compte peut la
+    poser ». L'UI doit afficher la liste quand même — une panne Redmine ne doit
+    pas rendre le geste inatteignable.
+    """
+    rm = str(rm_id).strip()
+    if not _RM_ID_RE.match(rm):
+        raise ApiError(400, "id de ticket attendu (^\\d+$)")
+    now = time.time()
+    hit = _transitions_cache.get(rm)
+    if hit and not force and now - hit[0] < _TRANSITIONS_TTL:
+        return dict(hit[1], cached=True)
+    script = (REPO_ROOT / "scripts" / "pm-task-status-update.py").resolve()
+    if not script.is_file():
+        raise ApiError(500, "pm-task-status-update.py introuvable")
+    try:
+        proc = subprocess.run([sys.executable, str(script), rm, "--list-next", "--json"],
+                              cwd=str(REPO_ROOT), capture_output=True, text=True,
+                              timeout=30, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "pm-task-status-update --list-next : timeout")
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip()[:400]
+        raise ApiError(404 if "introuvable" in msg else 500, msg or "échec --list-next")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except ValueError:
+        raise ApiError(500, "sortie --list-next --json illisible")
+    _transitions_cache[rm] = (now, data)
+    return data
 
 
 # ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
@@ -10260,6 +10312,10 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/ticket-sessions/"):   # RM2726 : qui traite ce ticket
                 return self._send_json(200, op_ticket_sessions(
                     path[len("/ticket-sessions/"):], self.auth_ctx))
+            if path.startswith("/ticket-transitions/"):   # RM2888 : statuts posables
+                force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
+                return self._send_json(200, op_ticket_transitions(
+                    path[len("/ticket-transitions/"):], force))
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))

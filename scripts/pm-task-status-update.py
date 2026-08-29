@@ -10,6 +10,8 @@ Usage :
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
+    pm-task-status-update.py 1670 --list-next            # transitions valides (texte)
+    pm-task-status-update.py 1670 --list-next --json     # idem, sortie machine (cockpit, RM2888)
 
 Statuts NORMS valides (source : redmine.reference.yml) :
     a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
@@ -439,9 +441,18 @@ NORMS_TRANSITIONS = {
 INACTIVE_STATUSES = {"ferme", "en_pause"}
 
 
-def list_next(rm_id):
-    """Affiche les transitions NORMS valides depuis le statut courant du ticket
-    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+def next_transitions(rm_id, check_redmine=True):
+    """Transitions NORMS valides depuis le statut courant du ticket, en structuré.
+
+    RM2888 : `list_next` ne savait qu'imprimer, donc le cockpit ne pouvait pas
+    proposer « ce qui est possible ici » et se rabattait sur les 14 statuts en dur.
+    La règle reste ICI (source unique) ; l'affichage texte et la sortie `--json`
+    ne sont plus que deux rendus de cette structure.
+
+    `redmine_ok` vaut None quand la vérification live n'a pas eu lieu (API
+    injoignable, pas de credentials, ou `check_redmine=False`) : un appelant ne
+    doit pas confondre « refusé » et « pas vérifié ».
+    """
     cfg = PMConfig.load()
     md_path = cfg.find_task(rm_id)
     if not md_path:
@@ -467,7 +478,7 @@ def list_next(rm_id):
     allowed_ids = None
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
     key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
-    if url and key:
+    if check_redmine and url and key:
         try:
             req = urllib.request.Request(
                 f"{url}/issues/{rm_id}.json?include=allowed_statuses",
@@ -479,15 +490,43 @@ def list_next(rm_id):
             allowed_ids = None
     sids = redmine_utils.status_ids()
 
-    print(f"RM{rm_id} — statut courant : {cur}")
-    print("Transitions NORMS valides :")
+    seen, transitions = set(), []
     for tgt, cond in nexts:
+        if tgt in seen:          # `en_pause`/`ferme` génériques peuvent doubler une règle
+            continue
+        seen.add(tgt)
+        transitions.append({
+            "status": tgt,
+            "condition": cond,
+            "redmine_ok": None if allowed_ids is None else (sids.get(tgt) in allowed_ids),
+            # Ce que l'appelant doit réclamer AVANT de soumettre : le script refuse
+            # `ferme` sans motif, autant que l'UI le demande plutôt que d'échouer.
+            "needs_close_reason": tgt == "ferme",
+            # Idem pour la note : certaines transitions l'exigent (réouverture).
+            # La condition est écrite dans NORMS_TRANSITIONS, juste au-dessus — ce
+            # n'est pas un contrat externe qu'on parserait à l'aveugle.
+            "needs_note": "note obligatoire" in cond,
+        })
+    return {"rm_id": int(rm_id), "status": cur, "transitions": transitions,
+            "redmine_checked": allowed_ids is not None,
+            "close_reasons": sorted(VALID_CLOSE_REASONS)}
+
+
+def list_next(rm_id, as_json=False):
+    """Affiche les transitions NORMS valides depuis le statut courant du ticket
+    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+    data = next_transitions(rm_id)
+    if as_json:
+        print(json.dumps(data, ensure_ascii=False))
+        return
+    print(f"RM{rm_id} — statut courant : {data['status']}")
+    print("Transitions NORMS valides :")
+    for t in data["transitions"]:
         mark = ""
-        if allowed_ids is not None:
-            ok = sids.get(tgt) in allowed_ids
-            mark = "  [Redmine OK]" if ok else "  [Redmine REFUSERA pour ce compte]"
-        print(f"  → {tgt:<26} {cond}{mark}")
-    if allowed_ids is None:
+        if t["redmine_ok"] is not None:
+            mark = "  [Redmine OK]" if t["redmine_ok"] else "  [Redmine REFUSERA pour ce compte]"
+        print(f"  → {t['status']:<26} {t['condition']}{mark}")
+    if not data["redmine_checked"]:
         print("  (vérification live Redmine indisponible — transitions NORMS seules)")
 
 
@@ -500,6 +539,9 @@ def main():
     ap.add_argument("--list-next", action="store_true",
                     help="Liste les transitions NORMS valides depuis le statut courant "
                          "(+ celles que le compte API peut réellement poser côté Redmine)")
+    ap.add_argument("--json", action="store_true",
+                    help="Avec --list-next : sortie machine (statut courant + transitions), "
+                         "consommée par le cockpit (RM2888)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
@@ -531,8 +573,10 @@ def main():
     out.configure(args)
 
     if args.list_next:
-        list_next(args.rm_id)
+        list_next(args.rm_id, as_json=args.json)
         return
+    if args.json:
+        sys.exit("ERREUR : --json n'a de sens qu'avec --list-next")
     if not args.status:
         sys.exit("ERREUR : statut requis (ou --list-next pour voir les transitions valides)")
 

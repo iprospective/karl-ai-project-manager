@@ -11,6 +11,11 @@ session » sans rescanner tout le contexte.
 
 - Le **statut est live** ; la **fraîcheur** est affichée, et une éventuelle
   **dérive** (l'état réel diverge du dernier point) est signalée.
+- La pastille de statut d'un **ticket** est **cliquable** : elle ouvre les
+  transitions posables depuis l'état courant, sans quitter le worklog ni ouvrir
+  la fiche. Le détail du menu (transitions grisées, motif et note réclamés,
+  garde-fous) est décrit dans l'aide « tickets ». Un chantier libre — une entrée
+  qui n'est pas un `RM<id>` — n'a pas de workflow : sa pastille reste inerte.
 
 Les tickets sont répartis en **sous-onglets par statut** : ⏳ reste à faire,
 🚀 à mettre en prod, ⏸ en attente / bloqué, ✅ fait, et ❔ statut inconnu quand

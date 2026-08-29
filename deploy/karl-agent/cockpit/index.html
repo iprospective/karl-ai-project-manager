@@ -4414,6 +4414,7 @@ const GLOSSARY = [
   { t: "orchestrateur", c: "pm", a: ["orchestrateurs", "orchestration"], d: "Celui qui répartit et coordonne le travail entre les workers (agents exécutants), sans le faire lui-même." },
   { t: "NORMS", c: "pm", d: "Le corps de règles du système PM (protocole worker, statuts, git) que les agents doivent suivre." },
   { t: "KERNEL", c: "pm", a: ["kernel"], d: "Le « noyau » des normes : le document obligatoire listant déclencheurs et garde-fous, à lire avant d'ouvrir les modules détaillés." },
+  { t: "onboarding", c: "pm", a: ["prise de contexte", "mise en contexte"], d: "Mise en contexte d'un agent AVANT qu'il agisse : il lit les règles (KERNEL, puis son rôle), puis la fiche du client, du projet et de la tâche. Sans cette étape, l'agent suppose au lieu de savoir." },
   { t: "tripwire", c: "pm", a: ["tripwires", "garde-fou"], d: "Garde-fou : une règle qui se déclenche pour empêcher une erreur (ex. interdire un push direct sur main). Ce qui l'applique concrètement dans un outil s'appelle une garde." },
   // `inline: false` : « garde » est aussi un mot français ordinaire (« il garde
   // son statut ») — le souligner partout produirait surtout des faux positifs.

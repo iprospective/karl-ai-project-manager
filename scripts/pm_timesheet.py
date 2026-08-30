@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""pm_worklog — reconstitution du temps de travail HUMAIN à partir des traces d'agents (RM2890).
+"""pm_timesheet — reconstitution du temps de travail HUMAIN à partir des traces d'agents (RM2890).
 
-Bibliothèque du worklog : collecte des traces, modèle temporel, règles métier,
-rendu. Le CLI est `pm-worklog.py` (→ `mmi-pm worklog`). Analyse et arbitrages :
-`docs/cdc-rm2890-worklog-heures-humaines.md` du projet `pm-ai-agents`.
+Bibliothèque de la feuille de temps : collecte des traces, modèle temporel, règles métier,
+rendu. Le CLI est `pm-timesheet.py` (→ `mmi-pm timesheet`). Analyse et arbitrages :
+`docs/cdc-rm2890-timesheet-heures-humaines.md` du projet `pm-ai-agents`.
 
 Chaîne de traitement (chaque étape est une fonction pure, testable hors ligne) :
 
@@ -724,6 +724,20 @@ def repartir_transversal(alloc, regles, params=None):
         journee_cliente = client_total >= regles.seuil_client_min
         pot_total = d["pot_ouvre"] + d["pot_hors"]
 
+        if motif_absence:
+            # Absence déclarée : TOUT est proposé non compté — y compris le temps
+            # client, qui est signalé à part (`alerte_absence`) au lieu d'être
+            # supprimé en silence. « Je n'étais pas là » et « rien n'a été fait »
+            # ne sont pas la même chose : c'est à l'humain de trancher.
+            for _ouvre, cible, minutes in d["lignes"]:
+                ecarte[(jour, cible)] += minutes
+            journal[jour] = {
+                "destin": NON_COMPTE, "cle": {}, "absence": motif_absence,
+                "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
+                "pot_hors_h": d["pot_hors"] / 60,
+                "alerte_absence": client_total > 0,
+            }
+            continue
         if not journee_cliente:
             destin, cle = NON_COMPTE, {}
         elif d["pot_ouvre"] > 0:
@@ -830,7 +844,7 @@ def quantifier(lignes, quantum=None):
 # ── Configuration déclarée ───────────────────────────────────────────────────
 
 def charger_config(chemin=None, cfg=None):
-    """Lit `worklog.yml` (sources, correspondances de chemins, absences, clés).
+    """Lit `timesheet.yml` (sources, correspondances de chemins, absences, clés).
 
     Les sources sont DÉCLARÉES : le travail ne se fait pas que sur un poste
     (hôte et conteneur partagent les transcripts, un compte distant en porte
@@ -840,7 +854,7 @@ def charger_config(chemin=None, cfg=None):
     if yaml is None:
         return {}
     if chemin is None and cfg is not None:
-        chemin = Path(cfg.pm_dir) / "worklog.yml"
+        chemin = Path(cfg.pm_dir) / "timesheet.yml"
     p = Path(chemin) if chemin else None
     if not p or not p.is_file():
         return {}
@@ -897,7 +911,7 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
                     deduit=None, quantum=None):
     """Compte rendu lisible — c'est la pièce que l'humain relit et amende."""
     quantum = quantum or DEFAULTS["quantum_min"]
-    L = [f"# Worklog {mois}", ""]
+    L = [f"# Feuille de temps {mois}", ""]
     total_final = sum(final.values())
     total_ecarte = sum(ecarte.values())
     L += [f"- temps mesuré : **{_hm(sum(totaux.values()))}** sur {len(totaux)} journées",

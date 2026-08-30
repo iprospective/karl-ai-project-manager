@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""pm-worklog — reconstitue et note le temps de travail HUMAIN (RM2890).
+"""pm-timesheet — reconstitue et note le temps de travail HUMAIN (RM2890).
 
-    mmi-pm worklog --month 2026-08              # calcule → rapport .md + proposition .yml
-    $EDITOR var/worklog/2026-08.yml             # on relit, on amende
-    mmi-pm worklog --month 2026-08 --apply      # crée les saisies dans Redmine
+    mmi-pm timesheet --month 2026-08              # calcule → rapport .md + proposition .yml
+    $EDITOR var/timesheet/2026-08.yml             # on relit, on amende
+    mmi-pm timesheet --month 2026-08 --apply      # crée les saisies dans Redmine
 
 Le calcul lit les traces laissées par le travail assisté (transcripts Claude
 Code, `history.jsonl`, bases opencode, journaux `.log.md` des tickets), en déduit
@@ -16,7 +16,7 @@ vérité de `--apply`, qui est idempotent (une ligne déjà posée n'est jamais
 recréée).
 
 Détail des règles et de leur justification :
-`docs/cdc-rm2890-worklog-heures-humaines.md` (projet PM `pm-ai-agents`).
+`docs/cdc-rm2890-timesheet-heures-humaines.md` (projet PM `pm-ai-agents`).
 """
 import argparse
 import calendar
@@ -27,7 +27,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import pm_worklog as W
+import pm_timesheet as W
 from pm_paths import PMConfig
 
 try:
@@ -181,7 +181,7 @@ def appliquer(chemin_yml, cfg, conf, args):
     url, key = redmine_creds()
     uid = args.user_id or conf.get("user_id")
     if not uid:
-        sys.exit("--user-id (ou `user_id:` dans worklog.yml) requis : "
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis : "
                  "les saisies sont créées au nom de cet utilisateur Redmine.")
     prop = yaml.safe_load(Path(chemin_yml).read_text(encoding="utf-8")) or {}
     lignes = [l for l in prop.get("lignes", []) if l.get("valide", True) and l.get("minutes")]
@@ -199,15 +199,15 @@ def appliquer(chemin_yml, cfg, conf, args):
             break
         for t in body.get("time_entries", []):
             c = t.get("comments") or ""
-            if "[worklog:" in c:
-                deja.add(c[c.index("[worklog:"):].split("]")[0] + "]")
+            if "[timesheet:" in c:
+                deja.add(c[c.index("[timesheet:"):].split("]")[0] + "]")
         offset += 100
         if offset >= body.get("total_count", 0):
             break
 
     cree = ignore = erreurs = 0
     for l in lignes:
-        marque = f"[worklog:{l['jour']}#{l.get('client') or '-'}/{l.get('ticket') or '-'}]"
+        marque = f"[timesheet:{l['jour']}#{l.get('client') or '-'}/{l.get('ticket') or '-'}]"
         if marque in deja:
             ignore += 1
             continue
@@ -237,7 +237,7 @@ def appliquer(chemin_yml, cfg, conf, args):
         else:
             erreurs += 1
     verbe = "à créer" if args.dry_run else "créées"
-    print(f"✓ worklog {periode} : {cree} saisies {verbe}, {ignore} déjà posées"
+    print(f"✓ timesheet {periode} : {cree} saisies {verbe}, {ignore} déjà posées"
           + (f", {erreurs} sans cible Redmine" if erreurs else ""))
     return 0 if not erreurs else 1
 
@@ -247,8 +247,8 @@ def main():
     ap.add_argument("--month", help="mois à traiter (AAAA-MM)")
     ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
     ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
-    ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/worklog)")
-    ap.add_argument("--config", help="fichier de configuration (défaut : <core>/worklog.yml)")
+    ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
+    ap.add_argument("--config", help="fichier de configuration (défaut : <core>/timesheet.yml)")
     ap.add_argument("--apply", action="store_true",
                     help="crée les saisies Redmine depuis la proposition validée")
     ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
@@ -266,26 +266,26 @@ def main():
 
     cfg = PMConfig.load()
     conf = W.charger_config(args.config, cfg=cfg)
-    dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "worklog"
+    dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "timesheet"
     _d, _f, libelle = _periode(args)
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"
         if not chemin.is_file():
-            sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm worklog --month {libelle}`.")
+            sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
         return appliquer(chemin, cfg, conf, args)
 
     res = calculer(args, cfg, conf)
     md, yml, prop = ecrire_sorties(res, dossier, libelle)
     total = sum(res["final"].values())
-    print(f"✓ worklog {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "
+    print(f"✓ timesheet {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "
           f"{len(res['totaux'])} journées → {_fmt(total)} à noter "
           f"({len(prop['lignes'])} lignes), {_fmt(sum(res['ecarte'].values()))} écartées")
     alertes = sum(1 for d in res["journal"].values() if d.get("alerte_absence"))
     if alertes:
         print(f"  ⚠ {alertes} journée(s) d'absence avec activité cliente — à trancher")
     print(f"  rapport : {md}\n  proposition (à amender) : {yml}")
-    print(f"  puis : mmi-pm worklog --month {libelle} --apply")
+    print(f"  puis : mmi-pm timesheet --month {libelle} --apply")
     return 0
 
 

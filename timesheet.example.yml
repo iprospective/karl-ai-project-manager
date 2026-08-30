@@ -1,10 +1,10 @@
-# worklog.yml — configuration du worklog (RM2890).
+# timesheet.yml — configuration de la feuille de temps (RM2890).
 #
-# Copier en `worklog.yml` à la racine du core PM et adapter : ce fichier décrit
+# Copier en `timesheet.yml` à la racine du core PM et adapter : ce fichier décrit
 # UNE instance (ses postes, ses clients, ses absences), il n'est pas portable.
-# Sans lui, le worklog tourne avec les défauts et les sources de cette machine.
+# Sans lui, la feuille de temps tourne avec les défauts et les sources de cette machine.
 #
-# Détail des règles : docs/cdc-rm2890-worklog-heures-humaines.md (pm-ai-agents).
+# Détail des règles : docs/cdc-rm2890-timesheet-heures-humaines.md (pm-ai-agents).
 
 # ── Où lire les traces ───────────────────────────────────────────────────────
 # Rien n'est deviné : un gisement non déclaré reste invisible. Le travail ne se

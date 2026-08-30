@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Tests de pm_worklog — les invariants du worklog (RM2890).
+"""Tests de pm_timesheet — les invariants de la feuille de temps (RM2890).
 
-Lancer : python3 scripts/test_pm_worklog.py
+Lancer : python3 scripts/test_pm_timesheet.py
 
 Ce que ces tests protègent, dans l'ordre d'importance :
 
@@ -22,7 +22,7 @@ sys.path.insert(0, str(_HERE))
 from test_support import hermetic_core
 hermetic_core()
 
-import pm_worklog as W
+import pm_timesheet as W
 
 ECHECS = []
 
@@ -153,9 +153,14 @@ verifie(presque(sum(final2.values()) + sum(ecarte2.values()), 210.0),
 # absence : l'activité cliente est signalée, pas supprimée
 regles_abs = W.Regles(types=regles.types, perso={"lemathou"},
                       absences=[(date(2026, 8, 1), date(2026, 8, 5), "congé")])
-_f, _e, journal3 = W.repartir_transversal(
-    {(J, True, ("cli1", "p", None)): 120.0}, regles_abs)
+alloc_abs = {(J, True, ("cli1", "p", None)): 120.0,
+             (J, True, ("iprospective", "pm", None)): 30.0}
+f3, e3, journal3 = W.repartir_transversal(alloc_abs, regles_abs)
 verifie(journal3[J]["alerte_absence"], "activité cliente pendant une absence → alerte")
+verifie(presque(sum(e3.values()), 150.0) and not f3,
+        "pendant une absence, tout est écarté (rien n'est proposé à la saisie)")
+verifie(presque(sum(f3.values()) + sum(e3.values()), 150.0),
+        "conservation pendant une absence")
 
 # ── 6. Clé multi-clients ─────────────────────────────────────────────────────
 print("\n6. Clé multi-clients (SFY 70/30)")

@@ -1,0 +1,59 @@
+# worklog.yml — configuration du worklog (RM2890).
+#
+# Copier en `worklog.yml` à la racine du core PM et adapter : ce fichier décrit
+# UNE instance (ses postes, ses clients, ses absences), il n'est pas portable.
+# Sans lui, le worklog tourne avec les défauts et les sources de cette machine.
+#
+# Détail des règles : docs/cdc-rm2890-worklog-heures-humaines.md (pm-ai-agents).
+
+# ── Où lire les traces ───────────────────────────────────────────────────────
+# Rien n'est deviné : un gisement non déclaré reste invisible. Le travail ne se
+# fait pas que sur un poste (l'hôte et le conteneur partagent les transcripts par
+# bind mount ; un compte distant en porte d'autres).
+sources:
+  - {kind: claude-transcripts, path: "~/.claude/projects"}
+  - {kind: claude-history,     path: "~/.claude/history.jsonl"}
+  - {kind: opencode-db,        path: "~/.local/share/opencode/opencode.db"}
+  # base opencode de l'hôte, exportée par : sqlite3 <db> ".backup <cible>"
+  # - {kind: opencode-db, path: "/zfs/workspaces/var/opencode-host.db"}
+
+# ── Chemins → (client, projet) ───────────────────────────────────────────────
+# Indispensable pour les répertoires d'un AUTRE hôte (pas de `.mmi-pm` là-bas) et
+# pour les chemins renommés depuis. Le préfixe le plus long gagne.
+path_map:
+  # "/home/siteadm/dercya/public": [pisceen, pisceen-presta]
+  # "/zfs/workspaces/pisceen/erp": [pisceen, dolibarr]        # ancien nom
+  # "/zfs/workspaces/matnat/sf7":  [matnat, site_sf7]         # ancien nom
+
+# ── Entités PERSONNELLES ─────────────────────────────────────────────────────
+# Ni refacturées, ni versées au pot transversal : c'est du temps à soi.
+perso:
+  - lemathou
+
+# ── Travaux servant plusieurs clients ────────────────────────────────────────
+# Clé de répartition d'une entité ou d'un projet mutualisé.
+multi_client:
+  sfy:
+    - {client: pisceen,  weight: 70}
+    - {client: calicote, weight: 30}
+
+# ── Absences ─────────────────────────────────────────────────────────────────
+# Sur ces périodes, tout est proposé NON COMPTÉ — mais les journées où une
+# activité cliente réelle est détectée sont remontées en évidence dans le
+# rapport, jamais supprimées en silence.
+absences:
+  - {du: 2026-06-22, au: 2026-07-19, motif: "congé paternité"}
+
+# ── Réglages du calcul ───────────────────────────────────────────────────────
+follow_cap: 10            # plafond du temps de suivi après une demande (minutes)
+work_start_hour: 8        # plage ouvrée : seule fenêtre où le transversal se refacture
+work_end_hour: 19
+client_threshold_min: 60  # en deçà, la journée n'est pas « cliente » → transversal écarté
+quantum_min: 15           # tranche d'arrondi des lignes
+
+# ── Écriture dans Redmine ────────────────────────────────────────────────────
+user_id: 5                # les saisies sont créées au nom de cet utilisateur
+activity_id: 9            # activité par défaut (« Développement »)
+# Cibles des lignes SANS ticket : projet Redmine par "<client>/<projet PM>".
+project_map:
+  # "pisceen/dolibarr": pisceen-dolibarr

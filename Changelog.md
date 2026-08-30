@@ -14,6 +14,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **`pm-task-doc` : adosser une doc partagée à un ticket, sans geste manuel** (RM1890, sous-tâche
+  de RM1856). La convention « un aspect par SUJET, jamais par ticket » (RM1856) était écrite depuis
+  juin et **jamais outillée** — résultat mesuré au moment de la livraison : sur 24 aspects du projet
+  `pm-ai-agents`, **12 n'avaient aucun frontmatter** et **9 portaient un RM-id dans leur slug**, alors
+  que ce slug **devient l'URL de la page wiki** et qu'un rename la casse. L'outil crée l'aspect depuis
+  le template partagé (RM1891) ou l'y rattache, maintient `related_tickets[]`, insère la référence
+  « Doc partagée » dans la description du ticket (via l'outil canonique, pas à la main), et publie au
+  wiki à la demande — le tout **idempotent**. Il **refuse** un slug portant un RM-id, et `--check`
+  audite la conformité de tous les aspects d'un projet. L'édition de `related_tickets[]` est
+  **textuelle et non par round-trip YAML** : un round-trip mangerait les commentaires de fin de ligne,
+  qui portent la moitié de l'information de la liste (test dédié). La dérivation du titre de page wiki
+  quitte `pm-wiki-sync` pour `pm_doc` : `pm-task-doc` doit produire la **même** URL pour poser le lien
+  **avant** le premier sync — deux copies, c'est deux URL le jour où la règle bouge.
+  ⚠ Reste dû : le **CF link** ticket→page wiki prévu par la convention § 3.3 n'est pas posé, faute de
+  champ dédié sur l'instance Redmine (les CF `link` existants sont « GIT PR » et « Environnement de
+  test »). L'outil le signale ; créer le champ est une opération d'instance.
 - **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
   Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
   réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une

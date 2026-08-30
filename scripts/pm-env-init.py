@@ -26,6 +26,20 @@ entrée du manifeste (origin obligatoire) + `fetch`. Les têtes distantes vivent
 `refs/remotes/<k>/*` ; `refs/heads/*` n'est peuplé QUE par les worktrees → pas de
 collision, uniforme quel que soit le nombre de remotes.
 
+Forme d'un remote (RM2838) — une CHAÎNE reste le transport, comme depuis toujours :
+
+    remotes: {origin: "gitlab:<owner>/<repo>.git"}
+
+ou un mapping, pour noter l'identité EN PLUS du transport (cf. `pm_repos`) :
+
+    remotes:
+      origin:
+        url: https://gogs.materiaux-naturels.fr/<owner>/<repo>.git   # identité
+        ssh: ssh://gogs@matnat-tools/<owner>/<repo>.git              # transport
+
+`git remote add` reçoit le transport (`ssh`, sinon `url`) ; l'`url` sert à rattacher
+le dépôt à une instance du registre — ce qu'un alias tunnelé ne permet pas de déduire.
+
 N'auto-committe RIEN côté PM (pm_git) : opère sur les repos du workspace, pas sur
 le repo PM.
 """
@@ -38,6 +52,9 @@ try:
     import yaml
 except ImportError:
     sys.exit("pm-env-init: PyYAML requis (apt install python3-yaml)")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
 GITIGNORE = (
@@ -108,6 +125,9 @@ def load_repos(ws: Path) -> list[dict]:
             "    repos:\n"
             "      - name: <repo>\n"
             "        remotes: {origin: gitlab:<...>}\n"
+            "    (ou, pour noter l'identité EN PLUS du transport :\n"
+            "        remotes: {origin: {url: https://<forge>/<owner>/<repo>.git,\n"
+            "                           ssh: gitlab:<owner>/<repo>.git}})\n"
             "        integration_branch: dev")
     for i, r in enumerate(repos):
         if not r.get("name"):
@@ -115,6 +135,13 @@ def load_repos(ws: Path) -> list[dict]:
         rem = r.get("remotes") or {}
         if "origin" not in rem:
             die(f"repos[{r.get('name')}] : remote `origin` obligatoire")
+        # RM2838 : chaque remote est une chaîne (transport pur, historique) ou un
+        # mapping {url, ssh}. Valider ICI évite de découvrir la faute au milieu
+        # d'un `git remote add`, à moitié instancié.
+        try:
+            pm_repos.validate_remotes(r)
+        except pm_repos.RepoConfError as e:
+            die(str(e))
     return repos
 
 
@@ -164,7 +191,9 @@ def ensure_bare(ctx: Ctx, ws: Path, repo: dict):
         existing = set(out.split())
     ordered = ["origin"] + sorted(k for k in remotes if k != "origin")
     for k in ordered:
-        url = remotes[k]
+        # Le transport, pas l'identité (RM2838) : `ssh` s'il est déclaré, sinon
+        # `url`. Une chaîne reste elle-même — comportement historique.
+        url = pm_repos.remote_transport(remotes[k], f"repos[{name}].remotes.{k}")
         if k in existing:
             ctx.skip(f"remote {k} déjà configuré")
             continue

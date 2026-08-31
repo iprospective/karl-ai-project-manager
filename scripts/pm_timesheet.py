@@ -584,6 +584,32 @@ class TargetResolver:
             return activity_for_type(typ)
         return defaut
 
+    def activites_projet(self, entity, project, jour):
+        """{activité: poids} pour le temps NON rattaché d'un projet, un jour donné.
+
+        Une ligne sans ticket agrège des travaux de natures différentes. Plutôt
+        que de la poser en bloc opaque, on la ventile selon ce que les journaux
+        du projet racontent ce jour-là : le client lit « SysAdmin 1 h, Audit
+        30 min » au lieu d'un « divers 1 h 30 » injustifiable.
+        """
+        poids = collections.Counter()
+        for ts, rm, ent, proj in self.timeline():
+            if (ent, proj) != (entity, project) or ts.strftime("%Y-%m-%d") != jour:
+                continue
+            texte = self._journal_du_jour(str(rm), jour)
+            trouve = False
+            for activite, motif in INDICES_ACTIVITE:
+                if texte and re.search(motif, texte, re.I):
+                    poids[activite] += 1
+                    trouve = True
+                    break
+            if not trouve:
+                from redmine_utils import activity_for_type
+                typ = self.type_ticket(rm)
+                if typ:
+                    poids[activity_for_type(typ)] += 1
+        return dict(poids)
+
     def _journal_du_jour(self, rm, jour):
         """Entrées du `.log.md` d'un ticket datées de ce jour, concaténées."""
         cle = (rm, jour)
@@ -941,6 +967,7 @@ def repartir_transversal(alloc, regles, params=None):
 
     final = collections.defaultdict(float)
     ecarte = collections.defaultdict(float)
+    refacture = collections.defaultdict(float)   # part d'outillage dans chaque ligne
     journal = {}
     for jour, d in par_jour.items():
         client_total = sum(d["clients"].values())
@@ -990,14 +1017,16 @@ def repartir_transversal(alloc, regles, params=None):
                 final[(jour, cible)] += minutes          # soir/nuit/week-end : interne
         if pot_a_repartir and client_total > 0:
             for cible, m in lignes_clientes:
-                final[(jour, cible)] += pot_a_repartir * m / client_total
+                part = pot_a_repartir * m / client_total
+                final[(jour, cible)] += part
+                refacture[(jour, cible)] += part
         journal[jour] = {
             "destin": destin, "cle": cle, "absence": motif_absence,
             "client_h": client_total / 60, "pot_ouvre_h": d["pot_ouvre"] / 60,
             "pot_hors_h": d["pot_hors"] / 60,
             "alerte_absence": bool(motif_absence and client_total > 0),
         }
-    return dict(final), dict(ecarte), journal
+    return dict(final), dict(ecarte), journal, dict(refacture)
 
 
 JOURS_FR = {"lundi": 0, "mardi": 1, "mercredi": 2, "jeudi": 3,
@@ -1439,7 +1468,7 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
 
 
 def proposition(final, journal, quantum=None, meta=None, resolver=None,
-                activite_defaut=None):
+                activite_defaut=None, refacture=None):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
 
     Elle est relue telle quelle par `--apply` : ce que l'humain a corrigé est ce
@@ -1450,16 +1479,44 @@ def proposition(final, journal, quantum=None, meta=None, resolver=None,
     for (jour, cible), m in final.items():
         par_jour[jour][cible] = m
     lignes = []
+    refacture = refacture or {}
     for jour in sorted(par_jour):
         arrondi = quantifier({(jour, k): v for k, v in par_jour[jour].items()}, quantum)
         for (j, cible), minutes in sorted(arrondi.items(), key=lambda kv: -kv[1]):
             ent, proj, rm = cible
+            # Sans ticket, une ligne mélange des natures de travail : on la
+            # ventile par activité (demande de lisibilité côté client).
+            if not rm and resolver and minutes >= quantum * 2:
+                poids = resolver.activites_projet(ent, proj, j)
+                if len(poids) > 1:
+                    total_poids = sum(poids.values())
+                    reste = minutes
+                    parts = sorted(poids.items(), key=lambda kv: -kv[1])
+                    for i, (act, w) in enumerate(parts):
+                        part = (minutes * w / total_poids) if i < len(parts) - 1 else reste
+                        part = int(round(part / quantum) * quantum)
+                        part = min(part, reste)
+                        if part <= 0:
+                            continue
+                        reste -= part
+                        lignes.append({
+                            "jour": j, "client": ent, "projet": proj, "ticket": None,
+                            "minutes": part, "activite": act,
+                            "outillage_min": None, "valide": True,
+                        })
+                    if reste <= 0:
+                        continue
+                    minutes = reste
             lignes.append({
                 "jour": j, "client": ent, "projet": proj,
                 "ticket": int(rm) if rm and str(rm).isdigit() else None,
                 "minutes": int(minutes),
                 "activite": (resolver.activite(rm, j, activite_defaut)
                              if resolver else activite_defaut),
+                # part de la ligne qui vient de l'outillage mutualisé (PM, infra,
+                # produits) refacturé ce jour-là : elle est ÉCRITE dans le
+                # commentaire de la saisie, pour que le client sache ce qu'il paie.
+                "outillage_min": int(round(refacture.get((j, cible), 0))) or None,
                 "valide": True,
             })
     return {"meta": meta or {}, "quantum_min": quantum,

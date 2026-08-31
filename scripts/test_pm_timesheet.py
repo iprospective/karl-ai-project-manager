@@ -116,7 +116,7 @@ alloc = {
     (J, False, ("iprospective", "pm-ai-agents", None)): 30.0,  # soirée → interne
     (J, False, ("lemathou", "perso", None)): 45.0,             # perso → intouché
 }
-final, ecarte, journal = W.repartir_transversal(alloc, regles)
+final, ecarte, journal, _refac = W.repartir_transversal(alloc, regles)
 verifie(presque(sum(final.values()) + sum(ecarte.values()), sum(alloc.values())),
         "conservation : final + écarté = total mesuré")
 verifie(journal[J]["destin"] == W.REFACTURE, "journée cliente → refacturation")
@@ -135,16 +135,24 @@ alloc_tk = {
     (J, True, ("cli1", "presta", "1111")): 120.0,   # ligne cliente, vrai ticket
     (J, True, ("iprospective", "pm-ai-agents", "2409")): 60.0,   # transversal ticketé
 }
-final_tk, _e, _j = W.repartir_transversal(alloc_tk, regles)
+final_tk, _e, _j, _r3 = W.repartir_transversal(alloc_tk, regles)
 verifie(not any(k[1][0] == "cli1" and k[1][1] == "pm-ai-agents" for k in final_tk),
         "aucun ticket du projet transversal n'est crédité à un client")
 verifie(presque(final_tk.get((J, ("cli1", "presta", "1111")), 0), 180.0),
         "le transversal gonfle la ligne cliente existante (qui porte le bon ticket)")
 
+# la part d'outillage refacturée est traçable ligne par ligne (elle sera écrite
+# dans le commentaire de la saisie : le client doit savoir ce qu'il paie)
+_f4, _e4, _j4, refac = W.repartir_transversal(alloc, regles)
+verifie(presque(sum(refac.values()), 60.0),
+        "la part d'outillage refacturée est isolée (60 min réparties)")
+verifie(presque(refac.get((J, ("cli1", "p", None)), 0), 45.0),
+        "elle suit le prorata du client dans la journée")
+
 # journée non cliente : le transversal est écarté
 alloc_creuse = {(J, True, ("iprospective", "pm", None)): 200.0,
                 (J, True, ("cli1", "p", None)): 10.0}
-final2, ecarte2, journal2 = W.repartir_transversal(alloc_creuse, regles)
+final2, ecarte2, journal2, _r2 = W.repartir_transversal(alloc_creuse, regles)
 verifie(journal2[J]["destin"] == W.NON_COMPTE, "journée à moins d'1 h de client")
 verifie(presque(sum(ecarte2.values()), 200.0), "le transversal du jour est écarté")
 verifie(presque(sum(final2.values()) + sum(ecarte2.values()), 210.0),
@@ -155,7 +163,7 @@ regles_abs = W.Regles(types=regles.types, perso={"lemathou"},
                       absences=[(date(2026, 8, 1), date(2026, 8, 5), "congé")])
 alloc_abs = {(J, True, ("cli1", "p", None)): 120.0,
              (J, True, ("iprospective", "pm", None)): 30.0}
-f3, e3, journal3 = W.repartir_transversal(alloc_abs, regles_abs)
+f3, e3, journal3, _r4 = W.repartir_transversal(alloc_abs, regles_abs)
 verifie(journal3[J]["alerte_absence"], "activité cliente pendant une absence → alerte")
 verifie(presque(sum(e3.values()), 150.0) and not f3,
         "pendant une absence, tout est écarté (rien n'est proposé à la saisie)")

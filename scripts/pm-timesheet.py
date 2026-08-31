@@ -141,6 +141,45 @@ def saisies_humaines(url, key, user_id, debut, fin, basic=None):
 _CACHE_PROJET_REDMINE = {}
 
 
+def _marque_heritee(marque, deja):
+    """Retrouve une saisie posée AVANT que les lignes sans ticket portent leur activité.
+
+    Sans cela, `[timesheet:…/-@13]` ne reconnaîtrait pas `[timesheet:…/-]` déjà
+    en base et la recréerait : un doublon de facturation, le défaut le plus grave
+    que puisse avoir cet outil.
+    """
+    if "@" not in marque:
+        return None
+    ancienne = marque.split("@")[0] + "]"
+    return ancienne if ancienne in deja else None
+
+
+def _marque(ligne):
+    """Clé de déduplication d'une ligne. Une ligne sans ticket porte son activité :
+    plusieurs natures de travail cohabitent le même jour sur le même projet."""
+    base = (f"[timesheet:{ligne['jour']}#{ligne.get('client') or '-'}"
+            f"/{ligne.get('ticket') or '-'}")
+    if not ligne.get("ticket") and ligne.get("activite"):
+        base += f"@{ligne['activite']}"
+    return base + "]"
+
+
+def _libelle(ligne, marque):
+    """Commentaire de la saisie — court, c'est ce que le client lira.
+
+    Le ticket porte déjà son titre dans Redmine : le répéter n'apporterait rien.
+    Seule la part d'outillage mutualisé (PM, infrastructure, produits) mérite
+    d'être dite, puisqu'elle est incluse dans le temps sans être visible.
+    """
+    part = ligne.get("outillage_min") or 0
+    if ligne.get("ticket"):
+        base = "Travail assisté" + (f", dont {part} min d'outillage" if part >= 5 else "")
+    else:
+        base = f"{ligne.get('projet') or 'divers'}" + (
+            f", dont {part} min d'outillage" if part >= 5 else "")
+    return f"{base} {marque}"[:255]
+
+
 def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
     """Projet Redmine d'une ligne sans ticket : `project_map`, sinon le manifeste PM.
 
@@ -273,7 +312,7 @@ def calculer(args, cfg, conf):
     alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
         W.build_intervals(events, params), params)
     alloc = W.eclater_cles_multi(alloc, regles)
-    final, ecarte, journal = W.repartir_transversal(alloc, regles, params)
+    final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
 
     deduit = []
     if not args.sans_deduction:
@@ -295,6 +334,7 @@ def calculer(args, cfg, conf):
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
     return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+            "refacture": refacture,
             "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
@@ -314,6 +354,7 @@ def ecrire_sorties(res, dossier, libelle):
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
                          resolver=res.get("resolver"),
                          activite_defaut=res.get("activite_defaut"),
+                         refacture=res.get("refacture"),
                          meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),
                                "evenements": res["events"],
                                "sources": [{"kind": k, "path": p, "evenements": n}
@@ -358,8 +399,10 @@ def appliquer(chemin_yml, cfg, conf, args):
     cree = ignore = erreurs = corriges = 0
     sans_cible, echecs = [], []
     for l in lignes:
-        marque = f"[timesheet:{l['jour']}#{l.get('client') or '-'}/{l.get('ticket') or '-'}]"
-        if marque in deja:
+        marque = _marque(l)
+        connue = marque if marque in deja else _marque_heritee(marque, deja)
+        if connue:
+            marque = connue
             ignore += 1
             # L'activité a pu être affinée depuis (journal du ticket, type) :
             # une saisie déjà posée se CORRIGE, elle ne se duplique pas.
@@ -376,7 +419,7 @@ def appliquer(chemin_yml, cfg, conf, args):
             "spent_on": l["jour"], "hours": heures, "user_id": int(uid),
             "activity_id": (args.activity or l.get("activite")
                             or conf.get("activity_id") or 9),
-            "comments": f"{l.get('projet') or ''} — travail assisté {marque}".strip(" —"),
+            "comments": _libelle(l, marque),
         }}
         if l.get("ticket"):
             payload["time_entry"]["issue_id"] = int(l["ticket"])
@@ -416,7 +459,7 @@ def appliquer(chemin_yml, cfg, conf, args):
     return 0 if not (echecs or sans_cible) else 1
 
 
-def corriger_activites(cfg, conf, args, libelle):
+def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
     """Réaligne l'activité des saisies déjà posées. Ne crée ni ne supprime rien.
 
     Séparé d'`--apply` volontairement : recalculer une proposition sans déduction
@@ -432,6 +475,23 @@ def corriger_activites(cfg, conf, args, libelle):
         sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis.")
     resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
     defaut = conf.get("activity_id") or 9
+
+    # Recalcul SANS déduction, en mémoire seulement : il faut toutes les lignes
+    # pour retrouver celles déjà posées. Rien n'est créé depuis cette
+    # proposition — on ne touche qu'aux saisies portant déjà une marque.
+    args_recalc = argparse.Namespace(**{**vars(args), "sans_deduction": True})
+    attendu = {}
+    try:
+        res = calculer(args_recalc, cfg, conf)
+        prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
+                             resolver=res.get("resolver"),
+                             activite_defaut=res.get("activite_defaut"),
+                             refacture=res.get("refacture"))
+        for l in prop["lignes"]:
+            marque = _marque(l)
+            attendu[marque] = l
+    except SystemExit:
+        pass
 
     offset, posees = 0, []
     while True:
@@ -449,26 +509,43 @@ def corriger_activites(cfg, conf, args, libelle):
 
     change = inchange = rate = 0
     for t in posees:
+        commentaire = t.get("comments") or ""
+        marque = commentaire[commentaire.index("[timesheet:"):].split("]")[0] + "]"
         rm = str(t["issue"]["id"]) if t.get("issue") else None
-        voulue = resolver.activite(rm, t["spent_on"], defaut) or defaut
+        ligne = attendu.get(marque)
+        if ligne is None and marque.endswith("/-]"):
+            # saisie posée avant que les lignes sans ticket portent leur activité
+            prefixe = marque[:-1] + "@"
+            candidates = [v for k, v in attendu.items() if k.startswith(prefixe)]
+            ligne = max(candidates, key=lambda l: l["minutes"]) if candidates else None
+        voulue = (ligne or {}).get("activite") or resolver.activite(
+            rm, t["spent_on"], defaut) or defaut
         actuelle = (t.get("activity") or {}).get("id")
-        if voulue == actuelle:
+        texte = _libelle(ligne, marque) if ligne else commentaire
+        maj = {}
+        if voulue != actuelle:
+            maj["activity_id"] = voulue
+        if texte != commentaire:
+            maj["comments"] = texte
+        if not maj:
             inchange += 1
             continue
         if args.dry_run:
+            quoi = " · ".join(
+                ([f"activité {actuelle} → {voulue}"] if "activity_id" in maj else [])
+                + ([f"libellé → {texte[:56]}"] if "comments" in maj else []))
             print(f"  [dry-run] {t['spent_on']} {t['hours']:5.2f} h "
-                  f"{'RM' + rm if rm else '(projet)':10} "
-                  f"activité {actuelle} → {voulue}")
+                  f"{'RM' + rm if rm else '(projet)':10} {quoi}")
             change += 1
             continue
         code, _ = http_json("PUT", f"{url}/time_entries/{t['id']}.json", key,
-                            {"time_entry": {"activity_id": voulue}})
+                            {"time_entry": maj})
         if code in (200, 204):
             change += 1
         else:
             rate += 1
     verbe = "à corriger" if args.dry_run else "corrigées"
-    print(f"✓ timesheet {libelle} : {change} activité(s) {verbe}, {inchange} déjà justes"
+    print(f"✓ timesheet {libelle} : {change} saisie(s) {verbe}, {inchange} déjà justes"
           + (f", {rate} refusée(s)" if rate else "")
           + f" (sur {len(posees)} saisies posées) — aucune création")
     return 0
@@ -488,8 +565,10 @@ def main():
     ap.add_argument("--activity", type=int, help="activité Redmine forcée")
     ap.add_argument("--follow-cap", type=float, help="plafond du temps de suivi (min)")
     ap.add_argument("--quantum", type=int, help="tranche d'arrondi (min)")
-    ap.add_argument("--fix-activities", action="store_true",
-                    help="corrige l'activité des saisies DÉJÀ posées ; n'en crée aucune")
+    ap.add_argument("--fix-activities", "--fix", dest="fix_activities",
+                    action="store_true",
+                    help="réaligne activité ET commentaire des saisies DÉJÀ posées ; "
+                         "n'en crée, ni n'en supprime aucune")
     ap.add_argument("--sans-deduction", action="store_true",
                     help="ne pas retrancher les saisies Redmine existantes")
     ap.add_argument("--verbose", action="store_true")

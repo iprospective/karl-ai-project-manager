@@ -976,6 +976,66 @@ def _hm(minutes):
     return f"{m // 60}h{m % 60:02d}"
 
 
+def rendre_calendrier(final, totaux, mois, ecarte=None):
+    """Vue calendaire : une semaine par bloc, une ligne par client, un jour par colonne.
+
+    C'est la forme sous laquelle une répartition de temps se relit vraiment :
+    « ce mardi-là j'étais sur quoi ? ». Les tableaux par client ou par ticket
+    disent combien ; le calendrier dit quand — et c'est ce qui permet de repérer
+    une journée mal attribuée d'un coup d'œil.
+    """
+    jours_fr = ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"]
+    par_jour = collections.defaultdict(collections.Counter)
+    for (jour, cible), minutes in final.items():
+        par_jour[jour][cible[0] or "(divers)"] += minutes
+    ecarte_jour = collections.defaultdict(collections.Counter)
+    for (jour, cible), minutes in (ecarte or {}).items():
+        ecarte_jour[jour][cible[0] or "(divers)"] += minutes
+    dates = sorted(set(par_jour) | set(totaux))
+    if not dates:
+        return ""
+    debut, fin = date.fromisoformat(dates[0]), date.fromisoformat(dates[-1])
+    lundi = debut - timedelta(days=debut.weekday())
+    L = ["## Calendrier", "",
+         "Heures **à noter** par client et par jour. `·` = du temps a été mesuré "
+         "pour ce client ce jour-là mais il est écarté (journée non cliente, "
+         "absence, ou déjà saisi) ; `—` = aucune activité.", "", "```"]
+    largeur = 11
+    while lundi <= fin:
+        semaine = [lundi + timedelta(days=i) for i in range(7)]
+        clefs = [d.isoformat() for d in semaine]
+        clients = sorted({c for k in clefs
+                          for c in list(par_jour.get(k, {})) + list(ecarte_jour.get(k, {}))},
+                         key=lambda c: -sum(par_jour.get(k, {}).get(c, 0) for k in clefs))
+        if not clients and not any(totaux.get(k) for k in clefs):
+            lundi += timedelta(days=7)
+            continue
+        L.append("")
+        L.append(" " * 13 + "".join(
+            f"{jours_fr[i]} {d.day:02d}".ljust(largeur) for i, d in enumerate(semaine)))
+        L.append(" " * 13 + ("─" * (largeur - 1) + " ") * 7)
+        ligne = "total mesuré".ljust(13)
+        for k in clefs:
+            v = totaux.get(k, 0)
+            ligne += (_hm(v) if v >= 1 else "—").ljust(largeur)
+        L.append(ligne.rstrip())
+        for c in clients:
+            ligne = c[:12].ljust(13)
+            for k in clefs:
+                v = par_jour.get(k, {}).get(c, 0)
+                if v >= 1:
+                    cellule = _hm(v)
+                elif ecarte_jour.get(k, {}).get(c, 0) >= 1:
+                    cellule = "·"          # mesuré ce jour-là, mais écarté
+                else:
+                    cellule = "—"
+                ligne += cellule.ljust(largeur)
+            L.append(ligne.rstrip())
+        lundi += timedelta(days=7)
+    L += ["```", ""]
+    return "\n".join(L)
+
+
 def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
                     deduit=None, quantum=None, resolver=None):
     """Compte rendu lisible — c'est la pièce que l'humain relit et amende."""
@@ -1038,6 +1098,10 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
                      f"{'s' if n_autres > 1 else ''} poste"
                      f"{'s' if n_autres > 1 else ''} — {quoi}*")
         L.append("")
+
+    cal = rendre_calendrier(final, totaux, mois, ecarte)
+    if cal:
+        L += [cal, ""]
 
     alertes = [j for j, d in sorted(journal.items()) if d.get("alerte_absence")]
     if alertes:

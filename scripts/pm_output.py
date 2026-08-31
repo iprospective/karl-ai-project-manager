@@ -82,10 +82,35 @@ class _Out:
             self.verbose = verbose
 
     # ── émission ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _write(stream, text):
+        """Écrit sans jamais tuer l'appelant (RM2870).
+
+        Un `pm-task-add … --porcelain | head -1` ferme le tube dès la première
+        ligne lue : l'écriture suivante lève `BrokenPipeError` et **tuait le
+        script** — après le POST Redmine, donc en laissant un ticket sans fiche PM
+        (incident RM2868). L'affichage n'est jamais une raison d'interrompre une
+        mutation en cours : le flux mort est remplacé par `os.devnull`, le travail
+        continue, et l'exception ne remonte pas.
+        """
+        try:
+            stream.write(text)
+            stream.flush()
+            return
+        except (BrokenPipeError, ValueError, OSError):
+            pass
+        try:
+            devnull = open(os.devnull, "w")
+            if stream is sys.stdout:
+                sys.stdout = devnull
+            elif stream is sys.stderr:
+                sys.stderr = devnull
+        except OSError:
+            pass
+
     def _emit(self, line, err=False):
         stream = sys.stderr if (err or self.porcelain) else sys.stdout
-        stream.write(line + "\n")
-        stream.flush()
+        self._write(stream, line + "\n")
 
     def op(self, verb, rm=None, extra="", commit=None):
         """Une opération accomplie = UNE ligne dense."""
@@ -116,8 +141,7 @@ class _Out:
 
     def value(self, v):
         """Valeur machine : SEULE sortie stdout autorisée en mode porcelain."""
-        sys.stdout.write(str(v) + "\n")
-        sys.stdout.flush()
+        self._write(sys.stdout, str(v) + "\n")
 
 
 out = _Out()

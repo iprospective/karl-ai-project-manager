@@ -27,8 +27,15 @@ Usage :
   karl-move-session.py --session <sid> --to /zfs/workspaces/<client>/<projet> [--dry-run]
   karl-move-session.py --session <sid> --to <path> --engine claude
 """
-import argparse, json, os, re, socket, sys, subprocess
+import argparse, json, os, re, socket, sys
 from pathlib import Path
+
+# RM2810 : la garde « session vivante » vit dans pm_proclive, partagée avec
+# karl-agent. Deux copies donneraient deux verdicts sur la seule question qui
+# compte avant de déplacer une session. sys.path explicite : le script est
+# appelé depuis un cwd quelconque.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_proclive import live_session_pids  # noqa: E402
 
 SID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 PROJECTS = Path.home() / ".claude" / "projects"
@@ -45,12 +52,9 @@ def find_transcript(sid: str) -> Path | None:
     return next((p for p in PROJECTS.glob(f"*/{sid}.jsonl")), None)
 
 
-def session_is_live(sid: str) -> bool:
-    try:
-        out = subprocess.run(["pgrep", "-af", "claude"], capture_output=True, text=True).stdout
-    except Exception:
-        return False
-    return any(sid in ln and "--resume" in ln for ln in out.splitlines())
+def session_is_live(sid: str, engine: str = "claude") -> list:
+    """PIDs vivants portant ce sid (liste vide = déplaçable). Cf. pm_proclive."""
+    return live_session_pids(sid, engine)
 
 
 def main() -> int:
@@ -76,9 +80,10 @@ def main() -> int:
               f"local au conteneur — lance-moi DANS le conteneur dev, sinon le point 3 "
               f"visera le mauvais fichier.", file=sys.stderr)
 
-    if session_is_live(sid) and not a.force:
-        print("✗ une session claude --resume vit encore sur ce sid — ferme-la d'abord "
-              "(ou --force).", file=sys.stderr); return 3
+    live = session_is_live(sid, a.engine)
+    if live and not a.force:
+        print(f"✗ {a.engine} vit encore sur ce sid (pid {', '.join(str(p) for p in live)}) — "
+              f"ferme la session d'abord (ou --force).", file=sys.stderr); return 3
 
     jf = find_transcript(sid)
     if not jf:

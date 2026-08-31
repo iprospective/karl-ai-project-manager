@@ -116,6 +116,26 @@ def count_unchecked(description):
     return len(UNCHECKED_RE.findall(description or ""))
 
 
+CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]", re.M)
+PLACEHOLDER_RE = re.compile(r"^\s*[-*]\s*\[ \]\s*\(à compléter\)\s*$", re.M)
+
+
+def count_checked(description):
+    """Nombre d'items de checklist cochés dans la description Redmine."""
+    return len(CHECKED_RE.findall(description or ""))
+
+
+def checklist_is_placeholder(description):
+    """La « checklist » se réduit-elle au gabarit `- [ ] (à compléter)` ?
+
+    Distinguer ce cas de vrais critères non cochés : ici il n'y a rien à cocher,
+    le travail manquant est de les ÉCRIRE. Les confondre brouillerait le message
+    d'erreur (409 tickets du parc sont dans ce cas, contre 28 à checklist vide).
+    """
+    d = description or ""
+    return bool(PLACEHOLDER_RE.search(d)) and count_unchecked(d) == len(PLACEHOLDER_RE.findall(d))
+
+
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
@@ -417,16 +437,25 @@ NORMS_TRANSITIONS = {
         ("a_corriger", "problèmes (note dans journal)"),
     ],
     "a_tester_demandeur": [
-        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée"),
+        # RM2893 : validation demandeur sur DEV. Si le projet a une préprod → a_tester_preprod ;
+        # sinon bypass direct vers a_mep.
+        ("a_tester_preprod", "validé sur dev : MR branche→integration_branch, déploiement préprod"),
+        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée (projet SANS préprod)"),
         ("a_corriger", "rejet (note dans journal)"),
         ("ferme", "ticket sans code à déployer — close_reason: resolu"),
     ],
-    "a_mep": [
-        ("en_mep", "integration_branch déployée en preprod"),
+    # RM2893 : recette préprod optionnelle (id Redmine à créer — cf. redmine.reference.yml).
+    "a_tester_preprod": [
+        ("a_mep", "recette préprod OK : en file de MEP"),
+        ("a_corriger", "régression préprod (note dans journal)"),
     ],
+    "a_mep": [
+        ("en_mep", "déployé en PROD (MR préprod→prod + pull prod) — dernière vérif avant fermeture"),
+    ],
+    # RM2893 : en_mep redéfini = EN PROD, dernière vérif avant fermeture (déploiement fait en ENTRANT).
     "en_mep": [
-        ("ferme", "tests preprod OK + merge → prod_branch + pull prod — close_reason: resolu"),
-        ("a_corriger", "régression preprod (note dans journal)"),
+        ("ferme", "vérif prod OK — close_reason: resolu"),
+        ("a_corriger", "régression prod (note dans journal)"),
     ],
     "a_corriger": [
         ("en_cours", "reprise du dev"),
@@ -557,10 +586,12 @@ def main():
                          "pour cas particuliers (rebascule, replanif…) — viole la règle NORMS sinon.")
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
-    ap.add_argument("--allow-unchecked", action="store_true",
-                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
-                         "description contient des items de checklist non cochés (sinon bloqué — "
-                         "NORMS § màj description : cocher au fil de l'eau).")
+    ap.add_argument("--allow-unchecked", metavar="MOTIF", nargs="?", const="",
+                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu malgré des "
+                         "items de checklist non cochés — en DISANT pourquoi. Le motif est obligatoire "
+                         "et rejoint la note Redmine et le journal (RM2884) : sans lui, l'option "
+                         "servait à franchir le contrôle sans faire le travail qu'il réclamait. "
+                         "Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\".")
     ap.add_argument("--allow-unmerged", action="store_true",
                     help="Autorise a_mep / ferme:resolu même si une branche <id>-* du ticket "
                          "n'est pas mergée dans la branche d'intégration (sinon bloqué — "
@@ -692,6 +723,10 @@ def main():
     # status_change.md) + éventuel AJOUT SÉMANTIQUE (--note). L'agent ne rédige
     # plus la partie mécanique ; assemblage final après résolution d'assignation.
     semantic_note = args.note
+    # Lignes ajoutées à la note par les gardes elles-mêmes (RM2884 : le motif d'un
+    # --allow-unchecked doit rester dans le ticket, sinon le contournement ne laisse
+    # aucune trace et redevient indiscernable d'un oubli).
+    extra_notes = []
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).
@@ -704,15 +739,47 @@ def main():
     # NORMS § màj description : gate sur a_tester_demandeur, a_mep, ferme:resolu.
     gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
         args.status == "ferme" and args.close_reason == "resolu")
-    if gate_status and issue and not args.allow_unchecked:
-        n_unchecked = count_unchecked(issue.get("description"))
-        if n_unchecked:
+    if gate_status and issue:
+        desc = issue.get("description")
+        n_unchecked = count_unchecked(desc)
+        n_checked = count_checked(desc)
+        motif = args.allow_unchecked            # None = option absente ; "" = passée sans motif
+        placeholder = checklist_is_placeholder(desc)
+        if n_unchecked and motif is None:
+            # Le ratio compte : « 0 coché sur 7 » est presque toujours un oubli,
+            # « 6 sur 7 » un choix assumé. Le message doit les distinguer (RM2884).
+            total = n_checked + n_unchecked
+            if placeholder:
+                quoi = ("la checklist n'a jamais été rédigée (« (à compléter) ») — "
+                        "il n'y a rien à cocher, il y a des critères à ÉCRIRE")
+            elif n_checked == 0:
+                quoi = (f"AUCUN des {total} critères n'est coché — une description qui ne dit pas "
+                        f"ce qui est fait rend le ticket illisible")
+            else:
+                quoi = f"{n_checked} coché(s) sur {total}, {n_unchecked} restant(s)"
             sys.exit(
-                f"ERREUR : {n_unchecked} item(s) de checklist non coché(s) dans la description de "
-                f"RM{args.rm_id}, refus de passer en '{args.status}'.\n"
-                f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
-                f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
+                f"ERREUR : RM{args.rm_id} — {quoi}. Refus de passer en '{args.status}'.\n"
+                f"  → Coche ce qui est fait : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
+                f"  → Ou dis pourquoi ça reste décoché : "
+                f"--allow-unchecked \"<motif>\" (le motif est tracé dans la note et le journal)."
             )
+        if n_unchecked and motif == "":
+            sys.exit(
+                f"ERREUR : --allow-unchecked exige un motif (RM2884).\n"
+                f"  → Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\"\n"
+                f"  → Un contournement non motivé est indiscernable d'un oubli — c'est précisément "
+                f"ce qui a laissé 28 tickets partir en test ou en clôture avec 0 critère coché."
+            )
+        if n_unchecked and motif:
+            total = n_checked + n_unchecked
+            grave = (args.status == "ferme" and n_checked == 0)
+            print(f"{'⚠ ' if grave else 'ℹ '}checklist : {n_checked}/{total} coché(s), "
+                  f"{n_unchecked} laissé(s) décoché(s) — motif : {motif}")
+            if grave:
+                print("  ⚠ fermeture avec AUCUN critère coché : le ticket ne gardera aucune trace "
+                      "de ce qui a été fait. Vérifie que c'est bien voulu.")
+            extra_notes.append(f"Checklist : {n_unchecked} item(s) laissé(s) décoché(s) "
+                               f"({n_checked}/{total} coché(s)) — motif : {motif}")
     # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
     # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
     # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde
@@ -753,11 +820,12 @@ def main():
     #   2. status=en_cours sans flag explicite → 'me' par défaut
     #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
     #      indissociable de en_cours). --no-assign pour outrepasser.
-    #   3. status=a_tester_demandeur / etude_chiffrage_a_valider / a_mep → override
-    #      vers demandeur (author) / Manager IA (NORMS § « Règle d'attribution Redmine », RM1734).
-    #      a_tester_dev / en_mep / a_corriger → pas de défaut (testeur ≠ dev,
-    #      testeur preprod humain, worker précédent) : attribution manuelle via
-    #      --assign-to tant que l'orchestrateur n'est pas en place.
+    #   3. status=a_tester_demandeur / a_tester_preprod / etude_chiffrage_a_valider /
+    #      a_mep / en_mep → override vers demandeur (author) / Manager IA
+    #      (NORMS § « Règle d'attribution Redmine », RM1734 ; RM2893 : a_tester_preprod =
+    #      recette préprod → demandeur ; en_mep redéfini = vérif prod finale → demandeur).
+    #      a_tester_dev / a_corriger → pas de défaut (testeur ≠ dev, worker précédent) :
+    #      attribution manuelle via --assign-to tant que l'orchestrateur n'est pas en place.
     #      en_pause / ferme → conserver l'attribution courante.
     #
     # `assign_override_value` est la valeur passée à redmine-post-note --assign-to
@@ -769,11 +837,13 @@ def main():
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
         out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
-    elif args.status in ("a_tester_demandeur", "etude_chiffrage_a_valider", "a_mep") and target:
+    elif args.status in ("a_tester_demandeur", "a_tester_preprod", "etude_chiffrage_a_valider", "a_mep", "en_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
+        #         a_tester_preprod (RM2893)   → responsable recette préprod (défaut demandeur/author).
         #         etude_chiffrage_a_valider   → demandeur (author) : l'étude/CDC + chiffrage
         #                                       finis sont soumis à validation (même résolveur).
         #         a_mep                       → responsable MEP/intégration (par défaut Manager IA).
+        #         en_mep (RM2893, redéfini)   → demandeur (author) : vérif prod finale avant clôture.
         # On rend l'assignation explicite ici pour que MD frontmatter `assigned_to`
         # reflète la réalité Redmine.
         _, target_uid, _ = target
@@ -806,7 +876,8 @@ def main():
              + (f" · MR {git_fm.get('mr_url')}" if git_fm.get("mr_url") else ""))
             if git_fm.get("branch") else "",
     ).strip()
-    note = mech + (f"\n\n{semantic_note}" if semantic_note else "")
+    corps = "\n\n".join([x for x in ([semantic_note] if semantic_note else []) + extra_notes])
+    note = mech + (f"\n\n{corps}" if corps else "")
 
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")

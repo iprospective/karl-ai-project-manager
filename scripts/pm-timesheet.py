@@ -295,6 +295,7 @@ def calculer(args, cfg, conf):
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
     return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+            "activite_defaut": conf.get("activity_id") or 9,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
             "deduit": deduit, "events": len(events), "sources": detail,
@@ -311,6 +312,8 @@ def ecrire_sorties(res, dossier, libelle):
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
+                         resolver=res.get("resolver"),
+                         activite_defaut=res.get("activite_defaut"),
                          meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),
                                "evenements": res["events"],
                                "sources": [{"kind": k, "path": p, "evenements": n}
@@ -335,7 +338,7 @@ def appliquer(chemin_yml, cfg, conf, args):
         sys.exit(f"Aucune ligne validée dans {chemin_yml}.")
 
     # empreintes déjà posées (re-run sans doublon)
-    deja = set()
+    deja = {}
     periode = prop.get("meta", {}).get("periode", "")
     offset = 0
     while True:
@@ -346,22 +349,33 @@ def appliquer(chemin_yml, cfg, conf, args):
         for t in body.get("time_entries", []):
             c = t.get("comments") or ""
             if "[timesheet:" in c:
-                deja.add(c[c.index("[timesheet:"):].split("]")[0] + "]")
+                deja[c[c.index("[timesheet:"):].split("]")[0] + "]"] = {
+                    "id": t["id"], "activity_id": (t.get("activity") or {}).get("id")}
         offset += 100
         if offset >= body.get("total_count", 0):
             break
 
-    cree = ignore = erreurs = 0
+    cree = ignore = erreurs = corriges = 0
     sans_cible, echecs = [], []
     for l in lignes:
         marque = f"[timesheet:{l['jour']}#{l.get('client') or '-'}/{l.get('ticket') or '-'}]"
         if marque in deja:
             ignore += 1
+            # L'activité a pu être affinée depuis (journal du ticket, type) :
+            # une saisie déjà posée se CORRIGE, elle ne se duplique pas.
+            voulue = args.activity or l.get("activite") or conf.get("activity_id") or 9
+            posee = deja[marque]
+            if not args.dry_run and posee.get("activity_id") and voulue != posee["activity_id"]:
+                code, _ = http_json("PUT", f"{url}/time_entries/{posee['id']}.json", key,
+                                    {"time_entry": {"activity_id": voulue}})
+                if code in (200, 204):
+                    corriges += 1
             continue
         heures = round(l["minutes"] / 60.0, 2)
         payload = {"time_entry": {
             "spent_on": l["jour"], "hours": heures, "user_id": int(uid),
-            "activity_id": args.activity or conf.get("activity_id") or 9,
+            "activity_id": (args.activity or l.get("activite")
+                            or conf.get("activity_id") or 9),
             "comments": f"{l.get('projet') or ''} — travail assisté {marque}".strip(" —"),
         }}
         if l.get("ticket"):
@@ -396,9 +410,68 @@ def appliquer(chemin_yml, cfg, conf, args):
               "ou `redmine.project_id` au projet PM", file=sys.stderr)
     verbe = "à créer" if args.dry_run else "créées"
     print(f"✓ timesheet {periode} : {cree} saisies {verbe}, {ignore} déjà posées"
+          + (f" (dont {corriges} activité corrigée)" if corriges else "")
           + (f", {len(sans_cible)} sans projet résolu" if sans_cible else "")
           + (f", {len(echecs)} refusées par Redmine" if echecs else ""))
     return 0 if not (echecs or sans_cible) else 1
+
+
+def corriger_activites(cfg, conf, args, libelle):
+    """Réaligne l'activité des saisies déjà posées. Ne crée ni ne supprime rien.
+
+    Séparé d'`--apply` volontairement : recalculer une proposition sans déduction
+    pour corriger des activités re-proposerait à la création tout ce qui est déjà
+    saisi À LA MAIN — un doublon de facturation. Ici on ne touche qu'aux lignes
+    portant la marque `[timesheet:…]`, et uniquement leur activité.
+    """
+    from redmine_utils import http_json, redmine_creds
+    debut, fin, _ = _periode(args)
+    url, key = redmine_creds()[:2]
+    uid = args.user_id or conf.get("user_id")
+    if not uid:
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis.")
+    resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
+    defaut = conf.get("activity_id") or 9
+
+    offset, posees = 0, []
+    while True:
+        code, body = http_json(
+            "GET", f"{url}/time_entries.json?user_id={uid}"
+            f"&from={debut:%Y-%m-%d}&to={(fin - timedelta(days=1)):%Y-%m-%d}"
+            f"&limit=100&offset={offset}", key)
+        if code != 200:
+            sys.exit(f"Redmine a répondu {code}.")
+        posees += [t for t in body.get("time_entries", [])
+                   if "[timesheet:" in (t.get("comments") or "")]
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+
+    change = inchange = rate = 0
+    for t in posees:
+        rm = str(t["issue"]["id"]) if t.get("issue") else None
+        voulue = resolver.activite(rm, t["spent_on"], defaut) or defaut
+        actuelle = (t.get("activity") or {}).get("id")
+        if voulue == actuelle:
+            inchange += 1
+            continue
+        if args.dry_run:
+            print(f"  [dry-run] {t['spent_on']} {t['hours']:5.2f} h "
+                  f"{'RM' + rm if rm else '(projet)':10} "
+                  f"activité {actuelle} → {voulue}")
+            change += 1
+            continue
+        code, _ = http_json("PUT", f"{url}/time_entries/{t['id']}.json", key,
+                            {"time_entry": {"activity_id": voulue}})
+        if code in (200, 204):
+            change += 1
+        else:
+            rate += 1
+    verbe = "à corriger" if args.dry_run else "corrigées"
+    print(f"✓ timesheet {libelle} : {change} activité(s) {verbe}, {inchange} déjà justes"
+          + (f", {rate} refusée(s)" if rate else "")
+          + f" (sur {len(posees)} saisies posées) — aucune création")
+    return 0
 
 
 def main():
@@ -415,6 +488,8 @@ def main():
     ap.add_argument("--activity", type=int, help="activité Redmine forcée")
     ap.add_argument("--follow-cap", type=float, help="plafond du temps de suivi (min)")
     ap.add_argument("--quantum", type=int, help="tranche d'arrondi (min)")
+    ap.add_argument("--fix-activities", action="store_true",
+                    help="corrige l'activité des saisies DÉJÀ posées ; n'en crée aucune")
     ap.add_argument("--sans-deduction", action="store_true",
                     help="ne pas retrancher les saisies Redmine existantes")
     ap.add_argument("--verbose", action="store_true")
@@ -427,6 +502,9 @@ def main():
     conf = W.charger_config(args.config, cfg=cfg)
     dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "timesheet"
     _d, _f, libelle = _periode(args)
+
+    if args.fix_activities:
+        return corriger_activites(cfg, conf, args, libelle)
 
     if args.apply:
         chemin = dossier / f"{libelle}.yml"

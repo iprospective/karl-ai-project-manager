@@ -427,24 +427,46 @@ _LOG_ENTREE_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) —", re.M)
 POIDS = {"tick": 3.0, "texte": 3.0, "log": 2.0, "projet": 1.0}
 
 
-def _titre_ticket(chemin):
-    """`title:` du frontmatter d'un ticket — sans charger tout le YAML."""
+def _entete_ticket(chemin):
+    """(`title`, `type`) du frontmatter d'un ticket — sans charger tout le YAML."""
+    titre, typ = "", ""
     try:
         with open(chemin, encoding="utf-8", errors="replace") as f:
             for i, ligne in enumerate(f):
                 if i > 40:
                     break
-                if ligne.startswith("title:"):
+                if ligne.startswith("type:"):
+                    typ = ligne.split(":", 1)[1].strip()
+                elif ligne.startswith("title:"):
                     v = ligne.split(":", 1)[1].strip()
                     if v[:1] in ("'", '"'):
                         q, v = v[0], v[1:]
                         v = v[:v.rfind(q)] if q in v[1:] else v
                         if q == "'":
                             v = v.replace("''", "'")     # dé-échappement YAML
-                    return v
+                    titre = v
     except OSError:
         pass
-    return ""
+    return titre, typ
+
+
+#: Ce que le journal du ticket dit du travail RÉELLEMENT fait ce jour-là.
+#: Le `type` d'un ticket décrit son intention ; une même feature se déploie,
+#: s'audite, se documente. Quand le journal le dit clairement, il vaut mieux que
+#: le type — et quand il ne dit rien, on retombe sur le type.
+INDICES_ACTIVITE = (
+    (13, r"\b(déploi|deploi|mep\b|mise en prod|systemd|conteneur|lxc|apache|nginx|"
+         r"vhost|dns|certificat|firewall|sauvegarde|backup|zfs|cron)"),
+    (10, r"\b(audit|analyse|étude|etude|chiffrage|investigation|diagnosti|"
+         r"exploration|cartographi|benchmark)"),
+    (16, r"\b(bug|correctif|corrige|régression|regression|crash|erreur 5\d\d|"
+         r"stacktrace|hotfix|debug)"),
+    (30, r"\b(refacto|nettoyage|simplifi|dette technique|renomm|réorganis)"),
+    (14, r"\b(paramétr|parametr|configur|réglage|reglage)"),
+    (11, r"\b(assistance|dépann|depann|support|explication)"),
+    (12, r"\b(réunion|reunion|point tél|point tel|visio|rendez-vous)"),
+    (31, r"\b(fonctionnalité|feature|implémente|implemente|développ|developp)"),
+)
 
 
 class TargetResolver:
@@ -517,7 +539,8 @@ class TargetResolver:
                     continue
                 rm = f.name[2:].split("_")[0]
                 if rm.isdigit():
-                    idx.setdefault(rm, (ent, proj, _titre_ticket(f)))
+                    titre, typ = _entete_ticket(f)
+                    idx.setdefault(rm, (ent, proj, titre, typ))
         self._index_tickets = idx
         return idx
 
@@ -535,6 +558,53 @@ class TargetResolver:
         """Titre d'un ticket, pour le compte rendu. '' si inconnu."""
         place = self.index_tickets().get(str(rm)) if rm else None
         return place[2] if place and len(place) > 2 else ""
+
+    def type_ticket(self, rm):
+        place = self.index_tickets().get(str(rm)) if rm else None
+        return place[3] if place and len(place) > 3 else ""
+
+    def activite(self, rm, jour, defaut=None):
+        """Activité Redmine d'une ligne : ce que le journal dit, sinon le type.
+
+        Deux niveaux, du plus précis au plus général : ce que l'agent a écrit
+        dans le `.log.md` du ticket CE JOUR-LÀ (déploiement, audit, correctif…),
+        puis le `type` du ticket via la table `type_to_activity`. Un ticket sans
+        rien de tout cela retombe sur le défaut de configuration.
+        """
+        from redmine_utils import activity_for_type
+        if not rm:
+            return defaut
+        texte = self._journal_du_jour(str(rm), jour)
+        if texte:
+            for activite, motif in INDICES_ACTIVITE:
+                if re.search(motif, texte, re.I):
+                    return activite
+        typ = self.type_ticket(rm)
+        if typ:
+            return activity_for_type(typ)
+        return defaut
+
+    def _journal_du_jour(self, rm, jour):
+        """Entrées du `.log.md` d'un ticket datées de ce jour, concaténées."""
+        cle = (rm, jour)
+        if not hasattr(self, "_cache_journal"):
+            self._cache_journal = {}
+        if cle in self._cache_journal:
+            return self._cache_journal[cle]
+        place = self.index_tickets().get(rm)
+        texte = ""
+        if place:
+            try:
+                tasks_dir = self.cfg.path("tasks_dir", entity=place[0], project=place[1])
+                for f in tasks_dir.glob(f"RM{rm}_*.log.md"):
+                    brut = f.read_text(encoding="utf-8", errors="replace")
+                    blocs = re.split(r"^## (?=\d{4}-\d{2}-\d{2}T)", brut, flags=re.M)
+                    texte = " ".join(b[:1500] for b in blocs if b.startswith(jour))
+                    break
+            except Exception:
+                texte = ""
+        self._cache_journal[cle] = texte
+        return texte
 
     # -- timeline des .log.md ------------------------------------------------
     def timeline(self):
@@ -1368,7 +1438,8 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
     return "\n".join(L)
 
 
-def proposition(final, journal, quantum=None, meta=None):
+def proposition(final, journal, quantum=None, meta=None, resolver=None,
+                activite_defaut=None):
     """Structure YAML amendable : la source de vérité de l'étape de validation.
 
     Elle est relue telle quelle par `--apply` : ce que l'humain a corrigé est ce
@@ -1386,7 +1457,10 @@ def proposition(final, journal, quantum=None, meta=None):
             lignes.append({
                 "jour": j, "client": ent, "projet": proj,
                 "ticket": int(rm) if rm and str(rm).isdigit() else None,
-                "minutes": int(minutes), "valide": True,
+                "minutes": int(minutes),
+                "activite": (resolver.activite(rm, j, activite_defaut)
+                             if resolver else activite_defaut),
+                "valide": True,
             })
     return {"meta": meta or {}, "quantum_min": quantum,
             "journees": {j: {"destin": d.get("destin"), "absence": d.get("absence"),

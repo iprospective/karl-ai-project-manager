@@ -207,9 +207,18 @@ providers:
     secret: vw-ipro
   servers:
     # — axe forge —
-    gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}" }
-    gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022 }
-    github-public:  { axis: forge, type: github, url: "https://github.com" }
+    # `ssh_aliases:` = alias `~/.ssh/config` par lesquels les remotes atteignent
+    # cette instance (RM2766). Nécessaire, pas cosmétique : les remotes passent
+    # massivement par des alias qui portent le port et la clé — `gitlab:owner/repo`,
+    # `ssh://gogs@matnat-tools/…`. L'URL d'un tel remote ne dit RIEN de la forge
+    # (`matnat-tools` = 127.0.0.1:28022) ; l'alias déclaré ici, si. Sans lui, le
+    # rattachement « ce dépôt appartient à telle forge » reste impossible.
+    gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}",
+                      ssh_aliases: [gitlab, gitlab-mmi, mmi-gitlab, git] }
+    gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022,
+                      ssh_aliases: [matnat-tools, matnat-git, matnat-gogs] }
+    github-public:  { axis: forge, type: github, url: "https://github.com",
+                      ssh_aliases: [github] }
     # — axe task —
     # `slug:` = identifiant COURT et stable du gestionnaire, utilisé dans les
     # références compactes de tickets (CF « Réf ticket outil externe » : 16 car.,

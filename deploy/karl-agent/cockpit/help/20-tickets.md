@@ -13,8 +13,44 @@ liste monte jusqu'à 40 lignes et repousserait sinon la recherche et la créatio
 hors de l'écran. Le nombre entre parenthèses dit ce qu'elle contient sans avoir
 à l'ouvrir (`(vide)` quand il n'y a rien).
 
+Deux barres de filtres, **cumulables** : par **client** (quand la liste en
+contient plusieurs) et par **statut** — à faire, en cours, à tester, à MEP, en
+pause, fermé. Comme ailleurs dans le cockpit, un bouton n'apparaît que si la
+famille est **présente** dans la liste : un filtre qui ne filtre rien coûterait
+une place dans une colonne étroite. « à MEP » est distingué de « à faire »,
+comme au worklog : le développement y est terminé. Quand un filtre est actif,
+l'en-tête affiche `(vu / total)`.
+
 Ton choix est mémorisé **par navigateur** : laissée ouverte, elle se rouvrira au
-prochain chargement. `✕ vider` remet la liste à zéro.
+prochain chargement. `✕ vider` remet la liste à zéro (filtres compris).
+
+## Changer le statut
+
+Sur la facette **détail**, la pastille de la ligne **phase** est cliquable
+(`en_cours ⇄`) : elle ouvre les statuts réellement posables depuis l'état
+courant. La liste ne vient pas du cockpit mais du **workflow lui-même**
+(`pm-task-status-update --list-next`) — c'est la même règle que celle appliquée
+en ligne de commande, il n'y a pas deux vérités.
+
+- Une transition **grisée** existe dans le workflow, mais **ce compte** ne peut
+  pas la poser (droits Redmine, ticket assigné à quelqu'un d'autre). La raison
+  s'affiche au survol. Elle reste visible : la cacher ferait croire que la
+  transition n'existe pas.
+- 🔒 devant un statut = il **réclame un motif** avant d'être posé (fermeture),
+  et certaines transitions exigent une **note** (réouverture). Les deux sont
+  demandés à l'écran, plutôt que refusés après coup.
+- Si Redmine est injoignable, la liste reste complète et le menu le dit : une
+  panne de l'API ne doit pas rendre le geste inatteignable.
+
+Deux garde-fous des NORMS peuvent **refuser** le changement, avec leur motif :
+des items de checklist non cochés dans la description, ou une branche de ticket
+non mergée dans `dev`. Le cockpit propose alors le forçage (ou la livraison
+MR + merge) — c'est un choix **explicite**, jamais automatique : un ticket
+validé puis fermé dont le code n'a jamais été livré est l'incident qui a motivé
+cette garde.
+
+Le même geste est disponible sur chaque ligne du **worklog** (voir l'aide
+« worklog »), pour ne pas avoir à ouvrir la fiche.
 
 ## Rechercher — local, Redmine, ou les deux
 
@@ -74,14 +110,22 @@ Une session vivante s'ouvre d'un clic (**⇱ ouvrir**). Une session éteinte res
 affichée : « a été traité ici, mais plus rien ne tourne » n'est pas « personne ne
 s'en occupe ».
 
+Un champ **Prompt initial** surplombe les deux boutons : le même choix de modèle
+de consigne que le lanceur de gauche (traiter / continuer / étudier-chiffrer /
+état / reviewer / libre) et le même champ éditable, pré-rempli. Changer de modèle
+remplace le texte ; **libre** ne touche jamais à la saisie. La consigne vaut pour
+les **deux** gestes ci-dessous — lire une consigne et en envoyer une autre serait
+un piège. Changer de ticket repart d'une consigne propre, et un rafraîchissement
+de la fiche ne perd pas ce qui est tapé.
+
 Deux façons de lancer le travail depuis la fiche :
 
 - **▶ nouvelle session** — lance `karl-RM<id>` avec le moteur et le modèle
-  sélectionnés dans le lanceur (panneau 🖥 sessions). La confirmation les
-  rappelle, ainsi que le répertoire et la consigne envoyée. Le bouton est
+  sélectionnés dans le lanceur (panneau 🖥 sessions), et la consigne du champ.
+  La confirmation les rappelle, ainsi que le répertoire. Le bouton est
   désactivé quand la session du ticket tourne déjà : il n'y en a qu'une par
   ticket, ouvre-la.
-- **➜ envoyer dans cette session** — pousse « traite la tâche RM<id> » dans une
+- **➜ envoyer dans cette session** — pousse la consigne dans une
   session **déjà ouverte**, choisie dans la liste. Les sessions du **projet du
   ticket** viennent en tête ; les autres annoncent leur client/projet, et la
   confirmation le répète — envoyer un ticket dans une session qui travaille

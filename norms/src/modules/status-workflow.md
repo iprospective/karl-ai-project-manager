@@ -49,21 +49,48 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [a_tester_dev] ──── problèmes ───► [a_corriger] ───┤ corrections faites
         │ test dev OK                              │
         ▼                                          │
-[a_tester_demandeur] ── rejet ─────────────────────┤
-        │ validé (MR branche→dev, CF GIT PR, merge)
+[a_tester_demandeur] ── rejet ─────────────────────┤  (env DEV : le demandeur
+        │ validé par le demandeur sur DEV          │   valide sur l'env de dev)
+        │ (MR branche→dev, CF GIT PR, merge)       │
         ▼                                          │
-    [a_mep]                                        │
-        │ MR dev→preprod + déploiement preprod     │
+[a_tester_preprod] ── régression préprod ──────────┤  (env PRÉPROD : déploiement
+        │ recette préprod OK                       │   préprod qui suit dev, recette)
         ▼                                          │
-    [en_mep] ──── régression preprod ──────────────┘
-        │ tests preprod OK + MR preprod→prod + pull prod   (2 branches : MR dev→prod)
+    [a_mep]                                        │  (validé + en file de MEP —
+        │ MR préprod→prod + pull prod              │   PAS encore déployé)
+        │ (2 branches : MR dev→prod)               │
+        ▼                                          │
+    [en_mep] ──── régression prod ─────────────────┘  (EN PROD : déployé, dernière
+        │ vérif prod OK                                vérif avant fermeture)
         ▼
     [ferme]
 
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
+[a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
+
+> **⚙ Refonte RM2893 (en cours de livraison — 2026-08-31).** Le tronçon aval a été
+> redéfini pour lever une confusion : le statut ne disait pas *où est le code*. Nouvelle
+> sémantique par environnement :
+>
+> | Statut | Env | Sens |
+> |---|---|---|
+> | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
+> | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
+> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
+>
+> Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*
+> d'`en_mep`. Désormais le déploiement prod se fait **en entrant** dans `en_mep`, qui
+> devient l'état « en prod, en attente de fermeture ». Motivation : le flux *deploy-first*
+> (déployer puis faire valider) n'avait aucun statut exprimant « en prod + à fermer »
+> (constat session 2026-08-28 : RM2575/2576/2885/2886 tous « en prod » mais posés en
+> `a_tester_demandeur`). Mapping Redmine, attribution et routing outillage mis à jour dans
+> le même lot (cf. § Mapping et `pm-task-status-update`). Les deux statuts Redmine existent
+> déjà : `a_tester_preprod` = id **20** « MEP/Tester en preprod » ; `en_mep` = id **22**
+> « MEP/Vérifier en prod » (aucune création/renommage).
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 Le workflow complet (branches, envs, MEP) est décrit en § *Cycle de
@@ -136,10 +163,16 @@ définitive sur l'instance). Plus aucun script ne le consulte.
   1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
   2. `author ≠ karl` avec email accessible → cet `author`
   3. fallback (email inaccessible) → Manager IA
+- Passage en `a_tester_preprod` (RM2893, **optionnel**) → ré-attribuer au **responsable
+  recette préprod** (par défaut le **demandeur** — même résolveur que `a_tester_demandeur` ;
+  configurable par projet). Étape sautée si le projet n'a pas d'env préprod
+  (`a_tester_demandeur` → `a_mep` direct).
 - Passage en `a_mep` → ré-attribuer au **responsable MEP / intégration** (par défaut
   Manager IA ou orchestrateur ; configurable par projet).
-- Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
-  en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
+- Passage en `en_mep` (RM2893, **redéfini = en prod, dernière vérif avant fermeture**) →
+  ré-attribuer au **demandeur** (author) pour la vérification finale en prod avant clôture
+  (même résolveur que `a_tester_demandeur`). ⚠ Ancienne sémantique « testeur préprod »
+  dépréciée.
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
 - Passage en `en_pause` → **conserver** l'attribution courante (la tâche reste
@@ -206,11 +239,22 @@ Statut Redmine (un seul terminal `Fermé`) :
 | `en_cours` | En cours | 2 |
 | `a_tester_dev` | A tester/vérifier dev | 19 |
 | `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
+| `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
 | `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` | MEP/Tester en preprod | 20 |
+| `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
 | `en_pause` | Attente retour / en pause | 13 |
 | `a_corriger` | A corriger/finir | 11 |
 | `ferme` (toutes raisons) | Fermé | **18** |
+
+> **RM2893 — migration du mapping (2026-08-31).** Les deux statuts Redmine existaient déjà
+> et leurs libellés collent : **aucune création ni renommage**. Seul changement d'id :
+> `en_mep` passe de **20 → 22** (« MEP/Vérifier en prod »), et le statut **20**
+> (« MEP/Tester en preprod ») devient `a_tester_preprod`. Les tickets déjà au statut 20
+> (préprod) sont donc réinterprétés `en_mep`→`a_tester_preprod` — sémantiquement exact,
+> ils restent au même statut Redmine ; leur frontmatter MD se réaligne au prochain
+> `pm-task-sync`. ⚠ Vérifier que les transitions de workflow Redmine (par rôle/tracker)
+> autorisent bien l'entrée en 20 depuis `a_tester_demandeur` et en 22 depuis `a_mep`
+> (sinon le PUT échoue silencieusement — cf. `knowledge/redmine/gotchas.md`).
 
 `a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
 `a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le

@@ -437,16 +437,25 @@ NORMS_TRANSITIONS = {
         ("a_corriger", "problèmes (note dans journal)"),
     ],
     "a_tester_demandeur": [
-        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée"),
+        # RM2893 : validation demandeur sur DEV. Si le projet a une préprod → a_tester_preprod ;
+        # sinon bypass direct vers a_mep.
+        ("a_tester_preprod", "validé sur dev : MR branche→integration_branch, déploiement préprod"),
+        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée (projet SANS préprod)"),
         ("a_corriger", "rejet (note dans journal)"),
         ("ferme", "ticket sans code à déployer — close_reason: resolu"),
     ],
-    "a_mep": [
-        ("en_mep", "integration_branch déployée en preprod"),
+    # RM2893 : recette préprod optionnelle (id Redmine à créer — cf. redmine.reference.yml).
+    "a_tester_preprod": [
+        ("a_mep", "recette préprod OK : en file de MEP"),
+        ("a_corriger", "régression préprod (note dans journal)"),
     ],
+    "a_mep": [
+        ("en_mep", "déployé en PROD (MR préprod→prod + pull prod) — dernière vérif avant fermeture"),
+    ],
+    # RM2893 : en_mep redéfini = EN PROD, dernière vérif avant fermeture (déploiement fait en ENTRANT).
     "en_mep": [
-        ("ferme", "tests preprod OK + merge → prod_branch + pull prod — close_reason: resolu"),
-        ("a_corriger", "régression preprod (note dans journal)"),
+        ("ferme", "vérif prod OK — close_reason: resolu"),
+        ("a_corriger", "régression prod (note dans journal)"),
     ],
     "a_corriger": [
         ("en_cours", "reprise du dev"),
@@ -811,11 +820,12 @@ def main():
     #   2. status=en_cours sans flag explicite → 'me' par défaut
     #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
     #      indissociable de en_cours). --no-assign pour outrepasser.
-    #   3. status=a_tester_demandeur / etude_chiffrage_a_valider / a_mep → override
-    #      vers demandeur (author) / Manager IA (NORMS § « Règle d'attribution Redmine », RM1734).
-    #      a_tester_dev / en_mep / a_corriger → pas de défaut (testeur ≠ dev,
-    #      testeur preprod humain, worker précédent) : attribution manuelle via
-    #      --assign-to tant que l'orchestrateur n'est pas en place.
+    #   3. status=a_tester_demandeur / a_tester_preprod / etude_chiffrage_a_valider /
+    #      a_mep / en_mep → override vers demandeur (author) / Manager IA
+    #      (NORMS § « Règle d'attribution Redmine », RM1734 ; RM2893 : a_tester_preprod =
+    #      recette préprod → demandeur ; en_mep redéfini = vérif prod finale → demandeur).
+    #      a_tester_dev / a_corriger → pas de défaut (testeur ≠ dev, worker précédent) :
+    #      attribution manuelle via --assign-to tant que l'orchestrateur n'est pas en place.
     #      en_pause / ferme → conserver l'attribution courante.
     #
     # `assign_override_value` est la valeur passée à redmine-post-note --assign-to
@@ -827,11 +837,13 @@ def main():
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
         out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
-    elif args.status in ("a_tester_demandeur", "etude_chiffrage_a_valider", "a_mep") and target:
+    elif args.status in ("a_tester_demandeur", "a_tester_preprod", "etude_chiffrage_a_valider", "a_mep", "en_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
+        #         a_tester_preprod (RM2893)   → responsable recette préprod (défaut demandeur/author).
         #         etude_chiffrage_a_valider   → demandeur (author) : l'étude/CDC + chiffrage
         #                                       finis sont soumis à validation (même résolveur).
         #         a_mep                       → responsable MEP/intégration (par défaut Manager IA).
+        #         en_mep (RM2893, redéfini)   → demandeur (author) : vérif prod finale avant clôture.
         # On rend l'assignation explicite ici pour que MD frontmatter `assigned_to`
         # reflète la réalité Redmine.
         _, target_uid, _ = target

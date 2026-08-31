@@ -26,6 +26,12 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   `iprospective/prestashop/…` **redirige** — un dépôt récent y semble donc « inexistant »
 - [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
   (`agent refused operation`), bascule vers un vrai ssh-agent
+- [dolibarr](./dolibarr/) — procédure de **MEP commune au parc** : checkout git par
+  instance (une branche `<version>-mmi` chacune, donc un correctif ne se propage pas
+  tout seul), les trois signaux d'arrêt avant d'écrire en prod, le déploiement ciblé
+  par cherry-pick, et surtout la **réactivation des modules dont le gitlink change**
+  (SQL, droits, menus, triggers rejoués à l'activation — sinon code neuf sur base
+  ancienne)
 - [prestashop](./prestashop/) — procédure de **MEP commune aux 4 boutiques** du parc :
   maintenance (`PS_SHOP_ENABLE` + garde-fou `PS_MAINTENANCE_IP`), `php7.4` obligatoire,
   `--ff-only` sur arbre sale, le faux « rien à faire » de l'upgrade de module en CLI,

@@ -39,6 +39,7 @@ custom_fields:
   32: {name: "Tags",                format: enumeration, type: issue,      trackers: [bugfix, feature, assistance, autre], used_by: "tags[] du frontmatter (pm_tags, RM2829) ; valeurs et ids dans tags.registry.yml"}
   3:  {name: "GIT Branche",         format: string,      type: issue,      trackers: [bugfix, feature, autre], used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
   4:  {name: "GIT PR",              format: link,        type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de la MR de livraison (RM1820 string→link)"}
+  34: {name: "GIT Branche mergée",  format: enumeration, type: issue,      multiple: true, values: {75: Dev, 76: "Main/Master"}, used_by: "RM2926 : axe 'où est le code' (merge dev/main) — auto-renseignable depuis git (pm_git). Multi-valeur : [], [Dev], [Dev, Main/Master]."}
   14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
   9:  {name: "Réf ticket outil externe", format: string, type: issue,
       max_length: 16,
@@ -90,7 +91,10 @@ statuses:
   a_tester_demandeur:       9    # "A tester/vérifier demandeur"  (validation demandeur sur DEV)
   a_tester_preprod:         20   # RM2893 : "MEP/Tester en preprod" — recette préprod OPTIONNELLE
                                  # (sautée si pas d'env préprod → a_tester_demandeur va direct à a_mep).
-  a_mep:                    3    # "Résolu/Validé/A MEP"          (non terminal ≠ ferme)
+  a_mep:                    3    # RM2926 : "Recette OK/A MEP" — recette demandeur OK, à mettre en
+                                 # PRÉPROD (1er des deux "A MEP" ; ex-"Résolu/Validé/A MEP").
+  a_mep_prod:               23   # RM2926 : "MEP/Preprod OK/A MEP" — préprod OK (régression du lot),
+                                 # à mettre en PROD (2e "A MEP" ; lève le doublon d'a_mep).
   en_mep:                   22   # RM2893 : "MEP/Vérifier en prod" — déployé en prod, dernière vérif
                                  # avant fermeture. (L'ex-id 20 « MEP/Tester en preprod » est
                                  # désormais a_tester_preprod ; en_mep migre de 20 → 22.)

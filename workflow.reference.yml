@@ -5,6 +5,7 @@ _note: Capture empirique lecture seule du workflow Redmine via allowed_statuses 
 _uncovered:
 - a_etudier_chiffrer
 - a_mep
+- a_mep_prod
 - en_mep
 transitions:
   nouveau:
@@ -22,6 +23,7 @@ transitions:
   - a_etudier_chiffrer
   - a_faire
   - a_mep
+  - a_mep_prod
   - a_tester_demandeur
   - a_tester_dev
   - a_tester_preprod
@@ -35,6 +37,7 @@ transitions:
   - a_etudier_chiffrer
   - a_faire
   - a_mep
+  - a_mep_prod
   - a_tester_preprod
   - en_cours
   - en_mep
@@ -46,6 +49,7 @@ transitions:
   - a_etudier_chiffrer
   - a_faire
   - a_mep
+  - a_mep_prod
   - a_tester_demandeur
   - a_tester_dev
   - a_tester_preprod
@@ -98,13 +102,14 @@ transitions:
   a_tester_dev:
   - a_corriger
   - a_mep
+  - a_mep_prod
   - a_tester_demandeur
   - a_tester_preprod
   - en_mep
   a_tester_preprod:
   - a_corriger
+  - a_mep_prod
   - en_mep
-  - ferme
   etude_chiffrage_a_valider:
   - a_etudier_chiffrer
   - a_faire

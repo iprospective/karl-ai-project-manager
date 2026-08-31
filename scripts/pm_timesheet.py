@@ -28,6 +28,7 @@ import json
 import re
 import sqlite3
 import sys
+import tarfile
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -294,6 +295,49 @@ def dedupe(events, tolerance_min=1):
     return sorted(vus.values(), key=lambda x: x.ts)
 
 
+# ── Sources distantes ────────────────────────────────────────────────────────
+
+def rapatrier(host, chemin, cache_dir, kind, verbose=False):
+    """Copie une source distante dans un cache local, et rend le chemin local.
+
+    Le travail ne se fait pas que sur un poste : un compte distant
+    (`dercya-www@dev`) porte ses propres traces. Plutôt que de lire à travers
+    SSH à chaque calcul, on rapatrie une fois par run — c'est plus rapide, et le
+    cache garde la matière quand la machine distante n'est pas joignable.
+
+    Rendu `None` si le rapatriement échoue : une source injoignable ne doit pas
+    faire tomber le calcul des autres, elle doit se signaler.
+    """
+    import subprocess
+    cache = Path(cache_dir) / re.sub(r"[^A-Za-z0-9_.@-]", "_", f"{host}")
+    cache.mkdir(parents=True, exist_ok=True)
+    cible = cache / (Path(chemin).name or "source")
+    base_ssh = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", host]
+    try:
+        if kind == "claude-transcripts":
+            cible = cache / "projects"
+            cible.mkdir(parents=True, exist_ok=True)
+            flux = subprocess.run(base_ssh + [f"tar czf - -C {chemin} ."],
+                                  capture_output=True, timeout=900)
+            if flux.returncode != 0 or not flux.stdout:
+                return None
+            import io
+            import tarfile
+            with tarfile.open(fileobj=io.BytesIO(flux.stdout), mode="r:gz") as tar:
+                tar.extractall(cible)
+        else:
+            flux = subprocess.run(base_ssh + [f"cat {chemin}"],
+                                  capture_output=True, timeout=600)
+            if flux.returncode != 0:
+                return None
+            cible.write_bytes(flux.stdout)
+    except (subprocess.SubprocessError, OSError, tarfile.TarError):
+        return None
+    if verbose:
+        print(f"  rapatrié {host}:{chemin} → {cible}", file=sys.stderr)
+    return str(cible)
+
+
 # ── Attribution : à quel client / projet / ticket ? ──────────────────────────
 
 _RM_TEXTE_RE = re.compile(r"(?:\bRM[\s#-]?|\B#)(\d{3,5})\b|^\s*(\d{4})\b", re.I)
@@ -305,6 +349,26 @@ _LOG_ENTREE_RE = re.compile(r"^## (\d{4}-\d{2}-\d{2})T(\d{2}:\d{2}) —", re.M)
 #: moitié des fenêtres : viser la vérité prompt par prompt est illusoire, viser
 #: la justesse des proportions sur la journée ne l'est pas.
 POIDS = {"tick": 3.0, "texte": 3.0, "log": 2.0, "projet": 1.0}
+
+
+def _titre_ticket(chemin):
+    """`title:` du frontmatter d'un ticket — sans charger tout le YAML."""
+    try:
+        with open(chemin, encoding="utf-8", errors="replace") as f:
+            for i, ligne in enumerate(f):
+                if i > 40:
+                    break
+                if ligne.startswith("title:"):
+                    v = ligne.split(":", 1)[1].strip()
+                    if v[:1] in ("'", '"'):
+                        q, v = v[0], v[1:]
+                        v = v[:v.rfind(q)] if q in v[1:] else v
+                        if q == "'":
+                            v = v.replace("''", "'")     # dé-échappement YAML
+                    return v
+    except OSError:
+        pass
+    return ""
 
 
 class TargetResolver:
@@ -377,7 +441,7 @@ class TargetResolver:
                     continue
                 rm = f.name[2:].split("_")[0]
                 if rm.isdigit():
-                    idx.setdefault(rm, (ent, proj))
+                    idx.setdefault(rm, (ent, proj, _titre_ticket(f)))
         self._index_tickets = idx
         return idx
 
@@ -390,6 +454,11 @@ class TargetResolver:
         if place is None:
             return None
         return (place[0], place[1], rm)
+
+    def titre(self, rm):
+        """Titre d'un ticket, pour le compte rendu. '' si inconnu."""
+        place = self.index_tickets().get(str(rm)) if rm else None
+        return place[2] if place and len(place) > 2 else ""
 
     # -- timeline des .log.md ------------------------------------------------
     def timeline(self):
@@ -908,7 +977,7 @@ def _hm(minutes):
 
 
 def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
-                    deduit=None, quantum=None):
+                    deduit=None, quantum=None, resolver=None):
     """Compte rendu lisible — c'est la pièce que l'humain relit et amende."""
     quantum = quantum or DEFAULTS["quantum_min"]
     L = [f"# Feuille de temps {mois}", ""]
@@ -926,6 +995,49 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
         part = 100 * m / total_final if total_final else 0
         L.append(f"| {ent} | {_hm(m)} | {part:.1f} % |")
     L.append("")
+
+    # ── Synthèse par projet : ce qui a été fait, et pour qui ────────────────
+    par_projet = collections.defaultdict(lambda: {"total": 0.0,
+                                                  "tickets": collections.Counter()})
+    for (jour, cible), m in final.items():
+        ent, proj, rm = cible
+        bloc = par_projet[(ent or "(non rattaché)", proj or "—")]
+        bloc["total"] += m
+        bloc["tickets"][rm] += m
+    L += ["## Synthèse par projet", ""]
+    dernier_client = None
+    poids_client = collections.Counter()
+    for (e, _p), b in par_projet.items():
+        poids_client[e] += b["total"]
+    # clients par poids décroissant, le non-rattaché en dernier
+    ordre = sorted(par_projet.items(),
+                   key=lambda kv: (kv[0][0] == "(non rattaché)",
+                                   -poids_client[kv[0][0]], kv[0][0], -kv[1]["total"]))
+    for (ent, proj), bloc in ordre:
+        if bloc["total"] < 1:
+            continue
+        if ent != dernier_client:
+            L += ["", f"### {ent} — {_hm(poids_client[ent])}", ""]
+            dernier_client = ent
+        L.append(f"**{proj}** — {_hm(bloc['total'])}")
+        L.append("")
+        principaux = [(rm, v) for rm, v in bloc["tickets"].most_common() if rm]
+        for rm, v in principaux[:8]:
+            titre = resolver.titre(rm) if resolver else ""
+            if len(titre) > 88:
+                titre = titre[:87].rstrip() + "…"
+            L.append(f"- RM{rm} — {_hm(v)}" + (f" — {titre}" if titre else ""))
+        divers = sum(v for rm, v in bloc["tickets"].items() if not rm)
+        reste = sum(v for rm, v in principaux[8:])
+        n_autres = len(principaux[8:]) + (1 if divers else 0)
+        if n_autres:
+            quoi = "tickets secondaires" if len(principaux) > 8 else "travail non ticketé"
+            if len(principaux) > 8 and divers:
+                quoi = "tickets secondaires et travail non ticketé"
+            L.append(f"- *{_hm(divers + reste)} sur {n_autres} autre"
+                     f"{'s' if n_autres > 1 else ''} poste"
+                     f"{'s' if n_autres > 1 else ''} — {quoi}*")
+        L.append("")
 
     alertes = [j for j, d in sorted(journal.items()) if d.get("alerte_absence")]
     if alertes:

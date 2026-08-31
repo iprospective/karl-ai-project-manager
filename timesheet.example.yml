@@ -16,6 +16,16 @@ sources:
   - {kind: opencode-db,        path: "~/.local/share/opencode/opencode.db"}
   # base opencode de l'hôte, exportée par : sqlite3 <db> ".backup <cible>"
   # - {kind: opencode-db, path: "/zfs/workspaces/var/opencode-host.db"}
+  #
+  # Source DISTANTE (rapatriée par SSH dans var/timesheet/cache/ à chaque run ;
+  # une source injoignable est signalée et ignorée, elle ne bloque pas le calcul) :
+  # - kind: claude-history
+  #   host: "dercya-www@dev"
+  #   path: "~/.claude/history.jsonl"
+  #   # Compte PARTAGÉ : ces journées sont celles d'un autre intervenant.
+  #   # Rien n'est deviné — un tri automatique sur du temps facturable, non.
+  #   exclude_days: ["2026-06-09", "2026-07-21", "2026-07-23"]
+  #   # ou l'inverse : only_days: [...]
 
 # ── Chemins → (client, projet) ───────────────────────────────────────────────
 # Indispensable pour les répertoires d'un AUTRE hôte (pas de `.mmi-pm` là-bas) et

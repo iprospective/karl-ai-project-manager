@@ -60,11 +60,18 @@ def _sources(conf):
     ]
 
 
-def collecter(conf, debut, fin, verbose=False):
-    events, detail = [], []
+def collecter(conf, debut, fin, verbose=False, cache_dir=None):
+    events, detail, absentes = [], [], []
     for s in _sources(conf):
-        kind, chemin = s.get("kind"), s.get("path")
+        kind, chemin = s.get("kind"), str(Path(s.get("path", "")).expanduser())
         avant = len(events)
+        if s.get("host"):
+            local = W.rapatrier(s["host"], s.get("path"), cache_dir or Path("."),
+                                kind, verbose)
+            if not local:
+                absentes.append(f"{s['host']}:{s.get('path')}")
+                continue
+            chemin = local
         if kind == "claude-transcripts":
             events += W.collect_claude_transcripts(chemin, debut, fin)
         elif kind == "claude-history":
@@ -73,11 +80,25 @@ def collecter(conf, debut, fin, verbose=False):
             events += W.collect_opencode(chemin, debut, fin)
         else:
             continue
+        # Un compte partagé porte le travail de plusieurs personnes (dercya-www :
+        # Mathieu ET Yann, sans marqueur technique pour les distinguer). Les
+        # journées qui ne sont pas les siennes s'excluent explicitement, source
+        # par source — un tri deviné sur du temps facturable n'aurait pas sa place.
+        exclus = set(str(j) for j in (s.get("exclude_days") or []))
+        gardes = set(str(j) for j in (s.get("only_days") or []))
+        if exclus or gardes:
+            nouveaux = events[avant:]
+            del events[avant:]
+            events += [e for e in nouveaux
+                       if e.ts.strftime("%Y-%m-%d") not in exclus
+                       and (not gardes or e.ts.strftime("%Y-%m-%d") in gardes)]
         detail.append((kind, chemin, len(events) - avant))
     fusionnes = W.dedupe(events)
     if verbose:
         for kind, chemin, n in detail:
             print(f"  {n:5d}  {kind:20} {chemin}", file=sys.stderr)
+    for a in absentes:
+        print(f"  ⚠ source injoignable, ignorée : {a}", file=sys.stderr)
     return fusionnes, detail
 
 
@@ -117,7 +138,9 @@ def calculer(args, cfg, conf):
     if args.quantum is not None:
         params["quantum_min"] = args.quantum
 
-    events, detail = collecter(conf, debut, fin, args.verbose)
+    cache_dir = Path(args.out).parent / "cache" if args.out else \
+        Path(cfg.pm_dir) / "var" / "timesheet" / "cache"
+    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir)
     if not events:
         sys.exit(f"Aucune trace sur la période {libelle} — sources : "
                  + ", ".join(s.get("kind", "?") for s in _sources(conf)))
@@ -125,8 +148,15 @@ def calculer(args, cfg, conf):
     resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
     tours = {}
     for s in _sources(conf):
-        if s.get("kind") == "claude-transcripts":
-            tours.update(W.rm_par_tour(s.get("path"), debut, fin))
+        if s.get("kind") != "claude-transcripts":
+            continue
+        chemin = str(Path(s.get("path", "")).expanduser())
+        if s.get("host"):
+            chemin = str(Path(cache_dir) /
+                         __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
+            if not Path(chemin).is_dir():
+                continue
+        tours.update(W.rm_par_tour(chemin, debut, fin))
     for e in events:
         rm = tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))
         resolver.resolve(e, rm_du_tour=rm)
@@ -151,7 +181,8 @@ def calculer(args, cfg, conf):
         except SystemExit:
             print("  (Redmine injoignable : déduction non appliquée)", file=sys.stderr)
 
-    return {"final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
+    return {"resolver": resolver,
+            "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
             "deduit": deduit, "events": len(events), "sources": detail,
             "debut": debut, "fin": fin}
@@ -161,7 +192,8 @@ def ecrire_sorties(res, dossier, libelle):
     dossier.mkdir(parents=True, exist_ok=True)
     md = W.rendre_markdown(res["final"], res["ecarte"], res["journal"], res["periodes"],
                            res["totaux"], res["regles"], libelle,
-                           quantum=res["params"]["quantum_min"])
+                           quantum=res["params"]["quantum_min"],
+                           resolver=res.get("resolver"))
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],

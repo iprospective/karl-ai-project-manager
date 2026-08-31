@@ -1249,9 +1249,13 @@ assert(ticketStatusRank("statut_exotique") < ticketStatusRank("ferme"),
   "un statut inconnu se voit, il n'est pas rangé avec les fermés");
 console.log("✓ tickets ouverts (RM2606) : ordre de lecture, pas alphabétique");
 
+// RM2883 : familles de statut — le filtre de la carte les propose
+const ticketStatusFamily = vm.runInNewContext("(" + grab("ticketStatusFamily") + ")");
+const statusFamilyTabs = vm.runInNewContext("(" + grab("statusFamilyTabs") + ")",
+  { ticketStatusFamily });
 // groupOpenedTickets appelle ticketStatusRank : le contexte isolé doit l'avoir
 const groupOpenedTickets = vm.runInNewContext("(" + grab("groupOpenedTickets") + ")",
-  { ticketStatusRank });
+  { ticketStatusRank, ticketStatusFamily, statusFamilyTabs });
 const tkCache = {
   "1": { found: true, client: "acme", project: "shop", title: "A", status: "ferme" },
   "2": { found: true, client: "acme", project: "shop", title: "B", status: "en_cours" },
@@ -1270,6 +1274,48 @@ assert.deepStrictEqual(Array.from(f.keys), ["beta/api"], "le filtre client rédu
 assert.deepStrictEqual(Array.from(groupOpenedTickets([], {}, null).keys), [], "liste vide tolérée");
 assert.deepStrictEqual(Array.from(groupOpenedTickets(null, null, null).keys), [], "entrées absentes tolérées");
 console.log("✓ tickets ouverts (RM2606) : groupés par projet, filtrés par client");
+
+// — RM2883 : filtre par statut dans la carte des tickets ouverts —
+// Aucun statut connu ne doit tomber dans « autre » : un statut ajouté un jour au
+// classement d'affichage sans famille disparaîtrait du filtre en silence.
+const statutsConnus = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
+  "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
+for (const st of statutsConnus)
+  assert.notStrictEqual(ticketStatusFamily(st), "autre",
+    "statut NORMS sans famille : « " + st + " » (il disparaîtrait du filtre)");
+assert.strictEqual(ticketStatusFamily("statut_exotique"), "autre",
+  "un statut inconnu a sa propre famille — jamais rangé d'office dans « à faire »");
+assert.strictEqual(ticketStatusFamily("a_mep"), "mep",
+  "à MEP n'est pas « à faire » : le dev y est fini (même distinction qu'au worklog, RM2860)");
+assert.strictEqual(ticketStatusFamily("a_corriger"), "todo",
+  "ce qui revient corrigé est du travail à faire");
+
+// Seules les familles présentes ont un bouton — la colonne est étroite.
+const tabs2883 = statusFamilyTabs([{ status: "en_cours" }, { status: "en_cours" },
+                                   { status: "ferme" }]);
+assert.strictEqual(JSON.stringify(tabs2883.map(t => [t.key, t.n])),
+  JSON.stringify([["encours", 2], ["ferme", 1]]),
+  "un bouton par famille présente, avec son compte");
+assert.strictEqual(statusFamilyTabs([]).length, 0, "liste vide → aucun filtre proposé");
+assert.strictEqual(tabs2883[0].key, "encours",
+  "ordre de lecture : ce qui réclame une action avant ce qui est clos");
+
+// Le filtre statut se cumule avec le filtre client…
+const fs2883 = groupOpenedTickets(["1", "2", "3"], tkCache, null, "encours");
+assert.deepStrictEqual(Array.from(fs2883.keys), ["acme/shop"], "le filtre statut réduit la liste");
+assert.deepStrictEqual(Array.from(fs2883.groups.get("acme/shop").map(x => x.rm_id)), ["2"],
+  "…et ne garde que les tickets de la famille");
+// …mais les autres familles restent proposées, sinon on ne pourrait plus changer
+// de filtre sans repasser par « tous ».
+assert(fs2883.families.length > 1,
+  "les familles proposées se calculent AVANT le filtre statut");
+assert.deepStrictEqual(Array.from(groupOpenedTickets(["1"], tkCache, null, "encours").keys), [],
+  "un filtre qui ne laisse rien rend une liste vide (le rendu le dit)");
+assert(/aucun ticket dans ce filtre/.test(html),
+  "…et l'interface l'annonce plutôt que de paraître vidée");
+
+console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, familles présentes seules");
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
@@ -2299,7 +2345,14 @@ assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit tou
 console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
 
 // — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
-const ticketSessionsHtml = grabO("ticketSessionsHtml");
+// RM2873 : le bloc de lancement rend aussi le choix de consigne — la fonction
+// pure qui liste les modèles lui est injectée (elle est partagée avec le
+// lanceur de gauche).
+const promptTemplates = grabO("promptTemplates");
+const promptTemplateOptions = grabO("promptTemplateOptions", { promptTemplates });
+const ticketPromptFor = grabO("ticketPromptFor");
+const promptFillOnChange = grabO("promptFillOnChange");
+const ticketSessionsHtml = grabO("ticketSessionsHtml", { promptTemplateOptions });
 const taskPromptText = grabO("taskPromptText");
 
 // formulation des prompts : une seule source pour le lanceur ET la fiche
@@ -2610,6 +2663,12 @@ assert.strictEqual(openedCountLabel(1), "(1)");
 assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
 assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
 assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
+// RM2883 : avec un filtre actif, l'en-tête dit ce qu'on voit ET le total — sans
+// les deux, « (3) » sur une pile de quarante se lit comme une liste vidée.
+assert.strictEqual(openedCountLabel(3, 40), "(3 / 40)", "filtre actif : vu / total");
+assert.strictEqual(openedCountLabel(40, 40), "(40)", "sans filtre : le total seul");
+assert.strictEqual(openedCountLabel(0, 40), "(vide)",
+  "un filtre qui ne laisse rien se dit « vide », pas « 0 / 40 »");
 
 // Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
 assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),
@@ -4081,3 +4140,151 @@ assert(/fileBodyHtml\(d, esc, md\)/.test(html),
 assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
   "plus aucun contenu de fichier rendu dans le bloc encadré");
 console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");
+
+// — RM2873 : consigne choisie et éditable depuis la fiche du ticket —
+// Le lanceur de gauche offrait un modèle de consigne et un champ ; la fiche
+// lançait avec une consigne imposée, visible seulement dans la confirmation.
+
+// La liste des modèles n'existe qu'à UN endroit : une liste en dur dans le HTML
+// de gauche aurait divergé de celle de la fiche au premier ajout.
+const tpls2873 = promptTemplates();
+assert(tpls2873.length >= 5 && tpls2873.every(t => t.value && t.label),
+  "chaque modèle a une valeur ET un libellé");
+assert.strictEqual(tpls2873[tpls2873.length - 1].value, "libre",
+  "« libre » ferme la marche : c'est le mode de saisie manuelle");
+assert(tpls2873.every(t => t.value === "libre" || taskPromptText(t.value, "42")),
+  "tout modèle proposé produit une consigne (sauf « libre »)");
+const optsHtml = promptTemplateOptions("chiffrer", escFn);
+assert(/<option value="chiffrer" selected>/.test(optsHtml), "le modèle retenu est marqué");
+assert.strictEqual((optsHtml.match(/selected/g) || []).length, 1, "un seul modèle retenu");
+assert(!/<option value="traiter"[^>]*>Traiter la tâche<\/option>[\s\S]*<option value="traiter"/.test(html),
+  "le <select> de gauche ne re-déclare pas la liste en dur");
+assert(/getElementById\("ptpl"\)\.innerHTML = promptTemplateOptions\(/.test(html),
+  "…il est peuplé depuis la source unique");
+
+// La règle de remplissage est la même des deux côtés.
+assert.strictEqual(promptFillOnChange("libre", "ma consigne à moi", "traite la tâche RM42"),
+  "ma consigne à moi", "« libre » n'écrase jamais la saisie");
+assert.strictEqual(promptFillOnChange("traiter", "vieux texte", "traite la tâche RM42"),
+  "traite la tâche RM42", "changer de modèle remplace le texte");
+assert.strictEqual(promptFillOnChange("traiter", "déjà tapé", ""), "déjà tapé",
+  "un modèle qu'on ne sait pas calculer ne VIDE pas le champ");
+
+// L'état du champ suit le ticket affiché — et survit à un re-rendu de la fiche.
+const st1 = ticketPromptFor(null, "42", "traite la tâche RM42");
+assert.strictEqual(st1.text, "traite la tâche RM42", "consigne par défaut au premier rendu");
+const st2 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "42", "traite la tâche RM42");
+assert.strictEqual(st2.text, "fais autre chose",
+  "un re-rendu de la fiche ne perd pas la saisie en cours (renderReviewPane est appelé sur événement)");
+assert.strictEqual(st2.tpl, "libre", "…ni le modèle choisi");
+const st3 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "43", "traite la tâche RM43");
+assert.strictEqual(st3.text, "traite la tâche RM43",
+  "changer de ticket repart d'une consigne propre — sinon on lance RM43 avec la consigne de RM42");
+
+// Le bloc de la fiche rend bien le sélecteur et le champ, pré-remplis.
+const tsPr = ticketSessionsHtml({ rm_id: "42", handled: [], candidates: [], own_alive: false },
+  escFn, jargFn, { tpl: "chiffrer", text: "étudie et chiffre la tâche RM42" });
+assert(/id="ts-tpl"/.test(tsPr) && /id="ts-prompt"/.test(tsPr),
+  "la fiche offre le modèle de consigne ET le champ");
+assert(/<option value="chiffrer" selected>/.test(tsPr), "le modèle en cours est celui affiché");
+assert(/étudie et chiffre la tâche RM42<\/textarea>/.test(tsPr), "le champ est pré-rempli");
+assert(/oninput="tsPromptEdited\(/.test(tsPr), "la saisie est mémorisée hors du DOM");
+
+// Câblage : les deux gestes du bloc utilisent la consigne affichée.
+const mSpawn2873 = /async function spawnTicketSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSpawn2873[0]),
+  "le lancement utilise la consigne éditée, plus une consigne imposée");
+const mSend2873 = /async function sendTicketToSession[\s\S]*?\n\}/.exec(html);
+assert(/tsPrompt\.text/.test(mSend2873[0]),
+  "l'envoi dans une session existante aussi : un champ au-dessus d'un bouton qui l'ignore serait un piège");
+console.log("✓ consigne depuis la fiche (RM2873) : modèle + champ éditable, partagés avec le lanceur");
+
+// ── RM2888 : changer le statut depuis la fiche et le worklog ────────────────
+// Le menu ne doit RIEN savoir du workflow : il rend ce que le serveur envoie.
+// Un test qui vérifierait « en_cours propose a_tester_dev » recopierait la règle
+// NORMS dans le harnais — exactement ce que le ticket interdit.
+const statusMenuHtml = grabO("statusMenuHtml");
+const stData = {
+  status: "en_cours", redmine_checked: true,
+  transitions: [
+    { status: "a_tester_dev", condition: "dev terminé", redmine_ok: true, needs_close_reason: false },
+    { status: "a_mep", condition: "validé", redmine_ok: false, needs_close_reason: false },
+    { status: "ferme", condition: "close_reason requis", redmine_ok: true, needs_close_reason: true },
+  ],
+};
+const stHtml = statusMenuHtml(stData, escO);
+assert(/data-st="a_tester_dev"/.test(stHtml), "chaque transition servie devient un bouton");
+assert(/data-st="a_mep"[^>]*disabled/.test(stHtml),
+  "une transition que CE compte ne peut pas poser reste visible, mais désactivée");
+assert(/Redmine refusera/.test(stHtml),
+  "…et dit pourquoi : sinon le bouton grisé passe pour un bug");
+assert(/data-st="ferme"[^>]*data-reason="1"/.test(stHtml),
+  "la fermeture est marquée comme exigeant un motif, AVANT de soumettre");
+assert(!/⚠ transitions NORMS seules/.test(stHtml),
+  "pas d'avertissement quand le workflow Redmine a bien été interrogé");
+
+// Redmine injoignable : on n'ampute rien, on prévient. Une panne de l'API ne doit
+// pas rendre le geste inatteignable — c'est le mode dégradé de --list-next.
+const stDeg = statusMenuHtml(
+  { status: "a_faire", redmine_checked: false,
+    transitions: [{ status: "en_cours", condition: "prise en charge", redmine_ok: null,
+                    needs_close_reason: false }] }, escO);
+assert(/data-st="en_cours"/.test(stDeg) && !/disabled/.test(/data-st="en_cours"[^>]*>/.exec(stDeg)[0]),
+  "sans vérification live, la transition reste proposable");
+assert(/⚠ transitions NORMS seules/.test(stDeg), "…et l'UI dit que le contrôle des droits manque");
+
+// Statut terminal / liste vide : dire « rien à faire ici », pas un menu muet.
+assert(/aucune transition/.test(statusMenuHtml({ status: "ferme", transitions: [] }, escO)),
+  "une liste vide s'explique au lieu de s'afficher creuse");
+assert(/aucune transition/.test(statusMenuHtml(null, escO)), "données absentes tolérées");
+console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus et mode dégradé compris");
+
+// Ce qu'il faut demander avant de soumettre. La règle vient du serveur
+// (needs_close_reason / needs_note), jamais d'un test sur le nom du statut.
+const statusPromptSpec = grabO("statusPromptSpec");
+const spFerme = statusPromptSpec("ferme", true, ["abandonne", "resolu", "doublon"], false);
+assert.strictEqual(spFerme.needs_reason, true, "fermeture : motif réclamé");
+assert.strictEqual(spFerme.default_reason, "resolu",
+  "« resolu » est proposé par défaut — le cas courant, mais modifiable");
+assert(/facultatif/.test(spFerme.note_label), "la note reste facultative si rien ne l'exige");
+const spReopen = statusPromptSpec("a_faire", false, [], true);
+assert.strictEqual(spReopen.needs_note, true, "réouverture : la note est exigée par le workflow");
+assert(/requise/.test(spReopen.note_label), "…et l'invite le dit, au lieu de refuser après coup");
+const spPlain = statusPromptSpec("en_cours", false, [], false);
+assert.strictEqual(spPlain.needs_reason, false, "une transition ordinaire ne réclame rien");
+assert.strictEqual(statusPromptSpec("ferme", true, [], false).default_reason, "",
+  "aucun motif servi : pas de valeur inventée");
+console.log("✓ invites de statut (RM2888) : motif et note exigés par le serveur, pas devinés");
+
+// Câblage : les deux points d'entrée demandés (fiche + worklog) appellent le menu,
+// et la mécanique de gardes n'est plus dupliquée dans la console de test.
+const mDetail2888 = /function _ticketDetailHtml[\s\S]*?\n\}/.exec(html);
+assert(/openStatusMenu\(/.test(mDetail2888[0]),
+  "la fiche du ticket ouvre le menu depuis sa pastille de phase");
+const mRw2888 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
+assert(/openStatusMenu\(/.test(mRw2888[0]),
+  "le worklog aussi : c'est le second point d'entrée demandé");
+assert(/event\.stopPropagation\(\);openStatusMenu/.test(mRw2888[0]),
+  "…sans ouvrir la fiche par-dessus le menu");
+const mTq2888 = /async function tqVerdict[\s\S]*?\n\}/.exec(html);
+assert(/runTaskStatusGated\(/.test(mTq2888[0]) && !/allow_unchecked = true/.test(mTq2888[0]),
+  "la console de test partage la mécanique de gardes au lieu de la recopier");
+const mGate2888 = /async function runTaskStatusGated[\s\S]*?\n\}/.exec(html);
+assert(/checklist non coché/.test(mGate2888[0]) && /non mergée|RM2319/.test(mGate2888[0]),
+  "les deux gardes NORMS restent franchissables explicitement, jamais d'office");
+// La garde qui compte : le menu se construit UNIQUEMENT à partir des données du
+// serveur. Un nom de statut écrit en dur dedans serait le début de la seconde
+// table que le ticket interdit. (Ailleurs dans le front, citer un statut reste
+// légitime — `ticketVerdicts` ou `_TQ_VERDICTS` visent un statut précis.)
+const mMenu2888 = />>> statusMenuHtml[\s\S]*?<<< statusMenuHtml/.exec(html)[0];
+const mOpen2888 = /async function openStatusMenu[\s\S]*?\n\}/.exec(html)[0];
+const STATUTS_NORMS = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
+  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev", "a_tester_demandeur",
+  "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
+for (const st of STATUTS_NORMS) {
+  assert(!mMenu2888.includes('"' + st + '"') && !mMenu2888.includes("'" + st + "'"),
+    "statusMenuHtml ne doit citer aucun statut en dur (trouvé : " + st + ")");
+  assert(!mOpen2888.includes('"' + st + '"') && !mOpen2888.includes("'" + st + "'"),
+    "openStatusMenu ne doit citer aucun statut en dur (trouvé : " + st + ")");
+}
+console.log("✓ câblage (RM2888) : fiche + worklog, gardes partagées, zéro règle recopiée");

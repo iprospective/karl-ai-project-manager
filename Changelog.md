@@ -14,6 +14,39 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
+  Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
+  réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une
+  transition banale. Ce qui manquait n'était pas l'exécution (`/pm/run` expose `task-status`
+  depuis RM2209) mais de savoir **ce qui est possible ici** : le catalogue déclare les 14 statuts
+  en dur, quel que soit l'état du ticket. `pm-task-status-update --list-next` gagne donc une
+  sortie **`--json`**, et le cockpit une route **`GET /ticket-transitions/<rm>`** qui l'interroge :
+  la règle de transition reste dans les NORMS, elle n'est **pas recopiée** côté UI — deux tables
+  divergeraient au premier statut ajouté. La pastille de statut ouvre le menu, sur la fiche comme
+  sur chaque ligne du worklog. Une transition que **ce compte** ne peut pas poser reste visible
+  mais désactivée, avec sa raison : la masquer laisserait croire qu'elle n'existe pas. Redmine
+  injoignable ⇒ liste complète et avertissement, jamais un geste inatteignable. Les gardes NORMS
+  (checklist non cochée, merge gate RM2319) sont franchissables **explicitement**, jamais d'office
+  — c'est l'incident RM2302 qui l'impose — et leur mécanique, jusqu'ici propre à la console de
+  test, est désormais partagée.
+- **Cockpit : filtre par statut dans « Tickets ouverts »** (RM2883). La carte empile jusqu'à
+  40 tickets consultés, tous statuts mêlés. Elle offre maintenant, à côté du filtre par client et
+  cumulable avec lui, un filtre par **famille de statut** : à faire / en cours / à tester / à MEP
+  / en pause / fermé. Seules les familles **présentes** ont un bouton, et l'en-tête passe à
+  `(vu / total)` dès qu'un filtre est actif. « à MEP » est distingué de « à faire » par cohérence
+  avec le worklog (RM2860). Un test vérifie que **tous** les statuts NORMS ont une famille : sans
+  lui, un statut ajouté un jour disparaîtrait silencieusement du filtre.
+- **Fiche ticket : la consigne de lancement se choisit et s'édite** (RM2873). Le bouton
+  « ▶ nouvelle session » lançait avec une consigne **imposée** (`traite la tâche RM…`), visible
+  seulement dans la boîte de confirmation : vouloir « étudie et chiffre » obligeait à repasser
+  par le formulaire de gauche. La fiche offre maintenant le même sélecteur de modèle et le même
+  champ éditable — et par **réutilisation**, pas par copie : `taskPromptText` rendait déjà la
+  formulation commune (RM2726), la **liste des modèles** (jusqu'ici en dur dans le HTML de
+  gauche) et la **règle de remplissage** (« libre » intouché, calcul impossible → on ne vide pas)
+  le deviennent. La consigne vaut aussi pour « ➜ envoyer dans cette session » : un champ affiché
+  au-dessus d'un bouton qui l'ignorerait serait un piège. L'état vit hors du DOM — la fiche est
+  re-rendue sur événement et une saisie en cours y serait perdue — et changer de ticket repart
+  d'une consigne propre.
 - **Déplacer une tâche d'un projet PM à un autre : `mmi-pm task-move`** (RM2866). Un ticket
   ouvert depuis le mauvais cwd — ou déplacé dans l'UI Redmine par un humain — laissait sa
   fiche PM orpheline dans le projet d'origine, sans outil pour la suivre : `cp` + `git rm` à

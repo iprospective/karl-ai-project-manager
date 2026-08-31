@@ -1008,14 +1008,9 @@ if (window.matchMedia) {
       <label for="cwd">Répertoire de travail <span style="color:var(--muted)">(auto-résolu)</span></label>
       <input id="cwd" type="text" placeholder="/zfs/workspaces/…">
       <label for="ptpl">Prompt initial</label>
-      <select id="ptpl" onchange="applyTemplate()">
-        <option value="traiter">Traiter la tâche</option>
-        <option value="continuer">Continuer la tâche</option>
-        <option value="chiffrer">Étudier / chiffrer</option>
-        <option value="etat">État du ticket</option>
-        <option value="reviewer">Reviewer</option>
-        <option value="libre">Libre (saisie manuelle)</option>
-      </select>
+      <!-- RM2873 : peuplé depuis promptTemplates() — la fiche du ticket propose
+           la même liste, et une liste en dur ici aurait divergé au 1er ajout. -->
+      <select id="ptpl" onchange="applyTemplate()"></select>
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
       <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
     </div>
@@ -4419,7 +4414,12 @@ const GLOSSARY = [
   { t: "orchestrateur", c: "pm", a: ["orchestrateurs", "orchestration"], d: "Celui qui répartit et coordonne le travail entre les workers (agents exécutants), sans le faire lui-même." },
   { t: "NORMS", c: "pm", d: "Le corps de règles du système PM (protocole worker, statuts, git) que les agents doivent suivre." },
   { t: "KERNEL", c: "pm", a: ["kernel"], d: "Le « noyau » des normes : le document obligatoire listant déclencheurs et garde-fous, à lire avant d'ouvrir les modules détaillés." },
-  { t: "tripwire", c: "pm", a: ["tripwires", "garde-fou"], d: "Garde-fou : une règle qui se déclenche pour empêcher une erreur (ex. interdire un push direct sur main)." },
+  { t: "onboarding", c: "pm", a: ["prise de contexte", "mise en contexte"], d: "Mise en contexte d'un agent AVANT qu'il agisse : il lit les règles (KERNEL, puis son rôle), puis la fiche du client, du projet et de la tâche. Sans cette étape, l'agent suppose au lieu de savoir." },
+  { t: "tripwire", c: "pm", a: ["tripwires", "garde-fou"], d: "Garde-fou : une règle qui se déclenche pour empêcher une erreur (ex. interdire un push direct sur main). Ce qui l'applique concrètement dans un outil s'appelle une garde." },
+  // `inline: false` : « garde » est aussi un mot français ordinaire (« il garde
+  // son statut ») — le souligner partout produirait surtout des faux positifs.
+  // Il reste cherchable dans le glossaire, il n'est simplement pas surligné.
+  { t: "garde", c: "pm", a: ["gardes"], inline: false, d: "Vérification posée dans le code, qui refuse une opération tant que ses conditions ne sont pas réunies (ex. refuser d'écrire sur un ticket d'un autre projet sans --cross-project). Le tripwire est la règle ; la garde est le cran d'arrêt qui la fait respecter." },
   { t: "optimistic locking", c: "pm", a: ["verrouillage optimiste"], d: "Verrouillage optimiste : avant d'écrire, on vérifie que personne n'a modifié la donnée entre-temps (via un champ de version)." },
   { t: "porcelain", c: "pm", d: "Mode « machine » d'une commande : sortie stable et simple à lire par un script (ex. juste l'identifiant)." },
   { t: "CF", c: "pm", inline: false, d: "Custom Field : un champ personnalisé d'un ticket Redmine (ex. « protocole de test »)." },
@@ -5382,9 +5382,14 @@ function openedPanelOpen(saved) {
 // Ce que l'en-tête dit quand la carte est REPLIÉE : sans compte, il faut
 // l'ouvrir pour savoir s'il y avait quelque chose à voir. « vide » est dit
 // explicitement — un blanc laisse croire que le compte n'a pas été calculé.
-function openedCountLabel(n) {
+// RM2883 : `total` (optionnel) — quand un filtre est actif, l'en-tête dit ce
+// qu'on voit ET ce que la liste contient. Sans les deux, « (3) » sur une pile de
+// quarante tickets se lit comme une liste vidée.
+function openedCountLabel(n, total) {
   const k = Number(n);
+  const t = Number(total);
   if (!Number.isFinite(k) || k <= 0) return "(vide)";
+  if (Number.isFinite(t) && t > k) return "(" + k + " / " + t + ")";
   return "(" + k + ")";
 }
 // <<< openedCountLabel
@@ -5424,17 +5429,59 @@ function ticketStatusRank(status) {
 }
 // <<< ticketStatusRank
 
+// >>> ticketStatusFamily — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2883 — la FAMILLE d'un statut, pour filtrer la carte des tickets ouverts.
+// Quatre familles demandées ; deux de plus que les statuts NORMS imposent de ne
+// pas noyer : « à MEP » (le dev est fini — même distinction qu'au worklog,
+// RM2860) et « en pause » (ni à faire, ni en cours). Un statut inconnu tombe
+// dans « autre » plutôt que dans « à faire » : le ranger d'office parmi ce qui
+// reste à faire affirmerait quelque chose qu'on ne sait pas.
+function ticketStatusFamily(status) {
+  const s = String(status || "").toLowerCase();
+  if (s === "ferme" || s === "fermé") return "ferme";
+  if (s === "en_pause") return "pause";
+  if (s === "a_mep" || s === "en_mep") return "mep";
+  if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
+  if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
+  if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider",
+       "a_corriger"].indexOf(s) >= 0) return "todo";
+  return "autre";
+}
+// <<< ticketStatusFamily
+
+// >>> statusFamilyTabs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Les filtres à PROPOSER, avec leur compte. Comme la barre de clients et les
+// sous-onglets du worklog : une famille absente n'a pas de bouton — la colonne
+// est étroite, un filtre qui ne filtre rien y coûte une place et une lecture.
+// L'ordre est celui de la lecture (ce qui réclame une action d'abord), pas
+// l'ordre alphabétique.
+function statusFamilyTabs(items) {
+  const LABELS = [["todo", "à faire"], ["encours", "en cours"], ["test", "à tester"],
+                  ["mep", "à MEP"], ["pause", "en pause"], ["ferme", "fermé"],
+                  ["autre", "autre"]];
+  const n = {};
+  for (const it of items || []) {
+    const f = ticketStatusFamily(it && it.status);
+    n[f] = (n[f] || 0) + 1;
+  }
+  return LABELS.filter(([k]) => n[k]).map(([k, label]) => ({ key: k, label, n: n[k] }));
+}
+// <<< statusFamilyTabs
+
 // >>> groupOpenedTickets — pur (testé par test_cockpit.js)
 // Groupe les tickets ouverts par projet, chaque groupe trié par urgence de
 // statut. `client` filtre ; un ticket non encore résolu reste affiché (sous
 // « … ») plutôt que de disparaître le temps d'un aller-retour réseau.
-function groupOpenedTickets(ids, cache, client) {
+function groupOpenedTickets(ids, cache, client, family) {
   const groups = new Map();
   const clients = new Set();
-  for (const id of (ids || [])) {
+  const all = [];                     // RM2883 : avant filtre statut — c'est
+  for (const id of (ids || [])) {     // lui qui donne les familles à proposer
     const r = (cache || {})[id] || null;
     if (r && r.found && r.client) clients.add(r.client);
     if (client && (!r || !r.found || r.client !== client)) continue;
+    all.push({ status: (r && r.status) || "?" });
+    if (family && ticketStatusFamily((r && r.status) || "?") !== family) continue;
     const key = (r && r.found && r.client)
       ? r.client + "/" + (r.project || "?") : "…";
     if (!groups.has(key)) groups.set(key, []);
@@ -5453,7 +5500,10 @@ function groupOpenedTickets(ids, cache, client) {
   }
   const keys = [...groups.keys()].sort((a, b) =>
     (a === "…") - (b === "…") || a.localeCompare(b));
-  return { keys, groups, clients: [...clients].sort() };
+  // `families` se calcule sur la liste filtrée par CLIENT mais pas par statut :
+  // sinon choisir « à tester » ferait disparaître tous les autres boutons, et on
+  // ne pourrait plus en changer sans repasser par « tous ».
+  return { keys, groups, clients: [...clients].sort(), families: statusFamilyTabs(all) };
 }
 // <<< groupOpenedTickets
 
@@ -5461,6 +5511,7 @@ let openedTickets = [];
 try { openedTickets = JSON.parse(localStorage.getItem("karlOpenedTickets") || "[]"); }
 catch (e) { openedTickets = []; }   // valeur corrompue : on repart d'une liste vide
 let openedClient = null;
+let openedFamily = null;      // RM2883 : famille de statut retenue (null = toutes)
 
 function openedSave() {
   try { localStorage.setItem("karlOpenedTickets", JSON.stringify(openedTickets)); }
@@ -5478,9 +5529,11 @@ function openedForget(id) {
   openedSave(); renderOpened();
 }
 function openedClear() {
-  openedTickets = []; openedClient = null; openedSave(); renderOpened();
+  openedTickets = []; openedClient = null; openedFamily = null; openedSave(); renderOpened();
 }
 function openedFilter(c) { openedClient = c || null; renderOpened(); }
+// RM2883 : filtre par famille de statut, cumulable avec le filtre client.
+function openedFilterStatus(f) { openedFamily = f || null; renderOpened(); }
 
 function renderOpened() {
   const badge = document.getElementById("ln-tickets");
@@ -5488,11 +5541,13 @@ function renderOpened() {
     badge.textContent = openedTickets.length;
     badge.style.display = openedTickets.length ? "" : "none";
   }
-  const cnt = document.getElementById("opened-count");
-  if (cnt) cnt.textContent = openedCountLabel(openedTickets.length);
   const box = document.getElementById("openedbox");
   if (!box) return;
-  const { keys, groups, clients } = groupOpenedTickets(openedTickets, resolveCache, openedClient);
+  const { keys, groups, clients, families } =
+    groupOpenedTickets(openedTickets, resolveCache, openedClient, openedFamily);   // RM2883
+  const shown = keys.reduce((n, k) => n + groups.get(k).length, 0);
+  const cnt = document.getElementById("opened-count");
+  if (cnt) cnt.textContent = openedCountLabel(shown, openedTickets.length);
   if (!openedTickets.length) {
     box.innerHTML = '<div style="color:var(--muted);font-size:11.5px">'
       + "Aucun ticket ouvert pour l'instant. Ceux que tu consultes s'empilent ici.</div>";
@@ -5509,6 +5564,14 @@ function renderOpened() {
   } else {
     h += '<div class="cmpbar" style="margin-bottom:6px"><span style="flex:1"></span>'
       + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
+  }
+  // RM2883 : filtres par statut — seules les familles présentes ont un bouton.
+  if (families.length > 1) {
+    h += '<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">'
+      + '<button class="mini' + (openedFamily ? "" : " primary") + '" onclick="openedFilterStatus(null)">tous</button>'
+      + families.map(f => '<button class="mini' + (openedFamily === f.key ? " primary" : "")
+          + '" onclick="openedFilterStatus(' + jarg(f.key) + ')">' + esc(f.label)
+          + " (" + f.n + ")</button>").join("") + "</div>";
   }
   for (const k of keys) {
     h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
@@ -5531,6 +5594,8 @@ function renderOpened() {
         + "</div>";
     }
   }
+  if (!keys.length) h += '<div style="color:var(--muted);font-size:11.5px">'
+    + "aucun ticket dans ce filtre — « tous » les ramène.</div>";   // RM2883
   box.innerHTML = h;
 }
 
@@ -5825,7 +5890,15 @@ function renderWorklog() {
       + ' — clic : ouvrir la fiche" onclick="openWorklogItem(' + jarg(String(it.ref)) + ')">'
       + box
       + pinOf("review", String(it.ref || "").replace(/^RM/, ""))      // RM2795
-      + worklogRefHtml(it.ref, esc, tipAttr) + " " + statusPill(it, esc)      // RM2796
+      + worklogRefHtml(it.ref, esc, tipAttr) + " "
+      // RM2888 : sur un TICKET, la pastille de statut ouvre les transitions
+      // posables. Sur un chantier libre (ref non-RM) il n'y a pas de workflow —
+      // la pastille reste inerte. stopPropagation : le clic ne doit pas ouvrir
+      // la fiche par-dessus le menu.
+      + (selectable
+         ? '<span style="cursor:pointer" title="Changer le statut (workflow)" onclick="event.stopPropagation();openStatusMenu('
+           + jarg(String(it.ref)) + ',this,event)">' + statusPill(it, esc) + "</span>"
+         : statusPill(it, esc))                                                // RM2796
       + " " + mrStageHtml((worklog.mr_stage || {})[it.ref], esc, jarg)        // RM2801
       + (it.label ? " " + esc(it.label) : "")
       + brs.map(b => ' <span class="pill" title="branche du ticket">⎇ ' + esc(b) + "</span>").join("")
@@ -7150,13 +7223,13 @@ function applyTemplate() {
   const tpl = document.getElementById("ptpl").value;
   const rm = document.getElementById("rm").value.trim();
   const ta = document.getElementById("prompt");
-  if (tpl === "libre") return;        // ne pas écraser la saisie manuelle
-  if (!/^\d+$/.test(rm)) { return; }
   const r = resolved && resolved.found ? resolved : null;
   // RM2726 : la formulation vit dans taskPromptText — la fiche du ticket lance
-  // avec exactement le même texte.
+  // avec exactement le même texte. RM2873 : et la RÈGLE de remplissage
+  // (« libre » intouché, calcul impossible → on ne vide pas) vit dans
+  // promptFillOnChange, partagée elle aussi avec la fiche.
   const txt = taskPromptText(tpl, rm, r && r.client, r && r.project, r && r.role_hint);  // RM2833
-  if (txt) ta.value = txt;
+  ta.value = promptFillOnChange(tpl, ta.value, txt);
 }
 
 // ----- §7 : recherche de tickets (MD locaux) -----
@@ -8228,7 +8301,9 @@ function _ticketDetailHtml(rmId, r) {
     ticketFreshnessHtml(r) +
     '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
     '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-    '<div class="kv"><span class="k">phase</span><span class="v"><span class="pill">' + esc(r.status || "—") + '</span>' +
+    // RM2888 : la pastille de phase ouvre les transitions posables depuis CE statut.
+    '<div class="kv"><span class="k">phase</span><span class="v">' +
+    '<span class="pill" style="cursor:pointer" title="Changer le statut — transitions du workflow depuis « ' + esc(r.status || "?") + ' »" onclick="openStatusMenu(' + jarg(String(rmId)) + ',this,event)">' + esc(r.status || "—") + ' ⇄</span>' +
     (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
     '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
     '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
@@ -10174,7 +10249,8 @@ function renderReviewPane() {
     if (r.git && r.git.mr_url) links.push('<a href="' + esc(r.git.mr_url) + '" target="_blank">MR ↗</a>');
     if (links.length) h += '<div style="margin-bottom:12px">' + links.join(" · ") + '</div>';
     // — RM2726 : où ce ticket est-il traité, et où le lancer —
-    h += '<div class="ms"><h4>Sessions</h4>' + ticketSessionsHtml(tsCache[rm], esc, jarg) + '</div>';
+    h += '<div class="ms"><h4>Sessions</h4>'
+      + ticketSessionsHtml(tsCache[rm], esc, jarg, tsPromptSync(rm)) + '</div>';   // RM2873
     // — protocole de test (RM2229) : la section « À tester » de la dernière
     //   note de livraison — l'essentiel pour tester sans relire tout le ticket —
     if (r.test_protocol) {
@@ -10497,29 +10573,9 @@ async function tqVerdict(rm, kind, btn) {
   btn.disabled = true;
   try {
     const args = Object.assign({ rm_id: String(rm), status: v.status, note: note || v.def }, v.extra);
-    let r = await pmRun("task-status", args, { confirm: true });
-    // Garde-fou checklist (NORMS) : proposer le forçage explicite plutôt qu'un échec sec
-    if (!r.ok && /checklist non coché/.test((r.stdout || "") + (r.stderr || ""))) {
-      if (window.confirm("RM" + rm + " : des items de checklist ne sont pas cochés dans la description.\n" +
-          "Forcer quand même " + v.status + " (items hors périmètre / différés) ?")) {
-        args.allow_unchecked = true;
-        r = await pmRun("task-status", args, { confirm: true });
-      }
-    }
-    // Merge gate RM2319 : branche non livrée dans dev → livrer (MR + merge) puis
-    // rejouer le verdict, au lieu d'un échec sec à recopier en CLI (RM2355).
-    if (!r.ok && /non mergée|RM2319/.test((r.stdout || "") + (r.stderr || ""))) {
-      if (window.confirm("RM" + rm + " : la branche du ticket n'est pas mergée dans dev.\n" +
-          "Livrer maintenant (MR + merge dans dev) puis passer " + v.status + " ?")) {
-        toast("RM" + rm + " : livraison (MR + merge)…");
-        const d = await mrDeliver(rm);
-        if (d.ok) {
-          r = await pmRun("task-status", args, { confirm: true });   // gate franchie
-        } else {
-          showCaptureModal("Livraison RM" + rm + " — ÉCHEC", (d.stdout || "") + "\n" + (d.stderr || ""));
-        }
-      }
-    }
+    // RM2888 : la mécanique (gardes + relance) est partagée avec le changement de
+    // statut de la fiche et du worklog — elle ne vit plus ici.
+    const r = await runTaskStatusGated(rm, args, v.status);
     toast(r.ok ? "RM" + rm + " → " + v.status : "Échec (rc=" + r.rc + ")", !r.ok);
     if (!r.ok) showCaptureModal("Verdict RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
   } catch (e) { toast(e.message, true); }
@@ -10527,6 +10583,179 @@ async function tqVerdict(rm, kind, btn) {
   // file : sans ça, la fiche re-rendue relit le resolveCache périmé (RM2229,
   // retour de recette : « Valider » laissait a_tester_demandeur affiché).
   finally { ensureResolved(String(rm), true).then(loadTestQueue); }
+}
+
+// ===== RM2888 : changer le statut depuis la fiche et depuis le worklog =====
+// Le geste existait, mais cantonné : trois verdicts dans la console de test, une
+// réouverture sur les tickets fermés. Partout ailleurs il fallait sortir du
+// cockpit pour une transition banale.
+//
+// Ce qui manquait n'était pas l'exécution — /pm/run expose `task-status` depuis
+// RM2209 — mais de savoir CE QUI EST POSSIBLE ICI : le catalogue déclare les 14
+// statuts en dur, quel que soit l'état du ticket. La liste vient donc de
+// GET /ticket-transitions/<rm>, c'est-à-dire des NORMS elles-mêmes
+// (pm-task-status-update --list-next). AUCUNE règle de transition dans ce
+// fichier : deux tables divergent au premier statut ajouté.
+
+const transCache = new Map();          // rm → {ts, data}
+const TRANS_TTL_MS = 20000;            // le temps d'ouvrir un menu, pas plus
+async function ticketTransitions(rm, force) {
+  rm = String(rm);
+  const hit = transCache.get(rm);
+  if (hit && !force && Date.now() - hit.ts < TRANS_TTL_MS) return hit.data;
+  const data = await api("/ticket-transitions/" + encodeURIComponent(rm));
+  transCache.set(rm, { ts: Date.now(), data });
+  return data;
+}
+
+// >>> statusMenuHtml — pur (RM2888, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Une transition par bouton. `redmine_ok === false` n'est PAS masqué : cacher
+// l'entrée laisserait croire que la transition n'existe pas, alors que c'est ce
+// compte-là qui ne peut pas la poser (workflow Redmine, assignee-only). On la
+// montre désactivée, avec la raison au survol.
+// `redmine_checked === false` (Redmine injoignable) laisse tout actif et le dit :
+// une panne de l'API ne doit pas rendre le geste inatteignable.
+function statusMenuHtml(data, esc) {
+  const d = data || {};
+  const list = d.transitions || [];
+  if (!list.length) {
+    return '<button disabled>aucune transition depuis « ' + esc(String(d.status || "?")) + ' »</button>';
+  }
+  let h = "";
+  for (const t of list) {
+    const refused = t.redmine_ok === false;
+    const tip = String(t.condition || "")
+      + (refused ? " — Redmine refusera cette transition pour ce compte" : "");
+    h += '<button data-st="' + esc(String(t.status)) + '"'
+      + (refused ? " disabled" : "")
+      + (t.needs_close_reason ? ' data-reason="1"' : "")
+      + (t.needs_note ? ' data-note="1"' : "")
+      + ' title="' + esc(tip) + '">'
+      + (t.needs_close_reason ? "🔒 " : "") + esc(String(t.status)) + "</button>";
+  }
+  if (d.redmine_checked === false) {
+    h += '<div class="sep"></div><button disabled title="Le workflow Redmine n\'a pas pu être'
+      + ' interrogé : les transitions affichées sont celles des NORMS, sans le contrôle des'
+      + ' droits de ce compte">⚠ transitions NORMS seules</button>';
+  }
+  return h;
+}
+// <<< statusMenuHtml
+
+function closeStatusMenu() { const m = document.getElementById("stmenu"); if (m) m.remove(); }
+
+// Popover ancré, même mécanique que le menu de disposition (RM2515) : clic
+// ailleurs ou choix ⇒ fermeture. La liste est chargée APRÈS ouverture pour que
+// le menu apparaisse au clic, pas après l'aller-retour réseau.
+async function openStatusMenu(ref, anchor, ev) {
+  if (ev) ev.stopPropagation();
+  closeStatusMenu();
+  const rm = String(ref).replace(/^RM/i, "");
+  const m = document.createElement("div");
+  m.className = "dispmenu"; m.id = "stmenu";
+  m.innerHTML = "<button disabled>chargement…</button>";
+  document.body.appendChild(m);
+  const place = () => {
+    const r = anchor.getBoundingClientRect();
+    m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px";
+    m.style.top = Math.round(r.bottom + 4) + "px";
+  };
+  place();
+  const arm = () => setTimeout(() => document.addEventListener("click", closeStatusMenu, { once: true }), 0);
+  let data;
+  try {
+    data = await ticketTransitions(rm);
+  } catch (e) {
+    m.innerHTML = '<button disabled>' + esc(e.message || "transitions indisponibles") + "</button>";
+    place(); arm(); return;
+  }
+  if (!document.getElementById("stmenu")) return;      // refermé entre-temps
+  m.innerHTML = statusMenuHtml(data, esc);
+  place();
+  m.querySelectorAll("button[data-st]").forEach(b => b.onclick = (e) => {
+    e.stopPropagation();
+    closeStatusMenu();
+    applyTicketStatus(rm, b.dataset.st, !!b.dataset.reason, data.close_reasons || [], !!b.dataset.note);
+  });
+  arm();
+}
+
+// Exécute `task-status` en franchissant les gardes NORMS de façon EXPLICITE.
+// Les gardes (checklist non cochée, merge gate RM2319) sortent en erreur avec un
+// remède : les avaler ferait un échec sec à recopier en CLI (RM2355), les forcer
+// d'office déferait la garde née de l'incident RM2302 (ticket fermé, code jamais
+// livré). Entre les deux : on montre le motif et on demande.
+async function runTaskStatusGated(rm, args, target) {
+  let r = await pmRun("task-status", args, { confirm: true });
+  const out = () => (r.stdout || "") + (r.stderr || "");
+  if (!r.ok && /checklist non coché/.test(out())) {
+    if (window.confirm("RM" + rm + " : des items de checklist ne sont pas cochés dans la description.\n" +
+        "Forcer quand même " + target + " (items hors périmètre / différés) ?")) {
+      args.allow_unchecked = true;
+      r = await pmRun("task-status", args, { confirm: true });
+    }
+  }
+  if (!r.ok && /non mergée|RM2319/.test(out())) {
+    if (window.confirm("RM" + rm + " : la branche du ticket n'est pas mergée dans dev.\n" +
+        "Livrer maintenant (MR + merge dans dev) puis passer " + target + " ?")) {
+      toast("RM" + rm + " : livraison (MR + merge)…");
+      const d = await mrDeliver(rm);
+      if (d.ok) r = await pmRun("task-status", args, { confirm: true });   // gate franchie
+      else showCaptureModal("Livraison RM" + rm + " — ÉCHEC", (d.stdout || "") + "\n" + (d.stderr || ""));
+    }
+  }
+  return r;
+}
+
+// >>> statusPromptSpec — pur (RM2888, testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Ce qu'il faut demander avant de soumettre, et le motif proposé par défaut. La
+// règle « ferme exige un motif » vient du serveur (`needs_close_reason`), pas
+// d'un test sur le nom du statut : elle reste au même endroit que les NORMS.
+function statusPromptSpec(target, needsReason, reasons, needsNote) {
+  const list = (reasons || []).slice();
+  return {
+    needs_reason: !!needsReason,
+    needs_note: !!needsNote,
+    reasons: list,
+    default_reason: list.indexOf("resolu") >= 0 ? "resolu" : (list[0] || ""),
+    note_label: needsNote ? "Note (requise par le workflow) :" : "Note (compte-rendu, facultatif) :",
+  };
+}
+// <<< statusPromptSpec
+
+async function applyTicketStatus(rm, target, needsReason, reasons, needsNote) {
+  rm = String(rm);
+  const spec = statusPromptSpec(target, needsReason, reasons, needsNote);
+  const note = window.prompt("RM" + rm + " → " + target + "\n" + spec.note_label, "");
+  if (note === null) return;                                  // annulé
+  if (spec.needs_note && !note.trim()) { toast("Note requise pour cette transition", true); return; }
+  const args = { rm_id: rm, status: target };
+  if (note.trim()) args.note = note.trim();
+  if (spec.needs_reason) {
+    const reason = window.prompt("RM" + rm + " → " + target + "\nMotif de fermeture ("
+      + spec.reasons.join(" | ") + ") :", spec.default_reason);
+    if (reason === null) return;
+    if (!reason.trim()) { toast("Motif de fermeture requis", true); return; }
+    args.close_reason = reason.trim();
+  }
+  try {
+    const r = await runTaskStatusGated(rm, args, target);
+    toast(r.ok ? "RM" + rm + " → " + target : "Échec (rc=" + r.rc + ")", !r.ok);
+    if (!r.ok) showCaptureModal("Statut RM" + rm + " → " + target + " — ÉCHEC",
+                                (r.stdout || "") + "\n" + (r.stderr || ""));
+  } catch (e) { toast(e.message, true); }
+  finally {
+    // Le statut a bougé côté serveur : tout ce qui l'affiche doit le relire, sinon
+    // la vue garde l'ancien (RM2229). Le cache des transitions devient faux aussi —
+    // les cibles valides dépendent du statut qu'on vient de quitter.
+    transCache.delete(rm);
+    ensureResolved(rm, true).then(() => {
+      if (metaTicket === rm) renderMeta();
+      if (typeof currentReview !== "undefined" && currentReview === rm) renderReviewPane();
+      if (document.getElementById("rm") && document.getElementById("rm").value.trim() === rm) resolveRm();
+    });
+    if (attached && rightVisible("state")) loadWorklog(true);
+  }
 }
 
 // ===== RM2726 : la fiche d'un ticket dit OÙ il est traité, et sait l'y lancer =====
@@ -10601,6 +10830,63 @@ async function confirmSecondSession(rm) {
     "même statut Redmine — et le second écrase les décisions du premier sans le savoir.");
 }
 
+// >>> promptTemplates — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — le CHOIX du modèle de consigne. `taskPromptText` (RM2726) rendait déjà
+// la formulation commune aux deux lanceurs, mais la liste des modèles, elle,
+// vivait en dur dans le <select> du formulaire de gauche : un modèle ajouté là
+// n'aurait jamais atteint la fiche du ticket. Une seule liste, deux formulaires.
+// `libre` ferme la marche et ne produit aucun texte — c'est le mode où la saisie
+// manuelle fait foi, et où l'on ne doit surtout rien réécrire par-dessus.
+function promptTemplates() {
+  return [
+    { value: "traiter", label: "Traiter la tâche" },
+    { value: "continuer", label: "Continuer la tâche" },
+    { value: "chiffrer", label: "Étudier / chiffrer" },
+    { value: "etat", label: "État du ticket" },
+    { value: "reviewer", label: "Reviewer" },
+    { value: "libre", label: "Libre (saisie manuelle)" },
+  ];
+}
+// <<< promptTemplates
+
+// >>> promptTemplateOptions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// Les <option> du sélecteur, avec celui qui est retenu. Rendu ici plutôt que
+// dans le HTML : c'est ce qui garantit que les deux formulaires proposent la
+// même chose.
+function promptTemplateOptions(sel, esc) {
+  const cur = String(sel == null ? "" : sel);
+  return promptTemplates().map(t => '<option value="' + esc(t.value) + '"'
+    + (t.value === cur ? " selected" : "") + ">" + esc(t.label) + "</option>").join("");
+}
+// <<< promptTemplateOptions
+
+// >>> promptFillOnChange — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — que devient le champ quand on change de modèle de consigne ? La règle
+// est la même des deux côtés (lanceur de gauche et fiche du ticket), donc elle
+// s'écrit une fois : « libre » ne touche à rien — c'est le mode où la saisie
+// manuelle fait foi — et un modèle dont on ne sait rien dire (ticket non résolu,
+// id absent) laisse le texte en place plutôt que de VIDER ce qui est écrit.
+function promptFillOnChange(tpl, current, computed) {
+  if (String(tpl) === "libre") return String(current || "");
+  return computed ? String(computed) : String(current || "");
+}
+// <<< promptFillOnChange
+
+// >>> ticketPromptFor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2873 — l'état du champ de consigne de la FICHE. Il ne peut pas vivre dans le
+// DOM : `renderReviewPane()` re-rend la section sur événement (fin d'action PM,
+// file de test rechargée), et un textarea re-rendu perdrait la saisie en cours.
+// Changer de TICKET repart d'une consigne propre : garder le texte tapé pour
+// RM_A et lancer RM_B avec, ce serait lancer le mauvais travail sans le dire.
+function ticketPromptFor(prev, rm, deflt) {
+  const p = prev || {};
+  const id = String(rm == null ? "" : rm);
+  if (String(p.rm || "") === id && p.text)
+    return { rm: id, tpl: p.tpl || "traiter", text: p.text };
+  return { rm: id, tpl: "traiter", text: String(deflt || "") };
+}
+// <<< ticketPromptFor
+
 // >>> taskPromptText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2726 — la formulation des prompts de lancement vivait dans applyTemplate,
 // collée au DOM du formulaire de gauche. La fiche du ticket lance elle aussi
@@ -10634,7 +10920,7 @@ function taskPromptText(tpl, rm, client, project, hint) {
 // qui porte juste la branche n'est pas la même chose qu'une session qui l'a au
 // worklog), puis où l'envoyer. Une session éteinte s'affiche mais ne se propose
 // pas : il n'y a personne pour lire le prompt.
-function ticketSessionsHtml(data, esc, jarg) {
+function ticketSessionsHtml(data, esc, jarg, prompt) {
   if (!data) return '<div style="color:var(--muted)">recherche des sessions qui traitent ce ticket…</div>';
   const rm = String(data.rm_id || "");
   const name = s => "karl-" + (/^\d+$/.test(String(s.sid)) ? "RM" + s.sid : s.sid);
@@ -10654,10 +10940,21 @@ function ticketSessionsHtml(data, esc, jarg) {
           ' onclick="attach(' + esc(jarg(String(s.sid))) + ')">⇱ ouvrir</button>' : '') +
       '</span></div>').join("");
   }
+  // RM2873 : la consigne se choisit et se relit AVANT de lancer. Elle vaut pour
+  // les deux gestes de ce bloc — ouvrir une session neuve, ou envoyer le ticket
+  // dans une session existante : un champ affiché juste au-dessus d'un bouton
+  // qui l'ignorerait serait un piège.
+  const pr = prompt || {};
+  h += '<div style="margin-top:10px">'
+    + '<label for="ts-tpl" style="display:block;font-size:11px;color:var(--muted)">Prompt initial</label>'
+    + '<select id="ts-tpl" style="width:auto;max-width:340px" onchange="tsTplChanged()">'
+    + promptTemplateOptions(pr.tpl || "traiter", esc) + '</select>'
+    + '<textarea id="ts-prompt" rows="2" style="margin-top:4px" oninput="tsPromptEdited(this.value)"'
+    + ' placeholder="traite la tâche RM…">' + esc(pr.text || "") + '</textarea></div>';
   h += '<div class="rels" style="margin-top:8px">';
   h += '<button class="chip"' +
     (data.own_alive ? ' disabled title="la session du ticket tourne déjà — ouvre-la plutôt"' :
-                      ' title="Lance karl-RM' + esc(rm) + ' avec le moteur et le modèle du lanceur"') +
+                      ' title="Lance karl-RM' + esc(rm) + ' avec le moteur et le modèle du lanceur, et la consigne ci-dessus"') +
     ' onclick="spawnTicketSession(' + esc(jarg(rm)) + ',this)">▶ nouvelle session</button>';
   if (cands.length) {
     const mine = cands.filter(c => c.same_project), other = cands.filter(c => !c.same_project);
@@ -10672,8 +10969,8 @@ function ticketSessionsHtml(data, esc, jarg) {
                      '">' + opts(mine) + '</optgroup>' : '') +
       (other.length ? '<optgroup label="autres projets">' + opts(other) + '</optgroup>' : '') +
       '</select>';
-    h += '<button class="chip" title="Envoie « traite la tâche RM' + esc(rm) +
-      ' » dans la session choisie" onclick="sendTicketToSession(' + esc(jarg(rm)) +
+    h += '<button class="chip" title="Envoie la consigne ci-dessus dans la session choisie"'
+      + ' onclick="sendTicketToSession(' + esc(jarg(rm)) +
       ',this)">➜ envoyer dans cette session</button>';
   } else {
     h += '<span style="color:var(--muted);font-size:11px">aucune autre session vivante où l’envoyer</span>';
@@ -10693,7 +10990,11 @@ async function sendTicketToSession(rm, btn) {
   if (!sid) { toast("aucune session choisie", true); return; }
   const c = ((tsCache[rm] || {}).candidates || []).find(x => String(x.sid) === sid) || {};
   const r = resolveCache[rm] || {};
-  const msg = taskPromptText("traiter", rm, r.client, r.project);
+  // RM2873 : le champ de consigne surplombe les DEUX boutons — il vaut aussi
+  // pour l'envoi, sinon on lirait une consigne et on en enverrait une autre.
+  const msg = (String(tsPrompt.rm || "") === rm && tsPrompt.text)
+    ? tsPrompt.text
+    : taskPromptText("traiter", rm, r.client, r.project, r.role_hint);
   const warn = c.same_project ? "" :
     "\n\n⚠ cette session travaille sur " + (c.client || "?") + "/" + (c.project || "?") +
     ", pas sur le projet du ticket.";
@@ -10722,6 +11023,32 @@ function roleHintLine(hint) {
 }
 // <<< roleHintLine
 
+// RM2873 : la consigne saisie sur la FICHE. Hors du DOM, parce que
+// `renderReviewPane()` re-rend la section sur événement — une saisie en cours
+// serait perdue au premier rafraîchissement.
+let tsPrompt = { rm: null, tpl: "traiter", text: "" };
+
+// Le texte par défaut d'un ticket : la même formulation que le lanceur de gauche
+// (taskPromptText, RM2726), rôle suggéré compris (RM2833).
+function tsPromptDefault(rm, tpl) {
+  const r = resolveCache[String(rm)] || {};
+  return taskPromptText(tpl || "traiter", rm, r.client, r.project, r.role_hint);
+}
+// Le champ suit le ticket affiché : changer de fiche repart d'une consigne
+// propre (ticketPromptFor), sans écraser ce qu'on est en train d'écrire.
+function tsPromptSync(rm) {
+  tsPrompt = ticketPromptFor(tsPrompt, rm, tsPromptDefault(rm, "traiter"));
+  return tsPrompt;
+}
+function tsTplChanged() {
+  const sel = document.getElementById("ts-tpl"), ta = document.getElementById("ts-prompt");
+  if (!sel || !ta) return;
+  tsPrompt.tpl = sel.value;
+  tsPrompt.text = promptFillOnChange(sel.value, ta.value, tsPromptDefault(tsPrompt.rm, sel.value));
+  ta.value = tsPrompt.text;
+}
+function tsPromptEdited(v) { tsPrompt.text = v; }
+
 async function spawnTicketSession(rm, btn) {
   rm = String(rm);
   if (!await confirmSecondSession(rm)) return;      // RM2818
@@ -10729,7 +11056,11 @@ async function spawnTicketSession(rm, btn) {
   const engine = (document.getElementById("engine") || {}).value || "claude";
   const model = (document.getElementById("model") || {}).value || "";
   const cwd = r.cwd || "";
-  const prompt = taskPromptText("traiter", rm, r.client, r.project, r.role_hint);   // RM2833
+  // RM2873 : la consigne éditée sur la fiche fait foi ; à défaut (champ vide,
+  // fiche pas encore rendue) on retombe sur la formulation par défaut.
+  const prompt = (String(tsPrompt.rm || "") === rm && tsPrompt.text)
+    ? tsPrompt.text
+    : taskPromptText("traiter", rm, r.client, r.project, r.role_hint);   // RM2833
   if (!confirm("Lancer une nouvelle session pour RM" + rm + " ?" +
                roleHintLine(r.role_hint) + "\n\n" +
                "moteur : " + engine + (model ? "  ·  modèle : " + model : "") + "\n" +
@@ -10956,6 +11287,8 @@ async function kill(rmId) {
   const ls = document.getElementById("layoutsel");
   (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
   populateModels();   // RM1941 : catalogue des modèles du moteur courant
+  // RM2873 : modèles de consigne — même source que la fiche du ticket
+  document.getElementById("ptpl").innerHTML = promptTemplateOptions("traiter", esc);
   // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
   const ntType = document.getElementById("nt-type");
   (CFG.task_types || []).forEach(t => {

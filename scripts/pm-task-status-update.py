@@ -444,9 +444,13 @@ NORMS_TRANSITIONS = {
         ("a_corriger", "rejet (note dans journal)"),
         ("ferme", "ticket sans code à déployer — close_reason: resolu"),
     ],
-    # RM2893 : recette préprod optionnelle (id Redmine à créer — cf. redmine.reference.yml).
+    # RM2893 : recette préprod optionnelle. RM2920 : deux sorties valides selon
+    # l'INSTRUCTION du demandeur (pas un bypass automatique) :
+    #   « mets en prod » (préprod testée + temps de tester la MEP) → en_mep ;
+    #   « preprod ok »                                            → a_mep (file de MEP).
     "a_tester_preprod": [
-        ("a_mep", "recette préprod OK : en file de MEP"),
+        ("en_mep", "instruction « mets en prod » : préprod OK + MEP prod faite dans la foulée"),
+        ("a_mep", "instruction « preprod ok » : mise en file de MEP (déploiement prod plus tard)"),
         ("a_corriger", "régression préprod (note dans journal)"),
     ],
     "a_mep": [

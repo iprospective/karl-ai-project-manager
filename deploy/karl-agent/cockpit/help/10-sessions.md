@@ -22,9 +22,17 @@ produit. C'est la seconde qui décide d'un geste : ouverte depuis cinq heures et
 active il y a trente secondes, une session n'appelle rien ; muette depuis
 `2h14`, si. L'infobulle nomme les deux.
 
-Précision : ⏳ mesure la dernière sortie du **terminal**, pas le dernier message
-d'une conversation. Pour une session d'agent les deux coïncident en pratique —
-l'agent écrit quand il travaille et se tait quand il attend.
+⏳ mesure le **dernier vrai message** de la conversation : une question, une
+réponse, une action de l'agent. Ce que l'agent écrit tout seul n'y compte pas —
+en particulier le récapitulatif `※ recap: …` que Claude Code affiche quand une
+session reste sans réponse. Il écrivait au terminal sans que personne n'agisse,
+et remettait le compteur à zéro : sur ce poste, onze sessions sur douze
+paraissaient récentes alors qu'elles n'avaient rien produit depuis des heures —
+jusqu'à deux jours pour certaines.
+
+Un `~` après la durée (`⏳2h14~`) signale une mesure approchée : pour les moteurs
+sans transcript exploitable, on retombe sur la dernière sortie du terminal. Une
+durée approchée reste plus utile qu'un blanc.
 
 ## Panneau « 🚀 sessions »
 
@@ -43,6 +51,25 @@ ensemble) :
 - **☑** passe en sélection, pour choisir les sessions une à une.
 - **💾 → <jeu>** verse les sessions affichées dans le jeu nommé sur le bouton.
 - Options par jeu : autostart, rétention d'affichage, effacer.
+
+La carte **« Reprendre une session »** filtre d'abord par **client**, et la liste
+des projets se réduit aux siens (« tous » la rétablit). Client seul, sans projet :
+toutes les sessions de ce client, tous projets confondus. Le contexte client du
+bandeau pré-sélectionne le client sans figer le choix, et changer de client
+n'y laisse jamais le projet d'un autre.
+
+## Un ticket, une session à la fois
+
+Lancer une session sur un ticket **déjà pris en charge** ailleurs — depuis la
+fiche du ticket comme depuis le lanceur — affiche d'abord ce qui existe : quelle
+session s'en occupe, son état, et à quel titre (ancrage, branche du registre,
+worklog). Deux choix suivent : **rejoindre** cette session, ou **ouvrir quand
+même** une seconde (avec ce que ça implique : même branche, même worktree, même
+statut Redmine, et le second agent qui écrase les décisions du premier).
+
+Ce qui ne déclenche rien : une session marquée **✅ terminé** (c'est ce que la
+marque sert à dire), et l'absence de session. Une session **🔖 parké** ou
+éteinte n'est pas « terminée » : elle est signalée.
 
 ## Terminal
 

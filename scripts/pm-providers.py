@@ -87,7 +87,13 @@ def cmd_resolve(cfg: PMConfig, reg: Registry, axis, client, project):
                 print(f"  {'':9} sync={res.sync}")
             if ax == "secret":
                 # Identifiants : on ne montre QUE les noms de clés (tripwire 11).
-                keys = pm_secrets.creds_keys(i.name)
+                # Le repli `legacy` (BW_CLIENTID/BW_CLIENTSECRET) est GLOBAL : il
+                # n'appartient qu'à l'instance par défaut de l'axe. L'accorder à
+                # toutes ferait passer une instance sans identifiants pour
+                # configurée, et le diagnostic contredirait le backend, qui refuse
+                # alors en `unreachable` (RM2835). Même règle que karl-agent.
+                keys = pm_secrets.creds_keys(
+                    i.name, legacy=(i.name == reg.defaults.get(ax)))
                 print(f"  {'':9} creds={', '.join(keys) if keys else '— aucun'}")
 
 

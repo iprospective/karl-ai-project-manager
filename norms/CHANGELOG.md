@@ -1,5 +1,37 @@
 # Changelog des normes
 
+## [2.9.0] - 2026-08-27
+
+### Ajouté
+- Module `environments` — backend **`onepassword`** (CLI `op` + *service account*,
+  RM2711) dans la liste des vaults déclarables : le gestionnaire en ligne le plus
+  répandu côté dev. La CLI n'est pas dans les dépôts Debian et le jeton machine
+  suppose un plan payant — l'instance se déclare `unreachable` avec la marche à
+  suivre plutôt que de casser les autres coffres.
+- Module `environments` — **« Un jeton machine n'est pas un verrou »** : un accès
+  par jeton (service account 1Password, mot de passe d'application Nextcloud) qui
+  est refusé se rapporte `locked`, faute d'une quatrième valeur au contrat, mais
+  le geste correctif est l'inverse d'un déverrouillage — il faut **émettre un
+  nouveau jeton** et remplacer la variable du `.env`, pas chercher un mot de passe
+  maître qui n'existe pas.
+- Module `environments` — **« Un secret ne passe jamais en argument de commande »** :
+  `ps` est lisible par tous les processus de la machine, et l'historique du shell
+  garde la ligne. Un secret se transmet par variable d'environnement ou sur
+  l'entrée standard. La règle existait dans le code (`unlock-vault.sh --stdin`,
+  RM2748) sans être écrite ; elle vaut pour tout appel qu'un agent compose.
+
+## [2.8.0] - 2026-08-24
+
+### Modifié
+- Module `traceability` : § « Niveau de note par commit » (RM2409) — le niveau
+  `commit_note_level` est désormais **effectif** dans le hook `pm-post-commit` :
+  `work` (défaut) exclut de la note les commits d'outillage (`pm(*):`, `chore(…):`,
+  conso reportée sans note) ; **override par projet** via `meta.yml`
+  (`traceability: { commit_note_level: work|all|none }`), priorité projet >
+  config locale > config core. Purge du bruit historique :
+  `scripts/redmine-purge-commit-notes.py` (dry-run par défaut, backup JSONL).
+  (Entrée rebasée : bump initial 1.63.0 du 2026-07-24, rejoué au-dessus du jalon v2.)
+
 ## [2.7.1] - 2026-08-21
 
 ### Corrigé

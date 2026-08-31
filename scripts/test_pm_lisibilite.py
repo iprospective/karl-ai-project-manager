@@ -92,6 +92,71 @@ chk("un payload non-dict passe tel quel", ru._unwrap_payload(None) is None)
 chk("un payload sans champ texte est intact",
     ru._unwrap_payload({"issue": {"status_id": 3}}) == {"issue": {"status_id": 3}})
 
+# ── volet 3 : le gabarit se RÉSOUT, il ne se contourne pas ───────────────────
+# Repérer un gabarit ne suffisait pas : sans chemin de sortie, on retombait sur
+# `--allow-unchecked`, qui désarme aussi le contrôle des vrais critères. D'où
+# `--drop-placeholders` (retrait explicite) et un garde-fou que `--allow-unchecked`
+# ne franchit PAS — un gabarit n'est pas un critère qu'on assume, c'est un oubli.
+from pm_markdown import drop_placeholders, placeholder_lines  # noqa: E402
+
+MIXTE = """## Critères d'acceptation
+
+- [x] Un vrai critère, fait
+- [ ] Un vrai critère, pas fait
+- [ ] (à compléter)
+"""
+
+chk("placeholder_lines ne voit QUE le gabarit", len(placeholder_lines(MIXTE)) == 1)
+out, n = drop_placeholders(MIXTE)
+chk("drop_placeholders en retire un", n == 1)
+chk("drop_placeholders garde les vrais critères",
+    "Un vrai critère, fait" in out and "Un vrai critère, pas fait" in out)
+chk("drop_placeholders retire bien la ligne", "(à compléter)" not in out)
+chk("drop_placeholders préserve la structure", out.startswith("## Critères d'acceptation"))
+chk("real_checklist_lines et drop_placeholders sont d'accord",
+    len(real_checklist_lines(MIXTE)) == len(checklist_lines(out)))
+
+again, n2 = drop_placeholders(out)
+chk("drop_placeholders est idempotent", n2 == 0 and again == out)
+
+SANS = "## Critères\n\n- [ ] Un vrai critère\n"
+chk("aucun gabarit → rien retiré", drop_placeholders(SANS) == (SANS, 0))
+
+# un gabarit CITÉ dans un bloc de code n'est pas un gabarit du ticket : `checklist_lines`
+# ignore déjà les blocs, et `placeholder_lines` en hérite — sinon on retirerait des lignes
+# d'un exemple de documentation.
+CITE = """## Doc
+
+```
+- [ ] (à compléter)
+```
+
+- [ ] Un vrai critère
+"""
+chk("un gabarit dans un bloc de code est ignoré", len(placeholder_lines(CITE)) == 0)
+chk("et n'est donc pas retiré", drop_placeholders(CITE)[1] == 0)
+
+VARIANTES = ["- [ ] (à compléter)", "- [ ] à définir", "- [ ] TBD", "- [ ] (à définir)"]
+for v in VARIANTES:
+    chk(f"gabarit reconnu : {v!r}", len(placeholder_lines(v + "\n")) == 1)
+
+# le message de refus doit donner les DEUX issues et dire que --allow-unchecked ne
+# s'applique pas : un refus sans remède se contourne au jugé.
+import importlib.util  # noqa: E402
+_spec = importlib.util.spec_from_file_location(
+    "pm_task_status_update", Path(__file__).resolve().parent / "pm-task-status-update.py")
+_m = importlib.util.module_from_spec(_spec)
+sys.modules["pm_task_status_update"] = _m
+_spec.loader.exec_module(_m)
+
+chk("count_placeholders compte comme placeholder_lines", _m.count_placeholders(MIXTE) == 1)
+msg = _m.placeholder_gate(2789, MIXTE, "passer en 'a_mep'")
+chk("le refus propose d'écrire les critères", "--set-from-file" in msg)
+chk("le refus propose la sortie explicite", "--drop-placeholders" in msg)
+chk("le refus dit que --allow-unchecked ne s'applique pas",
+    "allow-unchecked" in msg and "PAS" in msg)
+chk("le refus nomme le ticket et l'action", "RM2789" in msg and "a_mep" in msg)
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

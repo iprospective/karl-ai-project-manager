@@ -13,6 +13,144 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 
 ## [Unreleased] — Cockpit & environnements de test
 
+### Outillage PM
+- **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
+  Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
+  réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une
+  transition banale. Ce qui manquait n'était pas l'exécution (`/pm/run` expose `task-status`
+  depuis RM2209) mais de savoir **ce qui est possible ici** : le catalogue déclare les 14 statuts
+  en dur, quel que soit l'état du ticket. `pm-task-status-update --list-next` gagne donc une
+  sortie **`--json`**, et le cockpit une route **`GET /ticket-transitions/<rm>`** qui l'interroge :
+  la règle de transition reste dans les NORMS, elle n'est **pas recopiée** côté UI — deux tables
+  divergeraient au premier statut ajouté. La pastille de statut ouvre le menu, sur la fiche comme
+  sur chaque ligne du worklog. Une transition que **ce compte** ne peut pas poser reste visible
+  mais désactivée, avec sa raison : la masquer laisserait croire qu'elle n'existe pas. Redmine
+  injoignable ⇒ liste complète et avertissement, jamais un geste inatteignable. Les gardes NORMS
+  (checklist non cochée, merge gate RM2319) sont franchissables **explicitement**, jamais d'office
+  — c'est l'incident RM2302 qui l'impose — et leur mécanique, jusqu'ici propre à la console de
+  test, est désormais partagée.
+- **Cockpit : filtre par statut dans « Tickets ouverts »** (RM2883). La carte empile jusqu'à
+  40 tickets consultés, tous statuts mêlés. Elle offre maintenant, à côté du filtre par client et
+  cumulable avec lui, un filtre par **famille de statut** : à faire / en cours / à tester / à MEP
+  / en pause / fermé. Seules les familles **présentes** ont un bouton, et l'en-tête passe à
+  `(vu / total)` dès qu'un filtre est actif. « à MEP » est distingué de « à faire » par cohérence
+  avec le worklog (RM2860). Un test vérifie que **tous** les statuts NORMS ont une famille : sans
+  lui, un statut ajouté un jour disparaîtrait silencieusement du filtre.
+- **Fiche ticket : la consigne de lancement se choisit et s'édite** (RM2873). Le bouton
+  « ▶ nouvelle session » lançait avec une consigne **imposée** (`traite la tâche RM…`), visible
+  seulement dans la boîte de confirmation : vouloir « étudie et chiffre » obligeait à repasser
+  par le formulaire de gauche. La fiche offre maintenant le même sélecteur de modèle et le même
+  champ éditable — et par **réutilisation**, pas par copie : `taskPromptText` rendait déjà la
+  formulation commune (RM2726), la **liste des modèles** (jusqu'ici en dur dans le HTML de
+  gauche) et la **règle de remplissage** (« libre » intouché, calcul impossible → on ne vide pas)
+  le deviennent. La consigne vaut aussi pour « ➜ envoyer dans cette session » : un champ affiché
+  au-dessus d'un bouton qui l'ignorerait serait un piège. L'état vit hors du DOM — la fiche est
+  re-rendue sur événement et une saisie en cours y serait perdue — et changer de ticket repart
+  d'une consigne propre.
+- **Cockpit : un fichier ouvert s'affiche en pleine hauteur** (RM2861). Dans l'onglet 📁 fichiers,
+  un `.md` atterrissait dans un bloc de **160 px** avec son propre ascenseur, au milieu d'un
+  panneau qui défile déjà : le contenu était rendu dans `.desc`, le style du bloc « description
+  encadrée ». Il prend désormais les classes pleine hauteur `.facetfull .descfull .mdview`
+  introduites par RM2797/RM2806 pour le même défaut sur la fiche de ticket — avec le piège que
+  RM2806 avait documenté : `.desc` est déclarée plus loin dans la feuille, la garder aurait rendu
+  le correctif inerte. Cause de fond traitée : le corps d'un fichier se rendait en **trois
+  exemplaires** (panneau droit RM2586, vue projet RM2590, vue centrale RM2759) — d'où le fait que
+  seule la vue centrale était déjà correcte. Un `fileBodyHtml` unique et testé les sert tous.
+- **Worklog : la MEP a son onglet** (RM2860). Les tickets `a_mep` et `en_mep` étaient comptés
+  dans « reste à faire », où ils se noyaient entre des tickets encore à écrire. C'est pourtant
+  un travail d'une autre nature : le développement est fini, ce qui reste est une mise en
+  production — batchée (plusieurs tickets montent ensemble), souvent portée par un autre acteur.
+  Ils ont désormais leur bucket `mep` et un sous-onglet **🚀 à mettre en prod**, entre « reste à
+  faire » et « fait ». La même section apparaît dans le worklog Markdown de session
+  (`pm-session-status`) : les deux vues du même worklog ne doivent pas donner deux vérités sur
+  « où on en est », et un test vérifie que les deux tables de statuts ne divergent pas. Piège
+  traité au passage : `ticketsOfSession` énumère les buckets par une liste en dur — un bucket
+  neuf oublié là aurait fait disparaître ces tickets de l'onglet « tickets » de la session.
+- **Synchro des tags : additive dans les deux sens, suppression seulement quand elle est
+  attestée** (RM2840). Deux pertes silencieuses corrigées. À la **relecture**, `pm-task-sync`
+  remplaçait la liste locale par celle du CF : un ticket portant `cockpit` (mot-clé local, sans
+  équivalent possible) et `front` perdait `cockpit` à chaque refresh. À l'**écriture**,
+  `pm-task-tag` poussait la liste locale telle quelle : une valeur ajoutée depuis l'UI Redmine
+  et pas encore connue ici était écrasée. Désormais : ajout bidirectionnel ; suppression
+  PM→Redmine ; suppression Redmine→PM **uniquement** pour ce que les **journaux** attestent
+  comme retiré depuis la dernière synchro (un CF multi-valeurs émet une entrée par valeur). Sans
+  repère de journal exploitable, la relecture est additive et le dit — mieux vaut un tag de trop
+  qu'un tag effacé sans qu'on sache par qui. Vérifié en réel sur un ticket de bout en bout.
+- **`pm-task-add` : KeyError après le POST quand `--tags` remplit `extra_cf`** (RM2842,
+  régression de RM2829). La ligne qui logue le CF « Task type » lisait
+  `tt_values[args.type]` sous la seule condition `if extra_cf:` — vrai depuis que le CF « Tags »
+  s'y ajoute aussi. Résultat : toute création avec `--tags` et un type absent de la table
+  task-type (soit tout sauf documentation / database / configuration) levait une exception
+  **après** le POST, laissant un ticket côté Redmine **sans fichier local** (incident RM2840,
+  rattrapé par `redmine-fetch-task`). Chaque CF se logue désormais sous sa propre garde, et un
+  test statique vérifie qu'aucune lecture de `tt_values` ne précède la sienne.
+- **Tags : 2e lot et spécialisations** (RM2839). Le CF passe à **30 valeurs**. Quatre familles
+  nouvelles cartographiées — Design (charte, branding, maquettes, 3d, rendu…), Inventaire
+  (inventory, cartographie, parc), Data (curation, fragments, contenu, catalogue…) et
+  « Bench/Perf » (performance, scaling, benchmark, résilience) — avec les déplacements que ça
+  implique : `charte`/`branding` quittent Front pour Design, `parc` quitte Infra pour
+  Inventaire, `benchmark` quitte Tests pour Perf, `pricing-watch` quitte Tunnel de commande
+  pour Veille. Et surtout, **Review, Veille, Hooks et CLI deviennent des valeurs** là où
+  c'étaient des alias d'Audit et de Tooling : le registre porte désormais la relation
+  `precise:`, montrée par l'audit. Le point qui compte : les garder en alias les aurait
+  rabattus sur leur parent à l'écriture — la précision aurait été perdue au moment même où on
+  la demande. Le champ étant multi-valeurs, un ticket porte `audit` ET `review`. Couverture :
+  56 % des usages.
+- **Registre des Tags remappé sur les 22 valeurs réelles** (RM2837). Les valeurs ont été créées
+  avec des libellés parfois différents de ceux proposés — « Tooling » pour Outillage, « Archi »
+  pour Architecture, « Backup » pour Sauvegarde, « Debug/Bugfix » pour Debug — plus deux
+  familles non prévues, **Notifications** et **Audit**. Le registre porte désormais l'id et le
+  libellé exact de chacune, et le synonyme proposé devient un alias : rien n'est perdu et aucun
+  ticket n'a à être réécrit. Le slug reste distinct du libellé quand celui-ci est composé
+  (« Debug/Bugfix » s'écrit `debug`) — un slug se tape à la main. Deux familles nouvelles
+  cartographiées (telegram, communication, bot → Notifications ; analyse, revue, inventaire →
+  Audit) et le paiement rejoint « Tunnel de commande » sans créer de valeur (`etransactions`,
+  `mmipayments`, `panier`…). **Correctif d'audit** : la comparaison se fait par **id** et non
+  par libellé — sinon un slug volontairement différent du libellé passait pour un écart — et
+  les **renommages** côté Redmine sont désormais détectés. Couverture : 53 % des usages.
+- **Registre des Tags : vocabulaire multi-projet, mapping n-1, audit et garde** (RM2836,
+  chantier RM2828). Le CF portait 7 valeurs quand les frontmatters comptaient **747 mots-clés
+  sur 2 578 usages** : deux objets différents qu'il fallait réconcilier sans réécrire
+  l'historique. Le registre porte désormais le vocabulaire contrôlé (7 valeurs actives + **13
+  proposées**, choisies sur un critère mesurable — fréquentes ET multi-projets, hors produits
+  mono-projet) et **265 alias** qui y ramènent les mots-clés existants ; le reste demeure
+  mot-clé local, filtrable comme avant. `pm-task-tag` canonicalise un alias en l'annonçant,
+  **refuse** une étiquette hors vocabulaire (avec les valeurs acceptées et l'échappatoire
+  `--free`), et distingue « décidée mais pas encore créée dans Redmine » de « mot-clé local » —
+  deux raisons très différentes de ne pas monter. `pm-tags-audit` compare définition Redmine,
+  registre et usages, et rend les quatre écarts : à créer dans l'UI, à recopier au registre,
+  orphelines, libres. Il ne corrige rien : créer une valeur reste un geste humain.
+- **Socle étiquettes branché sur le CF réel** (RM2829). Le champ a été créé côté Redmine sous
+  le nom **« Tags » (id 32)** et en format **`enumeration`** — pas « liste » : l'API y désigne
+  ses valeurs par **id** (45, 46…), et pousser un libellé est refusé. Le socle apprend donc à
+  traduire : `tags.registry.yml` (racine du dépôt, comme `redmine.reference.yml`) porte la table
+  `slug ↔ label ↔ id`, et le registre voyage avec le code plutôt qu'avec l'instance — sinon un
+  worktree de dev pousserait les ids d'un autre checkout. Une étiquette hors registre reste
+  locale et `pm-task-tag` le DIT : sans ça, un « ✓ frontmatter + Redmine » mentirait sur la
+  moitié des étiquettes. Vérifié de bout en bout sur RM2829 (frontmatter `front` → CF valeur 45).
+- **L'étiquette propose un rôle d'agent** (RM2833, chantier RM2828). Table `tag_roles` déclarée
+  en conf (`meta.yml`, cascade client → projet — un vocabulaire métier n'a pas à être connu du
+  code) : `pm-task-brief` affiche le rôle suggéré, et l'écran de lancement d'une session le
+  montre puis le cite dans la consigne, de quoi faire charger `agents/worker-<rôle>.md`. Ça
+  **propose**, ça n'assigne pas : réassigner un ticket changerait son propriétaire — donc le
+  verrou d'écriture — sans que personne l'ait demandé. Quand plusieurs étiquettes routent, le
+  départage est alphabétique (arbitraire mais stable) et les autres candidates sont nommées ;
+  un rôle absent de `agents/` est suggéré mais signalé, plutôt que d'envoyer l'agent lire un
+  fichier qui n'existe pas.
+- **Étiquettes de ticket — le socle** (RM2829, chantier RM2828). Le domaine d'un ticket
+  (`front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande`…) vivait à moitié :
+  `tags:` au frontmatter, écrit par `pm-task-add --tags` et filtré par `pm-task-list --tag`,
+  mais invisible côté Redmine. Constat vérifié sur l'instance : Redmine n'a pas de tags en
+  standard, aucun plugin n'est installé, et les catégories natives sont mono-valeur ET propres
+  à chaque projet — « refacto » serait à recréer partout. Le porteur retenu est donc un
+  **custom field « liste » multi-valeurs partagé à tous les projets**. Livré : `pm_tags`
+  (normalisation en slug — « Tunnel de Commande » et « tunnel_de_commande » sont UNE étiquette
+  —, tri stable, plafond, payload et lecture du CF), la commande `pm-task-tag` (add / rm / set
+  / lecture, frontmatter + Redmine + journal), le push au POST de `pm-task-add` et la
+  relecture par `pm-task-sync`. Le CF lui-même se crée à la main (l'API Redmine ne crée pas de
+  custom fields) : marche à suivre dans `knowledge/redmine/etiquettes.md`. Tant qu'il n'existe
+  pas, tout fonctionne côté frontmatter et le push est annoncé comme non fait — jamais en
+  silence.
 ### Outillage
 - **Lisibilité du texte des tickets** (RM2789), deux défauts au même endroit.
   **Le gabarit « (à compléter) » n'est plus une case à cocher** : posé en case, il bloquait
@@ -31,6 +169,86 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être
+  montrées, elles ne servaient qu'aux filtres — personne ne savait ce qu'un ticket portait.
+  La fiche du ticket les affiche (🏷) et chacune est **cliquable** : elle emmène vers la
+  recherche réglée sur cette étiquette, plutôt que d'inventer une vue de plus. Côté outillage,
+  `pm-conso-report --by tag` ventile coût, tokens et temps par domaine ; c'est la seule
+  dimension multi-valuée, donc un ticket `front` + `refacto` compte dans les deux et la somme
+  des lignes dépasse le total — annoncé dans le rapport lui-même, un total qui semble faux
+  ferait douter de l'ensemble. La marche à suivre pour la vue Redmine équivalente (une fois le
+  CF créé) est dans `knowledge/redmine/etiquettes.md`.
+- **⇱ session sur un lot filtré par domaine** (RM2831, chantier RM2828). RM2823 sortait les
+  intrus d'une session, un par un ; ici la **liste de triage filtrée par étiquette EST le lot** —
+  rien à cocher. Le chemin de lancement est factorisé avec RM2823 (`spawnBatchSession`) : deux
+  copies auraient divergé au premier correctif. La consigne reste celle de « ▶ traiter », rendue
+  par le serveur, et la session vient de `/spawn`. Les dix premiers tickets partent ; ce qui est
+  laissé de côté est annoncé plutôt que tronqué en silence.
+- **Filtrer par étiquette : recherche, triage ROI, jeux dérivés** (RM2830, chantier RM2828).
+  Une étiquette ne sert à rien si elle ne sert pas à choisir quoi faire. Nouvel endpoint
+  `GET /tags` (les étiquettes réellement en usage, avec leur compte — jamais une liste écrite
+  en dur, qui dériverait au premier vocabulaire ajouté) ; filtre étiquette dans la recherche de
+  tickets, avec les étiquettes affichées sur chaque ligne (filtrer sans les voir, c'est filtrer
+  à l'aveugle) ; même filtre dans le triage ROI ; et nouveau critère de **jeu de sessions
+  dérivé** — un jeu « étiquette = refacto » se remplit tout seul. Une session ancrée sur un
+  slug n'a pas de ticket, donc pas d'étiquette : elle ne matche jamais « au cas où ».
+- **« Reprendre une session » : filtre par client** (RM2834). La liste des projets était plate
+  — tous clients mêlés, des dizaines d'entrées où retrouver le sien supposait de le connaître
+  par cœur. Un sélecteur client s'ajoute au-dessus et filtre les projets ; client seul, sans
+  projet, liste toutes ses sessions (`/resumable` filtre déjà client et projet séparément — pas
+  de changement serveur). Le contexte client du bandeau pré-sélectionne le client, et changer
+  de client abandonne explicitement un projet qui n'est pas le sien : le couple incohérent
+  renvoyait une liste vide sans dire pourquoi.
+- **⇱ sortir des tickets d'une session vers une session dédiée** (RM2823). Une session est
+  ancrée sur un projet, mais le fil ramasse des tickets d'ailleurs : un de temps en temps on
+  le traite au vol, et quand ça s'accumule la session porte deux chantiers — contexte pollué,
+  worktree du mauvais projet, tickets oubliés à la fermeture. Cocher les intrus dans le
+  worklog et « ⇱ nouvelle session » ouvre une session ancrée sur LEUR projet qui les prend en
+  charge. La consigne vient du même générateur que « ▶ traiter » (`/worklog/batch` en dry_run)
+  et la session de `/spawn` : aucun second chemin. Garde-fous : un seul projet par lot (les
+  projets en présence sont nommés en cas de mélange), et un ticket au projet non résolu reste
+  sur place sans retenir les autres.
+- **Alerte avant d'ouvrir une 2e session sur un ticket déjà pris** (RM2818). Le serveur
+  refusait déjà (409) une seconde session ANCRÉE sur l'id ; ce qui passait sans bruit, c'est
+  le ticket traité par une session ancrée AILLEURS — branche du registre, worklog —, soit le
+  cas courant du ticket ramassé en cours de route. Les deux points de lancement (fiche du
+  ticket, lanceur du panneau sessions) montrent désormais ce qui existe — sid, titre, état,
+  et à quel titre la session le traite — puis proposent de **rejoindre** avant d'offrir
+  d'ouvrir quand même. Une session marquée « terminé » (RM2515) ne déclenche rien : c'est
+  exactement ce que la marque sert à dire ; « parké » ou éteinte, si — le travail n'est pas
+  fini. L'état est relu avant de trancher, un cache périmé dirait « libre » à tort.
+- **Cliquer l'onglet d'une session éteinte la relance** (RM2819). Un onglet épinglé survit à
+  la session qu'il montrait ; le clic appelait pourtant `attach()` dans tous les cas — donc un
+  terminal vide dès que la session ne tournait plus, sans un mot ni le geste utile. Le clic
+  route désormais sur l'état réel : vivante → attach, seulement enregistrée → la relance
+  (exactement le chemin de la tuile grise, RM2427/RM2536 — pas un second), disparue → on le dit
+  et on propose de fermer l'onglet. Le cache de sessions ne connaissant que le jeu affiché, la
+  liste complète est redemandée avant de conclure à une disparition.
+- **Déverrouillage de clé SSH : « bad file descriptor » corrigé** (RM2822). Le cockpit passe
+  la passphrase à `ssh-add` par un tube anonyme, lu par `karl-askpass.sh` — qui lisait le
+  descripteur **3 en dur**. Or `pass_fds` conserve le numéro du tube au lieu de le remapper :
+  dans un processus nu `os.pipe()` rend 3 (d'où des tests verts et une fonction réputée
+  bonne), mais dans karl-agent, dont les sockets tiennent les descripteurs bas, le tube tombe
+  sur 8 ou 11 et l'askpass lisait dans le vide — **aucun chargement de clé ne pouvait
+  aboutir**. Le serveur dit désormais quel descripteur lire (`KARL_ASKPASS_FD`, repli sur 3 :
+  un numéro de descripteur n'est pas un secret, la passphrase reste dans le tube), et la
+  lecture passe par `/dev/fd/<n>` — `<&$fd` ne sait pas dépasser le descripteur 9 (« Bad fd
+  number »), justement la zone où atterrit le tube d'un serveur. Le test reproduit maintenant
+  le cas réel en occupant les descripteurs bas, au lieu de partir d'un processus vierge.
+- **« ⬆ MAJ dispo » passe en bout de rangée** (RM2821). Bouton intermittent posé au milieu
+  du header : son apparition décalait tous les boutons suivants, juste au moment où on visait
+  autre chose. Dernier de la rangée, il ne pousse plus personne — comportement inchangé par
+  ailleurs (masqué par défaut, même infobulle, même clic).
+- **« ⚙ commandes pm » et « 🔧 réglages » quittent la colonne de gauche** (RM2816). Ces deux
+  surfaces ne sont pas des listes de travail : on y va pour faire un geste — lancer une action
+  PM, changer un réglage — puis on en sort. Elles occupaient pourtant deux des huit onglets
+  d'une colonne dédiée à ce qui tourne, et leurs formulaires y tenaient dans 300 px de large.
+  Elles passent au **menu du haut** (à côté de ❓ aide, 📖 glossaire, 🩺 poste) et leur contenu
+  s'ouvre au **centre**, dans le modèle d'onglets RM2672 : temporaire par défaut, épinglable
+  quand on enchaîne plusieurs actions, refermable, restauré au rechargement. Rien n'est perdu
+  au déplacement (catalogue PM, authentification, utilisateurs, voix, thème, colonne de droite,
+  sessions, réglages whitelist) et chaque panneau charge sa donnée serveur à la première
+  ouverture, comme avant. Le démarrage « auth requise sans jeton » mène toujours aux réglages.
 - **Glossaire de projet + sous-onglet « vocabulaire »** (RM2675). Chaque projet peut porter son
   vocabulaire métier dans `docs/glossaire.md` — tableau `Terme / Définition / Contexte / Alias`,
   écrit par `pm-glossaire.py` (tri, unicité et format garantis). L'étude a montré que la

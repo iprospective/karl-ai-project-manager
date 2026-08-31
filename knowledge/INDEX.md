@@ -21,7 +21,9 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
 - [zabbix](./zabbix/) — API JSON-RPC (search=faux négatifs, FQDN), triggers figés/nodata,
   manual_close, items dépendants
 - [gitlab](./gitlab/) — API : gotcha `%2F` (Apache), résolution de projet (search non
-  fiable, matcher le path complet — cf. RM2219), MR
+  fiable, matcher le path complet — cf. RM2219), MR ; dépôts & groupes : les modules
+  PrestaShop mutualisés sont sous `prestashop/` (groupe 109), et l'ancien chemin
+  `iprospective/prestashop/…` **redirige** — un dépôt récent y semble donc « inexistant »
 - [gnupg](./gnupg/) — gpg-agent en émulation ssh-agent : pièges headless/LXC
   (`agent refused operation`), bascule vers un vrai ssh-agent
 - [prestashop](./prestashop/) — procédure de **MEP commune aux 4 boutiques** du parc :
@@ -42,6 +44,18 @@ ses pièges, des procédures réutilisables (migration, déploiement, dépannage
   (path_with_namespace, FQDN…), jamais sur un basename. 0 ou >1 match exact = erreur
   explicite, pas de fallback silencieux. Détails : [gitlab/api.md](./gitlab/api.md),
   [zabbix/api.md](./zabbix/api.md).
+- **« Introuvable » ne prouve pas « inexistant »** : sur un chemin obsolète mais
+  **redirigé**, un objet ancien répond et un objet récent renvoie la **même erreur**
+  qu'un objet qui n'existe pas — et un test-témoin ancien *valide* le mauvais chemin.
+  Avant de conclure à l'absence et de (re)créer : chercher au chemin **canonique** et
+  **énumérer** le conteneur. Détails :
+  [gitlab/depots-et-groupes.md](./gitlab/depots-et-groupes.md).
+- **Un worktree n'est pas l'état du projet** : auditer une structure (submodules,
+  arborescence, overrides) dans une copie de travail non rafraîchie fait diagnostiquer
+  comme « à faire » du travail déjà livré — un `git status` propre ne le signale pas,
+  le worktree étant cohérent avec *son* commit. Toujours `git fetch` +
+  `git rev-list --count HEAD..origin/<intégration>` avant de conclure, ou lire la
+  branche directement (`git show origin/dev:<path>`).
 
 ## Conventions
 

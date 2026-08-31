@@ -350,6 +350,29 @@ def fetch_issue(issue_id, include=None, creds=None):
     return body.get("issue", {})
 
 
+def fetch_project(project_id, creds=None):
+    """Fiche d'un projet Redmine, par id numérique OU identifiant textuel.
+
+    Existe parce que `GET /issues/<id>.json` ne rend du projet que `{id, name}` —
+    jamais son `identifier`. Qui veut comparer un ticket au projet déclaré dans un
+    `meta.yml` (forme textuelle, le cas normal) doit donc résoudre l'identifier
+    ici (RM2784).
+
+    Passer un id NUMÉRIQUE quand on l'a : le front Apache rejette les `%2F`, donc
+    un identifiant textuel contenant un slash ne passerait pas (gotcha connu).
+
+    Retourne {} si le projet est introuvable ou l'accès refusé — c'est un appel de
+    confort, il ne doit jamais faire tomber l'appelant.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("GET", f"{url}/projects/{project_id}.json", key, basic=_basic)
+    if code != 200:
+        return {}
+    return body.get("project", {})
+
+
 def list_issues(params=None, limit=25, timeout=20, creds=None):
     """Liste des issues via `/issues.json` avec filtres Redmine arbitraires.
 

@@ -1,8 +1,9 @@
 # Onglets du panneau central
 
 Le panneau central affiche **une vue à la fois** : le tableau de bord, un terminal de
-session, la fiche d'un ticket, une fiche projet, la création de ticket — et, depuis
-RM2759, un **fichier, un dossier, un commit ou un email**. Les onglets, en haut,
+session, la fiche d'un ticket, une fiche projet, la création de ticket, un **fichier,
+un dossier, un commit ou un email** (RM2759) — et, depuis RM2816, les **⚙ commandes
+pm** et les **🔧 réglages**, appelés depuis le menu du haut. Les onglets, en haut,
 gardent sous la main celles que tu veux retrouver.
 
 ## 📊 tableau de bord — l'onglet permanent
@@ -67,9 +68,30 @@ L'historique vit avec la page : il n'est pas sauvegardé d'une session à l'autr
 - **✕** ferme l'onglet. L'onglet voisin prend le relais ; quand il n'y a plus rien
   d'autre, on retombe sur le tableau de bord.
 
+## Une session épinglée qui ne tourne plus
+
+Un onglet épinglé survit à la session qu'il montrait — c'est son intérêt. Cliquer
+l'onglet d'une session **éteinte** propose donc de la **relancer** (mêmes questions
+que le clic sur sa tuile grise dans « ▶ en cours » : moteur, dossier, conversation
+reprise ou non), puis l'attache une fois relancée. Annuler ne change rien.
+
+Si la session a vraiment disparu — ni vivante, ni enregistrée dans un jeu — le
+cockpit le dit et propose de refermer l'onglet, au lieu d'ouvrir un terminal vide.
+
 C'est ce qui évite de recréer la barre d'onglets de sessions retirée parce qu'elle
 devenait illisible dès trois projets : la liste de référence des sessions reste la
 colonne de gauche, l'onglet est un **marque-page**, pas un annuaire.
+
+## 📌 dans les listes
+
+Un objet **épinglé** en onglet porte la même 📌 partout où il apparaît : tuiles
+de sessions, revues ouvertes, tickets ouverts, résultats de recherche, file
+« à tester », worklog, et projets. Plus besoin de chercher dans la barre si
+l'onglet existe : la liste le dit.
+
+Un onglet simplement **ouvert** (temporaire, en italique) n'est pas marqué — il
+disparaîtra à la vue suivante ; ce qu'on signale, c'est l'épingle. La marque
+apparaît et disparaît **au clic**, sans attendre le rafraîchissement.
 
 ## Ce qui survit au rechargement
 

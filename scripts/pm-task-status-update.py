@@ -10,6 +10,8 @@ Usage :
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
+    pm-task-status-update.py 1670 --list-next            # transitions valides (texte)
+    pm-task-status-update.py 1670 --list-next --json     # idem, sortie machine (cockpit, RM2888)
 
 Statuts NORMS valides (source : redmine.reference.yml) :
     a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
@@ -126,6 +128,41 @@ def has_criteria(description):
     """La description définit-elle au moins un critère RÉEL ? (gabarits exclus)"""
     from pm_markdown import real_checklist_lines
     return bool(real_checklist_lines(description or ""))
+
+
+CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]", re.M)
+
+
+def count_checked(description):
+    """Nombre d'items de checklist cochés dans la description Redmine."""
+    return len(CHECKED_RE.findall(description or ""))
+
+
+def count_placeholders(description):
+    """Nombre de GABARITS de critère (« (à compléter) », « à définir », « TBD »)."""
+    from pm_markdown import placeholder_lines
+    return len(placeholder_lines(description or ""))
+
+
+def placeholder_gate(rm_id, description, quoi):
+    """Message de refus quand un gabarit de critère traîne encore (RM2789).
+
+    Volontairement NON contournable par `--allow-unchecked` : ce drapeau existe pour des
+    critères réels qu'on assume de ne pas cocher (hors périmètre, abandonnés). Un gabarit,
+    lui, n'est pas un critère — le laisser passer, c'est livrer un ticket dont personne ne
+    saura jamais ce qu'il devait satisfaire. Deux issues, toutes deux explicites.
+    """
+    return (
+        f"ERREUR : RM{rm_id} porte encore un gabarit de critère « à compléter », "
+        f"refus de {quoi}.\n"
+        f"  Deux issues, au choix — et il en FAUT une :\n"
+        f"  → écrire les vrais critères : "
+        f"pm-task-description-update.py {rm_id} --set-from-file <fichier>\n"
+        f"  → assumer qu'il n'y en a pas : "
+        f"pm-task-description-update.py {rm_id} --drop-placeholders\n"
+        f"  (--allow-unchecked ne s'applique PAS ici : il est fait pour de vrais critères "
+        f"qu'on renonce à cocher, pas pour un gabarit que personne ne peut cocher.)"
+    )
 
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
@@ -453,9 +490,18 @@ NORMS_TRANSITIONS = {
 INACTIVE_STATUSES = {"ferme", "en_pause"}
 
 
-def list_next(rm_id):
-    """Affiche les transitions NORMS valides depuis le statut courant du ticket
-    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+def next_transitions(rm_id, check_redmine=True):
+    """Transitions NORMS valides depuis le statut courant du ticket, en structuré.
+
+    RM2888 : `list_next` ne savait qu'imprimer, donc le cockpit ne pouvait pas
+    proposer « ce qui est possible ici » et se rabattait sur les 14 statuts en dur.
+    La règle reste ICI (source unique) ; l'affichage texte et la sortie `--json`
+    ne sont plus que deux rendus de cette structure.
+
+    `redmine_ok` vaut None quand la vérification live n'a pas eu lieu (API
+    injoignable, pas de credentials, ou `check_redmine=False`) : un appelant ne
+    doit pas confondre « refusé » et « pas vérifié ».
+    """
     cfg = PMConfig.load()
     md_path = cfg.find_task(rm_id)
     if not md_path:
@@ -481,7 +527,7 @@ def list_next(rm_id):
     allowed_ids = None
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
     key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
-    if url and key:
+    if check_redmine and url and key:
         try:
             req = urllib.request.Request(
                 f"{url}/issues/{rm_id}.json?include=allowed_statuses",
@@ -493,15 +539,43 @@ def list_next(rm_id):
             allowed_ids = None
     sids = redmine_utils.status_ids()
 
-    print(f"RM{rm_id} — statut courant : {cur}")
-    print("Transitions NORMS valides :")
+    seen, transitions = set(), []
     for tgt, cond in nexts:
+        if tgt in seen:          # `en_pause`/`ferme` génériques peuvent doubler une règle
+            continue
+        seen.add(tgt)
+        transitions.append({
+            "status": tgt,
+            "condition": cond,
+            "redmine_ok": None if allowed_ids is None else (sids.get(tgt) in allowed_ids),
+            # Ce que l'appelant doit réclamer AVANT de soumettre : le script refuse
+            # `ferme` sans motif, autant que l'UI le demande plutôt que d'échouer.
+            "needs_close_reason": tgt == "ferme",
+            # Idem pour la note : certaines transitions l'exigent (réouverture).
+            # La condition est écrite dans NORMS_TRANSITIONS, juste au-dessus — ce
+            # n'est pas un contrat externe qu'on parserait à l'aveugle.
+            "needs_note": "note obligatoire" in cond,
+        })
+    return {"rm_id": int(rm_id), "status": cur, "transitions": transitions,
+            "redmine_checked": allowed_ids is not None,
+            "close_reasons": sorted(VALID_CLOSE_REASONS)}
+
+
+def list_next(rm_id, as_json=False):
+    """Affiche les transitions NORMS valides depuis le statut courant du ticket
+    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+    data = next_transitions(rm_id)
+    if as_json:
+        print(json.dumps(data, ensure_ascii=False))
+        return
+    print(f"RM{rm_id} — statut courant : {data['status']}")
+    print("Transitions NORMS valides :")
+    for t in data["transitions"]:
         mark = ""
-        if allowed_ids is not None:
-            ok = sids.get(tgt) in allowed_ids
-            mark = "  [Redmine OK]" if ok else "  [Redmine REFUSERA pour ce compte]"
-        print(f"  → {tgt:<26} {cond}{mark}")
-    if allowed_ids is None:
+        if t["redmine_ok"] is not None:
+            mark = "  [Redmine OK]" if t["redmine_ok"] else "  [Redmine REFUSERA pour ce compte]"
+        print(f"  → {t['status']:<26} {t['condition']}{mark}")
+    if not data["redmine_checked"]:
         print("  (vérification live Redmine indisponible — transitions NORMS seules)")
 
 
@@ -514,6 +588,9 @@ def main():
     ap.add_argument("--list-next", action="store_true",
                     help="Liste les transitions NORMS valides depuis le statut courant "
                          "(+ celles que le compte API peut réellement poser côté Redmine)")
+    ap.add_argument("--json", action="store_true",
+                    help="Avec --list-next : sortie machine (statut courant + transitions), "
+                         "consommée par le cockpit (RM2888)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
     ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
@@ -529,10 +606,12 @@ def main():
                          "pour cas particuliers (rebascule, replanif…) — viole la règle NORMS sinon.")
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
-    ap.add_argument("--allow-unchecked", action="store_true",
-                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
-                         "description contient des items de checklist non cochés (sinon bloqué — "
-                         "NORMS § màj description : cocher au fil de l'eau).")
+    ap.add_argument("--allow-unchecked", metavar="MOTIF", nargs="?", const="",
+                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu malgré des "
+                         "items de checklist non cochés — en DISANT pourquoi. Le motif est obligatoire "
+                         "et rejoint la note Redmine et le journal (RM2884) : sans lui, l'option "
+                         "servait à franchir le contrôle sans faire le travail qu'il réclamait. "
+                         "Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\".")
     ap.add_argument("--allow-unmerged", action="store_true",
                     help="Autorise a_mep / ferme:resolu même si une branche <id>-* du ticket "
                          "n'est pas mergée dans la branche d'intégration (sinon bloqué — "
@@ -545,8 +624,10 @@ def main():
     out.configure(args)
 
     if args.list_next:
-        list_next(args.rm_id)
+        list_next(args.rm_id, as_json=args.json)
         return
+    if args.json:
+        sys.exit("ERREUR : --json n'a de sens qu'avec --list-next")
     if not args.status:
         sys.exit("ERREUR : statut requis (ou --list-next pour voir les transitions valides)")
 
@@ -662,6 +743,10 @@ def main():
     # status_change.md) + éventuel AJOUT SÉMANTIQUE (--note). L'agent ne rédige
     # plus la partie mécanique ; assemblage final après résolution d'assignation.
     semantic_note = args.note
+    # Lignes ajoutées à la note par les gardes elles-mêmes (RM2884 : le motif d'un
+    # --allow-unchecked doit rester dans le ticket, sinon le contournement ne laisse
+    # aucune trace et redevient indiscernable d'un oubli).
+    extra_notes = []
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).
@@ -674,24 +759,64 @@ def main():
     # NORMS § màj description : gate sur a_tester_demandeur, a_mep, ferme:resolu.
     gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
         args.status == "ferme" and args.close_reason == "resolu")
-    if gate_status and issue and not args.allow_unchecked:
+    # RM2789 — le gabarit se résout, il ne se contourne pas. Contrôlé AVANT le garde-fou
+    # des vrais critères, et hors de sa clause `--allow-unchecked`.
+    if gate_status and issue and count_placeholders(issue.get("description")):
+        sys.exit(placeholder_gate(args.rm_id, issue.get("description"), f"passer en '{args.status}'"))
+    if gate_status and issue:
         desc = issue.get("description")
+        # RM2789 : passe par pm_markdown — blocs de code ignorés, gabarits exclus (ils ont
+        # leur propre garde, plus haut : un gabarit se résout, il ne se motive pas).
         n_unchecked = count_unchecked(desc)
-        if n_unchecked:
+        n_checked = count_checked(desc)
+        motif = args.allow_unchecked            # None = option absente ; "" = passée sans motif
+        if n_unchecked and motif is None:
+            # Le ratio compte : « 0 coché sur 7 » est presque toujours un oubli,
+            # « 6 sur 7 » un choix assumé. Le message doit les distinguer (RM2884).
+            total = n_checked + n_unchecked
+            if n_checked == 0:
+                quoi = (f"AUCUN des {total} critères n'est coché — une description qui ne dit pas "
+                        f"ce qui est fait rend le ticket illisible")
+            else:
+                quoi = f"{n_checked} coché(s) sur {total}, {n_unchecked} restant(s)"
             sys.exit(
-                f"ERREUR : {n_unchecked} item(s) de checklist non coché(s) dans la description de "
-                f"RM{args.rm_id}, refus de passer en '{args.status}'.\n"
-                f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
-                f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
+                f"ERREUR : RM{args.rm_id} — {quoi}. Refus de passer en '{args.status}'.\n"
+                f"  → Coche ce qui est fait : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
+                f"  → Ou dis pourquoi ça reste décoché : "
+                f"--allow-unchecked \"<motif>\" (le motif est tracé dans la note et le journal)."
             )
+        if n_unchecked and motif == "":
+            sys.exit(
+                f"ERREUR : --allow-unchecked exige un motif (RM2884).\n"
+                f"  → Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\"\n"
+                f"  → Un contournement non motivé est indiscernable d'un oubli — c'est précisément "
+                f"ce qui a laissé 28 tickets partir en test ou en clôture avec 0 critère coché."
+            )
+        if n_unchecked and motif:
+            total = n_checked + n_unchecked
+            grave = (args.status == "ferme" and n_checked == 0)
+            print(f"{'⚠ ' if grave else 'ℹ '}checklist : {n_checked}/{total} coché(s), "
+                  f"{n_unchecked} laissé(s) décoché(s) — motif : {motif}")
+            if grave:
+                print("  ⚠ fermeture avec AUCUN critère coché : le ticket ne gardera aucune trace "
+                      "de ce qui a été fait. Vérifie que c'est bien voulu.")
+            extra_notes.append(f"Checklist : {n_unchecked} item(s) laissé(s) décoché(s) "
+                               f"({n_checked}/{total} coché(s)) — motif : {motif}")
         # RM2789 — « aucun critère jamais défini » n'est PAS « des critères non tenus » :
-        # ça n'a rien à voir avec la qualité de la livraison, et bloquer là-dessus n'aurait
-        # fait qu'entraîner l'usage réflexe de --allow-unchecked, qui désarme le vrai
-        # contrôle. On avertit, on ne bloque pas.
+        # ça n'a rien à voir avec la qualité de la livraison. On avertit, on ne bloque pas.
         elif not has_criteria(desc):
             print(f"⚠ RM{args.rm_id} n'a AUCUN critère d'acceptation défini — livré quand même.\n"
                   f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>",
                   file=sys.stderr)
+    # …et on le dit AU PLUS TÔT. Découvrir le gabarit à la livraison, c'est une embuscade :
+    # le travail est fini, on veut rendre, et un détail de rédaction bloque. À la PRISE en
+    # charge, il reste tout le temps de le traiter.
+    if args.status == "en_cours" and issue and count_placeholders(issue.get("description")):
+        print(f"⚠ RM{args.rm_id} porte un gabarit de critère « à compléter ». Traite-le "
+              f"MAINTENANT, il bloquera la livraison :\n"
+              f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>\n"
+              f"  → ou pm-task-description-update.py {args.rm_id} --drop-placeholders",
+              file=sys.stderr)
     # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
     # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
     # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde
@@ -785,7 +910,8 @@ def main():
              + (f" · MR {git_fm.get('mr_url')}" if git_fm.get("mr_url") else ""))
             if git_fm.get("branch") else "",
     ).strip()
-    note = mech + (f"\n\n{semantic_note}" if semantic_note else "")
+    corps = "\n\n".join([x for x in ([semantic_note] if semantic_note else []) + extra_notes])
+    note = mech + (f"\n\n{corps}" if corps else "")
 
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")

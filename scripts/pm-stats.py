@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
 
 try:
     import yaml
@@ -41,7 +42,6 @@ except ImportError:
     console = None
 
 
-FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 # Même définition de « fichier de tâche » que pm-task-list (hors .log.md).
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 
@@ -49,20 +49,6 @@ TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 CLOSED_STATUSES = {"ferme"}
 # Alias déprécié encore présent dans d'anciens MD (cf. NORMS).
 IN_PROGRESS_STATUSES = {"en_cours"}
-
-
-def parse_frontmatter(path: Path):
-    try:
-        content = path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    m = FRONTMATTER_RE.match(content)
-    if not m:
-        return None
-    try:
-        return yaml.safe_load(m.group(1)) or {}
-    except yaml.YAMLError:
-        return None
 
 
 def entity_type(cfg: PMConfig, entity: str) -> str:

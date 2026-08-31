@@ -461,6 +461,16 @@
   .rpanel.wide { width: max(var(--rpanel-w, 330px), 460px); }
   .rpanel.resizing { transition: none; user-select: none; }
   .rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.collapsed .rhandle { display: none; }
+  /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
+     des onglets, donc lisible quel que soit l'onglet actif. Replié : masqué. */
+  .rpanel.collapsed .rtitle { display: none; }
+  .rtitle { flex: none; padding: 6px 10px 5px; background: var(--panel);
+    border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.35;
+    display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .rtitle .rt-id { color: var(--accent); font-weight: 600; flex: none; }
+  .rtitle .rt-label { color: var(--fg); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; min-width: 0; }
+  .rtitle .rt-label.none { color: var(--muted); font-style: italic; }
   /* RM2599 : poignée de redimensionnement sur le bord gauche */
   .rhandle { position: absolute; left: 0; top: 0; bottom: 0; width: 6px; cursor: col-resize; z-index: 3; }
   .rhandle:hover, .rpanel.resizing .rhandle { background: var(--accent); opacity: .45; }
@@ -1379,6 +1389,10 @@ if (window.matchMedia) {
              title="Glisser pour régler la largeur · double-clic : réinitialiser"></div>
         <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
+        <!-- RM2894 : le libellé de la session attachée. Il n'était affiché nulle
+             part dans ce panneau — « infos » ne montrait que le nom tmux, et une
+             session ancrée sur un slug n'a aucun sujet Redmine pour le suppléer. -->
+        <div class="rtitle" id="rtitle" style="display:none"></div>
         <nav class="rnav">
           <!-- RM2579/2581 : worklog (cette session) / infos / tickets / conversation.
                RM2581 : le panneau droit est FOCALISÉ sur la session attachée — le
@@ -2210,9 +2224,35 @@ function renderSessions(sessions) {
   } catch (e) { /* health affiche déjà l'erreur de connexion */ }
 }
 
+// >>> rTitleHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2894 — en-tête du panneau de droite : identifiant de la session et son
+// LIBELLÉ. Trois sources, dans cet ordre : le sujet Redmine du ticket quand la
+// session est ancrée sur un RM-id, sinon le titre du transcript (`s.title`,
+// servi par karl-agent), sinon rien — et on le dit, plutôt que de retomber sur
+// le nom tmux qui ne nomme pas la session, il la répète.
+function rTitleHtml(sid, sess, resolved, esc) {
+  const s = sess || {}, r = resolved;
+  const id = (s.is_ticket === false) ? String(sid) : "RM" + String(sid);
+  const label = (r && r.found && r.title) ? String(r.title) : String(s.title || "");
+  return '<span class="rt-id">' + esc(id) + '</span>'
+    + (label ? '<span class="rt-label">' + esc(label) + '</span>'
+             : '<span class="rt-label none">sans libellé</span>');
+}
+// <<< rTitleHtml
+
+function renderRTitle() {
+  const el = document.getElementById("rtitle");
+  if (!el) return;
+  if (!attached) { el.style.display = "none"; el.innerHTML = ""; return; }
+  el.style.display = "";
+  el.innerHTML = rTitleHtml(attached, sessCache[attached], resolveCache[attached], esc);
+  el.title = "Session attachée — " + tmuxName(attached);
+}
+
 // RM2283 : la vue courante (session attachée ou revue) s'affiche dans la barre
 // du terminal — les onglets horizontaux ont migré dans le panneau « en cours ».
 function renderCurTitle() {
+  renderRTitle();                     // RM2894 : l'en-tête du panneau droit suit la même vue
   const el = document.getElementById("curtitle");
   if (attached) {
     const s = sessCache[attached] || {}, r = resolveCache[attached];
@@ -8086,7 +8126,15 @@ function renderInfos() {
   if (!b) return;
   if (!attached) { b.innerHTML = '<div class="empty">attache une session pour voir ses infos.</div>'; return; }
   // Session (tmux + registre pm_session RM2166) + conso live (RM2373)
-  b.innerHTML = '<div class="ms"><h4>Session</h4><div class="kv"><span class="k">tmux</span><span class="v">' +
+  // RM2894 : le LIBELLÉ manquait — l'encart ne donnait que le nom tmux, qui
+  // répète l'identifiant sans nommer la session. Sujet Redmine si la session est
+  // ancrée sur un ticket, sinon titre du transcript (`s.title`).
+  const s = sessCache[attached] || {}, r = resolveCache[attached];
+  const label = (r && r.found && r.title) ? String(r.title) : String(s.title || "");
+  b.innerHTML = '<div class="ms"><h4>Session</h4>' +
+    '<div class="kv"><span class="k">libellé</span><span class="v">' +
+    (label ? esc(label) : '<span style="color:var(--muted)">—</span>') + '</span></div>' +
+    '<div class="kv"><span class="k">tmux</span><span class="v">' +
     esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>' + usageHtml(attached);
 }
 

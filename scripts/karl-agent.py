@@ -5490,6 +5490,15 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
         lm = _last_message_at(s.get("session_id"), s.get("engine"))
         if lm:
             s["last_msg"] = lm
+        # RM2894 : LIBELLÉ de la session — le panneau de droite l'affiche en
+        # en-tête, au-dessus de ses onglets. Une tuile « fantôme » l'avait déjà
+        # (nom mémorisé dans le jeu, RM2439) ; une session VIVANTE ne l'exposait
+        # pas, si bien que le seul nom affiché pour une session ancrée sur un
+        # slug était son nom tmux. Le cache 30 s de `_transcript_info` absorbe
+        # l'appel, déjà payé par `_session_state` sur la même session.
+        title = _transcript_title(s.get("session_id"))
+        if title:
+            s["title"] = title
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():

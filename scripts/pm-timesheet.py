@@ -138,6 +138,43 @@ def saisies_humaines(url, key, user_id, debut, fin, basic=None):
     return out
 
 
+_CACHE_PROJET_REDMINE = {}
+
+
+def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
+    """Projet Redmine d'une ligne sans ticket : `project_map`, sinon le manifeste PM.
+
+    Sans cela, tout le travail non ticketé (régie, exploration, échanges) serait
+    perdu à l'écriture — or c'est précisément le temps que personne ne note.
+
+    ⚠ L'API `time_entries` exige un **id numérique** : un identifiant textuel
+    (`pisceen-presta`, ce que porte le manifeste PM) est refusé, et Redmine répond
+    « Projet n'est pas valide » **suivi de** « Utilisateur n'est pas valide » —
+    l'erreur en cascade fait chercher un problème de droits là où il n'y en a pas.
+    On résout donc l'identifiant en id avant d'écrire.
+    """
+    cle = f"{ligne.get('client')}/{ligne.get('projet')}"
+    depuis_conf = (conf.get("project_map") or {}).get(cle)
+    if depuis_conf:
+        return depuis_conf
+    if cle in _CACHE_PROJET_REDMINE:
+        return _CACHE_PROJET_REDMINE[cle]
+    pid = None
+    client, projet = ligne.get("client"), ligne.get("projet")
+    if client and projet:
+        try:
+            meta = cfg.project_meta(client, projet) or {}
+            pid = (meta.get("redmine") or {}).get("project_id")
+        except Exception:
+            pid = None
+    if pid and not str(pid).isdigit() and url:
+        from redmine_utils import http_json
+        code, corps = http_json("GET", f"{url}/projects/{pid}.json", key, basic=basic)
+        pid = corps.get("project", {}).get("id") if code == 200 else None
+    _CACHE_PROJET_REDMINE[cle] = pid
+    return pid
+
+
 def _instance_creds(source, cfg):
     """(url, key, basic, user_id) d'une source Redmine déclarée."""
     from redmine_utils import redmine_creds
@@ -315,6 +352,7 @@ def appliquer(chemin_yml, cfg, conf, args):
             break
 
     cree = ignore = erreurs = 0
+    sans_cible, echecs = [], []
     for l in lignes:
         marque = f"[timesheet:{l['jour']}#{l.get('client') or '-'}/{l.get('ticket') or '-'}]"
         if marque in deja:
@@ -329,8 +367,9 @@ def appliquer(chemin_yml, cfg, conf, args):
         if l.get("ticket"):
             payload["time_entry"]["issue_id"] = int(l["ticket"])
         else:
-            pid = (conf.get("project_map") or {}).get(f"{l.get('client')}/{l.get('projet')}")
+            pid = _projet_redmine(l, conf, cfg, url, key)
             if not pid:
+                sans_cible.append(f"{l['jour']} {l.get('client')}/{l.get('projet')}")
                 erreurs += 1
                 continue
             payload["time_entry"]["project_id"] = pid
@@ -340,15 +379,26 @@ def appliquer(chemin_yml, cfg, conf, args):
                   f"{'RM' + str(l['ticket']) if l.get('ticket') else '(projet)'}")
             cree += 1
             continue
-        code, _body = http_json("POST", f"{url}/time_entries.json", key, payload)
+        code, corps = http_json("POST", f"{url}/time_entries.json", key, payload)
         if code in (200, 201):
             cree += 1
         else:
-            erreurs += 1
+            echecs.append((l["jour"], f"{l.get('client')}/{l.get('projet')}", code,
+                           str(corps)[:160]))
+    if echecs:
+        print(f"  ⚠ {len(echecs)} saisie(s) REFUSÉE(S) par Redmine :", file=sys.stderr)
+        for jour, cible, code, detail in echecs[:6]:
+            print(f"      {jour} {cible} → HTTP {code} {detail}", file=sys.stderr)
+    if sans_cible:
+        apercu = ", ".join(sorted(set(sans_cible))[:4])
+        print(f"  ⚠ {len(sans_cible)} ligne(s) sans projet Redmine résolu ({apercu}"
+              f"{'…' if len(set(sans_cible)) > 4 else ''}) — déclarer `project_map` "
+              "ou `redmine.project_id` au projet PM", file=sys.stderr)
     verbe = "à créer" if args.dry_run else "créées"
     print(f"✓ timesheet {periode} : {cree} saisies {verbe}, {ignore} déjà posées"
-          + (f", {erreurs} sans cible Redmine" if erreurs else ""))
-    return 0 if not erreurs else 1
+          + (f", {len(sans_cible)} sans projet résolu" if sans_cible else "")
+          + (f", {len(echecs)} refusées par Redmine" if echecs else ""))
+    return 0 if not (echecs or sans_cible) else 1
 
 
 def main():

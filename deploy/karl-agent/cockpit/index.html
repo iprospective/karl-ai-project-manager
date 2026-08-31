@@ -5459,7 +5459,7 @@ function openedAdd(list, id, max) {
 // que d'être noyé — on préfère le voir que le perdre.
 function ticketStatusRank(status) {
   const ordre = ["a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev",
-                 "a_mep", "en_mep", "a_faire", "etude_chiffrage_a_valider",
+                 "a_mep", "a_tester_preprod", "a_mep_prod", "en_mep", "a_faire", "etude_chiffrage_a_valider",
                  "etude_chiffrage_en_cours", "a_etudier_chiffrer", "nouveau",
                  "en_pause"];
   const s = String(status || "").toLowerCase();
@@ -5480,7 +5480,7 @@ function ticketStatusFamily(status) {
   const s = String(status || "").toLowerCase();
   if (s === "ferme" || s === "fermé") return "ferme";
   if (s === "en_pause") return "pause";
-  if (s === "a_mep" || s === "en_mep") return "mep";
+  if (s === "a_mep" || s === "a_tester_preprod" || s === "a_mep_prod" || s === "en_mep") return "mep";
   if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
   if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
   if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider",

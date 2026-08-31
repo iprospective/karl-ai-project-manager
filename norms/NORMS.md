@@ -1122,9 +1122,10 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 > devient l'état « en prod, en attente de fermeture ». Motivation : le flux *deploy-first*
 > (déployer puis faire valider) n'avait aucun statut exprimant « en prod + à fermer »
 > (constat session 2026-08-28 : RM2575/2576/2885/2886 tous « en prod » mais posés en
-> `a_tester_demandeur`). **Pendant la bascule** : le mapping Redmine, l'attribution et le
-> routing outillage sont mis à jour dans le même lot (cf. § Mapping et `pm-task-status-update`) ;
-> le statut Redmine `a_tester_preprod` doit être créé côté instance (admin workflow).
+> `a_tester_demandeur`). Mapping Redmine, attribution et routing outillage mis à jour dans
+> le même lot (cf. § Mapping et `pm-task-status-update`). Les deux statuts Redmine existent
+> déjà : `a_tester_preprod` = id **20** « MEP/Tester en preprod » ; `en_mep` = id **22**
+> « MEP/Vérifier en prod » (aucune création/renommage).
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 Le workflow complet (branches, envs, MEP) est décrit en § *Cycle de
@@ -1273,19 +1274,22 @@ Statut Redmine (un seul terminal `Fermé`) :
 | `en_cours` | En cours | 2 |
 | `a_tester_dev` | A tester/vérifier dev | 19 |
 | `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
-| `a_tester_preprod` (RM2893) | À tester en préprod | **à créer** |
+| `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
 | `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` (RM2893, relabel) | En prod / à tester et fermer *(ex-« MEP/Tester en preprod »)* | 20 |
+| `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
 | `en_pause` | Attente retour / en pause | 13 |
 | `a_corriger` | A corriger/finir | 11 |
 | `ferme` (toutes raisons) | Fermé | **18** |
 
-> **RM2893 — admin Redmine à appliquer** (l'id de `a_tester_preprod` reste `à créer`
-> jusque-là) : (1) créer le statut « À tester en préprod » ; (2) câbler ses transitions
-> par rôle (entrée depuis `a_tester_demandeur`, sortie vers `a_mep`/`a_corriger`) ;
-> (3) **renommer** le statut id 20 « MEP/Tester en preprod » → « En prod / à tester et
-> fermer ». Tant que non fait, `pm-task-status-update.py` refuse la cible
-> `a_tester_preprod` (id absent du mapping) — le reste du flux est inchangé.
+> **RM2893 — migration du mapping (2026-08-31).** Les deux statuts Redmine existaient déjà
+> et leurs libellés collent : **aucune création ni renommage**. Seul changement d'id :
+> `en_mep` passe de **20 → 22** (« MEP/Vérifier en prod »), et le statut **20**
+> (« MEP/Tester en preprod ») devient `a_tester_preprod`. Les tickets déjà au statut 20
+> (préprod) sont donc réinterprétés `en_mep`→`a_tester_preprod` — sémantiquement exact,
+> ils restent au même statut Redmine ; leur frontmatter MD se réaligne au prochain
+> `pm-task-sync`. ⚠ Vérifier que les transitions de workflow Redmine (par rôle/tracker)
+> autorisent bien l'entrée en 20 depuis `a_tester_demandeur` et en 22 depuis `a_mep`
+> (sinon le PUT échoue silencieusement — cf. `knowledge/redmine/gotchas.md`).
 
 `a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
 `a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le

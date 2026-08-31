@@ -88,14 +88,12 @@ statuses:
   en_cours:                 2    # "En cours"
   a_tester_dev:             19   # "A tester/vérifier dev"        (test par testeur ≠ dev)
   a_tester_demandeur:       9    # "A tester/vérifier demandeur"  (validation demandeur sur DEV)
-  # a_tester_preprod:       <id> # RM2893 — recette préprod OPTIONNELLE. Décommenter avec
-  #                              # l'id réel APRÈS création du statut Redmine « À tester en
-  #                              # préprod » (admin workflow). Tant qu'absent, pm-task-status-update
-  #                              # refuse cette cible (le reste du flux est inchangé).
+  a_tester_preprod:         20   # RM2893 : "MEP/Tester en preprod" — recette préprod OPTIONNELLE
+                                 # (sautée si pas d'env préprod → a_tester_demandeur va direct à a_mep).
   a_mep:                    3    # "Résolu/Validé/A MEP"          (non terminal ≠ ferme)
-  en_mep:                   20   # RM2893 : relabel Redmine → "En prod / à tester et fermer"
-                                 # (ex-"MEP/Tester en preprod"). Sémantique : déployé en prod,
-                                 # dernière vérif avant fermeture. Id inchangé (20).
+  en_mep:                   22   # RM2893 : "MEP/Vérifier en prod" — déployé en prod, dernière vérif
+                                 # avant fermeture. (L'ex-id 20 « MEP/Tester en preprod » est
+                                 # désormais a_tester_preprod ; en_mep migre de 20 → 22.)
   en_pause:                 13   # "Attente retour / en pause"
   a_corriger:               11   # "A corriger/finir"
   ferme:                    18   # "Fermé"  (seul statut clos ; la nuance de raison

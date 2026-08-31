@@ -845,6 +845,59 @@ def repartir_transversal(alloc, regles, params=None):
     return dict(final), dict(ecarte), journal
 
 
+JOURS_FR = {"lundi": 0, "mardi": 1, "mercredi": 2, "jeudi": 3,
+            "vendredi": 4, "samedi": 5, "dimanche": 6}
+
+
+def appliquer_presences(final, presences, debut, fin):
+    """Complète les journées de RÉGIE, que les traces d'agents ne peuvent pas voir.
+
+    Une journée passée chez un client — 9 h 30 – 18 h 30, réunions comprises — ne
+    laisse presque rien dans un transcript : on y travaille autrement. Le mesuré y
+    est structurellement faux par défaut, pas par erreur de calcul.
+
+    Une présence déclarée pose donc un **plancher** : si le mesuré du jour pour ce
+    client est inférieur, l'écart est ajouté en ligne de complément (dont une part
+    de réunion si elle est déclarée). Si le mesuré dépasse déjà le plancher, rien
+    n'est ajouté — on ne rabote jamais du réel.
+
+    ⚠ C'est la seule étape qui CRÉE du temps : elle est donc rendue à part
+    (`ajouts`), pour que le rapport distingue toujours le mesuré du déclaré.
+    """
+    ajouts = collections.defaultdict(float)
+    for p in presences or []:
+        client = p.get("client")
+        if not client:
+            continue
+        heures = float(p.get("heures", 0) or 0)
+        if heures <= 0:
+            continue
+        projet = p.get("projet")
+        reunion = float(p.get("reunion_h", 0) or 0)
+        sauf = {str(x) for x in (p.get("sauf") or [])}
+        jours = {JOURS_FR[j.lower()] for j in (p.get("jours") or []) if j.lower() in JOURS_FR}
+        dates_explicites = {str(x) for x in (p.get("dates") or [])}
+        d0 = date.fromisoformat(str(p["depuis"])) if p.get("depuis") else debut.date()
+        d1 = date.fromisoformat(str(p["jusqu_a"])) if p.get("jusqu_a") else fin.date()
+        jour = max(debut.date(), d0)
+        while jour <= min((fin - timedelta(days=1)).date(), d1):
+            cle = jour.isoformat()
+            concerne = cle in dates_explicites or (jours and jour.weekday() in jours)
+            if concerne and cle not in sauf:
+                mesure = sum(v for (j, cible), v in final.items()
+                             if j == cle and cible[0] == client)
+                manque = heures * 60 - mesure
+                if manque > 1:
+                    if reunion > 0:
+                        part_reunion = min(reunion * 60, manque)
+                        ajouts[(cle, (client, projet, None), "réunion")] += part_reunion
+                        manque -= part_reunion
+                    if manque > 1:
+                        ajouts[(cle, (client, projet, None), "présence sur site")] += manque
+            jour += timedelta(days=1)
+    return dict(ajouts)
+
+
 def deduire_saisies(final, saisies, cle_ticket=True):
     """Retranche ce qui est DÉJÀ noté à la main dans Redmine.
 
@@ -1037,15 +1090,26 @@ def rendre_calendrier(final, totaux, mois, ecarte=None):
 
 
 def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
-                    deduit=None, quantum=None, resolver=None):
+                    deduit=None, quantum=None, resolver=None, ajouts=None):
     """Compte rendu lisible — c'est la pièce que l'humain relit et amende."""
     quantum = quantum or DEFAULTS["quantum_min"]
     L = [f"# Feuille de temps {mois}", ""]
     total_final = sum(final.values())
     total_ecarte = sum(ecarte.values())
+    total_declare = sum((ajouts or {}).values())
     L += [f"- temps mesuré : **{_hm(sum(totaux.values()))}** sur {len(totaux)} journées",
           f"- temps proposé à la saisie : **{_hm(total_final)}**",
-          f"- écarté (journées non clientes, absences) : {_hm(total_ecarte)}", ""]
+          f"- écarté (journées non clientes, absences) : {_hm(total_ecarte)}"]
+    if total_declare:
+        L.append(f"- dont **{_hm(total_declare)} déclarés** (journées de régie : "
+                 "présence sur site et réunions, que les traces ne voient pas)")
+    L.append("")
+    if ajouts:
+        L += ["### Journées de régie complétées", "",
+              "| jour | client | motif | complément |", "|---|---|---|---|"]
+        for (jour, cible, motif), minutes in sorted(ajouts.items()):
+            L.append(f"| {jour} | {cible[0]} | {motif} | {_hm(minutes)} |")
+        L.append("")
 
     par_client = collections.Counter()
     for (jour, cible), m in final.items():

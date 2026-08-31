@@ -54,6 +54,22 @@ multi_client:
 absences:
   - {du: 2026-06-22, au: 2026-07-19, motif: "congé paternité"}
 
+# ── Journées de régie (présence chez un client) ──────────────────────────────
+# Une journée sur site ne laisse presque rien dans les traces : on y travaille
+# autrement (réunions, écran partagé, poste du client). Une présence déclarée pose
+# un PLANCHER : si le mesuré du jour est en dessous, l'écart est ajouté en ligne de
+# complément. Si le mesuré dépasse, rien n'est ajouté — on ne rabote pas du réel.
+# C'est la seule étape qui crée du temps : le rapport la montre à part.
+presences:
+  - client: matnat
+    projet: infra
+    jours: [mercredi]
+    heures: 8            # 9 h 30 – 18 h 30 moins 1 h de pause
+    reunion_h: 1         # dont réunion hebdomadaire, en ligne distincte
+    depuis: 2026-08-01
+    sauf: ["2026-08-19"] # journée plus courte, laissée au mesuré
+    # dates: ["2026-09-03"]   # ou des dates explicites plutôt qu'un jour de semaine
+
 # ── Réglages du calcul ───────────────────────────────────────────────────────
 follow_cap: 10            # plafond du temps de suivi après une demande (minutes)
 work_start_hour: 8        # plage ouvrée : seule fenêtre où le transversal se refacture

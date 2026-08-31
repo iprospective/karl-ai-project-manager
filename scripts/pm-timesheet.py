@@ -181,7 +181,13 @@ def calculer(args, cfg, conf):
         except SystemExit:
             print("  (Redmine injoignable : déduction non appliquée)", file=sys.stderr)
 
-    return {"resolver": resolver,
+    # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
+    # à la main compte dans le plancher, il ne s'y ajoute pas.
+    ajouts = W.appliquer_presences(final, conf.get("presences"), debut, fin)
+    for (jour, cible, motif), minutes in ajouts.items():
+        final[(jour, cible)] = final.get((jour, cible), 0) + minutes
+
+    return {"resolver": resolver, "ajouts": ajouts,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
             "deduit": deduit, "events": len(events), "sources": detail,
@@ -193,7 +199,7 @@ def ecrire_sorties(res, dossier, libelle):
     md = W.rendre_markdown(res["final"], res["ecarte"], res["journal"], res["periodes"],
                            res["totaux"], res["regles"], libelle,
                            quantum=res["params"]["quantum_min"],
-                           resolver=res.get("resolver"))
+                           resolver=res.get("resolver"), ajouts=res.get("ajouts"))
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],

@@ -79,6 +79,11 @@ quantum_min: 15           # tranche d'arrondi des lignes
 
 # ── Écriture dans Redmine ────────────────────────────────────────────────────
 user_id: 5                # les saisies sont créées au nom de cet utilisateur
+# Instances Redmine SUPPLÉMENTAIRES à interroger pour la déduction : un client
+# peut avoir la sienne, et ce qu'on y a déjà saisi ne doit pas être re-proposé.
+# (l'`instance` est un nom du registre `providers.servers` de pm.config.yml)
+redmine_instances:
+  - {instance: redmine-matnat, user_id: 3}
 activity_id: 9            # activité par défaut (« Développement »)
 # Cibles des lignes SANS ticket : projet Redmine par "<client>/<projet PM>".
 project_map:

@@ -102,7 +102,7 @@ def collecter(conf, debut, fin, verbose=False, cache_dir=None):
     return fusionnes, detail
 
 
-def saisies_humaines(url, key, user_id, debut, fin):
+def saisies_humaines(url, key, user_id, debut, fin, basic=None):
     """Saisies déjà faites à la main (hors « Tick IA » de l'agent)."""
     from redmine_utils import http_json
     out, offset = [], 0
@@ -110,7 +110,7 @@ def saisies_humaines(url, key, user_id, debut, fin):
         code, body = http_json(
             "GET", f"{url}/time_entries.json?user_id={user_id}"
             f"&from={debut:%Y-%m-%d}&to={(fin - timedelta(days=1)):%Y-%m-%d}"
-            f"&limit=100&offset={offset}", key)
+            f"&limit=100&offset={offset}", key, basic=basic)
         if code != 200:
             break
         for t in body.get("time_entries", []):
@@ -123,6 +123,47 @@ def saisies_humaines(url, key, user_id, debut, fin):
         if offset >= body.get("total_count", 0):
             break
     return out
+
+
+def instances_redmine(conf, cfg, args):
+    """[(libellé, url, key, basic, user_id)] — toutes les instances à interroger.
+
+    Un client peut avoir SA propre instance Redmine (MatNat) : les heures qu'on y
+    a déjà saisies doivent être déduites au même titre que les autres, sinon
+    elles seraient proposées une deuxième fois. Une instance injoignable est
+    signalée, jamais silencieuse.
+    """
+    from redmine_utils import redmine_creds
+    sorties = []
+    uid_principal = args.user_id or conf.get("user_id")
+    if uid_principal:
+        try:
+            c = redmine_creds()
+            sorties.append(("principale", c[0], c[1], getattr(c, "basic", None),
+                            uid_principal))
+        except SystemExit:
+            pass
+    declarations = conf.get("redmine_instances") or []
+    if declarations:
+        try:
+            import yaml as _y
+            from pm_registry import Registry
+            brut = _y.safe_load(Path(cfg.pm_dir, "pm.config.yml").read_text(encoding="utf-8"))
+            registre = Registry.from_config(brut.get("providers"))
+        except Exception:
+            registre = None
+        for d in declarations:
+            nom, uid = d.get("instance"), d.get("user_id")
+            if not nom or not uid or registre is None:
+                continue
+            try:
+                inst = registre.get(nom)
+                c = redmine_creds(instance=inst)
+                sorties.append((nom, c[0], c[1], getattr(c, "basic", None), uid))
+            except Exception as e:
+                print(f"  ⚠ instance {nom} inaccessible ({type(e).__name__}) — "
+                      "ses saisies ne seront pas déduites", file=sys.stderr)
+    return sorties
 
 
 def calculer(args, cfg, conf):
@@ -168,18 +209,15 @@ def calculer(args, cfg, conf):
 
     deduit = []
     if not args.sans_deduction:
-        try:
-            from pm_paths import PMConfig as _P  # noqa: F401  (env déjà chargé)
-            from redmine_utils import redmine_creds
-            url, key = redmine_creds()
-            uid = args.user_id or conf.get("user_id")
-            if uid:
-                saisies = saisies_humaines(url, key, uid, debut, fin)
-                final, deduit = W.deduire_saisies(final, saisies)
-                if args.verbose:
-                    print(f"  {len(saisies)} saisies humaines déduites", file=sys.stderr)
-        except SystemExit:
-            print("  (Redmine injoignable : déduction non appliquée)", file=sys.stderr)
+        toutes = []
+        for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
+            saisies = saisies_humaines(url, key, uid, debut, fin, basic)
+            if args.verbose:
+                print(f"  {len(saisies):5d}  saisies humaines à déduire "
+                      f"({nom})", file=sys.stderr)
+            toutes += saisies
+        if toutes:
+            final, deduit = W.deduire_saisies(final, toutes)
 
     # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
     # à la main compte dans le plancher, il ne s'y ajoute pas.

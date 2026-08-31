@@ -4288,3 +4288,40 @@ for (const st of STATUTS_NORMS) {
     "openStatusMenu ne doit citer aucun statut en dur (trouvé : " + st + ")");
 }
 console.log("✓ câblage (RM2888) : fiche + worklog, gardes partagées, zéro règle recopiée");
+
+// — RM2894 : libellé de la session en en-tête du panneau de droite —
+const mRt2894 = />>> rTitleHtml[\s\S]*?(function rTitleHtml[\s\S]*?)\n\/\/ <<< rTitleHtml/.exec(html);
+assert(mRt2894, "marqueurs >>> rTitleHtml / <<< rTitleHtml introuvables");
+const rTitleHtml2894 = vm.runInNewContext("(" + mRt2894[1] + ")", {});
+const escT2894 = s => String(s).replace(/[&<>"]/g, c =>
+  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// 1. session de ticket : le sujet Redmine prime sur le titre du transcript
+let h2894 = rTitleHtml2894("2894", { title: "titre transcript" },
+                   { found: true, title: "Sujet Redmine" }, escT2894);
+assert(/RM2894/.test(h2894), "l'identifiant d'un ticket est préfixé RM");
+assert(/Sujet Redmine/.test(h2894) && !/titre transcript/.test(h2894),
+  "le sujet Redmine prime quand le ticket est résolu");
+
+// 2. session ancrée sur un slug : pas de RM, et le titre du transcript sert de libellé
+h2894 = rTitleHtml2894("calicote-presta", { is_ticket: false, title: "MEP productcheck" }, null, escT2894);
+assert(!/RM/.test(h2894), "une session slug ne s'invente pas un RM-id");
+assert(/calicote-presta/.test(h2894) && /MEP productcheck/.test(h2894),
+  "le titre du transcript nomme la session à défaut de ticket");
+
+// 3. rien à afficher : on le DIT — retomber sur le nom tmux répéterait l'id
+h2894 = rTitleHtml2894("2894", {}, { found: false }, escT2894);
+assert(/sans libellé/.test(h2894), "l'absence de libellé est affichée telle quelle");
+assert(!/karl-/.test(h2894), "…et surtout pas remplacée par le nom tmux");
+
+// 4. le libellé vient de l'extérieur : il est échappé
+h2894 = rTitleHtml2894("2894", { title: '<img src=x onerror="alert(1)">' }, null, escT2894);
+assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé");
+
+// 5. l'en-tête est bien AU-DESSUS des onglets dans le document (la demande)
+assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'),
+  "l'en-tête doit précéder la barre d'onglets .rnav");
+// 6. …et il suit la vue : renderCurTitle est le point d'entrée commun
+assert(/function renderCurTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(html),
+  "renderRTitle doit être appelé par renderCurTitle (tout changement de vue)");
+console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement");

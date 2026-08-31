@@ -47,6 +47,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   au-dessus d'un bouton qui l'ignorerait serait un piège. L'état vit hors du DOM — la fiche est
   re-rendue sur événement et une saisie en cours y serait perdue — et changer de ticket repart
   d'une consigne propre.
+- **`pm-task-add … --porcelain | head -1` pouvait laisser un ticket orphelin** (RM2870).
+  Le tube se ferme dès la première ligne lue, l'écriture suivante lève `BrokenPipeError`, et le
+  processus mourait **après** le POST Redmine : ticket créé côté forge, aucune fiche PM, rien
+  pour le signaler — c'est ainsi qu'est né RM2868. `pm_output` avale désormais l'écriture sur un
+  flux mort et bascule sur `os.devnull` : l'affichage n'est jamais une raison d'interrompre une
+  mutation déjà engagée. Le correctif est dans la couche de sortie, donc vaut pour **tous** les
+  scripts `pm-*`. Le second volet du ticket — `same_project()` et le `project_id` textuel — a
+  été traité en amont par RM2784 ; la version de `dev` est conservée telle quelle.
 - **Déplacer une tâche d'un projet PM à un autre : `mmi-pm task-move`** (RM2866). Un ticket
   ouvert depuis le mauvais cwd — ou déplacé dans l'UI Redmine par un humain — laissait sa
   fiche PM orpheline dans le projet d'origine, sans outil pour la suivre : `cp` + `git rm` à

@@ -113,6 +113,7 @@ class Event:
     text: str = ""
     extends: bool = True
     scores: dict = field(default_factory=dict)   # {(entity, project, rm_id): poids}
+    cible: tuple = None      # cible connue d'avance (action Redmine) : pas d'heuristique
 
     def key(self):
         """Clé de déduplication inter-sources : la minute + le début du texte."""
@@ -264,6 +265,81 @@ def collect_opencode(db_path, depuis=None, jusqu_a=None, defaut_chars=None):
     finally:
         con.close()
     return out
+
+
+def collect_redmine_actions(url, key, basic, user_id, depuis, jusqu_a,
+                            project_map=None, instance=None, http=None):
+    """Actions HUMAINES sur les tickets d'une instance Redmine.
+
+    Créer un ticket, le commenter, changer son statut : ce sont des gestes de
+    l'humain, horodatés à la minute et rattachés à un ticket précis. Ils comblent
+    l'angle mort des journées de régie, où l'agent ne voit presque rien mais où le
+    travail se trace… dans le Redmine du client.
+
+    La cible est CONNUE (pas d'heuristique) : le ticket dit son projet. Quand
+    l'instance n'est pas la principale, l'identifiant est qualifié
+    (`matnat#5588`) — deux instances numérotent chacune de son côté, et les
+    confondre écrirait dans le mauvais Redmine.
+    """
+    if http is None:
+        from redmine_utils import http_json as http
+    project_map = project_map or {}
+    fenetre = f"%3E%3D{depuis:%Y-%m-%d}" if depuis else ""
+    issues, offset = [], 0
+    while True:
+        code, body = http("GET", f"{url}/issues.json?status_id=*&updated_on={fenetre}"
+                                 f"&limit=100&offset={offset}", key, basic=basic)
+        if code != 200:
+            break
+        issues += body.get("issues", [])
+        offset += 100
+        if offset >= body.get("total_count", 0) or offset > 2000:
+            break
+
+    def _cible(issue):
+        ident = (issue.get("project") or {}).get("identifier", "")
+        place = project_map.get(ident) or project_map.get("*")
+        if not place:
+            return None
+        rm = f"{instance}#{issue['id']}" if instance else str(issue["id"])
+        return (place[0], place[1], rm)
+
+    out = []
+    for issue in issues:
+        cible = _cible(issue)
+        if not cible:
+            continue
+        cree = issue.get("created_on", "")
+        if (issue.get("author") or {}).get("id") == user_id and cree:
+            dt = _ts_redmine(cree)
+            if dt and _dans_periode(dt, depuis, jusqu_a):
+                out.append(Event(ts=dt, chars=len(issue.get("subject") or "") + 200,
+                                 source=f"redmine:{instance or 'principale'}",
+                                 text=f"création : {issue.get('subject', '')}", cible=cible))
+        code, detail = http("GET", f"{url}/issues/{issue['id']}.json?include=journals",
+                            key, basic=basic)
+        if code != 200:
+            continue
+        for j in ((detail.get("issue") or {}).get("journals") or []):
+            if (j.get("user") or {}).get("id") != user_id:
+                continue
+            dt = _ts_redmine(j.get("created_on", ""))
+            if not dt or not _dans_periode(dt, depuis, jusqu_a):
+                continue
+            notes = j.get("notes") or ""
+            out.append(Event(ts=dt, chars=len(notes) + 60 * len(j.get("details") or []),
+                             source=f"redmine:{instance or 'principale'}",
+                             text=notes or "modification de ticket", cible=cible))
+    return out
+
+
+def _ts_redmine(valeur):
+    """'2026-08-26T09:12:03Z' → datetime local naïf."""
+    try:
+        dt = datetime.fromisoformat((valeur or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return dt.astimezone().replace(tzinfo=None)
 
 
 def _dans_periode(dt, depuis, jusqu_a):
@@ -508,6 +584,9 @@ class TargetResolver:
     # -- attribution complète ------------------------------------------------
     def resolve(self, event, rm_du_tour=None):
         """Remplit `event.scores` : {(entity, project, rm_id): poids}."""
+        if event.cible:                     # action Redmine : la cible est certaine
+            event.scores = {event.cible: POIDS["tick"]}
+            return event
         proj = self.projet(event.cwd)
         ent, pr = proj if proj else (None, None)
         scores = collections.Counter()
@@ -674,9 +753,11 @@ def allocate(intervals, params=None):
     p = {**DEFAULTS, **(params or {})}
     alloc = collections.defaultdict(float)
     totaux = collections.Counter()
+    par_heure = collections.Counter()      # (jour, heure) → minutes mesurées
+    par_heure_cible = collections.Counter()  # (jour, heure, cible) → minutes
     periodes = collections.defaultdict(list)
     if not intervals:
-        return dict(alloc), dict(periodes), dict(totaux)
+        return dict(alloc), dict(periodes), dict(totaux), dict(par_heure)
 
     ivs = sorted(intervals, key=lambda x: x.debut)
     debuts = [iv.debut for iv in ivs]
@@ -691,6 +772,7 @@ def allocate(intervals, params=None):
         jour = a.strftime("%Y-%m-%d")
         ouvre = est_ouvre(a, p)
         totaux[jour] += duree
+        par_heure[(jour, a.hour)] += duree
         if periodes[jour] and periodes[jour][-1][1] == a:
             periodes[jour][-1] = (periodes[jour][-1][0], b)
         else:
@@ -700,8 +782,11 @@ def allocate(intervals, params=None):
             continue
         for iv in actifs:
             for cible, poids in iv.scores.items():
-                alloc[(jour, ouvre, cible)] += duree * poids / poids_total
-    return dict(alloc), dict(periodes), dict(totaux)
+                part = duree * poids / poids_total
+                alloc[(jour, ouvre, cible)] += part
+                par_heure_cible[(jour, a.hour, cible)] += part
+    return (dict(alloc), dict(periodes), dict(totaux), dict(par_heure),
+            dict(par_heure_cible))
 
 
 # ── Règles métier ────────────────────────────────────────────────────────────
@@ -849,7 +934,13 @@ JOURS_FR = {"lundi": 0, "mardi": 1, "mercredi": 2, "jeudi": 3,
             "vendredi": 4, "samedi": 5, "dimanche": 6}
 
 
-def appliquer_presences(final, presences, debut, fin):
+def _heure_de(cle_jour, alloc_horaire):
+    """Sert à repérer les lignes d'une journée ; l'heure exacte vit dans par_heure."""
+    return None
+
+
+def appliquer_presences(final, presences, debut, fin, par_heure=None,
+                        par_heure_cible=None):
     """Complète les journées de RÉGIE, que les traces d'agents ne peuvent pas voir.
 
     Une journée passée chez un client — 9 h 30 – 18 h 30, réunions comprises — ne
@@ -865,6 +956,7 @@ def appliquer_presences(final, presences, debut, fin):
     (`ajouts`), pour que le rapport distingue toujours le mesuré du déclaré.
     """
     ajouts = collections.defaultdict(float)
+    transferts = collections.defaultdict(float)
     for p in presences or []:
         client = p.get("client")
         if not client:
@@ -875,7 +967,19 @@ def appliquer_presences(final, presences, debut, fin):
         projet = p.get("projet")
         reunion = float(p.get("reunion_h", 0) or 0)
         sauf = {str(x) for x in (p.get("sauf") or [])}
+        # Une journée sort rarement du moule : réunion du matin seule, départ
+        # anticipé, télétravail. `exceptions` surcharge la présence pour CE jour
+        # plutôt que de l'annuler — sinon la journée retombe au mesuré, qui est
+        # justement ce qu'on sait faux les jours de régie.
+        exceptions = {str(k): (v or {}) for k, v in (p.get("exceptions") or {}).items()}
         jours = {JOURS_FR[j.lower()] for j in (p.get("jours") or []) if j.lower() in JOURS_FR}
+        h_debut = h_fin = None
+        if p.get("debut") and p.get("fin"):
+            try:
+                h_debut = int(str(p["debut"]).split(":")[0])
+                h_fin = int(str(p["fin"]).split(":")[0]) + 1
+            except (ValueError, IndexError):
+                h_debut = h_fin = None
         dates_explicites = {str(x) for x in (p.get("dates") or [])}
         d0 = date.fromisoformat(str(p["depuis"])) if p.get("depuis") else debut.date()
         d1 = date.fromisoformat(str(p["jusqu_a"])) if p.get("jusqu_a") else fin.date()
@@ -883,19 +987,62 @@ def appliquer_presences(final, presences, debut, fin):
         while jour <= min((fin - timedelta(days=1)).date(), d1):
             cle = jour.isoformat()
             concerne = cle in dates_explicites or (jours and jour.weekday() in jours)
+            surcharge = exceptions.get(cle, {})
+            heures_jour = float(surcharge.get("heures", heures))
+            reunion_jour = float(surcharge.get("reunion_h", reunion))
+            exclusif_jour = surcharge.get("exclusif", p.get("exclusif"))
             if concerne and cle not in sauf:
-                mesure = sum(v for (j, cible), v in final.items()
-                             if j == cle and cible[0] == client)
-                manque = heures * 60 - mesure
+                if exclusif_jour and par_heure_cible and h_debut is not None:
+                    # Journée sur site : le travail y est presque exclusivement
+                    # pour ce client. Ce que la mesure attribue ailleurs PENDANT
+                    # LA PLAGE relève plus souvent d'une attribution approchée que
+                    # d'un vrai détour — on le rapatrie, en le traçant. Hors plage
+                    # (le soir, une fois rentré), rien n'est touché.
+                    a_rapatrier = collections.Counter()
+                    for (j, h, cible), v in par_heure_cible.items():
+                        if j != cle or not (h_debut <= h < h_fin):
+                            continue
+                        if cible[0] == client or _est_perso_ou_transversal(cible[0], p):
+                            continue
+                        a_rapatrier[cible] += v
+                    for cible, v in a_rapatrier.items():
+                        restant = final.get((cle, cible), 0.0)
+                        pris = min(restant, v)
+                        if pris <= 0:
+                            continue
+                        final[(cle, cible)] = restant - pris
+                        transferts[(cle, cible, client)] += pris
+                # Le plancher porte sur la JOURNÉE, pas sur le seul client : sur
+                # place on travaille parfois un moment pour un autre client, et
+                # ce temps-là fait partie des 8 h — il ne s'y ajoute pas.
+                if par_heure and (h_debut is not None):
+                    mesure = sum(v for (j, h), v in par_heure.items()
+                                 if j == cle and h_debut <= h < h_fin)
+                else:
+                    mesure = sum(v for (j, cible), v in final.items()
+                                 if j == cle and cible[0] == client)
+                manque = heures_jour * 60 - mesure
                 if manque > 1:
-                    if reunion > 0:
-                        part_reunion = min(reunion * 60, manque)
+                    if reunion_jour > 0:
+                        part_reunion = min(reunion_jour * 60, manque)
                         ajouts[(cle, (client, projet, None), "réunion")] += part_reunion
                         manque -= part_reunion
                     if manque > 1:
                         ajouts[(cle, (client, projet, None), "présence sur site")] += manque
             jour += timedelta(days=1)
-    return dict(ajouts)
+    # Le temps rapatrié rejoint le client SANS son ticket d'origine : un ticket
+    # d'un autre projet ne peut pas être crédité ici (il appartient à son projet).
+    for (cle, cible, client), v in transferts.items():
+        final[(cle, (client, None, None))] = final.get((cle, (client, None, None)), 0.0) + v
+    for k in [k for k, v in final.items() if v <= 0]:
+        del final[k]
+    return dict(ajouts), dict(transferts)
+
+
+def _est_perso_ou_transversal(entity, presence):
+    """Une présence exclusive ne rapatrie pas le perso ni ce qui est exclu."""
+    exclus = set(presence.get("garder") or [])
+    return entity in exclus
 
 
 def deduire_saisies(final, saisies, cle_ticket=True):
@@ -1090,7 +1237,8 @@ def rendre_calendrier(final, totaux, mois, ecarte=None):
 
 
 def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
-                    deduit=None, quantum=None, resolver=None, ajouts=None):
+                    deduit=None, quantum=None, resolver=None, ajouts=None,
+                    transferts=None):
     """Compte rendu lisible — c'est la pièce que l'humain relit et amende."""
     quantum = quantum or DEFAULTS["quantum_min"]
     L = [f"# Feuille de temps {mois}", ""]
@@ -1104,6 +1252,19 @@ def rendre_markdown(final, ecarte, journal, periodes, totaux, regles, mois,
         L.append(f"- dont **{_hm(total_declare)} déclarés** (journées de régie : "
                  "présence sur site et réunions, que les traces ne voient pas)")
     L.append("")
+    if transferts:
+        L += ["### Journées de régie — temps rapatrié", "",
+              "Sur une journée sur site déclarée exclusive, ce que la mesure "
+              "attribuait à un autre client pendant la plage est rapatrié :", "",
+              "| jour | de | vers | temps |", "|---|---|---|---|"]
+        groupes = collections.Counter()
+        for (jour, cible, client), minutes in transferts.items():
+            groupes[(jour, f"{cible[0]}/{cible[1] or '—'}", client)] += minutes
+        for (jour, source, client), minutes in sorted(groupes.items()):
+            if minutes < 1:
+                continue
+            L.append(f"| {jour} | {source} | {client} | {_hm(minutes)} |")
+        L.append("")
     if ajouts:
         L += ["### Journées de régie complétées", "",
               "| jour | client | motif | complément |", "|---|---|---|---|"]

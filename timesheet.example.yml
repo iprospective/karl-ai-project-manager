@@ -26,6 +26,17 @@ sources:
   #   # Rien n'est deviné — un tri automatique sur du temps facturable, non.
   #   exclude_days: ["2026-06-09", "2026-07-21", "2026-07-23"]
   #   # ou l'inverse : only_days: [...]
+  #
+  # Actions sur les tickets d'un Redmine (créations, commentaires, changements de
+  # statut) : des gestes humains horodatés, à cible certaine. C'est la seule source
+  # qui voit une journée de régie, où le travail se trace chez le client.
+  # - kind: redmine-actions
+  #   instance: redmine-matnat      # nom du registre providers ; absent = instance principale
+  #   user_id: 3                    # l'utilisateur SUR CETTE instance
+  #   project_map:                  # projet Redmine distant → (client, projet PM)
+  #     infrastructure: [matnat, infra]
+  #     sites: [matnat, site_sf7]
+  #     "*": [matnat, infra]        # défaut pour les autres projets
 
 # ── Chemins → (client, projet) ───────────────────────────────────────────────
 # Indispensable pour les répertoires d'un AUTRE hôte (pas de `.mmi-pm` là-bas) et
@@ -64,10 +75,21 @@ presences:
   - client: matnat
     projet: infra
     jours: [mercredi]
-    heures: 8            # 9 h 30 – 18 h 30 moins 1 h de pause
+    debut: "09:30"       # la plage de présence sur site…
+    fin: "18:30"
+    heures: 8            # …dont 8 h travaillées (1 h de pause)
     reunion_h: 1         # dont réunion hebdomadaire, en ligne distincte
     depuis: 2026-08-01
-    sauf: ["2026-08-19"] # journée plus courte, laissée au mesuré
+    exclusif: true       # la journée est presque exclusivement pour ce client :
+                         # ce que la mesure attribue ailleurs pendant la plage est
+                         # rapatrié (et tracé dans le rapport)
+    garder: [lemathou]   # …sauf ces entités, laissées telles quelles
+    # Une journée hors du moule se SURCHARGE (elle garde son plancher, ajusté)
+    # plutôt que de s'annuler : sans plancher, elle retombe au mesuré, qui est
+    # précisément ce qu'on sait faux les jours de régie.
+    exceptions:
+      "2026-08-12": {heures: 3, reunion_h: 1, exclusif: false}   # télétravail, réunion du matin
+    # sauf: ["2026-09-02"]   # journée à ignorer complètement (absent, malade…)
     # dates: ["2026-09-03"]   # ou des dates explicites plutôt qu'un jour de semaine
 
 # ── Réglages du calcul ───────────────────────────────────────────────────────

@@ -54,7 +54,7 @@ params = {"follow_cap": 10, "write_base": 1, "chars_per_min": 45,
 # même instant ET même horizon (un 3e prompt plus tard) → intervalles identiques
 simultanes = [ev(0, cible=("a", "p1", None)), ev(0, cible=("b", "p2", None)),
               ev(30, cible=("a", "p1", None))]
-alloc, periodes, totaux = W.allocate(W.build_intervals(simultanes, params), params)
+alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(simultanes, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values())),
         "somme des lignes attribuées = mesure de l'union")
 ivs = W.build_intervals(simultanes, params)
@@ -69,26 +69,26 @@ verifie(part_b > 0 and part_a > part_b,
 
 # série réaliste : 20 prompts entremêlés sur 3 projets
 serie = [ev(i * 3, chars=60 + 10 * i, cible=(f"c{i%3}", "p", None)) for i in range(20)]
-alloc, periodes, totaux = W.allocate(W.build_intervals(serie, params), params)
+alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(serie, params), params)
 verifie(presque(sum(alloc.values()), sum(totaux.values()), 1e-6),
         "invariant tenu sur une série entremêlée")
 
 # ── 2. Plafond de suivi ──────────────────────────────────────────────────────
 print("\n2. Plafond de suivi (l'agent travaille seul, l'humain revient plus tard)")
 loin = [ev(0), ev(120)]      # deux heures d'écart
-alloc, periodes, totaux = W.allocate(W.build_intervals(loin, params), params)
+alloc, periodes, totaux, _ph, _phc = W.allocate(W.build_intervals(loin, params), params)
 verifie(sum(totaux.values()) < 40,
         f"les 2 h d'absence ne sont pas comptées ({sum(totaux.values()):.0f} min)")
 serre = [ev(0), ev(5)]
-_a, _p, t2 = W.allocate(W.build_intervals(serre, params), params)
+_a, _p, t2, _ph2, _phc2 = W.allocate(W.build_intervals(serre, params), params)
 verifie(sum(t2.values()) < sum(totaux.values()) or True, "cas resserré calculé")
 
 # ── 3. Les traces d'agent n'étendent pas le temps ────────────────────────────
 print("\n3. Traces d'agent : elles attribuent, elles ne créent pas")
 humain = [ev(0, cible=("a", "p", "111"))]
 avec_agent = humain + [ev(60, cible=("a", "p", "222"), extends=False)]
-_a1, _p1, t_h = W.allocate(W.build_intervals(humain, params), params)
-_a2, _p2, t_a = W.allocate(W.build_intervals(avec_agent, params), params)
+_a1, _p1, t_h, _p3, _p3c = W.allocate(W.build_intervals(humain, params), params)
+_a2, _p2, t_a, _p4, _p4c = W.allocate(W.build_intervals(avec_agent, params), params)
 verifie(presque(sum(t_h.values()), sum(t_a.values()), 0.01),
         "une trace d'agent isolée n'ajoute aucune minute")
 

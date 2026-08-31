@@ -60,7 +60,7 @@ def _sources(conf):
     ]
 
 
-def collecter(conf, debut, fin, verbose=False, cache_dir=None):
+def collecter(conf, debut, fin, verbose=False, cache_dir=None, cfg=None):
     events, detail, absentes = [], [], []
     for s in _sources(conf):
         kind, chemin = s.get("kind"), str(Path(s.get("path", "")).expanduser())
@@ -78,6 +78,19 @@ def collecter(conf, debut, fin, verbose=False, cache_dir=None):
             events += W.collect_claude_history(chemin, debut, fin)
         elif kind == "opencode-db":
             events += W.collect_opencode(chemin, debut, fin)
+        elif kind == "redmine-actions":
+            # Créer, commenter, modifier un ticket : des gestes humains horodatés,
+            # rattachés à un ticket certain. Seule source qui voit une journée de
+            # régie, où le travail se trace dans le Redmine du client.
+            try:
+                url, key, basic, uid = _instance_creds(s, cfg)
+            except Exception as e:
+                absentes.append(f"{s.get('instance')} ({type(e).__name__})")
+                continue
+            events += W.collect_redmine_actions(
+                url, key, basic, uid, debut, fin,
+                project_map={k: tuple(v) for k, v in (s.get("project_map") or {}).items()},
+                instance=s.get("instance"))
         else:
             continue
         # Un compte partagé porte le travail de plusieurs personnes (dercya-www :
@@ -123,6 +136,23 @@ def saisies_humaines(url, key, user_id, debut, fin, basic=None):
         if offset >= body.get("total_count", 0):
             break
     return out
+
+
+def _instance_creds(source, cfg):
+    """(url, key, basic, user_id) d'une source Redmine déclarée."""
+    from redmine_utils import redmine_creds
+    nom, uid = source.get("instance"), source.get("user_id")
+    if not uid:
+        raise ValueError("user_id requis")
+    if not nom:
+        c = redmine_creds()
+        return c[0], c[1], getattr(c, "basic", None), uid
+    import yaml as _y
+    from pm_registry import Registry
+    brut = _y.safe_load(Path(cfg.pm_dir, "pm.config.yml").read_text(encoding="utf-8"))
+    inst = Registry.from_config(brut.get("providers")).get(nom)
+    c = redmine_creds(instance=inst)
+    return c[0], c[1], getattr(c, "basic", None), uid
 
 
 def instances_redmine(conf, cfg, args):
@@ -181,7 +211,7 @@ def calculer(args, cfg, conf):
 
     cache_dir = Path(args.out).parent / "cache" if args.out else \
         Path(cfg.pm_dir) / "var" / "timesheet" / "cache"
-    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir)
+    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir, cfg)
     if not events:
         sys.exit(f"Aucune trace sur la période {libelle} — sources : "
                  + ", ".join(s.get("kind", "?") for s in _sources(conf)))
@@ -203,7 +233,8 @@ def calculer(args, cfg, conf):
         resolver.resolve(e, rm_du_tour=rm)
 
     regles = W.regles_depuis_config(conf, cfg)
-    alloc, periodes, totaux = W.allocate(W.build_intervals(events, params), params)
+    alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
+        W.build_intervals(events, params), params)
     alloc = W.eclater_cles_multi(alloc, regles)
     final, ecarte, journal = W.repartir_transversal(alloc, regles, params)
 
@@ -221,11 +252,12 @@ def calculer(args, cfg, conf):
 
     # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
     # à la main compte dans le plancher, il ne s'y ajoute pas.
-    ajouts = W.appliquer_presences(final, conf.get("presences"), debut, fin)
+    ajouts, transferts = W.appliquer_presences(final, conf.get("presences"),
+                                               debut, fin, par_heure, par_heure_cible)
     for (jour, cible, motif), minutes in ajouts.items():
         final[(jour, cible)] = final.get((jour, cible), 0) + minutes
 
-    return {"resolver": resolver, "ajouts": ajouts,
+    return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
             "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
             "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
             "deduit": deduit, "events": len(events), "sources": detail,
@@ -237,7 +269,8 @@ def ecrire_sorties(res, dossier, libelle):
     md = W.rendre_markdown(res["final"], res["ecarte"], res["journal"], res["periodes"],
                            res["totaux"], res["regles"], libelle,
                            quantum=res["params"]["quantum_min"],
-                           resolver=res.get("resolver"), ajouts=res.get("ajouts"))
+                           resolver=res.get("resolver"), ajouts=res.get("ajouts"),
+                           transferts=res.get("transferts"))
     chemin_md = dossier / f"{libelle}.md"
     chemin_md.write_text(md, encoding="utf-8")
     prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],

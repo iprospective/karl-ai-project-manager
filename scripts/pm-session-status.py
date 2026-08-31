@@ -55,7 +55,7 @@ WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
 # RM2860 : le dev est fini, reste la mise en prod — un travail batché, souvent
 # porté par un autre acteur. Section à part, ici comme dans le cockpit : deux
 # vues divergentes du même worklog donneraient deux vérités sur « où on en est ».
-MEP = {"a_mep", "en_mep"}
+MEP = {"a_mep", "a_tester_preprod", "a_mep_prod", "en_mep"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.

@@ -1,5 +1,26 @@
 # Changelog des normes
 
+## [2.13.0] - 2026-09-01
+
+### Corrigé
+- **structure-reference** — le point de vocabulaire posé en 2.11.0 disait **l'inverse**
+  de l'arbitrage (RM2929). Il affirmait que « les tickets PM » désignent les cores
+  PROJET par opposition au core du système. Faux : le demandeur ne désigne **jamais**
+  implicitement un `*-core`, **ni** `<Projet>-core` **ni** `ai-pm-core`. Il parle des
+  **dépôts de code** de `repos/` ; s'il vise un `*-core`, il le **nomme**. Le paragraphe
+  est réécrit et contredisait le tripwire #15 (arrivé entre-temps en 2.12.0, RM2676).
+- **KERNEL** — la ligne-déclencheur « je restitue l'état des tickets PM » ajoutée en
+  2.11.0 est **retirée** : elle portait la même erreur, et la règle est déjà tenue par
+  le tripwire #15, qui la dit mieux et reste sous les yeux en permanence.
+
+### Ajouté
+- **Le support n'est pas le sujet** — précision au tripwire #15 et dans
+  `structure-reference` : les fiches de tickets sont bien stockées dans le
+  `<Projet>-core`, mais un ticket **porte sur** le code de `repos/`. « Le ticket est-il
+  mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a
+  enregistré la fiche. C'est le mécanisme exact de la confusion — le nommer désamorce
+  la faute au lieu de seulement l'interdire.
+
 ## [2.12.0] - 2026-09-01
 
 ### Ajouté

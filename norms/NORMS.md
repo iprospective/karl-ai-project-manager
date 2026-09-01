@@ -1,9 +1,9 @@
 ---
-schema_version: "2.12.0"
+schema_version: "2.13.0"
 updated: 2026-09-01
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.12.0
+# Normes de gestion des tâches — v2.13.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -25,7 +25,6 @@ updated: 2026-09-01
 | QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
-| je restitue l'état « des tickets PM » (mergé ? poussé ?) | périmètre = les cores **projet**, jamais `ai-pm-core` — `modules/structure-reference.md` § vocabulaire | — |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
@@ -86,7 +85,7 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
 14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
 
-15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution à l'utilisateur : ce sont des **process automatiques**, les annoncer gaspille des tokens et noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** — une MR de *code*, elle, se raconte : c'est une livraison. **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne**, sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est muet sur le chemin nominal (`git.verbose: true` pour déboguer). **La règle vaut aussi en LECTURE — dans l'interprétation d'une question.** Une demande non qualifiée (« les tickets sont mergés en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core`. L'utilisateur n'en parle **jamais** sauf à le **nommer explicitement** : répondre sur un `*-core` qu'il n'a pas nommé, c'est la même violation vue de l'autre côté, et ça coûte un tour de conversation entier. **Pourquoi c'est un tripwire et pas une ligne-déclencheur** : la règle s'applique au moment où tu **rédiges ta réponse** — moment où tu n'ouvres plus aucun fichier. Elle doit donc être **sous tes yeux en permanence**, sinon elle se viole en silence, et se re-viole après chaque compactage de contexte (incidents répétés : 2026-08-13 en restitution, 2026-09-01 en interprétation — « je ne parle jamais des dépôts pm core, sauf explicitement »). → `agents/worker-common.md`
+15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution à l'utilisateur : ce sont des **process automatiques**, les annoncer gaspille des tokens et noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** — une MR de *code*, elle, se raconte : c'est une livraison. **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne**, sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est muet sur le chemin nominal (`git.verbose: true` pour déboguer). **La règle vaut aussi en LECTURE — dans l'interprétation d'une question.** Une demande non qualifiée (« les tickets sont mergés en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core`. **Le support n'est pas le sujet** : les fiches de tickets sont bien stockées dans le `<Projet>-core`, mais un ticket **porte sur** le code de `repos/` — « le ticket est-il mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a enregistré la fiche (RM2929). L'utilisateur n'en parle **jamais** sauf à le **nommer explicitement** : répondre sur un `*-core` qu'il n'a pas nommé, c'est la même violation vue de l'autre côté, et ça coûte un tour de conversation entier. **Pourquoi c'est un tripwire et pas une ligne-déclencheur** : la règle s'applique au moment où tu **rédiges ta réponse** — moment où tu n'ouvres plus aucun fichier. Elle doit donc être **sous tes yeux en permanence**, sinon elle se viole en silence, et se re-viole après chaque compactage de contexte (incidents répétés : 2026-08-13 en restitution, 2026-09-01 en interprétation — « je ne parle jamais des dépôts pm core, sauf explicitement »). → `agents/worker-common.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -302,16 +301,26 @@ structurels** (invariants pour l'outillage) :
   les deux régimes de protection ci-dessus, implémenté une seule fois dans
   `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
 
-**Vocabulaire du demandeur — « les tickets PM », ce sont ceux des cores PROJET.** Le
-mot *core* est **homonyme** : il nomme le core d'un **projet** (`<Projet>-core`, qui
-porte le `.mmi-pm` du travail client) **et** le core du **système PM** lui-même
-(`ai-pm-core`, alias `.mmi-pm-core` — l'outillage `pm-*`, les NORMS, et ses propres
-tickets de dogfooding). Quand le demandeur parle des « tickets PM » — leur état, leurs
-commits, « est-ce que c'est mergé ? » — il désigne **toujours** les premiers, **jamais**
-le second (arbitrage 2026-09-01, RM2929). Le core du système n'entre dans une
-restitution que s'il est **lui-même le sujet** (on développe l'outillage) ou s'il est
-**en échec**. Rapporter son état quand la question portait sur les cores projet, c'est
-répondre à côté et noyer la réponse utile sous de la plomberie.
+**Vocabulaire du demandeur — « les tickets », ce sont les dépôts de CODE.** Quand le
+demandeur parle de tickets — leur état, « c'est mergé ? », « où en est la branche ? » —
+il désigne les **dépôts de code**, ceux de `repos/` (et, quand on travaille l'outillage
+PM lui-même, le dépôt de code du système PM). Il ne désigne **jamais** implicitement un
+`*-core` : **ni** le core d'un projet (`<Projet>-core`), **ni** le core du système PM
+(`ai-pm-core`, alias `.mmi-pm-core`). Le mot *core* est homonyme, mais l'homonymie ne se
+pose pas — **aucun des deux** n'est sous-entendu. S'il veut parler d'un `*-core`, il le
+**nomme explicitement** ; c'est le seul cas où un `*-core` entre dans une réponse
+(arbitrage Mathieu du 2026-09-01, RM2929 ; la règle est portée en permanence par le
+**tripwire #15**, volet lecture).
+
+**Le support n'est pas le sujet.** La confusion vient de ce que les **fiches** de tickets
+sont bien stockées dans le `<Projet>-core` (`.mmi-pm/tasks/`). Mais un ticket **porte
+sur** le code des dépôts de `repos/` : le core en est le *support de stockage*, jamais
+le *sujet*. « Le ticket est-il mergé ? » interroge donc la branche de code du ticket —
+pas le commit `pm(status)` qui a enregistré sa fiche.
+
+Corollaire de méthode : **borner le périmètre avant d'inspecter**, pas après. Inspecter
+les `*-core` « pour être exhaustif » puis en rapporter l'état, ce n'est pas de la rigueur
+— c'est répondre à côté, et noyer la réponse utile sous de la plomberie.
 
 La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le

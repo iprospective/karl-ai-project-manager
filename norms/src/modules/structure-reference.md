@@ -56,16 +56,26 @@ structurels** (invariants pour l'outillage) :
   les deux régimes de protection ci-dessus, implémenté une seule fois dans
   `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
 
-**Vocabulaire du demandeur — « les tickets PM », ce sont ceux des cores PROJET.** Le
-mot *core* est **homonyme** : il nomme le core d'un **projet** (`<Projet>-core`, qui
-porte le `.mmi-pm` du travail client) **et** le core du **système PM** lui-même
-(`ai-pm-core`, alias `.mmi-pm-core` — l'outillage `pm-*`, les NORMS, et ses propres
-tickets de dogfooding). Quand le demandeur parle des « tickets PM » — leur état, leurs
-commits, « est-ce que c'est mergé ? » — il désigne **toujours** les premiers, **jamais**
-le second (arbitrage 2026-09-01, RM2929). Le core du système n'entre dans une
-restitution que s'il est **lui-même le sujet** (on développe l'outillage) ou s'il est
-**en échec**. Rapporter son état quand la question portait sur les cores projet, c'est
-répondre à côté et noyer la réponse utile sous de la plomberie.
+**Vocabulaire du demandeur — « les tickets », ce sont les dépôts de CODE.** Quand le
+demandeur parle de tickets — leur état, « c'est mergé ? », « où en est la branche ? » —
+il désigne les **dépôts de code**, ceux de `repos/` (et, quand on travaille l'outillage
+PM lui-même, le dépôt de code du système PM). Il ne désigne **jamais** implicitement un
+`*-core` : **ni** le core d'un projet (`<Projet>-core`), **ni** le core du système PM
+(`ai-pm-core`, alias `.mmi-pm-core`). Le mot *core* est homonyme, mais l'homonymie ne se
+pose pas — **aucun des deux** n'est sous-entendu. S'il veut parler d'un `*-core`, il le
+**nomme explicitement** ; c'est le seul cas où un `*-core` entre dans une réponse
+(arbitrage Mathieu du 2026-09-01, RM2929 ; la règle est portée en permanence par le
+**tripwire #15**, volet lecture).
+
+**Le support n'est pas le sujet.** La confusion vient de ce que les **fiches** de tickets
+sont bien stockées dans le `<Projet>-core` (`.mmi-pm/tasks/`). Mais un ticket **porte
+sur** le code des dépôts de `repos/` : le core en est le *support de stockage*, jamais
+le *sujet*. « Le ticket est-il mergé ? » interroge donc la branche de code du ticket —
+pas le commit `pm(status)` qui a enregistré sa fiche.
+
+Corollaire de méthode : **borner le périmètre avant d'inspecter**, pas après. Inspecter
+les `*-core` « pour être exhaustif » puis en rapporter l'état, ce n'est pas de la rigueur
+— c'est répondre à côté, et noyer la réponse utile sous de la plomberie.
 
 La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le

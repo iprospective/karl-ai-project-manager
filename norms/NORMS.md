@@ -1,9 +1,9 @@
 ---
-schema_version: "2.14.0"
+schema_version: "2.15.0"
 updated: 2026-09-01
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.14.0
+# Normes de gestion des tâches — v2.15.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -28,11 +28,11 @@ updated: 2026-09-01
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
-| je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
+| je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
-| je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
+| je cherche la transition exacte permise, je qualifie en phase d'étude, **je rédige un CDC** (proposition d'implémentation obligatoire dès que l'étude débouche sur du code — `pm-task-implementation`), une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
 | le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
@@ -52,6 +52,7 @@ updated: 2026-09-01
 | je note / cherche un contact d'un client | `modules/project-modeling.md` (§ Contacts) | `pm-client-contact` |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
 | j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
+| je diagnostique un incident / il me faut l'historique de charge d'une machine du parc | **tripwire #16** + `knowledge/zabbix/api.md` | API JSON-RPC, `ZABBIX_API_TOKEN` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
@@ -85,8 +86,9 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
 13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
 14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
-
 15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution à l'utilisateur : ce sont des **process automatiques**, les annoncer gaspille des tokens et noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** — une MR de *code*, elle, se raconte : c'est une livraison. **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne**, sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est muet sur le chemin nominal (`git.verbose: true` pour déboguer). **La règle vaut aussi en LECTURE — dans l'interprétation d'une question.** Une demande non qualifiée (« les tickets sont mergés en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core`. **Le support n'est pas le sujet** : les fiches de tickets sont bien stockées dans le `<Projet>-core`, mais un ticket **porte sur** le code de `repos/` — « le ticket est-il mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a enregistré la fiche (RM2929). L'utilisateur n'en parle **jamais** sauf à le **nommer explicitement** : répondre sur un `*-core` qu'il n'a pas nommé, c'est la même violation vue de l'autre côté, et ça coûte un tour de conversation entier. **Pourquoi c'est un tripwire et pas une ligne-déclencheur** : la règle s'applique au moment où tu **rédiges ta réponse** — moment où tu n'ouvres plus aucun fichier. Elle doit donc être **sous tes yeux en permanence**, sinon elle se viole en silence, et se re-viole après chaque compactage de contexte (incidents répétés : 2026-08-13 en restitution, 2026-09-01 en interprétation — « je ne parle jamais des dépôts pm core, sauf explicitement »). → `agents/worker-common.md`
+
+16. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : historique CPU/charge/réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident à partir des seuls logs de la machine** — les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être : un service engorgé cesse d'écrire (Apache journalise en **fin** de requête ; rsyslog affamé n'écrit plus), ce qui **imite une panne réseau**. Un agent local qui « mesure » quelque chose n'est pas une source fiable tant que Zabbix ne le corrobore pas. (incident RM2455, 2026-07-30 : deux diagnostics successifs — coupure amont OVH, puis saturation CPU sur la foi d'un agent local annonçant 97,51 % — **tous deux réfutés** par Zabbix, qui mesurait 14,2 % de CPU max ; la vraie cause — pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers` — a été obtenue en **trois requêtes** Zabbix.) → `knowledge/zabbix/api.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -1483,7 +1485,7 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
 > **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
@@ -1608,16 +1610,19 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
+- **Proposition d'implémentation** — l'esquisse technique, dans le CF 31 via
+  `pm-task-implementation` (§ dédiée ci-dessous). **Obligatoire dès que l'étude débouche
+  sur du code**, quelle que soit la taille du développement.
 
 **Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
-à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
+est terminée (CDC rédigé, **proposition d'implémentation** posée, `estimate.*`
+complet), l'agent **ne passe pas directement à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
 **ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
 que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
 développement. C'est le pendant amont du `a_tester_demandeur` aval.
 
 **Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + proposition d'implémentation + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
@@ -1630,6 +1635,68 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+#### La proposition d'implémentation — v2.10.0 (RM2563)
+
+Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et le chiffrage au
+**combien**. Il manquait le **comment** : l'esquisse technique que l'audit vient de
+produire. Sans elle, l'agent qui reprend le ticket en `a_faire` **refait l'audit** —
+travail payé deux fois, et refait moins bien, puisqu'il repart sans les conclusions déjà
+acquises.
+
+**Où elle vit.** Champ canonique : le CF Redmine **31 « Proposition d'implémentation »**
+(texte long, visible sur la fiche) ; miroir local dans le frontmatter `implementation`
+(c'est le miroir que lit la fiche de revue du cockpit — karl-agent ne lit que le local).
+Outil unique : **`pm-task-implementation`** (`--set` / `--append`), jamais d'écriture à la
+main dans l'un ou l'autre. Un CDC rédigé avant l'existence du CF, qui porte l'esquisse en
+section `## Implémentation` du corps, se migre par `--from-description` (en masse :
+`pm-cf-mirror-backfill --adopt-sections` — le corps est **conservé**, rien n'est effacé).
+
+**Synchronisation.** PM → Redmine à l'écriture ; Redmine → PM à chaque `pm-task-sync`,
+pour rattraper une saisie faite dans l'UI web. Un CF vide ne remet **jamais** le miroir
+local à zéro.
+
+**Contenu attendu.** Les rubriques sans objet se taisent : on ne les remplit pas pour
+faire nombre.
+
+| Rubrique | Ce qu'on y met |
+|---|---|
+| Modèle de données | tables / colonnes / champs ajoutés ou modifiés — nom + type + rôle en une ligne. Pas le DDL complet. |
+| Composants | classes / modules / scripts à créer ou modifier, un rôle par ligne. Pas les signatures. |
+| **Points d'insertion** | `fichier:fonction` où le code se greffe dans l'existant. **La rubrique la plus précieuse** : c'est le fruit le plus périssable de l'audit, celui qui coûte le plus cher à retrouver. |
+| Vues / UI | écrans, colonnes, filtres impactés. |
+| Flux & déclencheurs | ce qui appelle quoi — hook, trigger, cron, webservice. |
+| Migration / initialisation | backfill, scripts rejouables, ordre des opérations. |
+| Pièges identifiés | les surprises de l'audit : règle métier contre-intuitive, incohérence de l'existant, contrainte d'environnement. |
+
+**Niveau de détail.** Assez pour ne pas refaire l'audit, pas assez pour figer le code :
+**l'esquisse oriente, elle ne prescrit pas.** L'implémenteur garde la main sur le détail
+et peut s'en écarter — en le justifiant dans le `.log.md`. Ordre de grandeur : **15 à 40
+lignes**, aucun bloc de code sauf un DDL, une requête ou une signature réellement
+décisifs. L'excès inverse est un échec symétrique : une esquisse qui devient une spec
+détaillée alourdit la phase d'étude et confisque le travail de l'implémenteur.
+
+**Quand elle est exigée.** Dès que l'étude **débouche sur du code** — **sans exemption
+pour les petits développements**. Sur un dev simple elle fera cinq lignes, mais
+elle sera là : c'est précisément là qu'on se dispense d'écrire ce qu'on a compris, faute
+d'enjeu apparent. Seul un ticket `audit` / `research` / `documentation` dont le livrable
+**est** l'étude en est dispensé — et si cette étude débouche sur un ticket de code, c'est
+ce ticket-là qui porte la proposition.
+
+**Pourquoi une obligation, pas un conseil.** Le rationnel n'est pas la taille de la tâche
+mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plus fort,
+l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
+proposition d'implémentation est le canal par lequel le raisonnement du modèle fort
+survit à ce transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
+(calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
+l'audit sous forme actionnable.
+
+**Condition de sortie.** Une étude sans proposition d'implémentation (hors tickets
+dispensés) n'est **pas** finie : le passage en `etude_chiffrage_a_valider` ne doit pas
+être demandé. `pm-task-status-update.py` émet un **avertissement non bloquant** sur cette
+transition quand elle manque — même forme que le garde-fou « protocole de test » (RM2229).
+La garde lit le frontmatter `implementation`, et **accepte aussi** une section
+`## Implémentation` dans le corps, pour ne pas crier sur les CDC d'avant.
+
 ### Transitions « assignee-only » — v1.31.0
 
 Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket
@@ -2045,7 +2112,7 @@ silence** — c'est la même classe de bug que le drift de config Redmine ci-des
 côté *écriture* cette fois. Avant de clore : vérifier la cohérence
 `pm-task-add.py::TYPE_TO_TRACKER` ⇄ `redmine.reference.yml` ⇄ doc/UI.
 
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -2134,11 +2201,66 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
      `integration_branch` (`dev`) et renseigner son URL dans le CF Redmine **`GIT PR`**
      (id 4) — cette MR sert de **trace** du merge d'intégration ;
    - merge de la MR dans `integration_branch` ⇒ le ticket passe `a_mep` et entre dans
-     le workflow MEP.
+     le workflow MEP. Le passage en `a_mep` **affiche la procédure de MEP du ticket**
+     (§ *Actions au déploiement*) : c'est elle que suit la personne qui déploie, en plus
+     du workflow générique décrit ici.
    - Rejet ⇒ `a_corriger`.
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
+
+#### Actions au déploiement = la procédure de MEP du ticket — v2.10.0 (RM2563)
+
+Le § *Workflow de développement* ci-dessus décrit la MEP **générique** : MR vers
+`integration_branch`, puis `preprod`, puis `prod_branch`. Ce qu'il ne peut pas dire,
+c'est ce que **ce ticket-là** exige en propre — migration à jouer et dans quel ordre,
+constante à créer avant le premier passage, cron à (ré)installer, service à recharger,
+dépôt A à déployer avant le dépôt B, jeu de données à recalculer après coup.
+
+`deploy_actions` **est cette procédure** : la suite **ordonnée** d'étapes que suit la
+personne qui met en production. Pas un pense-bête d'extras — un **runbook**. L'ordre de
+la liste **est** l'ordre d'exécution.
+
+**Où ça vit.** Champ canonique : le CF Redmine **8 « Actions au déploiement »** ; miroir
+local dans le frontmatter `deploy_actions` (liste, une étape par ligne). Outil :
+**`pm-task-deploy`** (`--add` / `--set` / `--clear`, et `--pull` quand la saisie a été
+faite directement dans l'UI web). Le passage en `a_mep` **affiche la procédure** à qui
+déploie : une procédure que personne ne relit au bon moment ne sert à rien.
+
+**Rédaction au fil de l'eau, pas à la livraison.** C'est au moment où on écrit la
+migration qu'on sait qu'il faudra la jouer — pas trois semaines plus tard devant la
+prod. Une étape ajoutée après coup est une étape déjà à moitié oubliée.
+
+**Ce qu'on y met, et ce qu'on n'y met pas.**
+
+| | |
+|---|---|
+| **Oui** | les étapes **propres à ce ticket**, dans l'ordre ; la **cible** de chacune quand elle n'est pas évidente (quel env, quel dépôt, quelle machine) ; le **point de non-retour** s'il y en a un ; le **rollback** de ce ticket s'il ne se réduit pas à revenir au commit précédent. |
+| **Non** | ce qui est **systématique pour l'environnement** — c'est `environments[].post_deploy` (§ *Modèle d'environnements*), déclaré une fois par env, pas recopié dans chaque ticket ; ce qui est **générique au workflow** (créer la MR, merger, `git pull`), déjà normé ci-dessus. |
+
+Un ticket qui n'exige rien de particulier laisse la liste **vide** — c'est une réponse,
+pas un oubli. Le remplissage de complaisance (« déployer le code ») coûte la crédibilité
+du champ : le jour où il contient vraiment quelque chose, plus personne ne le lit.
+
+**Sécurité prod.** La procédure ne dispense d'aucune garde : chaque commande qui modifie
+la prod exige le **consentement humain explicite pour cette action précise** (tripwire
+*Sécurité prod*), et le **point de restauration préalable** (snapshot ZFS du conteneur
+depuis l'hôte, sur infra opensvc/LXC/ZFS) reste dû — son nom se logue avec la procédure
+de rollback. Écrire la procédure ne l'autorise pas à s'exécuter : comme
+`environments[].post_deploy`, `deploy_actions` est **déclaratif, jamais auto-exécuté**.
+
+**Synchronisation.** PM → Redmine à chaque écriture (`pm-task-deploy` pousse le CF).
+Redmine → PM automatiquement à chaque `pm-task-sync`, pour rattraper une saisie faite
+dans l'UI web. Un CF **vide** ne remet **jamais** le miroir local à zéro : « vide côté
+Redmine » veut dire « pas d'information », pas « efface ». Le vidage volontaire passe par
+`pm-task-deploy --clear`, qui écrit les deux côtés.
+
+> Le champ `deploy_actions` et le CF 8 coexistaient depuis l'origine **sans être reliés**
+> — le champ n'était qu'initialisé à `[]`, jamais lu ni poussé. RM2563 ferme le circuit ;
+> avant lui, ce qui y était écrit ne ressortait nulle part. **L'existant a été repris**
+> (21 procédures remontées vers le CF 8), via `pm-cf-mirror-backfill` — dry-run par
+> défaut, ne remplace jamais du contenu par du vide, et **signale les désaccords au lieu
+> de trancher**.
 
 #### Commit + push systématique (obligatoire)
 

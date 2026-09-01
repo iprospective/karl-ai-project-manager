@@ -55,7 +55,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
-from pm_doc import get_doc_provider, DocProviderError  # seam DocProvider (P3/RM2545)  # noqa: E402
+from pm_doc import get_doc_provider, DocProviderError, wiki_title_for_slug  # seam DocProvider (P3/RM2545)  # noqa: E402
 from pm_lock import resource_lock, atomic_write, LockTimeout  # verrous par ressource (T7/RM2551)  # noqa: E402
 
 try:
@@ -103,14 +103,8 @@ def body_hash(body):
 
 
 # ── Dérivation des titres de page wiki ───────────────────────────────────
-def wiki_title_for_slug(slug):
-    """Identifiant de page wiki dérivé du slug (URL propre, [[lien]] stable).
-
-    Décision spec §3 : du slug, pas du `title:` frontmatter (qui devient le H1).
-    Restreint à [A-Za-z0-9_-], 1ʳᵉ lettre capitalisée.
-    """
-    clean = re.sub(r"-{2,}", "-", re.sub(r"[^A-Za-z0-9_-]", "-", slug).strip("-"))
-    return clean[:1].upper() + clean[1:] if clean else "Page"
+# RM1890 : la règle vit dans pm_doc (partagée avec pm-task-doc, qui doit dériver
+# la MÊME URL pour poser le lien avant le premier sync).
 
 
 # ── Réécriture des liens (bidirectionnelle) ──────────────────────────────

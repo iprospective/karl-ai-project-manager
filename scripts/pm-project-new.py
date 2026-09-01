@@ -42,6 +42,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import yaml
 from pm_paths import PMConfig
+import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)
 
 
 def load_coloc():
@@ -150,6 +151,11 @@ def main():
 
     cfg = PMConfig.load()
     workspace = Path(args.workspace).resolve()
+    # Sous le modèle multi-user (RM2438 / T6 RM2502), le dossier client est en
+    # `2750 pm:pm` : un dev du groupe `pm` ne peut y créer NI le workspace, NI son
+    # squelette. Le verbe NOPASSWD dédié (RM2909) le fait — sinon on retombe sur
+    # l'erreur historique, et l'opérateur pose le dossier à la main comme avant.
+    pm_ws_skeleton.ensure_skeleton(workspace, args.dry_run)
     if not workspace.is_dir():
         sys.exit(f"ERREUR : workspace introuvable : {workspace}")
 
@@ -373,6 +379,11 @@ env_vars: []
     coloc.git_core_publish(
         workspace, ".mmi-pm", gitlab_group_ns, core_repo, False,
         msg="pm(bootstrap): tâches initiales + liens — pm-project-new (RM2228)")
+
+    # Verbe symétrique de `ws-init` : tout ce qui précède a écrit sous l'identité de
+    # l'appelant (.mmi-pm/, tâches du bootstrap, .git du repo -core) — on repasse le
+    # modèle de perms pour refermer proprement. No-op sur un workspace hors modèle.
+    pm_ws_skeleton.apply_perms(workspace, args.dry_run)
 
     print(f"\n✓ Projet PM {args.client}/{args.slug} prêt.")
     print(f"  → cd {workspace}  # workspace de code")

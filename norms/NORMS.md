@@ -1,9 +1,9 @@
 ---
-schema_version: "2.13.0"
+schema_version: "2.13.1"
 updated: 2026-09-01
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.13.0
+# Normes de gestion des tâches — v2.13.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -3254,6 +3254,15 @@ remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
   rename-overwrite atomique → `EPERM`), bares `core.sharedRepository=group` (commits multi-dev sans
   sudo). Contenu de travail (`envs/<ticket>`) = au créateur. Enforcement idempotent committé :
   **`pm-perms`**, jamais un runbook jetable.
+- **Créer sous une racine verrouillée = op privilégiée.** Corollaire du point précédent, et
+  non un accident : la racine étant `2750`, un dev du groupe `pm` ne peut y créer ni
+  `.mmi-pm/`, ni `repos/`, ni `envs/`, ni les partagés du layout, ni le `.gitignore` de
+  whitelist du repo `-core`. Ces créations passent par le verbe NOPASSWD
+  **`pm-env-helper ws-init <workspace>`** — appelé automatiquement par `pm-project-new` et
+  `pm-env-init` — refermé par **`ws-perms`** ; **jamais** par un `sudo chmod` interactif
+  autour de la commande (RM2909). Le helper ne redéclare pas le modèle : il tient dossiers
+  et modes de `pm-perms`. En revanche, **modifier** un fichier existant reste du churn, non
+  privilégié : structure = privilège, contenu = groupe.
 - **Sérialisation par ressource.** `flock` par ticket (`var/locks/`) + écritures atomiques
   `os.replace` remplacent le single-writer ; contention = écriture **différée** bornée, pas rejetée ;
   crash-safe (`flock` libéré par le noyau ; FS local, pas NFS) ; `pm-lock-gc` (cron) nettoie les

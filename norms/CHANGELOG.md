@@ -1,5 +1,16 @@
 # Changelog des normes
 
+## [2.13.1] - 2026-09-01
+
+### Ajouté
+- Module `collaboration` — **créer sous une racine verrouillée est une op privilégiée**
+  (RM2909). Le modèle multi-user posait la racine en `2750` sans dire par quoi passer pour
+  y créer quoi que ce soit : `pm-project-new` et `pm-env-init` échouaient en `Permission
+  denied`, et l'usage s'était fixé sur deux `sudo chmod`/`sudo pm-perms` interactifs autour
+  de chaque création de projet — exactement le runbook jetable que `pm-perms` était censé
+  remplacer. La norme nomme désormais le verbe : `pm-env-helper ws-init`, refermé par
+  `ws-perms`, et pose la ligne de partage **structure = privilège, contenu = groupe**.
+
 ## [2.13.0] - 2026-09-01
 
 ### Corrigé

@@ -5773,6 +5773,10 @@ function worklogSections(buckets) {
     // RM2860 : la MEP a son onglet. Le dev est fini, ce qui reste est une mise
     // en prod — batchée, souvent portée par un autre acteur. Elle se noyait
     // dans « reste à faire » entre des tickets encore à écrire.
+    // RM2930 : « à tester / valider » n'est pas une attente mais une action, et
+    // elle précède la MEP dans le flow — d'où sa place ici. Y vivaient jusqu'ici
+    // dans « en attente / bloqué », où un ticket livré passait pour coincé.
+    { key: "testing", icon: "🧪", label: "à tester / valider", items: b.testing || [] },
     { key: "mep", icon: "🚀", label: "à mettre en prod", items: b.mep || [] },
     { key: "waiting", icon: "⏸", label: "en attente / bloqué", items: b.waiting || [] },
     { key: "done", icon: "✅", label: "fait", items: b.done || [] },

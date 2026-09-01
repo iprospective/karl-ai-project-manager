@@ -890,6 +890,18 @@ assert.strictEqual(secsMep.filter(s => s.key === "mep")[0].items.length, 2,
   "les tickets a_mep/en_mep sont dans la section MEP");
 assert.strictEqual(worklogSections({ mep: [] }).length, 0,
   "pas de MEP en cours → pas d'onglet MEP (règle des sections vides)");
+// RM2930 : « à tester / valider » n'est pas une attente mais une action, et elle
+// PRÉCÈDE la MEP dans le flow — d'où sa place entre « reste à faire » et la MEP.
+const secsTest = worklogSections({
+  todo: [{ ref: "RM1" }], testing: [{ ref: "RM2" }, { ref: "RM3" }],
+  mep: [{ ref: "RM4" }], waiting: [{ ref: "RM5" }], done: [{ ref: "RM6" }] });
+assert.deepStrictEqual(Array.from(secsTest.map(s => s.key)),
+  ["todo", "testing", "mep", "waiting", "done"],
+  "« à tester / valider » se place après « reste à faire » et avant la MEP");
+assert.strictEqual(secsTest.filter(s => s.key === "testing")[0].items.length, 2,
+  "les tickets à tester/valider sont dans leur propre section");
+assert.strictEqual(worklogSections({ testing: [] }).length, 0,
+  "rien à tester → pas de section (règle des sections vides)");
 assert(secs.every(s => s.icon && s.label), "chaque section porte une icône ET un libellé");
 assert.strictEqual(worklogSections({ todo: [], waiting: [{ ref: "RM2" }], done: [] }).length, 1,
   "les sections vides disparaissent (pas de titre sans contenu)");

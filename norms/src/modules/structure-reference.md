@@ -56,6 +56,17 @@ structurels** (invariants pour l'outillage) :
   les deux régimes de protection ci-dessus, implémenté une seule fois dans
   `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
 
+**Vocabulaire du demandeur — « les tickets PM », ce sont ceux des cores PROJET.** Le
+mot *core* est **homonyme** : il nomme le core d'un **projet** (`<Projet>-core`, qui
+porte le `.mmi-pm` du travail client) **et** le core du **système PM** lui-même
+(`ai-pm-core`, alias `.mmi-pm-core` — l'outillage `pm-*`, les NORMS, et ses propres
+tickets de dogfooding). Quand le demandeur parle des « tickets PM » — leur état, leurs
+commits, « est-ce que c'est mergé ? » — il désigne **toujours** les premiers, **jamais**
+le second (arbitrage 2026-09-01, RM2929). Le core du système n'entre dans une
+restitution que s'il est **lui-même le sujet** (on développe l'outillage) ou s'il est
+**en échec**. Rapporter son état quand la question portait sur les cores projet, c'est
+répondre à côté et noyer la réponse utile sous de la plomberie.
+
 La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
 régime, l'historique ne peut que croître.

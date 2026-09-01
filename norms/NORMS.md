@@ -1,10 +1,9 @@
 ---
-schema_version: "2.9.1"
-updated: 2026-08-27
+schema_version: "2.11.0"
+updated: 2026-09-01
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.9.1
-# Normes de gestion des tâches — v2.7.1
+# Normes de gestion des tâches — v2.11.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -26,6 +25,7 @@ updated: 2026-08-27
 | QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
+| je restitue l'état « des tickets PM » (mergé ? poussé ?) | périmètre = les cores **projet**, jamais `ai-pm-core` — `modules/structure-reference.md` § vocabulaire | — |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
@@ -299,6 +299,17 @@ structurels** (invariants pour l'outillage) :
   sa branche de prod reste protégée comme du code (RM2440). C'est le test qui distingue
   les deux régimes de protection ci-dessus, implémenté une seule fois dans
   `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
+
+**Vocabulaire du demandeur — « les tickets PM », ce sont ceux des cores PROJET.** Le
+mot *core* est **homonyme** : il nomme le core d'un **projet** (`<Projet>-core`, qui
+porte le `.mmi-pm` du travail client) **et** le core du **système PM** lui-même
+(`ai-pm-core`, alias `.mmi-pm-core` — l'outillage `pm-*`, les NORMS, et ses propres
+tickets de dogfooding). Quand le demandeur parle des « tickets PM » — leur état, leurs
+commits, « est-ce que c'est mergé ? » — il désigne **toujours** les premiers, **jamais**
+le second (arbitrage 2026-09-01, RM2929). Le core du système n'entre dans une
+restitution que s'il est **lui-même le sujet** (on développe l'outillage) ou s'il est
+**en échec**. Rapporter son état quand la question portait sur les cores projet, c'est
+répondre à côté et noyer la réponse utile sous de la plomberie.
 
 La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
 GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le

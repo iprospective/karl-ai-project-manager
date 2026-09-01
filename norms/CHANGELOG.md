@@ -1,5 +1,39 @@
 # Changelog des normes
 
+## [2.14.0] - 2026-09-01
+
+### Ajouté
+- **Module `audits`** (nouveau) — un audit n'est jamais une analyse improvisée dans le
+  projet courant : il se rattache au projet `iprospective/audits` et à son outillage
+  rejouable (`ai-audits`). Le module pose l'**ordre non négociable** — lire
+  `INDEX.md` / `state.md` / `FINDINGS.md` de l'existant **avant** toute mesure —, la
+  **règle de partage** (findings dans `audits`, remédiation dans le projet propriétaire
+  de l'objet audité), l'arborescence v2 (entité → fonction → site → session) et
+  l'inventaire des `recon-*.sh` et du référentiel `knowledge/`. La méthodologie de
+  domaine reste dans le repo `ai-audits` : NORMS dit *où* et *dans quel ordre*, le repo
+  dit *comment*. RM2913.
+- **Déclencheur KERNEL** correspondant, une ligne : « on me demande un audit (site,
+  sécurité, infra, DNS, mail, conformité), d'où que parte la demande ». Le module n'est
+  préchargé par aucun rôle — chargement à la demande.
+
+Motivé par un incident mesuré (RM2900) : un audit de `www.iprospective.fr` mené à la
+main depuis le workspace `communication` a « redécouvert » le finding F006, ouvert
+depuis la session `2026-05-10-recon`, et n'a pas passé `recon-wordpress.sh` alors que
+le script existait et documentait exactement le motif retrouvé. L'onboarding ne remonte
+que le `.mmi-pm` du workspace courant : sans déclencheur KERNEL, la convention du projet
+`audits` n'est jamais lue. Rattrapage RM2910 ; skill de routage `mmi-audit` RM2911.
+
+## [2.13.1] - 2026-09-01
+
+### Ajouté
+- Module `collaboration` — **créer sous une racine verrouillée est une op privilégiée**
+  (RM2909). Le modèle multi-user posait la racine en `2750` sans dire par quoi passer pour
+  y créer quoi que ce soit : `pm-project-new` et `pm-env-init` échouaient en `Permission
+  denied`, et l'usage s'était fixé sur deux `sudo chmod`/`sudo pm-perms` interactifs autour
+  de chaque création de projet — exactement le runbook jetable que `pm-perms` était censé
+  remplacer. La norme nomme désormais le verbe : `pm-env-helper ws-init`, refermé par
+  `ws-perms`, et pose la ligne de partage **structure = privilège, contenu = groupe**.
+
 ## [2.13.0] - 2026-09-01
 
 ### Corrigé

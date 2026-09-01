@@ -55,6 +55,7 @@ except ImportError:
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
+import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
 GITIGNORE = (
@@ -338,7 +339,16 @@ def main():
     ap.add_argument("-y", "--yes", action="store_true", help="non-interactif (confirme --purge)")
     ap.add_argument("--dry-run", action="store_true", help="prévisualise, aucune mutation")
     ap.add_argument("-v", "--verbose", action="store_true", help="affiche aussi les no-op")
+    ap.add_argument("--print-gitignore", action="store_true",
+                    help="émet le .gitignore du layout sur stdout et sort. Contrat consommé "
+                         "par `pm-env-helper ws-init` (RM2909) : à la racine d'un workspace au "
+                         "modèle (2750), créer ce fichier est une op privilégiée — le texte "
+                         "reste défini ICI, jamais recopié dans le shell du helper.")
     args = ap.parse_args()
+
+    if args.print_gitignore:
+        sys.stdout.write(GITIGNORE)
+        return
 
     start = Path(args.workspace).resolve() if args.workspace else Path.cwd()
     if args.workspace and not start.is_dir():
@@ -353,6 +363,13 @@ def main():
 
     ctx = Ctx(args.dry_run, args.verbose)
     print(f"workspace : {ws}")
+
+    # Modèle multi-user (RM2438 / T6 RM2502) : la racine est en `2750 pm:pm`, group r-x
+    # — créer `repos/`, `envs/` ou les partagés du layout y est une op PRIVILÉGIÉE. Le
+    # verbe NOPASSWD dédié (RM2909) la porte ; sans lui on échouait en `Permission
+    # denied` au milieu de l'instanciation, à réparer par deux sudo interactifs.
+    if not args.teardown:
+        pm_ws_skeleton.ensure_skeleton(ws, ctx.dry)
 
     if args.teardown:
         teardown(ctx, ws, repos, only, args.purge, args.yes)
@@ -386,6 +403,9 @@ def main():
                 sys.stderr.write(f"  ⚠ {name} : pas de main|master → -test sauté\n")
 
     ensure_scaffolding(ctx, ws)
+    # Verbe symétrique : ce qui vient d'être créé l'a été sous l'identité de l'appelant
+    # (worktrees, bares) — on repasse le modèle pour refermer. No-op hors modèle.
+    pm_ws_skeleton.apply_perms(ws, ctx.dry)
     print(f"\n{'[dry-run] ' if ctx.dry else ''}terminé : {ctx.changed} action(s) "
           f"sur {ws}.")
 

@@ -57,6 +57,16 @@ dossier (collision de nom → averti et ignoré).
   (worklog local keyé par `$CLAUDE_CODE_SESSION_ID`) ; répond cheap à « il reste quoi à
   faire dans cette session ». Volet déclaratif de RM1875.
 
+**Routage transverse** :
+
+- [`mmi-audit`](./mmi-audit/) — router **toute** demande d'audit (site, sécurité, infra,
+  DNS, stack mail, conformité) vers le projet `iprospective/audits` et son outillage
+  rejouable (`ai-audits`), au lieu d'une analyse ad hoc. Impose de lire les
+  `FINDINGS.md` / `state.md` existants **avant** de mesurer, et pose la règle de partage
+  « findings dans `audits`, remédiation dans le projet propriétaire ». Le skill route ;
+  la méthodologie reste dans `ai-audits` (cf. § Convention ci-dessus). Livré par RM2911,
+  motivé par RM2900/RM2910.
+
 **Outillage dev partagé** :
 
 - [`mmi-env-sync`](./mmi-env-sync/) — synchroniser un environnement de dev/test depuis la

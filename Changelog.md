@@ -14,6 +14,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Créer un workspace ne demande plus de `sudo` interactif** (RM2909). Le modèle de perms
+  multi-user verrouille la racine d'un workspace en `2750 pm:pm` — invariant voulu — mais
+  personne n'avait outillé son corollaire : plus aucun dev ne peut y créer `repos/`,
+  `envs/`, `.mmi-pm/` ni les partagés du layout. `pm-project-new` et `pm-env-init`
+  échouaient donc en `Permission denied` au milieu de l'instanciation, et l'usage s'était
+  fixé sur deux `sudo` humains encadrant chaque création de projet — précisément le runbook
+  jetable que `pm-perms` devait remplacer (constaté trois fois sur la seule création de
+  `iprospective/communication`). Le helper privilégié gagne deux verbes NOPASSWD,
+  `ws-init` et `ws-perms`, appelés automatiquement par les deux scripts quand — et
+  seulement quand — la racine verrouillée l'exige ; no-op silencieux sur les workspaces
+  historiques, aucune migration subie. Le modèle n'est pas dupliqué dans le shell
+  privilégié : dossiers et modes viennent de `pm-perms` (`--list-dirs` / `--apply`), le
+  `.gitignore` de whitelist de `pm-env-init --print-gitignore`. Ligne de partage posée en
+  norme : **structure = privilège, contenu = groupe**.
 - **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
   Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
   réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une

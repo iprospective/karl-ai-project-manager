@@ -32,6 +32,14 @@
 #                                       déjà (RM2693). L'unité est le pendant manquant de
 #                                       vhost-proxy-add : sans elle, le vhost ne proxyfie rien.
 #   daemon-remove <name>                arrête+désactive+supprime l'unité (si gérée par nous)
+#   ws-init <workspace>                 crée/normalise le SQUELETTE d'un workspace projet
+#                                       (racine, .mmi-pm/, repos/, envs/, tmp sessions logs
+#                                       data) + le .gitignore de whitelist du repo -core,
+#                                       sous une racine verrouillée 2750 pm:pm, puis
+#                                       applique le modèle de perms (RM2909). Comble le trou
+#                                       entre pm-project-new/pm-env-init et pm-perms.
+#   ws-perms <workspace>                (ré)applique le modèle de perms — verbe symétrique,
+#                                       à passer en fin de création. Idempotent.
 #
 # Garde-fous :
 #   - vhost <name> : ^[a-z0-9_.-]+-(rm[0-9]+|dev|test)$ ; remove exige le marqueur
@@ -54,6 +62,12 @@
 #     `post_create` du manifeste (recréer un venv…) N'EST PAS exécuté ici : c'est du shell
 #     arbitraire, il reste côté pm-env-session, non privilégié, sous l'identité de l'user.
 #   - configtest Apache avant reload, rollback si KO.
+#   - workspace : chemin résolu par realpath, sous $WS_ROOT, profondeur EXACTE
+#     <client>/<projet>, slug conforme ; refus de tout composant symlink (chmod/chown
+#     déréférencent) ; refus d'adopter une racine existante qui n'appartient ni à `pm`
+#     ni à l'invocateur. Le modèle (dossiers, modes, owners) N'EST PAS redéclaré ici :
+#     il vient de pm-perms (--list-dirs / --apply), dont on vérifie qu'il est root-owned
+#     et non modifiable hors root avant de l'exécuter en root.
 #   - audit : chaque mutation est loguée dans syslog (logger -t pm-env-helper).
 
 set -euo pipefail
@@ -422,6 +436,177 @@ cmd_daemon_remove() {
     echo "pm-env-$name.service supprimé"
 }
 
+# ------------------------------------------------------ squelette workspace (RM2909)
+#
+# Trou comblé : le modèle de perms multi-user (RM2438 / T6 RM2502) verrouille la racine
+# d'un workspace en `2750 pm:pm` — group `r-x`, PAS d'écriture (invariant
+# anti-déstructuration, volontaire). Un dev du groupe `pm` n'y peut donc créer NI
+# `.mmi-pm/`, NI `repos/`, NI `envs/`, NI les partagés du layout : `pm-project-new`
+# (RM2228) et `pm-env-init` (RM1947) échouaient en `Permission denied`, encadrés à la
+# main par deux `sudo` interactifs à chaque création de projet.
+#
+# Doctrine : le helper ne fait QUE ce que lui seul peut faire — créer sous une racine
+# verrouillée, et chown vers `pm`. Le MODÈLE n'est pas redéclaré ici : la liste des
+# dossiers vient de `pm-perms.py --list-dirs`, les modes et owners de
+# `pm-perms.py --apply`. Le layout peut bouger sans qu'une ligne de ce shell change.
+PM_CORE="/zfs/workspaces/.mmi-pm-core"
+PM_PERMS="$PM_CORE/scripts/pm-perms.py"
+PM_ENV_INIT="$PM_CORE/scripts/pm-env-init.py"
+
+# Même slug que pm-project-new (refuse ".." : le premier caractère doit être alphanum).
+ws_slug_ok() { [[ "$1" =~ ^[a-z0-9][a-z0-9._-]*$ ]]; }
+
+ws_resolve() {
+    # Chemin canonique d'un workspace, ou mort. Mêmes exigences fail-closed que les
+    # verbes existants, plus la profondeur : sous $WS_ROOT, EXACTEMENT
+    # <client>/<projet>, les deux composants conformes au slug. `realpath -m` (la cible
+    # peut ne pas exister encore) résout les liens en chemin : une cible symlinkée hors
+    # de $WS_ROOT sort du préfixe et se fait refuser ici.
+    local raw="${1:-}" real rest client proj
+    [ -n "$raw" ] || die "workspace vide"
+    [[ "$raw" == /* ]] || die "chemin de workspace non absolu : $raw"
+    real=$(realpath -m -- "$raw" 2>/dev/null) || die "chemin de workspace invalide : $raw"
+    [[ "$real" == "$WS_ROOT"/* ]] || die "workspace hors de $WS_ROOT : $real"
+    rest="${real#"$WS_ROOT"/}"
+    [[ "$rest" == */* && "$rest" != */*/* ]] \
+        || die "profondeur invalide (attendu <client>/<projet>) : $rest"
+    client="${rest%%/*}"; proj="${rest##*/}"
+    ws_slug_ok "$client" || die "nom de client non conforme au slug : $client"
+    ws_slug_ok "$proj"   || die "nom de projet non conforme au slug : $proj"
+    printf '%s\n' "$real"
+}
+
+ws_no_symlink() {
+    # `chmod`/`chown` DÉRÉFÉRENCENT : un composant du modèle qui serait un lien ferait
+    # muter sa CIBLE. Cas réel à écarter : un `.mmi-pm` symlinké vers le core PROD
+    # root-owned, qui se retrouverait chown pm.
+    [ ! -L "$1" ] || die "$1 est un lien symbolique — refusé (la normalisation suivrait le lien)"
+}
+
+core_script_check() {
+    # On s'apprête à exécuter du Python EN ROOT : le script ET sa chaîne de dossiers
+    # doivent être root-owned et non modifiables par groupe/autres — sinon un membre du
+    # groupe `pm` obtiendrait root par simple édition de fichier.
+    local script="$1" p st owner mode
+    [ -f "$script" ] || die "script du core introuvable : $script (core PROD absent ?)"
+    for p in "$script" "$PM_CORE/scripts" "$PM_CORE"; do
+        st=$(stat -c '%U %a' "$p") || die "stat impossible : $p"
+        owner="${st%% *}"; mode="${st##* }"
+        [ "$owner" = root ] || die "$p n'appartient pas à root ($owner) — exécution refusée"
+        if (( 8#$mode & 0022 )); then
+            die "$p est modifiable hors root (mode $mode) — exécution refusée"
+        fi
+    done
+}
+
+pm_perms_check() { core_script_check "$PM_PERMS"; }
+
+ws_model_dirs() {
+    # Le modèle vient de pm-perms, jamais dupliqué ici. Chaque entrée est RE-validée
+    # avant de devenir un chemin : relative, sans `..`, alphabet restreint.
+    local out rel
+    pm_perms_check
+    out=$(python3 "$PM_PERMS" --list-dirs 2>&1) || die \
+        "pm-perms --list-dirs a échoué — core déployé trop ancien ? (sudo mmi-pm core update) : $out"
+    while IFS= read -r rel; do
+        if [ -z "$rel" ] || [ "$rel" = "." ]; then continue; fi
+        [[ "$rel" =~ ^[A-Za-z0-9._-][A-Za-z0-9._/-]*$ ]] || die "chemin de modèle invalide : $rel"
+        [[ "$rel" != *..* ]] || die "chemin de modèle invalide : $rel"
+        printf '%s\n' "$rel"
+    done <<< "$out"
+}
+
+ws_apply_perms() {
+    # Verbe symétrique de la création : le modèle est posé par son outil de référence,
+    # pas par un chmod maison. Idempotent.
+    local ws="$1"
+    pm_perms_check
+    python3 "$PM_PERMS" --apply "$ws" || die "pm-perms --apply a échoué sur $ws"
+    audit "ws-perms $ws"
+}
+
+cmd_ws_init() {
+    local ws client_dir dirs rel p owner created=0
+    [ -n "${SUDO_USER:-}" ] || die "SUDO_USER absent : refus (invocation hors sudo ?)"
+    getent group pm  >/dev/null || die "groupe pm inexistant — modèle multi-user non provisionné"
+    getent passwd pm >/dev/null || die "user pm inexistant — modèle multi-user non provisionné"
+    ws=$(ws_resolve "$1")
+    client_dir=$(dirname "$ws")
+
+    ws_no_symlink "$client_dir"
+    if [ ! -e "$client_dir" ]; then
+        mkdir -- "$client_dir"
+        chown pm:pm -- "$client_dir"
+        chmod 2750 -- "$client_dir"
+        audit "ws-init crée le dossier client $client_dir"
+        echo "· dossier client créé : $client_dir"
+    fi
+    [ -d "$client_dir" ] || die "$client_dir existe et n'est pas un dossier"
+
+    ws_no_symlink "$ws"
+    if [ -e "$ws" ]; then
+        [ -d "$ws" ] || die "$ws existe et n'est pas un dossier"
+        # Pas d'adoption SILENCIEUSE d'un dossier tiers. Deux cas, et deux seulement :
+        #  · owner `pm` — déjà au modèle, normalisation idempotente ;
+        #  · owner = l'invocateur — le chown vers `pm` ne lui donne rien qu'il n'ait
+        #    déjà (il pouvait écrire et chmod ce dossier sans aucun sudo). Même
+        #    doctrine que `daemon-add` : la première barrière suffit à elle seule.
+        # root, un autre dev, un compte de service → refus.
+        owner=$(stat -c '%U' "$ws")
+        [ "$owner" = pm ] || [ "$owner" = "$SUDO_USER" ] \
+            || die "$ws appartient à « $owner » (ni pm, ni $SUDO_USER) — adoption refusée"
+    else
+        mkdir -- "$ws"
+        created=1
+    fi
+
+    dirs=$(ws_model_dirs) || die "modèle de dossiers indisponible"
+    while IFS= read -r rel; do
+        p="$ws/$rel"
+        ws_no_symlink "$p"
+        if [ -e "$p" ]; then
+            [ -d "$p" ] || die "$p existe et n'est pas un dossier"
+        else
+            mkdir -p -- "$p"
+            echo "· créé $rel/"
+        fi
+    done <<< "$dirs"
+
+    ws_seed_gitignore "$ws"
+    ws_apply_perms "$ws"
+    audit "ws-init $ws (racine créée: $created)"
+    echo "✓ squelette workspace prêt : $ws"
+}
+
+ws_seed_gitignore() {
+    # La racine du workspace EST le worktree du repo `-core` (modèle co-localisé RM2228)
+    # et son `.gitignore` est la whitelist qui fait que seul `.mmi-pm/` est suivi. En
+    # `2750`, créer une entrée à la racine est justement ce que le modèle réserve au
+    # privilège — donc ce fichier fait partie du squelette, pas du contenu.
+    # Le TEXTE vient de pm-env-init (--print-gitignore), jamais recopié ici.
+    local ws="$1" gi="$ws/.gitignore" body
+    [ ! -e "$gi" ] || return 0
+    core_script_check "$PM_ENV_INIT"
+    body=$(python3 "$PM_ENV_INIT" --print-gitignore 2>&1) \
+        || die "pm-env-init --print-gitignore a échoué — core déployé trop ancien ? : $body"
+    [ -n "$body" ] || die "pm-env-init --print-gitignore n'a rien émis"
+    printf '%s\n' "$body" > "$gi"
+    # Contenu = churn (group-writable) : structure privilégiée, contenu partagé. C'est
+    # pm-env-init, non privilégié, qui rafraîchira ce fichier par la suite.
+    chown pm:pm -- "$gi"
+    chmod 664 -- "$gi"
+    echo "· créé .gitignore (whitelist .mmi-pm/)"
+}
+
+cmd_ws_perms() {
+    local ws
+    ws=$(ws_resolve "$1")
+    ws_no_symlink "$ws"
+    [ -d "$ws" ] || die "workspace inexistant : $ws"
+    ws_apply_perms "$ws"
+    echo "✓ modèle de perms appliqué : $ws"
+}
+
 case "$verb" in
     vhost-add)    [ $# -eq 3 ] || die "usage: vhost-add <name> <docroot> <sock>"; cmd_vhost_add "$@";;
     vhost-proxy-add) [ $# -eq 2 ] || die "usage: vhost-proxy-add <name> <port>"; cmd_vhost_proxy_add "$@";;
@@ -433,5 +618,7 @@ case "$verb" in
     phplog-purge) [ $# -eq 1 ] || die "usage: phplog-purge <basename>"; cmd_phplog_purge "$@";;
     daemon-add)   [ $# -ge 5 ] || die "usage: daemon-add <name> <port> <user> <workdir> <argv...>"; cmd_daemon_add "$@";;
     daemon-remove) [ $# -eq 1 ] || die "usage: daemon-remove <name>"; cmd_daemon_remove "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove)";;
+    ws-init)      [ $# -eq 1 ] || die "usage: ws-init <workspace>"; cmd_ws_init "$@";;
+    ws-perms)     [ $# -eq 1 ] || die "usage: ws-perms <workspace>"; cmd_ws_perms "$@";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove|ws-init|ws-perms)";;
 esac

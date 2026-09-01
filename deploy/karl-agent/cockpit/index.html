@@ -5801,6 +5801,36 @@ function worklogDocs(docsMap) {
 }
 // <<< worklogDocs
 
+// >>> worklogDocsHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2935 : les documents du worklog étaient du texte MORT — `esc()` + `cursor:default`.
+// On voyait qu'un document existait sans pouvoir l'ouvrir, alors que tout était déjà là :
+// `linkify` rend cliquables les URLs (<a>), les `RM<id>` (→ showTicket) et les chemins
+// (→ openFileRef, onglet Fichiers). La section documents était le seul endroit du worklog
+// à ne pas en profiter. L'en-tête de groupe ouvre la fiche du ticket.
+// Les entrées viennent de `refs:`/`outputs:` du frontmatter (RM2352) : hétérogènes par
+// nature (chemin, chemin + commentaire, URL, texte libre). Ce qui n'est pas reconnu reste
+// du texte échappé — `linkify` échappe lui-même, on ne double donc JAMAIS l'échappement.
+function worklogDocsHtml(docs, esc, linkify) {
+  let out = "", cur = null;
+  for (const d of (docs || [])) {
+    if (d.ref !== cur) {
+      cur = d.ref;
+      const rm = /^RM(\d+)$/.exec(String(d.ref == null ? "" : d.ref));
+      out += '<div style="margin:4px 0 1px"><b>' + (rm
+        ? '<span class="olink" title="Ouvrir la fiche ' + esc(d.ref) + '" onclick="showTicket('
+          + rm[1] + ')">' + esc(d.ref) + "</span>"
+        : esc(d.ref)) + "</b></div>";
+    }
+    // YAML impose des quotes sur certaines valeurs (`'memory: x.md'`) : elles polluent
+    // l'affichage sans rien apporter. On les retire pour lire, pas pour interpréter.
+    const name = String(d.name == null ? "" : d.name).replace(/^['"]|['"]$/g, "");
+    out += '<div class="oline" style="white-space:normal">📄 ' + linkify(name)
+      + (d.kind ? ' <span class="pill">' + esc(d.kind) + "</span>" : "") + "</div>";
+  }
+  return out;
+}
+// <<< worklogDocsHtml
+
 let worklog = { found: false, buckets: {} };
 let worklogPending = null;   // RM2673 : session dont le worklog est en cours de chargement
 let worklogSub = "todo";   // RM2610 : sous-onglet actif (clé de bucket | documents)
@@ -5957,13 +5987,7 @@ function renderWorklog() {
   // deux chantiers, et à plat on ne voit plus à quoi on touche.
   for (const s of secs) bucketHtml[s.key] = worklogGroupedHtml(s.items, itemHtml, esc);
   // documents (groupés par ticket)
-  let docsHtml = "";
-  let dcur = null;
-  for (const d of docs) {
-    if (d.ref !== dcur) { docsHtml += '<div style="margin:4px 0 1px"><b>' + esc(d.ref) + "</b></div>"; dcur = d.ref; }
-    docsHtml += '<div class="oline" style="white-space:normal;cursor:default">📄 ' + esc(d.name)
-      + (d.kind ? ' <span class="pill">' + esc(d.kind) + "</span>" : "") + "</div>";
-  }
+  let docsHtml = worklogDocsHtml(docs, esc, linkify);
   if (!docsHtml) docsHtml = '<div class="empty">aucun document lié aux tickets de la session</div>';
   // branches orphelines (sans ticket du worklog) → rattachées à l'onglet « à faire »
   const orphan = branches.filter(b => !usedBr.has(b));

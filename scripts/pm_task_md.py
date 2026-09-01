@@ -170,7 +170,11 @@ def render_md(fm, description=""):
     desc = description or "_(pas de description fournie au moment de la création)_"
     md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
     if not has_acceptance_criteria(desc):
-        md += "\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
+        # RM2789 — marqueur VISIBLE mais NON COMPTABLE. En case à cocher, il bloquait la
+        # livraison sans que personne puisse le cocher, et le seul recours désactivait le
+        # garde-fou pour les vrais critères aussi.
+        md += ("\n## Critères d'acceptation\n\n"
+               "> ⚠ **À définir** — aucun critère n'a été posé à la création.\n")
     return md
 
 

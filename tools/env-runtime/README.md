@@ -183,6 +183,41 @@ credentials root-only sur la box) — il ne peut ni lire ni écrire hors du clon
 et jamais la BDD partagée. Un post-SQL en échec laisse le clone en l'état
 (corriger le manifeste, ou `db-drop` puis recréer).
 
+## PrestaShop : neutralisation des services cloud (RM2932)
+
+`presta-nonprod-sql.sh` **émet sur stdout** le SQL qui rend un PrestaShop non-prod
+muet et inoffensif. Il n'ouvre jamais de connexion : l'appelant choisit la cible.
+
+```bash
+# env local (appelé automatiquement par tools/synchro, prod → local)
+presta-nonprod-sql.sh --domain pisceen-presta.local | mysql pisceen_presta
+
+# clone par ticket : appliqué automatiquement par pm-env-session après `db-clone`
+#   (détection PrestaShop = présence de config/defines.inc.php dans le worktree)
+
+# env de recette distant
+presta-nonprod-sql.sh --domain x.test.iprospective.fr | ssh <hôte> "mysql <db>"
+```
+
+Ce qu'il fait : aligne le domaine (`shop_url`, `PS_SHOP_DOMAIN(_SSL)`) quand `--domain`
+est fourni, **purge les identités cloud** héritées de la boutique d'origine
+(`PS_ACCOUNTS%`, `PS_PSX_%`, `PS_CHECKOUT_PAYPAL_%`, `PS_EVENTBUS%`, `PS_METRICS%`) et
+désactive les modules qui dialoguent avec ces services.
+
+**Pourquoi purger plutôt que « confirmer ».** Le bandeau « Action requise : confirmez
+l'URL de votre boutique » vient de ps_accounts, qui compare l'URL enregistrée chez
+PrestaShop Cloud à celle de l'env : aligner `shop_url` n'y change rien, l'écart est
+structurel sur un clone. Et le bouton « confirmer » **réassocie l'identité cloud au
+domaine courant** — cliqué depuis un env de test, il déplace l'identité de la production.
+On délie, on ne confirme jamais.
+
+**Après exécution : purger `var/cache/`** du site — PrestaShop met `ps_configuration` en
+cache et continuerait à servir les anciennes valeurs.
+
+Idempotent (DELETE/UPDATE seulement). Garde : refuse un `--domain` qui ne ressemble pas à
+du dev/test (`--force` pour un domaine atypique). Préfixe de tables : `--prefix`, ou
+`runtime.db_clone.table_prefix` au manifeste pour les clones (défaut `ps_`).
+
 ## Usage
 
 ```bash

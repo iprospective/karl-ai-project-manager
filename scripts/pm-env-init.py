@@ -44,6 +44,7 @@ N'auto-committe RIEN côté PM (pm_git) : opère sur les repos du workspace, pas
 le repo PM.
 """
 import argparse
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -259,6 +260,36 @@ def add_worktree(ctx: Ctx, ws: Path, bare: Path, wt_name: str, mode: str,
 
 # --------------------------------------------------------------- scaffolding
 
+def ensure_group_shared(ctx: Ctx, p: Path):
+    """Dossier de travail partagé : setgid + rwx groupe, et JAMAIS de sticky bit.
+
+    Le sticky (`3770`, le `T` de `drwxrws--T`) n'empêche pas d'écrire dans le dossier —
+    il empêche d'y **remplacer une entrée dont on n'est pas propriétaire**. L'écriture
+    atomique du PM (`pm_lock.atomic_write` = temp + `os.replace`) casse donc en EPERM dès
+    qu'un fichier appartient à un autre membre du groupe, ce qui rend illisible la
+    collaboration entre l'agent (uid de service) et l'humain (RM2636). Un workspace
+    partagé se tient en **2770**, jamais en 3770.
+
+    Les bits `owner`/`other` existants sont préservés : on ne force que g+rwx + setgid,
+    et on retire le sticky. Idempotent, et auto-réparateur sur un workspace existant.
+    """
+    try:
+        cur = stat.S_IMODE(p.stat().st_mode)
+    except OSError:
+        return
+    want = (cur | stat.S_ISGID | 0o070) & ~stat.S_ISVTX
+    if cur == want:
+        ctx.skip(f"{p.name}/ déjà en {cur:04o} (setgid, sans sticky)")
+        return
+    ctx.act(f"chmod {want:04o} {p}   (g+rwx, setgid, sticky retiré)")
+    if not ctx.dry:
+        try:
+            p.chmod(want)
+        except PermissionError:
+            sys.stderr.write(f"  ⚠ {p} : chmod refusé (pas propriétaire) — à passer en "
+                             f"root : chmod {want:04o} {p}\n")
+
+
 def ensure_scaffolding(ctx: Ctx, ws: Path):
     """Crée les dossiers partagés + .gitignore (idempotent, untracked)."""
     for d in SHARED_DIRS:
@@ -269,6 +300,14 @@ def ensure_scaffolding(ctx: Ctx, ws: Path):
             ctx.act(f"mkdir {d}/")
             if not ctx.dry:
                 p.mkdir(parents=True, exist_ok=True)
+    # Droits des dossiers partagés, `.mmi-pm/` compris — c'est un vrai dossier du
+    # workspace (c'est l'arbre PM central qui pointe vers lui, pas l'inverse) (RM2636).
+    mmi = ws / ".mmi-pm"
+    shared = [ws, ws / "repos", ws / "envs", *(ws / d for d in SHARED_DIRS),
+              mmi, *sorted(mmi.rglob("*"))]
+    for p in shared:
+        if p.is_dir():
+            ensure_group_shared(ctx, p)
     gi = ws / ".gitignore"
     if gi.is_file() and gi.read_text(encoding="utf-8") == GITIGNORE:
         ctx.skip(".gitignore déjà à jour")

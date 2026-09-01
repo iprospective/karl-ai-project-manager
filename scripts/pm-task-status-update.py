@@ -112,12 +112,25 @@ UNCHECKED_RE = re.compile(r"^\s*[-*]\s*\[ \]\s", re.MULTILINE)
 
 
 def count_unchecked(description):
-    """Nombre d'items de checklist non cochés dans la description Redmine."""
-    return len(UNCHECKED_RE.findall(description or ""))
+    """Items de checklist RÉELS et non cochés (RM2789).
+
+    Passe par `pm_markdown` plutôt que par un `findall` à l'aveugle : une description qui
+    CITE une checklist en exemple, dans un bloc de code, comptait des cases fantômes
+    (c'est déjà la raison d'être de RM2540). Et les gabarits « (à compléter) » ne sont pas
+    des critères — les compter bloquait la livraison sans recours proportionné.
+    """
+    from pm_markdown import real_checklist_lines
+    return sum(1 for _, m in real_checklist_lines(description or "")
+               if m.group(2).strip() == "")
+
+
+def has_criteria(description):
+    """La description définit-elle au moins un critère RÉEL ? (gabarits exclus)"""
+    from pm_markdown import real_checklist_lines
+    return bool(real_checklist_lines(description or ""))
 
 
 CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]", re.M)
-PLACEHOLDER_RE = re.compile(r"^\s*[-*]\s*\[ \]\s*\(à compléter\)\s*$", re.M)
 
 
 def count_checked(description):
@@ -125,15 +138,31 @@ def count_checked(description):
     return len(CHECKED_RE.findall(description or ""))
 
 
-def checklist_is_placeholder(description):
-    """La « checklist » se réduit-elle au gabarit `- [ ] (à compléter)` ?
+def count_placeholders(description):
+    """Nombre de GABARITS de critère (« (à compléter) », « à définir », « TBD »)."""
+    from pm_markdown import placeholder_lines
+    return len(placeholder_lines(description or ""))
 
-    Distinguer ce cas de vrais critères non cochés : ici il n'y a rien à cocher,
-    le travail manquant est de les ÉCRIRE. Les confondre brouillerait le message
-    d'erreur (409 tickets du parc sont dans ce cas, contre 28 à checklist vide).
+
+def placeholder_gate(rm_id, description, quoi):
+    """Message de refus quand un gabarit de critère traîne encore (RM2789).
+
+    Volontairement NON contournable par `--allow-unchecked` : ce drapeau existe pour des
+    critères réels qu'on assume de ne pas cocher (hors périmètre, abandonnés). Un gabarit,
+    lui, n'est pas un critère — le laisser passer, c'est livrer un ticket dont personne ne
+    saura jamais ce qu'il devait satisfaire. Deux issues, toutes deux explicites.
     """
-    d = description or ""
-    return bool(PLACEHOLDER_RE.search(d)) and count_unchecked(d) == len(PLACEHOLDER_RE.findall(d))
+    return (
+        f"ERREUR : RM{rm_id} porte encore un gabarit de critère « à compléter », "
+        f"refus de {quoi}.\n"
+        f"  Deux issues, au choix — et il en FAUT une :\n"
+        f"  → écrire les vrais critères : "
+        f"pm-task-description-update.py {rm_id} --set-from-file <fichier>\n"
+        f"  → assumer qu'il n'y en a pas : "
+        f"pm-task-description-update.py {rm_id} --drop-placeholders\n"
+        f"  (--allow-unchecked ne s'applique PAS ici : il est fait pour de vrais critères "
+        f"qu'on renonce à cocher, pas pour un gabarit que personne ne peut cocher.)"
+    )
 
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
@@ -743,20 +772,22 @@ def main():
     # NORMS § màj description : gate sur a_tester_demandeur, a_mep, ferme:resolu.
     gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
         args.status == "ferme" and args.close_reason == "resolu")
+    # RM2789 — le gabarit se résout, il ne se contourne pas. Contrôlé AVANT le garde-fou
+    # des vrais critères, et hors de sa clause `--allow-unchecked`.
+    if gate_status and issue and count_placeholders(issue.get("description")):
+        sys.exit(placeholder_gate(args.rm_id, issue.get("description"), f"passer en '{args.status}'"))
     if gate_status and issue:
         desc = issue.get("description")
+        # RM2789 : passe par pm_markdown — blocs de code ignorés, gabarits exclus (ils ont
+        # leur propre garde, plus haut : un gabarit se résout, il ne se motive pas).
         n_unchecked = count_unchecked(desc)
         n_checked = count_checked(desc)
         motif = args.allow_unchecked            # None = option absente ; "" = passée sans motif
-        placeholder = checklist_is_placeholder(desc)
         if n_unchecked and motif is None:
             # Le ratio compte : « 0 coché sur 7 » est presque toujours un oubli,
             # « 6 sur 7 » un choix assumé. Le message doit les distinguer (RM2884).
             total = n_checked + n_unchecked
-            if placeholder:
-                quoi = ("la checklist n'a jamais été rédigée (« (à compléter) ») — "
-                        "il n'y a rien à cocher, il y a des critères à ÉCRIRE")
-            elif n_checked == 0:
+            if n_checked == 0:
                 quoi = (f"AUCUN des {total} critères n'est coché — une description qui ne dit pas "
                         f"ce qui est fait rend le ticket illisible")
             else:
@@ -784,6 +815,21 @@ def main():
                       "de ce qui a été fait. Vérifie que c'est bien voulu.")
             extra_notes.append(f"Checklist : {n_unchecked} item(s) laissé(s) décoché(s) "
                                f"({n_checked}/{total} coché(s)) — motif : {motif}")
+        # RM2789 — « aucun critère jamais défini » n'est PAS « des critères non tenus » :
+        # ça n'a rien à voir avec la qualité de la livraison. On avertit, on ne bloque pas.
+        elif not has_criteria(desc):
+            print(f"⚠ RM{args.rm_id} n'a AUCUN critère d'acceptation défini — livré quand même.\n"
+                  f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>",
+                  file=sys.stderr)
+    # …et on le dit AU PLUS TÔT. Découvrir le gabarit à la livraison, c'est une embuscade :
+    # le travail est fini, on veut rendre, et un détail de rédaction bloque. À la PRISE en
+    # charge, il reste tout le temps de le traiter.
+    if args.status == "en_cours" and issue and count_placeholders(issue.get("description")):
+        print(f"⚠ RM{args.rm_id} porte un gabarit de critère « à compléter ». Traite-le "
+              f"MAINTENANT, il bloquera la livraison :\n"
+              f"  → pm-task-description-update.py {args.rm_id} --set-from-file <fichier>\n"
+              f"  → ou pm-task-description-update.py {args.rm_id} --drop-placeholders",
+              file=sys.stderr)
     # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
     # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
     # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde
@@ -815,6 +861,46 @@ def main():
             if str(_fm_now.get("test_protocol") or "").strip() in ("", "None"):
                 out.warn(f"pas de protocole de test sur RM{args.rm_id} → pm-task-protocol.py {args.rm_id} --set -")
         except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
+
+    # Esquisse d'implémentation (RM2563) — WARNING non bloquant : une étude soumise
+    # sans esquisse technique oblige l'implémenteur à refaire l'audit qui vient d'être
+    # payé, souvent avec un modèle moins capable que celui qui l'a mené.
+    # Champ canonique : CF Redmine 31, miroir frontmatter `implementation`
+    # (pm-task-implementation). Tolérance : une section `## Implémentation` dans le
+    # corps est acceptée — c'est la forme des CDC rédigés avant que le CF n'existe.
+    # Dispense : tickets dont le livrable EST l'étude (audit / research / documentation).
+    if args.status == "etude_chiffrage_a_valider":
+        try:
+            _m = FRONTMATTER_RE.match(md_path.read_text(encoding="utf-8"))
+            _fm_now = yaml.safe_load(_m.group(2)) or {}
+            if str(_fm_now.get("type") or "").strip() not in (
+                    "audit", "research", "documentation"):
+                _has = bool(str(_fm_now.get("implementation") or "").strip())
+                if not _has:
+                    _desc = ((issue or {}).get("description") or "").strip() or _m.group(4)
+                    _has = bool(re.search(r"(?mi)^#{1,4}\s*Impl[ée]mentations?\b", _desc))
+                if not _has:
+                    out.warn(
+                        f"pas d'esquisse d'implémentation sur RM{args.rm_id} "
+                        f"→ l'implémenteur devra refaire l'audit "
+                        f"(pm-task-implementation {args.rm_id} --set -)")
+        except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
+
+    # Actions au déploiement (RM2563) — à l'entrée en a_mep, les rappeler à qui
+    # déploie : elles ne servent à rien si personne ne les lit au bon moment.
+    if args.status == "a_mep":
+        try:
+            _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
+                md_path.read_text(encoding="utf-8")).group(2)) or {}
+            _acts = list(_fm_now.get("deploy_actions") or [])
+            if _acts:
+                # out.info() est verbose-only : ce rappel doit être vu par défaut,
+                # c'est toute sa raison d'être.
+                out.warn(f"RM{args.rm_id} — {len(_acts)} action(s) au déploiement :\n"
+                         + "\n".join(f"    · {_a}" for _a in _acts))
+        except Exception:  # noqa: BLE001 — rappel informatif, jamais bloquant
             pass
 
     # Résolution de l'assignation Redmine.

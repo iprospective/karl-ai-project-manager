@@ -1,3 +1,4 @@
+import re
 #!/usr/bin/env python3
 """pm_doc — interface DocProvider (gestionnaire de docs agnostique) + backend wiki Redmine.
 
@@ -59,6 +60,20 @@ class DocProvider:
     def put_doc(self, space, title, content):
         """Crée/écrase un document. Retourne un statut backend-dépendant."""
         raise NotImplementedError
+
+
+def wiki_title_for_slug(slug: str) -> str:
+    """Identifiant de page wiki dérivé du slug (URL propre, `[[lien]]` stable).
+
+    Décision spec RM1821 §3 : dérivé du **slug**, pas du `title:` frontmatter (qui
+    devient le H1). Restreint à `[A-Za-z0-9_-]`, première lettre capitalisée.
+
+    Vit ici depuis RM1890 : `pm-task-doc` doit dériver la MÊME URL que `pm-wiki-sync`
+    pour poser le lien du ticket **avant** le premier sync. Deux copies = deux URL le
+    jour où la règle bouge.
+    """
+    clean = re.sub(r"-{2,}", "-", re.sub(r"[^A-Za-z0-9_-]", "-", slug).strip("-"))
+    return clean[:1].upper() + clean[1:] if clean else "Page"
 
 
 class RedmineWikiDocProvider(DocProvider):

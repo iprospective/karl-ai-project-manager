@@ -47,10 +47,9 @@ n'est PAS un double-checkout cassé :
   système PM en live (scripts `pm-*.py`, hooks, NORMS de référence). **Root-owned
   volontairement** : depuis l'hôte en tant que `mathieu` tu **ne peux pas** y écrire
   ni y `git fetch` (permission refusée sur `.git`) — c'est normal, **ne force pas
-  avec sudo** sans feu vert. L'alias `…/ai/project-management` (le lien `.mmi-pm` de
-  plein de projets) pointe ici.
+  avec sudo** sans feu vert. L'alias `…/ai/project-management` pointe ici.
 - **`/zfs/workspaces/iprospective/ai-project-management` = l'ENV de DEV PM**
-  (`mathieu:mathieu`). C'est là qu'on **développe l'outillage PM** et là que
+  (`pm:pm`, groupe `pm`). C'est là qu'on **développe l'outillage PM** et là que
   `pm-task-add` & co écrivent quand le projet est résolu via `--project`. Des
   changements non-committés y sont du **WIP normal**, pas une anomalie.
 
@@ -84,11 +83,11 @@ suis les instructions propres au dossier.
 
 ## Si oui — onboarding obligatoire AVANT toute action
 
-1. **Résous `.mmi-pm`** : il pointe vers le dossier PM du projet
-   (`…/project-management/projects/clients/<client>/projects/<projet>/`) et te donne
-   donc le **client** et le **projet**.
-2. **Remonte à la racine du repo PM** (le dossier contenant `norms/` et
-   `agents/`) et lis, dans l'ordre :
+1. **Lis `.mmi-pm/meta.yml`** : ses champs `client:` et `slug:` te donnent le
+   **client** et le **projet**.
+2. **Va à la racine du repo PM** (`/zfs/workspaces/.mmi-pm-core`, alias
+   `…/ai/project-management` — le dossier contenant `norms/` et `agents/`) et lis,
+   dans l'ordre :
    - `CLAUDE.md` / `AGENTS.md` — instructions générales du système PM ;
    - `norms/src/NORMS-KERNEL.md` — le **KERNEL** (lecture obligatoire) : table des
      **déclencheurs** + **tripwires**. Tu ouvres un module `norms/src/modules/*.md`
@@ -111,8 +110,9 @@ suis les instructions propres au dossier.
 
 ## Portabilité (fédération)
 
-`.mmi-pm` est un lien **absolu** propre à CETTE machine. Sur une autre instance
-(clone git indépendant), le chemin diffère — **résous le lien, ne code jamais le
-chemin en dur.** Le fichier déployé `/zfs/workspaces/AGENTS.md` est un **artefact de
-provisioning de la machine** (hors git) : sur une nouvelle instance, il doit être
-provisionné depuis ce template (cf. install karl-agent / instance).
+`.mmi-pm/` est un dossier du workspace : il voyage avec lui, il n'y a rien à résoudre.
+En revanche les chemins absolus cités ici (`/zfs/workspaces`, `.mmi-pm-core`) sont
+propres à CETTE instance — **ne les code jamais en dur** dans l'outillage (passe par
+`scripts/pm_paths.py`). Le fichier déployé `/zfs/workspaces/AGENTS.md` est lui-même un
+**artefact de provisioning de la machine** (hors git) : sur une nouvelle instance, il
+doit être provisionné depuis ce template (cf. install karl-agent / instance).

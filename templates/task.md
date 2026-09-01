@@ -80,6 +80,22 @@ git:
   mr_url: null            # ex: https://gitlab.iprospective.fr/org/repo/-/merge_requests/42
 deploy_actions: []
 # - "Description de l'action à effectuer au déploiement"
+# Ne pas éditer à la main : pm-task-deploy <id> --add "…" (miroir du CF Redmine 8).
+# C'est la PROCÉDURE DE MEP du ticket : suite ORDONNÉE d'étapes (l'ordre de la liste
+# est l'ordre d'exécution) — migration à jouer, constante à créer, service à recharger,
+# dépôt A avant dépôt B, rollback. À noter AU FIL DE L'EAU, pas à la livraison.
+# N'y va PAS ce qui est systématique pour l'env : c'est environments[].post_deploy.
+# Rien de particulier ⇒ liste vide : c'est une réponse, pas un oubli.
+
+# Champs miroirs de CF Redmine, ajoutés par leur outil — jamais à la main :
+#   implementation  ← pm-task-implementation <id> --set -   (CF 31, esquisse technique
+#                     de la phase d'étude : modèle de données, composants, points
+#                     d'insertion fichier:fonction, vues, flux, migration, pièges.
+#                     15 à 40 lignes ; ORIENTE sans prescrire. Obligatoire dès que
+#                     l'étude débouche sur du code — y compris un petit dev.
+#                     Dispense : audit/research/documentation dont le livrable EST
+#                     l'étude. Cf. NORMS status-workflow-pratique.)
+#   test_protocol   ← pm-task-protocol <id> --set -          (CF 30, quoi tester)
 
 # Métriques cumulées effectives (auto-incrémentées par le hook pm-task-tick)
 tokens_total: 0                # somme tous types

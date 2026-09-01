@@ -56,6 +56,20 @@ python3 scripts/redmine-fetch-task.py --issue 1234
 | Tâche | `paths.task_file` | `RM{id}_{titre-en-kebab-case}.md` |
 | Journal | `paths.task_log_file` | `RM{id}_{titre-en-kebab-case}.log.md` |
 
+### Noter ses heures (feuille de temps)
+
+```bash
+mmi-pm timesheet --month 2026-08          # rapport .md + proposition .yml amendable
+$EDITOR var/timesheet/2026-08.yml         # on relit, on corrige
+mmi-pm timesheet --month 2026-08 --apply  # crée les saisies dans Redmine (idempotent)
+```
+
+Reconstitue le temps de travail **humain** à partir des traces des agents
+(transcripts, journaux de tickets, bases opencode), le répartit par
+client / projet / ticket, refacture le transversal aux clients du jour et
+retranche ce qui est déjà saisi. Sans appel à un modèle. Réglages :
+`timesheet.example.yml` → `timesheet.yml`.
+
 ## Structure du repo
 
 ```

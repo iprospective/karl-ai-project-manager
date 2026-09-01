@@ -3,8 +3,11 @@
 # Source : https://platform.claude.com/docs/en/about-claude/pricing (table
 # « Model pricing » — vérifier régulièrement, les prix sont à maintenir
 # manuellement ; la veille quotidienne est outillée par RM2165).
-# Dernière mise à jour : 2026-07-31 (RM2342 — ajout claude-opus-5 et
-# claude-mythos-5, tarif intro Sonnet 5 appliqué, ajout claude-opus-4-1).
+# Dernière mise à jour : 2026-09-01 (RM2164 — le tarif « introductif » de
+# Sonnet 5 est devenu le tarif : contrôle contre la doc officielle par
+# pm-pricing-check → « tarifs alignés », aucune valeur à corriger).
+# Historique : 2026-07-31 (RM2342 — ajout claude-opus-5 et claude-mythos-5,
+# tarif intro Sonnet 5 appliqué, ajout claude-opus-4-1).
 # Historique : 2026-07-08 (RM2163 — ajout Fable 5 / Sonnet 5, correction
 # Opus 4.5+ : le tarif Opus est passé à 5/25 dès Opus 4.5, les anciennes
 # valeurs 15/75 dataient d'Opus 4.0/4.1).
@@ -75,9 +78,15 @@ models:
     cache_creation_per_mtok_usd:   18.75
 
   # Sonnet — équilibre coût/performance (usage quotidien)
-  # ⚠ Sonnet 5 : tarif INTRODUCTIF 2/10 en vigueur jusqu'au 2026-08-31 inclus.
-  #   À partir du 2026-09-01 : repasser à 3.00 / 15.00 / 0.30 / 3.75.
-  #   (la veille RM2165 détectera l'écart, mais autant l'anticiper)
+  # Sonnet 5 : 2/10 est le tarif COURANT, pas une promo à annuler.
+  #   Le fichier a longtemps porté « tarif introductif jusqu'au 2026-08-31,
+  #   repasser à 3.00/15.00 le 2026-09-01 ». Échéance atteinte : contrôlé le
+  #   2026-09-01 contre la doc officielle (pm-pricing-check --dry-run) →
+  #   « tarifs alignés ». La hausse annoncée n'a pas eu lieu.
+  #   NE PAS remonter ces valeurs à 3/15 « parce que la date est passée » :
+  #   ce serait surévaluer de 50 % le coût de toute session Sonnet 5. La veille
+  #   RM2165 ouvre un ticket si le tarif bouge vraiment — c'est elle qui décide,
+  #   pas une consigne datée figée dans un commentaire.
   claude-sonnet-5:
     input_per_mtok_usd:            2.00
     output_per_mtok_usd:           10.00

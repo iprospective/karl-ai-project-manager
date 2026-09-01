@@ -18,6 +18,7 @@
 | QUAND (situation que tu reconnais) | → ouvre / applique | Outil canonique |
 |---|---|---|
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
+| je restitue l'état « des tickets PM » (mergé ? poussé ?) | périmètre = les cores **projet**, jamais `ai-pm-core` — `modules/structure-reference.md` § vocabulaire | — |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |

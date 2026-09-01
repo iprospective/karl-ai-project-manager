@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.11.0] - 2026-09-01
+## [2.12.0] - 2026-09-01
 
 ### Ajouté
 - KERNEL tripwire **#15** — la règle « la plomberie PM est muette » (RM2440) entre
@@ -21,6 +21,29 @@
   « c'est un sujet dont on parle ».
 - `agents/worker-common.md` — la section RM2440 devient « transparente **et hors
   sujet** » et détaille le volet lecture.
+
+> Note de numérotation : 2.11.0 a été prise par RM2929 pendant la vie de cette branche
+> (même incident du 2026-09-01, vu par l'angle du vocabulaire) et 2.10.0 reste engagée
+> par RM2913 — d'où le 2.12.0, conformément à la discipline anti-collision du module
+> `governance`. Les deux entrées sont complémentaires : RM2929 pose le périmètre d'une
+> restitution « tickets PM », RM2676 pose la règle de silence et son volet lecture.
+
+## [2.11.0] - 2026-09-01
+
+### Ajouté
+- **structure-reference** — point de vocabulaire « les tickets PM, ce sont ceux des
+  cores PROJET » (RM2929, arbitrage Mathieu). Le mot *core* est homonyme : core d'un
+  projet (`<Projet>-core`, le travail client) vs core du système PM (`ai-pm-core` /
+  `.mmi-pm-core`, l'outillage). Quand le demandeur demande l'état des « tickets PM »,
+  le périmètre est **toujours** le premier ; le second n'entre dans une restitution
+  que s'il est lui-même le sujet ou s'il est en échec.
+- KERNEL — ligne-déclencheur « je restitue l'état des tickets PM » vers ce point.
+  Sans elle le raté est silencieux : rien ne pousse un agent qui restitue à ouvrir
+  `structure-reference`, il se croit exhaustif alors qu'il est hors sujet.
+
+> Note de numérotation : 2.10.0 est déjà engagée par la branche RM2913 (non mergée au
+> 2026-09-01) — d'où le saut, conformément à la discipline anti-collision du module
+> `governance`.
 
 ## [2.9.1] - 2026-08-27
 

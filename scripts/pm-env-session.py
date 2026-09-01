@@ -445,7 +445,17 @@ def cmd_create(args):
         print("  · vhost sauté (--no-vhost)")
     else:
         docroot_c = map_container_path(cfg, wt / docroot)
-        helper(cfg, ["vhost-add", env_name, docroot_c, f"/run/php/{pool}.sock"], dry)
+        cmd = ["vhost-add", env_name, docroot_c, f"/run/php/{pool}.sock"]
+        # RM2813 : servi sur un domaine alternatif tout en partageant la base d'un
+        # autre env, l'appli renvoie vers le domaine inscrit dans CETTE base. Le
+        # vhost pose la réécriture qui l'en empêche — en front comme en back-office.
+        # Inutile quand la base est clonée : son post_sql a déjà réécrit le domaine.
+        # `canonical` est déjà pris plus haut dans cette fonction (le worktree
+        # canonique) : nommer autrement plutôt que l'écraser en silence.
+        canonical_host = runtime.get("canonical_host")
+        if canonical_host:
+            cmd.append(str(canonical_host))
+        helper(cfg, cmd, dry)
 
     # 4. BDD — TOUJOURS optionnel : flag explicite > question (TTY) > défaut projet
     db = runtime.get("db")

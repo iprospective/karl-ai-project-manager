@@ -8,7 +8,11 @@
 # arguments, aucun argument ne touche un shell sans validation.
 #
 # Verbes :
-#   vhost-add <name> <docroot> <sock>   crée+active le vhost Apache <name>.lxc
+#   vhost-add <name> <docroot> <sock> [canonical]
+#                                       crée+active le vhost Apache <name>.lxc.
+#                                       <canonical> = domaine canonique de l'appli
+#                                       (ps_shop_url pour PrestaShop) : le vhost pose
+#                                       alors la réécriture anti-redirection (RM2813)
 #   vhost-proxy-add <name> <port>       crée+active le vhost reverse proxy <name>.lxc
 #                                       → http://127.0.0.1:<port>/ (envs portés par un
 #                                       daemon HTTP — karl-agent, serveurs non-PHP ; RM2358)
@@ -103,8 +107,40 @@ apache_apply() {
     systemctl reload apache2
 }
 
+# Anti-redirection canonique (RM2813) — envs de dev/recette servis sur un domaine
+# alternatif tout en partageant la base d'un autre env.
+#
+# L'appli renvoie vers le domaine déclaré dans SA base : PrestaShop fait un 301 en
+# front et un 302 vers AdminLogin en back-office. Les overrides PHP ne rattrapent
+# que le front — le lien du back-office est produit par le routeur Symfony, qui les
+# ignore. On corrige donc en sortie d'Apache, où tout passe quelle que soit la
+# couche qui l'a émis.
+#
+# Sans le mot-clé `always` : le Location posé par PHP vit dans headers_out, pas dans
+# err_headers_out. Avec `always`, la directive ne s'applique pas — vérifié dans les
+# deux sens sur calicote-presta-rm2780.
+#
+# Chaque bloc est gardé par son <IfModule> : mod_substitute n'est pas activé
+# partout, et son absence ne doit pas empêcher le vhost de se charger.
+vhost_canonical_block() {
+    local canon="$1" host="$2" canon_re
+    canon_re=${canon//./\\.}
+    cat <<EOF
+
+    # Anti-redirection canonique (dev/recette, RM2813) : sans ceci, l'env renvoie
+    # vers $canon et l'on quitte le worktree sans s'en apercevoir.
+    <IfModule mod_headers.c>
+        Header edit Location "^(https?://)$canon_re(/.*)?\$" "\$1$host\$2"
+    </IfModule>
+    <IfModule mod_substitute.c>
+        AddOutputFilterByType SUBSTITUTE text/html
+        Substitute "s|https?://$canon_re|http://$host|in"
+    </IfModule>
+EOF
+}
+
 cmd_vhost_add() {
-    local name="$1" docroot="$2" sock="$3" conf real
+    local name="$1" docroot="$2" sock="$3" canonical="${4:-}" conf real canon_block=""
     vname_ok "$name" || die "nom de vhost invalide : $name"
     real=$(realpath -e "$docroot" 2>/dev/null) || die "docroot introuvable : $docroot"
     [[ "$real" == "$WS_ROOT"/* ]] || die "docroot hors de $WS_ROOT : $real"
@@ -113,6 +149,14 @@ cmd_vhost_add() {
     conf="$SITES/$name.conf"
     if [ -e "$conf" ]; then
         grep -qF "$MARKER" "$conf" || die "$name.conf existe et n'est pas géré par pm-env-helper"
+    fi
+    if [ -n "$canonical" ]; then
+        [[ "$canonical" =~ ^[a-z0-9.-]+$ ]] || die "domaine canonique invalide : $canonical"
+        # Un canonique égal à l'hôte servi (cas d'un env à base clonée, dont le
+        # post_sql a déjà réécrit le domaine) n'a rien à réécrire.
+        if [ "$canonical" != "$name.lxc" ]; then
+            canon_block=$(vhost_canonical_block "$canonical" "$name.lxc")
+        fi
     fi
     cat > "$conf" <<EOF
 $MARKER
@@ -139,14 +183,15 @@ $MARKER
         Require all denied
     </DirectoryMatch>
 
+$canon_block
     ErrorLog  \${APACHE_LOG_DIR}/$name.error.log
     CustomLog \${APACHE_LOG_DIR}/$name.access.log combined
 </VirtualHost>
 EOF
     a2ensite -q "$name" >/dev/null
     apache_apply "a2dissite -q '$name' >/dev/null; rm -f '$conf'"
-    audit "vhost-add $name docroot=$real sock=$sock"
-    echo "✓ vhost $name.lxc → $real (pool $(basename "$sock" .sock))"
+    audit "vhost-add $name docroot=$real sock=$sock canonical=${canonical:-none}"
+    echo "✓ vhost $name.lxc → $real (pool $(basename "$sock" .sock))${canon_block:+ · anti-redirection depuis $canonical}"
 }
 
 # Certificat TLS des vhosts .lxc de dev : snakeoil auto-signé (convention de

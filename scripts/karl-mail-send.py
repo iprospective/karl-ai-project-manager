@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """karl-mail-send — Envoie un email depuis karl@iprospective.fr via SMTP iProspective.
 
-V1 : send only. Pas de fetch IMAP, pas de threading entrant — voir tâches sœurs
+Après envoi SMTP réussi, le message est aussi ré-appendé (IMAP APPEND) dans le
+dossier Sent du compte, pour que la boîte reflète les envois de Karl. Pas de
+fetch IMAP ni de threading entrant par ailleurs — voir tâches sœurs
 (RM1724/1725/1726) et roadmap V2 pour réception.
 
-Credentials résolus à la volée depuis Vaultwarden via scripts/resolve-secret.sh
+Credentials résolus à la volée depuis le vault déclaré, via scripts/resolve-secret.sh
 (jamais loggués, jamais persistés). Si le vault est locked, abort propre.
 
 Append automatique au .log.md du ticket si --rm-id fourni.
@@ -17,14 +19,19 @@ Usage :
 
 Pré-requis :
 - vault-agentd actif (lance unlock-vault.sh sinon)
-- Item Vaultwarden : vaultwarden://iprospective/iprospective-agents/karl
+- Item : secret://vw-ipro/iprospective-agents/karl@mail.iprospective.net
+  (surchargeable par KARL_MAIL_SECRET_URI ; la forme vaultwarden:// reste valide)
+  (username = karl@iprospective.fr, password = mot de passe Postfix)
+  Surchargeable par la variable KARL_MAIL_SECRET_URI.
   (username = karl@iprospective.fr, password = mot de passe Postfix)
 """
 import argparse
 import email.utils
+import imaplib
 import smtplib
 import ssl
 import subprocess
+import os
 import sys
 from datetime import datetime
 from email.message import EmailMessage
@@ -35,7 +42,20 @@ from pm_paths import PMConfig
 
 SMTP_HOST = "mail.iprospective.net"
 SMTP_PORT = 465
-VAULT_URI = "vaultwarden://iprospective/iprospective-agents/karl"
+IMAP_HOST = "mail.iprospective.net"
+IMAP_PORT = 993
+IMAP_SENT_FOLDER = "Sent"
+# Item du vault portant les identifiants SMTP. Nom EXACT de l'item :
+# "karl@mail.iprospective.net" (convention <compte>@<service>)
+# Viser le nom EXACT est impératif : si le nom ne correspond a aucun item, bw bascule
+# en recherche FLOUE. Tant qu'un seul item correspond ca passe — et masque le probleme —
+# mais des qu'un second item contient la meme sous-chaine (ex. atlas@mail.iprospective.net),
+# l'appel echoue sur "More than one result was found". Vecu deux fois le 2026-08-01.
+# Surchargeable par KARL_MAIL_SECRET_URI (ex. dans le .env du repo PM).
+VAULT_URI = os.environ.get(
+    "KARL_MAIL_SECRET_URI",
+    "secret://vw-ipro/iprospective-agents/karl@mail.iprospective.net",
+)
 FROM_NAME = "Karl (iProspective Agent)"
 
 
@@ -50,7 +70,12 @@ def resolve_secret(uri, field):
     if r.returncode == 3:
         sys.exit("ERREUR : vault-agentd non actif. Lance `scripts/unlock-vault.sh`.")
     if r.returncode != 0:
-        sys.exit(f"ERREUR resolve-secret ({r.returncode}) : {r.stderr.strip()}")
+        sys.exit(
+            f"ERREUR resolve-secret ({r.returncode}) sur {uri} : {r.stderr.strip()}\n"
+            f"  → si 'More than one result': l'item n'existe pas sous ce nom exact,\n"
+            f"    le backend bascule en recherche floue. Vérifier le nom dans le vault ou\n"
+            f"    surcharger KARL_MAIL_SECRET_URI."
+        )
     return r.stdout.rstrip("\n")
 
 
@@ -110,6 +135,25 @@ def append_to_log(rm_id, msg, bcc_list, dry_run=False):
     return log_path
 
 
+def append_to_sent(username, password, msg):
+    """IMAP APPEND du message dans le dossier Sent. Non bloquant : le SMTP a
+    déjà réussi, une erreur ici ne doit pas faire échouer l'envoi — juste
+    prévenir sur stderr."""
+    try:
+        with imaplib.IMAP4_SSL(IMAP_HOST, IMAP_PORT, timeout=20) as m:
+            m.login(username, password)
+            typ, _ = m.append(
+                IMAP_SENT_FOLDER, "(\\Seen)", None, msg.as_bytes()
+            )
+            if typ != "OK":
+                print(f"⚠ IMAP APPEND vers {IMAP_SENT_FOLDER} : réponse {typ}", file=sys.stderr)
+                return False
+            return True
+    except Exception as e:
+        print(f"⚠ IMAP APPEND vers {IMAP_SENT_FOLDER} échoué (mail envoyé quand même) : {e}", file=sys.stderr)
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--to", action="append", required=True, help="Destinataire (répétable)")
@@ -140,7 +184,7 @@ def main():
         username = resolve_secret(VAULT_URI, "username")
         password = resolve_secret(VAULT_URI, "password")
         if not username or not password:
-            sys.exit("ERREUR : credentials Vaultwarden vides")
+            sys.exit("ERREUR : credentials du vault vides")
 
     from_addr = username  # SMTP impose typiquement From = compte auth
     msg = build_message(args, body, from_addr)
@@ -178,6 +222,9 @@ def main():
         sys.exit(f"ERREUR réseau : {e}")
 
     print(f"\n✓ Mail envoyé via {SMTP_HOST}:{SMTP_PORT}")
+
+    if append_to_sent(username, password, msg):
+        print(f"✓ Copié dans {IMAP_SENT_FOLDER} ({IMAP_HOST}:{IMAP_PORT})")
 
     if args.rm_id:
         lp = append_to_log(args.rm_id, msg, args.bcc)

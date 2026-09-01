@@ -52,6 +52,23 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
+### Identités & transport forge (multi-utilisateur) — v2.0.0
+
+En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+
+- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+
 ### Workflow de développement (par ticket)
 
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
@@ -76,55 +93,6 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
 
-### Workflow de mise en production (MEP)
-
-La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
-ticket par ticket : plusieurs tickets en `a_mep` montent ensemble. Le chemin dépend du
-**modèle de branches** du projet (cf. § Branches git de référence).
-
-**Flux 3 branches** (opt-in : `preprod_branch` déclaré) — **`dev → preprod → prod_branch`**.
-Les 3 branches longues sont **protégées** ; règle stricte **« merge only from »** :
-`preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
-(jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
-
-1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
-2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
-3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
-   (`close_reason: resolu`).
-   - Régression preprod ⇒ `a_corriger` (note obligatoire).
-
-**Deux modes de promotion :**
-- **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
-- **Enchaîné (auto)** : une action outillée déroule `dev → preprod → prod_branch`
-  d'affilée, **sans halte manuelle** en preprod — l'équivalent « rapide » **sans
-  déroger** au modèle (preprod reste traversée). C'est cet enchaînement qui tient lieu
-  de « bypass » : il n'existe **pas** d'option pour *sauter* preprod.
-
-**Flux 2 branches** (pas de `preprod_branch`) — **`dev → prod_branch`** (historique) :
-`integration_branch` déployée en staging, tests de non-régression, puis **MR
-`dev → prod_branch`** + `pull prod_branch`.
-
-> **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
-> susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
-> consentement explicite de l'humain pour cette action précise**. Sont visés notamment :
-> merge vers `prod_branch`, `git pull`/`reset`/`checkout` sur un serveur de prod,
-> exécution d'une migration ou d'un upgrade de module, vidage de cache prod, restart de
-> service, toute écriture de fichier en prod. L'agent **inspecte** (lectures seules) et
-> **propose la commande exacte**, puis attend le feu vert. Un accord pour une étape ne
-> vaut **pas** pour les suivantes. Avant toute écriture, **vérifier l'état réel du
-> serveur** (branche suivie, remote source réel, propreté de l'arbre) : un arbre de prod
-> sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
-> à l'humain plutôt qu'à forcer.
-
-> Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
-> à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
-> manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »
-> (aujourd'hui **convention NORMS + protections GitLab** sur `preprod`/`prod_branch` ;
-> **garde CI / push-rule** = follow-up, GitLab ne sachant pas nativement « mergeable
-> seulement depuis X »). Cf. `project/deployment.md` (template `005-deployment`).
-
----
-
 #### Commit + push systématique (obligatoire)
 
 > **Auto-commit des scripts pm-\* (RM1834 piste A, v1.40.0).** Les scripts
@@ -136,6 +104,14 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 > opération passée par un script PM, **tu n'as RIEN à committer toi-même** dans
 > ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
 > libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
+
+> **Destination (RM2440).** Sur un **core**, le push va **directement sur la branche
+> de prod** — ni repli `dev`, ni promotion, donc pas d'arriéré. Un rejet
+> **non-fast-forward** y est rattrapé par `pm_git` (fetch + `rebase --autostash` sous
+> verrou, puis re-push) ; sur **conflit** : `rebase --abort` + warning. Levée **ciblée**
+> de l'invariant « pas de rebase dans l'arbre partagé » — cores seulement ; **code**
+> inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
+> déboguer), cf. `worker-common` § Restitution.
 
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
@@ -193,89 +169,6 @@ git approprié. La règle s'applique à **deux périmètres** :
 
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
-
-#### Remote canonique GitLab, MR, et gotchas API — v1.20.4
-
-- **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
-  (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
-  qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
-  traque la branche d'intégration locale.
-- **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
-  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
-  Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
-  passe par GitLab.
-- **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
-  une merge request de la branche de ticket vers la branche de base (version
-  active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
-  distante conservée** (cf. KERNEL #3).
-- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
-  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
-  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
-  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
-  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
-  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048).
-- **Enforcement GitLab — outil `pm-protect` (RM2052)** : `pm-protect [--repo PATH |
-  --project-id N]` applique la **politique de protection standard** (idempotent,
-  `allow_force_push=false`, branche absente ignorée), token *manager* :
-
-  | Branche | Allowed to push | Allowed to merge |
-  |---|---|---|
-  | prod (`main`, ou `master` si elle existe) | **personne** | Maintainer |
-  | intégration (`dev`) | **Maintainer** (restructuration assumée) | Maintainer |
-  | `preprod` (flux 3 branches) | **personne** | Maintainer |
-
-  `merge=Maintainer` laisse `pm-mr merge` (karl manager) fonctionner ; `push=personne`
-  sur prod force la promotion **par MR**. À (ré)appliquer sur chaque repo PM-piloté.
-- **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
-  `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
-  les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
-  au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
-- **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
-  rôles GitLab.
-  - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
-    *Maintainer*) : **merge** les MR, gère les projets. Utilisé par `pm-mr merge` et
-    la promotion MEP.
-  - `GITLAB_WORKER_TOKEN` (+ `GITLAB_WORKER_USER`) — karl **worker** (rôle
-    *Developer*) : push des branches, **crée** des MR. Utilisé par `pm-branch-start`
-    et `pm-mr create`.
-  - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
-    commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
-    révoque ; mauvais en-tête → 401/404).
-  - **Split clone-dev / runtime (RM2051)** : le **clone de dev** (`PM_DEV_DIR`) ne
-    porte **pas** de `.env` (secrets uniquement dans `.mmi-pm-core`). `PMConfig` charge
-    le `.env` de `pm_dir` s'il existe (runtime canonique, via le symlink), **sinon**
-    celui du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite**. Donc :
-    lancer les scripts à secrets **depuis le runtime** (symlink), ou exporter
-    `PM_CORE_DIR=<.mmi-pm-core>`, ou sourcer le `.env` canonique.
-- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
-  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
-  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
-  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
-  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
-- **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
-  membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
-  l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le
-  manager) sur chaque projet pré-existant à piloter.
-- **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
-  - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
-    utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
-  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN: <pat>` ; un token OAuth
-    `glab` en `Authorization: Bearer …` (sinon non-authentifié → 404 sur repo
-    `internal`).
-  - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
-  - **Conserver la branche** au merge : `should_remove_source_branch=false`.
-
-  ```bash
-  # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
-  glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
-  glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
-    -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
-    -f remove_source_branch=false
-  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
-    -f should_remove_source_branch=false
-  ```
-- **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
-  `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
 
 #### Branche de travail par ticket (obligatoire) — v1.17.0
 
@@ -338,38 +231,4 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   ticket ne se marchent pas dessus**. Le registre `var/sessions/` mémorise les
   branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
   courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
-
-#### Projets versionnés : branche de version active (base de branchement) — v1.20.0
-
-Certains projets ne suivent pas un simple modèle `prod`/`dev` mais une **famille
-de versions**, chacune avec sa propre branche d'intégration. C'est typiquement le
-cas des projets et **modules Dolibarr** : en plus de `dev` (= prochaine version)
-et `master`, il existe une **branche par version** (`14.0`, `15.0-mmi`,
-`16.0-mmi`, `19.0-mmi`…), et l'une d'elles est la **version active** = celle
-déployée en production.
-
-Le modèle de versionnement est **déclaré dans le frontmatter de l'`overview.md`
-du projet** via le bloc `versioning` (absent ⇒ projet non versionné, modèle
-`prod`/`dev` classique) :
-
-```yaml
-versioning:
-  scheme: dolibarr        # type de versionnement (ou null)
-  active_version: "19.0"  # version déployée en production
-  active_branch: 19.0-mmi # branche d'intégration de la version active (base des tickets prod)
-  next_branch: dev        # branche de la prochaine version (base des tickets next-version)
-```
-
-- Pour un module appartenant à un écosystème (ici Dolibarr), `active_version` suit
-  celle de l'application hôte.
-- Le choix de la **branche de base** d'un ticket dépend de la cible :
-  - ticket `feature`/`fix` **pour la prod actuelle** → partir de `active_branch`
-    (ex. `19.0-mmi`) ;
-  - ticket **réservé à la prochaine version active** → partir de `next_branch`
-    (ex. `dev`).
-- La branche de ticket `<RM-id>-<slug-court>` est tirée de cette branche de base
-  et y est remergée à la livraison : la branche de base joue alors le rôle de
-  « branche d'intégration » au sens de la sous-section précédente.
-- En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
-  avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
 

@@ -1,0 +1,118 @@
+# Surface de test canonique d'un site PrestaShop (N0 — générique, réutilisable parc).
+# Consommée par scripts/pm-site-test.py, complétée/surchargée par le manifeste N1 du site.
+# Doc lisible associée : knowledge/prestashop/test-protocol.md
+#
+# Conventions :
+#   - {lang}, {id_product}, {id_category}, {id_cms}, {id_manufacturer}, {id_supplier},
+#     {search_term} sont substitués depuis manifest.samples (ou valeurs par défaut).
+#   - expect : code HTTP attendu APRÈS suivi des redirections (les URLs index.php?controller=
+#     déclenchent la redirection canonique vers l'URL SEO — c'est voulu, on suit -L).
+#   - contains : si présent, au moins un des marqueurs doit apparaître dans le corps → sinon FAIL.
+#   - Un site surcharge un expect (ex. fournisseurs désactivés → 404) via
+#     manifest.expect_overrides[<id>].
+
+version: 1
+
+defaults:
+  follow_redirects: true
+  lang: fr
+  search_term: "a"
+  # Marqueurs d'erreur cherchés dans le corps HTML (PrestaShop en debug les affiche).
+  # Un match = FAIL, quel que soit le code HTTP.
+  error_scan:
+    - "fatal error"
+    - "parse error"
+    - "uncaught"
+    - "call to a member"
+    - "call to undefined"
+    - "notice:"
+    - "warning:"
+    - "deprecated:"
+    - "whoops"
+    - "there was an error"
+    - "sf-dump"
+  # Faux positifs à retirer du scan (attributs/classes légitimes contenant 'exception' etc.).
+  error_scan_ignore:
+    - 'exceptions?"'
+    - "no error"
+    - "error_reporting"
+
+# ---- Types de page (N0) -------------------------------------------------------
+pages:
+  - id: home
+    path: "/{lang}/"
+    expect: 200
+  - id: category
+    path: "/index.php?controller=category&id_category={id_category}"
+    expect: 200
+  - id: product
+    path: "/index.php?controller=product&id_product={id_product}"
+    expect: 200
+  - id: cms
+    path: "/index.php?controller=cms&id_cms={id_cms}"
+    expect: 200
+  - id: manufacturer_list
+    path: "/index.php?controller=manufacturer"
+    expect: 200
+  - id: manufacturer
+    path: "/index.php?controller=manufacturer&id_manufacturer={id_manufacturer}"
+    expect: 200
+  - id: supplier_list
+    path: "/index.php?controller=supplier"
+    expect: 200
+  - id: supplier
+    path: "/index.php?controller=supplier&id_supplier={id_supplier}"
+    expect: 200
+  - id: new_products
+    path: "/index.php?controller=new-products"
+    expect: 200
+  - id: best_sales
+    path: "/index.php?controller=best-sales"
+    expect: 200
+  - id: prices_drop
+    path: "/index.php?controller=prices-drop"
+    expect: 200
+  - id: search
+    path: "/index.php?controller=search&s={search_term}"
+    expect: 200
+  - id: sitemap
+    path: "/index.php?controller=sitemap"
+    expect: 200
+  - id: stores
+    path: "/index.php?controller=stores"
+    expect: 200
+  - id: contact
+    path: "/index.php?controller=contact"
+    expect: 200
+  - id: authentication
+    path: "/index.php?controller=authentication"
+    expect: 200
+  - id: cart
+    path: "/index.php?controller=cart"
+    expect: 200
+  - id: page_404
+    path: "/index.php?controller=404"
+    expect: 404
+
+# ---- Workflows (N0) -----------------------------------------------------------
+# Implémentés dans le runner (logique multi-requêtes avec cookie jar).
+workflows:
+  - id: checkout
+    desc: "Ajout panier (id_product) puis entrée dans le tunnel de commande."
+    steps:
+      - "session : GET home, extraire static_token"
+      - "add : GET cart&add=1&id_product={id_product}&qty=1&token=…"
+      - "cart : GET cart&action=show → doit contenir une ligne produit"
+      - "order : GET controller=order → doit rendre la 1re étape checkout"
+    # Marqueurs valides pour la 1re étape (thème-dépendant : login/compte OU étapes nommées).
+    order_ok_markers:
+      - "checkout-personal-information-step"
+      - "checkout-addresses-step"
+      - "Se connecter"
+      - "Créer un compte"
+      - "Log in"
+      - "Create an account"
+    cart_ok_markers:
+      - "product-line-info"
+      - "cart__qty-input"
+      - "cart-line-product"

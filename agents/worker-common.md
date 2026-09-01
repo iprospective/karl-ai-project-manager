@@ -20,11 +20,32 @@ ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héri
 2. `agents/worker-{role}.md` — règles spécifiques au rôle
 3. `norms/src/NORMS-KERNEL.md` — **KERNEL** (déclencheurs + tripwires + schéma) ; ouvre `norms/src/modules/*.md` **à la demande** selon les déclencheurs (ne charge pas tout)
 4. `{entity_client_dir}/*.md` (overview + tous les aspects) + `{entity_memory_dir}/*.md`
-5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md`
-6. `paths.task_file` — la tâche assignée
+5. `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` ;
+   côté `{docs_dir}` : lire **`docs/INDEX.md`** (1 ligne par doc), puis ouvrir
+   les docs **à la demande** — jamais le dossier entier (budget
+   `context.budget_tokens.project_docs`, vérifié par `pm-context-budget --check`)
+5bis. **`pm-glossaire.py <projet> inject`** — le VOCABULAIRE MÉTIER du projet
+   (RM2675), **systématiquement**, pas à la demande. C'est la seule pièce du
+   niveau projet qui échappe à la règle « ouvrir au besoin », et pour une raison
+   précise : un agent qui croise un terme qu'il ne connaît pas **n'ira pas
+   ouvrir le glossaire** — il supposera, et se trompera silencieusement. Lire
+   « rampe » en croyant à une pente au lieu de la barre porte-guillotines ne
+   déclenche aucun doute.
+   Plafonné à **1 500 tokens** (≈ 70 termes, 7,5 % du budget `project_docs`), et
+   la troncature est **annoncée** dans le bloc — jamais muette. Glossaire absent
+   ⇒ rien à lire, aucun coût.
+6. **`pm-task-brief.py <id>`** — le pack contexte de la tâche en ≤ 30 lignes
+   (statut, estimé vs réel, critères, liens/sous-tâches, dernières entrées de
+   journal, journaux Redmine non lus). C'est le point d'entrée par défaut ;
+   n'ouvre le MD complet que si le brief ne suffit pas (description longue,
+   CDC dans le corps).
 7. Fichiers dans `refs[]` — documents de référence liés à la tâche
-8. Fichiers MD des tâches dans `depends_on` — contexte amont (lecture seule)
-9. Dernières 50 lignes de `paths.task_log_file` — état courant
+8. Tâches dans `depends_on` — contexte amont : `pm-task-brief.py <dep-id>`
+   (lecture seule ; MD complet à la demande)
+9. Journal : couvert par le brief ; pour approfondir, `pm-task-log.py <id>
+   --tail N [--grep RX] [--full]` (jamais de `cat` du `.log.md` entier).
+   Lecture ciblée d'un champ : `pm-task-show.py <id> --field a,b.c` (jamais de
+   `grep` manuel du frontmatter).
 
 (Les patterns `{entity_client_dir}`, `{project_dir}`, `paths.task_file` etc. sont
 définis dans `pm.config.yml` ; la résolution par défaut donne
@@ -55,6 +76,37 @@ Respecter le `context_budget` du frontmatter.
       puis continuer.
 - Si oui → appender dans .log.md : "Prise en charge — {résumé du plan de travail}"
 ```
+
+## Se placer dans le BON worktree (RM2240)
+
+Avant **toute édition ou commit** pour RM<id> : résoudre `git.worktree` du
+frontmatter et **s'y placer** — un sous-processus (`pm-branch-start`) ne change
+pas le cwd du shell, c'est à toi de faire le `cd` :
+
+```bash
+cd "$(pm-task-cd.py <id>)"        # résout git.worktree du frontmatter
+# ou, à la création :
+cd "$(pm-branch-start.py <id> --take --worktree --print-cd)"
+```
+
+`pm-branch-start --worktree` termine sa sortie par la ligne `→ cd <chemin>` :
+**exécute-la**. Le hook pre-commit (pm-pre-commit, RM2240) refuse un commit de
+ticket fait ailleurs que dans son worktree enregistré — si ça t'arrive, c'est
+que tu as édité au mauvais endroit : rapatrie tes modifs, ne contourne pas.
+Attention aussi au piège inverse : lancer `pm-branch-start --worktree` **depuis
+le worktree d'un autre ticket** base la nouvelle branche dessus — se placer
+d'abord dans l'env d'intégration (`envs/<repo>-dev`).
+
+## Restitution : la plomberie des données PM est transparente (RM2440)
+
+La mécanique git des dépôts de **données PM** (`*-core` : auto-commits `pm(...)`,
+push) **ne figure jamais dans ta restitution** — ni hash, ni branche, ni MR, ni
+« ✓ commité ». Tu parles du **fond du ticket** et du **code livré** (une MR de
+code, elle, se raconte : c'est une livraison).
+
+**Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne** —
+sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est
+muet sur le chemin nominal (`git.verbose: true`).
 
 ## Travail itératif
 

@@ -31,6 +31,8 @@ Gotcha scan : le mode `--all` itère les projets via `PMConfig.iter_projects` +
 `tasks_dir` (résolveur canonique, migration-aware) — PAS `os.walk(projects_root)` :
 depuis la co-localisation (RM1949), les tâches vivent dans `<ws>/.mmi-pm/tasks/` et ne
 sont plus sous `projects_root` (RM2038).
+
+Sortie dense par défaut (RM2362) : --verbose ou PM_VERBOSE=1 restaure le détail.
 """
 import argparse
 import fcntl
@@ -44,7 +46,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
+import pm_reporting
 from redmine_utils import activity_for_type, cf_id_by_name, http_json, redmine_creds
 
 try:
@@ -311,9 +315,12 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
     reporting = fm.get("reporting") or {}
     cf_out_before = int(reporting.get("cf_out_total") or reporting.get("cf17_tokens") or 0)
     cf_in_before = int(reporting.get("cf_in_total") or 0)
-    ledger = reporting.get("time_entries") or []
+    # RM2366 (S5) : historique dans le ledger annexe <stem>.reporting.yml ;
+    # lecture FUSIONNÉE ledger + résidus frontmatter (writers non migrés).
+    _merged = pm_reporting.merged(fm, md_path)
+    ledger = _merged["time_entries"]
     pushed_keys = {te.get("key") for te in ledger}
-    notes_ledger = reporting.get("notes") or []
+    notes_ledger = _merged["notes"]
     pushed_note_keys = {n.get("key") for n in notes_ledger}
     note_key = None
     if note_text:
@@ -423,9 +430,13 @@ def report_ticket(md_path, *, cf_out_id, cf_in_id, cf_out_total_id, cf_in_total_
             note_status = f"skip ({why})"
     res["note_status"] = note_status
 
-    # persister ledger + cumuls dans le frontmatter
-    reporting["time_entries"] = ledger
-    reporting["notes"] = notes_ledger
+    # persister : historique → ledger annexe ; frontmatter = cumuls + marqueur
+    led = pm_reporting.load_ledger(md_path)
+    led["time_entries"], led["notes"] = ledger, notes_ledger
+    pm_reporting.save_ledger(md_path, led)
+    reporting["time_entries"] = []
+    reporting["notes"] = []
+    reporting["ledger"] = pm_reporting.ledger_path(md_path).name
     if not cf_err:
         reporting["cf_out_total"] = out_total
         reporting["cf_in_total"] = in_total
@@ -492,7 +503,9 @@ def main():
                     "commit). Refusée si elle annonce de la conso (garde-fou). Requiert --rm-id.")
     ap.add_argument("--commit", help="hash du commit déclencheur (marqueur sur les time_entries "
                     "+ clé de dédup de la note)")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
     if args.note and not args.rm_id:
         ap.error("--note nécessite --rm-id (une note cible un ticket précis)")
 
@@ -517,8 +530,8 @@ def main():
 
     mode = "APPLY" if args.apply else "DRY-RUN"
     scope = "cumuls seuls" if args.cf17_only else "time_entries + cumuls"
-    print(f"== pm-task-report — {scope} — {mode} (out=CF{cf_out_id}/in=CF{cf_in_id}, "
-          f"cumuls out=CF{cf_out_total_id}/in=CF{cf_in_total_id}) ==\n")
+    out.info(f"== pm-task-report — {scope} — {mode} (out=CF{cf_out_id}/in=CF{cf_in_id}, "
+             f"cumuls out=CF{cf_out_total_id}/in=CF{cf_in_total_id}) ==\n")
 
     results = [report_ticket(p, cf_out_id=cf_out_id, cf_in_id=cf_in_id,
                              cf_out_total_id=cf_out_total_id, cf_in_total_id=cf_in_total_id,
@@ -533,7 +546,15 @@ def main():
     for r in results:
         row = fmt_row(r)
         if row:
-            print(row)
+            out.info(row)
+        # dense (contrat T1 RM2316) : UNE ligne « ✓ report RM<id> te=<n> tokens=<n> »
+        # par ticket effectivement poussé ; les erreurs restent toujours visibles.
+        if r["status"] == "pushed":
+            out.op("report", rm=r.get("rm_id"),
+                   extra=f"te={r.get('new_te', 0)} tokens={r.get('te_tokens', 0)}")
+        elif r["status"] == "error":
+            out.warn(f"report RM{r.get('rm_id', '?')} en erreur : "
+                     f"{'; '.join(r.get('errors', []))} → relancer avec --verbose")
         st = r["status"]
         if st in ("pushed", "would-push"):
             sum_te += r.get("new_te", 0)
@@ -556,18 +577,19 @@ def main():
             root = pm_git.repo_root(p)
             if root is None:
                 continue
-            by_root.setdefault(root, []).extend([p, p.parent / p.name.replace(".md", ".log.md")])
+            by_root.setdefault(root, []).extend([p, p.parent / p.name.replace(".md", ".log.md"),
+                                                  pm_reporting.ledger_path(p)])
         for root, paths in by_root.items():
             n = sum(1 for x in paths if not x.name.endswith(".log.md"))
             pm_git.autocommit(paths, f"pm(report): {n} ticket(s) -> Redmine "
                                      f"(time_entries + CF17)")
 
     verb = "créées" if args.apply else "à créer"
-    print(f"\n-- {pushed} ticket(s) poussé(s), {would} à pousser, {skipped} à jour, "
-          f"{errors} erreur(s) ; {sum_te} time_entries {verb} "
-          f"({sum_tok:,} tokens) --")
+    out.info(f"\n-- {pushed} ticket(s) poussé(s), {would} à pousser, {skipped} à jour, "
+             f"{errors} erreur(s) ; {sum_te} time_entries {verb} "
+             f"({sum_tok:,} tokens) --")
     if not args.apply and (would or sum_te):
-        print("   (dry-run : relancer avec --apply pour exécuter)")
+        out.info("   (dry-run : relancer avec --apply pour exécuter)")
     sys.exit(1 if errors else 0)
 
 

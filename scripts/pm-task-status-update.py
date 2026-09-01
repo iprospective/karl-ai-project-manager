@@ -10,6 +10,8 @@ Usage :
     pm-task-status-update.py 1670 a_tester_dev                # test indépendant (testeur ≠ dev)
     pm-task-status-update.py 1670 a_tester_demandeur          # validation par le demandeur
     pm-task-status-update.py 1670 ferme --close-reason resolu --note "Livré dans commit abcd"
+    pm-task-status-update.py 1670 --list-next            # transitions valides (texte)
+    pm-task-status-update.py 1670 --list-next --json     # idem, sortie machine (cockpit, RM2888)
 
 Statuts NORMS valides (source : redmine.reference.yml) :
     a_etudier_chiffrer | etude_chiffrage_en_cours | etude_chiffrage_a_valider | a_faire | en_cours
@@ -40,8 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
+import pm_reporting
 import pm_git
+import pm_scope
 import redmine_utils
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -80,12 +86,19 @@ def email_notifs_enabled():
 
     Interrupteur global des notifs mail — distinct du --no-mail par appel.
     """
-    cfg_path = Path(__file__).resolve().parent.parent / "pm.config.yml"
-    try:
-        cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
-    except (OSError, yaml.YAMLError):
-        return False
-    return bool((cfg.get("notifications") or {}).get("email_enabled", False))
+    root = Path(__file__).resolve().parent.parent
+    val = False
+    # pm.config.local.yml surcharge pm.config.yml (NORMS structure-reference) —
+    # permet le réglage via le cockpit (RM2213) sans toucher au fichier commenté.
+    for name in ("pm.config.yml", "pm.config.local.yml"):
+        try:
+            cfg = yaml.safe_load((root / name).read_text(encoding="utf-8")) or {}
+        except (OSError, yaml.YAMLError):
+            continue
+        notif = cfg.get("notifications") or {}
+        if "email_enabled" in notif:
+            val = bool(notif["email_enabled"])
+    return val
 
 
 # Statuts NORMS acceptés (canoniques + alias dépréciés) — source unique
@@ -103,7 +116,90 @@ def count_unchecked(description):
     return len(UNCHECKED_RE.findall(description or ""))
 
 
+CHECKED_RE = re.compile(r"^\s*[-*]\s*\[[xX]\]", re.M)
+PLACEHOLDER_RE = re.compile(r"^\s*[-*]\s*\[ \]\s*\(à compléter\)\s*$", re.M)
+
+
+def count_checked(description):
+    """Nombre d'items de checklist cochés dans la description Redmine."""
+    return len(CHECKED_RE.findall(description or ""))
+
+
+def checklist_is_placeholder(description):
+    """La « checklist » se réduit-elle au gabarit `- [ ] (à compléter)` ?
+
+    Distinguer ce cas de vrais critères non cochés : ici il n'y a rien à cocher,
+    le travail manquant est de les ÉCRIRE. Les confondre brouillerait le message
+    d'erreur (409 tickets du parc sont dans ce cas, contre 28 à checklist vide).
+    """
+    d = description or ""
+    return bool(PLACEHOLDER_RE.search(d)) and count_unchecked(d) == len(PLACEHOLDER_RE.findall(d))
+
+
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
+
+
+def _git_out(repo, *args, timeout=20):
+    """git dans <repo>, stdout strippé ('' si erreur) — jamais d'exception."""
+    try:
+        r = subprocess.run(["git", "-C", str(repo), *args],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.stdout.strip() if r.returncode == 0 else ""
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return ""
+
+
+def unmerged_ticket_branches(md_path, rm_id):
+    """RM2319 : branches du ticket non mergées dans la branche d'intégration.
+
+    Cherche par PRÉFIXE `<rm_id>-` (locales + distantes) dans le repo du
+    workspace co-localisé — le frontmatter git.branch peut être tronqué/périmé
+    (cas RM2238). Retourne (repo, integration, [branches non mergées]) ou None
+    si rien à vérifier (pas de workspace/repo résoluble, aucune branche).
+    Best-effort : toute résolution impossible ⇒ None (on ne bloque jamais sur
+    un problème d'infra), le réseau n'est pas requis (fetch tenté, non exigé).
+    """
+    try:
+        real = md_path.resolve()
+        ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
+        if ws is None:
+            return None
+        repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
+            encoding="utf-8")) or {}).get("repos") or []
+        if len(repos) != 1:   # multi-repo : ambigu → hors garde (comme le hook env)
+            return None
+        integration = repos[0].get("integration_branch") or "dev"
+        bare = ws / "repos" / f"{repos[0].get('name')}.git"
+        repo = bare if bare.is_dir() else (ws if (ws / ".git").exists() else None)
+        if repo is None:
+            return None
+        # refs fraîches si le réseau le permet (silencieux sinon)
+        _git_out(repo, "fetch", "origin", "--prune", timeout=25)
+        refs = _git_out(repo, "for-each-ref", "--format=%(refname:short)",
+                        f"refs/heads/{rm_id}-*", f"refs/remotes/origin/{rm_id}-*")
+        branches = [r for r in refs.splitlines() if r.strip()]
+        if not branches:
+            return None
+        target = (f"origin/{integration}"
+                  if _git_out(repo, "rev-parse", "--verify", "--quiet",
+                              f"refs/remotes/origin/{integration}") else integration)
+        unmerged = []
+        for br in branches:
+            ok = subprocess.run(
+                ["git", "-C", str(repo), "merge-base", "--is-ancestor", br, target],
+                capture_output=True, timeout=20).returncode == 0
+            if not ok:
+                unmerged.append(br)
+        # une même branche vue en local ET en origin/ : dédoublonner par nom court
+        seen, uniq = set(), []
+        for br in unmerged:
+            short = br.removeprefix("origin/")
+            if short not in seen:
+                seen.add(short)
+                uniq.append(br)
+        return (repo, integration, uniq) if uniq else None
+    except Exception:  # noqa: BLE001 — garde best-effort
+        return None
 
 
 def env_session_hook(md_path, rm_id, new_status, old_status):
@@ -122,7 +218,7 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         env_cfg = (yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}).get(
             "env_runtime") or {}
         if not env_cfg.get("auto_session", True):
-            return
+            return          # opt-out global assumé : silence voulu, pas une panne
         # workspace = parent du .mmi-pm contenant la tâche (co-location RM1949)
         real = md_path.resolve()
         ws = next((d.parent for d in real.parents if d.name == ".mmi-pm"), None)
@@ -131,13 +227,25 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
         repos = (yaml.safe_load((ws / ".mmi-pm" / "meta.yml").read_text(
             encoding="utf-8")) or {}).get("repos") or []
         if not repos:
+            # RM2578 : ces sorties étaient MUETTES, et `out.info` n'émet qu'en
+            # --verbose. On ne pouvait donc pas distinguer « le hook n'a pas
+            # tourné » de « il a tourné sans rien faire » — un ticket a conclu
+            # au premier alors que rien ne le prouvait.
+            out.warn(f"env de session non créé pour RM{rm_id} : aucun `repos:` "
+                     f"au manifeste ({ws}/.mmi-pm/meta.yml)")
             return
         if len(repos) > 1:
-            print(f"  · env de session non auto ({len(repos)} repos au manifeste) : "
-                  f"pm-env-session.py create {rm_id} --repo <name>", file=sys.stderr)
+            out.warn(f"env de session non auto ({len(repos)} repos au manifeste) : "
+                     f"pm-env-session.py create {rm_id} --repo <name>")
             return
         name = repos[0].get("name")
-        if not name or not (ws / "repos" / f"{name}.git").is_dir():
+        if not name:
+            out.warn(f"env de session non créé pour RM{rm_id} : le premier `repos:` "
+                     f"du manifeste n'a pas de `name`")
+            return
+        if not (ws / "repos" / f"{name}.git").is_dir():
+            out.warn(f"env de session non créé pour RM{rm_id} : bare absent "
+                     f"({ws}/repos/{name}.git) — workspace hors layout RM1993 ?")
             return
         if new_status == "en_cours":
             verb = "create"
@@ -145,30 +253,36 @@ def env_session_hook(md_path, rm_id, new_status, old_status):
             verb = "teardown"
         else:
             return
+        if verb == "teardown":
+            # RM2356 : une éventuelle instance cockpit de test se démonte aussi
+            cte = Path(__file__).resolve().parent / "pm-cockpit-test-env.py"
+            subprocess.run([sys.executable, str(cte), "teardown", str(rm_id), str(ws),
+                            "--if-exists"], capture_output=True, timeout=60)
         tool = Path(__file__).resolve().parent / "pm-env-session.py"
         # En TTY, passthrough : pm-env-session pose la question du clone BDD
         # (défaut projet db_clone_default) directement à l'utilisateur.
         tty = sys.stdin.isatty() and sys.stderr.isatty()
         r = subprocess.run([sys.executable, str(tool), verb, str(rm_id), str(ws)],
                            capture_output=not tty, text=True, timeout=600)
-        out = ((r.stdout or "") + (r.stderr or "")).strip()
+        hook_out = ((r.stdout or "") + (r.stderr or "")).strip()
         if r.returncode == 0:
-            last = out.splitlines()[-1] if out else f"✓ {verb} ok"
-            print(f"  · env de session ({verb}) : {last}")
+            last = hook_out.splitlines()[-1] if hook_out else f"✓ {verb} ok"
+            # RM2578 : VISIBLE, pas réservé au --verbose. Savoir si le worktree
+            # est exécutable (runtime appliqué) fait partie du contrat du take.
+            out.op("env-session", rm=rm_id, extra=f"{verb} — {last}")
         else:
             # teardown refusé (worktree sale) ou runtime KO : on n'empêche JAMAIS
             # la transition de statut — l'env se gère à la main.
-            print(f"  ⚠ env de session ({verb}) non appliqué (non bloquant) :\n"
-                  + "\n".join(f"    {ln}" for ln in out.splitlines()[-4:]),
-                  file=sys.stderr)
+            out.warn(f"env de session ({verb}) non appliqué (non bloquant) : "
+                     + " | ".join(hook_out.splitlines()[-4:]))
     except Exception as e:  # noqa: BLE001 — hook best-effort
-        print(f"  ⚠ hook env de session en échec (non bloquant) : {e}", file=sys.stderr)
+        out.warn(f"hook env de session en échec (non bloquant) : {e}")
 
 
 def fetch_issue_basic(rm_id):
     """Récupère subject + author (id, name) du ticket. Retourne dict ou None."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -185,7 +299,7 @@ def fetch_issue_basic(rm_id):
 def fetch_user_email(user_id):
     """Récupère l'email d'un user Redmine via API. None si inaccessible (droits, 404…)."""
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         return None
     try:
@@ -232,7 +346,7 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
     un double appel à resolve_notif_target ; sinon résolu ici.
     """
     if not email_notifs_enabled():
-        print("  → notif mail désactivée (pm.config.yml : notifications.email_enabled=false)")
+        out.info("  → notif mail désactivée (pm.config.yml : notifications.email_enabled=false)")
         return
     if target is None:
         target = resolve_notif_target(issue)
@@ -255,7 +369,7 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
         "— Karl (notif automatique pm-task-status-update)",
     ]
     body = "\n".join(body_lines)
-    print(f"  → notif mail : {reason}")
+    out.info(f"  → notif mail : {reason}")
     if dry_run:
         print(f"  --dry-run : to={to_addr}, subject={subject!r}")
         return
@@ -265,11 +379,11 @@ def send_status_notif(rm_id, old_status, new_status, note, issue, target=None, d
            "--body", body, "--rm-id", str(rm_id)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
-        print(f"  ⚠ Échec notif mail (non fatal) : {r.stderr.strip()[:200]}", file=sys.stderr)
+        out.warn(f"échec notif mail (non fatal) : {r.stderr.strip()[:200]}")
     else:
         # extraire le Message-ID de la sortie pour le log console
         mid = next((l for l in r.stdout.splitlines() if l.startswith("Mid")), "")
-        print(f"  ✓ Notif mail envoyée à {to_addr}  {mid}")
+        out.info(f"  ✓ notif mail envoyée à {to_addr}  {mid}")
 
 
 def resolve_assign_value(value, issue):
@@ -323,27 +437,55 @@ NORMS_TRANSITIONS = {
         ("a_corriger", "problèmes (note dans journal)"),
     ],
     "a_tester_demandeur": [
-        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée"),
+        # RM2893 : validation demandeur sur DEV. Si le projet a une préprod → a_tester_preprod ;
+        # sinon bypass direct vers a_mep.
+        ("a_tester_preprod", "validé sur dev : MR branche→integration_branch, déploiement préprod"),
+        ("a_mep", "validé : MR branche→integration_branch (CF GIT PR) puis mergée (projet SANS préprod)"),
         ("a_corriger", "rejet (note dans journal)"),
         ("ferme", "ticket sans code à déployer — close_reason: resolu"),
     ],
-    "a_mep": [
-        ("en_mep", "integration_branch déployée en preprod"),
+    # RM2893 : recette préprod optionnelle. RM2920 : deux sorties valides selon
+    # l'INSTRUCTION du demandeur (pas un bypass automatique) :
+    #   « mets en prod » (préprod testée + temps de tester la MEP) → en_mep ;
+    #   « preprod ok »                                            → a_mep (file de MEP).
+    "a_tester_preprod": [
+        ("en_mep", "instruction « mets en prod » : préprod OK + MEP prod faite dans la foulée"),
+        ("a_mep", "instruction « preprod ok » : mise en file de MEP (déploiement prod plus tard)"),
+        ("a_corriger", "régression préprod (note dans journal)"),
     ],
+    "a_mep": [
+        ("en_mep", "déployé en PROD (MR préprod→prod + pull prod) — dernière vérif avant fermeture"),
+    ],
+    # RM2893 : en_mep redéfini = EN PROD, dernière vérif avant fermeture (déploiement fait en ENTRANT).
     "en_mep": [
-        ("ferme", "tests preprod OK + merge → prod_branch + pull prod — close_reason: resolu"),
-        ("a_corriger", "régression preprod (note dans journal)"),
+        ("ferme", "vérif prod OK — close_reason: resolu"),
+        ("a_corriger", "régression prod (note dans journal)"),
     ],
     "a_corriger": [
         ("en_cours", "reprise du dev"),
+    ],
+    # RM2285 : réouverture d'un ticket fermé — retour au backlog uniquement
+    # (a_faire), note motivée obligatoire, close_reason purgé ; status_history
+    # conserve le cycle précédent (append-only).
+    "ferme": [
+        ("a_faire", "réouverture : note obligatoire motivant la réouverture ; close_reason purgé"),
     ],
 }
 INACTIVE_STATUSES = {"ferme", "en_pause"}
 
 
-def list_next(rm_id):
-    """Affiche les transitions NORMS valides depuis le statut courant du ticket
-    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+def next_transitions(rm_id, check_redmine=True):
+    """Transitions NORMS valides depuis le statut courant du ticket, en structuré.
+
+    RM2888 : `list_next` ne savait qu'imprimer, donc le cockpit ne pouvait pas
+    proposer « ce qui est possible ici » et se rabattait sur les 14 statuts en dur.
+    La règle reste ICI (source unique) ; l'affichage texte et la sortie `--json`
+    ne sont plus que deux rendus de cette structure.
+
+    `redmine_ok` vaut None quand la vérification live n'a pas eu lieu (API
+    injoignable, pas de credentials, ou `check_redmine=False`) : un appelant ne
+    doit pas confondre « refusé » et « pas vérifié ».
+    """
     cfg = PMConfig.load()
     md_path = cfg.find_task(rm_id)
     if not md_path:
@@ -368,8 +510,8 @@ def list_next(rm_id):
     # Côté Redmine : statuts réellement posables par CE compte API sur CE ticket.
     allowed_ids = None
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
-    if url and key:
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
+    if check_redmine and url and key:
         try:
             req = urllib.request.Request(
                 f"{url}/issues/{rm_id}.json?include=allowed_statuses",
@@ -381,15 +523,43 @@ def list_next(rm_id):
             allowed_ids = None
     sids = redmine_utils.status_ids()
 
-    print(f"RM{rm_id} — statut courant : {cur}")
-    print("Transitions NORMS valides :")
+    seen, transitions = set(), []
     for tgt, cond in nexts:
+        if tgt in seen:          # `en_pause`/`ferme` génériques peuvent doubler une règle
+            continue
+        seen.add(tgt)
+        transitions.append({
+            "status": tgt,
+            "condition": cond,
+            "redmine_ok": None if allowed_ids is None else (sids.get(tgt) in allowed_ids),
+            # Ce que l'appelant doit réclamer AVANT de soumettre : le script refuse
+            # `ferme` sans motif, autant que l'UI le demande plutôt que d'échouer.
+            "needs_close_reason": tgt == "ferme",
+            # Idem pour la note : certaines transitions l'exigent (réouverture).
+            # La condition est écrite dans NORMS_TRANSITIONS, juste au-dessus — ce
+            # n'est pas un contrat externe qu'on parserait à l'aveugle.
+            "needs_note": "note obligatoire" in cond,
+        })
+    return {"rm_id": int(rm_id), "status": cur, "transitions": transitions,
+            "redmine_checked": allowed_ids is not None,
+            "close_reasons": sorted(VALID_CLOSE_REASONS)}
+
+
+def list_next(rm_id, as_json=False):
+    """Affiche les transitions NORMS valides depuis le statut courant du ticket
+    (+ marque celles que le compte API peut réellement poser côté Redmine)."""
+    data = next_transitions(rm_id)
+    if as_json:
+        print(json.dumps(data, ensure_ascii=False))
+        return
+    print(f"RM{rm_id} — statut courant : {data['status']}")
+    print("Transitions NORMS valides :")
+    for t in data["transitions"]:
         mark = ""
-        if allowed_ids is not None:
-            ok = sids.get(tgt) in allowed_ids
-            mark = "  [Redmine OK]" if ok else "  [Redmine REFUSERA pour ce compte]"
-        print(f"  → {tgt:<26} {cond}{mark}")
-    if allowed_ids is None:
+        if t["redmine_ok"] is not None:
+            mark = "  [Redmine OK]" if t["redmine_ok"] else "  [Redmine REFUSERA pour ce compte]"
+        print(f"  → {t['status']:<26} {t['condition']}{mark}")
+    if not data["redmine_checked"]:
         print("  (vérification live Redmine indisponible — transitions NORMS seules)")
 
 
@@ -402,8 +572,12 @@ def main():
     ap.add_argument("--list-next", action="store_true",
                     help="Liste les transitions NORMS valides depuis le statut courant "
                          "(+ celles que le compte API peut réellement poser côté Redmine)")
+    ap.add_argument("--json", action="store_true",
+                    help="Avec --list-next : sortie machine (statut courant + transitions), "
+                         "consommée par le cockpit (RM2888)")
     ap.add_argument("--close-reason", help=f"Si statut=ferme : {', '.join(sorted(VALID_CLOSE_REASONS))}")
     ap.add_argument("--note", help="Note Redmine optionnelle (sinon : 'Statut → <new>')")
+    ap.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
     ap.add_argument("--by", default="iprospective", help="Auteur du changement (défaut: iprospective)")
     ap.add_argument("--assign-to",
                     help="Assigner à un user Redmine : <id> | 'me' (owner API key = karl) | "
@@ -416,18 +590,28 @@ def main():
                          "pour cas particuliers (rebascule, replanif…) — viole la règle NORMS sinon.")
     ap.add_argument("--no-mail", action="store_true",
                     help="Ne pas envoyer la notif mail (sinon : mail auto au creator, ou webmaster si creator=karl)")
-    ap.add_argument("--allow-unchecked", action="store_true",
-                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu même si la "
-                         "description contient des items de checklist non cochés (sinon bloqué — "
-                         "NORMS § màj description : cocher au fil de l'eau).")
+    ap.add_argument("--allow-unchecked", metavar="MOTIF", nargs="?", const="",
+                    help="Autorise le passage en a_tester_demandeur / a_mep / ferme:resolu malgré des "
+                         "items de checklist non cochés — en DISANT pourquoi. Le motif est obligatoire "
+                         "et rejoint la note Redmine et le journal (RM2884) : sans lui, l'option "
+                         "servait à franchir le contrôle sans faire le travail qu'il réclamait. "
+                         "Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\".")
+    ap.add_argument("--allow-unmerged", action="store_true",
+                    help="Autorise a_mep / ferme:resolu même si une branche <id>-* du ticket "
+                         "n'est pas mergée dans la branche d'intégration (sinon bloqué — "
+                         "RM2319 : clore 'resolu' sans merger = code validé jamais livré).")
+    out.add_args(ap)
     ap.add_argument("--no-commit", action="store_true",
                     help="Pas d'auto-commit git des fichiers écrits (RM1834)")
     ap.add_argument("--dry-run", action="store_true")
     args = ap.parse_args()
+    out.configure(args)
 
     if args.list_next:
-        list_next(args.rm_id)
+        list_next(args.rm_id, as_json=args.json)
         return
+    if args.json:
+        sys.exit("ERREUR : --json n'a de sens qu'avec --list-next")
     if not args.status:
         sys.exit("ERREUR : statut requis (ou --list-next pour voir les transitions valides)")
 
@@ -437,7 +621,7 @@ def main():
     # que frontmatter, status_history et Redmine enregistrent la forme canonique.
     canon_status = redmine_utils.normalize_status(args.status)
     if canon_status != args.status:
-        print(f"  · statut déprécié '{args.status}' normalisé → '{canon_status}'", file=sys.stderr)
+        out.warn(f"statut déprécié '{args.status}' normalisé → '{canon_status}'")
         args.status = canon_status
     if args.status == "ferme" and not args.close_reason:
         sys.exit("ERREUR : --close-reason requis quand statut = ferme")
@@ -458,6 +642,7 @@ def main():
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
+    pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-status-update")
 
     # report-on-close (RM2035) : à la clôture, pousser la conso (time_entries + CF17)
     # MAINTENANT, tant que le ticket est ouvert/trouvable — le batch `--all` ignore les
@@ -471,11 +656,18 @@ def main():
                                 "--apply", "--no-commit"],
                                capture_output=True, text=True, timeout=120)
             lines = [ln for ln in (r.stdout or "").splitlines() if ln.strip()]
-            print("  · report-on-close : " + (lines[-1].strip() if lines else "(rien à pousser)"))
+            out.info("  · report-on-close : " + (lines[-1].strip() if lines else "(rien à pousser)"))
         except Exception as e:
-            print(f"  ⚠ report-on-close échoué (non bloquant) : {e}", file=sys.stderr)
+            out.warn(f"report-on-close échoué (non bloquant) : {e}")
 
-    # 1. Parse + update frontmatter
+    # 1. Parse + update frontmatter — sous VERROU PAR TICKET (T7) : sérialise le RMW
+    # du .md contre un autre writer du même ticket. Volontairement ÉTROIT (read→write
+    # du .md), libéré juste après l'écriture, AVANT les sous-process (metrics-push) et
+    # l'auto-commit → pas d'auto-blocage flock. Les sys.exit intermédiaires libèrent le
+    # verrou via l'OS (flock noyau). Le .log (append-only) et le commit git suivent hors
+    # verrou (git a son propre verrouillage) ; l'atomicité pleine du triplet = daemon (c).
+    _tlock = ticket_lock(cfg.state_dir, args.rm_id)
+    _tlock.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if not m:
@@ -484,26 +676,61 @@ def main():
     old_status = fm.get("status")
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
 
+    # RM2285 : réouverture d'un ticket fermé — uniquement vers a_faire (retour
+    # backlog, la reprise suit le flow normal), note motivée obligatoire,
+    # close_reason purgé. status_history conserve le cycle précédent.
+    reopening = (old_status == "ferme" and args.status != "ferme")
+    if reopening:
+        if args.status != "a_faire":
+            sys.exit("ERREUR : réouverture d'un ticket fermé uniquement vers 'a_faire' "
+                     "(NORMS § Transitions valides — la reprise suit ensuite le flow normal)")
+        if not args.note:
+            sys.exit("ERREUR : --note obligatoire pour rouvrir un ticket fermé "
+                     "(motiver la réouverture)")
+        out.info("  · réouverture : close_reason purgé, cycle précédent conservé dans status_history")
+
     fm["status"] = args.status
     if args.close_reason:
         fm["close_reason"] = args.close_reason
+    elif reopening:
+        fm["close_reason"] = None
     fm["updated"] = now
-    hist = fm.get("status_history") or []
-    hist.append({
+    entry = {
         "status": args.status,
         "at": now,
         "by": args.by,
         "model": None,
         "tokens": None,
         "duration_minutes": None,
-    })
+    }
+    # RM2366 (S5) : l'historique complet vit dans le ledger annexe ; le
+    # frontmatter garde une QUEUE (dernière entrée = statut courant, exigé par
+    # validate-task). sweep() migre au passage les résidus (writers non migrés).
+    hist = (fm.get("status_history") or []) + [entry]
     fm["status_history"] = hist
+    try:
+        pm_reporting.sweep(fm, md_path)
+    except Exception as e:
+        out.warn(f"ledger reporting non mis à jour (non bloquant) : {e}")
 
     # 2. Push update Redmine via redmine-post-note.py
     norms_status = args.status
     if args.status == "ferme" and args.close_reason:
         norms_status = f"ferme:{args.close_reason}"
-    note = args.note or f"Statut → {args.status}" + (f" ({args.close_reason})" if args.close_reason else "")
+    # `--note -` = stdin, résolu ICI (RM2229) : avant, le tiret littéral
+    # partait au log local (seul redmine-post-note, qui hérite de stdin,
+    # lisait le contenu) → les notes de livraison étaient absentes du
+    # `.log.md`, donc invisibles de la fiche cockpit (protocole de test).
+    if args.note == "-":
+        args.note = sys.stdin.read().strip()
+    # Note = bloc MÉCANIQUE templaté (RM2365, CDC RM2316 § S4 — templates/notes/
+    # status_change.md) + éventuel AJOUT SÉMANTIQUE (--note). L'agent ne rédige
+    # plus la partie mécanique ; assemblage final après résolution d'assignation.
+    semantic_note = args.note
+    # Lignes ajoutées à la note par les gardes elles-mêmes (RM2884 : le motif d'un
+    # --allow-unchecked doit rester dans le ticket, sinon le contournement ne laisse
+    # aucune trace et redevient indiscernable d'un oubli).
+    extra_notes = []
 
     # Fetch l'issue une fois (sert à la fois pour l'assignation Redmine et la
     # notif mail — éviter deux appels API).
@@ -516,15 +743,79 @@ def main():
     # NORMS § màj description : gate sur a_tester_demandeur, a_mep, ferme:resolu.
     gate_status = args.status in ("a_tester_demandeur", "a_mep") or (
         args.status == "ferme" and args.close_reason == "resolu")
-    if gate_status and issue and not args.allow_unchecked:
-        n_unchecked = count_unchecked(issue.get("description"))
-        if n_unchecked:
+    if gate_status and issue:
+        desc = issue.get("description")
+        n_unchecked = count_unchecked(desc)
+        n_checked = count_checked(desc)
+        motif = args.allow_unchecked            # None = option absente ; "" = passée sans motif
+        placeholder = checklist_is_placeholder(desc)
+        if n_unchecked and motif is None:
+            # Le ratio compte : « 0 coché sur 7 » est presque toujours un oubli,
+            # « 6 sur 7 » un choix assumé. Le message doit les distinguer (RM2884).
+            total = n_checked + n_unchecked
+            if placeholder:
+                quoi = ("la checklist n'a jamais été rédigée (« (à compléter) ») — "
+                        "il n'y a rien à cocher, il y a des critères à ÉCRIRE")
+            elif n_checked == 0:
+                quoi = (f"AUCUN des {total} critères n'est coché — une description qui ne dit pas "
+                        f"ce qui est fait rend le ticket illisible")
+            else:
+                quoi = f"{n_checked} coché(s) sur {total}, {n_unchecked} restant(s)"
             sys.exit(
-                f"ERREUR : {n_unchecked} item(s) de checklist non coché(s) dans la description de "
-                f"RM{args.rm_id}, refus de passer en '{args.status}'.\n"
-                f"  → Coche les items terminés : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
-                f"  → Ou, si c'est volontaire (items hors périmètre, abandonnés…) : relance avec --allow-unchecked."
+                f"ERREUR : RM{args.rm_id} — {quoi}. Refus de passer en '{args.status}'.\n"
+                f"  → Coche ce qui est fait : pm-task-description-update.py {args.rm_id} --check <n,...>\n"
+                f"  → Ou dis pourquoi ça reste décoché : "
+                f"--allow-unchecked \"<motif>\" (le motif est tracé dans la note et le journal)."
             )
+        if n_unchecked and motif == "":
+            sys.exit(
+                f"ERREUR : --allow-unchecked exige un motif (RM2884).\n"
+                f"  → Ex : --allow-unchecked \"critères 5 et 6 vérifiables seulement par le demandeur\"\n"
+                f"  → Un contournement non motivé est indiscernable d'un oubli — c'est précisément "
+                f"ce qui a laissé 28 tickets partir en test ou en clôture avec 0 critère coché."
+            )
+        if n_unchecked and motif:
+            total = n_checked + n_unchecked
+            grave = (args.status == "ferme" and n_checked == 0)
+            print(f"{'⚠ ' if grave else 'ℹ '}checklist : {n_checked}/{total} coché(s), "
+                  f"{n_unchecked} laissé(s) décoché(s) — motif : {motif}")
+            if grave:
+                print("  ⚠ fermeture avec AUCUN critère coché : le ticket ne gardera aucune trace "
+                      "de ce qui a été fait. Vérifie que c'est bien voulu.")
+            extra_notes.append(f"Checklist : {n_unchecked} item(s) laissé(s) décoché(s) "
+                               f"({n_checked}/{total} coché(s)) — motif : {motif}")
+    # Merge gate (RM2319) : on ne passe pas un ticket en a_mep / ferme:resolu si une
+    # branche <id>-* n'est pas mergée dans la branche d'intégration — c'est exactement
+    # l'incident RM2302 (validé + fermé via le cockpit, code jamais livré). La garde
+    # vit ICI (source unique des transitions), le cockpit en hérite via pm/run.
+    merge_gate = args.status == "a_mep" or (
+        args.status == "ferme" and args.close_reason == "resolu")
+    if merge_gate and not args.allow_unmerged:
+        found = unmerged_ticket_branches(md_path, args.rm_id)
+        if found:
+            repo, integration, branches = found
+            sys.exit(
+                f"ERREUR : branche(s) du ticket RM{args.rm_id} non mergée(s) dans "
+                f"'{integration}' : {', '.join(branches)} — passer en "
+                f"'{args.status}{':' + args.close_reason if args.close_reason else ''}' "
+                f"livrerait un code validé mais jamais déployé "
+                f"(incident RM2302 → RM2319).\n"
+                f"  → Livrer d'abord : pm-mr create {args.rm_id} && pm-mr merge <iid>\n"
+                f"  → Ou, si c'est volontaire (code abandonné / repris ailleurs) : "
+                f"relance avec --allow-unmerged."
+            )
+    # Protocole de test (RM2229) — WARNING non bloquant : une livraison en
+    # vérification sans protocole rédigé (frontmatter test_protocol, miroir du
+    # CF « Protocole de test ») prive le testeur du « quoi tester ». Rédaction
+    # au fil de l'eau : pm-task-protocol.py <id> --set/--append.
+    if gate_status:
+        try:
+            _fm_now = yaml.safe_load(FRONTMATTER_RE.match(
+                md_path.read_text(encoding="utf-8")).group(2)) or {}
+            if str(_fm_now.get("test_protocol") or "").strip() in ("", "None"):
+                out.warn(f"pas de protocole de test sur RM{args.rm_id} → pm-task-protocol.py {args.rm_id} --set -")
+        except Exception:  # noqa: BLE001 — garde-fou informatif, jamais bloquant
+            pass
 
     # Résolution de l'assignation Redmine.
     #
@@ -533,11 +824,12 @@ def main():
     #   2. status=en_cours sans flag explicite → 'me' par défaut
     #      (NORMS v1.12.0 § « Prise en charge d'une tâche » — auto-assignation
     #      indissociable de en_cours). --no-assign pour outrepasser.
-    #   3. status=a_tester_demandeur / etude_chiffrage_a_valider / a_mep → override
-    #      vers demandeur (author) / Manager IA (NORMS § « Règle d'attribution Redmine », RM1734).
-    #      a_tester_dev / en_mep / a_corriger → pas de défaut (testeur ≠ dev,
-    #      testeur preprod humain, worker précédent) : attribution manuelle via
-    #      --assign-to tant que l'orchestrateur n'est pas en place.
+    #   3. status=a_tester_demandeur / a_tester_preprod / etude_chiffrage_a_valider /
+    #      a_mep / en_mep → override vers demandeur (author) / Manager IA
+    #      (NORMS § « Règle d'attribution Redmine », RM1734 ; RM2893 : a_tester_preprod =
+    #      recette préprod → demandeur ; en_mep redéfini = vérif prod finale → demandeur).
+    #      a_tester_dev / a_corriger → pas de défaut (testeur ≠ dev, worker précédent) :
+    #      attribution manuelle via --assign-to tant que l'orchestrateur n'est pas en place.
     #      en_pause / ferme → conserver l'attribution courante.
     #
     # `assign_override_value` est la valeur passée à redmine-post-note --assign-to
@@ -548,13 +840,14 @@ def main():
         assign_override_value = args.assign_to
     elif args.status == "en_cours" and not args.no_assign:
         assign_override_value = "me"
-        print("  · auto-assign à l'agent courant (NORMS v1.12.0 § « Prise en charge "
-              "d'une tâche »). Utilise --no-assign pour outrepasser.", file=sys.stderr)
-    elif args.status in ("a_tester_demandeur", "etude_chiffrage_a_valider", "a_mep") and target:
+        out.info("  · auto-assign à l'agent courant (NORMS v1.12.0, --no-assign pour outrepasser)")
+    elif args.status in ("a_tester_demandeur", "a_tester_preprod", "etude_chiffrage_a_valider", "a_mep", "en_mep") and target:
         # NORMS : a_tester_demandeur          → demandeur (author) ; author==karl → Manager IA.
+        #         a_tester_preprod (RM2893)   → responsable recette préprod (défaut demandeur/author).
         #         etude_chiffrage_a_valider   → demandeur (author) : l'étude/CDC + chiffrage
         #                                       finis sont soumis à validation (même résolveur).
         #         a_mep                       → responsable MEP/intégration (par défaut Manager IA).
+        #         en_mep (RM2893, redéfini)   → demandeur (author) : vérif prod finale avant clôture.
         # On rend l'assignation explicite ici pour que MD frontmatter `assigned_to`
         # reflète la réalité Redmine.
         _, target_uid, _ = target
@@ -573,6 +866,23 @@ def main():
     new_fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
     new_content = f"{m.group(1)}{new_fm_yaml.rstrip()}{m.group(3)}{m.group(4)}"
 
+    tpl_path = Path(__file__).resolve().parent.parent / "templates" / "notes" / "status_change.md"
+    try:
+        tpl = tpl_path.read_text(encoding="utf-8").strip()
+    except OSError:
+        tpl = "Statut : {old} → {new}{close}{assign}{git}"
+    git_fm = fm.get("git") or {}
+    mech = tpl.format(
+        old=old_status, new=args.status,
+        close=f" ({args.close_reason})" if args.close_reason else "",
+        assign=f" · assigné → {assigned_to_id}" if assigned_to_id is not None else "",
+        git=(f"\nGit : branche={git_fm.get('branch')}"
+             + (f" · MR {git_fm.get('mr_url')}" if git_fm.get("mr_url") else ""))
+            if git_fm.get("branch") else "",
+    ).strip()
+    corps = "\n\n".join([x for x in ([semantic_note] if semantic_note else []) + extra_notes])
+    note = mech + (f"\n\n{corps}" if corps else "")
+
     if args.dry_run:
         print(f"--dry-run : changerait {old_status} → {args.status}")
         print(f"--dry-run : Redmine note = {note!r}, norms-status = {norms_status}")
@@ -590,13 +900,23 @@ def main():
     main = env.get("REDMINE_USER_MAIN_API_KEY")
     if main:
         env["REDMINE_API_KEY"] = main
-    r = subprocess.run(cmd, env=env, check=False)
+    r = subprocess.run(cmd, env=env, check=False, capture_output=True, text=True)
+    out.info((r.stdout or "").rstrip())
     if r.returncode != 0:
-        sys.exit(f"ERREUR redmine-post-note (exit {r.returncode})")
+        detail = "\n".join(s.rstrip() for s in (r.stdout, r.stderr) if s and s.strip())
+        out.fail(f"redmine-post-note (exit {r.returncode}) :\n{detail}",
+                 remede="vérifier allowed_statuses (pm-task-blockers) ou relancer avec --verbose")
+    # ligne dense unique (contrat T1) — le détail est en --verbose / log / Redmine
+    out.op("statut", rm=args.rm_id,
+           extra=f"{old_status}→{args.status}"
+                 + (f" assign={assigned_to_id}" if assigned_to_id is not None else "")
+                 + (f" close={args.close_reason}" if args.close_reason else ""))
 
-    # 3. Write MD
-    md_path.write_text(new_content, encoding="utf-8")
-    print(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+    # 3. Write MD (atomique) puis LIBÈRE le verrou ticket — les sous-process suivants
+    # (metrics-push, autocommit) reprennent leurs propres verrous sans nesting.
+    atomic_write(md_path, new_content)
+    _tlock.__exit__(None, None, None)
+    out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
 
     # 4. Append log
     log_path = md_path.parent / md_path.name.replace(".md", ".log.md")
@@ -611,13 +931,13 @@ def main():
     entry_lines.extend(["", note, ""])
     with log_path.open("a", encoding="utf-8") as f:
         f.write("\n".join(entry_lines))
-    print(f"✓ Log appendé : {log_path.name}")
+    out.info(f"✓ log appendé : {log_path.name}")
 
     # 5. Notif mail au demandeur (résolu via resolve_notif_target ; Manager IA
     # par défaut si author=karl ou email inaccessible).
     if not args.no_mail:
         if issue is None:
-            print("  ⚠ Impossible de fetcher le ticket Redmine pour la notif mail (skip)", file=sys.stderr)
+            out.warn("ticket Redmine non fetchable pour la notif mail (skip)")
         else:
             send_status_notif(args.rm_id, old_status, args.status, note, issue, target=target)
 
@@ -630,30 +950,58 @@ def main():
                 [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
                  "--rm-id", str(args.rm_id), "--estimate"], check=False)
             if r2.returncode != 0:
-                print(f"  ⚠ push estimation à la prise échoué (exit {r2.returncode})", file=sys.stderr)
+                out.warn(f"push estimation à la prise échoué (exit {r2.returncode})")
 
     # 6bis. Hooks D1/D2 env de session (RM1834/RM1947) : en_cours → create,
     # ferme → teardown. Best-effort, jamais bloquant.
     if args.status in ("en_cours", "ferme") and old_status != args.status:
         env_session_hook(md_path, args.rm_id, args.status, old_status)
 
+    # 6ter. Note de suivi chez les gestionnaires PARTENAIRES (RM2656) : seulement si
+    # le projet déclare un secondaire dont `sync.push.on` contient ce statut. Inerte
+    # partout ailleurs, et **jamais bloquant** — un partenaire injoignable ne doit pas
+    # faire échouer une transition déjà écrite côté PM (même règle que 6bis / 7).
+    if not args.dry_run and old_status != args.status:
+        try:
+            r = subprocess.run(
+                [sys.executable, str(Path(__file__).parent / "pm-task-partner.py"),
+                 "push", str(args.rm_id), "--status", args.status, "--quiet",
+                 "--no-commit"], check=False, capture_output=True, text=True, timeout=60)
+            detail = (r.stdout + r.stderr).strip()
+            if r.returncode != 0:
+                # Anormal : sans partenaire configuré, le push sort en 0 sans rien dire.
+                out.warn(f"note de suivi partenaire : échec (exit {r.returncode}) "
+                         f"{detail.splitlines()[-1] if detail else ''}")
+            for line in detail.splitlines():
+                if line.strip():
+                    out.info(f"  partenaire : {line.strip()}")
+        except Exception as e:                                  # noqa: BLE001
+            out.warn(f"note de suivi partenaire non poussée (best-effort) : {e}")
+
     # 7. Worklog de session (best-effort, no-op hors session Claude Code) : reflète
     # la transition pour que « il reste quoi à faire dans cette session » reste fidèle.
     # Upsert : crée l'item si le ticket n'avait pas été ouvert dans cette session. Cf RM1875.
     if not args.dry_run:
-        import pm_session_hook
+        # best-effort, JAMAIS bloquant (comme l'étape 6bis) : un checkout sans
+        # pm_session_hook.py (branche antérieure à son ajout, checkout partiel)
+        # ne doit pas planter la clôture APRÈS l'écriture du statut et faire
+        # sauter l'auto-commit de l'étape 8 (incident RM2587).
         try:
-            proj = md_path.relative_to(cfg.projects_root).parts[3]
-        except (ValueError, IndexError):
-            proj = None
-        pm_session_hook.log_to_session(
-            f"RM{args.rm_id}", label=fm.get("title"),
-            status=args.status, project=proj)
+            import pm_session_hook
+            try:
+                proj = md_path.relative_to(cfg.projects_root).parts[3]
+            except (ValueError, IndexError):
+                proj = None
+            pm_session_hook.log_to_session(
+                f"RM{args.rm_id}", label=fm.get("title"),
+                status=args.status, project=proj)
+        except Exception as e:
+            out.warn(f"worklog de session non mis à jour (best-effort) : {e}")
 
     # 8. Auto-commit atomique des fichiers écrits (RM1834 piste A). Placé en
     # dernier : capture aussi l'écriture frontmatter du push d'estimation (étape 6).
     if not args.dry_run and not args.no_commit:
-        pm_git.autocommit([md_path, log_path],
+        pm_git.autocommit([md_path, log_path, pm_reporting.ledger_path(md_path)],
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
 
 

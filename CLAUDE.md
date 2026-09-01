@@ -19,8 +19,9 @@ Ce dépôt contient les normes, les tâches et les instructions pour les agents 
 3. Lire `norms/src/NORMS-KERNEL.md` (KERNEL : déclencheurs + tripwires) ; ouvrir `norms/src/modules/*.md` quand un déclencheur se présente
 4. Lire `{entity_client_dir}/*.md` (overview + aspects) + `{entity_memory_dir}/*.md` pour `entity={C}`
 5. Lire `{project_dir}/*.md` (overview + aspects) + `{project_memory_dir}/*.md` pour `entity={C}, project={P}`
-6. Lire `paths.task_file` (ta tâche) — résolu via `cfg.path("task_file", entity={C}, project={P}, id={id}, slug=*)`
-7. Lire les dernières 50 lignes du `paths.task_log_file`
+6. `scripts/pm-task-brief.py {id}` — pack contexte de la tâche (≤ 30 lignes) ; le MD complet
+   (`cfg.path("task_file", …)`) seulement si le brief ne suffit pas
+7. Journal : couvert par le brief ; détail via `scripts/pm-task-log.py {id} --tail N [--full]`
 8. Travailler selon le protocole de ton rôle, en respectant la cascade
 
 ## Quand tu reçois une invocation de type "review la tâche RM{id}"

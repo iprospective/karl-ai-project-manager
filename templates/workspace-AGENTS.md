@@ -9,12 +9,60 @@
 
   Garder ce template et le fichier déployé SYNCHRONES — c'est ce qui empêche les
   instances de la fédération de dériver sur un onboarding périmé.
+
+  Déploiement OUTILLÉ (RM1892) — ne plus recopier à la main :
+      scripts/pm-workspace-bridge.py            # que dit l'instance ? (contrôle)
+      scripts/pm-workspace-bridge.py --install  # première pose (fichier + symlink)
+      scripts/pm-workspace-bridge.py --update   # rafraîchit le générique, GARDE l'instance
+
+  Le bloc délimité BEGIN/END INSTANCE ci-dessous est la part machine : le template
+  n'en fournit qu'un défaut, et `--update` ne l'écrase jamais.
 -->
 # AGENTS.md — racine des workspaces
 
 Instructions pour **tout agent / LLM** (Claude, opencode, …) travaillant sous
 `/zfs/workspaces/`. Lu automatiquement par remontée d'arborescence depuis n'importe
 quel sous-workspace.
+
+<!-- BEGIN INSTANCE — propre à CETTE machine. Tout ce qui est entre ces
+     deux marqueurs est PRÉSERVÉ par `pm-workspace-bridge.py --update` :
+     c'est là, et seulement là, que vont les chemins, hôtes et usages
+     d'une instance donnée. Le reste du fichier vient du template versionné. -->
+## Contexte d'exécution — sache d'où tu démarres
+
+**Vérifie-le, ne le suppose pas** : `hostname` te dit où tu tournes.
+
+_(Section à renseigner au provisioning de l'instance : où s'exécute la session
+(hôte ou conteneur), ce qui est local et ce qui passe par SSH, l'état des clés et
+des agents, le transport git des remotes, et les branches protégées. Voir le
+`AGENTS.md` d'une instance déjà provisionnée pour le niveau de détail attendu.)_
+
+### Deux copies du repo PM : PROD vs DEV — ne pas les confondre
+
+Sur MathouDell le repo PM (GitLab `iprospective/ai-artificial-intelligence/ai-pm-core`,
+project id **138**) existe en **deux copies de travail, intentionnellement** — ce
+n'est PAS un double-checkout cassé :
+
+- **`/zfs/workspaces/.mmi-pm-core` = la PROD PM.** C'est elle qui fait tourner le
+  système PM en live (scripts `pm-*.py`, hooks, NORMS de référence). **Root-owned
+  volontairement** : depuis l'hôte en tant que `mathieu` tu **ne peux pas** y écrire
+  ni y `git fetch` (permission refusée sur `.git`) — c'est normal, **ne force pas
+  avec sudo** sans feu vert. L'alias `…/ai/project-management` (le lien `.mmi-pm` de
+  plein de projets) pointe ici.
+- **`/zfs/workspaces/iprospective/ai-project-management` = l'ENV de DEV PM**
+  (`mathieu:mathieu`). C'est là qu'on **développe l'outillage PM** et là que
+  `pm-task-add` & co écrivent quand le projet est résolu via `--project`. Des
+  changements non-committés y sont du **WIP normal**, pas une anomalie.
+
+**Pousser le repo PM** : le remote de la copie dev est **HTTPS + token**, or les
+credential-helpers à token (`git-credential-pm-*`) n'existent **que dans le
+conteneur `dev`**. Depuis l'hôte, un push du repo PM **échoue en auth** → **pousse
+depuis le conteneur** (`ssh mathieu@dev.lxc`). `main` protégée (RM2030) →
+`git push origin main:dev` puis **MR dev→main** (token *manager*, API projet
+id **138**, résolution par match **exact** du `path_with_namespace`). Symptôme
+typique quand on l'ignore : « auto-push différé » qui s'accumule.
+
+<!-- END INSTANCE -->
 
 ## D'abord : es-tu dans un workspace PM-tracké ?
 

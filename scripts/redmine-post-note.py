@@ -40,6 +40,8 @@ from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+from pm_output import out
+
 # Statuts Redmine (instance iprospective) — table NORMS → id chargée depuis la
 # source unique `redmine.reference.yml` (via redmine_utils.status_map()), qui
 # inclut les variantes `ferme:<raison>` et les alias dépréciés. Un seul statut
@@ -98,6 +100,34 @@ def open_subtasks(url, key, issue_id):
         return []
 
 
+def open_blockers(url, key, issue_id):
+    """Relations bloquantes OUVERTES du ticket (blocked/precedes côté cible =
+    NORMS depends_on). Cause #2 d'une fermeture silencieusement ignorée après
+    les sous-tâches (tripwire #4) — ex. RM2210 bloqué par RM2209 (2026-07-10)."""
+    try:
+        u = f"{url.rstrip('/')}/issues/{issue_id}.json?include=relations&key={key}"
+        with request.urlopen(request.Request(u, headers={"Accept": "application/json"}), timeout=10) as r:
+            issue = json.loads(r.read())["issue"]
+        out = []
+        for rel in issue.get("relations", []):
+            # bloquant pour NOUS : blocks dont on est la cible, precedes dont on est la suite
+            other = None
+            if rel.get("relation_type") == "blocks" and rel.get("issue_to_id") == issue_id:
+                other = rel.get("issue_id")
+            elif rel.get("relation_type") == "precedes" and rel.get("issue_to_id") == issue_id:
+                other = rel.get("issue_id")
+            if not other:
+                continue
+            ou = f"{url.rstrip('/')}/issues/{other}.json?key={key}"
+            with request.urlopen(request.Request(ou, headers={"Accept": "application/json"}), timeout=10) as r:
+                o = json.loads(r.read())["issue"]
+            if not o["status"].get("is_closed"):
+                out.append((o["id"], o["status"]["name"], o.get("subject", "")))
+        return out
+    except Exception:
+        return []
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--issue", type=int, required=True, help="ID du ticket")
@@ -109,7 +139,9 @@ def main():
                                          "'me' (compte API). Automatique sur --norms-status=a_tester_verifier (→ author).")
     ap.add_argument("--attach", action="append", help="Chemin d'un fichier à joindre (peut être répété)")
     ap.add_argument("--private", action="store_true", help="Note privée (non visible client)")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     cf_raison_value = None
     if args.norms_status:
@@ -132,7 +164,7 @@ def main():
 
     load_env()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)
         sys.exit(1)
@@ -182,7 +214,7 @@ def main():
                 "filename": p.name,
                 "content_type": content_type,
             })
-            print(f"  · upload {p.name} ({content_type}) → token={token[:12]}…")
+            out.info(f"  · upload {p.name} ({content_type}) → token={token[:12]}…")
         issue_payload["uploads"] = uploads
 
     # Résoudre --assign-to en assigned_to_id (entier)
@@ -249,11 +281,10 @@ def main():
                                               headers={"Content-Type": "application/json", "Accept": "application/json"})
                     with request.urlopen(pre_req, timeout=10) as r:
                         r.read()
-                    print(f"  · auto-assignation préalable au compte API (id={me_id}) "
-                          f"pour débloquer la transition assignee-only → statut {args.status}",
-                          file=sys.stderr)
+                    out.info(f"  · auto-assignation préalable au compte API (id={me_id}) "
+                             f"pour débloquer la transition assignee-only → statut {args.status}")
                 except Exception as e:
-                    print(f"  ⚠ pré-assignation pour transition assignee-only échouée : {e}", file=sys.stderr)
+                    out.warn(f"pré-assignation pour transition assignee-only échouée : {e}")
 
     body = json.dumps({"issue": issue_payload}).encode("utf-8")
     req = request.Request(full, data=body, method="PUT",
@@ -271,7 +302,9 @@ def main():
 
     # Vérification post-PUT : Redmine renvoie 204 même si certains attributs ont été
     # silencieusement ignorés (permissions insuffisantes). On refetch pour confirmer.
-    print(f"✓ Note postée sur #{args.issue}")
+    # Ligne dense unique (contrat T1) : ✓ note RM<id> [statut=<id>] [assign=<uid>] —
+    # émise après vérification, avec seulement les attributs CONFIRMÉS.
+    dense_extra = []
 
     if args.status or "assigned_to_id" in issue_payload:
         try:
@@ -279,25 +312,27 @@ def main():
             with request.urlopen(request.Request(check, headers={"Accept": "application/json"}), timeout=10) as r:
                 actual = json.loads(r.read())["issue"]
         except Exception as e:
-            print(f"⚠ Impossible de vérifier l'état post-PUT : {e}", file=sys.stderr)
+            out.op("note", rm=args.issue)
+            out.warn(f"Impossible de vérifier l'état post-PUT : {e}")
             sys.exit(2)
 
         warned = False
         if args.status:
             actual_sid = actual["status"]["id"]
             if actual_sid == args.status:
-                print(f"✓ Statut changé → {args.status}")
+                dense_extra.append(f"statut={args.status}")
             else:
-                print(f"⚠ Statut PAS changé (toujours {actual_sid}, demandé {args.status})", file=sys.stderr)
+                out.warn(f"Statut PAS changé (toujours {actual_sid}, demandé {args.status})")
                 warned = True
         if "assigned_to_id" in issue_payload:
             expected_aid = issue_payload["assigned_to_id"]
             actual_aid = (actual.get("assigned_to") or {}).get("id")
             if actual_aid == expected_aid:
-                print(f"✓ Assigné à user id={expected_aid}")
+                dense_extra.append(f"assign={expected_aid}")
             else:
-                print(f"⚠ Assigné PAS changé (actuel={actual_aid}, demandé={expected_aid})", file=sys.stderr)
+                out.warn(f"Assigné PAS changé (actuel={actual_aid}, demandé={expected_aid})")
                 warned = True
+        out.op("note", rm=args.issue, extra=" ".join(dense_extra))
         if warned:
             # Diagnostic : un parent ne se ferme pas tant qu'un enfant est ouvert.
             # On vérifie AVANT de supposer un manque de droits (cf. NORMS tripwire #4).
@@ -310,9 +345,21 @@ def main():
                 print("  → fermer/détacher ces sous-tâches d'abord (NORMS status-workflow).",
                       file=sys.stderr)
             else:
-                print("  Cause probable : permission 'Edit issues' manquante pour le compte API.",
-                      file=sys.stderr)
+                blockers = open_blockers(url, key, args.issue) if args.status else []
+                if blockers:
+                    print("  Cause : relation(s) bloquante(s) ouverte(s) — Redmine refuse la "
+                          "fermeture tant que le(s) bloqueur(s) ne sont pas fermés :", file=sys.stderr)
+                    for bid, bname, subj in blockers:
+                        print(f"    · #{bid} [{bname}] {subj[:70]}", file=sys.stderr)
+                    print("  → fermer ces tickets d'abord (diagnostic complet : pm-task-blockers).",
+                          file=sys.stderr)
+                else:
+                    print("  Causes possibles : permission 'Edit issues' manquante pour le compte "
+                          "API, ou transition interdite par le workflow Redmine. Diagnostic : "
+                          "pm-task-blockers <id>.", file=sys.stderr)
             sys.exit(2)
+    else:
+        out.op("note", rm=args.issue)
 
 
 if __name__ == "__main__":

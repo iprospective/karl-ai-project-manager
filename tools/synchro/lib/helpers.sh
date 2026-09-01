@@ -1,6 +1,6 @@
 #!/bin/bash
 # helpers.sh — fonctions utilitaires partagées (log, confirmation, garde-fous,
-# résolution de secret Vaultwarden, auth MySQL sécurisée).
+# résolution de secret (vault déclaré), auth MySQL sécurisée).
 
 # --- logging ---------------------------------------------------------------
 log()  { printf '\033[1;34m▶\033[0m %s\n' "$*"; }
@@ -35,8 +35,9 @@ guard_local_target() {
   esac
 }
 
-# --- Vaultwarden -----------------------------------------------------------
-# resolve_secret "vaultwarden://org/col/item" [field] → valeur sur stdout.
+# --- Résolution de secret --------------------------------------------------
+# resolve_secret "<uri>" [field] → valeur sur stdout. URI : secret://<instance>/…,
+# secret:<chemin> ou vaultwarden://org/col/item (forme historique).
 # IMPORTANT : ne fait PAS exit (utilisé en substitution de commande). Renvoie
 # un code != 0 en cas d'échec ; le message part sur stderr. Le caller DOIT
 # tester le code (ex: val="$(resolve_secret …)" || die …).
@@ -50,7 +51,7 @@ resolve_secret() {
   val="$("$RESOLVE_SECRET_BIN" "$uri" "$field")"; rc=$?
   case $rc in
     0) printf '%s' "$val"; return 0 ;;
-    2) echo "Coffre Vaultwarden verrouillé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
+    2) echo "Vault verrouillé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
     3) echo "vault-agentd non lancé → ! /zfs/workspaces/ai/project-management/scripts/unlock-vault.sh" >&2 ;;
     *) echo "Échec résolution secret '$uri' (code $rc)." >&2 ;;
   esac
@@ -61,17 +62,18 @@ resolve_secret() {
 # Deux modes selon $MYSQL_ADMIN_SECRET :
 #   - vide (dev local) → on s'appuie sur le ~/.my.cnf de l'utilisateur (root) ;
 #     on ajoute juste -h $MYSQL_HOST.
-#   - vaultwarden://… → on construit un --defaults-file dédié (0600, ignore
+#   - URI de secret (secret://…, secret:…, vaultwarden://…) → on construit un
+#     --defaults-file dédié (0600, ignore
 #     ~/.my.cnf) avec user=$MYSQL_ADMIN_USER + mot de passe résolu (abort si échec).
 # Le fichier temporaire est supprimé par le trap de sync.sh.
 MYSQL_AUTH_ARGS=()
 mysql_local_init() {
   case "${MYSQL_ADMIN_SECRET:-}" in
-    vaultwarden://*)
+    secret://*|secret:*|vaultwarden://*)
       local pass
       pass="$(resolve_secret "$MYSQL_ADMIN_SECRET" password)" \
         || die "Impossible de résoudre le mot de passe admin MySQL ($MYSQL_ADMIN_SECRET)."
-      [ -n "$pass" ] || die "Mot de passe admin MySQL vide après résolution Vaultwarden."
+      [ -n "$pass" ] || die "Mot de passe admin MySQL vide après résolution du secret."
       MYSQL_DEFAULTS_FILE="$(mktemp "${TMPDIR:-/tmp}/.synchro-my.XXXXXX")"
       chmod 600 "$MYSQL_DEFAULTS_FILE"
       printf '[client]\nhost=%s\nuser=%s\npassword=%s\n' \
@@ -83,10 +85,52 @@ mysql_local_init() {
       log "Auth MySQL locale via ~/.my.cnf (host $MYSQL_HOST)."
       MYSQL_AUTH_ARGS=(-h "$MYSQL_HOST")
       ;;
-    *) die "MYSQL_ADMIN_SECRET doit être une URI vaultwarden:// ou vide (reçu: $MYSQL_ADMIN_SECRET)." ;;
+    *) die "MYSQL_ADMIN_SECRET doit être une URI de secret (secret://…, secret:…, vaultwarden://…) ou vide (reçu: $MYSQL_ADMIN_SECRET)." ;;
   esac
   mysql "${MYSQL_AUTH_ARGS[@]}" -e "SELECT 1;" >/dev/null 2>&1 \
     || die "Connexion MySQL locale impossible (host=$MYSQL_HOST). Vérifie ~/.my.cnf ou MYSQL_ADMIN_SECRET."
 }
 mysql_local()    { mysql "${MYSQL_AUTH_ARGS[@]}" "$@"; }
 mysql_local_db() { mysql "${MYSQL_AUTH_ARGS[@]}" "$DB_TO" "$@"; }
+
+# run_post_adapt_hook → exécute le script d'adaptations propres au site, s'il est déclaré.
+#
+# Pourquoi : <type>_adapt_db couvre ce qui vaut pour tous les sites d'un même type (domaine,
+# SSL, mails, maintenance). Certains sites ont en plus des correctifs qui leur sont propres et
+# sans lesquels l'environnement local est inutilisable — chez Calicote, une valeur de
+# configuration corrompue d'un module fait tomber tout le front en 500 dès que le mode debug
+# est actif. Ces correctifs n'ont rien à faire dans une lib partagée, et la conf
+# d'environnement ne peut pas surcharger <type>_adapt_db (sync.sh la source AVANT la lib).
+#
+# Déclaration, dans la conf d'environnement :
+#   POST_ADAPT_HOOK="/home/workspaces/<projet>/tools/sync/post-sync-dev.sh"
+#
+# Le hook reçoit dans son environnement : DB_TO, DB_PREFIX, DOMAIN, EMAIL, WEBSITE_TYPE,
+# WEBSITE_PATH, SITE_DIR (= $WORKSPACE_ROOT/$WEBSITE_PATH), MYSQL_HOST, WORKSPACE_ROOT.
+# Il doit être idempotent : une synchro peut être relancée à tout moment.
+#
+# Un hook déclaré mais introuvable, ou qui échoue, produit un avertissement et n'interrompt
+# PAS la synchro : les données sont déjà importées et adaptées, mieux vaut un environnement
+# partiellement ajusté qu'un script qui s'arrête au milieu.
+run_post_adapt_hook() {
+  [ -n "${POST_ADAPT_HOOK:-}" ] || return 0
+
+  if [ ! -f "$POST_ADAPT_HOOK" ]; then
+    warn "POST_ADAPT_HOOK introuvable : $POST_ADAPT_HOOK — adaptations spécifiques NON appliquées."
+    return 0
+  fi
+
+  log "Adaptations spécifiques au site ($POST_ADAPT_HOOK)"
+
+  DB_TO="$DB_TO" \
+  DB_PREFIX="${DB_PREFIX:-}" \
+  DOMAIN="${DOMAIN:-}" \
+  EMAIL="${EMAIL:-}" \
+  WEBSITE_TYPE="$WEBSITE_TYPE" \
+  WEBSITE_PATH="${WEBSITE_PATH:-}" \
+  SITE_DIR="$WORKSPACE_ROOT/${WEBSITE_PATH:-}" \
+  MYSQL_HOST="$MYSQL_HOST" \
+  WORKSPACE_ROOT="$WORKSPACE_ROOT" \
+    bash "$POST_ADAPT_HOOK" \
+      || warn "POST_ADAPT_HOOK a échoué (code $?) — la synchro est terminée, mais vérifie l'environnement."
+}

@@ -12,12 +12,44 @@ briques C4/C5 de RM1947) relève des provisionneurs framework (`tools/env-provis
 |---|---|---|
 | `pm-env-helper.sh` | helper **privilégié** fail-closed (vhost/BDD/logs) — brique F1 RM1947 | box de dev (root, via sudo) |
 | `scripts/pm-env-session.py` | orchestre worktree + `.user.ini` + appels helper — RM1834 | host (user) |
+| `scripts/pm-env-expose.py` | expose un env porté par un **daemon HTTP** (reverse proxy `vhost-proxy-add`) — RM2358 | box de dev (user) |
+
+## Convention hostname (RM2358)
+
+Tout env de test est joignable en `http://<project>-rm<id>[-s<seq>].lxc/` :
+
+- env **PHP** (DocumentRoot) : vhost posé par `pm-env-session` (verbe `vhost-add`) ;
+- env porté par un **daemon HTTP** en loopback (karl-agent, serveur non-PHP) :
+  `pm-env-expose.py expose <rmid> --port <p>` crée le vhost reverse proxy
+  (verbe `vhost-proxy-add`), enregistre l'allocation (`var/env-expose.json` du
+  workspace), synchronise `test_url` + CF 14 « Environnement de test », et
+  journalise dans le `.log.md` du ticket. `unexpose` défait tout. Le hostname
+  est **dérivé du dossier d'env**, jamais saisi (suffixe `-s<seq>` conservé
+  pour les worktrees de session).
+
+  Le proxy est émis sur **HTTP (:80) ET HTTPS (:443)** — les navigateurs
+  accèdent souvent aux `.lxc` en https (d'autres vhosts de l'instance ont du
+  SSL) ; sans le `:443`, la requête tombait sur le vhost SSL par défaut
+  (« Apache2 Ubuntu Default Page »). Le `:443` réutilise le certificat snakeoil
+  auto-signé (dev local → avertissement de certificat attendu, comme les autres
+  `.lxc`) ; override possible via `PM_ENV_SSL_CERT` / `PM_ENV_SSL_KEY`. Si le
+  cert est absent, le helper se rabat sur `:80` seul avec un avertissement
+  (fail-safe : jamais de configtest KO).
 
 Recette validée par le pilote manuel RM1834 du 2026-07-02 (matnat/site_sf7) :
 vhost `<repo>-rm<id>.lxc` + `.user.ini` `error_log` par worktree (surchargeable car
 `php_value[]` dans `common.conf.inc`, RM2081) + pool FPM partagé.
 
 ## Déploiement du helper (box de dev)
+
+**Canal normal (RM2358)** : `sudo mmi-pm core update` installe/rafraîchit le
+helper automatiquement (copie idempotente `tools/env-runtime/pm-env-helper.sh`
+→ `/usr/local/sbin/pm-env-helper`, root:root 755) — même canal root que le
+code du core, barrière mot de passe sudoers. NB : `core update` s'exécutant
+depuis l'ancien `bin/mmi-pm`, une évolution du bloc d'install lui-même ne prend
+effet qu'au run suivant.
+
+**Bootstrap d'une box neuve** (avant le premier `core update`) :
 
 ```bash
 scp tools/env-runtime/pm-env-helper.sh root@dev.lxc:/usr/local/sbin/pm-env-helper
@@ -34,6 +66,26 @@ mathieu ALL=(root) NOPASSWD: /usr/local/sbin/pm-env-helper *
 Toute la sécurité repose sur le helper (whitelist de verbes, validation stricte,
 marqueur « managed-by » sur les vhosts, drop limité aux BDD `*_rm<id>`, configtest
 Apache avant reload, audit syslog `pm-env-helper`).
+
+## Façade CLI `mmi-pm env vhost` (RM2372)
+
+Les verbes vhost du helper sont exposés par la **CLI unique** `mmi-pm`, plutôt
+qu'en `sudo pm-env-helper` brut :
+
+```bash
+mmi-pm env vhost proxy-add <name> <port>     # reverse proxy <name>.lxc → 127.0.0.1:<port>
+mmi-pm env vhost add <name> <docroot> <sock> # vhost PHP
+mmi-pm env vhost remove <name>               # retrait
+mmi-pm env vhost proxy-add … --dry-run       # prévisualise sans muter
+```
+
+`mmi-pm env vhost` est une **façade mince** : le privilège reste **confiné au
+helper** (règle sudoers NOPASSWD dédiée), mmi-pm route via `sudo -n <helper>`
+**sans re-exec mot de passe** et **sans nouvelle règle sudoers**. La seule op
+« mot de passe » de mmi-pm demeure `core update`. Automation préservée :
+`pm-env-session` (host-side, ssh+sudo -n) et `pm-env-expose` passent par cette
+voie NOPASSWD. `pm-env-expose.py` appelle `mmi-pm env vhost` en interne (front
+door unique).
 
 ## Config côté PM
 

@@ -7,7 +7,7 @@
 #   D4 — dispatcher mince : route vers les `pm-*.py` existants quand pertinent.
 # Self-locating : l'outil est la racine `bin/..` ; charge `.env` (PROJECTS_PATH, KARL_USER).
 #
-# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|client|project|list|doctor)
+# Grammaire : mmi-pm <nom> <verbe> [args]   (nom = core|index|env|hooks|norms|client|project|list|doctor)
 
 set -euo pipefail
 shopt -s nullglob
@@ -39,6 +39,15 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm env migrate [ws] [args…]    migre un workspace PRÉ-NORME → layout        [karl]
                                      (adoption in-place, snapshot ZFS, --dry-run ;
                                      pm-env-migrate.py)
+  mmi-pm env vhost <verbe> [args]    vhost du helper via mmi-pm                   [helper]
+                                     (add <name> <docroot> <sock> |
+                                      proxy-add <name> <port> |
+                                      karl-add <name> <port> (vhost cockpit HTTPS+ttyd, RM2565) |
+                                      remove <name> ; passe par pm-env-helper NOPASSWD, RM2372)
+  mmi-pm hooks install [args…]       (ré)installe les git-hooks PM               [karl]
+                                     (post-commit, pre-push, pre-commit ;
+                                     --repo <path> pour un seul repo ;
+                                     pm-hooks-install.py)
   mmi-pm norms version               version NORMS courante (norms/VERSION)      [lecture]
   mmi-pm norms changes [args…]       delta NORMS entre versions                  [lecture]
                                      (--check <v> | --since <v> | --between A B ;
@@ -47,6 +56,7 @@ mmi-pm — provisioning PM (Lot 1)
   mmi-pm doctor [args…]              diagnostic (pm-doctor.py)                    [lecture]
 
 Légende : [priv]=re-exec sudo ROOT  [index]=écrit projects/ (KARL_USER)  [lecture]=RO
+          [karl]=KARL_USER  [helper]=pm-env-helper NOPASSWD (privilège confiné au helper)
 Options : --dry-run (prévisualise les ops privilégiées sans sudo)
 Env     : CORE_DIR=$CORE_DIR  PROJECTS_PATH=$PROJECTS_PATH
           KARL_USER=$KARL_USER  KARL_SUDO_USER=$KARL_SUDO_USER
@@ -96,8 +106,26 @@ cmd_core_update(){
   local branch old; branch="$(git -C "$CORE_DIR" rev-parse --abbrev-ref HEAD 2>/dev/null || echo main)"
   old="$(git -C "$CORE_DIR" rev-parse --short HEAD 2>/dev/null || echo '?')"
   if [ "$DRY" = 1 ]; then
-    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique)"
+    log "[dry] git pull --ff-only origin $branch ; submodule update ; scripts/core-lock lock (re-verrou 3-couches, source unique) ; restart karl-agent si karl-agent.py modifié (RM2308) ; install pm-env-helper si modifié (RM2358)"
     return
+  fi
+  # ── Agent SSH éphémère (RM2239) : le remote passe par un ProxyJump (alias
+  #    SSH) → même avec le multiplexing RM2069, la connexion unique coûte
+  #    2 authentifications (hop + cible) = 2 passphrases sans agent. Un agent
+  #    temporaire + un ssh-add unique = UNE saisie. `-t 120` : l'identité
+  #    déchiffrée expire seule (filet si un chemin d'erreur saute le kill).
+  #    Agent root déjà garni ⇒ on ne touche à rien (zéro prompt).
+  local _agent_pid="" _agent_st=0
+  ssh-add -l >/dev/null 2>&1 || _agent_st=$?   # garde set -e : code capté, pas fatal
+  if [ "$_agent_st" -eq 1 ]; then          # agent joignable mais sans clé
+    ssh-add -t 120 >/dev/null || true      # une saisie ; échec ⇒ comportement d'avant
+  elif [ "$_agent_st" -gt 1 ]; then        # pas d'agent joignable
+    local _agent_env
+    if _agent_env="$(ssh-agent -s)"; then
+      eval "$_agent_env" >/dev/null
+      _agent_pid="${SSH_AGENT_PID:-}"
+      ssh-add -t 120 >/dev/null || true    # une saisie ; échec ⇒ comportement d'avant
+    fi
   fi
   # ── Multiplexing SSH (RM2069) : fetch + pull(refetch) + submodules partagent UNE
   #    connexion SSH → UNE seule passphrase (root via sudo n'a pas d'agent ; remote =
@@ -112,11 +140,76 @@ cmd_core_update(){
   ssh -o ControlPath="${_cmdir}/cm-%C" -O exit "$_ghost" 2>/dev/null || true
   rm -rf "$_cmdir" 2>/dev/null || true
   unset GIT_SSH_COMMAND
+  # Fin de l'agent éphémère (RM2239) — uniquement s'il est à nous.
+  if [ -n "$_agent_pid" ]; then
+    ssh-agent -k >/dev/null 2>&1 || true
+    unset SSH_AUTH_SOCK SSH_AGENT_PID
+  fi
   local new; new="$(git -C "$CORE_DIR" rev-parse --short HEAD)"
   # Re-verrou : DÉLÉGUÉ à core-lock (SOURCE UNIQUE de la politique 3-couches). Le pull a pu
   # créer des fichiers root (on tourne en root) → core-lock réassigne code/.env/var/projects.
   [ -x "$CORE_DIR/scripts/core-lock" ] || die "scripts/core-lock absent/inexécutable"
   "$CORE_DIR/scripts/core-lock" lock "$CORE_DIR"
+  # Hooks PM du core lui-même (RM2240) : son .git/hooks est root-owned → seule la
+  # couche privilégiée peut les poser (pm-hooks-install les ignore avec un warn).
+  local _hkdir="$CORE_DIR/.git/hooks" _pair _name _src
+  mkdir -p "$_hkdir"
+  for _pair in "post-commit=pm-post-commit.py" "pre-push=pm-pre-push" "pre-commit=pm-pre-commit.py"; do
+    _name="${_pair%%=*}"; _src="$CORE_DIR/scripts/${_pair#*=}"
+    [ -f "$_src" ] || continue
+    if [ -e "$_hkdir/$_name" ] && [ ! -L "$_hkdir/$_name" ]; then
+      log "hook $_name du core : fichier existant non-symlink → fusion manuelle"; continue
+    fi
+    ln -sfn "$_src" "$_hkdir/$_name"
+  done
+  log "hooks PM du core posés/rafraîchis (post-commit, pre-push, pre-commit)"
+  # ── Services résidents (RM2308) : un démon garde l'ANCIEN code en mémoire tant
+  #    qu'on ne le redémarre pas (vécu RM2303 : correctif déployé mais 403 fantôme,
+  #    2 core update + une recette perdus avant diagnostic). Détection des fichiers
+  #    de démons modifiés par le pull → restart du service USER (sûr par conception :
+  #    KillMode=process, les sessions tmux survivent — RM1873), sinon signalement
+  #    explicite. Les fichiers relus à chaque requête (cockpit/index.html, scripts
+  #    pm-* invoqués à l'appel) ne nécessitent PAS de restart.
+  if [ "$old" != "?" ] && [ "$old" != "$new" ]; then
+    local _changed; _changed="$(git -C "$CORE_DIR" diff --name-only "$old" "$new" 2>/dev/null || true)"
+    if printf '%s\n' "$_changed" | grep -qx "scripts/karl-agent.py"; then
+      local _ku _uid; _ku="$(sed -n 's/^KARL_USER=//p' "$CORE_DIR/.env" 2>/dev/null | head -1)"
+      _uid="$(id -u "${_ku:-__aucun__}" 2>/dev/null || true)"
+      if [ -n "$_ku" ] && [ -n "$_uid" ] \
+         && runuser -u "$_ku" -- env "XDG_RUNTIME_DIR=/run/user/$_uid" \
+              systemctl --user is-active --quiet karl-agent.service 2>/dev/null; then
+        if runuser -u "$_ku" -- env "XDG_RUNTIME_DIR=/run/user/$_uid" \
+             systemctl --user restart karl-agent.service 2>/dev/null; then
+          log "karl-agent.py modifié → karl-agent.service redémarré (KillMode=process : sessions tmux intactes)"
+        else
+          log "⚠ karl-agent.py modifié mais restart ÉCHOUÉ — l'agent sert l'ancien code ; relancer en tant que $_ku : systemctl --user restart karl-agent"
+        fi
+      else
+        log "⚠ karl-agent.py modifié — service karl-agent inactif/introuvable ici ; si cette instance le fait tourner : systemctl --user restart karl-agent (user $_ku)"
+      fi
+    fi
+  fi
+  # ── Helper privilégié pm-env-helper (RM2358) : il vit HORS du repo
+  #    (/usr/local/sbin, root:root) → son déploiement relève du même canal root
+  #    que le code du core. Install idempotente : copie seulement si le contenu
+  #    installé diffère du repo (source unique tools/env-runtime). Remplace le
+  #    scp manuel du README (conservé comme bootstrap d'une box neuve).
+  #    NB auto-update : ce bloc s'exécute depuis l'ANCIEN bin/mmi-pm — un helper
+  #    fraîchement pullé est bien posé par CE run, mais une évolution de ce
+  #    bloc lui-même ne prend effet qu'au run suivant.
+  local _hsrc="$CORE_DIR/tools/env-runtime/pm-env-helper.sh" _hdst="/usr/local/sbin/pm-env-helper"
+  if [ -f "$_hsrc" ] && ! cmp -s "$_hsrc" "$_hdst" 2>/dev/null; then
+    install -o root -g root -m 755 "$_hsrc" "$_hdst"
+    log "pm-env-helper déployé → $_hdst (source tools/env-runtime, RM2358)"
+  fi
+  # Renderer du vhost karl (RM2565) : co-déployé à côté du helper — c'est LUI qui
+  # l'appelle (verbe vhost-karl-add) pour les vhosts HTTPS des instances de test
+  # cockpit. Source unique partagée avec deploy/karl-agent/apache-vhost-setup.sh.
+  local _rsrc="$CORE_DIR/deploy/karl-agent/karl-vhost-render.sh" _rdst="/usr/local/sbin/karl-vhost-render"
+  if [ -f "$_rsrc" ] && ! cmp -s "$_rsrc" "$_rdst" 2>/dev/null; then
+    install -o root -g root -m 755 "$_rsrc" "$_rdst"
+    log "karl-vhost-render déployé → $_rdst (source deploy/karl-agent, RM2565)"
+  fi
   log "outil $old -> $new ($branch) ; re-verrouillé via core-lock (politique 3-couches)"
   log "NB : pointeur de submodule du repo env NON committé automatiquement (geste séparé)."
 }
@@ -189,6 +282,16 @@ cmd_list(){
 
 cmd_doctor(){ exec python3 "$CORE_DIR/scripts/pm-doctor.py" "$@"; }
 
+# `hooks install` (RM2240) : pose les git-hooks PM (post-commit RM2035, pre-push
+# RM2224, pre-commit RM2240) sur les repos PM + bares repos/*.git. Non privilégié
+# (symlinks .git/hooks en KARL_USER ; le core privsep est signalé en warn).
+cmd_hooks(){
+  case "${1:-}" in
+    install) shift; exec python3 "$CORE_DIR/scripts/pm-hooks-install.py" "$@";;
+    *) die "hooks: verbe inconnu '${1:-}' (install)";;
+  esac
+}
+
 # `norms version|changes` (RM2033) : lecture seule, version NORMS + delta de versions.
 cmd_norms(){
   case "${1:-}" in
@@ -200,6 +303,40 @@ cmd_norms(){
 
 # `env init` (RM1947, P1a) : layout git d'un workspace. Non privilégié (git/fs en
 # KARL_USER dans le workspace). --dry-run propagé tel quel à pm-env-init.
+# Chemin du helper privilégié (RM2372) : source unique = pm.config.yml ::
+# env_runtime.helper (+ override local), défaut historique sinon.
+resolve_env_helper(){
+  local h
+  h="$(python3 - "$CORE_DIR" <<'PY' 2>/dev/null || true
+import sys, pathlib, yaml
+core = pathlib.Path(sys.argv[1]); helper = ""
+for name in ("pm.config.yml", "pm.config.local.yml"):
+    p = core / name
+    if p.is_file():
+        d = (yaml.safe_load(p.read_text(encoding="utf-8")) or {}).get("env_runtime") or {}
+        helper = d.get("helper") or helper
+print(helper)
+PY
+)"
+  echo "${h:-/usr/local/sbin/pm-env-helper}"
+}
+
+# `mmi-pm env vhost <add|proxy-add|remove> [args]` (RM2372) — façade CLI unique
+# sur les verbes vhost du helper. Le PRIVILÈGE vit dans pm-env-helper (règle
+# sudoers NOPASSWD dédiée, invoquée non-interactivement par pm-env-session /
+# pm-env-expose) : mmi-pm route via `sudo -n <helper>` SANS re-exec mot de passe
+# et SANS nouvelle règle sudoers → surface de confiance inchangée (la seule op
+# privilégiée « mot de passe » de mmi-pm reste `core update`, cf. is_privileged).
+cmd_env_vhost(){
+  local verb="${1:-}"; shift || true
+  case "$verb" in add|proxy-add|karl-add|remove) :;; *)
+    die "env vhost: verbe inconnu '${verb:-}' (add|proxy-add|karl-add|remove)";; esac
+  local helper; helper="$(resolve_env_helper)"
+  local hargs=("vhost-$verb" "$@")
+  if [ "$DRY" = 1 ]; then log "[dry] sudo -n $helper ${hargs[*]}"; return 0; fi
+  sudo -n "$helper" "${hargs[@]}"
+}
+
 cmd_env(){
   # --dry-run est capté par le parsing global (→ $DRY, retiré des positionnels) :
   # on le réinjecte pour pm-env-init.
@@ -207,7 +344,10 @@ cmd_env(){
   case "${1:-}" in
     init)    shift; exec python3 "$CORE_DIR/scripts/pm-env-init.py" "${dry[@]}" "$@";;
     migrate) shift; exec python3 "$CORE_DIR/scripts/pm-env-migrate.py" "${dry[@]}" "$@";;
-    *) die "env: verbe inconnu '${1:-}' (init|migrate)";;
+    vhost)   shift; cmd_env_vhost "$@";;
+    # gc (RM2566) : dry-run PAR DÉFAUT (garde son propre --apply, pas de --dry-run injecté).
+    gc)      shift; exec python3 "$CORE_DIR/scripts/pm-env-gc.py" "$@";;
+    *) die "env: verbe inconnu '${1:-}' (init|migrate|vhost|gc)";;
   esac
 }
 
@@ -239,6 +379,7 @@ case "$NOUN" in
            *) die "index: verbe inconnu '$VERB' (add|remove|rebuild)";;
          esac;;
   env)    shift||true; cmd_env "$@";;
+  hooks)  shift||true; cmd_hooks "$@";;
   norms)  shift||true; cmd_norms "$@";;
   list)   cmd_list;;
   doctor) shift||true; cmd_doctor "$@";;

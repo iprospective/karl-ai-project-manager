@@ -1,0 +1,28 @@
+#!/bin/sh
+# pm-pre-push — refuse le push d'une branche `<id>-…` sans ticket RM<id> local
+# (RM2224, tripwire #13 : id prédit/inventé). Installé par pm-hooks-install
+# (symlink .git/hooks/pre-push). Hors workspace PM : laisse passer.
+# stdin : <local ref> <local sha> <remote ref> <remote sha>
+d=$(pwd -P)
+while [ "$d" != "/" ] && [ ! -e "$d/.mmi-pm" ]; do d=$(dirname "$d"); done
+[ -e "$d/.mmi-pm" ] || exit 0
+tasks="$d/.mmi-pm/tasks"
+[ -d "$tasks" ] || exit 0
+status=0
+while read -r _lref _lsha rref _rsha; do
+  b=${rref#refs/heads/}
+  case "$b" in
+    [0-9]*-*)
+      id=${b%%-*}
+      case "$id" in *[!0-9]*) continue;; esac
+      set -- "$tasks/RM${id}_"*.md
+      if [ ! -e "$1" ]; then
+        echo "pm-pre-push: REFUS — branche '$b' : aucun ticket RM${id} dans $tasks." >&2
+        echo "  Id prédit/inventé ? (tripwire #13) Crée le ticket d'abord :" >&2
+        echo "  ID=\$(pm-task-add … --porcelain) puis pm-branch-start \"\$ID\"." >&2
+        status=1
+      fi
+      ;;
+  esac
+done
+exit $status

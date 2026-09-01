@@ -25,9 +25,12 @@ Mapping NORMS → Redmine tracker (par défaut) :
     vient de finir (« ticket de suivi »). Évite l'oubli récurrent des
     transitions de statut documenté dans NORMS v1.12.0 § « Prise en charge
     d'une tâche ».
+
+Sortie dense par défaut (RM2362) : --verbose ou PM_VERBOSE=1 restaure le détail.
 """
 import argparse
 import re
+import subprocess
 import sys
 import unicodedata
 from datetime import datetime
@@ -35,9 +38,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
-from redmine_utils import create_redmine_issue
+from pm_output import out
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
+import pm_tags
 
 try:
     import yaml
@@ -50,43 +55,32 @@ except ImportError:
 # lire la liste via `--list-types`, jamais la redupliquer en dur (NORMS § « Source
 # de vérité unique »). Cohérent avec `redmine.reference.yml :: trackers` et
 # `type_to_activity` (research = Audit/Analyse).
-# Les 13 `type` canoniques NORMS (cf. table de routage worker, NORMS §
+# Les 14 `type` canoniques NORMS (cf. table de routage worker, NORMS §
 # « Assignation »). Seuls bugfix/feature/assistance ont un tracker Redmine dédié ;
 # tous les autres retombent sur « Tâche » (4) — la nature fine est portée par le
 # nom du type, l'activité de temps (type_to_activity) et, à terme, le CF 20.
-TYPE_TO_TRACKER = {
-    "feature": 2,         # Évolution            (worker-dev)
-    "bugfix": 1,          # Anomalie             (worker-dev)
-    "refactoring": 4,     # Tâche                (worker-dev)
-    "security": 4,        # Tâche                (worker-dev)
-    "performance": 4,     # Tâche                (worker-dev)
-    "infrastructure": 4,  # Tâche                (worker-infra)
-    "database": 4,        # Tâche                (worker-db)
-    "maintenance": 4,     # Tâche                (worker-analyst)
-    "documentation": 4,   # Tâche                (worker-analyst)
-    "research": 4,        # Tâche — Audit/Analyse (worker-analyst)
-    "audit": 4,           # Tâche — Audit/Analyse (worker-analyst)
-    "design": 4,          # Tâche                (worker-design)
-    "assistance": 3,      # Assistance           (worker-analyst)
-    "autre": 4,           # Tâche (repli)
-}
-TYPE_LABELS = {
-    "feature": "feature — fonctionnalité",
-    "bugfix": "bugfix — anomalie",
-    "refactoring": "refactoring — refonte",
-    "security": "security — sécurité",
-    "performance": "performance — optimisation",
-    "infrastructure": "infrastructure — sysadmin/conf",
-    "database": "database — schéma / migration / données",
-    "maintenance": "maintenance — entretien",
-    "documentation": "documentation",
-    "research": "research — investigation",
-    "audit": "audit — audit / analyse",
-    "design": "design — conception",
-    "assistance": "assistance — support",
-    "autre": "autre",
-}
-PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+# Gabarit de fiche + tables type/priorité : partagés avec pm-task-import.py, qui
+# ADOPTE un ticket Redmine existant au lieu d'en créer un (pm_task_md, RM2657).
+from pm_task_md import (  # noqa: E402  (re-exportés : d'autres scripts les importent)
+    CODE_FENCE_RE, CRITERIA_HEADING_RE, PRIORITY_TO_ID, TYPE_LABELS, TYPE_TO_TRACKER,
+    build_frontmatter, has_acceptance_criteria, render_log, render_md, slugify,
+)
+
+# RM2752 — valeurs acceptées par validate-task.py pour `bug.reproducibility`.
+# Deux listes qui divergeraient, c'est un ticket refusé à la validation sans que
+# rien ne l'ait dit à la création : test_pm_task_add_bugfix.py les garde alignées.
+VALID_REPRODUCIBILITIES = ("always", "often", "sometimes", "rarely", "never")
+
+
+def _with_bug(fm, reproducibility, steps):
+    """Insère le bloc `bug` juste après `type`, sans réordonner le reste."""
+    out = {}
+    for k, v in fm.items():
+        out[k] = v
+        if k == "type":
+            out["bug"] = {"reproducibility": reproducibility,
+                          "reproduce_steps": steps.rstrip() + "\n"}
+    return out
 
 
 def load_ia_manager_id():
@@ -99,12 +93,6 @@ def load_ia_manager_id():
     except yaml.YAMLError:
         return 5
     return ((cfg.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
-
-
-def slugify(s: str, maxlen: int = 50) -> str:
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    s = re.sub(r"[^a-zA-Z0-9-]+", "-", s).strip("-").lower()
-    return s[:maxlen].rstrip("-")
 
 
 def detect_project_from_cwd(cfg):
@@ -157,6 +145,16 @@ def main():
                     help="Passe agent-testeur en fin de dev (frontmatter requires_agent_test "
                          "/ CF27). default → hérite du projet (défaut système : non).")
     ap.add_argument("--target-env", default=None)
+    # RM2752 — `validate-task` EXIGE `bug.reproducibility` + `bug.reproduce_steps`
+    # pour type=bugfix. Aucun flag ne permettait de les poser : tout ticket bugfix
+    # créé par l'outil canonique naissait invalide, et il fallait ouvrir le MD.
+    ap.add_argument("--bug-reproducibility", dest="bug_reproducibility",
+                    default=None, choices=list(VALID_REPRODUCIBILITIES),
+                    help="Reproductibilité du bug (type=bugfix ; défaut : always)")
+    ap.add_argument("--bug-steps", dest="bug_steps", default=None,
+                    help="Étapes de reproduction ('-' = stdin). OBLIGATOIRE pour --type bugfix.")
+    ap.add_argument("--bug-steps-file", dest="bug_steps_file", default=None,
+                    help="Étapes de reproduction lues depuis un fichier ('-' = stdin).")
     # Estimation (NORMS § ROI) — poussée vers Redmine (CF21/22/25 + estimated_hours)
     # si au moins un flag est fourni. Cf. pm-task-metrics-push.py --estimate.
     ap.add_argument("--est-tokens", type=int, default=None, help="Tokens prévus (CF21)")
@@ -182,18 +180,71 @@ def main():
                          "(ré-assignation au Manager IA). À utiliser pour les tickets de "
                          "suivi de travail déjà livré. Cf. NORMS v1.12.0 § « Prise en "
                          "charge d'une tâche » + memory feedback-pm-ticket-workflow.")
+    ap.add_argument("--start-branch", action="store_true",
+                    help="Enchaîne pm-branch-start --take après création (RM2224) : "
+                         "branche <id>-<slug> + prise en_cours, l'id capturé en interne "
+                         "— l'agent ne manipule JAMAIS l'id (tripwire #13). "
+                         "Incompatible avec --retro/--status.")
+    ap.add_argument("--branch-repo", default=None,
+                    help="Repo cible pour --start-branch (défaut : résolution pm-branch-start)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--porcelain", "--id-only", dest="porcelain", action="store_true",
+                    help="Sortie machine (RM2170) : n'imprime que l'id nu du ticket créé "
+                         "sur stdout, tous les logs partent sur stderr. Pour capturer l'id "
+                         "de façon fiable dans un pipeline (ID=$(pm-task-add … --porcelain)) "
+                         "sans jamais le PRÉDIRE — la séquence Redmine est globale à "
+                         "l'instance, le prochain id n'est pas prévisible.")
+    out.add_args(ap)
     args = ap.parse_args()
+    # Configuré AVANT toute émission : en --porcelain, pm_output route op/info/warn
+    # vers stderr et réserve stdout à out.value(id) — fix RM2307 (l'ancien swap
+    # global sys.stdout→stderr ne couvrait pas les subprocess, qui héritent des fd).
+    out.configure(args)
 
     # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
     # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
     # passées sur une seule ligne en argument shell.
+    _DESC_FROM_STDIN = False
     if args.description_file is not None:
+        _DESC_FROM_STDIN = args.description_file == "-"
         args.description = (sys.stdin.read() if args.description_file == "-"
                             else Path(args.description_file).read_text(encoding="utf-8"))
     elif args.description == "-":
+        _DESC_FROM_STDIN = True
         args.description = sys.stdin.read()
 
+    # RM2752 — bloc `bug` du frontmatter, exigé par validate-task pour un bugfix.
+    # Un seul flux stdin est disponible : si la description l'a déjà consommé, on
+    # le dit au lieu de rendre des étapes vides (le symptôme d'origine).
+    _desc_pris_stdin = _DESC_FROM_STDIN
+    bug_steps = None
+    if args.bug_steps_file is not None:
+        if args.bug_steps_file == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = (sys.stdin.read() if args.bug_steps_file == "-"
+                     else Path(args.bug_steps_file).read_text(encoding="utf-8"))
+    elif args.bug_steps is not None:
+        if args.bug_steps == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = sys.stdin.read() if args.bug_steps == "-" else args.bug_steps
+    bug_steps = (bug_steps or "").strip()
+
+    if args.type == "bugfix" and not bug_steps:
+        sys.exit(
+            "ERREUR : --type bugfix exige les étapes de reproduction.\n"
+            "  validate-task.py les impose (`bug.reproduce_steps`) : sans elles le\n"
+            "  ticket naît invalide, et un bug sans repro se rouvre trois fois.\n"
+            "    --bug-steps \"1. …\\n2. …\"        (ou --bug-steps-file <fichier>)\n"
+            "    --bug-reproducibility always|often|sometimes|rarely|never  (défaut : always)"
+        )
+    if args.type != "bugfix" and (bug_steps or args.bug_reproducibility):
+        sys.exit(f"ERREUR : --bug-* n'a de sens que pour --type bugfix (ici : {args.type}).")
+
+    if args.start_branch and (args.retro or args.status != "nouveau"):
+        sys.exit("ERREUR : --start-branch est incompatible avec --retro/--status "
+                 "(pm-branch-start --take gère lui-même la prise en_cours).")
     if args.retro and args.status != "nouveau":
         sys.exit("ERREUR : --status et --retro sont incompatibles (--retro pilote sa "
                  "propre séquence en_cours → a_tester_verifier).")
@@ -233,11 +284,18 @@ def main():
     tt_cf_id, tt_values = task_type_cf()
     if tt_cf_id and args.type in tt_values:
         extra_cf.append({"id": tt_cf_id, "value": str(tt_values[args.type])})
+    # RM2829 : les étiquettes (`--tags`) n'existaient qu'au frontmatter — donc
+    # invisibles dans l'UI et dans les vues Redmine. Elles partent avec le POST
+    # quand le CF est configuré ; sinon le frontmatter reste seul, sans échec.
+    tags_norm = pm_tags.parse_csv(args.tags)
+    _tags_cf = pm_tags.cf_payload(tags_norm)
+    if _tags_cf and _tags_cf["value"]:
+        extra_cf.append(_tags_cf)
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
     target_author = None if args.initiator_agent else load_ia_manager_id()
-    rm_id = create_redmine_issue(
+    rm_id = get_task_provider().create_issue(
         project_id=rm_proj_id,
         tracker_id=tracker_id,
         priority_id=priority_id,
@@ -247,10 +305,22 @@ def main():
         parent_issue_id=args.parent,
         extra_custom_fields=extra_cf or None,
     )
-    if extra_cf:
-        print(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+    # Id nu sur stdout dès que le ticket existe côté Redmine (RM2170) :
+    # le caller le capture même si une étape de post-traitement échoue ensuite.
+    if args.porcelain:
+        out.value(rm_id)
+
+    # RM2842 : chaque CF se logue sous SA garde. `extra_cf` porte plusieurs CF
+    # depuis RM2829 (task-type ET Tags) : le tester en bloc pour lire
+    # `tt_values[args.type]` levait un KeyError dès qu'un ticket était créé avec
+    # --tags et un type absent de la table task-type — après le POST, donc en
+    # laissant un ticket Redmine sans fichier local (incident RM2840).
+    if tt_cf_id and args.type in tt_values:
+        out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+    if _tags_cf and _tags_cf.get("value"):
+        out.info(f"  · CF{_tags_cf['id']} tags → {', '.join(tags_norm)}")
     if target_author is not None:
-        print(f"  · author_id → {target_author}")
+        out.info(f"  · author_id → {target_author}")
 
     # CF27 « AI Test par agent » : poussé seulement si ≠ default (vide côté Redmine = default).
     if args.agent_test != "default":
@@ -258,79 +328,49 @@ def main():
         enum_id = (load_reference().get("agent_test_values") or {}).get(args.agent_test)
         if enum_id:
             ok, err = update_issue_fields(rm_id, custom_fields=[{"id": 27, "value": str(enum_id)}])
-            print(f"  · CF27 agent-test → {args.agent_test}" if ok
-                  else f"  ⚠ push CF27 échoué : {err}")
+            if ok:
+                out.info(f"  · CF27 agent-test → {args.agent_test}")
+            else:
+                out.warn(f"push CF27 échoué : {err}")
         else:
-            print(f"  ⚠ CF27 non poussé : valeur {args.agent_test!r} absente de agent_test_values")
+            out.warn(f"CF27 non poussé : valeur {args.agent_test!r} absente de agent_test_values")
 
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+    # RM2829 : même normalisation que le CF Redmine — « Front » et « front »
+    # doivent être LA MÊME étiquette des deux côtés, sinon le filtre ment.
+    tags = pm_tags.parse_csv(args.tags)
 
-    # Build MD
-    fm = {
-        "schema_version": "1.11.0",
-        "redmine_id": rm_id,
-        "redmine_last_journal_id": None,
-        "redmine_last_checked_at": None,
-        "title": args.title,
-        "type": args.type,
-        "bootstrap_template": None,
-        "parent_task": args.parent,
-        "sub_tasks": [],
-        "creator": "iprospective",
-        "team": [{"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}],
-        "status": "nouveau",
-        "close_reason": None,
-        "requires_agent_test": args.agent_test,
-        "completion_pct": 0,
-        "priority": args.priority,
-        "roi": {
-            "immediate_benefit": 3, "monthly_benefit": 3,
-            "immediate_gain_eur": None, "monthly_gain_eur": None,
-        },
-        "estimate": {
-            "difficulty": args.est_difficulty or "medium",
-            "human_time_minutes": args.est_human_minutes if args.est_human_minutes is not None else 30,
-            "ai_time_minutes": args.est_ai_minutes if args.est_ai_minutes is not None else 30,
-            "time_minutes": (
-                (args.est_human_minutes if args.est_human_minutes is not None else 30)
-                + (args.est_ai_minutes if args.est_ai_minutes is not None else 30)),
-            "tokens": args.est_tokens, "cost_usd": None, "estimated_model": args.est_model,
-            "confidence": args.est_confidence if args.est_confidence is not None else 0.5,
-            "estimated_by": "pm-task-add", "estimated_at": now,
-        },
-        "depends_on": [], "blocks": [], "relates": [], "refs": [],
-        "target_env": args.target_env,
-        "test_url": None,
-        "git": {"repo": None, "branch": None, "mr_url": None},
-        "deploy_actions": [],
-        "tokens_total": 0,
-        "tokens_breakdown": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
-        "cost_total_usd": 0.0,
-        "human_time_total_minutes": 0,
-        "ai_time_total_minutes": 0,
-        "time_total_minutes": 0,  # conservé pour compat (= human + ai cumul)
-        "created": datetime.now().strftime("%Y-%m-%d"),
-        "due": None, "updated": now,
-        "status_history": [{"status": "nouveau", "at": now, "by": "iprospective",
-                            "model": None, "tokens": None, "duration_minutes": None}],
-        "pistes": [],
-        "tags": tags,
-    }
-    fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False).rstrip()
-    desc = args.description or "_(pas de description fournie au moment de la création)_"
-    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
-
+    # Build MD — gabarit partagé avec pm-task-import (pm_task_md)
+    fm = build_frontmatter(
+        rm_id, args.title, type=args.type, priority=args.priority,
+        parent=args.parent, tags=tags, target_env=args.target_env,
+        agent_test=args.agent_test, now=now,
+        estimate={"difficulty": args.est_difficulty,
+                  "human_time_minutes": args.est_human_minutes,
+                  "ai_time_minutes": args.est_ai_minutes,
+                  "tokens": args.est_tokens,
+                  "estimated_model": args.est_model,
+                  "confidence": args.est_confidence},
+    )
+    # RM2752 — le bloc `bug`, posé APRÈS `type` pour que le MD se lise comme les
+    # tickets écrits à la main. Réinsertion ordonnée : `yaml.safe_dump` conserve
+    # l'ordre du dict (sort_keys=False), donc il faut le placer, pas l'ajouter.
+    # Propre à la création : un ticket ADOPTÉ (pm-task-import) n'a pas ces champs.
+    if args.type == "bugfix":
+        fm = _with_bug(fm, args.bug_reproducibility or "always", bug_steps)
+    md = render_md(fm, args.description)
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)
     md_path = tasks_dir / f"RM{rm_id}_{slug}.md"
     log_path = tasks_dir / f"RM{rm_id}_{slug}.log.md"
     md_path.write_text(md, encoding="utf-8")
-    log_path.write_text(f"# Journal RM{rm_id}\n\n## {now} — Création (pm-task-add)\nTokens : 0 | Durée : 0 min\n\nTâche créée via pm-task-add.py.\n", encoding="utf-8")
+    log_path.write_text(render_log(rm_id, now), encoding="utf-8")
 
-    print(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
-    print(f"  {md_path.relative_to(cfg.projects_root)}")
+    # ligne dense unique (contrat T1 RM2316) : ✓ add RM<id> <slug>
+    out.op("add", rm=rm_id, extra=slug)
+    out.info(f"✓ RM{rm_id} créé sur Redmine + MD/log écrits :")
+    out.info(f"  {md_path.relative_to(cfg.projects_root)}")
 
     # Worklog de session (best-effort, no-op hors session Claude Code) : enregistre
     # le ticket comme `nouveau`. Si --status transitionne ensuite, pm-task-status-update
@@ -339,15 +379,22 @@ def main():
     pm_session_hook.log_to_session(f"RM{rm_id}", label=args.title,
                                    status="nouveau", project=project)
 
-    # Validate
+    # Validate — agrégé en 1 warning dense ; le détail complet reste en --verbose.
     try:
         import subprocess
         r = subprocess.run([sys.executable, str(Path(__file__).parent / "validate-task.py"), str(md_path)],
                            capture_output=True, text=True, check=False)
         if r.returncode != 0:
-            print(f"⚠ validate-task.py warnings :\n{r.stdout}{r.stderr}", file=sys.stderr)
+            detail = f"{r.stdout}{r.stderr}".rstrip()
+            n = sum(1 for ln in detail.splitlines() if ln.lstrip().startswith("✗")) or "?"
+            # RM2752 : le remède doit être une commande qui EXISTE et qui accepte
+            # ses arguments. « pm-doctor RM<id> » n'en prenait aucun
+            # (« unrecognized arguments ») — suivre l'indication de bonne foi
+            # menait dans le mur, juste après un ticket déjà invalide.
+            out.warn(f"{n} warning(s) validate → scripts/validate-task.py {md_path}")
+            out.info(f"⚠ validate-task.py warnings :\n{detail}")
     except Exception as e:
-        print(f"⚠ validate-task.py non exécuté : {e}", file=sys.stderr)
+        out.warn(f"validate-task.py non exécuté : {e}")
 
     # Push estimation → Redmine (CF21/22/25 + estimated_hours) si estimation
     # explicite fournie. NORMS § ROI « Documentation dans Redmine » : estimer à
@@ -360,10 +407,14 @@ def main():
         r = subprocess.run(
             [sys.executable, str(Path(__file__).parent / "pm-task-metrics-push.py"),
              "--rm-id", str(rm_id), "--estimate"],
-            check=False)
+            check=False, capture_output=True, text=True)
+        for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+            if (stream or "").strip():
+                out.info(stream.rstrip())
         if r.returncode != 0:
-            print(f"⚠ push estimation échoué (exit {r.returncode}) — relance : "
-                  f"pm-task-metrics-push.py --rm-id {rm_id} --estimate", file=sys.stderr)
+            err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+            out.warn(f"push estimation échoué (exit {r.returncode}){' : ' + err1 if err1 else ''}"
+                     f" — relance : pm-task-metrics-push.py --rm-id {rm_id} --estimate")
 
     # --parent : le MD enfant porte déjà parent_task (cf. fm). Maintenir le côté
     # parent (sub_tasks du parent) + tracer dans les deux logs.
@@ -373,10 +424,10 @@ def main():
         sub = pm_hierarchy.maintain_parent_subtasks(
             cfg, rm_id, old_parent=None, new_parent=args.parent, source="pm-task-add")
         if sub["added_to"]:
-            print(f"  · parent RM{args.parent} : sub_tasks += RM{rm_id}")
+            out.info(f"  · parent RM{args.parent} : sub_tasks += RM{rm_id}")
         else:
-            print(f"  ⚠ parent RM{args.parent} : MD non trouvé localement — "
-                  f"sub_tasks non maintenu (parent côté Redmine OK)")
+            out.warn(f"parent RM{args.parent} : MD non trouvé localement — "
+                     f"sub_tasks non maintenu (parent côté Redmine OK)")
 
     # Auto-commit atomique des fichiers écrits (RM1834 piste A) : la tâche créée
     # (+ le MD/log du parent si --parent les a modifiés). Placé AVANT --status /
@@ -389,6 +440,18 @@ def main():
             commit_paths += [parent_md, parent_md.parent / parent_md.name.replace(".md", ".log.md")]
     pm_git.autocommit(commit_paths, f"pm(add): RM{rm_id} {slug}")
 
+    if args.start_branch:
+        # Verbe atomique (RM2224) : l'id sort de create_redmine_issue et entre
+        # directement dans pm-branch-start — aucune ressaisie possible.
+        cmd = [sys.executable, str(Path(__file__).resolve().parent / "pm-branch-start.py"),
+               str(rm_id), "--take"]
+        if args.branch_repo:
+            cmd += ["--repo", args.branch_repo]
+        r = subprocess.run(cmd)
+        if r.returncode != 0:
+            out.warn(f"pm-branch-start a échoué (exit {r.returncode}) — relance : "
+                     f"pm-branch-start.py {rm_id} --take")
+
     # --status <statut> : le ticket est créé en `nouveau` (défaut tracker Redmine) ;
     # si un autre statut est demandé, on transitionne via pm-task-status-update
     # (source unique des transitions : couplage NORMS — auto-assign karl pour
@@ -396,16 +459,20 @@ def main():
     if not args.retro and args.status != "nouveau":
         import subprocess
         status_script = Path(__file__).parent / "pm-task-status-update.py"
-        print(f"  → statut initial demandé : {args.status} (transition depuis nouveau)")
+        out.info(f"  → statut initial demandé : {args.status} (transition depuis nouveau)")
         r = subprocess.run(
             [sys.executable, str(status_script), str(rm_id), args.status,
              "--note", "Statut initial posé à la création (pm-task-add --status)"],
-            check=False,
+            check=False, capture_output=True, text=True,
         )
+        for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+            if (stream or "").strip():
+                out.info(stream.rstrip())
         if r.returncode != 0:
-            print(f"⚠ Transition initiale vers {args.status} échouée (exit {r.returncode}). "
-                  f"Reprends : pm-task-status-update.py {rm_id} {args.status}",
-                  file=sys.stderr)
+            err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+            out.warn(f"Transition initiale vers {args.status} échouée (exit {r.returncode})"
+                     f"{' : ' + err1 if err1 else ''}. "
+                     f"Reprends : pm-task-status-update.py {rm_id} {args.status}")
 
     # --retro : enchaîne en_cours puis a_tester_verifier via pm-task-status-update.
     # Le ticket Redmine doit déjà être indexable (POST ci-dessus a renvoyé rm_id),
@@ -417,15 +484,19 @@ def main():
             ("en_cours", "Prise en charge (ticket rétroactif, travail déjà livré)"),
             ("a_tester_verifier", "Travail livré au moment de la création du ticket — prêt à vérifier"),
         ]:
-            print(f"  → transition --retro : {status}")
+            out.info(f"  → transition --retro : {status}")
             r = subprocess.run(
                 [sys.executable, str(status_script), str(rm_id), status, "--note", note],
-                check=False,
+                check=False, capture_output=True, text=True,
             )
+            for stream in (r.stdout, r.stderr) if r.returncode == 0 else (r.stdout,):
+                if (stream or "").strip():
+                    out.info(stream.rstrip())
             if r.returncode != 0:
-                print(f"⚠ Transition --retro {status} a échoué (exit {r.returncode}). "
-                      f"Reprends manuellement : pm-task-status-update.py {rm_id} {status}",
-                      file=sys.stderr)
+                err1 = " ".join((r.stderr or "").strip().splitlines())[:200]
+                out.warn(f"Transition --retro {status} a échoué (exit {r.returncode})"
+                         f"{' : ' + err1 if err1 else ''}. "
+                         f"Reprends manuellement : pm-task-status-update.py {rm_id} {status}")
                 break
 
 

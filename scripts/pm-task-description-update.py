@@ -23,6 +23,10 @@ Usage :
     # Remplacer entièrement la description (re-cadrage substantiel)
     pm-task-description-update.py 1796 --set-from-file nouvelle_desc.md --note "Re-cadrage périmètre"
 
+    # Remplacer ET cocher dans le même appel : les index s'appliquent à la
+    # checklist de la NOUVELLE description (RM2281 — ils étaient ignorés avant)
+    pm-task-description-update.py 1796 --set-from-file nouvelle_desc.md --check 1,2
+
 Note de journal : une note Redmine accompagnante est TOUJOURS postée (auto +
 texte --note éventuel), car Redmine ne diff pas les descriptions dans l'UI.
 """
@@ -38,7 +42,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
+import pm_markdown
+from pm_markdown import checklist_lines
 import pm_git  # auto-commit scopé des écritures (RM2095)
+import pm_scope
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
 try:
     import yaml
@@ -46,13 +55,18 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
+# Clés qui signent un frontmatter de FICHE PM — et pas un simple `---` de
+# séparation Markdown ouvrant un document (RM2820).
+TASK_FM_KEYS_RE = re.compile(r"^(schema_version|redmine_id):", re.M)
 # Ligne de checklist Markdown : "- [ ] ...", "* [x] ...", indentée ou non.
-CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
+# Source unique de vérité pour « qu'est-ce qu'une ligne de checklist » : les
+# cases citées dans un bloc de code n'en sont pas (RM2540).
+CHECK_LINE_RE = pm_markdown.CHECK_LINE_RE
 
 
 def redmine_creds():
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : $REDMINE_URL et $REDMINE_USER_MAIN_API_KEY requis (.env)")
     return url, key
@@ -95,17 +109,16 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
     """Applique coche/décoche aux lignes de checklist. Retourne (texte, total, checked, changed).
 
     check_idx / uncheck_idx : ensembles d'index 1-based parmi les lignes de checklist.
+
+    Les cases situées dans un bloc de code sont ignorées (RM2540) : une
+    description qui CITE du markdown en exemple ne doit pas voir sa citation
+    réécrite — et ces cases ne sont pas des critères.
     """
     lines = text.split("\n")
-    item_no = 0
-    total = 0
+    items = checklist_lines(text)
+    total = len(items)
     changed = []
-    for i, line in enumerate(lines):
-        m = CHECK_LINE_RE.match(line)
-        if not m:
-            continue
-        item_no += 1
-        total += 1
+    for item_no, (i, m) in enumerate(items, start=1):
         cur = m.group(2).lower() == "x"
         new = cur
         if check_all or item_no in check_idx:
@@ -115,13 +128,62 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
         if new != cur:
             lines[i] = m.group(1) + ("x" if new else " ") + m.group(3)
             changed.append((item_no, new))
-    checked = 0
-    item_no = 0
-    for line in lines:
-        m = CHECK_LINE_RE.match(line)
-        if m:
-            checked += 1 if m.group(2).lower() == "x" else 0
-    return "\n".join(lines), total, checked, changed
+    text = "\n".join(lines)
+    checked = sum(1 for _, m in checklist_lines(text) if m.group(2).lower() == "x")
+    return text, total, checked, changed
+
+
+def strip_task_frontmatter(text):
+    """Retire un frontmatter de fiche PM en tête de `text`. Pure (RM2820).
+
+    Un `--set-from-file` recevant la fiche `RM<id>.md` COMPLÈTE poussait son
+    frontmatter YAML (schema_version, tokens_total, reporting…) dans la
+    description Redmine, où il n'a aucun sens — et, depuis RM2578, le recopiait
+    dans le CORPS du MD, qui se retrouvait avec deux blocs frontmatter. Constaté
+    sur RM2426 : posé le 2026-07-30, réparé le jour même, rejoué le 07-31 et
+    resté en place un mois. Rien n'empêchait la récidive.
+
+    L'intention de l'appelant est toujours « pousser le corps » : on nettoie et
+    on avertit, plutôt que de refuser. Ne matche qu'en TÊTE de texte et
+    seulement si le bloc porte une clé de fiche — un corps qui cite du YAML plus
+    bas, ou qui s'ouvre sur un `---` de séparation, reste intact.
+
+    Retourne (texte, stripped: bool).
+    """
+    m = FRONTMATTER_RE.match(text or "")
+    if not m or not TASK_FM_KEYS_RE.search(m.group(2)):
+        return text, False
+    return m.group(4).lstrip("\n"), True
+
+
+def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
+    """Calcule la nouvelle description (pure, testable — RM2281).
+
+    `file_text` non-None = mode --set-from-file : le fichier devient la
+    description, ET les coches demandées s'y appliquent — elles étaient
+    silencieusement ignorées quand les deux options voyageaient dans le même
+    appel (le MD comme Redmine perdaient les coches).
+    Retourne (new_desc, total, checked, changed, note_bits, desc_changed).
+    """
+    note_bits = []
+    if file_text is not None:
+        new_desc, total, checked, changed = apply_checks(
+            file_text, check_idx, uncheck_idx, check_all)
+        desc_changed = (new_desc != desc)
+        if desc_changed:
+            note_bits.append("description remplacée intégralement")
+    else:
+        new_desc, total, checked, changed = apply_checks(
+            desc, check_idx, uncheck_idx, check_all)
+        desc_changed = bool(changed)
+    if changed:
+        cocheds = [str(n) for n, v in changed if v]
+        unchecks = [str(n) for n, v in changed if not v]
+        if cocheds:
+            note_bits.append("coché item(s) " + ",".join(cocheds))
+        if unchecks:
+            note_bits.append("décoché item(s) " + ",".join(unchecks))
+    return new_desc, total, checked, changed, note_bits, desc_changed
 
 
 def parse_idx(spec):
@@ -145,12 +207,18 @@ def main():
     ap.add_argument("--set-from-file", help="Remplace toute la description par le contenu du fichier")
     ap.add_argument("--note", help="Texte de note additionnel (en plus de la note auto)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--cross-project", action="store_true",
+                    help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
+    out.add_args(ap)
     args = ap.parse_args()
+    out.configure(args)
 
     cfg = PMConfig.load()  # charge aussi .env
     md_path = cfg.find_task(args.rm_id)
     if not md_path:
         sys.exit(f"ERREUR : fichier RM{args.rm_id}_*.md introuvable")
+    if not args.dry_run:
+        pm_scope.assert_task_scope(args.rm_id, md_path, args.cross_project, "pm-task-description-update")
 
     issue = fetch_issue(args.rm_id)
     desc = issue.get("description") or ""
@@ -158,32 +226,24 @@ def main():
     check_idx = parse_idx(args.check)
     uncheck_idx = parse_idx(args.uncheck)
 
-    note_bits = []   # ne décrit QUE les changements de description (Redmine ne les diff pas).
     done_ratio = None
-    desc_changed = False
-
+    file_text = None
     if args.set_from_file:
         p = Path(args.set_from_file)
         if not p.is_file():
             sys.exit(f"ERREUR : fichier introuvable : {p}")
-        new_desc = p.read_text(encoding="utf-8")
-        _, total, checked, _ = apply_checks(new_desc, set(), set(), False)
-        desc_changed = (new_desc != desc)
-        if desc_changed:
-            note_bits.append("description remplacée intégralement")
-    else:
-        new_desc, total, checked, changed = apply_checks(desc, check_idx, uncheck_idx, args.check_all)
-        if not changed and not args.done_ratio and not args.note:
-            sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
-                     "et pas de --done-ratio/--note.")
-        desc_changed = bool(changed)
-        if changed:
-            cocheds = [str(n) for n, v in changed if v]
-            unchecks = [str(n) for n, v in changed if not v]
-            if cocheds:
-                note_bits.append("coché item(s) " + ",".join(cocheds))
-            if unchecks:
-                note_bits.append("décoché item(s) " + ",".join(unchecks))
+        file_text = p.read_text(encoding="utf-8")
+        file_text, _stripped = strip_task_frontmatter(file_text)
+        if _stripped:
+            out.warn(f"frontmatter de fiche PM retiré de {p.name} — seul le corps "
+                     "est poussé (une description Redmine n'a pas de frontmatter).")
+
+    # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
+    new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(
+        desc, file_text, check_idx, uncheck_idx, args.check_all)
+    if file_text is None and not changed and not args.done_ratio and not args.note:
+        sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
+                 "et pas de --done-ratio/--note.")
 
     # done_ratio : explicite, ou auto depuis la checklist. NB : le changement de
     # done_ratio est journalisé nativement par Redmine → on ne le met PAS dans la note.
@@ -196,8 +256,9 @@ def main():
                 done_ratio = max(0, min(100, int(args.done_ratio)))
             except ValueError:
                 sys.exit("ERREUR : --done-ratio attend 'auto' ou un entier 0-100")
-    elif not args.set_from_file and total > 0:
-        # Par défaut, si on a touché une checklist, on synchronise le % auto.
+    elif total > 0 and (changed or not args.set_from_file):
+        # Par défaut, si on a touché une checklist, on synchronise le % auto —
+        # y compris quand les coches voyagent avec --set-from-file (RM2281).
         done_ratio = round(100 * checked / total)
 
     # Note Redmine : seulement si la description change (Redmine ne diff pas les
@@ -229,29 +290,48 @@ def main():
     if not fields:
         sys.exit("Rien à pousser (ni description, ni done_ratio, ni note).")
     put_issue(args.rm_id, fields)
-    bits = []
-    if desc_changed:
-        bits.append("description")
+    # ligne dense unique (contrat T1, CDC RM2316) : ✓ desc RM<id> [check=<n,…>|set] done=<pct>%
+    parts = []
+    if args.set_from_file and desc_changed:
+        parts.append("set")
+    cocheds = [str(n) for n, v in changed if v]
+    unchecks = [str(n) for n, v in changed if not v]
+    if cocheds:
+        parts.append("check=" + ",".join(cocheds))
+    if unchecks:
+        parts.append("uncheck=" + ",".join(unchecks))
+    extra = " ".join(parts)
     if done_ratio is not None:
-        bits.append(f"done_ratio={done_ratio}")
-    print(f"✓ RM{args.rm_id} mis à jour ({', '.join(bits)})")
+        extra = (extra + " " if extra else "") + f"done={done_ratio}%"
+    out.op("desc", rm=args.rm_id, extra=extra)
 
-    # 2. Sync MD : applique la même transfo à la checklist du corps + completion_pct
+    # 2. Sync MD sous VERROU par ticket (T7) : RMW du .md (read→write), libéré avant
+    # le log/commit qui suivent. Pas de return dans le bloc if m: → libération unique.
+    _lk = ticket_lock(cfg.state_dir, args.rm_id)
+    _lk.__enter__()
     content = md_path.read_text(encoding="utf-8")
     m = FRONTMATTER_RE.match(content)
     if m:
         fm = yaml.safe_load(m.group(2)) or {}
         body = m.group(4)
         if args.set_from_file:
-            new_body = body  # on ne réécrit pas le corps MD sur un remplacement libre
+            # RM2578 : le fichier fourni EST la nouvelle description — donc la
+            # nouvelle source de vérité. Laisser le corps MD en arrière faisait
+            # diverger les deux checklists : un `--check n` suivant appliquait
+            # ses index sur l'ANCIENNE liste locale (mauvaises lignes cochées),
+            # et `pm-task-deliver`, qui lit le MD, refusait des livraisons sur
+            # une checklist périmée. Constaté deux fois (RM2573, RM2305).
+            new_body = "\n" + new_desc.strip("\n") + "\n"
         else:
             new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all)
         if done_ratio is not None:
             fm["completion_pct"] = done_ratio
         fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
         new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False)
-        md_path.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}", encoding="utf-8")
-        print(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+        atomic_write(md_path, f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{new_body}")
+        out.info(f"✓ MD synchronisé : {md_path.relative_to(cfg.projects_root)}")
+
+    _lk.__exit__(None, None, None)  # T7 : libère après le RMW du .md (avant log/commit)
 
     # 3. Append log local (notre historique ; peut mentionner le % même si Redmine le journalise nativement).
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
@@ -262,7 +342,7 @@ def main():
     summary = "; ".join(summary_bits) if summary_bits else "mise à jour description"
     with log_path.open("a", encoding="utf-8") as f:
         f.write(f"\n## {now} — Description : {summary}\n\n" + (args.note + "\n" if args.note else ""))
-    print(f"✓ Log appendé : {log_path.name}")
+    out.info(f"✓ Log appendé : {log_path.name}")
 
     # Auto-commit scopé (RM2095) : la MAJ de description modifiait le MD sans committer.
     pm_git.autocommit([md_path, log_path], f"pm(desc): RM{args.rm_id} description/done_ratio")

@@ -37,10 +37,18 @@ _PATTERN_REF_RE = re.compile(r"\{([a-z_][a-z0-9_]*)\}")
 
 
 def _load_env_file(path: Path) -> None:
-    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant."""
+    """Charge un fichier .env (KEY=VALUE), sans écraser l'environnement existant.
+
+    Tolère un fichier illisible (`PermissionError`) : un dev NON-admin n'a pas le droit
+    de lire le `.env` secret (fallback karl, admin-only) → on l'ignore silencieusement,
+    ses propres clés (`~/.config/mmi-pm/.env`) et le `pm.env` d'instance suffisent."""
     if not path.is_file():
         return
-    for line in path.read_text(encoding="utf-8").splitlines():
+    try:
+        text = path.read_text(encoding="utf-8")
+    except PermissionError:
+        return
+    for line in text.splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
@@ -61,6 +69,42 @@ def _secrets_env(pm_dir: Path) -> Optional[Path]:
     core = os.environ.get("PM_CORE_DIR")
     if core:
         cand = Path(core).expanduser().resolve() / ".env"
+        if cand.is_file():
+            return cand
+    return None
+
+
+def _user_env() -> Optional[Path]:
+    """`.env` de secrets PROPRE à l'utilisateur courant — identité par dev (T1/RM2497).
+
+    Porte la clé API Redmine perso (`REDMINE_API_KEY`) et les tokens forge du dev.
+    Il est chargé AVANT le `.env` d'instance et le prime donc (car `_load_env_file`
+    n'écrase pas l'existant → priorité : env de session > user > instance).
+    Résolution : override `PM_USER_ENV`, sinon `$XDG_CONFIG_HOME/mmi-pm/.env`,
+    sinon `~/.config/mmi-pm/.env`. `None` si absent (→ fallback karl, rétrocompat)."""
+    override = os.environ.get("PM_USER_ENV")
+    if override:
+        cand = Path(override).expanduser()
+        return cand if cand.is_file() else None
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    cand = base / "mmi-pm" / ".env"
+    return cand if cand.is_file() else None
+
+
+def _instance_env(pm_dir: Path) -> Optional[Path]:
+    """`pm.env` d'INSTANCE, NON-secret (URLs Redmine/forge, ids de CF, chemins) —
+    group-readable (`640 root:pm`), lisible par tout le groupe `pm` SANS exposer les
+    secrets karl (RM2438 T1, scission du `.env` monolithique). Résolution symétrique de
+    `_secrets_env` : `pm_dir` sinon `PM_CORE_DIR`. Chargé ENTRE le `.env` user (prime)
+    et le `.env` secret (fallback). Absent → no-op : rétrocompat, tout reste dans le
+    `.env` monolithique tant qu'on ne l'a pas scindé."""
+    here = pm_dir / "pm.env"
+    if here.is_file():
+        return here
+    core = os.environ.get("PM_CORE_DIR")
+    if core:
+        cand = Path(core).expanduser().resolve() / "pm.env"
         if cand.is_file():
             return cand
     return None
@@ -91,10 +135,23 @@ def _deep_merge(base: dict, override: dict) -> dict:
 class PMConfig:
     """Résolveur de chemins du système PM (lecture seule)."""
 
-    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict):
+    def __init__(self, pm_dir: Path, projects_root: Path, patterns: dict,
+                 providers: Optional[dict] = None,
+                 conf_dir: Optional[Path] = None,
+                 state_dir: Optional[Path] = None,
+                 log_dir: Optional[Path] = None):
         self.pm_dir = pm_dir
         self.projects_root = projects_root
         self._patterns = patterns
+        # Racines FHS (RM2580) — séparent config / état / logs du code. Défauts
+        # = layout actuel si non fournies (conf avec le code, var sous pm_dir) →
+        # 0 régression ; un install packagé les surcharge (roots / env).
+        self.state_dir = state_dir or (pm_dir / "var")
+        self.conf_dir = conf_dir or pm_dir
+        self.log_dir = log_dir or (self.state_dir / "log")
+        # Registre de providers (RM2542/P0) — section `providers:` de pm.config.yml
+        # (servers + defaults). Vide si absente. Consommé par pm_registry.
+        self.providers = providers or {}
 
     @classmethod
     def load(cls, pm_dir: Optional[Path] = None) -> "PMConfig":
@@ -103,7 +160,18 @@ class PMConfig:
             pm_dir = Path(__file__).resolve().parent.parent
         pm_dir = Path(pm_dir).resolve()
 
-        # 2. Charge le .env de secrets (pm_dir si présent, sinon core via PM_CORE_DIR)
+        # 2. Charge la config/secrets, priorité décroissante (premier-écrit-gagne ;
+        #    `_load_env_file` n'écrase pas l'existant, os.environ de session prime) :
+        #      user  ~/.config/mmi-pm/.env  (identité par dev, RM2497)
+        #      inst  pm.env                 (instance, NON-secret, group-readable, RM2438 T1)
+        #      secr  .env                   (fallback karl, admin-only, peut être illisible)
+        #    Sans user ni pm.env, `.env` monolithique seul → comportement karl inchangé.
+        user_env = _user_env()
+        if user_env:
+            _load_env_file(user_env)
+        inst_env = _instance_env(pm_dir)
+        if inst_env:
+            _load_env_file(inst_env)
         env_file = _secrets_env(pm_dir)
         if env_file:
             _load_env_file(env_file)
@@ -149,18 +217,32 @@ class PMConfig:
         if not projects_root.is_dir():
             sys.exit(f"ERREUR : projects_root introuvable : {projects_root}")
 
+        # Racines FHS (RM2580) — "auto"/absent → défaut relatif au layout actuel
+        # (0 régression). Un install packagé surcharge par env (PM_CONF_DIR, …).
+        # Ces racines sont des SORTIES (créées à la demande) → pas de is_dir()
+        # bloquant, contrairement à projects_root.
+        def _root(key: str, default: Path) -> Path:
+            raw = _expand_env(roots.get(key, "auto"))
+            if not raw or raw == "auto":
+                return default
+            return Path(raw).expanduser().resolve()
+        conf_dir = _root("conf_dir", pm_dir_final)
+        state_dir = _root("state_dir", pm_dir_final / "var")
+        log_dir = _root("log_dir", state_dir / "log")
+
         patterns = cfg.get("paths", {}) or {}
         if not patterns:
             sys.exit("ERREUR : pm.config.yml :: paths est vide")
 
-        return cls(pm_dir_final, projects_root, patterns)
+        return cls(pm_dir_final, projects_root, patterns, cfg.get("providers", {}),
+                   conf_dir=conf_dir, state_dir=state_dir, log_dir=log_dir)
 
     # ── Résolution de patterns ──────────────────────────────────────────
     def path(self, key: str, **kwargs) -> Path:
         """Résout un pattern de chemin par sa clé.
 
         Variables disponibles dans le pattern :
-          - `{pm_dir}` et `{projects_root}` : racines de la config
+          - `{pm_dir}` `{projects_root}` `{conf_dir}` `{state_dir}` `{log_dir}` : racines
           - n'importe quel kwarg passé (ex: `entity="x"`, `project="y"`)
           - n'importe quelle autre clé de `paths.*` (résolue récursivement)
         """
@@ -182,6 +264,12 @@ class PMConfig:
                 return str(self.pm_dir)
             if name == "projects_root":
                 return str(self.projects_root)
+            if name == "conf_dir":
+                return str(self.conf_dir)
+            if name == "state_dir":
+                return str(self.state_dir)
+            if name == "log_dir":
+                return str(self.log_dir)
             # Patterns d'abord (sauf si on est déjà en train de résoudre
             # ce nom — auto-réf → fallback kwargs). Cela permet par exemple
             # à `entity: "{entities_dir}/{entity}"` d'utiliser le kwarg
@@ -251,6 +339,25 @@ class PMConfig:
     # ── Lookups Redmine ─────────────────────────────────────────────────
     _FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
+    def locate_task(self, rm_id: int):
+        """Comme `find_task`, mais rend **(path, entity, project)**.
+
+        Le projet d'appartenance est nécessaire dès qu'une opération dépend de la
+        **config du projet** et pas seulement du fichier de tâche (ex. providers
+        secondaires d'un rattachement partenaire, RM2654). Le déduire du chemin chez
+        chaque appelant serait fragile — les tâches vivent sous un layout configurable.
+        Retourne `(None, None, None)` si la tâche est introuvable.
+        """
+        for ent_slug, proj_slug, _ in self.iter_projects():
+            tasks_dir = self.path("tasks_dir", entity=ent_slug, project=proj_slug)
+            if not tasks_dir.is_dir():
+                continue
+            for f in tasks_dir.glob(f"RM{rm_id}_*.md"):
+                if f.name.endswith(".log.md"):
+                    continue
+                return f, ent_slug, proj_slug
+        return None, None, None
+
     def find_task(self, rm_id: int) -> Optional[Path]:
         """Cherche le fichier `RM{id}_*.md` (hors `.log.md`) parmi tous les
         projets. Retourne le `Path` ou `None`."""
@@ -280,6 +387,67 @@ class PMConfig:
                 ent_path = self.path("entity", entity=ent_slug)
                 return ent_path, proj_path
         return None, None
+
+    def resolve_project_ref(
+        self, ref, *, require_redmine: bool = False
+    ) -> Tuple[str, str, Path]:
+        """Résout une référence de projet **non ambiguë** → `(entity, project, path)`.
+
+        RM2430 — fin du match de slug silencieux (plusieurs clients partagent un
+        même slug, ex. `infra`). Formes acceptées :
+          - `client/slug` (ex. `matnat/infra`) — désambiguïsation explicite ;
+          - un `redmine.project_id` unique (ex. `matnat-infra`) ;
+          - un slug **non ambigu** (présent chez un seul client).
+
+        Lève `ValueError` si : référence introuvable ; slug nu **ambigu** (message
+        listant les candidats) ; ou `require_redmine=True` alors que le projet
+        résolu n'a pas de `redmine.project_id` (« pas de projet Redmine précis en
+        conf → on n'avance pas »).
+        """
+        ref = str(ref).strip()
+
+        # 1. Forme explicite « client/slug »
+        if "/" in ref:
+            ent, slug = ref.split("/", 1)
+            for e, p, path in self.iter_projects():
+                if e == ent and p == slug:
+                    return self._finalize_project_ref(e, p, path, require_redmine)
+            raise ValueError(f"projet '{ref}' introuvable (forme client/slug)")
+
+        # 2. redmine.project_id (unique par construction)
+        for e, p, path in self.iter_projects():
+            rid = (self.project_meta(e, p).get("redmine") or {}).get("project_id")
+            if rid and rid == ref:
+                return self._finalize_project_ref(e, p, path, require_redmine)
+
+        # 3. slug nu → doit être NON ambigu
+        matches = [(e, p, path) for e, p, path in self.iter_projects() if p == ref]
+        if len(matches) == 1:
+            return self._finalize_project_ref(*matches[0], require_redmine)
+        if len(matches) > 1:
+            cands = []
+            for e, p, _ in matches:
+                rid = (self.project_meta(e, p).get("redmine") or {}).get("project_id")
+                cands.append(f"{e}/{p}" + (f" ({rid})" if rid else ""))
+            raise ValueError(
+                f"référence de projet ambiguë : le slug '{ref}' existe chez "
+                f"plusieurs clients. Précise `client/slug` ou le `redmine.project_id`. "
+                f"Candidats : {', '.join(sorted(cands))}"
+            )
+        raise ValueError(f"projet '{ref}' introuvable")
+
+    def _finalize_project_ref(
+        self, ent: str, proj: str, path: Path, require_redmine: bool
+    ) -> Tuple[str, str, Path]:
+        if require_redmine:
+            rid = (self.project_meta(ent, proj).get("redmine") or {}).get("project_id")
+            if not rid:
+                raise ValueError(
+                    f"projet '{ent}/{proj}' sans `redmine.project_id` en conf "
+                    f"(meta.yml) — opération Redmine bloquée (RM2430 : pas de "
+                    f"projet Redmine précis → on n'avance pas)."
+                )
+        return ent, proj, path
 
     def detect_project_from_cwd(
         self, start: Optional[Path] = None

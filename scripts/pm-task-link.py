@@ -40,9 +40,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_output import out
 import pm_git
 import pm_hierarchy
-from redmine_utils import set_issue_parent
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
 try:
     import yaml
@@ -63,7 +64,7 @@ FM_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 def _redmine_creds():
     url = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : REDMINE_URL et REDMINE_USER_MAIN_API_KEY requis (.env)")
     return url, key
@@ -183,6 +184,10 @@ def autocommit_tasks(args, md_paths, message):
 # ── Sous-commandes ──────────────────────────────────────────────────────────
 
 def cmd_add(args, cfg):
+    import pm_scope
+    cross = getattr(args, 'cross_project', False)
+    for rid in (args.from_id, args.to_id):
+        pm_scope.assert_task_scope(rid, cfg.find_task(rid), cross, 'pm-task-link')
     if args.from_id == args.to_id:
         sys.exit("ERREUR : impossible de lier un ticket à lui-même")
     if args.type not in PM_TYPES:
@@ -216,10 +221,13 @@ def cmd_add(args, cfg):
         write_task_md(to_path, to_fm, to_body)
         append_log(to_path, f"`{mirror_field}` += RM{args.from_id} (miroir auto, relation Redmine #{rm_id or 'déjà existante'}).")
 
-    print(f"✓ Lien `{args.type}` créé : RM{args.from_id} → RM{args.to_id}")
-    print(f"  Frontmatter source : {'maj' if src_changed else 'déjà à jour'}")
-    print(f"  Frontmatter cible  : {'maj' if dst_changed else 'déjà à jour'}")
-    print(f"  Redmine relation   : #{rm_id}" if rm_id else "  Redmine relation   : déjà existante")
+    # ligne dense unique (contrat T1, CDC RM2316) — détail en --verbose / log / Redmine
+    out.op("lien", rm=args.from_id,
+           extra=f"{args.type} RM{args.to_id} "
+                 + (f"rel=#{rm_id}" if rm_id else "rel=déjà existante"))
+    out.info(f"  Frontmatter source : {'maj' if src_changed else 'déjà à jour'}")
+    out.info(f"  Frontmatter cible  : {'maj' if dst_changed else 'déjà à jour'}")
+    out.info(f"  Redmine relation   : #{rm_id}" if rm_id else "  Redmine relation   : déjà existante")
     if src_changed or dst_changed:
         autocommit_tasks(args, [from_path if src_changed else None, to_path if dst_changed else None],
                          f"pm(link): RM{args.from_id} {args.type} RM{args.to_id}")
@@ -325,23 +333,23 @@ def cmd_parent(args, cfg):
         sys.exit(f"ERREUR : RM{child} introuvable parmi les projets PM")
 
     # 1. Redmine (attribut natif). Redmine refuse les cycles de lui-même.
-    set_issue_parent(child, parent)
+    get_task_provider().set_parent(child, parent)
 
     # 2. MD local (enfant parent_task + ancien/nouveau parent sub_tasks).
     res = pm_hierarchy.set_parent(cfg, child, parent, source="pm-task-link")
 
     if parent is None:
-        print(f"✓ RM{child} détaché de son parent (RM{res['old_parent']}).")
+        out.op("parent", rm=child, extra=f"détaché (ex-parent RM{res['old_parent']})")
     else:
         verb = "déplacé vers" if res["old_parent"] else "rattaché à"
-        print(f"✓ RM{child} {verb} le parent RM{parent}.")
+        out.op("parent", rm=child, extra=f"{verb} RM{parent}")
     if res["removed_from"]:
-        print(f"  · sub_tasks RM{res['removed_from']} -= RM{child}")
+        out.info(f"  · sub_tasks RM{res['removed_from']} -= RM{child}")
     if res["added_to"]:
-        print(f"  · sub_tasks RM{res['added_to']} += RM{child}")
+        out.info(f"  · sub_tasks RM{res['added_to']} += RM{child}")
     elif parent is not None:
-        print(f"  ⚠ parent RM{parent} : MD non trouvé localement — "
-              f"sub_tasks non maintenu (parent côté Redmine OK)")
+        out.warn(f"parent RM{parent} : MD non trouvé localement — "
+                 f"sub_tasks non maintenu (parent côté Redmine OK)")
     touched = [cfg.find_task(child)]
     for rid in (res.get("removed_from"), res.get("added_to")):
         if rid:
@@ -401,17 +409,18 @@ def cmd_sync(args, cfg):
         touch_updated(fm)
         write_task_md(md_path, fm, body)
         append_log(md_path, f"Sync depuis Redmine : ajouté {changed}.")
-        print(f"✓ Frontmatter RM{args.rm_id} synchronisé depuis Redmine :")
+        out.op("sync", rm=args.rm_id,
+               extra="+" + ",".join(f"{field}:RM{v}" for field, v in changed))
         for field, v in changed:
-            print(f"    + {field} RM{v}")
+            out.info(f"    + {field} RM{v}")
         autocommit_tasks(args, [md_path], f"pm(link): RM{args.rm_id} sync relations")
     else:
-        print(f"✓ RM{args.rm_id} déjà à jour vs Redmine")
+        out.op("sync", rm=args.rm_id, extra="déjà à jour vs Redmine")
 
     if drifts:
-        print("\n⚠ Drifts détectés (présent côté PM, absent côté Redmine) :")
-        for field, v in drifts:
-            print(f"    - {field} RM{v}  ← à vérifier manuellement")
+        out.warn("drifts (présent côté PM, absent côté Redmine) : "
+                 + ", ".join(f"{field} RM{v}" for field, v in drifts)
+                 + " — à vérifier manuellement")
 
 
 # ── Argparse ────────────────────────────────────────────────────────────────
@@ -424,6 +433,7 @@ def main():
     s_add.add_argument("from_id", type=int)
     s_add.add_argument("to_id", type=int)
     s_add.add_argument("--type", default="relates", choices=PM_TYPES)
+    s_add.add_argument("--cross-project", action="store_true", help="Autorise consciemment une écriture sur un ticket d'un AUTRE projet (garde RM2274).")
 
     s_parent = sub.add_parser("parent", help="Poser / déplacer / retirer le parent d'un ticket")
     s_parent.add_argument("child_id", type=int)
@@ -446,8 +456,11 @@ def main():
     for s in (s_add, s_parent, s_rm, s_sync):
         s.add_argument("--no-commit", action="store_true",
                        help="Pas d'auto-commit git des fichiers écrits (RM1834)")
+    for s in (s_add, s_parent, s_list, s_rm, s_sync):
+        out.add_args(s)
 
     args = ap.parse_args()
+    out.configure(args)
     cfg = PMConfig.load()
 
     if args.cmd == "add":

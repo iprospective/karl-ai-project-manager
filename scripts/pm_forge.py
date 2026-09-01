@@ -1,0 +1,736 @@
+#!/usr/bin/env python3
+"""pm_forge — abstraction de forge git (GitLab / Gogs / GitHub) — RM2498 (T2).
+
+Découple le PM de GitLab : les scripts (pm-mr, pm-protect, pm-promote…) appellent
+une interface `Forge` unique ; l'implémentation est choisie d'après le remote.
+
+Séparation des responsabilités :
+  - `pm_forge` = primitives *forge* (résoudre projet, créer/merger/lire une PR,
+    appel API, parse remote, tokens, capabilities). RIEN de spécifique au PM.
+  - les scripts appelants = *politique PM* (garde tripwire #13, rollback sha:null,
+    CF Redmine, idempotence, transitions de statut).
+
+`GitlabForge` reproduit EXACTEMENT le comportement historique de pm-mr (RM1871) :
+résolution par ID numérique (anti-%2F Apache, match exact path_with_namespace
+RM2219), attente de mergeabilité async, conservation de la branche source.
+
+Capabilities : certaines forges n'ont pas d'API pull request (Gogs) →
+`caps.pull_request_api == False` ⇒ l'appelant DÉGRADE (flux « lien compare »)
+au lieu d'échouer.
+"""
+import json
+import os
+import re
+import subprocess
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+
+class ForgeError(Exception):
+    pass
+
+
+# ── Structures légères ────────────────────────────────────────────────────────
+class ProjectRef:
+    """Projet résolu. `id` = id numérique (GitLab) ou None (Gogs/GitHub : owner/repo suffit)."""
+    def __init__(self, id, path, raw=None):
+        self.id = id
+        self.path = path            # path_with_namespace / owner/repo
+        self.raw = raw or {}
+
+
+class PrRef:
+    """Pull/Merge Request (ou lien de création si la forge n'a pas d'API PR)."""
+    def __init__(self, iid, source, target, web_url, state=None, sha=None,
+                 raw=None, is_compare_link=False):
+        self.iid = iid                       # numéro (None si compare-link)
+        self.source = source
+        self.target = target
+        self.web_url = web_url               # URL PR, ou URL « compare » (Gogs)
+        self.state = state
+        self.sha = sha
+        self.raw = raw or {}
+        self.is_compare_link = is_compare_link
+
+
+class Capabilities:
+    def __init__(self, pull_request_api, async_merge_status, access_level_model):
+        self.pull_request_api = pull_request_api      # POST/merge PR par API ?
+        self.async_merge_status = async_merge_status  # detailed_merge_status (GitLab) ?
+        self.access_level_model = access_level_model   # "gitlab" | "gitea" | "github"
+
+
+# ── Parse remote / détection de forge ─────────────────────────────────────────
+def parse_remote(url):
+    """(hint, repo_path) depuis une URL de remote. `hint` = alias/host servant à
+    choisir la forge. Gère alias SSH `gitlab:owner/repo`, `git@host:owner/repo`,
+    `ssh://git@host:port/owner/repo`, `https://host/owner/repo`."""
+    s = url.strip()
+    if s.endswith(".git"):
+        s = s[:-4]
+    if s.startswith(("http://", "https://", "ssh://")):
+        u = urllib.parse.urlparse(s)
+        return (u.hostname or ""), u.path.lstrip("/")
+    if ":" in s:                                    # scp-like / alias : host:owner/repo
+        host, path = s.split(":", 1)
+        if "@" in host:                             # git@host → host
+            host = host.split("@", 1)[1]
+        return host, path.lstrip("/")
+    return "", s.lstrip("/")
+
+
+# ── Registre d'instances (RM2766) ─────────────────────────────────────────────
+# Le registre `pm.config.yml :: providers.servers` porte l'URL, le type et les
+# alias SSH de chaque forge. Jusqu'ici `pm_forge` ne le consultait jamais : il
+# résolvait ses hôtes par variables GLOBALES (GITLAB_URL / GOGS_URL / GITHUB_URL),
+# donc une seule instance par TYPE de forge — la déclaration d'un projet était
+# correctement résolue par `pm-providers`, puis ignorée par toute opération.
+#
+# Les variables ne disparaissent pas : elles restent interpolées DANS le registre
+# (`url: "${GITLAB_URL:-…}"`) pour surcharger une instance par machine. Ce qui
+# cesse, c'est que le code les lise en parallèle, comme une seconde source de
+# vérité que le registre ne connaît pas.
+_REGISTRY = None
+_REGISTRY_LOADED = False
+# Types de forge implémentés ici : un registre peut déclarer autre chose (un jour),
+# on ne l'expose pas comme un hôte de forge exploitable.
+_IMPL_TYPES = ("gitlab", "gogs", "github")
+
+
+def set_registry(registry):
+    """Injecte le registre d'instances (`pm_registry.Registry`) ou None.
+
+    Sert aux appelants qui en tiennent déjà un, et aux tests — qui doivent
+    pouvoir décrire des instances fictives sans toucher à la conf de la machine.
+    """
+    global _REGISTRY, _REGISTRY_LOADED
+    _REGISTRY, _REGISTRY_LOADED = registry, True
+
+
+def _registry():
+    """Registre d'instances, chargé paresseusement et mis en cache. None si absent.
+
+    Best-effort ASSUMÉ : `pm_forge` doit rester utilisable hors d'un contexte PM
+    (cf. en-tête), et un registre absent ou incohérent doit dégrader vers le
+    comportement historique — les variables d'environnement — jamais faire échouer
+    une opération de forge. L'import est LOCAL pour la même raison.
+    """
+    global _REGISTRY, _REGISTRY_LOADED
+    if _REGISTRY_LOADED:
+        return _REGISTRY
+    _REGISTRY_LOADED = True
+    try:
+        import contextlib
+        import io
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        # `PMConfig.load()` DIAGNOSTIQUE l'absence de conf : il écrit sur stderr
+        # puis sys.exit() — utile à un script PM, hors sujet ici. On l'attrape
+        # (SystemExit n'hérite pas d'Exception) et on tait le message, sans quoi
+        # tout appelant hors contexte PM verrait passer une erreur qui n'en est
+        # pas une : l'absence de registre est un cas NORMAL de dégradation.
+        # `PM_CORE_DIR` désigne le core canonique quand on tourne depuis un clone
+        # de dev : même résolution que `pm-providers`, sinon un clone lirait SA
+        # conf au lieu de celle qui fait foi.
+        with contextlib.redirect_stderr(io.StringIO()):
+            _REGISTRY = Registry.from_config(
+                PMConfig.load(os.environ.get("PM_CORE_DIR") or None).providers)
+    except (Exception, SystemExit):         # noqa: BLE001 — hors PM, conf illisible…
+        _REGISTRY = None
+    return _REGISTRY
+
+
+def _forge_instances():
+    """Instances d'axe `forge` déclarées, utilisables (URL + type implémenté)."""
+    reg = _registry()
+    if reg is None:
+        return []
+    try:
+        return [i for i in reg.by_axis("forge")
+                if i.url and (i.type or "").lower() in _IMPL_TYPES]
+    except Exception:                       # noqa: BLE001
+        return []
+
+
+def _instance_url(instance):
+    return (getattr(instance, "url", "") or "").rstrip("/")
+
+
+def _instance_host(instance):
+    base = _instance_url(instance)
+    if not base:
+        return ""
+    return (urllib.parse.urlparse(base if "//" in base
+                                  else f"https://{base}").hostname or "").lower()
+
+
+def instance_aliases(instance):
+    """Alias SSH déclarés par une instance (`ssh_aliases:` au registre).
+
+    Les remotes passent massivement par des alias `~/.ssh/config` — `gitlab:…`,
+    `ssh://gogs@matnat-tools/…` — qui portent le port et la clé. Comparer l'URL
+    d'un remote à celle d'une instance ne suffit donc pas à les rattacher : sans
+    alias déclarés, la résolution « ce dépôt appartient à telle forge » reste
+    impossible pour la majorité des projets (`matnat-tools`, `matnat-git` ne
+    ressemblent à aucun nom de forge).
+    """
+    raw = (getattr(instance, "options", None) or {}).get("ssh_aliases") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(a).strip().lower() for a in raw if str(a).strip()]
+
+
+def instance_by_name(name):
+    """Instance de forge déclarée sous ce nom, ou None (jamais d'exception)."""
+    reg = _registry()
+    if reg is None or not name:
+        return None
+    try:
+        inst = reg.get(str(name))
+    except Exception:                       # noqa: BLE001 — nom inconnu
+        return None
+    return inst if (inst.type or "").lower() in _IMPL_TYPES else None
+
+
+def instance_for_host(host):
+    """Instance déclarée servant cet hôte, ou None. Match EXACT."""
+    h = (host or "").strip().lower()
+    return next((i for i in _forge_instances() if _instance_host(i) == h), None) if h else None
+
+
+def instance_for_hint(hint):
+    """Instance déclarée correspondant au hint d'un remote — alias SSH d'abord,
+    puis hôte. None si rien ne correspond : on ne devine jamais.
+
+    L'alias prime : il est plus spécifique (un tunnel `127.0.0.1:28022` ne dit
+    rien de la forge qu'il sert, l'alias qui le désigne, si).
+    """
+    h = (hint or "").strip().lower()
+    if not h:
+        return None
+    for inst in _forge_instances():
+        if h in instance_aliases(inst):
+            return inst
+    return instance_for_host(h)
+
+
+# RM2541 — formes d'URL de PR, par forge. Le chemin du dépôt est ce qui précède
+# le séparateur ; l'iid ce qui suit. GitLab intercale `/-/` (et supporte la forme
+# ancienne sans tiret) ; GitHub dit `pull`, Gogs/Gitea `pulls`.
+_PR_URL_SEPS = (("/-/merge_requests/", "gitlab"), ("/merge_requests/", "gitlab"),
+                ("/pull/", "github"), ("/pulls/", "gogs"))
+
+
+def _known_hosts():
+    """Hôtes de forge CONFIGURÉS (dict host → nom de forge). Sert de liste blanche
+    aux URL fournies par l'appelant : un PAT ne part jamais vers un hôte inconnu.
+
+    Sources, cumulées : les variables des implémentations (`GITLAB_URL`,
+    `GOGS_URL`, `GITHUB_URL`) avec leurs défauts, ET les instances d'axe `forge`
+    du registre (RM2766) — une instance déclarée vaut déclaration d'hôte.
+
+    Les variables gardent la main en cas de conflit : un déploiement sans
+    registre conserve EXACTEMENT sa liste blanche."""
+    hosts = {}
+    for var, default, name in (("GITLAB_URL", f"https://{GitlabForge.DEFAULT_HOST}", "gitlab"),
+                               ("GOGS_URL", "", "gogs"),
+                               ("GITHUB_URL", "https://github.com", "github")):
+        base = (os.environ.get(var) or default).strip()
+        if not base:
+            continue
+        h = urllib.parse.urlparse(base if "//" in base else f"https://{base}").hostname
+        if h:
+            hosts[h.lower()] = name
+    for inst in _forge_instances():
+        h = _instance_host(inst)
+        if h:
+            hosts.setdefault(h, (inst.type or "").lower())
+    return hosts
+
+
+def parse_pr_url(url):
+    """(nom_de_forge, repo_path, iid) depuis l'URL WEB d'une PR/MR — RM2541.
+
+    L'URL est auto-portante : hôte → forge, chemin → projet, fin → iid. C'est
+    l'identifiant canonique d'une PR, là où un iid nu n'a de sens que rapporté à
+    un dépôt (que le cwd décidait en silence : merger depuis le mauvais dossier
+    visait le mauvais projet).
+
+    L'hôte doit figurer parmi les forges CONFIGURÉES : sinon on refuse AVANT tout
+    appel, pour ne pas présenter un PAT à un hôte arbitraire."""
+    s = (url or "").strip()
+    if not s.startswith(("http://", "https://")):
+        raise ForgeError(f"URL de PR attendue (http[s]://…), reçu : {url!r}")
+    u = urllib.parse.urlparse(s)
+    host = (u.hostname or "").lower()
+    known = _known_hosts()
+    if host not in known:
+        raise ForgeError(
+            f"hôte '{host}' inconnu des forges configurées ({', '.join(sorted(known)) or 'aucune'}) "
+            f"— refus d'émettre un token vers un hôte non déclaré. "
+            f"Déclare la forge dans pm.config.yml :: providers.servers "
+            f"(axis: forge, type, url), ou par variable GITLAB_URL / GOGS_URL / GITHUB_URL.")
+    path = u.path.rstrip("/")
+    for sep, name in _PR_URL_SEPS:
+        if sep in path:
+            repo_path, _, tail = path.partition(sep)
+            iid = tail.split("/")[0]
+            if not iid.isdigit():
+                raise ForgeError(f"numéro de PR illisible dans l'URL : {url!r}")
+            repo_path = repo_path.strip("/")
+            if not repo_path:
+                raise ForgeError(f"chemin de dépôt absent dans l'URL : {url!r}")
+            # L'hôte fait foi sur la forge (un GitLab auto-hébergé peut porter
+            # n'importe quel nom) ; la forme du chemin ne sert qu'à découper.
+            return known[host], repo_path, int(iid)
+    raise ForgeError(
+        f"URL non reconnue comme une PR : {url!r} — formes attendues : "
+        f".../-/merge_requests/<n> (GitLab), .../pull/<n> (GitHub), .../pulls/<n> (Gogs).")
+
+
+def get_forge_from_pr_url(url, instance=None):
+    """(forge, iid) depuis l'URL d'une PR — sans dépôt local NI cwd. RM2541.
+
+    L'hôte de l'URL rattache la PR à son instance déclarée (RM2766) : deux
+    instances d'un même type de forge sont ainsi distinguées, là où la variable
+    globale n'en connaissait qu'une.
+    """
+    name, repo_path, iid = parse_pr_url(url)
+    inst = _as_instance(instance) or instance_for_host(
+        urllib.parse.urlparse(url.strip()).hostname)
+    impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
+    return impls[name](repo_path, instance=_instance_if_type(inst, name)), iid
+
+
+def _as_instance(instance):
+    """Accepte un objet instance OU un nom déclaré au registre. None sinon."""
+    if instance is None or isinstance(instance, str):
+        return instance_by_name(instance) if instance else None
+    return instance
+
+
+def _instance_if_type(instance, name):
+    """L'instance n'est retenue que si son type est bien la forge choisie.
+
+    Un `forge=`/`PM_FORGE` explicite doit rester souverain : lui faire porter
+    l'URL d'une instance d'un autre type produirait des appels silencieusement
+    dirigés vers la mauvaise forge.
+    """
+    if instance is None:
+        return None
+    return instance if (getattr(instance, "type", "") or "").lower() == name else None
+
+
+def forge_name(hint):
+    """Nom de forge depuis un hint (alias ou hostname). None si indéterminé."""
+    h = (hint or "").lower()
+    if "gogs" in h:
+        return "gogs"
+    if "github" in h:
+        return "github"
+    if "gitlab" in h:
+        return "gitlab"
+    return None
+
+
+def _git_remote_url(repo, remote="origin"):
+    r = subprocess.run(["git", "-C", str(repo), "remote", "get-url", remote],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        raise ForgeError(f"remote '{remote}' introuvable dans {repo}")
+    return r.stdout.strip()
+
+
+def _git_config_forge(repo):
+    """Lit `pm.forge` (git config local du dépôt). '' si absent."""
+    r = subprocess.run(["git", "-C", str(repo), "config", "--get", "pm.forge"],
+                       capture_output=True, text=True)
+    return r.stdout.strip() if r.returncode == 0 else ""
+
+
+def get_forge(repo=".", remote="origin", url=None, forge=None, instance=None):
+    """Fabrique : instancie la bonne forge pour le dépôt.
+
+    Priorité de sélection (nécessaire car un remote Gogs tunnelé en
+    `ssh://gogs@localhost:28022/…` n'est PAS détectable par son host) :
+      1. `instance=` explicite — nom déclaré au registre ou objet instance
+         (RM2766 : c'est ce que porte `providers.forge[].instance` d'un projet) ;
+      2. `forge=` explicite (appelant) ;
+      3. env `PM_FORGE` (gitlab|gogs|github) ;
+      4. `git config pm.forge` du dépôt (signal persistant, posé au clonage) ;
+      5. instance du registre rattachée au hint du remote — alias SSH ou hôte ;
+      6. détection d'après le host/alias du remote (défaut : GitLab, inchangé).
+
+    L'étape 5 précède la devinette par sous-chaîne : un remote `matnat-tools`
+    ou `matnat-git` ne ressemble à aucun nom de forge, mais l'instance qui
+    déclare cet alias, elle, dit son type. Sans registre, on tombe directement
+    de 4 à 6 — comportement historique, inchangé."""
+    if url is None:
+        url = _git_remote_url(repo, remote)
+    hint, repo_path = parse_remote(url)
+    inst = _as_instance(instance) or instance_for_hint(hint)
+    name = (forge or os.environ.get("PM_FORGE") or _git_config_forge(repo)
+            or (getattr(inst, "type", "") or "") or forge_name(hint) or "").lower()
+    impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
+    if name not in impls:
+        raise ForgeError(
+            f"forge non reconnue depuis le remote '{url}' (hint '{hint}'). "
+            f"Précise-la : `git config pm.forge gogs`, PM_FORGE=gitlab|gogs|github, "
+            f"ou déclare l'alias '{hint}' sur une instance "
+            f"(pm.config.yml :: providers.servers.<inst>.ssh_aliases).")
+    return impls[name](repo_path, instance=_instance_if_type(inst, name))
+
+
+# ── Base commune ──────────────────────────────────────────────────────────────
+class Forge:
+    """Interface. Les implémentations concrètes surchargent ce qui les concerne."""
+    name = "?"
+
+    def __init__(self, repo_path, instance=None):
+        self.repo_path = repo_path
+        # Instance du registre retenue pour ce dépôt (RM2766), ou None : dans ce
+        # cas l'implémentation retombe sur sa variable globale, à l'identique.
+        self.instance = instance
+
+    @property
+    def capabilities(self):
+        raise NotImplementedError
+
+    def token(self, role):
+        raise NotImplementedError
+
+    def resolve_project(self, token):
+        raise NotImplementedError
+
+    def find_open_pr(self, project, source, target, token):
+        raise NotImplementedError
+
+    def get_pr(self, project, iid, token):
+        raise NotImplementedError
+
+    def create_pr(self, project, source, target, title, description, token):
+        raise NotImplementedError
+
+    def merge_pr(self, project, iid, token, squash=False, keep_source=True):
+        raise NotImplementedError
+
+    def close_pr(self, project, iid, token):
+        raise NotImplementedError
+
+    def compare_url(self, source, target):
+        raise NotImplementedError
+
+
+# ── GitLab (iso-comportement pm-mr / RM1871) ──────────────────────────────────
+class GitlabForge(Forge):
+    name = "gitlab"
+    DEFAULT_HOST = "gitlab.iprospective.fr"
+    TOKEN_ENV = {"manager": "GITLAB_MANAGER_TOKEN", "worker": "GITLAB_WORKER_TOKEN"}
+
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        self.base = (_instance_url(instance) or os.environ.get("GITLAB_URL")
+                     or f"https://{self.DEFAULT_HOST}").rstrip("/")
+        self.api_base = self.base + "/api/v4"
+
+    @property
+    def capabilities(self):
+        return Capabilities(pull_request_api=True, async_merge_status=True,
+                            access_level_model="gitlab")
+
+    def token(self, role):
+        var = self.TOKEN_ENV[role]
+        tok = os.environ.get(var)
+        if not tok:
+            raise ForgeError(f"{var} absent du .env du PM (PAT karl-{role}, scope api).")
+        return tok
+
+    def api(self, method, path, token, fields=None):
+        """(status, parsed_json|None, raw). Jamais d'exception sur 4xx/5xx."""
+        url = path if path.startswith("http") else self.api_base + path
+        data = urllib.parse.urlencode(fields, doseq=True).encode() if fields else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("PRIVATE-TOKEN", token)
+        if data:
+            req.add_header("Content-Type", "application/x-www-form-urlencoded")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", "replace")
+                status = r.status
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            status = e.code
+        except Exception as e:
+            return 0, None, str(e)
+        try:
+            return status, json.loads(raw), raw
+        except Exception:
+            return status, None, raw
+
+    def _list_projects_paged(self, token):
+        page, acc = 1, []
+        while True:
+            st, data, raw = self.api("GET", f"/projects?membership=true&simple=true"
+                                            f"&per_page=100&page={page}", token)
+            if st != 200 or not isinstance(data, list):
+                raise ForgeError(f"énumération projets (HTTP {st}) : {raw[:200]}")
+            acc += data
+            if len(data) < 100:
+                return acc
+            page += 1
+
+    def resolve_project(self, token):
+        """ID numérique par match EXACT de path_with_namespace (RM2219, anti-%2F)."""
+        repo_path = self.repo_path
+        seg = repo_path.rstrip("/").split("/")[-1]
+        st, data, _ = self.api("GET", f"/projects?search={urllib.parse.quote(seg)}"
+                                      f"&per_page=100&membership=true", token)
+        cands = data if (st == 200 and isinstance(data, list)) else []
+        exact = [p for p in cands if p.get("path_with_namespace") == repo_path]
+        if not exact:
+            cands = self._list_projects_paged(token)
+            exact = [p for p in cands if p.get("path_with_namespace") == repo_path]
+        if len(exact) == 1:
+            p = exact[0]
+            return ProjectRef(p["id"], p["path_with_namespace"], p)
+        homonyms = sorted({p["path_with_namespace"] for p in cands if p.get("path") == seg})
+        raise ForgeError(
+            f"projet '{repo_path}' — {len(exact)} match exact (attendu 1), pas de "
+            f"fallback basename (RM2219). Homonymes '{seg}' : {', '.join(homonyms) or 'aucun'}.")
+
+    def _pr_from(self, mr):
+        return PrRef(mr.get("iid"), mr.get("source_branch"), mr.get("target_branch"),
+                     mr.get("web_url"), state=mr.get("state"), sha=mr.get("sha"), raw=mr)
+
+    def find_open_pr(self, project, source, target, token):
+        st, lst, _ = self.api("GET",
+            f"/projects/{project.id}/merge_requests?source_branch={urllib.parse.quote(source)}"
+            f"&target_branch={urllib.parse.quote(target)}&state=opened", token)
+        mr = lst[0] if (st == 200 and isinstance(lst, list) and lst) else None
+        return self._pr_from(mr) if mr else None
+
+    def get_pr(self, project, iid, token):
+        st, mr, raw = self.api("GET", f"/projects/{project.id}/merge_requests/{iid}", token)
+        if st != 200 or not mr:
+            raise ForgeError(f"MR !{iid} introuvable (HTTP {st}).")
+        return self._pr_from(mr)
+
+    def create_pr(self, project, source, target, title, description, token):
+        st, mr, raw = self.api("POST", f"/projects/{project.id}/merge_requests", token, fields={
+            "source_branch": source, "target_branch": target,
+            "title": title, "description": description,
+            "remove_source_branch": "false",
+        })
+        if not mr:  # corps vide/ambigu → re-GET pour confirmer
+            pr = self.find_open_pr(project, source, target, token)
+            if pr:
+                return pr
+            raise ForgeError(f"création MR (HTTP {st}) : {raw[:200]}")
+        return self._pr_from(mr)
+
+    def wait_mergeable(self, project, iid, token, attempts=8, delay=2.0):
+        base = f"/projects/{project.id}/merge_requests/{iid}"
+        last = None
+        for i in range(attempts):
+            st, mr, _ = self.api("GET", base, token)
+            if not mr:
+                raise ForgeError(f"MR !{iid} introuvable pendant l'attente (HTTP {st}).")
+            dms, ms = mr.get("detailed_merge_status"), mr.get("merge_status")
+            last = dms or ms
+            if dms == "mergeable" or (dms is None and ms == "can_be_merged"):
+                return self._pr_from(mr)
+            if dms in ("conflict", "broken_status") or ms == "cannot_be_merged":
+                hint = " — conflit à résoudre."
+                if mr.get("sha") is None:
+                    hint = (" — `sha:null` : la branche source n'existe pas sur ce projet "
+                            "(MR créée au mauvais endroit ? cf. RM2219).")
+                raise ForgeError(f"MR !{iid} non mergeable ({last}){hint}")
+            if i < attempts - 1:
+                time.sleep(delay)
+        raise ForgeError(f"MR !{iid} toujours non mergeable après {attempts} tentatives "
+                         f"(dernier état : {last}).")
+
+    def merge_pr(self, project, iid, token, squash=False, keep_source=True):
+        base = f"/projects/{project.id}/merge_requests/{iid}"
+        self.wait_mergeable(project, iid, token)
+        fields = {"should_remove_source_branch": "false" if keep_source else "true"}
+        if squash:
+            fields["squash"] = "true"
+        st, res, raw = self.api("PUT", base + "/merge", token, fields=fields)
+        state = res.get("state") if res else None
+        if state != "merged":
+            st2, mr2, _ = self.api("GET", base, token)
+            state = mr2.get("state") if mr2 else None
+        if state != "merged":
+            raise ForgeError(f"merge MR !{iid} (HTTP {st}, state={state}) : {raw[:200]}")
+        return state
+
+    def close_pr(self, project, iid, token):
+        self.api("PUT", f"/projects/{project.id}/merge_requests/{iid}", token,
+                 fields={"state_event": "close"})
+
+    def compare_url(self, source, target):
+        # GitLab a une API PR ; le compare web reste dispo mais inutilisé ici.
+        return f"{self.base}/{self.repo_path}/-/compare/{target}...{source}"
+
+
+# ── Gogs (pas d'API PR → flux « lien compare ») ───────────────────────────────
+class GogsForge(Forge):
+    name = "gogs"
+
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        self.base = (_instance_url(instance) or os.environ.get("GOGS_URL") or "").rstrip("/")
+
+    @property
+    def capabilities(self):
+        # ⚠ Gogs v1 n'expose AUCUN endpoint pull request (vérifié RM2410/RM5557).
+        return Capabilities(pull_request_api=False, async_merge_status=False,
+                            access_level_model="gitea")
+
+    def token(self, role):
+        # Optionnel : le flux « lien-compare » n'appelle aucune API Gogs (pas d'API
+        # PR) et le push utilise l'auth git du dépôt (clé SSH / helper), pas ce token.
+        return os.environ.get("GOGS_TOKEN", "")
+
+    def resolve_project(self, token):
+        # Gogs adresse par owner/repo directement (ni id numérique, ni %2F).
+        return ProjectRef(None, self.repo_path, {"owner_repo": self.repo_path})
+
+    def compare_url(self, source, target):
+        if not self.base:
+            raise ForgeError(
+                "URL de l'instance Gogs inconnue : impossible de construire l'URL compare. "
+                "Déclare la forge dans pm.config.yml :: providers.servers et rattache-la "
+                "au projet (providers.forge[].instance), ou pose GOGS_URL.")
+        return f"{self.base}/{self.repo_path}/compare/{target}...{source}"
+
+    def create_pr(self, project, source, target, title, description, token):
+        # Dégradation : pas d'API PR. On renvoie le lien de création (compare),
+        # l'appelant l'affiche / le pose en CF ; l'ouverture reste un geste web humain.
+        return PrRef(None, source, target, self.compare_url(source, target),
+                     state="compare", is_compare_link=True)
+
+    def find_open_pr(self, project, source, target, token):
+        return None  # pas d'API PR → pas de détection d'idempotence côté forge
+
+    def merge_pr(self, project, iid, token, squash=False, keep_source=True):
+        raise ForgeError("Gogs n'a pas d'API de merge de PR — merge web manuel.")
+
+
+# ── GitHub (vraie API pull request — RM2501/T5) ───────────────────────────────
+class GithubForge(Forge):
+    """GitHub — vraie API PR. Adressage par owner/repo (pas d'id numérique, comme
+    Gogs). Auth Bearer, corps JSON (≠ GitLab en form-urlencoded). États GitHub
+    (open/closed + booléen merged) normalisés en opened/closed/merged (comme GitLab),
+    pour que la politique PM de pm-mr reste inchangée."""
+    name = "github"
+
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        # `api_url` en option d'instance : GitHub Enterprise sert son API sur un
+        # hôte distinct du web, que le seul `url` ne permet pas de déduire.
+        api_opt = (getattr(instance, "options", None) or {}).get("api_url") or ""
+        self.api_base = (str(api_opt).strip() or os.environ.get("GITHUB_API_URL")
+                         or "https://api.github.com").rstrip("/")
+        self.web_base = (_instance_url(instance) or os.environ.get("GITHUB_URL")
+                         or "https://github.com").rstrip("/")
+
+    @property
+    def capabilities(self):
+        return Capabilities(pull_request_api=True, async_merge_status=False,
+                            access_level_model="github")
+
+    def token(self, role):
+        tok = os.environ.get("GITHUB_TOKEN")
+        if not tok:
+            raise ForgeError("GITHUB_TOKEN absent (PAT GitHub, scope repo).")
+        return tok
+
+    def api(self, method, path, token, fields=None):
+        """(status, parsed_json|None, raw). Corps JSON, auth Bearer. Jamais d'exception sur 4xx/5xx."""
+        url = path if path.startswith("http") else self.api_base + path
+        data = json.dumps(fields).encode() if fields is not None else None
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Bearer {token}")
+        req.add_header("Accept", "application/vnd.github+json")
+        req.add_header("X-GitHub-Api-Version", "2022-11-28")
+        if data:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                raw = r.read().decode("utf-8", "replace")
+                status = r.status
+        except urllib.error.HTTPError as e:
+            raw = e.read().decode("utf-8", "replace")
+            status = e.code
+        except Exception as e:
+            return 0, None, str(e)
+        try:
+            return status, json.loads(raw), raw
+        except Exception:
+            return status, None, raw
+
+    def resolve_project(self, token):
+        # GitHub adresse par owner/repo ; on vérifie l'existence (et le droit d'accès).
+        st, data, _ = self.api("GET", f"/repos/{self.repo_path}", token)
+        if st != 200 or not isinstance(data, dict):
+            raise ForgeError(f"projet GitHub '{self.repo_path}' introuvable (HTTP {st}).")
+        return ProjectRef(None, self.repo_path, data)
+
+    @staticmethod
+    def _state(pr):
+        if pr.get("merged") or pr.get("merged_at"):
+            return "merged"
+        return "opened" if pr.get("state") == "open" else "closed"
+
+    def _pr_from(self, pr):
+        return PrRef(pr.get("number"), (pr.get("head") or {}).get("ref"),
+                     (pr.get("base") or {}).get("ref"), pr.get("html_url"),
+                     state=self._state(pr), sha=(pr.get("head") or {}).get("sha"), raw=pr)
+
+    def find_open_pr(self, project, source, target, token):
+        st, lst, _ = self.api("GET",
+            f"/repos/{project.path}/pulls?state=open&base={urllib.parse.quote(target)}", token)
+        # Le filtre `head` de GitHub attend `owner:branch` (cross-repo) → on filtre
+        # en Python sur la branche source pour rester robuste en same-repo.
+        if isinstance(lst, list):
+            for pr in lst:
+                if (pr.get("head") or {}).get("ref") == source \
+                        and (pr.get("base") or {}).get("ref") == target:
+                    return self._pr_from(pr)
+        return None
+
+    def get_pr(self, project, iid, token):
+        st, pr, _ = self.api("GET", f"/repos/{project.path}/pulls/{iid}", token)
+        if st != 200 or not pr:
+            raise ForgeError(f"PR #{iid} introuvable (HTTP {st}).")
+        return self._pr_from(pr)
+
+    def create_pr(self, project, source, target, title, description, token):
+        st, pr, raw = self.api("POST", f"/repos/{project.path}/pulls", token, fields={
+            "head": source, "base": target, "title": title, "body": description or "",
+        })
+        if st in (200, 201) and isinstance(pr, dict) and pr.get("number"):
+            return self._pr_from(pr)
+        existing = self.find_open_pr(project, source, target, token)  # déjà ouverte ?
+        if existing:
+            return existing
+        raise ForgeError(f"création PR (HTTP {st}) : {raw[:200]}")
+
+    def merge_pr(self, project, iid, token, squash=False, keep_source=True):
+        # GitHub ne supprime PAS la branche source au merge (suppression séparée) →
+        # keep_source respecté par défaut. (Mergeabilité async non pollée en v1.)
+        st, res, raw = self.api("PUT", f"/repos/{project.path}/pulls/{iid}/merge", token,
+                                fields={"merge_method": "squash" if squash else "merge"})
+        if st == 200 and isinstance(res, dict) and res.get("merged"):
+            return "merged"
+        raise ForgeError(f"merge PR #{iid} (HTTP {st}) : {raw[:200]}")
+
+    def close_pr(self, project, iid, token):
+        self.api("PATCH", f"/repos/{project.path}/pulls/{iid}", token, fields={"state": "closed"})
+
+    def compare_url(self, source, target):
+        return f"{self.web_base}/{self.repo_path}/compare/{target}...{source}"

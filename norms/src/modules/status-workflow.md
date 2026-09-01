@@ -49,157 +49,72 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [a_tester_dev] ──── problèmes ───► [a_corriger] ───┤ corrections faites
         │ test dev OK                              │
         ▼                                          │
-[a_tester_demandeur] ── rejet ─────────────────────┤
-        │ validé (MR branche→dev, CF GIT PR, merge)
+[a_tester_demandeur] ── rejet ─────────────────────┤  (env DEV : le demandeur
+        │ validé par le demandeur sur DEV          │   valide sur l'env de dev)
+        │ (MR branche→dev, CF GIT PR, merge)       │
         ▼                                          │
-    [a_mep]                                        │
-        │ MR dev→preprod + déploiement preprod     │
+[a_tester_preprod] ── régression préprod ──────────┤  (env PRÉPROD : déploiement
+        │ recette préprod OK                       │   préprod qui suit dev, recette)
         ▼                                          │
-    [en_mep] ──── régression preprod ──────────────┘
-        │ tests preprod OK + MR preprod→prod + pull prod   (2 branches : MR dev→prod)
+    [a_mep]                                        │  (validé + en file de MEP —
+        │ MR préprod→prod + pull prod              │   PAS encore déployé)
+        │ (2 branches : MR dev→prod)               │
+        ▼                                          │
+    [en_mep] ──── régression prod ─────────────────┘  (EN PROD : déployé, dernière
+        │ vérif prod OK                                vérif avant fermeture)
         ▼
     [ferme]
 
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
+[a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
+[a_tester_preprod]   ──► [en_mep] (RM2920 : instruction « mets en prod » → MEP dans la foulée ; « preprod ok » → a_mep, file de MEP)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
+
+> **⚙ Refonte RM2893 (en cours de livraison — 2026-08-31).** Le tronçon aval a été
+> redéfini pour lever une confusion : le statut ne disait pas *où est le code*. Nouvelle
+> sémantique par environnement :
+>
+> | Statut | Env | Sens |
+> |---|---|---|
+> | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
+> | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
+> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
+>
+> Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*
+> d'`en_mep`. Désormais le déploiement prod se fait **en entrant** dans `en_mep`, qui
+> devient l'état « en prod, en attente de fermeture ». Motivation : le flux *deploy-first*
+> (déployer puis faire valider) n'avait aucun statut exprimant « en prod + à fermer »
+> (constat session 2026-08-28 : RM2575/2576/2885/2886 tous « en prod » mais posés en
+> `a_tester_demandeur`). Mapping Redmine, attribution et routing outillage mis à jour dans
+> le même lot (cf. § Mapping et `pm-task-status-update`). Les deux statuts Redmine existent
+> déjà : `a_tester_preprod` = id **20** « MEP/Tester en preprod » ; `en_mep` = id **22**
+> « MEP/Vérifier en prod » (aucune création/renommage).
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 Le workflow complet (branches, envs, MEP) est décrit en § *Cycle de
 développement → test → mise en production*.
 
-### Transitions valides
+### Flux court micro-tâches — v1.61.0 (RM2369, CDC RM2316 § S8)
 
-| De | Vers | Condition |
-|---|---|---|
-| `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `assigned_to` renseigné |
-| `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
-| `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
-| `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
-| `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
-| `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
-| `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
-| `en_cours` | `a_tester_demandeur` | dev terminé + `requires_agent_test` résolu à `non` (bypass passe agent-testeur) ; `demander` → demandeur tranche |
-| `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
-| `a_tester_dev` | `a_tester_demandeur` | test dev OK |
-| `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |
-| `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
-| `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
-| `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | **3 branches** : MR `dev`→`preprod` mergée + `preprod` déployée. **2 branches** : `dev` déployée en staging |
-| `en_mep` | `ferme` | tests preprod OK + **3 branches** : MR `preprod`→`prod_branch` / **2 branches** : MR `dev`→`prod_branch` + pull prod — `close_reason: resolu` |
-| `en_mep` | `a_corriger` | régression preprod (note dans journal) |
-| `a_corriger` | `en_cours` | — |
-| `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
-| `* (tout état)` | `ferme` | `close_reason` requis |
+**Critère** : `estimate.time_minutes ≤ 30` **et** pas de livrable code (audit
+éclair, doc courte, correction de données, assistance). Constat d'audit
+(RM2275) : sur ces tickets la cérémonie atteignait 40–59 % du coût.
 
-**Précondition de fermeture — sous-tâches.** Un ticket qui possède des
-**sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
-elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
-**refusée** tant qu'un enfant reste ouvert) — corollaire de la règle d'orchestration
-« un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
-(module `collaboration`, § *Propagation de complétion*).
+**Séquence** — mêmes statuts, mêmes notes (templatées § traceability), zéro
+infrastructure inutile :
 
-**Précondition de fermeture — relations bloquantes.** De même, un ticket **bloqué par**
-une relation `blocks` / `precedes` (= NORMS `depends_on`) ne peut être fermé tant que le
-ticket **source** reste ouvert — refus tout aussi **silencieux** que pour les sous-tâches.
-Ce n'est **ni** un problème de droit, **ni** de workflow, **ni** de tracker. (Vécu sur
-RM1813, bloqué par #1816 / #1814 / #1848 encore ouverts.)
+1. `pm-task-take <id> --no-branch` — en_cours + assignation, PAS de branche ni
+   d'env de session ;
+2. travail + entrée `.log.md` (le sémantique reste obligatoire) ;
+3. `pm-task-deliver <id> --summary -` — critères/protocole/routage inchangés.
 
-**Outil de diagnostic — `pm-task-blockers.py <id>` (réflexe).** Dès qu'une transition vers
-`ferme` (ou tout statut) est **refusée silencieusement**, lancer
-`scripts/pm-task-blockers.py <id>` : il liste en un coup les **relations bloquantes
-ouvertes** (blocks/precedes) ET les **sous-tâches ouvertes**, et dit **quoi clôturer
-d'abord** (`--json` pour l'outillage). À préférer au diagnostic manuel ci-dessous.
-
-> **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
-> `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
-> **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
-> rapportent alors « *permission 'Edit issues' manquante* », ce qui est une
-> **interprétation** (statut inchangé après PUT), **pas la vraie cause**. Ne pas
-> conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
-> ont les **mêmes** droits). Diagnostic autoritatif :
-> `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
-> non permise) puis `?include=children,relations` (un enfant non clos **ou** une relation bloquante ouverte = le blocage ; `pm-task-blockers.py` automatise les deux). Remède :
-> fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
-> parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
-
-> **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
-> cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
-> description du parent** quand il sert de **pilote** (référence « north-star » pour les
-> enfants) — c'est même souhaitable. Ce qui ne doit pas reposer sur le parent, c'est la
-> **clôture** de ce livrable : le parent restant bloqué ouvert tant que ses sous-tâches
-> d'implémentation ne sont pas fermées, créer une **sous-tâche dédiée** (« cadrage / CDC »)
-> que l'on clôt pour acter l'achèvement de l'étude. Principe : **dissocier le contenu de
-> référence (description du parent, pilote) de l'unité clôturable (sous-tâche).** Le parent
-> reste un **conteneur** dont la fermeture suit celle de ses enfants.
-
-### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
-
-Les deux premiers statuts du workflow ne sont **pas** une simple file d'attente
-administrative : ils matérialisent une **phase de travail à part entière**,
-réalisée **avant d'écrire la moindre ligne de code**. Aucun ticket non trivial ne
-passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
-
-| Statut NORMS | Redmine | Sens |
-|---|---|---|
-| `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
-| `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
-| `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
-
-**Contenu de l'étude** (`etude_chiffrage_en_cours`) :
-- **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
-- **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
-- **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
-  C'est le **livrable** de cette phase pour tout ticket non trivial.
-- **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
-
-**Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
-à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
-**ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
-que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
-développement. C'est le pendant amont du `a_tester_demandeur` aval.
-
-**Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
-- `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
-- `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
-- `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
-
-Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase
-jusqu'à sa fermeture : le livrable *est* l'étude, pas du code. À l'inverse, un ticket
-en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. transitions).
-
-**Synchronisation Redmine** : ces trois statuts sont mappés (§ *Mapping NORMS → Redmine*,
-ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
-(`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
-un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
-
-### Transitions « assignee-only » — v1.31.0
-
-Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket
-est assigné au compte API courant** (karl, id 79). C'est notamment le cas des deux
-transitions qui *soumettent au demandeur* :
-
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` (Redmine **14 → 21**) ;
-- `* → a_tester_demandeur` (Redmine → **9**).
-
-Or ces transitions s'accompagnent justement d'une **réattribution au demandeur**. Si
-l'on pousse `status_id` **et** `assigned_to_id` (= demandeur) dans le **même PUT** alors
-que le compte API n'est pas (encore) l'assigné, Redmine évalue le workflow sur l'assigné
-**avant** mise à jour → la transition est **refusée silencieusement** : `HTTP 204` mais
-statut inchangé (faux diagnostic « permission *Edit issues* manquante »).
-
-**Règle d'exécution (gérée automatiquement par `redmine-post-note.py`)** : avant un PUT
-de statut, si le statut cible n'est pas dans `allowed_statuses` et que le compte API
-n'est pas l'assigné courant, **s'auto-assigner d'abord** (PUT préalable) pour débloquer
-la transition, **puis** faire le PUT principal (statut + réattribution finale au
-demandeur). Conséquence visible : un journal d'assignation supplémentaire (→ karl, puis
-→ demandeur). Ne **jamais** contourner en fixant le statut « en dur ». Le mapping inverse
-Redmine→NORMS (`pm-task-sync.py`) doit connaître l'id **21** sous peine de laisser le MD
-périmé sur `etude_chiffrage_en_cours`.
+Travail déjà fait au moment de la création → `pm-task-add --retro` (le ticket
+traverse la machine d'états en un appel). Un micro-ticket qui grossit en cours
+de route (code nécessaire) repasse au flux standard : `pm-task-take <id>`
+(idempotent) crée branche + env à ce moment-là.
 
 ### Tâche
 
@@ -213,48 +128,6 @@ périmé sur `etude_chiffrage_en_cours`.
 - `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
 - `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
   Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
-
-### Workflow multi-tour (reprise après notes du demandeur)
-
-Quand un ticket revient à un worker (réattribution, ou statut passe à `a_corriger`),
-le worker doit ne traiter que les **nouveautés** depuis sa dernière vue du ticket.
-
-Champs du frontmatter de la tâche :
-- `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
-- `redmine_last_checked_at: <str iso>` — timestamp du dernier check
-
-Protocole de reprise :
-1. `scripts/redmine-fetch-updates.py --issue <id>` → affiche tous les journaux
-   postérieurs à `redmine_last_journal_id`, et met à jour ce champ
-2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
-3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
-4. Appliquer le travail demandé selon le protocole worker standard
-5. Resoumettre via `redmine-post-note.py --norms-status a_tester_demandeur` (qui
-   réattribue automatiquement au demandeur)
-
-Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
-**dernière entrée existante** au moment du fetch, pour que le worker ne traite que
-ce qui se passe **après** sa prise en charge.
-
-**Persistance dans le journal** : `redmine-fetch-updates.py` appende chaque nouveau
-journal Redmine récupéré au fichier `.log.md` de la tâche (append-only, conforme
-NORMS). Format d'entrée :
-
-```markdown
-## YYYY-MM-DDTHH:MM — Redmine #<journal_id> — <auteur Redmine>
-Source : Redmine (sync via redmine-fetch-updates)
-
-Changements :
-- `field` : `old` → `new`
-- ...
-
-Note (verbatim) :
-> ligne 1
-> ligne 2
-```
-
-Le worker peut ainsi retrouver l'historique complet des échanges (côté Redmine ET
-côté agent) en relisant simplement le `.log.md`, sans avoir à re-fetcher l'API.
 
 ### Synchronisation des statuts MD ↔ Redmine (obligatoire)
 
@@ -291,10 +164,16 @@ définitive sur l'instance). Plus aucun script ne le consulte.
   1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
   2. `author ≠ karl` avec email accessible → cet `author`
   3. fallback (email inaccessible) → Manager IA
+- Passage en `a_tester_preprod` (RM2893, **optionnel**) → ré-attribuer au **responsable
+  recette préprod** (par défaut le **demandeur** — même résolveur que `a_tester_demandeur` ;
+  configurable par projet). Étape sautée si le projet n'a pas d'env préprod
+  (`a_tester_demandeur` → `a_mep` direct).
 - Passage en `a_mep` → ré-attribuer au **responsable MEP / intégration** (par défaut
   Manager IA ou orchestrateur ; configurable par projet).
-- Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
-  en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
+- Passage en `en_mep` (RM2893, **redéfini = en prod, dernière vérif avant fermeture**) →
+  ré-attribuer au **demandeur** (author) pour la vérification finale en prod avant clôture
+  (même résolveur que `a_tester_demandeur`). ⚠ Ancienne sémantique « testeur préprod »
+  dépréciée.
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
 - Passage en `en_pause` → **conserver** l'attribution courante (la tâche reste
@@ -361,11 +240,22 @@ Statut Redmine (un seul terminal `Fermé`) :
 | `en_cours` | En cours | 2 |
 | `a_tester_dev` | A tester/vérifier dev | 19 |
 | `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
+| `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
 | `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` | MEP/Tester en preprod | 20 |
+| `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
 | `en_pause` | Attente retour / en pause | 13 |
 | `a_corriger` | A corriger/finir | 11 |
 | `ferme` (toutes raisons) | Fermé | **18** |
+
+> **RM2893 — migration du mapping (2026-08-31).** Les deux statuts Redmine existaient déjà
+> et leurs libellés collent : **aucune création ni renommage**. Seul changement d'id :
+> `en_mep` passe de **20 → 22** (« MEP/Vérifier en prod »), et le statut **20**
+> (« MEP/Tester en preprod ») devient `a_tester_preprod`. Les tickets déjà au statut 20
+> (préprod) sont donc réinterprétés `en_mep`→`a_tester_preprod` — sémantiquement exact,
+> ils restent au même statut Redmine ; leur frontmatter MD se réaligne au prochain
+> `pm-task-sync`. ⚠ Vérifier que les transitions de workflow Redmine (par rôle/tracker)
+> autorisent bien l'entrée en 20 depuis `a_tester_demandeur` et en 22 depuis `a_mep`
+> (sinon le PUT échoue silencieusement — cf. `knowledge/redmine/gotchas.md`).
 
 `a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
 `a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le

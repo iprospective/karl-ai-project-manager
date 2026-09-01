@@ -29,7 +29,10 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_tags
 import pm_hierarchy
+from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
+from redmine_utils import api_ts_local
 
 try:
     import yaml
@@ -90,7 +93,7 @@ def fetch_issue(url, key, issue_id):
 
 
 def fmt_journal_md(j):
-    when = (j.get("created_on") or "").replace("Z", "")[:16]
+    when = api_ts_local(j.get("created_on"))
     lines = [f"## {when} — Redmine #{j['id']} — {j['user']['name']}",
              "Source : Redmine (sync via pm-task-sync)", ""]
     for d in (j.get("details") or []):
@@ -145,6 +148,25 @@ def diff_fields(fm, issue):
             if new_close:
                 diffs["close_reason"] = (fm.get("close_reason"), new_close)
 
+    # Étiquettes (RM2829, sémantique RM2840) — la relecture est ADDITIVE, et ne
+    # supprime que ce qui a été RÉELLEMENT retiré côté Redmine.
+    #
+    # Le piège évité : le CF ne porte que le vocabulaire contrôlé. Un ticket qui
+    # porte `cockpit` (mot-clé local, sans équivalent possible) et `front`
+    # perdrait `cockpit` si on remplaçait la liste locale par celle du CF — à
+    # chaque refresh, en silence. « Absent du CF » ne veut pas dire « retiré ».
+    #
+    # Ce qui a été retiré, les journaux le disent : un CF multi-valeurs émet une
+    # entrée par valeur (old_value=45, new_value=null). On ne lit que les
+    # journaux postérieurs au dernier vu ; sans ce repère, on n'ôte rien.
+    rm_tags = pm_tags.from_issue(issue)
+    cur_tags = pm_tags.clean(fm.get("tags") or [])
+    retires = pm_tags.removed_since(issue.get("journals"),
+                                    fm.get("redmine_last_journal_id"), pm_tags.cf_id())
+    plan_tags = pm_tags.pull_plan(cur_tags, rm_tags, retires)
+    if plan_tags["tags"] != cur_tags:
+        diffs["tags"] = (cur_tags, plan_tags["tags"])
+
     # Assigned_to (id Redmine du responsable courant)
     rm_assignee = (issue.get("assigned_to") or {}).get("id")
     if rm_assignee is not None and fm.get("assigned_to") != rm_assignee:
@@ -168,7 +190,7 @@ def diff_fields(fm, issue):
         diffs["parent_task"] = (fm.get("parent_task"), rm_parent)
 
     # Updated timestamp (always refresh)
-    new_updated = (issue.get("updated_on") or "").replace("Z", "")[:16]
+    new_updated = api_ts_local(issue.get("updated_on"))
     if new_updated and fm.get("updated") != new_updated:
         diffs["updated"] = (fm.get("updated"), new_updated)
 
@@ -192,7 +214,7 @@ def apply_to_fm(fm, diffs, now):
 def write_md(path, fm, body):
     yaml_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False,
                              default_flow_style=False, width=120).rstrip()
-    path.write_text(f"---\n{yaml_fm}\n---\n{body}", encoding="utf-8")
+    atomic_write(path, f"---\n{yaml_fm}\n---\n{body}")  # T7 : atomique
 
 
 def sync_one(cfg, url, key, rm_id, args):
@@ -282,7 +304,7 @@ def main():
 
     cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
     if not (url and key):
         sys.exit("ERREUR : REDMINE_URL + REDMINE_USER_MAIN_API_KEY requis (.env)")
 
@@ -303,9 +325,11 @@ def main():
         ids = sorted(set(ids))
         print(f"Sync {len(ids)} tâche(s)…")
         for rm_id in ids:
-            sync_one(cfg, url, key, rm_id, args)
+            with ticket_lock(cfg.state_dir, rm_id):  # T7 : sérialise par ticket (séquentiel)
+                sync_one(cfg, url, key, rm_id, args)
     else:
-        sync_one(cfg, url, key, args.rm_id, args)
+        with ticket_lock(cfg.state_dir, args.rm_id):  # T7
+            sync_one(cfg, url, key, args.rm_id, args)
 
 
 if __name__ == "__main__":

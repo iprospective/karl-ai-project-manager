@@ -1,10 +1,10 @@
 ---
-schema_version: "1.51.0"
-updated: 2026-06-23
+schema_version: "2.9.1"
+updated: 2026-08-27
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-
-# Normes de gestion des tâches — v1.51.0
+# Normes de gestion des tâches — v2.9.1
+# Normes de gestion des tâches — v2.7.1
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -28,13 +28,20 @@ updated: 2026-06-23
 | je résous un chemin PM | `modules/structure-reference.md` (jamais de hardcode) | `pm_paths.PMConfig` |
 | je commence à coder un ticket (branche) | `modules/git-mep.md` | `pm-branch-start` |
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
+| le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` | `pm-task-status-update` |
+| je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
+| je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
+| je cherche la transition exacte permise, je qualifie en phase d'étude, une transition m'est refusée (assignee-only), ou un ticket revient avec des notes | `modules/status-workflow-pratique.md` (hors précharge) | `pm-task-status-update --list-next` |
 | je prends une tâche (passage en_cours) | **tripwire #5** + `modules/status-workflow.md` | `pm-task-status-update` |
 | fin de dev / routing vers test | `modules/status-workflow.md` (`requires_agent_test`) | `pm-task-status-update` |
+| le demandeur formule une demande (quelle qu'elle soit, même si elle sera ticketée dans la minute) | `modules/session-tooling.md` § « Registre des demandes » | `pm-session-status.py request` |
+| un événement notable arrive en séance (secret affiché, action refusée, garde-fou déclenché, outil PM en défaut, décision qui bloque) | `modules/session-tooling.md` § « Notifications importantes » | `pm-session-status.py notify` |
 | un ticket me revient (a_corriger / réattribution) | `modules/status-workflow.md` | `redmine-fetch-updates` |
 | le ticket a une checklist / desc périmée / done_ratio bouge | `modules/redmine-hygiene.md` | `pm-task-description-update` |
 | j'introduis/fais évoluer une donnée ou un artefact partagé Redmine↔PM (champ, vue, template, doc, métrique) | `modules/redmine-sync.md` (principe de parité) | scripts de sync dédiés |
+| je produis un livrable documentaire (audit, CDC, spec, roadmap, rapport) | `modules/redmine-sync.md` (format portable : markdown en repo, jamais un artefact LLM-spécifique) | `pm-wiki-sync` |
 | je commit / franchis une étape significative | `modules/traceability.md` (note + log + métriques) | `pm-task-report` |
 | un échange porte une décision / arbitrage sur la tâche | `modules/traceability.md` (journaliser au fil de l'eau) | — |
 | je crée un ticket | **tripwire #7** (CF IA) + estimation | `pm-task-add` |
@@ -42,11 +49,15 @@ updated: 2026-06-23
 | un projet sert plusieurs clients / implémente un général | `modules/project-modeling.md` | `pm-doctor`, `pm-sync-views` ⚠ |
 | je documente un aspect / cahier des charges | `modules/project-modeling.md` (aspects) | — |
 | je crée / répare le lien workspace↔PM | `modules/structure-reference.md` | `pm-sync-links` ⚠ |
+| je note / cherche un contact d'un client | `modules/project-modeling.md` (§ Contacts) | `pm-client-contact` |
 | je me connecte à / référence un environnement | `modules/environments.md` | `ssh_alias` |
+| j'écris ou j'édite un aspect `environments.md` (noms d'env, champs, `post_deploy`, chemins de logs) | `modules/environments-reference.md` (hors précharge) | `templates/aspects/common/environments.md` |
 | je manipule un secret / credential | **tripwire #11** + `modules/environments.md` | `resolve-secret.sh` |
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
+| une tâche est dans le mauvais projet PM (ou déplacée côté Redmine) | `modules/session-tooling.md` | `pm-task-move` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
+| micro-tâche (≤ 30 min, sans code) | `modules/status-workflow.md` § flux court | `pm-task-take --no-branch`, `pm-task-add --retro` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
 | je suis l'orchestrateur (assignation, sous-tâches, propagation) | `modules/collaboration.md` | — |
 | je génère les fichiers auto (Changelog/Pistes/Remarques) | `modules/summarizer.md` | — |
@@ -61,16 +72,19 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 
 1. **Outillage obligatoire.** Toute opération touchant l'**état** d'une tâche, une **branche**, un **repo/submodule** ou un **ticket Redmine** passe par le **script/skill PM dédié**, jamais à la main. Pas d'outil pour une telle opération = **trou à combler** (créer le script), pas une exception manuelle. → `modules/session-tooling.md`
 2. **Commit + push systématique.** Après toute modif d'un fichier PM (ai-projects) ou du workspace de code : `git add <chemins explicites>` + commit + **push immédiat**. **Jamais `git add .` / `-A`** ; ne stage et ne commit **que tes propres modifs** (repos partagés souvent dirty en concurrence). → `modules/git-mep.md`
-3. **Branche par ticket + livraison par MR.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé). → `modules/git-mep.md`
+3. **Branche par ticket + livraison par MR — sur les dépôts de CODE.** Coder un ticket = sur une branche `<RMid>-<slug>` tirée de la branche d'intégration (jamais directement dessus) ; renseigner le CF Redmine *GIT Branche*. **Livraison = Merge Request** sur le remote (jamais un merge poussé en direct sur l'intégration), et **la branche distante est CONSERVÉE** après merge (suppression d'une branche distante = accord explicite requis ; autoriser un merge ≠ autoriser une suppression). Ménage des branches mergées **uniquement en local**. **Aucun commit/push direct sur une branche protégée** — intégration (`dev`) **ET** prod (`main`/`master`) : tout passe par branche de ticket + MR, y compris la **promotion `dev`→prod** (modèle 3 branches). Un commit direct sur `main` court-circuite la promotion → divergences et collisions de version ; à **enforcer côté GitLab** (protection de branche : push direct interdit, seul le merge de MR autorisé).
+   **Exception — dépôts de DONNÉES PM (`*-core`), RM2440 :** un dépôt portant un `.mmi-pm/` ou `.mmi-pm-client/` **réel** à sa racine (*symlink* = workspace de code, **pas** un core) n'a ni code ni revue possible — l'historique git **est** l'audit. Sa branche de prod accepte le **push direct** (`push=Developer`) : les scripts pm-* y écrivent sans branche ni MR. Pas un contournement : `allow_force_push=false` reste posé, l'historique ne peut que **croître**. → `modules/git-mep.md`
 4. **Sync statut MD↔Redmine.** Tout changement de `status` se répercute **dans le même cycle** : Redmine (status_id + note) + frontmatter (`status`, `status_history`, `updated`) + `.log.md`. **Toujours** via `pm-task-status-update.py`, **jamais** un statut « en dur » ; demande les cibles valides via `--list-next`. **Fermeture bloquée par sous-tâche ouverte** : un parent ne passe `ferme` que si **toutes ses sous-tâches sont elles-mêmes fermées** — sinon Redmine **refuse silencieusement** (PUT 204, statut inchangé, faux air de « permission *Edit issues* manquante »). Ne pas s'acharner ni conclure « droits » : vérifier `GET /issues/<id>.json?include=children` (et `allowed_statuses`). → `modules/status-workflow.md`
 5. **Prise en charge ⇒ auto-assignation.** Passer une tâche en `en_cours` **implique**, dans le même mouvement, se l'**assigner** (`assigned_to`). Pas d'`en_cours` flottant. → `modules/status-workflow.md`
 6. **redmine_id obligatoire.** Toute tâche/projet MD est reliée à son équivalent Redmine ; nom de fichier `RM{id}_…` cohérent avec `redmine_id`. → `modules/status-workflow.md`
 7. **Filtrage IA.** Tout ticket créé depuis le système PM porte le CF `IA = "IA"` (posé par les outils au POST). Pas de MD local sans CF IA. → `modules/redmine-reference.md`
 8. **Estimation.** Estimer (tokens + temps) **à la création** d'une tâche, et **à la prise** si l'estimation manque. → `modules/roi-pricing.md`
 9. **Description vivante.** Si le ticket a une **checklist** ou un état décrit en prose : la tenir à jour **dans la description** (pas seulement en note), + `done_ratio` au fil de l'eau. → `modules/redmine-hygiene.md`
-10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. → `modules/git-mep.md`
-11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le master password Vaultwarden. → `modules/environments.md`
+10. **Sécurité prod.** Aucune commande susceptible de modifier/casser la **production** sans **consentement humain explicite pour cette action précise**. Inspecter en lecture seule, proposer la commande exacte, attendre le feu vert ; un accord ne vaut pas pour l'étape suivante. **Point de restauration préalable** : si la cible tourne sur une infra **opensvc / LXC / ZFS**, prendre le **snapshot ZFS du conteneur depuis l'hôte AVANT la MEP** (`om <svc> sync update --rid sync#root_hour`) — il tient lieu de sauvegarde préalable (pas de dump applicatif ad hoc en plus), et son nom se logue avec la procédure de rollback. → `modules/git-mep.md`
+11. **Secrets.** Jamais commités, loggués, écrits sur disque ni dans un transcript ; jamais demander le secret de déverrouillage d'un vault (master password, passphrase). → `modules/environments.md`
 12. **Traçabilité par étape.** À chaque étape significative : commit + **note Redmine** (détail + réf commit + temps/tokens) + entrée `.log.md`. → `modules/traceability.md`
+13. **Jamais d'identifiant séquentiel prédit — RM-id, iid de MR, ou autre.** Ne **jamais** saisir de mémoire un id issu d'une séquence partagée (« dernier vu + 1 ») : Redmine ET GitLab séquencent **globalement à l'instance** (plusieurs agents/projets créent en concurrence), le prochain numéro n'est **pas prévisible** (incidents : RM2142, RM2163, branche 2219→RM2222, merge de la MR !122 d'une autre session). **INTERDIT** (décision Mathieu 2026-07-11) : tout numéro se **capture de la sortie d'un script**, jamais ne s'infère. Outillage : `ID=$(pm-task-add … --porcelain)` ou `--start-branch` (atomique) ; `IID=$(pm-mr create … --porcelain)` ou `pm-mr create --merge` (atomique) ; `pm-mr merge --expect-rm <id>` (garde). Gardes automatiques : refus pm-mr sur branche divergente, hook git pre-push. → `modules/session-tooling.md`
+14. **Résolution projet→Redmine précise (jamais par slug nu).** Cibler un projet pour une opération Redmine (sync wiki, note, description, stats…) se fait par référence **non ambiguë** — `client/slug` (ex. `matnat/infra`) ou `redmine.project_id` unique (ex. `matnat-infra`) —, **jamais** par match de slug nu : plusieurs clients partagent un même slug (ex. `infra` chez abatik/calicote/calyclay/matnat/pisceen) et un match « premier arrivé » écrit **silencieusement dans le mauvais projet Redmine**. Un slug **ambigu**, ou un projet **sans `redmine.project_id` en conf** (`meta.yml`), ⇒ **erreur bloquante** (« pas de projet Redmine précis → on n'avance pas »), jamais de choix silencieux. Outillage : `PMConfig.resolve_project_ref(ref, require_redmine=True)`. (incident : RM2410 → `pm-wiki-sync infra` ciblait abatik au lieu de matnat.) → `modules/redmine-reference.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -80,9 +94,11 @@ Les tripwires **structurels** (propriété exclusive du fichier, optimistic lock
 
 **Redmine est le mutex. Les fichiers MD sont le contexte de travail.**
 
-L'assignation d'un ticket Redmine à un agent lui confère la **propriété exclusive** du fichier MD correspondant. Aucun autre agent ne doit écrire dans ce fichier tant que l'assignation est active.
+L'assignation d'un ticket Redmine à un agent lui confère la **propriété** du fichier MD correspondant (coordination de 1er niveau) ; en multi-dev, l'accès concurrent réel est **sérialisé par ressource** (`flock`), pas garanti par un unique écrivain.
 
 L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). Ce qui doit être coordonné, c'est uniquement l'accès aux fichiers.
+
+**Multi-utilisateur (v2.0.0) :** données communes partagées (groupe `pm`), accès concurrent **sérialisé par ressource** (`flock`), karl = admin via `sudo` humain. → `modules/collaboration.md`.
 
 ### Règles d'écriture
 
@@ -96,7 +112,7 @@ L'inférence LLM est déjà distribuée par nature (appels API vers Anthropic). 
 
 ### Protocole optimistic locking
 
-Filet de sécurité contre les écritures simultanées accidentelles. Doit se déclencher rarement si les règles de propriété sont respectées.
+Filet inter-machine contre les écritures simultanées ; complète les verrous `flock` (même machine). Rare si propriété et verrous sont respectés.
 
 ```
 1. Agent lit le fichier, note la valeur courante de updated (T1)
@@ -178,7 +194,7 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 ## Valeurs énumérées
 
 ### type
-`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `database` | `design` | `research` | `maintenance` | `assistance`
+`audit` | `feature` | `bugfix` | `refactoring` | `documentation` | `security` | `performance` | `infrastructure` | `configuration` | `database` | `design` | `research` | `maintenance` | `assistance`
 
 ### status
 `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | `a_faire` | `en_cours` | `a_tester_dev` | `a_tester_demandeur` | `a_mep` | `en_mep` | `en_pause` | `a_corriger` | `ferme`
@@ -226,8 +242,70 @@ Tokens : 3 200 | Durée : 15 min
 Résumé de ce qui a été fait...
 ```
 
-> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je crée/répare le lien workspace↔PM.
+> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je me demande dans quel dépôt committer (code vs structure) · je crée/répare le lien workspace↔PM.
 > **Outils :** `pm_paths.PMConfig`, `pm-sync-links`⚠ · **Préchargé par :** worker-infra.
+
+### Anatomie d'un projet — le core, `repos/` et `envs/`
+
+**Un projet est défini par un dossier `.mmi-pm`.** Ce dossier vit dans le **core** du
+projet : le dépôt git à la racine du workspace, qui ne **révisionne que `.mmi-pm/`** par
+défaut (tout le reste — code, données, démos — y est gitignoré). Le core porte donc la
+**définition du projet** (`project/`, `docs/`, `tasks/`, `memory/`) et rien d'autre.
+
+Autour du core, deux dossiers structurent le **code** :
+
+```
+<workspace>/                     # = CORE du projet — dépôt git, remote `<Projet>-core.git`
+  .mmi-pm/                       # LE projet : project/ docs/ tasks/ memory/  (seul révisionné par le core)
+  repos/
+    <repo>.git                   # dépôt de CODE, bare — la SOURCE
+  envs/
+    <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
+    <repo>-rm<RMid>              # WORKTREE de ticket (pm-branch-start --worktree, pm-env-session create)
+    <repo>-rm<RMid>-s<seq>       # … suffixé UNIQUEMENT si le canonique sert déjà une autre branche
+  …                              # data/, démos, .claude/ … gitignoré par le core
+```
+
+Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
+`git-mep` pour le workflow branche/worktree par ticket).
+
+**Nommage des worktrees — convention unique `<repo>-rm<RMid>` (RM2523).** Le nom
+dérive du **dépôt** (`repos/<repo>.git`), jamais du worktree depuis lequel on
+lance la commande. Le faire dériver du worktree courant — ce que faisait
+`pm-branch-start` — concatène son nom à chaque création en cascade et produit des
+`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…` (7 cas sur le workspace PM en 2026-08).
+Même règle pour le champ `git.repo` du frontmatter : il porte le nom canonique du
+dépôt, pas celui d'un worktree ; les valeurs héritées sont normalisées à
+l'écriture. Le suffixe `-s<seq>` ne sert qu'à départager deux sessions sur un même
+ticket. Un worktree se **résout par sa branche** (`<RMid>-<slug>`), jamais par son
+nom deviné — c'est ce qui rend le nommage indifférent à l'outillage.
+
+**Deux dépôts, deux destinations de commit — ne jamais les confondre :**
+
+| Ce que tu commites | Où | Dépôt / remote | Protection de la branche de prod |
+|---|---|---|---|
+| **Travail / code** (src, tests, config appli) | un **worktree** sous `envs/` | dépôt de code (`repos/<repo>.git` → ex. `worm-web-orm`) | push **personne** → branche de ticket + **MR** |
+| **Structure / projet** (tâches, docs, overview, mémoire — tout `.mmi-pm/`) | le **core** (racine du workspace) | dépôt core (ex. `Worm-core.git`) | push **Developer** → écriture **directe** des scripts pm-* |
+
+Les commits de code partent vers le remote du **code** ; les auto-commits PM (`pm-*`,
+qui ne touchent que `.mmi-pm/`) partent vers le remote du **core**. **Corollaires
+structurels** (invariants pour l'outillage) :
+
+- un dépôt porteur d'un `.mmi-pm` à sa racine **est un core**, **jamais** une cible de
+  branche de code — le code se branche dans un worktree `envs/` tiré de `repos/` ;
+- un worktree `envs/` n'est **jamais** l'endroit où l'on commite une tâche/doc PM ;
+- le marqueur doit être un **dossier réel** : dans un workspace de code, `.mmi-pm` est
+  un **symlink** vers le dossier PM centralisé — ce workspace n'est **pas** un core et
+  sa branche de prod reste protégée comme du code (RM2440). C'est le test qui distingue
+  les deux régimes de protection ci-dessus, implémenté une seule fois dans
+  `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
+
+La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
+GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
+régime, l'historique ne peut que croître.
+
+**Même motif au niveau entité/client** : une entité a son propre **`.mmi-pm-client`**
+(core client), porté par son dépôt dédié.
 
 ### Repo project-management (système, public)
 
@@ -264,11 +342,24 @@ project-management/                   # racine : pm.config.yml :: roots.pm_dir
     cron.example.sh
 ```
 
-### Repo projets (privé, gitignored dans le repo PM)
+### Repo projets (index centralisé)
 
 Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
 Structure interne définie par les patterns de `paths:` — la représentation
 ci-dessous montre la **résolution par défaut**.
+
+> **⚠ Sens du lien inversé — `projects_root` est un INDEX, plus le stockage.**
+> Historiquement cette arbo **contenait** les données PM et le `.mmi-pm` de chaque
+> workspace y **pointait** (symlink entrant). Le modèle canonique actuel est
+> **inversé** : la source de vérité est le **`.mmi-pm` du core** de chaque projet (cf.
+> « Anatomie d'un projet » ci-dessus), et chaque
+> `projects_root/{entity_projects_dir}/<P>` est un **symlink SORTANT** vers ce
+> `.mmi-pm`. `projects_root` est donc un **index** de liens vers les cores — maintenu
+> par `mmi-pm index add|rebuild` (reconstruit depuis les emplacements canoniques
+> `.mmi-pm` / `.mmi-pm-client`) —, pratique pour que l'orchestrateur scanne tous les
+> projets d'un coup (`cfg.iter_projects()`), mais ce **n'est plus** l'endroit où vivent
+> les tâches/docs. L'arbre par défaut ci-dessous décrit donc ce que chaque core expose
+> **à travers** son lien d'index, pas un stockage central.
 
 ```
 {projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
@@ -305,7 +396,19 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
+**Contacts d'un client** (`meta.yml :: contacts[]`, écriture par
+`pm-client-contact`) : voir `modules/project-modeling.md` — c'est de la
+modélisation d'entité, pas de la résolution de chemins (RM2755).
+
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+
+> **⚠ Section legacy — décrit l'ancien modèle (symlink `.mmi-pm` *entrant*).** Le
+> modèle canonique actuel est « Anatomie d'un projet » ci-dessus : `.mmi-pm` est un
+> **vrai dossier** dans le core, et c'est l'**index** `projects_root` qui porte le
+> symlink **sortant**. Le lien inverse `workspace` (côté core) survit sous une forme
+> triviale — `.mmi-pm/workspace → ..` (le core EST le workspace). On conserve cette
+> section pour les workspaces pas encore migrés et pour la mécanique de résolution
+> cross-tree en fin de section, toujours valable.
 
 Chaque projet a **deux emplacements** distincts mais liés :
 
@@ -424,8 +527,44 @@ logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
 
+
+### Le pont d'onboarding des workspaces (RM1892)
+
+Un agent lancé dans un workspace de code n'a, par défaut, **aucun contexte PM**. Il le
+reçoit d'un fichier unique posé à la **racine des workspaces**, lu par remontée
+d'arborescence depuis n'importe quel sous-dossier :
+
+| Fichier | Rôle |
+|---|---|
+| `<racine>/AGENTS.md` | le pont — vendor-neutral (opencode & autres) |
+| `<racine>/CLAUDE.md` → `AGENTS.md` | symlink : Claude Code ne lit que `CLAUDE.md`, mais suit les liens |
+
+Il est **conditionnel** : « si ton workspace a un `.mmi-pm`, tu es un worker PM — résous-le,
+lis le KERNEL, applique le protocole ; sinon ces règles ne te concernent pas ». Un fichier
+par projet serait à la fois redondant et à maintenir ; la remontée d'arborescence couvre
+les projets présents **et futurs**.
+
+Ce fichier est **hors git** : c'est un artefact de provisioning, propre à l'instance. Sa
+référence versionnée est `templates/workspace-AGENTS.md`, et le déploiement est outillé
+(`pm-workspace-bridge.py` — contrôle, `--install`, `--update`). Le bloc délimité
+`BEGIN/END INSTANCE` porte ce qui est propre à la machine (chemins, hôtes, transport git) :
+`--update` rafraîchit le générique et **préserve ce bloc**, ce qui permet de faire évoluer
+l'onboarding sans faire perdre à une instance ce qu'elle sait d'elle-même.
 > 📂 **Module `session-tooling` — quand lire ceci :** je cherche quel outil PM utiliser pour une opération touchant l'état d'une tâche/branche/repo/Redmine.
 > **Outils :** tous les `pm-*` · **Préchargé par :** tous.
+
+## Cheatsheet outillage (RM2367, CDC RM2316 § S6)
+
+**`norms/CHEATSHEET.md`** (généré : `pm-norms-assemble.py cheatsheet`, ≤ 1 200
+tokens) : 1 ligne par outil du quotidien + les flux nominaux (take → deliver,
+porcelain, lectures ciblées). **Le lire UNE fois en début de session** remplace
+les `--help` répétés (300–600 tokens chacun) ; `--help` reste court par défaut,
+`--help-full` donne le pavé complet.
+
+> **Garde de périmètre (RM2274).** Les outils MUTANTS (`pm-task-link`, `-status-update`,
+> `-comment`, `-protocol`, `-description-update`) REFUSENT d'écrire sur un ticket d'un
+> autre projet que le workspace courant si l'id n'a jamais été vu dans la session —
+> l'empreinte d'un id prédit (tripwire #13). Écriture cross-projet voulue : `--cross-project`.
 
 ## Outillage obligatoire en session PM — v1.35.0
 
@@ -447,25 +586,113 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 
 | Domaine | Opération | Outil canonique |
 |---|---|---|
-| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` |
+| Tâche | créer | `pm-task-add.py` · `mmi-pm-task-add` (`--porcelain` = id nu sur stdout) |
 | Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
 | Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
 | Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
+| Tâche | **déplacer vers un autre projet PM** (fiche + `.log` + `.reporting`, et `project_id` Redmine vérifié par relecture) | `pm-task-move.py <id> --to <client>/<projet>` (RM2866) |
 | Tâche | description / checklist | `pm-task-description-update.py` |
 | Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
-| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; `--no-commit` pour débrayer)* |
-| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` |
+| Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
+| Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
+| Instance | pont d'onboarding des workspaces (`AGENTS.md` + `CLAUDE.md`) | `pm-workspace-bridge.py` (nu = contrôle · `--install` · `--update`, RM1892) |
+| Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |
+| Tâche | démarrer la branche de ticket (+ CF GIT Branche) | `pm-branch-start.py` (`--worktree --print-cd` = chemin nu à `cd`) |
+| Tâche | se (re)placer dans le worktree du ticket | `pm-task-cd.py` — `cd "$(pm-task-cd.py <id>)"` (RM2240) |
 | Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
+| Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
+| Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
+| Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
 
-> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC).
+## Notifications importantes de session (RM2466)
+
+Un incident rencontré en séance se perd au défilement : **consigne-le sur-le-champ**
+(pas « à la fin »), `pm-session-status.py notify "<fait>" --kind <type> [--ref RM<id>]`.
+Types : `secret` (→ `critical` ; la **rotation** reste à faire), `refus`, `garde-fou`,
+`outillage`, `decision`. Un fait notable et actionnable, jamais un commentaire — un
+canal noyé ne sera pas lu.
+
+**Et referme-la quand elle est traitée** (RM2715) : `notify --resolve <n> --ticket
+RM<id>`. Une notification dit ce qu'il reste à faire ; laissée telle quelle après
+coup, elle porte une consigne périmée (« ticket à ouvrir » alors qu'il l'est) et
+use la crédibilité du canal. Résoudre la sort du backlog **sans** la supprimer —
+elle reste en archive avec le ticket qui l'a portée. `--clear`, lui, DÉTRUIT :
+ce n'est pas le geste courant. Mode d'emploi : skill `mmi-pm-session-status`.
+
+## Registre des demandes (RM2621)
+
+Une demande formulée en séance n'existe que dans le fil : non ticketée
+sur-le-champ, elle disparaît au premier défilement.
+
+**Règle — enregistre CHAQUE demande dès réception**, avant de savoir si elle
+sera ticketée : `pm-session-status.py request "<la demande>"`. Puis, quand son
+sort est connu : `request --set <n> --status ticketee --ticket RM<id>` (ou
+`repondu` / `annulee` / `fusionnee --merged-into <n>`). Enregistrer coûte une
+ligne ; oublier ne laisse aucune trace.
+
+Ne filtre pas à la réception : « fais une sous-tâche » fait 19 caractères et
+c'est une demande. En cas de doute, enregistre — une entrée en trop se classe,
+une demande perdue ne se retrouve pas. Contrôle : `request --audit` compare le
+registre au transcript. Mode d'emploi : skill `mmi-pm-session-status`.
+
+**N'enregistre pas ce qui ne vient pas du demandeur** (RM2635) : résumé de
+compaction réinjecté dans le fil, collage de console renvoyé à TA demande,
+sortie de commande. Ce ne sont pas des demandes et ils noient les vraies. Si
+l'une s'est glissée dans le registre, elle se range en `non_demande` — pas en
+`annulee` : personne n'a rien annulé, et ranger le bruit sous un statut faux
+rend le registre inexploitable pour la question à laquelle il sert à répondre.
+
+### Idiomes fréquents (évite de relancer `--help` à chaque session)
+
+- **Contenu long / multi-ligne via stdin** : `pm-task-comment <id> --note - < note.md`,
+  `redmine-post-note <id> --note -`, `pm-task-add --description -` (ou
+  `--description-file <path>`), `pm-task-description-update <id> --set-from-file <path>`.
+  Passer par stdin/fichier plutôt qu'un argument quoté évite AUSSI la protection
+  Bash « newline + `#` » de Claude Code (validation à répétition sur les arguments
+  multi-lignes contenant un dièse).
+- **Transitions valides depuis le statut courant** : `pm-task-status-update <id> --list-next`
+  (au lieu de deviner le flow d'états).
+- **Auto-assignation** : `en_cours` auto-assigne au porteur (`--assign-to me` implicite) ;
+  `--assign-to <id|me|author>` pour forcer, `--no-assign` pour débrayer.
+- **Détection de projet** : si la détection cwd échoue ou est ambiguë,
+  `--project entity/project` explicite (`pm-task-add`, `pm-task-list`, …).
+- **Répétition sans risque** : `--dry-run` sur `pm-task-add`, `pm-task-status-update`,
+  `pm-task-sync` — voir le diff avant d'écrire.
+- **Script lancé depuis un worktree sans `.env`** : préfixer
+  `PM_CORE_DIR=<racine du repo PM actif>` (sinon « ERREUR : aucun .env trouvé »).
+
+### Capture d'un RM-id fraîchement créé — jamais de prédiction (tripwire #13)
+
+La séquence des ids Redmine est **globale à l'instance** : plusieurs agents et
+plusieurs projets créent des tickets **en concurrence**. Le prochain id n'est donc
+**jamais prévisible** — « dernier id vu + 1 » est une **erreur structurelle** (deux
+incidents en deux jours : RM2142 puis RM2163, prises/branches/statuts posés sur le
+mauvais ticket, à corriger après coup).
+
+**Règle** : après une création, **capturer** l'id depuis la sortie de l'outil, ne
+jamais le retaper de mémoire. `pm-task-add.py` expose **`--porcelain`** (alias
+`--id-only`) qui n'imprime que **l'id nu sur stdout** (tous les logs partent sur
+stderr) — la capture devient triviale et fiable :
+
+```bash
+ID=$(pm-task-add --title "…" --type feature --porcelain)   # ex. → 2170
+pm-task-status-update "$ID" en_cours
+pm-branch-start "$ID" --take
+pm-task-link add "$ID" 1834 --type relates
+```
+
+Toute commande enchaînée **consomme la variable `$ID`**, jamais un littéral. Sans
+`--porcelain`, capturer sur le format verbeux : `ID=$(pm-task-add … | grep -oE 'RM[0-9]+' | head -1)` (moins robuste — préférer `--porcelain`).
+
+> 📂 **Module `project-modeling` — quand lire ceci :** je crée/range un projet ou une entité · partage cross-client · relation implements · je documente un aspect (CDC) · je note les contacts d'un client.
 > **Outils :** `pm-client-new`, `pm-doctor` · **Préchargé par :** worker-analyst.
 
 ## Types d'entités
@@ -491,6 +718,44 @@ module Dolibarr générique utilisé par plusieurs clients) :
 - Si **outil interne** non rattaché à un produit tiers → sous `self` (`paths.project` avec `entity=iprospective`)
 
 Suivre l'engagement de livraison et la responsabilité des données.
+
+## Contacts d'un client — `meta.yml :: contacts[]` (v1.69.0, RM2702)
+
+Les personnes d'un client vivent dans le `meta.yml` de son core
+(`.mmi-pm-client/meta.yml`), et **uniquement** là. Écriture par
+`pm-client-contact.py` (`add` / `list` / `set` / `remove` / `mark-internal` /
+`import-redmine`) — jamais à la main (tripwire #1).
+
+```yaml
+contacts:
+  - last_name: Dupont              # NOM de famille
+    first_name: Claire             # prénom
+    email: claire@exemple.fr       # identifie la fiche (clé de `set` / `remove`)
+    phone: "+33 6 12 34 56 78"     # CHAÎNE : le « + » et les zéros de tête comptent
+    role: technique                # owner | decideur | technique | facturation | autre
+    title: Gérant                  # fonction EN CLAIR — `role` est une catégorie, pas un titre
+    internal: true                 # posé AUTOMATIQUEMENT sur nos propres adresses
+```
+
+Deux pièges, tous deux rencontrés en production :
+
+- **`internal`** marque **nos** adresses (`iprospective.fr`…). Le gabarit de création
+  en pose une chez **chaque** client : elle n'identifie donc aucun client et ne doit
+  jamais servir à l'identifier — router un email entrant sur cette base enverrait tout
+  notre courrier chez un client au hasard (cf. routage RM2669).
+- Une fiche **entièrement vide** (`{name: "", email: "", role: owner}`) est un résidu
+  de gabarit, pas un contact : les outils l'ignorent.
+
+Une **boîte de service** (« Service informatique », « comptabilité ») est un contact
+légitime sans nom propre : on renseigne `title` + `email`, sans `last_name`/`first_name`.
+
+Le champ historique `name` (nom complet en un bloc) reste **lu en repli** tant que
+toutes les fiches n'ont pas été reprises ; les nouvelles écritures utilisent
+`last_name` / `first_name`.
+
+> Un **annuaire de contacts indépendant** des clients (une personne rattachée à
+> plusieurs clients/projets, avec un rôle par rattachement) est à l'étude — RM2703.
+> Tant qu'il n'existe pas, `contacts[]` reste la source unique.
 
 ## Partage cross-client (used_by_clients / provided_by)
 
@@ -660,6 +925,16 @@ Justification :
   sans ce groupe, un nouveau projet n'est pas accessible aux workers IA (RM1977).
   Rôle universel sur l'instance (`Développeur` est ajouté en plus sur les projets dev).
 
+**Branches protégées, dès la création (RM2057).** Une fois le dépôt `-core` publié —
+donc dès que sa branche de prod existe —, `pm-project-new` applique `pm-protect` au
+dépôt créé, et aux dépôts de code du workspace (`repos/*.git`) qui portent déjà un
+remote de forge. Chaque dépôt reçoit la politique de sa nature : `pm-protect` distingue
+core et code tout seul, on ne la force pas. **Jamais bloquant** : un échec (droits,
+token, forge tierce) s'annonce avec sa commande de rattrapage, et le projet reste créé.
+La raison d'être du câblage : posée plus tard, la protection arrive après les premiers
+pushes directs — et un dépôt neuf hérite d'un défaut GitLab qui *ressemble* à une
+protection conforme sans en être une (cf. `git-mep` § Enforcement).
+
 `pm-project-new.py` (skill `mmi-pm-project-new`) automatise ces trois ajouts à la
 création du projet Redmine ; en intervention manuelle, via l'UI Redmine → Settings → Members → Add.
 
@@ -689,7 +964,7 @@ stack, etc. Ces tâches viennent de templates dans `templates/bootstrap-tasks/`.
 
 | ID | Titre | Coché par défaut |
 |---|---|---|
-| `001-secrets-vaultwarden` | Setup items Vaultwarden + remplir `secrets_source` des envs | ✅ |
+| `001-secrets-vaultwarden` | Setup des items de vault + remplir `secrets_source` des envs | ✅ |
 | `002-git-repos` | Configurer remote git du workspace, premier push | ✅ |
 | `003-environnements` | Documenter envs (dev/test/staging/prod) dans `environments.md` | ✅ |
 | `004-stack` | Rédiger `project/stack.md` (langages, framework, dépendances) | ☐ |
@@ -811,157 +1086,72 @@ en `en_cours`** et le signale plutôt que de trancher seul.
 [a_tester_dev] ──── problèmes ───► [a_corriger] ───┤ corrections faites
         │ test dev OK                              │
         ▼                                          │
-[a_tester_demandeur] ── rejet ─────────────────────┤
-        │ validé (MR branche→dev, CF GIT PR, merge)
+[a_tester_demandeur] ── rejet ─────────────────────┤  (env DEV : le demandeur
+        │ validé par le demandeur sur DEV          │   valide sur l'env de dev)
+        │ (MR branche→dev, CF GIT PR, merge)       │
         ▼                                          │
-    [a_mep]                                        │
-        │ MR dev→preprod + déploiement preprod     │
+[a_tester_preprod] ── régression préprod ──────────┤  (env PRÉPROD : déploiement
+        │ recette préprod OK                       │   préprod qui suit dev, recette)
         ▼                                          │
-    [en_mep] ──── régression preprod ──────────────┘
-        │ tests preprod OK + MR preprod→prod + pull prod   (2 branches : MR dev→prod)
+    [a_mep]                                        │  (validé + en file de MEP —
+        │ MR préprod→prod + pull prod              │   PAS encore déployé)
+        │ (2 branches : MR dev→prod)               │
+        ▼                                          │
+    [en_mep] ──── régression prod ─────────────────┘  (EN PROD : déployé, dernière
+        │ vérif prod OK                                vérif avant fermeture)
         ▼
     [ferme]
 
 [en_pause]  ⇄  depuis/vers tout état actif (blocage tiers ; reprend à l'état précédent)
 [a_tester_demandeur] ──► [ferme]  (ticket sans code à déployer ; close_reason: resolu)
+[a_tester_demandeur] ──► [a_mep]  (bypass préprod : projet SANS env préprod → dev→prod direct)
+[a_tester_preprod]   ──► [en_mep] (RM2920 : instruction « mets en prod » → MEP dans la foulée ; « preprod ok » → a_mep, file de MEP)
 [en_cours] ──► [a_tester_demandeur]  (bypass passe agent-testeur : requires_agent_test=non ; cf. § dédiée)
 ```
+
+> **⚙ Refonte RM2893 (en cours de livraison — 2026-08-31).** Le tronçon aval a été
+> redéfini pour lever une confusion : le statut ne disait pas *où est le code*. Nouvelle
+> sémantique par environnement :
+>
+> | Statut | Env | Sens |
+> |---|---|---|
+> | `a_tester_demandeur` | **dev** | le demandeur valide sur l'env de dev |
+> | `a_tester_preprod` (**nouveau, optionnel**) | **préprod** | merge dev + déploiement préprod, recette ; **sauté** si le projet n'a pas d'env préprod (→ `a_tester_demandeur` va direct à `a_mep`) |
+> | `a_mep` | — | validé, en file de MEP — **pas encore déployé** |
+> | `en_mep` (**redéfini**) | **prod** | déployé en prod, **dernière vérif avant fermeture** |
+>
+> Avant : `en_mep` = « tester en préprod » et le déploiement prod se faisait *en sortant*
+> d'`en_mep`. Désormais le déploiement prod se fait **en entrant** dans `en_mep`, qui
+> devient l'état « en prod, en attente de fermeture ». Motivation : le flux *deploy-first*
+> (déployer puis faire valider) n'avait aucun statut exprimant « en prod + à fermer »
+> (constat session 2026-08-28 : RM2575/2576/2885/2886 tous « en prod » mais posés en
+> `a_tester_demandeur`). Mapping Redmine, attribution et routing outillage mis à jour dans
+> le même lot (cf. § Mapping et `pm-task-status-update`). Les deux statuts Redmine existent
+> déjà : `a_tester_preprod` = id **20** « MEP/Tester en preprod » ; `en_mep` = id **22**
+> « MEP/Vérifier en prod » (aucune création/renommage).
 
 Règle : **toute transition vers `ferme` requiert un `close_reason`.**
 Le workflow complet (branches, envs, MEP) est décrit en § *Cycle de
 développement → test → mise en production*.
 
-### Transitions valides
+### Flux court micro-tâches — v1.61.0 (RM2369, CDC RM2316 § S8)
 
-| De | Vers | Condition |
-|---|---|---|
-| `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `assigned_to` renseigné |
-| `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
-| `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
-| `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
-| `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
-| `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
-| `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
-| `en_cours` | `a_tester_demandeur` | dev terminé + `requires_agent_test` résolu à `non` (bypass passe agent-testeur) ; `demander` → demandeur tranche |
-| `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
-| `a_tester_dev` | `a_tester_demandeur` | test dev OK |
-| `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |
-| `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
-| `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
-| `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | **3 branches** : MR `dev`→`preprod` mergée + `preprod` déployée. **2 branches** : `dev` déployée en staging |
-| `en_mep` | `ferme` | tests preprod OK + **3 branches** : MR `preprod`→`prod_branch` / **2 branches** : MR `dev`→`prod_branch` + pull prod — `close_reason: resolu` |
-| `en_mep` | `a_corriger` | régression preprod (note dans journal) |
-| `a_corriger` | `en_cours` | — |
-| `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
-| `* (tout état)` | `ferme` | `close_reason` requis |
+**Critère** : `estimate.time_minutes ≤ 30` **et** pas de livrable code (audit
+éclair, doc courte, correction de données, assistance). Constat d'audit
+(RM2275) : sur ces tickets la cérémonie atteignait 40–59 % du coût.
 
-**Précondition de fermeture — sous-tâches.** Un ticket qui possède des
-**sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
-elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
-**refusée** tant qu'un enfant reste ouvert) — corollaire de la règle d'orchestration
-« un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
-(module `collaboration`, § *Propagation de complétion*).
+**Séquence** — mêmes statuts, mêmes notes (templatées § traceability), zéro
+infrastructure inutile :
 
-**Précondition de fermeture — relations bloquantes.** De même, un ticket **bloqué par**
-une relation `blocks` / `precedes` (= NORMS `depends_on`) ne peut être fermé tant que le
-ticket **source** reste ouvert — refus tout aussi **silencieux** que pour les sous-tâches.
-Ce n'est **ni** un problème de droit, **ni** de workflow, **ni** de tracker. (Vécu sur
-RM1813, bloqué par #1816 / #1814 / #1848 encore ouverts.)
+1. `pm-task-take <id> --no-branch` — en_cours + assignation, PAS de branche ni
+   d'env de session ;
+2. travail + entrée `.log.md` (le sémantique reste obligatoire) ;
+3. `pm-task-deliver <id> --summary -` — critères/protocole/routage inchangés.
 
-**Outil de diagnostic — `pm-task-blockers.py <id>` (réflexe).** Dès qu'une transition vers
-`ferme` (ou tout statut) est **refusée silencieusement**, lancer
-`scripts/pm-task-blockers.py <id>` : il liste en un coup les **relations bloquantes
-ouvertes** (blocks/precedes) ET les **sous-tâches ouvertes**, et dit **quoi clôturer
-d'abord** (`--json` pour l'outillage). À préférer au diagnostic manuel ci-dessous.
-
-> **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
-> `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
-> **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
-> rapportent alors « *permission 'Edit issues' manquante* », ce qui est une
-> **interprétation** (statut inchangé après PUT), **pas la vraie cause**. Ne pas
-> conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
-> ont les **mêmes** droits). Diagnostic autoritatif :
-> `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
-> non permise) puis `?include=children,relations` (un enfant non clos **ou** une relation bloquante ouverte = le blocage ; `pm-task-blockers.py` automatise les deux). Remède :
-> fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
-> parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
-
-> **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
-> cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
-> description du parent** quand il sert de **pilote** (référence « north-star » pour les
-> enfants) — c'est même souhaitable. Ce qui ne doit pas reposer sur le parent, c'est la
-> **clôture** de ce livrable : le parent restant bloqué ouvert tant que ses sous-tâches
-> d'implémentation ne sont pas fermées, créer une **sous-tâche dédiée** (« cadrage / CDC »)
-> que l'on clôt pour acter l'achèvement de l'étude. Principe : **dissocier le contenu de
-> référence (description du parent, pilote) de l'unité clôturable (sous-tâche).** Le parent
-> reste un **conteneur** dont la fermeture suit celle de ses enfants.
-
-### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
-
-Les deux premiers statuts du workflow ne sont **pas** une simple file d'attente
-administrative : ils matérialisent une **phase de travail à part entière**,
-réalisée **avant d'écrire la moindre ligne de code**. Aucun ticket non trivial ne
-passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
-
-| Statut NORMS | Redmine | Sens |
-|---|---|---|
-| `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
-| `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
-| `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
-
-**Contenu de l'étude** (`etude_chiffrage_en_cours`) :
-- **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
-- **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
-- **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
-  C'est le **livrable** de cette phase pour tout ticket non trivial.
-- **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
-
-**Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
-à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
-**ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
-que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
-développement. C'est le pendant amont du `a_tester_demandeur` aval.
-
-**Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
-- `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
-- `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
-- `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
-
-Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase
-jusqu'à sa fermeture : le livrable *est* l'étude, pas du code. À l'inverse, un ticket
-en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. transitions).
-
-**Synchronisation Redmine** : ces trois statuts sont mappés (§ *Mapping NORMS → Redmine*,
-ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
-(`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
-un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
-
-### Transitions « assignee-only » — v1.31.0
-
-Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket
-est assigné au compte API courant** (karl, id 79). C'est notamment le cas des deux
-transitions qui *soumettent au demandeur* :
-
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` (Redmine **14 → 21**) ;
-- `* → a_tester_demandeur` (Redmine → **9**).
-
-Or ces transitions s'accompagnent justement d'une **réattribution au demandeur**. Si
-l'on pousse `status_id` **et** `assigned_to_id` (= demandeur) dans le **même PUT** alors
-que le compte API n'est pas (encore) l'assigné, Redmine évalue le workflow sur l'assigné
-**avant** mise à jour → la transition est **refusée silencieusement** : `HTTP 204` mais
-statut inchangé (faux diagnostic « permission *Edit issues* manquante »).
-
-**Règle d'exécution (gérée automatiquement par `redmine-post-note.py`)** : avant un PUT
-de statut, si le statut cible n'est pas dans `allowed_statuses` et que le compte API
-n'est pas l'assigné courant, **s'auto-assigner d'abord** (PUT préalable) pour débloquer
-la transition, **puis** faire le PUT principal (statut + réattribution finale au
-demandeur). Conséquence visible : un journal d'assignation supplémentaire (→ karl, puis
-→ demandeur). Ne **jamais** contourner en fixant le statut « en dur ». Le mapping inverse
-Redmine→NORMS (`pm-task-sync.py`) doit connaître l'id **21** sous peine de laisser le MD
-périmé sur `etude_chiffrage_en_cours`.
+Travail déjà fait au moment de la création → `pm-task-add --retro` (le ticket
+traverse la machine d'états en un appel). Un micro-ticket qui grossit en cours
+de route (code nécessaire) repasse au flux standard : `pm-task-take <id>`
+(idempotent) crée branche + env à ce moment-là.
 
 ### Tâche
 
@@ -975,48 +1165,6 @@ périmé sur `etude_chiffrage_en_cours`.
 - `redmine.project_id: <slug>` est **obligatoire** dans `project/overview.md`
 - `redmine.subprojects: [slug, slug, ...]` est optionnel — liste les sous-projets
   Redmine rattachés (utile quand plusieurs sous-projets concernent ce même projet MD)
-
-### Workflow multi-tour (reprise après notes du demandeur)
-
-Quand un ticket revient à un worker (réattribution, ou statut passe à `a_corriger`),
-le worker doit ne traiter que les **nouveautés** depuis sa dernière vue du ticket.
-
-Champs du frontmatter de la tâche :
-- `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
-- `redmine_last_checked_at: <str iso>` — timestamp du dernier check
-
-Protocole de reprise :
-1. `scripts/redmine-fetch-updates.py --issue <id>` → affiche tous les journaux
-   postérieurs à `redmine_last_journal_id`, et met à jour ce champ
-2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
-3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
-4. Appliquer le travail demandé selon le protocole worker standard
-5. Resoumettre via `redmine-post-note.py --norms-status a_tester_demandeur` (qui
-   réattribue automatiquement au demandeur)
-
-Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
-**dernière entrée existante** au moment du fetch, pour que le worker ne traite que
-ce qui se passe **après** sa prise en charge.
-
-**Persistance dans le journal** : `redmine-fetch-updates.py` appende chaque nouveau
-journal Redmine récupéré au fichier `.log.md` de la tâche (append-only, conforme
-NORMS). Format d'entrée :
-
-```markdown
-## YYYY-MM-DDTHH:MM — Redmine #<journal_id> — <auteur Redmine>
-Source : Redmine (sync via redmine-fetch-updates)
-
-Changements :
-- `field` : `old` → `new`
-- ...
-
-Note (verbatim) :
-> ligne 1
-> ligne 2
-```
-
-Le worker peut ainsi retrouver l'historique complet des échanges (côté Redmine ET
-côté agent) en relisant simplement le `.log.md`, sans avoir à re-fetcher l'API.
 
 ### Synchronisation des statuts MD ↔ Redmine (obligatoire)
 
@@ -1053,10 +1201,16 @@ définitive sur l'instance). Plus aucun script ne le consulte.
   1. `author == karl` (cas légitime --initiator-agent) → **Manager IA**
   2. `author ≠ karl` avec email accessible → cet `author`
   3. fallback (email inaccessible) → Manager IA
+- Passage en `a_tester_preprod` (RM2893, **optionnel**) → ré-attribuer au **responsable
+  recette préprod** (par défaut le **demandeur** — même résolveur que `a_tester_demandeur` ;
+  configurable par projet). Étape sautée si le projet n'a pas d'env préprod
+  (`a_tester_demandeur` → `a_mep` direct).
 - Passage en `a_mep` → ré-attribuer au **responsable MEP / intégration** (par défaut
   Manager IA ou orchestrateur ; configurable par projet).
-- Passage en `en_mep` → ré-attribuer au **testeur humain** chargé de la vérification
-  en preprod (étape 3 du workflow MEP, cf. § Cycle dev → test → MEP).
+- Passage en `en_mep` (RM2893, **redéfini = en prod, dernière vérif avant fermeture**) →
+  ré-attribuer au **demandeur** (author) pour la vérification finale en prod avant clôture
+  (même résolveur que `a_tester_demandeur`). ⚠ Ancienne sémantique « testeur préprod »
+  dépréciée.
 - Passage en `a_corriger` → ré-attribuer au **worker** précédent (manuellement pour
   l'instant via `--assign-to <id>`, automatisé quand l'orchestrateur sera en place).
 - Passage en `en_pause` → **conserver** l'attribution courante (la tâche reste
@@ -1123,11 +1277,22 @@ Statut Redmine (un seul terminal `Fermé`) :
 | `en_cours` | En cours | 2 |
 | `a_tester_dev` | A tester/vérifier dev | 19 |
 | `a_tester_demandeur` | A tester/vérifier demandeur | 9 |
+| `a_tester_preprod` (RM2893) | MEP/Tester en preprod | 20 |
 | `a_mep` | Résolu/Validé/A MEP | 3 |
-| `en_mep` | MEP/Tester en preprod | 20 |
+| `en_mep` (RM2893) | MEP/Vérifier en prod | 22 |
 | `en_pause` | Attente retour / en pause | 13 |
 | `a_corriger` | A corriger/finir | 11 |
 | `ferme` (toutes raisons) | Fermé | **18** |
+
+> **RM2893 — migration du mapping (2026-08-31).** Les deux statuts Redmine existaient déjà
+> et leurs libellés collent : **aucune création ni renommage**. Seul changement d'id :
+> `en_mep` passe de **20 → 22** (« MEP/Vérifier en prod »), et le statut **20**
+> (« MEP/Tester en preprod ») devient `a_tester_preprod`. Les tickets déjà au statut 20
+> (préprod) sont donc réinterprétés `en_mep`→`a_tester_preprod` — sémantiquement exact,
+> ils restent au même statut Redmine ; leur frontmatter MD se réaligne au prochain
+> `pm-task-sync`. ⚠ Vérifier que les transitions de workflow Redmine (par rôle/tracker)
+> autorisent bien l'entrée en 20 depuis `a_tester_demandeur` et en 22 depuis `a_mep`
+> (sinon le PUT échoue silencieusement — cf. `knowledge/redmine/gotchas.md`).
 
 `a_tester_verifier` (déprécié) → lu comme `a_tester_demandeur` (id 9).
 `a_mep` (Résolu/Validé/A MEP, id 3) est un statut **non terminal** (validé par le
@@ -1163,6 +1328,217 @@ nouveau `Résolu/Validé/A MEP` (id 3, `a_mep`), qui est **non terminal**.
 Toute entité du système (tâche, projet) **doit** être reliée à son équivalent Redmine.
 Cette règle est vérifiée par le validateur.
 
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
+> **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
+
+# Statuts — table des transitions et cas particuliers
+
+Détaché de `status-workflow.md` par RM2582. La table des transitions est une
+**référence** : le KERNEL impose déjà de la demander à l'outil
+(`pm-task-status-update --list-next`) plutôt que de la deviner — la porter en
+permanence dans le contexte de tous les workers ne servait à rien. Les règles
+obligatoires (machine d'états, synchronisation MD ↔ Redmine, auto-assignation à
+la prise) sont restées dans `status-workflow.md`.
+
+### Transitions valides
+
+| De | Vers | Condition |
+|---|---|---|
+| `a_etudier_chiffrer` | `etude_chiffrage_en_cours` | `assigned_to` renseigné |
+| `etude_chiffrage_en_cours` | `etude_chiffrage_a_valider` | CDC + `estimate.*` complets → soumis au demandeur (ré-attribution `author`) |
+| `etude_chiffrage_a_valider` | `a_faire` | validé par le demandeur → prêt à coder |
+| `etude_chiffrage_a_valider` | `etude_chiffrage_en_cours` | retour demandeur (ajustements étude/chiffrage) |
+| `etude_chiffrage_{en_cours,a_valider}` | `ferme` | `close_reason` requis |
+| `a_faire` | `en_cours` | création branche `<RMid>-<desc>` + CF `GIT Branche` |
+| `en_cours` | `a_tester_dev` | dev terminé + `requires_agent_test` résolu à `oui` |
+| `en_cours` | `a_tester_demandeur` | dev terminé + `requires_agent_test` résolu à `non` (bypass passe agent-testeur) ; `demander` → demandeur tranche |
+| `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
+| `a_tester_dev` | `a_tester_demandeur` | test dev OK |
+| `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |
+| `a_tester_demandeur` | `a_tester_preprod` | *(RM2893, si préprod)* validé sur **dev** : MR branche→`integration_branch` (CF `GIT PR`) mergée + déploiement préprod |
+| `a_tester_demandeur` | `a_mep` | *(projet SANS préprod)* validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
+| `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
+| `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
+| `a_tester_preprod` | `en_mep` | *(RM2920)* instruction **« mets en prod »** (préprod testée + temps de tester la MEP) : MEP prod faite dans la foulée |
+| `a_tester_preprod` | `a_mep` | *(RM2920)* instruction **« preprod ok »** : mise en **file de MEP** (déploiement prod plus tard) |
+| `a_tester_preprod` | `a_corriger` | régression préprod (note dans journal) |
+| `a_mep` | `en_mep` | déployé en **PROD** : **3 branches** MR `preprod`→`prod_branch` / **2 branches** MR `dev`→`prod_branch` + pull prod |
+| `en_mep` | `ferme` | *(RM2893 : `en_mep` = en prod)* vérif **prod** OK — `close_reason: resolu` |
+| `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
+| `a_corriger` | `en_cours` | — |
+| `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
+| `* (tout état)` | `ferme` | `close_reason` requis |
+| `ferme` | `a_faire` | **réouverture** (RM2285) : note obligatoire motivant la réouverture ; `close_reason` purgé |
+
+**Réouverture d'un ticket fermé (RM2285).** Un ticket `ferme` peut être rouvert
+**uniquement vers `a_faire`** (retour au backlog — la reprise suit ensuite le flow
+normal `a_faire → en_cours → …`, jamais de saut direct en réalisation). Conditions,
+imposées par `pm-task-status-update` :
+- **note obligatoire** motivant la réouverture (elle part en note Redmine et au journal) ;
+- `close_reason` est **purgé** (`null`) — un ticket rouvert n'est plus « résolu » ;
+- `status_history` **conserve le cycle précédent** (append-only) : l'historique
+  fermeture(s)/réouverture(s) reste lisible.
+
+Rouvrir n'est PAS le chemin pour « corriger une livraison qui régresse » — ça, c'est
+`a_corriger` avant fermeture. On rouvre quand un ticket **déjà validé et clos** doit
+reprendre du service (nouveau périmètre sur le même sujet → préférer un **nouveau
+ticket lié** `relates` ; même périmètre non terminé en réalité → réouverture).
+
+**Livraison en vérification — protocole de test + URL de test (RM2229).** Le
+**protocole de test** (CF Redmine « Protocole de test », miroir frontmatter
+`test_protocol`) se rédige **au fil de l'eau**, à chaque étape d'avancement du dev —
+pas rétroactivement à la livraison : `pm-task-protocol <id> --set -/--append -`.
+Au passage en `a_tester_dev`/`a_tester_demandeur`/`a_mep` : protocole non vide
+(le garde-fou de `pm-task-status-update` avertit) et **`test_url` renseigné** —
+automatique si l'env de session existe (`pm-env-session create` écrit frontmatter
++ CF « Environnement de test » ; le teardown les vide), sinon manuel. Le testeur
+doit savoir **quoi tester et où** sans relire tout le ticket (fiche de revue cockpit).
+
+**Précondition de fermeture — sous-tâches.** Un ticket qui possède des
+**sous-tâches** ne peut passer en `ferme` que lorsque **toutes ses sous-tâches sont
+elles-mêmes `ferme`**. C'est imposé côté Redmine (la transition du parent est
+**refusée** tant qu'un enfant reste ouvert) — corollaire de la règle d'orchestration
+« un parent passe en `ferme` uniquement quand tous ses enfants directs sont `ferme` »
+(module `collaboration`, § *Propagation de complétion*).
+
+**Précondition de fermeture — relations bloquantes.** De même, un ticket **bloqué par**
+une relation `blocks` / `precedes` (= NORMS `depends_on`) ne peut être fermé tant que le
+ticket **source** reste ouvert — refus tout aussi **silencieux** que pour les sous-tâches.
+Ce n'est **ni** un problème de droit, **ni** de workflow, **ni** de tracker. (Vécu sur
+RM1813, bloqué par #1816 / #1814 / #1848 encore ouverts.)
+
+**Outil de diagnostic — `pm-task-blockers.py <id>` (réflexe).** Dès qu'une transition vers
+`ferme` (ou tout statut) est **refusée silencieusement**, lancer
+`scripts/pm-task-blockers.py <id>` : il liste en un coup les **relations bloquantes
+ouvertes** (blocks/precedes) ET les **sous-tâches ouvertes**, et dit **quoi clôturer
+d'abord** (`--json` pour l'outillage). À préférer au diagnostic manuel ci-dessous.
+
+> **Comment ça se manifeste (piège diagnostique).** Le refus est **silencieux** : le
+> `PUT` renvoie 204, la note éventuelle est bien postée, mais le `status_id` est
+> **ignoré** — le statut reste inchangé. `redmine-post-note` / `pm-task-status-update`
+> rapportent alors « *permission 'Edit issues' manquante* », ce qui est une
+> **interprétation** (statut inchangé après PUT), **pas la vraie cause**. Ne pas
+> conclure à un problème de droits, de rôle ou de tracker (« Evolution » et « Tâche »
+> ont les **mêmes** droits). Diagnostic autoritatif :
+> `GET /issues/<id>.json?include=allowed_statuses` (si `18 Fermé` est absent → transition
+> non permise) puis `?include=children,relations` (un enfant non clos **ou** une relation bloquante ouverte = le blocage ; `pm-task-blockers.py` automatise les deux). Remède :
+> fermer/détacher l'enfant d'abord, ou — si le contenu de référence doit rester sur le
+> parent — créer une **sous-tâche « cadrage » clôturable** (cf. encadré ci-dessous).
+
+> **Conséquence de modélisation (à anticiper).** Le **contenu** d'un livrable de
+> cadrage (CDC, étude, décision d'architecture) peut tout à fait **vivre dans la
+> description du parent** quand il sert de **pilote** (référence « north-star » pour les
+> enfants) — c'est même souhaitable. Ce qui ne doit pas reposer sur le parent, c'est la
+> **clôture** de ce livrable : le parent restant bloqué ouvert tant que ses sous-tâches
+> d'implémentation ne sont pas fermées, créer une **sous-tâche dédiée** (« cadrage / CDC »)
+> que l'on clôt pour acter l'achèvement de l'étude. Principe : **dissocier le contenu de
+> référence (description du parent, pilote) de l'unité clôturable (sous-tâche).** Le parent
+> reste un **conteneur** dont la fermeture suit celle de ses enfants.
+### Phase d'étude / qualification : audit, analyse & CDC *avant* de coder — v1.25.0
+
+Les deux premiers statuts du workflow ne sont **pas** une simple file d'attente
+administrative : ils matérialisent une **phase de travail à part entière**,
+réalisée **avant d'écrire la moindre ligne de code**. Aucun ticket non trivial ne
+passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
+
+| Statut NORMS | Redmine | Sens |
+|---|---|---|
+| `a_etudier_chiffrer` | A étudier / Qualifier (8) | Le ticket est entré mais pas encore analysé : **file d'attente de la qualification**. |
+| `etude_chiffrage_en_cours` | Etude/CDC en cours (14) | **Phase active** : audit de l'existant, analyse du besoin, rédaction du CDC, découpage, estimation. |
+| `etude_chiffrage_a_valider` | Etude/CDC à valider (21) | **Étude finie, soumise au demandeur** : le livrable (CDC + chiffrage) attend sa validation. Ticket ré-attribué au demandeur. |
+
+**Contenu de l'étude** (`etude_chiffrage_en_cours`) :
+- **Audit** — lire le code, l'infra, les contraintes ; cartographier l'existant et les pièges.
+- **Analyse** — clarifier le besoin réel, les cas limites, les non-objectifs.
+- **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
+  C'est le **livrable** de cette phase pour tout ticket non trivial.
+- **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
+
+**Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
+est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
+à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
+**ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
+que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
+développement. C'est le pendant amont du `a_tester_demandeur` aval.
+
+**Sorties de phase** :
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
+- `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
+- `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
+
+Un ticket de type `audit`, `research` ou `design` peut **rester** dans cette phase
+jusqu'à sa fermeture : le livrable *est* l'étude, pas du code. À l'inverse, un ticket
+en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. transitions).
+
+**Synchronisation Redmine** : ces trois statuts sont mappés (§ *Mapping NORMS → Redmine*,
+ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
+(`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
+un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+### Transitions « assignee-only » — v1.31.0
+
+Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket
+est assigné au compte API courant** (karl, id 79). C'est notamment le cas des deux
+transitions qui *soumettent au demandeur* :
+
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` (Redmine **14 → 21**) ;
+- `* → a_tester_demandeur` (Redmine → **9**).
+
+Or ces transitions s'accompagnent justement d'une **réattribution au demandeur**. Si
+l'on pousse `status_id` **et** `assigned_to_id` (= demandeur) dans le **même PUT** alors
+que le compte API n'est pas (encore) l'assigné, Redmine évalue le workflow sur l'assigné
+**avant** mise à jour → la transition est **refusée silencieusement** : `HTTP 204` mais
+statut inchangé (faux diagnostic « permission *Edit issues* manquante »).
+
+**Règle d'exécution (gérée automatiquement par `redmine-post-note.py`)** : avant un PUT
+de statut, si le statut cible n'est pas dans `allowed_statuses` et que le compte API
+n'est pas l'assigné courant, **s'auto-assigner d'abord** (PUT préalable) pour débloquer
+la transition, **puis** faire le PUT principal (statut + réattribution finale au
+demandeur). Conséquence visible : un journal d'assignation supplémentaire (→ karl, puis
+→ demandeur). Ne **jamais** contourner en fixant le statut « en dur ». Le mapping inverse
+Redmine→NORMS (`pm-task-sync.py`) doit connaître l'id **21** sous peine de laisser le MD
+périmé sur `etude_chiffrage_en_cours`.
+### Workflow multi-tour (reprise après notes du demandeur)
+
+Quand un ticket revient à un worker (réattribution, ou statut passe à `a_corriger`),
+le worker doit ne traiter que les **nouveautés** depuis sa dernière vue du ticket.
+
+Champs du frontmatter de la tâche :
+- `redmine_last_journal_id: <int>` — id du dernier journal Redmine consulté
+- `redmine_last_checked_at: <str iso>` — timestamp du dernier check
+
+Protocole de reprise :
+1. `scripts/redmine-fetch-updates.py --issue <id>` → affiche tous les journaux
+   postérieurs à `redmine_last_journal_id`, et met à jour ce champ
+2. Lire les nouvelles notes + changements d'attributs (status, assignation, priorité…)
+3. Décider : corrections à faire ? livrables à compléter ? ticket déjà résolu ?
+4. Appliquer le travail demandé selon le protocole worker standard
+5. Resoumettre via `redmine-post-note.py --norms-status a_tester_demandeur` (qui
+   réattribue automatiquement au demandeur)
+
+Le champ `redmine_last_journal_id` est initialisé par `redmine-fetch-task.py` à la
+**dernière entrée existante** au moment du fetch, pour que le worker ne traite que
+ce qui se passe **après** sa prise en charge.
+
+**Persistance dans le journal** : `redmine-fetch-updates.py` appende chaque nouveau
+journal Redmine récupéré au fichier `.log.md` de la tâche (append-only, conforme
+NORMS). Format d'entrée :
+
+```markdown
+## YYYY-MM-DDTHH:MM — Redmine #<journal_id> — <auteur Redmine>
+Source : Redmine (sync via redmine-fetch-updates)
+
+Changements :
+- `field` : `old` → `new`
+- ...
+
+Note (verbatim) :
+> ligne 1
+> ligne 2
+```
+
+Le worker peut ainsi retrouver l'historique complet des échanges (côté Redmine ET
+côté agent) en relisant simplement le `.log.md`, sans avoir à re-fetcher l'API.
 > 📂 **Module `redmine-sync` — quand lire ceci :** tu introduis ou fais évoluer une **donnée / vue / artefact partagé** entre Redmine et le PM (nouveau champ, nouvelle vue, template d'issue, doc, métrique…) · tu te demandes « où est la source de vérité et comment les deux côtés restent-ils alignés ? ».
 > **Outils :** scripts de sync dédiés (`pm-task-status-update`, `pm-task-description-update`, `redmine-template-sync`, `pm-wiki-sync`, `pm-task-metrics-push`…) · **Préchargé par :** —.
 
@@ -1199,6 +1575,35 @@ sa synchronisation :
   à créer, cf. tripwire #1) ;
 - marquer toute représentation **générée** comme telle (bandeau « ne pas éditer ici »)
   pour ne pas recréer un drift à deux sources.
+
+### Format du livrable — portable et versionné
+
+Avant de se demander *comment* on synchronise une source canonique, il faut se
+demander **dans quoi elle vit**. La réponse est invariante :
+
+**Tout livrable documentaire — audit, CDC, spec, roadmap, rapport — est du markdown
+dans le repo git du projet.** C'est la source canonique : diffable, revue en MR,
+versionnée, lisible par n'importe qui.
+
+**Interdit : un livrable dont la source vit dans un outil propriétaire à un
+fournisseur de LLM** (Artifact, canvas, doc hébergé côté vendor…) ou dans tout format
+qu'un autre agent, outil ou humain ne peut pas reprendre. Le système PM est
+**fédéré et multi-agents** : un livrable qui n'existe que dans le contexte d'un
+fournisseur est un livrable perdu dès qu'on change d'agent — et une source hors git,
+donc sans diff, sans revue, sans historique.
+
+> **Critère de décision** — *« un autre LLM, demain, sans mon outillage, peut-il
+> lire, éditer et versionner ce livrable ? »* Si la réponse est non, le format est
+> mauvais, quelle que soit sa qualité de rendu.
+
+Les représentations hébergées (Wiki Redmine, description projet…) restent ce qu'elles
+sont partout ailleurs dans ce module : des **miroirs générés** depuis git (via
+`pm-wiki-sync`), jamais la source. Le rendu joli est un miroir ; le markdown est le
+livrable.
+
+Corollaire pour les agents disposant d'outils de rendu (Artifacts & co) : ils sont
+utilisables comme **vue jetable** (prévisualiser, montrer), jamais comme livrable ni
+comme source. Le cycle reste : markdown en repo → commit → miroir généré.
 
 ### Ce principe est l'ombrelle de tripwires concrets déjà en vigueur
 
@@ -1304,6 +1709,31 @@ faire passer le `done_ratio` de 50 à 75 → pas de note.
 
 > 📂 **Module `redmine-reference` — quand lire ceci :** avant une session touchant l'intégration Redmine / périodiquement · ids CF/statuts/activités · filtrage IA.
 > **Outils :** `redmine-config-check` · **Préchargé par :** —.
+
+## Résolution projet → Redmine (précise, jamais par slug nu)
+
+**Règle (tripwire #14).** Toute opération Redmine ciblant un projet (sync wiki,
+note, description, stats…) résout le projet par référence **non ambiguë** :
+
+- `client/slug` — ex. `matnat/infra` (désambiguïsation explicite) ;
+- ou le `redmine.project_id` **unique** — ex. `matnat-infra`.
+
+**Jamais par match de slug nu.** Plusieurs clients partagent un même slug — ex.
+`infra` chez `abatik`, `calicote`, `calyclay`, `matnat`, `pisceen`. Un résolveur
+« premier slug trouvé » écrit **silencieusement dans le mauvais projet Redmine**
+(incident RM2410 : `pm-wiki-sync infra` ciblait `abatik` au lieu de `matnat`).
+
+**Conf = source de vérité, bloquante.** Chaque `meta.yml` de projet **doit**
+déclarer un `redmine.project_id` **unique**. Absence ⇒ opération Redmine
+**bloquée** (« pas de projet Redmine précis en conf → on n'avance pas »). Un slug
+**ambigu** ⇒ **erreur** listant les candidats (`client/slug (redmine.project_id)`),
+jamais de choix implicite.
+
+**Outillage.** `PMConfig.resolve_project_ref(ref, require_redmine=True)` (lib
+partagé `pm_paths`) : accepte `client/slug` ou `redmine.project_id`, lève sur
+ambiguïté / introuvable / `redmine.project_id` absent. Tous les scripts qui
+résolvent un projet pour une opération Redmine passent par lui (fin des boucles
+`for … if proj == slug` locales).
 
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 
@@ -1432,12 +1862,13 @@ revalider lors du resync, ne pas présumer stables :
 | 20 | enum (issue) | `Task type` | taxonomie **fine** du `type` (cf. note ci-dessous) |
 
 **Tracker (coarse) vs CF `Task type` (fin).** Le `type` NORMS est plus riche
-(13 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
+(14 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
 `Tâche`). Le **tracker** porte la catégorie *coarse* (`TYPE_TO_TRACKER` :
-`documentation`, `infrastructure`, `maintenance`, `autre` retombent tous sur
-`Tâche`/4). Quand un type n'a pas de tracker dédié, son détail est porté par le
-**CF 20 `Task type`** (enumeration) si une valeur correspond — mapping **source
-unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42).
+`documentation`, `infrastructure`, `configuration`, `maintenance`, `autre`
+retombent tous sur `Tâche`/4). Quand un type n'a pas de tracker dédié, son détail
+est porté par le **CF 20 `Task type`** (enumeration) si une valeur correspond —
+mapping **source unique** `redmine.reference.yml :: task_type_cf`
+(ex. `documentation` → val 42, `configuration` → val 22 « Config »).
 `pm-task-add` le pose à la création, `redmine-fetch-task` le relit (il **prime**
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.
@@ -1513,6 +1944,23 @@ Un projet a typiquement :
 Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env`
 (cf. § Valeurs énumérées). Chaque env est décrit dans `environments.md`.
 
+### Identités & transport forge (multi-utilisateur) — v2.0.0
+
+En multi-dev, l'identité forge est **par développeur**, plus « 2 identités karl » :
+
+- **Identité par dev + fallback karl.** Les jetons forge se résolvent par la cascade des
+  secrets (§ Multi-utilisateur & concurrence de `collaboration.md`) : token **perso** du dev
+  (`~/.config/mmi-pm/.env`, `<FORGE>_<ROLE>_TOKEN`) d'abord, **karl** en repli commun. L'**API**
+  forge (MR, protections) utilise ces PAT ; l'auteur d'une MR/branche est le dev, pas karl.
+- **Transport SSH-first, token en repli.** Les remotes restent en **alias SSH canonique**
+  (`gitlab:…`, `.gitmodules` inclus) ; le push/fetch passe par la clé forge dédiée du dev, avec
+  **repli HTTPS+token** (`url.…insteadOf` global + credential helpers) quand la clé n'est pas
+  disponible ou pour des submodules sans clé. **Ne pas** convertir les remotes par dépôt en
+  HTTPS (casse les submodules) — l'`insteadOf` global obtient le même transport token.
+- **Abstraction forge.** GitLab, **Gogs** (sans API PR → flux *lien-compare*, push HTTPS+token,
+  SSH port 28022) et GitHub passent par la même abstraction `pm_forge` ; le backend se choisit
+  par projet (`git config pm.forge`). Voir `pm-mr` / `pm-promote` / `pm-protect`.
+
 ### Workflow de développement (par ticket)
 
 1. **Prise en charge** — ticket assigné à un agent ⇒ `en_cours` + auto-assignation
@@ -1537,55 +1985,6 @@ Les noms custom (`test-2`, `dev-mathieu`) sont autorisés par l'enum `target_env
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
 
-### Workflow de mise en production (MEP)
-
-La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
-ticket par ticket : plusieurs tickets en `a_mep` montent ensemble. Le chemin dépend du
-**modèle de branches** du projet (cf. § Branches git de référence).
-
-**Flux 3 branches** (opt-in : `preprod_branch` déclaré) — **`dev → preprod → prod_branch`**.
-Les 3 branches longues sont **protégées** ; règle stricte **« merge only from »** :
-`preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
-(jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
-
-1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
-2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
-3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
-   (`close_reason: resolu`).
-   - Régression preprod ⇒ `a_corriger` (note obligatoire).
-
-**Deux modes de promotion :**
-- **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
-- **Enchaîné (auto)** : une action outillée déroule `dev → preprod → prod_branch`
-  d'affilée, **sans halte manuelle** en preprod — l'équivalent « rapide » **sans
-  déroger** au modèle (preprod reste traversée). C'est cet enchaînement qui tient lieu
-  de « bypass » : il n'existe **pas** d'option pour *sauter* preprod.
-
-**Flux 2 branches** (pas de `preprod_branch`) — **`dev → prod_branch`** (historique) :
-`integration_branch` déployée en staging, tests de non-régression, puis **MR
-`dev → prod_branch`** + `pull prod_branch`.
-
-> **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
-> susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
-> consentement explicite de l'humain pour cette action précise**. Sont visés notamment :
-> merge vers `prod_branch`, `git pull`/`reset`/`checkout` sur un serveur de prod,
-> exécution d'une migration ou d'un upgrade de module, vidage de cache prod, restart de
-> service, toute écriture de fichier en prod. L'agent **inspecte** (lectures seules) et
-> **propose la commande exacte**, puis attend le feu vert. Un accord pour une étape ne
-> vaut **pas** pour les suivantes. Avant toute écriture, **vérifier l'état réel du
-> serveur** (branche suivie, remote source réel, propreté de l'arbre) : un arbre de prod
-> sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
-> à l'humain plutôt qu'à forcer.
-
-> Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
-> à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
-> manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »
-> (aujourd'hui **convention NORMS + protections GitLab** sur `preprod`/`prod_branch` ;
-> **garde CI / push-rule** = follow-up, GitLab ne sachant pas nativement « mergeable
-> seulement depuis X »). Cf. `project/deployment.md` (template `005-deployment`).
-
----
-
 #### Commit + push systématique (obligatoire)
 
 > **Auto-commit des scripts pm-\* (RM1834 piste A, v1.40.0).** Les scripts
@@ -1597,6 +1996,14 @@ Les 3 branches longues sont **protégées** ; règle stricte **« merge only fro
 > opération passée par un script PM, **tu n'as RIEN à committer toi-même** dans
 > ai-projects. La règle manuelle ci-dessous reste obligatoire pour les **édits
 > libres** (aspects, CDC, corps de tâche édités à la main) et le workspace de code.
+
+> **Destination (RM2440).** Sur un **core**, le push va **directement sur la branche
+> de prod** — ni repli `dev`, ni promotion, donc pas d'arriéré. Un rejet
+> **non-fast-forward** y est rattrapé par `pm_git` (fetch + `rebase --autostash` sous
+> verrou, puis re-push) ; sur **conflit** : `rebase --abort` + warning. Levée **ciblée**
+> de l'invariant « pas de rebase dans l'arbre partagé » — cores seulement ; **code**
+> inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
+> déboguer), cf. `worker-common` § Restitution.
 
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
@@ -1654,89 +2061,6 @@ git approprié. La règle s'applique à **deux périmètres** :
 
 Cette règle s'applique à tous les agents (workers, summarizer, reviewer, et
 agents pilotés interactivement par l'utilisateur via Claude Code).
-
-#### Remote canonique GitLab, MR, et gotchas API — v1.20.4
-
-- **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
-  (typiquement `origin`, alias SSH `git:` → `gitlab.iprospective.fr`), c'est lui
-  qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui que
-  traque la branche d'intégration locale.
-- **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
-  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
-  Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
-  passe par GitLab.
-- **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
-  une merge request de la branche de ticket vers la branche de base (version
-  active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
-  distante conservée** (cf. KERNEL #3).
-- **Aucun commit/push direct sur une branche protégée** (KERNEL #3) — vaut **dès le
-  flux 2 branches** (`dev` + prod), pas seulement le flux 3 branches opt-in :
-  l'intégration (`dev`) **et** la prod (`main`/`master`) ne reçoivent que des **merges
-  de MR**. Même la **promotion `dev`→prod** passe par une MR (jamais un commit posé sur
-  `main`). Un commit direct sur `main` court-circuite la promotion → divergences
-  `dev`↔`main` et **collisions de version NORMS** (vécu : RM2035/2038/2048).
-- **Enforcement GitLab — outil `pm-protect` (RM2052)** : `pm-protect [--repo PATH |
-  --project-id N]` applique la **politique de protection standard** (idempotent,
-  `allow_force_push=false`, branche absente ignorée), token *manager* :
-
-  | Branche | Allowed to push | Allowed to merge |
-  |---|---|---|
-  | prod (`main`, ou `master` si elle existe) | **personne** | Maintainer |
-  | intégration (`dev`) | **Maintainer** (restructuration assumée) | Maintainer |
-  | `preprod` (flux 3 branches) | **personne** | Maintainer |
-
-  `merge=Maintainer` laisse `pm-mr merge` (karl manager) fonctionner ; `push=personne`
-  sur prod force la promotion **par MR**. À (ré)appliquer sur chaque repo PM-piloté.
-- **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
-  `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
-  les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
-  au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
-- **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
-  rôles GitLab.
-  - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
-    *Maintainer*) : **merge** les MR, gère les projets. Utilisé par `pm-mr merge` et
-    la promotion MEP.
-  - `GITLAB_WORKER_TOKEN` (+ `GITLAB_WORKER_USER`) — karl **worker** (rôle
-    *Developer*) : push des branches, **crée** des MR. Utilisé par `pm-branch-start`
-    et `pm-mr create`.
-  - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
-    commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
-    révoque ; mauvais en-tête → 401/404).
-  - **Split clone-dev / runtime (RM2051)** : le **clone de dev** (`PM_DEV_DIR`) ne
-    porte **pas** de `.env` (secrets uniquement dans `.mmi-pm-core`). `PMConfig` charge
-    le `.env` de `pm_dir` s'il existe (runtime canonique, via le symlink), **sinon**
-    celui du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite**. Donc :
-    lancer les scripts à secrets **depuis le runtime** (symlink), ou exporter
-    `PM_CORE_DIR=<.mmi-pm-core>`, ou sourcer le `.env` canonique.
-- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
-  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
-  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
-  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
-  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
-- **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
-  membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
-  l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le
-  manager) sur chaque projet pré-existant à piloter.
-- **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
-  - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
-    utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
-  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN: <pat>` ; un token OAuth
-    `glab` en `Authorization: Bearer …` (sinon non-authentifié → 404 sur repo
-    `internal`).
-  - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
-  - **Conserver la branche** au merge : `should_remove_source_branch=false`.
-
-  ```bash
-  # ID numérique (pas de %2F), puis create (branche conservée) puis merge :
-  glab api --hostname gitlab.iprospective.fr "projects?search=<nom-repo>"
-  glab api --hostname gitlab.iprospective.fr --method POST "projects/<id>/merge_requests" \
-    -f source_branch="<RM-id>-<slug>" -f target_branch="dev" -f title="…" \
-    -f remove_source_branch=false
-  glab api --hostname gitlab.iprospective.fr --method PUT "projects/<id>/merge_requests/<iid>/merge" \
-    -f should_remove_source_branch=false
-  ```
-- **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
-  `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
 
 #### Branche de travail par ticket (obligatoire) — v1.17.0
 
@@ -1800,6 +2124,279 @@ RM2011 » atterri sur la branche `RM2020` du graphe). À éviter :
   branches/worktrees ouverts ; **`pm-session-status show`** les liste. La forme
   courte `<RMid>-<slug>` (sans `--worktree`) reste la norme **hors concurrence**.
 
+> 📂 **Module `git-mep-pratique` — quand lire ceci :** je prépare une MEP · je bute sur le transport git (SSH/token, submodules) · l'API GitLab répond de travers · ticket d'interface · projet versionné · une base de dev partagée me surprend.
+> **Outils :** `pm-mr`, `pm-promote`, `glab` · **Préchargé par :** *(personne — ouvert à la demande)*.
+
+# Git / MEP — mode d'emploi et cas particuliers
+
+Détaché de `git-mep.md` par RM2582 : ces sections sont du **mode d'emploi** et
+des **cas particuliers**, pas des règles à connaître en permanence. Elles
+pesaient sur le contexte de tous les workers alors qu'elles ne servent qu'au
+moment précis où le déclencheur se présente. Les règles quotidiennes (commit +
+push, branche par ticket, plusieurs tickets par session) sont restées dans
+`git-mep.md`.
+
+#### Ticket d'INTERFACE : éprouver sur la branche, promouvoir une seule fois
+
+Un ticket qui touche une **interface** (cockpit karl-agent, et par extension toute
+UI) se valide dans une **instance de test montée sur la branche**, **avant** toute
+promotion — puis **une seule** promotion vers la prod et **une seule** MEP pour le
+lot de tickets éprouvés ensemble.
+
+**Outil canonique : `pm-cockpit-test-env.py create <RMid>`** — instance dédiée sur
+le worktree de la branche (port propre, `test_url` posée sur le ticket) ;
+`teardown <RMid>` pour l'arrêter.
+
+**Pourquoi** : une interface produit des défauts que le test unitaire ne peut pas
+voir — ils ne se manifestent qu'à l'usage. Promouvoir ticket par ticket fait alors
+du **demandeur l'environnement de test** : chaque retour coûte un cycle complet
+(snapshot, MEP, redémarrage, rechargement). Constat RM2453 : sept tickets cockpit
+promus un par un, puis trois chantiers groupés absorbant six retours d'usage sans
+qu'un octet ne bouge en production — dont trois vrais défauts invisibles aux tests
+(une tuile non sélectionnable, des sessions closes listées, une vue s'appropriant
+les sessions d'un autre client).
+
+Deux propriétés de l'instance de test à connaître : son **état d'instance**
+(`LOG_DIR`) est **isolé** — on peut tout y casser —, mais l'**état de session**
+(`STATE_DIR`) est **partagé** avec la prod : les sessions manipulées sont les
+vraies. Et l'auth y étant ouverte, l'utilisateur courant y est le superadmin, non
+le compte nommé.
+
+### Workflow de mise en production (MEP)
+
+La MEP opère sur la **branche d'intégration entière** (`integration_branch`), pas
+ticket par ticket : plusieurs tickets en `a_mep` montent ensemble. Le chemin dépend du
+**modèle de branches** du projet (cf. § Branches git de référence).
+
+**Flux 3 branches** (opt-in : `preprod_branch` déclaré) — **`dev → preprod → prod_branch`**.
+Les 3 branches longues sont **protégées** ; règle stricte **« merge only from »** :
+`preprod` n'est mergeable **que depuis `dev`**, et `prod_branch` **que depuis `preprod`**
+(jamais une MR `dev → prod_branch` en direct). Promotion **par MR**, branches conservées.
+
+1. **MR `dev → preprod`** ⇒ déployer `preprod_branch` en preprod ⇒ tickets `en_mep`.
+2. Tests de **non-régression** sur preprod + vérification par un **testeur humain**.
+3. Si OK ⇒ **MR `preprod → prod_branch`** + `pull prod_branch` en prod ⇒ tickets `ferme`
+   (`close_reason: resolu`).
+   - Régression preprod ⇒ `a_corriger` (note obligatoire).
+
+**Deux modes de promotion :**
+- **Pas-à-pas** (défaut) : halte en preprod pour la non-régression avant de promouvoir en prod.
+- **Enchaîné (auto)** : une action outillée déroule `dev → preprod → prod_branch`
+  d'affilée, **sans halte manuelle** en preprod — l'équivalent « rapide » **sans
+  déroger** au modèle (preprod reste traversée). C'est cet enchaînement qui tient lieu
+  de « bypass » : il n'existe **pas** d'option pour *sauter* preprod.
+
+**Flux 2 branches** (pas de `preprod_branch`) — **`dev → prod_branch`** (historique) :
+`integration_branch` déployée en staging, tests de non-régression, puis **MR
+`dev → prod_branch`** + `pull prod_branch`.
+
+> **⚠️ Règle de sécurité prod — consentement explicite obligatoire.** Aucune commande
+> susceptible de modifier ou casser la **production** ne doit être **exécutée sans le
+> consentement explicite de l'humain pour cette action précise**. Sont visés notamment :
+> merge vers `prod_branch`, `git pull`/`reset`/`checkout` sur un serveur de prod,
+> exécution d'une migration ou d'un upgrade de module, vidage de cache prod, restart de
+> service, toute écriture de fichier en prod. L'agent **inspecte** (lectures seules) et
+> **propose la commande exacte**, puis attend le feu vert. Un accord pour une étape ne
+> vaut **pas** pour les suivantes. Avant toute écriture, **vérifier l'état réel du
+> serveur** (branche suivie, remote source réel, propreté de l'arbre) : un arbre de prod
+> sale ou une source de déploiement divergente sont des **signaux d'arrêt**, à remonter
+> à l'humain plutôt qu'à forcer.
+#### Point de restauration avant MEP — infra opensvc / LXC / ZFS (obligatoire)
+
+Quand la cible tourne sur une infra **opensvc + conteneurs LXC sur datasets ZFS**
+(cas du parc iProspective), **prendre un snapshot ZFS du conteneur AVANT toute mise
+en production** — upgrade applicatif, migration, changement de conf, recréation de
+conteneur. Le snapshot est pris **depuis l'hôte** (nœud sur lequel le service tourne,
+cf. `om <svc> print status`), pas depuis le conteneur :
+
+```bash
+om <svc> sync update --rid sync#root_hour     # déclenche la ressource zfssnap "hourly"
+om <svc> sync all    --rid sync#root_hour     # variante : toutes les actions de sync de la ressource
+```
+
+Vérifier que le snapshot existe avant de continuer :
+`zfs list -t snapshot -o name,creation -s creation | grep '<dataset>@hourly'`.
+
+**Ce snapshot tient lieu de sauvegarde préalable** : il couvre le rollback complet du
+conteneur (données + configuration + état applicatif), donc **inutile d'empiler un
+dump applicatif ad hoc** (mysqldump & co) « au cas où ». Le régime de snapshots
+multi-cadence + réplication assure par ailleurs la conservation longue.
+
+Points de vigilance :
+- La ressource `sync#root_hour` a une **rétention courte** (`keep = 8` sur le parc,
+  soit ~8 h) : le snapshot pré-MEP n'est un filet **que sur la fenêtre d'intervention**.
+  Pour une MEP dont on veut garder le point de retour plus longtemps, s'appuyer sur les
+  cadences `sync#root_day` / `sync#root_week`, ou créer un snapshot nommé dédié.
+- Le nom du snapshot créé est **loggué dans le `.log.md`** du ticket, avec la procédure
+  de rollback (cf. `modules/traceability.md`) — un point de restauration non tracé ne
+  sert à rien le jour où il faut revenir en arrière.
+
+> **Trou d'outillage** (à combler) : pas encore de script PM dédié
+> (`pm-snapshot-pre-mep`) — la commande `om` est passée à la main pour l'instant.
+
+> Le **modèle de branches** ci-dessus est arrêté (RM2030) — plus « provisoire ». Restent
+> à outiller / faire évoluer : le **mécanisme de déploiement** (aujourd'hui `pull`
+> manuel → CI/CD, rollback) et l'**enforcement** de la règle « merge only from »
+> (aujourd'hui **convention NORMS + protections GitLab** sur `preprod`/`prod_branch` ;
+> **garde CI / push-rule** = follow-up, GitLab ne sachant pas nativement « mergeable
+> seulement depuis X »). Cf. `project/deployment.md` (template `005-deployment`).
+
+---
+#### Remote canonique GitLab, MR, et gotchas API — v1.58.2
+
+- **GitLab est le remote canonique** : quand un repo de code a un remote GitLab
+  (typiquement `origin`, alias SSH `git:`/`gitlab:` → `gitlab.iprospective.fr`),
+  c'est lui qu'on utilise **par défaut** pour push, branches et MR. C'est aussi lui
+  que traque la branche d'intégration locale.
+- **Transport git = SSH + alias, premier choix partout** : le push/fetch passe par
+  l'**alias SSH** (`gitlab:<chemin>.git`, résolu via `~/.ssh/config`). C'est la forme
+  **canonique et préférée** du remote sur **tous** les repos PM — on ne convertit
+  **pas** les remotes en HTTPS. L'auth repose sur une **clé GitLab dédiée sans
+  passphrase** (`~/.ssh/id_ed25519_gitlab`, `IdentitiesOnly yes` ; clé sur `karl-dev`,
+  identité worker), donc **toujours disponible sans ssh-agent** — choix délibéré : un
+  agent ne survit pas au reboot et personne ne peut le déverrouiller en session
+  autonome (**RM2158**). HTTPS + credential-helper token n'est qu'un **repli** quand
+  cette clé n'est pas disponible sur la machine ; ce n'est **pas** la cible.
+- **Ce repli HTTPS+token se pose par `url.…insteadOf`, PAS par conversion de remote
+  (RM2328, PoC)** : sur une machine **sans** la clé `karl-dev` (ou pour forcer le token
+  — agent d'automatisation tiers, ou submodules à tirer sans clé), **ne convertis pas**
+  les remotes. Pose un `url.…insteadOf` **global** dans le `~/.gitconfig` de l'agent : il
+  réécrit `gitlab:` / `git@gitlab.iprospective.fr:` / `ssh://git@…` →
+  `https://gitlab.iprospective.fr/` **au moment de l'op**, servi par le credential-helper
+  token. Push, fetch **et submodules** passent alors en token **sans muter aucun remote
+  ni `.gitmodules`** (le remote stocké reste `gitlab:` ; démontré : PoC RM2328). Une
+  config **par machine**, réversible, **par-utilisateur** (n'affecte que l'environnement
+  où elle est posée).
+
+  ```bash
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "gitlab:"
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "git@gitlab.iprospective.fr:"
+  git config --global --add url."https://gitlab.iprospective.fr/".insteadOf "ssh://git@gitlab.iprospective.fr/"
+  git config --global credential.helper <helper-token>   # worker (code) / manager (PM & protégés)
+  ```
+
+  ⚠ Ne **pas** faire `git remote set-url … https` par repo — ça casse les configs SSH
+  partagées (submodules) ; l'`insteadOf` global obtient le même transport token sans y toucher.
+- **Pourquoi ça compte — panne silencieuse si l'auth SSH casse** : si la clé/config
+  est absente ou le membership GitLab manquant, deux effets sournois — (1) le **push
+  se reporte** (« push différé » qui s'accumule) ; (2) `git fetch` peut **échouer en
+  silence** → la ref `origin/*` reste **périmée** et annonce la branche « à jour »
+  alors qu'elle a divergé, ce qui fait **mentir l'anti-collision** de `governance`
+  (elle raisonne sur `git fetch`). ⇒ toujours `git fetch` **et vérifier son succès**
+  avant un bump de version ; la santé « karl peut pousser » (`ssh -T gitlab`) est
+  surveillée au cockpit (watchdog **RM2376**, cf. **RM2158** / **RM2328**).
+- **Ne pas confondre transport et API** : l'**API GitLab** (création/merge de MR,
+  `pm-protect`, résolution de projet) utilise **toujours les PAT** (`pm-mr`, tokens
+  worker/manager du `.env`), en **HTTPS**, indépendamment du choix SSH pour le
+  transport git. SSH-first ne concerne que push/fetch, pas les appels API.
+- **Miroir gogs déprécié** : le miroir `gogs:` est **déprécié de manière
+  générale**. Il reste actif **uniquement sur le projet `pisceen/prestashop`**.
+  Partout ailleurs, ne plus pousser vers gogs (ni le maintenir en sync) — tout
+  passe par GitLab.
+- **Livraison par MR** (pas de merge direct sur la branche d'intégration) : créer
+  une merge request de la branche de ticket vers la branche de base (version
+  active ou `dev`, cf. sous-sections suivantes), puis la merger — **branche
+  distante conservée** (cf. KERNEL #3).
+- **Aucun commit/push direct sur une branche protégée d'un dépôt de CODE** (KERNEL #3)
+  — dès le flux 2 branches : `dev` **et** prod ne reçoivent que des **merges de MR**,
+  promotion comprise. Un commit direct sur `main` court-circuite la promotion →
+  divergences et **collisions de version NORMS** (vécu : RM2035/2038/2048). Les **cores**
+  ont leur propre régime (tableau ci-dessous).
+- **Enforcement GitLab — outil `pm-protect` (RM2052, étendu RM2440)** : `pm-protect
+  [--repo PATH | --project-id N | --all-cores]` applique la politique de protection
+  (idempotent, `allow_force_push=false`, branche absente ignorée), token *manager*.
+  **Deux politiques**, selon la nature du dépôt :
+
+  | Branche | Dépôt de **code** | Dépôt **core** |
+  |---|---|---|
+  | prod (`main`, ou `master`) | push **personne** / merge Maintainer | push **Developer** / merge Maintainer |
+  | intégration (`dev`) | push Maintainer / merge Maintainer | idem — conservée, sans trafic |
+  | `preprod` (flux 3 branches) | push **personne** / merge Maintainer | — |
+
+  Core : `push=Developer` = le niveau de l'identité qui pousse (`karl-dev`, *worker*).
+  ⚠ **`push=Maintainer` y équivaut à `push=personne`** — piège à l'origine de l'arriéré
+  de juillet 2026. **Prérequis** : le compte *manager* doit être
+  **Maintainer sur le projet**, sinon `403` (vérifier le membership, pas l'outil).
+  ⚠ **Dépôt neuf : l'appliquer aussitôt** — il n'hérite que du défaut GitLab (`main` :
+  push *Maintainer*), qui ressemble à une protection conforme sans en être une. (RM2568)
+  Depuis **RM2057**, `pm-project-new` s'en charge automatiquement pour les dépôts qu'il
+  crée ou trouve déclarés (étape 5b, non bloquante) : le geste manuel ne reste requis
+  que pour un dépôt créé hors de ce flux.
+- **Outil canonique : `pm-mr`** (RM1871) — `pm-mr create <RMid>` (push + MR + CF) /
+  `pm-mr merge <iid>` (merge, conserve la branche) / `pm-mr get <iid>`. Il encapsule
+  les gotchas ci-dessous (ID numérique, en-tête, re-GET de confirmation). À préférer
+  au `glab` brut. `pm-branch-start` (crée la branche) + `pm-mr` couvrent le cycle git.
+  Il vaut pour **tout** dépôt, **même hors conf PM** (module en
+  submodule, dépôt neuf) : lui passer l'**URL de la MR** ou `--repo`. Ne pas conclure
+  qu'il « ne couvre pas ce cas » sans essayer — le repli par API inline perd les
+  gotchas **et** peut être refusé par le **harnais de l'agent**, refus qu'on prend
+  pour un refus GitLab. (RM2568)
+- **Deux identités GitLab de karl, deux PAT dans `.env`** : la frontière calque les
+  rôles GitLab.
+  - `GITLAB_MANAGER_TOKEN` (+ `GITLAB_MANAGER_USER`) — karl **manager** (rôle
+    *Maintainer*) : **merge** les MR, gère les projets. Utilisé par `pm-mr merge` et
+    la promotion MEP.
+  - `GITLAB_WORKER_TOKEN` (+ `GITLAB_WORKER_USER`) — karl **worker** (rôle
+    *Developer*) : push des branches, **crée** des MR. Utilisé par `pm-branch-start`
+    et `pm-mr create`.
+  - Source canonique = le `.env` de **`.mmi-pm-core`** (machine-local, jamais
+    commité). PAT scope `api`. **Ne pas** dépendre du token OAuth de `glab` (se
+    révoque ; mauvais en-tête → 401/404).
+  - **Split clone-dev / runtime (RM2051)** : le **clone de dev** (`PM_DEV_DIR`) ne
+    porte **pas** de `.env` (secrets uniquement dans `.mmi-pm-core`). `PMConfig` charge
+    le `.env` de `pm_dir` s'il existe (runtime canonique, via le symlink), **sinon**
+    celui du core pointé par **`PM_CORE_DIR`** ; à défaut, **erreur explicite**. Donc :
+    lancer les scripts à secrets **depuis le runtime** (symlink), ou exporter
+    `PM_CORE_DIR=<.mmi-pm-core>`, ou sourcer le `.env` canonique.
+- **Rotation des tokens (RM2046)** : PAT à expiration → rotation **J-7** (tous les
+  `GITLAB_*_TOKEN`, pas que le manager). En début de session PM, **`pm-token-check`**
+  rapporte l'expiration (valeur jamais imprimée ; RC=2 si l'un est sous le seuil) ;
+  **`--rotate-due`** rote et réécrit le `.env` canonique atomiquement (tripwire #11).
+  Options : `--threshold`, `--rotate-expiry-days` (365), `--dry-run`.
+- **Accès projets** : karl peut **créer** des projets GitLab (il en est alors
+  membre), mais **n'a pas automatiquement accès aux projets existants** — il faut
+  l'**ajouter comme membre** (rôle *Developer* pour le worker, *Maintainer* pour le
+  manager) sur chaque projet pré-existant à piloter.
+- **Gotchas API GitLab** (gérés par `pm-mr`, à connaître si appel direct) :
+  - **`%2F` rejeté** par le front Apache (`projects/iprospective%2F…` → 404) →
+    utiliser l'**ID numérique** (`GET /projects?search=<nom>` sans slash).
+  - **En-tête d'auth** : un **PAT** passe en `PRIVATE-TOKEN:` (un token OAuth `glab`
+    en `Authorization: Bearer` ; sinon 404 sur repo `internal`).
+  - **Corps vide sur succès** possible → **re-GET** pour confirmer l'état.
+  - **Conserver la branche** au merge : `should_remove_source_branch=false`.
+- **Tracer dans le ticket** : une fois la MR créée, renseigner le CF Redmine
+  `GIT PR` (id 4) avec son URL (`pm-mr create` le fait).
+#### Base de dev partagée entre worktrees : ne pas confondre avec une anomalie
+
+En layout worktrees (RM1993/RM2267), **les fichiers sont par branche mais la base
+de données de dev est partagée** par tous les worktrees du projet. Un module, une
+entité ou une configuration peut donc être **enregistré et actif en base** alors
+que **ses fichiers sont absents du worktree courant** — parce qu'ils vivent sur la
+branche d'un autre ticket, pas encore mergée.
+
+Cas réel (2026-08-01, `calicote/prestashop`) : un module apparaissait « installé,
+actif, 6 hooks » en base, avec **0 fichier sur disque**. Diagnostic tentant :
+module fantôme, enregistrement à nettoyer. **Faux** — ses fichiers étaient dans
+deux autres worktrees, sur des branches en cours.
+
+Le risque n'est pas la perte de temps : c'est de **« corriger » une fausse
+anomalie** en désinstallant un enregistrement légitime, et de casser le travail
+d'une autre session.
+
+> **Règle.** Avant de qualifier d'anomalie un écart **base ↔ fichiers**, chercher
+> les fichiers **dans les autres worktrees du projet** :
+>
+> ```bash
+> for d in <workspace>/envs/*/; do
+>   printf '%-34s %-40s %3s fichiers\n' "$(basename "$d")" \
+>     "$(git -C "$d" rev-parse --abbrev-ref HEAD 2>/dev/null)" \
+>     "$(find "$d/<chemin>" -type f 2>/dev/null | wc -l)"
+> done
+> ```
+>
+> S'ils y sont : ce n'est **pas** une anomalie, c'est du travail en cours sur une
+> autre branche. Ne rien toucher, et vérifier qu'aucun ticket n'est ouvert dessus
+> avant d'intervenir.
 #### Projets versionnés : branche de version active (base de branchement) — v1.20.0
 
 Certains projets ne suivent pas un simple modèle `prod`/`dev` mais une **famille
@@ -1833,7 +2430,6 @@ versioning:
   « branche d'intégration » au sens de la sous-section précédente.
 - En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
-
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 
@@ -1902,12 +2498,24 @@ Le hook `~/.claude/hooks/pm-task-tick.py` est déclenché à la fin de chaque
 réponse Claude. Il :
 
 1. Lit l'event JSON sur stdin (`session_id`, `transcript_path`, `cwd`, …)
-2. Identifie le RM-id courant via une cascade **isolée par projet** (pas de
-   sentinel global utilisateur — éviter les collisions multi-sessions) :
-   - Fichier sentinel `<workspace>/.mmi-pm/CURRENT_TASK` (si cwd dans workspace)
-   - Seule tâche `status: en_cours` dans le projet pointé par cwd `.mmi-pm`
-   - (V2 prévue : sentinel par-`session_id` populé par un hook `UserPromptSubmit`
-     qui parse les "RM1234" dans le prompt user)
+2. Identifie le RM-id courant **par ce que le tour a réellement touché** (RM1823),
+   lu dans le transcript que le hook reçoit déjà — on ne **devine** pas le ticket
+   depuis l'état du projet :
+   - **Signal du tour** (events depuis le dernier prompt humain, celui-ci inclus) :
+     le candidat au signal le plus **fort**, puis le plus **récent**. Force du
+     signal : **3** = commande de mutation PM (`pm-task-*.py`, `redmine-*.py` avec
+     un RM-id), **2** = édition d'un fichier de ticket (`RM<id>_*.md`), **1** =
+     simple mention textuelle (`RM1234`).
+   - **Continuation** : si le tour n'a touché aucun ticket (question, lecture,
+     mise au point), on retombe sur le dernier ticket touché **de la session**.
+   - **Repli** : sentinel projet `<workspace>/.mmi-pm/CURRENT_TASK`.
+   - **Le statut n'entre PAS dans la résolution** — sauf la garde `ferme`
+     ci-dessous. Une phase d'`etude_chiffrage_en_cours`, un `a_corriger`, un
+     `a_mep` sont tickés comme un `en_cours` : l'étude et le chiffrage se
+     mesurent aussi. (L'ancienne heuristique « seule tâche `en_cours` du projet »
+     est abandonnée depuis RM1823 : trompeuse — plusieurs tâches `en_cours` dans
+     un projet est le cas NORMAL, comme plusieurs sessions en parallèle ou
+     plusieurs tickets dans une même session.)
    - **Garde « ticket fermé » (RM2053)** : la cible n'est **jamais** un ticket
      `status: ferme`. Le résolveur retient le signal le plus fort **parmi les tickets
      ouverts** ; un tour touchant un ticket ouvert + un fermé ticke l'**ouvert** ; un
@@ -1917,9 +2525,14 @@ réponse Claude. Il :
      perdre). Évite que la cérémonie de clôture / le suivi post-fermeture ne gonfle un
      ticket déjà fermé.
 3. Si aucune cible identifiée → log dans `~/.claude/logs/pm-task-tick-untracked.jsonl` et exit propre
-4. Sinon : lit le dernier message assistant du transcript, somme les tokens
-   par type, calcule le coût USD via `pm.pricing.yml`, met à jour le frontmatter
-   du MD (atomique avec optimistic locking)
+4. Sinon : somme les tokens **de tous les messages assistant du tour** (fenêtre =
+   curseur de session, à défaut dernier prompt humain — jamais tout le transcript,
+   pour ne pas recompter l'historique d'une session reprise), **dédupliqués par
+   `message.id`** (RM2628 : le JSONL écrit une même réponse une fois par bloc de
+   contenu, chaque ligne portant l'usage complet ; sans dédup la conso est
+   multipliée par le nombre de blocs — règle partagée avec le cockpit via
+   `pm_transcript.usage_by_message`), calcule le coût USD via `pm.pricing.yml`,
+   met à jour le frontmatter du MD (atomique avec optimistic locking)
 5. Append au `.log.md` une entrée concise (seuil : >1000 tokens total pour
    éviter le bruit, sinon silencieux)
 
@@ -2015,6 +2628,7 @@ depuis le commit précédent, sous forme d'une **saisie de temps**
 | `bugfix` | `Développement/Debug` | 16 | corriger un défaut |
 | `maintenance` | `Développement/Refacto/Clean` | 30 | refacto, nettoyage, entretien |
 | `infrastructure` | `SysAdmin/Conf/Debug` | 13 | déploiement, conteneurs, systemd, conf |
+| `configuration` | `SysAdmin/Conf/Debug` | 13 | paramétrage applicatif / système |
 | `research` | `Audit/Analyse` | 10 | investigation, audit, exploration |
 | `assistance` | `Assistance` | 11 | aide / support ponctuel |
 | `autre` | `Autre` | 18 | fourre-tout (défaut de repli) |
@@ -2066,6 +2680,67 @@ cible) et synchronisés avec les `relations` Redmine via le script
 | `blocks` | `list[int]` | Bloquant : A doit finir avant B (réciproque de `depends_on`) | `depends_on` côté B | POST sur A : `blocks` → B |
 | `relates` | `list[int]` | **Lien latéral non-bloquant** : sujet/famille commun | `relates` côté cible | POST `relates` |
 | `refs` | `list[obj]` | Référence externe libre (URL, commit, ticket partenaire) | — | — (champ libre, pas de relation Redmine) |
+
+### `refs: partner_issue` — ticket d'un gestionnaire partenaire (v1.69.0)
+
+Quand un projet déclare un **provider secondaire** (gestionnaire de tâches d'un client
+ou d'un prestataire, cf. `providers.task[]` du `meta.yml` — RM2653), un ticket PM peut
+être **rattaché** à un ticket de ce gestionnaire. Le lien est un item `refs[]` typé :
+
+```yaml
+refs:
+  - type: partner_issue
+    instance: redmine-matnat      # DOIT être un secondaire déclaré du projet
+    issue_id: 1234
+    url: https://tasks.materiaux-naturels.fr/issues/1234
+    role: mirror                  # mirror | upstream | related
+    last_seen_journal_id: null    # pointeur de synchro, PAR LIEN
+    added: 2026-08-12
+```
+
+| `role` | Sens |
+|---|---|
+| `mirror` | ce ticket **est** le mien vu de chez eux (1↔1) — **un seul** par tâche |
+| `upstream` | leur ticket est la demande d'origine |
+| `related` | voisinage : plusieurs de leurs tickets peuvent toucher la même tâche |
+
+**Règles.** Le lien se pose **toujours** avec `pm-task-partner` (tripwire #1), jamais à
+la main : l'outil valide que l'instance est un secondaire déclaré, refuse un doublon
+`(instance, issue_id)` ou un second `mirror`, pose le CF Redmine « Ticket partenaire »,
+journalise, et poste la note de rattachement chez le partenaire.
+
+**Le partenaire ne décide de rien chez nous** : un `partner_issue` ne modifie **aucun**
+champ du frontmatter (statut, priorité, assignation). Le provider **primaire** reste la
+seule source de vérité ; ce qui vient d'un secondaire s'écrit dans le `.log.md`.
+
+Quand le secondaire porte `link.policy: required` (« tout ce que je fais pour eux doit
+être rattaché chez eux »), `pm-doctor` signale chaque ticket **ouvert** sans lien.
+
+**Importer ce qui se dit chez eux** (v1.69.0) : `pm-task-partner pull <RM-id>` (ou
+`--all`, câblable en cron) lit le ticket distant et **appende au `.log.md`** les notes
+nouvelles — citées, sous un en-tête qui nomme l'instance — et leur statut **brut**
+(leur libellé, pas un état NORMS). Réglable par secondaire via
+`sync.pull: {notes, status}`. Le pointeur de lecture (`last_seen_journal_id`) vit **dans
+le lien**, jamais dans `redmine_last_journal_id` qui suit l'instance primaire — deux
+boucles, deux pointeurs. Un partenaire injoignable produit un avertissement, jamais un
+échec : le PM ne dépend pas de la disponibilité d'un tiers.
+
+**Rendre compte chez eux** (v1.69.0) : une transition de statut poste une **note de
+suivi** chez le partenaire — **seulement** si le secondaire déclare ce statut dans
+`sync.push.on`. **Défaut : rien ne part.** L'activation se fait projet par projet, après
+revue du gabarit : une note poussée chez un tiers ne se rattrape pas.
+
+* **Écriture pauvre** : une note de texte, jamais un statut, un champ personnalisé ni une
+  saisie de temps — les ids de `redmine.reference.yml` sont ceux d'iProspective.
+* **Gabarit fermé** : identifiant de suivi, titre, état **en clair**
+  (`a_tester_demandeur` → « livré, en attente de validation » : le partenaire ne connaît
+  pas notre machine d'états), plus un message rédigé à la main. Pas de chemin, d'hôte, de
+  branche, d'environnement de test, ni d'URL interne — notre Redmine ne lui est pas
+  accessible de toute façon.
+* Le push est **best-effort** : il n'échoue jamais une transition déjà écrite côté PM.
+* `pm-task-partner link --create-remote` crée le ticket manquant chez eux puis le
+  rattache ; il exige un `create.tracker_id` déclaré (les ids de tracker ne sont pas
+  portables — on ne devine pas).
 
 **Règles d'intégrité :**
 - Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.
@@ -2124,6 +2799,23 @@ la clôture. On journalise le *pourquoi* des décisions, pas seulement le code p
 - N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
   sa place dans le journal.
 
+#### Traces mécaniques templatées — RM2365 (CDC RM2316 § S4)
+
+Les notes Redmine des **événements mécaniques** sont générées par l'outillage
+depuis `templates/notes/` (ex. `status_change.md` : ancien → nouveau statut,
+assignation, branche/MR) — **l'agent ne rédige plus cette partie**. La règle :
+
+- **Transition de statut** : ne passer `--note` à `pm-task-status-update` /
+  `pm-task-take` / `pm-task-deliver` **que pour un ajout sémantique** (décision,
+  contexte, résumé de livraison) — jamais pour paraphraser la transition,
+  l'assignation, la branche ou la MR (le template les porte déjà).
+- Les événements déjà journalisés ailleurs **n'appellent pas de note
+  supplémentaire** : estimation (CF 21/22 visibles sur le ticket), liens
+  (journal Redmine natif des relations), tick/report (déjà templatés).
+- Le **sémantique reste obligatoire** là où il l'a toujours été : prise en
+  charge avec plan, décisions/arbitrages, blocages, livraison (le
+  `--summary` de `pm-task-deliver`).
+
 #### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
 
 **Référence unique** pour « quand commiter, quand noter ». L'unité de travail
@@ -2139,7 +2831,10 @@ granularités, l'agent produit :
 2. **Note Redmine** — résumé **détaillé**, human-readable, destiné au ticket : ce
    qui a été fait/livré et *pourquoi*, + **réf du commit** (SHA + URL GitLab, cf.
    « Référencer un commit ») + **temps + tokens** du delta (cf. § « Journalisation
-   par commit »). C'est la trace que les humains lisent.
+   par commit »). C'est la trace que les humains lisent — donc **aérée** : sauts
+   de ligne aux ruptures d'idée plutôt qu'un unique bloc compact, sans pour
+   autant sur-formatter une note de trois phrases (pas de titres/listes à
+   outrance).
 3. **Entrée `.log.md`** — variante technique de l'agent (détail, décisions) + réf
    commit + métriques, append-only (format ci-dessus). Les humains ne la lisent pas.
 4. Si l'étape est une **livraison** : transition de statut + `done_ratio` au même
@@ -2161,8 +2856,15 @@ granularités, l'agent produit :
 **Niveau de note par commit — configurable** (`pm.config.yml :: traceability.commit_note_level`,
 pour calibrer le bruit à l'usage) :
 - `work` (défaut) — note pour les commits de travail/livraison/structurants uniquement.
+  Concrètement (RM2409) : les commits d'**outillage** — sujet préfixé `pm(<verbe>):`
+  (auto-commits des scripts `pm-*`) ou `chore(…):` — reportent la conso **sans note** ;
+  tout autre commit rattaché à une tâche est co-posté en note avec sa réf `— commit sha`.
 - `all` — note pour **tout** commit rattaché à une tâche (mode test : mesurer le bruit réel).
 - `none` — pas de note auto par commit (on conserve `.log.md` + time_entry).
+
+**Override par projet** : `meta.yml` du projet (dossier `.mmi-pm`) peut porter la même
+clé `traceability: { commit_note_level: … }` — priorité : projet > `pm.config.local.yml`
+> `pm.config.yml` > défaut `work`. Appliqué par le hook `pm-post-commit`.
 
 #### Référencer un commit dans une entrée
 
@@ -2185,7 +2887,7 @@ Commit: <repo-alias>@<sha-court> — <message court>
 
 ---
 
-> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (Vaultwarden).
+> 📂 **Module `environments` — quand lire ceci :** je me connecte à / référence un environnement · je manipule un secret (vault, quel qu'il soit).
 > **Outils :** `ssh_alias`, `resolve-secret.sh` · **Préchargé par :** worker-dev, worker-infra.
 
 ### Environnements (aspect `environments.md`)
@@ -2195,6 +2897,183 @@ staging, prod, etc.), distinct de `hosting.md` (provider/coûts/DNS).
 
 **Format** : frontmatter avec liste `environments[]`, chaque entrée décrivant un env.
 Voir `templates/aspects/common/environments.md`.
+
+**Format des entrées** — noms d'env admis, champs (`ssh_alias`, `post_deploy`,
+`logs.*`, `env_vars[]`…) et conventions de chemins : `modules/environments-reference.md`
+(hors précharge, ouvert quand on écrit l'aspect).
+
+**Connexion SSH (règle d'usage)** : pour se connecter à un env, utiliser **`ssh_alias`
+s'il est renseigné** (il porte les `ProxyJump`/clés de `~/.ssh/config` — cf. convention
+OVH « alias = nom du conteneur »), **sinon `ssh_target`** (`user@hostname` explicite).
+`host`/`user` restent indicatifs (préfixe des logs distants, contexte) et ne sont pas la
+commande de connexion.
+
+**Cascade** : un `environments.md` peut exister au niveau client (conventions par défaut
+sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
+
+**Lien avec les tâches** : le frontmatter de tâche peut référencer un env via
+`target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
+(sauf si `test_url` est explicitement surchargé). Pour les **envs de session par
+ticket** (RM1834), `pm-env-session` tient `test_url` à jour tout seul : `create`
+écrit `http://<repo>-rm<id>.lxc/` (frontmatter + CF « Environnement de test »),
+`teardown` les **vide** — ne jamais laisser une URL morte affichée (RM2229).
+
+> **Résolution du worktree : PAR BRANCHE, jamais par chemin deviné (RM2394).**
+> Le vhost et l'`env_name` restent l'**identité stable** du ticket
+> (`<repo>-rm<id>.lxc`), mais le **worktree** est trouvé via sa branche `<id>-*`
+> (`git worktree list`), quel que soit le nom du dossier : canonique
+> `envs/<repo>-rm<id>` **ou** discriminé par session `envs/<repo>-dev-<id>-s<seq>`
+> (RM2034), **ou** renommé/créé à la main. C'est la seule convention qui survit au
+> multi-session et aux `git worktree move` — l'alternative (forcer un nom canonique
+> à la création) casserait la discrimination RM2034. Conséquence : `pm-env-session
+> create` et `pm-cockpit-test-env create` **réutilisent** le worktree déjà monté
+> (pris avec `pm-branch-start --worktree`) et posent le vhost/runtime **par-dessus**
+> (idempotent, le helper réécrit le `DocumentRoot`), au lieu d'échouer en `rc=128`.
+> Résolveur partagé : `pm-env-session.worktree_for_branch()`.
+
+
+### Gestion des secrets — vaults déclarés
+
+Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,
+ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans un
+**gestionnaire de secrets** et sont **référencés** dans les documents PM par un URI.
+
+**Plusieurs vaults peuvent coexister** (RM2662) : chacun est une **instance** déclarée
+dans le registre providers (`pm.config.yml :: providers.servers`, axe `secret`), nommée
+par un slug, avec un défaut et une surcharge possible **par client ou par projet**.
+
+```yaml
+providers:
+  defaults:
+    secret: vw-ipro                 # vault par défaut
+  servers:
+    vw-ipro:     { axis: secret, type: vaultwarden, url: "${VAULT_URL:-…}" }
+    kdbx-perso:  { axis: secret, type: keepass, file: "~/vaults/ipro.kdbx" }
+    age-acme:    { axis: secret, type: age, file: "~/vaults/acme.yml.age" }
+    op-ipro:     { axis: secret, type: onepassword, vault: "Agents" }
+```
+
+**Aucun secret dans cette déclaration** : URLs, types et chemins seulement. Les
+identifiants d'accès sont **par développeur**, dans `~/.config/mmi-pm/.env`, nommés
+par slug **normalisé** (majuscules, non-alphanum → `_`) :
+`SECRET__VW_IPRO__CLIENTID`, `SECRET__KDBX_PERSO__FILE`, `…__TOKEN`.
+
+**URI — trois formes, toutes valides :**
+```
+secret://<instance>/<chemin…>[#champ]      instance nommée explicitement
+secret:<chemin…>[#champ]                   instance par défaut (cascade projet/client)
+vaultwarden://<org>/<collection>/<item>    forme historique — supportée définitivement
+```
+
+Ex : `secret://vw-ipro/calicote-agents/prod-db`, ou
+`vaultwarden://iprospective/calicote-agents/prod-db` (équivalent, jamais à réécrire).
+
+**Backends disponibles** : `vaultwarden` (défaut), `keepass` (`.kdbx`, dép.
+`python3-pykeepass`), `age` (fichier YAML/JSON chiffré, dép. `age` — « on me partage
+trois identifiants », sans serveur ni compte), `nextcloud_passwords` (app **Passwords**
+d'un Nextcloud, mot de passe d'**application**) et `onepassword` (CLI `op` + *service
+account* ; CLI hors dépôts Debian, jeton machine sur plan payant). D'autres s'ajoutent
+par `pm_secrets.register_backend()` sans toucher aux appelants.
+
+**Un secret chiffré côté client est refusé, pas rendu.** Quand l'app Passwords chiffre
+un item avec une clé que seul le navigateur détient, l'API n'en rend qu'un cryptogramme :
+le backend REFUSE (`unsupported`, en nommant le chiffrement) plutôt que de livrer une
+valeur qu'un agent injecterait dans une conf en la prenant pour un mot de passe. Donc :
+un secret destiné aux agents ne se pose pas dans le périmètre chiffré côté client.
+
+**Tous les vaults ne se déverrouillent pas.** Un fichier `age` s'ouvre avec une clé
+privée posée sur le poste ; un accès par jeton (service account 1Password, mot de passe
+d'application Nextcloud) tient par ce jeton : **pas de session à établir**, donc pas de
+secret humain à saisir. Deux conséquences. Ces vaults **ne se verrouillent pas** —
+`lock-vault.sh` n'agit que sur les sessions gardées en mémoire. Et leur refus ne
+s'ouvre pas : un jeton refusé se rapporte `locked`, faute d'une quatrième valeur au
+contrat, mais il faut en **émettre un nouveau**, pas chercher un mot de passe maître
+qui n'existe pas. Pour `age`, **seuls les droits du fichier protègent le vault** : clé
+en `0600` (`SECRET__<SLUG>__AGE_KEY_FILE`), jamais commitée, jamais dans la déclaration
+partagée — la page de santé du poste signale une clé trop ouverte.
+
+**Un secret ne passe jamais en argument de commande** : `ps` est lisible par tous les
+processus de la machine, et le shell en garde l'historique. Il se transmet par variable
+d'environnement ou sur l'entrée standard (`unlock-vault.sh --stdin`).
+
+> **Secrets d'un client : la collection `<client>-agents` d'abord.** Déclarer une
+> instance dédiée sert aux **intervenants** qui ont leur propre outil, ou à un client
+> qui **impose** son gestionnaire. Pour les secrets d'un client hébergés chez nous, la
+> voie normale reste une collection `-agents` du vault iProspective (ci-dessous).
+
+**Architecture du vault par défaut** (chez iprospective) :
+
+```
+Organization iProspective
+├── <client>            ← collections existantes, accès Mathieu uniquement
+├── <client>-agents     ← sous-scope pour les items que les agents peuvent lire
+│   └── membre : karl@iprospective.fr (User, Read-only)
+└── iprospective-agents ← idem pour les secrets internes (Redmine bot, n8n, etc.)
+    └── membre : karl@iprospective.fr (User, Read-only)
+```
+
+- Un seul user d'agents : `karl@iprospective.fr` (alias technique unique)
+- Scope **read-only** sur les collections `*-agents` uniquement
+- Les credentials critiques (root SSH, BDD admin, master gitlab, etc.) restent en
+  dehors du scope agents
+
+**Cycle de vie des sessions :**
+
+| Action | Outil | Acteur |
+|---|---|---|
+| Déverrouillage | `scripts/unlock-vault.sh [-i <instance>]` (demande le secret humain — master password ou passphrase —, jamais stocké) ou, dans le **cockpit**, le bouton **🔓 déverrouiller** de l'en-tête, qui n'apparaît que si un coffre est fermé (RM2748). Sur un vault **sans session** (ex. `age`), il n'y a rien à déverrouiller : la commande ne fait que diagnostiquer l'accès | toi (humain) |
+| Résolution d'un secret | `scripts/resolve-secret.sh "<uri>" [champ]` | agent / script |
+| Verrouillage manuel | `scripts/lock-vault.sh [<instance>]` | toi |
+| Inventaire d'un vault | `scripts/vault-list.sh [-i <instance>] [filtre]` | toi / agent |
+| Quel vault pour ce projet ? | `scripts/pm-providers.py resolve secret` | toi / agent |
+
+Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
+- garde **une session par instance**, **en mémoire** uniquement (pas de fichier, pas
+  même tmpfs) — déverrouiller le vault d'un client ne prolonge pas celui d'iProspective
+- expose un socket Unix `/run/user/$UID/vault-agentd.sock` (chmod 600)
+- verrouille **chaque instance** après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
+  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h), et ne s'arrête que
+  lorsqu'il ne reste plus aucune instance ouverte
+
+**Règles strictes :**
+1. Un agent ne demande **jamais** le secret de déverrouillage (master password,
+   passphrase) ; si `resolve-secret.sh` sort en code 2, l'agent dit à l'humain « lance
+   `unlock-vault.sh`, ou déverrouille depuis le cockpit » et attend. Le mode non
+   interactif (`--stdin`) existe pour un appelant qui **transmet** un secret déjà saisi
+   par l'humain (le cockpit) — jamais pour qu'un agent en fabrique ou en réutilise un.
+   Un code 4 `unreachable` n'est PAS un verrou : c'est une configuration ou une
+   dépendance manquante — le message dit laquelle
+2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
+   inclus dans un commit ou un transcript. Un diagnostic peut nommer les **clés**
+   d'identifiants trouvées, jamais leurs valeurs
+3. La rotation des identifiants d'agent est trimestrielle (ou immédiate en cas de doute)
+4. Les agents 24/7 (cron nocturne, n8n) ne peuvent fonctionner que dans la fenêtre
+   d'unlock manuel ou via un sous-scope dédié explicitement autorisé (cas particulier)
+5. Un URI visant une **instance inconnue** est refusé, jamais rabattu sur le vault par
+   défaut — chercher un secret dans le mauvais coffre est l'erreur silencieuse à éviter
+
+**Identifiants** — par dev, dans `~/.config/mmi-pm/.env`, nommés par slug d'instance
+(`SECRET__<SLUG>__…`). Les variables historiques `VAULT_URL` / `BW_CLIENTID` /
+`BW_CLIENTSECRET` restent lues en repli tant qu'un dev n'a pas migré.
+
+**Convention dans `environments.md` et autres aspects** : utiliser
+`secrets_source: secret://<instance>/<chemin>` (ou la forme historique
+`vaultwarden://…`, toujours valide) comme pointeur, jamais la valeur brute. Documenter
+dans `client/security.md` (ou équivalent) la liste des items référencés et leur rôle,
+pour audit humain.
+
+> 📂 **Module `environments-reference` — quand lire ceci :** j'écris ou j'édite un aspect `environments.md` · je cherche le nom exact d'un champ d'environnement · je déclare un `post_deploy` ou un chemin de logs.
+> **Outils :** `templates/aspects/common/environments.md` · **Préchargé par :** *(personne — ouvert à la demande)*.
+
+# Environnements — format de l'aspect (référence)
+
+Détaché de `environments.md` par RM2755 : ces sections décrivent la **forme** du
+fichier d'aspect — noms d'env admis, champs, conventions de chemins. On les ouvre
+quand on ÉCRIT un `environments.md`, pas à chaque tâche. Les **règles d'usage**
+(quelle commande de connexion, cascade, `target_env`, secrets) restent dans
+`environments.md`, préchargé.
+
+### Noms et champs
 
 **Énumération des noms d'env standard :**
 `local | dev | test | staging | prod | demo | qa | sandbox | <nom-custom-kebab-case>`
@@ -2222,7 +3101,7 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
 - `host`, `user`, `app_path`, `branch` : identité machine, user système, chemin du code,
   branche déployée
 - `fpm_pool`, `logs.app`, `logs.fpm`, `logs.access` : observabilité
-- `secrets_source` : pointeur Vaultwarden (cf. section "Gestion des secrets")
+- `secrets_source` : pointeur vers un secret d'un vault déclaré (cf. section « Gestion des secrets »)
 - `post_deploy` : **liste de commandes shell** à exécuter après un déploiement sur cet
   env (ex. purge du cache applicatif). C'est la forme **scriptée** de la procédure de
   déploiement, à préférer à la prose (la prose ne sert qu'à expliquer le *pourquoi*).
@@ -2236,11 +3115,7 @@ Custom autorisé si le projet a une particularité (ex: `staging-eu`, `staging-a
     lancé du mauvais cwd — écrire `rm -rf /home/<user>/public_html/var/cache/*`.
 - `notes` : libre
 
-**Connexion SSH (règle d'usage)** : pour se connecter à un env, utiliser **`ssh_alias`
-s'il est renseigné** (il porte les `ProxyJump`/clés de `~/.ssh/config` — cf. convention
-OVH « alias = nom du conteneur »), **sinon `ssh_target`** (`user@hostname` explicite).
-`host`/`user` restent indicatifs (préfixe des logs distants, contexte) et ne sont pas la
-commande de connexion.
+### Conventions de chemins
 
 **Logs (`logs.app` / `logs.fpm` / `logs.access`)** : chemins des logs, préfixés de
 l'host si le fichier est sur une machine distante (`<host>:<path>`).
@@ -2252,79 +3127,9 @@ l'host si le fichier est sur une machine distante (`<host>:<path>`).
   Ex: `sfy-srv1:/var/log/nginx/calicote.com_access.log`. Utile pour analyser la charge
   de crawl (bots/scrapers), diagnostiquer des pics, ou auditer les accès.
 
-**Cascade** : un `environments.md` peut exister au niveau client (conventions par défaut
-sur l'host, user, secrets_source) et au niveau projet (surcharge ou complète).
-
-**Lien avec les tâches** : le frontmatter de tâche peut référencer un env via
-`target_env: <name>`. Si présent, `test_url` se déduit de `environments.<target_env>.url`
-(sauf si `test_url` est explicitement surchargé).
-
 **Tableau `env_vars[]`** : liste des variables d'environnement attendues (noms,
 description, dans quels envs elles existent). **Sans les valeurs** — celles-ci sont
-soit dans le `.env` local (gitignored), soit dans Vaultwarden via `secrets_source`.
-
-### Gestion des secrets — Vaultwarden
-
-Les credentials sensibles (mots de passe, tokens, clés) **ne sont jamais commités**,
-ni dans le repo PM public, ni dans le repo projets privé. Ils vivent dans une instance
-Vaultwarden interne (https://vault.iprospective.fr), et sont **référencés** dans les
-documents PM via un URI dédié.
-
-**URI :**
-```
-vaultwarden://<organization>/<collection>/<item>
-```
-
-Ex : `vaultwarden://iprospective/calicote-agents/prod-db`.
-
-**Architecture du vault** (chez iprospective) :
-
-```
-Organization iProspective
-├── <client>            ← collections existantes, accès Mathieu uniquement
-├── <client>-agents     ← sous-scope pour les items que les agents peuvent lire
-│   └── membre : karl@iprospective.fr (User, Read-only)
-└── iprospective-agents ← idem pour les secrets internes (Redmine bot, n8n, etc.)
-    └── membre : karl@iprospective.fr (User, Read-only)
-```
-
-- Un seul user d'agents : `karl@iprospective.fr` (alias technique unique)
-- Scope **read-only** sur les collections `*-agents` uniquement
-- Les credentials critiques (root SSH, BDD admin, master gitlab, etc.) restent en
-  dehors du scope agents
-
-**Cycle de vie des sessions :**
-
-| Action | Outil | Acteur |
-|---|---|---|
-| Déverrouillage | `scripts/unlock-vault.sh` (demande master password de karl, jamais stocké) | toi (humain) |
-| Résolution d'un secret | `scripts/resolve-secret.sh "vaultwarden://..."` | agent / script |
-| Verrouillage manuel | `scripts/lock-vault.sh` | toi |
-
-Le déverrouillage démarre un daemon local `vault-agentd.py` qui :
-- garde la session BW **en mémoire** uniquement (pas de fichier, pas même tmpfs)
-- expose un socket Unix `/run/user/$UID/vault-agentd.sock` (chmod 600)
-- se verrouille automatiquement après inactivité (`VAULT_IDLE_TIMEOUT`, défaut 8h)
-  et/ou à une heure fixe (`VAULT_LOCK_AT_HOUR`, défaut 23h)
-
-**Règles strictes :**
-1. Un agent ne demande **jamais** le master password ; si `resolve-secret.sh` renvoie
-   "session expirée", l'agent doit dire à l'humain "lance `unlock-vault.sh`" et attendre
-2. Les secrets résolus **ne sont jamais loggués**, jamais écrits sur disque, jamais
-   inclus dans un commit ou un transcript
-3. La rotation du token API de `karl` est trimestrielle (ou immédiate en cas de doute)
-4. Les agents 24/7 (cron nocturne, n8n) ne peuvent fonctionner que dans la fenêtre
-   d'unlock manuel ou via un sous-scope dédié explicitement autorisé (cas particulier)
-
-**Variables d'env requises** (dans `.env` local) :
-- `VAULT_URL` (URL Vaultwarden)
-- `BW_CLIENTID` + `BW_CLIENTSECRET` (API key de karl, pas de master password)
-
-**Convention dans `environments.md` et autres aspects** : utiliser
-`secrets_source: vaultwarden://<org>/<coll>/<item>` comme pointeur, jamais la valeur
-brute. Documenter dans `client/security.md` (ou équivalent) la liste des items
-référencés et leur rôle, pour audit humain.
-
+soit dans le `.env` local (gitignored), soit dans un vault via `secrets_source`.
 > 📂 **Module `collaboration` — quand lire ceci :** je suis l'orchestrateur : rôles, assignation, sous-tâches multi-niveaux, propagation de complétion.
 > **Outils :** — · **Préchargé par :** orchestrateur.
 
@@ -2346,7 +3151,7 @@ référencés et leur rôle, pour audit humain.
 | `feature` / `bugfix` / `refactoring` / `security` / `performance` | worker-dev |
 | `audit` / `research` / `documentation` / `assistance` / `maintenance` | worker-analyst |
 | `database` | worker-db |
-| `infrastructure` | worker-infra |
+| `infrastructure` / `configuration` | worker-infra |
 | `design` | worker-design |
 
 - Propriétaire exclusif de leur fichier de tâche assignée
@@ -2411,6 +3216,27 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+### Multi-utilisateur & concurrence — v2.0.0
+
+Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes données communes
+(arbo des tâches, dépôts `*-core`, docs). Le modèle mono-`karl` / *single-writer global* est
+remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
+
+- **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
+  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+- **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
+  **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
+- **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),
+  churn (`.mmi-pm/`, `tasks/`, `docs/`, `envs/`) `2770`/`2775` setgid **jamais sticky** (sticky ⊥
+  rename-overwrite atomique → `EPERM`), bares `core.sharedRepository=group` (commits multi-dev sans
+  sudo). Contenu de travail (`envs/<ticket>`) = au créateur. Enforcement idempotent committé :
+  **`pm-perms`**, jamais un runbook jetable.
+- **Sérialisation par ressource.** `flock` par ticket (`var/locks/`) + écritures atomiques
+  `os.replace` remplacent le single-writer ; contention = écriture **différée** bornée, pas rejetée ;
+  crash-safe (`flock` libéré par le noyau ; FS local, pas NFS) ; `pm-lock-gc` (cron) nettoie les
+  anomalies sans casser un verrou vivant. Le verrou optimiste `updated` reste l'arbitre
+  **inter-machine**. Détail : tripwires du KERNEL (§ Propriété, verrou & journal).
 > 📂 **Module `summarizer` — quand lire ceci :** je génère les fichiers auto-générés (Changelog / Pistes / Remarques).
 > **Outils :** — · **Préchargé par :** summarizer.
 
@@ -2536,6 +3362,67 @@ référencé en relatif depuis le `SKILL.md`. **Jamais** dans le dossier skills 
 les skills de l'outillage. Lancer ensuite `scripts/pm-skills-sync.py` pour créer le symlink
 qui le rend invocable, et l'ajouter à `skills/README.md`. L'état purement instance-local
 qu'un skill produit (worklogs de session, caches) reste **hors repo** (ex: `~/.claude/...`).
+
+## Docs vivantes du repo PM (`Changelog.md` + `README.md`)
+
+Le repo PM se documente **au fil des livraisons**, pas en rattrapages (RM2250 :
+deux mois de retard résorbés d'un bloc — à ne pas reproduire) :
+
+- **`Changelog.md` (système)** : toute livraison qui change la **surface du
+  système** — nouvel outil/skill, nouveau flux (statuts, envs, cockpit), changement
+  de comportement d'un outil existant — ajoute sa ligne à l'entrée jalon courante
+  (ou en ouvre une) **dans la même MR** que le code. Niveau de détail : le **jalon
+  et son pourquoi** avec RM-ids, pas le commit-par-commit (le détail vit dans les
+  tickets ; les normes dans `norms/CHANGELOG.md`).
+- **`README.md`** : à retoucher quand l'installation, la structure du repo ou les
+  points d'entrée changent. **Jamais de valeur qui rouille** (numéro de version,
+  compte d'outils…) : pointer les sources vivantes (`norms/VERSION`, `scripts/`).
+- Ces mises à jour font partie de la **livraison** (même esprit que le CHANGELOG
+  projet à chaque merge dans main) — un reviewer peut refuser une MR « surface »
+  sans sa ligne de Changelog.
+
+### Développement du PM — doc vivante à quatre cibles (RM2595)
+
+Le contrat « docs vivantes » ci-dessus est le **contrat de développement du PM**.
+Il porte sur **quatre cibles** : toute livraison qui change la surface concernée
+met à jour, **dans la même MR** que le code, la doc correspondante — un reviewer
+peut refuser une MR « surface » dont la doc n'a pas suivi.
+
+| Cible | Se met à jour quand… | Où |
+|---|---|---|
+| `Changelog.md` | la **surface système** change (outil, skill, flux statuts/envs/cockpit) | entrée jalon courante (`[Unreleased]` ou nouvelle) |
+| `README.md` | **installation / structure / points d'entrée** changent | section concernée (pas de valeur qui rouille) |
+| **Aide cockpit** (RM2593) | une **surface UTILISATEUR du cockpit** change (panneau, action, geste) | page `deploy/karl-agent/cockpit/help/<topic>.md` |
+| **Doc développeur** (RM2594) | l'**architecture, les flux ou la boucle de dev** changent | `DEVELOPMENT.md` (relie ; pointe les sources vivantes) |
+
+Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
+(pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
+commit-par-commit (le détail vit dans les tickets).
+
+### Changements sans ticket (RM2644)
+
+Certains changements du repo PM **ne demandent pas de ticket Redmine** : le ticket y
+coûterait plus cher que le changement lui-même, et n'apprendrait rien à personne.
+
+| Sans ticket | Avec ticket |
+|---|---|
+| ajout d'un terme au **glossaire du cockpit** (`GLOSSARY`) | tout changement de **comportement** d'un outil |
+| correction de coquille / reformulation sans changement de sens | toute évolution de **surface** (outil, flux, statuts, envs, cockpit) |
+| — | toute modification de **NORMS** |
+
+**Ce qui ne change pas : la MR.** Les branches d'intégration et de prod restent
+protégées (tripwire #3) — « sans ticket » ne veut pas dire « push direct ». Ce qui
+tombe, faute d'objet, c'est ce qui s'accroche au ticket : CF Redmine *GIT Branche* /
+*GIT PR*, `git.mr_urls` du frontmatter, transition de statut.
+
+Outil : **`pm-mr create --no-ticket --title "…"`**. Il exige un titre (le titre par
+défaut est `RM<id> — <branche>`, qui n'existe pas ici), refuse `--status`, refuse un
+`rm_id` passé en même temps, et **refuse une branche préfixée `<id>-`** — dans ce
+mode, une telle branche trahit un ticket oublié, pas un changement ticketless. Nommer
+la branche par son sujet (`glossaire-one-off`).
+
+En cas de doute : **prendre un ticket**. La dispense couvre ce qui est trivial et
+réversible, pas ce qui mérite d'être retrouvé plus tard.
 
 ## Versionning des normes
 

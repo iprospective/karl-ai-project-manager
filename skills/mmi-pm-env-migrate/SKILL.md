@@ -78,9 +78,15 @@ l'humain de le lancer, ou à défaut tar de secours (workspaces souvent petits �
 2. **`.mmi-pm/project/overview.md`** : section Workspace souvent périmée (ancien chemin
    de code) → documenter racine, bare, worktrees.
 3. **`*.code-workspace`** (VS Code) : repointer les `folders.path` vers `envs/…`.
-4. **Ménage racine** : ne garder que les dossiers standards ; reliquats legacy → `data/`
+4. **Vhosts Apache / reverse-proxy** (incident RM2267) : la migration déplace le code
+   mais **ne touche pas Apache** → tout `DocumentRoot`/`<Directory>`/`Alias` pointant sur
+   l'ancien emplacement casse (`AH00112: DocumentRoot does not exist`). L'outil affiche
+   en fin de run le mapping `ancien → envs/<repo>-<usage>` et **liste les vhosts encore
+   sur l'ancien chemin** (best-effort, sans muter). Repointer vers les chemins canoniques
+   `envs/…` (**pas** de symlink de compat), `apache2ctl configtest`, `systemctl reload apache2`.
+5. **Ménage racine** : ne garder que les dossiers standards ; reliquats legacy → `data/`
    (ou suppression si vide), consigner dans overview.md.
-5. **Commit + push** (chemins explicites, jamais `-A`) sur le repo -core, pattern :
+6. **Commit + push** (chemins explicites, jamais `-A`) sur le repo -core, pattern :
    `chore(env-migrate): layout repos/+envs/ — backfill meta.repos + .gitignore norme (RM2028)`
 
 ## Outils frères (même famille, ne pas réinventer)

@@ -27,6 +27,7 @@ Usage :
 """
 import argparse
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -34,7 +35,9 @@ from pathlib import Path
 GITLAB_HOST = "gitlab.iprospective.fr"
 GIT_ALIAS = "gitlab"  # alias SSH (~/.ssh/config) → gitlab:<path>.git
 WS_ROOT = Path("/zfs/workspaces")
-PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients")
+# .resolve() : le chemin historique est un alias symlink de .mmi-pm-core (RM1994/RM2216) ;
+# les cibles des .mmi-pm résolvent vers le canonique → relative_to exige la même base.
+PM_CLIENTS = Path("/zfs/workspaces/ai/project-management/projects/clients").resolve()
 GITIGNORE = "/*\n!/.gitignore\n!/{name}/\n"
 
 
@@ -45,6 +48,27 @@ def run(args, **kw):
 _LAST_ERROR = None
 
 
+def _gitlab_env():
+    """Environnement pour glab : injecte GITLAB_TOKEN depuis le token manager PM
+    (env, ou .env canonique via pm_paths) si la session glab n'est pas authentifiée.
+    RM2228 — autonomie karl : le token OAuth interactif de glab expire, le token
+    manager du .env est la source stable."""
+    env = os.environ.copy()
+    if not env.get("GITLAB_TOKEN"):
+        tok = env.get("GITLAB_MANAGER_TOKEN")
+        if not tok:
+            try:
+                sys.path.insert(0, str(Path(__file__).resolve().parent))
+                from pm_paths import PMConfig
+                PMConfig.load()  # charge le .env canonique dans os.environ
+                tok = os.environ.get("GITLAB_MANAGER_TOKEN")
+            except Exception:
+                tok = None  # pas de .env résolvable → glab se débrouille (session)
+        if tok:
+            env["GITLAB_TOKEN"] = tok
+    return env
+
+
 def glab(path, method="GET", fields=None):
     """Appel API GitLab. Retourne les données parsées, ou None sur erreur (le
     message GitLab est stocké dans `_LAST_ERROR`). Détecte les réponses d'erreur
@@ -53,7 +77,7 @@ def glab(path, method="GET", fields=None):
     cmd = ["glab", "api", "--hostname", GITLAB_HOST, "--method", method, path]
     for k, v in (fields or {}).items():
         cmd += ["-f", f"{k}={v}"]
-    r = run(cmd)
+    r = run(cmd, env=_gitlab_env())
     data = None
     try:
         data = json.loads(r.stdout) if r.stdout.strip() else None
@@ -155,6 +179,24 @@ def coloc_dir(folder, mmi_name, src_dir, sub_dirs, group, repo, dry):
         s = src_dir / d
         if s.is_dir():
             run(["cp", "-a", str(s), str(mmi) + "/"])
+    # meta.yml vit à la racine du volet PM depuis RM1994 (frontmatter → meta.yml) :
+    # sans lui, pm-env-init & co. ne trouvent plus le manifeste (RM2216).
+    meta = src_dir / "meta.yml"
+    if meta.is_file():
+        run(["cp", "-a", str(meta), str(mmi) + "/"])
+    git_core_publish(folder, mmi_name, group, repo, dry,
+                     msg=f"init {repo} : structure PM ({mmi_name} reel) — RM1942 co-location")
+
+
+def git_core_publish(folder, mmi_name, group, repo, dry, msg=None):
+    """Publie <folder>/<mmi_name>/ dans le repo -core : .gitignore whitelist,
+    git init + remote origin, stage EXPLICITE (.gitignore + <mmi_name>), anti-fuite,
+    commit + push. Idempotent (re-appelable pour committer un delta, ex. bootstrap).
+    Réutilisée par pm-project-new (RM2228). Retourne True si OK / rien à faire."""
+    if dry:
+        print(f"    [dry] publierait {mmi_name} → {group}/{repo} "
+              f"(gitignore whitelist, init, commit, push)")
+        return True
     gi = folder / ".gitignore"
     whitelist = GITIGNORE.format(name=mmi_name)
     if gi.is_file() and gi.read_text(encoding="utf-8", errors="replace") != whitelist:
@@ -163,26 +205,33 @@ def coloc_dir(folder, mmi_name, src_dir, sub_dirs, group, repo, dry):
         if not bak.exists():
             gi.rename(bak)
             print(f"    · .gitignore existant sauvegardé → {bak.name}")
-    gi.write_text(whitelist, encoding="utf-8")
+    if not gi.is_file() or gi.read_text(encoding="utf-8", errors="replace") != whitelist:
+        gi.write_text(whitelist, encoding="utf-8")
     if not (folder / ".git").exists():
-        git(folder, "init", "-q")
+        git(folder, "init", "-q", "-b", "main")
     if git(folder, "remote", "get-url", "origin").returncode != 0:
         git(folder, "remote", "add", "origin", f"{GIT_ALIAS}:{group}/{repo}.git")
     else:
         git(folder, "remote", "set-url", "origin", f"{GIT_ALIAS}:{group}/{repo}.git")
-    git(folder, "add", "-A")
+    # Stage EXPLICITE (tripwire git-mep #2 : jamais -A) ; la whitelist fait le reste.
+    git(folder, "add", "--", ".gitignore", mmi_name)
     staged = git(folder, "diff", "--cached", "--name-only").stdout.split()
     leaked = [f for f in staged if not (f == ".gitignore" or f.startswith(mmi_name + "/"))]
     if leaked:
         print(f"    ⚠⚠ CODE STAGÉ ({leaked[:3]}…) — ABANDON de ce repo")
-        return
+        return False
+    if not staged:
+        print(f"    · rien à committer ({mmi_name} à jour)")
+        return True
     git(folder, "commit", "-q", "-m",
-        f"init {repo} : structure PM ({mmi_name} reel) — RM1942 co-location\n\n"
-        f"Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>")
+        (msg or f"pm(core): publie {mmi_name}") +
+        "\n\nCo-Authored-By: Claude Fable 5 <noreply@anthropic.com>")
     git(folder, "branch", "-M", "main")
     p = git(folder, "push", "-u", "origin", "main")
     sha = git(folder, "rev-parse", "--short", "HEAD").stdout.strip()
-    print(f"    ✓ {len(staged)} fichiers PM, push {sha} ({'OK' if p.returncode == 0 else 'ÉCHEC: ' + p.stderr.strip()[:80]})")
+    print(f"    ✓ {len(staged)} fichiers PM, push {sha} "
+          f"({'OK' if p.returncode == 0 else 'ÉCHEC: ' + p.stderr.strip()[:80]})")
+    return p.returncode == 0
 
 
 def main():
@@ -245,7 +294,7 @@ def main():
         src = link.resolve()  # cible ai-projects (donnée PM réelle)
         repo = f"{folder.name}-core"
         ensure_repo(gid, repo, args.dry_run)
-        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory"],
+        coloc_dir(folder, ".mmi-pm", src, ["project", "tasks", "memory", "docs"],
                   group, repo, args.dry_run)
 
     print("== terminé ==" + (" (DRY-RUN, rien écrit)" if args.dry_run else ""))

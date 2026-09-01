@@ -15,6 +15,23 @@ la clôture. On journalise le *pourquoi* des décisions, pas seulement le code p
 - N'enregistrer que ce qui est lié à la tâche ; le bavardage hors-sujet n'a pas
   sa place dans le journal.
 
+#### Traces mécaniques templatées — RM2365 (CDC RM2316 § S4)
+
+Les notes Redmine des **événements mécaniques** sont générées par l'outillage
+depuis `templates/notes/` (ex. `status_change.md` : ancien → nouveau statut,
+assignation, branche/MR) — **l'agent ne rédige plus cette partie**. La règle :
+
+- **Transition de statut** : ne passer `--note` à `pm-task-status-update` /
+  `pm-task-take` / `pm-task-deliver` **que pour un ajout sémantique** (décision,
+  contexte, résumé de livraison) — jamais pour paraphraser la transition,
+  l'assignation, la branche ou la MR (le template les porte déjà).
+- Les événements déjà journalisés ailleurs **n'appellent pas de note
+  supplémentaire** : estimation (CF 21/22 visibles sur le ticket), liens
+  (journal Redmine natif des relations), tick/report (déjà templatés).
+- Le **sémantique reste obligatoire** là où il l'a toujours été : prise en
+  charge avec plan, décisions/arbitrages, blocages, livraison (le
+  `--summary` de `pm-task-deliver`).
+
 #### Unité de traçabilité : l'étape significative (canonique) — v1.23.0
 
 **Référence unique** pour « quand commiter, quand noter ». L'unité de travail
@@ -30,7 +47,10 @@ granularités, l'agent produit :
 2. **Note Redmine** — résumé **détaillé**, human-readable, destiné au ticket : ce
    qui a été fait/livré et *pourquoi*, + **réf du commit** (SHA + URL GitLab, cf.
    « Référencer un commit ») + **temps + tokens** du delta (cf. § « Journalisation
-   par commit »). C'est la trace que les humains lisent.
+   par commit »). C'est la trace que les humains lisent — donc **aérée** : sauts
+   de ligne aux ruptures d'idée plutôt qu'un unique bloc compact, sans pour
+   autant sur-formatter une note de trois phrases (pas de titres/listes à
+   outrance).
 3. **Entrée `.log.md`** — variante technique de l'agent (détail, décisions) + réf
    commit + métriques, append-only (format ci-dessus). Les humains ne la lisent pas.
 4. Si l'étape est une **livraison** : transition de statut + `done_ratio` au même
@@ -52,8 +72,15 @@ granularités, l'agent produit :
 **Niveau de note par commit — configurable** (`pm.config.yml :: traceability.commit_note_level`,
 pour calibrer le bruit à l'usage) :
 - `work` (défaut) — note pour les commits de travail/livraison/structurants uniquement.
+  Concrètement (RM2409) : les commits d'**outillage** — sujet préfixé `pm(<verbe>):`
+  (auto-commits des scripts `pm-*`) ou `chore(…):` — reportent la conso **sans note** ;
+  tout autre commit rattaché à une tâche est co-posté en note avec sa réf `— commit sha`.
 - `all` — note pour **tout** commit rattaché à une tâche (mode test : mesurer le bruit réel).
 - `none` — pas de note auto par commit (on conserve `.log.md` + time_entry).
+
+**Override par projet** : `meta.yml` du projet (dossier `.mmi-pm`) peut porter la même
+clé `traceability: { commit_note_level: … }` — priorité : projet > `pm.config.local.yml`
+> `pm.config.yml` > défaut `work`. Appliqué par le hook `pm-post-commit`.
 
 #### Référencer un commit dans une entrée
 

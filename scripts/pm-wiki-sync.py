@@ -54,6 +54,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # noqa: E402
 import redmine_utils as rm  # noqa: E402
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)  # noqa: E402
+from pm_doc import get_doc_provider, DocProviderError  # seam DocProvider (P3/RM2545)  # noqa: E402
+from pm_lock import resource_lock, atomic_write, LockTimeout  # verrous par ressource (T7/RM2551)  # noqa: E402
 
 try:
     import yaml
@@ -206,42 +209,41 @@ def canonicalize_remote(text, human_title):
 
 
 # ── Accès Wiki Redmine ───────────────────────────────────────────────────
+# Les 4 primitives d'I/O documentaire délèguent au seam DocProvider (P3/RM2545,
+# backend wiki Redmine) tout en gardant leur contrat historique (mêmes retours,
+# sys.exit sur erreur). `url`/`key` restent dans la signature des appelants mais
+# le provider résout les creds lui-même (globaux — iso ; par instance = P4).
 def wiki_get(url, key, proj, title):
     """GET d'une page wiki. Retourne (exists, text, version)."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}/wiki/{title}.json", key)
-    if code == 200:
-        wp = body.get("wiki_page", {})
-        return True, wp.get("text", ""), wp.get("version")
-    if code == 404:
-        return False, "", None
-    sys.exit(f"ERREUR Redmine HTTP {code} sur GET wiki/{title} : {body.get('_error', '')}")
+    try:
+        return get_doc_provider().get_doc(proj, title)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def wiki_put(url, key, proj, title, text):
     """PUT (create/update) d'une page wiki. Retourne le code HTTP (200/201/204)."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}/wiki/{title}.json", key,
-                              {"wiki_page": {"text": text}})
-    if code not in (200, 201, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT wiki/{title} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_doc(proj, title, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 # ── Description native du projet (cible P3) ──────────────────────────────
 def proj_desc_get(url, key, proj):
     """Description native du projet Redmine (str, '' si vide). Sys.exit si HTTP≠200."""
-    code, body = rm.http_json("GET", f"{url}/projects/{proj}.json", key)
-    if code != 200:
-        sys.exit(f"ERREUR Redmine HTTP {code} sur GET projet {proj} : {body.get('_error', '')}")
-    return (body.get("project", {}).get("description") or "")
+    try:
+        return get_doc_provider().get_project_description(proj)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def proj_desc_put(url, key, proj, text):
     """PUT partiel de la description du projet. Sys.exit si échec."""
-    code, body = rm.http_json("PUT", f"{url}/projects/{proj}.json", key,
-                              {"project": {"description": text}})
-    if code not in (200, 204):
-        sys.exit(f"ERREUR Redmine HTTP {code} sur PUT projet {proj} : {body.get('_error', '')}")
-    return code
+    try:
+        return get_doc_provider().put_project_description(proj, text)
+    except DocProviderError as e:
+        sys.exit(f"ERREUR Redmine {e}")
 
 
 def canonicalize_desc(text):
@@ -325,13 +327,17 @@ def git_merge3(local, base, remote, labels=("local (git)", "base (dernier sync)"
 
 
 # ── Helpers projet / git ─────────────────────────────────────────────────
-def resolve_project(cfg, slug):
-    for ent, proj, proj_path in cfg.iter_projects():
-        if proj == slug:
-            return (ent, proj, proj_path,
-                    cfg.path("project_dir", entity=ent, project=proj),
-                    cfg.path("docs_dir", entity=ent, project=proj))
-    sys.exit(f"ERREUR : projet '{slug}' introuvable dans l'arbo PM")
+def resolve_project(cfg, ref):
+    # RM2430 : résolution PRÉCISE (client/slug ou redmine.project_id), jamais par
+    # match de slug silencieux. require_redmine=True → refuse un projet sans
+    # redmine.project_id en conf (« pas de projet Redmine précis → on n'avance pas »).
+    try:
+        ent, proj, proj_path = cfg.resolve_project_ref(ref, require_redmine=True)
+    except ValueError as e:
+        sys.exit(f"ERREUR : {e}")
+    return (ent, proj, proj_path,
+            cfg.path("project_dir", entity=ent, project=proj),
+            cfg.path("docs_dir", entity=ent, project=proj))
 
 
 def read_overview_meta(project_dir):
@@ -360,6 +366,31 @@ def git_short_sha(repo, relpath):
         except (OSError, subprocess.SubprocessError):
             pass
     return "?"
+
+
+# Dépôts réellement modifiés pendant ce run : c'est EUX qu'on pousse à la fin, un
+# par un. Avant RM2862, `--push` poussait `projects_root` — le dépôt des projets —
+# quels que soient les projets synchronisés, donc le mauvais dépôt (et un échec sur
+# une divergence sans rapport) dès qu'un projet-core autonome était concerné.
+REPOS_TOUCHES = set()
+
+
+def git_toplevel(path):
+    """Racine du dépôt git qui porte `path`, ou None.
+
+    Les projets PM ne vivent plus tous dans le dépôt `projects_root` : beaucoup
+    sont des dépôts-cores autonomes (`<client>/<projet>-core`), montés par
+    symlink. Commiter ou pousser `projects_root` pour un projet qui n'y est pas
+    échoue — ou pire, pousse un dépôt sans rapport (RM2862).
+    """
+    try:
+        out = subprocess.run(["git", "-C", str(path), "rev-parse", "--show-toplevel"],
+                             capture_output=True, text=True, timeout=20)
+        if out.returncode != 0:
+            return None
+        return Path(out.stdout.strip() or ".").resolve()
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 def git_commit_paths(repo, paths, message):
@@ -399,60 +430,37 @@ def git_push(repo):
 
 # ── Lock anti-concurrence (.wiki-sync/.lock) ─────────────────────────────
 class LockBusy(Exception):
-    """Levée quand un autre sync détient déjà le lock du projet (process vivant)."""
+    """Levée quand un autre sync du même projet tient déjà le lock au-delà du délai."""
 
 
 class ProjectLock:
     """Sérialise deux syncs concurrents d'un même projet (spec §9).
 
-    Lock-file `.wiki-sync/.lock` (gitignore'd) créé en O_EXCL. Un lock détenu par
-    un PID mort est volé (récupération après crash). Un lock vivant → LockBusy.
-    """
+    Généralisé sur pm_lock (T7/RM2551) : verrou `flock` sur `.wiki-sync/.lock`,
+    libéré par le NOYAU à la mort du process → plus de vol-de-lock par sonde PID
+    (supprime le TOCTOU RM1834). Contention = attente bornée ; au-delà de `timeout`,
+    LockBusy → le projet est skippé et re-tenté au sync suivant (skip préservé)."""
 
-    def __init__(self, state_dir):
+    def __init__(self, state_dir, *, timeout=10.0):
         self.path = state_dir / ".lock"
         self.state_dir = state_dir
-        self.acquired = False
+        self._timeout = timeout
+        self._cm = None
 
     def __enter__(self):
         self.state_dir.mkdir(parents=True, exist_ok=True)
+        self._cm = resource_lock(self.path, timeout=self._timeout)
         try:
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        except FileExistsError:
-            if not self._stale():
-                raise LockBusy(str(self.path))
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
-            fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
-        os.write(fd, f"{os.getpid()}\n".encode())
-        os.close(fd)
-        self.acquired = True
+            self._cm.__enter__()
+        except LockTimeout as e:
+            self._cm = None
+            raise LockBusy(str(self.path)) from e
         return self
 
-    def _stale(self):
-        """True si le lock pointe un PID absent/illisible (donc volable)."""
-        try:
-            pid = int(self.path.read_text(encoding="utf-8").strip() or "0")
-        except (OSError, ValueError):
-            return True
-        if pid <= 0:
-            return True
-        try:
-            os.kill(pid, 0)
-        except ProcessLookupError:
-            return True
-        except PermissionError:
-            return False  # process vivant (autre utilisateur) → pas volable
-        return False
-
     def __exit__(self, *exc):
-        if self.acquired:
-            try:
-                os.unlink(self.path)
-            except OSError:
-                pass
+        if self._cm is not None:
+            self._cm.__exit__(*exc)
+            self._cm = None
         return False
 
 
@@ -469,9 +477,9 @@ def load_state(state_dir):
 
 def save_state(state_dir, state):
     state_dir.mkdir(parents=True, exist_ok=True)
-    (state_dir / "state.json").write_text(
-        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n",
-        encoding="utf-8")
+    atomic_write(  # T7 : écriture atomique — jamais de state.json à moitié écrit
+        state_dir / "state.json",
+        json.dumps(state, indent=2, ensure_ascii=False, sort_keys=True) + "\n")
 
 
 # ── Collecte des aspects ─────────────────────────────────────────────────
@@ -733,7 +741,7 @@ def notify_conflict(a, conflict_path, rproj, url, key, dry=False):
         return
     if rm_ticket:
         try:
-            rm.add_issue_note(int(rm_ticket), msg)
+            get_task_provider().add_note(int(rm_ticket), msg)
             print(f"     → notif postée sur RM{rm_ticket}")
         except SystemExit:
             print(f"     ⚠ notif RM{rm_ticket} échouée (note non postée)", file=sys.stderr)
@@ -747,9 +755,9 @@ def discover_wiki_projects(cfg):
     quoi le cron `--all` prend le projet en charge. Retourne une liste de slugs triés.
     """
     out = []
-    for _ent, proj, proj_path in cfg.iter_projects():
+    for ent, proj, proj_path in cfg.iter_projects():
         if (Path(proj_path) / ".wiki-sync" / "state.json").is_file():
-            out.append(proj)
+            out.append(f"{ent}/{proj}")   # RM2430 : réf non ambiguë (client/slug)
     return sorted(out)
 
 
@@ -822,18 +830,33 @@ def sync_one_project(cfg, url, key, slug, args):
         # Auto-commit des fold-back (défaut P4) — commit ciblé par chemin (jamais
         # `git add -A` : le repo projects est partagé/dirty). `--no-commit` les signale.
         folded = counts.get("folded", 0) + counts.get("merged", 0)
-        if folded and not args.dry_run:
+        # L'ÉTAT (`.wiki-sync/`) doit être commité même sans fold-back : il naît au
+        # premier sync, et non commité il fait repartir le suivant en « réamorçage »
+        # — l'outil ne sait plus ce qu'il a déjà poussé (RM2862).
+        pushed = counts.get("pushed", 0)
+        if (folded or pushed) and not args.dry_run:
             if args.no_commit:
                 print(f"  ℹ {folded} fichier(s) modifié(s) par fold-back — non commité(s) "
                       f"(--no-commit)")
             else:
-                paths = [str(a["path"].relative_to(repo)) for a in aspects]
-                paths += [str((state_dir / "state.json").relative_to(repo))]
-                paths += [str(p.relative_to(repo)) for p in state_dir.glob("*.base")]
+                # Le dépôt qui porte CE projet, pas `projects_root` : un projet-core
+                # autonome n'est pas dans le dépôt des projets (RM2862).
+                prepo = git_toplevel(project_dir) or repo
+                def _rel(x):
+                    try:
+                        return str(Path(x).relative_to(prepo))
+                    except ValueError:
+                        return None
+                paths = [_rel(a["path"]) for a in aspects]
+                paths.append(_rel(state_dir / "state.json"))
+                paths += [_rel(b) for b in state_dir.glob("*.base")]
                 if do_desc:
-                    paths.append(str((project_dir / "overview.md").relative_to(repo)))
-                if git_commit_paths(repo, paths, f"chore(wiki): fold-back {proj} [wiki-sync]"):
-                    print(f"  ✓ {folded} fold-back commité(s) [wiki-sync]")
+                    paths.append(_rel(project_dir / "overview.md"))
+                paths = [x for x in paths if x]
+                quoi = f"fold-back {proj}" if folded else f"état de sync {proj}"
+                if paths and git_commit_paths(prepo, paths, f"chore(wiki): {quoi} [wiki-sync]"):
+                    print(f"  ✓ {quoi} commité [wiki-sync] ({prepo.name})")
+                    REPOS_TOUCHES.add(prepo)
 
     summary = " ".join(f"{k}={v}" for k, v in sorted(counts.items())) or "rien"
     print(f"— {proj}: {summary}")
@@ -842,7 +865,9 @@ def sync_one_project(cfg, url, key, slug, args):
 
 def main():
     ap = argparse.ArgumentParser(description="Sync docs PM ⇄ Wiki Redmine (RM1821, P1→P4)")
-    ap.add_argument("project", nargs="?", help="slug du projet PM (ex: pm-ai-agents)")
+    ap.add_argument("project", nargs="?",
+                    help="réf projet PRÉCISE : client/slug (ex. matnat/infra) ou "
+                         "redmine.project_id (ex. matnat-infra) — RM2430, plus de slug ambigu")
     ap.add_argument("--all", action="store_true",
                     help="tous les projets wiki-sync-enabled (.wiki-sync/state.json présent)")
     ap.add_argument("--push", action="store_true",
@@ -895,9 +920,12 @@ def main():
         for k, v in counts.items():
             total[k] = total.get(k, 0) + v
 
-    # `git push` après tous les projets (repo projects partagé → un seul push suffit).
+    # `git push` après tous les projets, sur CHAQUE dépôt réellement touché.
     if args.push and not args.dry_run:
-        git_push(repo)
+        cibles = sorted(REPOS_TOUCHES) or [Path(repo)]
+        for r in cibles:
+            print(f"  → push {Path(r).name}")
+            git_push(r)
 
     if args.all or len(slugs) > 1:
         summary = " ".join(f"{k}={v}" for k, v in sorted(total.items())) or "rien"

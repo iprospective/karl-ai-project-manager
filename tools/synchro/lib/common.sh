@@ -2,7 +2,7 @@
 # common.sh — configuration infra PARTAGÉE par tous les environnements.
 # Sourcé par sync.sh avant la conf d'environnement.
 # Ne contient AUCUN secret en clair : le mot de passe admin MySQL local est
-# résolu au runtime depuis Vaultwarden (voir helpers.sh::resolve_secret).
+# résolu au runtime depuis le vault déclaré (voir helpers.sh::resolve_secret).
 
 # Racine workspace (bind-mount ZFS identique host/conteneur) — où vivent les sites
 # à synchroniser. Indépendant de l'emplacement de ce framework (qui se localise via
@@ -15,9 +15,10 @@ export MYSQL_HOST="10.0.3.11"
 export MYSQL_ADMIN_USER="admin"
 # Mot de passe admin MySQL local :
 #   - vide (défaut) → on s'appuie sur le ~/.my.cnf de l'utilisateur (root) ; cas dev local.
-#   - sur un conteneur de test distant sans ~/.my.cnf, définir une URI Vaultwarden
+#   - sur un conteneur de test distant sans ~/.my.cnf, définir une URI de secret
 #     (résolue au runtime, jamais écrite sur disque), p.ex. :
-#     export MYSQL_ADMIN_SECRET="vaultwarden://iProspective/<collection>/<item>"
+#     export MYSQL_ADMIN_SECRET="secret://vw-ipro/<collection>/<item>"
+#     (la forme historique vaultwarden://<org>/<coll>/<item> reste valide)
 export MYSQL_ADMIN_SECRET="${MYSQL_ADMIN_SECRET:-}"
 
 # Utilisateur PHP-FPM (pour purge de cache appartenant à www).
@@ -27,3 +28,10 @@ export PHP_USER="${PHP_USER:-mathieu}"
 
 # IP du client (host LXC) à whitelister en maintenance PrestaShop
 export CLIENT_USER_IP="10.0.3.1"
+
+# Options passées à ssh et rsync par lib/db.sh et lib/<type>.sh. Vides par défaut :
+# le framework tourne sous `set -u`, sans ces défauts toute conf d'environnement qui
+# omet de les déclarer échoue sur « SSH_OPTS: unbound variable » avant même de
+# contacter la production. Une conf reste libre de les surcharger.
+export SSH_OPTS="${SSH_OPTS:-}"
+export RSYNC_OPTS="${RSYNC_OPTS:-}"

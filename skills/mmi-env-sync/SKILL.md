@@ -19,7 +19,8 @@ Rapatrier la PROD vers un environnement **local** de dev/test (base + éventuell
 Le framework vit dans le **repo PM**, sous **`tools/synchro/`** (versionné et distribué
 avec `ai-project-management` — sur cette workstation : `/home/workspaces/ai/project-management/tools/synchro/`).
 **Aucun secret en clair** : auth MySQL admin locale via `~/.my.cnf`, secrets distants/prod
-via **Vaultwarden** (`resolve_secret "vaultwarden://…"`, URI dans la conf). Le dossier
+via un **vault déclaré** (`resolve_secret "secret://…"` ou `"vaultwarden://…"`,
+URI dans la conf). Le dossier
 `environments/` est **gitignoré** (confs machine-spécifiques, sans mot de passe).
 
 ```
@@ -36,12 +37,14 @@ lib/db.sh                    # dump prod + import local (générique)
 lib/<type>.sh                # spécifique au type : presta / dolibarr / wordpress
 ```
 
-**Où l'exécuter : sur l'HOST** (`MathouDell`), pas dans le conteneur. C'est l'host qui a
-les alias SSH de prod (avec ProxyJump) et un `~/.my.cnf` (root) qui atteint le MySQL du
-conteneur dev (`10.0.3.11`). Le symlink `/home/workspaces → /zfs/workspaces` existe aussi sur l'host.
+**Où l'exécuter** : partout où sont réunis (a) les alias SSH de prod et (b) un `~/.my.cnf`
+atteignant le MySQL cible (`10.0.3.11`). Historiquement l'**host** (`MathouDell`) ; **depuis
+le 31/07/2026 le conteneur `dev` convient aussi**, un `~/.my.cnf` y ayant été ajouté — vérifié
+sur une synchro complète de calicote-presta. Le symlink `/home/workspaces → /zfs/workspaces`
+existe des deux côtés.
 
 Pipeline de `sync.sh` : `guard_local_target` → (`<type>_sync_files`) → `db_dump_from_prod`
-→ `db_import` (DROP/CREATE + import) → `<type>_adapt_db`.
+→ `db_import` (DROP/CREATE + import) → `<type>_adapt_db` → `run_post_adapt_hook`.
 
 ## Cas 1 — framework connu : proposer/créer une conf
 
@@ -59,6 +62,8 @@ environnement, copier une conf voisine et adapter. Variables clés :
 | `WEBSITE_PATH` | racine projet locale sous `/home/workspaces` |
 | `REMOTE_FILES_PATH` | chemin fichiers côté prod (presta: `public_html` ; doli: `public_html/documents`) |
 | `DOMAIN` / `EMAIL` | domaine local + adresse vers laquelle rediriger les mails |
+| `SSH_OPTS` / `RSYNC_OPTS` | options ssh/rsync — **optionnelles** (vides par défaut depuis RM2469) |
+| `POST_ADAPT_HOOK` | chemin d'un script d'adaptations propres au site, exécuté après `<type>_adapt_db` |
 
 **Garde-fou** : `guard_local_target` refuse un `DB_TO` qui n'a pas un suffixe local
 (`_test|_dev|_presta|_sync|_preprod|_local|_dolibarr`). Étendre la liste dans
@@ -89,9 +94,29 @@ atteindre la prod ou le monde réel**. Ne jamais se contenter de l'import brut. 
   `llx_cronjob`/jobs actifs, `llx_oauth_token`, api_keys. Ce que l'utilisateur oublie est
   souvent là.
 
+### Adaptations propres à un site : `POST_ADAPT_HOOK` (RM2469)
+
+`<type>_adapt_db` traite ce qui vaut pour **tous** les sites d'un même type. Ce qui ne vaut
+que pour **un** site va dans un hook, déclaré par la conf :
+
+```bash
+POST_ADAPT_HOOK="/home/workspaces/<projet>/tools/sync/post-sync-dev.sh"
+```
+
+Exécuté après les adaptations de type, il reçoit `DB_TO`, `DB_PREFIX`, `DOMAIN`, `EMAIL`,
+`WEBSITE_TYPE`, `WEBSITE_PATH`, `SITE_DIR`, `MYSQL_HOST`, `WORKSPACE_ROOT`. Il doit être
+**idempotent**. Introuvable ou en échec, il produit un avertissement mais n'interrompt pas la
+synchro : les données sont déjà importées, mieux vaut un environnement partiellement ajusté.
+
+Cas typique (Calicote, RM2434) : une valeur de configuration corrompue en base de prod
+(`FPA_CHECK_EXPORT` = la chaîne `'false'`, sur laquelle le module fait `unserialize()`) est
+silencieuse en production mais fait tomber tout le front en 500 en dev, où le mode debug est
+actif. Sans hook, le correctif serait à refaire à la main après chaque synchro — ou à cacher
+dans une lib partagée par tous les sites PrestaShop.
+
 **Secrets** : ne jamais écrire une clé en clair dans `environments/*.conf` (repo versionné).
 Soit on **désactive** la fonctionnalité (le plus sûr), soit on résout au runtime via
-`resolve_secret "vaultwarden://…"` (cf. `lib/helpers.sh`).
+`resolve_secret "<uri>"` (cf. `lib/helpers.sh`) — trois formes acceptées.
 
 ## Cas 3 — framework inconnu : script ad hoc
 

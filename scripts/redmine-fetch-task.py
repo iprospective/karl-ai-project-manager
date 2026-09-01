@@ -25,7 +25,7 @@ from urllib import error, request
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
-from redmine_utils import issue_is_ia_tagged, get_ia_cf_id
+from redmine_utils import issue_is_ia_tagged, get_ia_cf_id, api_ts_local
 
 try:
     import yaml
@@ -151,9 +151,9 @@ def build_frontmatter(issue, author_login):
     priority = PRIORITY_TO_NORMS.get(prio_name, "normal")
 
     author = author_login or (issue.get("author") or {}).get("login") or (issue.get("author") or {}).get("name") or "unknown"
-    created_full = issue.get("created_on") or ""
+    created_full = api_ts_local(issue.get("created_on"))
     created_date = created_full.split("T")[0] or now_iso()
-    sh_at = created_full.replace("Z", "")[:16] if "T" in created_full else now_iso(minutes=True)
+    sh_at = created_full if "T" in created_full else now_iso(minutes=True)
 
     fm = {
         "schema_version": "1.5.2",
@@ -234,7 +234,7 @@ def main():
 
     cfg = PMConfig.load()
     url = os.environ.get("REDMINE_URL")
-    key = os.environ.get("REDMINE_USER_MAIN_API_KEY") or os.environ.get("REDMINE_API_KEY")
+    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
 
     if not (url and key):
         print("ERREUR : $REDMINE_URL et $REDMINE_API_KEY requis (.env)", file=sys.stderr)

@@ -1,5 +1,67 @@
-> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je crée/répare le lien workspace↔PM.
+> 📂 **Module `structure-reference` — quand lire ceci :** je résous un chemin PM · j'inspecte l'arbo des repos · je me demande dans quel dépôt committer (code vs structure) · je crée/répare le lien workspace↔PM.
 > **Outils :** `pm_paths.PMConfig`, `pm-sync-links`⚠ · **Préchargé par :** worker-infra.
+
+### Anatomie d'un projet — le core, `repos/` et `envs/`
+
+**Un projet est défini par un dossier `.mmi-pm`.** Ce dossier vit dans le **core** du
+projet : le dépôt git à la racine du workspace, qui ne **révisionne que `.mmi-pm/`** par
+défaut (tout le reste — code, données, démos — y est gitignoré). Le core porte donc la
+**définition du projet** (`project/`, `docs/`, `tasks/`, `memory/`) et rien d'autre.
+
+Autour du core, deux dossiers structurent le **code** :
+
+```
+<workspace>/                     # = CORE du projet — dépôt git, remote `<Projet>-core.git`
+  .mmi-pm/                       # LE projet : project/ docs/ tasks/ memory/  (seul révisionné par le core)
+  repos/
+    <repo>.git                   # dépôt de CODE, bare — la SOURCE
+  envs/
+    <repo>-dev                   # WORKTREE tiré de repos/<repo>.git — env d'intégration
+    <repo>-rm<RMid>              # WORKTREE de ticket (pm-branch-start --worktree, pm-env-session create)
+    <repo>-rm<RMid>-s<seq>       # … suffixé UNIQUEMENT si le canonique sert déjà une autre branche
+  …                              # data/, démos, .claude/ … gitignoré par le core
+```
+
+Les `envs/*` sont des **worktrees** d'un même dépôt bare `repos/<repo>.git` (cf.
+`git-mep` pour le workflow branche/worktree par ticket).
+
+**Nommage des worktrees — convention unique `<repo>-rm<RMid>` (RM2523).** Le nom
+dérive du **dépôt** (`repos/<repo>.git`), jamais du worktree depuis lequel on
+lance la commande. Le faire dériver du worktree courant — ce que faisait
+`pm-branch-start` — concatène son nom à chaque création en cascade et produit des
+`<repo>-rm2356-2373-s1-2385-s1-2323-s20-…` (7 cas sur le workspace PM en 2026-08).
+Même règle pour le champ `git.repo` du frontmatter : il porte le nom canonique du
+dépôt, pas celui d'un worktree ; les valeurs héritées sont normalisées à
+l'écriture. Le suffixe `-s<seq>` ne sert qu'à départager deux sessions sur un même
+ticket. Un worktree se **résout par sa branche** (`<RMid>-<slug>`), jamais par son
+nom deviné — c'est ce qui rend le nommage indifférent à l'outillage.
+
+**Deux dépôts, deux destinations de commit — ne jamais les confondre :**
+
+| Ce que tu commites | Où | Dépôt / remote | Protection de la branche de prod |
+|---|---|---|---|
+| **Travail / code** (src, tests, config appli) | un **worktree** sous `envs/` | dépôt de code (`repos/<repo>.git` → ex. `worm-web-orm`) | push **personne** → branche de ticket + **MR** |
+| **Structure / projet** (tâches, docs, overview, mémoire — tout `.mmi-pm/`) | le **core** (racine du workspace) | dépôt core (ex. `Worm-core.git`) | push **Developer** → écriture **directe** des scripts pm-* |
+
+Les commits de code partent vers le remote du **code** ; les auto-commits PM (`pm-*`,
+qui ne touchent que `.mmi-pm/`) partent vers le remote du **core**. **Corollaires
+structurels** (invariants pour l'outillage) :
+
+- un dépôt porteur d'un `.mmi-pm` à sa racine **est un core**, **jamais** une cible de
+  branche de code — le code se branche dans un worktree `envs/` tiré de `repos/` ;
+- un worktree `envs/` n'est **jamais** l'endroit où l'on commite une tâche/doc PM ;
+- le marqueur doit être un **dossier réel** : dans un workspace de code, `.mmi-pm` est
+  un **symlink** vers le dossier PM centralisé — ce workspace n'est **pas** un core et
+  sa branche de prod reste protégée comme du code (RM2440). C'est le test qui distingue
+  les deux régimes de protection ci-dessus, implémenté une seule fois dans
+  `pm_git.is_core_repo()` et réutilisé par `pm-protect`.
+
+La colonne « protection » est posée par `pm-protect` (cf. `git-mep` § Enforcement
+GitLab) ; `allow_force_push=false` s'applique aux **deux** colonnes — quel que soit le
+régime, l'historique ne peut que croître.
+
+**Même motif au niveau entité/client** : une entité a son propre **`.mmi-pm-client`**
+(core client), porté par son dépôt dédié.
 
 ### Repo project-management (système, public)
 
@@ -36,11 +98,24 @@ project-management/                   # racine : pm.config.yml :: roots.pm_dir
     cron.example.sh
 ```
 
-### Repo projets (privé, gitignored dans le repo PM)
+### Repo projets (index centralisé)
 
 Racine : `pm.config.yml :: roots.projects_root` (résolu depuis `$PROJECTS_PATH`).
 Structure interne définie par les patterns de `paths:` — la représentation
 ci-dessous montre la **résolution par défaut**.
+
+> **⚠ Sens du lien inversé — `projects_root` est un INDEX, plus le stockage.**
+> Historiquement cette arbo **contenait** les données PM et le `.mmi-pm` de chaque
+> workspace y **pointait** (symlink entrant). Le modèle canonique actuel est
+> **inversé** : la source de vérité est le **`.mmi-pm` du core** de chaque projet (cf.
+> « Anatomie d'un projet » ci-dessus), et chaque
+> `projects_root/{entity_projects_dir}/<P>` est un **symlink SORTANT** vers ce
+> `.mmi-pm`. `projects_root` est donc un **index** de liens vers les cores — maintenu
+> par `mmi-pm index add|rebuild` (reconstruit depuis les emplacements canoniques
+> `.mmi-pm` / `.mmi-pm-client`) —, pratique pour que l'orchestrateur scanne tous les
+> projets d'un coup (`cfg.iter_projects()`), mais ce **n'est plus** l'endroit où vivent
+> les tâches/docs. L'arbre par défaut ci-dessous décrit donc ce que chaque core expose
+> **à travers** son lien d'index, pas un stockage central.
 
 ```
 {projects_root}/                      # = $PROJECTS_PATH (repo ai-projects)
@@ -77,7 +152,19 @@ ci-dessous montre la **résolution par défaut**.
             RM{id}_{titre-kebab}.log.md     # = paths.task_log_file
 ```
 
+**Contacts d'un client** (`meta.yml :: contacts[]`, écriture par
+`pm-client-contact`) : voir `modules/project-modeling.md` — c'est de la
+modélisation d'entité, pas de la résolution de chemins (RM2755).
+
 ### Workspace projet — symlinks bidirectionnels `.mmi-pm` ↔ `workspace`
+
+> **⚠ Section legacy — décrit l'ancien modèle (symlink `.mmi-pm` *entrant*).** Le
+> modèle canonique actuel est « Anatomie d'un projet » ci-dessus : `.mmi-pm` est un
+> **vrai dossier** dans le core, et c'est l'**index** `projects_root` qui porte le
+> symlink **sortant**. Le lien inverse `workspace` (côté core) survit sous une forme
+> triviale — `.mmi-pm/workspace → ..` (le core EST le workspace). On conserve cette
+> section pour les workspaces pas encore migrés et pour la mécanique de résolution
+> cross-tree en fin de section, toujours valable.
 
 Chaque projet a **deux emplacements** distincts mais liés :
 
@@ -196,3 +283,26 @@ logique (ex: `paths.task_file` pour le fichier d'une tâche), non par leur
 expansion filesystem. La résolution par défaut reste écrite ci-dessus pour
 référence humaine.
 
+
+### Le pont d'onboarding des workspaces (RM1892)
+
+Un agent lancé dans un workspace de code n'a, par défaut, **aucun contexte PM**. Il le
+reçoit d'un fichier unique posé à la **racine des workspaces**, lu par remontée
+d'arborescence depuis n'importe quel sous-dossier :
+
+| Fichier | Rôle |
+|---|---|
+| `<racine>/AGENTS.md` | le pont — vendor-neutral (opencode & autres) |
+| `<racine>/CLAUDE.md` → `AGENTS.md` | symlink : Claude Code ne lit que `CLAUDE.md`, mais suit les liens |
+
+Il est **conditionnel** : « si ton workspace a un `.mmi-pm`, tu es un worker PM — résous-le,
+lis le KERNEL, applique le protocole ; sinon ces règles ne te concernent pas ». Un fichier
+par projet serait à la fois redondant et à maintenir ; la remontée d'arborescence couvre
+les projets présents **et futurs**.
+
+Ce fichier est **hors git** : c'est un artefact de provisioning, propre à l'instance. Sa
+référence versionnée est `templates/workspace-AGENTS.md`, et le déploiement est outillé
+(`pm-workspace-bridge.py` — contrôle, `--install`, `--update`). Le bloc délimité
+`BEGIN/END INSTANCE` porte ce qui est propre à la machine (chemins, hôtes, transport git) :
+`--update` rafraîchit le générique et **préserve ce bloc**, ce qui permet de faire évoluer
+l'onboarding sans faire perdre à une instance ce qu'elle sait d'elle-même.

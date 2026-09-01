@@ -19,7 +19,7 @@
 | `feature` / `bugfix` / `refactoring` / `security` / `performance` | worker-dev |
 | `audit` / `research` / `documentation` / `assistance` / `maintenance` | worker-analyst |
 | `database` | worker-db |
-| `infrastructure` | worker-infra |
+| `infrastructure` / `configuration` | worker-infra |
 | `design` | worker-design |
 
 - Propriétaire exclusif de leur fichier de tâche assignée
@@ -84,3 +84,24 @@ RM1000  (niveau 0 — racine)        → orchestrateur
 
 ## Collaboration multi-agents
 
+### Multi-utilisateur & concurrence — v2.0.0
+
+Plusieurs devs (et leurs agents) travaillent **en même temps** sur les mêmes données communes
+(arbo des tâches, dépôts `*-core`, docs). Le modèle mono-`karl` / *single-writer global* est
+remplacé par *identité par dev + accès concurrent sérialisé par ressource*.
+
+- **Identité par dev.** Secrets/config en cascade **`os.environ` > perso
+  `~/.config/mmi-pm/.env` (`600`) > instance `pm.env` (non-secret) > commun `.env` (fallback
+  karl)**. `--assign-to me` (et `en_cours`) = **dev humain courant**, pas un compte de service.
+- **`karl` = persona / admin.** Ops privilégiées (prod `.mmi-pm-core` root-owned, branche
+  **protégée**, tokens partagés, systemd/cron) via **`sudo` humain** — **pas de `karl-sudo`**.
+- **Données communes en groupe `pm`.** Squelette `2750` (non group-writable, anti-déstructuration),
+  churn (`.mmi-pm/`, `tasks/`, `docs/`, `envs/`) `2770`/`2775` setgid **jamais sticky** (sticky ⊥
+  rename-overwrite atomique → `EPERM`), bares `core.sharedRepository=group` (commits multi-dev sans
+  sudo). Contenu de travail (`envs/<ticket>`) = au créateur. Enforcement idempotent committé :
+  **`pm-perms`**, jamais un runbook jetable.
+- **Sérialisation par ressource.** `flock` par ticket (`var/locks/`) + écritures atomiques
+  `os.replace` remplacent le single-writer ; contention = écriture **différée** bornée, pas rejetée ;
+  crash-safe (`flock` libéré par le noyau ; FS local, pas NFS) ; `pm-lock-gc` (cron) nettoie les
+  anomalies sans casser un verrou vivant. Le verrou optimiste `updated` reste l'arbitre
+  **inter-machine**. Détail : tripwires du KERNEL (§ Propriété, verrou & journal).

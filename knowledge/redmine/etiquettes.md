@@ -1,0 +1,226 @@
+# Étiquettes de ticket — le CF « Étiquettes » (RM2829, chantier RM2828)
+
+Le **domaine** d'un ticket (`front`, `bo`, `bdd`, `refacto`, `livraison`,
+`tunnel-de-commande`…) se porte par un **custom field Redmine « liste » à valeurs
+multiples**, partagé à tous les projets, tenu en parité avec le champ `tags` du
+frontmatter PM.
+
+## Pourquoi un CF, et pas les catégories ni un plugin
+
+Constat vérifié sur l'instance le 2026-08-25 :
+
+- **Pas de tags en standard** dans Redmine, et **aucun plugin de tags installé**
+  (`GET /tags.json` → 404). Un plugin serait une dépendance à porter à chaque
+  montée de version.
+- Les **catégories de ticket** existent et sont natives
+  (`GET /projects/<id>/issue_categories.json` répond, aucune définie à ce jour),
+  mais : **une seule par ticket**, et le jeu de valeurs est **propre à chaque
+  projet**. « refacto » serait à recréer partout, et un ticket ne pourrait pas
+  être « front » ET « refacto ».
+- Un **CF liste multi-valeurs** partagé à tous les projets donne exactement des
+  tags contrôlés : plusieurs par ticket, vocabulaire commun, filtrables et
+  groupables dans les vues, sans dépendance.
+
+Les catégories restent disponibles, plus tard, pour un vocabulaire **propre à un
+projet** — elles ne sont pas en concurrence avec les étiquettes.
+
+## Ce qui a été créé (2026-08-26)
+
+**CF id 32, nom « Tags »**, `customized_type: issue`, **format `enumeration`**,
+`multiple: true`, `is_filter: true`, trackers Anomalie / Evolution / Assistance /
+Tâche. Valeurs initiales : Front, DB, Refacto, BO, Config, Debug,
+Tunnel de commande.
+
+⚠ **Format `enumeration`, pas `list`** : chaque valeur possible a un **id**
+(45, 46…) et c'est **cet id** que l'API attend — pousser un libellé est refusé.
+La table `slug ↔ label ↔ id` vit dans **`tags.registry.yml`** (racine du dépôt PM,
+comme `redmine.reference.yml`), lue par `pm_tags`. Le registre doit rester
+synchrone avec la définition Redmine : une valeur ajoutée dans l'UI et absente du
+registre ne peut pas être poussée.
+
+Conséquence directe : une étiquette du frontmatter **hors registre** reste locale.
+Elle n'est pas perdue (`pm-task-list --tag`, recherche cockpit continuent de la
+voir) et `pm-task-tag` l'annonce plutôt que de laisser croire qu'elle est montée.
+
+## Création — geste HUMAIN, l'API ne le fait pas
+
+L'API REST de Redmine expose les custom fields en **lecture seule** : il n'y a
+pas de `POST /custom_fields.json`. La création passe par l'UI admin.
+
+*Administration → Champs personnalisés → Nouveau champ personnalisé*
+
+| Réglage | Valeur |
+|---|---|
+| Type d'objet | **Demande** |
+| Format | **Liste** |
+| Nom | **Tags** (nom retenu à la création) |
+| Valeurs possibles | `front`, `bo`, `bdd`, `refacto`, `livraison`, `tunnel-de-commande` (une par ligne, en **slug minuscule** — c'est la forme que `pm_tags.normalize` produit) |
+| Valeurs multiples | **coché** — sans lui, un ticket ne peut porter qu'un domaine |
+| Pour tous les projets | **coché** — c'est ce qui rend le vocabulaire transverse |
+| Utilisé comme filtre | **coché** — sinon l'étiquette ne sert à rien dans les vues |
+| Trackers | ceux du travail (Evolution, Bug, Tâche, Assistance…) |
+
+Le champ **Valeurs possibles** vaut règle : une étiquette hors liste est refusée
+par Redmine. Pour en ajouter une, on l'ajoute là — et l'outillage suit.
+
+## Après la création — brancher l'outillage
+
+1. Relever l'**id** du champ (visible dans l'URL de son écran d'édition,
+   `/custom_fields/<id>/edit`). **Ne pas le deviner** : les ids sont séquentiels
+   à l'instance et attribués en concurrence (tripwire NORMS #13).
+2. Le déclarer dans **`redmine.reference.yml`**, section `custom_fields` :
+
+   ```yaml
+     <id>: {name: "Étiquettes", format: list, type: issue, used_by: "tags[] du frontmatter (pm_tags, RM2829)"}
+   ```
+
+3. Vérifier : `scripts/redmine-config-check.py` doit rester vert (il diffe la
+   référence contre la config live).
+4. Contrôle de bout en bout :
+
+   ```bash
+   pm-task-tag.py <RM> --add front,refacto     # → frontmatter + Redmine
+   pm-task-tag.py <RM>                          # → lit
+   pm-task-sync.py <RM>                         # → relit le CF vers le frontmatter
+   ```
+
+Un **override** ponctuel reste possible sans toucher la référence :
+`REDMINE_CF_TAGS_ID=<id>` dans le `.env` (même convention que les autres CF).
+
+## Une vue Redmine par étiquette (une fois le CF créé)
+
+Le CF étant **utilisé comme filtre** et **pour tous les projets**, il apparaît
+dans les filtres de la liste des demandes :
+
+1. *Demandes → Filtres → Étiquettes* → `est` → choisir une ou plusieurs valeurs ;
+2. *Options → Grouper par : Étiquettes* pour une vue ventilée ;
+3. « Enregistrer » la requête (cocher « Pour tous les projets » si la vue doit
+   suivre le vocabulaire transverse).
+
+Côté PM, la même ventilation existe hors Redmine :
+`pm-conso-report.py --by tag` — coût, tokens et temps par domaine. ⚠ un ticket
+portant deux étiquettes compte dans les deux groupes : la somme des lignes
+dépasse le total, et le rapport le dit.
+
+## Tant que le CF n'existe pas
+
+Rien ne casse : `pm-task-tag` écrit le frontmatter, `pm-task-list --tag` filtre,
+et le push Redmine est **annoncé comme non fait** (jamais silencieux). La parité
+est un objectif, pas un blocage.
+
+## Router le travail : étiquette → rôle d'agent (RM2833)
+
+Une étiquette dit le **domaine** ; les rôles (`agents/worker-*.md`) disent **qui
+sait le traiter**. La table se déclare dans le `meta.yml` du projet (ou du
+client — cascade NORMS, le projet surcharge), jamais en dur :
+
+```yaml
+tag_roles:
+  front: dev
+  bdd: db
+  infra: infra
+  design: design
+```
+
+Ce qu'on en fait : `pm-task-brief` affiche « rôle suggéré », et l'écran de
+lancement d'une session du cockpit le montre puis le cite dans la consigne (de
+quoi charger `agents/worker-<rôle>.md`).
+
+**Ça propose, ça n'assigne pas.** Réassigner un ticket, c'est changer son
+propriétaire — donc le verrou d'écriture (« Redmine est le mutex ») — et cela
+reste un geste humain. Quand plusieurs étiquettes routent, le départage est
+alphabétique : arbitraire mais stable, et les autres candidates sont nommées.
+
+## Le registre, les alias, et ce qui reste local (RM2836)
+
+`tags.registry.yml` porte **deux** choses :
+
+- **`values`** — le vocabulaire CONTRÔLÉ : ce que le CF accepte, donc la seule
+  chose qui monte dans Redmine. Chaque entrée porte l'`id` de la valeur ; une
+  entrée **sans `id`** est décidée mais **pas encore créée** côté Redmine : elle
+  s'écrit localement et l'outillage annonce qu'elle n'est pas poussée.
+- **`aliases`** — le mapping **n-1** des mots-clés existants vers ces valeurs
+  (`ui`, `ux`, `web` → `front` ; `zabbix`, `supervision` → `monitoring`…). Il
+  évite de réécrire l'historique : `pm-task-tag` canonicalise à l'écriture.
+
+Ce qui n'est ni valeur ni alias reste un **mot-clé local** : il vit au
+frontmatter, se filtre (`pm-task-list --tag`, recherche du cockpit) et ne monte
+pas. C'est le cas voulu des produits ou composants mono-projet — `cockpit`,
+`karl`, `karl-agent`, `norms`, `graph`, `atlas`.
+
+### Garde à l'écriture
+
+    pm-task-tag <RM> --add ui          → écrit « front », et le dit
+    pm-task-tag <RM> --add nawak       → REFUSE, liste les valeurs acceptées
+    pm-task-tag <RM> --add nawak --free → mot-clé LOCAL assumé, jamais poussé
+
+Sans ce refus, le vocabulaire contrôlé se remplirait de variantes en quelques
+semaines — c'est précisément ainsi qu'on est arrivé à 747 mots-clés libres.
+
+### Le slug n'est pas le libellé
+
+Le registre distingue volontairement les deux : `label` est ce que Redmine
+affiche, `slug` ce qui s'écrit au frontmatter. « Debug/Bugfix » s'écrit `debug`,
+« Tooling » couvre `outillage`, « Archi » couvre `architecture`, « Backup »
+couvre `sauvegarde`. Un slug est fait pour être tapé à la main : quand le libellé
+est composé ou moins courant que son synonyme, l'autre forme devient un alias —
+rien n'est perdu, et rien n'oblige à réécrire les tickets existants.
+
+### Spécialiser une valeur
+
+Certaines valeurs en **précisent** une autre : `review` et `veille` affinent
+`audit`, `hooks` et `cli` affinent `tooling`. La relation se déclare au registre
+(`precise: audit`) et l'audit l'affiche.
+
+Le champ étant **multi-valeurs**, la fille ne remplace pas le parent : un ticket
+peut porter `audit` ET `review`. Conséquence pratique : ces mots-clés ne doivent
+surtout pas rester des **alias** de leur parent — ils seraient rabattus dessus à
+l'écriture, c'est-à-dire que la précision serait perdue au moment même où on la
+demande.
+
+### Sens de la synchronisation (RM2840)
+
+| Geste | Effet |
+|---|---|
+| tag ajouté **en local** | poussé au CF |
+| tag ajouté **dans Redmine** | descend au frontmatter (refresh, ou prochaine écriture locale) |
+| tag retiré **en local** | retiré du CF |
+| tag retiré **dans Redmine** | retiré du frontmatter — **uniquement si le retrait est attesté** |
+
+Le dernier point est la règle importante. « Absent du CF » ne veut pas dire
+« retiré » : un mot-clé local (`cockpit`) n'a pas d'équivalent et n'en aura
+jamais. Rabattre le frontmatter sur la liste du CF l'effacerait à chaque
+refresh — c'est interdit. Ce qui a été retiré, les **journaux** le disent (un CF
+multi-valeurs émet une entrée par valeur, `old_value=45, new_value=null`), et on
+ne lit que les journaux postérieurs au dernier vu.
+
+Sans repère de journal exploitable — première synchro d'un ticket, par exemple —
+la relecture est **additive** : on n'ôte rien. Une suppression faite avant ce
+repère n'est donc jamais rattrapée, et c'est voulu : mieux vaut un tag de trop
+qu'un tag effacé sans qu'on puisse dire par qui.
+
+Symétriquement, une écriture locale **relit** le CF avant de pousser : une valeur
+ajoutée depuis l'UI et pas encore connue ici serait sinon écrasée par la liste
+locale — une suppression que personne n'a demandée.
+
+### Tenir le registre synchrone
+
+    pm-tags-audit.py
+
+Compare la définition Redmine, le registre et les usages réels, et rend quatre
+listes : **à créer** dans l'UI admin (avec le volume concerné, alias inclus), **à
+recopier** au registre (valeurs qui existent côté Redmine avec leur id), les
+**orphelines** (au registre mais supprimées du CF), les **renommées** (même id,
+libellé changé côté Redmine) et les mots-clés **libres** les plus utilisés. La
+comparaison se fait par **id**, jamais par libellé : c'est la seule clé stable, et
+comparer les libellés ferait voir un écart là où le slug diffère volontairement du
+libellé. L'audit ne corrige rien : créer une valeur est un geste humain
+dans l'UI, recopier son id en est un autre — une commande qui écrirait en base
+pour « synchroniser » serait plus rapide et bien plus dangereuse.
+
+## Vocabulaire
+
+Un slug : minuscules, sans accent, tirets — `pm_tags.normalize` s'en charge, si
+bien que « Tunnel de Commande », « tunnel_de_commande » et « TUNNEL DE COMMANDE »
+sont **une seule** étiquette. Plafond : 12 par ticket (au-delà, une étiquette ne
+distingue plus rien).

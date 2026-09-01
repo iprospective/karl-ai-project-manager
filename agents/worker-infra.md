@@ -6,7 +6,7 @@
 
 Gestion de l'infrastructure, du déploiement et de la CI/CD. Toute intervention préserve la continuité de service et doit être réversible.
 
-**Types gérés :** `infrastructure`
+**Types gérés :** `infrastructure` | `configuration`
 
 ## Phases de travail
 

@@ -12,13 +12,21 @@ Repo PM = dossier contenant un `.mmi-pm` (profondeur 1-2 sous /zfs/workspaces) +
 core `.mmi-pm-core` lui-même. Ne clobber JAMAIS un post-commit existant non-symlink.
 """
 import argparse
+import os
 import subprocess
 import sys
 from pathlib import Path
 
 WORKSPACES = Path("/zfs/workspaces")
-PM_CORE = WORKSPACES / ".mmi-pm-core"
+# Racine du code PM. Surchargée par PM_CORE_DIR (relocalisable, RM2580) ; défaut
+# = déploiement actuel sous WORKSPACES (0 régression).
+PM_CORE = Path(os.environ.get("PM_CORE_DIR") or (WORKSPACES / ".mmi-pm-core"))
 HOOK_SRC = PM_CORE / "scripts" / "pm-post-commit.py"
+# pre-push anti-id-prédit (RM2224) : posé sur le repo racine ET les bares repos/*.git
+# (les branches de ticket partent des worktrees envs/, dont les hooks vivent au bare).
+PREPUSH_SRC = PM_CORE / "scripts" / "pm-pre-push"
+# pre-commit bon-worktree/bonne-branche (RM2240) : même couverture que pre-push.
+PRECOMMIT_SRC = PM_CORE / "scripts" / "pm-pre-commit.py"
 
 
 def git_dir(repo):
@@ -37,19 +45,38 @@ def install_one(repo, seen):
     if str(gd) in seen:
         return None                      # repo déjà traité (workspaces partageant un .git)
     seen.add(str(gd))
-    hook = gd / "hooks" / "post-commit"
-    hook.parent.mkdir(parents=True, exist_ok=True)
-    if hook.exists() and not hook.is_symlink():
-        return ("warn", f"{repo} : post-commit existant (non-symlink) → fusion manuelle")
-    try:
-        if hook.is_symlink() and hook.resolve() == HOOK_SRC.resolve():
-            return ("ok", f"{repo} : déjà installé")
-    except OSError:
-        pass
-    if hook.is_symlink() or hook.exists():
-        hook.unlink()
-    hook.symlink_to(HOOK_SRC)
-    return ("new", f"{repo} : installé")
+    results = []
+    for name, src in (("post-commit", HOOK_SRC), ("pre-push", PREPUSH_SRC),
+                      ("pre-commit", PRECOMMIT_SRC)):
+        if not src.exists():   # core pas encore à jour → pas de symlink cassé
+            results.append(("warn", f"{repo} : {name} — source absente du core ({src.name}), skip"))
+            continue
+        hook = gd / "hooks" / name
+        hook.parent.mkdir(parents=True, exist_ok=True)
+        if hook.exists() and not hook.is_symlink():
+            results.append(("warn", f"{repo} : {name} existant (non-symlink) → fusion manuelle"))
+            continue
+        try:
+            if hook.is_symlink() and hook.resolve() == src.resolve():
+                results.append(("ok", f"{repo} : {name} déjà installé"))
+                continue
+        except OSError:
+            pass
+        try:
+            if hook.is_symlink() or hook.exists():
+                hook.unlink()
+            hook.symlink_to(src)
+        except OSError as e:
+            # repo privsep (ex. .mmi-pm-core : .git root-owned) → posé par la
+            # couche privilégiée (sudo mmi-pm core update), pas bloquant ici.
+            # Compté « ignoré », pas « à fusionner » (rien à fusionner à la main).
+            results.append(("skip", f"{repo} : {name} non posé ({e.strerror}) — "
+                                    f"privsep, posé par `sudo mmi-pm core update`"))
+            continue
+        results.append(("new", f"{repo} : {name} installé"))
+    worst = {"warn": 0, "skip": 1, "new": 2, "ok": 3}
+    results.sort(key=lambda r: worst[r[0]])
+    return results[0] if len(results) == 1 else (results[0][0], " ; ".join(r[1] for r in results))
 
 
 def discover():
@@ -58,6 +85,9 @@ def discover():
     for pat in ("*/.mmi-pm", "*/*/.mmi-pm"):
         for p in WORKSPACES.glob(pat):
             repos.add(p.parent)
+            # bares du layout RM1993 : hooks partagés par tous les worktrees envs/
+            for bare in (p.parent / "repos").glob("*.git"):
+                repos.add(bare)
     repos.add(PM_CORE)
     return sorted(repos)
 

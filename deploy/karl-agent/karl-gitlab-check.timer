@@ -1,0 +1,12 @@
+[Unit]
+Description=karl-agent — vérifie périodiquement l'auth SSH GitLab de karl (RM2376)
+
+[Timer]
+# Un premier check peu après le boot, puis toutes les 15 min. Persistent : si la
+# machine était éteinte à l'échéance, rattrape au réveil (état jamais trop vieux).
+OnBootSec=2min
+OnUnitActiveSec=15min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

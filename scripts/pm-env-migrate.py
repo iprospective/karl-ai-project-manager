@@ -43,6 +43,9 @@ try:
 except ImportError:
     sys.exit("pm-env-migrate: PyYAML requis (apt install python3-yaml)")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_repos  # préservation de l'identité au backfill (RM2838)  # noqa: E402
+
 EXCLUDE_DIRS = {"repos", "envs", "tmp", "sessions", "logs", "data", ".mmi-pm",
                 ".mmi-pm-client", ".claude", "documents", "node_modules", "vendor"}
 GITIGNORE = (
@@ -92,6 +95,22 @@ def run(args, check=True):
     if check and r.returncode != 0:
         die(f"{' '.join(args)} a échoué : {r.stderr.strip()}")
     return r.returncode, r.stdout.strip()
+
+
+def best_effort_rmtree(ctx, path):
+    """rmtree tolérant (RM2031) : sur échec — typiquement des fichiers possédés
+    par un AUTRE user (cache Symfony `var/cache/…` du pool FPM, ex. `mathieu-www`)
+    que `KARL_USER` ne peut pas `rmdir` — NE PLANTE PAS. Avertit avec la commande
+    de nettoyage privilégié et laisse le résidu (repéré ensuite par VERIFY).
+    Rend True si supprimé, False sinon."""
+    try:
+        shutil.rmtree(path)
+        return True
+    except OSError as e:
+        ctx.warn(f"nettoyage {path.name} impossible ({e.strerror or e}) — résidu "
+                 f"laissé (fichiers d'un autre propriétaire, ex. cache FPM). "
+                 f"Nettoyage privilégié : sudo rm -rf {path}")
+        return False
 
 
 # ---------------------------------------------------------------- découverte
@@ -287,7 +306,10 @@ def adopt_worktree(ctx, ws, bare, code, clone):
     # peuple l'index depuis HEAD (mixed reset, working tree intact) : git reconnaît
     # alors les fichiers trackés → dirty = modifié, untracked = untracked, ignoré = ignoré.
     git(["-C", str(wt), "reset", "-q", "HEAD"])
-    shutil.rmtree(premig)
+    # Le worktree est complet à ce stade ; le `.premig` n'est plus que du scratch.
+    # Son nettoyage est BEST-EFFORT (RM2031) : un échec (cache FPM d'un autre user)
+    # ne doit pas interrompre migrate_group avant backfill_manifest/rewrite_gitignore.
+    best_effort_rmtree(ctx, premig)
     return wt
 
 
@@ -310,6 +332,11 @@ def backfill_manifest(ctx, ws, code, basis, bare):
     entry = {"name": code, "remotes": remotes or {"origin": basis["origin"]},
              "integration_branch": basis["branch"]}
     repos = data.get("repos") or []
+    # RM2838 : le constat ne connaît que le TRANSPORT. L'URL canonique et le
+    # rattachement `instance:` sont déclarés à la main — les régénérer les
+    # effacerait à chaque migration.
+    previous = next((r for r in repos if r.get("name") == code), None)
+    entry = pm_repos.merge_entry(previous, entry)
     repos = [r for r in repos if r.get("name") != code] + [entry]
     data["repos"] = repos
     meta.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")
@@ -364,6 +391,87 @@ def verify(ctx, ws, groups):
     return ok
 
 
+# ------------------------------------------------------------- garde-fou vhosts
+
+APACHE_SITES = Path("/etc/apache2/sites-available")
+# Alias fs connus : un vhost peut référencer le workspace par un chemin symlinké
+# (ex. /home/workspaces → /zfs/workspaces). On teste les deux écritures.
+WS_ALIASES = [("/zfs/workspaces", "/home/workspaces")]
+
+
+def _path_variants(p: str) -> list[str]:
+    """Toutes les écritures d'un chemin via les alias fs connus."""
+    out = {p}
+    for a, b in WS_ALIASES:
+        for s in list(out):
+            if s.startswith(a):
+                out.add(b + s[len(a):])
+            if s.startswith(b):
+                out.add(a + s[len(b):])
+    return sorted(out)
+
+
+def _ref_in_line(line: str, prefixes: list[str]) -> str | None:
+    """Le chemin (ou une de ses variantes) apparaît-il dans `line`, suivi d'une
+    frontière (/, guillemet, espace, fin) ? Évite dev↔development."""
+    for v in prefixes:
+        i = line.find(v)
+        while i != -1:
+            after = line[i + len(v):i + len(v) + 1]
+            if after in ("", "/", '"', "'", " ", "\t", ">"):
+                return v
+            i = line.find(v, i + 1)
+    return None
+
+
+def apache_vhost_reminder(ws, groups):
+    """RM2436 — la migration déplace les checkouts sous envs/ mais ne touche PAS
+    Apache. Read-only, best-effort : rappelle de repointer les DocumentRoot vers
+    les nouveaux worktrees et signale les vhosts référençant encore l'ancien
+    emplacement. Ne mute JAMAIS les confs."""
+    moves = [(str(ws / c["usage"]), str(ws / "envs" / f"{code}-{c['usage']}"))
+             for code, clones in groups.items() for c in clones]
+    if not moves:
+        return
+    hits = []  # (conf_name, line)
+    try:
+        confs = sorted(APACHE_SITES.glob("*.conf")) if APACHE_SITES.is_dir() else []
+    except OSError:
+        confs = []
+    for conf in confs:
+        try:
+            text = conf.read_text(errors="replace")
+        except OSError:
+            continue
+        for raw in text.splitlines():
+            s = raw.strip()
+            if not (s.startswith("DocumentRoot") or s.startswith("<Directory")
+                    or s.startswith("Alias") or s.startswith("ProxyPass")):
+                continue
+            for old, _new in moves:
+                if _ref_in_line(raw, _path_variants(old)):
+                    hits.append((conf.name, s))
+                    break
+
+    print("\n— APACHE / VHOSTS (RM2436) —")
+    print("  Le code a été déplacé sous envs/ ; Apache n'a PAS été touché. "
+          "Repointe chaque DocumentRoot/Directory/Alias vers son worktree :")
+    for old, new in moves:
+        print(f"    {old}  →  {new}")
+    if hits:
+        print("  Vhosts référençant encore l'ancien emplacement :")
+        for name, line in hits:
+            print(f"    {name}: {line}")
+        print("  → corrige ces confs (chemins → envs/…), `apache2ctl configtest`, "
+              "puis `systemctl reload apache2`.")
+    elif confs:
+        print("  (aucun vhost détecté sur l'ancien emplacement — vérifie tout de "
+              "même reverse-proxy / autres services servant ce workspace.)")
+    else:
+        print("  (confs Apache non lisibles ici — vérifie sur l'hôte qui sert "
+              "ces vhosts.)")
+
+
 # ---------------------------------------------------------------------- main
 
 def main():
@@ -401,6 +509,7 @@ def main():
             migrate_group(ctx, ws, code, clones)
         rewrite_gitignore(ctx, ws)
         print(f"\n[dry-run] {ctx.changed} action(s) prévues.")
+        apache_vhost_reminder(ws, groups)
         return
 
     if not args.yes:
@@ -418,6 +527,7 @@ def main():
     if not ok:
         sys.stderr.write("pm-env-migrate: VERIFY a échoué — envisage un rollback du snapshot.\n")
         sys.exit(2)
+    apache_vhost_reminder(ws, groups)
 
 
 if __name__ == "__main__":

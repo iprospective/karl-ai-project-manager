@@ -1,287 +1,490 @@
 #!/usr/bin/env python3
-"""pm-mr — outillage Merge Request GitLab fiable (RM1871).
+"""pm-mr — outillage Merge/Pull Request fiable (RM1871 ; forge-agnostique RM2498).
 
 Sous-commandes :
   create <RMid> [--repo PATH] [--target BR] [--status STATUT] [--no-push]
-      push la branche courante + crée (ou réutilise) la MR vers `--target`
-      (défaut : `integration_branch` de l'overview, sinon `dev`), pose les CF
-      Redmine GIT Branche (id 3) + GIT PR (id 4), option : passe le ticket à
-      `--status` (note auto). Idempotent : MR déjà ouverte ⇒ renvoyée.
-  merge <iid> [--repo PATH] [--squash]
-      merge la MR `iid`. **Conserve la branche source** (remove_source_branch=false,
-      règle NORMS). Idempotent : déjà mergée ⇒ signalé sans planter.
-  get <iid> [--repo PATH]
-      état (state + web_url + branches) de la MR.
+      push la branche courante + crée (ou réutilise) la PR vers `--target`
+      (défaut : `integration_branch`, sinon `dev`), pose les CF Redmine GIT
+      Branche / GIT PR, option : passe le ticket à `--status` (note auto).
+      Idempotent : PR déjà ouverte ⇒ renvoyée.
+  merge <URL|iid> [--rm-id ID] [--repo PATH] [--squash]
+      merge la PR. **Conserve la branche source** (règle NORMS). Idempotent.
+  close <URL|iid> [--rm-id ID] [--repo PATH] [--expect-rm ID]
+      ferme la PR SANS merger (PR ouverte par erreur, doublon, branche
+      abandonnée). **Conserve la branche source.** Idempotent ; refuse une PR
+      déjà mergée.
+  get <URL|iid> [--rm-id ID] [--repo PATH]
+      état (state + web_url + branches) de la PR.
 
-Pourquoi ce script (vs `glab`) :
-  - `glab` ne mappe pas un remote en **alias SSH** (`gitlab:…`) vers le host.
-  - Apache iProspective **rejette les `%2F`** d'un chemin projet → 404 ⇒ on résout
-    l'**ID NUMÉRIQUE** du projet via `GET /projects?search=…`.
-  - L'API renvoie parfois un **corps vide** sur succès ⇒ on re-GET pour confirmer.
-Tape l'API REST GitLab en direct (urllib + token lu de la config glab / .env).
+DÉSIGNER une PR (RM2541) — `merge`, `close`, `get` :
+  1. son **URL** : forme canonique, auto-portante (hôte → forge, chemin →
+     projet, fin → iid). Aucun dépôt local requis, aucun cwd consulté ;
+  2. `--rm-id <ticket>` : raccourci, si et seulement si le ticket porte UNE
+     seule PR mémorisée (sinon refus qui liste les candidates) ;
+  3. un **iid nu**, qui exige alors `--repo` EXPLICITE.
+Un iid n'a de sens que rapporté à un dépôt. Ce dépôt venait du répertoire
+courant, en silence : d'où une MR ouverte sur le mauvais projet (RM2522) et un
+`merge` lancé depuis le dépôt de DONNÉES, échouant en 404 opaque (RM2537).
+Sécurité : une URL dont l'hôte n'est pas une forge déclarée (GITLAB_URL /
+GOGS_URL / GITHUB_URL) est refusée AVANT tout appel — un PAT ne part jamais
+vers un hôte inconnu.
+
+Depuis RM2498 (T2), les primitives forge (résolution projet, create/merge/get PR,
+tokens, API) sont fournies par `pm_forge` : `GitlabForge` reproduit le comportement
+historique ; `GogsForge` dégrade en flux « lien compare » (Gogs n'a pas d'API PR).
+Ce script porte la POLITIQUE PM : garde tripwire #13, rollback sha:null (RM2219),
+CF Redmine, transitions de statut.
 """
 import argparse
-import json
-import os
+import re
+import subprocess
 import sys
-import time
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig  # charge aussi .env
+from pm_output import out
+from pm_forge import get_forge, get_forge_from_pr_url, ForgeError
+from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 
-DEFAULT_HOST = "gitlab.iprospective.fr"
-
-
-# ── Auth / config GitLab ──────────────────────────────────────────────────────
-def base_url():
-    """URL GitLab depuis le `.env` du PM (GITLAB_URL). PMConfig.load() l'a chargé."""
-    return (os.environ.get("GITLAB_URL") or f"https://{DEFAULT_HOST}").rstrip("/")
-
-
-# Deux identités GitLab de karl, deux PAT distincts dans le `.env` (RM1871) :
-#  - manager : casquette mainteneur/chef de projet — MERGE les MR, gère les projets ;
-#  - worker  : casquette dev — push des branches, CRÉE des MR.
-TOKEN_ENV = {"manager": "GITLAB_MANAGER_TOKEN", "worker": "GITLAB_WORKER_TOKEN"}
+# ── RM2541 : désigner une PR sans dépendre du répertoire courant ─────────────
+# Une PR se désigne par son URL — auto-portante (hôte → forge, chemin → projet,
+# fin → iid). Un iid NU n'a de sens que rapporté à un dépôt : jusqu'ici le cwd
+# le fournissait en silence, et lancer `merge <iid>` depuis le mauvais dossier
+# visait un autre projet (RM2522 : MR ouverte sur le mauvais projet ; RM2537 :
+# merge lancé depuis le dépôt de DONNÉES → 404 opaque). Il l'exige désormais
+# EXPLICITEMENT (`--repo`).
 
 
-def token_for(role):
-    """PAT de karl pour le rôle ('manager' | 'worker'), depuis le `.env` du PM."""
-    var = TOKEN_ENV[role]
-    tok = os.environ.get(var)
-    if not tok:
-        sys.exit(f"ERREUR : {var} absent du .env du PM (PAT karl-{role}, scope api).")
-    return tok
+def _pr_urls_of_task(rm_id):
+    """URL(s) de PR mémorisées dans le frontmatter d'un ticket (`git.mr_urls[]`,
+    ou l'ancien scalaire `git.mr_url`). Commodité du raccourci `--rm-id` — pas
+    une identité : un ticket porte 0, 1 ou N PR, et ça évolue."""
+    import yaml
+    md = PMConfig.load().find_task(int(rm_id))
+    if not md:
+        sys.exit(f"ERREUR : ticket RM{rm_id} introuvable en local.")
+    m = re.match(r"^(---\n)(.*?)(\n---\n)", md.read_text(encoding="utf-8"), re.S)
+    git = ((yaml.safe_load(m.group(2)) if m else None) or {}).get("git") or {}
+    urls = git.get("mr_urls") or ([git["mr_url"]] if git.get("mr_url") else [])
+    return [u for u in urls if u]
 
 
-def api(method, path, token, fields=None):
-    """Requête REST. Retourne (status, parsed_json|None, raw). Jamais d'exception
-    sur 4xx/5xx (on renvoie le status)."""
-    url = path if path.startswith("http") else API_BASE + path
-    data = urllib.parse.urlencode(fields, doseq=True).encode() if fields else None
-    req = urllib.request.Request(url, data=data, method=method)
-    req.add_header("PRIVATE-TOKEN", token)
-    if data:
-        req.add_header("Content-Type", "application/x-www-form-urlencoded")
-    try:
-        with urllib.request.urlopen(req, timeout=30) as r:
-            raw = r.read().decode("utf-8", "replace")
-            status = r.status
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace")
-        status = e.code
-    except Exception as e:
-        return 0, None, str(e)
-    try:
-        return status, json.loads(raw), raw
-    except Exception:
-        return status, None, raw
-
-
-# ── Résolution du projet (ID numérique, anti-%2F) ────────────────────────────
-def repo_path_from_remote(repo, remote="origin"):
-    """Chemin `owner/.../repo` déduit de l'URL du remote (alias SSH, ssh, https)."""
-    import subprocess
-    r = subprocess.run(["git", "-C", str(repo), "remote", "get-url", remote],
-                       capture_output=True, text=True)
-    if r.returncode != 0:
-        sys.exit(f"ERREUR : remote '{remote}' introuvable dans {repo}")
-    url = r.stdout.strip()
-    if url.endswith(".git"):
-        url = url[:-4]
-    # alias SSH "gitlab:owner/...repo" | "git@host:owner/...repo" | "https://host/owner/...repo"
-    if url.startswith("http"):
-        path = urllib.parse.urlparse(url).path.lstrip("/")
-    elif ":" in url:
-        path = url.split(":", 1)[1]
-    else:
-        path = url
-    return path.lstrip("/")
-
-
-def resolve_project_id(token, repo_path):
-    seg = repo_path.rstrip("/").split("/")[-1]
-    status, data, raw = api("GET", f"/projects?search={urllib.parse.quote(seg)}&per_page=50&membership=true", token)
-    if status != 200 or not isinstance(data, list):
-        sys.exit(f"ERREUR résolution projet (HTTP {status}) : {raw[:200]}")
-    for p in data:
-        if p.get("path_with_namespace") == repo_path:
-            return p["id"], p
-    # fallback : match souple sur la fin du chemin
-    for p in data:
-        if str(p.get("path_with_namespace", "")).endswith(repo_path) or p.get("path") == seg:
-            return p["id"], p
-    sys.exit(f"ERREUR : projet '{repo_path}' introuvable (search '{seg}').")
+def _resolve_pr(args, role):
+    """(forge, token, iid, origine) pour merge/get/close. Ordre : URL explicite,
+    puis raccourci `--rm-id`, puis iid nu — qui EXIGE `--repo`."""
+    target = getattr(args, "target_pr", None)
+    if target and not str(target).isdigit():
+        forge, iid = get_forge_from_pr_url(str(target))
+        return forge, forge.token(role), iid, f"URL {target}"
+    if getattr(args, "rm_id", None):
+        urls = _pr_urls_of_task(args.rm_id)
+        if not urls:
+            sys.exit(f"ERREUR : aucune PR mémorisée sur RM{args.rm_id} "
+                     f"(frontmatter git.mr_urls) — passe l'URL de la PR.")
+        if len(urls) > 1:
+            sys.exit(f"ERREUR : RM{args.rm_id} porte {len(urls)} PR — désigne-la par son URL :\n  "
+                     + "\n  ".join(urls))
+        forge, iid = get_forge_from_pr_url(urls[0])
+        return forge, forge.token(role), iid, f"RM{args.rm_id} → {urls[0]}"
+    if not target:
+        sys.exit("ERREUR : indique l'URL de la PR (recommandé), un --rm-id, "
+                 "ou un iid avec --repo explicite.")
+    if not args.repo:
+        sys.exit(f"ERREUR : iid nu ({target}) sans --repo : le dépôt cible serait déduit du "
+                 f"répertoire courant, qui n'est pas une désignation fiable (RM2541). "
+                 f"Passe l'URL de la PR, ou --repo <chemin du dépôt de code>.")
+    forge = get_forge(args.repo)
+    return forge, forge.token(role), int(target), f"--repo {args.repo}"
 
 
 def current_branch(repo):
-    import subprocess
     return subprocess.run(["git", "-C", str(repo), "rev-parse", "--abbrev-ref", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
 
 
 def integration_branch(repo_path):
-    """Branche d'intégration via overview.md du projet (défaut 'dev')."""
-    return "dev"  # défaut robuste ; raffinable via overview.md (cf. RM2030)
+    """Branche d'intégration (défaut 'dev' ; raffinable via overview.md, RM2030)."""
+    return "dev"
 
 
-# ── Commandes ────────────────────────────────────────────────────────────────
-def cmd_get(args, token):
-    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
-    status, mr, raw = api("GET", f"/projects/{pid}/merge_requests/{args.iid}", token)
-    if status != 200 or not mr:
-        sys.exit(f"ERREUR get MR !{args.iid} (HTTP {status}) : {raw[:200]}")
-    print(f"MR !{mr['iid']} [{mr['state']}] {mr['source_branch']} → {mr['target_branch']}")
-    print(f"  {mr['web_url']}")
+# ── Politique PM (indépendante de la forge) ──────────────────────────────────
+# >>> branche_de_ticket — pure (testée par test_pm_mr_cf_branche.py)
+def branche_de_ticket(rm_id, branch):
+    """Vrai si `branch` est LA branche de travail du ticket (`<id>-<slug>`).
+
+    RM2701 : le flux normal appelle `create` deux fois — la MR du ticket
+    (`<id>-…` → `dev`), puis la MR de promotion (`dev` → `main`). La seconde
+    écrasait « GIT Branche » par `dev`, qui ne désigne rien : toutes les
+    livraisons y passent. Une valeur générique qu'on croit spécifique est pire
+    qu'un champ vide. Même discernement que `_assert_mr_belongs_to`, qui sait
+    déjà distinguer une branche de ticket d'une branche d'intégration."""
+    return bool(re.match(r"^%s-" % re.escape(str(rm_id)), str(branch or "")))
+# <<< branche_de_ticket
 
 
-def cmd_create(args, token):
-    repo = args.repo
-    rpath = repo_path_from_remote(repo)
-    pid, _ = resolve_project_id(token, rpath)
-    src = current_branch(repo)
-    if src in ("HEAD", ""):
-        sys.exit("ERREUR : HEAD détaché — pas de branche courante.")
-    tgt = args.target or integration_branch(rpath)
-    if src == tgt:
-        sys.exit(f"ERREUR : branche courante == cible ({tgt}).")
+def _post_git_cf(rm_id, branch, pr_url):
+    """Pose les CF Redmine GIT Branche + GIT PR, et VÉRIFIE (RM2219 : Redmine
+    ignore silencieusement un CF non activé sur le tracker).
 
-    if not args.no_push:
-        import subprocess
-        p = subprocess.run(["git", "-C", str(repo), "push", "-u", "origin", src],
-                           capture_output=True, text=True)
-        if p.returncode != 0:
-            sys.exit(f"ERREUR push : {(p.stderr or p.stdout).strip()}")
-        print(f"✓ push {src} → origin")
-
-    # Idempotence : MR ouverte déjà existante ?
-    st, lst, _ = api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                            f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-    mr = lst[0] if (st == 200 and isinstance(lst, list) and lst) else None
-    if mr:
-        print(f"↻ MR déjà ouverte : !{mr['iid']}")
-    else:
-        st, mr, raw = api("POST", f"/projects/{pid}/merge_requests", token, fields={
-            "source_branch": src, "target_branch": tgt,
-            "title": args.title or f"RM{args.rm_id} — {src}",
-            "description": args.description or f"Ref RM{args.rm_id}.",
-            "remove_source_branch": "false",
-        })
-        if not mr:  # corps vide / ambigu → re-GET pour confirmer
-            st2, lst2, _ = api("GET", f"/projects/{pid}/merge_requests?source_branch={urllib.parse.quote(src)}"
-                                      f"&target_branch={urllib.parse.quote(tgt)}&state=opened", token)
-            mr = lst2[0] if (st2 == 200 and isinstance(lst2, list) and lst2) else None
-        if not mr:
-            sys.exit(f"ERREUR création MR (HTTP {st}) : {raw[:200]}")
-        print(f"✓ MR !{mr['iid']} créée : {src} → {tgt}")
-    print(f"  {mr['web_url']}")
-
-    # CF Redmine GIT Branche (3) + GIT PR (4) + statut optionnel
+    RM2701 : « GIT Branche » n'est écrit que si la source EST la branche du
+    ticket. « GIT PR » l'est toujours — l'URL d'une MR de promotion reste une
+    information juste sur ce ticket."""
     try:
         import redmine_utils
         cfs = []
-        for name, val in (("GIT Branche", src), ("GIT PR", mr["web_url"])):
+        champs = [("GIT PR", pr_url)]
+        if branche_de_ticket(rm_id, branch):
+            champs.insert(0, ("GIT Branche", branch))
+        else:
+            out.info(f"  · « GIT Branche » laissé tel quel : `{branch}` n'est pas la "
+                     f"branche du ticket #{rm_id} (MR de promotion)")
+        for name, val in champs:
             cid = redmine_utils.cf_id_by_name(name)
             if cid:
                 cfs.append({"id": cid, "value": val})
         if cfs:
-            redmine_utils.update_issue_fields(args.rm_id, custom_fields=cfs)
-            print(f"✓ CF Redmine posés (GIT Branche / GIT PR) sur #{args.rm_id}")
+            redmine_utils.update_issue_fields(rm_id, custom_fields=cfs)
+            issue = get_task_provider().fetch_issue(rm_id)
+            present = {c.get("id"): c.get("value") for c in issue.get("custom_fields", [])}
+            missing = [c["id"] for c in cfs if present.get(c["id"]) != c["value"]]
+            if missing:
+                out.warn(f"CF Redmine NON écrits (ids {missing}) — CF absents du "
+                         f"tracker de #{rm_id} ? Poser le lien en note/manuel.")
+            else:
+                out.info(f"✓ CF Redmine posés et vérifiés (GIT Branche / GIT PR) sur #{rm_id}")
     except Exception as e:
-        print(f"  ⚠ CF Redmine non posés : {e}", file=sys.stderr)
+        out.warn(f"CF Redmine non posés : {e}")
+
+
+def _record_pr_url(rm_id, pr_url):
+    """Mémorise l'URL de la PR dans le frontmatter du ticket (`git.mr_urls[]`).
+
+    RM2541 : `create` posait le CF Redmine « GIT PR » mais laissait `git.mr_url`
+    à null côté MD — le PM ne savait donc pas quelle PR appartenait à quel
+    ticket (rupture de parité MD↔Redmine). LISTE et non scalaire : un ticket
+    porte parfois plusieurs PR (repos distincts, reprise après abandon).
+    `git.mr_url` est tenu à jour pour l'existant (dernière PR en date)."""
+    if not pr_url:
+        return
+    try:
+        import yaml
+        from datetime import datetime
+        md = PMConfig.load().find_task(int(rm_id))
+        if not md:
+            out.warn(f"frontmatter git.mr_urls non écrit : RM{rm_id} introuvable en local.")
+            return
+        raw = md.read_text(encoding="utf-8")
+        m = re.match(r"^(---\n)(.*?)(\n---\n)(.*)$", raw, re.S)
+        if not m:
+            out.warn(f"frontmatter git.mr_urls non écrit : pas de frontmatter dans {md.name}.")
+            return
+        fm = yaml.safe_load(m.group(2)) or {}
+        git = fm.get("git") or {}
+        urls = list(git.get("mr_urls") or [])
+        if git.get("mr_url") and git["mr_url"] not in urls:
+            urls.append(git["mr_url"])          # reprise de l'ancien scalaire
+        if pr_url not in urls:
+            urls.append(pr_url)
+        git["mr_urls"], git["mr_url"] = urls, pr_url
+        fm["git"] = git
+        fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")
+        new_fm = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False,
+                                default_flow_style=False)
+        md.write_text(f"{m.group(1)}{new_fm.rstrip()}{m.group(3)}{m.group(4)}",
+                      encoding="utf-8")
+        out.info(f"✓ frontmatter git.mr_urls ({len(urls)}) : {md.name}")
+    except Exception as e:                       # jamais bloquant : la PR existe déjà
+        out.warn(f"frontmatter git.mr_urls non écrit : {e}")
+
+
+def _guard_expect_rm(pr, iid, expect_rm):
+    """Garde RM2232 (tripwire #13 étendu) : la PR visée doit porter la branche du
+    ticket annoncé, sinon un iid prédit ou mal recopié agirait sur la PR d'autrui.
+    Les branches de flux (dev, preprod — promotions) sont admises."""
+    if expect_rm is None:
+        return
+    if str(pr.source or "").startswith(f"{expect_rm}-") or pr.source in ("dev", "preprod"):
+        return
+    sys.exit(f"ERREUR : MR !{iid} porte la branche `{pr.source}` — pas celle de "
+             f"RM{expect_rm}. Iid prédit/erroné (tripwire #13) ? Capture l'iid via "
+             f"`pm-mr create --porcelain`, ou utilise `pm-mr create --merge` (atomique).")
+
+
+def _hook_mr(iid, **kw):
+    """RM2583 : reflet best-effort dans le worklog de session (jamais bloquant)."""
+    try:
+        from pm_session_hook import log_mr_to_session
+        log_mr_to_session(iid, **kw)
+    except Exception:
+        pass
+
+
+def _merge_with_policy(forge, project, iid, token, squash=False, expect_rm=None):
+    """Merge le cœur d'une PR avec les gardes PM. `expect_rm` (RM2232, tripwire #13
+    étendu) : refuse si la branche source n'est pas préfixée `<expect_rm>-`."""
+    pr = forge.get_pr(project, iid, token)
+    _guard_expect_rm(pr, iid, expect_rm)
+    if pr.state == "merged":
+        # déjà mergée : le worklog peut l'ignorer encore, on le remet d'aplomb
+        _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
+                 state="merged")
+        out.op("merge", extra=f"!{iid} → {pr.target} "
+                              f"(déjà mergée, branche {pr.source} conservée)")
+        return
+    if pr.state != "opened":
+        sys.exit(f"ERREUR : MR !{iid} en état '{pr.state}' (pas 'opened').")
+    forge.merge_pr(project, iid, token, squash=squash, keep_source=True)
+    _hook_mr(iid, repo=project.path, source=pr.source, target=pr.target,
+             state="merged")           # RM2583 : sort des « à merger »
+    out.op("merge", extra=f"!{iid} → {pr.target} (branche {pr.source} conservée)")
+
+
+def _resolved_project(forge, token, args):
+    """Projet forge + trace de l'origine. Sur échec de résolution, le message dit
+    QUOI on a cherché et D'OÙ vient la cible — sans ça, un `404 MR introuvable`
+    laisse croire à un problème de droits alors qu'on interroge le mauvais dépôt."""
+    origin = getattr(args, "_origin", "?")
+    try:
+        project = forge.resolve_project(token)
+    except ForgeError as e:
+        sys.exit(f"ERREUR forge : {e}\n  → dépôt visé : {forge.repo_path} "
+                 f"(résolu depuis {origin})")
+    out.info(f"→ projet {project.path} (id {project.id}) [depuis {origin}]")
+    return project
+
+
+# ── Commandes ────────────────────────────────────────────────────────────────
+def cmd_merge(args, forge, token):
+    project = _resolved_project(forge, token, args)
+    _merge_with_policy(forge, project, args.iid, token,
+                       squash=args.squash, expect_rm=args.expect_rm)
+
+
+def cmd_close(args, forge, token):
+    """Ferme une PR sans la merger. Cas d'usage vécu (RM2522) : une MR ouverte
+    depuis le mauvais répertoire courant, donc sur le mauvais projet — jusqu'ici
+    il fallait un script jetable autour de `pm_forge.close_pr()`."""
+    if not forge.capabilities.pull_request_api:
+        sys.exit("ERREUR : cette forge n'a pas d'API PR (Gogs) — la fermeture est "
+                 "un geste web humain.")
+    project = _resolved_project(forge, token, args)
+    pr = forge.get_pr(project, args.iid, token)
+    _guard_expect_rm(pr, args.iid, args.expect_rm)
+    if pr.state == "merged":
+        sys.exit(f"ERREUR : MR !{args.iid} ({pr.source} → {pr.target}) est déjà MERGÉE — "
+                 f"la fermer n'annulerait rien. Pour défaire un merge, révèrte-le par "
+                 f"une branche dédiée.")
+    if pr.state != "opened":
+        # Idempotence : refermer une PR déjà fermée n'est pas une erreur.
+        out.op("close", extra=f"!{args.iid} (déjà '{pr.state}', branche {pr.source} conservée)")
+        return
+    forge.close_pr(project, args.iid, token)
+    _hook_mr(args.iid, repo=project.path, source=pr.source, target=pr.target,
+             state="closed")
+    out.op("close", extra=f"!{args.iid} {pr.source}→{pr.target} fermée "
+                          f"(branche {pr.source} conservée)")
+
+
+def cmd_get(args, forge, token):
+    project = _resolved_project(forge, token, args)
+    pr = forge.get_pr(project, args.iid, token)
+    print(f"MR !{pr.iid} [{pr.state}] {pr.source} → {pr.target}"
+          f" | {pr.raw.get('detailed_merge_status')}"
+          + (" | ⚠ sha:null (branche source absente)" if pr.sha is None else ""))
+    print(f"  {pr.web_url}")
+
+
+def check_no_ticket_args(args):
+    """Cohérence du mode sans ticket (RM2644) — refuse tôt et en nommant la cause.
+
+    « Sans ticket » ne veut pas dire « sans MR » : la branche d'intégration reste
+    protégée. Ce mode retire seulement ce qui n'a pas de sens faute de ticket — CF
+    Redmine, `git.mr_urls` du frontmatter, transition de statut.
+    """
+    if not args.no_ticket:
+        if args.rm_id is None:
+            sys.exit("ERREUR : rm_id manquant. Un changement rattaché à un ticket passe "
+                     "son id ; un changement qui n'en a pas (ajout au glossaire…) passe "
+                     "`--no-ticket --title \"…\"`.")
+        return
+    if args.rm_id is not None:
+        sys.exit(f"ERREUR : --no-ticket et un rm_id (RM{args.rm_id}) sont contradictoires. "
+                 f"Choisis : la MR référence un ticket, ou elle n'en a pas.")
+    if not args.title:
+        sys.exit("ERREUR : --title est obligatoire avec --no-ticket — le titre par défaut "
+                 "est `RM<id> — <branche>`, qui n'existe pas sans ticket.")
+    if args.status:
+        sys.exit("ERREUR : --status n'a pas de sens avec --no-ticket : il n'y a pas de "
+                 "ticket à faire transiter.")
+
+
+def cmd_create(args, forge, token):
+    repo = args.repo
+    check_no_ticket_args(args)
+    project = forge.resolve_project(token)
+    out.info(f"→ projet {project.path} (id {project.id})")
+    src = args.source or current_branch(repo)
+    if src in ("HEAD", ""):
+        sys.exit("ERREUR : HEAD détaché — pas de branche courante (ou --source vide).")
+    # Garde anti-prédiction d'id (RM2224, tripwire #13) : une PR de ticket part
+    # d'une branche `<RMid>-…` du MÊME id. Branches non préfixées (dev, promotion) OK.
+    m = re.match(r"^(\d+)-", src)
+    if m and args.no_ticket:
+        # Le garde s'inverse en mode sans ticket : une branche `<id>-…` trahit un ticket
+        # oublié, pas un changement ticketless (RM2644).
+        sys.exit(f"ERREUR : --no-ticket sur la branche `{src}`, qui porte l'id "
+                 f"{m.group(1)}. Ticket oublié ? Passe `pm-mr create {m.group(1)}`, ou "
+                 f"renomme la branche si le changement n'a vraiment pas de ticket.")
+    if m and not args.no_ticket and int(m.group(1)) != args.rm_id:
+        sys.exit(f"ERREUR : la branche courante `{src}` porte l'id {m.group(1)} mais la MR "
+                 f"est demandée pour RM{args.rm_id}. Id prédit/erroné (tripwire #13) ? "
+                 f"Renomme la branche (`git branch -m {args.rm_id}-<slug>`) ou corrige le rm_id.")
+    tgt = args.target or integration_branch(project.path)
+    if src == tgt:
+        sys.exit(f"ERREUR : branche courante == cible ({tgt}).")
+
+    if not args.no_push:
+        p = subprocess.run(["git", "-C", str(repo), "push", "-u", "origin", src],
+                           capture_output=True, text=True)
+        if p.returncode != 0:
+            sys.exit(f"ERREUR push : {(p.stderr or p.stdout).strip()}")
+        out.info(f"✓ push {src} → origin")
+
+    caps = forge.capabilities
+    if args.no_ticket:
+        title = args.title                       # exigé par check_no_ticket_args
+        desc = args.description or "Changement sans ticket (cf. NORMS governance)."
+    else:
+        title = args.title or f"RM{args.rm_id} — {src}"
+        desc = args.description or f"Ref RM{args.rm_id}."
+
+    if caps.pull_request_api:
+        pr = forge.find_open_pr(project, src, tgt, token)
+        if pr:
+            out.info(f"↻ MR déjà ouverte : !{pr.iid}")
+        else:
+            pr = forge.create_pr(project, src, tgt, title, desc, token)
+            out.info(f"✓ MR !{pr.iid} créée : {src} → {tgt}")
+        out.op("mr", extra=f"!{pr.iid} {src}→{tgt} {pr.web_url}")
+        # RM2583 : la session retient ce qu'elle a ouvert — sinon une MR se perd
+        # jusqu'au prochain conflit, ou jusqu'à un core update incomplet.
+        _hook_mr(pr.iid, url=pr.web_url, repo=project.path, source=src, target=tgt,
+                 ref="sans ticket" if args.no_ticket else f"RM{args.rm_id}",
+                 state="opened")
+        if args.porcelain:
+            out.value(pr.iid)
+        # Garde RM2219 : une PR saine référence le sha de sa branche source.
+        chk = forge.get_pr(project, pr.iid, token)
+        if chk.sha is None:
+            forge.close_pr(project, pr.iid, token)
+            sys.exit(f"ERREUR : MR !{pr.iid} sans sha — la branche `{src}` n'existe pas "
+                     f"sur {project.path} (mauvaise résolution de projet ?). MR fermée (rollback).")
+    else:
+        # Forge sans API PR (Gogs) → lien de création (compare) ; ouverture = geste web humain.
+        pr = forge.create_pr(project, src, tgt, title, desc, token)
+        out.info(f"→ PR à ouvrir (forge sans API PR) : {pr.web_url}")
+        out.op("mr", extra=f"compare {src}→{tgt} {pr.web_url}")
+
+    if not args.no_ticket:
+        # Sans ticket, il n'y a ni CF Redmine à poser ni frontmatter où mémoriser l'URL.
+        _post_git_cf(args.rm_id, src, pr.web_url)
+        _record_pr_url(args.rm_id, pr.web_url)
 
     if args.status:
-        import subprocess
         scr = Path(__file__).resolve().parent / "pm-task-status-update.py"
-        subprocess.run([sys.executable, str(scr), str(args.rm_id), args.status,
-                        "--note", f"MR !{mr['iid']} ouverte vers {tgt} : {mr['web_url']}"],
-                       check=False)
+        note = (f"MR !{pr.iid} ouverte vers {tgt} : {pr.web_url}" if pr.iid is not None
+                else f"PR à ouvrir vers {tgt} : {pr.web_url}")
+        subprocess.run([sys.executable, str(scr), str(args.rm_id), args.status, "--note", note],
+                       check=False,
+                       stdout=sys.stderr if getattr(args, "porcelain", False) else None)
 
-
-def wait_mergeable(base, iid, token, attempts=8, delay=2.0):
-    """Attend la fin du calcul de mergeabilité GitLab (async : `preparing` →
-    `checking` → `mergeable`). Sans ça, un `merge` lancé juste après `create`
-    échoue en 422 'Branch cannot be merged' alors qu'il n'y a aucun conflit.
-    Retourne le mr à jour (mergeable). Sort en erreur sur conflit, ou si toujours
-    en calcul après le délai."""
-    last = None
-    for i in range(attempts):
-        st, mr, _ = api("GET", base, token)
-        if not mr:
-            sys.exit(f"ERREUR : MR !{iid} introuvable pendant l'attente (HTTP {st}).")
-        dms, ms = mr.get("detailed_merge_status"), mr.get("merge_status")
-        last = dms or ms
-        if dms == "mergeable" or (dms is None and ms == "can_be_merged"):
-            return mr
-        if dms in ("conflict", "broken_status") or ms == "cannot_be_merged":
-            sys.exit(f"ERREUR : MR !{iid} non mergeable ({last}) — conflit à résoudre.")
-        # transitoire (preparing / checking / unchecked / ci_still_running…) → on patiente
-        if i < attempts - 1:
-            time.sleep(delay)
-    sys.exit(f"ERREUR : MR !{iid} toujours non mergeable après {attempts} tentatives "
-             f"(dernier état : {last}).")
-
-
-def cmd_merge(args, token):
-    pid, _ = resolve_project_id(token, repo_path_from_remote(args.repo))
-    base = f"/projects/{pid}/merge_requests/{args.iid}"
-    st, mr, raw = api("GET", base, token)
-    if st != 200 or not mr:
-        sys.exit(f"ERREUR : MR !{args.iid} introuvable (HTTP {st}).")
-    if mr["state"] == "merged":
-        print(f"↻ MR !{args.iid} déjà mergée ({mr['source_branch']} → {mr['target_branch']}).")
-        return
-    if mr["state"] != "opened":
-        sys.exit(f"ERREUR : MR !{args.iid} en état '{mr['state']}' (pas 'opened').")
-    mr = wait_mergeable(base, args.iid, token)  # attend la fin du calcul async GitLab
-    fields = {"should_remove_source_branch": "false"}  # CONSERVE la branche (NORMS)
-    if args.squash:
-        fields["squash"] = "true"
-    st, res, raw = api("PUT", base + "/merge", token, fields=fields)
-    state = res.get("state") if res else None
-    if state != "merged":  # corps vide/ambigu → re-GET
-        st2, mr2, _ = api("GET", base, token)
-        state = mr2.get("state") if mr2 else None
-    if state == "merged":
-        print(f"✓ MR !{args.iid} mergée → {mr['target_branch']} (branche {mr['source_branch']} conservée).")
-    else:
-        sys.exit(f"ERREUR merge MR !{args.iid} (HTTP {st}, state={state}) : {raw[:200]}")
+    if getattr(args, "merge", False) and caps.pull_request_api:
+        # Atomique (RM2232) : merge immédiat via la casquette MANAGER (branches protégées).
+        # Sans ticket, la garde `expect_rm` n'a rien à vérifier (aucun id attendu).
+        _merge_with_policy(forge, project, pr.iid, forge.token("manager"),
+                           expect_rm=None if args.no_ticket else
+                           (args.rm_id if src.startswith(f"{args.rm_id}-") else None))
 
 
 def main():
-    PMConfig.load()  # charge .env (GITLAB_*, REDMINE_*, …)
-    global API_BASE
-    API_BASE = base_url() + "/api/v4"
+    PMConfig.load()  # charge .env (GITLAB_*, GOGS_*, REDMINE_*, …)
 
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
+    out.add_args(ap)
     sub = ap.add_subparsers(dest="cmd", required=True)
 
-    pc = sub.add_parser("create", help="push + crée/réutilise la MR + CF")
-    pc.add_argument("rm_id", type=int)
+    pc = sub.add_parser("create", help="push + crée/réutilise la PR + CF")
+    pc.add_argument("rm_id", type=int, nargs="?",
+                    help="ticket porté par la MR (omis avec --no-ticket)")
+    pc.add_argument("--no-ticket", action="store_true",
+                    help="MR sans ticket Redmine (ajout au glossaire, correction de "
+                         "coquille… — cf. NORMS governance). Exige --title ; ne pose ni CF "
+                         "ni frontmatter, refuse --status. La MR reste obligatoire : la "
+                         "branche d'intégration est protégée.")
     pc.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pc.add_argument("--source", help="branche source explicite (défaut : branche courante "
+                                     "du --repo). RM2355.")
     pc.add_argument("--target", help="branche cible (défaut : intégration / dev)")
     pc.add_argument("--title")
     pc.add_argument("--description")
     pc.add_argument("--status", help="passe le ticket à ce statut (note auto)")
     pc.add_argument("--no-push", action="store_true")
+    pc.add_argument("--porcelain", action="store_true",
+                    help="n'imprime que l'iid nu de la PR sur stdout (logs sur stderr) — "
+                         "capture fiable, JAMAIS de prédiction d'iid (tripwire #13/RM2232)")
+    pc.add_argument("--merge", action="store_true",
+                    help="merge la PR créée dans la foulée (atomique ; forge avec API PR)")
 
-    pm = sub.add_parser("merge", help="merge une MR (conserve la branche)")
-    pm.add_argument("iid", type=int)
-    pm.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pm = sub.add_parser("merge", help="merge une PR (conserve la branche)")
+    pm.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                    help="URL de la PR (recommandé : auto-portante) ou iid nu, "
+                         "qui exige alors --repo explicite (RM2541)")
+    pm.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                              "si elle est unique (RM2541)")
+    pm.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
     pm.add_argument("--squash", action="store_true")
+    pm.add_argument("--expect-rm", type=int, default=None,
+                    help="refuse si la branche source de la PR n'est pas préfixée <id>- "
+                         "(protège d'un iid prédit/erroné — RM2232)")
 
-    pg = sub.add_parser("get", help="état d'une MR")
-    pg.add_argument("iid", type=int)
-    pg.add_argument("--repo", default=".", type=lambda s: Path(s).resolve())
+    pcl = sub.add_parser("close", help="ferme une PR sans merger (conserve la branche)")
+    pcl.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                     help="URL de la PR (recommandé) ou iid nu + --repo explicite")
+    pcl.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                               "si elle est unique (RM2541)")
+    pcl.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
+    pcl.add_argument("--expect-rm", type=int, default=None,
+                     help="refuse si la branche source de la PR n'est pas préfixée <id>- "
+                          "(protège d'un iid prédit/erroné — RM2232)")
+
+    pg = sub.add_parser("get", help="état d'une PR")
+    pg.add_argument("target_pr", nargs="?", metavar="URL|iid",
+                    help="URL de la PR (recommandé) ou iid nu + --repo explicite")
+    pg.add_argument("--rm-id", type=int, help="raccourci : la PR mémorisée du ticket, "
+                                              "si elle est unique (RM2541)")
+    pg.add_argument("--repo", default=None, type=lambda s: Path(s).resolve())
 
     args = ap.parse_args()
-    # Token selon le rôle : worker (push/MR), manager (merge/gestion).
-    role = {"create": "worker", "merge": "manager", "get": "worker"}[args.cmd]
-    {"create": cmd_create, "merge": cmd_merge, "get": cmd_get}[args.cmd](args, token_for(role))
+    out.configure(args)
+    try:
+        # Token selon le rôle : worker (push/PR), manager (merge/gestion).
+        role = {"create": "worker", "merge": "manager",
+                "close": "manager", "get": "worker"}[args.cmd]
+        if args.cmd == "create":
+            # `create` PRODUIT la PR : il lui faut le dépôt local (branche
+            # courante, push) — le cwd y est une source légitime.
+            forge = get_forge(args.repo)
+            token = forge.token(role)
+            args._origin = f"--repo {args.repo}"
+        else:
+            # RM2541 : URL > raccourci --rm-id > iid nu + --repo EXPLICITE.
+            forge, token, args.iid, args._origin = _resolve_pr(args, role)
+        {"create": cmd_create, "merge": cmd_merge,
+         "close": cmd_close, "get": cmd_get}[args.cmd](args, forge, token)
+    except ForgeError as e:
+        sys.exit(f"ERREUR forge : {e}")
 
 
 if __name__ == "__main__":

@@ -149,6 +149,35 @@ def test_cursor_isolated_per_session():
     check("session B", tick.extract_turn_usage(tb, "s8b")["output"], 22)
 
 
+def test_tokens_total_is_input_plus_output():
+    """RM2519 : update_task_fm redéfinit tokens_total = entrée + sortie ;
+    le cache reste dans tokens_breakdown mais HORS total."""
+    print("tokens_total_input_plus_output")
+    import types
+    md = _TMP / "RM9999_x.md"
+    md.write_text(
+        "---\n"
+        "tokens_breakdown:\n  input: 100\n  output: 20\n  cache_read: 5000\n  cache_creation: 50\n"
+        "tokens_total: 5170\n"
+        "cost_total_usd: 0.0\nai_time_total_minutes: 0\nhuman_time_total_minutes: 0\n"
+        "---\ncorps\n", encoding="utf-8")
+    orig_load, orig_ac = tick.PMConfig.load, tick.pm_git.autocommit
+    tick.PMConfig.load = staticmethod(lambda: types.SimpleNamespace(
+        find_task=lambda rid: md, state_dir=md.parent))  # state_dir : verrou ticket T7
+    tick.pm_git.autocommit = lambda *a, **k: None
+    try:
+        ok, _ = tick.update_task_fm(
+            "9999", {"input": 10, "output": 5, "cache_read": 9000, "cache_creation": 100},
+            "claude-test-1")
+        fm = tick.yaml.safe_load(md.read_text(encoding="utf-8").split("---")[1])
+    finally:
+        tick.PMConfig.load, tick.pm_git.autocommit = orig_load, orig_ac
+    check("update ok", ok, True)
+    check("breakdown entrée cumulée", fm["tokens_breakdown"]["input"], 110)
+    check("breakdown cache cumulé (complémentaire)", fm["tokens_breakdown"]["cache_read"], 14000)
+    check("tokens_total = entrée+sortie (cache HORS total)", fm["tokens_total"], 110 + 25)
+
+
 if __name__ == "__main__":
     for fn in [v for k, v in sorted(globals().items()) if k.startswith("test_")]:
         fn()

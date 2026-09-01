@@ -1,6 +1,31 @@
 > 📂 **Module `redmine-reference` — quand lire ceci :** avant une session touchant l'intégration Redmine / périodiquement · ids CF/statuts/activités · filtrage IA.
 > **Outils :** `redmine-config-check` · **Préchargé par :** —.
 
+## Résolution projet → Redmine (précise, jamais par slug nu)
+
+**Règle (tripwire #14).** Toute opération Redmine ciblant un projet (sync wiki,
+note, description, stats…) résout le projet par référence **non ambiguë** :
+
+- `client/slug` — ex. `matnat/infra` (désambiguïsation explicite) ;
+- ou le `redmine.project_id` **unique** — ex. `matnat-infra`.
+
+**Jamais par match de slug nu.** Plusieurs clients partagent un même slug — ex.
+`infra` chez `abatik`, `calicote`, `calyclay`, `matnat`, `pisceen`. Un résolveur
+« premier slug trouvé » écrit **silencieusement dans le mauvais projet Redmine**
+(incident RM2410 : `pm-wiki-sync infra` ciblait `abatik` au lieu de `matnat`).
+
+**Conf = source de vérité, bloquante.** Chaque `meta.yml` de projet **doit**
+déclarer un `redmine.project_id` **unique**. Absence ⇒ opération Redmine
+**bloquée** (« pas de projet Redmine précis en conf → on n'avance pas »). Un slug
+**ambigu** ⇒ **erreur** listant les candidats (`client/slug (redmine.project_id)`),
+jamais de choix implicite.
+
+**Outillage.** `PMConfig.resolve_project_ref(ref, require_redmine=True)` (lib
+partagé `pm_paths`) : accepte `client/slug` ou `redmine.project_id`, lève sur
+ambiguïté / introuvable / `redmine.project_id` absent. Tous les scripts qui
+résolvent un projet pour une opération Redmine passent par lui (fin des boucles
+`for … if proj == slug` locales).
+
 ## Filtrage IA — quels tickets Redmine sont synchronisés en MD
 
 L'instance Redmine contient bien plus de tickets que ceux que PM doit
@@ -128,12 +153,13 @@ revalider lors du resync, ne pas présumer stables :
 | 20 | enum (issue) | `Task type` | taxonomie **fine** du `type` (cf. note ci-dessous) |
 
 **Tracker (coarse) vs CF `Task type` (fin).** Le `type` NORMS est plus riche
-(13 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
+(14 valeurs) que les 4 trackers Redmine (`Anomalie`/`Evolution`/`Assistance`/
 `Tâche`). Le **tracker** porte la catégorie *coarse* (`TYPE_TO_TRACKER` :
-`documentation`, `infrastructure`, `maintenance`, `autre` retombent tous sur
-`Tâche`/4). Quand un type n'a pas de tracker dédié, son détail est porté par le
-**CF 20 `Task type`** (enumeration) si une valeur correspond — mapping **source
-unique** `redmine.reference.yml :: task_type_cf` (ex. `documentation` → val 42).
+`documentation`, `infrastructure`, `configuration`, `maintenance`, `autre`
+retombent tous sur `Tâche`/4). Quand un type n'a pas de tracker dédié, son détail
+est porté par le **CF 20 `Task type`** (enumeration) si une valeur correspond —
+mapping **source unique** `redmine.reference.yml :: task_type_cf`
+(ex. `documentation` → val 42, `configuration` → val 22 « Config »).
 `pm-task-add` le pose à la création, `redmine-fetch-task` le relit (il **prime**
 sur le tracker pour reconstituer le `type` fin). Ajouter une valeur d'énumération
 côté Redmine + une ligne dans `task_type_cf` suffit à câbler un nouveau type fin.

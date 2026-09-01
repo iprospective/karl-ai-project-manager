@@ -79,6 +79,30 @@ def prod_projects_base(ws) -> str:
     return ""
 
 
+def core_dir() -> str:
+    """Racine du core PM — celle qui porte le `.env` (secrets + chemins).
+
+    Un worktree de code n'en a PAS : `PMConfig.load()` y échoue (« aucun .env
+    trouvé ») et TOUTE commande du catalogue ⚙ meurt en rc=1 dans une instance de
+    test (constaté sur `conso-report` comme sur la relève mail, RM2668). Le repli
+    `PM_CORE_DIR` de `pm_paths` existe pour exactement ce cas : on le transmet.
+    """
+    env = os.environ.get("PM_CORE_DIR")
+    if env:
+        return env
+    # Repli : le core déployé, lu dans l'unité systemd de l'instance prod — même
+    # source de vérité que `prod_projects_base` (pas de chemin en dur : une autre
+    # instance de la fédération n'a pas la même arborescence).
+    unit = Path.home() / ".config/systemd/user/karl-agent.service"
+    try:
+        for line in unit.read_text(encoding="utf-8").splitlines():
+            if line.startswith("WorkingDirectory="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        pass
+    return str(HERE.parent)
+
+
 def prod_state_dir() -> Path:
     """État de session prod partagé (RM2385) — MIROIR du défaut `STATE_DIR`/
     `LOG_DIR` de karl-agent : `$XDG_STATE_HOME/karl-agent` sinon
@@ -180,6 +204,9 @@ def cmd_create(args):
          # sans lui, client/projet ne se résolvent pas et les jeux dérivés sont
          # vides. On pointe celui de l'instance déployée, en lecture seule.
          f"--setenv=KARL_AGENT_PROJECTS_BASE={prod_projects_base(ws)}",
+         # RM2668 : sans PM_CORE_DIR, un worktree de code n'a pas de `.env` et
+         # TOUTE commande du catalogue ⚙ meurt (« aucun .env trouvé »).
+         f"--setenv=PM_CORE_DIR={core_dir()}",
          "/usr/bin/python3", "scripts/karl-agent.py"])
     # sonde /health (l'auth peut répondre 401 : on veut juste « ça écoute »)
     ok = False

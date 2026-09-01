@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
 import pm_git
+import pm_tags
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 from redmine_utils import api_ts_local
@@ -146,6 +147,25 @@ def diff_fields(fm, issue):
                 new_close = CLOSE_REASON_FROM_CF.get(str(cf_value(issue, CF_RAISON_FERME_ID)))
             if new_close:
                 diffs["close_reason"] = (fm.get("close_reason"), new_close)
+
+    # Étiquettes (RM2829, sémantique RM2840) — la relecture est ADDITIVE, et ne
+    # supprime que ce qui a été RÉELLEMENT retiré côté Redmine.
+    #
+    # Le piège évité : le CF ne porte que le vocabulaire contrôlé. Un ticket qui
+    # porte `cockpit` (mot-clé local, sans équivalent possible) et `front`
+    # perdrait `cockpit` si on remplaçait la liste locale par celle du CF — à
+    # chaque refresh, en silence. « Absent du CF » ne veut pas dire « retiré ».
+    #
+    # Ce qui a été retiré, les journaux le disent : un CF multi-valeurs émet une
+    # entrée par valeur (old_value=45, new_value=null). On ne lit que les
+    # journaux postérieurs au dernier vu ; sans ce repère, on n'ôte rien.
+    rm_tags = pm_tags.from_issue(issue)
+    cur_tags = pm_tags.clean(fm.get("tags") or [])
+    retires = pm_tags.removed_since(issue.get("journals"),
+                                    fm.get("redmine_last_journal_id"), pm_tags.cf_id())
+    plan_tags = pm_tags.pull_plan(cur_tags, rm_tags, retires)
+    if plan_tags["tags"] != cur_tags:
+        diffs["tags"] = (cur_tags, plan_tags["tags"])
 
     # Assigned_to (id Redmine du responsable courant)
     rm_assignee = (issue.get("assigned_to") or {}).get("id")

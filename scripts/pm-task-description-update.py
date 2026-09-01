@@ -23,6 +23,10 @@ Usage :
     # Remplacer entièrement la description (re-cadrage substantiel)
     pm-task-description-update.py 1796 --set-from-file nouvelle_desc.md --note "Re-cadrage périmètre"
 
+    # Remplacer ET cocher dans le même appel : les index s'appliquent à la
+    # checklist de la NOUVELLE description (RM2281 — ils étaient ignorés avant)
+    pm-task-description-update.py 1796 --set-from-file nouvelle_desc.md --check 1,2
+
 Note de journal : une note Redmine accompagnante est TOUJOURS postée (auto +
 texte --note éventuel), car Redmine ne diff pas les descriptions dans l'UI.
 """
@@ -51,6 +55,9 @@ except ImportError:
     sys.exit("PyYAML requis : pip install PyYAML")
 
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
+# Clés qui signent un frontmatter de FICHE PM — et pas un simple `---` de
+# séparation Markdown ouvrant un document (RM2820).
+TASK_FM_KEYS_RE = re.compile(r"^(schema_version|redmine_id):", re.M)
 # Ligne de checklist Markdown : "- [ ] ...", "* [x] ...", indentée ou non.
 # Source unique de vérité pour « qu'est-ce qu'une ligne de checklist » : les
 # cases citées dans un bloc de code n'en sont pas (RM2540).
@@ -126,6 +133,59 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
     return text, total, checked, changed
 
 
+def strip_task_frontmatter(text):
+    """Retire un frontmatter de fiche PM en tête de `text`. Pure (RM2820).
+
+    Un `--set-from-file` recevant la fiche `RM<id>.md` COMPLÈTE poussait son
+    frontmatter YAML (schema_version, tokens_total, reporting…) dans la
+    description Redmine, où il n'a aucun sens — et, depuis RM2578, le recopiait
+    dans le CORPS du MD, qui se retrouvait avec deux blocs frontmatter. Constaté
+    sur RM2426 : posé le 2026-07-30, réparé le jour même, rejoué le 07-31 et
+    resté en place un mois. Rien n'empêchait la récidive.
+
+    L'intention de l'appelant est toujours « pousser le corps » : on nettoie et
+    on avertit, plutôt que de refuser. Ne matche qu'en TÊTE de texte et
+    seulement si le bloc porte une clé de fiche — un corps qui cite du YAML plus
+    bas, ou qui s'ouvre sur un `---` de séparation, reste intact.
+
+    Retourne (texte, stripped: bool).
+    """
+    m = FRONTMATTER_RE.match(text or "")
+    if not m or not TASK_FM_KEYS_RE.search(m.group(2)):
+        return text, False
+    return m.group(4).lstrip("\n"), True
+
+
+def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
+    """Calcule la nouvelle description (pure, testable — RM2281).
+
+    `file_text` non-None = mode --set-from-file : le fichier devient la
+    description, ET les coches demandées s'y appliquent — elles étaient
+    silencieusement ignorées quand les deux options voyageaient dans le même
+    appel (le MD comme Redmine perdaient les coches).
+    Retourne (new_desc, total, checked, changed, note_bits, desc_changed).
+    """
+    note_bits = []
+    if file_text is not None:
+        new_desc, total, checked, changed = apply_checks(
+            file_text, check_idx, uncheck_idx, check_all)
+        desc_changed = (new_desc != desc)
+        if desc_changed:
+            note_bits.append("description remplacée intégralement")
+    else:
+        new_desc, total, checked, changed = apply_checks(
+            desc, check_idx, uncheck_idx, check_all)
+        desc_changed = bool(changed)
+    if changed:
+        cocheds = [str(n) for n, v in changed if v]
+        unchecks = [str(n) for n, v in changed if not v]
+        if cocheds:
+            note_bits.append("coché item(s) " + ",".join(cocheds))
+        if unchecks:
+            note_bits.append("décoché item(s) " + ",".join(unchecks))
+    return new_desc, total, checked, changed, note_bits, desc_changed
+
+
 def parse_idx(spec):
     if not spec:
         return set()
@@ -166,32 +226,24 @@ def main():
     check_idx = parse_idx(args.check)
     uncheck_idx = parse_idx(args.uncheck)
 
-    note_bits = []   # ne décrit QUE les changements de description (Redmine ne les diff pas).
     done_ratio = None
-    desc_changed = False
-
+    file_text = None
     if args.set_from_file:
         p = Path(args.set_from_file)
         if not p.is_file():
             sys.exit(f"ERREUR : fichier introuvable : {p}")
-        new_desc = p.read_text(encoding="utf-8")
-        _, total, checked, _ = apply_checks(new_desc, set(), set(), False)
-        desc_changed = (new_desc != desc)
-        if desc_changed:
-            note_bits.append("description remplacée intégralement")
-    else:
-        new_desc, total, checked, changed = apply_checks(desc, check_idx, uncheck_idx, args.check_all)
-        if not changed and not args.done_ratio and not args.note:
-            sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
-                     "et pas de --done-ratio/--note.")
-        desc_changed = bool(changed)
-        if changed:
-            cocheds = [str(n) for n, v in changed if v]
-            unchecks = [str(n) for n, v in changed if not v]
-            if cocheds:
-                note_bits.append("coché item(s) " + ",".join(cocheds))
-            if unchecks:
-                note_bits.append("décoché item(s) " + ",".join(unchecks))
+        file_text = p.read_text(encoding="utf-8")
+        file_text, _stripped = strip_task_frontmatter(file_text)
+        if _stripped:
+            out.warn(f"frontmatter de fiche PM retiré de {p.name} — seul le corps "
+                     "est poussé (une description Redmine n'a pas de frontmatter).")
+
+    # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
+    new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(
+        desc, file_text, check_idx, uncheck_idx, args.check_all)
+    if file_text is None and not changed and not args.done_ratio and not args.note:
+        sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
+                 "et pas de --done-ratio/--note.")
 
     # done_ratio : explicite, ou auto depuis la checklist. NB : le changement de
     # done_ratio est journalisé nativement par Redmine → on ne le met PAS dans la note.
@@ -204,8 +256,9 @@ def main():
                 done_ratio = max(0, min(100, int(args.done_ratio)))
             except ValueError:
                 sys.exit("ERREUR : --done-ratio attend 'auto' ou un entier 0-100")
-    elif not args.set_from_file and total > 0:
-        # Par défaut, si on a touché une checklist, on synchronise le % auto.
+    elif total > 0 and (changed or not args.set_from_file):
+        # Par défaut, si on a touché une checklist, on synchronise le % auto —
+        # y compris quand les coches voyagent avec --set-from-file (RM2281).
         done_ratio = round(100 * checked / total)
 
     # Note Redmine : seulement si la description change (Redmine ne diff pas les
@@ -238,17 +291,16 @@ def main():
         sys.exit("Rien à pousser (ni description, ni done_ratio, ni note).")
     put_issue(args.rm_id, fields)
     # ligne dense unique (contrat T1, CDC RM2316) : ✓ desc RM<id> [check=<n,…>|set] done=<pct>%
-    if args.set_from_file:
-        extra = "set" if desc_changed else ""
-    else:
-        parts = []
-        cocheds = [str(n) for n, v in changed if v]
-        unchecks = [str(n) for n, v in changed if not v]
-        if cocheds:
-            parts.append("check=" + ",".join(cocheds))
-        if unchecks:
-            parts.append("uncheck=" + ",".join(unchecks))
-        extra = " ".join(parts)
+    parts = []
+    if args.set_from_file and desc_changed:
+        parts.append("set")
+    cocheds = [str(n) for n, v in changed if v]
+    unchecks = [str(n) for n, v in changed if not v]
+    if cocheds:
+        parts.append("check=" + ",".join(cocheds))
+    if unchecks:
+        parts.append("uncheck=" + ",".join(unchecks))
+    extra = " ".join(parts)
     if done_ratio is not None:
         extra = (extra + " " if extra else "") + f"done={done_ratio}%"
     out.op("desc", rm=args.rm_id, extra=extra)

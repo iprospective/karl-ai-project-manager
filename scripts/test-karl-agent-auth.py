@@ -29,14 +29,19 @@ def check(label, cond, detail=""):
         FAILURES.append(label)
 
 
-def req(port, method, path, payload=None, token=None, basic=None):
-    """→ (code, objet_json|texte). Ne lève jamais : les 4xx/5xx sont renvoyés."""
+def req(port, method, path, payload=None, token=None, basic=None, cookie=None,
+        want_headers=False):
+    """→ (code, objet_json|texte) ; si want_headers : (code, obj, headers).
+    Ne lève jamais : les 4xx/5xx sont renvoyés. `cookie` = valeur brute de
+    l'en-tête Cookie (RM2700)."""
     r = urllib.request.Request(f"http://127.0.0.1:{port}{path}", method=method)
     if payload is not None:
         r.data = json.dumps(payload).encode()
         r.add_header("Content-Type", "application/json")
     if token:
         r.add_header("X-Karl-Token", token)
+    if cookie:
+        r.add_header("Cookie", cookie)
     if basic:
         import base64
         r.add_header("Authorization", "Basic " + base64.b64encode(
@@ -45,13 +50,16 @@ def req(port, method, path, payload=None, token=None, basic=None):
         with urllib.request.urlopen(r, timeout=10) as resp:
             body = resp.read().decode()
             code = resp.status
+            headers = resp.headers
     except urllib.error.HTTPError as e:
         body = e.read().decode()
         code = e.code
+        headers = e.headers
     try:
-        return code, json.loads(body)
+        obj = json.loads(body)
     except ValueError:
-        return code, body
+        obj = body
+    return (code, obj, headers) if want_headers else (code, obj)
 
 
 def main():
@@ -104,6 +112,32 @@ def main():
         check("token invalide → 401", code == 401)
         code, _ = req(port, "GET", "/health", basic=(ADMIN_USER, ADMIN_PASS))
         check("fallback Basic conservé (rétrocompat)", code == 200)
+
+        # ── RM2700 : cookie de session même-origine (gate terminal /ttyd) ─────
+        code, clog, hdrs = req(port, "POST", "/auth/login",
+                               {"user": ADMIN_USER, "pass": ADMIN_PASS,
+                                "device_name": "test-cookie"}, want_headers=True)
+        setck = hdrs.get("Set-Cookie", "") if hdrs else ""
+        check("login → Set-Cookie karl_session", code == 200 and "karl_session=" in setck)
+        check("cookie durci (HttpOnly+Secure+SameSite=Strict)",
+              all(a in setck for a in ("HttpOnly", "Secure", "SameSite=Strict")))
+        ctok = clog["token"]
+        ck = f"karl_session={ctok}"
+        code, who = req(port, "GET", "/auth/whoami", cookie=ck)
+        check("auth via cookie (mode=cookie)", code == 200 and who.get("mode") == "cookie")
+        code, _ = req(port, "GET", "/health", cookie=ck)
+        check("API accessible via cookie (upgrade /ttyd même origine)", code == 200)
+        code, _ = req(port, "GET", "/health", cookie="karl_session=bidon")
+        check("cookie invalide → 401", code == 401)
+        # logout via cookie : révoque l'appareil courant ET purge le cookie
+        code, _, hdrs = req(port, "DELETE", f"/auth/devices/{clog['device_id']}",
+                            cookie=ck, want_headers=True)
+        clr = hdrs.get("Set-Cookie", "") if hdrs else ""
+        check("logout via cookie révoque l'appareil", code == 200)
+        check("logout purge le cookie (Max-Age=0)",
+              "karl_session=" in clr and "Max-Age=0" in clr)
+        code, _ = req(port, "GET", "/health", cookie=ck)
+        check("cookie révoqué refusé immédiatement", code == 401)
 
         # ── comptes normaux : CRUD superadmin-only ───────────────────────────
         code, _ = req(port, "POST", "/auth/users",

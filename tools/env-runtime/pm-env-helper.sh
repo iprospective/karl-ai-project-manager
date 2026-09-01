@@ -25,6 +25,13 @@
 #                                       le SQL du manifeste ne peut pas s'échapper du clone)
 #   db-drop <db>                        DROP DATABASE (db = *_rm<id> uniquement)
 #   phplog-purge <basename>             purge /var/log/php/<basename>.{error,slow}.log (basename *-rm<id>)
+#   daemon-add <name> <port> <user> <workdir> <argv...>
+#                                       pose+démarre l'unité systemd pm-env-<name>.service :
+#                                       un DAEMON HTTP (serveur Python/Node…) écoutant sur
+#                                       <port>, pour les envs que le vhost reverse-proxy sert
+#                                       déjà (RM2693). L'unité est le pendant manquant de
+#                                       vhost-proxy-add : sans elle, le vhost ne proxyfie rien.
+#   daemon-remove <name>                arrête+désactive+supprime l'unité (si gérée par nous)
 #
 # Garde-fous :
 #   - vhost <name> : ^[a-z0-9_.-]+-(rm[0-9]+|dev|test)$ ; remove exige le marqueur
@@ -33,6 +40,19 @@
 #   - sock : /run/php/<pool>.sock existant.
 #   - BDD : clone/drop UNIQUEMENT des noms suffixés _rm<id> (une BDD partagée
 #     n'est jamais droppable) ; clone refuse d'écraser une dst existante.
+#   - daemon : c'est LE point sensible du verbe (RM2693) — une unité systemd exécute du code.
+#     Trois barrières, dont la première suffit à elle seule à écarter l'escalade :
+#       1. `user` DOIT être l'invocateur (`$SUDO_USER`) — on ne peut lancer un daemon que sous
+#          SA PROPRE identité. Jamais root, jamais un autre compte. Un manifeste compromis ne
+#          gagne donc RIEN : son auteur pouvait déjà exécuter ce code sans sudo.
+#       2. l'exécutable (argv[0]) doit être un fichier exécutable RÉEL, résolu sous <workdir>,
+#          lui-même sous $WS_ROOT. `/bin/sh -c '…'` est donc refusé : pas de shell interposé,
+#          et systemd n'en ouvre pas non plus (ExecStart n'est pas passé à un shell).
+#       3. chaque argument est validé caractère par caractère : ni saut de ligne (qui
+#          injecterait une directive dans l'unité), ni `%` (spécificateur systemd).
+#     L'unité est en outre durcie : NoNewPrivileges, PrivateTmp, ProtectSystem=full.
+#     `post_create` du manifeste (recréer un venv…) N'EST PAS exécuté ici : c'est du shell
+#     arbitraire, il reste côté pm-env-session, non privilégié, sous l'identité de l'user.
 #   - configtest Apache avant reload, rollback si KO.
 #   - audit : chaque mutation est loguée dans syslog (logger -t pm-env-helper).
 
@@ -41,6 +61,8 @@ set -euo pipefail
 MARKER="# managed-by: pm-env-helper"
 WS_ROOT="/zfs/workspaces"
 SITES="/etc/apache2/sites-available"
+UNITS="/etc/systemd/system"
+PORT_MIN=21000; PORT_MAX=21999      # même plage que le registre de pm-env-expose (RM2358)
 
 die() { echo "pm-env-helper: $*" >&2; exit 1; }
 audit() { logger -t pm-env-helper -- "$SUDO_USER: $*" || true; }
@@ -53,6 +75,10 @@ vname_ok()  { [[ "$1" =~ ^[a-z0-9_.-]+-(rm[0-9]+(-s[0-9]+)?|dev|test)$ ]]; }
 dbname_ok() { [[ "$1" =~ ^[a-z0-9_]+$ ]]; }
 db_ephemeral() { [[ "$1" =~ _rm[0-9]+$ ]]; }
 db_exists() { mysql -NBe "SHOW DATABASES LIKE '$1'" | grep -qx "$1"; }
+port_ok() { [[ "$1" =~ ^[0-9]+$ ]] && [ "$1" -ge "$PORT_MIN" ] && [ "$1" -le "$PORT_MAX" ]; }
+# Un argument d'ExecStart ne doit ni casser le fichier d'unité (saut de ligne) ni se faire
+# interpréter par systemd (`%` = spécificateur). Le reste passe : systemd n'ouvre pas de shell.
+arg_ok() { [[ "$1" != *$'\n'* && "$1" != *$'\r'* && "$1" != *%* ]]; }
 
 apache_apply() {
     # configtest puis reload ; en cas d'échec, exécute le rollback passé en argument.
@@ -323,6 +349,79 @@ cmd_phplog_purge() {
 }
 
 verb="${1:-}"; shift || true
+cmd_daemon_add() {
+    local name="$1" port="$2" user="$3" workdir="$4"; shift 4
+    local unit real exe a quoted=""
+    vname_ok "$name" || die "nom de daemon invalide : $name"
+    port_ok "$port" || die "port hors plage $PORT_MIN-$PORT_MAX : $port"
+    # BARRIÈRE 1 — on ne lance un daemon que sous SA PROPRE identité.
+    [ -n "${SUDO_USER:-}" ] || die "SUDO_USER absent : refus (invocation hors sudo ?)"
+    [ "$user" = "$SUDO_USER" ] || die "user doit être l'invocateur ($SUDO_USER), pas « $user »"
+    [ "$(id -u "$user" 2>/dev/null || echo 0)" != 0 ] || die "refus de lancer un daemon en root"
+    real=$(realpath -e "$workdir" 2>/dev/null) || die "workdir introuvable : $workdir"
+    [[ "$real" == "$WS_ROOT"/* ]] || die "workdir hors de $WS_ROOT : $real"
+    [ $# -ge 1 ] || die "argv vide"
+    # BARRIÈRE 2 — argv[0] est un exécutable réel SOUS le workdir. Interdit `/bin/sh -c …`.
+    exe=$(realpath -e "$1" 2>/dev/null) || exe=$(realpath -e "$real/$1" 2>/dev/null) \
+        || die "exécutable introuvable : $1"
+    [[ "$exe" == "$real"/* ]] || die "exécutable hors du workdir : $exe"
+    [ -f "$exe" ] && [ -x "$exe" ] || die "pas un exécutable : $exe"
+    # BARRIÈRE 3 — chaque argument est validé, puis cité pour l'unité.
+    quoted="\"$exe\""; shift
+    for a in "$@"; do
+        arg_ok "$a" || die "argument refusé (saut de ligne ou %) : $a"
+        quoted="$quoted \"${a//\"/\\\"}\""
+    done
+    unit="$UNITS/pm-env-$name.service"
+    if [ -e "$unit" ]; then
+        grep -qF "$MARKER" "$unit" || die "$unit existe et n'est pas géré par pm-env-helper"
+    fi
+    cat > "$unit" <<EOF
+$MARKER
+[Unit]
+Description=env de session $name — daemon HTTP (pm-env-helper, RM2693)
+After=network.target
+
+[Service]
+Type=simple
+User=$user
+WorkingDirectory=$real
+ExecStart=$quoted
+Restart=on-failure
+RestartSec=2
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectControlGroups=true
+ProtectKernelTunables=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    systemctl daemon-reload
+    systemctl enable --now "pm-env-$name.service" >/dev/null 2>&1 \
+        || { systemctl status --no-pager -l "pm-env-$name.service" >&2 || true
+             die "le daemon n'a pas démarré (voir status ci-dessus)"; }
+    audit "daemon-add $name port=$port user=$user workdir=$real"
+    echo "pm-env-$name.service actif sur 127.0.0.1:$port"
+}
+
+cmd_daemon_remove() {
+    local name="$1" unit
+    vname_ok "$name" || die "nom de daemon invalide : $name"
+    unit="$UNITS/pm-env-$name.service"
+    if [ ! -e "$unit" ]; then
+        echo "pm-env-$name.service absent — rien à faire"; return 0
+    fi
+    grep -qF "$MARKER" "$unit" || die "$unit n'est pas géré par pm-env-helper — refus"
+    systemctl disable --now "pm-env-$name.service" >/dev/null 2>&1 || true
+    rm -f "$unit"
+    systemctl daemon-reload
+    systemctl reset-failed "pm-env-$name.service" >/dev/null 2>&1 || true
+    audit "daemon-remove $name"
+    echo "pm-env-$name.service supprimé"
+}
+
 case "$verb" in
     vhost-add)    [ $# -eq 3 ] || die "usage: vhost-add <name> <docroot> <sock>"; cmd_vhost_add "$@";;
     vhost-proxy-add) [ $# -eq 2 ] || die "usage: vhost-proxy-add <name> <port>"; cmd_vhost_proxy_add "$@";;
@@ -332,5 +431,7 @@ case "$verb" in
     db-post-sql)  [ $# -eq 1 ] || die "usage: db-post-sql <db>  (SQL sur stdin)"; cmd_db_post_sql "$@";;
     db-drop)      [ $# -eq 1 ] || die "usage: db-drop <db>"; cmd_db_drop "$@";;
     phplog-purge) [ $# -eq 1 ] || die "usage: phplog-purge <basename>"; cmd_phplog_purge "$@";;
-    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge)";;
+    daemon-add)   [ $# -ge 5 ] || die "usage: daemon-add <name> <port> <user> <workdir> <argv...>"; cmd_daemon_add "$@";;
+    daemon-remove) [ $# -eq 1 ] || die "usage: daemon-remove <name>"; cmd_daemon_remove "$@";;
+    *) die "verbe inconnu : ${verb:-<vide>} (vhost-add|vhost-proxy-add|vhost-karl-add|vhost-remove|db-clone|db-post-sql|db-drop|phplog-purge|daemon-add|daemon-remove)";;
 esac

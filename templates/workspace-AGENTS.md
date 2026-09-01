@@ -9,6 +9,14 @@
 
   Garder ce template et le fichier déployé SYNCHRONES — c'est ce qui empêche les
   instances de la fédération de dériver sur un onboarding périmé.
+
+  Déploiement OUTILLÉ (RM1892) — ne plus recopier à la main :
+      scripts/pm-workspace-bridge.py            # que dit l'instance ? (contrôle)
+      scripts/pm-workspace-bridge.py --install  # première pose (fichier + symlink)
+      scripts/pm-workspace-bridge.py --update   # rafraîchit le générique, GARDE l'instance
+
+  Le bloc délimité BEGIN/END INSTANCE ci-dessous est la part machine : le template
+  n'en fournit qu'un défaut, et `--update` ne l'écrase jamais.
 -->
 # AGENTS.md — racine des workspaces
 
@@ -16,23 +24,18 @@ Instructions pour **tout agent / LLM** (Claude, opencode, …) travaillant sous
 `/zfs/workspaces/`. Lu automatiquement par remontée d'arborescence depuis n'importe
 quel sous-workspace.
 
-## D'abord : es-tu dans un workspace PM-tracké ?
+<!-- BEGIN INSTANCE — propre à CETTE machine. Tout ce qui est entre ces
+     deux marqueurs est PRÉSERVÉ par `pm-workspace-bridge.py --update` :
+     c'est là, et seulement là, que vont les chemins, hôtes et usages
+     d'une instance donnée. Le reste du fichier vient du template versionné. -->
+## Contexte d'exécution — sache d'où tu démarres
 
-Regarde la racine de ton **workspace courant** : s'il contient un symlink
-**`.mmi-pm`**, ce projet est piloté par le système de gestion de projet (PM)
-iProspective et **tu es un agent worker PM** → applique tout ce qui suit.
+**Vérifie-le, ne le suppose pas** : `hostname` te dit où tu tournes.
 
-Sinon (pas de `.mmi-pm` à la racine de ton workspace — repos non reliés au PM,
-scratch / expérimentations, sessions d'audit…), **ces règles ne s'appliquent pas** :
-suis les instructions propres au dossier.
-
-> **Cas du repo PM lui-même** (`…/ai/project-management`) : il **a** un `.mmi-pm`
-> (c'est le projet `pm-ai-agents` — le système se gère lui-même via PM) et possède
-> son propre `CLAUDE.md`. La condition s'y applique donc légitimement et pointe vers
-> les mêmes NORMS / worker-docs que son `CLAUDE.md` référence déjà : redondant, pas
-> contradictoire. Rappel : le protocole worker ne se déclenche que sur une
-> invocation explicite « traite la tâche RM<id> » — une session méta/interactive
-> n'est pas concernée.
+_(Section à renseigner au provisioning de l'instance : où s'exécute la session
+(hôte ou conteneur), ce qui est local et ce qui passe par SSH, l'état des clés et
+des agents, le transport git des remotes, et les branches protégées. Voir le
+`AGENTS.md` d'une instance déjà provisionnée pour le niveau de détail attendu.)_
 
 ### Deux copies du repo PM : PROD vs DEV — ne pas les confondre
 
@@ -58,6 +61,26 @@ depuis le conteneur** (`ssh mathieu@dev.lxc`). `main` protégée (RM2030) →
 `git push origin main:dev` puis **MR dev→main** (token *manager*, API projet
 id **138**, résolution par match **exact** du `path_with_namespace`). Symptôme
 typique quand on l'ignore : « auto-push différé » qui s'accumule.
+
+<!-- END INSTANCE -->
+
+## D'abord : es-tu dans un workspace PM-tracké ?
+
+Regarde la racine de ton **workspace courant** : s'il contient un symlink
+**`.mmi-pm`**, ce projet est piloté par le système de gestion de projet (PM)
+iProspective et **tu es un agent worker PM** → applique tout ce qui suit.
+
+Sinon (pas de `.mmi-pm` à la racine de ton workspace — repos non reliés au PM,
+scratch / expérimentations, sessions d'audit…), **ces règles ne s'appliquent pas** :
+suis les instructions propres au dossier.
+
+> **Cas du repo PM lui-même** (`…/ai/project-management`) : il **a** un `.mmi-pm`
+> (c'est le projet `pm-ai-agents` — le système se gère lui-même via PM) et possède
+> son propre `CLAUDE.md`. La condition s'y applique donc légitimement et pointe vers
+> les mêmes NORMS / worker-docs que son `CLAUDE.md` référence déjà : redondant, pas
+> contradictoire. Rappel : le protocole worker ne se déclenche que sur une
+> invocation explicite « traite la tâche RM<id> » — une session méta/interactive
+> n'est pas concernée.
 
 ## Si oui — onboarding obligatoire AVANT toute action
 

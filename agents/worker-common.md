@@ -24,6 +24,16 @@ ou surcharge le précédent (cf. `norms/src/NORMS-KERNEL.md` § Cascade et héri
    côté `{docs_dir}` : lire **`docs/INDEX.md`** (1 ligne par doc), puis ouvrir
    les docs **à la demande** — jamais le dossier entier (budget
    `context.budget_tokens.project_docs`, vérifié par `pm-context-budget --check`)
+5bis. **`pm-glossaire.py <projet> inject`** — le VOCABULAIRE MÉTIER du projet
+   (RM2675), **systématiquement**, pas à la demande. C'est la seule pièce du
+   niveau projet qui échappe à la règle « ouvrir au besoin », et pour une raison
+   précise : un agent qui croise un terme qu'il ne connaît pas **n'ira pas
+   ouvrir le glossaire** — il supposera, et se trompera silencieusement. Lire
+   « rampe » en croyant à une pente au lieu de la barre porte-guillotines ne
+   déclenche aucun doute.
+   Plafonné à **1 500 tokens** (≈ 70 termes, 7,5 % du budget `project_docs`), et
+   la troncature est **annoncée** dans le bloc — jamais muette. Glossaire absent
+   ⇒ rien à lire, aucun coût.
 6. **`pm-task-brief.py <id>`** — le pack contexte de la tâche en ≤ 30 lignes
    (statut, estimé vs réel, critères, liens/sous-tâches, dernières entrées de
    journal, journaux Redmine non lus). C'est le point d'entrée par défaut ;

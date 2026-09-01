@@ -18,6 +18,11 @@ Valide les champs redondants par construction des `project/overview.md`
      tout autre aspect libre doit vivre dans `docs/` (group-writable, wiki-syncé).
      Un `*.md` libre resté dans `project/` = aspect non migré → erreur.
 
+  4. **Manifestes `repos[]` (RM2838)** — chaque remote est une chaîne (transport)
+     ou un mapping `{url, ssh}` ; et l'URL canonique, l'alias SSH et le
+     `instance:` déclaré doivent désigner la MÊME forge. Deux forges pour un même
+     remote = le transport gagne en silence, l'identité vise ailleurs.
+
 Sortie : rapport par problème ; exit 0 si tout est cohérent, 1 sinon.
 Usage : pm-doctor.py [--quiet]
 """
@@ -76,6 +81,99 @@ def check_docs_structure(cfg, errors):
                               f"(pm-docs-migrate --project {ent}/{proj})")
 
 
+def check_partner_links(cfg, ovs, errors, warns):
+    """Providers secondaires (RM2653) : conf saine + `link.policy: required` honoré.
+
+    Deux contrôles, l'un structurel l'autre par ticket :
+      * la déclaration `providers.task[]` du projet se résout (un primaire, instances
+        connues du registre, pas de `link:`/`sync:` sur le primaire) → **erreur** ;
+      * quand un secondaire est `required` (cas MatNat : « tout ce que je fais pour eux
+        doit être rattaché chez eux »), tout ticket **ouvert** doit porter son lien
+        `partner_issue` → **avertissement** (le rattachement reste un geste humain).
+    """
+    try:
+        import pm_partner
+        from pm_registry import Registry, RegistryError
+    except ImportError:
+        return
+    try:
+        reg = Registry.from_config(cfg.providers)
+    except RegistryError as e:
+        errors.append(f"registre providers (pm.config.yml) : {e}")
+        return
+
+    for (ent, proj), fm in sorted(ovs.items()):
+        if not fm:
+            continue
+        me = f"{ent}/{proj}"
+        try:
+            required = pm_partner.required_secondaries(fm, reg)
+        except RegistryError as e:
+            errors.append(f"{me} : providers.task invalide — {e}")
+            continue
+        if not required:
+            continue
+        tasks_dir = cfg.path("tasks_dir", entity=ent, project=proj)
+        if not tasks_dir.is_dir():
+            continue
+        for f in sorted(tasks_dir.glob("RM*.md")):
+            if f.name.endswith(".log.md"):
+                continue
+            m = FM_RE.match(f.read_text(encoding="utf-8"))
+            if not m:
+                continue
+            try:
+                tfm = yaml.safe_load(m.group(1)) or {}
+            except yaml.YAMLError:
+                continue
+            if tfm.get("status") == "ferme":
+                continue        # un ticket clos ne se rattache plus utilement
+            missing = pm_partner.missing_links(tfm, fm, reg)
+            if missing:
+                warns.append(f"{me} : RM{tfm.get('redmine_id')} sans lien partenaire "
+                             f"{', '.join(missing)} (link.policy: required) — "
+                             f"pm-task-partner link {tfm.get('redmine_id')} "
+                             f"--instance {missing[0]} --issue <id>")
+
+
+def check_repo_forges(cfg, ovs, errors, warns):
+    """Manifestes `repos[]` : forme des remotes, et cohérence identité/transport.
+
+    Un dépôt dont l'URL et l'alias SSH désignent DEUX forges différentes est une
+    erreur de conf qu'aucun outil ne voyait : le transport gagne en silence, et
+    tout ce qui se fonde sur l'identité — rattachement, choix d'API, token — vise
+    la mauvaise instance (RM2838).
+
+    Une conf malformée est une **erreur** (pm-env-init refuserait d'instancier) ;
+    une incohérence de rattachement est un **avertissement** : elle n'empêche
+    rien aujourd'hui, mais désigne une conf à trancher.
+    """
+    try:
+        import pm_repos
+    except ImportError:
+        return
+    for (ent, proj), _fm in sorted(ovs.items()):
+        meta = cfg.path("tasks_dir", entity=ent, project=proj).parent / "meta.yml"
+        if not meta.is_file():
+            continue
+        try:
+            data = yaml.safe_load(meta.read_text(encoding="utf-8")) or {}
+        except yaml.YAMLError as e:
+            errors.append(f"{ent}/{proj} : meta.yml illisible — {e}")
+            continue
+        for repo in (data.get("repos") or []):
+            if not isinstance(repo, dict):
+                errors.append(f"{ent}/{proj} : entrée `repos[]` non-mapping")
+                continue
+            try:
+                pm_repos.validate_remotes(repo)
+            except pm_repos.RepoConfError as e:
+                errors.append(f"{ent}/{proj} : {e}")
+                continue
+            for msg in pm_repos.remote_conflicts(repo):
+                warns.append(f"{ent}/{proj} : {msg}")
+
+
 def check_claude_hooks(warns):
     """Hooks PM du profil Claude Code (RM2306) : sans eux, la conso interactive
     n'est pas tickée (tokens_total=0) → sous-comptage silencieux du ROI. Délègue
@@ -109,6 +207,12 @@ def main():
 
     # 4. Hooks PM du profil Claude Code de la machine (RM2306)
     check_claude_hooks(warns)
+
+    # 5. Providers secondaires & rattachements partenaires obligatoires (RM2654)
+    check_partner_links(cfg, ovs, errors, warns)
+
+    # 6. Manifestes repos[] : forme des remotes, identité ↔ transport (RM2838)
+    check_repo_forges(cfg, ovs, errors, warns)
 
     for (ent, proj), fm in sorted(ovs.items()):
         me = f"{ent}/{proj}"

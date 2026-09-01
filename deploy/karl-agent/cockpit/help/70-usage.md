@@ -5,7 +5,7 @@ Le cockpit expose la consommation (tokens et coût) des sessions et des tickets.
 - **Par session** : ce que le PM enregistre au fil de l'eau (worklog / métriques).
 - **Par ticket** : la fiche d'un ticket affiche ses métriques cumulées (tokens
   d'entrée/sortie, coût estimé, temps).
-- **Rapport de consommation** : l'action *conso-report* (panneau ⚙ commandes pm)
+- **Rapport de consommation** : l'action *conso-report* (menu du haut → ⚙ commandes pm)
   agrège par projet, client, type, statut ou période, avec un top N et une
   sortie JSON optionnelle.
 

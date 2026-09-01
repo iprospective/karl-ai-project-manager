@@ -1,0 +1,129 @@
+# tags.registry.yml — registre du CF Redmine « Tags » (RM2829/RM2836, chantier RM2828)
+#
+# DEUX rôles, à ne pas confondre :
+#
+#   `values`  — le VOCABULAIRE CONTRÔLÉ. Ce que le CF accepte, et donc la seule
+#               chose qui monte dans Redmine. Chaque entrée porte l'`id` de la
+#               valeur côté Redmine : le CF est en format `enumeration`, l'API
+#               désigne ses valeurs par id (jamais par libellé).
+#   `aliases` — le MAPPING n-1 des mots-clés existants vers ces valeurs. Le champ
+#               `tags:` des frontmatters porte 747 mots-clés accumulés ; les
+#               regrouper évite d'avoir à réécrire l'historique, et `pm-task-tag`
+#               canonicalise à l'écriture.
+#
+# Ce qui n'est NI une valeur NI un alias reste un mot-clé purement local : il vit
+# au frontmatter (filtres `pm-task-list --tag`, recherche cockpit) et ne monte pas.
+# C'est le cas voulu pour les noms de produits ou composants mono-projet
+# (`cockpit`, `karl`, `karl-agent`, `norms`, `graph`, `atlas`…).
+#
+# ⚠ SYNCHRONISATION. Les valeurs possibles ne se créent pas par API (les
+# définitions de CF sont en lecture seule) : on les ajoute dans l'UI admin
+# Redmine, puis on recopie leur id ici. `pm-tags-audit.py` compare le CF live, ce
+# registre et les usages réels, et dit exactement ce qui manque de chaque côté.
+# Une valeur sans `id` est « en attente » : elle est acceptée à l'écriture locale
+# mais ne peut pas être poussée, et l'outillage le dit plutôt que d'échouer.
+cf:
+  id: 32
+  name: Tags
+  format: enumeration
+  multiple: true
+
+values:
+  # Les 22 valeurs RÉELLES du CF (relevées le 2026-08-26 après création).
+  # `slug` = ce qui vit au frontmatter ; `label` = ce que Redmine affiche ; `id` =
+  # ce que l'API attend. Le slug suit le libellé quand il donne un mot simple, et
+  # reste court quand le libellé est composé (« Debug/Bugfix » → `debug`, avec
+  # `debug-bugfix` en alias) : un slug est fait pour s'écrire à la main.
+  - {slug: front, label: "Front", id: 45}
+  - {slug: db, label: "DB", id: 46}
+  - {slug: refacto, label: "Refacto", id: 47}
+  - {slug: bo, label: "BO", id: 48}
+  - {slug: config, label: "Config", id: 49}
+  - {slug: debug, label: "Debug/Bugfix", id: 50}
+  - {slug: tunnel-de-commande, label: "Tunnel de commande", id: 51}
+  - {slug: securite, label: "Securité", id: 52}      # ⚠ libellé sans accent sur le E côté Redmine
+  - {slug: tooling, label: "Tooling", id: 53}        # proposé « Outillage » → alias
+  - {slug: infra, label: "Infra", id: 54}
+  - {slug: git, label: "Git", id: 55}
+  - {slug: bootstrap, label: "Bootstrap", id: 56}
+  - {slug: monitoring, label: "Monitoring", id: 57}
+  - {slug: mail, label: "Mail", id: 58}
+  - {slug: notifications, label: "Notifications", id: 59}   # famille ajoutée à la création
+  - {slug: doc, label: "Doc", id: 60}
+  - {slug: archi, label: "Archi", id: 61}            # proposé « Architecture » → alias
+  - {slug: tests, label: "Tests", id: 62}
+  - {slug: backup, label: "Backup", id: 63}          # proposé « Sauvegarde » → alias
+  - {slug: migration, label: "Migration", id: 64}
+  - {slug: deploiement, label: "Deploiement", id: 65}
+  - {slug: audit, label: "Audit", id: 66}            # ajouté malgré le recoupement avec `type: audit`
+  - {slug: design, label: "Design", id: 67}
+  - {slug: inventaire, label: "Inventaire", id: 68}
+  - {slug: data, label: "Data", id: 69}
+  - {slug: perf, label: "Bench/Perf", id: 70}        # libellé composé → slug court
+  # `precise:` — valeur FILLE : elle affine un tag plus large, sans le remplacer.
+  # Le champ étant multi-valeurs, un ticket peut porter les deux (`audit` +
+  # `review`). Ces quatre-là étaient des ALIAS jusqu'ici : les garder en alias
+  # les rabattrait sur leur parent, c'est-à-dire perdrait la précision voulue.
+  - {slug: review, label: "Review", id: 71, precise: audit}
+  - {slug: veille, label: "Veille", id: 72, precise: audit}
+  - {slug: hooks, label: "Hooks", id: 73, precise: tooling}
+  - {slug: cli, label: "CLI", id: 74, precise: tooling}
+
+# Mapping n-1 : mot-clé existant → valeur canonique. Ce qui n'est pas listé reste
+# un mot-clé local. Les noms de produits mono-projet sont volontairement absents.
+aliases:
+  front: [ui, ux, web, theme, css, layout, htmx, twig, navigation, nav, affichage,
+          menu, ergonomie, web-ui, public-ui]
+  db: [bdd, database, databases, mariadb, postgresql, pgsql, sqlite, orm, doctrine,
+       schema, sql-dump, migrations, query, transaction, savepoint, dbname]
+  bo: [admin, back-office, easyadmin]          # ⚠ « admin » est ambigu (système / back-office)
+  config: [configuration, conf, settings, reglages, environments, env, env-dev, dev-env, meta]
+  debug: [debug-bugfix, bug, bugfix, incident, regression, anomalies, diagnostic, prod-incident, correctness]
+  refacto: [refactoring, refactor, dette, dette-technique, cleanup, optimisation,
+            qualite, quality, hygiene, dead-code, normalisation, harmonisation,
+            restructuration, robustesse]
+  securite: [security, secrets, vaultwarden, vault, hardening, durcissement, privsep,
+             permissions, droits, auth, sso, tls, firewall, nftables, iptables, csrf,
+             access-control, sudoers, sudo, crowdsec, abuse, injection, cles, ssh-ca]
+  infra: [infrastructure, lxc, lxc-dev, lxc-net, zfs, systemd, dns, dnsmasq, reseau,
+          lan, apache, nginx, vhost, vhosts, opensvc, proxmox, serveur, bare-metal,
+          hosting, hebergement, reverse-proxy, conteneur, boot, reboot, ipv6, vpn,
+          cgroup, lxcfs, ram, oom, ssd, disque, scrub, failover, replication, cluster,
+          srv3, srv4, srv5, srv9, srve, workstation]
+  monitoring: [supervision, zabbix, observabilite, alerting, metriques, obs, watchdog,
+               sla, web-scenario, smartd, stats]
+  git: [gitlab, submodule, submodules, sous-modules, branches, mr, remotes, commit,
+        push, worktree, worktrees, bare, 3-branches, versionning, versioning, versions]
+  mail: [email, postfix, dovecot, antispam, amavis, clamav, sieve, roundcube, smtp,
+         dkim, spf, dmarc, dnsbl, postscreen, backscatter, relances]
+  migration: [import, sync, synchro, mmi-sync, backfill, export, csv, textile]
+  deploiement: [deploy, deployment, mep, prod, preprod, provisioning, install, setup,
+                ci, pipeline, cron, automation, automate, core-update, unattended-upgrades]
+  doc: [documentation, wiki, wiki-sync, cdc, cahier-des-charges, changelog, markdown,
+        glossaire, convention, naming, nommage, aide, docs]
+  tests: [test, testing, phpunit, test-env, poc, simulation, validation]
+  archi: [architecture, architecture-pm, conception, modelisation, modele, structure,
+                 arborescence, socle, foundation, stack, taxonomie]
+  tooling: [outillage, pm-tooling, script, scripts, skill, skills,
+              mmi-pm, pm, pm-system, pm-itself, pm-scripts, doctor, redmine, outil,
+              outil-pm, tools, batch]
+  bootstrap: [onboarding, amorcage, template, templates]
+  backup: [sauvegarde, bkp, autosnap, replic, data-safety, perte-de-donnees, retention]
+  tunnel-de-commande: [paiement, paiements, etransactions, mbietransactions,
+                       mmipayments, panier, checkout, commande, remise,
+                       specific-price, tarification]
+  notifications: [notif, notification, telegram, bot-telegram, rocketchat,
+                  nextcloud-talk, talk, communication, bot, webhook, sms,
+                  messenger, alertes]
+  audit: [audits, analyse, analyses, etude]
+  design: [maquettes, penpot, charte, branding, 3d, rendu, visualisation, dataviz,
+           svg, mockup, images, animation]
+  inventaire: [inventory, cartographie, parc, placement, recensement]
+  data: [donnees, contenu, content, curation, fragments, fragment, atomes, atome,
+         corpus, dataset, metadata, provenance, ingestion, catalogue]
+  perf: [performance, scaling, capacite, resilience, reliability, benchmark,
+         profiling, latence]
+  review: [revue, relecture, code-review, mr-review]
+  veille: [comparatif, pricing-watch, watch, benchmark-concurrence]
+  hooks: [hook, git-hooks, pre-commit, post-commit, pre-push]
+  cli: [ligne-de-commande, argv]

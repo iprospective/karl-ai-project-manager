@@ -42,6 +42,7 @@ from pm_output import out
 from pm_task import get_task_provider  # seam TaskProvider (P1/RM2543)
 import pm_git
 import pm_hierarchy
+import pm_tags
 
 try:
     import yaml
@@ -58,41 +59,28 @@ except ImportError:
 # « Assignation »). Seuls bugfix/feature/assistance ont un tracker Redmine dédié ;
 # tous les autres retombent sur « Tâche » (4) — la nature fine est portée par le
 # nom du type, l'activité de temps (type_to_activity) et, à terme, le CF 20.
-TYPE_TO_TRACKER = {
-    "feature": 2,         # Évolution            (worker-dev)
-    "bugfix": 1,          # Anomalie             (worker-dev)
-    "refactoring": 4,     # Tâche                (worker-dev)
-    "security": 4,        # Tâche                (worker-dev)
-    "performance": 4,     # Tâche                (worker-dev)
-    "infrastructure": 4,  # Tâche                (worker-infra)
-    "configuration": 4,   # Tâche — CF20 Config  (worker-infra)
-    "database": 4,        # Tâche                (worker-db)
-    "maintenance": 4,     # Tâche                (worker-analyst)
-    "documentation": 4,   # Tâche                (worker-analyst)
-    "research": 4,        # Tâche — Audit/Analyse (worker-analyst)
-    "audit": 4,           # Tâche — Audit/Analyse (worker-analyst)
-    "design": 4,          # Tâche                (worker-design)
-    "assistance": 3,      # Assistance           (worker-analyst)
-    "autre": 4,           # Tâche (repli)
-}
-TYPE_LABELS = {
-    "feature": "feature — fonctionnalité",
-    "bugfix": "bugfix — anomalie",
-    "refactoring": "refactoring — refonte",
-    "security": "security — sécurité",
-    "performance": "performance — optimisation",
-    "infrastructure": "infrastructure — sysadmin/conf",
-    "configuration": "configuration — paramétrage applicatif / système",
-    "database": "database — schéma / migration / données",
-    "maintenance": "maintenance — entretien",
-    "documentation": "documentation",
-    "research": "research — investigation",
-    "audit": "audit — audit / analyse",
-    "design": "design — conception",
-    "assistance": "assistance — support",
-    "autre": "autre",
-}
-PRIORITY_TO_ID = {"low": 1, "normal": 2, "high": 3, "urgent": 4}
+# Gabarit de fiche + tables type/priorité : partagés avec pm-task-import.py, qui
+# ADOPTE un ticket Redmine existant au lieu d'en créer un (pm_task_md, RM2657).
+from pm_task_md import (  # noqa: E402  (re-exportés : d'autres scripts les importent)
+    CODE_FENCE_RE, CRITERIA_HEADING_RE, PRIORITY_TO_ID, TYPE_LABELS, TYPE_TO_TRACKER,
+    build_frontmatter, has_acceptance_criteria, render_log, render_md, slugify,
+)
+
+# RM2752 — valeurs acceptées par validate-task.py pour `bug.reproducibility`.
+# Deux listes qui divergeraient, c'est un ticket refusé à la validation sans que
+# rien ne l'ait dit à la création : test_pm_task_add_bugfix.py les garde alignées.
+VALID_REPRODUCIBILITIES = ("always", "often", "sometimes", "rarely", "never")
+
+
+def _with_bug(fm, reproducibility, steps):
+    """Insère le bloc `bug` juste après `type`, sans réordonner le reste."""
+    out = {}
+    for k, v in fm.items():
+        out[k] = v
+        if k == "type":
+            out["bug"] = {"reproducibility": reproducibility,
+                          "reproduce_steps": steps.rstrip() + "\n"}
+    return out
 
 
 def load_ia_manager_id():
@@ -105,29 +93,6 @@ def load_ia_manager_id():
     except yaml.YAMLError:
         return 5
     return ((cfg.get("ia") or {}).get("default_manager") or {}).get("redmine_id", 5)
-
-
-def slugify(s: str, maxlen: int = 50) -> str:
-    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode()
-    s = re.sub(r"[^a-zA-Z0-9-]+", "-", s).strip("-").lower()
-    return s[:maxlen].rstrip("-")
-
-
-# Titre markdown « Critères d'acceptation » : niveau libre, casse et accents
-# indifférents, apostrophe droite ou typographique, suffixe toléré (« … (DoD) »).
-# Jusqu'à 3 espaces d'indentation — au-delà, markdown y voit un bloc de code.
-CRITERIA_HEADING_RE = re.compile(r"^ {0,3}#{1,6}\s*crit[eè]res?\s+d['’]acceptation\b",
-                                 re.M | re.I)
-CODE_FENCE_RE = re.compile(r"^ {0,3}(```|~~~).*?^ {0,3}\1", re.M | re.S)
-
-
-def has_acceptance_criteria(desc: str) -> bool:
-    """La description fournit-elle déjà sa section de critères ?
-
-    Les blocs de code sont retirés d'abord : un titre qui s'y trouve est un
-    exemple cité, pas une section du ticket.
-    """
-    return bool(CRITERIA_HEADING_RE.search(CODE_FENCE_RE.sub("", desc or "")))
 
 
 def detect_project_from_cwd(cfg):
@@ -180,6 +145,16 @@ def main():
                     help="Passe agent-testeur en fin de dev (frontmatter requires_agent_test "
                          "/ CF27). default → hérite du projet (défaut système : non).")
     ap.add_argument("--target-env", default=None)
+    # RM2752 — `validate-task` EXIGE `bug.reproducibility` + `bug.reproduce_steps`
+    # pour type=bugfix. Aucun flag ne permettait de les poser : tout ticket bugfix
+    # créé par l'outil canonique naissait invalide, et il fallait ouvrir le MD.
+    ap.add_argument("--bug-reproducibility", dest="bug_reproducibility",
+                    default=None, choices=list(VALID_REPRODUCIBILITIES),
+                    help="Reproductibilité du bug (type=bugfix ; défaut : always)")
+    ap.add_argument("--bug-steps", dest="bug_steps", default=None,
+                    help="Étapes de reproduction ('-' = stdin). OBLIGATOIRE pour --type bugfix.")
+    ap.add_argument("--bug-steps-file", dest="bug_steps_file", default=None,
+                    help="Étapes de reproduction lues depuis un fichier ('-' = stdin).")
     # Estimation (NORMS § ROI) — poussée vers Redmine (CF21/22/25 + estimated_hours)
     # si au moins un flag est fourni. Cf. pm-task-metrics-push.py --estimate.
     ap.add_argument("--est-tokens", type=int, default=None, help="Tokens prévus (CF21)")
@@ -229,11 +204,43 @@ def main():
     # Description multi-ligne : --description-file (fichier, ou '-' = stdin) prime ;
     # sinon --description (avec '-' = stdin). Évite les descriptions illisibles
     # passées sur une seule ligne en argument shell.
+    _DESC_FROM_STDIN = False
     if args.description_file is not None:
+        _DESC_FROM_STDIN = args.description_file == "-"
         args.description = (sys.stdin.read() if args.description_file == "-"
                             else Path(args.description_file).read_text(encoding="utf-8"))
     elif args.description == "-":
+        _DESC_FROM_STDIN = True
         args.description = sys.stdin.read()
+
+    # RM2752 — bloc `bug` du frontmatter, exigé par validate-task pour un bugfix.
+    # Un seul flux stdin est disponible : si la description l'a déjà consommé, on
+    # le dit au lieu de rendre des étapes vides (le symptôme d'origine).
+    _desc_pris_stdin = _DESC_FROM_STDIN
+    bug_steps = None
+    if args.bug_steps_file is not None:
+        if args.bug_steps_file == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = (sys.stdin.read() if args.bug_steps_file == "-"
+                     else Path(args.bug_steps_file).read_text(encoding="utf-8"))
+    elif args.bug_steps is not None:
+        if args.bug_steps == "-" and _desc_pris_stdin:
+            sys.exit("ERREUR : stdin est déjà pris par la description — passe les "
+                     "étapes par --bug-steps '…' ou --bug-steps-file <fichier>.")
+        bug_steps = sys.stdin.read() if args.bug_steps == "-" else args.bug_steps
+    bug_steps = (bug_steps or "").strip()
+
+    if args.type == "bugfix" and not bug_steps:
+        sys.exit(
+            "ERREUR : --type bugfix exige les étapes de reproduction.\n"
+            "  validate-task.py les impose (`bug.reproduce_steps`) : sans elles le\n"
+            "  ticket naît invalide, et un bug sans repro se rouvre trois fois.\n"
+            "    --bug-steps \"1. …\\n2. …\"        (ou --bug-steps-file <fichier>)\n"
+            "    --bug-reproducibility always|often|sometimes|rarely|never  (défaut : always)"
+        )
+    if args.type != "bugfix" and (bug_steps or args.bug_reproducibility):
+        sys.exit(f"ERREUR : --bug-* n'a de sens que pour --type bugfix (ici : {args.type}).")
 
     if args.start_branch and (args.retro or args.status != "nouveau"):
         sys.exit("ERREUR : --start-branch est incompatible avec --retro/--status "
@@ -277,6 +284,13 @@ def main():
     tt_cf_id, tt_values = task_type_cf()
     if tt_cf_id and args.type in tt_values:
         extra_cf.append({"id": tt_cf_id, "value": str(tt_values[args.type])})
+    # RM2829 : les étiquettes (`--tags`) n'existaient qu'au frontmatter — donc
+    # invisibles dans l'UI et dans les vues Redmine. Elles partent avec le POST
+    # quand le CF est configuré ; sinon le frontmatter reste seul, sans échec.
+    tags_norm = pm_tags.parse_csv(args.tags)
+    _tags_cf = pm_tags.cf_payload(tags_norm)
+    if _tags_cf and _tags_cf["value"]:
+        extra_cf.append(_tags_cf)
 
     # POST Redmine (via helper partagé — set CF IA + PUT author_id).
     # author_id : None si --initiator-agent (POST author=karl OK), sinon Manager IA.
@@ -296,8 +310,15 @@ def main():
     if args.porcelain:
         out.value(rm_id)
 
-    if extra_cf:
+    # RM2842 : chaque CF se logue sous SA garde. `extra_cf` porte plusieurs CF
+    # depuis RM2829 (task-type ET Tags) : le tester en bloc pour lire
+    # `tt_values[args.type]` levait un KeyError dès qu'un ticket était créé avec
+    # --tags et un type absent de la table task-type — après le POST, donc en
+    # laissant un ticket Redmine sans fichier local (incident RM2840).
+    if tt_cf_id and args.type in tt_values:
         out.info(f"  · CF{tt_cf_id} task-type → {args.type} (val {tt_values[args.type]})")
+    if _tags_cf and _tags_cf.get("value"):
+        out.info(f"  · CF{_tags_cf['id']} tags → {', '.join(tags_norm)}")
     if target_author is not None:
         out.info(f"  · author_id → {target_author}")
 
@@ -316,76 +337,35 @@ def main():
 
     slug = slugify(args.title) or f"task-{rm_id}"
     now = datetime.now().strftime("%Y-%m-%dT%H:%M")
-    tags = [t.strip() for t in args.tags.split(",") if t.strip()]
+    # RM2829 : même normalisation que le CF Redmine — « Front » et « front »
+    # doivent être LA MÊME étiquette des deux côtés, sinon le filtre ment.
+    tags = pm_tags.parse_csv(args.tags)
 
-    # Build MD
-    fm = {
-        "schema_version": "1.11.0",
-        "redmine_id": rm_id,
-        "redmine_last_journal_id": None,
-        "redmine_last_checked_at": None,
-        "title": args.title,
-        "type": args.type,
-        "bootstrap_template": None,
-        "parent_task": args.parent,
-        "sub_tasks": [],
-        "creator": "iprospective",
-        "team": [{"username": "iprospective", "email": "mathieu@iprospective.fr", "role": "owner"}],
-        "status": "nouveau",
-        "close_reason": None,
-        "requires_agent_test": args.agent_test,
-        "completion_pct": 0,
-        "priority": args.priority,
-        "roi": {
-            "immediate_benefit": 3, "monthly_benefit": 3,
-            "immediate_gain_eur": None, "monthly_gain_eur": None,
-        },
-        "estimate": {
-            "difficulty": args.est_difficulty or "medium",
-            "human_time_minutes": args.est_human_minutes if args.est_human_minutes is not None else 30,
-            "ai_time_minutes": args.est_ai_minutes if args.est_ai_minutes is not None else 30,
-            "time_minutes": (
-                (args.est_human_minutes if args.est_human_minutes is not None else 30)
-                + (args.est_ai_minutes if args.est_ai_minutes is not None else 30)),
-            "tokens": args.est_tokens, "cost_usd": None, "estimated_model": args.est_model,
-            "confidence": args.est_confidence if args.est_confidence is not None else 0.5,
-            "estimated_by": "pm-task-add", "estimated_at": now,
-        },
-        "depends_on": [], "blocks": [], "relates": [], "refs": [],
-        "target_env": args.target_env,
-        "test_url": None,
-        "git": {"repo": None, "branch": None, "mr_url": None},
-        "deploy_actions": [],
-        "tokens_total": 0,
-        "tokens_breakdown": {"input": 0, "output": 0, "cache_read": 0, "cache_creation": 0},
-        "cost_total_usd": 0.0,
-        "human_time_total_minutes": 0,
-        "ai_time_total_minutes": 0,
-        "time_total_minutes": 0,  # conservé pour compat (= human + ai cumul)
-        "created": datetime.now().strftime("%Y-%m-%d"),
-        "due": None, "updated": now,
-        "status_history": [{"status": "nouveau", "at": now, "by": "iprospective",
-                            "model": None, "tokens": None, "duration_minutes": None}],
-        "pistes": [],
-        "tags": tags,
-    }
-    fm_yaml = yaml.safe_dump(fm, allow_unicode=True, sort_keys=False, default_flow_style=False).rstrip()
-    desc = args.description or "_(pas de description fournie au moment de la création)_"
-    md = f"---\n{fm_yaml}\n---\n\n## Contexte\n\n{desc}\n"
-    # Le gabarit n'est ajouté que si la description n'apporte pas déjà ses
-    # critères — sinon le ticket en portait DEUX sections, dont un « (à
-    # compléter) » que personne ne coche : done_ratio plafonné et pm-task-deliver
-    # qui refuse la livraison (RM2540, défaut vu sur tous les tickets créés avec
-    # --description-file).
-    if not has_acceptance_criteria(desc):
-        md += "\n## Critères d'acceptation\n\n- [ ] (à compléter)\n"
-
+    # Build MD — gabarit partagé avec pm-task-import (pm_task_md)
+    fm = build_frontmatter(
+        rm_id, args.title, type=args.type, priority=args.priority,
+        parent=args.parent, tags=tags, target_env=args.target_env,
+        agent_test=args.agent_test, now=now,
+        estimate={"difficulty": args.est_difficulty,
+                  "human_time_minutes": args.est_human_minutes,
+                  "ai_time_minutes": args.est_ai_minutes,
+                  "tokens": args.est_tokens,
+                  "estimated_model": args.est_model,
+                  "confidence": args.est_confidence},
+    )
+    # RM2752 — le bloc `bug`, posé APRÈS `type` pour que le MD se lise comme les
+    # tickets écrits à la main. Réinsertion ordonnée : `yaml.safe_dump` conserve
+    # l'ordre du dict (sort_keys=False), donc il faut le placer, pas l'ajouter.
+    # Propre à la création : un ticket ADOPTÉ (pm-task-import) n'a pas ces champs.
+    if args.type == "bugfix":
+        fm = _with_bug(fm, args.bug_reproducibility or "always", bug_steps)
+    md = render_md(fm, args.description)
     tasks_dir = cfg.path("tasks_dir", entity=entity, project=project)
     tasks_dir.mkdir(parents=True, exist_ok=True)
     md_path = tasks_dir / f"RM{rm_id}_{slug}.md"
     log_path = tasks_dir / f"RM{rm_id}_{slug}.log.md"
     md_path.write_text(md, encoding="utf-8")
-    log_path.write_text(f"# Journal RM{rm_id}\n\n## {now} — Création (pm-task-add)\nTokens : 0 | Durée : 0 min\n\nTâche créée via pm-task-add.py.\n", encoding="utf-8")
+    log_path.write_text(render_log(rm_id, now), encoding="utf-8")
 
     # ligne dense unique (contrat T1 RM2316) : ✓ add RM<id> <slug>
     out.op("add", rm=rm_id, extra=slug)
@@ -407,7 +387,11 @@ def main():
         if r.returncode != 0:
             detail = f"{r.stdout}{r.stderr}".rstrip()
             n = sum(1 for ln in detail.splitlines() if ln.lstrip().startswith("✗")) or "?"
-            out.warn(f"{n} warning(s) validate → pm-doctor RM{rm_id}")
+            # RM2752 : le remède doit être une commande qui EXISTE et qui accepte
+            # ses arguments. « pm-doctor RM<id> » n'en prenait aucun
+            # (« unrecognized arguments ») — suivre l'indication de bonne foi
+            # menait dans le mur, juste après un ticket déjà invalide.
+            out.warn(f"{n} warning(s) validate → scripts/validate-task.py {md_path}")
             out.info(f"⚠ validate-task.py warnings :\n{detail}")
     except Exception as e:
         out.warn(f"validate-task.py non exécuté : {e}")

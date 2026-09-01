@@ -18,7 +18,7 @@ environments:
       app:                     # chemin relatif/absolu, ex: var/logs/dev.log
       fpm:                     # ex: /var/log/php/calicote-74.error.log
       access:                  # access log nginx, préfixé host si distant — prod OVH : <host>:/var/log/nginx/<domaine>_access.log
-    secrets_source:            # vaultwarden://<org>/<collection>/<item>  (ou null)
+    secrets_source:            # secret://<instance>/<chemin>  (ou null)
     post_deploy:               # commandes shell à lancer APRÈS un déploiement sur cet env — DÉCLARATIF (non auto-exécuté), chemins ABSOLUS obligatoires
       # - "rm -rf <app_path>/var/cache/*"        # ex. PrestaShop : purge cache (overrides/templates) — JAMAIS de chemin relatif (viserait /var/cache)
     notes:                     # ex: "Hot-reload activé, données dé-anonymisées"
@@ -48,10 +48,11 @@ env_vars:
 
 <!-- Où sont rangés les secrets, qui a les accès.
      Convention iprospective :
-     - Pointeur vers Vaultwarden (vaultwarden://<org>/<collection>/<item>) dans `secrets_source`
+     - Pointeur vers un vault déclaré (secret://<instance>/<chemin>, ou la forme
+       historique vaultwarden://<org>/<collection>/<item>) dans `secrets_source`
      - Résolu à l'exécution par `scripts/resolve-secret.sh`, jamais commité
 
-     Voir norms/NORMS.md § "Gestion des secrets — Vaultwarden" pour les détails.
+     Voir norms/NORMS.md § "Gestion des secrets — vaults déclarés" pour les détails.
 -->
 
 ## Spécificités par env

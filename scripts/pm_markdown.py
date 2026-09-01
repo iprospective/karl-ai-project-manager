@@ -12,11 +12,53 @@ personne ne peut cocher.
 checklist réelles, blocs de code exclus.
 """
 import re
+from pathlib import Path
+
+import yaml
 
 CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
 FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
 LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d+[.)])\s")
 INDENTED_RE = re.compile(r"^(?: {4,}|\t)")
+
+# RM2764 — foyer unique du frontmatter YAML des fiches PM. Auparavant recopié
+# à l'identique dans 8 scripts (pm-conso-report, pm-dashboard, pm-task-list,
+# pm-stats, priority, validate-task…) sous 3 contrats de retour divergents ;
+# on unifie ici les DEUX primitives dont ils ont réellement besoin.
+FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def split_frontmatter(text):
+    """Découpe un doc markdown : (fm, body, end).
+
+    - `fm`  : dict du frontmatter ; **None** si aucun bloc, YAML invalide, ou
+              YAML non-dict (une liste ou un scalaire n'est pas une fiche).
+    - `body`: ce qui suit le bloc (tout le texte s'il n'y a pas de bloc).
+    - `end` : offset de fin du bloc dans `text` (0 s'il n'y a pas de bloc) —
+              pour les appelants qui réécrivent le corps en préservant l'entête.
+    """
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return None, text, 0
+    try:
+        d = yaml.safe_load(m.group(1))
+    except yaml.YAMLError:
+        return None, text[m.end():], m.end()
+    return (d if isinstance(d, dict) else None), text[m.end():], m.end()
+
+
+def read_frontmatter(path):
+    """Frontmatter d'un FICHIER → dict, ou None si illisible / absent / invalide
+    / non-dict. Contrat unifié des lecteurs de fiches PM (RM2764). Les appelants
+    gardent tous par `if fm:` : None et {} y sont équivalents, et renvoyer None
+    sur un YAML non-dict est plus sûr que l'ancien `safe_load` brut (qui laissait
+    passer une liste/chaîne jusqu'au premier `.get`)."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    fm, _body, _end = split_frontmatter(text)
+    return fm
 
 
 def code_line_flags(lines):

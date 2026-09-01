@@ -36,9 +36,14 @@ custom_fields:
   16: {name: "Tokens output",       format: int,         type: time_entry, used_by: "delta OUTPUT tokens par saisie (RM2048 ; ex-'Tokens', cache exclu)"}
   28: {name: "Tokens input",        format: int,         type: time_entry, used_by: "delta INPUT tokens par saisie (RM2048 ; cache exclu)"}
   27: {name: "AI Test par agent",   format: enumeration, type: issue,      trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_AGENT_TEST_ID (.env) ; requires_agent_test (routing dev→test ; cf. agent_test_values)"}
+  32: {name: "Tags",                format: enumeration, type: issue,      trackers: [bugfix, feature, assistance, autre], used_by: "tags[] du frontmatter (pm_tags, RM2829) ; valeurs et ids dans tags.registry.yml"}
   3:  {name: "GIT Branche",         format: string,      type: issue,      trackers: [bugfix, feature, autre], used_by: "branche de ticket <RMid>-<slug> (pm-branch-start, RM1923)"}
   4:  {name: "GIT PR",              format: link,        type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de la MR de livraison (RM1820 string→link)"}
+  34: {name: "GIT Branche mergée",  format: enumeration, type: issue,      multiple: true, values: {75: Dev, 76: "Main/Master"}, used_by: "RM2926 : axe 'où est le code' (merge dev/main) — auto-renseignable depuis git (pm_git). Multi-valeur : [], [Dev], [Dev, Main/Master]."}
   14: {name: "Environnement de test", format: link,      type: issue,      trackers: [bugfix, feature, autre], used_by: "URL de l'environnement de test (RM1820 string→link)"}
+  9:  {name: "Réf ticket outil externe", format: string, type: issue,
+      max_length: 16,
+      used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}
   8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "actions à la MEP ; string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
 
@@ -83,9 +88,16 @@ statuses:
   a_faire:                  12   # "A Faire"
   en_cours:                 2    # "En cours"
   a_tester_dev:             19   # "A tester/vérifier dev"        (test par testeur ≠ dev)
-  a_tester_demandeur:       9    # "A tester/vérifier demandeur"  (validation par l'author)
-  a_mep:                    3    # "Résolu/Validé/A MEP"          (non terminal ≠ ferme)
-  en_mep:                   20   # "MEP/Tester en preprod"
+  a_tester_demandeur:       9    # "A tester/vérifier demandeur"  (validation demandeur sur DEV)
+  a_tester_preprod:         20   # RM2893 : "MEP/Tester en preprod" — recette préprod OPTIONNELLE
+                                 # (sautée si pas d'env préprod → a_tester_demandeur va direct à a_mep).
+  a_mep:                    3    # RM2926 : "Recette OK/A MEP" — recette demandeur OK, à mettre en
+                                 # PRÉPROD (1er des deux "A MEP" ; ex-"Résolu/Validé/A MEP").
+  a_mep_prod:               23   # RM2926 : "MEP/Preprod OK/A MEP" — préprod OK (régression du lot),
+                                 # à mettre en PROD (2e "A MEP" ; lève le doublon d'a_mep).
+  en_mep:                   22   # RM2893 : "MEP/Vérifier en prod" — déployé en prod, dernière vérif
+                                 # avant fermeture. (L'ex-id 20 « MEP/Tester en preprod » est
+                                 # désormais a_tester_preprod ; en_mep migre de 20 → 22.)
   en_pause:                 13   # "Attente retour / en pause"
   a_corriger:               11   # "A corriger/finir"
   ferme:                    18   # "Fermé"  (seul statut clos ; la nuance de raison

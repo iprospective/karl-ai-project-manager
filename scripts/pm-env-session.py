@@ -40,6 +40,10 @@ Runtime déclaré dans `.mmi-pm/meta.yml › repos[] › runtime:` :
           - "[ -d vendor ] || cp -r ../matnat_sf7-dev/vendor vendor"
         post_create_container:    # idem mais via ssh env_runtime.ssh_host,
           - "php bin/console cache:clear"   # cwd = worktree (chemin conteneur)
+        teardown_ignore:          # RM2679 — chemins NON SUIVIS que l'appli écrit au
+          - "yaml/*.php"          # runtime et qui ne doivent pas bloquer le teardown
+          - "yaml/*.php.meta"     # (motifs fnmatch, relatifs au worktree). Ne rend
+                                  # JAMAIS jetable un fichier suivi et modifié.
 
     Clone BDD = toujours OPTIONNEL. À la création : --db-clone / --no-db-clone
     tranchent sans question ; sinon la question est posée (TTY) avec le défaut
@@ -56,6 +60,7 @@ Worktree/branche enregistrés dans le registre de session (pm_session, RM2034).
 N'auto-committe rien : opère sur les repos du workspace, pas sur le repo PM.
 """
 import argparse
+import fnmatch
 import os
 import re
 import shlex
@@ -505,6 +510,49 @@ def cmd_create(args):
 
 # -------------------------------------------------------------------- teardown
 
+def own_artifacts(docroot):
+    """Chemins des artefacts posés par `create`, **normalisés**.
+
+    RM2679 : la version d'origine concaténait `f"?? {docroot}/pm-env.txt"` et comparait
+    la chaîne à la ligne de `git status`. Avec `docroot: "."` — tout projet servi depuis
+    la racine du checkout — ça produit `./pm-env.txt` alors que git écrit `pm-env.txt` :
+    l'exemption ne matchait jamais et l'outil se bloquait sur son propre canari.
+    """
+    if not docroot:
+        return set()
+    return {os.path.normpath(os.path.join(docroot, n))
+            for n in (".user.ini", "pm-env.txt")}
+
+
+def status_path(line):
+    """Chemin d'une ligne `git status --porcelain`, déquoté et normalisé."""
+    raw = line[3:] if len(line) > 3 else ""
+    if " -> " in raw:                       # renommage : on garde la destination
+        raw = raw.split(" -> ", 1)[1]
+    raw = raw.strip()
+    if len(raw) > 1 and raw[0] == '"' and raw[-1] == '"':
+        raw = raw[1:-1].encode("utf-8").decode("unicode_escape")
+    return os.path.normpath(raw) if raw else raw
+
+
+def is_disposable(line, own, patterns):
+    """Cette entrée de `git status` est-elle jetable ?
+
+    Deux cas, et deux seulement : un artefact que `create` a lui-même posé, ou un chemin
+    NON SUIVI que le projet déclare jetable via `runtime.teardown_ignore` (fnmatch).
+    Tout le reste compte comme du travail non commité et bloque le teardown — un fichier
+    neuf qu'on a oublié d'ajouter ne doit pas disparaître en silence.
+    """
+    if not line.strip():
+        return True
+    if line[:2] != "??":                    # suivi et modifié = du travail, jamais jetable
+        return False
+    path = status_path(line)
+    if path in own:
+        return True
+    return any(fnmatch.fnmatch(path, pat) for pat in patterns)
+
+
 def cmd_teardown(args):
     cfg = load_env_runtime_cfg()
     ws = find_workspace(Path(args.workspace).resolve() if args.workspace else Path.cwd())
@@ -536,11 +584,14 @@ def cmd_teardown(args):
     # Les fichiers posés par create (.user.ini, canari pm-env.txt) ne comptent
     # pas comme dirt (artefacts de l'outil).
     docroot = runtime.get("docroot", "public") if runtime else None
-    own = {f"?? {docroot}/.user.ini", f"?? {docroot}/pm-env.txt"} if docroot else set()
+    own = own_artifacts(docroot)
+    # chemins que le PROJET déclare jetables (caches écrits par l'appli au runtime) :
+    # `.mmi-pm/meta.yml › repos[] › runtime.teardown_ignore`, motifs fnmatch.
+    disposable = list((runtime or {}).get("teardown_ignore") or [])
     if wt.is_dir():
         st = git(["-C", str(wt), "status", "--porcelain"], check=False).stdout
         dirt = [ln for ln in st.splitlines()
-                if ln.strip() and ln.strip() not in own]
+                if not is_disposable(ln, own, disposable)]
         if dirt and not args.force:
             die("worktree sale (modifs non commitées) — commit/stash d'abord, "
                 "ou --force pour perdre :\n" + "\n".join(dirt))

@@ -109,13 +109,37 @@ def integration_branch(repo_path):
 
 
 # ── Politique PM (indépendante de la forge) ──────────────────────────────────
+# >>> branche_de_ticket — pure (testée par test_pm_mr_cf_branche.py)
+def branche_de_ticket(rm_id, branch):
+    """Vrai si `branch` est LA branche de travail du ticket (`<id>-<slug>`).
+
+    RM2701 : le flux normal appelle `create` deux fois — la MR du ticket
+    (`<id>-…` → `dev`), puis la MR de promotion (`dev` → `main`). La seconde
+    écrasait « GIT Branche » par `dev`, qui ne désigne rien : toutes les
+    livraisons y passent. Une valeur générique qu'on croit spécifique est pire
+    qu'un champ vide. Même discernement que `_assert_mr_belongs_to`, qui sait
+    déjà distinguer une branche de ticket d'une branche d'intégration."""
+    return bool(re.match(r"^%s-" % re.escape(str(rm_id)), str(branch or "")))
+# <<< branche_de_ticket
+
+
 def _post_git_cf(rm_id, branch, pr_url):
     """Pose les CF Redmine GIT Branche + GIT PR, et VÉRIFIE (RM2219 : Redmine
-    ignore silencieusement un CF non activé sur le tracker)."""
+    ignore silencieusement un CF non activé sur le tracker).
+
+    RM2701 : « GIT Branche » n'est écrit que si la source EST la branche du
+    ticket. « GIT PR » l'est toujours — l'URL d'une MR de promotion reste une
+    information juste sur ce ticket."""
     try:
         import redmine_utils
         cfs = []
-        for name, val in (("GIT Branche", branch), ("GIT PR", pr_url)):
+        champs = [("GIT PR", pr_url)]
+        if branche_de_ticket(rm_id, branch):
+            champs.insert(0, ("GIT Branche", branch))
+        else:
+            out.info(f"  · « GIT Branche » laissé tel quel : `{branch}` n'est pas la "
+                     f"branche du ticket #{rm_id} (MR de promotion)")
+        for name, val in champs:
             cid = redmine_utils.cf_id_by_name(name)
             if cid:
                 cfs.append({"id": cid, "value": val})

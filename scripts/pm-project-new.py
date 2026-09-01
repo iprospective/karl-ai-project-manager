@@ -24,6 +24,7 @@ Usage :
   3. Crée struct PM (project/, memory/, tasks/)
   4. Écrit overview.md (et environments.md squelette si --with-env)
   5. Crée symlinks bidirectionnels (workspace ←→ PM)
+  5b. Protège les branches des dépôts créés/déclarés (pm-protect, RM2057) — jamais bloquant
   6. Lance bootstrap (--yes par défaut, --no-bootstrap pour skip, --interactive pour interactif)
 """
 import argparse
@@ -68,6 +69,53 @@ def api_call(method, url, key, payload=None):
         return e.code, body
 
 
+def protect_project_repos(workspace: Path, dry: bool) -> None:
+    """Applique la politique de branches protégées aux dépôts du projet (RM2057).
+
+    Le tripwire « pas de push direct sur une branche protégée » n'a de valeur que
+    s'il est posé À LA CRÉATION : posé plus tard, il arrive après les premiers
+    pushes directs, et personne ne repasse. On protège donc dès que les branches
+    existent — c'est-à-dire juste après la publication du dépôt `-core`.
+
+    Deux dépôts possibles, deux politiques (pm-protect les distingue tout seul) :
+      - le **core** (le workspace lui-même : `.mmi-pm/` réel à la racine) ;
+      - les dépôts de **code** déjà présents au layout RM1993 (`repos/*.git`) qui
+        portent un remote GitLab — un workspace existant peut en avoir avant que
+        le volet PM ne soit créé.
+
+    JAMAIS bloquant : un projet créé sans protection reste un projet créé. Un
+    échec (droits, token, forge tierce) s'annonce avec la commande de rattrapage.
+    """
+    script = Path(__file__).resolve().parent / "pm-protect.py"
+    targets = [(workspace, "core (volet PM)")]
+    repos_dir = workspace / "repos"
+    if repos_dir.is_dir():
+        for bare in sorted(repos_dir.glob("*.git")):
+            if _has_gitlab_remote(bare):
+                targets.append((bare, f"code {bare.name}"))
+    for repo, label in targets:
+        if dry:
+            print(f"  [dry] protégerait les branches de {label} ({repo})")
+            continue
+        cmd = [sys.executable, str(script), "--repo", str(repo)]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        sys.stdout.write(r.stdout)
+        if r.returncode != 0:
+            print(f"  ⚠ protection des branches non posée sur {label} — "
+                  f"le projet reste créé. Rattrapage : "
+                  f"pm-protect.py --repo {repo}", file=sys.stderr)
+            if r.stderr.strip():
+                print("    " + r.stderr.strip().splitlines()[-1], file=sys.stderr)
+
+
+def _has_gitlab_remote(repo: Path) -> bool:
+    """Le dépôt a-t-il un remote qui pointe vers la forge ? Sans remote, il n'y a
+    rien à protéger — et pm-protect échouerait à résoudre le projet."""
+    r = subprocess.run(["git", "-C", str(repo), "remote", "get-url", "origin"],
+                       capture_output=True, text=True)
+    return r.returncode == 0 and "gitlab" in r.stdout.strip().lower()
+
+
 def dry_run_coloc_plan(workspace, project_root, group, core_repo):
     """Plan --dry-run du modèle co-localisé (RM2228)."""
     print(f"--dry-run : matérialiserait {workspace}/.mmi-pm (réel) : "
@@ -76,6 +124,7 @@ def dry_run_coloc_plan(workspace, project_root, group, core_repo):
           f".mmi-pm (gitignore whitelist, init, commit, push)")
     print(f"--dry-run : symlink d'index {project_root} → {workspace}/.mmi-pm ; "
           f"symlinks workspace→.. et docs→.mmi-pm/docs")
+    protect_project_repos(workspace, True)          # RM2057 : annoncer, ne rien poser
 
 
 def main():
@@ -286,6 +335,9 @@ env_vars: []
         msg=f"init {core_repo} : structure PM (.mmi-pm reel) — pm-project-new (RM2228)")
     if not ok:
         sys.exit("ERREUR : publication du repo -core échouée (voir ci-dessus)")
+
+    # 4c. Branches protégées (RM2057) — dès que la branche existe, pas plus tard.
+    protect_project_repos(workspace, False)
 
     # 5. Symlinks (modèle co-localisé, RM2228) :
     #    - projects/<C>/projects/<S> = symlink d'INDEX → <ws>/.mmi-pm (résolveur)

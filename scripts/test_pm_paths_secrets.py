@@ -9,6 +9,7 @@ ENTRE le user et le `.env` secret, et la tolérance `PermissionError` (dev non-a
 peut pas lire le `.env` secret). Ordre final :
     os.environ (session) > user (~/.config) > pm.env (instance) > .env (fallback karl).
 """
+import contextlib
 import os
 import sys
 import tempfile
@@ -24,15 +25,57 @@ def _clean(*keys):
         os.environ.pop(k, None)
 
 
+@contextlib.contextmanager
+def _env(**overrides):
+    """Fixe (ou retire, avec `None`) des variables le temps du bloc, puis restaure.
+
+    RM2749 — ces tests DOIVENT piloter `PM_CORE_DIR` eux-mêmes : c'est le
+    second chemin de résolution qu'ils décrivent. Tant qu'ils héritaient de
+    l'ambiant, leur verdict dépendait du shell — `PM_CORE_DIR` exporté (le cas
+    dès qu'on suit le message d'aide du système) faisait retomber
+    `_instance_env` sur le `pm.env` du runtime canonique, et « absent → None »
+    échouait. Un test qui ne passe que dans un shell nu ne teste pas le code.
+    """
+    saved = {k: os.environ.get(k) for k in overrides}
+    try:
+        for k, v in overrides.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        yield
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+
+
 def test_instance_locator(tmp):
     """`_instance_env` = `pm.env` dans pm_dir, sinon via PM_CORE_DIR ; None si absent."""
     d = tmp / "core"
     d.mkdir()
-    assert _instance_env(d) is None, "absent → None (rétrocompat monolithique)"
-    (d / "pm.env").write_text("REDMINE_URL=x\n")
-    assert _instance_env(d) == d / "pm.env", "présent → pm.env de pm_dir"
+    with _env(PM_CORE_DIR=None):
+        assert _instance_env(d) is None, "absent → None (rétrocompat monolithique)"
+        (d / "pm.env").write_text("REDMINE_URL=x\n")
+        assert _instance_env(d) == d / "pm.env", "présent → pm.env de pm_dir"
     _clean("REDMINE_URL")
     print("✓ _instance_env : pm.env (non-secret) à côté de pm.config.yml")
+
+
+def test_instance_locator_fallback(tmp):
+    """Le repli par `PM_CORE_DIR` : c'est LUI qui rendait le test dépendant du
+    shell, et il n'était pourtant couvert nulle part."""
+    vide, core = tmp / "vide", tmp / "core-pointe"
+    vide.mkdir()
+    core.mkdir()
+    with _env(PM_CORE_DIR=str(core)):
+        assert _instance_env(vide) is None, "PM_CORE_DIR sans pm.env → None"
+        (core / "pm.env").write_text("REDMINE_URL=y\n")
+        assert _instance_env(vide) == core / "pm.env", "repli sur le pm.env du core"
+    _clean("REDMINE_URL")
+    print("✓ _instance_env : repli par PM_CORE_DIR quand pm_dir n'a rien")
 
 
 def test_user_still_primes(tmp):
@@ -103,7 +146,8 @@ def test_retrocompat(tmp):
     """Sans pm.env ni user, seul le `.env` monolithique alimente l'env (karl inchangé)."""
     inst = tmp / "core2"
     inst.mkdir()
-    assert _instance_env(inst) is None, "pas de pm.env → None"
+    with _env(PM_CORE_DIR=None):
+        assert _instance_env(inst) is None, "pas de pm.env → None"
     mono = tmp / "mono.env"
     mono.write_text("KARL_ONLY=karl\n")
     _clean("KARL_ONLY")
@@ -117,6 +161,7 @@ def main():
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         test_instance_locator(tmp)
+        test_instance_locator_fallback(tmp)
         test_user_still_primes(tmp)
         test_priority_order(tmp)
         test_permission_tolerance(tmp)

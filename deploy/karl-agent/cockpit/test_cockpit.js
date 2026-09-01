@@ -1023,6 +1023,7 @@ assert.strictEqual([...worklogDocs({})].length, 0, "map vide → liste vide");
 assert.strictEqual([...worklogDocs(null)].length, 0, "map absente tolérée");
 console.log("✓ worklogDocs (RM2584) : documents aplatis par ticket");
 
+
 // — RM2596 : recherche / surlignage / linkify de la conversation —
 const escO = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const mJarg = /function jarg\(s\) \{[\s\S]*?\n\}/.exec(html);
@@ -1070,6 +1071,39 @@ assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(lk), "chemin cli
 assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
 assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
 console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
+
+// — worklogDocsHtml (RM2935) : documents du worklog cliquables —
+// Les 5 formes réellement rencontrées dans `refs:`/`outputs:` des fiches (RM2352).
+const worklogDocsHtml = grabO("worklogDocsHtml");
+const wdh = worklogDocsHtml([
+  { ref: "RM2890", name: "docs/cdc-rm2890-timesheet-heures-humaines.md", kind: "output" },
+  { ref: "RM2890", name: "scripts/karl-agent.py (/approve-all, boucle)", kind: "output" },
+  { ref: "RM2890", name: "https://gitlab.iprospective.fr/x/-/merge_requests/757", kind: "output" },
+  { ref: "RM2890", name: "'memory: feedback_mmi_pm_skill_naming.md'", kind: "ref" },
+  { ref: "hors-ticket", name: "commit sur la branche 2353-x", kind: "" },
+], escO, linkify);
+assert(/onclick="openFileRef\('docs\/cdc-rm2890-timesheet-heures-humaines.md'\)"/.test(wdh),
+  "chemin de document → onglet Fichiers");
+assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(wdh),
+  "chemin suivi d'un commentaire : seul le chemin est cliquable");
+assert(/<a href="https:\/\/gitlab.iprospective.fr\/x\/-\/merge_requests\/757"/.test(wdh),
+  "URL de MR → lien externe");
+assert(/onclick="showTicket\(2890\)"/.test(wdh), "l'en-tête de groupe ouvre la fiche du ticket");
+assert(!/cursor:default/.test(wdh), "plus de cursor:default sur la ligne de document");
+assert(/memory: feedback_mmi_pm_skill_naming.md/.test(wdh) && !/'memory:/.test(wdh),
+  "quotes YAML retirées à l'affichage");
+assert(/>hors-ticket</.test(wdh) && !/showTicket\(hors/.test(wdh),
+  "une référence non-RM reste du texte, sans onclick bancal");
+assert(/<span class="pill">output<\/span>/.test(wdh), "le kind reste affiché en pastille");
+// anti-XSS : linkify échappe, on ne doit pas ré-échapper ni laisser passer de balise
+const wdhX = worklogDocsHtml([{ ref: "<b>x</b>", name: '<img src=x onerror="alert(1)">', kind: "<i>" }],
+  escO, linkify);
+assert(!/<img/.test(wdhX) && !/<b>x<\/b>/.test(wdhX) && !/<i>/.test(wdhX),
+  "nom, ref et kind hostiles restent inertes");
+assert(!/&amp;lt;/.test(wdhX), "pas de double échappement (linkify échappe déjà)");
+assert.strictEqual(worklogDocsHtml([], escO, linkify), "", "liste vide → chaîne vide (le rendu bascule sur son message)");
+assert.strictEqual(worklogDocsHtml(null, escO, linkify), "", "liste absente tolérée");
+console.log("✓ worklogDocsHtml (RM2935) : documents du worklog cliquables et sûrs");
 
 // — RM2623 : glossaire cliquable du jargon —
 assert.strictEqual(glossNorm("  Worktree, "), "worktree", "glossNorm: minuscule + ponctuation de bord retirée");

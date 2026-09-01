@@ -97,7 +97,11 @@ Attention aussi au piège inverse : lancer `pm-branch-start --worktree` **depuis
 le worktree d'un autre ticket** base la nouvelle branche dessus — se placer
 d'abord dans l'env d'intégration (`envs/<repo>-dev`).
 
-## Restitution : la plomberie des données PM est transparente (RM2440)
+## La plomberie des données PM est transparente — et hors sujet (RM2440)
+
+> **Tripwire #15 du KERNEL** — énoncé court là-bas, détail ici. Elle est passée
+> tripwire parce qu'elle s'applique au moment où tu **rédiges ta réponse**, quand
+> tu n'ouvres plus aucun fichier : aucun déclencheur ne peut l'attraper (RM2676).
 
 La mécanique git des dépôts de **données PM** (`*-core` : auto-commits `pm(...)`,
 push) **ne figure jamais dans ta restitution** — ni hash, ni branche, ni MR, ni
@@ -107,6 +111,17 @@ code, elle, se raconte : c'est une livraison).
 **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne** —
 sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est
 muet sur le chemin nominal (`git.verbose: true`).
+
+**Et la règle vaut en LECTURE, pas seulement en écriture.** Quand l'utilisateur
+pose une question non qualifiée — « les tickets sont mergés en main ? », « c'est
+poussé ? », « où en est la branche ? » — il parle des dépôts de **CODE** et du
+dépôt du **projet PM**, jamais d'un `*-core`. Il ne parle **jamais** de cette
+plomberie sauf à la **nommer explicitement**. Répondre sur un `*-core` qu'il n'a
+pas nommé est la même violation vue de l'autre côté : au lieu de noyer la
+restitution sous du bruit, on répond entièrement à côté, et il faut un tour de
+conversation pour rattraper. En cas de doute sur la cible d'une question de
+merge/push/branche : les dépôts de code d'abord ; le `*-core` seulement s'il est
+nommé (redit le 2026-09-01, « je n'en parle jamais, sauf explicitement »).
 
 ## Travail itératif
 

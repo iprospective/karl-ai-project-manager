@@ -63,6 +63,40 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   ⚠ Reste dû : le **CF link** ticket→page wiki prévu par la convention § 3.3 n'est pas posé, faute de
   champ dédié sur l'instance Redmine (les CF `link` existants sont « GIT PR » et « Environnement de
   test »). L'outil le signale ; créer le champ est une opération d'instance.
+- **Feuille de temps : reconstituer les heures HUMAINES depuis les traces d'agents** (RM2890).
+  Le constat qui ouvre le chantier est mesurable : les saisies de temps de Mathieu passent de
+  118 en février à **9 en août**, et ces 9 portent sur du travail *non* assisté (réunions,
+  téléphone). Autrement dit, tout ce qui se fait avec Karl n'était plus facturable faute d'être
+  noté. `mmi-pm timesheet --month AAAA-MM` produit un compte rendu lisible et une **proposition
+  YAML amendable** ; après relecture, `--apply` crée les saisies Redmine, idempotent (une ligne
+  déjà posée porte sa marque et n'est jamais recréée). **Aucun modèle n'est appelé : 0 token**,
+  32 s pour rejouer un mois — le rejeu mensuel ne coûte que la relecture.
+  Les traces viennent de **sources déclarées**, locales ou distantes : transcripts Claude Code
+  (partagés hôte/conteneur par bind mount — `history.jsonl`, lui, ne l'est pas, et il manquait
+  **213 prompts en août**, soit 19,8 h), `history.jsonl` comme complément durable, bases
+  **opencode**, journaux `.log.md` des tickets. Un gisement non déclaré reste invisible : c'est
+  assumé, pas deviné. Le **filtre du bruit système** est structurel — sur les messages de rôle
+  `user` absents de l'historique, seuls **26 % sont humains** (le reste : skills injectées,
+  reprises de session, relances automatiques) ; sans lui le mois serait surévalué du double.
+  L'attribution au ticket **rejoue la cascade de `pm-task-tick`** plutôt que d'en réinventer une
+  (94,2 % des tours d'août attribués), complétée par les `.log.md` quand un transcript a été
+  purgé, et un ticket est toujours rattaché **à son propre projet** — un ticket appartient à un
+  seul projet, il le sait mieux que le répertoire courant.
+  Le temps se calcule par **union d'intervalles** `[t − rédaction ; t + suivi]` : le
+  chevauchement devient impossible **par construction** (134,9 h d'intervalles bruts en août pour
+  167,5 h mesurées — 80 % de recouvrement éliminé), et le plafond de suivi borne ce qui est
+  compté quand l'agent travaille seul. Le temps **transversal** (PM, infra, écosystèmes produit)
+  a trois destins selon la journée — refacturé aux clients du jour au prorata (semaine, heures
+  ouvrées, journée cliente), laissé interne le soir et le week-end, ou **proposé non compté** les
+  journées passées surtout sur du perso. Les **absences** déclarées écartent tout, mais
+  **remontent en évidence** les journées à activité cliente : « je n'étais pas là » et « rien n'a
+  été fait » ne sont pas la même chose. Deux invariants sont sous test — non-double-comptage (la
+  somme des lignes égale la mesure de l'union) et conservation (refacturation, clés multi-clients
+  et arrondi déplacent du temps sans en créer ni en perdre).
+  Le nom : `worklog` étant **déjà pris** par le suivi de session (cockpit, `pm-session-status`),
+  l'outil s'appelle `timesheet` — deux objets sans rapport sous un seul mot, c'est la définition
+  d'un piège. Configuration : `timesheet.example.yml` à copier en `timesheet.yml`.
+
 - **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
   Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
   réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une

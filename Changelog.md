@@ -190,6 +190,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   custom fields) : marche à suivre dans `knowledge/redmine/etiquettes.md`. Tant qu'il n'existe
   pas, tout fonctionne côté frontmatter et le push est annoncé comme non fait — jamais en
   silence.
+### Outillage
+- **Lisibilité du texte des tickets** (RM2789), deux défauts au même endroit.
+  **Le gabarit « (à compléter) » n'est plus une case à cocher** : posé en case, il bloquait
+  la livraison sans que personne puisse le cocher, et le seul recours (`--allow-unchecked`)
+  désarmait le garde-fou pour les **vrais** critères aussi — le contournement était plus
+  grossier que le problème. Le marqueur reste visible, il n'est plus comptable, et le
+  correctif vaut **rétroactivement** pour les tickets qui le portent déjà. `count_unchecked`
+  passe par `pm_markdown` : une checklist *citée* dans un bloc de code ne compte plus. Et
+  « aucun critère jamais défini » **avertit** au lieu de bloquer — ça ne dit rien de la
+  qualité d'une livraison, et bloquer là-dessus n'aurait fait qu'ancrer le réflexe
+  `--allow-unchecked`.
+  **Les paragraphes arrivent dé-enveloppés dans Redmine** : l'outillage compose du markdown
+  enveloppé à ~95 colonnes, or Redmine rend chaque retour à la ligne comme un `<br>`, d'où
+  des textes hachés. Le dé-enveloppement se fait au **point de passage unique** vers l'API
+  (une douzaine d'appelants : en oublier un aurait laissé le défaut revenir par une porte de
+  côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
 - **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être

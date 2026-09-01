@@ -55,7 +55,41 @@ git:
   repo: git@gitlab.iprospective.fr:iprospective/exemple.git
   branch: feature/RM9999-exemple
   mr_url: null
-deploy_actions: []
+deploy_actions:
+  # Procédure de MEP du ticket : l'ordre de la liste EST l'ordre d'exécution.
+  - "Snapshot ZFS du conteneur depuis l'hôte (point de restauration préalable)"
+  - "Jouer la migration 2026-08-25-demo-flag.sql — AVANT tout déploiement de code, sinon l'UPDATE échoue en silence"
+  - "Déployer le code (MR mergée dans la branche de prod), puis recharger PHP-FPM"
+  - "Lancer scripts/backfill-demo.php --go une fois — POINT DE NON-RETOUR : le flag est recalculé pour toutes les fiches"
+  - "Contrôle : la colonne « Demo » apparaît dans la liste et le filtre booléen répond"
+  - "Rollback : revenir au commit précédent + DROP de la colonne (aucune autre donnée touchée)"
+implementation: |
+  Exemple de la maille attendue : concret, court, orienté « où ça se greffe ».
+  Obligatoire dès que l'étude débouche sur du code, même pour un petit dev.
+
+  **Modèle de données** — `llx_exemple_extrafields.demo_flag` (`TINYINT(1)`) : marque
+  les fiches traitées ; déclaré dans `llx_extrafields` avec `list=1` (visible et
+  filtrable en liste). Aucune table nouvelle.
+
+  **Composants**
+  | Fichier : point d'insertion | Modification |
+  |---|---|
+  | `src/demo/collect.inc.php::collect_data()` | ajouter la clé `demo_flag` au tableau retourné |
+  | `src/demo/map.inc.php::map_update()` | mapper `demo_flag` vers l'extrafield cible |
+  | `scripts/backfill-demo.php` | **à créer** — initialisation rejouable, `--dry-run` par défaut |
+
+  **Vues** — liste des fiches (`tpl/liste.tpl.php`) : une colonne + un filtre booléen,
+  sur le modèle exact de la colonne `code_client` existante (4 retouches localisées :
+  `$filter_list`, `$cols_list`, le `SELECT`, l'en-tête + la cellule).
+
+  **Flux & déclencheurs** — la modification d'une fiche déclenche déjà `collect_data()` ;
+  rien à ajouter. Le backfill se lance à la main, une fois, après création de la colonne.
+
+  **Migration** — colonne créée **avant** la première synchro, sinon l'`UPDATE` échoue
+  en silence. Script d'installation rejouable (`ADD COLUMN` + `INSERT ... WHERE NOT EXISTS`).
+
+  **Pièges** — le retrait d'un marquage doit **remettre le flag à 0** : recalculer
+  systématiquement à chaque passage, jamais de mise à jour conditionnelle « si non vide ».
 
 # Métriques cumulées
 tokens_total: 3200

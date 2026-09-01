@@ -1,5 +1,27 @@
 # Changelog des normes
 
+## [2.11.0] - 2026-09-01
+
+### Ajouté
+- KERNEL tripwire **#15** — la règle « la plomberie PM est muette » (RM2440) entre
+  enfin dans le KERNEL. Elle vivait dans `agents/worker-common.md` seul : elle ne
+  survivait donc pas au compactage de contexte et se faisait violer en boucle.
+  Elle s'applique au moment où l'agent **rédige sa réponse**, quand il n'ouvre
+  plus aucun fichier — aucun déclencheur ne peut l'attraper, d'où le format
+  tripwire complet (RM2676).
+- Tripwire #15 — **volet lecture** : une question non qualifiée sur un merge, un
+  push ou une branche porte sur les dépôts de **code** et sur le dépôt du projet
+  PM, **jamais** sur un `*-core`. Répondre sur un `*-core` non nommé est la même
+  violation vue de l'autre côté — au lieu de noyer la restitution sous du bruit,
+  on répond à côté de la question (incident 2026-09-01).
+
+### Modifié
+- Tripwire #3, exception RM2440 — renvoie désormais vers #15 : présenter le push
+  direct sur les `*-core` sous le seul angle « c'est autorisé » se lit comme
+  « c'est un sujet dont on parle ».
+- `agents/worker-common.md` — la section RM2440 devient « transparente **et hors
+  sujet** » et détaille le volet lecture.
+
 ## [2.9.1] - 2026-08-27
 
 ### Ajouté

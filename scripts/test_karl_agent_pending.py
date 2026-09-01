@@ -88,14 +88,16 @@ ITEMS = [
     {"ref": "chantier-libre", "status": "à_faire", "opened_status": "", "label": "hors ticket"},
 ]
 b = ka.worklog_buckets(ITEMS)
-check("reste à faire / en attente / fait, chacun dans sa section",
-      [len(b["todo"]), len(b["waiting"]), len(b["done"])] == [2, 1, 1])
-check("un statut de livraison compte comme « en attente » (pas comme fait)",
-      b["waiting"][0]["ref"] == "RM2")
+# RM2930 : RM2 (a_tester_demandeur) a quitté « en attente » pour « à tester /
+# valider » — il attend une action, pas un déblocage.
+check("reste à faire / à tester / fait, chacun dans sa section",
+      [len(b["todo"]), len(b["testing"]), len(b["waiting"]), len(b["done"])] == [2, 1, 0, 1])
+check("un statut de livraison compte comme « à tester » (pas comme fait)",
+      b["testing"][0]["ref"] == "RM2")
 check("un chantier hors ticket a sa place dans le worklog",
       any(e["ref"] == "chantier-libre" for e in b["todo"]))
 check("dérive signalée quand le statut a bougé depuis l'ouverture",
-      b["waiting"][0]["drifted"] is True and b["done"][0]["drifted"] is True)
+      b["testing"][0]["drifted"] is True and b["done"][0]["drifted"] is True)
 check("pas de dérive quand rien n'a bougé", b["todo"][0]["drifted"] is False)
 check("opened_status vide ne fabrique pas une fausse dérive",
       [e for e in b["todo"] if e["ref"] == "chantier-libre"][0]["drifted"] is False)
@@ -122,7 +124,8 @@ check("le statut exact reste lisible dans le bucket MEP (a_mep ≠ en_mep)",
 check("aucun item n'est perdu, quel que soit son statut",
       sum(len(v) for v in ka.worklog_buckets(ITEMS + [{"ref": "RMX", "status": "?"}]).values())
       == len(ITEMS) + 1)
-_vide = {"todo": [], "mep": [], "waiting": [], "done": [], "unknown": []}
+_vide = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+         "unknown": []}
 check("worklog vide ou absent toléré",
       ka.worklog_buckets([]) == _vide and ka.worklog_buckets(None) == _vide)
 # la classification DOIT rester celle de pm-session-status : deux vérités
@@ -135,6 +138,24 @@ check("DONE identique à celui de pm-session-status.py", ka.WORKLOG_DONE == _don
 check("WAITING identique à celui de pm-session-status.py", ka.WORKLOG_WAITING == _wait)
 _mep_set = eval(_re.search(r"^MEP = (\{[^}]*\})", _src, _re.M).group(1))
 check("MEP identique à celui de pm-session-status.py (RM2860)", ka.WORKLOG_MEP == _mep_set)
+_test_set = eval(_re.search(r"^TESTING = (\{[^}]*\})", _src, _re.M | _re.S).group(1))
+check("TESTING identique à celui de pm-session-status.py (RM2930)",
+      ka.WORKLOG_TESTING == _test_set)
+
+# — RM2930 : « à tester / valider » est son propre bucket —
+_TEST_ITEMS = [{"ref": "RM%d" % i, "status": st} for i, st in enumerate(
+    ["a_valider", "a_tester_demandeur", "a_tester_dev", "a_tester_preprod"])]
+_tb = ka.worklog_buckets(_TEST_ITEMS + [{"ref": "RMW", "status": "en_pause"}])
+check("les 4 statuts de test/validation vont dans « à tester / valider »",
+      len(_tb["testing"]) == 4)
+check("aucun d'eux ne retombe dans « en attente / bloqué »",
+      [e["ref"] for e in _tb["waiting"]] == ["RMW"])
+check("a_tester_preprod n'est plus une MEP (RM2930)",
+      "a_tester_preprod" not in ka.WORKLOG_MEP and _tb["mep"] == [])
+check("test/validation et attente sont disjoints",
+      not (ka.WORKLOG_TESTING & ka.WORKLOG_WAITING))
+check("un statut de test/validation n'est pas un statut « à faire »",
+      not (ka.WORKLOG_TESTING & ka.WORKLOG_TODO))
 check("un statut MEP n'est plus un statut « à faire »",
       not (ka.WORKLOG_MEP & ka.WORKLOG_TODO))
 

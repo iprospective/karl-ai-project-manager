@@ -49,13 +49,23 @@ WORKLOG_DIR = os.path.expanduser(
 
 # statuts considérés comme terminés (filtrés hors du « reste à faire »)
 DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu", "resolu"}
-# statuts considérés bloqués/en attente externe (affichés à part)
+# statuts vraiment bloqués / en attente d'un tiers : RIEN n'est demandé à
+# personne d'identifié, le ticket dort jusqu'à ce qu'un événement extérieur
+# survienne.
 WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-           "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
+           "en_pause"}
+# RM2930 : « à tester / valider » n'est PAS une attente — c'est une action, et
+# elle a un acteur. Ces statuts vivaient dans WAITING : un ticket livré qui
+# attendait le test du demandeur s'affichait « en attente / bloqué », donc coincé,
+# alors qu'il fallait lire « c'est à toi ». Même raisonnement que RM2860 pour la
+# MEP : un travail d'une autre nature mérite sa section.
+TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
+           "a_tester_preprod"}
 # RM2860 : le dev est fini, reste la mise en prod — un travail batché, souvent
 # porté par un autre acteur. Section à part, ici comme dans le cockpit : deux
 # vues divergentes du même worklog donneraient deux vérités sur « où on en est ».
-MEP = {"a_mep", "a_tester_preprod", "a_mep_prod", "en_mep"}
+# RM2930 : `a_tester_preprod` en sort — c'est une recette, pas une mise en prod.
+MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
@@ -444,6 +454,10 @@ def is_waiting(status):
     return (status or "").lower() in WAITING
 
 
+def is_testing(status):
+    return (status or "").lower() in TESTING
+
+
 def is_mep(status):
     return (status or "").lower() in MEP
 
@@ -542,10 +556,11 @@ def render_md(data, live=None):
         out += doc_lines
         out.append("")
 
-    todo, mep, wait, done = [], [], [], []
+    todo, testing, mep, wait, done = [], [], [], [], []
     for it in data["items"]:
         st = eff_status(it, live)
-        (done if is_done(st) else mep if is_mep(st)
+        (done if is_done(st) else testing if is_testing(st)
+         else mep if is_mep(st)
          else wait if is_waiting(st) else todo).append(it)
 
     def line(it):
@@ -589,6 +604,10 @@ def render_md(data, live=None):
 
     out.append("## ⏳ Reste à faire")
     out += by_project(todo) or ["_(rien)_"]
+    # RM2930 : avant la MEP — c'est l'étape qui la précède dans le flow.
+    if testing:
+        out.append("\n## 🧪 À tester / valider")
+        out += by_project(testing)
     if mep:
         out.append("\n## 🚀 À mettre en prod")
         out += by_project(mep)

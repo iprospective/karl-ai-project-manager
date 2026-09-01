@@ -4146,8 +4146,14 @@ WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
 # pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
 REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
 WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-                   "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
                    "en_pause"}
+# RM2930 : « à tester / valider » sort de l'attente. Un ticket livré qui attend le
+# test du demandeur n'est pas coincé — il attend une ACTION, de quelqu'un
+# d'identifié. Le ranger avec les blocages le faisait lire « c'est mort » là où il
+# fallait lire « c'est à toi », et le bouton actualiser ne l'en sortait jamais
+# (le statut était juste ; c'est le rangement qui mentait).
+WORKLOG_TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
+                   "a_tester_preprod"}
 # Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
 # attente, plus les variantes libres qu'emploient les chantiers hors ticket.
 WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
@@ -4158,7 +4164,7 @@ WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
 # ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
 # n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
 # entre des tickets encore à écrire ; elle a donc son propre bucket.
-WORKLOG_MEP = {"a_mep", "en_mep"}
+WORKLOG_MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
@@ -4173,7 +4179,8 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "mep": [], "waiting": [], "done": [], "unknown": []}
+    out = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+           "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
         opened = str(it.get("opened_status") or "").lower()
@@ -4192,6 +4199,8 @@ def worklog_buckets(items) -> dict:
                 entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
+        elif st in WORKLOG_TESTING:  # RM2930 : une action, pas une attente
+            out["testing"].append(entry)
         elif st in WORKLOG_MEP:      # RM2860 : avant TODO — a_mep n'y est plus
             out["mep"].append(entry)
         elif st in WORKLOG_WAITING:

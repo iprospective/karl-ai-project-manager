@@ -14,6 +14,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Un env de dev ou de test PrestaShop ne se prend plus pour la production** (RM2932). Le
+  back-office des envs de recette affichait en permanence « Action requise : confirmez l'URL de
+  votre boutique ». Le réflexe — aligner `ps_shop_url` — ne pouvait pas marcher : le bandeau vient
+  de **ps_accounts**, qui compare l'URL enregistrée **chez PrestaShop Cloud** à celle de l'env,
+  et un clone hérite de l'identité de la boutique d'origine. L'écart est donc structurel, et le
+  bouton « confirmer » du bandeau est un piège : cliqué depuis un env de test, il **réassocie
+  l'identité cloud de la production au domaine de test**. En creusant, le bandeau s'est révélé le
+  symptôme visible d'un problème plus large — un clone porte aussi les **jetons marchands** de la
+  prod (compte PayPal `PS_CHECKOUT_PAYPAL_*`, identités Firebase, clés RSA de ps_accounts) : 41
+  clés d'identité mesurées sur la seule base de dev pisceen, et quatre modules cloud actifs. La
+  réponse est un script unique, `tools/env-runtime/presta-nonprod-sql.sh`, qui **émet du SQL sur
+  stdout sans jamais ouvrir de connexion** — c'est ce qui lui permet de servir les trois contextes
+  d'un même geste : le framework de synchro prod→local (`presta_adapt_db`), le clone par ticket de
+  `pm-env-session` (détection PrestaShop par `config/defines.inc.php`, appliqué **avant** le
+  `post_sql` du manifeste pour que celui-ci garde le dernier mot), et un env de recette distant
+  (`… | ssh <hôte> "mysql <db>"`). Il aligne le domaine, purge les identités cloud et désactive
+  les modules qui dialoguent avec ces services. Garde : il refuse de fabriquer son SQL pour un
+  domaine qui ne ressemble pas à du dev/test — le geste délie une boutique, joué sur une prod il
+  la casse.
 - **Créer un workspace ne demande plus de `sudo` interactif** (RM2909). Le modèle de perms
   multi-user verrouille la racine d'un workspace en `2750 pm:pm` — invariant voulu — mais
   personne n'avait outillé son corollaire : plus aucun dev ne peut y créer `repos/`,

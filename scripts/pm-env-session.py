@@ -227,6 +227,31 @@ def on_target_box(cfg: dict) -> bool:
     return h.is_file() and os.access(h, os.X_OK)
 
 
+def presta_nonprod_sql(wt: Path, spec: dict, host: str) -> str | None:
+    """SQL de neutralisation des services cloud pour un clone PrestaShop (RM2932).
+
+    Un clone de la base porte l'identité PrestaShop Account de la boutique d'origine
+    et ses identifiants marchands. Deux conséquences : le back-office affiche en
+    permanence « Action requise : confirmez l'URL de votre boutique » (ps_accounts
+    compare l'URL enregistrée côté cloud à celle de l'env — un alignement de
+    `shop_url` n'y change rien), et l'env peut émettre vers les services de la prod.
+
+    Renvoie None si le worktree n'est pas un PrestaShop, ou si le script est absent.
+    """
+    if not (wt / "config" / "defines.inc.php").is_file():
+        return None
+    script = Path(__file__).resolve().parent.parent / "tools" / "env-runtime" / "presta-nonprod-sql.sh"
+    if not script.is_file():
+        print(f"  ⚠ {script.name} introuvable — services cloud PrestaShop NON neutralisés")
+        return None
+    r = subprocess.run([str(script), "--prefix", str(spec.get("table_prefix") or "ps_"),
+                        "--domain", host], capture_output=True, text=True)
+    if r.returncode != 0:
+        print(f"  ⚠ {script.name} : {(r.stderr or r.stdout).strip()}")
+        return None
+    return r.stdout
+
+
 def helper(cfg: dict, args: list[str], dry: bool, check=True, stdin: str | None = None):
     """Invoque le helper privilégié : `sudo -n` en local si on est déjà sur la box
     (RM2646), sinon `ssh <ssh_host> sudo -n` comme avant."""
@@ -447,6 +472,13 @@ def cmd_create(args):
             spec = runtime.get("db_clone") or {}
             excludes = [str(p) for p in (spec.get("exclude_tables") or [])]
             helper(cfg, ["db-clone", db, clone, *excludes], dry)
+            # Neutralisation cloud AVANT le post-SQL du manifeste : celui-ci peut
+            # vouloir reposer une valeur (domaine…) qui doit avoir le dernier mot.
+            nonprod = presta_nonprod_sql(wt, spec, f"{env_name}.lxc")
+            if nonprod:
+                helper(cfg, ["db-post-sql", clone], dry, stdin=nonprod)
+                print("  · services cloud PrestaShop neutralisés sur le clone "
+                      "(identités purgées, modules désactivés)")
             # post-SQL du manifeste (config domaine/email/modules…) — exécuté
             # CONFINÉ au clone par le helper. Placeholders : {db} {clone} {rmid} {host}
             post = spec.get("post_sql") or []

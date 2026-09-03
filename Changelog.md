@@ -192,6 +192,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **La carte « Sessions enregistrées » règle tous les jeux** (RM2955). Elle interrogeait
+  `/session-set` avec le jeu **courant** codé en dur : pour renommer un jeu, changer sa
+  règle, sa rétention ou l'effacer, il fallait d'abord **le rendre courant** — donc
+  quitter la vue sur laquelle on travaillait, puisque le jeu courant gouverne aussi le
+  panneau « ▶ en cours ». La carte a désormais son propre sélecteur : le jeu **édité**
+  et le jeu **courant** sont deux notions distinctes (comme une vue n'est pas une cible,
+  RM2446), et la liste marque « ● courant » celui qui gouverne l'affichage et reçoit
+  l'adhésion automatique. Le ▶ relancer de la carte vise le jeu affiché par la carte,
+  celui du panneau de gauche le jeu courant — un bouton qui écrit dit où (RM2448).
 - **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
   l'opérateur. La largeur d'abord : l'onglet conversation était posé en
   `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])

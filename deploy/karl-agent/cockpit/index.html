@@ -1068,9 +1068,16 @@ if (window.matchMedia) {
       <ul class="results" id="rs-list"></ul>
     </div>
 
-    <!-- RM2395 : gestion du jeu de sessions enregistré -->
+    <!-- RM2395 : gestion du jeu de sessions enregistré
+         RM2955 : de TOUS les jeux — la carte choisit celui qu'elle règle, sans
+         toucher au jeu courant (qui, lui, gouverne le panneau « ▶ en cours »). -->
     <div class="card" id="sessions-set-card">
       <h2>Sessions enregistrées <span style="color:var(--muted);font-weight:normal">(RM2395)</span></h2>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:8px">
+        <select id="set-edit-picker" onchange="setEditPick(this.value)" style="flex:1 1 auto;min-width:90px"
+                title="Jeu réglé par cette carte. Le choisir ici ne change PAS le jeu courant (celui du panneau « ▶ en cours »)."></select>
+        <button class="mini" onclick="openRuleForm('__new__')" title="Créer un jeu">＋ jeu</button>
+      </div>
       <div id="sessions-set-body"><div class="empty">chargement…</div></div>
     </div>
     </div>
@@ -2358,6 +2365,48 @@ const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
 const setQ = (extra) => "?group=" + encodeURIComponent(currentSet) + (extra || "");
 const setBody = (o) => JSON.stringify(Object.assign({ group: currentSet }, o || {}));
+// RM2955 : la carte « Sessions enregistrées » règle un jeu qui n'est pas
+// forcément le courant. Deux notions distinctes, à ne pas refondre en une : le
+// jeu COURANT gouverne le panneau « ▶ en cours » (et reçoit ⊖, 💾, l'adhésion) ;
+// le jeu ÉDITÉ n'est que ce que la carte affiche et paramètre. Les confondre
+// obligeait à changer de contexte d'affichage pour renommer un jeu.
+let setEditing = null;                       // null = suit le jeu courant
+const editedSet = () => setEditing || currentSet;
+const editQ = (extra) => "?group=" + encodeURIComponent(editedSet()) + (extra || "");
+const editBody = (o) => JSON.stringify(Object.assign({ group: editedSet() }, o || {}));
+
+// >>> setEditOptions — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2955 — les options du sélecteur de la carte. Le jeu COURANT est marqué : on
+// doit pouvoir régler un autre jeu sans perdre de vue lequel gouverne l'affichage
+// et reçoit les écritures automatiques. Un jeu dérivé le dit aussi (⚙) : ce qu'on
+// y règle est une règle, pas un contenu.
+function setEditOptions(sets, editing, current) {
+  const cible = editing || current;
+  return (sets || []).map(s => ({
+    value: s.name,
+    label: (s.derived ? "⚙ " : "") + (s.label || s.name)
+      + " (" + (s.alive || 0) + "/" + (s.count || 0) + ")"
+      + (s.name === current ? " ● courant" : ""),
+    selected: s.name === cible,
+  }));
+}
+// <<< setEditOptions
+
+function setEditPick(name) {
+  // On ne bascule PAS le jeu courant : régler un jeu ne doit pas déplacer la vue
+  // sur laquelle on travaillait (RM2446 — une vue n'est pas une cible).
+  setEditing = name || null;
+  ruleFormFor = null;
+  loadSessionSet();
+}
+function renderSetEditPicker() {
+  const sel = document.getElementById("set-edit-picker");
+  if (!sel) return;
+  const opts = setEditOptions(setsCache, setEditing, currentSet);
+  sel.innerHTML = opts.map(o => '<option value="' + esc(o.value) + '"' +
+    (o.selected ? " selected" : "") + ">" + esc(o.label) + "</option>").join("");
+  sel.style.display = opts.length ? "" : "none";
+}
 const setLabel = (name) => (setsCache.find(s => s.name === name) || {}).label || name;
 // slug = clé du store (immuable, ^[a-z0-9][a-z0-9._-]{0,31}$) ; le libellé reste libre
 function slugifySet(label) {
@@ -2722,12 +2771,12 @@ async function applyRuleForm(isNew) {
 // fige un jeu dérivé en jeu manuel : on part d'une règle pour constituer
 // l'ensemble sans effort, puis on l'amende à la main
 async function materializeSet() {
-  if (!window.confirm("Figer « " + setLabel(currentSet) + " » en jeu manuel ?\n\n" +
+  if (!window.confirm("Figer « " + setLabel(editedSet()) + " » en jeu manuel ?\n\n" +
       "Son contenu actuel est conservé, mais il cessera d'absorber les nouvelles " +
       "sessions qui satisfont la règle.")) return;
   try {
     const r = await api("/session-set/materialize", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: setBody({}) });
+      headers: { "Content-Type": "application/json" }, body: editBody({}) });
     toast("jeu figé — " + r.count + " session(s)");
     await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
@@ -2736,7 +2785,7 @@ async function materializeSet() {
 async function setRetention(days) {
   try {
     await api("/session-set/retention", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: setBody({ days: Number(days) || 0 }) });
+      headers: { "Content-Type": "application/json" }, body: editBody({ days: Number(days) || 0 }) });
     toast(Number(days) ? "les sessions inactives depuis " + days + " j sont masquées (jamais supprimées)"
                        : "plus rien n'est masqué");
     refreshSessions(); loadSessionSet();
@@ -2800,24 +2849,30 @@ function onSetPick(v) {
 // OPTION explicite (Annuler ou Échap ⇒ jeu vide). Le jeu créé devient courant.
 // renomme le LIBELLÉ du jeu courant ; le slug reste la clé du store
 async function renameSet() {
-  const label = (window.prompt("Nouveau libellé du jeu :", setLabel(currentSet)) || "").trim();
+  const label = (window.prompt("Nouveau libellé du jeu :", setLabel(editedSet())) || "").trim();
   if (!label) return;
   try {
     await api("/session-set/rename", { method: "POST", headers: { "Content-Type": "application/json" },
-                                       body: setBody({ label }) });
+                                       body: editBody({ label }) });
     toast("jeu renommé : " + label);
     await refreshSessionSets(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
 }
-async function relaunchSessionSet(btn) {
+async function relaunchSessionSet(btn, fromCard) {
+  // RM2955 : le même bouton existe des deux côtés — à gauche il relance le jeu
+  // COURANT (celui qu'on regarde), dans la carte le jeu ÉDITÉ. Un bouton qui
+  // écrit doit dire où (RM2448) : il vise donc explicitement l'un ou l'autre.
+  const grp = fromCard ? editedSet() : currentSet;
+  const q = "?group=" + encodeURIComponent(grp);
+  const corps = (o) => JSON.stringify(Object.assign({ group: grp }, o || {}));
   // RM2451 : dire le prix AVANT. Douze sessions relancées, ce sont douze
   // réhydratations de contexte — un geste à plusieurs euros, jusqu'ici invisible.
   try {
-    const e = await api("/session-set/estimate" + setQ());
-    if (!e.relaunchable) { toast("rien à relancer dans « " + setLabel(currentSet) + " »"); return; }
+    const e = await api("/session-set/estimate" + q);
+    if (!e.relaunchable) { toast("rien à relancer dans « " + setLabel(grp) + " »"); return; }
     const kt = Math.round(e.tokens_est / 1000);
     if (!window.confirm(
-        "Relancer " + e.relaunchable + " session(s) de « " + setLabel(currentSet) + " » ?\n\n" +
+        "Relancer " + e.relaunchable + " session(s) de « " + setLabel(grp) + " » ?\n\n" +
         "Chacune rouvre un TUI et relit sa conversation : ~" + kt + " k tokens de contexte" +
         (e.usd_est ? ", de l'ordre de " + e.usd_est + " $" : "") + ".\n" +
         (e.already_live ? e.already_live + " déjà active(s), ignorée(s). " : "") +
@@ -2827,7 +2882,7 @@ async function relaunchSessionSet(btn) {
   try {
     const r = await api("/session-set/relaunch", {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: setBody({ spawn: sessionSetSpawn }),
+      body: corps({ spawn: sessionSetSpawn }),
     });
     const c = r.counts || {}, parts = [];
     if (c.resumed) parts.push(c.resumed + " reprise(s)");
@@ -2996,12 +3051,15 @@ async function loadSessionSet() {
   const el = document.getElementById("sessions-set-body");
   if (!el) return;
   try {
-    const r = await api("/session-set" + setQ());
+    renderSetEditPicker();                 // RM2955 : de quel jeu parle cette carte
+    const r = await api("/session-set" + editQ());
     if (!r.exists || !r.count) {
       el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
-        '<div class="empty">Jeu « ' + esc(setLabel(currentSet)) +
-        ' » vide — bouton « 💾 → ' + esc(setLabel(currentSet)) + ' » dans « ▶ en cours » pour y ' +
-        'verser l\'affichage, ou « ＋ jeu » avec un critère pour un jeu qui se remplit tout seul.</div>';
+        '<div class="empty">Jeu « ' + esc(setLabel(editedSet())) +
+        ' » vide — ' + (editedSet() === currentSet
+          ? 'bouton « 💾 → ' + esc(setLabel(currentSet)) + ' » dans « ▶ en cours » pour y verser l\'affichage'
+          : 'c\'est le jeu COURANT qui reçoit « 💾 » ; bascule dessus dans « ▶ en cours » pour y verser l\'affichage') +
+        ', ou « ＋ jeu » avec un critère pour un jeu qui se remplit tout seul.</div>';
       return;
     }
     const rows = r.entries.map(e => {
@@ -3029,16 +3087,18 @@ async function loadSessionSet() {
     }).join("");
     el.innerHTML =
       (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
-      (r.derived && ruleFormFor === currentSet ? ruleFormHtml(r.rule, false) : "") +
-      (r.derived && ruleFormFor !== currentSet ?
+      (r.derived && ruleFormFor === editedSet() ? ruleFormHtml(r.rule, false) : "") +
+      (r.derived && ruleFormFor !== editedSet() ?
         '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
           esc(Object.entries(r.rule || {}).map(([k, v]) => k + "=" + (Array.isArray(v) ? v.join(",") : v)).join(" ")) +
-          ' <span style="cursor:pointer;text-decoration:underline" onclick="openRuleForm(currentSet)">modifier</span>' +
+          ' <span style="cursor:pointer;text-decoration:underline" onclick="openRuleForm(editedSet())">modifier</span>' +
           ' · <span style="cursor:pointer;text-decoration:underline" onclick="materializeSet()">figer</span>' +
           '<br><span style="color:var(--muted)">contenu calculé : rien à curer, ' +
           'et toute session satisfaisant la règle y entre d\'elle-même</span></div>' : "") +
       '<div style="color:var(--muted);font-size:11.5px;margin-bottom:6px">' +
-        '<b>' + esc(r.label || currentSet) + '</b> · ' + r.count +
+        '<b>' + esc(r.label || editedSet()) + '</b> · ' + r.count +
+        (editedSet() === currentSet ? ' <span style="color:var(--accent)" title="C\'est le jeu courant : ' +
+          'il gouverne le panneau « ▶ en cours » et reçoit les sessions">● courant</span>' : '') +
         // RM2452 : dire la troncature plutôt que de mentir par omission
         (r.truncated ? ' affichée(s) sur <b>' + r.total + '</b>' : '') +
         ' session(s) · enregistré il y a ' + ago(r.saved_at) +
@@ -3050,7 +3110,8 @@ async function loadSessionSet() {
       // relancements, et faisait doublon avec la politique par entrée (⟳/⏸).
       '<div style="color:var(--muted);font-size:11px;margin:8px 0 4px">' +
         'Au lancement de karl-agent, seules les sessions réglées ⟳ de ce jeu ' +
-        'redémarrent — et seulement s\'il est le jeu courant.</div>' +
+        'redémarrent — et seulement s\'il est le jeu courant' +
+        (editedSet() === currentSet ? '' : ' (ce n\'est pas le cas ici)') + '.</div>' +
       // RM2452 : rétention d'affichage — option, désactivée par défaut
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 6px;font-size:11.5px">' +
         'Masquer les sessions inactives depuis <input type="number" min="0" max="3650" ' +
@@ -3059,7 +3120,7 @@ async function loadSessionSet() {
         '<span style="color:var(--muted)">(masquées, jamais supprimées)</span></label>' +
       '<label style="display:flex;align-items:center;gap:6px;margin:0 0 8px;cursor:pointer"><input type="checkbox" style="width:auto"' +
         (sessionSetSpawn ? " checked" : "") + ' onchange="setSpawnPref(this.checked)"> Recréer une session neuve si la conversation est perdue</label>' +
-      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this)" ' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap"><button onclick="relaunchSessionSet(this, true)" ' +
         'title="Relance d\'un coup les sessions du jeu qui ne tournent PAS (un TUI par session) — sinon, clique une tuile grise pour n\'en réveiller qu\'une">▶ relancer (' +
         relaunchBtnState(r, "set").count + ')</button>' +
         '<button class="mini" onclick="toggleSetHistory()">↩ versions</button>' +
@@ -3077,16 +3138,16 @@ async function toggleSetHistory() {
   el.innerHTML = '<div class="empty">chargement…</div>';
   try {
     const r = await api("/session-set/history");
-    const mine = (r.versions || []).filter(v => (v.sets || []).some(s => s.name === currentSet));
+    const mine = (r.versions || []).filter(v => (v.sets || []).some(s => s.name === editedSet()));
     if (!mine.length) {
       el.innerHTML = '<div class="empty">Aucune version archivée pour « ' +
-        esc(setLabel(currentSet)) + ' » (max ' + r.keep + ' conservées).</div>';
+        esc(setLabel(editedSet())) + ' » (max ' + r.keep + ' conservées).</div>';
       return;
     }
     el.innerHTML = '<div style="color:var(--muted);font-size:11.5px;margin:8px 0 4px">' +
-      'Rétablir « ' + esc(setLabel(currentSet)) + ' » dans un état précédent :</div>' +
+      'Rétablir « ' + esc(setLabel(editedSet())) + ' » dans un état précédent :</div>' +
       '<ul class="results">' + mine.map(v => {
-        const s = (v.sets || []).find(x => x.name === currentSet) || {};
+        const s = (v.sets || []).find(x => x.name === editedSet()) || {};
         return '<li style="cursor:pointer" title="Rétablir cet état — l\'état actuel sera lui-même archivé" ' +
           'onclick="restoreSet(\'' + esc(v.id) + '\')">↩ il y a ' + ago(v.at) +
           ' <span style="color:var(--muted)">— ' + s.count + ' session(s)</span></li>';
@@ -3094,13 +3155,13 @@ async function toggleSetHistory() {
   } catch (e) { el.innerHTML = '<div class="empty">' + esc(e.message) + '</div>'; }
 }
 async function restoreSet(id) {
-  if (!window.confirm("Rétablir « " + setLabel(currentSet) + " » dans cet état ?\n\n" +
+  if (!window.confirm("Rétablir « " + setLabel(editedSet()) + " » dans cet état ?\n\n" +
       "Les autres jeux ne sont pas touchés, et l'état actuel est archivé : " +
       "l'opération est annulable.")) return;
   try {
     const r = await api("/session-set/restore", { method: "POST",
-      headers: { "Content-Type": "application/json" }, body: setBody({ id }) });
-    toast("↩ « " + setLabel(currentSet) + " » rétabli — " + r.count + " session(s)");
+      headers: { "Content-Type": "application/json" }, body: editBody({ id }) });
+    toast("↩ « " + setLabel(editedSet()) + " » rétabli — " + r.count + " session(s)");
     const el = document.getElementById("set-history"); if (el) el.innerHTML = "";
     refreshSessions(); await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
@@ -3111,18 +3172,20 @@ function setSpawnPref(on) {
 }
 // RM2427 : depuis la carte « Sessions enregistrées » — retirer / régler la reprise
 function forgetSetEntry(sid) {
-  forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid), group: currentSet });
+  forgetGhost({ rm_id: sid, is_ticket: /^\d+$/.test(sid), group: editedSet() });
 }
 function toggleSetEntryRestart(sid, restart) {
-  toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart, group: currentSet });
+  toggleRestart({ rm_id: sid, is_ticket: /^\d+$/.test(sid), restart: restart, group: editedSet() });
 }
 async function deleteSessionSet(btn) {
-  if (!window.confirm("Supprimer le jeu « " + setLabel(currentSet) + " » ?\n\n" +
+  const grp = editedSet();
+  if (!window.confirm("Supprimer le jeu « " + setLabel(grp) + " » ?\n\n" +
       "Les sessions CONTINUENT de tourner ; les autres jeux ne sont pas touchés.")) return;
   btn.disabled = true;
   try {
-    await api("/session-set" + setQ(), { method: "DELETE" });
-    toast("🗑 jeu « " + setLabel(currentSet) + " » effacé");
+    await api("/session-set" + editQ(), { method: "DELETE" });
+    toast("🗑 jeu « " + setLabel(grp) + " » effacé");
+    setEditing = null;                      // RM2955 : le jeu réglé n'existe plus
     await refreshSessionSets(); refreshSessionSet(); loadSessionSet();
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }

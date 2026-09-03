@@ -62,6 +62,14 @@ ensemble) :
 - **💾 → <jeu>** verse les sessions affichées dans le jeu nommé sur le bouton.
 - Options par jeu : autostart, rétention d'affichage, effacer.
 
+La carte **« Sessions enregistrées »** règle **n'importe quel jeu** : choisis-le
+dans son propre sélecteur, en haut de la carte. Ce choix ne déplace **pas** le
+jeu courant — celui qui gouverne le panneau « ▶ en cours » et qui reçoit « 💾 »
+reste marqué **● courant** dans la liste. Tu peux donc renommer un jeu, changer
+sa règle, sa rétention ou l'effacer sans quitter la vue sur laquelle tu
+travailles. Le bouton **▶ relancer** de la carte vise le jeu affiché par la
+carte ; celui du panneau de gauche vise le jeu courant.
+
 La carte **« Reprendre une session »** filtre d'abord par **client**, et la liste
 des projets se réduit aux siens (« tous » la rétablit). Client seul, sans projet :
 toutes les sessions de ce client, tous projets confondus. Le contexte client du

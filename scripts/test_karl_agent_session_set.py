@@ -489,17 +489,33 @@ except ka.ApiError as e:
     check("delete : déjà absent → 404", e.code == 404)
 
 # — plafond : un instantané trop gros est refusé —
+# RM2953 : sur un jeu MANUEL. `default` est devenu le REGISTRE des sessions
+# actives — il enregistre ce qui tourne, il ne se compose pas, et un registre
+# qui refuse des entrées mentirait sur son contenu : il n'a plus de plafond.
 LIVE.clear()
 LIVE.update({str(i): {"engine": "claude", "session_id": f"u{i}", "cwd": "/x", "model": None}
              for i in range(ka.SESSION_SET_MAX + 1)})
+ka.op_session_set_create({"group": "plafonne", "label": "Plafonné"}, {"user": None})
 try:
-    ka.op_session_set_save({}, {"user": None})
+    ka.op_session_set_save({"group": "plafonne"}, {"user": None})
     check("save : plafond dépassé refusé", False)
 except ka.ApiError as e:
     check("save : plafond dépassé refusé (409)", e.code == 409)
 # RM2439 : le refus est ATOMIQUE — l'union qui déborde ne doit rien réécrire
 check("RM2439 : plafond franchi ⇒ jeu inchangé sur disque",
-      {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]} == {"2395", "worm-x"})
+      ka.op_session_set_get({"group": "plafonne"}, {"user": None})["entries"] == [])
+ka.op_session_set_save({}, {"user": None})
+check("RM2953 : le REGISTRE, lui, prend tout ce qui tourne",
+      len(ka.op_session_set_get({}, {"user": None})["entries"]) >= ka.SESSION_SET_MAX + 1)
+ka.op_session_set_delete({"group": "plafonne"}, {"user": None})
+# on repart du registre d'avant pour la suite du scénario
+ka.op_session_set_delete({}, {"user": None})
+LIVE.clear()
+LIVE.update({
+    "2395": {"engine": "claude", "session_id": "uuid-2395", "cwd": "/zfs/a", "model": "opus"},
+    "worm-x": {"engine": "claude", "session_id": "uuid-worm", "cwd": "/zfs/b", "model": None},
+})
+ka.op_session_set_save({}, {"user": None})
 
 # — correctif RM1941 : _record_key mémorise le modèle et le préserve à la reprise —
 LIVE.clear()
@@ -718,26 +734,35 @@ check("RM2445 : elle porte ses jeux et le fait qu'elle est hors du courant",
       and view["6001"]["in_current"] is False)
 
 # une session peut appartenir à PLUSIEURS jeux ; la retirer d'un jeu la laisse dans l'autre
+# RM2953 : « default » s'ajoute d'office à ces appartenances — toute session
+# vivante est au registre. On raisonne donc sur les jeux MANUELS.
 ka.op_session_set_save({"group": "chantier-b", "sids": ["6001"]}, {"user": None})
+manuels = lambda: set(ka._sessions_view({}, {"user": None})[0]["sets"]) - {"default"}
 check("RM2445 : une session peut être dans deux jeux",
-      set(ka._sessions_view({}, {"user": None})[0]["sets"]) == {"chantier-a", "chantier-b"})
+      manuels() == {"chantier-a", "chantier-b"})
+check("RM2953 : et elle figure toujours au registre",
+      "default" in ka._sessions_view({}, {"user": None})[0]["sets"])
 ka.op_session_set_delete({"group": "chantier-b", "sid": "6001"}, {"user": None})
-check("RM2445 : retirée d'un jeu, elle reste dans l'autre",
-      ka._sessions_view({}, {"user": None})[0]["sets"] == ["chantier-a"])
+check("RM2445 : retirée d'un jeu, elle reste dans l'autre", manuels() == {"chantier-a"})
 
 # adhésion automatique : le statut fait ENTRER, jamais SORTIR (invariant RM2439)
+# RM2953 : la cible est le REGISTRE (`default`), plus le jeu courant — celui-ci
+# est redevenu un filtre d'affichage.
 ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
 avant_b = {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]}
+avant_reg = {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]}
 LIVE["6003"] = {"engine": "claude", "session_id": "uuid-6003", "cwd": "/zfs/z", "model": None}
-ka._auto_join_current_set("6003", {"user": None})
+ka._auto_join_active_set("6003", {"user": None})
 apres_b = {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]}
-check("RM2445 : une session lancée rejoint le jeu courant", apres_b == avant_b | {"6003"})
-ka._auto_join_current_set("6003", {"user": None})
+apres_reg = {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]}
+check("RM2953 : une session lancée entre au registre", apres_reg == avant_reg | {"6003"})
+check("RM2953 : et PAS dans le jeu courant", apres_b == avant_b)
+ka._auto_join_active_set("6003", {"user": None})
 check("RM2445 : adhésion idempotente (pas de doublon)",
-      len(ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]) == len(apres_b))
+      len(ka.op_session_set_get({}, {"user": None})["entries"]) == len(apres_reg))
 del LIVE["6003"]                                   # la session s'arrête
-check("RM2445 : une session arrêtée RESTE dans le jeu (tuile grise, RM2439)",
-      "6003" in {e["sid"] for e in ka.op_session_set_get({"group": "chantier-b"}, {"user": None})["entries"]})
+check("RM2445 : une session arrêtée RESTE inscrite (tuile grise, RM2439)",
+      "6003" in {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]})
 check("RM2445 : le jeu voisin n'a pas bougé",
       {e["sid"] for e in ka.op_session_set_get({"group": "chantier-a"}, {"user": None})["entries"]} == {"6001"})
 
@@ -748,12 +773,13 @@ def _derniere_version():
 
 avant = _derniere_version()
 LIVE["6004"] = {"engine": "claude", "session_id": "uuid-6004", "cwd": "/zfs/w", "model": None}
-ka._auto_join_current_set("6004", {"user": None})
+ka._auto_join_active_set("6004", {"user": None})
 ka.op_session_set_current({"group": "chantier-a"}, {"user": None})
 check("RM2445 : adhésion et bascule n'entament pas l'historique",
       _derniere_version() == avant)
 ka.op_session_set_current({"group": "chantier-b"}, {"user": None})
-ka.op_session_set_delete({"group": "chantier-b", "sid": "6004"}, {"user": None})
+del LIVE["6004"]      # RM2953 : le registre refuse de lâcher une session VIVANTE
+ka.op_session_set_delete({"sid": "6004"}, {"user": None})
 check("RM2445 : une écriture DESTRUCTRICE archive toujours",
       _derniere_version() != avant)
 
@@ -796,9 +822,12 @@ check("RM2446 : vue `all` — aucun doublon",
 check("RM2446 : changer de vue ne déplace pas le jeu courant",
       ka._current_set("superadmin") == "vue-a")
 LIVE["7003"] = {"engine": "claude", "session_id": "uuid-7003", "cwd": "/zfs/r", "model": None}
-ka._auto_join_current_set("7003", {"user": None})
-check("RM2446 : une session lancée depuis une vue rejoint le JEU courant",
-      "7003" in {e["sid"] for e in ka.op_session_set_get({"group": "vue-a"}, {"user": None})["entries"]})
+ka._auto_join_active_set("7003", {"user": None})
+check("RM2953 : une session lancée depuis une vue entre au REGISTRE",
+      "7003" in {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]})
+check("RM2953 : le jeu courant, lui, ne reçoit rien",
+      "7003" not in {e["sid"] for e in
+                     ka.op_session_set_get({"group": "vue-a"}, {"user": None})["entries"]})
 
 # choisir un jeu, c'est vouloir le regarder → retour en vue `set`
 ka.op_session_set_current({"group": "vue-b"}, {"user": None})
@@ -823,8 +852,11 @@ LIVE.clear(); LIVE.update({"7002": {"engine": "claude", "session_id": "uuid-7002
 ka.op_session_set_delete({"group": "vue-b", "sid": "7002"}, {"user": None})
 check("RM2446 : retirer du jeu ne ferme pas la session (elle tourne toujours)",
       "7002" in LIVE and "7002" in {s["rm_id"] for s in ka._sessions_view({}, {"user": None})})
-check("RM2446 : retirée de tout jeu, elle est signalée « hors jeu » (sets vide)",
-      next(s for s in ka._sessions_view({}, {"user": None}) if s["rm_id"] == "7002")["sets"] == [])
+# RM2953 : une session VIVANTE n'est plus jamais « hors jeu » — le registre la
+# tient. Retirée de tous les jeux MANUELS, il lui reste `default`.
+check("RM2953 : retirée des jeux manuels, elle reste au registre",
+      next(s for s in ka._sessions_view({}, {"user": None})
+           if s["rm_id"] == "7002")["sets"] == ["default"])
 
 # en vue `live` / `all`, tout ce qui est affiché appartient à la vue
 ka.op_session_set_current({"view": "live"}, {"user": None})
@@ -990,21 +1022,23 @@ check("RM2449 : après le refus, source ET cible sont intacts",
       and {e["sid"] for e in ka.op_session_set_get({"group": "dst-jeu"}, {"user": None})["entries"]} == dst_avant)
 ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_SAVE
 
-# ── RM2450 : le jeu PLEIN remonte à l'appelant (il finissait sur stderr) ──────
+# ── RM2450/RM2953 : ce que l'adhésion automatique remonte à l'appelant ───────
+# Le refus « plein » (RM2450) portait sur le jeu courant. Le registre n'a plus de
+# plafond : ce refus ne peut plus s'y produire — il reste vrai des écritures
+# MANUELLES (op_session_set_save/create/move, 409, testés plus haut). Ce qui
+# compte ici : l'adhésion ne perd plus rien en silence.
 LIVE.clear()
-ka.op_session_set_create({"group": "plein", "label": "Plein"}, {"user": None})
 ka.SESSION_SET_MAX_KEEP = ka.SESSION_SET_MAX
 ka.SESSION_SET_MAX = 2
 LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/u", "model": None}
              for s in ("9201", "9202", "9203")})
-for s in ("9201", "9202"):
-    check(f"RM2450 : {s} rejoint le jeu courant", ka._auto_join_current_set(s, {"user": None})["joined"] is True)
-r = ka._auto_join_current_set("9203", {"user": None})
-check("RM2450 : jeu plein ⇒ refus EXPLICITE remonté (plus de stderr muet)",
-      r["joined"] is False and r["reason"] == "plein" and r["max"] == 2)
-check("RM2450 : et la session n'est pas entrée dans le jeu",
-      "9203" not in {e["sid"] for e in ka.op_session_set_get({"group": "plein"}, {"user": None})["entries"]})
-r = ka._auto_join_current_set("9201", {"user": None})
+for s in ("9201", "9202", "9203"):
+    check(f"RM2953 : {s} entre au registre malgré le plafond des jeux",
+          ka._auto_join_active_set(s, {"user": None})["joined"] is True)
+check("RM2953 : les trois y sont",
+      {"9201", "9202", "9203"} <=
+      {e["sid"] for e in ka.op_session_set_get({}, {"user": None})["entries"]})
+r = ka._auto_join_active_set("9201", {"user": None})
 check("RM2450 : une session déjà présente est signalée comme telle",
       r["joined"] is False and r["reason"] == "deja")
 ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_KEEP
@@ -1116,8 +1150,23 @@ for call, why in (
         check(f"RM2452 : {why} sur un jeu dérivé → 400", False)
     except ka.ApiError as e:
         check(f"RM2452 : {why} sur un jeu dérivé → 400", e.code == 400)
-check("RM2452 : l'adhésion automatique ne touche pas un jeu dérivé",
-      ka._auto_join_current_set("7103", {"user": None})["reason"] == "derive")
+# RM2953 : l'adhésion vise le REGISTRE, pas le jeu courant — un jeu dérivé
+# COURANT ne la bloque donc plus (c'était le bug : plus rien n'était enregistré).
+# Le refus « derive » ne subsiste que si `default` LUI-MÊME porte une règle.
+check("RM2953 : un jeu dérivé courant ne bloque plus l'adhésion",
+      ka._auto_join_active_set("7103", {"user": None})["joined"] is True)
+_reg_sauve = ka._session_set_load()["users"]["superadmin"]["groups"].get("default")
+_courant = ka._current_set("superadmin")        # créer un jeu le rend courant (RM2447)
+ka.op_session_set_delete({}, {"user": None})
+ka.op_session_set_create({"group": "default", "rule": {"client": "calicote"}}, {"user": None})
+check("RM2452 : une règle posée sur le REGISTRE le rend intouchable, et on le dit",
+      ka._auto_join_active_set("7104", {"user": None})["reason"] == "derive")
+ka.op_session_set_delete({}, {"user": None})
+if _reg_sauve is not None:
+    _st = ka._session_set_load()
+    ka._session_set_put(_st, "superadmin", "default", _reg_sauve)
+    ka._write_session_set(_st, archive=False)
+ka.op_session_set_current({"group": _courant}, {"user": None})
 
 # matérialiser : le meilleur des deux
 m = ka.op_session_set_materialize({"group": "der-cal"}, {"user": None})
@@ -1138,18 +1187,17 @@ AGES.update({"u7101": time.time() - 40 * 86400, "u7102": time.time() - 1 * 86400
              "u7104": time.time() - 60 * 86400})
 g = ka.op_session_set_get({"group": "der-cal"}, {"user": None})
 check("RM2452 : par défaut, aucune rétention", g["hide_idle_days"] == 0)
-check("RM2452 : par défaut, rien n'est masqué",
-      len(ka._ghost_sessions({"user": None})) == 3)
+_gh = lambda **kw: [x for x in ka._ghost_sessions({"user": None}, **kw)
+                    if x["group"] == "der-cal"]   # RM2953 : hors registre
+check("RM2452 : par défaut, rien n'est masqué", len(_gh()) == 3)
 ka.op_session_set_retention({"group": "der-cal", "days": 30}, {"user": None})
 check("RM2452 : rétention activée ⇒ les inactives sortent de l'AFFICHAGE",
-      {x["rm_id"] for x in ka._ghost_sessions({"user": None})} == {"7102"})
+      {x["rm_id"] for x in _gh()} == {"7102"})
 check("RM2452 : mais elles RESTENT dans le jeu (masquer ≠ supprimer)",
       len(ka.op_session_set_get({"group": "der-cal"}, {"user": None})["entries"]) == 3)
-check("RM2452 : on les revoit à la demande",
-      len(ka._ghost_sessions({"user": None}, show_old=True)) == 3)
+check("RM2452 : on les revoit à la demande", len(_gh(show_old=True)) == 3)
 ka.op_session_set_retention({"group": "der-cal", "days": 0}, {"user": None})
-check("RM2452 : rétention désactivable",
-      len(ka._ghost_sessions({"user": None})) == 3)
+check("RM2452 : rétention désactivable", len(_gh()) == 3)
 for bad in (-1, "beaucoup", None):
     try:
         ka.op_session_set_retention({"group": "der-cal", "days": bad}, {"user": None})
@@ -1374,7 +1422,7 @@ ka._has_session = lambda sid: False
 ka._start_session_tmux = lambda sid, cmd, cwd, w, h, extra: STARTED.append((sid, cmd, str(cwd)))
 ka._record_run = lambda *a, **k: None
 ka._record_key = lambda *a, **k: None
-ka._auto_join_current_set = lambda sid, ctx=None: None
+ka._auto_join_active_set = lambda sid, ctx=None: None
 ka._resolve_cwd = lambda cwd: pathlib.Path(cwd or "/")
 (STORE / "slug").mkdir(parents=True, exist_ok=True)
 (STORE / "slug" / "aaaa1111-2222-3333-4444-555566667777.jsonl").write_text('{"cwd":"/zfs/matnat/infra"}\n', encoding="utf-8")

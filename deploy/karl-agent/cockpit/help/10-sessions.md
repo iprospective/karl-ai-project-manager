@@ -55,9 +55,16 @@ ensemble) :
   mémorisé). Une session qui **tourne** reste toujours affichée, ticket fermé ou
   non. Pour retrouver une conversation ainsi masquée : carte
   **« Reprendre une session »**, qui liste les transcripts eux-mêmes.
+- Le jeu **« sessions actives »** (slug `default`) est le **registre** : il n'est
+  pas composé à la main. Une session y entre à sa création et à sa reprise, quel
+  que soit le jeu que tu regardes, et n'en sort qu'une fois marquée ✅ terminé
+  **et** éteinte. Une session marquée terminée qui tourne encore y reste. Il n'a
+  pas de plafond, et ⊖ y est refusé sur une session vivante — elle y reviendrait
+  au tour suivant.
 - **＋ jeu** crée un jeu : critères laissés vides = jeu **manuel** (peuplé, si tu
   le veux, des sessions affichées) ; au moins un critère (client, projet, marque,
-  tickets) = jeu **dérivé**, dont le contenu se calcule tout seul.
+  tickets) = jeu **dérivé**, dont le contenu se calcule tout seul. Ces jeux-là,
+  eux, gardent le plafond de 24 entrées.
 - **☑** passe en sélection, pour choisir les sessions une à une.
 - **💾 → <jeu>** verse les sessions affichées dans le jeu nommé sur le bouton.
 - Options par jeu : autostart, rétention d'affichage, effacer.

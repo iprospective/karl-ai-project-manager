@@ -34,6 +34,10 @@ def check(name, cond):
 started = []
 recorded = []
 ka._has_session = lambda rm_id: False
+# RM2951 : /spawn et /resume vérifient que la session a SURVÉCU avant de
+# répondre « créée ». Point de mesure distinct de la garde « déjà active »,
+# que ce harnais fige à False pour pouvoir enchaîner les lancements.
+ka._session_started = lambda rm_id: True
 ka._start_session_tmux = lambda rm_id, cmd, cwd, w, h, env: started.append((rm_id, cmd))
 ka._resolve_cwd = lambda c: pathlib.Path(c or "/zfs/workspaces")
 ka._record_run = lambda *a, **k: recorded.append(("run", a))

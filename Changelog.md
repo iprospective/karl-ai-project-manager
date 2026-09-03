@@ -192,6 +192,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
+  l'opérateur. La largeur d'abord : l'onglet conversation était posé en
+  `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])
+  ne réduisait plus rien sous 460 px tant que cet onglet était actif — un plancher
+  muet, qui se lit comme un réglage cassé. Les 460 px deviennent le **défaut** du
+  `var()` : une largeur réglée gagne, et « réinitialiser » retire la variable au lieu
+  d'y écrire 330 px en dur (sinon le défaut de l'onglet conversation disparaissait
+  aussi). Le repli ensuite : attacher une session déplie la colonne, et cela arrive
+  tout seul — après un spawn, une relance, au rechargement. Un panneau replié à la
+  main se rouvrait donc sans cesse. `rightPanelReduce` distingue maintenant le repli
+  **voulu** du repli par défaut : une ouverture automatique (`show` sans onglet) le
+  respecte, une demande ciblée (ce ticket, ce fichier) déplie comme avant, et le
+  repli automatique de fin de session ne décide rien à la place de l'opérateur.
 - **Un spawn ne répond plus à la place du moteur** (RM2951). Lancer une session sur un
   dossier que le moteur n'avait jamais ouvert donnait une session **morte-née** : claude
   s'arrête sur son garde-fou (« Is this a project you created or one you trust? », curseur

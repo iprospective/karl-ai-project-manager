@@ -738,42 +738,64 @@ const _rpr = vm.runInNewContext("(" + fRp[1] + ")");
 // l'objet rendu vient d'un autre realm : on le recopie ici pour comparer
 const rightPanelReduce = (s, a) => ({ ..._rpr(s, a) });
 
-const replie = { tab: "outline", collapsed: true };
-const ouvert = { tab: "outline", collapsed: false };
+// RM2952 : l'état porte désormais `manual` — le repli VOULU, distinct du repli
+// par défaut. Les états attendus le disent tous explicitement.
+const replie = { tab: "outline", collapsed: true, manual: false };
+const ouvert = { tab: "outline", collapsed: false, manual: false };
 assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "tickets" }),
-  { tab: "tickets", collapsed: false }, "replié : sélectionner un onglet déplie dessus");
+  { tab: "tickets", collapsed: false, manual: false }, "replié : sélectionner un onglet déplie dessus");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "tickets" }),
-  { tab: "tickets", collapsed: false }, "ouvert : changer d'onglet ne replie pas");
+  { tab: "tickets", collapsed: false, manual: false }, "ouvert : changer d'onglet ne replie pas");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "outline" }),
-  { tab: "outline", collapsed: true }, "ouvert : re-sélectionner l'onglet actif replie");
+  { tab: "outline", collapsed: true, manual: true }, "ouvert : re-sélectionner l'onglet actif replie");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show" }),
   ouvert, "show sans onglet : déplie sans arracher l'onglet courant");
 assert.deepStrictEqual(rightPanelReduce({ tab: "outline", collapsed: true }, { type: "show" }),
   ouvert, "show sans onglet depuis replié : déplie sur l'onglet mémorisé");
 assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show", tab: "tickets" }),
-  { tab: "tickets", collapsed: false }, "show ciblé : l'onglet demandé passe devant");
+  { tab: "tickets", collapsed: false, manual: false }, "show ciblé : l'onglet demandé passe devant");
 assert.deepStrictEqual(rightPanelReduce({ tab: "tickets", collapsed: false }, { type: "collapse" }),
-  { tab: "tickets", collapsed: true }, "collapse garde l'onglet en mémoire");
+  { tab: "tickets", collapsed: true, manual: false }, "collapse garde l'onglet en mémoire");
 assert.deepStrictEqual(rightPanelReduce(replie, { type: "toggle" }), ouvert, "toggle déplie");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "toggle" }), replie, "toggle replie");
+assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "toggle" }),
+  { tab: "outline", collapsed: true, manual: true }, "toggle replie");
+
+// RM2952 — le repli VOULU tient tête aux ouvertures automatiques. Attacher une
+// session déplie la colonne (`show` sans onglet), et cela arrive tout seul :
+// après un spawn, une relance, au rechargement. Un panneau replié à la main se
+// rouvrait donc sans cesse — le bouton de repli paraissait inopérant.
+const repliVoulu = { tab: "outline", collapsed: true, manual: true };
+assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "show" }), repliVoulu,
+  "repli voulu : une ouverture automatique (attache) ne le défait pas");
+assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "show", tab: "tickets" }),
+  { tab: "tickets", collapsed: false, manual: false },
+  "repli voulu : mais une demande CIBLÉE (ce ticket, ce fichier) déplie");
+assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "toggle" }),
+  { tab: "outline", collapsed: false, manual: false },
+  "repli voulu : le rouvrir à la main lève la consigne");
+assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "collapse" }), repliVoulu,
+  "un repli automatique (plus de session) ne décide rien à la place de l'opérateur");
+assert.deepStrictEqual(rightPanelReduce(replie, { type: "show" }), ouvert,
+  "replié par DÉFAUT (jamais touché) : l'attache déplie comme avant");
+
 // RM2579 : trois onglets, défaut « infos », migration de l'ancien « meta »
-assert.deepStrictEqual(rightPanelReduce(null, {}), { tab: "infos", collapsed: true },
+assert.deepStrictEqual(rightPanelReduce(null, {}), { tab: "infos", collapsed: true, manual: false },
   "état absent → replié sur infos (défaut RM2579)");
 assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: false }, {}),
-  { tab: "infos", collapsed: false }, "legacy « meta » (ancien localStorage) → infos");
+  { tab: "infos", collapsed: false, manual: false }, "legacy « meta » (ancien localStorage) → infos");
 assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: true }, { type: "show" }),
-  { tab: "infos", collapsed: false }, "legacy « meta » migré aussi via show");
-assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", collapsed: true },
+  { tab: "infos", collapsed: false, manual: false }, "legacy « meta » migré aussi via show");
+assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", collapsed: true, manual: false },
   "onglet inconnu → infos");
 // « state » (🗒 état, RM2466 volet 2 mergé en parallèle) est un onglet VALIDE :
 // il ne doit PAS être normalisé vers infos (régression corrigée).
 assert.deepStrictEqual(rightPanelReduce({ tab: "state", collapsed: false }, {}),
-  { tab: "state", collapsed: false }, "onglet state préservé (pas de normalisation)");
+  { tab: "state", collapsed: false, manual: false }, "onglet state préservé (pas de normalisation)");
 assert.deepStrictEqual(rightPanelReduce({ tab: "files", collapsed: false }, {}),
-  { tab: "files", collapsed: false }, "onglet files (RM2586) est un onglet valide");
+  { tab: "files", collapsed: false, manual: false }, "onglet files (RM2586) est un onglet valide");
 assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "state" }),
-  { tab: "state", collapsed: false }, "select state : déplie sur état");
-console.log("✓ colonnes (RM2466/2579) : 4 onglets (dont état), défaut infos, legacy meta→infos");
+  { tab: "state", collapsed: false, manual: false }, "select state : déplie sur état");
+console.log("✓ colonnes (RM2466/2579/2952) : 4 onglets, défaut infos, legacy meta→infos, repli voulu respecté");
 
 // structure : les deux asides empilés ont bien fusionné en une colonne à onglets
 assert(!/class="metapanel|class="outpanel|id="metapanel"|id="outpanel"/.test(html),
@@ -1184,6 +1206,20 @@ assert.strictEqual(clampWidth(100), 240, "sous le min -> 240");
 assert.strictEqual(clampWidth(2000), 900, "au-dessus du max -> 900");
 assert.strictEqual(clampWidth("abc"), 330, "non numerique -> defaut");
 console.log("\u2713 clampWidth (RM2599) : largeur bornee [240,900], defaut si invalide");
+
+// — RM2952 : la largeur RÉGLÉE prime sur le confort par défaut —
+// `max(--rpanel-w, 460px)` imposait un plancher de 460 px sur l'onglet
+// conversation : la poignée ne réduisait plus rien en dessous, et le réglage
+// passait pour cassé. Le défaut de 460 px vit désormais dans le `var()`.
+assert(/\.rpanel\.wide \{ width: var\(--rpanel-w, 460px\); \}/.test(html),
+  "onglet conversation : 460px en DÉFAUT de --rpanel-w, jamais en plancher");
+assert(!/\.rpanel\.wide \{ width: max\(/.test(html),
+  "plus de max() : il rendait la poignée inopérante sous 460px");
+assert(/function rResetWidth\(\)[\s\S]*?removeProperty\("--rpanel-w"\)/.test(html),
+  "réinitialiser RETIRE la largeur (sinon 330px figerait aussi l'onglet conversation)");
+assert(!/function rResetWidth\(\)[\s\S]*?setRightWidth\(R_WIDTH_DEFAULT\)/.test(html),
+  "réinitialiser n'écrit plus 330px en dur");
+console.log("\u2713 largeur du panneau (RM2952) : le réglage prime, le défaut reste un défaut");
 
 // — outByKind (RM2601) : filtre de vue de la conversation —
 const fBk = />>> outByKind[\s\S]*?(function outByKind[\s\S]*?)\n\/\/ <<< outByKind/.exec(html);

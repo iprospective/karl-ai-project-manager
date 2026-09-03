@@ -2837,8 +2837,9 @@ function renderGhostItem(s, r, it) {
   it.title = "Session enregistrée — non démarrée\n" +
     (s.engine ? "moteur : " + s.engine + "\n" : "") +
     (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
-    (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
-    "\n(clic : relancer cette session)";
+    // RM2949 : dire l'état RÉEL de la conversation, et ce que le clic fera d'elle
+    (s.resumable ? "conversation mémorisée\n(clic : reprendre cette session)"
+                 : "conversation perdue (purgée)\n(clic : ouvrir une session neuve dans ce dossier)");
   // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
   const gtag = (currentView === "all" && s.group_label)
     ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
@@ -2950,20 +2951,27 @@ async function dropFromSet(s) {
 // serveur retrouve seul rm_id / cwd / modèle ; on ne les lui dicte plus.
 async function relaunchGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  const lines = ["Relancer la session " + label + " ?", ""];
+  // RM2949 : conversation perdue ⇒ il n'y a RIEN à reprendre. On ne propose donc
+  // plus une reprise vouée au 410 (« relance impossible » après confirmation) :
+  // le seul geste qui reste est une session neuve dans le même dossier, annoncée
+  // comme telle AVANT — c'est ce que l'opérateur accepte ou refuse.
+  const neuve = !s.resumable;
+  const lines = [(neuve ? "Ouvrir une session NEUVE pour " : "Relancer la session ")
+                 + label + " ?", ""];
   if (s.engine) lines.push("moteur : " + s.engine);
   if (s.cwd) lines.push("dossier : " + s.cwd);
   if (s.model) lines.push("modèle : " + s.model);
-  lines.push("", s.resumable
-    ? "La conversation enregistrée sera reprise."
-    : "Aucune conversation mémorisée : sans l'option « recréer une session neuve », la relance échouera.");
+  lines.push("", neuve
+    ? "La conversation enregistrée n'existe plus (purgée) : rien à reprendre.\n"
+      + "Une session neuve démarrera dans ce dossier, SANS le contexte d'avant."
+    : "La conversation enregistrée sera reprise.");
   if (!window.confirm(lines.join("\n"))) return;
-  toast("▶ relance de " + label + "…");
+  toast("▶ " + (neuve ? "session neuve pour " : "relance de ") + label + "…");
   try {
     const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engine: s.engine || undefined, session_id: s.session_id || undefined,
-                             rm_id: s.rm_id, spawn: sessionSetSpawn }),
+                             rm_id: s.rm_id, spawn: neuve || sessionSetSpawn }),
     });
     toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
     setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
@@ -2983,7 +2991,10 @@ async function loadSessionSet() {
       return;
     }
     const rows = r.entries.map(e => {
-      const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
+      // RM2949 : « reprenable » se juge sur la conversation, que le serveur a
+      // vérifiée (`resumable`) — un identifiant mémorisé ne prouve rien : le
+      // transcript a pu être purgé, et la reprise échouerait.
+      const st = e.alive ? "🟢 active" : (e.resumable ? "🟡 reprenable" : "🔴 perdue");
       const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
       // RM2427 : par entrée — ⟳/⏸ règle la reprise, ✕ retire du jeu
       // RM2673 : ni l'un ni l'autre sur un jeu DÉRIVÉ — la règle décide du

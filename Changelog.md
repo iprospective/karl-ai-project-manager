@@ -192,6 +192,17 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **Une vue « toutes les sessions »** (RM2954). Les vues laissaient un angle mort, et la
+  question qui l'a révélé était la bonne : « les filtres par client montrent-ils toutes
+  les sessions actives du client, ou seulement celles dans des jeux ? ». Réponse : les
+  vues par client lisent l'**index des sessions**, pas les jeux — elles montrent donc
+  tout, mais d'**un seul client** ; c'est `all` qui trompe, en désignant « tous les
+  JEUX » et non toutes les sessions. Une session éteinte, hors jeu, sur un dossier dont
+  le client ne se résout pas n'apparaissait alors **nulle part** — 6 sessions sur les 66
+  connues, dans l'état actuel du parc. La nouvelle vue est la vue client **sans le
+  filtre client**, et sans plafond : une vue qui promet « toutes les sessions » et
+  s'arrête à 24 se contredirait. Les hygiènes de RM2949 (ticket fermé, rien à rouvrir)
+  s'y appliquent comme ailleurs.
 - **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
   l'opérateur. La largeur d'abord : l'onglet conversation était posé en
   `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])

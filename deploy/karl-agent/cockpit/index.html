@@ -2447,6 +2447,11 @@ async function refreshSessionSets() {
       '<optgroup label="vues">' +
         vopt("live", "▶ sessions ouvertes (" + (r.live_count || 0) + ")") +
         vopt("all", "⧉ tous les jeux (" + (r.all_count || 0) + ")") +
+        // RM2954 : « tous les jeux » ne montre que ce qui est ENREGISTRÉ ; cette
+        // vue-ci montre tout ce que karl-agent connaît, tous clients confondus —
+        // y compris ce dont le client ne se résout pas, qui n'apparaissait
+        // jusqu'ici dans aucune vue.
+        vopt("sessions", "🗂 toutes les sessions (" + (r.sessions_count || 0) + ")") +
       '</optgroup>' +
       (cviews ? '<optgroup label="clients">' + cviews + '</optgroup>' : "") +
       '<optgroup label="jeux">' + (setsCache.length

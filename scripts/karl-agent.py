@@ -1918,7 +1918,7 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     return True
 
 
-def _derived_entries(rule: dict, with_total: bool = False):
+def _derived_entries(rule: dict, with_total: bool = False, cap: int | None = -1):
     """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
     l'aval (fantômes, relance, estimation) l'ignore et le traite pareil.
 
@@ -1958,7 +1958,12 @@ def _derived_entries(rule: dict, with_total: bool = False):
             "title": _transcript_title(k.get("session_id")),
             "restart": _default_restart(k.get("session_id")),
         })
-    return (out[:SESSION_SET_MAX], len(out)) if with_total else out[:SESSION_SET_MAX]
+    # RM2954 : `cap=-1` = le plafond des jeux (défaut historique) ; `cap=None` =
+    # aucun, pour une vue qui promet « toutes les sessions » et ne peut pas
+    # s'arrêter à 24 sans se contredire.
+    n = SESSION_SET_MAX if cap == -1 else cap
+    kept = out if n is None else out[:n]
+    return (kept, len(out)) if with_total else kept
 
 
 def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
@@ -2197,7 +2202,11 @@ def _current_set(user: str, store: dict | None = None) -> str:
 # cible de toutes les écritures — adhésion automatique, bouton « Enregistrer », ⊖ —,
 # tandis que la VUE (`view`) décide seulement de ce qu'on affiche. Une vue ne peut
 # donc jamais devenir une destination par accident.
-SESSION_SET_VIEWS = ("set", "live", "all")
+# RM2954 : « all » désigne tous les JEUX, « sessions » toutes les SESSIONS
+# connues. Deux périmètres distincts, et c'est bien le second qui manquait : la
+# seule vue qui allait au-delà des jeux (`client:<slug>`) reste bornée à un
+# client, et laisse donc de côté ce dont le client ne se résout pas.
+SESSION_SET_VIEWS = ("set", "live", "all", "sessions")
 _VIEW_CLIENT_RE = re.compile(r"^client:([a-z0-9][a-z0-9._-]{0,31})$")
 
 
@@ -2423,6 +2432,9 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     return {"user": user, "sets": sets, "count": len(sets),
             "current": _current_set(user, store), "view": _current_view(user, store),
             "live_count": len(live), "all_count": len(known | live),
+            # RM2954 : ce que montrera « toutes les sessions » — compté sur le
+            # même contenu que la vue, hygiènes comprises (RM2949).
+            "sessions_count": len(_derived_entries({}, cap=None)),
             # RM2452 : vues par client, offertes d'office pour les clients qui ONT
             # des sessions — rien à créer, rien à curer
             "facets": facets,
@@ -3253,15 +3265,19 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     if view == "live":
         return []
     m = _VIEW_CLIENT_RE.match(view)
-    if m:
+    if m or view == "sessions":
         # RM2452 : vue par client — un jeu dérivé qu'on n'a même pas eu à créer.
-        for e in _derived_entries({"client": m.group(1)}):
+        # RM2954 : « toutes les sessions » est la même chose sans le filtre client,
+        # et sans plafond : elle promet TOUTES les sessions connues.
+        rule = {"client": m.group(1)} if m else {}
+        label = m.group(1) if m else "toutes les sessions"
+        for e in _derived_entries(rule, cap=-1 if m else None):
             sid = e.get("sid")
             if not sid or sid in live or sid in seen:
                 continue
             seen.add(sid)
             g = dict(e, rm_id=sid, is_ticket=_is_ticket_sid(sid), ghost=True,
-                     state="ghost", group=view, group_label=m.group(1),
+                     state="ghost", group=view, group_label=label,
                      attached=False, created=None,
                      last_active=_transcript_age(e.get("session_id")),
                      # RM2949 : la conversation existe-t-elle ENCORE ? Un sid

@@ -77,7 +77,7 @@ ka._start_session_tmux = lambda rm_id, cmd, cwd, w, h, env: ALIVE["live"].add(rm
 ka._resolve_cwd = lambda c: pathlib.Path(c or "/zfs/workspaces")
 ka._record_run = lambda *a, **k: None
 ka._record_key = lambda *a, **k: keys.append(a)
-ka._auto_join_current_set = lambda sid, ctx=None: {"group": "default", "joined": True}
+ka._auto_join_active_set = lambda sid, ctx=None: {"group": "default", "joined": True}
 ka._apply_memory_limits = lambda name: None
 ka.op_send = lambda payload: sent.append(payload)
 ka._tmux = lambda *a: (enters.append(a) or (0, PANE["txt"], "")) if a[0] == "capture-pane" \

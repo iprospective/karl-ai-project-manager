@@ -192,6 +192,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **« default » devient le registre des sessions actives** (RM2953). L'adhésion
+  automatique (RM2445) visait le jeu COURANT. C'était juste tant qu'il était manuel ;
+  le jour où le jeu courant est devenu un jeu **dérivé** (`pm`), elle s'est mise à
+  répondre `reason: "derive"` — légitimement, une règle décide seule de son contenu —
+  et **plus aucune session n'a été enregistrée nulle part** : le registre est resté à
+  11 entrées pendant que les sessions défilaient. Le jeu courant redevient donc un pur
+  filtre d'AFFICHAGE, et `default` un registre unique : on y entre à la création et à
+  la reprise, on en sort quand la session est marquée `[DONE]` **et** éteinte (une
+  `[DONE]` qui tourne encore y reste — on n'escamote pas un processus vivant). Trois
+  conséquences assumées : le plafond de 24 ne s'y applique plus (un registre qui refuse
+  des entrées ment sur ce qui tourne, et le refus tomberait sur la session qu'on vient
+  de lancer ; les jeux manuels le gardent) ; les sessions vivantes absentes y sont
+  **rattrapées** au fil du poll, dans la même passe d'hygiène qui en évacue les `[DONE]`
+  éteintes ; et retirer (⊖) une session qui **tourne** est refusé avec son motif, parce
+  qu'elle reviendrait au poll suivant — un geste qui se défait n'est pas un geste
+  (RM2952). Le sélecteur l'annonce sous son nom, « sessions actives », plutôt que sous
+  le slug de stockage.
 - **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
   l'opérateur. La largeur d'abord : l'onglet conversation était posé en
   `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])

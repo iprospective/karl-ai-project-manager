@@ -49,11 +49,19 @@ def main():
     check("aucune checklist : 0/0", (tsu.count_unchecked(AUCUNE), tsu.count_checked(AUCUNE)), (0, 0))
 
     # Le placeholder est un cas à part : rien à cocher, tout à écrire.
-    check("placeholder reconnu", tsu.checklist_is_placeholder(PLACEHOLDER), True)
-    check("vrais critères ≠ placeholder", tsu.checklist_is_placeholder(VIDE), False)
-    check("placeholder + vrai critère ≠ placeholder pur",
-          tsu.checklist_is_placeholder(PLACEHOLDER_PLUS), False)
-    check("description vide ≠ placeholder", tsu.checklist_is_placeholder(""), False)
+    # RM2789 : la détection du gabarit ne vit plus ici. `checklist_is_placeholder` et sa
+    # regex locale ont été retirées au profit de `pm_markdown.placeholder_lines`, qui
+    # ignore les blocs de code et reconnaît les variantes — deux détecteurs, c'était deux
+    # vérités. Ce que garantissait l'ancienne fonction est reformulé sur le nouveau socle.
+    check("gabarit reconnu", tsu.count_placeholders(PLACEHOLDER), 1)
+    check("vrais critères ≠ gabarit", tsu.count_placeholders(VIDE), 0)
+    check("gabarit + vrai critère : le gabarit est isolé",
+          tsu.count_placeholders(PLACEHOLDER_PLUS), 1)
+    check("description vide : aucun gabarit", tsu.count_placeholders(""), 0)
+    # …et le gabarit n'est PLUS compté comme un critère non coché : c'était le blocage
+    # que RM2789 lève. Il a désormais sa propre garde, non contournable.
+    check("un gabarit seul ne compte plus comme critère non coché",
+          tsu.count_unchecked(PLACEHOLDER), 0)
     check("None ne casse pas", tsu.count_unchecked(None), 0)
 
     print()

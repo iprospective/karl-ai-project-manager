@@ -92,7 +92,11 @@ def test_gabarit_conditionne_dans_le_rendu():
     fm = {"redmine_id": 1}
     sans = pm_task_md.render_md(fm, "Une description sans critères.")
     assert sans.count("## Critères d'acceptation") == 1
-    assert "- [ ] (à compléter)" in sans
+    # RM2789 : le marqueur reste VISIBLE mais n'est plus une case à cocher — en case, il
+    # bloquait la livraison sans que personne puisse le cocher, et le seul contournement
+    # (`--allow-unchecked`) désarmait le garde-fou pour les VRAIS critères aussi.
+    assert "À définir" in sans, "le marqueur doit rester visible"
+    assert "- [ ]" not in sans, "…mais plus jamais sous forme de case à cocher"
     avec = pm_task_md.render_md(fm, "Blabla\n\n## Critères d'acceptation\n\n- [ ] un\n")
     assert avec.count("## Critères d'acceptation") == 1, "gabarit ajouté en double"
     assert "(à compléter)" not in avec

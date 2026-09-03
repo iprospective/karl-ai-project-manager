@@ -205,6 +205,10 @@ def main():
     ap.add_argument("--check-all", action="store_true", help="Coche tous les items de la checklist")
     ap.add_argument("--done-ratio", help="'auto' (depuis la checklist) ou entier 0-100")
     ap.add_argument("--set-from-file", help="Remplace toute la description par le contenu du fichier")
+    ap.add_argument("--drop-placeholders", action="store_true",
+                    help="Retire les items de checklist qui ne sont que des GABARITS "
+                         "(« (à compléter) », « à définir », « TBD ») — le chemin de sortie "
+                         "EXPLICITE quand le ticket n'a pas de critères à définir (RM2789)")
     ap.add_argument("--note", help="Texte de note additionnel (en plus de la note auto)")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--cross-project", action="store_true",
@@ -238,10 +242,25 @@ def main():
             out.warn(f"frontmatter de fiche PM retiré de {p.name} — seul le corps "
                      "est poussé (une description Redmine n'a pas de frontmatter).")
 
+    # RM2789 — le retrait des gabarits s'applique AVANT le reste, et se compose avec
+    # --set-from-file (sur le nouveau texte) comme sans lui (sur la description courante).
+    n_drop = 0
+    if args.drop_placeholders:
+        from pm_markdown import drop_placeholders
+        base = file_text if file_text is not None else desc
+        base, n_drop = drop_placeholders(base)
+        if not n_drop:
+            sys.exit(f"Rien à faire : RM{args.rm_id} ne porte aucun gabarit de critère "
+                     "« à compléter ».")
+        file_text = base
+
     # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
     new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(
         desc, file_text, check_idx, uncheck_idx, args.check_all)
-    if file_text is None and not changed and not args.done_ratio and not args.note:
+    if n_drop:
+        note_bits.append(f"retiré {n_drop} gabarit(s) de critère « à compléter »")
+    if file_text is None and not changed and not args.done_ratio and not args.note \
+            and not args.drop_placeholders:
         sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
                  "et pas de --done-ratio/--note.")
 

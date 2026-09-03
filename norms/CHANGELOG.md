@@ -1,5 +1,79 @@
 # Changelog des normes
 
+## [2.15.0] - 2026-09-02
+
+> Atterrissage groupé de deux tickets « à tester » restés en branche (RM2463, RM2563),
+> rebasés sur 2.14.0 après merge d'intégration. Renumérotation : le tripwire Zabbix,
+> écrit #15 à l'époque de la branche (base 1.65.0), devient **#16** — #15 est désormais
+> « Plomberie PM muette » (RM2929).
+
+### Ajouté
+- **KERNEL — tripwire #16 « Métriques avant conclusion (incidents) »** + ligne de
+  déclencheur associée renvoyant à `knowledge/zabbix/api.md`. Le parc est supervisé par
+  Zabbix (API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) mais **rien dans le KERNEL n'y
+  renvoyait** : un agent diagnostiquant un incident n'avait aucune raison de savoir que
+  des métriques historiques existaient, et concluait sur les seuls logs de la machine.
+  Principe posé : les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu**
+  l'être — un service engorgé cesse d'écrire (Apache journalise en fin de requête,
+  rsyslog affamé n'écrit plus), ce qui imite une panne réseau ; et un agent local qui
+  « mesure » quelque chose n'est pas fiable tant que Zabbix ne le corrobore pas.
+  Motif : **RM2455** (2026-07-30) — deux diagnostics successifs publiés puis réfutés
+  (coupure amont OVH ; puis saturation CPU sur la foi d'un agent local annonçant 97,51 %,
+  quand Zabbix mesurait 14,2 % max), avant que trois requêtes Zabbix ne donnent la cause
+  réelle (pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers`). (RM2463)
+- **Phase d'étude — proposition d'implémentation obligatoire** (RM2563). Le CDC
+  répondait au *quoi* et au *combien* mais laissait le *comment* implicite :
+  l'agent qui reprenait le ticket en `a_faire` **refaisait l'audit** déjà payé,
+  sans les conclusions acquises. Nouvelle § dans
+  `modules/status-workflow-pratique.md` : contenu attendu (modèle de données,
+  composants, **points d'insertion `fichier:fonction`**, vues, flux & déclencheurs,
+  migration, pièges), niveau de détail (**15 à 40 lignes ; l'esquisse oriente, elle
+  ne prescrit pas**), et condition de sortie de `etude_chiffrage_en_cours`.
+  **Exigée dès que l'étude débouche sur du code, sans exemption pour les petits
+  développements** — le rationnel n'est pas la taille de la tâche mais l'asymétrie
+  de compétence entre le modèle qui mène l'étude et celui qui implémente. Dispense :
+  tickets `audit` / `research` / `documentation` dont le livrable *est* l'étude.
+  Champ canonique : **CF Redmine 31 « Proposition d'implémentation »**, miroir
+  frontmatter `implementation`, outil **`pm-task-implementation`** (`--set`,
+  `--append`, `--from-description` pour migrer un CDC d'avant).
+  Cas déclencheur : RM2560 (calicote/dolibarr).
+- **Actions au déploiement enfin câblées** (RM2563). Le frontmatter `deploy_actions`
+  et le CF Redmine **8 « Actions au déploiement »** coexistaient depuis l'origine
+  **sans aucun lien** : le champ n'était qu'initialisé à `[]` (redmine-fetch-task,
+  pm_task_md, pm-project-bootstrap), jamais lu ni poussé — ce qu'on y écrivait ne
+  ressortait nulle part. Nouvelle § dans `modules/git-mep.md`, outil
+  **`pm-task-deploy`** (`--add` / `--set` / `--clear` / `--pull`), et **rappel de la
+  liste au passage en `a_mep`** : une action notée que personne ne relit au bon
+  moment ne sert à rien.
+- `scripts/pm_cf_mirror.py` — contrat commun « champ frontmatter ↔ CF Redmine »
+  (résolution de l'id par `.env` puis `redmine.reference.yml`, push **jamais fatal**,
+  pull pour rattraper une saisie faite dans l'UI web, sérialisation liste↔texte pour
+  `deploy_actions`, et **normalisation CRLF** — Redmine restitue les champs texte en
+  CRLF, sans quoi un contenu identique paraît différer à chaque lecture). Mutualise les
+  trois miroirs : `test_protocol`/CF 30, `implementation`/CF 31, `deploy_actions`/CF 8 —
+  `pm-task-protocol.py` recâblé dessus.
+- **Synchronisation Redmine → PM automatique** : `pm-task-sync` rapatrie désormais les
+  trois miroirs, pour rattraper une saisie faite dans l'UI web. Un CF **vide** ne remet
+  **jamais** le miroir local à zéro (« vide » = « pas d'information », pas « efface ») ;
+  le vidage volontaire passe par l'outil dédié, qui écrit les deux côtés.
+- `scripts/pm-cf-mirror-backfill.py` — **reprise de l'existant**, dry-run par défaut.
+  Règle cardinale : on ne remplace jamais du contenu par du vide, dans aucun sens, et un
+  désaccord entre les deux côtés est **signalé, pas tranché**. `--adopt-sections` reprend
+  les sections `## Implémentation` des CDC d'avant le CF 31 **sans toucher au corps**.
+
+### Modifié
+- Déclencheurs KERNEL : « je rédige un CDC » (→ proposition d'implémentation) et
+  mention de `pm-task-deploy` sur la ligne MEP.
+- `agents/worker-common.md` : § *Deux champs à tenir au fil de l'eau* (tous rôles) ;
+  `agents/worker-analyst.md` aligné.
+- `templates/task.md` : `deploy_actions` documenté + les deux champs miroirs signalés
+  comme « jamais à la main » ; `templates/RM9999_exemple-tache-complete.md` porte un
+  `implementation` rempli et deux `deploy_actions`.
+- `redmine.reference.yml` : CF 31 déclaré, `used_by` du CF 8 corrigé.
+- `pm-task-status-update.py` : avertissement **non bloquant** au passage en
+  `etude_chiffrage_a_valider` quand la proposition manque (même forme que le
+  garde-fou « protocole de test », RM2229).
+
 ## [2.14.0] - 2026-09-01
 
 ### Ajouté

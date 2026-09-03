@@ -65,6 +65,31 @@ symlinks n'est pas fiable).
 
 Respecter le `context_budget` du frontmatter.
 
+## Deux champs à tenir au fil de l'eau
+
+Ni l'un ni l'autre ne se rattrape après coup : ce qu'on ne note pas au moment où on le
+comprend est perdu. Tous deux ont un CF Redmine canonique et un miroir frontmatter —
+on n'écrit ni dans l'un ni dans l'autre à la main, on passe par l'outil.
+
+**Proposition d'implémentation** (`pm-task-implementation <id> --set -`). Quel que soit
+ton rôle, si tu produis un CDC en `etude_chiffrage_en_cours` et que l'étude **débouche
+sur du code**, tu poses l'esquisse technique issue de ton audit : modèle de données,
+composants, **points d'insertion `fichier:fonction`**, vues, flux, migration, pièges
+relevés. 15 à 40 lignes, elle **oriente sans prescrire**. Pas d'exemption pour les
+petits développements. Sans elle, l'agent qui reprend le ticket refait ton audit — et
+souvent avec un modèle moins capable que le tien. Détail, dispenses et condition de
+sortie : `norms/src/modules/status-workflow-pratique.md` § *La proposition
+d'implémentation*.
+
+**Actions au déploiement** (`pm-task-deploy <id> --add "…"`). C'est la **procédure de
+MEP de ton ticket** — une suite **ordonnée** d'étapes, pas un pense-bête : migration à
+jouer et dans quel ordre, constante à créer avant le premier passage, service à
+recharger, dépôt A avant dépôt B, rollback s'il ne se réduit pas au commit précédent.
+Tu l'écris **au moment où tu découvres l'étape**, pas à la livraison. Ce qui est
+systématique pour l'environnement n'y va pas : c'est `environments[].post_deploy`. Rien
+de particulier ⇒ liste **vide**, c'est une réponse. Cf. `norms/src/modules/git-mep.md`
+§ *Actions au déploiement*.
+
 ## Vérification initiale
 
 ```

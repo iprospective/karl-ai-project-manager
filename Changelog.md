@@ -14,6 +14,25 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Un env de dev ou de test PrestaShop ne se prend plus pour la production** (RM2932). Le
+  back-office des envs de recette affichait en permanence « Action requise : confirmez l'URL de
+  votre boutique ». Le réflexe — aligner `ps_shop_url` — ne pouvait pas marcher : le bandeau vient
+  de **ps_accounts**, qui compare l'URL enregistrée **chez PrestaShop Cloud** à celle de l'env,
+  et un clone hérite de l'identité de la boutique d'origine. L'écart est donc structurel, et le
+  bouton « confirmer » du bandeau est un piège : cliqué depuis un env de test, il **réassocie
+  l'identité cloud de la production au domaine de test**. En creusant, le bandeau s'est révélé le
+  symptôme visible d'un problème plus large — un clone porte aussi les **jetons marchands** de la
+  prod (compte PayPal `PS_CHECKOUT_PAYPAL_*`, identités Firebase, clés RSA de ps_accounts) : 41
+  clés d'identité mesurées sur la seule base de dev pisceen, et quatre modules cloud actifs. La
+  réponse est un script unique, `tools/env-runtime/presta-nonprod-sql.sh`, qui **émet du SQL sur
+  stdout sans jamais ouvrir de connexion** — c'est ce qui lui permet de servir les trois contextes
+  d'un même geste : le framework de synchro prod→local (`presta_adapt_db`), le clone par ticket de
+  `pm-env-session` (détection PrestaShop par `config/defines.inc.php`, appliqué **avant** le
+  `post_sql` du manifeste pour que celui-ci garde le dernier mot), et un env de recette distant
+  (`… | ssh <hôte> "mysql <db>"`). Il aligne le domaine, purge les identités cloud et désactive
+  les modules qui dialoguent avec ces services. Garde : il refuse de fabriquer son SQL pour un
+  domaine qui ne ressemble pas à du dev/test — le geste délie une boutique, joué sur une prod il
+  la casse.
 - **Créer un workspace ne demande plus de `sudo` interactif** (RM2909). Le modèle de perms
   multi-user verrouille la racine d'un workspace en `2750 pm:pm` — invariant voulu — mais
   personne n'avait outillé son corollaire : plus aucun dev ne peut y créer `repos/`,
@@ -28,6 +47,56 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   privilégié : dossiers et modes viennent de `pm-perms` (`--list-dirs` / `--apply`), le
   `.gitignore` de whitelist de `pm-env-init --print-gitignore`. Ligne de partage posée en
   norme : **structure = privilège, contenu = groupe**.
+- **`pm-task-doc` : adosser une doc partagée à un ticket, sans geste manuel** (RM1890, sous-tâche
+  de RM1856). La convention « un aspect par SUJET, jamais par ticket » (RM1856) était écrite depuis
+  juin et **jamais outillée** — résultat mesuré au moment de la livraison : sur 24 aspects du projet
+  `pm-ai-agents`, **12 n'avaient aucun frontmatter** et **9 portaient un RM-id dans leur slug**, alors
+  que ce slug **devient l'URL de la page wiki** et qu'un rename la casse. L'outil crée l'aspect depuis
+  le template partagé (RM1891) ou l'y rattache, maintient `related_tickets[]`, insère la référence
+  « Doc partagée » dans la description du ticket (via l'outil canonique, pas à la main), et publie au
+  wiki à la demande — le tout **idempotent**. Il **refuse** un slug portant un RM-id, et `--check`
+  audite la conformité de tous les aspects d'un projet. L'édition de `related_tickets[]` est
+  **textuelle et non par round-trip YAML** : un round-trip mangerait les commentaires de fin de ligne,
+  qui portent la moitié de l'information de la liste (test dédié). La dérivation du titre de page wiki
+  quitte `pm-wiki-sync` pour `pm_doc` : `pm-task-doc` doit produire la **même** URL pour poser le lien
+  **avant** le premier sync — deux copies, c'est deux URL le jour où la règle bouge.
+  ⚠ Reste dû : le **CF link** ticket→page wiki prévu par la convention § 3.3 n'est pas posé, faute de
+  champ dédié sur l'instance Redmine (les CF `link` existants sont « GIT PR » et « Environnement de
+  test »). L'outil le signale ; créer le champ est une opération d'instance.
+- **Feuille de temps : reconstituer les heures HUMAINES depuis les traces d'agents** (RM2890).
+  Le constat qui ouvre le chantier est mesurable : les saisies de temps de Mathieu passent de
+  118 en février à **9 en août**, et ces 9 portent sur du travail *non* assisté (réunions,
+  téléphone). Autrement dit, tout ce qui se fait avec Karl n'était plus facturable faute d'être
+  noté. `mmi-pm timesheet --month AAAA-MM` produit un compte rendu lisible et une **proposition
+  YAML amendable** ; après relecture, `--apply` crée les saisies Redmine, idempotent (une ligne
+  déjà posée porte sa marque et n'est jamais recréée). **Aucun modèle n'est appelé : 0 token**,
+  32 s pour rejouer un mois — le rejeu mensuel ne coûte que la relecture.
+  Les traces viennent de **sources déclarées**, locales ou distantes : transcripts Claude Code
+  (partagés hôte/conteneur par bind mount — `history.jsonl`, lui, ne l'est pas, et il manquait
+  **213 prompts en août**, soit 19,8 h), `history.jsonl` comme complément durable, bases
+  **opencode**, journaux `.log.md` des tickets. Un gisement non déclaré reste invisible : c'est
+  assumé, pas deviné. Le **filtre du bruit système** est structurel — sur les messages de rôle
+  `user` absents de l'historique, seuls **26 % sont humains** (le reste : skills injectées,
+  reprises de session, relances automatiques) ; sans lui le mois serait surévalué du double.
+  L'attribution au ticket **rejoue la cascade de `pm-task-tick`** plutôt que d'en réinventer une
+  (94,2 % des tours d'août attribués), complétée par les `.log.md` quand un transcript a été
+  purgé, et un ticket est toujours rattaché **à son propre projet** — un ticket appartient à un
+  seul projet, il le sait mieux que le répertoire courant.
+  Le temps se calcule par **union d'intervalles** `[t − rédaction ; t + suivi]` : le
+  chevauchement devient impossible **par construction** (134,9 h d'intervalles bruts en août pour
+  167,5 h mesurées — 80 % de recouvrement éliminé), et le plafond de suivi borne ce qui est
+  compté quand l'agent travaille seul. Le temps **transversal** (PM, infra, écosystèmes produit)
+  a trois destins selon la journée — refacturé aux clients du jour au prorata (semaine, heures
+  ouvrées, journée cliente), laissé interne le soir et le week-end, ou **proposé non compté** les
+  journées passées surtout sur du perso. Les **absences** déclarées écartent tout, mais
+  **remontent en évidence** les journées à activité cliente : « je n'étais pas là » et « rien n'a
+  été fait » ne sont pas la même chose. Deux invariants sont sous test — non-double-comptage (la
+  somme des lignes égale la mesure de l'union) et conservation (refacturation, clés multi-clients
+  et arrondi déplacent du temps sans en créer ni en perdre).
+  Le nom : `worklog` étant **déjà pris** par le suivi de session (cockpit, `pm-session-status`),
+  l'outil s'appelle `timesheet` — deux objets sans rapport sous un seul mot, c'est la définition
+  d'un piège. Configuration : `timesheet.example.yml` à copier en `timesheet.yml`.
+
 - **Cockpit : changer le statut d'un ticket depuis la fiche et depuis le worklog** (RM2888).
   Le geste existait mais restait cantonné : trois verdicts figés dans la console de test, une
   réouverture sur les tickets fermés — partout ailleurs il fallait sortir du cockpit pour une
@@ -190,6 +259,22 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   custom fields) : marche à suivre dans `knowledge/redmine/etiquettes.md`. Tant qu'il n'existe
   pas, tout fonctionne côté frontmatter et le push est annoncé comme non fait — jamais en
   silence.
+### Outillage
+- **Lisibilité du texte des tickets** (RM2789), deux défauts au même endroit.
+  **Le gabarit « (à compléter) » n'est plus une case à cocher** : posé en case, il bloquait
+  la livraison sans que personne puisse le cocher, et le seul recours (`--allow-unchecked`)
+  désarmait le garde-fou pour les **vrais** critères aussi — le contournement était plus
+  grossier que le problème. Le marqueur reste visible, il n'est plus comptable, et le
+  correctif vaut **rétroactivement** pour les tickets qui le portent déjà. `count_unchecked`
+  passe par `pm_markdown` : une checklist *citée* dans un bloc de code ne compte plus. Et
+  « aucun critère jamais défini » **avertit** au lieu de bloquer — ça ne dit rien de la
+  qualité d'une livraison, et bloquer là-dessus n'aurait fait qu'ancrer le réflexe
+  `--allow-unchecked`.
+  **Les paragraphes arrivent dé-enveloppés dans Redmine** : l'outillage compose du markdown
+  enveloppé à ~95 colonnes, or Redmine rend chaque retour à la ligne comme un `<br>`, d'où
+  des textes hachés. Le dé-enveloppement se fait au **point de passage unique** vers l'API
+  (une douzaine d'appelants : en oublier un aurait laissé le défaut revenir par une porte de
+  côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
 - **La carte « Sessions enregistrées » règle tous les jeux** (RM2955). Elle interrogeait

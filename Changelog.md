@@ -206,6 +206,23 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   l'écran, et la réponse porte `blocked` + `prompt_sent: false`, que le cockpit affiche.
   Enfin `/spawn` et `/resume` vérifient que la session a **survécu** à son démarrage avant de
   répondre « créée » — plus de 201 sur une session déjà éteinte.
+- **Les tuiles grises ne promettent plus une session introuvable** (RM2949). Le panneau
+  « ▶ en cours », vue par client, alignait des dizaines de sessions éteintes annoncées
+  « conversation mémorisée » : le clic partait en `/resume` et retombait sur « relance
+  impossible ». Deux causes, deux corrections. `resumable` ne disait que « un identifiant
+  est mémorisé », jamais « la conversation existe encore » — il lit désormais la **même
+  source que `/resume`** (transcript claude, base du moteur ailleurs), par le cache du
+  poll ; la tuile, la liste du jeu (🟡 reprenable / 🔴 perdue) et l'estimation du « tout
+  relancer » disent donc la même chose que le serveur fera. Et un clic sur une conversation
+  purgée ne propose plus une reprise vouée à l'échec : il annonce une **session neuve** dans
+  le même dossier, sans le contexte d'avant, et c'est cela que l'opérateur accepte. Côté
+  volume, une session éteinte dont le **ticket est fermé** sort des vues — le marqueur
+  `[DONE]` (RM2427) l'écartait déjà, mais il se pose à la main et ne l'était presque jamais :
+  9 des 24 tuiles d'une vue client portaient un ticket clos. Une session qui **tourne** reste
+  affichée, ticket fermé ou non : on n'escamote jamais un processus vivant. Effet de bord
+  corrigé au passage : `_transcript_info(sid, "claude")` empruntait la branche des moteurs
+  tiers, qui n'a pas de lecteur pour les transcripts claude — une conversation bien présente
+  y passait pour absente.
 - **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être
   montrées, elles ne servaient qu'aux filtres — personne ne savait ce qu'un ticket portait.
   La fiche du ticket les affiche (🏷) et chacune est **cliquable** : elle emmène vers la

@@ -400,7 +400,16 @@ check("fantômes : aucun processus démarré", SPAWNED == [] and ALIVE == {"3001
 check("fantômes : contexte de relance conservé (moteur, transcript, cwd, groupe)",
       by["3004"]["engine"] == "claude" and by["3004"]["session_id"] == "sd"
       and by["3004"]["cwd"] == "/zfs/d" and by["3004"]["group"] == "relance")
-check("fantômes : resumable suit la présence d'un transcript", by["3002"]["resumable"] is True)
+# RM2949 : `resumable` ne dit plus « un identifiant est mémorisé » mais « la
+# conversation existe encore » — « sb » n'a pas de transcript, la tuile ne doit
+# donc rien promettre que /resume refuserait.
+check("fantômes : resumable suit la présence RÉELLE de la conversation (RM2949)",
+      by["3002"]["resumable"] is False)
+_TI_REEL = ka._transcript_info
+ka._transcript_info = lambda sid, engine=None: ({"mtime": 1, "bytes": 42} if sid == "sb" else {})
+check("fantômes : conversation retrouvée ⇒ tuile reprenable (RM2949)",
+      {g["rm_id"]: g for g in ka._ghost_sessions({"user": None})}["3002"]["resumable"] is True)
+ka._transcript_info = _TI_REEL
 check("fantômes : client/projet résolus depuis le cwd (groupement cockpit)",
       (by["3004"].get("client"), by["3004"].get("project")) == ("acme", "shop"))
 
@@ -1003,7 +1012,7 @@ ka.SESSION_SET_MAX = ka.SESSION_SET_MAX_KEEP
 # ── RM2451 : âge, coût annoncé, retrait annulable ────────────────────────────
 LIVE.clear()
 TR = {}          # session_id → méta de transcript simulée
-ka._transcript_info = lambda sid: TR.get(sid, {})
+ka._transcript_info = lambda sid, engine=None: TR.get(sid, {})
 LIVE.update({s: {"engine": "claude", "session_id": "uuid-" + s, "cwd": "/zfs/v", "model": None}
              for s in ("9301", "9302", "9303")})
 TR["uuid-9301"] = {"mark": None, "title": "vieille", "mtime": 1_000_000, "bytes": 400_000}
@@ -1038,7 +1047,7 @@ ka.op_session_set_restore({"group": "cout", "id": r["undo"]}, {"user": None})
 check("RM2451 : annuler rétablit exactement l'entrée",
       {e["sid"] for e in ka.op_session_set_get({"group": "cout"}, {"user": None})["entries"]}
       == {"9301", "9302", "9303"})
-ka._transcript_info = lambda sid: {}
+ka._transcript_info = lambda sid, engine=None: {}
 
 # ── RM2452 : jeux DÉRIVÉS (règle) + rétention optionnelle ────────────────────
 # Le contenu se CALCULE : rien à curer, et une session neuve qui satisfait la

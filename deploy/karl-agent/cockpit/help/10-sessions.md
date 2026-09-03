@@ -44,7 +44,17 @@ ensemble) :
   « tous les jeux », ce qui est affiché n'est pas le jeu, et le geste écrirait
   ailleurs que là où on regarde.
 - Une **tuile grise** = session enregistrée mais non démarrée : clic pour la
-  relancer.
+  relancer. Son infobulle dit ce que le clic fera vraiment — *conversation
+  mémorisée* (elle sera **reprise**) ou *conversation perdue* (le transcript a
+  été purgé : une session **neuve** s'ouvrira dans le même dossier, sans le
+  contexte d'avant). Dans la liste du jeu, la même distinction se lit
+  🟡 reprenable / 🔴 perdue.
+- Ce que les vues **ne montrent plus** : les sessions éteintes dont le **ticket
+  est fermé** (le travail est fini, comme pour une session marquée ✅ terminé) et
+  celles dont il ne reste **rien à rouvrir** (ni conversation, ni dossier
+  mémorisé). Une session qui **tourne** reste toujours affichée, ticket fermé ou
+  non. Pour retrouver une conversation ainsi masquée : carte
+  **« Reprendre une session »**, qui liste les transcripts eux-mêmes.
 - **＋ jeu** crée un jeu : critères laissés vides = jeu **manuel** (peuplé, si tu
   le veux, des sessions affichées) ; au moins un critère (client, projet, marque,
   tickets) = jeu **dérivé**, dont le contenu se calcule tout seul.

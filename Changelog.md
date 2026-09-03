@@ -192,6 +192,19 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
+  l'opérateur. La largeur d'abord : l'onglet conversation était posé en
+  `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])
+  ne réduisait plus rien sous 460 px tant que cet onglet était actif — un plancher
+  muet, qui se lit comme un réglage cassé. Les 460 px deviennent le **défaut** du
+  `var()` : une largeur réglée gagne, et « réinitialiser » retire la variable au lieu
+  d'y écrire 330 px en dur (sinon le défaut de l'onglet conversation disparaissait
+  aussi). Le repli ensuite : attacher une session déplie la colonne, et cela arrive
+  tout seul — après un spawn, une relance, au rechargement. Un panneau replié à la
+  main se rouvrait donc sans cesse. `rightPanelReduce` distingue maintenant le repli
+  **voulu** du repli par défaut : une ouverture automatique (`show` sans onglet) le
+  respecte, une demande ciblée (ce ticket, ce fichier) déplie comme avant, et le
+  repli automatique de fin de session ne décide rien à la place de l'opérateur.
 - **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être
   montrées, elles ne servaient qu'aux filtres — personne ne savait ce qu'un ticket portait.
   La fiche du ticket les affiche (🏷) et chacune est **cliquable** : elle emmène vers la

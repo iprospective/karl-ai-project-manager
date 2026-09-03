@@ -457,8 +457,12 @@
   .rpanel { width: var(--rpanel-w, 330px); border-left: 1px solid var(--line); background: var(--panel);
     display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; position: relative; }
   .rpanel.collapsed { width: 34px; }
-  /* RM2579 : l'onglet conversation reste au moins aussi large (échanges lisibles) */
-  .rpanel.wide { width: max(var(--rpanel-w, 330px), 460px); }
+  /* RM2579 : l'onglet conversation est plus large par DÉFAUT (échanges lisibles).
+     RM2952 : par défaut seulement — `max(--rpanel-w, 460px)` imposait un plancher
+     de 460 px même à qui venait de régler la poignée à 300 : le panneau ne
+     bougeait plus, et le réglage passait pour cassé. Une largeur réglée gagne,
+     jusqu'à la borne de `clampWidth` ; sans réglage, on garde les 460 px. */
+  .rpanel.wide { width: var(--rpanel-w, 460px); }
   .rpanel.resizing { transition: none; user-select: none; }
   .rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.collapsed .rhandle { display: none; }
   /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
@@ -4633,23 +4637,39 @@ function rightPanelReduce(state, action) {
   // « state » = onglet 🗒 état (RM2466 volet 2), ajouté en parallèle de RM2579.
   const TABS = ["state", "infos", "tickets", "files", "git", "outline"];
   const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
+  // RM2952 : `manual` distingue le repli VOULU du repli par défaut. Sans lui, les
+  // deux se ressemblaient — et « déplier au besoin » écrasait le geste de
+  // l'opérateur. Absent d'un état déjà persisté = non voulu : comportement d'avant
+  // jusqu'au premier repli explicite.
   const cur = {
     tab: norm((state && state.tab) || "infos"),
     collapsed: !state || state.collapsed !== false,
+    manual: !!(state && state.manual),
   };
   const a = action || {};
-  if (a.type === "show") return { tab: norm(a.tab || cur.tab), collapsed: false };
-  if (a.type === "collapse") return { tab: cur.tab, collapsed: true };
-  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed };
+  if (a.type === "show") {
+    // Un `show` CIBLÉ (ce ticket, ce fichier) est une demande explicite : il déplie.
+    // Un `show` sans onglet est contextuel — attacher une session, et cela arrive
+    // tout seul (après un spawn, une relance, au rechargement) : il respecte un
+    // repli voulu, sinon le panneau se rouvrait sans cesse et le bouton de repli
+    // paraissait inopérant (RM2952).
+    if (!a.tab && cur.collapsed && cur.manual) return cur;
+    return { tab: norm(a.tab || cur.tab), collapsed: false, manual: false };
+  }
+  // `collapse` est automatique (plus de session attachée) : il replie sans rien
+  // décider à la place de l'opérateur — d'où `manual` conservé tel quel.
+  if (a.type === "collapse") return { tab: cur.tab, collapsed: true, manual: cur.manual };
+  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed, manual: cur.collapsed ? false : true };
   if (a.type === "select") {
     const tab = norm(a.tab || cur.tab);
-    return { tab, collapsed: cur.collapsed ? false : tab === cur.tab };
+    const collapsed = cur.collapsed ? false : tab === cur.tab;
+    return { tab, collapsed, manual: collapsed };
   }
   return cur;
 }
 // <<< rightPanelReduce
 
-let rightState = { tab: "infos", collapsed: true };
+let rightState = { tab: "infos", collapsed: true, manual: false };
 function applyRight() {
   const panel = document.getElementById("rpanel");
   panel.classList.toggle("collapsed", rightState.collapsed);
@@ -7056,7 +7076,9 @@ function rEndResize() {
   if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
 }
 function rResetWidth() {
-  setRightWidth(R_WIDTH_DEFAULT);
+  // RM2952 : on RETIRE la variable au lieu d'y écrire 330 px — sinon « réinitialiser »
+  // figeait aussi l'onglet conversation à 330, au lieu de lui rendre ses 460.
+  document.documentElement.style.removeProperty("--rpanel-w");
   try { localStorage.removeItem("karlRightWidth"); } catch (e) { /* privé */ }
   if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
 }

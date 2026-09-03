@@ -30,6 +30,15 @@ onglet temporaire, épingle-la pour la conserver.
 
 La colonne de droite affiche la session attachée : terminal, worklog, état.
 
+- **◨** la replie et la déplie. Un repli fait à la main **tient** : attacher une
+  session ne le défait plus (c'est une ouverture automatique, elle respecte ton
+  geste) ; ouvrir un ticket ou un fichier, si — tu as demandé à voir quelque
+  chose de précis. Au rechargement de la page, c'est le réglage « colonne de
+  droite au démarrage » (🔧 réglages) qui décide, pas le dernier état.
+- La **poignée** du bord gauche règle sa largeur (240 à 900 px), et ta largeur
+  s'applique à tous les onglets — l'onglet conversation ne prend ses 460 px par
+  défaut que si tu n'as rien réglé. « Réinitialiser » rend ces défauts.
+
 ## Les boutons d'aide
 
 - **🔓 déverrouiller** (en-tête) n'apparaît que si le coffre de secrets ou l'agent

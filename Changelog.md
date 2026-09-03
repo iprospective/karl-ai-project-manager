@@ -277,6 +277,50 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
+  l'opérateur. La largeur d'abord : l'onglet conversation était posé en
+  `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])
+  ne réduisait plus rien sous 460 px tant que cet onglet était actif — un plancher
+  muet, qui se lit comme un réglage cassé. Les 460 px deviennent le **défaut** du
+  `var()` : une largeur réglée gagne, et « réinitialiser » retire la variable au lieu
+  d'y écrire 330 px en dur (sinon le défaut de l'onglet conversation disparaissait
+  aussi). Le repli ensuite : attacher une session déplie la colonne, et cela arrive
+  tout seul — après un spawn, une relance, au rechargement. Un panneau replié à la
+  main se rouvrait donc sans cesse. `rightPanelReduce` distingue maintenant le repli
+  **voulu** du repli par défaut : une ouverture automatique (`show` sans onglet) le
+  respecte, une demande ciblée (ce ticket, ce fichier) déplie comme avant, et le
+  repli automatique de fin de session ne décide rien à la place de l'opérateur.
+- **Un spawn ne répond plus à la place du moteur** (RM2951). Lancer une session sur un
+  dossier que le moteur n'avait jamais ouvert donnait une session **morte-née** : claude
+  s'arrête sur son garde-fou (« Is this a project you created or one you trust? », curseur
+  sur « ❯ No, exit »), or `❯` figurait parmi les marqueurs de « TUI prêt » — karl-agent
+  croyait l'invite disponible, envoyait le prompt **puis Enter**, et cet Enter validait la
+  sortie. Le moteur quittait, la session tmux mourait, `POST /spawn` répondait quand même
+  **201**, et la clé enregistrée désignait une conversation qui n'a jamais existé (incident
+  RM2950, client matnat). Le catalogue des moteurs déclare désormais, à côté de ses
+  marqueurs de prêt, ses **marqueurs de blocage** ; `engine_pane_state()` les teste **en
+  premier** — un écran qui contient les deux est une question fermée, pas une invite. Un TUI
+  bloqué ne reçoit **ni prompt ni Enter** : la session reste vivante avec sa question à
+  l'écran, et la réponse porte `blocked` + `prompt_sent: false`, que le cockpit affiche.
+  Enfin `/spawn` et `/resume` vérifient que la session a **survécu** à son démarrage avant de
+  répondre « créée » — plus de 201 sur une session déjà éteinte.
+- **Les tuiles grises ne promettent plus une session introuvable** (RM2949). Le panneau
+  « ▶ en cours », vue par client, alignait des dizaines de sessions éteintes annoncées
+  « conversation mémorisée » : le clic partait en `/resume` et retombait sur « relance
+  impossible ». Deux causes, deux corrections. `resumable` ne disait que « un identifiant
+  est mémorisé », jamais « la conversation existe encore » — il lit désormais la **même
+  source que `/resume`** (transcript claude, base du moteur ailleurs), par le cache du
+  poll ; la tuile, la liste du jeu (🟡 reprenable / 🔴 perdue) et l'estimation du « tout
+  relancer » disent donc la même chose que le serveur fera. Et un clic sur une conversation
+  purgée ne propose plus une reprise vouée à l'échec : il annonce une **session neuve** dans
+  le même dossier, sans le contexte d'avant, et c'est cela que l'opérateur accepte. Côté
+  volume, une session éteinte dont le **ticket est fermé** sort des vues — le marqueur
+  `[DONE]` (RM2427) l'écartait déjà, mais il se pose à la main et ne l'était presque jamais :
+  9 des 24 tuiles d'une vue client portaient un ticket clos. Une session qui **tourne** reste
+  affichée, ticket fermé ou non : on n'escamote jamais un processus vivant. Effet de bord
+  corrigé au passage : `_transcript_info(sid, "claude")` empruntait la branche des moteurs
+  tiers, qui n'a pas de lecteur pour les transcripts claude — une conversation bien présente
+  y passait pour absente.
 - **Les étiquettes se voient et se comptent** (RM2832, chantier RM2828). Stockées sans être
   montrées, elles ne servaient qu'aux filtres — personne ne savait ce qu'un ticket portait.
   La fiche du ticket les affiche (🏷) et chacune est **cliquable** : elle emmène vers la

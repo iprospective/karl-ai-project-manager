@@ -457,8 +457,12 @@
   .rpanel { width: var(--rpanel-w, 330px); border-left: 1px solid var(--line); background: var(--panel);
     display: flex; flex-direction: column; min-height: 0; transition: width .15s; overflow: hidden; position: relative; }
   .rpanel.collapsed { width: 34px; }
-  /* RM2579 : l'onglet conversation reste au moins aussi large (échanges lisibles) */
-  .rpanel.wide { width: max(var(--rpanel-w, 330px), 460px); }
+  /* RM2579 : l'onglet conversation est plus large par DÉFAUT (échanges lisibles).
+     RM2952 : par défaut seulement — `max(--rpanel-w, 460px)` imposait un plancher
+     de 460 px même à qui venait de régler la poignée à 300 : le panneau ne
+     bougeait plus, et le réglage passait pour cassé. Une largeur réglée gagne,
+     jusqu'à la borne de `clampWidth` ; sans réglage, on garde les 460 px. */
+  .rpanel.wide { width: var(--rpanel-w, 460px); }
   .rpanel.resizing { transition: none; user-select: none; }
   .rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.collapsed .rhandle { display: none; }
   /* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
@@ -2778,6 +2782,15 @@ function warnSetFull(r) {
     toast("⚠ le jeu « " + setLabel(s.group) + " » est plein (" + s.max +
           ") : la session tourne mais n'y a PAS été enregistrée", true);
 }
+// RM2951 : tout ce qu'un lancement (spawn OU reprise) doit signaler. Point de
+// passage unique — un appelant de plus ne doit pas avoir à se souvenir de la
+// liste. `blocked` dit que le moteur attend une approbation dans la session : le
+// prompt n'est pas parti, et personne ne le verrait sans ce toast (la session
+// tourne, sa tuile est verte, elle a juste une question à l'écran).
+function warnSpawn(r) {
+  warnSetFull(r);
+  if (r && r.blocked) toast("⚠ " + r.blocked, true);
+}
 function onSetPick(v) {
   if (!v) return;
   if (v.startsWith("view:")) switchView(v.slice(5));
@@ -2837,8 +2850,9 @@ function renderGhostItem(s, r, it) {
   it.title = "Session enregistrée — non démarrée\n" +
     (s.engine ? "moteur : " + s.engine + "\n" : "") +
     (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
-    (s.resumable ? "conversation mémorisée" : "conversation perdue — exige l'option « recréer une session neuve »") +
-    "\n(clic : relancer cette session)";
+    // RM2949 : dire l'état RÉEL de la conversation, et ce que le clic fera d'elle
+    (s.resumable ? "conversation mémorisée\n(clic : reprendre cette session)"
+                 : "conversation perdue (purgée)\n(clic : ouvrir une session neuve dans ce dossier)");
   // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
   const gtag = (currentView === "all" && s.group_label)
     ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
@@ -2950,22 +2964,30 @@ async function dropFromSet(s) {
 // serveur retrouve seul rm_id / cwd / modèle ; on ne les lui dicte plus.
 async function relaunchGhost(s) {
   const label = (s.is_ticket === false ? "" : "RM") + s.rm_id;
-  const lines = ["Relancer la session " + label + " ?", ""];
+  // RM2949 : conversation perdue ⇒ il n'y a RIEN à reprendre. On ne propose donc
+  // plus une reprise vouée au 410 (« relance impossible » après confirmation) :
+  // le seul geste qui reste est une session neuve dans le même dossier, annoncée
+  // comme telle AVANT — c'est ce que l'opérateur accepte ou refuse.
+  const neuve = !s.resumable;
+  const lines = [(neuve ? "Ouvrir une session NEUVE pour " : "Relancer la session ")
+                 + label + " ?", ""];
   if (s.engine) lines.push("moteur : " + s.engine);
   if (s.cwd) lines.push("dossier : " + s.cwd);
   if (s.model) lines.push("modèle : " + s.model);
-  lines.push("", s.resumable
-    ? "La conversation enregistrée sera reprise."
-    : "Aucune conversation mémorisée : sans l'option « recréer une session neuve », la relance échouera.");
+  lines.push("", neuve
+    ? "La conversation enregistrée n'existe plus (purgée) : rien à reprendre.\n"
+      + "Une session neuve démarrera dans ce dossier, SANS le contexte d'avant."
+    : "La conversation enregistrée sera reprise.");
   if (!window.confirm(lines.join("\n"))) return;
-  toast("▶ relance de " + label + "…");
+  toast("▶ " + (neuve ? "session neuve pour " : "relance de ") + label + "…");
   try {
     const r = await api("/resume", {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ engine: s.engine || undefined, session_id: s.session_id || undefined,
-                             rm_id: s.rm_id, spawn: sessionSetSpawn }),
+                             rm_id: s.rm_id, spawn: neuve || sessionSetSpawn }),
     });
     toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
+    warnSpawn(r);                      // RM2951 : un moteur bloqué ne reste pas muet
     setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
   } catch (e) { toast("relance impossible : " + e.message, true); }
 }
@@ -2983,7 +3005,10 @@ async function loadSessionSet() {
       return;
     }
     const rows = r.entries.map(e => {
-      const st = e.alive ? "🟢 active" : (e.session_id ? "🟡 reprenable" : "🔴 perdue");
+      // RM2949 : « reprenable » se juge sur la conversation, que le serveur a
+      // vérifiée (`resumable`) — un identifiant mémorisé ne prouve rien : le
+      // transcript a pu être purgé, et la reprise échouerait.
+      const st = e.alive ? "🟢 active" : (e.resumable ? "🟡 reprenable" : "🔴 perdue");
       const label = (/^\d+$/.test(e.sid) ? "RM" : "") + esc(e.sid);
       // RM2427 : par entrée — ⟳/⏸ règle la reprise, ✕ retire du jeu
       // RM2673 : ni l'un ni l'autre sur un jeu DÉRIVÉ — la règle décide du
@@ -4633,23 +4658,39 @@ function rightPanelReduce(state, action) {
   // « state » = onglet 🗒 état (RM2466 volet 2), ajouté en parallèle de RM2579.
   const TABS = ["state", "infos", "tickets", "files", "git", "outline"];
   const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
+  // RM2952 : `manual` distingue le repli VOULU du repli par défaut. Sans lui, les
+  // deux se ressemblaient — et « déplier au besoin » écrasait le geste de
+  // l'opérateur. Absent d'un état déjà persisté = non voulu : comportement d'avant
+  // jusqu'au premier repli explicite.
   const cur = {
     tab: norm((state && state.tab) || "infos"),
     collapsed: !state || state.collapsed !== false,
+    manual: !!(state && state.manual),
   };
   const a = action || {};
-  if (a.type === "show") return { tab: norm(a.tab || cur.tab), collapsed: false };
-  if (a.type === "collapse") return { tab: cur.tab, collapsed: true };
-  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed };
+  if (a.type === "show") {
+    // Un `show` CIBLÉ (ce ticket, ce fichier) est une demande explicite : il déplie.
+    // Un `show` sans onglet est contextuel — attacher une session, et cela arrive
+    // tout seul (après un spawn, une relance, au rechargement) : il respecte un
+    // repli voulu, sinon le panneau se rouvrait sans cesse et le bouton de repli
+    // paraissait inopérant (RM2952).
+    if (!a.tab && cur.collapsed && cur.manual) return cur;
+    return { tab: norm(a.tab || cur.tab), collapsed: false, manual: false };
+  }
+  // `collapse` est automatique (plus de session attachée) : il replie sans rien
+  // décider à la place de l'opérateur — d'où `manual` conservé tel quel.
+  if (a.type === "collapse") return { tab: cur.tab, collapsed: true, manual: cur.manual };
+  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed, manual: cur.collapsed ? false : true };
   if (a.type === "select") {
     const tab = norm(a.tab || cur.tab);
-    return { tab, collapsed: cur.collapsed ? false : tab === cur.tab };
+    const collapsed = cur.collapsed ? false : tab === cur.tab;
+    return { tab, collapsed, manual: collapsed };
   }
   return cur;
 }
 // <<< rightPanelReduce
 
-let rightState = { tab: "infos", collapsed: true };
+let rightState = { tab: "infos", collapsed: true, manual: false };
 function applyRight() {
   const panel = document.getElementById("rpanel");
   panel.classList.toggle("collapsed", rightState.collapsed);
@@ -6560,7 +6601,7 @@ async function spawnBatchSession(items, btn, opts) {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
                                      body: JSON.stringify(body) });
     toast("⇱ " + plan.targets.length + " ticket(s) → session karl-RM" + plan.anchor);
-    warnSetFull(sp);                       // RM2450 : un jeu plein ne passe pas inaperçu
+    warnSpawn(sp);                         // RM2450 jeu plein · RM2951 moteur bloqué
     plan.targets.forEach(t => { tsCache[t.rm_id] = undefined; });
     if (o.apres) o.apres(plan);
     await refreshSessions();
@@ -7056,7 +7097,9 @@ function rEndResize() {
   if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
 }
 function rResetWidth() {
-  setRightWidth(R_WIDTH_DEFAULT);
+  // RM2952 : on RETIRE la variable au lieu d'y écrire 330 px — sinon « réinitialiser »
+  // figeait aussi l'onglet conversation à 330, au lieu de lui rendre ses 460.
+  document.documentElement.style.removeProperty("--rpanel-w");
   try { localStorage.removeItem("karlRightWidth"); } catch (e) { /* privé */ }
   if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
 }
@@ -7641,7 +7684,7 @@ async function resumeSession(s) {
       body: JSON.stringify(body),
     });
     toast("Session reprise dans " + r.tmux);
-    warnSetFull(r);    // RM2450 : idem à la reprise
+    warnSpawn(r);      // RM2450 jeu plein · RM2951 moteur bloqué, à la reprise
     // RM2396 : recharger AUSSI le panneau de reprise, sinon il reste périmé (la
     // session qu'on vient de reprendre garde son état « pas de tmux vivant ») et
     // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
@@ -11149,7 +11192,7 @@ async function spawnTicketSession(rm, btn) {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
                                      body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
-    warnSetFull(sp);                  // RM2450 : un jeu plein ne doit pas passer inaperçu
+    warnSpawn(sp);                    // RM2450 jeu plein · RM2951 moteur bloqué
     tsCache[rm] = undefined;
     await refreshSessions();
     setTimeout(() => attach(rm), 400);
@@ -11284,7 +11327,7 @@ async function spawn() {
   try {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
-    warnSetFull(sp);   // RM2450 : un jeu plein ne doit plus échouer en silence
+    warnSpawn(sp);     // RM2450 jeu plein · RM2951 moteur bloqué
     document.getElementById("prompt").value = "";
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(rm), 400);

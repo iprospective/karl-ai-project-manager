@@ -44,7 +44,17 @@ ensemble) :
   « tous les jeux », ce qui est affiché n'est pas le jeu, et le geste écrirait
   ailleurs que là où on regarde.
 - Une **tuile grise** = session enregistrée mais non démarrée : clic pour la
-  relancer.
+  relancer. Son infobulle dit ce que le clic fera vraiment — *conversation
+  mémorisée* (elle sera **reprise**) ou *conversation perdue* (le transcript a
+  été purgé : une session **neuve** s'ouvrira dans le même dossier, sans le
+  contexte d'avant). Dans la liste du jeu, la même distinction se lit
+  🟡 reprenable / 🔴 perdue.
+- Ce que les vues **ne montrent plus** : les sessions éteintes dont le **ticket
+  est fermé** (le travail est fini, comme pour une session marquée ✅ terminé) et
+  celles dont il ne reste **rien à rouvrir** (ni conversation, ni dossier
+  mémorisé). Une session qui **tourne** reste toujours affichée, ticket fermé ou
+  non. Pour retrouver une conversation ainsi masquée : carte
+  **« Reprendre une session »**, qui liste les transcripts eux-mêmes.
 - **＋ jeu** crée un jeu : critères laissés vides = jeu **manuel** (peuplé, si tu
   le veux, des sessions affichées) ; au moins un critère (client, projet, marque,
   tickets) = jeu **dérivé**, dont le contenu se calcule tout seul.
@@ -57,6 +67,15 @@ des projets se réduit aux siens (« tous » la rétablit). Client seul, sans pr
 toutes les sessions de ce client, tous projets confondus. Le contexte client du
 bandeau pré-sélectionne le client sans figer le choix, et changer de client
 n'y laisse jamais le projet d'un autre.
+
+## Quand le moteur pose une question avant de démarrer
+
+Un dossier que le moteur n'a jamais ouvert déclenche son garde-fou (claude :
+« Is this a project you created or one you trust? »). Le lancement le signale
+alors — « le moteur attend une approbation dans la session … » — et **n'envoie
+pas** le prompt initial : la touche Entrée répondrait à SA question, pas à la
+tienne (elle a déjà fait quitter des sessions à peine nées). Ouvre la session,
+réponds « Yes, I trust this folder », puis renvoie ton instruction.
 
 ## Un ticket, une session à la fois
 

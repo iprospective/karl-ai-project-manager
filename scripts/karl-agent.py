@@ -1833,25 +1833,36 @@ def _derived_entries(rule: dict, with_total: bool = False):
     """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
     l'aval (fantômes, relance, estimation) l'ignore et le traite pareil.
 
-    Deux règles d'hygiène, alignées sur les jeux manuels :
+    Règles d'hygiène, alignées sur les jeux manuels :
 
     - une session TERMINÉE marquée `[DONE]` et qui ne tourne plus est écartée,
       exactement comme `_forget_done_entries` l'évince d'un jeu manuel (RM2427) :
       un travail fini n'a pas de tuile grise. Sans cela une vue client affichait
       12 sessions closes sur 25 — d'où l'impression, justifiée, d'en voir
       « beaucoup plus » ;
+    - RM2949 : même chose quand le TICKET est fermé. Le marqueur `[DONE]` se pose
+      à la main et ne l'est presque jamais ; le statut de la fiche, lui, est tenu
+      par le flux PM — c'est la source fiable du « c'est fini » ;
+    - RM2949 : et rien à rouvrir (conversation purgée ET aucun dossier mémorisé)
+      ⇒ pas de tuile : elle ne pourrait ni reprendre, ni repartir en session
+      neuve — `_spawn_fallback` refuse en 410 sans cwd ;
     - le plafond `SESSION_SET_MAX` ne tronque plus en SILENCE : le total réel est
       rendu à l'appelant, qui le dit (`truncated`).
 
-    Une session `[DONE]` mais VIVANTE reste listée : on n'escamote jamais un
+    Une session terminée mais VIVANTE reste listée : on n'escamote jamais un
     processus qui tourne."""
     live = {s["rm_id"] for s in _list_sessions()}
+    closed = _closed_ticket_ids()
     out = []
     for sid, k in _all_keys():
         if not _rule_matches(rule, sid, k):
             continue
-        if sid not in live and _is_marked_done(k.get("session_id")):
-            continue
+        if sid not in live:
+            if _is_marked_done(k.get("session_id")) or sid in closed:
+                continue
+            if not _is_resumable(k.get("engine"), k.get("session_id")) \
+                    and not (k.get("cwd") or "").strip():
+                continue
         out.append({
             "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
             "cwd": k.get("cwd"), "model": k.get("model"),
@@ -2635,12 +2646,14 @@ def op_session_set_estimate(qs: dict, auth_ctx: dict | None = None) -> dict:
         if e.get("sid") in live:
             already += 1
             continue
-        info = _transcript_info(e.get("session_id"))
-        if not info.get("bytes"):
-            lost += 1                      # transcript perdu : la relance échouera
+        # RM2949 : même verdict que la tuile et que /resume. L'ancien test
+        # (« pas d'octets ») comptait aussi perdue toute session opencode/vibe,
+        # dont la conversation vit en base et n'a pas de transcript à peser.
+        if not _is_resumable(e.get("engine"), e.get("session_id")):
+            lost += 1
             continue
         relaunchable += 1
-        total += info["bytes"]
+        total += _transcript_info(e.get("session_id"), e.get("engine")).get("bytes") or 0
     tokens = total // BYTES_PER_TOKEN
     rate = _cache_read_usd_per_mtok()
     return {"user": user, "group": group, "relaunchable": relaunchable,
@@ -2664,6 +2677,9 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     # l'UI affiche et bascule cette valeur sans avoir à rejouer la règle.
     entries = [dict(e, alive=(e.get("sid") in live),
                     last_active=_transcript_age(e.get("session_id")),   # RM2451
+                    # RM2949 : « 🟡 reprenable » ou « 🔴 perdue » se décide ici,
+                    # pas sur la présence d'un identifiant côté navigateur.
+                    resumable=_is_resumable(e.get("engine"), e.get("session_id")),
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
                for e in _set_entries(rec)]
@@ -2888,17 +2904,26 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
-    ckey = f"{engine or ''}:{session_id}"      # RM2547 : même UUID, moteurs distincts
+    # RM2949 : `engine` NOMME le moteur — il ne signifie pas « moteur tiers ».
+    # Passer engine="claude" empruntait la branche des stores tiers, qui n'a pas
+    # de lecteur pour `claude_jsonl` : la conversation était déclarée absente
+    # alors qu'elle est là, et une tuile parfaitement relançable passait pour
+    # perdue.
+    store = (ENGINES.get(engine or "", {}) or {}).get("store")
+    tiers = bool(store != "claude_jsonl" and (engine or not _SID_RE.match(session_id)))
+    # RM2547 : même UUID, moteurs distincts → la clé de cache suit le store
+    # RÉELLEMENT lu, pas le nom reçu : `engine=None` et `engine="claude"` lisent
+    # le même transcript et n'ont pas à le relire chacun de son côté.
+    ckey = f"{(store or engine or '') if tiers else 'claude_jsonl'}:{session_id}"
     if ckey in _DONE_CACHE["map"]:
         return _DONE_CACHE["map"][ckey]
-    if not _SID_RE.match(session_id) or engine:
+    if tiers:
         # Moteur tiers (ou moteur imposé par l'appelant) : les méta viennent de
         # SON store. Le marqueur [WIP]/[DONE] y est porté par le titre, comme
         # côté claude : même extraction.
         # ⚠ vibe émet des UUID comme claude (RM2547) : sans `engine`, une telle
         # session est traitée en claude — c'est l'appelant qui lève l'ambiguïté,
         # via `_engine_of_session` ou l'`engine` transmis (RM2536).
-        store = (ENGINES.get(engine or "", {}) or {}).get("store")
         reader = _ENGINE_META.get(store or "")
         if reader is None and not _SID_RE.match(session_id):
             reader = next((_ENGINE_META[ENGINES[n]["store"]] for n in ENGINES
@@ -3031,6 +3056,27 @@ def _transcript_age(session_id: str | None):
     return _transcript_info(session_id).get("mtime")
 
 
+def _is_resumable(engine: str | None, session_id: str | None) -> bool:
+    """La conversation existe-t-elle ENCORE ? (RM2949)
+
+    `resumable` ne disait jusqu'ici qu'une chose : « un identifiant est
+    mémorisé ». Une tuile grise promettait donc une reprise que `/resume` refuse
+    (410) dès que le transcript a été purgé — le clic finissait en « relance
+    impossible », sur une session que le cockpit venait pourtant d'annoncer
+    comme reprenable.
+
+    On lit la MÊME source que `op_resume` — transcript claude, base du moteur
+    ailleurs — mais à travers le cache de `_transcript_info` : `/sessions` est
+    polled en continu et passe ici pour chaque fantôme, à chaque tour.
+
+    Un moteur qui ne sait pas reprendre (shell) n'est jamais relançable : sa
+    tuile ne doit rien promettre non plus.
+    """
+    if not session_id or not _resume_support(engine or "claude"):
+        return False
+    return bool(_transcript_info(session_id, engine))
+
+
 def _session_mark(session_id: str | None) -> str | None:
     """RM2427 — statut de session posé par /session-mark, en clé (`wip`, `done`,
     `test`), ou None si absent, introuvable ou illisible.
@@ -3129,7 +3175,10 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
                      state="ghost", group=view, group_label=m.group(1),
                      attached=False, created=None,
                      last_active=_transcript_age(e.get("session_id")),
-                     resumable=bool(e.get("session_id")), saved_at=None)
+                     # RM2949 : la conversation existe-t-elle ENCORE ? Un sid
+                     # mémorisé ne suffit pas — le transcript a pu être purgé.
+                     resumable=_is_resumable(e.get("engine"), e.get("session_id")),
+                     saved_at=None)
             client, project = _pm_project_of_cwd(e.get("cwd"))
             if client:
                 g["client"], g["project"] = client, project
@@ -3168,7 +3217,9 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
                 # RM2451 : âge de la SESSION (dernier mouvement du transcript),
                 # à ne pas confondre avec `saved_at` qui date le JEU
                 "last_active": _transcript_age(e.get("session_id")),
-                "resumable": bool(e.get("session_id")), "saved_at": rec.get("saved_at"),
+                # RM2949 : conversation réellement présente, pas « un sid existe »
+                "resumable": _is_resumable(e.get("engine"), e.get("session_id")),
+                "saved_at": rec.get("saved_at"),
             }
             g["restart"] = e.get("restart") if e.get("restart") in RESTART_POLICIES \
                 else _default_restart(e.get("session_id"))
@@ -5739,6 +5790,34 @@ def _env_for_status(status: str, envs: list):
 def _task_client_project(tf: Path):
     """De .../clients/<C>/projects/<P>/tasks/RMx_*.md → (client, project)."""
     return tf.parent.parent.parent.parent.name, tf.parent.parent.name
+
+
+_closed_cache: dict = {"at": 0.0, "ids": frozenset()}
+_CLOSED_TTL = 60          # s — le statut d'un ticket ne bouge pas au rythme du poll
+
+
+def _closed_ticket_ids() -> frozenset:
+    """RM-id des tickets FERMÉS d'après les fiches locales (RM2949, TTL 60 s).
+
+    Sert à ne plus proposer la tuile grise d'un travail terminé. Le marqueur
+    `[DONE]` (RM2427) ne l'écartait que s'il avait été posé à la main — il l'est
+    rarement : une vue client affichait 24 sessions dont 9 sur des tickets clos,
+    d'où l'impression, justifiée, d'en voir « énormément ».
+
+    Le scan complet du parc coûte ~0,06 s (lecture ligne à ligne, cf.
+    `_read_task_meta`) : il tient largement dans un TTL d'une minute.
+    """
+    now = time.time()
+    if now - _closed_cache["at"] > _CLOSED_TTL:
+        ids = set()
+        for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+            if tf.name.endswith(".log.md"):
+                continue
+            m = re.match(r"RM(\d+)_", tf.name)
+            if m and _read_task_meta(tf).get("status") == "ferme":
+                ids.add(m.group(1))
+        _closed_cache.update({"at": now, "ids": frozenset(ids)})
+    return _closed_cache["ids"]
 
 
 def _find_task_file(rm_id: str):

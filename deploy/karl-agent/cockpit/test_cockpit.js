@@ -1207,6 +1207,39 @@ assert.strictEqual(clampWidth(2000), 900, "au-dessus du max -> 900");
 assert.strictEqual(clampWidth("abc"), 330, "non numerique -> defaut");
 console.log("\u2713 clampWidth (RM2599) : largeur bornee [240,900], defaut si invalide");
 
+// — setEditOptions (RM2955) : la carte « Sessions enregistrées » règle N'IMPORTE
+//   quel jeu, sans déplacer le jeu courant. Le sélecteur doit donc dire lequel
+//   gouverne encore l'affichage et reçoit les écritures automatiques.
+const fSeo = />>> setEditOptions[\s\S]*?(function setEditOptions[\s\S]*?)\n\/\/ <<< setEditOptions/.exec(html);
+assert(fSeo, "marqueurs setEditOptions introuvables");
+const setEditOptions = vm.runInNewContext("(" + fSeo[1] + ")");
+const SETS_2955 = [
+  { name: "default", label: "sessions actives", count: 12, alive: 5 },
+  { name: "pm", label: "PM", count: 3, alive: 1, derived: true },
+  { name: "nuit", count: 0, alive: 0 },
+];
+let opts = setEditOptions(SETS_2955, null, "pm");
+assert.deepStrictEqual(opts.map(o => o.value), ["default", "pm", "nuit"],
+  "tous les jeux sont proposés, dans leur ordre");
+assert.strictEqual(opts.find(o => o.value === "pm").selected, true,
+  "sans choix explicite, la carte suit le jeu courant");
+assert(opts.find(o => o.value === "pm").label.includes("● courant"),
+  "le jeu courant est marqué comme tel");
+assert(opts.find(o => o.value === "pm").label.startsWith("⚙ "),
+  "un jeu dérivé se signale : on y règle une règle, pas un contenu");
+assert(!opts.find(o => o.value === "default").label.includes("● courant"),
+  "les autres jeux ne portent pas la marque");
+assert.strictEqual(opts.find(o => o.value === "default").label, "sessions actives (5/12)",
+  "libellé + ouvertes/enregistrées");
+assert.strictEqual(setEditOptions(SETS_2955, "nuit", "pm").find(o => o.selected).value, "nuit",
+  "un choix explicite l'emporte sur le jeu courant");
+assert(setEditOptions(SETS_2955, "nuit", "pm").find(o => o.value === "pm").label.includes("● courant"),
+  "…et le jeu courant reste signalé, il n'a pas bougé");
+assert.strictEqual(setEditOptions(null, null, "pm").length, 0, "aucun jeu : aucune option");
+assert.strictEqual(setEditOptions([{ name: "x" }], null, "pm")[0].label, "x (0/0)",
+  "jeu sans libellé ni compteurs : le slug et des zéros, jamais « undefined »");
+console.log("\u2713 setEditOptions (RM2955) : la carte règle tout jeu, le courant reste signalé");
+
 // — RM2952 : la largeur RÉGLÉE prime sur le confort par défaut —
 // `max(--rpanel-w, 460px)` imposait un plancher de 460 px sur l'onglet
 // conversation : la poignée ne réduisait plus rien en dessous, et le réglage

@@ -277,6 +277,43 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **La carte « Sessions enregistrées » règle tous les jeux** (RM2955). Elle interrogeait
+  `/session-set` avec le jeu **courant** codé en dur : pour renommer un jeu, changer sa
+  règle, sa rétention ou l'effacer, il fallait d'abord **le rendre courant** — donc
+  quitter la vue sur laquelle on travaillait, puisque le jeu courant gouverne aussi le
+  panneau « ▶ en cours ». La carte a désormais son propre sélecteur : le jeu **édité**
+  et le jeu **courant** sont deux notions distinctes (comme une vue n'est pas une cible,
+  RM2446), et la liste marque « ● courant » celui qui gouverne l'affichage et reçoit
+  l'adhésion automatique. Le ▶ relancer de la carte vise le jeu affiché par la carte,
+  celui du panneau de gauche le jeu courant — un bouton qui écrit dit où (RM2448).
+- **Une vue « toutes les sessions »** (RM2954). Les vues laissaient un angle mort, et la
+  question qui l'a révélé était la bonne : « les filtres par client montrent-ils toutes
+  les sessions actives du client, ou seulement celles dans des jeux ? ». Réponse : les
+  vues par client lisent l'**index des sessions**, pas les jeux — elles montrent donc
+  tout, mais d'**un seul client** ; c'est `all` qui trompe, en désignant « tous les
+  JEUX » et non toutes les sessions. Une session éteinte, hors jeu, sur un dossier dont
+  le client ne se résout pas n'apparaissait alors **nulle part** — 6 sessions sur les 66
+  connues, dans l'état actuel du parc. La nouvelle vue est la vue client **sans le
+  filtre client**, et sans plafond : une vue qui promet « toutes les sessions » et
+  s'arrête à 24 se contredirait. Les hygiènes de RM2949 (ticket fermé, rien à rouvrir)
+  s'y appliquent comme ailleurs.
+- **« default » devient le registre des sessions actives** (RM2953). L'adhésion
+  automatique (RM2445) visait le jeu COURANT. C'était juste tant qu'il était manuel ;
+  le jour où le jeu courant est devenu un jeu **dérivé** (`pm`), elle s'est mise à
+  répondre `reason: "derive"` — légitimement, une règle décide seule de son contenu —
+  et **plus aucune session n'a été enregistrée nulle part** : le registre est resté à
+  11 entrées pendant que les sessions défilaient. Le jeu courant redevient donc un pur
+  filtre d'AFFICHAGE, et `default` un registre unique : on y entre à la création et à
+  la reprise, on en sort quand la session est marquée `[DONE]` **et** éteinte (une
+  `[DONE]` qui tourne encore y reste — on n'escamote pas un processus vivant). Trois
+  conséquences assumées : le plafond de 24 ne s'y applique plus (un registre qui refuse
+  des entrées ment sur ce qui tourne, et le refus tomberait sur la session qu'on vient
+  de lancer ; les jeux manuels le gardent) ; les sessions vivantes absentes y sont
+  **rattrapées** au fil du poll, dans la même passe d'hygiène qui en évacue les `[DONE]`
+  éteintes ; et retirer (⊖) une session qui **tourne** est refusé avec son motif, parce
+  qu'elle reviendrait au poll suivant — un geste qui se défait n'est pas un geste
+  (RM2952). Le sélecteur l'annonce sous son nom, « sessions actives », plutôt que sous
+  le slug de stockage.
 - **La colonne de droite obéit** (RM2952). Deux mécanismes annulaient les gestes de
   l'opérateur. La largeur d'abord : l'onglet conversation était posé en
   `max(--rpanel-w, 460px)` (RM2579), donc la poignée (RM2599, bornée à [240, 900])

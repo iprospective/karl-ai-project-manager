@@ -1191,7 +1191,7 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
         _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
-        joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
+        joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
@@ -1918,7 +1918,7 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     return True
 
 
-def _derived_entries(rule: dict, with_total: bool = False):
+def _derived_entries(rule: dict, with_total: bool = False, cap: int | None = -1):
     """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
     l'aval (fantômes, relance, estimation) l'ignore et le traite pareil.
 
@@ -1958,7 +1958,12 @@ def _derived_entries(rule: dict, with_total: bool = False):
             "title": _transcript_title(k.get("session_id")),
             "restart": _default_restart(k.get("session_id")),
         })
-    return (out[:SESSION_SET_MAX], len(out)) if with_total else out[:SESSION_SET_MAX]
+    # RM2954 : `cap=-1` = le plafond des jeux (défaut historique) ; `cap=None` =
+    # aucun, pour une vue qui promet « toutes les sessions » et ne peut pas
+    # s'arrêter à 24 sans se contredire.
+    n = SESSION_SET_MAX if cap == -1 else cap
+    kept = out if n is None else out[:n]
+    return (kept, len(out)) if with_total else kept
 
 
 def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
@@ -2066,6 +2071,32 @@ SESSION_SET_FILE = LOG_DIR / "session-set.json"
 DEFAULT_SET_USER = "superadmin"    # auth ouverte / secret partagé → superadmin
 DEFAULT_SET_GROUP = "default"
 SESSION_SET_MAX = 24               # garde-fou : un instantané ne dépasse pas ça
+
+
+#: Libellé par défaut du registre — « default » est un slug de store, pas un nom
+#: pour un opérateur : le sélecteur doit dire ce que ce jeu EST (RM2953).
+ACTIVE_SET_LABEL = "sessions actives"
+
+
+def _set_label(group: str, rec: dict | None) -> str:
+    """Nom affichable d'un jeu : celui qu'on lui a donné, sinon son slug — sauf
+    le registre, qui annonce sa nature (RM2953)."""
+    lbl = (rec or {}).get("label")
+    if lbl:
+        return lbl
+    return ACTIVE_SET_LABEL if group == DEFAULT_SET_GROUP else group
+
+
+def _set_cap(group: str):
+    """Plafond d'entrées d'un jeu, ou None s'il n'en a pas (RM2953).
+
+    Le jeu `default` est le REGISTRE des sessions actives : il n'est pas composé
+    à la main, il enregistre ce qui tourne. Un registre qui refuse des entrées
+    ment sur son contenu — et le refus tombe sur la session la plus récente,
+    c'est-à-dire celle qu'on vient de lancer. Les jeux MANUELS, eux, gardent leur
+    garde-fou : on les compose, et 24 tuiles sont déjà beaucoup à relancer d'un
+    clic (RM2451 : chaque relance est une réhydratation de contexte payante)."""
+    return None if group == DEFAULT_SET_GROUP else SESSION_SET_MAX
 _SET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")  # user ET group
 
 
@@ -2197,7 +2228,11 @@ def _current_set(user: str, store: dict | None = None) -> str:
 # cible de toutes les écritures — adhésion automatique, bouton « Enregistrer », ⊖ —,
 # tandis que la VUE (`view`) décide seulement de ce qu'on affiche. Une vue ne peut
 # donc jamais devenir une destination par accident.
-SESSION_SET_VIEWS = ("set", "live", "all")
+# RM2954 : « all » désigne tous les JEUX, « sessions » toutes les SESSIONS
+# connues. Deux périmètres distincts, et c'est bien le second qui manquait : la
+# seule vue qui allait au-delà des jeux (`client:<slug>`) reste bornée à un
+# client, et laisse donc de côté ce dont le client ne se résout pas.
+SESSION_SET_VIEWS = ("set", "live", "all", "sessions")
 _VIEW_CLIENT_RE = re.compile(r"^client:([a-z0-9][a-z0-9._-]{0,31})$")
 
 
@@ -2240,20 +2275,41 @@ def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
             "view": _current_view(user, store)}
 
 
-def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | None:
-    """RM2445 — une session qui démarre (spawn) ou qui est reprise (resume)
-    REJOINT le jeu courant, sans geste manuel. Union stricte : le statut fait
-    ENTRER, jamais SORTIR (invariant RM2439 — une session qui s'arrête devient
-    une tuile grise, elle ne quitte pas le jeu). Best-effort : l'échec de
-    l'adhésion ne doit jamais faire échouer le lancement d'une session."""
+def _registry_entry(sid: str) -> dict:
+    """Entrée de registre pour un sid, depuis l'index des clés (RM2953)."""
+    k = _key_info(sid) or {}
+    return {
+        "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
+        "cwd": k.get("cwd"), "model": k.get("model"),
+        "title": _transcript_title(k.get("session_id")),
+        "restart": _default_restart(k.get("session_id")),
+    }
+
+
+def _auto_join_active_set(sid: str, auth_ctx: dict | None = None) -> dict | None:
+    """Une session qui démarre (spawn) ou qui est reprise (resume) entre au
+    REGISTRE des sessions actives — le jeu `default` (RM2953).
+
+    RM2445 visait le jeu COURANT. C'était vrai tant que le jeu courant était
+    manuel ; le jour où il est devenu un jeu DÉRIVÉ (`pm`), l'adhésion s'est mise
+    à répondre `reason: "derive"` — légitimement, une règle décide seule de son
+    contenu — et plus aucune session n'a été enregistrée nulle part. Le registre
+    ne dépend donc plus de ce qu'on regarde : le jeu courant est un filtre
+    d'AFFICHAGE, le registre est unique.
+
+    Union stricte : le statut fait ENTRER, jamais SORTIR (invariant RM2439 — une
+    session qui s'arrête devient une tuile grise, elle ne quitte pas le jeu). La
+    sortie a un seul motif, `[DONE]` + éteinte, et un seul lieu,
+    `_forget_done_entries`. Best-effort : l'échec de l'adhésion ne doit jamais
+    faire échouer le lancement d'une session."""
     try:
         user = _session_set_user(auth_ctx)
         store = _session_set_load()
-        group = _current_set(user, store)
+        group = DEFAULT_SET_GROUP
         rec = _session_set_get(store, user, group)
         if rec is not None and rec.get("rule"):
-            # RM2452 : dans un jeu dérivé, c'est la RÈGLE qui décide — la session
-            # y figurera si elle la satisfait, sans qu'on l'y « ajoute ».
+            # Quelqu'un a posé une règle sur `default` : c'est elle qui décide de
+            # son contenu, on n'y ajoute rien — mais on le DIT (RM2452).
             return {"group": group, "joined": False, "reason": "derive"}
         if rec is None:
             rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
@@ -2261,28 +2317,60 @@ def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | Non
         entries = rec.setdefault("entries", [])
         if any(e.get("sid") == sid for e in entries):
             return {"group": group, "joined": False, "reason": "deja"}
-        if len(entries) >= SESSION_SET_MAX:
+        cap = _set_cap(group)
+        if cap is not None and len(entries) >= cap:
             # RM2450 : ce refus finissait sur stderr — invisible pour l'opérateur,
             # qui croyait sa session enregistrée. Il remonte à l'appelant, qui le
-            # renvoie dans la réponse de /spawn et /resume.
-            sys.stderr.write(f"jeu {user}/{group} plein ({SESSION_SET_MAX}) : "
+            # renvoie dans la réponse de /spawn et /resume. (Le registre n'a pas
+            # de plafond : ce chemin ne sert que si `default` en reçoit un.)
+            sys.stderr.write(f"jeu {user}/{group} plein ({cap}) : "
                              f"{sid} n'y a pas été ajoutée\n")
-            return {"group": group, "joined": False, "reason": "plein",
-                    "max": SESSION_SET_MAX}
-        k = _key_info(sid) or {}
-        entries.append({
-            "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
-            "cwd": k.get("cwd"), "model": k.get("model"),
-            "title": _transcript_title(k.get("session_id")),
-            "restart": _default_restart(k.get("session_id")),
-        })
+            return {"group": group, "joined": False, "reason": "plein", "max": cap}
+        entries.append(_registry_entry(sid))
         rec["saved_at"] = int(time.time())
         _session_set_put(store, user, group, rec)
         _write_session_set(store, archive=False)
         return {"group": group, "joined": True}
     except (OSError, ValueError) as e:
-        sys.stderr.write(f"adhésion au jeu courant ignorée pour {sid} : {e}\n")
+        sys.stderr.write(f"adhésion au registre ignorée pour {sid} : {e}\n")
         return {"group": None, "joined": False, "reason": "erreur"}
+
+
+def _register_live_sessions(user: str, groups: dict) -> bool:
+    """Rattrape au registre les sessions VIVANTES qui n'y sont pas (RM2953).
+
+    L'adhésion à la création ne couvre que ce qui est lancé depuis le cockpit :
+    une session ouverte au terminal, ou lancée avant la mise en place du
+    registre, n'y entrerait jamais. Ce rattrapage tourne avec l'autre passe
+    d'hygiène (`_forget_done_entries`) : ce qui tourne est inscrit, ce qui est
+    fini et éteint en sort.
+
+    Une session sans rien de mémorisé (ni conversation, ni dossier) n'est pas
+    inscrite : elle ne serait relançable ni reprenable, et n'ajouterait qu'une
+    coquille au registre. Rend True si le store a changé."""
+    rec = groups.get(DEFAULT_SET_GROUP)
+    if rec is not None and rec.get("rule"):
+        return False                      # règle posée sur `default` : elle décide
+    if rec is None:
+        rec = {"saved_at": int(time.time()), "autostart": True, "entries": []}
+        groups[DEFAULT_SET_GROUP] = rec
+    entries = rec.setdefault("entries", [])
+    connus = {e.get("sid") for e in entries}
+    ajouts = []
+    for s in _list_sessions():
+        sid = s.get("rm_id")
+        if not sid or sid in connus or not _valid_sid(sid):
+            continue
+        e = _registry_entry(sid)
+        if not e.get("session_id") and not e.get("cwd"):
+            continue
+        ajouts.append(e)
+        connus.add(sid)
+    if not ajouts:
+        return False
+    entries.extend(ajouts)
+    rec["saved_at"] = int(time.time())
+    return True
 
 
 def _snapshot_live_sessions() -> list:
@@ -2369,7 +2457,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
 
     # Le plafond porte désormais sur l'UNION : refus AVANT toute écriture, pour
     # que le jeu déjà en place survive intact au dépassement.
-    if len(entries) > SESSION_SET_MAX:
+    if _set_cap(group) is not None and len(entries) > _set_cap(group):
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)}) — retire des tuiles (✕) avant "
                             f"d'enregistrer")
@@ -2407,7 +2495,7 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     live = {s["rm_id"] for s in _list_sessions()}
     sets = [{
         "name": name,
-        "label": rec.get("label") or name,
+        "label": _set_label(name, rec),
         "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
         "count": len(_set_entries(rec)),
         "total": _set_total(rec),          # RM2452 : réel, même si tronqué
@@ -2423,6 +2511,9 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     return {"user": user, "sets": sets, "count": len(sets),
             "current": _current_set(user, store), "view": _current_view(user, store),
             "live_count": len(live), "all_count": len(known | live),
+            # RM2954 : ce que montrera « toutes les sessions » — compté sur le
+            # même contenu que la vue, hygiènes comprises (RM2949).
+            "sessions_count": len(_derived_entries({}, cap=None)),
             # RM2452 : vues par client, offertes d'office pour les clients qui ONT
             # des sessions — rien à créer, rien à curer
             "facets": facets,
@@ -2467,7 +2558,7 @@ def op_session_set_history(qs: dict, auth_ctx: dict | None = None) -> dict:
             continue
         versions.append({
             "id": str(stamp), "at": stamp // 1_000_000_000,
-            "sets": [{"name": g, "label": r.get("label") or g,
+            "sets": [{"name": g, "label": _set_label(g, r),
                       "count": len(r.get("entries") or [])}
                      for g, r in sorted(groups.items())],
         })
@@ -2537,7 +2628,7 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
         raise ApiError(400, "un jeu dérivé n'a pas de liste : sa règle la produit")
     wanted = {str(s) for s in (sids or [])}
     entries = _entries_for_sids(wanted, user, store) if wanted else []
-    if len(entries) > SESSION_SET_MAX:
+    if _set_cap(group) is not None and len(entries) > _set_cap(group):
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)})")
     # RM2448 — split : retrait des sid retenus du jeu source, dans cette écriture
@@ -2574,7 +2665,7 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     # une création n'ôte rien (archive=False) ; un split, si (RM2443)
     _write_session_set(store, archive=bool(moved))
     resolved = _set_entries(rec)
-    return {"user": user, "group": group, "label": rec.get("label") or group,
+    return {"user": user, "group": group, "label": _set_label(group, rec),
             "derived": bool(rule), "rule": rule,
             "count": len(resolved), "current": group, "entries": resolved,
             "moved_from": src if moved else None, "moved": moved}
@@ -2758,7 +2849,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     group = _session_set_group(qs.get("group"))
     rec = _session_set_get(_session_set_load(), user, group)
     if not rec:
-        return {"user": user, "group": group, "label": group,
+        return {"user": user, "group": group, "label": _set_label(group, None),
                 "exists": False, "entries": [], "count": 0}
     total = _set_total(rec)
     live = {s["rm_id"] for s in _list_sessions()}
@@ -2772,7 +2863,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
                for e in _set_entries(rec)]
-    return {"user": user, "group": group, "label": rec.get("label") or group,
+    return {"user": user, "group": group, "label": _set_label(group, rec),
             "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
             "hide_idle_days": rec.get("hide_idle_days") or 0,
             "total": total, "truncated": total > len(entries),
@@ -2930,6 +3021,14 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
         return {"user": user, "group": group, "deleted": True}
     rec = groups[group]
     _reject_if_derived(rec, "retrait impossible")             # RM2452
+    # RM2953 : le registre des sessions actives se tient tout seul. Retirer une
+    # session qui TOURNE l'y ferait revenir au poll suivant — un geste qui se
+    # défait n'est pas un geste (même travers que RM2952). On le refuse en
+    # disant quand elle en sortira.
+    if group == DEFAULT_SET_GROUP and _has_session(sid):
+        raise ApiError(409, f"{sid} tourne : elle appartient au registre des sessions "
+                            "actives et y reviendrait aussitôt. Elle en sortira quand "
+                            "elle sera marquée terminée ([DONE]) et éteinte.")
     entries = rec.get("entries") or []
     kept = [e for e in entries if e.get("sid") != sid]
     if len(kept) == len(entries):
@@ -3245,7 +3344,11 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     out, seen = [], set()
     store = _session_set_load()
     groups = ((store.get("users") or {}).get(user, {}).get("groups") or {})
-    if _forget_done_entries(user, groups):
+    # RM2953 : deux passes d'hygiène du REGISTRE, dans le même passage — ce qui
+    # est fini et éteint en sort, ce qui tourne y entre.
+    change = _forget_done_entries(user, groups)
+    change = _register_live_sessions(user, groups) or change
+    if change:
         _write_session_set(store)
     # RM2446 : le périmètre suit la VUE — le jeu courant (`set`), aucun fantôme
     # (`live` : on ne regarde que ce qui tourne), ou tous les jeux (`all`).
@@ -3253,15 +3356,19 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     if view == "live":
         return []
     m = _VIEW_CLIENT_RE.match(view)
-    if m:
+    if m or view == "sessions":
         # RM2452 : vue par client — un jeu dérivé qu'on n'a même pas eu à créer.
-        for e in _derived_entries({"client": m.group(1)}):
+        # RM2954 : « toutes les sessions » est la même chose sans le filtre client,
+        # et sans plafond : elle promet TOUTES les sessions connues.
+        rule = {"client": m.group(1)} if m else {}
+        label = m.group(1) if m else "toutes les sessions"
+        for e in _derived_entries(rule, cap=-1 if m else None):
             sid = e.get("sid")
             if not sid or sid in live or sid in seen:
                 continue
             seen.add(sid)
             g = dict(e, rm_id=sid, is_ticket=_is_ticket_sid(sid), ghost=True,
-                     state="ghost", group=view, group_label=m.group(1),
+                     state="ghost", group=view, group_label=label,
                      attached=False, created=None,
                      last_active=_transcript_age(e.get("session_id")),
                      # RM2949 : la conversation existe-t-elle ENCORE ? Un sid
@@ -3296,7 +3403,7 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
                 # RM2442 : le libellé suit le groupe — quand plusieurs jeux sont
                 # repris, la tuile doit dire de QUEL jeu elle vient
                 "state": "ghost", "group": group,
-                "group_label": rec.get("label") or group,
+                "group_label": _set_label(group, rec),
                 "attached": False, "created": None,
                 "engine": e.get("engine"), "session_id": e.get("session_id"),
                 "cwd": e.get("cwd"), "model": e.get("model"),
@@ -3801,7 +3908,7 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     if _is_ticket_sid(rm_id):
         _record_run(rm_id, engine, session_id, str(cwd))
     _record_key(rm_id, engine, session_id, str(cwd))
-    joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
+    joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     prompt = payload.get("prompt")
     # RM2951 : même garde qu'au spawn — un TUI qui attend une approbation ne

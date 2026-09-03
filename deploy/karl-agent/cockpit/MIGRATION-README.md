@@ -46,3 +46,17 @@ Deux routes qui tombent sur la même cible signalent un doublon hérité à tran
 
 C'est ce que fera `pm-cockpit-remap` (à livrer avec L4, § 17.1). Tant qu'il
 n'existe pas, la table se lit à la main — mais elle se lit.
+
+## Comment les modules sont servis (constat L0)
+
+`/static/<chemin>` sert **déjà** tout `.js` / `.css` / `.svg` situé sous le
+dossier du cockpit, avec `ETag` + `Cache-Control: no-cache` et un garde-fou
+anti-évasion (`_resolve_asset`). Les modules ES de `src/` sont donc servis
+**sans aucune modification du serveur**, et un correctif est visible au simple
+rechargement.
+
+Corollaire qui a corrigé la carte : `.html` n'est **pas** dans la liste blanche
+des types servis. Un gabarit n'est donc pas un fichier `.html` à charger, mais
+un **module `.view.js`** qui exporte une fonction rendant un fragment — ce qui
+est de toute façon la forme voulue au § 7 (une vue est une fonction pure du
+ViewModel vers du HTML sûr).

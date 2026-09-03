@@ -90,6 +90,7 @@ pm-branch-start.py <RM> --take --worktree --from origin/dev
 mmi-pm test                                        # TOUTE la suite (~10 s)
 mmi-pm test vault session                          # ou seulement ce qu'on touche
 node deploy/karl-agent/cockpit/test_cockpit.js     # si cockpit touché
+node deploy/karl-agent/cockpit/test_cockpit_core.js # modules src/core/ (RM2889)
 
 # 3. livrer : MR vers dev, puis livraison outillée (statut + note + report)
 pm-mr.py create <RM>

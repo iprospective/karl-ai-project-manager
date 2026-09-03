@@ -12,7 +12,7 @@ logout	js	L0	auth	service	services/auth.service.js	/auth/devices	7	1	0	1565
 resetUserPw	js	L0	auth	service	services/auth.service.js	/auth/users	10	1	0	1652
 revokeDevice	js	L0	auth	service	services/auth.service.js	/auth/devices	5	1	0	1612
 toggleUser	js	L0	auth	service	services/auth.service.js	/auth/users	9	1	0	1643
-html:<div authgate>	html	L0	auth	view	views/auth/authgate.tpl.html		1	0	0	784
+html:<div authgate>	html	L0	auth	view	views/auth/authgate.view.js		1	0	0	784
 renderAuth	js	L0	auth	view	views/auth/renderAuth.view.js		19	5	1	1580
 ago	js	L0	core	component	components/ago.js		10	13	0	1762
 agoHM	js	L0	core	component	components/agoHM.js		13	3	0	1749
@@ -357,7 +357,7 @@ css:.tabactions	css	L0	tabs	style	views/tabs/tabs.css		1	0	1	436
 css:.tabbar	css	L0	tabs	style	views/tabs/tabs.css		1	0	3	336
 css:.tabbar2	css	L0	tabs	style	views/tabs/tabs.css		1	0	0	338
 clientProjectPickerHtml	js	L0	tabs	view	views/tabs/clientProjectPickerHtml.view.js		22	1	0	4219
-html:<div tabbar>	html	L0	tabs	view	views/tabs/tabbar.tpl.html		1	0	0	1174
+html:<div tabbar>	html	L0	tabs	view	views/tabs/tabbar.view.js		1	0	0	1174
 newTicketFormHtml	js	L0	tabs	view	views/tabs/newTicketFormHtml.view.js		51	1	2	4251
 openCenterPanel	js	L0	tabs	view	views/tabs/openCenterPanel.view.js		23	2	0	4146
 projectRadiosHtml	js	L0	tabs	view	views/tabs/projectRadiosHtml.view.js		19	2	0	4200
@@ -442,9 +442,9 @@ css:.sess .meta	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	140
 css:.sess .rm	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	139
 css:.sess.active	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	138
 css:.sessions	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	135
-html:<div chipsrow>	html	L2	sessions	view	views/sessions/chipsrow.tpl.html		1	0	0	1506
-html:<div lp-running>	html	L2	sessions	view	views/sessions/lp-running.tpl.html		1	0	0	884
-html:<div rescard>	html	L2	sessions	view	views/sessions/rescard.tpl.html		1	0	0	1032
+html:<div chipsrow>	html	L2	sessions	view	views/sessions/chipsrow.view.js		1	0	0	1506
+html:<div lp-running>	html	L2	sessions	view	views/sessions/lp-running.view.js		1	0	0	884
+html:<div rescard>	html	L2	sessions	view	views/sessions/rescard.view.js		1	0	0	1032
 rTitleHtml	js	L2	sessions	view	views/sessions/rTitleHtml.view.js		10	1	0	2244
 renderAttnBand	js	L2	sessions	view	views/sessions/renderAttnBand.view.js		24	1	2	1939
 renderChips	js	L2	sessions	view	views/sessions/renderChips.view.js		29	1	1	11292
@@ -494,8 +494,8 @@ switchView	js	L2	sessionsets	service	services/sessionsets.service.js	/session-se
 toggleRestart	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/restart	17	2	2	2967
 toggleSetHistory	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/history	23	1	1	3139
 undoSetChange	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/restore	10	2	0	2998
-html:<div lp-sessions>	html	L2	sessionsets	view	views/sessionsets/lp-sessions.tpl.html		1	0	0	1007
-html:<div sessions-set-card>	html	L2	sessionsets	view	views/sessionsets/sessions-set-card.tpl.html		1	0	0	1074
+html:<div lp-sessions>	html	L2	sessionsets	view	views/sessionsets/lp-sessions.view.js		1	0	0	1007
+html:<div sessions-set-card>	html	L2	sessionsets	view	views/sessionsets/sessions-set-card.view.js		1	0	0	1074
 renderGhostItem	js	L2	sessionsets	view	views/sessionsets/renderGhostItem.view.js		57	1	10	2905
 ruleFormHtml	js	L2	sessionsets	view	views/sessionsets/ruleFormHtml.view.js		47	3	3	2671
 composerHistory	js	L2	terminal	component	components/composerHistory.js		4	3	0	9313
@@ -543,7 +543,7 @@ css:.termarea	css	L2	terminal	style	views/terminal/terminal.css		1	0	1	452
 css:.termbar	css	L2	terminal	style	views/terminal/terminal.css		1	0	0	145
 css:.termbar .title	css	L2	terminal	style	views/terminal/terminal.css		1	0	0	147
 css:.termwrap	css	L2	terminal	style	views/terminal/terminal.css		1	0	1	437
-html:<div termwrap>	html	L2	terminal	view	views/terminal/termwrap.tpl.html		1	0	0	1214
+html:<div termwrap>	html	L2	terminal	view	views/terminal/termwrap.view.js		1	0	0	1214
 refreshThemeCard	js	L2	terminal	view	views/terminal/refreshThemeCard.view.js		16	2	0	9577
 tagPillsHtml	js	L3	review	component	components/tagPillsHtml.js		11	1	0	10389
 closeReview	js	L3	review	controller	controllers/review.controller.js		20	7	7	10369
@@ -608,8 +608,8 @@ ticketPromptFor	js	L3	testqueue	service	services/testqueue.service.js		19	1	0	11
 ticketTransitions	js	L3	testqueue	service	services/testqueue.service.js	/ticket-transitions	16	1	0	10789
 ticketVerdicts	js	L3	testqueue	service	services/testqueue.service.js		16	1	0	10732
 css:.tquiet	css	L3	testqueue	style	views/testqueue/testqueue.css		1	0	0	282
-html:<div lp-test>	html	L3	testqueue	view	views/testqueue/lp-test.tpl.html		1	0	0	1085
-html:<div tqcard>	html	L3	testqueue	view	views/testqueue/tqcard.tpl.html		1	0	0	1086
+html:<div lp-test>	html	L3	testqueue	view	views/testqueue/lp-test.view.js		1	0	0	1085
+html:<div tqcard>	html	L3	testqueue	view	views/testqueue/tqcard.view.js		1	0	0	1086
 renderTQ	js	L3	testqueue	view	views/testqueue/renderTQ.view.js		68	2	7	10611
 statusMenuHtml	js	L3	testqueue	view	views/testqueue/statusMenuHtml.view.js		27	1	0	10805
 ticketSessionsHtml	js	L3	testqueue	view	views/testqueue/ticketSessionsHtml.view.js		63	1	1	11110
@@ -688,10 +688,10 @@ css:.tkill	css	L3	tickets	style	views/tickets/tickets.css		1	0	0	431
 css:.tkill:hover	css	L3	tickets	style	views/tickets/tickets.css		1	0	2	432
 _ticketDescHtml	js	L3	tickets	view	views/tickets/_ticketDescHtml.view.js		9	1	1	8387
 _ticketLogHtml	js	L3	tickets	view	views/tickets/_ticketLogHtml.view.js		15	1	0	8396
-html:<details ntcard>	html	L3	tickets	view	views/tickets/ntcard.tpl.html		1	0	0	983
-html:<details openedcard>	html	L3	tickets	view	views/tickets/openedcard.tpl.html		1	0	0	937
-html:<details triagecard>	html	L3	tickets	view	views/tickets/triagecard.tpl.html		1	0	0	918
-html:<div lp-tickets>	html	L3	tickets	view	views/tickets/lp-tickets.tpl.html		1	0	0	916
+html:<details ntcard>	html	L3	tickets	view	views/tickets/ntcard.view.js		1	0	0	983
+html:<details openedcard>	html	L3	tickets	view	views/tickets/openedcard.view.js		1	0	0	937
+html:<details triagecard>	html	L3	tickets	view	views/tickets/triagecard.view.js		1	0	0	918
+html:<div lp-tickets>	html	L3	tickets	view	views/tickets/lp-tickets.view.js		1	0	0	916
 logHtml	js	L3	tickets	view	views/tickets/logHtml.view.js		18	1	0	8369
 openedCountLabel	js	L3	tickets	view	views/tickets/openedCountLabel.view.js		10	1	1	5537
 pendingDecor	js	L3	tickets	view	views/tickets/pendingDecor.view.js		17	0	1	5842
@@ -868,7 +868,7 @@ attentionHtml	js	L4	projects	view	views/projects/attentionHtml.view.js		59	1	2	9
 attentionRows	js	L4	projects	view	views/projects/attentionRows.view.js		64	1	0	9873
 clientViewHtml	js	L4	projects	view	views/projects/clientViewHtml.view.js		63	1	0	5426
 confViewHtml	js	L4	projects	view	views/projects/confViewHtml.view.js		12	1	0	5489
-html:<div lp-projects>	html	L4	projects	view	views/projects/lp-projects.tpl.html		1	0	0	1133
+html:<div lp-projects>	html	L4	projects	view	views/projects/lp-projects.view.js		1	0	0	1133
 loadProjectsPanel	js	L4	projects	view	views/projects/loadProjectsPanel.view.js		12	1	1	5414
 projWorklogHtml	js	L4	projects	view	views/projects/projWorklogHtml.view.js		73	1	1	10100
 renderProjFiles	js	L4	projects	view	views/projects/renderProjFiles.view.js		48	3	4	10218
@@ -935,7 +935,7 @@ _ticketDetailHtml	js	L5	glossary	view	views/glossary/_ticketDetailHtml.view.js		
 _ticketWorkspaceHtml	js	L5	glossary	view	views/glossary/_ticketWorkspaceHtml.view.js		21	1	1	8563
 ensureProjectCard	js	L5	glossary	view	views/glossary/ensureProjectCard.view.js	/project	13	1	1	8455
 glossaireRows	js	L5	glossary	view	views/glossary/glossaireRows.view.js		17	2	0	8584
-html:<div docmodal>	html	L5	glossary	view	views/glossary/docmodal.tpl.html		1	0	0	1509
+html:<div docmodal>	html	L5	glossary	view	views/glossary/docmodal.view.js		1	0	0	1509
 outlineDecor	js	L5	glossary	view	views/glossary/outlineDecor.view.js		23	1	0	4685
 renderGlossary	js	L5	glossary	view	views/glossary/renderGlossary.view.js		23	2	1	8751
 ticketFreshnessHtml	js	L5	glossary	view	views/glossary/ticketFreshnessHtml.view.js		9	1	0	8468
@@ -1040,46 +1040,46 @@ css:.rtitle .rt-label	css	L5	layout	style	views/layout/layout.css		1	0	0	475
 css:.rtitle .rt-label.none	css	L5	layout	style	views/layout/layout.css		1	0	0	477
 css:.rtoggle	css	L5	layout	style	views/layout/layout.css		1	0	0	481
 css:label	css	L5	layout	style	views/layout/layout.css		1	0	0	123
-html:<button envbtn>	html	L5	layout	view	views/layout/envbtn.tpl.html		1	0	0	847
-html:<button glossbtn>	html	L5	layout	view	views/layout/glossbtn.tpl.html		1	0	0	845
-html:<button helpbtn>	html	L5	layout	view	views/layout/helpbtn.tpl.html		1	0	0	843
-html:<button histback>	html	L5	layout	view	views/layout/histback.tpl.html		1	0	0	830
-html:<button histbtn>	html	L5	layout	view	views/layout/histbtn.tpl.html		1	0	0	834
-html:<button histfwd>	html	L5	layout	view	views/layout/histfwd.tpl.html		1	0	0	832
-html:<button lockbtn>	html	L5	layout	view	views/layout/lockbtn.tpl.html		1	0	0	853
-html:<button ltoggle>	html	L5	layout	view	views/layout/ltoggle.tpl.html		1	0	0	868
-html:<button mini>	html	L5	layout	view	views/layout/mini.tpl.html		1	0	0	792
-html:<button mini>	html	L5	layout	view	views/layout/mini.tpl.html		1	0	0	980
-html:<button nextatt>	html	L5	layout	view	views/layout/nextatt.tpl.html		1	0	0	817
-html:<button pmbtn>	html	L5	layout	view	views/layout/pmbtn.tpl.html		1	0	0	838
-html:<button setbtn>	html	L5	layout	view	views/layout/setbtn.tpl.html		1	0	0	840
-html:<button updbtn>	html	L5	layout	view	views/layout/updbtn.tpl.html		1	0	0	859
-html:<button voicebtn>	html	L5	layout	view	views/layout/voicebtn.tpl.html		1	0	0	826
-html:<button yesall>	html	L5	layout	view	views/layout/yesall.tpl.html		1	0	0	823
-html:<button yesatt>	html	L5	layout	view	views/layout/yesatt.tpl.html		1	0	0	820
-html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	944
-html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	1008
-html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	1150
-html:<div docbox>	html	L5	layout	view	views/layout/docbox.tpl.html		1	0	0	1510
-html:<div gate-err>	html	L5	layout	view	views/layout/gate-err.tpl.html		1	0	0	793
-html:<div gatecard>	html	L5	layout	view	views/layout/gatecard.tpl.html		1	0	0	785
-html:<div gsub>	html	L5	layout	view	views/layout/gsub.tpl.html		1	0	0	787
-html:<div histbox>	html	L5	layout	view	views/layout/histbox.tpl.html		1	0	0	1521
-html:<div lbody>	html	L5	layout	view	views/layout/lbody.tpl.html		1	0	0	882
-html:<div toast>	html	L5	layout	view	views/layout/toast.tpl.html		1	0	0	1522
-html:<header header>	html	L5	layout	view	views/layout/header.tpl.html		1	0	0	806
-html:<input auth-pass>	html	L5	layout	view	views/layout/auth-pass.tpl.html		1	0	0	791
-html:<input auth-user>	html	L5	layout	view	views/layout/auth-user.tpl.html		1	0	0	789
-html:<main main>	html	L5	layout	view	views/layout/main.tpl.html		1	0	0	865
-html:<nav lnav>	html	L5	layout	view	views/layout/lnav.tpl.html		1	0	0	871
-html:<section left>	html	L5	layout	view	views/layout/left.tpl.html		1	0	0	866
-html:<section right>	html	L5	layout	view	views/layout/right.tpl.html		1	0	0	1173
-html:<select clientctx>	html	L5	layout	view	views/layout/clientctx.tpl.html		1	0	0	810
-html:<span envwarn>	html	L5	layout	view	views/layout/envwarn.tpl.html		1	0	0	850
-html:<span hcnt>	html	L5	layout	view	views/layout/hcnt.tpl.html		1	0	0	815
-html:<span health>	html	L5	layout	view	views/layout/health.tpl.html		1	0	0	807
-html:<span healthtxt>	html	L5	layout	view	views/layout/healthtxt.tpl.html		1	0	0	814
-html:<span lock>	html	L5	layout	view	views/layout/lock.tpl.html		1	0	0	862
+html:<button envbtn>	html	L5	layout	view	views/layout/envbtn.view.js		1	0	0	847
+html:<button glossbtn>	html	L5	layout	view	views/layout/glossbtn.view.js		1	0	0	845
+html:<button helpbtn>	html	L5	layout	view	views/layout/helpbtn.view.js		1	0	0	843
+html:<button histback>	html	L5	layout	view	views/layout/histback.view.js		1	0	0	830
+html:<button histbtn>	html	L5	layout	view	views/layout/histbtn.view.js		1	0	0	834
+html:<button histfwd>	html	L5	layout	view	views/layout/histfwd.view.js		1	0	0	832
+html:<button lockbtn>	html	L5	layout	view	views/layout/lockbtn.view.js		1	0	0	853
+html:<button ltoggle>	html	L5	layout	view	views/layout/ltoggle.view.js		1	0	0	868
+html:<button mini>	html	L5	layout	view	views/layout/mini.view.js		1	0	0	792
+html:<button mini>	html	L5	layout	view	views/layout/mini.view.js		1	0	0	980
+html:<button nextatt>	html	L5	layout	view	views/layout/nextatt.view.js		1	0	0	817
+html:<button pmbtn>	html	L5	layout	view	views/layout/pmbtn.view.js		1	0	0	838
+html:<button setbtn>	html	L5	layout	view	views/layout/setbtn.view.js		1	0	0	840
+html:<button updbtn>	html	L5	layout	view	views/layout/updbtn.view.js		1	0	0	859
+html:<button voicebtn>	html	L5	layout	view	views/layout/voicebtn.view.js		1	0	0	826
+html:<button yesall>	html	L5	layout	view	views/layout/yesall.view.js		1	0	0	823
+html:<button yesatt>	html	L5	layout	view	views/layout/yesatt.view.js		1	0	0	820
+html:<div card>	html	L5	layout	view	views/layout/card.view.js		1	0	0	944
+html:<div card>	html	L5	layout	view	views/layout/card.view.js		1	0	0	1008
+html:<div card>	html	L5	layout	view	views/layout/card.view.js		1	0	0	1150
+html:<div docbox>	html	L5	layout	view	views/layout/docbox.view.js		1	0	0	1510
+html:<div gate-err>	html	L5	layout	view	views/layout/gate-err.view.js		1	0	0	793
+html:<div gatecard>	html	L5	layout	view	views/layout/gatecard.view.js		1	0	0	785
+html:<div gsub>	html	L5	layout	view	views/layout/gsub.view.js		1	0	0	787
+html:<div histbox>	html	L5	layout	view	views/layout/histbox.view.js		1	0	0	1521
+html:<div lbody>	html	L5	layout	view	views/layout/lbody.view.js		1	0	0	882
+html:<div toast>	html	L5	layout	view	views/layout/toast.view.js		1	0	0	1522
+html:<header header>	html	L5	layout	view	views/layout/header.view.js		1	0	0	806
+html:<input auth-pass>	html	L5	layout	view	views/layout/auth-pass.view.js		1	0	0	791
+html:<input auth-user>	html	L5	layout	view	views/layout/auth-user.view.js		1	0	0	789
+html:<main main>	html	L5	layout	view	views/layout/main.view.js		1	0	0	865
+html:<nav lnav>	html	L5	layout	view	views/layout/lnav.view.js		1	0	0	871
+html:<section left>	html	L5	layout	view	views/layout/left.view.js		1	0	0	866
+html:<section right>	html	L5	layout	view	views/layout/right.view.js		1	0	0	1173
+html:<select clientctx>	html	L5	layout	view	views/layout/clientctx.view.js		1	0	0	810
+html:<span envwarn>	html	L5	layout	view	views/layout/envwarn.view.js		1	0	0	850
+html:<span hcnt>	html	L5	layout	view	views/layout/hcnt.view.js		1	0	0	815
+html:<span health>	html	L5	layout	view	views/layout/health.view.js		1	0	0	807
+html:<span healthtxt>	html	L5	layout	view	views/layout/healthtxt.view.js		1	0	0	814
+html:<span lock>	html	L5	layout	view	views/layout/lock.view.js		1	0	0	862
 renderOutline	js	L5	layout	view	views/layout/renderOutline.view.js		43	7	4	7195
 glossNorm	js	L5	mail	component	components/glossNorm.js		11	6	0	4576
 GLOSSARY	js	L5	mail	model	models/mail/GLOSSARY.js		88	0	1	4488
@@ -1095,7 +1095,7 @@ mailRoute	js	L5	mail	model	models/mail/mailRoute.js		1	0	0	4453
 mailToggle	js	L5	mail	model	models/mail/mailToggle.js		2	1	0	4438
 loadMail	js	L5	mail	service	services/mail.service.js	/mail/queue	16	3	0	4422
 mailAction	js	L5	mail	service	services/mail.service.js		12	7	0	4440
-html:<div lp-mail>	html	L5	mail	view	views/mail/lp-mail.tpl.html		1	0	0	1146
+html:<div lp-mail>	html	L5	mail	view	views/mail/lp-mail.view.js		1	0	0	1146
 mrStageHtml	js	L5	nav	component	components/mrStageHtml.js		35	1	0	3802
 pinMark	js	L5	nav	component	components/pinMark.js		9	1	0	3857
 pinOf	js	L5	nav	component	components/pinOf.js		2	6	0	3866

@@ -101,7 +101,7 @@ ka._session_started = lambda sid: True
 ka._start_session_tmux = lambda sid, cmd, cwd, w, h, extra: STARTED.append((sid, cmd, str(cwd)))
 ka._record_run = lambda *a, **k: None
 ka._record_key = lambda *a, **k: None
-ka._auto_join_current_set = lambda sid, ctx=None: None
+ka._auto_join_active_set = lambda sid, ctx=None: None
 ka._resolve_cwd = lambda cwd: pathlib.Path(cwd or "/")
 ka._runs_by_session = lambda: {}
 ka.SESS_DIR = TMP / "sessions"

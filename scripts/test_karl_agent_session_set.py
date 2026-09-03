@@ -231,6 +231,10 @@ REAL_OP_RESUME, REAL_OP_SPAWN = ka.op_resume, ka.op_spawn
 
 ALIVE = set()
 ka._has_session = lambda sid: sid in ALIVE
+# RM2951 : /spawn et /resume vérifient que la session a SURVÉCU avant de
+# répondre « créée ». Point de mesure distinct de la garde « déjà active »,
+# que ce harnais fige à False pour pouvoir enchaîner les lancements.
+ka._session_started = lambda sid: True
 
 RESUME = {}   # sid → "ok" | code d'erreur
 

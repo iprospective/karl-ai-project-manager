@@ -192,6 +192,20 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   silence.
 
 ### Cockpit
+- **Un spawn ne répond plus à la place du moteur** (RM2951). Lancer une session sur un
+  dossier que le moteur n'avait jamais ouvert donnait une session **morte-née** : claude
+  s'arrête sur son garde-fou (« Is this a project you created or one you trust? », curseur
+  sur « ❯ No, exit »), or `❯` figurait parmi les marqueurs de « TUI prêt » — karl-agent
+  croyait l'invite disponible, envoyait le prompt **puis Enter**, et cet Enter validait la
+  sortie. Le moteur quittait, la session tmux mourait, `POST /spawn` répondait quand même
+  **201**, et la clé enregistrée désignait une conversation qui n'a jamais existé (incident
+  RM2950, client matnat). Le catalogue des moteurs déclare désormais, à côté de ses
+  marqueurs de prêt, ses **marqueurs de blocage** ; `engine_pane_state()` les teste **en
+  premier** — un écran qui contient les deux est une question fermée, pas une invite. Un TUI
+  bloqué ne reçoit **ni prompt ni Enter** : la session reste vivante avec sa question à
+  l'écran, et la réponse porte `blocked` + `prompt_sent: false`, que le cockpit affiche.
+  Enfin `/spawn` et `/resume` vérifient que la session a **survécu** à son démarrage avant de
+  répondre « créée » — plus de 201 sur une session déjà éteinte.
 - **Les tuiles grises ne promettent plus une session introuvable** (RM2949). Le panneau
   « ▶ en cours », vue par client, alignait des dizaines de sessions éteintes annoncées
   « conversation mémorisée » : le clic partait en `/resume` et retombait sur « relance

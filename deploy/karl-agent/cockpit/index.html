@@ -2778,6 +2778,15 @@ function warnSetFull(r) {
     toast("⚠ le jeu « " + setLabel(s.group) + " » est plein (" + s.max +
           ") : la session tourne mais n'y a PAS été enregistrée", true);
 }
+// RM2951 : tout ce qu'un lancement (spawn OU reprise) doit signaler. Point de
+// passage unique — un appelant de plus ne doit pas avoir à se souvenir de la
+// liste. `blocked` dit que le moteur attend une approbation dans la session : le
+// prompt n'est pas parti, et personne ne le verrait sans ce toast (la session
+// tourne, sa tuile est verte, elle a juste une question à l'écran).
+function warnSpawn(r) {
+  warnSetFull(r);
+  if (r && r.blocked) toast("⚠ " + r.blocked, true);
+}
 function onSetPick(v) {
   if (!v) return;
   if (v.startsWith("view:")) switchView(v.slice(5));
@@ -2974,6 +2983,7 @@ async function relaunchGhost(s) {
                              rm_id: s.rm_id, spawn: neuve || sessionSetSpawn }),
     });
     toast(r.spawned ? "▶ " + label + " recréée (session neuve)" : "▶ " + label + " reprise");
+    warnSpawn(r);                      // RM2951 : un moteur bloqué ne reste pas muet
     setTimeout(() => { refreshSessions(); attach(s.rm_id); }, 1200);
   } catch (e) { toast("relance impossible : " + e.message, true); }
 }
@@ -6571,7 +6581,7 @@ async function spawnBatchSession(items, btn, opts) {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
                                      body: JSON.stringify(body) });
     toast("⇱ " + plan.targets.length + " ticket(s) → session karl-RM" + plan.anchor);
-    warnSetFull(sp);                       // RM2450 : un jeu plein ne passe pas inaperçu
+    warnSpawn(sp);                         // RM2450 jeu plein · RM2951 moteur bloqué
     plan.targets.forEach(t => { tsCache[t.rm_id] = undefined; });
     if (o.apres) o.apres(plan);
     await refreshSessions();
@@ -7652,7 +7662,7 @@ async function resumeSession(s) {
       body: JSON.stringify(body),
     });
     toast("Session reprise dans " + r.tmux);
-    warnSetFull(r);    // RM2450 : idem à la reprise
+    warnSpawn(r);      // RM2450 jeu plein · RM2951 moteur bloqué, à la reprise
     // RM2396 : recharger AUSSI le panneau de reprise, sinon il reste périmé (la
     // session qu'on vient de reprendre garde son état « pas de tmux vivant ») et
     // on est tenté de la reprendre une 2ᵉ fois en enchaînant les reprises.
@@ -11160,7 +11170,7 @@ async function spawnTicketSession(rm, btn) {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" },
                                      body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
-    warnSetFull(sp);                  // RM2450 : un jeu plein ne doit pas passer inaperçu
+    warnSpawn(sp);                    // RM2450 jeu plein · RM2951 moteur bloqué
     tsCache[rm] = undefined;
     await refreshSessions();
     setTimeout(() => attach(rm), 400);
@@ -11295,7 +11305,7 @@ async function spawn() {
   try {
     const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     toast("Session karl-RM" + rm + " lancée");
-    warnSetFull(sp);   // RM2450 : un jeu plein ne doit plus échouer en silence
+    warnSpawn(sp);     // RM2450 jeu plein · RM2951 moteur bloqué
     document.getElementById("prompt").value = "";
     await refreshSessions(); refreshHealth();
     setTimeout(() => attach(rm), 400);

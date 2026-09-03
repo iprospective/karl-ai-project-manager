@@ -297,6 +297,12 @@ ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
+        # RM2951 : le TUI s'arrête sur son garde-fou quand le dossier n'a jamais
+        # été approuvé. L'écran porte « ❯ » (curseur sur « No, exit ») : sans ces
+        # marqueurs-ci, il passait pour « prêt » et l'Enter du prompt validait la
+        # sortie — session morte-née (incident RM2950).
+        "blocked_markers": ("Is this a project you created or one you trust",
+                            "trust this folder", "No, exit"),
         "model_flag": "--model",
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
@@ -982,23 +988,86 @@ def _require_rm_id(payload: dict) -> str:
     return rm_id
 
 
-def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
+#: Attente maximale d'un TUI prêt avant d'injecter le prompt initial.
+ENGINE_READY_TIMEOUT = 8.0
+
+
+def _session_started(rm_id: str) -> bool:
+    """La session vient-elle de survivre à son démarrage ? (RM2951)
+
+    Même mesure que `_has_session`, sous un nom distinct — à dessein. La garde
+    d'entrée (« session déjà active », 409) et ce contrôle-ci posent la même
+    question à deux instants OPPOSÉS : avant, la bonne réponse est « non » ;
+    après, c'est « oui ». Les deux sous le même nom, un harnais qui fige la garde
+    fait échouer le contrôle, et l'inverse — le point de mesure doit pouvoir se
+    régler séparément."""
+    return _has_session(rm_id)
+
+
+def _blocked_reason(engine: str, name: str, prompt: bool) -> str:
+    """RM2951 — ce qu'on dit quand le TUI attend une approbation. Le message doit
+    tenir seul dans un toast : ce qui bloque, où le débloquer, et ce qui n'a PAS
+    été fait."""
+    return (f"le moteur {engine} attend une approbation dans la session {name} "
+            "(dossier pas encore approuvé par le moteur) — ouvre la session et "
+            "réponds-lui"
+            + (" ; le prompt initial n'a PAS été envoyé (l'expédier maintenant "
+               "répondrait à sa question, pas à la tienne)" if prompt else ""))
+
+
+# >>> engine_pane_state — pure (testée par test_karl_agent_spawn_trust.py)
+# RM2951 — que raconte le pane ? « ready » (le TUI attend une entrée), « blocked »
+# (il attend AUTRE CHOSE qu'un prompt — typiquement l'approbation du dossier) ou
+# « starting » (rien de reconnaissable encore).
+#
+# Le blocage se teste EN PREMIER, et ce n'est pas un détail d'ordre : l'écran de
+# confiance de claude affiche « ❯ » devant « No, exit », or « ❯ » est justement un
+# marqueur de TUI prêt. Tester « prêt » d'abord revenait à voir une invite là où
+# le moteur posait une question fermée — et l'Enter qui suivait répondait « non ».
+#
+# Moteur inconnu, ou sans marqueur (shell) : « ready ». On ne fabrique pas un
+# refus faute de savoir ; le comportement d'avant est le défaut.
+def engine_pane_state(pane: str, engine: str) -> str:
+    text = pane or ""
+    e = ENGINES.get(engine, {})
+    if any(m in text for m in e.get("blocked_markers", ())):
+        return "blocked"
+    markers = e.get("ready_markers", ())
+    if not markers or any(m in text for m in markers):
+        return "ready"
+    return "starting"
+# <<< engine_pane_state
+
+
+def _engine_pane_state_now(rm_id: str, engine: str) -> str:
+    """État du pane à l'instant t, sans attendre (RM2951). Capture illisible ⇒
+    « starting » : on ne conclut rien d'un pane qu'on n'a pas pu lire."""
+    rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
+    return engine_pane_state(out, engine) if rc == 0 else "starting"
+
+
+def _wait_engine_ready(rm_id: str, engine: str, timeout: float | None = None) -> str:
     """Attend que le TUI du moteur soit prêt à recevoir une entrée, avant
     d'injecter le prompt initial. Sans ça, les touches envoyées trop tôt partent
     dans le vide pendant le splash de démarrage (course observée sur claude, RM1873).
-    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout."""
+    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout.
+
+    RM2951 — rend l'état atteint (`ready` / `blocked` / `starting`) : l'appelant
+    doit pouvoir REFUSER d'injecter quoi que ce soit dans un TUI qui attend une
+    approbation. S'arrête aussi vite sur un blocage que sur un prêt — attendre
+    huit secondes une invite qui ne viendra pas ne sert personne."""
     # Marqueurs propres au moteur (cf. ENGINES). Vide (ex. shell) → pas d'attente.
-    markers = ENGINES.get(engine, {}).get("ready_markers", ())
-    if not markers:
+    if not ENGINES.get(engine, {}).get("ready_markers", ()):
         time.sleep(0.3)
-        return
-    name = _session_name(rm_id)
-    deadline = time.time() + timeout
+        return "ready"
+    deadline = time.time() + (ENGINE_READY_TIMEOUT if timeout is None else timeout)
+    state = "starting"
     while time.time() < deadline:
-        rc, out, _ = _tmux("capture-pane", "-p", "-t", name)
-        if rc == 0 and any(m in out for m in markers):
-            return
+        state = _engine_pane_state_now(rm_id, engine)
+        if state in ("ready", "blocked"):
+            return state
         time.sleep(0.3)
+    return state
 
 
 def _ticket_model(rm_id: str) -> str | None:
@@ -1128,20 +1197,40 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
-    if prompt:
+    # RM2951 : l'état du TUI décide. Un moteur qui attend l'approbation du dossier
+    # affiche « ❯ » devant « No, exit » — donc un marqueur de « prêt ». On lui
+    # envoyait le prompt puis Enter, ce qui validait la sortie : claude quittait,
+    # la session tmux mourait, et /spawn répondait 201 sur une session jamais née
+    # (incident RM2950). Sans prompt à livrer, une capture unique suffit à le dire.
+    blocked, prompt_sent = None, False
+    state = _wait_engine_ready(rm_id, engine) if prompt \
+        else _engine_pane_state_now(rm_id, engine)
+    if state == "blocked":
+        blocked = _blocked_reason(engine, name, bool(prompt))
+    elif prompt:
         # RM2284 : l'ancrage ticket transite TOUJOURS, même en prompt libre —
         # si le texte ne mentionne pas déjà RM<id>, on préfixe le contexte
         # (incident : session lancée pour RM2140 sans que l'agent le sache).
         if _is_ticket_sid(rm_id) and f"rm{rm_id}" not in str(prompt).lower():
             prompt = _anchor_context(rm_id) + " " + str(prompt)
-        _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", name, "Enter")
+        prompt_sent = True
+
+    # RM2951 : jamais de 201 sur une session qui n'existe déjà plus. Elle serait
+    # invisible partout (rien ne tourne, aucune conversation) alors que l'appelant
+    # vient de lire « créée ».
+    if not _session_started(rm_id):
+        raise ApiError(502, f"la session {name} s'est arrêtée aussitôt après son "
+                            f"démarrage (moteur {engine}) — voir la capture "
+                            f"{_log_path(rm_id).name}")
 
     return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
             "model": model_value, "model_source": model_source,
             "session_id": session_id, "created": True,
+            # RM2951 : ce qui a (ou n'a pas) été fait du prompt, et pourquoi
+            "prompt_sent": prompt_sent, "blocked": blocked,
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
@@ -3715,14 +3804,27 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
 
     prompt = payload.get("prompt")
-    if prompt:
-        _wait_engine_ready(rm_id, engine)
+    # RM2951 : même garde qu'au spawn — un TUI qui attend une approbation ne
+    # reçoit pas de prompt, et surtout pas l'Enter qui y répondrait.
+    blocked, prompt_sent = None, False
+    state = _wait_engine_ready(rm_id, engine) if prompt \
+        else _engine_pane_state_now(rm_id, engine)
+    if state == "blocked":
+        blocked = _blocked_reason(engine, _session_name(rm_id), bool(prompt))
+    elif prompt:
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
+        prompt_sent = True
+
+    if not _session_started(rm_id):
+        raise ApiError(502, f"la session {_session_name(rm_id)} s'est arrêtée aussitôt "
+                            f"après la reprise (moteur {engine}) — voir la capture "
+                            f"{_log_path(rm_id).name}")
 
     return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": engine,
             "session_id": session_id, "cwd": str(cwd), "resumed": True,
+            "prompt_sent": prompt_sent, "blocked": blocked,      # RM2951
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 

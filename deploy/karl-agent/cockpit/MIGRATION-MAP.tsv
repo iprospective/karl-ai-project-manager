@@ -1,0 +1,1189 @@
+symbole	type	lot	domaine	couche	cible	routes	lignes	refs	tickets_90j	ligne_source
+CFG	js	L0	auth	model	models/auth/CFG.js		1	0	1	1525
+attached	js	L0	auth	model	models/auth/attached.js		1	0	1	1526
+login	js	L0	auth	model	models/auth/login.js	/auth/login	24	3	1	1541
+resolveTimer	js	L0	auth	model	models/auth/resolveTimer.js		2	0	0	1528
+resolved	js	L0	auth	model	models/auth/resolved.js		1	0	0	1527
+createUser	js	L0	auth	service	services/auth.service.js	/auth/users	10	0	0	1633
+deleteUser	js	L0	auth	service	services/auth.service.js	/auth/users	7	1	0	1662
+loadDevices	js	L0	auth	service	services/auth.service.js	/auth/devices	13	2	0	1599
+loadUsers	js	L0	auth	service	services/auth.service.js	/auth/users	16	5	0	1617
+logout	js	L0	auth	service	services/auth.service.js	/auth/devices	7	1	0	1565
+resetUserPw	js	L0	auth	service	services/auth.service.js	/auth/users	10	1	0	1652
+revokeDevice	js	L0	auth	service	services/auth.service.js	/auth/devices	5	1	0	1612
+toggleUser	js	L0	auth	service	services/auth.service.js	/auth/users	9	1	0	1643
+html:<div authgate>	html	L0	auth	view	views/auth/authgate.tpl.html		1	0	0	784
+renderAuth	js	L0	auth	view	views/auth/renderAuth.view.js		19	5	1	1580
+ago	js	L0	core	component	components/ago.js		10	13	0	1762
+agoHM	js	L0	core	component	components/agoHM.js		13	3	0	1749
+authAdmin	js	L0	core	component	components/authAdmin.js		1	4	0	1540
+authUser	js	L0	core	component	components/authUser.js		1	5	0	1539
+cval	js	L0	core	component	components/cval.js		9	10	0	8411
+esc	js	L0	core	component	components/esc.js		6	514	1	7821
+headers	js	L0	core	component	components/headers.js		5	9	0	1669
+histStep	js	L0	core	component	components/histStep.js		18	3	0	3660
+jarg	js	L0	core	component	components/jarg.js		11	84	4	3592
+navRender	js	L0	core	component	components/navRender.js		10	3	0	3719
+quietHtml	js	L0	core	component	components/quietHtml.js		16	1	0	1733
+switchPanel	js	L0	core	component	components/switchPanel.js		13	6	0	1823
+toast	js	L0	core	component	components/toast.js		8	214	1	1701
+toastAction	js	L0	core	component	components/toastAction.js		11	3	0	1690
+token	js	L0	core	component	components/token.js		1	10	0	1530
+showCoreUpdate	js	L0	core	controller	core/showCoreUpdate.js		15	0	0	1806
+NAV_MAX	js	L0	core	model	core/NAV_MAX.js		1	0	0	3630
+PANEL_LOADERS	js	L0	core	model	core/PANEL_LOADERS.js		1	0	4	1821
+_coreUpd	js	L0	core	model	core/_coreUpd.js		3	0	1	1787
+_panelLoaded	js	L0	core	model	core/_panelLoaded.js		1	0	0	1822
+activeTabId	js	L0	core	model	core/activeTabId.js		10	0	1	3604
+deviceName	js	L0	core	model	core/deviceName.js		8	1	0	1572
+fmtMin	js	L0	core	model	core/fmtMin.js		6	2	1	8153
+fmtRate	js	L0	core	model	core/fmtRate.js		6	3	1	7967
+fmtTokens	js	L0	core	model	core/fmtTokens.js		5	12	0	8148
+fmtUsd	js	L0	core	model	core/fmtUsd.js		1	4	0	7966
+histCloseTarget	js	L0	core	model	core/histCloseTarget.js		16	1	0	3678
+histGoTo	js	L0	core	model	core/histGoTo.js		10	1	0	3738
+histToggle	js	L0	core	model	core/histToggle.js		16	1	3	3748
+histVisit	js	L0	core	model	core/histVisit.js		22	1	0	3638
+hlq	js	L0	core	model	core/hlq.js		17	1	0	3555
+linkify	js	L0	core	model	core/linkify.js		20	3	1	3572
+navGo	js	L0	core	model	core/navGo.js		9	0	0	3729
+navHist	js	L0	core	model	core/navHist.js		1	0	0	3631
+navIsOpen	js	L0	core	model	core/navIsOpen.js		4	0	0	3715
+navSuspend	js	L0	core	model	core/navSuspend.js		6	0	0	3632
+quietSince	js	L0	core	model	core/quietSince.js		12	1	0	1721
+rmLink	js	L0	core	model	core/rmLink.js		4	0	2	8099
+tabId	js	L0	core	model	core/tabId.js		2	0	0	3868
+titleLink	js	L0	core	model	core/titleLink.js		22	8	1	7827
+ttydUrl	js	L0	core	model	core/ttydUrl.js		12	1	2	1709
+api	js	L0	core	service	core/api.js		16	119	2	1674
+ensureDashTab	js	L0	core	service	core/ensureDashTab.js		16	0	1	3614
+pollDelay	js	L0	core	service	core/pollDelay.js		2	1	0	1963
+refreshCoreUpdate	js	L0	core	service	core/refreshCoreUpdate.js	/core/update-status	4	1	1	1790
+refreshHealth	js	L0	core	service	core/refreshHealth.js		6	6	3	1781
+saveToken	js	L0	core	service	core/saveToken.js		8	0	1	1531
+css:#authgate	css	L0	core	style	core/base.css		1	0	0	111
+css:#authgate .gate-err	css	L0	core	style	core/base.css		1	0	0	122
+css:#authgate .gatecard	css	L0	core	style	core/base.css		1	0	1	114
+css:#authgate .gsub	css	L0	core	style	core/base.css		1	0	0	118
+css:#authgate button	css	L0	core	style	core/base.css		1	0	0	121
+css:#authgate h2	css	L0	core	style	core/base.css		1	0	0	117
+css:#authgate input	css	L0	core	style	core/base.css		1	0	0	120
+css:#authgate label	css	L0	core	style	core/base.css		1	0	0	119
+css:#authgate.show	css	L0	core	style	core/base.css		1	0	0	113
+css:#clientctx	css	L0	core	style	core/base.css		1	0	0	532
+css:#cmptext	css	L0	core	style	core/base.css		1	0	0	158
+css:#cmptext:disabled	css	L0	core	style	core/base.css		1	0	0	163
+css:#cmptext:focus	css	L0	core	style	core/base.css		1	0	0	162
+css:#composer	css	L0	core	style	core/base.css		1	0	0	156
+css:#doccontent	css	L0	core	style	core/base.css		1	0	1	696
+css:#doccontent.plain	css	L0	core	style	core/base.css		1	0	0	697
+css:#histback[disabled], #histfwd[disabled]	css	L0	core	style	core/base.css		1	0	0	293
+css:#histbox	css	L0	core	style	core/base.css		1	0	0	284
+css:#pendbody .oline	css	L0	core	style	core/base.css		1	0	0	565
+css:#pendbody .oline b	css	L0	core	style	core/base.css		1	0	0	566
+css:#updbtn	css	L0	core	style	core/base.css		1	0	0	410
+css:#updbtn:hover	css	L0	core	style	core/base.css		1	0	0	414
+css:*	css	L0	core	style	core/base.css		1	0	0	66
+css:.alert-age	css	L0	core	style	core/base.css		1	0	0	225
+css:.alert-row	css	L0	core	style	core/base.css		1	0	0	224
+css:.attnband	css	L0	core	style	core/base.css		1	0	0	380
+css:.attnband-h	css	L0	core	style	core/base.css		1	0	0	382
+css:.attnchip	css	L0	core	style	core/base.css		1	0	0	384
+css:.attnchip .rmeta	css	L0	core	style	core/base.css		1	0	0	388
+css:.attnchip .tid	css	L0	core	style	core/base.css		1	0	0	387
+css:.attnchip:hover	css	L0	core	style	core/base.css		1	0	0	386
+css:.badge	css	L0	core	style	core/base.css		1	0	0	141
+css:.badge.att	css	L0	core	style	core/base.css		1	0	0	143
+css:.bp-hint	css	L0	core	style	core/base.css		1	0	0	582
+css:.bp-point	css	L0	core	style	core/base.css		1	0	0	580
+css:.bp-point input	css	L0	core	style	core/base.css		1	0	0	581
+css:.bp-points	css	L0	core	style	core/base.css		1	0	0	579
+css:.card	css	L0	core	style	core/base.css		1	0	2	105
+css:.chip	css	L0	core	style	core/base.css		1	0	0	444
+css:.chip:disabled	css	L0	core	style	core/base.css		1	0	0	447
+css:.chip:hover	css	L0	core	style	core/base.css		1	0	0	446
+css:.chipsrow	css	L0	core	style	core/base.css		1	0	0	439
+css:.chipsrow .cgroup	css	L0	core	style	core/base.css		1	0	0	441
+css:.chipsrow .cgroup:first-child	css	L0	core	style	core/base.css		1	0	0	443
+css:.cmpbar	css	L0	core	style	core/base.css		1	0	0	164
+css:.cmphint	css	L0	core	style	core/base.css		1	0	0	165
+css:.cmphist	css	L0	core	style	core/base.css		1	0	0	181
+css:.cmphist .hempty	css	L0	core	style	core/base.css		1	0	0	188
+css:.cmphist .hitem	css	L0	core	style	core/base.css		1	0	0	183
+css:.cmphist .hitem:hover	css	L0	core	style	core/base.css		1	0	0	187
+css:.cmphist .hitem:last-child	css	L0	core	style	core/base.css		1	0	0	186
+css:.cmpwarn	css	L0	core	style	core/base.css		1	0	0	178
+css:.cmpwarn b	css	L0	core	style	core/base.css		1	0	0	180
+css:.cpanel	css	L0	core	style	core/base.css		1	0	0	109
+css:.ctab	css	L0	core	style	core/base.css		1	0	0	342
+css:.ctab .lbl	css	L0	core	style	core/base.css		1	0	0	348
+css:.ctab .x, .ctab .pin	css	L0	core	style	core/base.css		1	0	0	349
+css:.ctab .x:hover, .ctab .pin:hover	css	L0	core	style	core/base.css		1	0	0	350
+css:.ctab.active	css	L0	core	style	core/base.css		1	0	0	346
+css:.ctab.temp	css	L0	core	style	core/base.css		1	0	0	347
+css:.ctabs	css	L0	core	style	core/base.css		1	0	1	340
+css:.ctxbanner	css	L0	core	style	core/base.css		1	0	0	533
+css:.ctxbanner button	css	L0	core	style	core/base.css		1	0	0	536
+css:.curtitle	css	L0	core	style	core/base.css		1	0	0	351
+css:.curtitle .tid	css	L0	core	style	core/base.css		1	0	0	353
+css:.curtitle .ttitle	css	L0	core	style	core/base.css		1	0	0	354
+css:.desc	css	L0	core	style	core/base.css		1	0	0	656
+css:.descfull	css	L0	core	style	core/base.css		1	0	0	268
+css:.dispmenu	css	L0	core	style	core/base.css		1	0	0	370
+css:.dispmenu .sep	css	L0	core	style	core/base.css		1	0	1	377
+css:.dispmenu button	css	L0	core	style	core/base.css		1	0	0	373
+css:.dispmenu button.on	css	L0	core	style	core/base.css		1	0	0	376
+css:.dispmenu button:hover	css	L0	core	style	core/base.css		1	0	0	375
+css:.docbar	css	L0	core	style	core/base.css		1	0	0	695
+css:.docbox	css	L0	core	style	core/base.css		1	0	0	694
+css:.doclist	css	L0	core	style	core/base.css		1	0	0	653
+css:.doclist li	css	L0	core	style	core/base.css		1	0	0	654
+css:.doclist li:hover	css	L0	core	style	core/base.css		1	0	0	655
+css:.docmodal	css	L0	core	style	core/base.css		1	0	1	660
+css:.docmodal.show	css	L0	core	style	core/base.css		1	0	2	661
+css:.dot	css	L0	core	style	core/base.css		1	0	0	78
+css:.dot.ko	css	L0	core	style	core/base.css		1	0	0	80
+css:.dot.ok	css	L0	core	style	core/base.css		1	0	0	79
+css:.empty	css	L0	core	style	core/base.css		1	0	0	144
+css:.es-badge	css	L0	core	style	core/base.css		1	0	0	681
+css:.es-badge.es-error	css	L0	core	style	core/base.css		1	0	0	683
+css:.es-badge.es-warn	css	L0	core	style	core/base.css		1	0	0	682
+css:.es-bar	css	L0	core	style	core/base.css		1	0	0	663
+css:.es-bar .es-hint	css	L0	core	style	core/base.css		1	0	0	664
+css:.es-copy	css	L0	core	style	core/base.css		1	0	1	679
+css:.es-error	css	L0	core	style	core/base.css		1	0	0	676
+css:.es-fix	css	L0	core	style	core/base.css		1	0	0	678
+css:.es-fixrow	css	L0	core	style	core/base.css		1	0	0	677
+css:.es-gname	css	L0	core	style	core/base.css		1	0	0	668
+css:.es-group	css	L0	core	style	core/base.css		1	0	0	667
+css:.es-head	css	L0	core	style	core/base.css		1	0	0	665
+css:.es-head .es-when	css	L0	core	style	core/base.css		1	0	0	666
+css:.es-info .es-mark	css	L0	core	style	core/base.css		1	0	0	674
+css:.es-ok .es-mark	css	L0	core	style	core/base.css		1	0	0	673
+css:.es-row	css	L0	core	style	core/base.css		1	0	0	669
+css:.es-row .es-detail	css	L0	core	style	core/base.css		1	0	0	672
+css:.es-row .es-label	css	L0	core	style	core/base.css		1	0	0	671
+css:.es-row .es-mark	css	L0	core	style	core/base.css		1	0	0	670
+css:.es-sec	css	L0	core	style	core/base.css		1	0	0	684
+css:.es-sec .es-seccnt	css	L0	core	style	core/base.css		1	0	0	687
+css:.es-sec > summary	css	L0	core	style	core/base.css		1	0	0	685
+css:.es-sec > summary:hover	css	L0	core	style	core/base.css		1	0	0	686
+css:.es-warn	css	L0	core	style	core/base.css		1	0	0	675
+css:.facetfull	css	L0	core	style	core/base.css		1	0	0	264
+css:.gdiff	css	L0	core	style	core/base.css		1	0	0	554
+css:.gdiff .add	css	L0	core	style	core/base.css		1	0	0	556
+css:.gdiff .del	css	L0	core	style	core/base.css		1	0	0	557
+css:.gdiff .fh	css	L0	core	style	core/base.css		1	0	0	559
+css:.gdiff .hunk	css	L0	core	style	core/base.css		1	0	0	558
+css:.gtrunc	css	L0	core	style	core/base.css		1	0	0	560
+css:.hcnt	css	L0	core	style	core/base.css		1	0	0	100
+css:.hcnt .pill.att	css	L0	core	style	core/base.css		1	0	0	101
+css:.helpbody	css	L0	core	style	core/base.css		1	0	0	691
+css:.helpq	css	L0	core	style	core/base.css		1	0	0	692
+css:.helpq:hover	css	L0	core	style	core/base.css		1	0	0	693
+css:.helptoc	css	L0	core	style	core/base.css		1	0	0	689
+css:.helptoc .chip.on	css	L0	core	style	core/base.css		1	0	0	690
+css:.histrow	css	L0	core	style	core/base.css		1	0	0	288
+css:.histrow.cur	css	L0	core	style	core/base.css		1	0	0	291
+css:.histrow.gone	css	L0	core	style	core/base.css		1	0	0	292
+css:.histrow:hover	css	L0	core	style	core/base.css		1	0	0	290
+css:.kv	css	L0	core	style	core/base.css		1	0	0	597
+css:.kv .k	css	L0	core	style	core/base.css		1	0	0	598
+css:.mc-block	css	L0	core	style	core/base.css		1	0	0	595
+css:.mc-ok	css	L0	core	style	core/base.css		1	0	0	593
+css:.mc-unknown	css	L0	core	style	core/base.css		1	0	0	596
+css:.mc-warn	css	L0	core	style	core/base.css		1	0	0	594
+css:.mcbanner	css	L0	core	style	core/base.css		1	0	0	588
+css:.mcbanner .mc-advice	css	L0	core	style	core/base.css		1	0	0	591
+css:.mcbanner .mc-detail	css	L0	core	style	core/base.css		1	0	0	590
+css:.mcbanner .mc-head	css	L0	core	style	core/base.css		1	0	0	589
+css:.mcbanner .mc-mr	css	L0	core	style	core/base.css		1	0	0	592
+css:.mdview	css	L0	core	style	core/base.css		1	0	0	699
+css:.mdview a	css	L0	core	style	core/base.css		1	0	0	721
+css:.mdview blockquote	css	L0	core	style	core/base.css		1	0	0	716
+css:.mdview code	css	L0	core	style	core/base.css		1	0	0	708
+css:.mdview h1	css	L0	core	style	core/base.css		1	0	0	703
+css:.mdview h1, .mdview h2, .mdview h3, .mdview h4, .mdview h5, 	css	L0	core	style	core/base.css		1	0	0	700
+css:.mdview h2	css	L0	core	style	core/base.css		1	0	0	704
+css:.mdview h3	css	L0	core	style	core/base.css		1	0	0	705
+css:.mdview h4, .mdview h5, .mdview h6	css	L0	core	style	core/base.css		1	0	0	706
+css:.mdview hr	css	L0	core	style	core/base.css		1	0	2	722
+css:.mdview li	css	L0	core	style	core/base.css		1	0	0	715
+css:.mdview p	css	L0	core	style	core/base.css		1	0	0	707
+css:.mdview pre	css	L0	core	style	core/base.css		1	0	0	710
+css:.mdview pre.mdfm	css	L0	core	style	core/base.css		1	0	0	713
+css:.mdview table	css	L0	core	style	core/base.css		1	0	0	718
+css:.mdview th	css	L0	core	style	core/base.css		1	0	0	720
+css:.mdview th, .mdview td	css	L0	core	style	core/base.css		1	0	0	719
+css:.mdview ul, .mdview ol	css	L0	core	style	core/base.css		1	0	0	714
+css:.metabody	css	L0	core	style	core/base.css		1	0	1	497
+css:.metabody .rels .pill	css	L0	core	style	core/base.css		1	0	0	500
+css:.metabody a	css	L0	core	style	core/base.css		1	0	2	625
+css:.mini.primary	css	L0	core	style	core/base.css		1	0	1	172
+css:.mini.primary:disabled	css	L0	core	style	core/base.css		1	0	0	174
+css:.ms	css	L0	core	style	core/base.css		1	0	0	585
+css:.ms h4	css	L0	core	style	core/base.css		1	0	1	586
+css:.nbadge	css	L0	core	style	core/base.css		1	0	0	95
+css:.nbadge.att	css	L0	core	style	core/base.css		1	0	1	97
+css:.notabs	css	L0	core	style	core/base.css		1	0	1	416
+css:.oexp	css	L0	core	style	core/base.css		1	0	0	511
+css:.oexpbar	css	L0	core	style	core/base.css		1	0	0	513
+css:.oexpbar .sp	css	L0	core	style	core/base.css		1	0	0	514
+css:.oexptxt	css	L0	core	style	core/base.css		1	0	0	515
+css:.oexptxt mark, .oline mark	css	L0	core	style	core/base.css		1	0	0	521
+css:.oline	css	L0	core	style	core/base.css		1	0	0	523
+css:.oline .otag	css	L0	core	style	core/base.css		1	0	2	574
+css:.oline.oans	css	L0	core	style	core/base.css		1	0	0	573
+css:.oline.ocur	css	L0	core	style	core/base.css		1	0	6	530
+css:.oline.oq	css	L0	core	style	core/base.css		1	0	0	571
+css:.oline.oq.ounres	css	L0	core	style	core/base.css		1	0	0	572
+css:.oline.ouser	css	L0	core	style	core/base.css		1	0	1	528
+css:.oline.ouser:hover	css	L0	core	style	core/base.css		1	0	0	529
+css:.oline:hover	css	L0	core	style	core/base.css		1	0	0	526
+css:.oline:hover .pjicons	css	L0	core	style	core/base.css		1	0	0	303
+css:.olink	css	L0	core	style	core/base.css		1	0	0	518
+css:.olink.omono	css	L0	core	style	core/base.css		1	0	0	520
+css:.olink:hover	css	L0	core	style	core/base.css		1	0	0	519
+css:.oread	css	L0	core	style	core/base.css		1	0	0	646
+css:.oreadbar	css	L0	core	style	core/base.css		1	0	0	648
+css:.oreadbar .t	css	L0	core	style	core/base.css		1	0	0	650
+css:.oreadtxt	css	L0	core	style	core/base.css		1	0	0	651
+css:.otix	css	L0	core	style	core/base.css		1	0	0	538
+css:.otix .otix-head	css	L0	core	style	core/base.css		1	0	0	539
+css:.otix .otix-title	css	L0	core	style	core/base.css		1	0	0	540
+css:.otix:hover .otix-title	css	L0	core	style	core/base.css		1	0	0	541
+css:.pill	css	L0	core	style	core/base.css		1	0	1	599
+css:.pill.dang	css	L0	core	style	core/base.css		1	0	1	623
+css:.pill.ok	css	L0	core	style	core/base.css		1	0	0	622
+css:.pill.test	css	L0	core	style	core/base.css		1	0	0	624
+css:.pinmark	css	L0	core	style	core/base.css		1	0	0	280
+css:.placeholder	css	L0	core	style	core/base.css		1	0	3	196
+css:.placeholder.dash-on	css	L0	core	style	core/base.css		1	0	0	199
+css:.pradios	css	L0	core	style	core/base.css		1	0	0	328
+css:.pradios input	css	L0	core	style	core/base.css		1	0	0	332
+css:.pradios label	css	L0	core	style	core/base.css		1	0	0	330
+css:.srcfilters	css	L0	core	style	core/base.css		1	0	0	296
+css:.srcfilters select	css	L0	core	style	core/base.css		1	0	0	297
+css:.tbadge	css	L0	core	style	core/base.css		1	0	0	430
+css:.tdot	css	L0	core	style	core/base.css		1	0	0	356
+css:.tdot.disp-parke	css	L0	core	style	core/base.css		1	0	0	366
+css:.tdot.disp-termine	css	L0	core	style	core/base.css		1	0	0	367
+css:.tdot.st-attention	css	L0	core	style	core/base.css		1	0	1	359
+css:.tdot.st-choice	css	L0	core	style	core/base.css		1	0	1	361
+css:.tdot.st-ghost	css	L0	core	style	core/base.css		1	0	1	363
+css:.tdot.st-idle	css	L0	core	style	core/base.css		1	0	0	358
+css:.tdot.st-working	css	L0	core	style	core/base.css		1	0	0	357
+css:.tdot.tdisp	css	L0	core	style	core/base.css		1	0	0	368
+css:.tdot.tdisp:hover	css	L0	core	style	core/base.css		1	0	0	369
+css:.tlink	css	L0	core	style	core/base.css		1	0	0	627
+css:.tlink:hover	css	L0	core	style	core/base.css		1	0	0	628
+css:.toast	css	L0	core	style	core/base.css		1	0	0	226
+css:.toast.err	css	L0	core	style	core/base.css		1	0	0	231
+css:.toast.show	css	L0	core	style	core/base.css		1	0	0	230
+css:.tr-badge	css	L0	core	style	core/base.css		1	0	0	619
+css:.tr-blocked	css	L0	core	style	core/base.css		1	0	0	621
+css:.tr-count	css	L0	core	style	core/base.css		1	0	0	605
+css:.tr-err	css	L0	core	style	core/base.css		1	0	0	607
+css:.tr-meta	css	L0	core	style	core/base.css		1	0	0	614
+css:.tr-more	css	L0	core	style	core/base.css		1	0	0	606
+css:.tr-prio	css	L0	core	style	core/base.css		1	0	0	615
+css:.tr-prio-high, .tr-prio-urgent	css	L0	core	style	core/base.css		1	0	0	616
+css:.tr-prio-low	css	L0	core	style	core/base.css		1	0	0	617
+css:.tr-rank	css	L0	core	style	core/base.css		1	0	0	610
+css:.tr-rm	css	L0	core	style	core/base.css		1	0	0	612
+css:.tr-row	css	L0	core	style	core/base.css		1	0	0	608
+css:.tr-row:hover	css	L0	core	style	core/base.css		1	0	0	609
+css:.tr-score	css	L0	core	style	core/base.css		1	0	0	611
+css:.tr-time	css	L0	core	style	core/base.css		1	0	0	618
+css:.tr-title	css	L0	core	style	core/base.css		1	0	0	613
+css:.tr-unblock	css	L0	core	style	core/base.css		1	0	0	620
+css:.triagefilters	css	L0	core	style	core/base.css		1	0	0	601
+css:.triagefilters .tr-vf	css	L0	core	style	core/base.css		1	0	0	603
+css:.triagefilters select	css	L0	core	style	core/base.css		1	0	0	602
+css:.triagelegend	css	L0	core	style	core/base.css		1	0	0	604
+css:.tyes	css	L0	core	style	core/base.css		1	0	0	434
+css:.tyes:hover	css	L0	core	style	core/base.css		1	0	1	435
+css::root	css	L0	core	style	core/base.css		1	0	2	62
+css::root, :root[data-theme="dark"]	css	L0	core	style	core/base.css		1	0	2	21
+css::root[data-theme="light"]	css	L0	core	style	core/base.css		1	0	2	44
+css:@keyframes kblink	css	L0	core	style	core/base.css		1	0	2	392
+css:@keyframes updpulse	css	L0	core	style	core/base.css		1	0	0	406
+css:@media (prefers-reduced-motion: reduce)	css	L0	core	style	core/base.css		1	0	0	415
+css:body	css	L0	core	style	core/base.css		1	0	1	71
+css:button	css	L0	core	style	core/base.css		1	0	0	128
+css:button.danger:hover	css	L0	core	style	core/base.css		1	0	0	134
+css:button.mini	css	L0	core	style	core/base.css		1	0	0	133
+css:button.primary	css	L0	core	style	core/base.css		1	0	1	131
+css:button.primary:hover	css	L0	core	style	core/base.css		1	0	0	132
+css:button:hover	css	L0	core	style	core/base.css		1	0	0	130
+css:details.card > summary	css	L0	core	style	core/base.css		1	0	0	306
+css:details.card > summary::-webkit-details-marker	css	L0	core	style	core/base.css		1	0	0	308
+css:details.card > summary::before	css	L0	core	style	core/base.css		1	0	0	309
+css:details.card[open] > summary::before	css	L0	core	style	core/base.css		1	0	0	310
+css:h2	css	L0	core	style	core/base.css		1	0	0	103
+css:header	css	L0	core	style	core/base.css		1	0	0	74
+css:header	css	L0	core	style	core/base.css		1	0	0	81
+css:header .sub	css	L0	core	style	core/base.css		1	0	0	77
+css:header h1	css	L0	core	style	core/base.css		1	0	0	76
+css:html, body	css	L0	core	style	core/base.css		1	0	0	70
+css:iframe	css	L0	core	style	core/base.css		1	0	2	148
+css:input, select, textarea	css	L0	core	style	core/base.css		1	0	0	124
+css:input:focus, select:focus, textarea:focus	css	L0	core	style	core/base.css		1	0	0	127
+css:main	css	L0	core	style	core/base.css		1	0	1	82
+css:main.lcollapsed	css	L0	core	style	core/base.css		1	0	0	493
+css:main.lcollapsed .lnav, main.lcollapsed .lbody	css	L0	core	style	core/base.css		1	0	0	494
+css:textarea	css	L0	core	style	core/base.css		1	0	0	126
+centerTabs	js	L0	core	view	core/centerTabs.js		1	0	1	3603
+histListHtml	js	L0	core	view	core/histListHtml.js		21	2	0	3694
+mdToHtml	js	L0	core	view	core/mdToHtml.js		68	5	1	8615
+renderCoreUpdate	js	L0	core	view	core/renderCoreUpdate.js		12	2	0	1794
+renderHealth	js	L0	core	view	core/renderHealth.js		5	1	0	1772
+renderHealthKo	js	L0	core	view	core/renderHealthKo.js		4	1	0	1777
+sinceLabel	js	L0	core	view	core/sinceLabel.js		15	2	0	7906
+closeCenterPanel	js	L0	tabs	component	components/closeCenterPanel.js		6	7	0	4140
+activateTab	js	L0	tabs	controller	controllers/tabs.controller.js		25	5	6	4048
+closeNewTicket	js	L0	tabs	controller	controllers/tabs.controller.js		11	7	4	4169
+closeTab	js	L0	tabs	controller	controllers/tabs.controller.js		25	3	3	4091
+openDashboard	js	L0	tabs	controller	controllers/tabs.controller.js		18	1	2	4116
+openNewTicket	js	L0	tabs	controller	controllers/tabs.controller.js		20	1	3	4180
+togglePin	js	L0	tabs	controller	controllers/tabs.controller.js		11	1	2	4073
+CENTER_PANELS	js	L0	tabs	model	models/tabs/CENTER_PANELS.js		4	0	0	4134
+_centerPanelLoaded	js	L0	tabs	model	models/tabs/_centerPanelLoaded.js		2	0	0	4138
+noteTab	js	L0	tabs	model	models/tabs/noteTab.js		21	7	3	3993
+ntfClientChanged	js	L0	tabs	model	models/tabs/ntfClientChanged.js		10	1	0	4241
+sessionTabAction	js	L0	tabs	model	models/tabs/sessionTabAction.js		16	2	0	4014
+openSessionTab	js	L0	tabs	service	services/tabs.service.js	/sessions	18	1	0	4030
+css:.tabactions	css	L0	tabs	style	views/tabs/tabs.css		1	0	1	436
+css:.tabbar	css	L0	tabs	style	views/tabs/tabs.css		1	0	3	336
+css:.tabbar2	css	L0	tabs	style	views/tabs/tabs.css		1	0	0	338
+clientProjectPickerHtml	js	L0	tabs	view	views/tabs/clientProjectPickerHtml.view.js		22	1	0	4219
+html:<div tabbar>	html	L0	tabs	view	views/tabs/tabbar.tpl.html		1	0	0	1174
+newTicketFormHtml	js	L0	tabs	view	views/tabs/newTicketFormHtml.view.js		51	1	2	4251
+openCenterPanel	js	L0	tabs	view	views/tabs/openCenterPanel.view.js		23	2	0	4146
+projectRadiosHtml	js	L0	tabs	view	views/tabs/projectRadiosHtml.view.js		19	2	0	4200
+renderCenterTabs	js	L0	tabs	view	views/tabs/renderCenterTabs.view.js		25	1	5	3959
+renderPinMarks	js	L0	tabs	view	views/tabs/renderPinMarks.view.js		7	2	0	4084
+renderTabs	js	L0	tabs	view	views/tabs/renderTabs.view.js		9	6	1	3984
+autoYesLeft	js	L2	sessions	component	components/autoYesLeft.js		9	3	1	2311
+editBody	js	L2	sessions	component	components/editBody.js		7	4	0	2376
+editedSet	js	L2	sessions	component	components/editedSet.js		1	22	0	2374
+closeDispMenu	js	L2	sessions	controller	controllers/sessions.controller.js		1	3	0	11410
+openDispositionMenu	js	L2	sessions	controller	controllers/sessions.controller.js		20	1	0	11411
+selected	js	L2	sessions	controller	controllers/sessions.controller.js		1	0	0	2364
+setEditOptions	js	L2	sessions	controller	controllers/sessions.controller.js		12	1	0	2383
+setEditPick	js	L2	sessions	controller	controllers/sessions.controller.js		7	0	0	2395
+setEditing	js	L2	sessions	controller	controllers/sessions.controller.js		1	0	0	2373
+setFacets	js	L2	sessions	controller	controllers/sessions.controller.js		1	0	1	2347
+setQ	js	L2	sessions	controller	controllers/sessions.controller.js		1	1	0	2366
+OTHER_SETS_GROUP	js	L2	sessions	model	models/sessions/OTHER_SETS_GROUP.js		1	0	1	2345
+REFRESH_PERIOD_MS	js	L2	sessions	model	models/sessions/REFRESH_PERIOD_MS.js		2	0	1	1974
+clientCtxList	js	L2	sessions	model	models/sessions/clientCtxList.js		9	2	0	1877
+clientCtxProject	js	L2	sessions	model	models/sessions/clientCtxProject.js		11	2	0	1886
+collapsedGroups	js	L2	sessions	model	models/sessions/collapsedGroups.js		5	0	1	2358
+computeGroups	js	L2	sessions	model	models/sessions/computeGroups.js		41	1	7	1836
+currentSet	js	L2	sessions	model	models/sessions/currentSet.js		4	0	1	2341
+currentView	js	L2	sessions	model	models/sessions/currentView.js		1	0	2	2346
+editQ	js	L2	sessions	model	models/sessions/editQ.js		1	2	0	2375
+effDisposition	js	L2	sessions	model	models/sessions/effDisposition.js		10	4	1	1920
+groupsCache	js	L2	sessions	model	models/sessions/groupsCache.js		1	0	1	7819
+hotSessions	js	L2	sessions	model	models/sessions/hotSessions.js		1	0	0	1965
+metaTicket	js	L2	sessions	model	models/sessions/metaTicket.js		1	0	0	7818
+nextAttentionId	js	L2	sessions	model	models/sessions/nextAttentionId.js		11	1	2	1909
+orderedCache	js	L2	sessions	model	models/sessions/orderedCache.js		1	0	0	7820
+pmActionTarget	js	L2	sessions	model	models/sessions/pmActionTarget.js		14	2	0	11278
+resolveCache	js	L2	sessions	model	models/sessions/resolveCache.js		1	0	0	7815
+ruleFormFor	js	L2	sessions	model	models/sessions/ruleFormFor.js		10	0	1	2348
+selMode	js	L2	sessions	model	models/sessions/selMode.js		1	0	0	2363
+sessCache	js	L2	sessions	model	models/sessions/sessCache.js		1	0	1	7817
+sessTimer	js	L2	sessions	model	models/sessions/sessTimer.js		8	0	1	1966
+sessionInClient	js	L2	sessions	model	models/sessions/sessionInClient.js		12	1	0	1897
+sessionSetSpawn	js	L2	sessions	model	models/sessions/sessionSetSpawn.js		6	0	2	2335
+setsCache	js	L2	sessions	model	models/sessions/setsCache.js		1	0	0	2365
+sortFrozen	js	L2	sessions	model	models/sessions/sortFrozen.js		9	1	0	1930
+tsPrompt	js	L2	sessions	model	models/sessions/tsPrompt.js		4	0	0	11216
+tsPromptDefault	js	L2	sessions	model	models/sessions/tsPromptDefault.js		6	2	0	11220
+tsPromptEdited	js	L2	sessions	model	models/sessions/tsPromptEdited.js		2	1	0	11237
+tsPromptSync	js	L2	sessions	model	models/sessions/tsPromptSync.js		4	1	0	11226
+tsTplChanged	js	L2	sessions	model	models/sessions/tsTplChanged.js		7	1	0	11230
+wsCache	js	L2	sessions	model	models/sessions/wsCache.js		1	0	1	7816
+addMonitor	js	L2	sessions	service	services/sessions.service.js	/monitor	10	0	1	11355
+approveAll	js	L2	sessions	service	services/sessions.service.js	/approve-all	15	0	1	2320
+createTicket	js	L2	sessions	service	services/sessions.service.js	/tickets	28	0	1	7787
+kill	js	L2	sessions	service	services/sessions.service.js	/kill;/cockpit-config;/auth/whoami	138	3	32	11438
+moveSession	js	L2	sessions	service	services/sessions.service.js	/move-session	22	1	0	7765
+refreshAt	js	L2	sessions	service	services/sessions.service.js		1	0	0	1977
+refreshDue	js	L2	sessions	service	services/sessions.service.js		5	8	0	1981
+refreshFetch	js	L2	sessions	service	services/sessions.service.js	/refresh	39	8	1	2001
+refreshHash	js	L2	sessions	service	services/sessions.service.js		1	0	0	1976
+refreshInFlight	js	L2	sessions	service	services/sessions.service.js		1	0	0	1979
+refreshQueued	js	L2	sessions	service	services/sessions.service.js		1	0	0	1980
+refreshSessions	js	L2	sessions	service	services/sessions.service.js		1	32	30	2060
+refreshSpecs	js	L2	sessions	service	services/sessions.service.js		15	1	1	1986
+refreshWorklogSid	js	L2	sessions	service	services/sessions.service.js		1	0	0	1978
+removeMonitor	js	L2	sessions	service	services/sessions.service.js	/unmonitor	7	0	1	11365
+resumeSession	js	L2	sessions	service	services/sessions.service.js	/resume	32	1	5	7733
+seedBriefs	js	L2	sessions	service	services/sessions.service.js		10	1	0	2040
+sendAction	js	L2	sessions	service	services/sessions.service.js	/send	23	2	1	11321
+sendPmAction	js	L2	sessions	service	services/sessions.service.js		11	1	0	11344
+setDisposition	js	L2	sessions	service	services/sessions.service.js	/disposition	7	1	0	11431
+setLayout	js	L2	sessions	service	services/sessions.service.js	/layout	10	0	1	11372
+spawn	js	L2	sessions	service	services/sessions.service.js	/spawn	28	1	5	11382
+spawnTicketSession	js	L2	sessions	service	services/sessions.service.js	/spawn	39	1	4	11239
+tickSessions	js	L2	sessions	service	services/sessions.service.js		10	2	1	2050
+css:.runitem	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	423
+css:.runitem .rmeta	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	428
+css:.runitem .tid	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	427
+css:.runitem.active	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	426
+css:.runitem.ghost	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	390
+css:.runitem.ghost:hover	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	391
+css:.runitem:hover	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	425
+css:.sess	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	136
+css:.sess .meta	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	140
+css:.sess .rm	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	139
+css:.sess.active	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	138
+css:.sessions	css	L2	sessions	style	views/sessions/sessions.css		1	0	0	135
+html:<div chipsrow>	html	L2	sessions	view	views/sessions/chipsrow.tpl.html		1	0	0	1506
+html:<div lp-running>	html	L2	sessions	view	views/sessions/lp-running.tpl.html		1	0	0	884
+html:<div rescard>	html	L2	sessions	view	views/sessions/rescard.tpl.html		1	0	0	1032
+rTitleHtml	js	L2	sessions	view	views/sessions/rTitleHtml.view.js		10	1	0	2244
+renderAttnBand	js	L2	sessions	view	views/sessions/renderAttnBand.view.js		24	1	2	1939
+renderChips	js	L2	sessions	view	views/sessions/renderChips.view.js		29	1	1	11292
+renderCurTitle	js	L2	sessions	view	views/sessions/renderCurTitle.view.js		46	14	12	2265
+renderRTitle	js	L2	sessions	view	views/sessions/renderRTitle.view.js		11	1	0	2254
+renderSessions	js	L2	sessions	view	views/sessions/renderSessions.view.js		183	1	1	2061
+renderSetEditPicker	js	L2	sessions	view	views/sessions/renderSetEditPicker.view.js		8	1	0	2402
+roleHintLine	js	L2	sessions	view	views/sessions/roleHintLine.view.js		10	1	1	11206
+setBody	js	L2	sessions	view	views/sessions/setBody.view.js		6	2	1	2367
+restartTip	js	L2	sessionsets	component	components/restartTip.js		5	2	0	2962
+setLabel	js	L2	sessionsets	component	components/setLabel.js		2	27	0	2410
+warnSpawn	js	L2	sessionsets	component	components/warnSpawn.js		4	5	0	2844
+closeRuleForm	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		8	1	0	2663
+onSetPick	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		8	0	2	2848
+openRuleForm	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		1	1	0	2662
+setSpawnPref	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		5	1	1	3174
+setWritable	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		9	5	0	2568
+toggleGroup	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		10	1	1	2613
+toggleSelMode	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		16	0	2	2623
+toggleSetEntryRestart	js	L2	sessionsets	controller	controllers/sessionsets.controller.js		3	1	2	3182
+isCollapsed	js	L2	sessionsets	model	models/sessionsets/isCollapsed.js		6	2	0	2607
+newSetPlan	js	L2	sessionsets	model	models/sessionsets/newSetPlan.js		16	1	0	2718
+readRuleForm	js	L2	sessionsets	model	models/sessionsets/readRuleForm.js		12	1	1	2734
+slugifySet	js	L2	sessionsets	model	models/sessionsets/slugifySet.js		10	2	0	2412
+warnSetFull	js	L2	sessionsets	model	models/sessionsets/warnSetFull.js		11	1	1	2833
+applyRuleForm	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/create;/session-set/rule	32	1	1	2746
+createSetFromSelection	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/create	34	1	3	2799
+deleteSessionSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	14	1	3	3185
+dropFromSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	17	1	2	3008
+forgetGhost	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	14	2	3	2984
+forgetSetEntry	js	L2	sessionsets	service	services/sessionsets.service.js		3	1	3	3179
+loadSessionSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	84	20	13	3055
+materializeSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/materialize	12	1	1	2778
+moveSelection	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/move	23	0	1	2639
+refreshSessionSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	11	14	4	2459
+refreshSessionSets	js	L2	sessionsets	service	services/sessionsets.service.js	/session-sets	98	14	11	2470
+relaunchBtnState	js	L2	sessionsets	service	services/sessionsets.service.js		12	2	0	2447
+relaunchGhost	js	L2	sessionsets	service	services/sessionsets.service.js	/resume	30	2	4	3025
+relaunchSessionSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/estimate;/session-set/relaunch	39	1	5	2866
+renameSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/rename	10	1	1	2856
+restoreSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/restore	12	1	1	3162
+saveSessionSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set	25	1	4	2422
+setAutoYes	js	L2	sessionsets	service	services/sessionsets.service.js	/auto-yes	17	0	0	3199
+setRetention	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/retention	9	1	1	2790
+switchSet	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/current	16	2	2	2577
+switchView	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/current	14	1	2	2593
+toggleRestart	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/restart	17	2	2	2967
+toggleSetHistory	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/history	23	1	1	3139
+undoSetChange	js	L2	sessionsets	service	services/sessionsets.service.js	/session-set/restore	10	2	0	2998
+html:<div lp-sessions>	html	L2	sessionsets	view	views/sessionsets/lp-sessions.tpl.html		1	0	0	1007
+html:<div sessions-set-card>	html	L2	sessionsets	view	views/sessionsets/sessions-set-card.tpl.html		1	0	0	1074
+renderGhostItem	js	L2	sessionsets	view	views/sessionsets/renderGhostItem.view.js		57	1	10	2905
+ruleFormHtml	js	L2	sessionsets	view	views/sessionsets/ruleFormHtml.view.js		47	3	3	2671
+composerHistory	js	L2	terminal	component	components/composerHistory.js		4	3	0	9313
+composerRefresh	js	L2	terminal	component	components/composerRefresh.js		16	3	0	9334
+composerShow	js	L2	terminal	component	components/composerShow.js		13	3	0	9321
+showCaptureModal	js	L2	terminal	component	components/showCaptureModal.js		9	15	6	9533
+vaultRender	js	L2	terminal	component	components/vaultRender.js		5	3	0	9106
+writeClip	js	L2	terminal	component	components/writeClip.js		10	3	0	9500
+copyCapture	js	L2	terminal	controller	controllers/terminal.controller.js	/capture	13	0	1	9510
+openVault	js	L2	terminal	controller	controllers/terminal.controller.js		11	0	0	9111
+setLocalTheme	js	L2	terminal	controller	controllers/terminal.controller.js		8	0	0	9569
+setServerTheme	js	L2	terminal	controller	controllers/terminal.controller.js		4	2	0	9565
+CMP_HIST_MAX	js	L2	terminal	model	models/terminal/CMP_HIST_MAX.js		1	0	0	9308
+cmpDraft	js	L2	terminal	model	models/terminal/cmpDraft.js		2	0	0	9310
+cmpHistKey	js	L2	terminal	model	models/terminal/cmpHistKey.js		1	2	0	9312
+cmpHistPos	js	L2	terminal	model	models/terminal/cmpHistPos.js		1	0	0	9309
+composerGuard	js	L2	terminal	model	models/terminal/composerGuard.js		16	2	0	9283
+composerHistoryAdd	js	L2	terminal	model	models/terminal/composerHistoryAdd.js		9	1	0	9299
+composerHistoryRender	js	L2	terminal	model	models/terminal/composerHistoryRender.js		20	2	0	9386
+composerHistorySave	js	L2	terminal	model	models/terminal/composerHistorySave.js		4	1	0	9317
+composerHistoryStep	js	L2	terminal	model	models/terminal/composerHistoryStep.js		16	2	0	9406
+composerHistoryToggle	js	L2	terminal	model	models/terminal/composerHistoryToggle.js		7	0	0	9379
+composerKey	js	L2	terminal	model	models/terminal/composerKey.js		16	0	0	9422
+memProbeTimer	js	L2	terminal	model	models/terminal/memProbeTimer.js		1	0	0	9203
+reopenTicket	js	L2	terminal	model	models/terminal/reopenTicket.js		23	2	1	9542
+termAvailable	js	L2	terminal	model	models/terminal/termAvailable.js		12	1	3	9180
+termBase	js	L2	terminal	model	models/terminal/termBase.js		11	2	2	9192
+termSession	js	L2	terminal	model	models/terminal/termSession.js		7	0	1	9173
+attach	js	L2	terminal	service	services/terminal.service.js		35	18	13	9438
+composerSend	js	L2	terminal	service	services/terminal.service.js	/send	29	1	0	9350
+detach	js	L2	terminal	service	services/terminal.service.js		26	10	13	9474
+loadSettings	js	L2	terminal	service	services/terminal.service.js	/pm/settings	43	3	3	9593
+memProbeSample	js	L2	terminal	service	services/terminal.service.js	/memdebug	23	1	1	9204
+memProbeStart	js	L2	terminal	service	services/terminal.service.js		4	1	0	9227
+memProbeStop	js	L2	terminal	service	services/terminal.service.js		1	1	0	9231
+mountTerm	js	L2	terminal	service	services/terminal.service.js		31	1	3	9232
+pullBuffer	js	L2	terminal	service	services/terminal.service.js	/buffer	10	0	0	9523
+reattach	js	L2	terminal	service	services/terminal.service.js		1	0	0	9473
+unmountTerm	js	L2	terminal	service	services/terminal.service.js		20	2	2	9263
+vaultSshAdd	js	L2	terminal	service	services/terminal.service.js	/vault/ssh-add	28	2	0	9145
+vaultUnlock	js	L2	terminal	service	services/terminal.service.js	/vault/unlock	23	2	0	9122
+css:#termhost	css	L2	terminal	style	views/terminal/terminal.css		1	0	0	151
+css:#termhost .xterm	css	L2	terminal	style	views/terminal/terminal.css		1	0	1	153
+css:.termarea	css	L2	terminal	style	views/terminal/terminal.css		1	0	1	452
+css:.termbar	css	L2	terminal	style	views/terminal/terminal.css		1	0	0	145
+css:.termbar .title	css	L2	terminal	style	views/terminal/terminal.css		1	0	0	147
+css:.termwrap	css	L2	terminal	style	views/terminal/terminal.css		1	0	1	437
+html:<div termwrap>	html	L2	terminal	view	views/terminal/termwrap.tpl.html		1	0	0	1214
+refreshThemeCard	js	L2	terminal	view	views/terminal/refreshThemeCard.view.js		16	2	0	9577
+tagPillsHtml	js	L3	review	component	components/tagPillsHtml.js		11	1	0	10389
+closeReview	js	L3	review	controller	controllers/review.controller.js		20	7	7	10369
+openReview	js	L3	review	controller	controllers/review.controller.js		37	8	12	10332
+filterByTag	js	L3	review	model	models/review/filterByTag.js		17	1	0	10400
+tqAll	js	L3	review	model	models/review/tqAll.js		1	0	1	10570
+tqLoaded	js	L3	review	model	models/review/tqLoaded.js		1	0	0	10571
+tqMatch	js	L3	review	model	models/review/tqMatch.js		9	1	0	10598
+loadTestQueue	js	L3	review	service	services/review.service.js	/pm/test-queue	26	2	3	10572
+mrDeliver	js	L3	review	service	services/review.service.js	/mr/deliver	4	1	0	10566
+pmRun	js	L3	review	service	services/review.service.js	/pm/run	15	11	3	10551
+renderReviewPane	js	L3	review	view	views/review/renderReviewPane.view.js		134	11	13	10417
+rsFillProjects	js	L3	search	component	components/rsFillProjects.js		10	3	0	7677
+sfFillProjects	js	L3	search	component	components/sfFillProjects.js		11	3	0	7460
+clearSearch	js	L3	search	controller	controllers/search.controller.js		9	0	1	7415
+setClientContext	js	L3	search	controller	controllers/search.controller.js		24	1	3	7612
+allProjects	js	L3	search	model	models/search/allProjects.js		1	0	0	7561
+clientContext	js	L3	search	model	models/search/clientContext.js		3	0	0	7597
+fillClientCtx	js	L3	search	model	models/search/fillClientCtx.js		12	1	0	7600
+rsClientChanged	js	L3	search	model	models/search/rsClientChanged.js		5	0	0	7687
+rsClientOptions	js	L3	search	model	models/search/rsClientOptions.js		15	1	0	7650
+rsProjectOptions	js	L3	search	model	models/search/rsProjectOptions.js		12	1	0	7665
+searchQuery	js	L3	search	model	models/search/searchQuery.js		18	1	1	7424
+searchRowMeta	js	L3	search	model	models/search/searchRowMeta.js		18	1	1	7442
+sfClientChanged	js	L3	search	model	models/search/sfClientChanged.js		2	0	0	7471
+sfInit	js	L3	search	model	models/search/sfInit.js		19	1	1	7473
+tagsCache	js	L3	search	model	models/search/tagsCache.js		1	0	0	7492
+loadProjects	js	L3	search	service	services/search.service.js	/projects	35	2	6	7562
+loadResumable	js	L3	search	service	services/search.service.js	/resumable	41	4	3	7692
+loadTags	js	L3	search	service	services/search.service.js	/tags	16	1	0	7493
+search	js	L3	search	service	services/search.service.js		52	5	8	7509
+css:.searchrow	css	L3	search	style	views/search/search.css		1	0	8	239
+css:.searchrow input	css	L3	search	style	views/search/search.css		1	0	1	305
+css:.sfwarn	css	L3	search	style	views/search/search.css		1	0	0	298
+applyTemplate	js	L3	search	view	views/search/applyTemplate.view.js		14	1	4	7401
+renderClientCtxBanner	js	L3	search	view	views/search/renderClientCtxBanner.view.js		14	1	1	7636
+tqCockpitEnv	js	L3	testqueue	component	components/tqCockpitEnv.js		15	3	0	10679
+tqDeploy	js	L3	testqueue	component	components/tqDeploy.js		12	4	1	10694
+tqTeardown	js	L3	testqueue	component	components/tqTeardown.js		10	3	2	10706
+clearTQSearch	js	L3	testqueue	controller	controllers/testqueue.controller.js		4	0	0	10607
+closeStatusMenu	js	L3	testqueue	controller	controllers/testqueue.controller.js		5	2	0	10832
+openStatusMenu	js	L3	testqueue	controller	controllers/testqueue.controller.js		38	2	0	10837
+TRANS_TTL_MS	js	L3	testqueue	model	models/testqueue/TRANS_TTL_MS.js		1	0	0	10788
+_TQ_VERDICTS	js	L3	testqueue	model	models/testqueue/_TQ_VERDICTS.js		7	0	0	10748
+confirmSecondSession	js	L3	testqueue	model	models/testqueue/confirmSecondSession.js		21	2	1	11006
+duplicateSessionText	js	L3	testqueue	model	models/testqueue/duplicateSessionText.js		22	1	0	10984
+promptFillOnChange	js	L3	testqueue	model	models/testqueue/promptFillOnChange.js		12	2	0	11056
+promptTemplateOptions	js	L3	testqueue	model	models/testqueue/promptTemplateOptions.js		13	2	0	11043
+promptTemplates	js	L3	testqueue	model	models/testqueue/promptTemplates.js		16	1	0	11027
+statusPromptSpec	js	L3	testqueue	model	models/testqueue/statusPromptSpec.js		12	1	0	10901
+taskPromptText	js	L3	testqueue	model	models/testqueue/taskPromptText.js		23	4	1	11087
+tqDeployShared	js	L3	testqueue	model	models/testqueue/tqDeployShared.js		16	1	1	10716
+tqVerdict	js	L3	testqueue	model	models/testqueue/tqVerdict.js		32	4	6	10755
+transCache	js	L3	testqueue	model	models/testqueue/transCache.js		1	0	0	10787
+tsCache	js	L3	testqueue	model	models/testqueue/tsCache.js		2	0	0	10954
+applyTicketStatus	js	L3	testqueue	service	services/testqueue.service.js		41	1	0	10913
+ensureTicketSessions	js	L3	testqueue	service	services/testqueue.service.js	/ticket-sessions	17	2	1	10956
+runTaskStatusGated	js	L3	testqueue	service	services/testqueue.service.js		26	2	0	10875
+sendTicketToSession	js	L3	testqueue	service	services/testqueue.service.js	/send	33	1	2	11173
+ticketBusySessions	js	L3	testqueue	service	services/testqueue.service.js		11	1	0	10973
+ticketPromptFor	js	L3	testqueue	service	services/testqueue.service.js		19	1	0	11068
+ticketTransitions	js	L3	testqueue	service	services/testqueue.service.js	/ticket-transitions	16	1	0	10789
+ticketVerdicts	js	L3	testqueue	service	services/testqueue.service.js		16	1	0	10732
+css:.tquiet	css	L3	testqueue	style	views/testqueue/testqueue.css		1	0	0	282
+html:<div lp-test>	html	L3	testqueue	view	views/testqueue/lp-test.tpl.html		1	0	0	1085
+html:<div tqcard>	html	L3	testqueue	view	views/testqueue/tqcard.tpl.html		1	0	0	1086
+renderTQ	js	L3	testqueue	view	views/testqueue/renderTQ.view.js		68	2	7	10611
+statusMenuHtml	js	L3	testqueue	view	views/testqueue/statusMenuHtml.view.js		27	1	0	10805
+ticketSessionsHtml	js	L3	testqueue	view	views/testqueue/ticketSessionsHtml.view.js		63	1	1	11110
+tabTip	js	L3	tickets	component	components/tabTip.js		18	1	6	8057
+ticketTipText	js	L3	tickets	component	components/ticketTipText.js		19	2	0	5757
+tipAttr	js	L3	tickets	component	components/tipAttr.js		9	3	0	5821
+tmuxName	js	L3	tickets	component	components/tmuxName.js		1	6	0	8056
+copyInfos	js	L3	tickets	controller	controllers/tickets.controller.js		21	1	0	8035
+gotoTicket	js	L3	tickets	controller	controllers/tickets.controller.js		10	2	2	8115
+openedAdd	js	L3	tickets	controller	controllers/tickets.controller.js		13	1	0	5556
+openedClear	js	L3	tickets	controller	controllers/tickets.controller.js		3	2	1	5680
+openedClient	js	L3	tickets	controller	controllers/tickets.controller.js		1	0	1	5662
+openedFilter	js	L3	tickets	controller	controllers/tickets.controller.js		2	2	1	5683
+openedFilterStatus	js	L3	tickets	controller	controllers/tickets.controller.js		2	2	0	5685
+openedForget	js	L3	tickets	controller	controllers/tickets.controller.js		4	2	0	5676
+openedPanelOpen	js	L3	tickets	controller	controllers/tickets.controller.js		12	1	0	5525
+openedSave	js	L3	tickets	controller	controllers/tickets.controller.js		4	3	0	5665
+openedTickets	js	L3	tickets	controller	controllers/tickets.controller.js		3	0	0	5659
+openedToggled	js	L3	tickets	controller	controllers/tickets.controller.js		9	0	0	5547
+setTicketFacet	js	L3	tickets	controller	controllers/tickets.controller.js		10	3	3	8334
+setTicketTab	js	L3	tickets	controller	controllers/tickets.controller.js		6	1	0	8328
+showTicket	js	L3	tickets	controller	controllers/tickets.controller.js		12	9	4	8103
+ENGINE_LABEL	js	L3	tickets	model	models/tickets/ENGINE_LABEL.js		1	0	0	7965
+RESOLVE_TTL_MS	js	L3	tickets	model	models/tickets/RESOLVE_TTL_MS.js		1	0	0	7850
+briefCache	js	L3	tickets	model	models/tickets/briefCache.js		1	0	0	5791
+briefInflight	js	L3	tickets	model	models/tickets/briefInflight.js		1	0	0	5792
+briefQueue	js	L3	tickets	model	models/tickets/briefQueue.js		4	0	0	5794
+briefTimer	js	L3	tickets	model	models/tickets/briefTimer.js		1	0	0	5793
+ctxPct	js	L3	tickets	model	models/tickets/ctxPct.js		5	2	0	7980
+fillTriageFilters	js	L3	tickets	model	models/tickets/fillTriageFilters.js		12	1	0	8181
+fillTriageProjects	js	L3	tickets	model	models/tickets/fillTriageProjects.js		10	2	0	8193
+fmtWin	js	L3	tickets	model	models/tickets/fmtWin.js		3	2	0	7985
+groupOpenedTickets	js	L3	tickets	model	models/tickets/groupOpenedTickets.js		35	1	1	5624
+logEntries	js	L3	tickets	model	models/tickets/logEntries.js		25	1	0	8344
+mailAll	js	L3	tickets	model	models/tickets/mailAll.js		5	0	0	4347
+mcBanner	js	L3	tickets	model	models/tickets/mcBanner.js		14	1	0	7936
+mcCache	js	L3	tickets	model	models/tickets/mcCache.js		1	0	0	7921
+mcFresh	js	L3	tickets	model	models/tickets/mcFresh.js		1	1	0	7923
+mcInFlight	js	L3	tickets	model	models/tickets/mcInFlight.js		1	0	0	7922
+metaFacet	js	L3	tickets	model	models/tickets/metaFacet.js		3	0	1	8164
+modelWindow	js	L3	tickets	model	models/tickets/modelWindow.js		7	2	0	7973
+noteOpenedTicket	js	L3	tickets	model	models/tickets/noteOpenedTicket.js		7	2	0	5669
+ntfTypeChanged	js	L3	tickets	model	models/tickets/ntfTypeChanged.js		7	1	0	4302
+openedFamily	js	L3	tickets	model	models/tickets/openedFamily.js		2	0	0	5663
+pendStale	js	L3	tickets	model	models/tickets/pendStale.js		4	0	0	5866
+pendStaleSet	js	L3	tickets	model	models/tickets/pendStaleSet.js		7	1	0	5859
+pendingBriefIds	js	L3	tickets	model	models/tickets/pendingBriefIds.js		15	1	0	5776
+resolveAt	js	L3	tickets	model	models/tickets/resolveAt.js		1	0	0	7849
+resolveInflight	js	L3	tickets	model	models/tickets/resolveInflight.js		1	0	0	7860
+resolveStale	js	L3	tickets	model	models/tickets/resolveStale.js		9	1	1	7851
+sessionTickets	js	L3	tickets	model	models/tickets/sessionTickets.js		7	1	1	8141
+throughput	js	L3	tickets	model	models/tickets/throughput.js		6	2	0	7988
+ticketStatusFamily	js	L3	tickets	model	models/tickets/ticketStatusFamily.js		19	2	1	5588
+ticketStatusRank	js	L3	tickets	model	models/tickets/ticketStatusRank.js		19	2	2	5569
+triageData	js	L3	tickets	model	models/tickets/triageData.js		1	0	0	8167
+triageFilter	js	L3	tickets	model	models/tickets/triageFilter.js		15	1	1	8227
+usageCache	js	L3	tickets	model	models/tickets/usageCache.js		1	0	0	7950
+usageFresh	js	L3	tickets	model	models/tickets/usageFresh.js		1	2	0	7952
+usageInFlight	js	L3	tickets	model	models/tickets/usageInFlight.js		1	0	0	7951
+wtName	js	L3	tickets	model	models/tickets/wtName.js		1	0	0	8075
+attachIfRunning	js	L3	tickets	service	services/tickets.service.js	/sessions	5	1	2	8159
+ensureMergecheck	js	L3	tickets	service	services/tickets.service.js	/mergecheck	12	1	0	7924
+ensureResolved	js	L3	tickets	service	services/tickets.service.js	/resolve	22	17	6	7861
+ensureUsage	js	L3	tickets	service	services/tickets.service.js	/usage	10	2	1	7953
+loadPending	js	L3	tickets	service	services/tickets.service.js		8	1	1	5870
+loadTriage	js	L3	tickets	service	services/tickets.service.js	/triage	13	0	0	8168
+refreshTips	js	L3	tickets	service	services/tickets.service.js		12	1	0	5830
+refreshUsage	js	L3	tickets	service	services/tickets.service.js		2	1	1	7963
+refreshWorkspace	js	L3	tickets	service	services/tickets.service.js	/workspace-status	7	6	2	8092
+reloadTicket	js	L3	tickets	service	services/tickets.service.js		12	2	0	7894
+requestBriefs	js	L3	tickets	service	services/tickets.service.js	/tickets/brief	23	1	0	5798
+revalidateTicket	js	L3	tickets	service	services/tickets.service.js		11	2	0	7883
+submitNewTicket	js	L3	tickets	service	services/tickets.service.js	/tickets	38	1	2	4309
+ticketsOfSession	js	L3	tickets	service	services/tickets.service.js		16	1	1	8125
+css:.tkill	css	L3	tickets	style	views/tickets/tickets.css		1	0	0	431
+css:.tkill:hover	css	L3	tickets	style	views/tickets/tickets.css		1	0	2	432
+_ticketDescHtml	js	L3	tickets	view	views/tickets/_ticketDescHtml.view.js		9	1	1	8387
+_ticketLogHtml	js	L3	tickets	view	views/tickets/_ticketLogHtml.view.js		15	1	0	8396
+html:<details ntcard>	html	L3	tickets	view	views/tickets/ntcard.tpl.html		1	0	0	983
+html:<details openedcard>	html	L3	tickets	view	views/tickets/openedcard.tpl.html		1	0	0	937
+html:<details triagecard>	html	L3	tickets	view	views/tickets/triagecard.tpl.html		1	0	0	918
+html:<div lp-tickets>	html	L3	tickets	view	views/tickets/lp-tickets.tpl.html		1	0	0	916
+logHtml	js	L3	tickets	view	views/tickets/logHtml.view.js		18	1	0	8369
+openedCountLabel	js	L3	tickets	view	views/tickets/openedCountLabel.view.js		10	1	1	5537
+pendingDecor	js	L3	tickets	view	views/tickets/pendingDecor.view.js		17	0	1	5842
+projectBriefHtml	js	L3	tickets	view	views/tickets/projectBriefHtml.view.js		34	1	1	8420
+registryHtml	js	L3	tickets	view	views/tickets/registryHtml.view.js		16	1	2	8076
+renderInfos	js	L3	tickets	view	views/tickets/renderInfos.view.js		18	2	1	8263
+renderMailList	js	L3	tickets	view	views/tickets/renderMailList.view.js		70	1	1	4352
+renderMeta	js	L3	tickets	view	views/tickets/renderMeta.view.js		3	18	10	8260
+renderOpened	js	L3	tickets	view	views/tickets/renderOpened.view.js		70	9	5	5687
+renderTickets	js	L3	tickets	view	views/tickets/renderTickets.view.js		47	6	2	8281
+renderTriage	js	L3	tickets	view	views/tickets/renderTriage.view.js		20	2	2	8203
+statusFamilyTabs	js	L3	tickets	view	views/tickets/statusFamilyTabs.view.js		17	1	0	5607
+triageRowHtml	js	L3	tickets	view	views/tickets/triageRowHtml.view.js		18	1	0	8242
+triageRows	js	L3	tickets	view	views/tickets/triageRows.view.js		1	0	0	8223
+triageVisibleRows	js	L3	tickets	view	views/tickets/triageVisibleRows.view.js		3	1	0	8224
+usageHtml	js	L3	tickets	view	views/tickets/usageHtml.view.js		41	1	4	7994
+batchButtons	js	L3	worklog	component	components/batchButtons.js		27	1	0	6211
+batchToggle	js	L3	worklog	component	components/batchToggle.js		12	4	3	6240
+tabTooltip	js	L3	worklog	component	components/tabTooltip.js		35	1	1	3924
+worklog	js	L3	worklog	component	components/worklog.js		1	5	2	5943
+closeBatchCache	js	L3	worklog	controller	controllers/worklog.controller.js		2	0	0	6433
+closeBatchPlan	js	L3	worklog	controller	controllers/worklog.controller.js		27	1	0	6406
+closeTabAt	js	L3	worklog	controller	controllers/worklog.controller.js		21	1	2	3903
+openCloseBatch	js	L3	worklog	controller	controllers/worklog.controller.js		33	0	0	6435
+setWorklogSub	js	L3	worklog	controller	controllers/worklog.controller.js		6	1	1	5946
+BATCH_MODES	js	L3	worklog	model	models/worklog/BATCH_MODES.js		7	0	1	6325
+batchPlanCache	js	L3	worklog	model	models/worklog/batchPlanCache.js		5	0	0	6320
+batchScopedItems	js	L3	worklog	model	models/worklog/batchScopedItems.js		22	1	1	6546
+batchSel	js	L3	worklog	model	models/worklog/batchSel.js		1	0	1	6238
+mrBatchCache	js	L3	worklog	model	models/worklog/mrBatchCache.js		5	0	1	6401
+offloadPlan	js	L3	worklog	model	models/worklog/offloadPlan.js		37	1	0	6568
+offloadToNewSession	js	L3	worklog	model	models/worklog/offloadToNewSession.js		12	0	1	6683
+triageBatchItems	js	L3	worklog	model	models/worklog/triageBatchItems.js		14	1	0	6605
+triageSpawnSession	js	L3	worklog	model	models/worklog/triageSpawnSession.js		15	0	0	6695
+worklogDocs	js	L3	worklog	model	models/worklog/worklogDocs.js		20	1	1	5902
+worklogPending	js	L3	worklog	model	models/worklog/worklogPending.js		1	0	0	5944
+worklogPoints	js	L3	worklog	model	models/worklog/worklogPoints.js		1	0	0	6239
+worklogSections	js	L3	worklog	model	models/worklog/worklogSections.js		24	1	4	5878
+worklogSub	js	L3	worklog	model	models/worklog/worklogSub.js		1	0	1	5945
+worklogTabList	js	L3	worklog	model	models/worklog/worklogTabList.js		9	1	0	5952
+loadWorklog	js	L3	worklog	service	services/worklog.service.js	/worklog	19	8	3	5961
+mergeOneMr	js	L3	worklog	service	services/worklog.service.js	/mr/merge	25	1	0	6148
+openBatchPlan	js	L3	worklog	service	services/worklog.service.js	/worklog/batch	35	0	2	6332
+openMrBatch	js	L3	worklog	service	services/worklog.service.js	/mr/batch	19	0	0	6501
+sendCloseBatch	js	L3	worklog	service	services/worklog.service.js		33	1	0	6468
+sendMrBatch	js	L3	worklog	service	services/worklog.service.js	/mr/batch	26	1	0	6520
+spawnBatchSession	js	L3	worklog	service	services/worklog.service.js	/worklog/batch;/spawn	64	2	1	6619
+css:.wl-crit	css	L3	worklog	style	views/worklog/worklog.css		1	0	0	583
+css:.wl-prog	css	L3	worklog	style	views/worklog/worklog.css		1	0	1	577
+css:.wlghead	css	L3	worklog	style	views/worklog/worklog.css		1	0	1	245
+css:.wlgroup	css	L3	worklog	style	views/worklog/worklog.css		1	0	0	243
+css:.wlgroup > .oline	css	L3	worklog	style	views/worklog/worklog.css		1	0	0	248
+batchPlanHtml	js	L3	worklog	view	views/worklog/batchPlanHtml.view.js		43	1	1	6277
+mrBatchHtml	js	L3	worklog	view	views/worklog/mrBatchHtml.view.js		34	1	0	6367
+mrLineHtml	js	L3	worklog	view	views/worklog/mrLineHtml.view.js		23	2	0	6125
+notifyDecor	js	L3	worklog	view	views/worklog/notifyDecor.view.js		7	1	0	5980
+renderBatchButtons	js	L3	worklog	view	views/worklog/renderBatchButtons.view.js		25	1	1	6252
+renderWorklog	js	L3	worklog	view	views/worklog/renderWorklog.view.js		138	5	22	5987
+worklogDocsHtml	js	L3	worklog	view	views/worklog/worklogDocsHtml.view.js		21	1	0	5922
+worklogProgressHtml	js	L3	worklog	view	views/worklog/worklogProgressHtml.view.js		38	1	2	6173
+alertsHtml	js	L4	dashboard	component	components/alertsHtml.js		28	1	0	9996
+dashVisible	js	L4	dashboard	component	components/dashVisible.js		4	3	0	10036
+setDashFilter	js	L4	dashboard	controller	controllers/dashboard.controller.js		2	2	0	10082
+alertsData	js	L4	dashboard	model	models/dashboard/alertsData.js		1	0	0	10024
+dashData	js	L4	dashboard	model	models/dashboard/dashData.js		1	0	0	10034
+dashFilter	js	L4	dashboard	model	models/dashboard/dashFilter.js		1	0	0	10035
+loadDashboard	js	L4	dashboard	service	services/dashboard.service.js	/overview;/alerts	12	8	3	10040
+snoozeAlert	js	L4	dashboard	service	services/dashboard.service.js	/alerts/snooze	9	1	0	10025
+css:#dashboard	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	201
+css:.dash-alerts	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	222
+css:.dash-chip	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	218
+css:.dash-cnt	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	205
+css:.dash-empty	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	216
+css:.dash-head	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	202
+css:.dash-head select	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	204
+css:.dash-icon	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	212
+css:.dash-more	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	220
+css:.dash-row	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	209
+css:.dash-row:hover	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	211
+css:.dash-sec	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	207
+css:.dash-since	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	2	221
+css:.dash-sum	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	217
+css:.dash-txt	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	215
+css:.dash-verb	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	213
+css:.dash-who	css	L4	dashboard	style	views/dashboard/dashboard.css		1	0	0	214
+renderDashboard	js	L4	dashboard	view	views/dashboard/renderDashboard.view.js		30	3	3	10052
+_fq	js	L4	files	component	components/_fq.js		6	5	1	6797
+centerViewPane	js	L4	files	component	components/centerViewPane.js		18	6	1	5177
+fileBodyHtml	js	L4	files	component	components/fileBodyHtml.js		12	3	0	5019
+filesEnsure	js	L4	files	component	components/filesEnsure.js		4	6	0	6808
+scopeTag	js	L4	files	component	components/scopeTag.js		6	4	0	5071
+closeCenterView	js	L4	files	controller	controllers/files.controller.js		8	7	0	5169
+_fsq	js	L4	files	model	models/files/_fsq.js		12	2	1	5266
+centerBtn	js	L4	files	model	models/files/centerBtn.js		12	2	1	5278
+centerViewLoad	js	L4	files	model	models/files/centerViewLoad.js		20	6	0	5195
+fileNav	js	L4	files	model	models/files/fileNav.js		6	0	1	6737
+filesContext	js	L4	files	model	models/files/filesContext.js		22	1	0	6765
+filesCtx	js	L4	files	model	models/files/filesCtx.js		5	2	0	6803
+filesCtxKey	js	L4	files	model	models/files/filesCtxKey.js		10	3	0	6787
+filesData	js	L4	files	model	models/files/filesData.js		1	0	0	6736
+filesGroupOf	js	L4	files	model	models/files/filesGroupOf.js		9	1	1	6933
+filesGroups	js	L4	files	model	models/files/filesGroups.js		30	2	1	6903
+fsScope	js	L4	files	model	models/files/fsScope.js		21	4	0	5050
+groupProjectsByClient	js	L4	files	model	models/files/groupProjectsByClient.js		24	1	0	5296
+liveByProject	js	L4	files	model	models/files/liveByProject.js		18	1	0	5320
+pjOpen	js	L4	files	model	models/files/pjOpen.js		6	0	0	5290
+pjToggle	js	L4	files	model	models/files/pjToggle.js		5	1	0	5386
+scopeFromTag	js	L4	files	model	models/files/scopeFromTag.js		12	1	0	5077
+scopeQuery	js	L4	files	model	models/files/scopeQuery.js		14	1	0	5089
+vocabFilter	js	L4	files	model	models/files/vocabFilter.js		10	1	0	6963
+filesLoadDir	js	L4	files	service	services/files.service.js	/fs/ls	12	7	1	6844
+filesOpen	js	L4	files	service	services/files.service.js	/fs/file	7	2	0	6856
+filesToggleCommits	js	L4	files	service	services/files.service.js	/fs/log	12	1	1	6863
+loadFiles	js	L4	files	service	services/files.service.js	/worktrees;/project-roots	32	2	2	6812
+openCenterCommit	js	L4	files	service	services/files.service.js	/git/show	11	3	0	5242
+openCenterDir	js	L4	files	service	services/files.service.js	/fs/ls	11	4	1	5231
+openCenterFile	js	L4	files	service	services/files.service.js	/file;/fs/file	16	5	1	5215
+openCenterMail	js	L4	files	service	services/files.service.js	/mail/queue	13	2	0	5253
+sendBatch	js	L4	files	service	services/files.service.js	/worklog/batch	20	1	2	6710
+vocabShow	js	L4	files	service	services/files.service.js	/fs/file	12	2	0	6973
+dirViewHtml	js	L4	files	view	views/files/dirViewHtml.view.js		36	1	1	5103
+fileRootLabel	js	L4	files	view	views/files/fileRootLabel.view.js		28	1	2	6875
+fileViewHtml	js	L4	files	view	views/files/fileViewHtml.view.js		19	2	2	5031
+filesCrumbs	js	L4	files	view	views/files/filesCrumbs.view.js		22	2	0	6743
+mailViewHtml	js	L4	files	view	views/files/mailViewHtml.view.js		21	1	0	5139
+openWorklogItem	js	L4	files	view	views/files/openWorklogItem.view.js		6	1	1	6730
+projectsPanelHtml	js	L4	files	view	views/files/projectsPanelHtml.view.js		48	1	2	5338
+renderFiles	js	L4	files	view	views/files/renderFiles.view.js		114	5	10	6985
+viewErrorHtml	js	L4	files	view	views/files/viewErrorHtml.view.js		9	1	0	5160
+vocabBodyHtml	js	L4	files	view	views/files/vocabBodyHtml.view.js		21	1	0	6942
+gitPatchHtml	js	L4	git	component	components/gitPatchHtml.js		18	3	0	4917
+worklogRefHtml	js	L4	git	component	components/worklogRefHtml.js		17	1	2	4838
+centerView	js	L4	git	model	models/git/centerView.js		1	0	1	4967
+gitLoading	js	L4	git	model	models/git/gitLoading.js		1	0	0	4823
+gitLog	js	L4	git	model	models/git/gitLog.js		1	0	0	4821
+gitRender	js	L4	git	model	models/git/gitRender.js		52	2	3	4865
+gitSel	js	L4	git	model	models/git/gitSel.js		1	0	0	4822
+parseViewKey	js	L4	git	model	models/git/parseViewKey.js		10	7	0	4980
+viewKey	js	L4	git	model	models/git/viewKey.js		6	6	0	4974
+gitLoad	js	L4	git	service	services/git.service.js	/git/log	14	4	1	4824
+gitShowCommit	js	L4	git	service	services/git.service.js	/git/show	12	1	0	4935
+gitShowDiff	js	L4	git	service	services/git.service.js	/git/diff	20	0	3	4947
+css:#gitbody .gcommit	css	L4	git	style	views/git/git.css		1	0	0	547
+css:#gitbody .gcommit.cur	css	L4	git	style	views/git/git.css		1	0	0	551
+css:#gitbody .gcommit.local	css	L4	git	style	views/git/git.css		1	0	0	550
+css:#gitbody .gcommit:hover	css	L4	git	style	views/git/git.css		1	0	0	549
+css:#gitbody .gmeta	css	L4	git	style	views/git/git.css		1	0	0	553
+css:#gitbody .gsha	css	L4	git	style	views/git/git.css		1	0	0	552
+centerPanel	js	L4	git	view	views/git/centerPanel.view.js		6	0	0	4968
+gitBranchesHtml	js	L4	git	view	views/git/gitBranchesHtml.view.js		10	1	0	4855
+gitDiffLine	js	L4	git	view	views/git/gitDiffLine.view.js		14	1	0	4797
+gitStatLabel	js	L4	git	view	views/git/gitStatLabel.view.js		10	1	0	4811
+viewTabLabel	js	L4	git	view	views/git/viewTabLabel.view.js		29	4	1	4990
+openConfigForm	js	L4	projects	controller	controllers/projects.controller.js		33	2	0	10281
+setProjTab	js	L4	projects	controller	controllers/projects.controller.js		11	2	0	10089
+_pfq	js	L4	projects	model	models/projects/_pfq.js		2	2	0	10192
+configArgs	js	L4	projects	model	models/projects/configArgs.js		15	2	0	10266
+pjClearFilter	js	L4	projects	model	models/projects/pjClearFilter.js		5	0	0	5391
+projFiles	js	L4	projects	model	models/projects/projFiles.js		1	0	0	10191
+projOverview	js	L4	projects	model	models/projects/projOverview.js		1	0	0	10088
+projTab	js	L4	projects	model	models/projects/projTab.js		1	0	0	10087
+projWts	js	L4	projects	model	models/projects/projWts.js		1	0	0	10190
+tmuxNameOf	js	L4	projects	model	models/projects/tmuxNameOf.js		3	1	0	10084
+loadProjWorklog	js	L4	projects	service	services/projects.service.js	/overview	17	2	0	10173
+loadProjWorktrees	js	L4	projects	service	services/projects.service.js	/project-worktrees	10	1	0	10194
+openCenterClient	js	L4	projects	service	services/projects.service.js	/client	7	2	0	5501
+openCenterConf	js	L4	projects	service	services/projects.service.js	/conf	17	3	0	5508
+projBrowse	js	L4	projects	service	services/projects.service.js	/fs/ls	8	4	0	10204
+projOpen	js	L4	projects	service	services/projects.service.js	/fs/file	6	1	0	10212
+submitConfig	js	L4	projects	service	services/projects.service.js		18	1	0	10314
+css:.pjicons	css	L4	projects	style	views/projects/projects.css		1	0	0	302
+css:.pjicons button	css	L4	projects	style	views/projects/projects.css		1	0	0	304
+attentionHtml	js	L4	projects	view	views/projects/attentionHtml.view.js		59	1	2	9937
+attentionRows	js	L4	projects	view	views/projects/attentionRows.view.js		64	1	0	9873
+clientViewHtml	js	L4	projects	view	views/projects/clientViewHtml.view.js		63	1	0	5426
+confViewHtml	js	L4	projects	view	views/projects/confViewHtml.view.js		12	1	0	5489
+html:<div lp-projects>	html	L4	projects	view	views/projects/lp-projects.tpl.html		1	0	0	1133
+loadProjectsPanel	js	L4	projects	view	views/projects/loadProjectsPanel.view.js		12	1	1	5414
+projWorklogHtml	js	L4	projects	view	views/projects/projWorklogHtml.view.js		73	1	1	10100
+renderProjFiles	js	L4	projects	view	views/projects/renderProjFiles.view.js		48	3	4	10218
+renderProjectPane	js	L4	projects	view	views/projects/renderProjectPane.view.js		81	2	7	9792
+renderProjectsPanel	js	L4	projects	view	views/projects/renderProjectsPanel.view.js		18	6	1	5396
+setEnvTab	js	L5	env	controller	controllers/env.controller.js		5	1	0	8952
+envCheckCache	js	L5	env	model	models/env/envCheckCache.js		2	0	1	8817
+envStatusCache	js	L5	env	model	models/env/envStatusCache.js		1	0	1	8950
+envStatusDefaultTab	js	L5	env	model	models/env/envStatusDefaultTab.js		12	1	0	8876
+envStatusSections	js	L5	env	model	models/env/envStatusSections.js		18	1	0	8888
+envTab	js	L5	env	model	models/env/envTab.js		1	0	0	8951
+esCopy	js	L5	env	model	models/env/esCopy.js		15	1	1	8980
+vaultBtnState	js	L5	env	model	models/env/vaultBtnState.js		22	1	0	9000
+vaultStatus	js	L5	env	model	models/env/vaultStatus.js		5	0	0	8995
+loadEnvCheck	js	L5	env	service	services/env.service.js	/env-check	4	4	1	8819
+loadVaultStatus	js	L5	env	service	services/env.service.js		1	4	1	9095
+openEnvStatus	js	L5	env	service	services/env.service.js	/env-status	23	0	2	8957
+css:#envwarn	css	L5	env	style	views/env/env.css		1	0	0	395
+css:#envwarn .pill	css	L5	env	style	views/env/env.css		1	0	0	396
+css:#envwarn .pill.ew-error	css	L5	env	style	views/env/env.css		1	0	0	397
+css:#envwarn .pill.ew-warn	css	L5	env	style	views/env/env.css		1	0	0	398
+css:.vlt-form	css	L5	env	style	views/env/env.css		1	0	0	236
+css:.vlt-form input[type=password]	css	L5	env	style	views/env/env.css		1	0	0	237
+css:.vlt-note	css	L5	env	style	views/env/env.css		1	0	0	238
+css:.vlt-sec	css	L5	env	style	views/env/env.css		1	0	0	234
+css:.vlt-sec h3	css	L5	env	style	views/env/env.css		1	0	0	235
+envStatusBadge	js	L5	env	view	views/env/envStatusBadge.view.js		9	2	0	8906
+envStatusGroupHtml	js	L5	env	view	views/env/envStatusGroupHtml.view.js		35	1	0	8915
+envStatusHtml	js	L5	env	view	views/env/envStatusHtml.view.js		25	2	1	8836
+envStatusTabs	js	L5	env	view	views/env/envStatusTabs.view.js		15	1	0	8861
+envWarnBadge	js	L5	env	view	views/env/envWarnBadge.view.js		14	1	0	8803
+renderEnvCheck	js	L5	env	view	views/env/renderEnvCheck.view.js		13	2	0	8823
+renderVaultStatus	js	L5	env	view	views/env/renderVaultStatus.view.js		10	1	0	9096
+vaultFormHtml	js	L5	env	view	views/env/vaultFormHtml.view.js		73	1	0	9022
+closeDoc	js	L5	glossary	controller	controllers/glossary.controller.js		6	7	2	8706
+openDoc	js	L5	glossary	controller	controllers/glossary.controller.js	/file	14	1	2	8692
+openGlossary	js	L5	glossary	controller	controllers/glossary.controller.js		29	0	2	8774
+openHelp	js	L5	glossary	controller	controllers/glossary.controller.js	/help	38	1	2	8713
+GLOSS	js	L5	glossary	model	models/glossary/GLOSS.js		6	0	0	4664
+HELP_TOPICS	js	L5	glossary	model	models/glossary/HELP_TOPICS.js		1	0	0	8712
+docCurrent	js	L5	glossary	model	models/glossary/docCurrent.js		2	0	0	8683
+docToCenter	js	L5	glossary	model	models/glossary/docToCenter.js		7	0	0	8685
+glossGroups	js	L5	glossary	model	models/glossary/glossGroups.js		28	1	0	4619
+glossaireFiltre	js	L5	glossary	model	models/glossary/glossaireFiltre.js		14	1	0	8601
+glossify	js	L5	glossary	model	models/glossary/glossify.js		17	2	0	4647
+outlineNextUnresolved	js	L5	glossary	model	models/glossary/outlineNextUnresolved.js		15	1	0	4708
+outlineStep	js	L5	glossary	model	models/glossary/outlineStep.js		15	1	1	4670
+projCardCache	js	L5	glossary	model	models/glossary/projCardCache.js		1	0	0	8454
+css:.gloss	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	724
+css:.gloss:hover	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	725
+css:.glossalias	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	734
+css:.glosscat	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	737
+css:.glosscat:first-child	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	739
+css:.glossdef	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	735
+css:.glossempty	css	L5	glossary	style	views/glossary/glossary.css		1	0	1	736
+css:.glossrow	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	731
+css:.glossrow.glosshi	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	732
+css:.glossterm	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	733
+css:.glosstop	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	726
+css:.glosstop .glosscount	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	730
+css:.glosstop input	css	L5	glossary	style	views/glossary/glossary.css		1	0	0	728
+_ticketConsoHtml	js	L5	glossary	view	views/glossary/_ticketConsoHtml.view.js		22	1	0	8541
+_ticketDetailHtml	js	L5	glossary	view	views/glossary/_ticketDetailHtml.view.js		64	1	4	8477
+_ticketWorkspaceHtml	js	L5	glossary	view	views/glossary/_ticketWorkspaceHtml.view.js		21	1	1	8563
+ensureProjectCard	js	L5	glossary	view	views/glossary/ensureProjectCard.view.js	/project	13	1	1	8455
+glossaireRows	js	L5	glossary	view	views/glossary/glossaireRows.view.js		17	2	0	8584
+html:<div docmodal>	html	L5	glossary	view	views/glossary/docmodal.tpl.html		1	0	0	1509
+outlineDecor	js	L5	glossary	view	views/glossary/outlineDecor.view.js		23	1	0	4685
+renderGlossary	js	L5	glossary	view	views/glossary/renderGlossary.view.js		23	2	1	8751
+ticketFreshnessHtml	js	L5	glossary	view	views/glossary/ticketFreshnessHtml.view.js		9	1	0	8468
+dispatchRight	js	L5	layout	component	components/dispatchRight.js		1	4	0	4784
+rightVisible	js	L5	layout	component	components/rightVisible.js		8	17	2	4789
+setRightDefaultTab	js	L5	layout	controller	controllers/layout.controller.js		4	0	0	7116
+setRightStartOpen	js	L5	layout	controller	controllers/layout.controller.js		3	0	0	7113
+setRightWidth	js	L5	layout	controller	controllers/layout.controller.js		1	2	0	7142
+showRight	js	L5	layout	controller	controllers/layout.controller.js		1	4	0	4786
+switchRight	js	L5	layout	controller	controllers/layout.controller.js		1	0	0	4785
+toggleLeft	js	L5	layout	controller	controllers/layout.controller.js		4	0	1	7104
+toggleRight	js	L5	layout	controller	controllers/layout.controller.js		1	0	0	4787
+R_WIDTH_DEFAULT	js	L5	layout	model	models/layout/R_WIDTH_DEFAULT.js		2	0	0	7134
+clampWidth	js	L5	layout	model	models/layout/clampWidth.js		6	1	0	7136
+collapseRight	js	L5	layout	model	models/layout/collapseRight.js		1	1	0	4788
+leftCollapsed	js	L5	layout	model	models/layout/leftCollapsed.js		1	0	0	7099
+outlineLoading	js	L5	layout	model	models/layout/outlineLoading.js		1	0	0	7179
+rDoResize	js	L5	layout	model	models/layout/rDoResize.js		4	0	0	7155
+rEndResize	js	L5	layout	model	models/layout/rEndResize.js		8	0	0	7159
+rResetWidth	js	L5	layout	model	models/layout/rResetWidth.js		12	0	1	7167
+rResizing	js	L5	layout	model	models/layout/rResizing.js		1	0	0	7147
+rStartResize	js	L5	layout	model	models/layout/rStartResize.js		7	0	0	7148
+rightDefaultTab	js	L5	layout	model	models/layout/rightDefaultTab.js		4	2	1	7109
+rightPanelReduce	js	L5	layout	model	models/layout/rightPanelReduce.js		38	2	4	4723
+rightStartOpen	js	L5	layout	model	models/layout/rightStartOpen.js		1	2	0	7108
+rightState	js	L5	layout	model	models/layout/rightState.js		1	0	2	4761
+applyLeft	js	L5	layout	service	services/layout.service.js		4	2	0	7100
+applyRight	js	L5	layout	service	services/layout.service.js		22	2	6	4762
+loadOutline	js	L5	layout	service	services/layout.service.js	/outline	15	4	1	7180
+restorePanels	js	L5	layout	service	services/layout.service.js		14	1	2	7120
+restoreRightWidth	js	L5	layout	service	services/layout.service.js		4	1	0	7143
+css:.lbody	css	L5	layout	style	views/layout/layout.css		1	0	0	86
+css:.left	css	L5	layout	style	views/layout/layout.css		1	0	1	83
+css:.lnav	css	L5	layout	style	views/layout/layout.css		1	0	0	89
+css:.lnav button	css	L5	layout	style	views/layout/layout.css		1	0	0	91
+css:.lnav button.active	css	L5	layout	style	views/layout/layout.css		1	0	0	94
+css:.lnav button:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	93
+css:.lock	css	L5	layout	style	views/layout/layout.css		1	0	2	232
+css:.logent	css	L5	layout	style	views/layout/layout.css		1	0	0	271
+css:.logent-b	css	L5	layout	style	views/layout/layout.css		1	0	0	276
+css:.logent-b p	css	L5	layout	style	views/layout/layout.css		1	0	0	277
+css:.logent-h	css	L5	layout	style	views/layout/layout.css		1	0	0	272
+css:.logent-h span:not(.logent-ts)	css	L5	layout	style	views/layout/layout.css		1	0	0	275
+css:.logent-ts	css	L5	layout	style	views/layout/layout.css		1	0	0	274
+css:.logfeed	css	L5	layout	style	views/layout/layout.css		1	0	0	270
+css:.logtail	css	L5	layout	style	views/layout/layout.css		1	0	0	657
+css:.lpanel	css	L5	layout	style	views/layout/layout.css		1	0	0	87
+css:.lpanel.active	css	L5	layout	style	views/layout/layout.css		1	0	0	88
+css:.ltoggle	css	L5	layout	style	views/layout/layout.css		1	0	0	495
+css:.rbody	css	L5	layout	style	views/layout/layout.css		1	0	0	489
+css:.rels	css	L5	layout	style	views/layout/layout.css		1	0	0	658
+css:.rels .pill	css	L5	layout	style	views/layout/layout.css		1	0	0	659
+css:.resolved	css	L5	layout	style	views/layout/layout.css		1	0	0	333
+css:.resolved.nf	css	L5	layout	style	views/layout/layout.css		1	0	1	334
+css:.results	css	L5	layout	style	views/layout/layout.css		1	0	0	313
+css:.results .r-id	css	L5	layout	style	views/layout/layout.css		1	0	0	318
+css:.results .r-meta	css	L5	layout	style	views/layout/layout.css		1	0	1	325
+css:.results .r-move	css	L5	layout	style	views/layout/layout.css		1	0	0	320
+css:.results .r-move:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	324
+css:.results .r-title	css	L5	layout	style	views/layout/layout.css		1	0	1	319
+css:.results .r-top	css	L5	layout	style	views/layout/layout.css		1	0	0	317
+css:.results li	css	L5	layout	style	views/layout/layout.css		1	0	0	314
+css:.results li:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	316
+css:.results li:hover .r-move	css	L5	layout	style	views/layout/layout.css		1	0	0	323
+css:.rghead	css	L5	layout	style	views/layout/layout.css		1	0	0	419
+css:.rghead .gcnt	css	L5	layout	style	views/layout/layout.css		1	0	0	422
+css:.rghead:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	421
+css:.rgroup	css	L5	layout	style	views/layout/layout.css		1	0	0	418
+css:.rhandle	css	L5	layout	style	views/layout/layout.css		1	0	0	479
+css:.rhandle:hover, .rpanel.resizing .rhandle	css	L5	layout	style	views/layout/layout.css		1	0	0	480
+css:.right	css	L5	layout	style	views/layout/layout.css		1	0	0	102
+css:.rmext	css	L5	layout	style	views/layout/layout.css		1	0	0	629
+css:.rmext:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	630
+css:.rmref	css	L5	layout	style	views/layout/layout.css		1	0	0	253
+css:.rmref:hover	css	L5	layout	style	views/layout/layout.css		1	0	1	256
+css:.rnav	css	L5	layout	style	views/layout/layout.css		1	0	0	483
+css:.rnav button	css	L5	layout	style	views/layout/layout.css		1	0	0	485
+css:.rnav button.active	css	L5	layout	style	views/layout/layout.css		1	0	0	488
+css:.rnav button:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	487
+css:.row2	css	L5	layout	style	views/layout/layout.css		1	0	0	311
+css:.row2 > div	css	L5	layout	style	views/layout/layout.css		1	0	0	312
+css:.rp	css	L5	layout	style	views/layout/layout.css		1	0	0	490
+css:.rp.active	css	L5	layout	style	views/layout/layout.css		1	0	0	491
+css:.rpanel	css	L5	layout	style	views/layout/layout.css		1	0	1	457
+css:.rpanel.collapsed	css	L5	layout	style	views/layout/layout.css		1	0	3	459
+css:.rpanel.collapsed .rnav, .rpanel.collapsed .rbody, .rpanel.c	css	L5	layout	style	views/layout/layout.css		1	0	0	467
+css:.rpanel.collapsed .rtitle	css	L5	layout	style	views/layout/layout.css		1	0	0	470
+css:.rpanel.resizing	css	L5	layout	style	views/layout/layout.css		1	0	0	466
+css:.rpanel.wide	css	L5	layout	style	views/layout/layout.css		1	0	0	465
+css:.rsub	css	L5	layout	style	views/layout/layout.css		1	0	1	635
+css:.rsub button	css	L5	layout	style	views/layout/layout.css		1	0	0	636
+css:.rsub button.active	css	L5	layout	style	views/layout/layout.css		1	0	0	639
+css:.rsub button.doc	css	L5	layout	style	views/layout/layout.css		1	0	0	543
+css:.rsub button:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	638
+css:.rsub.facets	css	L5	layout	style	views/layout/layout.css		1	0	0	641
+css:.rsub.facets button	css	L5	layout	style	views/layout/layout.css		1	0	0	642
+css:.rsub.facets button.active	css	L5	layout	style	views/layout/layout.css		1	0	0	644
+css:.rsub.facets button:hover	css	L5	layout	style	views/layout/layout.css		1	0	0	643
+css:.rtitle	css	L5	layout	style	views/layout/layout.css		1	0	0	471
+css:.rtitle .rt-id	css	L5	layout	style	views/layout/layout.css		1	0	0	474
+css:.rtitle .rt-label	css	L5	layout	style	views/layout/layout.css		1	0	0	475
+css:.rtitle .rt-label.none	css	L5	layout	style	views/layout/layout.css		1	0	0	477
+css:.rtoggle	css	L5	layout	style	views/layout/layout.css		1	0	0	481
+css:label	css	L5	layout	style	views/layout/layout.css		1	0	0	123
+html:<button envbtn>	html	L5	layout	view	views/layout/envbtn.tpl.html		1	0	0	847
+html:<button glossbtn>	html	L5	layout	view	views/layout/glossbtn.tpl.html		1	0	0	845
+html:<button helpbtn>	html	L5	layout	view	views/layout/helpbtn.tpl.html		1	0	0	843
+html:<button histback>	html	L5	layout	view	views/layout/histback.tpl.html		1	0	0	830
+html:<button histbtn>	html	L5	layout	view	views/layout/histbtn.tpl.html		1	0	0	834
+html:<button histfwd>	html	L5	layout	view	views/layout/histfwd.tpl.html		1	0	0	832
+html:<button lockbtn>	html	L5	layout	view	views/layout/lockbtn.tpl.html		1	0	0	853
+html:<button ltoggle>	html	L5	layout	view	views/layout/ltoggle.tpl.html		1	0	0	868
+html:<button mini>	html	L5	layout	view	views/layout/mini.tpl.html		1	0	0	792
+html:<button mini>	html	L5	layout	view	views/layout/mini.tpl.html		1	0	0	980
+html:<button nextatt>	html	L5	layout	view	views/layout/nextatt.tpl.html		1	0	0	817
+html:<button pmbtn>	html	L5	layout	view	views/layout/pmbtn.tpl.html		1	0	0	838
+html:<button setbtn>	html	L5	layout	view	views/layout/setbtn.tpl.html		1	0	0	840
+html:<button updbtn>	html	L5	layout	view	views/layout/updbtn.tpl.html		1	0	0	859
+html:<button voicebtn>	html	L5	layout	view	views/layout/voicebtn.tpl.html		1	0	0	826
+html:<button yesall>	html	L5	layout	view	views/layout/yesall.tpl.html		1	0	0	823
+html:<button yesatt>	html	L5	layout	view	views/layout/yesatt.tpl.html		1	0	0	820
+html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	944
+html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	1008
+html:<div card>	html	L5	layout	view	views/layout/card.tpl.html		1	0	0	1150
+html:<div docbox>	html	L5	layout	view	views/layout/docbox.tpl.html		1	0	0	1510
+html:<div gate-err>	html	L5	layout	view	views/layout/gate-err.tpl.html		1	0	0	793
+html:<div gatecard>	html	L5	layout	view	views/layout/gatecard.tpl.html		1	0	0	785
+html:<div gsub>	html	L5	layout	view	views/layout/gsub.tpl.html		1	0	0	787
+html:<div histbox>	html	L5	layout	view	views/layout/histbox.tpl.html		1	0	0	1521
+html:<div lbody>	html	L5	layout	view	views/layout/lbody.tpl.html		1	0	0	882
+html:<div toast>	html	L5	layout	view	views/layout/toast.tpl.html		1	0	0	1522
+html:<header header>	html	L5	layout	view	views/layout/header.tpl.html		1	0	0	806
+html:<input auth-pass>	html	L5	layout	view	views/layout/auth-pass.tpl.html		1	0	0	791
+html:<input auth-user>	html	L5	layout	view	views/layout/auth-user.tpl.html		1	0	0	789
+html:<main main>	html	L5	layout	view	views/layout/main.tpl.html		1	0	0	865
+html:<nav lnav>	html	L5	layout	view	views/layout/lnav.tpl.html		1	0	0	871
+html:<section left>	html	L5	layout	view	views/layout/left.tpl.html		1	0	0	866
+html:<section right>	html	L5	layout	view	views/layout/right.tpl.html		1	0	0	1173
+html:<select clientctx>	html	L5	layout	view	views/layout/clientctx.tpl.html		1	0	0	810
+html:<span envwarn>	html	L5	layout	view	views/layout/envwarn.tpl.html		1	0	0	850
+html:<span hcnt>	html	L5	layout	view	views/layout/hcnt.tpl.html		1	0	0	815
+html:<span health>	html	L5	layout	view	views/layout/health.tpl.html		1	0	0	807
+html:<span healthtxt>	html	L5	layout	view	views/layout/healthtxt.tpl.html		1	0	0	814
+html:<span lock>	html	L5	layout	view	views/layout/lock.tpl.html		1	0	0	862
+renderOutline	js	L5	layout	view	views/layout/renderOutline.view.js		43	7	4	7195
+glossNorm	js	L5	mail	component	components/glossNorm.js		11	6	0	4576
+GLOSSARY	js	L5	mail	model	models/mail/GLOSSARY.js		88	0	1	4488
+buildGloss	js	L5	mail	model	models/mail/buildGloss.js		17	1	0	4587
+glossMatch	js	L5	mail	model	models/mail/glossMatch.js		15	1	1	4604
+mailCreate	js	L5	mail	model	models/mail/mailCreate.js		7	1	0	4458
+mailDismiss	js	L5	mail	model	models/mail/mailDismiss.js		13	1	0	4475
+mailDraft	js	L5	mail	model	models/mail/mailDraft.js		4	1	0	4454
+mailFetch	js	L5	mail	model	models/mail/mailFetch.js		1	0	0	4452
+mailNoteOn	js	L5	mail	model	models/mail/mailNoteOn.js		5	1	0	4465
+mailReroute	js	L5	mail	model	models/mail/mailReroute.js		5	1	0	4470
+mailRoute	js	L5	mail	model	models/mail/mailRoute.js		1	0	0	4453
+mailToggle	js	L5	mail	model	models/mail/mailToggle.js		2	1	0	4438
+loadMail	js	L5	mail	service	services/mail.service.js	/mail/queue	16	3	0	4422
+mailAction	js	L5	mail	service	services/mail.service.js		12	7	0	4440
+html:<div lp-mail>	html	L5	mail	view	views/mail/lp-mail.tpl.html		1	0	0	1146
+mrStageHtml	js	L5	nav	component	components/mrStageHtml.js		35	1	0	3802
+pinMark	js	L5	nav	component	components/pinMark.js		9	1	0	3857
+pinOf	js	L5	nav	component	components/pinOf.js		2	6	0	3866
+saveTabs	js	L5	nav	component	components/saveTabs.js		10	3	0	3870
+statusPill	js	L5	nav	component	components/statusPill.js		20	2	0	3837
+groupWorklogItems	js	L5	nav	model	models/nav/groupWorklogItems.js		19	1	0	3764
+upsertTab	js	L5	nav	model	models/nav/upsertTab.js		23	1	0	3880
+worklogGroupedHtml	js	L5	nav	view	views/nav/worklogGroupedHtml.view.js		19	1	1	3783
+closeOutlineRead	js	L5	outline	controller	controllers/outline.controller.js		3	3	0	7247
+copyOutline	js	L5	outline	controller	controllers/outline.controller.js		4	1	0	7243
+gotoNextAttention	js	L5	outline	controller	controllers/outline.controller.js		7	0	0	7325
+jumpUnresolved	js	L5	outline	controller	controllers/outline.controller.js		8	0	0	7290
+jumpUser	js	L5	outline	controller	controllers/outline.controller.js		10	2	1	7280
+openFileRef	js	L5	outline	controller	controllers/outline.controller.js		10	1	0	7250
+toggleDynSort	js	L5	outline	controller	controllers/outline.controller.js		8	0	0	7317
+dynSort	js	L5	outline	model	models/outline/dynSort.js		1	0	1	7315
+listHot	js	L5	outline	model	models/outline/listHot.js		1	0	0	7316
+outlineFull	js	L5	outline	model	models/outline/outlineFull.js		5	2	0	7238
+populateModels	js	L5	outline	model	models/outline/populateModels.js		21	2	0	7380
+populateResumeEngines	js	L5	outline	model	models/outline/populateResumeEngines.js		10	1	0	7370
+approve	js	L5	outline	service	services/outline.service.js	/approve	14	3	0	7332
+jumpTo	js	L5	outline	service	services/outline.service.js	/scroll	20	3	3	7260
+resolveRm	js	L5	outline	service	services/outline.service.js	/resolve	24	6	3	7346
+scrollLive	js	L5	outline	service	services/outline.service.js	/scroll	17	2	2	7298
+css:.outbody	css	L5	outline	style	views/outline/outline.css		1	0	0	522
+css:.outnav	css	L5	outline	style	views/outline/outline.css		1	0	1	502
+css:.outnav .cnt	css	L5	outline	style	views/outline/outline.css		1	0	1	503
+css:.outnav .mini.active	css	L5	outline	style	views/outline/outline.css		1	0	0	509
+css:.outnav .outq	css	L5	outline	style	views/outline/outline.css		1	0	0	505
+css:.outnav .outq:focus	css	L5	outline	style	views/outline/outline.css		1	0	1	507
+sessionPills	js	L5	settings	component	components/sessionPills.js		8	3	0	9777
+closeProjectView	js	L5	settings	controller	controllers/settings.controller.js		8	7	4	9741
+currentProjectView	js	L5	settings	model	models/settings/currentProjectView.js		1	0	1	9739
+currentReview	js	L5	settings	model	models/settings/currentReview.js		1	0	0	9736
+pmCommands	js	L5	settings	model	models/settings/pmCommands.js		1	0	0	9653
+projectData	js	L5	settings	model	models/settings/projectData.js		1	0	0	9740
+tkRow	js	L5	settings	model	models/settings/tkRow.js		7	2	1	9785
+tqCache	js	L5	settings	model	models/settings/tqCache.js		2	0	1	9737
+loadPmCommands	js	L5	settings	service	services/settings.service.js	/pm/commands	23	1	2	9654
+openProjectView	js	L5	settings	service	services/settings.service.js	/project	28	7	4	9749
+saveSetting	js	L5	settings	service	services/settings.service.js	/pm/settings	17	3	1	9636
+submitPmForm	js	L5	settings	service	services/settings.service.js		28	1	2	9707
+renderPmForm	js	L5	settings	view	views/settings/renderPmForm.view.js		30	1	3	9677
+reviewTabs	js	L5	settings	view	views/settings/reviewTabs.view.js		1	0	0	9735
+browserDictate	js	L5	voice	component	components/browserDictate.js		16	6	0	3482
+markPillHtml	js	L5	voice	component	components/markPillHtml.js		12	1	0	3543
+micBtn	js	L5	voice	component	components/micBtn.js		1	3	0	3406
+micIdle	js	L5	voice	component	components/micIdle.js		1	6	0	3407
+speak	js	L5	voice	component	components/speak.js		4	6	2	3303
+pickVoice	js	L5	voice	controller	controllers/voice.controller.js		10	2	0	3251
+setOutFilter	js	L5	voice	controller	controllers/voice.controller.js		7	0	1	3536
+setOutQuery	js	L5	voice	controller	controllers/voice.controller.js		3	0	0	3516
+setSttServer	js	L5	voice	controller	controllers/voice.controller.js		5	0	0	3329
+setVoiceLang	js	L5	voice	controller	controllers/voice.controller.js		8	0	0	3311
+setVoiceName	js	L5	voice	controller	controllers/voice.controller.js		4	0	1	3319
+setVoiceServer	js	L5	voice	controller	controllers/voice.controller.js		6	0	1	3323
+toggleVoice	js	L5	voice	controller	controllers/voice.controller.js		9	0	0	3377
+abToB64	js	L5	voice	model	models/voice/abToB64.js		8	1	0	3426
+browserSpeak	js	L5	voice	model	models/voice/browserSpeak.js		9	2	0	3281
+dictate	js	L5	voice	model	models/voice/dictate.js		12	0	2	3434
+mediaRec	js	L5	voice	model	models/voice/mediaRec.js		1	0	0	3403
+micRec	js	L5	voice	model	models/voice/micRec.js		1	2	0	3408
+micWork	js	L5	voice	model	models/voice/micWork.js		3	1	0	3409
+outByKind	js	L5	voice	model	models/voice/outByKind.js		7	1	0	3528
+outFilter	js	L5	voice	model	models/voice/outFilter.js		1	0	0	3535
+outMatch	js	L5	voice	model	models/voice/outMatch.js		9	1	1	3519
+outOpen	js	L5	voice	model	models/voice/outOpen.js		1	0	0	3515
+outPos	js	L5	voice	model	models/voice/outPos.js		1	0	1	3513
+outQuery	js	L5	voice	model	models/voice/outQuery.js		1	0	0	3514
+outline	js	L5	voice	model	models/voice/outline.js		1	2	0	3512
+rec	js	L5	voice	model	models/voice/rec.js		1	2	0	3402
+serverSpeak	js	L5	voice	model	models/voice/serverSpeak.js	/tts	13	1	0	3290
+spokenCache	js	L5	voice	model	models/voice/spokenCache.js		6	0	0	3223
+sttBusy	js	L5	voice	model	models/voice/sttBusy.js		2	0	0	3404
+sttMode	js	L5	voice	model	models/voice/sttMode.js		5	1	0	3276
+sttServer	js	L5	voice	model	models/voice/sttServer.js		5	0	0	3263
+ttsMode	js	L5	voice	model	models/voice/ttsMode.js		8	1	1	3268
+voiceCaps	js	L5	voice	model	models/voice/voiceCaps.js		1	0	0	3261
+voiceLang	js	L5	voice	model	models/voice/voiceLang.js		1	0	0	3242
+voiceMode	js	L5	voice	model	models/voice/voiceMode.js		1	0	0	3222
+voiceName	js	L5	voice	model	models/voice/voiceName.js		8	0	0	3243
+voiceQueue	js	L5	voice	model	models/voice/voiceQueue.js		13	1	0	3229
+voiceServer	js	L5	voice	model	models/voice/voiceServer.js		1	0	1	3262
+announceWaiting	js	L5	voice	service	services/voice.service.js	/question	16	1	1	3386
+approveShortcutVisible	js	L5	voice	service	services/voice.service.js		6	1	0	3216
+loadVoiceCaps	js	L5	voice	service	services/voice.service.js	/voice/caps	4	1	0	3307
+readQuestion	js	L5	voice	service	services/voice.service.js	/question;/capture	14	0	0	3498
+sendDictated	js	L5	voice	service	services/voice.service.js	/send	14	2	0	3412
+serverDictate	js	L5	voice	service	services/voice.service.js	/stt	36	1	0	3446
+renderVoiceBtn	js	L5	voice	view	views/voice/renderVoiceBtn.view.js		5	2	0	3372
+renderVoicePrefs	js	L5	voice	view	views/voice/renderVoicePrefs.view.js		38	3	2	3334

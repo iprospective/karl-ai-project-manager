@@ -58,6 +58,15 @@ toutes les sessions de ce client, tous projets confondus. Le contexte client du
 bandeau pré-sélectionne le client sans figer le choix, et changer de client
 n'y laisse jamais le projet d'un autre.
 
+## Quand le moteur pose une question avant de démarrer
+
+Un dossier que le moteur n'a jamais ouvert déclenche son garde-fou (claude :
+« Is this a project you created or one you trust? »). Le lancement le signale
+alors — « le moteur attend une approbation dans la session … » — et **n'envoie
+pas** le prompt initial : la touche Entrée répondrait à SA question, pas à la
+tienne (elle a déjà fait quitter des sessions à peine nées). Ouvre la session,
+réponds « Yes, I trust this folder », puis renvoie ton instruction.
+
 ## Un ticket, une session à la fois
 
 Lancer une session sur un ticket **déjà pris en charge** ailleurs — depuis la

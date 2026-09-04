@@ -26,6 +26,8 @@ import { mountGitPanel } from "./controllers/git.controller.js";
 import { mountDashboard } from "./controllers/dashboard.controller.js";
 import { mountProjectsPanel } from "./controllers/projects.controller.js";
 import { mountEnv } from "./controllers/env.controller.js";
+import { mountPmCommands } from "./controllers/pmcmd.controller.js";
+import { mountSettings } from "./controllers/settings.controller.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -131,5 +133,13 @@ const env = mountEnv(document.getElementById("doccontent"), {
   lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
 });
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env });
+const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
+  notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"),
+});
+const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
+  notify: legacy("toast"), help: legacy("openHelp"), applyTheme: legacy("applyTheme"),
+  effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
+});
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

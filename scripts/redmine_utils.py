@@ -305,6 +305,40 @@ def issue_is_ia_tagged(issue):
     return False
 
 
+# Champs de texte long dont Redmine rend CHAQUE retour à la ligne comme un <br>.
+# L'outillage compose du markdown enveloppé à ~95 colonnes (lisible dans un fichier),
+# ce qui arrive haché dans le navigateur — qui sait pourtant envelopper tout seul.
+_UNWRAP_FIELDS = ("description", "notes")
+
+
+def _unwrap_payload(payload):
+    """Dé-enveloppe les champs de texte long d'un payload Redmine (RM2789).
+
+    Fait ICI, au point de passage UNIQUE vers l'API, plutôt qu'à chaque appelant : il y en
+    a une douzaine (add, description-update, comment, status-update, report…) et en oublier
+    un laisserait le défaut revenir par une porte de côté.
+
+    Ne touche qu'aux champs listés, jamais aux autres, et le dé-enveloppement préserve
+    blocs de code, listes, tableaux, titres et sauts durs (cf. `pm_markdown.unwrap`).
+    """
+    if not isinstance(payload, dict):
+        return payload
+    try:
+        from pm_markdown import unwrap
+    except ImportError:                          # pragma: no cover - dépendance optionnelle
+        return payload
+    out = dict(payload)
+    for racine, corps in out.items():
+        if not isinstance(corps, dict):
+            continue
+        neuf = dict(corps)
+        for champ in _UNWRAP_FIELDS:
+            if isinstance(neuf.get(champ), str):
+                neuf[champ] = unwrap(neuf[champ])
+        out[racine] = neuf
+    return out
+
+
 def http_json(method, url, key, payload=None, timeout=20, basic=None):
     """Requête HTTP JSON simple. Retourne (status_code, body_dict_or_error).
 
@@ -312,6 +346,7 @@ def http_json(method, url, key, payload=None, timeout=20, basic=None):
     serveur web protège l'instance en amont de Redmine (RM2657) ; la clé API seule
     reçoit alors un 401 du serveur web, avant même d'atteindre Redmine.
     """
+    payload = _unwrap_payload(payload)
     data = json.dumps(payload).encode("utf-8") if payload is not None else None
     headers = {"Content-Type": "application/json", "X-Redmine-API-Key": key,
                "Accept": "application/json"}
@@ -344,6 +379,29 @@ def fetch_issue(issue_id, include=None, creds=None):
     if code != 200:
         sys.exit(f"ERREUR Redmine HTTP {code} pour issue #{issue_id} : {body.get('_error', '')}")
     return body.get("issue", {})
+
+
+def fetch_project(project_id, creds=None):
+    """Fiche d'un projet Redmine, par id numérique OU identifiant textuel.
+
+    Existe parce que `GET /issues/<id>.json` ne rend du projet que `{id, name}` —
+    jamais son `identifier`. Qui veut comparer un ticket au projet déclaré dans un
+    `meta.yml` (forme textuelle, le cas normal) doit donc résoudre l'identifier
+    ici (RM2784).
+
+    Passer un id NUMÉRIQUE quand on l'a : le front Apache rejette les `%2F`, donc
+    un identifiant textuel contenant un slash ne passerait pas (gotcha connu).
+
+    Retourne {} si le projet est introuvable ou l'accès refusé — c'est un appel de
+    confort, il ne doit jamais faire tomber l'appelant.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("GET", f"{url}/projects/{project_id}.json", key, basic=_basic)
+    if code != 200:
+        return {}
+    return body.get("project", {})
 
 
 def list_issues(params=None, limit=25, timeout=20, creds=None):
@@ -425,6 +483,62 @@ def add_issue_note(issue_id, note, timeout=20, creds=None):
     if code not in (200, 204):
         sys.exit(f"ERREUR Redmine HTTP {code} sur note de #{issue_id} : {body.get('_error', '')}")
     return True
+
+
+def fetch_project(project_ref, timeout=20, creds=None):
+    """`GET /projects/<ref>.json` — `ref` accepte l'**id numérique** ou l'`identifier`.
+
+    Rend le dict projet (`id`, `identifier`, `name`, …) ou `None` si introuvable.
+    Nécessaire parce que l'API des issues ne rend que `{id, name}` pour le projet :
+    comparer un `redmine.project_id` textuel (`calicote-dolibarr`) à une issue
+    demande de résoudre d'abord ce texte en id numérique — sinon la comparaison
+    échoue toujours, en silence.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+    code, body = http_json("GET", f"{url}/projects/{project_ref}.json", key,
+                           timeout=timeout, basic=_basic)
+    if code != 200:
+        return None
+    return body.get("project")
+
+
+def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=None):
+    """DÉPLACE une issue vers un autre projet (`PUT project_id`) — RM2866.
+
+    `project_id` : id numérique ou `identifier`. `notes` : note jointe au même PUT.
+    Retourne `(ok: bool, err: str)`.
+
+    ⚠ Le PUT est **vérifié par relecture**, contrairement à `update_issue_fields` :
+    sans la permission « Move issues » (ni « Edit issues »), Redmine répond 204 et
+    *drop* l'attribut — un déplacement qui échoue silencieusement laisserait la
+    fiche PM et le ticket dans deux projets différents, soit exactement l'incohérence
+    que l'outil est censé supprimer.
+    """
+    creds = creds or redmine_creds()
+    url, key = creds
+    _basic = getattr(creds, "basic", None)
+
+    target = fetch_project(project_id, timeout=timeout, creds=creds)
+    if not target:
+        return False, f"projet Redmine '{project_id}' introuvable"
+
+    issue = {"project_id": target["id"]}
+    if notes:
+        issue["notes"] = notes
+    code, body = http_json("PUT", f"{url}/issues/{issue_id}.json", key,
+                           {"issue": issue}, timeout=timeout, basic=_basic)
+    if code not in (200, 204):
+        return False, f"HTTP {code} : {body.get('_error', '')[:300]}"
+
+    after = fetch_issue(issue_id, creds=creds) or {}
+    got = (after.get("project") or {}).get("id")
+    if str(got) != str(target["id"]):
+        return False, (f"Redmine a accepté le PUT (HTTP {code}) mais l'issue est "
+                       f"toujours dans le projet {got} — permission « Move issues » "
+                       f"manquante (cf. knowledge/redmine/gotchas.md)")
+    return True, ""
 
 
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,

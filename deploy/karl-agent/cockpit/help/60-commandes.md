@@ -1,7 +1,8 @@
 # Commandes & actions PM
 
-Le panneau **⚙ commandes pm** expose la surface CLI du PM sous forme d'actions
-en un clic (catalogue config-driven).
+**⚙ commandes pm** (menu du haut) expose la surface CLI du PM sous forme d'actions
+en un clic (catalogue config-driven). Le catalogue s'ouvre au **centre**, dans un
+[onglet](onglets) — épingle-le si tu enchaînes plusieurs actions.
 
 ## Fonctionnement
 
@@ -54,7 +55,7 @@ rejouable sans risque de doublon.
 
 ## Où les retrouver
 
-- **Panneau ⚙ commandes pm** : le catalogue complet.
+- **⚙ commandes pm** (menu du haut) : le catalogue complet, au centre.
 - **Chips contextuelles** : certaines actions apparaissent directement sur les
   cartes concernées (ex. dans la [file de test](tests)).
 

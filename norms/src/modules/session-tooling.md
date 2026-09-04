@@ -38,6 +38,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Tâche | changer le statut | `pm-task-status-update.py` · `mmi-pm-task-status-update` |
 | Tâche | commenter | `pm-task-comment.py` · `mmi-pm-task-comment` |
 | Tâche | lier (relates/depends/blocks) | `pm-task-link.py` · `mmi-pm-task-link` |
+| Tâche | **déplacer vers un autre projet PM** (fiche + `.log` + `.reporting`, et `project_id` Redmine vérifié par relecture) | `pm-task-move.py <id> --to <client>/<projet>` (RM2866) |
 | Tâche | description / checklist | `pm-task-description-update.py` |
 | Tâche | estimation (CF prévisionnels) | `pm-task-metrics-push.py --estimate` |
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |

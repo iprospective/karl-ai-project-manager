@@ -1,6 +1,7 @@
 # Réglages
 
-Le panneau **🔧 réglages** regroupe les préférences du cockpit et de la conf PM.
+**🔧 réglages** (menu du haut) regroupe les préférences du cockpit et de la conf PM.
+Les réglages s'ouvrent au **centre**, dans un [onglet](onglets) comme les autres vues.
 
 ## Apparence
 

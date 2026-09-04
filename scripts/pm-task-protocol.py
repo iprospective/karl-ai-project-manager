@@ -15,24 +15,24 @@ Usage :
 
 Config : id du CF dans `.env` → REDMINE_CF_TEST_PROTOCOL_ID (créé via l'UI admin
 Redmine — l'API ne sait pas créer une définition de CF). Sans cette variable,
-seul le miroir frontmatter est écrit (warning) : le cockpit fonctionne quand
-même, Redmine n'affiche juste pas le champ.
+l'id est résolu par nom depuis `redmine.reference.yml` ; à défaut, seul le miroir
+frontmatter est écrit (warning) : le cockpit fonctionne quand même, Redmine
+n'affiche juste pas le champ.
+
+Le miroir lui-même vit dans `pm_cf_mirror` — même contrat pour `implementation`
+(CF 31) et `deploy_actions` (CF 8), cf. RM2563.
 """
 import argparse
-import json
-import os
 import re
 import sys
-import urllib.error
-import urllib.request
 from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_cf_mirror
 import pm_git
 import pm_scope
-import redmine_utils
 
 try:
     import yaml
@@ -42,39 +42,8 @@ except ImportError:
 FRONTMATTER_RE = re.compile(r"^(---\s*\n)(.*?)(\n---\s*\n)(.*)$", re.DOTALL)
 
 
-def cf_id():
-    # Priorité : override .env, sinon redmine.reference.yml (CF 30, RM2229).
-    v = os.environ.get("REDMINE_CF_TEST_PROTOCOL_ID", "").strip()
-    if v.isdigit():
-        return int(v)
-    try:
-        return redmine_utils.cf_id_by_name("Protocole de test")
-    except Exception:  # noqa: BLE001 — référence absente : miroir seul
-        return None
-
-
-def push_cf(rm_id: int, text: str) -> bool:
-    """PUT du CF Redmine. True si poussé, False si non configuré/échec (non fatal)."""
-    cid = cf_id()
-    if cid is None:
-        print("⚠ REDMINE_CF_TEST_PROTOCOL_ID absent du .env — CF Redmine non poussé "
-              "(miroir frontmatter seul).", file=sys.stderr)
-        return False
-    base = os.environ.get("REDMINE_URL", "").rstrip("/")
-    key = os.environ.get("REDMINE_API_KEY") or os.environ.get("REDMINE_USER_MAIN_API_KEY")
-    if not base or not key:
-        print("⚠ REDMINE_URL / clé API absents — CF non poussé.", file=sys.stderr)
-        return False
-    body = json.dumps({"issue": {"custom_fields": [{"id": cid, "value": text}]}}).encode()
-    req = urllib.request.Request(f"{base}/issues/{rm_id}.json", data=body, method="PUT",
-                                 headers={"X-Redmine-API-Key": key,
-                                          "Content-Type": "application/json"})
-    try:
-        urllib.request.urlopen(req)
-        return True
-    except urllib.error.HTTPError as e:
-        print(f"⚠ PUT CF {cid} → HTTP {e.code} (non fatal)", file=sys.stderr)
-        return False
+ENV_VAR = "REDMINE_CF_TEST_PROTOCOL_ID"
+CF_NAME = "Protocole de test"
 
 
 def main():
@@ -120,8 +89,8 @@ def main():
     print(f"✓ frontmatter test_protocol : {md_path.relative_to(cfg.projects_root)}")
 
     # 2. CF Redmine (champ canonique visible web)
-    if push_cf(args.rm_id, new):
-        print("✓ CF Redmine « Protocole de test » poussé")
+    if pm_cf_mirror.push_text_cf(args.rm_id, new, env_var=ENV_VAR, cf_name=CF_NAME):
+        print(f"✓ CF Redmine « {CF_NAME} » poussé")
 
     # 3. Log + auto-commit
     log_path = md_path.parent / md_path.name.replace(".md", ".log.md")

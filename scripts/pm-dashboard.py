@@ -18,6 +18,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
 
 try:
     import yaml
@@ -38,7 +39,6 @@ except ImportError:
 
 
 PRIORITY_WEIGHTS = {"low": 0.5, "normal": 1.0, "high": 2.0, "urgent": 4.0}
-FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
 LOG_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.log\.md$")
 
@@ -56,20 +56,6 @@ STATUS_SHORT = {
     "a_corriger": "corr.",
     "ferme": "fermé",
 }
-
-
-def parse_frontmatter(file_path):
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    m = FRONTMATTER_PATTERN.match(content)
-    if not m:
-        return None
-    try:
-        return yaml.safe_load(m.group(1))
-    except yaml.YAMLError:
-        return None
 
 
 def scan_tasks(tasks_dir):

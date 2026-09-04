@@ -31,6 +31,9 @@ except ImportError:
     print("ERREUR : PyYAML requis (pip install pyyaml)", file=sys.stderr)
     sys.exit(2)
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_markdown import read_frontmatter as parse_frontmatter  # RM2764 : foyer unique
+
 
 PRIORITY_WEIGHTS = {"low": 0.5, "normal": 1.0, "high": 2.0, "urgent": 4.0}
 # Équivalence € d'un point de bénéfice qualitatif (échelle 1-5) — repli quand
@@ -47,22 +50,7 @@ def hourly_rate_eur() -> float:
         return float(cfg.get("human_hourly_rate_eur") or DEFAULT_HOURLY_RATE_EUR)
     except (OSError, yaml.YAMLError, TypeError, ValueError):
         return DEFAULT_HOURLY_RATE_EUR
-FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 TASK_FILENAME = re.compile(r"^RM\d+_[a-z0-9-]+\.md$")
-
-
-def parse_frontmatter(file_path: Path) -> dict | None:
-    try:
-        content = file_path.read_text(encoding="utf-8")
-    except Exception:
-        return None
-    m = FRONTMATTER_PATTERN.match(content)
-    if not m:
-        return None
-    try:
-        return yaml.safe_load(m.group(1))
-    except yaml.YAMLError:
-        return None
 
 
 def collect_tasks(root: Path) -> list[tuple[Path, dict]]:

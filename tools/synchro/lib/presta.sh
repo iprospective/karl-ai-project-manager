@@ -67,6 +67,21 @@ UPDATE ${p}configuration SET value = CONCAT(COALESCE(value,''), ',${CLIENT_USER_
   WHERE name='PS_MAINTENANCE_IP' AND COALESCE(value,'') NOT LIKE '%${CLIENT_USER_IP}%';
 SQL
 
+  # Neutralisation des services cloud PrestaShop (RM2932). Un clone de prod hérite
+  # de l'identité PrestaShop Account de la boutique et de ses identifiants marchands :
+  # il affiche « Action requise : confirmez l'URL de votre boutique » (bandeau
+  # ps_accounts, insoluble par un simple alignement de domaine) et peut émettre vers
+  # les services de la production. Le SQL est produit par un script partagé, pour que
+  # le même geste s'applique aux envs de session et aux envs de recette distants.
+  local nonprod="$SELF_DIR/../env-runtime/presta-nonprod-sql.sh"
+  if [ -x "$nonprod" ]; then
+    "$nonprod" --prefix "$p" --domain "$DOMAIN" | mysql_local_db \
+      || die "Échec neutralisation des services cloud PrestaShop."
+    ok "Services cloud PrestaShop neutralisés (identités purgées, modules désactivés)."
+  else
+    warn "presta-nonprod-sql.sh introuvable ($nonprod) — bandeau ps_accounts et jetons marchands NON neutralisés."
+  fi
+
   # URL de sync DoliPrestaSync : positionnée si fournie, sinon supprimée
   if [ -n "${SYNC_URL:-}" ]; then
     mysql_local_db -e "UPDATE ${p}configuration SET value='${SYNC_URL}' WHERE name='MMI_SYNC_WS_SYNC_URL';"

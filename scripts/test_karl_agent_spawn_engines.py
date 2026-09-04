@@ -34,11 +34,15 @@ def check(name, cond):
 started = []
 recorded = []
 ka._has_session = lambda rm_id: False
+# RM2951 : /spawn et /resume vérifient que la session a SURVÉCU avant de
+# répondre « créée ». Point de mesure distinct de la garde « déjà active »,
+# que ce harnais fige à False pour pouvoir enchaîner les lancements.
+ka._session_started = lambda rm_id: True
 ka._start_session_tmux = lambda rm_id, cmd, cwd, w, h, env: started.append((rm_id, cmd))
 ka._resolve_cwd = lambda c: pathlib.Path(c or "/zfs/workspaces")
 ka._record_run = lambda *a, **k: recorded.append(("run", a))
 ka._record_key = lambda *a, **k: recorded.append(("key", a))
-ka._auto_join_current_set = lambda sid, ctx=None: {"group": "default", "joined": True}
+ka._auto_join_active_set = lambda sid, ctx=None: {"group": "default", "joined": True}
 
 # — chaque moteur du catalogue doit rendre une réponse, pas une exception —
 for engine in ka.ENGINES:
@@ -61,7 +65,7 @@ res = ka.op_spawn({"rm_id": "demo", "engine": "claude", "cwd": "/zfs/workspaces"
 check("claude : session_id fixé au lancement", bool(res.get("session_id")))
 check("claude : clé de session enregistrée",
       any(kind == "key" for kind, _ in recorded))
-check("claude : jeu courant rejoint", res["set"] == {"group": "default", "joined": True})
+check("claude : registre des sessions actives rejoint (RM2953)", res["set"] == {"group": "default", "joined": True})
 
 # — sans set-at-launch : pas d'adhésion, et la raison est DITE (pas un None nu) —
 for engine in ("shell", "opencode", "vibe"):

@@ -1,4 +1,4 @@
-> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP.
+> 📂 **Module `git-mep` — quand lire ceci :** je code un ticket (branche) · push / MR · projet versionné · commit+push · cycle dev→test→MEP · procédure de MEP d'un ticket (actions au déploiement).
 > **Outils :** `glab`, `pm-branch-start` · **Préchargé par :** worker-dev, worker-db, worker-infra.
 
 ## Cycle de développement → test → mise en production (MEP)
@@ -87,11 +87,66 @@ En multi-dev, l'identité forge est **par développeur**, plus « 2 identités k
      `integration_branch` (`dev`) et renseigner son URL dans le CF Redmine **`GIT PR`**
      (id 4) — cette MR sert de **trace** du merge d'intégration ;
    - merge de la MR dans `integration_branch` ⇒ le ticket passe `a_mep` et entre dans
-     le workflow MEP.
+     le workflow MEP. Le passage en `a_mep` **affiche la procédure de MEP du ticket**
+     (§ *Actions au déploiement*) : c'est elle que suit la personne qui déploie, en plus
+     du workflow générique décrit ici.
    - Rejet ⇒ `a_corriger`.
 
 > Exception : un ticket sans code à déployer (doc, infra ponctuelle) peut aller de
 > `a_tester_demandeur` directement à `ferme` (`close_reason: resolu`), sans MR ni MEP.
+
+#### Actions au déploiement = la procédure de MEP du ticket — v2.10.0 (RM2563)
+
+Le § *Workflow de développement* ci-dessus décrit la MEP **générique** : MR vers
+`integration_branch`, puis `preprod`, puis `prod_branch`. Ce qu'il ne peut pas dire,
+c'est ce que **ce ticket-là** exige en propre — migration à jouer et dans quel ordre,
+constante à créer avant le premier passage, cron à (ré)installer, service à recharger,
+dépôt A à déployer avant le dépôt B, jeu de données à recalculer après coup.
+
+`deploy_actions` **est cette procédure** : la suite **ordonnée** d'étapes que suit la
+personne qui met en production. Pas un pense-bête d'extras — un **runbook**. L'ordre de
+la liste **est** l'ordre d'exécution.
+
+**Où ça vit.** Champ canonique : le CF Redmine **8 « Actions au déploiement »** ; miroir
+local dans le frontmatter `deploy_actions` (liste, une étape par ligne). Outil :
+**`pm-task-deploy`** (`--add` / `--set` / `--clear`, et `--pull` quand la saisie a été
+faite directement dans l'UI web). Le passage en `a_mep` **affiche la procédure** à qui
+déploie : une procédure que personne ne relit au bon moment ne sert à rien.
+
+**Rédaction au fil de l'eau, pas à la livraison.** C'est au moment où on écrit la
+migration qu'on sait qu'il faudra la jouer — pas trois semaines plus tard devant la
+prod. Une étape ajoutée après coup est une étape déjà à moitié oubliée.
+
+**Ce qu'on y met, et ce qu'on n'y met pas.**
+
+| | |
+|---|---|
+| **Oui** | les étapes **propres à ce ticket**, dans l'ordre ; la **cible** de chacune quand elle n'est pas évidente (quel env, quel dépôt, quelle machine) ; le **point de non-retour** s'il y en a un ; le **rollback** de ce ticket s'il ne se réduit pas à revenir au commit précédent. |
+| **Non** | ce qui est **systématique pour l'environnement** — c'est `environments[].post_deploy` (§ *Modèle d'environnements*), déclaré une fois par env, pas recopié dans chaque ticket ; ce qui est **générique au workflow** (créer la MR, merger, `git pull`), déjà normé ci-dessus. |
+
+Un ticket qui n'exige rien de particulier laisse la liste **vide** — c'est une réponse,
+pas un oubli. Le remplissage de complaisance (« déployer le code ») coûte la crédibilité
+du champ : le jour où il contient vraiment quelque chose, plus personne ne le lit.
+
+**Sécurité prod.** La procédure ne dispense d'aucune garde : chaque commande qui modifie
+la prod exige le **consentement humain explicite pour cette action précise** (tripwire
+*Sécurité prod*), et le **point de restauration préalable** (snapshot ZFS du conteneur
+depuis l'hôte, sur infra opensvc/LXC/ZFS) reste dû — son nom se logue avec la procédure
+de rollback. Écrire la procédure ne l'autorise pas à s'exécuter : comme
+`environments[].post_deploy`, `deploy_actions` est **déclaratif, jamais auto-exécuté**.
+
+**Synchronisation.** PM → Redmine à chaque écriture (`pm-task-deploy` pousse le CF).
+Redmine → PM automatiquement à chaque `pm-task-sync`, pour rattraper une saisie faite
+dans l'UI web. Un CF **vide** ne remet **jamais** le miroir local à zéro : « vide côté
+Redmine » veut dire « pas d'information », pas « efface ». Le vidage volontaire passe par
+`pm-task-deploy --clear`, qui écrit les deux côtés.
+
+> Le champ `deploy_actions` et le CF 8 coexistaient depuis l'origine **sans être reliés**
+> — le champ n'était qu'initialisé à `[]`, jamais lu ni poussé. RM2563 ferme le circuit ;
+> avant lui, ce qui y était écrit ne ressortait nulle part. **L'existant a été repris**
+> (21 procédures remontées vers le CF 8), via `pm-cf-mirror-backfill` — dry-run par
+> défaut, ne remplace jamais du contenu par du vide, et **signale les désaccords au lieu
+> de trancher**.
 
 #### Commit + push systématique (obligatoire)
 

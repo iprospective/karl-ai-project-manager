@@ -208,18 +208,23 @@ def _rebase_onto_remote(root, branch):
     return False, (last[-1] if last else "conflit")
 
 
-def autocommit(paths, message, push=None, enabled=None):
+def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
     """Committe (et pousse) atomiquement les chemins listés. Retourne le sha court ou None.
 
     paths   : fichiers écrits par l'appelant (str|Path ; inexistants/None ignorés).
     message : message de commit (convention : `pm(<outil>): RM<id> <action>`).
     push    : force/désactive le push pour cet appel (None = config autopush).
     enabled : force/désactive l'auto-commit pour cet appel (None = config autocommit).
+    allow_missing : garde les chemins ABSENTS du disque, pour committer une
+              **suppression** (RM2866, `pm-task-move` : la fiche a quitté le repo
+              source). Hors ce cas, un chemin manquant est une erreur d'appelant —
+              d'où le filtre par défaut, conservé tel quel.
     """
     cfg = load_git_config()
     if not (cfg["autocommit"] if enabled is None else enabled):
         return None
-    paths = [Path(p).resolve() for p in paths if p and Path(p).exists()]
+    paths = [Path(p).resolve() for p in paths
+             if p and (allow_missing or Path(p).exists())]
     if not paths:
         return None
 

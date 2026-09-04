@@ -46,6 +46,7 @@ class TaskCapabilities:
     full_text_search: bool = False  # recherche plein-texte serveur
     parent_link: bool = False       # parent natif (sous-tâches)
     ia_tag: bool = False            # tag IA (mutex tickets PM/purs)
+    move_project: bool = False      # déplacement d'un ticket vers un autre projet
 
 
 class TaskProvider:
@@ -66,6 +67,15 @@ class TaskProvider:
     def fetch_issue(self, issue_id, include=None):
         raise NotImplementedError
 
+    def fetch_project(self, project_id):
+        """Fiche du projet côté forge, ou {} si le backend ne sait pas la rendre.
+
+        Défaut neutre volontaire : seul Redmine en a besoin aujourd'hui (résoudre
+        l'`identifier` absent de `/issues/<id>.json`, RM2784), et un appelant qui
+        reçoit {} doit simplement s'abstenir de trancher.
+        """
+        return {}
+
     def list_issues(self, params=None, limit=25):
         raise NotImplementedError
 
@@ -82,6 +92,14 @@ class TaskProvider:
     def set_parent(self, issue_id, parent_id):
         raise NotImplementedError
 
+    def move_project(self, issue_id, project_id, notes=None):
+        """Déplace le ticket vers un autre projet. Rend `(ok: bool, err: str)`.
+
+        Garder par `capabilities.move_project` : tout backend n'accepte pas de
+        rattacher un ticket existant ailleurs.
+        """
+        raise NotImplementedError
+
 
 class RedmineTaskProvider(TaskProvider):
     """Backend Redmine — délègue à `redmine_utils`, **sur son instance**.
@@ -96,6 +114,7 @@ class RedmineTaskProvider(TaskProvider):
     capabilities = TaskCapabilities(
         custom_fields=True, time_tracking=True, wiki=True,
         full_text_search=True, parent_link=True, ia_tag=True,
+        move_project=True,
     )
 
     def __init__(self, instance=None):
@@ -130,6 +149,9 @@ class RedmineTaskProvider(TaskProvider):
     def fetch_issue(self, issue_id, include=None):
         return _ru.fetch_issue(issue_id, include=include, **self._kw())
 
+    def fetch_project(self, project_id):
+        return _ru.fetch_project(project_id, **self._kw())
+
     def list_issues(self, params=None, limit=25):
         return _ru.list_issues(params=params, limit=limit, **self._kw())
 
@@ -146,6 +168,9 @@ class RedmineTaskProvider(TaskProvider):
 
     def set_parent(self, issue_id, parent_id):
         return _ru.set_issue_parent(issue_id, parent_id, **self._kw())
+
+    def move_project(self, issue_id, project_id, notes=None):
+        return _ru.move_issue_project(issue_id, project_id, notes=notes, **self._kw())
 
     # ── extras Redmine (hors contrat générique ; gardés par capabilities) ─
     def update_fields(self, issue_id, **kw):

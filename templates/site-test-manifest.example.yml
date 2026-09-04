@@ -1,0 +1,44 @@
+# Manifeste de test d'un site (N1) — squelette / exemple.
+# À copier dans <projet>/.mmi-pm/project/test-manifest.yml et adapter.
+# Complète/surcharge la surface générique N0 (knowledge/<site_type>/test-surface.yml).
+# Runner : scripts/pm-site-test.py --manifest <ce fichier> --env <nom>
+
+site_type: prestashop            # sélectionne la surface N0 chargée
+
+# IDs échantillons réels (vérifiés en base) substitués dans les patterns N0.
+samples:
+  id_product: 1
+  id_category: 2
+  id_cms: 1
+  id_manufacturer: 1
+  id_supplier: 1
+  # search_term: "a"             # override du terme de recherche si besoin
+
+# Codes attendus qui diffèrent du défaut N0 (features désactivées ≠ régression).
+expect_overrides:
+  supplier_list: 404             # ex. site sans fournisseurs
+  supplier: 404
+  best_sales: 404                # ex. bloc meilleures ventes désactivé
+
+# Checks N0 à ne pas jouer du tout sur ce site (rare — préférer expect_overrides).
+skip: []
+
+# Pages spécifiques au site (modules, landing, contrôleurs custom).
+extra_pages:
+  # - id: slider_home
+  #   path: "/{lang}/"
+  #   contains: ["cinsslider"]   # marqueur qui doit apparaître → sinon FAIL
+
+# Environnements cibles. resolve = "host:ip" pour les vhosts non résolus (conteneur).
+# samples: (par env) surcharge le global — utile car le workflow checkout exige un
+# produit EN STOCK, or le stock diffère d'un env à l'autre.
+envs:
+  dev:
+    base_url: "http://calicote-presta.lxc"
+    resolve: "calicote-presta.lxc:127.0.0.1"
+    samples: { id_product: 32 }      # en stock en dev
+  preprod:
+    base_url: "https://calicote.sfy.iprospective.fr"
+  prod:
+    base_url: "https://calicote.com"
+    samples: { id_product: 1234 }    # en stock en prod (32 y est en rupture)

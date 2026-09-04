@@ -43,6 +43,9 @@ try:
 except ImportError:
     sys.exit("pm-env-migrate: PyYAML requis (apt install python3-yaml)")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_repos  # préservation de l'identité au backfill (RM2838)  # noqa: E402
+
 EXCLUDE_DIRS = {"repos", "envs", "tmp", "sessions", "logs", "data", ".mmi-pm",
                 ".mmi-pm-client", ".claude", "documents", "node_modules", "vendor"}
 GITIGNORE = (
@@ -329,6 +332,11 @@ def backfill_manifest(ctx, ws, code, basis, bare):
     entry = {"name": code, "remotes": remotes or {"origin": basis["origin"]},
              "integration_branch": basis["branch"]}
     repos = data.get("repos") or []
+    # RM2838 : le constat ne connaît que le TRANSPORT. L'URL canonique et le
+    # rattachement `instance:` sont déclarés à la main — les régénérer les
+    # effacerait à chaque migration.
+    previous = next((r for r in repos if r.get("name") == code), None)
+    entry = pm_repos.merge_entry(previous, entry)
     repos = [r for r in repos if r.get("name") != code] + [entry]
     data["repos"] = repos
     meta.write_text(yaml.safe_dump(data, allow_unicode=True, sort_keys=False), encoding="utf-8")

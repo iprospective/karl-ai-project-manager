@@ -81,6 +81,141 @@ def parse_remote(url):
     return "", s.lstrip("/")
 
 
+# ── Registre d'instances (RM2766) ─────────────────────────────────────────────
+# Le registre `pm.config.yml :: providers.servers` porte l'URL, le type et les
+# alias SSH de chaque forge. Jusqu'ici `pm_forge` ne le consultait jamais : il
+# résolvait ses hôtes par variables GLOBALES (GITLAB_URL / GOGS_URL / GITHUB_URL),
+# donc une seule instance par TYPE de forge — la déclaration d'un projet était
+# correctement résolue par `pm-providers`, puis ignorée par toute opération.
+#
+# Les variables ne disparaissent pas : elles restent interpolées DANS le registre
+# (`url: "${GITLAB_URL:-…}"`) pour surcharger une instance par machine. Ce qui
+# cesse, c'est que le code les lise en parallèle, comme une seconde source de
+# vérité que le registre ne connaît pas.
+_REGISTRY = None
+_REGISTRY_LOADED = False
+# Types de forge implémentés ici : un registre peut déclarer autre chose (un jour),
+# on ne l'expose pas comme un hôte de forge exploitable.
+_IMPL_TYPES = ("gitlab", "gogs", "github")
+
+
+def set_registry(registry):
+    """Injecte le registre d'instances (`pm_registry.Registry`) ou None.
+
+    Sert aux appelants qui en tiennent déjà un, et aux tests — qui doivent
+    pouvoir décrire des instances fictives sans toucher à la conf de la machine.
+    """
+    global _REGISTRY, _REGISTRY_LOADED
+    _REGISTRY, _REGISTRY_LOADED = registry, True
+
+
+def _registry():
+    """Registre d'instances, chargé paresseusement et mis en cache. None si absent.
+
+    Best-effort ASSUMÉ : `pm_forge` doit rester utilisable hors d'un contexte PM
+    (cf. en-tête), et un registre absent ou incohérent doit dégrader vers le
+    comportement historique — les variables d'environnement — jamais faire échouer
+    une opération de forge. L'import est LOCAL pour la même raison.
+    """
+    global _REGISTRY, _REGISTRY_LOADED
+    if _REGISTRY_LOADED:
+        return _REGISTRY
+    _REGISTRY_LOADED = True
+    try:
+        import contextlib
+        import io
+        from pm_paths import PMConfig
+        from pm_registry import Registry
+        # `PMConfig.load()` DIAGNOSTIQUE l'absence de conf : il écrit sur stderr
+        # puis sys.exit() — utile à un script PM, hors sujet ici. On l'attrape
+        # (SystemExit n'hérite pas d'Exception) et on tait le message, sans quoi
+        # tout appelant hors contexte PM verrait passer une erreur qui n'en est
+        # pas une : l'absence de registre est un cas NORMAL de dégradation.
+        # `PM_CORE_DIR` désigne le core canonique quand on tourne depuis un clone
+        # de dev : même résolution que `pm-providers`, sinon un clone lirait SA
+        # conf au lieu de celle qui fait foi.
+        with contextlib.redirect_stderr(io.StringIO()):
+            _REGISTRY = Registry.from_config(
+                PMConfig.load(os.environ.get("PM_CORE_DIR") or None).providers)
+    except (Exception, SystemExit):         # noqa: BLE001 — hors PM, conf illisible…
+        _REGISTRY = None
+    return _REGISTRY
+
+
+def _forge_instances():
+    """Instances d'axe `forge` déclarées, utilisables (URL + type implémenté)."""
+    reg = _registry()
+    if reg is None:
+        return []
+    try:
+        return [i for i in reg.by_axis("forge")
+                if i.url and (i.type or "").lower() in _IMPL_TYPES]
+    except Exception:                       # noqa: BLE001
+        return []
+
+
+def _instance_url(instance):
+    return (getattr(instance, "url", "") or "").rstrip("/")
+
+
+def _instance_host(instance):
+    base = _instance_url(instance)
+    if not base:
+        return ""
+    return (urllib.parse.urlparse(base if "//" in base
+                                  else f"https://{base}").hostname or "").lower()
+
+
+def instance_aliases(instance):
+    """Alias SSH déclarés par une instance (`ssh_aliases:` au registre).
+
+    Les remotes passent massivement par des alias `~/.ssh/config` — `gitlab:…`,
+    `ssh://gogs@matnat-tools/…` — qui portent le port et la clé. Comparer l'URL
+    d'un remote à celle d'une instance ne suffit donc pas à les rattacher : sans
+    alias déclarés, la résolution « ce dépôt appartient à telle forge » reste
+    impossible pour la majorité des projets (`matnat-tools`, `matnat-git` ne
+    ressemblent à aucun nom de forge).
+    """
+    raw = (getattr(instance, "options", None) or {}).get("ssh_aliases") or []
+    if isinstance(raw, str):
+        raw = [raw]
+    return [str(a).strip().lower() for a in raw if str(a).strip()]
+
+
+def instance_by_name(name):
+    """Instance de forge déclarée sous ce nom, ou None (jamais d'exception)."""
+    reg = _registry()
+    if reg is None or not name:
+        return None
+    try:
+        inst = reg.get(str(name))
+    except Exception:                       # noqa: BLE001 — nom inconnu
+        return None
+    return inst if (inst.type or "").lower() in _IMPL_TYPES else None
+
+
+def instance_for_host(host):
+    """Instance déclarée servant cet hôte, ou None. Match EXACT."""
+    h = (host or "").strip().lower()
+    return next((i for i in _forge_instances() if _instance_host(i) == h), None) if h else None
+
+
+def instance_for_hint(hint):
+    """Instance déclarée correspondant au hint d'un remote — alias SSH d'abord,
+    puis hôte. None si rien ne correspond : on ne devine jamais.
+
+    L'alias prime : il est plus spécifique (un tunnel `127.0.0.1:28022` ne dit
+    rien de la forge qu'il sert, l'alias qui le désigne, si).
+    """
+    h = (hint or "").strip().lower()
+    if not h:
+        return None
+    for inst in _forge_instances():
+        if h in instance_aliases(inst):
+            return inst
+    return instance_for_host(h)
+
+
 # RM2541 — formes d'URL de PR, par forge. Le chemin du dépôt est ce qui précède
 # le séparateur ; l'iid ce qui suit. GitLab intercale `/-/` (et supporte la forme
 # ancienne sans tiret) ; GitHub dit `pull`, Gogs/Gitea `pulls`.
@@ -92,8 +227,12 @@ def _known_hosts():
     """Hôtes de forge CONFIGURÉS (dict host → nom de forge). Sert de liste blanche
     aux URL fournies par l'appelant : un PAT ne part jamais vers un hôte inconnu.
 
-    Source : les mêmes variables que les implémentations (`GITLAB_URL`,
-    `GOGS_URL`, `GITHUB_URL`), plus les défauts qu'elles appliquent."""
+    Sources, cumulées : les variables des implémentations (`GITLAB_URL`,
+    `GOGS_URL`, `GITHUB_URL`) avec leurs défauts, ET les instances d'axe `forge`
+    du registre (RM2766) — une instance déclarée vaut déclaration d'hôte.
+
+    Les variables gardent la main en cas de conflit : un déploiement sans
+    registre conserve EXACTEMENT sa liste blanche."""
     hosts = {}
     for var, default, name in (("GITLAB_URL", f"https://{GitlabForge.DEFAULT_HOST}", "gitlab"),
                                ("GOGS_URL", "", "gogs"),
@@ -104,6 +243,10 @@ def _known_hosts():
         h = urllib.parse.urlparse(base if "//" in base else f"https://{base}").hostname
         if h:
             hosts[h.lower()] = name
+    for inst in _forge_instances():
+        h = _instance_host(inst)
+        if h:
+            hosts.setdefault(h, (inst.type or "").lower())
     return hosts
 
 
@@ -127,7 +270,8 @@ def parse_pr_url(url):
         raise ForgeError(
             f"hôte '{host}' inconnu des forges configurées ({', '.join(sorted(known)) or 'aucune'}) "
             f"— refus d'émettre un token vers un hôte non déclaré. "
-            f"Déclare-le (GITLAB_URL / GOGS_URL / GITHUB_URL) si la forge est légitime.")
+            f"Déclare la forge dans pm.config.yml :: providers.servers "
+            f"(axis: forge, type, url), ou par variable GITLAB_URL / GOGS_URL / GITHUB_URL.")
     path = u.path.rstrip("/")
     for sep, name in _PR_URL_SEPS:
         if sep in path:
@@ -146,11 +290,37 @@ def parse_pr_url(url):
         f".../-/merge_requests/<n> (GitLab), .../pull/<n> (GitHub), .../pulls/<n> (Gogs).")
 
 
-def get_forge_from_pr_url(url):
-    """(forge, iid) depuis l'URL d'une PR — sans dépôt local NI cwd. RM2541."""
+def get_forge_from_pr_url(url, instance=None):
+    """(forge, iid) depuis l'URL d'une PR — sans dépôt local NI cwd. RM2541.
+
+    L'hôte de l'URL rattache la PR à son instance déclarée (RM2766) : deux
+    instances d'un même type de forge sont ainsi distinguées, là où la variable
+    globale n'en connaissait qu'une.
+    """
     name, repo_path, iid = parse_pr_url(url)
+    inst = _as_instance(instance) or instance_for_host(
+        urllib.parse.urlparse(url.strip()).hostname)
     impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
-    return impls[name](repo_path), iid
+    return impls[name](repo_path, instance=_instance_if_type(inst, name)), iid
+
+
+def _as_instance(instance):
+    """Accepte un objet instance OU un nom déclaré au registre. None sinon."""
+    if instance is None or isinstance(instance, str):
+        return instance_by_name(instance) if instance else None
+    return instance
+
+
+def _instance_if_type(instance, name):
+    """L'instance n'est retenue que si son type est bien la forge choisie.
+
+    Un `forge=`/`PM_FORGE` explicite doit rester souverain : lui faire porter
+    l'URL d'une instance d'un autre type produirait des appels silencieusement
+    dirigés vers la mauvaise forge.
+    """
+    if instance is None:
+        return None
+    return instance if (getattr(instance, "type", "") or "").lower() == name else None
 
 
 def forge_name(hint):
@@ -180,26 +350,37 @@ def _git_config_forge(repo):
     return r.stdout.strip() if r.returncode == 0 else ""
 
 
-def get_forge(repo=".", remote="origin", url=None, forge=None):
+def get_forge(repo=".", remote="origin", url=None, forge=None, instance=None):
     """Fabrique : instancie la bonne forge pour le dépôt.
 
     Priorité de sélection (nécessaire car un remote Gogs tunnelé en
     `ssh://gogs@localhost:28022/…` n'est PAS détectable par son host) :
-      1. `forge=` explicite (appelant) ;
-      2. env `PM_FORGE` (gitlab|gogs|github) ;
-      3. `git config pm.forge` du dépôt (signal persistant, posé au clonage) ;
-      4. détection d'après le host/alias du remote (défaut : GitLab, inchangé)."""
+      1. `instance=` explicite — nom déclaré au registre ou objet instance
+         (RM2766 : c'est ce que porte `providers.forge[].instance` d'un projet) ;
+      2. `forge=` explicite (appelant) ;
+      3. env `PM_FORGE` (gitlab|gogs|github) ;
+      4. `git config pm.forge` du dépôt (signal persistant, posé au clonage) ;
+      5. instance du registre rattachée au hint du remote — alias SSH ou hôte ;
+      6. détection d'après le host/alias du remote (défaut : GitLab, inchangé).
+
+    L'étape 5 précède la devinette par sous-chaîne : un remote `matnat-tools`
+    ou `matnat-git` ne ressemble à aucun nom de forge, mais l'instance qui
+    déclare cet alias, elle, dit son type. Sans registre, on tombe directement
+    de 4 à 6 — comportement historique, inchangé."""
     if url is None:
         url = _git_remote_url(repo, remote)
     hint, repo_path = parse_remote(url)
+    inst = _as_instance(instance) or instance_for_hint(hint)
     name = (forge or os.environ.get("PM_FORGE") or _git_config_forge(repo)
-            or forge_name(hint) or "").lower()
+            or (getattr(inst, "type", "") or "") or forge_name(hint) or "").lower()
     impls = {"gitlab": GitlabForge, "gogs": GogsForge, "github": GithubForge}
     if name not in impls:
         raise ForgeError(
             f"forge non reconnue depuis le remote '{url}' (hint '{hint}'). "
-            f"Précise-la : `git config pm.forge gogs`, ou PM_FORGE=gitlab|gogs|github.")
-    return impls[name](repo_path)
+            f"Précise-la : `git config pm.forge gogs`, PM_FORGE=gitlab|gogs|github, "
+            f"ou déclare l'alias '{hint}' sur une instance "
+            f"(pm.config.yml :: providers.servers.<inst>.ssh_aliases).")
+    return impls[name](repo_path, instance=_instance_if_type(inst, name))
 
 
 # ── Base commune ──────────────────────────────────────────────────────────────
@@ -207,8 +388,11 @@ class Forge:
     """Interface. Les implémentations concrètes surchargent ce qui les concerne."""
     name = "?"
 
-    def __init__(self, repo_path):
+    def __init__(self, repo_path, instance=None):
         self.repo_path = repo_path
+        # Instance du registre retenue pour ce dépôt (RM2766), ou None : dans ce
+        # cas l'implémentation retombe sur sa variable globale, à l'identique.
+        self.instance = instance
 
     @property
     def capabilities(self):
@@ -245,9 +429,10 @@ class GitlabForge(Forge):
     DEFAULT_HOST = "gitlab.iprospective.fr"
     TOKEN_ENV = {"manager": "GITLAB_MANAGER_TOKEN", "worker": "GITLAB_WORKER_TOKEN"}
 
-    def __init__(self, repo_path):
-        super().__init__(repo_path)
-        self.base = (os.environ.get("GITLAB_URL") or f"https://{self.DEFAULT_HOST}").rstrip("/")
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        self.base = (_instance_url(instance) or os.environ.get("GITLAB_URL")
+                     or f"https://{self.DEFAULT_HOST}").rstrip("/")
         self.api_base = self.base + "/api/v4"
 
     @property
@@ -395,9 +580,9 @@ class GitlabForge(Forge):
 class GogsForge(Forge):
     name = "gogs"
 
-    def __init__(self, repo_path):
-        super().__init__(repo_path)
-        self.base = (os.environ.get("GOGS_URL") or "").rstrip("/")
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        self.base = (_instance_url(instance) or os.environ.get("GOGS_URL") or "").rstrip("/")
 
     @property
     def capabilities(self):
@@ -416,7 +601,10 @@ class GogsForge(Forge):
 
     def compare_url(self, source, target):
         if not self.base:
-            raise ForgeError("GOGS_URL absent : impossible de construire l'URL compare.")
+            raise ForgeError(
+                "URL de l'instance Gogs inconnue : impossible de construire l'URL compare. "
+                "Déclare la forge dans pm.config.yml :: providers.servers et rattache-la "
+                "au projet (providers.forge[].instance), ou pose GOGS_URL.")
         return f"{self.base}/{self.repo_path}/compare/{target}...{source}"
 
     def create_pr(self, project, source, target, title, description, token):
@@ -440,10 +628,15 @@ class GithubForge(Forge):
     pour que la politique PM de pm-mr reste inchangée."""
     name = "github"
 
-    def __init__(self, repo_path):
-        super().__init__(repo_path)
-        self.api_base = (os.environ.get("GITHUB_API_URL") or "https://api.github.com").rstrip("/")
-        self.web_base = (os.environ.get("GITHUB_URL") or "https://github.com").rstrip("/")
+    def __init__(self, repo_path, instance=None):
+        super().__init__(repo_path, instance)
+        # `api_url` en option d'instance : GitHub Enterprise sert son API sur un
+        # hôte distinct du web, que le seul `url` ne permet pas de déduire.
+        api_opt = (getattr(instance, "options", None) or {}).get("api_url") or ""
+        self.api_base = (str(api_opt).strip() or os.environ.get("GITHUB_API_URL")
+                         or "https://api.github.com").rstrip("/")
+        self.web_base = (_instance_url(instance) or os.environ.get("GITHUB_URL")
+                         or "https://github.com").rstrip("/")
 
     @property
     def capabilities(self):

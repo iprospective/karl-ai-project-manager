@@ -90,6 +90,10 @@ check("RM2539 : l'âge de la session opencode remonte (tuile datée, pas muette)
 # — reprise réelle : commande du moteur, cwd de sa base —
 STARTED = []
 ka._has_session = lambda sid: False
+# RM2951 : /spawn et /resume vérifient que la session a SURVÉCU avant de
+# répondre « créée ». Point de mesure distinct de la garde « déjà active »,
+# que ce harnais fige à False pour pouvoir enchaîner les lancements.
+ka._session_started = lambda sid: True
 ka._start_session_tmux = lambda sid, cmd, cwd, w, h, extra: STARTED.append((sid, cmd, str(cwd)))
 ka._record_run = lambda *a, **k: None
 ka._record_key = lambda *a, **k: None

@@ -143,6 +143,23 @@ check("op : le titre du transcript nomme les sessions sans titre",
 check("op : le worklog d'une session slug la range dans handled",
       {r["sid"] for r in out["handled"]} == {"2726", "libre"} and out["candidates"] == [])
 
+# ── RM2818 : la disposition voyage avec la ligne ─────────────────────────────
+# Le cockpit doit pouvoir dire « cette session traite déjà le ticket ET n'est pas
+# terminée » avant d'en ouvrir une seconde. `state` ne suffit pas : une session
+# idle peut être marquée « terminé » (RM2515) — c'est justement celle qui ne doit
+# PAS déclencher d'alerte.
+v5 = ka.ticket_sessions_view("2726", [
+    dict(rm_id="2726", is_ticket=True, state="idle", disposition="termine",
+         title="fini", **CP),
+    dict(rm_id="2700", is_ticket=True, state="idle", title="en cours",
+         registry={"branches": ["2726-x"], "worktrees": []}, **CP),
+], {}, "iprospective", "pm-ai-agents")
+d5 = {r["sid"]: r for r in v5["handled"]}
+check("disposition exposée par ticket_sessions_view (RM2818)",
+      d5["2726"]["disposition"] == "termine", d5["2726"])
+check("disposition absente → clé présente et vide (pas de KeyError côté client)",
+      "disposition" in d5["2700"] and not d5["2700"]["disposition"], d5["2700"])
+
 if fails:
     print("ÉCHEC :", ", ".join(fails))
     sys.exit(1)

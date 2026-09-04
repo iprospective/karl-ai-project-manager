@@ -1,4 +1,4 @@
-> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
+> 📂 **Module `status-workflow-pratique` — quand lire ceci :** je cherche la transition exacte permise depuis un statut · je qualifie/chiffre en phase d'étude · je rédige un CDC / une proposition d'implémentation · une transition m'est refusée alors que je ne suis pas l'assigné · un ticket revient avec des notes du demandeur.
 > **Outils :** `pm-task-status-update --list-next`, `redmine-fetch-updates` · **Préchargé par :** *(personne — ouvert à la demande)*.
 
 # Statuts — table des transitions et cas particuliers
@@ -25,12 +25,16 @@ la prise) sont restées dans `status-workflow.md`.
 | `en_cours` | `a_etudier_chiffrer` | périmètre modifié |
 | `a_tester_dev` | `a_tester_demandeur` | test dev OK |
 | `a_tester_dev` | `a_corriger` | problèmes (note dans journal) |
-| `a_tester_demandeur` | `a_mep` | validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
+| `a_tester_demandeur` | `a_tester_preprod` | *(RM2893, si préprod)* validé sur **dev** : MR branche→`integration_branch` (CF `GIT PR`) mergée + déploiement préprod |
+| `a_tester_demandeur` | `a_mep` | *(projet SANS préprod)* validé : MR branche→`integration_branch` (CF `GIT PR`) puis mergée |
 | `a_tester_demandeur` | `a_corriger` | rejet (note dans journal) |
 | `a_tester_demandeur` | `ferme` | ticket sans code à déployer — `close_reason: resolu` |
-| `a_mep` | `en_mep` | **3 branches** : MR `dev`→`preprod` mergée + `preprod` déployée. **2 branches** : `dev` déployée en staging |
-| `en_mep` | `ferme` | tests preprod OK + **3 branches** : MR `preprod`→`prod_branch` / **2 branches** : MR `dev`→`prod_branch` + pull prod — `close_reason: resolu` |
-| `en_mep` | `a_corriger` | régression preprod (note dans journal) |
+| `a_tester_preprod` | `en_mep` | *(RM2920)* instruction **« mets en prod »** (préprod testée + temps de tester la MEP) : MEP prod faite dans la foulée |
+| `a_tester_preprod` | `a_mep` | *(RM2920)* instruction **« preprod ok »** : mise en **file de MEP** (déploiement prod plus tard) |
+| `a_tester_preprod` | `a_corriger` | régression préprod (note dans journal) |
+| `a_mep` | `en_mep` | déployé en **PROD** : **3 branches** MR `preprod`→`prod_branch` / **2 branches** MR `dev`→`prod_branch` + pull prod |
+| `en_mep` | `ferme` | *(RM2893 : `en_mep` = en prod)* vérif **prod** OK — `close_reason: resolu` |
+| `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
 | `* (tout état)` | `ferme` | `close_reason` requis |
@@ -119,16 +123,19 @@ passe directement à `a_faire` / `en_cours` sans être passé par cette phase.
 - **CDC** — produire / mettre à jour le cahier des charges (aspect projet, cf. § *Aspects*).
   C'est le **livrable** de cette phase pour tout ticket non trivial.
 - **Découpage & chiffrage** — sous-tickets éventuels, `estimate.*` complet.
+- **Proposition d'implémentation** — l'esquisse technique, dans le CF 31 via
+  `pm-task-implementation` (§ dédiée ci-dessous). **Obligatoire dès que l'étude débouche
+  sur du code**, quelle que soit la taille du développement.
 
 **Fin de l'étude : soumettre au demandeur (obligatoire) — v1.28.0.** Quand l'étude
-est terminée (CDC rédigé, `estimate.*` complet), l'agent **ne passe pas directement
-à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
+est terminée (CDC rédigé, **proposition d'implémentation** posée, `estimate.*`
+complet), l'agent **ne passe pas directement à `a_faire`** : il passe le ticket en **`etude_chiffrage_a_valider`**, ce qui le
 **ré-attribue au demandeur** (author ; author == karl → Manager IA — même résolveur
 que `a_tester_demandeur`). Le demandeur valide le périmètre + le chiffrage avant tout
 développement. C'est le pendant amont du `a_tester_demandeur` aval.
 
 **Sorties de phase** :
-- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
+- `etude_chiffrage_en_cours → etude_chiffrage_a_valider` — étude finie, CDC + proposition d'implémentation + `estimate.*` complets → soumis au demandeur (ré-attribution automatique).
 - `etude_chiffrage_a_valider → a_faire` — validé par le demandeur → prêt à coder.
 - `etude_chiffrage_a_valider → etude_chiffrage_en_cours` — retour du demandeur : ajustements d'étude / de chiffrage demandés.
 - `etude_chiffrage_{en_cours,a_valider} → ferme` — abandonné / hors périmètre (`close_reason` requis).
@@ -141,6 +148,68 @@ en `en_cours` dont le périmètre change repasse en `a_etudier_chiffrer` (cf. tr
 ids **8**, **14** et **21**) et pilotés par les skills/scripts habituels — `mmi-pm-task-status-update`
 (`pm-task-status-update.py`), `redmine-post-note.py --norms-status`. On ne fixe **jamais**
 un statut Redmine « en dur » : on passe toujours par le mapping NORMS.
+#### La proposition d'implémentation — v2.10.0 (RM2563)
+
+Le CDC répond au **quoi** (besoin, périmètre, critères d'acceptation) et le chiffrage au
+**combien**. Il manquait le **comment** : l'esquisse technique que l'audit vient de
+produire. Sans elle, l'agent qui reprend le ticket en `a_faire` **refait l'audit** —
+travail payé deux fois, et refait moins bien, puisqu'il repart sans les conclusions déjà
+acquises.
+
+**Où elle vit.** Champ canonique : le CF Redmine **31 « Proposition d'implémentation »**
+(texte long, visible sur la fiche) ; miroir local dans le frontmatter `implementation`
+(c'est le miroir que lit la fiche de revue du cockpit — karl-agent ne lit que le local).
+Outil unique : **`pm-task-implementation`** (`--set` / `--append`), jamais d'écriture à la
+main dans l'un ou l'autre. Un CDC rédigé avant l'existence du CF, qui porte l'esquisse en
+section `## Implémentation` du corps, se migre par `--from-description` (en masse :
+`pm-cf-mirror-backfill --adopt-sections` — le corps est **conservé**, rien n'est effacé).
+
+**Synchronisation.** PM → Redmine à l'écriture ; Redmine → PM à chaque `pm-task-sync`,
+pour rattraper une saisie faite dans l'UI web. Un CF vide ne remet **jamais** le miroir
+local à zéro.
+
+**Contenu attendu.** Les rubriques sans objet se taisent : on ne les remplit pas pour
+faire nombre.
+
+| Rubrique | Ce qu'on y met |
+|---|---|
+| Modèle de données | tables / colonnes / champs ajoutés ou modifiés — nom + type + rôle en une ligne. Pas le DDL complet. |
+| Composants | classes / modules / scripts à créer ou modifier, un rôle par ligne. Pas les signatures. |
+| **Points d'insertion** | `fichier:fonction` où le code se greffe dans l'existant. **La rubrique la plus précieuse** : c'est le fruit le plus périssable de l'audit, celui qui coûte le plus cher à retrouver. |
+| Vues / UI | écrans, colonnes, filtres impactés. |
+| Flux & déclencheurs | ce qui appelle quoi — hook, trigger, cron, webservice. |
+| Migration / initialisation | backfill, scripts rejouables, ordre des opérations. |
+| Pièges identifiés | les surprises de l'audit : règle métier contre-intuitive, incohérence de l'existant, contrainte d'environnement. |
+
+**Niveau de détail.** Assez pour ne pas refaire l'audit, pas assez pour figer le code :
+**l'esquisse oriente, elle ne prescrit pas.** L'implémenteur garde la main sur le détail
+et peut s'en écarter — en le justifiant dans le `.log.md`. Ordre de grandeur : **15 à 40
+lignes**, aucun bloc de code sauf un DDL, une requête ou une signature réellement
+décisifs. L'excès inverse est un échec symétrique : une esquisse qui devient une spec
+détaillée alourdit la phase d'étude et confisque le travail de l'implémenteur.
+
+**Quand elle est exigée.** Dès que l'étude **débouche sur du code** — **sans exemption
+pour les petits développements**. Sur un dev simple elle fera cinq lignes, mais
+elle sera là : c'est précisément là qu'on se dispense d'écrire ce qu'on a compris, faute
+d'enjeu apparent. Seul un ticket `audit` / `research` / `documentation` dont le livrable
+**est** l'étude en est dispensé — et si cette étude débouche sur un ticket de code, c'est
+ce ticket-là qui porte la proposition.
+
+**Pourquoi une obligation, pas un conseil.** Le rationnel n'est pas la taille de la tâche
+mais l'**asymétrie de compétence** : l'étude est menée par le modèle le plus fort,
+l'implémentation revient souvent à un modèle plus économe — ou à un humain pressé. La
+proposition d'implémentation est le canal par lequel le raisonnement du modèle fort
+survit à ce transfert. Ce qui n'est pas écrit à ce moment-là est perdu. Cas déclencheur : **RM2560**
+(calicote/dolibarr), dont le CDC livré ne portait aucune des conclusions techniques de
+l'audit sous forme actionnable.
+
+**Condition de sortie.** Une étude sans proposition d'implémentation (hors tickets
+dispensés) n'est **pas** finie : le passage en `etude_chiffrage_a_valider` ne doit pas
+être demandé. `pm-task-status-update.py` émet un **avertissement non bloquant** sur cette
+transition quand elle manque — même forme que le garde-fou « protocole de test » (RM2229).
+La garde lit le frontmatter `implementation`, et **accepte aussi** une section
+`## Implémentation` dans le corps, pour ne pas crier sur les CDC d'avant.
+
 ### Transitions « assignee-only » — v1.31.0
 
 Dans le workflow Redmine, **certaines transitions ne sont autorisées que si le ticket

@@ -15,6 +15,13 @@ La colonne de gauche a un onglet par surface :
 | 🚀 **sessions** | jeux de sessions enregistrés (relancer, autostart) | [Sessions & terminal](sessions) |
 | 🧪 **à tester** | file de test/revue des tickets livrés | [À tester & revue](tests) |
 | 📧 **emails** | courrier de karl → tickets (relève, routage, rédaction) | [Emails](emails) |
+
+Deux surfaces ne sont **pas** dans cette colonne — on y va pour faire un geste, pas
+pour surveiller du travail. Elles vivent dans le **menu du haut** et s'ouvrent au
+centre, en [onglet](onglets) :
+
+| Menu du haut | À quoi ça sert | Aide |
+|---|---|---|
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
 
@@ -22,6 +29,15 @@ Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte es
 onglet temporaire, épingle-la pour la conserver.
 
 La colonne de droite affiche la session attachée : terminal, worklog, état.
+
+- **◨** la replie et la déplie. Un repli fait à la main **tient** : attacher une
+  session ne le défait plus (c'est une ouverture automatique, elle respecte ton
+  geste) ; ouvrir un ticket ou un fichier, si — tu as demandé à voir quelque
+  chose de précis. Au rechargement de la page, c'est le réglage « colonne de
+  droite au démarrage » (🔧 réglages) qui décide, pas le dernier état.
+- La **poignée** du bord gauche règle sa largeur (240 à 900 px), et ta largeur
+  s'applique à tous les onglets — l'onglet conversation ne prend ses 460 px par
+  défaut que si tu n'as rien réglé. « Réinitialiser » rend ces défauts.
 
 ## Les boutons d'aide
 

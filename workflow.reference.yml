@@ -1,0 +1,117 @@
+_generated_by: pm-workflow-sync.py (RM2920)
+_note: Capture empirique lecture seule du workflow Redmine via allowed_statuses (union
+  assigné+créateur). Source de vérité des checks / propositions / formulaires. Statuts
+  source non couverts (aucun ticket du service user) listés dans _uncovered.
+_uncovered:
+- a_etudier_chiffrer
+- a_mep
+- a_mep_prod
+- en_mep
+transitions:
+  nouveau:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_tester_demandeur
+  - en_cours
+  - en_pause
+  - etude_chiffrage_en_cours
+  - ferme
+  en_cours:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_mep_prod
+  - a_tester_demandeur
+  - a_tester_dev
+  - a_tester_preprod
+  - en_mep
+  - en_pause
+  - etude_chiffrage_en_cours
+  - ferme
+  - nouveau
+  a_tester_demandeur:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_mep_prod
+  - a_tester_preprod
+  - en_cours
+  - en_mep
+  - en_pause
+  - etude_chiffrage_en_cours
+  - ferme
+  - nouveau
+  a_corriger:
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_mep_prod
+  - a_tester_demandeur
+  - a_tester_dev
+  - a_tester_preprod
+  - en_cours
+  - en_mep
+  - en_pause
+  - etude_chiffrage_en_cours
+  - nouveau
+  a_faire:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_mep
+  - a_tester_demandeur
+  - en_cours
+  - en_pause
+  - etude_chiffrage_en_cours
+  - ferme
+  - nouveau
+  en_pause:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_tester_demandeur
+  - en_cours
+  - etude_chiffrage_en_cours
+  - ferme
+  - nouveau
+  etude_chiffrage_en_cours:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_tester_demandeur
+  - en_cours
+  - en_pause
+  - etude_chiffrage_a_valider
+  - ferme
+  - nouveau
+  ferme:
+  - a_corriger
+  - a_etudier_chiffrer
+  - a_faire
+  - a_mep
+  - a_tester_demandeur
+  - en_cours
+  - en_pause
+  - etude_chiffrage_en_cours
+  - nouveau
+  a_tester_dev:
+  - a_corriger
+  - a_mep
+  - a_mep_prod
+  - a_tester_demandeur
+  - a_tester_preprod
+  - en_mep
+  a_tester_preprod:
+  - a_corriger
+  - a_mep_prod
+  - en_mep
+  etude_chiffrage_a_valider:
+  - a_etudier_chiffrer
+  - a_faire
+  - en_pause
+  - etude_chiffrage_en_cours

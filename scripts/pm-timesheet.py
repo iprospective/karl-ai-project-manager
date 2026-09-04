@@ -1,0 +1,613 @@
+#!/usr/bin/env python3
+"""pm-timesheet — reconstitue et note le temps de travail HUMAIN (RM2890).
+
+    mmi-pm timesheet --month 2026-08              # calcule → rapport .md + proposition .yml
+    $EDITOR var/timesheet/2026-08.yml             # on relit, on amende
+    mmi-pm timesheet --month 2026-08 --apply      # crée les saisies dans Redmine
+
+Le calcul lit les traces laissées par le travail assisté (transcripts Claude
+Code, `history.jsonl`, bases opencode, journaux `.log.md` des tickets), en déduit
+les périodes de travail effectives, répartit le temps par client / projet /
+ticket, refacture le transversal aux clients du jour et retranche ce qui est déjà
+saisi à la main. **Aucun modèle n'est appelé : 0 token, quelques secondes.**
+
+Rien ne part dans Redmine sans validation : le `.yml` amendé est la source de
+vérité de `--apply`, qui est idempotent (une ligne déjà posée n'est jamais
+recréée).
+
+Détail des règles et de leur justification :
+`docs/cdc-rm2890-timesheet-heures-humaines.md` (projet PM `pm-ai-agents`).
+"""
+import argparse
+import calendar
+import collections
+import json
+import sys
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_timesheet as W
+from pm_paths import PMConfig
+
+try:
+    import yaml
+except ImportError:
+    sys.exit("PyYAML requis : pip install PyYAML")
+
+
+def _periode(args):
+    if args.month:
+        an, mois = (int(x) for x in args.month.split("-"))
+        debut = datetime(an, mois, 1)
+        fin = datetime(an + (mois == 12), (mois % 12) + 1, 1)
+        return debut, fin, args.month
+    debut = datetime.fromisoformat(args.depuis)
+    fin = datetime.fromisoformat(args.jusqu_a) + timedelta(days=1)
+    return debut, fin, f"{args.depuis}_{args.jusqu_a}"
+
+
+def _sources(conf):
+    """Sources déclarées, ou les emplacements par défaut de cette machine."""
+    src = conf.get("sources")
+    if src:
+        return src
+    home = Path.home()
+    return [
+        {"kind": "claude-transcripts", "path": str(home / ".claude/projects")},
+        {"kind": "claude-history", "path": str(home / ".claude/history.jsonl")},
+        {"kind": "opencode-db", "path": str(home / ".local/share/opencode/opencode.db")},
+    ]
+
+
+def collecter(conf, debut, fin, verbose=False, cache_dir=None, cfg=None):
+    events, detail, absentes = [], [], []
+    for s in _sources(conf):
+        kind, chemin = s.get("kind"), str(Path(s.get("path", "")).expanduser())
+        avant = len(events)
+        if s.get("host"):
+            local = W.rapatrier(s["host"], s.get("path"), cache_dir or Path("."),
+                                kind, verbose)
+            if not local:
+                absentes.append(f"{s['host']}:{s.get('path')}")
+                continue
+            chemin = local
+        if kind == "claude-transcripts":
+            events += W.collect_claude_transcripts(chemin, debut, fin)
+        elif kind == "claude-history":
+            events += W.collect_claude_history(chemin, debut, fin)
+        elif kind == "opencode-db":
+            events += W.collect_opencode(chemin, debut, fin)
+        elif kind == "redmine-actions":
+            # Créer, commenter, modifier un ticket : des gestes humains horodatés,
+            # rattachés à un ticket certain. Seule source qui voit une journée de
+            # régie, où le travail se trace dans le Redmine du client.
+            try:
+                url, key, basic, uid = _instance_creds(s, cfg)
+            except Exception as e:
+                absentes.append(f"{s.get('instance')} ({type(e).__name__})")
+                continue
+            events += W.collect_redmine_actions(
+                url, key, basic, uid, debut, fin,
+                project_map={k: tuple(v) for k, v in (s.get("project_map") or {}).items()},
+                instance=s.get("instance"))
+        else:
+            continue
+        # Un compte partagé porte le travail de plusieurs personnes (dercya-www :
+        # Mathieu ET Yann, sans marqueur technique pour les distinguer). Les
+        # journées qui ne sont pas les siennes s'excluent explicitement, source
+        # par source — un tri deviné sur du temps facturable n'aurait pas sa place.
+        exclus = set(str(j) for j in (s.get("exclude_days") or []))
+        gardes = set(str(j) for j in (s.get("only_days") or []))
+        if exclus or gardes:
+            nouveaux = events[avant:]
+            del events[avant:]
+            events += [e for e in nouveaux
+                       if e.ts.strftime("%Y-%m-%d") not in exclus
+                       and (not gardes or e.ts.strftime("%Y-%m-%d") in gardes)]
+        detail.append((kind, chemin, len(events) - avant))
+    fusionnes = W.dedupe(events)
+    if verbose:
+        for kind, chemin, n in detail:
+            print(f"  {n:5d}  {kind:20} {chemin}", file=sys.stderr)
+    for a in absentes:
+        print(f"  ⚠ source injoignable, ignorée : {a}", file=sys.stderr)
+    return fusionnes, detail
+
+
+def saisies_humaines(url, key, user_id, debut, fin, basic=None):
+    """Saisies déjà faites à la main (hors « Tick IA » de l'agent)."""
+    from redmine_utils import http_json
+    out, offset = [], 0
+    while True:
+        code, body = http_json(
+            "GET", f"{url}/time_entries.json?user_id={user_id}"
+            f"&from={debut:%Y-%m-%d}&to={(fin - timedelta(days=1)):%Y-%m-%d}"
+            f"&limit=100&offset={offset}", key, basic=basic)
+        if code != 200:
+            break
+        for t in body.get("time_entries", []):
+            if (t.get("comments") or "").startswith("Tick IA"):
+                continue
+            out.append({"jour": t["spent_on"], "minutes": float(t["hours"]) * 60,
+                        "rm": str(t["issue"]["id"]) if t.get("issue") else None,
+                        "entity": None, "libelle": t.get("comments") or ""})
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+    return out
+
+
+_CACHE_PROJET_REDMINE = {}
+
+
+def _marque_heritee(marque, deja):
+    """Retrouve une saisie posée AVANT que les lignes sans ticket portent leur activité.
+
+    Sans cela, `[timesheet:…/-@13]` ne reconnaîtrait pas `[timesheet:…/-]` déjà
+    en base et la recréerait : un doublon de facturation, le défaut le plus grave
+    que puisse avoir cet outil.
+    """
+    if "@" not in marque:
+        return None
+    ancienne = marque.split("@")[0] + "]"
+    return ancienne if ancienne in deja else None
+
+
+def _marque(ligne):
+    """Clé de déduplication d'une ligne. Une ligne sans ticket porte son activité :
+    plusieurs natures de travail cohabitent le même jour sur le même projet."""
+    base = (f"[timesheet:{ligne['jour']}#{ligne.get('client') or '-'}"
+            f"/{ligne.get('ticket') or '-'}")
+    if not ligne.get("ticket") and ligne.get("activite"):
+        base += f"@{ligne['activite']}"
+    return base + "]"
+
+
+def _libelle(ligne, marque):
+    """Commentaire de la saisie — court, c'est ce que le client lira.
+
+    Le ticket porte déjà son titre dans Redmine : le répéter n'apporterait rien.
+    Seule la part d'outillage mutualisé (PM, infrastructure, produits) mérite
+    d'être dite, puisqu'elle est incluse dans le temps sans être visible.
+    """
+    part = ligne.get("outillage_min") or 0
+    if ligne.get("ticket"):
+        base = "Travail assisté" + (f", dont {part} min d'outillage" if part >= 5 else "")
+    else:
+        base = f"{ligne.get('projet') or 'divers'}" + (
+            f", dont {part} min d'outillage" if part >= 5 else "")
+    return f"{base} {marque}"[:255]
+
+
+def _projet_redmine(ligne, conf, cfg, url=None, key=None, basic=None):
+    """Projet Redmine d'une ligne sans ticket : `project_map`, sinon le manifeste PM.
+
+    Sans cela, tout le travail non ticketé (régie, exploration, échanges) serait
+    perdu à l'écriture — or c'est précisément le temps que personne ne note.
+
+    ⚠ L'API `time_entries` exige un **id numérique** : un identifiant textuel
+    (`pisceen-presta`, ce que porte le manifeste PM) est refusé, et Redmine répond
+    « Projet n'est pas valide » **suivi de** « Utilisateur n'est pas valide » —
+    l'erreur en cascade fait chercher un problème de droits là où il n'y en a pas.
+    On résout donc l'identifiant en id avant d'écrire.
+    """
+    cle = f"{ligne.get('client')}/{ligne.get('projet')}"
+    depuis_conf = (conf.get("project_map") or {}).get(cle)
+    if depuis_conf:
+        return depuis_conf
+    if cle in _CACHE_PROJET_REDMINE:
+        return _CACHE_PROJET_REDMINE[cle]
+    pid = None
+    client, projet = ligne.get("client"), ligne.get("projet")
+    if client and projet:
+        try:
+            meta = cfg.project_meta(client, projet) or {}
+            pid = (meta.get("redmine") or {}).get("project_id")
+        except Exception:
+            pid = None
+    if pid and not str(pid).isdigit() and url:
+        from redmine_utils import http_json
+        code, corps = http_json("GET", f"{url}/projects/{pid}.json", key, basic=basic)
+        pid = corps.get("project", {}).get("id") if code == 200 else None
+    _CACHE_PROJET_REDMINE[cle] = pid
+    return pid
+
+
+def _instance_creds(source, cfg):
+    """(url, key, basic, user_id) d'une source Redmine déclarée."""
+    from redmine_utils import redmine_creds
+    nom, uid = source.get("instance"), source.get("user_id")
+    if not uid:
+        raise ValueError("user_id requis")
+    if not nom:
+        c = redmine_creds()
+        return c[0], c[1], getattr(c, "basic", None), uid
+    import yaml as _y
+    from pm_registry import Registry
+    brut = _y.safe_load(Path(cfg.pm_dir, "pm.config.yml").read_text(encoding="utf-8"))
+    inst = Registry.from_config(brut.get("providers")).get(nom)
+    c = redmine_creds(instance=inst)
+    return c[0], c[1], getattr(c, "basic", None), uid
+
+
+def instances_redmine(conf, cfg, args):
+    """[(libellé, url, key, basic, user_id)] — toutes les instances à interroger.
+
+    Un client peut avoir SA propre instance Redmine (MatNat) : les heures qu'on y
+    a déjà saisies doivent être déduites au même titre que les autres, sinon
+    elles seraient proposées une deuxième fois. Une instance injoignable est
+    signalée, jamais silencieuse.
+    """
+    from redmine_utils import redmine_creds
+    sorties = []
+    uid_principal = args.user_id or conf.get("user_id")
+    if uid_principal:
+        try:
+            c = redmine_creds()
+            sorties.append(("principale", c[0], c[1], getattr(c, "basic", None),
+                            uid_principal))
+        except SystemExit:
+            pass
+    declarations = conf.get("redmine_instances") or []
+    if declarations:
+        try:
+            import yaml as _y
+            from pm_registry import Registry
+            brut = _y.safe_load(Path(cfg.pm_dir, "pm.config.yml").read_text(encoding="utf-8"))
+            registre = Registry.from_config(brut.get("providers"))
+        except Exception:
+            registre = None
+        for d in declarations:
+            nom, uid = d.get("instance"), d.get("user_id")
+            if not nom or not uid or registre is None:
+                continue
+            try:
+                inst = registre.get(nom)
+                c = redmine_creds(instance=inst)
+                sorties.append((nom, c[0], c[1], getattr(c, "basic", None), uid))
+            except Exception as e:
+                print(f"  ⚠ instance {nom} inaccessible ({type(e).__name__}) — "
+                      "ses saisies ne seront pas déduites", file=sys.stderr)
+    return sorties
+
+
+def calculer(args, cfg, conf):
+    debut, fin, libelle = _periode(args)
+    params = {**W.DEFAULTS}
+    for cle in ("follow_cap", "write_max", "quantum_min",
+                "work_start_hour", "work_end_hour", "client_threshold_min"):
+        val = conf.get(cle)
+        if val is not None:
+            params[cle] = val
+    if args.follow_cap is not None:
+        params["follow_cap"] = args.follow_cap
+    if args.quantum is not None:
+        params["quantum_min"] = args.quantum
+
+    cache_dir = Path(args.out).parent / "cache" if args.out else \
+        Path(cfg.pm_dir) / "var" / "timesheet" / "cache"
+    events, detail = collecter(conf, debut, fin, args.verbose, cache_dir, cfg)
+    if not events:
+        sys.exit(f"Aucune trace sur la période {libelle} — sources : "
+                 + ", ".join(s.get("kind", "?") for s in _sources(conf)))
+
+    resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
+    tours = {}
+    for s in _sources(conf):
+        if s.get("kind") != "claude-transcripts":
+            continue
+        chemin = str(Path(s.get("path", "")).expanduser())
+        if s.get("host"):
+            chemin = str(Path(cache_dir) /
+                         __import__("re").sub(r"[^A-Za-z0-9_.@-]", "_", s["host"]) / "projects")
+            if not Path(chemin).is_dir():
+                continue
+        tours.update(W.rm_par_tour(chemin, debut, fin))
+    for e in events:
+        rm = tours.get((e.session, e.ts.strftime("%Y-%m-%dT%H:%M")))
+        resolver.resolve(e, rm_du_tour=rm)
+
+    regles = W.regles_depuis_config(conf, cfg)
+    alloc, periodes, totaux, par_heure, par_heure_cible = W.allocate(
+        W.build_intervals(events, params), params)
+    alloc = W.eclater_cles_multi(alloc, regles)
+    final, ecarte, journal, refacture = W.repartir_transversal(alloc, regles, params)
+
+    deduit = []
+    if not args.sans_deduction:
+        toutes = []
+        for nom, url, key, basic, uid in instances_redmine(conf, cfg, args):
+            saisies = saisies_humaines(url, key, uid, debut, fin, basic)
+            if args.verbose:
+                print(f"  {len(saisies):5d}  saisies humaines à déduire "
+                      f"({nom})", file=sys.stderr)
+            toutes += saisies
+        if toutes:
+            final, deduit = W.deduire_saisies(final, toutes)
+
+    # Les journées de régie complètent APRÈS la déduction : ce qui est déjà saisi
+    # à la main compte dans le plancher, il ne s'y ajoute pas.
+    ajouts, transferts = W.appliquer_presences(final, conf.get("presences"),
+                                               debut, fin, par_heure, par_heure_cible)
+    for (jour, cible, motif), minutes in ajouts.items():
+        final[(jour, cible)] = final.get((jour, cible), 0) + minutes
+
+    return {"resolver": resolver, "ajouts": ajouts, "transferts": transferts,
+            "refacture": refacture,
+            "activite_defaut": conf.get("activity_id") or 9,
+            "final": final, "ecarte": ecarte, "journal": journal, "periodes": periodes,
+            "totaux": totaux, "regles": regles, "params": params, "libelle": libelle,
+            "deduit": deduit, "events": len(events), "sources": detail,
+            "debut": debut, "fin": fin}
+
+
+def ecrire_sorties(res, dossier, libelle):
+    dossier.mkdir(parents=True, exist_ok=True)
+    md = W.rendre_markdown(res["final"], res["ecarte"], res["journal"], res["periodes"],
+                           res["totaux"], res["regles"], libelle,
+                           quantum=res["params"]["quantum_min"],
+                           resolver=res.get("resolver"), ajouts=res.get("ajouts"),
+                           transferts=res.get("transferts"))
+    chemin_md = dossier / f"{libelle}.md"
+    chemin_md.write_text(md, encoding="utf-8")
+    prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
+                         resolver=res.get("resolver"),
+                         activite_defaut=res.get("activite_defaut"),
+                         refacture=res.get("refacture"),
+                         meta={"periode": libelle, "genere": datetime.now().isoformat(timespec="minutes"),
+                               "evenements": res["events"],
+                               "sources": [{"kind": k, "path": p, "evenements": n}
+                                           for k, p, n in res["sources"]]})
+    chemin_yml = dossier / f"{libelle}.yml"
+    chemin_yml.write_text(yaml.safe_dump(prop, allow_unicode=True, sort_keys=False),
+                          encoding="utf-8")
+    return chemin_md, chemin_yml, prop
+
+
+def appliquer(chemin_yml, cfg, conf, args):
+    """Crée les saisies Redmine depuis la proposition validée. Idempotent."""
+    from redmine_utils import redmine_creds, http_json, activity_for_type
+    url, key = redmine_creds()
+    uid = args.user_id or conf.get("user_id")
+    if not uid:
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis : "
+                 "les saisies sont créées au nom de cet utilisateur Redmine.")
+    prop = yaml.safe_load(Path(chemin_yml).read_text(encoding="utf-8")) or {}
+    lignes = [l for l in prop.get("lignes", []) if l.get("valide", True) and l.get("minutes")]
+    if not lignes:
+        sys.exit(f"Aucune ligne validée dans {chemin_yml}.")
+
+    # empreintes déjà posées (re-run sans doublon)
+    deja = {}
+    periode = prop.get("meta", {}).get("periode", "")
+    offset = 0
+    while True:
+        code, body = http_json("GET", f"{url}/time_entries.json?user_id={uid}"
+                                      f"&limit=100&offset={offset}", key)
+        if code != 200:
+            break
+        for t in body.get("time_entries", []):
+            c = t.get("comments") or ""
+            if "[timesheet:" in c:
+                deja[c[c.index("[timesheet:"):].split("]")[0] + "]"] = {
+                    "id": t["id"], "activity_id": (t.get("activity") or {}).get("id")}
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+
+    cree = ignore = erreurs = corriges = 0
+    sans_cible, echecs = [], []
+    for l in lignes:
+        marque = _marque(l)
+        connue = marque if marque in deja else _marque_heritee(marque, deja)
+        if connue:
+            marque = connue
+            ignore += 1
+            # L'activité a pu être affinée depuis (journal du ticket, type) :
+            # une saisie déjà posée se CORRIGE, elle ne se duplique pas.
+            voulue = args.activity or l.get("activite") or conf.get("activity_id") or 9
+            posee = deja[marque]
+            if not args.dry_run and posee.get("activity_id") and voulue != posee["activity_id"]:
+                code, _ = http_json("PUT", f"{url}/time_entries/{posee['id']}.json", key,
+                                    {"time_entry": {"activity_id": voulue}})
+                if code in (200, 204):
+                    corriges += 1
+            continue
+        heures = round(l["minutes"] / 60.0, 2)
+        payload = {"time_entry": {
+            "spent_on": l["jour"], "hours": heures, "user_id": int(uid),
+            "activity_id": (args.activity or l.get("activite")
+                            or conf.get("activity_id") or 9),
+            "comments": _libelle(l, marque),
+        }}
+        if l.get("ticket"):
+            payload["time_entry"]["issue_id"] = int(l["ticket"])
+        else:
+            pid = _projet_redmine(l, conf, cfg, url, key)
+            if not pid:
+                sans_cible.append(f"{l['jour']} {l.get('client')}/{l.get('projet')}")
+                erreurs += 1
+                continue
+            payload["time_entry"]["project_id"] = pid
+        if args.dry_run:
+            print(f"  [dry-run] {l['jour']} {heures:5.2f} h  "
+                  f"{l.get('client')}/{l.get('projet')} "
+                  f"{'RM' + str(l['ticket']) if l.get('ticket') else '(projet)'}")
+            cree += 1
+            continue
+        code, corps = http_json("POST", f"{url}/time_entries.json", key, payload)
+        if code in (200, 201):
+            cree += 1
+        else:
+            echecs.append((l["jour"], f"{l.get('client')}/{l.get('projet')}", code,
+                           str(corps)[:160]))
+    if echecs:
+        print(f"  ⚠ {len(echecs)} saisie(s) REFUSÉE(S) par Redmine :", file=sys.stderr)
+        for jour, cible, code, detail in echecs[:6]:
+            print(f"      {jour} {cible} → HTTP {code} {detail}", file=sys.stderr)
+    if sans_cible:
+        apercu = ", ".join(sorted(set(sans_cible))[:4])
+        print(f"  ⚠ {len(sans_cible)} ligne(s) sans projet Redmine résolu ({apercu}"
+              f"{'…' if len(set(sans_cible)) > 4 else ''}) — déclarer `project_map` "
+              "ou `redmine.project_id` au projet PM", file=sys.stderr)
+    verbe = "à créer" if args.dry_run else "créées"
+    print(f"✓ timesheet {periode} : {cree} saisies {verbe}, {ignore} déjà posées"
+          + (f" (dont {corriges} activité corrigée)" if corriges else "")
+          + (f", {len(sans_cible)} sans projet résolu" if sans_cible else "")
+          + (f", {len(echecs)} refusées par Redmine" if echecs else ""))
+    return 0 if not (echecs or sans_cible) else 1
+
+
+def corriger_activites(cfg, conf, args, libelle):  # noqa: C901
+    """Réaligne l'activité des saisies déjà posées. Ne crée ni ne supprime rien.
+
+    Séparé d'`--apply` volontairement : recalculer une proposition sans déduction
+    pour corriger des activités re-proposerait à la création tout ce qui est déjà
+    saisi À LA MAIN — un doublon de facturation. Ici on ne touche qu'aux lignes
+    portant la marque `[timesheet:…]`, et uniquement leur activité.
+    """
+    from redmine_utils import http_json, redmine_creds
+    debut, fin, _ = _periode(args)
+    url, key = redmine_creds()[:2]
+    uid = args.user_id or conf.get("user_id")
+    if not uid:
+        sys.exit("--user-id (ou `user_id:` dans timesheet.yml) requis.")
+    resolver = W.TargetResolver(cfg, path_map=conf.get("path_map"))
+    defaut = conf.get("activity_id") or 9
+
+    # Recalcul SANS déduction, en mémoire seulement : il faut toutes les lignes
+    # pour retrouver celles déjà posées. Rien n'est créé depuis cette
+    # proposition — on ne touche qu'aux saisies portant déjà une marque.
+    args_recalc = argparse.Namespace(**{**vars(args), "sans_deduction": True})
+    attendu = {}
+    try:
+        res = calculer(args_recalc, cfg, conf)
+        prop = W.proposition(res["final"], res["journal"], res["params"]["quantum_min"],
+                             resolver=res.get("resolver"),
+                             activite_defaut=res.get("activite_defaut"),
+                             refacture=res.get("refacture"))
+        for l in prop["lignes"]:
+            marque = _marque(l)
+            attendu[marque] = l
+    except SystemExit:
+        pass
+
+    offset, posees = 0, []
+    while True:
+        code, body = http_json(
+            "GET", f"{url}/time_entries.json?user_id={uid}"
+            f"&from={debut:%Y-%m-%d}&to={(fin - timedelta(days=1)):%Y-%m-%d}"
+            f"&limit=100&offset={offset}", key)
+        if code != 200:
+            sys.exit(f"Redmine a répondu {code}.")
+        posees += [t for t in body.get("time_entries", [])
+                   if "[timesheet:" in (t.get("comments") or "")]
+        offset += 100
+        if offset >= body.get("total_count", 0):
+            break
+
+    change = inchange = rate = 0
+    for t in posees:
+        commentaire = t.get("comments") or ""
+        marque = commentaire[commentaire.index("[timesheet:"):].split("]")[0] + "]"
+        rm = str(t["issue"]["id"]) if t.get("issue") else None
+        ligne = attendu.get(marque)
+        if ligne is None and marque.endswith("/-]"):
+            # saisie posée avant que les lignes sans ticket portent leur activité
+            prefixe = marque[:-1] + "@"
+            candidates = [v for k, v in attendu.items() if k.startswith(prefixe)]
+            ligne = max(candidates, key=lambda l: l["minutes"]) if candidates else None
+        voulue = (ligne or {}).get("activite") or resolver.activite(
+            rm, t["spent_on"], defaut) or defaut
+        actuelle = (t.get("activity") or {}).get("id")
+        texte = _libelle(ligne, marque) if ligne else commentaire
+        maj = {}
+        if voulue != actuelle:
+            maj["activity_id"] = voulue
+        if texte != commentaire:
+            maj["comments"] = texte
+        if not maj:
+            inchange += 1
+            continue
+        if args.dry_run:
+            quoi = " · ".join(
+                ([f"activité {actuelle} → {voulue}"] if "activity_id" in maj else [])
+                + ([f"libellé → {texte[:56]}"] if "comments" in maj else []))
+            print(f"  [dry-run] {t['spent_on']} {t['hours']:5.2f} h "
+                  f"{'RM' + rm if rm else '(projet)':10} {quoi}")
+            change += 1
+            continue
+        code, _ = http_json("PUT", f"{url}/time_entries/{t['id']}.json", key,
+                            {"time_entry": maj})
+        if code in (200, 204):
+            change += 1
+        else:
+            rate += 1
+    verbe = "à corriger" if args.dry_run else "corrigées"
+    print(f"✓ timesheet {libelle} : {change} saisie(s) {verbe}, {inchange} déjà justes"
+          + (f", {rate} refusée(s)" if rate else "")
+          + f" (sur {len(posees)} saisies posées) — aucune création")
+    return 0
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    ap.add_argument("--month", help="mois à traiter (AAAA-MM)")
+    ap.add_argument("--from", dest="depuis", help="date de début (AAAA-MM-JJ)")
+    ap.add_argument("--to", dest="jusqu_a", help="date de fin incluse (AAAA-MM-JJ)")
+    ap.add_argument("--out", help="dossier de sortie (défaut : <core>/var/timesheet)")
+    ap.add_argument("--config", help="fichier de configuration (défaut : <core>/timesheet.yml)")
+    ap.add_argument("--apply", action="store_true",
+                    help="crée les saisies Redmine depuis la proposition validée")
+    ap.add_argument("--dry-run", action="store_true", help="avec --apply : n'écrit rien")
+    ap.add_argument("--user-id", type=int, help="utilisateur Redmine des saisies")
+    ap.add_argument("--activity", type=int, help="activité Redmine forcée")
+    ap.add_argument("--follow-cap", type=float, help="plafond du temps de suivi (min)")
+    ap.add_argument("--quantum", type=int, help="tranche d'arrondi (min)")
+    ap.add_argument("--fix-activities", "--fix", dest="fix_activities",
+                    action="store_true",
+                    help="réaligne activité ET commentaire des saisies DÉJÀ posées ; "
+                         "n'en crée, ni n'en supprime aucune")
+    ap.add_argument("--sans-deduction", action="store_true",
+                    help="ne pas retrancher les saisies Redmine existantes")
+    ap.add_argument("--verbose", action="store_true")
+    args = ap.parse_args()
+
+    if not args.month and not (args.depuis and args.jusqu_a):
+        ap.error("--month AAAA-MM, ou --from et --to")
+
+    cfg = PMConfig.load()
+    conf = W.charger_config(args.config, cfg=cfg)
+    dossier = Path(args.out) if args.out else Path(cfg.pm_dir) / "var" / "timesheet"
+    _d, _f, libelle = _periode(args)
+
+    if args.fix_activities:
+        return corriger_activites(cfg, conf, args, libelle)
+
+    if args.apply:
+        chemin = dossier / f"{libelle}.yml"
+        if not chemin.is_file():
+            sys.exit(f"{chemin} absent — lancer d'abord `mmi-pm timesheet --month {libelle}`.")
+        return appliquer(chemin, cfg, conf, args)
+
+    res = calculer(args, cfg, conf)
+    md, yml, prop = ecrire_sorties(res, dossier, libelle)
+    total = sum(res["final"].values())
+    print(f"✓ timesheet {libelle} : {_fmt(sum(res['totaux'].values()))} mesurées sur "
+          f"{len(res['totaux'])} journées → {_fmt(total)} à noter "
+          f"({len(prop['lignes'])} lignes), {_fmt(sum(res['ecarte'].values()))} écartées")
+    alertes = sum(1 for d in res["journal"].values() if d.get("alerte_absence"))
+    if alertes:
+        print(f"  ⚠ {alertes} journée(s) d'absence avec activité cliente — à trancher")
+    print(f"  rapport : {md}\n  proposition (à amender) : {yml}")
+    print(f"  puis : mmi-pm timesheet --month {libelle} --apply")
+    return 0
+
+
+def _fmt(minutes):
+    return f"{minutes/60:.1f} h"
+
+
+if __name__ == "__main__":
+    sys.exit(main())

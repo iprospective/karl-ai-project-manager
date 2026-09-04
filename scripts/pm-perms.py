@@ -10,6 +10,7 @@ fichiers env communs du core.
 Modèle (dérivé du CDC §3.4 + d'un projet sain) :
     SQUELETTE  pm:pm 2750  — racine workspace, repos/         (group r-x, PAS d'écriture)
     CHURN      pm:pm 2770  — .mmi-pm, tasks, docs, envs        (group-write, JAMAIS sticky)
+                             + tmp, sessions, logs, data       (partagés du layout RM1993)
     CHURN+r    pm:pm 2775  — .mmi-pm/{memory,project,.wiki-sync} (idem + other-read)
     STATE      pm:pm 2775  — var/, var/locks, var/sessions (ticket-locks partagés)
     ENV        root:pm 640 — pm.env, .env du core (secrets/config partagés)
@@ -29,7 +30,12 @@ Usage :
     pm-perms.py [WORKSPACE]        # DRY-RUN : liste les écarts, ne change rien (exit 1 si écart)
     pm-perms.py --apply [WS]       # applique (chmod + chgrp pm ; owner si root)
     pm-perms.py --var [WS]         # inclut aussi var/ (state_dir) + pm.env/.env du core
+    pm-perms.py --list-dirs        # liste les dossiers du modèle (rel.), un par ligne
     WORKSPACE défaut = auto-détection en remontant jusqu'au .mmi-pm du cwd.
+
+`--list-dirs` est le contrat consommé par `pm-env-helper ws-init` (RM2909) : le helper
+privilégié CRÉE les dossiers, ce module reste la SEULE définition du modèle. Rien à
+resynchroniser dans le shell quand le layout bouge.
 
 --apply nécessite d'être `pm` ou `root` (chmod/chgrp de fichiers pm-owned ; l'ownership
 root des fichiers env n'est posé qu'en root).
@@ -53,6 +59,13 @@ WORKSPACE_MODEL = {
     ".mmi-pm/memory": 0o2775,
     ".mmi-pm/project": 0o2775,
     ".mmi-pm/.wiki-sync": 0o2775,
+    # Dossiers partagés du layout (RM1993, créés par pm-env-init) : churn — plusieurs
+    # devs et leurs agents y écrivent. Modélisés ici pour que `ws-init` (RM2909) n'ait
+    # pas à redéclarer le modèle dans le shell du helper privilégié.
+    "tmp": 0o2770,
+    "sessions": 0o2770,
+    "logs": 0o2770,
+    "data": 0o2770,
 }
 STATE_MODEL = {".": 0o2775, "locks": 0o2775, "sessions": 0o2775}
 # Fichiers env communs du core (à la racine pm_dir) → root:pm 640.
@@ -88,6 +101,11 @@ def diagnose(path: Path, want_mode: int, want_gid, want_uid=None):
     sans privilège). Vérifie mode, sticky (jamais, sur les DOSSIERS), groupe, et — si
     `want_uid` fourni (fichiers env) — le propriétaire."""
     issues = []
+    if path.is_symlink():
+        # `stat()`/`chmod()`/`chown()` DÉRÉFÉRENCENT : normaliser un lien reviendrait à
+        # muter sa cible, potentiellement hors du workspace (un `.mmi-pm` symlinké vers
+        # le core PROD root-owned se retrouverait chown pm). Hors modèle → hors sujet.
+        return [f"lien symbolique → ignoré (le modèle ne normalise que des dossiers réels)"]
     try:
         st = path.stat()
     except FileNotFoundError:
@@ -106,6 +124,14 @@ def diagnose(path: Path, want_mode: int, want_gid, want_uid=None):
     if want_uid is not None and st.st_uid != want_uid:
         issues.append(f"propriétaire {_uname(st.st_uid)} ≠ {_uname(want_uid)}")
     return issues
+
+
+def model_dirs() -> list:
+    """Dossiers du modèle en chemins relatifs au workspace, PARENTS D'ABORD.
+
+    `"."` (la racine) est émis en premier ; le tri par profondeur garantit qu'un
+    consommateur peut créer les dossiers dans l'ordre reçu sans `mkdir -p`."""
+    return sorted(WORKSPACE_MODEL, key=lambda r: (0 if r == "." else 1, r.count("/"), r))
 
 
 def _find_workspace(start: Path) -> Path:
@@ -142,7 +168,7 @@ def _targets(ws: Path, include_var: bool):
                     for rel, m in STATE_MODEL.items()]
         if core:
             out += [(core / f, ENV_FILE_MODE, ROOT_UID) for f in ENV_FILES]
-    return [(p, m, u) for p, m, u in out if p.exists()]
+    return [(p, m, u) for p, m, u in out if p.exists() and not p.is_symlink()]
 
 
 def _apply(path: Path, want_mode: int, want_gid, want_uid, can_chown: bool):
@@ -170,7 +196,15 @@ def main():
     ap.add_argument("--apply", action="store_true", help="Applique (défaut : dry-run).")
     ap.add_argument("--var", action="store_true",
                     help="Inclut aussi var/ (state_dir) + pm.env/.env du core.")
+    ap.add_argument("--list-dirs", action="store_true",
+                    help="Liste les dossiers du modèle (chemins relatifs), un par ligne, "
+                         "et sort. Contrat consommé par `pm-env-helper ws-init` (RM2909).")
     args = ap.parse_args()
+
+    if args.list_dirs:
+        for rel in model_dirs():
+            print(rel)
+        return 0
 
     ws = Path(args.workspace).resolve() if args.workspace else _find_workspace(Path.cwd())
     gid = _pm_gid()

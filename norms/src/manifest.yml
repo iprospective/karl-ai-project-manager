@@ -10,6 +10,7 @@ sources:
   - modules/session-tooling.md
   - modules/project-modeling.md
   - modules/project-creation.md
+  - modules/audits.md          # RM2913 : routage des audits, hors précharge
   # --- workflow & Redmine ---
   - modules/status-workflow.md
   - modules/status-workflow-pratique.md   # RM2582 : table des transitions + cas particuliers, hors précharge

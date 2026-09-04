@@ -103,9 +103,12 @@ notifications:
 # ── Traçabilité — note Redmine par commit (cf. NORMS § « Unité de traçabilité ») ──
 # Niveau auquel un commit rattaché à une tâche déclenche une note Redmine.
 # Permet de calibrer le bruit à l'usage (mode `all` = test/observation).
-#   work : commits de travail/livraison/structurants uniquement (défaut)
+#   work : commits de travail/livraison/structurants uniquement (défaut) —
+#          les commits d'outillage (`pm(*):`, `chore(…):`) reportent sans note
 #   all  : tout commit rattaché à une tâche (mesurer le bruit réel)
 #   none : aucune note auto par commit (.log.md + time_entry conservés)
+# Override par projet : même clé dans le meta.yml du projet (RM2409).
+# Appliqué par le hook scripts/pm-post-commit.py.
 traceability:
   commit_note_level: work
 
@@ -204,9 +207,18 @@ providers:
     secret: vw-ipro
   servers:
     # — axe forge —
-    gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}" }
-    gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022 }
-    github-public:  { axis: forge, type: github, url: "https://github.com" }
+    # `ssh_aliases:` = alias `~/.ssh/config` par lesquels les remotes atteignent
+    # cette instance (RM2766). Nécessaire, pas cosmétique : les remotes passent
+    # massivement par des alias qui portent le port et la clé — `gitlab:owner/repo`,
+    # `ssh://gogs@matnat-tools/…`. L'URL d'un tel remote ne dit RIEN de la forge
+    # (`matnat-tools` = 127.0.0.1:28022) ; l'alias déclaré ici, si. Sans lui, le
+    # rattachement « ce dépôt appartient à telle forge » reste impossible.
+    gitlab-ipro:    { axis: forge, type: gitlab, url: "${GITLAB_URL:-https://gitlab.iprospective.fr}",
+                      ssh_aliases: [gitlab, gitlab-mmi, mmi-gitlab, git] }
+    gogs-matnat:    { axis: forge, type: gogs,   url: "https://gogs.materiaux-naturels.fr", ssh_port: 28022,
+                      ssh_aliases: [matnat-tools, matnat-git, matnat-gogs] }
+    github-public:  { axis: forge, type: github, url: "https://github.com",
+                      ssh_aliases: [github] }
     # — axe task —
     # `slug:` = identifiant COURT et stable du gestionnaire, utilisé dans les
     # références compactes de tickets (CF « Réf ticket outil externe » : 16 car.,
@@ -237,6 +249,15 @@ providers:
     # passe d'APPLICATION Nextcloud, révocable — pas celui du compte).
     # Diagnostic : `scripts/unlock-vault.sh -i ncpw-matnat`.
     # ncpw-matnat:  { axis: secret, type: nextcloud_passwords, url: "https://cloud.materiaux-naturels.fr" }
+    # Exemple — 1Password via la CLI `op` et un *service account* (RM2711). La
+    # CLI n'est pas dans les dépôts Debian (dépôt APT 1Password) et un service
+    # account suppose un plan payant. Le JETON ne se déclare jamais ici :
+    # SECRET__OP_IPRO__SERVICE_ACCOUNT_TOKEN dans ton .env — il est passé à `op`
+    # par l'environnement, jamais en argument (`ps` le montrerait).
+    # `vault:` est le coffre par défaut ; l'URI peut le surcharger
+    # (secret://op-ipro/<coffre>/<item>#champ).
+    # Diagnostic : `scripts/unlock-vault.sh -i op-ipro`.
+    # op-ipro:      { axis: secret, type: onepassword, vault: "Agents" }
 
 # ── Interface du cockpit — mise en page / design front (RM2386) ─────────────
 # Rubrique « Design front » du panneau Réglages (whitelist RM2213). Ces clés

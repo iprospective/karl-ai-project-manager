@@ -10,13 +10,72 @@ personne ne peut cocher.
 
 `checklist_lines()` est la source unique de vérité : elle rend les lignes de
 checklist réelles, blocs de code exclus.
+
+RM2789 — deux ajouts, sur le même principe « ce qui ressemble à X n'est pas X » :
+
+  · `is_placeholder()` — « (à compléter) » n'est PAS un critère d'acceptation.
+    Posé en case à cocher, il bloquait la livraison sans que personne puisse le
+    cocher, et le seul recours (`--allow-unchecked`) désactivait le garde-fou
+    pour les VRAIS critères aussi : le contournement était plus grossier que le
+    problème.
+  · `unwrap()` — l'outillage compose du markdown enveloppé à ~95 colonnes ;
+    Redmine rend chaque retour à la ligne comme un `<br>`, donc le texte arrive
+    haché. Ce qui est lisible dans un fichier source ne l'est pas dans un
+    navigateur, qui sait envelopper tout seul.
 """
 import re
+from pathlib import Path
+
+import yaml
 
 CHECK_LINE_RE = re.compile(r"^(\s*[-*]\s*\[)([ xX])(\].*)$")
 FENCE_RE = re.compile(r"^ {0,3}(```|~~~)")
 LIST_ITEM_RE = re.compile(r"^ {0,3}([-*+]|\d+[.)])\s")
 INDENTED_RE = re.compile(r"^(?: {4,}|\t)")
+# Un item de checklist qui ne désigne aucun travail : gabarit de création, reste
+# de rédaction. Il ne compte ni comme critère à cocher ni comme critère manquant.
+PLACEHOLDER_RE = re.compile(r"^\W*(à compléter|a completer|à définir|a definir|tbd|todo)\W*$", re.I)
+# Lignes dont le retour à la ligne PORTE du sens : les dé-envelopper les casserait.
+STRUCT_RE = re.compile(r"^ {0,3}(#{1,6} |>|\||[-*+] |\d+[.)] |(-{3,}|\*{3,}|_{3,})\s*$)")
+
+# RM2764 — foyer unique du frontmatter YAML des fiches PM. Auparavant recopié
+# à l'identique dans 8 scripts (pm-conso-report, pm-dashboard, pm-task-list,
+# pm-stats, priority, validate-task…) sous 3 contrats de retour divergents ;
+# on unifie ici les DEUX primitives dont ils ont réellement besoin.
+FRONTMATTER_RE = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
+
+
+def split_frontmatter(text):
+    """Découpe un doc markdown : (fm, body, end).
+
+    - `fm`  : dict du frontmatter ; **None** si aucun bloc, YAML invalide, ou
+              YAML non-dict (une liste ou un scalaire n'est pas une fiche).
+    - `body`: ce qui suit le bloc (tout le texte s'il n'y a pas de bloc).
+    - `end` : offset de fin du bloc dans `text` (0 s'il n'y a pas de bloc) —
+              pour les appelants qui réécrivent le corps en préservant l'entête.
+    """
+    m = FRONTMATTER_RE.match(text)
+    if not m:
+        return None, text, 0
+    try:
+        d = yaml.safe_load(m.group(1))
+    except yaml.YAMLError:
+        return None, text[m.end():], m.end()
+    return (d if isinstance(d, dict) else None), text[m.end():], m.end()
+
+
+def read_frontmatter(path):
+    """Frontmatter d'un FICHIER → dict, ou None si illisible / absent / invalide
+    / non-dict. Contrat unifié des lecteurs de fiches PM (RM2764). Les appelants
+    gardent tous par `if fm:` : None et {} y sont équivalents, et renvoyer None
+    sur un YAML non-dict est plus sûr que l'ancien `safe_load` brut (qui laissait
+    passer une liste/chaîne jusqu'au premier `.get`)."""
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return None
+    fm, _body, _end = split_frontmatter(text)
+    return fm
 
 
 def code_line_flags(lines):
@@ -81,3 +140,73 @@ def checklist_lines(text):
         if m:
             out.append((i, m))
     return out
+
+
+def is_placeholder(label):
+    """Le libellé d'un item de checklist est-il un simple gabarit ? (RM2789)
+
+    « (à compléter) », « à définir », « TBD »… : personne ne peut les cocher, ils ne
+    désignent aucun travail. Les compter comme des critères non satisfaits bloquait la
+    livraison — et le contournement (`--allow-unchecked`) faisait sauter le contrôle pour
+    les vrais critères en même temps.
+    """
+    return bool(PLACEHOLDER_RE.match((label or "").strip()))
+
+
+def real_checklist_lines(text):
+    """Les items de checklist qui désignent un VRAI travail (gabarits exclus)."""
+    return [(i, m) for i, m in checklist_lines(text) if not is_placeholder(m.group(3)[1:])]
+
+
+def unwrap(text):
+    """Dé-enveloppe les paragraphes : joint les lignes d'un même paragraphe (RM2789).
+
+    Préserve tout ce dont le retour à la ligne porte le sens : blocs de code (clôturés
+    ou indentés), titres, listes, tableaux, citations, règles horizontales, lignes vides,
+    et les **sauts durs** markdown (deux espaces en fin de ligne, ou backslash final).
+
+    Idempotent : un texte déjà dé-enveloppé en ressort inchangé.
+    """
+    if not text:
+        return text
+    lines = text.split("\n")
+    flags = code_line_flags(lines)
+    out, buf = [], []
+
+    def flush():
+        if buf:
+            out.append(" ".join(buf))
+            buf.clear()
+
+    for i, line in enumerate(lines):
+        strip = line.strip()
+        dur = line.endswith("  ") or line.rstrip().endswith("\\")
+        if flags[i] or not strip or STRUCT_RE.match(line) or CHECK_LINE_RE.match(line):
+            flush()
+            out.append(line)
+            continue
+        buf.append(strip)
+        if dur:                                  # saut DUR voulu : on ne le mange pas
+            flush()
+            out[-1] = out[-1] + "  "
+    flush()
+    return "\n".join(out)
+
+
+def placeholder_lines(text):
+    """Les items de checklist qui ne sont que des GABARITS : [(index de ligne, match), …]."""
+    return [(i, m) for i, m in checklist_lines(text) if is_placeholder(m.group(3)[1:])]
+
+
+def drop_placeholders(text):
+    """Retire les items de checklist qui ne sont que des gabarits (RM2789).
+
+    Le chemin de sortie EXPLICITE quand un ticket n'a pas de critères à définir : plutôt
+    que de contourner le garde-fou avec `--allow-unchecked` — qui désarme aussi le contrôle
+    des VRAIS critères — on retire la case vide, et le ticket assume qu'il n'en a pas.
+    """
+    idx = {i for i, _ in placeholder_lines(text)}
+    if not idx:
+        return text, 0
+    lines = text.split("\n")
+    return "\n".join(l for i, l in enumerate(lines) if i not in idx), len(idx)

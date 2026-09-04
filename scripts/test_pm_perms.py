@@ -3,8 +3,9 @@
 
 Lancer : python3 scripts/test_pm_perms.py
 Couvre la fonction PURE `diagnose` (sans privilège) : dossiers (conforme, sticky
-interdit, mode/groupe divergents, absent ignoré) ET fichiers env (mode, groupe,
-propriétaire — RM2502 : pm.env/.env → root:pm 640).
+interdit, mode/groupe divergents, absent ignoré, lien symbolique exclu) ET fichiers env
+(mode, groupe, propriétaire — RM2502 : pm.env/.env → root:pm 640). Couvre aussi le
+contrat `model_dirs()` consommé par `pm-env-helper ws-init` (RM2909).
 """
 import importlib.util
 import os
@@ -99,7 +100,43 @@ def test_fichier_env_proprietaire_divergent(tmp):
     print("✓ propriétaire divergent signalé (fichier env)")
 
 
+def test_symlink_ignore(tmp):
+    """Un lien symbolique n'est JAMAIS normalisé : chmod/chown déréférencent, donc
+    normaliser un `.mmi-pm` symlinké vers le core PROD le chownerait root → pm."""
+    cible = tmp / "cible"
+    cible.mkdir()
+    os.chmod(cible, 0o2755)  # volontairement non conforme
+    lien = tmp / "lien"
+    lien.symlink_to(cible)
+    avant = stat.S_IMODE(cible.stat().st_mode)
+    issues = diagnose(lien, 0o2770, cible.stat().st_gid)
+    assert any("lien symbolique" in i for i in issues), "le lien doit être signalé comme tel"
+    assert not any("mode" in i for i in issues), "…et surtout PAS proposé à la normalisation"
+    assert stat.S_IMODE(cible.stat().st_mode) == avant, "la cible du lien ne doit pas bouger"
+    print("✓ lien symbolique signalé et exclu de la normalisation")
+
+
+def test_model_dirs_contrat():
+    """`model_dirs()` est le contrat consommé par `pm-env-helper ws-init` (RM2909) :
+    chemins relatifs, racine exclue du parcours mkdir, parents avant enfants."""
+    dirs = pm_perms.model_dirs()
+    assert dirs[0] == ".", "la racine est émise en premier"
+    reste = dirs[1:]
+    assert all(not r.startswith("/") and ".." not in r for r in reste), \
+        "aucun chemin absolu ni remontée — le helper les refuserait"
+    for parent in (".mmi-pm",):
+        enfants = [r for r in reste if r.startswith(parent + "/")]
+        assert enfants, f"{parent} devrait avoir des enfants dans le modèle"
+        for e in enfants:
+            assert reste.index(parent) < reste.index(e), \
+                f"{parent} doit précéder {e} (mkdir ordonné, sans -p)"
+    for attendu in ("repos", "envs", "tmp", "sessions", "logs", "data", ".mmi-pm"):
+        assert attendu in reste, f"{attendu} absent du modèle"
+    print(f"✓ model_dirs : {len(dirs)} entrées, ordonnées, dont les partagés du layout")
+
+
 def main():
+    test_model_dirs_contrat()
     with tempfile.TemporaryDirectory() as d:
         tmp = Path(d)
         test_conforme(tmp)
@@ -110,6 +147,7 @@ def main():
         test_fichier_env_conforme(tmp)
         test_fichier_env_mode_divergent(tmp)
         test_fichier_env_proprietaire_divergent(tmp)
+        test_symlink_ignore(tmp)
     print("\nOK — tests pm-perms passent")
     return 0
 

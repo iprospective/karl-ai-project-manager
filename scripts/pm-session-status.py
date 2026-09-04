@@ -49,9 +49,23 @@ WORKLOG_DIR = os.path.expanduser(
 
 # statuts considérés comme terminés (filtrés hors du « reste à faire »)
 DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed", "résolu", "resolu"}
-# statuts considérés bloqués/en attente externe (affichés à part)
+# statuts vraiment bloqués / en attente d'un tiers : RIEN n'est demandé à
+# personne d'identifié, le ticket dort jusqu'à ce qu'un événement extérieur
+# survienne.
 WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-           "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev", "en_pause"}
+           "en_pause"}
+# RM2930 : « à tester / valider » n'est PAS une attente — c'est une action, et
+# elle a un acteur. Ces statuts vivaient dans WAITING : un ticket livré qui
+# attendait le test du demandeur s'affichait « en attente / bloqué », donc coincé,
+# alors qu'il fallait lire « c'est à toi ». Même raisonnement que RM2860 pour la
+# MEP : un travail d'une autre nature mérite sa section.
+TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
+           "a_tester_preprod"}
+# RM2860 : le dev est fini, reste la mise en prod — un travail batché, souvent
+# porté par un autre acteur. Section à part, ici comme dans le cockpit : deux
+# vues divergentes du même worklog donneraient deux vérités sur « où on en est ».
+# RM2930 : `a_tester_preprod` en sort — c'est une recette, pas une mise en prod.
+MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 RM_RE = re.compile(r"(?i)^RM(\d+)$")
 # RM2724 : groupe de repli quand aucun projet n'est connu pour l'item.
@@ -217,6 +231,56 @@ def mr_pending(mrs):
     """Les MR qui restent à merger. Une MR mergée ou fermée SORT de cette liste
     sans sortir du store : on veut pouvoir dire ce que la session a produit. Pure."""
     return [m for m in (mrs or []) if (m.get("state") or "opened") in MR_OPEN_STATES]
+
+
+def mr_reconcile(mrs, resolve):
+    """Réaligne l'état des MR encore ouvertes sur ce que dit la forge (RM2773).
+
+    Le worklog FIGE l'état à l'écriture : `mrs[].state` ne bouge que si quelqu'un
+    appelle `mr --state merged`, ce que seul `pm-mr merge` fait. Une MR mergée depuis
+    l'interface, fermée automatiquement par la forge (ses commits arrivés dans la cible
+    par une autre MR), ou traitée depuis une autre session, reste donc affichée « à
+    merger » indéfiniment. C'est un état DÉRIVÉ qu'on stockait comme un état PROPRE.
+
+    `resolve(mr) -> state | None` porte l'I/O ; **None = indéterminé** (forge
+    injoignable, URL absente) et l'état connu est alors conservé : mieux vaut un rappel
+    de trop qu'un oubli silencieux. Seules les MR ouvertes sont réinterrogées — une MR
+    mergée ne se rouvre presque jamais, et l'afficher à tort ne coûte rien.
+
+    Retourne `(mrs, changements)` où changements = [(iid, avant, après)]. Pure.
+    """
+    out, changed = [], []
+    for m in (mrs or []):
+        m = dict(m)
+        if (m.get("state") or "opened") in MR_OPEN_STATES:
+            new = resolve(m)
+            if new and new != m.get("state"):
+                changed.append((m.get("iid"), m.get("state") or "opened", new))
+                m["state"] = new
+                m["reconciled_ts"] = now()
+        out.append(m)
+    return out, changed
+
+
+def mr_state_from_forge(mr):
+    """État réel d'une MR d'après sa forge, ou None si indéterminé (RM2773).
+
+    Best-effort par contrat : toute erreur (forge injoignable, hôte non déclaré,
+    droits) rend None — l'appelant garde l'état connu. Le worklog n'a pas à échouer
+    parce qu'une forge est en maintenance.
+    """
+    url = (mr or {}).get("url")
+    if not url:
+        return None                      # sans URL, rien à interroger
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import pm_forge
+        forge, iid = pm_forge.get_forge_from_pr_url(url)
+        token = forge.token("manager")
+        pr = forge.get_pr(forge.resolve_project(token), iid, token)
+        return getattr(pr, "state", None) or None
+    except Exception:                    # noqa: BLE001 — voir docstring
+        return None
 
 
 def notify_level_for(kind, level=None):
@@ -390,6 +454,14 @@ def is_waiting(status):
     return (status or "").lower() in WAITING
 
 
+def is_testing(status):
+    return (status or "").lower() in TESTING
+
+
+def is_mep(status):
+    return (status or "").lower() in MEP
+
+
 def eff_status(it, live):
     """Statut effectif : courant (frontmatter) s'il est résolu, sinon stocké."""
     lv = (live or {}).get(it["ref"])
@@ -484,10 +556,12 @@ def render_md(data, live=None):
         out += doc_lines
         out.append("")
 
-    todo, wait, done = [], [], []
+    todo, testing, mep, wait, done = [], [], [], [], []
     for it in data["items"]:
         st = eff_status(it, live)
-        (done if is_done(st) else wait if is_waiting(st) else todo).append(it)
+        (done if is_done(st) else testing if is_testing(st)
+         else mep if is_mep(st)
+         else wait if is_waiting(st) else todo).append(it)
 
     def line(it):
         st = eff_status(it, live)
@@ -530,6 +604,13 @@ def render_md(data, live=None):
 
     out.append("## ⏳ Reste à faire")
     out += by_project(todo) or ["_(rien)_"]
+    # RM2930 : avant la MEP — c'est l'étape qui la précède dans le flow.
+    if testing:
+        out.append("\n## 🧪 À tester / valider")
+        out += by_project(testing)
+    if mep:
+        out.append("\n## 🚀 À mettre en prod")
+        out += by_project(mep)
     if wait:
         out.append("\n## ⏸️ En attente / bloqué")
         out += by_project(wait)
@@ -890,6 +971,16 @@ def cmd_notify(data, args):
 
 def cmd_mr(data, args):
     """RM2583 : refléter une MR ouverte / mergée / fermée dans le worklog."""
+    if getattr(args, "reconcile", False):
+        mrs, changed = mr_reconcile(data.get("mrs"), mr_state_from_forge)
+        if changed:
+            data["mrs"] = mrs
+            save(data)
+        pmout.op("worklog", extra="réconcilié %d MR ouverte(s), %d changement(s)" % (
+            len(mr_pending(data.get("mrs"))) + len(changed), len(changed)))
+        for iid, before, after in changed:
+            pmout.info("  · !%s %s → %s" % (iid, before, after))
+        return
     if args.list:
         for m in (data.get("mrs") or []):
             sys.stdout.write("!%s [%s] %s %s %s\n" % (
@@ -946,6 +1037,10 @@ def main():
     m.add_argument("--ref", help="ticket concerné (ex: RM2583)")
     m.add_argument("--state", choices=["opened", "merged", "closed"])
     m.add_argument("--list", action="store_true")
+    m.add_argument("--reconcile", action="store_true",
+                   help="réinterroge la forge pour les MR encore ouvertes et écrit "
+                        "leur état réel (RM2773) : une MR mergée hors `pm-mr merge` "
+                        "reste sinon affichée « à merger » indéfiniment")
 
     rq = sub.add_parser("request", help="registre des demandes du demandeur (RM2621)")
     rq.add_argument("text", nargs="?", help="la demande, telle qu'elle a été formulée")

@@ -13,7 +13,8 @@ from pathlib import Path
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 import pm_markdown  # noqa: E402
-from pm_markdown import checklist_lines  # noqa: E402
+from pm_markdown import checklist_lines, read_frontmatter, split_frontmatter  # noqa: E402
+import tempfile  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location(
     "pm_task_description_update", str(_HERE / "pm-task-description-update.py"))
@@ -105,6 +106,61 @@ def test_deliver_ignore_les_citations():
     src = (_HERE / "pm-task-deliver.py").read_text(encoding="utf-8")
     assert "checklist_lines(body)" in src, "pm-task-deliver n'utilise pas pm_markdown"
     assert "CHECK_RE" not in src, "ancienne regex encore présente dans pm-task-deliver"
+
+
+# ── RM2764 : frontmatter unifié (ex-8 copies) ──────────────────────────────
+def test_split_frontmatter_valide():
+    fm, body, end = split_frontmatter("---\nstatus: en_cours\nid: 42\n---\ncorps\n")
+    assert fm == {"status": "en_cours", "id": 42}, fm
+    assert body == "corps\n", repr(body)
+    assert end > 0
+
+
+def test_split_frontmatter_absent():
+    fm, body, end = split_frontmatter("pas de frontmatter\n")
+    assert fm is None and body == "pas de frontmatter\n" and end == 0
+
+
+def test_split_frontmatter_yaml_invalide():
+    # une valeur non fermée → YAMLError → None, mais body/offset préservés
+    fm, body, end = split_frontmatter('---\nx: "non fermé\n---\nz\n')
+    assert fm is None and end > 0
+
+
+def test_split_frontmatter_non_dict_donne_none():
+    # un YAML valide mais qui n'est pas un mapping (liste) n'est pas une fiche
+    fm, _body, end = split_frontmatter("---\n- a\n- b\n---\n")
+    assert fm is None and end > 0
+
+
+def test_read_frontmatter_fichier():
+    with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
+        f.write("---\ntitle: T\nstatus: a_faire\n---\ncorps\n")
+        p = f.name
+    try:
+        assert read_frontmatter(p) == {"title": "T", "status": "a_faire"}
+    finally:
+        Path(p).unlink()
+
+
+def test_read_frontmatter_illisible_donne_none():
+    assert read_frontmatter("/n/existe/pas/RM0.md") is None
+
+
+def test_read_frontmatter_repertoire_donne_none():
+    # IsADirectoryError (sous-classe d'OSError) → None, pas d'exception
+    assert read_frontmatter(str(_HERE)) is None
+
+
+def test_migration_scripts_utilisent_le_foyer():
+    """Garde de câblage RM2764 : les 5 lecteurs migrés importent read_frontmatter
+    et n'ont plus ni def ni regex frontmatter locale."""
+    for name in ("pm-conso-report", "pm-dashboard", "pm-task-list", "pm-stats", "priority"):
+        src = (_HERE / f"{name}.py").read_text(encoding="utf-8")
+        assert "from pm_markdown import read_frontmatter" in src, f"{name} n'importe pas le foyer"
+        assert "def parse_frontmatter" not in src, f"{name} garde une def locale"
+        assert "FRONTMATTER_PATTERN = re.compile" not in src and "FRONTMATTER_RE = re.compile" not in src, \
+            f"{name} garde une regex frontmatter locale"
 
 
 CASES = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

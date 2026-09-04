@@ -26,10 +26,25 @@ entrée du manifeste (origin obligatoire) + `fetch`. Les têtes distantes vivent
 `refs/remotes/<k>/*` ; `refs/heads/*` n'est peuplé QUE par les worktrees → pas de
 collision, uniforme quel que soit le nombre de remotes.
 
+Forme d'un remote (RM2838) — une CHAÎNE reste le transport, comme depuis toujours :
+
+    remotes: {origin: "gitlab:<owner>/<repo>.git"}
+
+ou un mapping, pour noter l'identité EN PLUS du transport (cf. `pm_repos`) :
+
+    remotes:
+      origin:
+        url: https://gogs.materiaux-naturels.fr/<owner>/<repo>.git   # identité
+        ssh: ssh://gogs@matnat-tools/<owner>/<repo>.git              # transport
+
+`git remote add` reçoit le transport (`ssh`, sinon `url`) ; l'`url` sert à rattacher
+le dépôt à une instance du registre — ce qu'un alias tunnelé ne permet pas de déduire.
+
 N'auto-committe RIEN côté PM (pm_git) : opère sur les repos du workspace, pas sur
 le repo PM.
 """
 import argparse
+import stat
 import subprocess
 import sys
 from pathlib import Path
@@ -38,6 +53,10 @@ try:
     import yaml
 except ImportError:
     sys.exit("pm-env-init: PyYAML requis (apt install python3-yaml)")
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import pm_repos  # transport vs identité d'un remote (RM2838)  # noqa: E402
+import pm_ws_skeleton  # squelette sous racine verrouillée (RM2909)  # noqa: E402
 
 SHARED_DIRS = ("tmp", "sessions", "logs", "data")
 GITIGNORE = (
@@ -108,6 +127,9 @@ def load_repos(ws: Path) -> list[dict]:
             "    repos:\n"
             "      - name: <repo>\n"
             "        remotes: {origin: gitlab:<...>}\n"
+            "    (ou, pour noter l'identité EN PLUS du transport :\n"
+            "        remotes: {origin: {url: https://<forge>/<owner>/<repo>.git,\n"
+            "                           ssh: gitlab:<owner>/<repo>.git}})\n"
             "        integration_branch: dev")
     for i, r in enumerate(repos):
         if not r.get("name"):
@@ -115,6 +137,13 @@ def load_repos(ws: Path) -> list[dict]:
         rem = r.get("remotes") or {}
         if "origin" not in rem:
             die(f"repos[{r.get('name')}] : remote `origin` obligatoire")
+        # RM2838 : chaque remote est une chaîne (transport pur, historique) ou un
+        # mapping {url, ssh}. Valider ICI évite de découvrir la faute au milieu
+        # d'un `git remote add`, à moitié instancié.
+        try:
+            pm_repos.validate_remotes(r)
+        except pm_repos.RepoConfError as e:
+            die(str(e))
     return repos
 
 
@@ -164,7 +193,9 @@ def ensure_bare(ctx: Ctx, ws: Path, repo: dict):
         existing = set(out.split())
     ordered = ["origin"] + sorted(k for k in remotes if k != "origin")
     for k in ordered:
-        url = remotes[k]
+        # Le transport, pas l'identité (RM2838) : `ssh` s'il est déclaré, sinon
+        # `url`. Une chaîne reste elle-même — comportement historique.
+        url = pm_repos.remote_transport(remotes[k], f"repos[{name}].remotes.{k}")
         if k in existing:
             ctx.skip(f"remote {k} déjà configuré")
             continue
@@ -229,6 +260,36 @@ def add_worktree(ctx: Ctx, ws: Path, bare: Path, wt_name: str, mode: str,
 
 # --------------------------------------------------------------- scaffolding
 
+def ensure_group_shared(ctx: Ctx, p: Path):
+    """Dossier de travail partagé : setgid + rwx groupe, et JAMAIS de sticky bit.
+
+    Le sticky (`3770`, le `T` de `drwxrws--T`) n'empêche pas d'écrire dans le dossier —
+    il empêche d'y **remplacer une entrée dont on n'est pas propriétaire**. L'écriture
+    atomique du PM (`pm_lock.atomic_write` = temp + `os.replace`) casse donc en EPERM dès
+    qu'un fichier appartient à un autre membre du groupe, ce qui rend illisible la
+    collaboration entre l'agent (uid de service) et l'humain (RM2636). Un workspace
+    partagé se tient en **2770**, jamais en 3770.
+
+    Les bits `owner`/`other` existants sont préservés : on ne force que g+rwx + setgid,
+    et on retire le sticky. Idempotent, et auto-réparateur sur un workspace existant.
+    """
+    try:
+        cur = stat.S_IMODE(p.stat().st_mode)
+    except OSError:
+        return
+    want = (cur | stat.S_ISGID | 0o070) & ~stat.S_ISVTX
+    if cur == want:
+        ctx.skip(f"{p.name}/ déjà en {cur:04o} (setgid, sans sticky)")
+        return
+    ctx.act(f"chmod {want:04o} {p}   (g+rwx, setgid, sticky retiré)")
+    if not ctx.dry:
+        try:
+            p.chmod(want)
+        except PermissionError:
+            sys.stderr.write(f"  ⚠ {p} : chmod refusé (pas propriétaire) — à passer en "
+                             f"root : chmod {want:04o} {p}\n")
+
+
 def ensure_scaffolding(ctx: Ctx, ws: Path):
     """Crée les dossiers partagés + .gitignore (idempotent, untracked)."""
     for d in SHARED_DIRS:
@@ -239,6 +300,14 @@ def ensure_scaffolding(ctx: Ctx, ws: Path):
             ctx.act(f"mkdir {d}/")
             if not ctx.dry:
                 p.mkdir(parents=True, exist_ok=True)
+    # Droits des dossiers partagés, `.mmi-pm/` compris — c'est un vrai dossier du
+    # workspace (c'est l'arbre PM central qui pointe vers lui, pas l'inverse) (RM2636).
+    mmi = ws / ".mmi-pm"
+    shared = [ws, ws / "repos", ws / "envs", *(ws / d for d in SHARED_DIRS),
+              mmi, *sorted(mmi.rglob("*"))]
+    for p in shared:
+        if p.is_dir():
+            ensure_group_shared(ctx, p)
     gi = ws / ".gitignore"
     if gi.is_file() and gi.read_text(encoding="utf-8") == GITIGNORE:
         ctx.skip(".gitignore déjà à jour")
@@ -309,7 +378,16 @@ def main():
     ap.add_argument("-y", "--yes", action="store_true", help="non-interactif (confirme --purge)")
     ap.add_argument("--dry-run", action="store_true", help="prévisualise, aucune mutation")
     ap.add_argument("-v", "--verbose", action="store_true", help="affiche aussi les no-op")
+    ap.add_argument("--print-gitignore", action="store_true",
+                    help="émet le .gitignore du layout sur stdout et sort. Contrat consommé "
+                         "par `pm-env-helper ws-init` (RM2909) : à la racine d'un workspace au "
+                         "modèle (2750), créer ce fichier est une op privilégiée — le texte "
+                         "reste défini ICI, jamais recopié dans le shell du helper.")
     args = ap.parse_args()
+
+    if args.print_gitignore:
+        sys.stdout.write(GITIGNORE)
+        return
 
     start = Path(args.workspace).resolve() if args.workspace else Path.cwd()
     if args.workspace and not start.is_dir():
@@ -324,6 +402,13 @@ def main():
 
     ctx = Ctx(args.dry_run, args.verbose)
     print(f"workspace : {ws}")
+
+    # Modèle multi-user (RM2438 / T6 RM2502) : la racine est en `2750 pm:pm`, group r-x
+    # — créer `repos/`, `envs/` ou les partagés du layout y est une op PRIVILÉGIÉE. Le
+    # verbe NOPASSWD dédié (RM2909) la porte ; sans lui on échouait en `Permission
+    # denied` au milieu de l'instanciation, à réparer par deux sudo interactifs.
+    if not args.teardown:
+        pm_ws_skeleton.ensure_skeleton(ws, ctx.dry)
 
     if args.teardown:
         teardown(ctx, ws, repos, only, args.purge, args.yes)
@@ -357,6 +442,9 @@ def main():
                 sys.stderr.write(f"  ⚠ {name} : pas de main|master → -test sauté\n")
 
     ensure_scaffolding(ctx, ws)
+    # Verbe symétrique : ce qui vient d'être créé l'a été sous l'identité de l'appelant
+    # (worktrees, bares) — on repasse le modèle pour refermer. No-op hors modèle.
+    pm_ws_skeleton.apply_perms(ws, ctx.dry)
     print(f"\n{'[dry-run] ' if ctx.dry else ''}terminé : {ctx.changed} action(s) "
           f"sur {ws}.")
 

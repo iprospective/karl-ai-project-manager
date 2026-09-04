@@ -1,6 +1,6 @@
 # Changelog des normes
 
-## [2.8.0] - 2026-08-21
+## [2.16.0] - 2026-09-04
 
 ### Ajouté
 - **KERNEL** — champ conditionnel **`recurrence`** (`quotidienne` | `hebdomadaire` |
@@ -23,6 +23,225 @@
   Vaultwarden). La commande porte désormais `--force`, et la vérification du snapshot
   est requalifiée en contrôle réel : c'est l'horodatage de l'instant qu'on doit y lire,
   pas celui du dernier passage du scheduler. (RM2771)
+## [2.15.0] - 2026-09-02
+
+
+> Atterrissage groupé de deux tickets « à tester » restés en branche (RM2463, RM2563),
+> rebasés sur 2.14.0 après merge d'intégration. Renumérotation : le tripwire Zabbix,
+> écrit #15 à l'époque de la branche (base 1.65.0), devient **#16** — #15 est désormais
+> « Plomberie PM muette » (RM2929).
+
+### Ajouté
+- **KERNEL — tripwire #16 « Métriques avant conclusion (incidents) »** + ligne de
+  déclencheur associée renvoyant à `knowledge/zabbix/api.md`. Le parc est supervisé par
+  Zabbix (API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) mais **rien dans le KERNEL n'y
+  renvoyait** : un agent diagnostiquant un incident n'avait aucune raison de savoir que
+  des métriques historiques existaient, et concluait sur les seuls logs de la machine.
+  Principe posé : les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu**
+  l'être — un service engorgé cesse d'écrire (Apache journalise en fin de requête,
+  rsyslog affamé n'écrit plus), ce qui imite une panne réseau ; et un agent local qui
+  « mesure » quelque chose n'est pas fiable tant que Zabbix ne le corrobore pas.
+  Motif : **RM2455** (2026-07-30) — deux diagnostics successifs publiés puis réfutés
+  (coupure amont OVH ; puis saturation CPU sur la foi d'un agent local annonçant 97,51 %,
+  quand Zabbix mesurait 14,2 % max), avant que trois requêtes Zabbix ne donnent la cause
+  réelle (pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers`). (RM2463)
+- **Phase d'étude — proposition d'implémentation obligatoire** (RM2563). Le CDC
+  répondait au *quoi* et au *combien* mais laissait le *comment* implicite :
+  l'agent qui reprenait le ticket en `a_faire` **refaisait l'audit** déjà payé,
+  sans les conclusions acquises. Nouvelle § dans
+  `modules/status-workflow-pratique.md` : contenu attendu (modèle de données,
+  composants, **points d'insertion `fichier:fonction`**, vues, flux & déclencheurs,
+  migration, pièges), niveau de détail (**15 à 40 lignes ; l'esquisse oriente, elle
+  ne prescrit pas**), et condition de sortie de `etude_chiffrage_en_cours`.
+  **Exigée dès que l'étude débouche sur du code, sans exemption pour les petits
+  développements** — le rationnel n'est pas la taille de la tâche mais l'asymétrie
+  de compétence entre le modèle qui mène l'étude et celui qui implémente. Dispense :
+  tickets `audit` / `research` / `documentation` dont le livrable *est* l'étude.
+  Champ canonique : **CF Redmine 31 « Proposition d'implémentation »**, miroir
+  frontmatter `implementation`, outil **`pm-task-implementation`** (`--set`,
+  `--append`, `--from-description` pour migrer un CDC d'avant).
+  Cas déclencheur : RM2560 (calicote/dolibarr).
+- **Actions au déploiement enfin câblées** (RM2563). Le frontmatter `deploy_actions`
+  et le CF Redmine **8 « Actions au déploiement »** coexistaient depuis l'origine
+  **sans aucun lien** : le champ n'était qu'initialisé à `[]` (redmine-fetch-task,
+  pm_task_md, pm-project-bootstrap), jamais lu ni poussé — ce qu'on y écrivait ne
+  ressortait nulle part. Nouvelle § dans `modules/git-mep.md`, outil
+  **`pm-task-deploy`** (`--add` / `--set` / `--clear` / `--pull`), et **rappel de la
+  liste au passage en `a_mep`** : une action notée que personne ne relit au bon
+  moment ne sert à rien.
+- `scripts/pm_cf_mirror.py` — contrat commun « champ frontmatter ↔ CF Redmine »
+  (résolution de l'id par `.env` puis `redmine.reference.yml`, push **jamais fatal**,
+  pull pour rattraper une saisie faite dans l'UI web, sérialisation liste↔texte pour
+  `deploy_actions`, et **normalisation CRLF** — Redmine restitue les champs texte en
+  CRLF, sans quoi un contenu identique paraît différer à chaque lecture). Mutualise les
+  trois miroirs : `test_protocol`/CF 30, `implementation`/CF 31, `deploy_actions`/CF 8 —
+  `pm-task-protocol.py` recâblé dessus.
+- **Synchronisation Redmine → PM automatique** : `pm-task-sync` rapatrie désormais les
+  trois miroirs, pour rattraper une saisie faite dans l'UI web. Un CF **vide** ne remet
+  **jamais** le miroir local à zéro (« vide » = « pas d'information », pas « efface ») ;
+  le vidage volontaire passe par l'outil dédié, qui écrit les deux côtés.
+- `scripts/pm-cf-mirror-backfill.py` — **reprise de l'existant**, dry-run par défaut.
+  Règle cardinale : on ne remplace jamais du contenu par du vide, dans aucun sens, et un
+  désaccord entre les deux côtés est **signalé, pas tranché**. `--adopt-sections` reprend
+  les sections `## Implémentation` des CDC d'avant le CF 31 **sans toucher au corps**.
+
+### Modifié
+- Déclencheurs KERNEL : « je rédige un CDC » (→ proposition d'implémentation) et
+  mention de `pm-task-deploy` sur la ligne MEP.
+- `agents/worker-common.md` : § *Deux champs à tenir au fil de l'eau* (tous rôles) ;
+  `agents/worker-analyst.md` aligné.
+- `templates/task.md` : `deploy_actions` documenté + les deux champs miroirs signalés
+  comme « jamais à la main » ; `templates/RM9999_exemple-tache-complete.md` porte un
+  `implementation` rempli et deux `deploy_actions`.
+- `redmine.reference.yml` : CF 31 déclaré, `used_by` du CF 8 corrigé.
+- `pm-task-status-update.py` : avertissement **non bloquant** au passage en
+  `etude_chiffrage_a_valider` quand la proposition manque (même forme que le
+  garde-fou « protocole de test », RM2229).
+
+## [2.14.0] - 2026-09-01
+
+### Ajouté
+- **Module `audits`** (nouveau) — un audit n'est jamais une analyse improvisée dans le
+  projet courant : il se rattache au projet `iprospective/audits` et à son outillage
+  rejouable (`ai-audits`). Le module pose l'**ordre non négociable** — lire
+  `INDEX.md` / `state.md` / `FINDINGS.md` de l'existant **avant** toute mesure —, la
+  **règle de partage** (findings dans `audits`, remédiation dans le projet propriétaire
+  de l'objet audité), l'arborescence v2 (entité → fonction → site → session) et
+  l'inventaire des `recon-*.sh` et du référentiel `knowledge/`. La méthodologie de
+  domaine reste dans le repo `ai-audits` : NORMS dit *où* et *dans quel ordre*, le repo
+  dit *comment*. RM2913.
+- **Déclencheur KERNEL** correspondant, une ligne : « on me demande un audit (site,
+  sécurité, infra, DNS, mail, conformité), d'où que parte la demande ». Le module n'est
+  préchargé par aucun rôle — chargement à la demande.
+
+Motivé par un incident mesuré (RM2900) : un audit de `www.iprospective.fr` mené à la
+main depuis le workspace `communication` a « redécouvert » le finding F006, ouvert
+depuis la session `2026-05-10-recon`, et n'a pas passé `recon-wordpress.sh` alors que
+le script existait et documentait exactement le motif retrouvé. L'onboarding ne remonte
+que le `.mmi-pm` du workspace courant : sans déclencheur KERNEL, la convention du projet
+`audits` n'est jamais lue. Rattrapage RM2910 ; skill de routage `mmi-audit` RM2911.
+
+## [2.13.1] - 2026-09-01
+
+### Ajouté
+- Module `collaboration` — **créer sous une racine verrouillée est une op privilégiée**
+  (RM2909). Le modèle multi-user posait la racine en `2750` sans dire par quoi passer pour
+  y créer quoi que ce soit : `pm-project-new` et `pm-env-init` échouaient en `Permission
+  denied`, et l'usage s'était fixé sur deux `sudo chmod`/`sudo pm-perms` interactifs autour
+  de chaque création de projet — exactement le runbook jetable que `pm-perms` était censé
+  remplacer. La norme nomme désormais le verbe : `pm-env-helper ws-init`, refermé par
+  `ws-perms`, et pose la ligne de partage **structure = privilège, contenu = groupe**.
+
+## [2.13.0] - 2026-09-01
+
+### Corrigé
+- **structure-reference** — le point de vocabulaire posé en 2.11.0 disait **l'inverse**
+  de l'arbitrage (RM2929). Il affirmait que « les tickets PM » désignent les cores
+  PROJET par opposition au core du système. Faux : le demandeur ne désigne **jamais**
+  implicitement un `*-core`, **ni** `<Projet>-core` **ni** `ai-pm-core`. Il parle des
+  **dépôts de code** de `repos/` ; s'il vise un `*-core`, il le **nomme**. Le paragraphe
+  est réécrit et contredisait le tripwire #15 (arrivé entre-temps en 2.12.0, RM2676).
+- **KERNEL** — la ligne-déclencheur « je restitue l'état des tickets PM » ajoutée en
+  2.11.0 est **retirée** : elle portait la même erreur, et la règle est déjà tenue par
+  le tripwire #15, qui la dit mieux et reste sous les yeux en permanence.
+
+### Ajouté
+- **Le support n'est pas le sujet** — précision au tripwire #15 et dans
+  `structure-reference` : les fiches de tickets sont bien stockées dans le
+  `<Projet>-core`, mais un ticket **porte sur** le code de `repos/`. « Le ticket est-il
+  mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a
+  enregistré la fiche. C'est le mécanisme exact de la confusion — le nommer désamorce
+  la faute au lieu de seulement l'interdire.
+
+## [2.12.0] - 2026-09-01
+
+### Ajouté
+- KERNEL tripwire **#15** — la règle « la plomberie PM est muette » (RM2440) entre
+  enfin dans le KERNEL. Elle vivait dans `agents/worker-common.md` seul : elle ne
+  survivait donc pas au compactage de contexte et se faisait violer en boucle.
+  Elle s'applique au moment où l'agent **rédige sa réponse**, quand il n'ouvre
+  plus aucun fichier — aucun déclencheur ne peut l'attraper, d'où le format
+  tripwire complet (RM2676).
+- Tripwire #15 — **volet lecture** : une question non qualifiée sur un merge, un
+  push ou une branche porte sur les dépôts de **code** et sur le dépôt du projet
+  PM, **jamais** sur un `*-core`. Répondre sur un `*-core` non nommé est la même
+  violation vue de l'autre côté — au lieu de noyer la restitution sous du bruit,
+  on répond à côté de la question (incident 2026-09-01).
+
+### Modifié
+- Tripwire #3, exception RM2440 — renvoie désormais vers #15 : présenter le push
+  direct sur les `*-core` sous le seul angle « c'est autorisé » se lit comme
+  « c'est un sujet dont on parle ».
+- `agents/worker-common.md` — la section RM2440 devient « transparente **et hors
+  sujet** » et détaille le volet lecture.
+
+> Note de numérotation : 2.11.0 a été prise par RM2929 pendant la vie de cette branche
+> (même incident du 2026-09-01, vu par l'angle du vocabulaire) et 2.10.0 reste engagée
+> par RM2913 — d'où le 2.12.0, conformément à la discipline anti-collision du module
+> `governance`. Les deux entrées sont complémentaires : RM2929 pose le périmètre d'une
+> restitution « tickets PM », RM2676 pose la règle de silence et son volet lecture.
+
+## [2.11.0] - 2026-09-01
+
+### Ajouté
+- **structure-reference** — point de vocabulaire « les tickets PM, ce sont ceux des
+  cores PROJET » (RM2929, arbitrage Mathieu). Le mot *core* est homonyme : core d'un
+  projet (`<Projet>-core`, le travail client) vs core du système PM (`ai-pm-core` /
+  `.mmi-pm-core`, l'outillage). Quand le demandeur demande l'état des « tickets PM »,
+  le périmètre est **toujours** le premier ; le second n'entre dans une restitution
+  que s'il est lui-même le sujet ou s'il est en échec.
+- KERNEL — ligne-déclencheur « je restitue l'état des tickets PM » vers ce point.
+  Sans elle le raté est silencieux : rien ne pousse un agent qui restitue à ouvrir
+  `structure-reference`, il se croit exhaustif alors qu'il est hors sujet.
+
+> Note de numérotation : 2.10.0 est déjà engagée par la branche RM2913 (non mergée au
+> 2026-09-01) — d'où le saut, conformément à la discipline anti-collision du module
+> `governance`.
+
+## [2.9.1] - 2026-08-27
+
+### Ajouté
+- KERNEL — déclencheur **« une tâche est dans le mauvais projet PM (ou déplacée côté
+  Redmine) »** → `pm-task-move` (RM2866). Le cas se produit dès qu'un ticket est ouvert
+  depuis le mauvais cwd, ou qu'un humain le déplace dans l'UI Redmine : la fiche PM
+  restait alors dans le projet d'origine, sans outil pour la suivre — un `cp`/`git rm`
+  à la main, soit exactement ce que le tripwire #1 interdit.
+- Module `session-tooling` — la table de couverture gagne la ligne **Tâche / déplacer
+  vers un autre projet PM** (fiche + `.log.md` + `.reporting.yml`, et `project_id`
+  Redmine **vérifié par relecture** : sans la permission « Move issues », Redmine
+  répond 204 en droppant l'attribut, et l'échec serait muet).
+
+## [2.9.0] - 2026-08-27
+
+### Ajouté
+- Module `environments` — backend **`onepassword`** (CLI `op` + *service account*,
+  RM2711) dans la liste des vaults déclarables : le gestionnaire en ligne le plus
+  répandu côté dev. La CLI n'est pas dans les dépôts Debian et le jeton machine
+  suppose un plan payant — l'instance se déclare `unreachable` avec la marche à
+  suivre plutôt que de casser les autres coffres.
+- Module `environments` — **« Un jeton machine n'est pas un verrou »** : un accès
+  par jeton (service account 1Password, mot de passe d'application Nextcloud) qui
+  est refusé se rapporte `locked`, faute d'une quatrième valeur au contrat, mais
+  le geste correctif est l'inverse d'un déverrouillage — il faut **émettre un
+  nouveau jeton** et remplacer la variable du `.env`, pas chercher un mot de passe
+  maître qui n'existe pas.
+- Module `environments` — **« Un secret ne passe jamais en argument de commande »** :
+  `ps` est lisible par tous les processus de la machine, et l'historique du shell
+  garde la ligne. Un secret se transmet par variable d'environnement ou sur
+  l'entrée standard. La règle existait dans le code (`unlock-vault.sh --stdin`,
+  RM2748) sans être écrite ; elle vaut pour tout appel qu'un agent compose.
+
+## [2.8.0] - 2026-08-24
+
+### Modifié
+- Module `traceability` : § « Niveau de note par commit » (RM2409) — le niveau
+  `commit_note_level` est désormais **effectif** dans le hook `pm-post-commit` :
+  `work` (défaut) exclut de la note les commits d'outillage (`pm(*):`, `chore(…):`,
+  conso reportée sans note) ; **override par projet** via `meta.yml`
+  (`traceability: { commit_note_level: work|all|none }`), priorité projet >
+  config locale > config core. Purge du bruit historique :
+  `scripts/redmine-purge-commit-notes.py` (dry-run par défaut, backup JSONL).
+  (Entrée rebasée : bump initial 1.63.0 du 2026-07-24, rejoué au-dessus du jalon v2.)
 
 ## [2.7.1] - 2026-08-21
 

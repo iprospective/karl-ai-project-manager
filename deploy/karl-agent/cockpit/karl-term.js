@@ -15,7 +15,8 @@
  * Protocole ttyd (vérifié en lisant le bundle servi par ttyd 1.7.7) :
  *   - WebSocket, sous-protocole « tty », URL <base>/ws?arg=<sid> ;
  *   - handshake  : {"AuthToken":…,"columns":…,"rows":…} encodé UTF-8 ;
- *   - client→srv : premier octet INPUT='0' | RESIZE='1' | PAUSE='2' | RESUME='3' ;
+ *   - client→srv : premier octet INPUT='0' | RESIZE='1' | PAUSE='2' | RESUME='3'
+ *     (PAUSE/RESUME = contrôle de flux, émis depuis RM2807 — cf. ttydFlow) ;
  *   - srv→client : premier octet OUTPUT='0' | SET_WINDOW_TITLE='1' | SET_PREFERENCES='2'.
  *
  * Les fonctions pures du protocole sont encadrées par des marqueurs >>> / <<<
@@ -62,6 +63,24 @@
     return { cmd: String.fromCharCode(bytes[0]), payload: bytes.slice(1) };
   }
   // <<< ttydDecode
+
+  // >>> ttydFlow
+  // Contrôle de flux (RM2807). xterm met les octets reçus dans une file
+  // d'écriture interne et les parse par tranches ; si le PTY débite plus vite
+  // que le rendu (session claude en plein stream + renderer DOM), cette file
+  // grossit SANS LIMITE — des Go de chaînes JS dans le processus de l'onglet,
+  // jusqu'à l'OOM de Firefox (constaté : 3 Go au premier attach). Le protocole
+  // ttyd prévoit la parade — PAUSE='2' / RESUME='3', que son propre client
+  // envoie — mais ce client-ci ne les émettait jamais.
+  // Comptabilité pure : au-delà de `limit` octets écrits depuis le dernier
+  // point de contrôle, on demande une PAUSE (le serveur cesse de lire le PTY,
+  // tmux bloque, rien n'est perdu) et le RESUME partira quand xterm aura
+  // réellement consommé le retard (callback de write, cf. attach()).
+  function ttydFlow(written, byteLength, limit) {
+    var w = written + byteLength;
+    return w >= limit ? { written: 0, pause: true } : { written: w, pause: false };
+  }
+  // <<< ttydFlow
 
   // >>> bracketedPaste
   // Encadre un texte en « collage entre crochets » (mode 2004 : ESC[200~ … ESC[201~).
@@ -227,17 +246,38 @@
 
     var fit = new global.FitAddon.FitAddon();
     term.loadAddon(fit);
-    try {
-      var u11 = new global.Unicode11Addon.Unicode11Addon();
-      term.loadAddon(u11);
-      term.unicode.activeVersion = "11";
-    } catch (e) { /* addon absent : largeurs de caractères par défaut */ }
+    // RM2807 : l'addon Unicode11 recalcule la largeur de CHAQUE graphème (emoji
+    // ZWJ, combinés, box-drawing) que le TUI Claude Code émet en masse. C'est le
+    // seul poste lourd que notre montage a en plus de la référence stable (le
+    // client ttyd de repli, sans unicode11). Suspect n°1 de l'emballement mémoire
+    // Firefox → OPT-IN désormais : par défaut on adopte le calcul de largeur natif
+    // (identique à ttyd, éprouvé stable) ; `localStorage.karl_u11 = "1"` le
+    // réactive pour un A/B à chaud sur l'onglet même qui gonfle, sans redéploiement.
+    var u11On = false;
+    try { u11On = global.localStorage && global.localStorage.getItem("karl_u11") === "1"; } catch (e) {}
+    if (u11On) {
+      try {
+        var u11 = new global.Unicode11Addon.Unicode11Addon();
+        term.loadAddon(u11);
+        term.unicode.activeVersion = "11";
+      } catch (e) { /* addon absent : largeurs de caractères par défaut */ }
+    }
 
     term.open(container);
     var uninstallAccentFix = installAccentFix(container, term);
     fit.fit();
 
     var socket = null, closed = false, retry = 0, retryTimer = null;
+    // RM2807 : état du contrôle de flux — même seuil que le client ttyd amont.
+    var FLOW_LIMIT = 100000;
+    var FRAME_PAUSE = ENC.encode("2"), FRAME_RESUME = ENC.encode("3");
+    var flowWritten = 0, flowPending = 0;
+    // RM2807 : compteurs cumulés pour la sonde mémoire. L'OOM corrèle avec « je
+    // clique pour écrire » → on trace ce que le rendu synthétique ne couvre pas :
+    // écritures & plus grosse écriture (rafale PTY), resize (SIGWINCH → redraw
+    // plein écran), fit (ResizeObserver), et déclenchements des observers.
+    var stat = { writes: 0, writeBytes: 0, maxWrite: 0, data: 0, resizes: 0,
+                 fits: 0, roFires: 0, themeFires: 0 };
 
     function send(frame) {
       if (socket && socket.readyState === WebSocket.OPEN) socket.send(frame);
@@ -249,13 +289,33 @@
 
       socket.onopen = function () {
         retry = 0;
+        flowWritten = 0; flowPending = 0;   // RM2807 : nouvelle socket, état de flux neuf
         send(ENC.encode(ttydHandshake(opts.token, term.cols, term.rows)));
       };
 
       socket.onmessage = function (ev) {
         var msg = ttydDecode(new Uint8Array(ev.data));
         if (!msg) return;
-        if (msg.cmd === "0") term.write(msg.payload);              // OUTPUT
+        if (msg.cmd === "0") {                                     // OUTPUT
+          stat.writes++; stat.writeBytes += msg.payload.length;
+          if (msg.payload.length > stat.maxWrite) stat.maxWrite = msg.payload.length;
+          // RM2807 : contre-pression. Tous les FLOW_LIMIT octets, PAUSE au
+          // serveur + RESUME seulement quand xterm a VRAIMENT consommé ce
+          // point de contrôle (callback de write) — la file d'écriture reste
+          // bornée quel que soit le débit du PTY.
+          var f = ttydFlow(flowWritten, msg.payload.length, FLOW_LIMIT);
+          flowWritten = f.written;
+          if (f.pause) {
+            flowPending++;
+            send(FRAME_PAUSE);
+            term.write(msg.payload, function () {
+              flowPending = Math.max(flowPending - 1, 0);
+              if (flowPending === 0) send(FRAME_RESUME);
+            });
+          } else {
+            term.write(msg.payload);
+          }
+        }
         else if (msg.cmd === "1") { /* SET_WINDOW_TITLE : ignoré (le cockpit a son entête) */ }
         else if (msg.cmd === "2") { /* SET_PREFERENCES : le cockpit impose les siennes */ }
       };
@@ -269,12 +329,12 @@
       };
     }
 
-    term.onData(function (data) { send(ttydEncodeInput(data, function (s) { return ENC.encode(s); })); });
-    term.onResize(function (size) { send(ENC.encode(ttydEncodeResize(size.cols, size.rows))); });
+    term.onData(function (data) { stat.data++; send(ttydEncodeInput(data, function (s) { return ENC.encode(s); })); });
+    term.onResize(function (size) { stat.resizes++; send(ENC.encode(ttydEncodeResize(size.cols, size.rows))); });
 
     connect();
 
-    var refit = function () { try { fit.fit(); } catch (e) {} };
+    var refit = function () { stat.fits++; try { fit.fit(); } catch (e) {} };
 
     // Le terminal ne bouge pas qu'avec la fenêtre : déplier l'encart de session
     // ou un panneau change sa largeur SANS évènement resize. Un ResizeObserver
@@ -283,6 +343,7 @@
     if (global.ResizeObserver) {
       var pending = null;
       ro = new global.ResizeObserver(function () {          // groupé : le dépliage
+        stat.roFires++;
         clearTimeout(pending);                              // est animé, on ne
         pending = setTimeout(refit, 60);                    // refit qu'à la fin
       });
@@ -292,6 +353,7 @@
 
     // Bascule de thème du cockpit (RM2386) : relire les tokens et réappliquer.
     var mo = new MutationObserver(function () {
+      stat.themeFires++;
       try { term.options.theme = readThemeTokens(container); } catch (e) {}
     });
     mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
@@ -299,6 +361,13 @@
     return {
       term: term,
       fit: refit,
+      // RM2807 : instantané cumulé des compteurs, lu par la sonde mémoire.
+      stats: function () {
+        return { writes: stat.writes, writeBytes: stat.writeBytes,
+                 maxWrite: stat.maxWrite, data: stat.data, resizes: stat.resizes,
+                 fits: stat.fits, roFires: stat.roFires, themeFires: stat.themeFires,
+                 cols: term.cols, rows: term.rows };
+      },
       // Envoi d'un message composé hors du terminal (RM2527). Passe par la même
       // socket que la frappe, donc par le même PTY : le TUI ne fait aucune
       // différence. Retourne false si la socket n'est pas prête — l'appelant en
@@ -353,6 +422,7 @@
     ttydEncodeInput: ttydEncodeInput,
     ttydEncodeResize: ttydEncodeResize,
     ttydDecode: ttydDecode,
+    ttydFlow: ttydFlow,
     bracketedPaste: bracketedPaste,
     composerFrames: composerFrames,
   };

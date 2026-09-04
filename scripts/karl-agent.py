@@ -57,6 +57,9 @@ API (JSON, localhost:9876)
   GET  /sessions[?engine=&client=&project=&ghosts=0]
                                 → [{rm_id, tmux, created, attached, engine?,
                                    session_id?, client?, project?,
+                                   activity (dernière sortie du terminal, RM2787),
+                                   last_msg (dernier message RÉEL du transcript —
+                                   les récapitulatifs auto en sont exclus, RM2793),
                                    registry?{seq, machine, created, branches[],
                                    worktrees[]}, registry_conflicts?[]}]
                                   (RM1939 ; registre pm_session RM2166)
@@ -102,9 +105,11 @@ API (JSON, localhost:9876)
   GET  /file?path=<rel>         → text/plain (doc .md sous projects/, lecture seule)
   GET  /tickets/search?q=&…     → {results:[…]}  (recherche MD locaux, RM1893 §7)
   GET  /tickets/search?q=&status=&client=&project=&tag=&source=local|redmine|both
+  GET  /tickets/brief?ids=<csv>&remote=1|0   (remote : replier sur Redmine si pas de MD local)
                                 → {results:[…{origin, synced}], source, redmine_error}
                                   `source` : MD locaux (défaut), Redmine (tickets
                                   pas encore fetchés), ou les deux fusionnés  (RM2770)
+  GET  /tags                    → {tags:[{tag,count}]} — étiquettes en usage (RM2830)
   GET  /projects                → {projects:[{client, project, value}]}  (RM1893 §8)
   GET  /client/<slug>           → fiche client : identité, statut, contacts,
                                   valeurs par défaut, projets, projets utilisés,
@@ -117,6 +122,13 @@ API (JSON, localhost:9876)
                                   (RM2726 : sessions qui traitent le ticket —
                                   ancrage / registre / worklog — et sessions
                                   vivantes où l'envoyer, même projet d'abord)
+  GET  /ticket-transitions/<rm>[?force=1]
+                                → {status, transitions:[{status, condition,
+                                  redmine_ok, needs_close_reason}],
+                                  redmine_checked, close_reasons}
+                                  (RM2888 : les statuts posables ICI, demandés à
+                                  pm-task-status-update --list-next --json —
+                                  la règle NORMS n'est jamais recopiée côté UI)
   POST /tickets {title, type, priority, project, description?, tags?}
                                 → {created, rm_id}  (wrappe pm-task-add, RM1893 §8)
   POST /spawn  {rm_id, cwd?, engine?, model?, prompt?, width?, height?}
@@ -173,6 +185,7 @@ Lancement :
     KARL_AGENT_PORT=9999 python3 scripts/karl-agent.py
 """
 import base64
+import datetime
 import hashlib
 import hmac
 import json
@@ -207,6 +220,7 @@ SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le t
 # a-t-elle été tranchée ». Le sys.path est explicite : le service démarre avec un
 # cwd quelconque, et l'import échouerait silencieusement au boot sans lui.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
                            question_parts as _question_parts,
@@ -283,6 +297,12 @@ ENGINES = {
     "claude": {
         "cmd": os.environ.get("KARL_AGENT_SPAWN_CMD", "claude"),
         "ready_markers": ("for shortcuts", "accept edits", "for agents", "❯"),
+        # RM2951 : le TUI s'arrête sur son garde-fou quand le dossier n'a jamais
+        # été approuvé. L'écran porte « ❯ » (curseur sur « No, exit ») : sans ces
+        # marqueurs-ci, il passait pour « prêt » et l'Enter du prompt validait la
+        # sortie — session morte-née (incident RM2950).
+        "blocked_markers": ("Is this a project you created or one you trust",
+                            "trust this folder", "No, exit"),
         "model_flag": "--model",
         "resume_flag": "--resume",
         "sid_re": r"^[0-9a-fA-F][0-9a-fA-F-]{7,63}$",
@@ -862,7 +882,11 @@ def _log_path(rm_id: str) -> Path:
 def _list_sessions():
     rc, out, _ = _tmux(
         "list-sessions", "-F",
-        "#{session_name}\t#{session_created}\t#{session_attached}",
+        # RM2787 : `session_activity` — dernière SORTIE du terminal. C'est ce qui
+        # décide d'un geste (« muette depuis 2 h »), là où `session_created` ne
+        # dit que l'ancienneté. Un champ de plus dans une commande déjà passée à
+        # chaque poll : aucun appel supplémentaire.
+        "#{session_name}\t#{session_created}\t#{session_attached}\t#{session_activity}",
     )
     if rc != 0:
         return []  # pas de serveur tmux = aucune session
@@ -884,6 +908,9 @@ def _list_sessions():
             "tmux": name,
             "created": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else None,
             "attached": (len(parts) > 2 and parts[2] == "1"),
+            # `activity` est absent des tmux trop anciens pour ce format : None
+            # plutôt que 0, qui afficherait « il y a 56 ans » (RM2787).
+            "activity": int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else None,
         })
     return sessions
 
@@ -961,23 +988,86 @@ def _require_rm_id(payload: dict) -> str:
     return rm_id
 
 
-def _wait_engine_ready(rm_id: str, engine: str, timeout: float = 8.0) -> None:
+#: Attente maximale d'un TUI prêt avant d'injecter le prompt initial.
+ENGINE_READY_TIMEOUT = 8.0
+
+
+def _session_started(rm_id: str) -> bool:
+    """La session vient-elle de survivre à son démarrage ? (RM2951)
+
+    Même mesure que `_has_session`, sous un nom distinct — à dessein. La garde
+    d'entrée (« session déjà active », 409) et ce contrôle-ci posent la même
+    question à deux instants OPPOSÉS : avant, la bonne réponse est « non » ;
+    après, c'est « oui ». Les deux sous le même nom, un harnais qui fige la garde
+    fait échouer le contrôle, et l'inverse — le point de mesure doit pouvoir se
+    régler séparément."""
+    return _has_session(rm_id)
+
+
+def _blocked_reason(engine: str, name: str, prompt: bool) -> str:
+    """RM2951 — ce qu'on dit quand le TUI attend une approbation. Le message doit
+    tenir seul dans un toast : ce qui bloque, où le débloquer, et ce qui n'a PAS
+    été fait."""
+    return (f"le moteur {engine} attend une approbation dans la session {name} "
+            "(dossier pas encore approuvé par le moteur) — ouvre la session et "
+            "réponds-lui"
+            + (" ; le prompt initial n'a PAS été envoyé (l'expédier maintenant "
+               "répondrait à sa question, pas à la tienne)" if prompt else ""))
+
+
+# >>> engine_pane_state — pure (testée par test_karl_agent_spawn_trust.py)
+# RM2951 — que raconte le pane ? « ready » (le TUI attend une entrée), « blocked »
+# (il attend AUTRE CHOSE qu'un prompt — typiquement l'approbation du dossier) ou
+# « starting » (rien de reconnaissable encore).
+#
+# Le blocage se teste EN PREMIER, et ce n'est pas un détail d'ordre : l'écran de
+# confiance de claude affiche « ❯ » devant « No, exit », or « ❯ » est justement un
+# marqueur de TUI prêt. Tester « prêt » d'abord revenait à voir une invite là où
+# le moteur posait une question fermée — et l'Enter qui suivait répondait « non ».
+#
+# Moteur inconnu, ou sans marqueur (shell) : « ready ». On ne fabrique pas un
+# refus faute de savoir ; le comportement d'avant est le défaut.
+def engine_pane_state(pane: str, engine: str) -> str:
+    text = pane or ""
+    e = ENGINES.get(engine, {})
+    if any(m in text for m in e.get("blocked_markers", ())):
+        return "blocked"
+    markers = e.get("ready_markers", ())
+    if not markers or any(m in text for m in markers):
+        return "ready"
+    return "starting"
+# <<< engine_pane_state
+
+
+def _engine_pane_state_now(rm_id: str, engine: str) -> str:
+    """État du pane à l'instant t, sans attendre (RM2951). Capture illisible ⇒
+    « starting » : on ne conclut rien d'un pane qu'on n'a pas pu lire."""
+    rc, out, _ = _tmux("capture-pane", "-p", "-t", _session_name(rm_id))
+    return engine_pane_state(out, engine) if rc == 0 else "starting"
+
+
+def _wait_engine_ready(rm_id: str, engine: str, timeout: float | None = None) -> str:
     """Attend que le TUI du moteur soit prêt à recevoir une entrée, avant
     d'injecter le prompt initial. Sans ça, les touches envoyées trop tôt partent
     dans le vide pendant le splash de démarrage (course observée sur claude, RM1873).
-    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout."""
+    Best-effort : rend la main dès qu'un marqueur d'invite apparaît, ou au timeout.
+
+    RM2951 — rend l'état atteint (`ready` / `blocked` / `starting`) : l'appelant
+    doit pouvoir REFUSER d'injecter quoi que ce soit dans un TUI qui attend une
+    approbation. S'arrête aussi vite sur un blocage que sur un prêt — attendre
+    huit secondes une invite qui ne viendra pas ne sert personne."""
     # Marqueurs propres au moteur (cf. ENGINES). Vide (ex. shell) → pas d'attente.
-    markers = ENGINES.get(engine, {}).get("ready_markers", ())
-    if not markers:
+    if not ENGINES.get(engine, {}).get("ready_markers", ()):
         time.sleep(0.3)
-        return
-    name = _session_name(rm_id)
-    deadline = time.time() + timeout
+        return "ready"
+    deadline = time.time() + (ENGINE_READY_TIMEOUT if timeout is None else timeout)
+    state = "starting"
     while time.time() < deadline:
-        rc, out, _ = _tmux("capture-pane", "-p", "-t", name)
-        if rc == 0 and any(m in out for m in markers):
-            return
+        state = _engine_pane_state_now(rm_id, engine)
+        if state in ("ready", "blocked"):
+            return state
         time.sleep(0.3)
+    return state
 
 
 def _ticket_model(rm_id: str) -> str | None:
@@ -1101,26 +1191,46 @@ def op_spawn(payload: dict, auth_ctx: dict | None = None) -> dict:
         if _is_ticket_sid(rm_id):
             _record_run(rm_id, engine, session_id, str(cwd))
         _record_key(rm_id, engine, session_id, str(cwd), model=model_value)
-        joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
+        joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     # Prompt initial éventuel, livré par send-keys (jamais dans la cmd). On attend
     # que le TUI soit prêt, puis on sépare texte et Enter (claude debounce parfois
     # la soumission si les deux arrivent collés sur un TUI à peine initialisé).
     prompt = payload.get("prompt")
-    if prompt:
+    # RM2951 : l'état du TUI décide. Un moteur qui attend l'approbation du dossier
+    # affiche « ❯ » devant « No, exit » — donc un marqueur de « prêt ». On lui
+    # envoyait le prompt puis Enter, ce qui validait la sortie : claude quittait,
+    # la session tmux mourait, et /spawn répondait 201 sur une session jamais née
+    # (incident RM2950). Sans prompt à livrer, une capture unique suffit à le dire.
+    blocked, prompt_sent = None, False
+    state = _wait_engine_ready(rm_id, engine) if prompt \
+        else _engine_pane_state_now(rm_id, engine)
+    if state == "blocked":
+        blocked = _blocked_reason(engine, name, bool(prompt))
+    elif prompt:
         # RM2284 : l'ancrage ticket transite TOUJOURS, même en prompt libre —
         # si le texte ne mentionne pas déjà RM<id>, on préfixe le contexte
         # (incident : session lancée pour RM2140 sans que l'agent le sache).
         if _is_ticket_sid(rm_id) and f"rm{rm_id}" not in str(prompt).lower():
             prompt = _anchor_context(rm_id) + " " + str(prompt)
-        _wait_engine_ready(rm_id, engine)
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", name, "Enter")
+        prompt_sent = True
+
+    # RM2951 : jamais de 201 sur une session qui n'existe déjà plus. Elle serait
+    # invisible partout (rien ne tourne, aucune conversation) alors que l'appelant
+    # vient de lire « créée ».
+    if not _session_started(rm_id):
+        raise ApiError(502, f"la session {name} s'est arrêtée aussitôt après son "
+                            f"démarrage (moteur {engine}) — voir la capture "
+                            f"{_log_path(rm_id).name}")
 
     return {"rm_id": rm_id, "tmux": name, "engine": engine, "cwd": str(cwd),
             "model": model_value, "model_source": model_source,
             "session_id": session_id, "created": True,
+            # RM2951 : ce qui a (ou n'a pas) été fait du prompt, et pourquoi
+            "prompt_sent": prompt_sent, "blocked": blocked,
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
@@ -1714,7 +1824,7 @@ def _record_key(sid: str, engine: str, session_id: str, cwd: str,
 # Un jeu DÉRIVÉ est défini par une RÈGLE, pas par une liste : il ne dérive jamais,
 # rien à curer, et une session neuve qui satisfait la règle y entre sans geste.
 # La résolution se fait à la LECTURE : rien n'est stocké, donc rien à synchroniser.
-RULE_KEYS = ("client", "project", "mark", "tickets")
+RULE_KEYS = ("client", "project", "mark", "tickets", "tag")   # RM2830 : + étiquette
 
 
 def _rule_norm(rule) -> dict:
@@ -1731,6 +1841,12 @@ def _rule_norm(rule) -> dict:
             if not isinstance(v, list):
                 raise ApiError(400, "rule.tickets doit être une liste d'id")
             out[k] = [str(x) for x in v]
+        elif k == "tag":
+            # RM2830 : normalisée comme partout ailleurs, sinon « Front » ne
+            # retrouverait pas les tickets étiquetés « front ».
+            out[k] = _tag_norm(v)
+            if not out[k]:
+                raise ApiError(400, "rule.tag vide après normalisation")
         elif k == "mark":
             m = str(v).lower()
             if m not in MARKS + ("none",):
@@ -1765,6 +1881,19 @@ def _all_keys() -> list:
     return out
 
 
+def _sid_tags(sid: str) -> list:
+    """Étiquettes du TICKET d'une session (RM2830). Une session ancrée sur un
+    slug n'a pas de ticket : elle n'a donc pas d'étiquette — et ne doit jamais
+    matcher une règle par étiquette « au cas où »."""
+    s = str(sid or "")
+    if not s.isdigit():
+        return []
+    tf = _find_task_file(s)
+    if not tf:
+        return []
+    return [_tag_norm(t) for t in (_read_task_meta(tf).get("tags") or []) if _tag_norm(t)]
+
+
 def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     client, project = _pm_project_of_cwd(k.get("cwd"))
     if "client" in rule and client != rule["client"]:
@@ -1772,6 +1901,12 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     if "project" in rule and project != rule["project"]:
         return False
     if "tickets" in rule and sid not in rule["tickets"]:
+        return False
+    # Normalisé ici AUSSI : `_rule_norm` s'en charge à l'écriture, mais une règle
+    # déjà persistée (ou éditée à la main dans le JSON du jeu) doit continuer de
+    # matcher — sinon elle échoue en silence, et un jeu dérivé vide ne dit pas
+    # pourquoi il est vide.
+    if "tag" in rule and _tag_norm(rule["tag"]) not in _sid_tags(sid):
         return False
     if "mark" in rule:
         mark = _session_mark(k.get("session_id"))
@@ -1783,36 +1918,52 @@ def _rule_matches(rule: dict, sid: str, k: dict) -> bool:
     return True
 
 
-def _derived_entries(rule: dict, with_total: bool = False):
+def _derived_entries(rule: dict, with_total: bool = False, cap: int | None = -1):
     """Contenu d'un jeu dérivé, au format d'une entrée manuelle — pour que tout
     l'aval (fantômes, relance, estimation) l'ignore et le traite pareil.
 
-    Deux règles d'hygiène, alignées sur les jeux manuels :
+    Règles d'hygiène, alignées sur les jeux manuels :
 
     - une session TERMINÉE marquée `[DONE]` et qui ne tourne plus est écartée,
       exactement comme `_forget_done_entries` l'évince d'un jeu manuel (RM2427) :
       un travail fini n'a pas de tuile grise. Sans cela une vue client affichait
       12 sessions closes sur 25 — d'où l'impression, justifiée, d'en voir
       « beaucoup plus » ;
+    - RM2949 : même chose quand le TICKET est fermé. Le marqueur `[DONE]` se pose
+      à la main et ne l'est presque jamais ; le statut de la fiche, lui, est tenu
+      par le flux PM — c'est la source fiable du « c'est fini » ;
+    - RM2949 : et rien à rouvrir (conversation purgée ET aucun dossier mémorisé)
+      ⇒ pas de tuile : elle ne pourrait ni reprendre, ni repartir en session
+      neuve — `_spawn_fallback` refuse en 410 sans cwd ;
     - le plafond `SESSION_SET_MAX` ne tronque plus en SILENCE : le total réel est
       rendu à l'appelant, qui le dit (`truncated`).
 
-    Une session `[DONE]` mais VIVANTE reste listée : on n'escamote jamais un
+    Une session terminée mais VIVANTE reste listée : on n'escamote jamais un
     processus qui tourne."""
     live = {s["rm_id"] for s in _list_sessions()}
+    closed = _closed_ticket_ids()
     out = []
     for sid, k in _all_keys():
         if not _rule_matches(rule, sid, k):
             continue
-        if sid not in live and _is_marked_done(k.get("session_id")):
-            continue
+        if sid not in live:
+            if _is_marked_done(k.get("session_id")) or sid in closed:
+                continue
+            if not _is_resumable(k.get("engine"), k.get("session_id")) \
+                    and not (k.get("cwd") or "").strip():
+                continue
         out.append({
             "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
             "cwd": k.get("cwd"), "model": k.get("model"),
             "title": _transcript_title(k.get("session_id")),
             "restart": _default_restart(k.get("session_id")),
         })
-    return (out[:SESSION_SET_MAX], len(out)) if with_total else out[:SESSION_SET_MAX]
+    # RM2954 : `cap=-1` = le plafond des jeux (défaut historique) ; `cap=None` =
+    # aucun, pour une vue qui promet « toutes les sessions » et ne peut pas
+    # s'arrêter à 24 sans se contredire.
+    n = SESSION_SET_MAX if cap == -1 else cap
+    kept = out if n is None else out[:n]
+    return (kept, len(out)) if with_total else kept
 
 
 def _entries_for_sids(wanted: set, user: str, store: dict) -> list:
@@ -1862,7 +2013,17 @@ def _session_facets() -> dict:
     out = [{"slug": c["slug"], "count": c["count"], "projects": sorted(c["projects"])}
            for c in clients.values()]
     out.sort(key=lambda c: (-c["count"], c["slug"]))
-    return {"clients": out, "marks": sorted(marks)}
+    # RM2830 : les étiquettes des tickets des sessions connues — de quoi proposer
+    # le critère « étiquette » du formulaire de règle sans le saisir à la main.
+    # Comptées sur les SESSIONS (pas sur tous les tickets) : c'est ce que la règle
+    # va effectivement retenir.
+    tag_counts: dict = {}
+    for sid, _k in _all_keys():
+        for t in set(_sid_tags(sid)):
+            tag_counts[t] = tag_counts.get(t, 0) + 1
+    tags = [{"tag": t, "count": c}
+            for t, c in sorted(tag_counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+    return {"clients": out, "marks": sorted(marks), "tags": tags}
 
 
 def _set_entries(rec: dict) -> list:
@@ -1910,6 +2071,32 @@ SESSION_SET_FILE = LOG_DIR / "session-set.json"
 DEFAULT_SET_USER = "superadmin"    # auth ouverte / secret partagé → superadmin
 DEFAULT_SET_GROUP = "default"
 SESSION_SET_MAX = 24               # garde-fou : un instantané ne dépasse pas ça
+
+
+#: Libellé par défaut du registre — « default » est un slug de store, pas un nom
+#: pour un opérateur : le sélecteur doit dire ce que ce jeu EST (RM2953).
+ACTIVE_SET_LABEL = "sessions actives"
+
+
+def _set_label(group: str, rec: dict | None) -> str:
+    """Nom affichable d'un jeu : celui qu'on lui a donné, sinon son slug — sauf
+    le registre, qui annonce sa nature (RM2953)."""
+    lbl = (rec or {}).get("label")
+    if lbl:
+        return lbl
+    return ACTIVE_SET_LABEL if group == DEFAULT_SET_GROUP else group
+
+
+def _set_cap(group: str):
+    """Plafond d'entrées d'un jeu, ou None s'il n'en a pas (RM2953).
+
+    Le jeu `default` est le REGISTRE des sessions actives : il n'est pas composé
+    à la main, il enregistre ce qui tourne. Un registre qui refuse des entrées
+    ment sur son contenu — et le refus tombe sur la session la plus récente,
+    c'est-à-dire celle qu'on vient de lancer. Les jeux MANUELS, eux, gardent leur
+    garde-fou : on les compose, et 24 tuiles sont déjà beaucoup à relancer d'un
+    clic (RM2451 : chaque relance est une réhydratation de contexte payante)."""
+    return None if group == DEFAULT_SET_GROUP else SESSION_SET_MAX
 _SET_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9._-]{0,31}$")  # user ET group
 
 
@@ -2041,7 +2228,11 @@ def _current_set(user: str, store: dict | None = None) -> str:
 # cible de toutes les écritures — adhésion automatique, bouton « Enregistrer », ⊖ —,
 # tandis que la VUE (`view`) décide seulement de ce qu'on affiche. Une vue ne peut
 # donc jamais devenir une destination par accident.
-SESSION_SET_VIEWS = ("set", "live", "all")
+# RM2954 : « all » désigne tous les JEUX, « sessions » toutes les SESSIONS
+# connues. Deux périmètres distincts, et c'est bien le second qui manquait : la
+# seule vue qui allait au-delà des jeux (`client:<slug>`) reste bornée à un
+# client, et laisse donc de côté ce dont le client ne se résout pas.
+SESSION_SET_VIEWS = ("set", "live", "all", "sessions")
 _VIEW_CLIENT_RE = re.compile(r"^client:([a-z0-9][a-z0-9._-]{0,31})$")
 
 
@@ -2084,20 +2275,41 @@ def op_session_set_current(payload: dict, auth_ctx: dict | None = None) -> dict:
             "view": _current_view(user, store)}
 
 
-def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | None:
-    """RM2445 — une session qui démarre (spawn) ou qui est reprise (resume)
-    REJOINT le jeu courant, sans geste manuel. Union stricte : le statut fait
-    ENTRER, jamais SORTIR (invariant RM2439 — une session qui s'arrête devient
-    une tuile grise, elle ne quitte pas le jeu). Best-effort : l'échec de
-    l'adhésion ne doit jamais faire échouer le lancement d'une session."""
+def _registry_entry(sid: str) -> dict:
+    """Entrée de registre pour un sid, depuis l'index des clés (RM2953)."""
+    k = _key_info(sid) or {}
+    return {
+        "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
+        "cwd": k.get("cwd"), "model": k.get("model"),
+        "title": _transcript_title(k.get("session_id")),
+        "restart": _default_restart(k.get("session_id")),
+    }
+
+
+def _auto_join_active_set(sid: str, auth_ctx: dict | None = None) -> dict | None:
+    """Une session qui démarre (spawn) ou qui est reprise (resume) entre au
+    REGISTRE des sessions actives — le jeu `default` (RM2953).
+
+    RM2445 visait le jeu COURANT. C'était vrai tant que le jeu courant était
+    manuel ; le jour où il est devenu un jeu DÉRIVÉ (`pm`), l'adhésion s'est mise
+    à répondre `reason: "derive"` — légitimement, une règle décide seule de son
+    contenu — et plus aucune session n'a été enregistrée nulle part. Le registre
+    ne dépend donc plus de ce qu'on regarde : le jeu courant est un filtre
+    d'AFFICHAGE, le registre est unique.
+
+    Union stricte : le statut fait ENTRER, jamais SORTIR (invariant RM2439 — une
+    session qui s'arrête devient une tuile grise, elle ne quitte pas le jeu). La
+    sortie a un seul motif, `[DONE]` + éteinte, et un seul lieu,
+    `_forget_done_entries`. Best-effort : l'échec de l'adhésion ne doit jamais
+    faire échouer le lancement d'une session."""
     try:
         user = _session_set_user(auth_ctx)
         store = _session_set_load()
-        group = _current_set(user, store)
+        group = DEFAULT_SET_GROUP
         rec = _session_set_get(store, user, group)
         if rec is not None and rec.get("rule"):
-            # RM2452 : dans un jeu dérivé, c'est la RÈGLE qui décide — la session
-            # y figurera si elle la satisfait, sans qu'on l'y « ajoute ».
+            # Quelqu'un a posé une règle sur `default` : c'est elle qui décide de
+            # son contenu, on n'y ajoute rien — mais on le DIT (RM2452).
             return {"group": group, "joined": False, "reason": "derive"}
         if rec is None:
             rec = {"saved_at": int(time.time()), "saved_by": (auth_ctx or {}).get("user"),
@@ -2105,28 +2317,60 @@ def _auto_join_current_set(sid: str, auth_ctx: dict | None = None) -> dict | Non
         entries = rec.setdefault("entries", [])
         if any(e.get("sid") == sid for e in entries):
             return {"group": group, "joined": False, "reason": "deja"}
-        if len(entries) >= SESSION_SET_MAX:
+        cap = _set_cap(group)
+        if cap is not None and len(entries) >= cap:
             # RM2450 : ce refus finissait sur stderr — invisible pour l'opérateur,
             # qui croyait sa session enregistrée. Il remonte à l'appelant, qui le
-            # renvoie dans la réponse de /spawn et /resume.
-            sys.stderr.write(f"jeu {user}/{group} plein ({SESSION_SET_MAX}) : "
+            # renvoie dans la réponse de /spawn et /resume. (Le registre n'a pas
+            # de plafond : ce chemin ne sert que si `default` en reçoit un.)
+            sys.stderr.write(f"jeu {user}/{group} plein ({cap}) : "
                              f"{sid} n'y a pas été ajoutée\n")
-            return {"group": group, "joined": False, "reason": "plein",
-                    "max": SESSION_SET_MAX}
-        k = _key_info(sid) or {}
-        entries.append({
-            "sid": sid, "engine": k.get("engine"), "session_id": k.get("session_id"),
-            "cwd": k.get("cwd"), "model": k.get("model"),
-            "title": _transcript_title(k.get("session_id")),
-            "restart": _default_restart(k.get("session_id")),
-        })
+            return {"group": group, "joined": False, "reason": "plein", "max": cap}
+        entries.append(_registry_entry(sid))
         rec["saved_at"] = int(time.time())
         _session_set_put(store, user, group, rec)
         _write_session_set(store, archive=False)
         return {"group": group, "joined": True}
     except (OSError, ValueError) as e:
-        sys.stderr.write(f"adhésion au jeu courant ignorée pour {sid} : {e}\n")
+        sys.stderr.write(f"adhésion au registre ignorée pour {sid} : {e}\n")
         return {"group": None, "joined": False, "reason": "erreur"}
+
+
+def _register_live_sessions(user: str, groups: dict) -> bool:
+    """Rattrape au registre les sessions VIVANTES qui n'y sont pas (RM2953).
+
+    L'adhésion à la création ne couvre que ce qui est lancé depuis le cockpit :
+    une session ouverte au terminal, ou lancée avant la mise en place du
+    registre, n'y entrerait jamais. Ce rattrapage tourne avec l'autre passe
+    d'hygiène (`_forget_done_entries`) : ce qui tourne est inscrit, ce qui est
+    fini et éteint en sort.
+
+    Une session sans rien de mémorisé (ni conversation, ni dossier) n'est pas
+    inscrite : elle ne serait relançable ni reprenable, et n'ajouterait qu'une
+    coquille au registre. Rend True si le store a changé."""
+    rec = groups.get(DEFAULT_SET_GROUP)
+    if rec is not None and rec.get("rule"):
+        return False                      # règle posée sur `default` : elle décide
+    if rec is None:
+        rec = {"saved_at": int(time.time()), "autostart": True, "entries": []}
+        groups[DEFAULT_SET_GROUP] = rec
+    entries = rec.setdefault("entries", [])
+    connus = {e.get("sid") for e in entries}
+    ajouts = []
+    for s in _list_sessions():
+        sid = s.get("rm_id")
+        if not sid or sid in connus or not _valid_sid(sid):
+            continue
+        e = _registry_entry(sid)
+        if not e.get("session_id") and not e.get("cwd"):
+            continue
+        ajouts.append(e)
+        connus.add(sid)
+    if not ajouts:
+        return False
+    entries.extend(ajouts)
+    rec["saved_at"] = int(time.time())
+    return True
 
 
 def _snapshot_live_sessions() -> list:
@@ -2213,7 +2457,7 @@ def op_session_set_save(payload: dict, auth_ctx: dict | None = None) -> dict:
 
     # Le plafond porte désormais sur l'UNION : refus AVANT toute écriture, pour
     # que le jeu déjà en place survive intact au dépassement.
-    if len(entries) > SESSION_SET_MAX:
+    if _set_cap(group) is not None and len(entries) > _set_cap(group):
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)}) — retire des tuiles (✕) avant "
                             f"d'enregistrer")
@@ -2251,7 +2495,7 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     live = {s["rm_id"] for s in _list_sessions()}
     sets = [{
         "name": name,
-        "label": rec.get("label") or name,
+        "label": _set_label(name, rec),
         "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
         "count": len(_set_entries(rec)),
         "total": _set_total(rec),          # RM2452 : réel, même si tronqué
@@ -2267,6 +2511,9 @@ def op_session_sets_list(qs: dict, auth_ctx: dict | None = None) -> dict:
     return {"user": user, "sets": sets, "count": len(sets),
             "current": _current_set(user, store), "view": _current_view(user, store),
             "live_count": len(live), "all_count": len(known | live),
+            # RM2954 : ce que montrera « toutes les sessions » — compté sur le
+            # même contenu que la vue, hygiènes comprises (RM2949).
+            "sessions_count": len(_derived_entries({}, cap=None)),
             # RM2452 : vues par client, offertes d'office pour les clients qui ONT
             # des sessions — rien à créer, rien à curer
             "facets": facets,
@@ -2311,7 +2558,7 @@ def op_session_set_history(qs: dict, auth_ctx: dict | None = None) -> dict:
             continue
         versions.append({
             "id": str(stamp), "at": stamp // 1_000_000_000,
-            "sets": [{"name": g, "label": r.get("label") or g,
+            "sets": [{"name": g, "label": _set_label(g, r),
                       "count": len(r.get("entries") or [])}
                      for g, r in sorted(groups.items())],
         })
@@ -2381,7 +2628,7 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
         raise ApiError(400, "un jeu dérivé n'a pas de liste : sa règle la produit")
     wanted = {str(s) for s in (sids or [])}
     entries = _entries_for_sids(wanted, user, store) if wanted else []
-    if len(entries) > SESSION_SET_MAX:
+    if _set_cap(group) is not None and len(entries) > _set_cap(group):
         raise ApiError(409, f"le jeu dépasserait {SESSION_SET_MAX} entrées "
                             f"({len(entries)})")
     # RM2448 — split : retrait des sid retenus du jeu source, dans cette écriture
@@ -2418,7 +2665,7 @@ def op_session_set_create(payload: dict, auth_ctx: dict | None = None) -> dict:
     # une création n'ôte rien (archive=False) ; un split, si (RM2443)
     _write_session_set(store, archive=bool(moved))
     resolved = _set_entries(rec)
-    return {"user": user, "group": group, "label": rec.get("label") or group,
+    return {"user": user, "group": group, "label": _set_label(group, rec),
             "derived": bool(rule), "rule": rule,
             "count": len(resolved), "current": group, "entries": resolved,
             "moved_from": src if moved else None, "moved": moved}
@@ -2579,12 +2826,14 @@ def op_session_set_estimate(qs: dict, auth_ctx: dict | None = None) -> dict:
         if e.get("sid") in live:
             already += 1
             continue
-        info = _transcript_info(e.get("session_id"))
-        if not info.get("bytes"):
-            lost += 1                      # transcript perdu : la relance échouera
+        # RM2949 : même verdict que la tuile et que /resume. L'ancien test
+        # (« pas d'octets ») comptait aussi perdue toute session opencode/vibe,
+        # dont la conversation vit en base et n'a pas de transcript à peser.
+        if not _is_resumable(e.get("engine"), e.get("session_id")):
+            lost += 1
             continue
         relaunchable += 1
-        total += info["bytes"]
+        total += _transcript_info(e.get("session_id"), e.get("engine")).get("bytes") or 0
     tokens = total // BYTES_PER_TOKEN
     rate = _cache_read_usd_per_mtok()
     return {"user": user, "group": group, "relaunchable": relaunchable,
@@ -2600,7 +2849,7 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     group = _session_set_group(qs.get("group"))
     rec = _session_set_get(_session_set_load(), user, group)
     if not rec:
-        return {"user": user, "group": group, "label": group,
+        return {"user": user, "group": group, "label": _set_label(group, None),
                 "exists": False, "entries": [], "count": 0}
     total = _set_total(rec)
     live = {s["rm_id"] for s in _list_sessions()}
@@ -2608,10 +2857,13 @@ def op_session_set_get(qs: dict, auth_ctx: dict | None = None) -> dict:
     # l'UI affiche et bascule cette valeur sans avoir à rejouer la règle.
     entries = [dict(e, alive=(e.get("sid") in live),
                     last_active=_transcript_age(e.get("session_id")),   # RM2451
+                    # RM2949 : « 🟡 reprenable » ou « 🔴 perdue » se décide ici,
+                    # pas sur la présence d'un identifiant côté navigateur.
+                    resumable=_is_resumable(e.get("engine"), e.get("session_id")),
                     restart=(e.get("restart") if e.get("restart") in RESTART_POLICIES
                              else _default_restart(e.get("session_id"))))
                for e in _set_entries(rec)]
-    return {"user": user, "group": group, "label": rec.get("label") or group,
+    return {"user": user, "group": group, "label": _set_label(group, rec),
             "derived": bool(rec.get("rule")), "rule": rec.get("rule"),
             "hide_idle_days": rec.get("hide_idle_days") or 0,
             "total": total, "truncated": total > len(entries),
@@ -2769,6 +3021,14 @@ def op_session_set_delete(qs: dict, auth_ctx: dict | None = None) -> dict:
         return {"user": user, "group": group, "deleted": True}
     rec = groups[group]
     _reject_if_derived(rec, "retrait impossible")             # RM2452
+    # RM2953 : le registre des sessions actives se tient tout seul. Retirer une
+    # session qui TOURNE l'y ferait revenir au poll suivant — un geste qui se
+    # défait n'est pas un geste (même travers que RM2952). On le refuse en
+    # disant quand elle en sortira.
+    if group == DEFAULT_SET_GROUP and _has_session(sid):
+        raise ApiError(409, f"{sid} tourne : elle appartient au registre des sessions "
+                            "actives et y reviendrait aussitôt. Elle en sortira quand "
+                            "elle sera marquée terminée ([DONE]) et éteinte.")
     entries = rec.get("entries") or []
     kept = [e for e in entries if e.get("sid") != sid]
     if len(kept) == len(entries):
@@ -2832,17 +3092,26 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     now = time.time()
     if now - _DONE_CACHE["at"] > _DONE_CACHE_TTL:
         _DONE_CACHE.update({"at": now, "map": {}})
-    ckey = f"{engine or ''}:{session_id}"      # RM2547 : même UUID, moteurs distincts
+    # RM2949 : `engine` NOMME le moteur — il ne signifie pas « moteur tiers ».
+    # Passer engine="claude" empruntait la branche des stores tiers, qui n'a pas
+    # de lecteur pour `claude_jsonl` : la conversation était déclarée absente
+    # alors qu'elle est là, et une tuile parfaitement relançable passait pour
+    # perdue.
+    store = (ENGINES.get(engine or "", {}) or {}).get("store")
+    tiers = bool(store != "claude_jsonl" and (engine or not _SID_RE.match(session_id)))
+    # RM2547 : même UUID, moteurs distincts → la clé de cache suit le store
+    # RÉELLEMENT lu, pas le nom reçu : `engine=None` et `engine="claude"` lisent
+    # le même transcript et n'ont pas à le relire chacun de son côté.
+    ckey = f"{(store or engine or '') if tiers else 'claude_jsonl'}:{session_id}"
     if ckey in _DONE_CACHE["map"]:
         return _DONE_CACHE["map"][ckey]
-    if not _SID_RE.match(session_id) or engine:
+    if tiers:
         # Moteur tiers (ou moteur imposé par l'appelant) : les méta viennent de
         # SON store. Le marqueur [WIP]/[DONE] y est porté par le titre, comme
         # côté claude : même extraction.
         # ⚠ vibe émet des UUID comme claude (RM2547) : sans `engine`, une telle
         # session est traitée en claude — c'est l'appelant qui lève l'ambiguïté,
         # via `_engine_of_session` ou l'`engine` transmis (RM2536).
-        store = (ENGINES.get(engine or "", {}) or {}).get("store")
         reader = _ENGINE_META.get(store or "")
         if reader is None and not _SID_RE.match(session_id):
             reader = next((_ENGINE_META[ENGINES[n]["store"]] for n in ENGINES
@@ -2872,6 +3141,93 @@ def _transcript_info(session_id: str | None, engine: str | None = None) -> dict:
     return info
 
 
+
+# ── RM2793 : dernier message RÉEL d'une session ──────────────────────────────
+# `session_activity` de tmux (RM2787) compte toute écriture au terminal — y
+# compris celles que Claude Code produit SEUL : la ligne « ※ recap: … » qu'il
+# affiche quand la session reste sans réponse (`system` / `away_summary` au
+# transcript). Le compteur retombait alors à zéro et la session paraissait
+# active alors que personne n'y avait touché — l'indicateur mentait dans le sens
+# le plus coûteux, en rendant invisible une session à relancer.
+#
+# Le transcript, lui, distingue la nature de chaque entrée. On y lit le dernier
+# VRAI message, et rien d'autre.
+
+#: Ce qui compte comme action. Les `system` (dont `away_summary`) et toutes les
+#: métadonnées (`ai-title`, `mode`, `permission-mode`, `atis-latch`,
+#: `last-prompt`, `file-history-snapshot`) en sont exclus par construction.
+LAST_MSG_TYPES = ("user", "assistant")
+#: Fin de fichier lue pour y chercher ce message. Un transcript pèse plusieurs
+#: Mo ; les derniers messages tiennent dans une fraction de cette taille, et la
+#: lecture est bornée pour rester au prix d'un poll.
+LAST_MSG_TAIL_BYTES = 262144
+_LAST_MSG_CACHE: dict = {"at": 0.0, "map": {}}
+
+
+# >>> last_message_ts — pure (testée par test_karl_agent_last_msg.py)
+def last_message_ts(lines):
+    """Horodatage (epoch) du dernier vrai message parmi des lignes JSONL.
+
+    Parcours à l'ENVERS : on s'arrête au premier message utile, sans lire le
+    reste. `None` si aucun — l'appelant retombe alors sur l'activité tmux plutôt
+    que d'afficher un vide là où il y avait une durée.
+    """
+    for line in reversed(list(lines or [])):
+        line = (line or "").strip()
+        if not line or not line.startswith("{"):
+            continue
+        try:
+            d = json.loads(line)
+        except ValueError:
+            continue            # ligne tronquée (écriture en cours) : on remonte
+        if d.get("type") not in LAST_MSG_TYPES:
+            continue            # system/away_summary, ai-title, mode… : pas une action
+        if d.get("isMeta") or d.get("isSidechain"):
+            continue            # hook, rappel système, sous-agent : pas le fil principal
+        ts = d.get("timestamp")
+        if not ts:
+            continue
+        try:
+            return int(datetime.datetime.fromisoformat(
+                str(ts).replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            continue
+    return None
+# <<< last_message_ts
+
+
+def _last_message_at(session_id: str | None, engine: str | None = None):
+    """Dernier message réel de la session (epoch), ou None.
+
+    Mémorisé comme `_transcript_info` : `/sessions` est polled en continu, et
+    une lecture par session et par appel se paierait à chaque tour. Réservé aux
+    transcripts claude — un moteur tiers n'a pas ce format, il gardera l'activité
+    tmux (dégradation visible : une durée reste affichée).
+    """
+    if not session_id or engine not in (None, "claude") or not _SID_RE.match(session_id):
+        return None
+    now = time.time()
+    if now - _LAST_MSG_CACHE["at"] > _DONE_CACHE_TTL:
+        _LAST_MSG_CACHE.update({"at": now, "map": {}})
+    if session_id in _LAST_MSG_CACHE["map"]:
+        return _LAST_MSG_CACHE["map"][session_id]
+    ts = None
+    jf = _transcript_jsonl(session_id)
+    if jf:
+        try:
+            size = jf.stat().st_size
+            with jf.open("rb") as fh:
+                if size > LAST_MSG_TAIL_BYTES:
+                    fh.seek(size - LAST_MSG_TAIL_BYTES)
+                    fh.readline()          # la première ligne lue est tronquée
+                lines = fh.read().decode("utf-8", errors="replace").splitlines()
+            ts = last_message_ts(lines)
+        except OSError:
+            ts = None
+    _LAST_MSG_CACHE["map"][session_id] = ts
+    return ts
+
+
 def _transcript_title(session_id: str | None) -> str | None:
     """RM2439 — titre du transcript, marqueur `[WIP]`/`[DONE]` ôté. Sert à NOMMER
     une entrée de jeu : un sid nu ne dit pas de quelle session il s'agit, et le
@@ -2886,6 +3242,27 @@ def _transcript_age(session_id: str | None):
     reprendre l'une ou l'autre n'a pas le même sens : contexte périmé, et
     réhydratation à payer."""
     return _transcript_info(session_id).get("mtime")
+
+
+def _is_resumable(engine: str | None, session_id: str | None) -> bool:
+    """La conversation existe-t-elle ENCORE ? (RM2949)
+
+    `resumable` ne disait jusqu'ici qu'une chose : « un identifiant est
+    mémorisé ». Une tuile grise promettait donc une reprise que `/resume` refuse
+    (410) dès que le transcript a été purgé — le clic finissait en « relance
+    impossible », sur une session que le cockpit venait pourtant d'annoncer
+    comme reprenable.
+
+    On lit la MÊME source que `op_resume` — transcript claude, base du moteur
+    ailleurs — mais à travers le cache de `_transcript_info` : `/sessions` est
+    polled en continu et passe ici pour chaque fantôme, à chaque tour.
+
+    Un moteur qui ne sait pas reprendre (shell) n'est jamais relançable : sa
+    tuile ne doit rien promettre non plus.
+    """
+    if not session_id or not _resume_support(engine or "claude"):
+        return False
+    return bool(_transcript_info(session_id, engine))
 
 
 def _session_mark(session_id: str | None) -> str | None:
@@ -2967,7 +3344,11 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     out, seen = [], set()
     store = _session_set_load()
     groups = ((store.get("users") or {}).get(user, {}).get("groups") or {})
-    if _forget_done_entries(user, groups):
+    # RM2953 : deux passes d'hygiène du REGISTRE, dans le même passage — ce qui
+    # est fini et éteint en sort, ce qui tourne y entre.
+    change = _forget_done_entries(user, groups)
+    change = _register_live_sessions(user, groups) or change
+    if change:
         _write_session_set(store)
     # RM2446 : le périmètre suit la VUE — le jeu courant (`set`), aucun fantôme
     # (`live` : on ne regarde que ce qui tourne), ou tous les jeux (`all`).
@@ -2975,18 +3356,25 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
     if view == "live":
         return []
     m = _VIEW_CLIENT_RE.match(view)
-    if m:
+    if m or view == "sessions":
         # RM2452 : vue par client — un jeu dérivé qu'on n'a même pas eu à créer.
-        for e in _derived_entries({"client": m.group(1)}):
+        # RM2954 : « toutes les sessions » est la même chose sans le filtre client,
+        # et sans plafond : elle promet TOUTES les sessions connues.
+        rule = {"client": m.group(1)} if m else {}
+        label = m.group(1) if m else "toutes les sessions"
+        for e in _derived_entries(rule, cap=-1 if m else None):
             sid = e.get("sid")
             if not sid or sid in live or sid in seen:
                 continue
             seen.add(sid)
             g = dict(e, rm_id=sid, is_ticket=_is_ticket_sid(sid), ghost=True,
-                     state="ghost", group=view, group_label=m.group(1),
+                     state="ghost", group=view, group_label=label,
                      attached=False, created=None,
                      last_active=_transcript_age(e.get("session_id")),
-                     resumable=bool(e.get("session_id")), saved_at=None)
+                     # RM2949 : la conversation existe-t-elle ENCORE ? Un sid
+                     # mémorisé ne suffit pas — le transcript a pu être purgé.
+                     resumable=_is_resumable(e.get("engine"), e.get("session_id")),
+                     saved_at=None)
             client, project = _pm_project_of_cwd(e.get("cwd"))
             if client:
                 g["client"], g["project"] = client, project
@@ -3015,7 +3403,7 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
                 # RM2442 : le libellé suit le groupe — quand plusieurs jeux sont
                 # repris, la tuile doit dire de QUEL jeu elle vient
                 "state": "ghost", "group": group,
-                "group_label": rec.get("label") or group,
+                "group_label": _set_label(group, rec),
                 "attached": False, "created": None,
                 "engine": e.get("engine"), "session_id": e.get("session_id"),
                 "cwd": e.get("cwd"), "model": e.get("model"),
@@ -3025,7 +3413,9 @@ def _ghost_sessions(auth_ctx: dict | None = None, show_old: bool = False) -> lis
                 # RM2451 : âge de la SESSION (dernier mouvement du transcript),
                 # à ne pas confondre avec `saved_at` qui date le JEU
                 "last_active": _transcript_age(e.get("session_id")),
-                "resumable": bool(e.get("session_id")), "saved_at": rec.get("saved_at"),
+                # RM2949 : conversation réellement présente, pas « un sid existe »
+                "resumable": _is_resumable(e.get("engine"), e.get("session_id")),
+                "saved_at": rec.get("saved_at"),
             }
             g["restart"] = e.get("restart") if e.get("restart") in RESTART_POLICIES \
                 else _default_restart(e.get("session_id"))
@@ -3518,38 +3908,48 @@ def op_resume(payload: dict, auth_ctx: dict | None = None) -> dict:
     if _is_ticket_sid(rm_id):
         _record_run(rm_id, engine, session_id, str(cwd))
     _record_key(rm_id, engine, session_id, str(cwd))
-    joined = _auto_join_current_set(rm_id, auth_ctx)   # RM2445 : rejoint le jeu courant
+    joined = _auto_join_active_set(rm_id, auth_ctx)    # RM2953 : entre au registre
 
     prompt = payload.get("prompt")
-    if prompt:
-        _wait_engine_ready(rm_id, engine)
+    # RM2951 : même garde qu'au spawn — un TUI qui attend une approbation ne
+    # reçoit pas de prompt, et surtout pas l'Enter qui y répondrait.
+    blocked, prompt_sent = None, False
+    state = _wait_engine_ready(rm_id, engine) if prompt \
+        else _engine_pane_state_now(rm_id, engine)
+    if state == "blocked":
+        blocked = _blocked_reason(engine, _session_name(rm_id), bool(prompt))
+    elif prompt:
         op_send({"rm_id": rm_id, "msg": prompt, "enter": False})
         time.sleep(0.3)
         _tmux("send-keys", "-t", _session_name(rm_id), "Enter")
+        prompt_sent = True
+
+    if not _session_started(rm_id):
+        raise ApiError(502, f"la session {_session_name(rm_id)} s'est arrêtée aussitôt "
+                            f"après la reprise (moteur {engine}) — voir la capture "
+                            f"{_log_path(rm_id).name}")
 
     return {"rm_id": rm_id, "tmux": _session_name(rm_id), "engine": engine,
             "session_id": session_id, "cwd": str(cwd), "resumed": True,
+            "prompt_sent": prompt_sent, "blocked": blocked,      # RM2951
             "set": joined}          # RM2450 : dit si la session a rejoint le jeu
 
 
 def _session_live(session_id: str, engine: str = "claude") -> bool:
     """Vrai si un tmux karl-* ancré à cette session tourne, ou si un process
-    `<engine> --resume <session_id>` vit encore. Garde de op_move_session : ne
-    jamais déplacer une session vivante (elle ré-estampille sa queue / peut
-    recréer le transcript — RM2418)."""
+    `<engine>` porte ce session_id. Garde de op_move_session : ne jamais déplacer
+    une session vivante (elle ré-estampille sa queue / peut recréer le transcript
+    — RM2418).
+
+    RM2810 : la détection process délègue à `pm_proclive`. L'ancienne version
+    exigeait le drapeau de reprise sur la ligne de commande et ratait donc toute
+    session neuve (`--session-id`), tout en se déclenchant sur n'importe quelle
+    ligne de `pgrep` citant le sid.
+    """
     for r in _runs_by_session().get(session_id, []):
         if _has_session(r["rm_id"]):
             return True
-    try:
-        out = subprocess.run(["pgrep", "-af", engine],
-                             capture_output=True, text=True, timeout=5).stdout
-        # RM2539 : `--resume` (claude) ou `--session` (opencode) selon le moteur
-        flag = (_resume_support(engine) or {}).get("resume_flag", "--resume")
-        if any(session_id in ln and flag in ln for ln in out.splitlines()):
-            return True
-    except (OSError, subprocess.SubprocessError):
-        pass
-    return False
+    return _live_session_pids(session_id, engine) != []
 
 
 def op_move_session(payload: dict) -> dict:
@@ -4006,19 +4406,31 @@ WORKLOG_DONE = {"fait", "done", "ferme", "fermé", "livré", "livre", "closed",
 # pas, faute de quoi le cockpit rappellerait des demandes déjà classées.
 REQUEST_DONE_STATES = {"ticketee", "repondu", "annulee", "fusionnee", "non_demande"}
 WORKLOG_WAITING = {"en_attente", "attente", "bloqué", "bloque", "blocked", "waiting",
-                   "à_valider", "a_valider", "a_tester_demandeur", "a_tester_dev",
                    "en_pause"}
+# RM2930 : « à tester / valider » sort de l'attente. Un ticket livré qui attend le
+# test du demandeur n'est pas coincé — il attend une ACTION, de quelqu'un
+# d'identifié. Le ranger avec les blocages le faisait lire « c'est mort » là où il
+# fallait lire « c'est à toi », et le bouton actualiser ne l'en sortait jamais
+# (le statut était juste ; c'est le rangement qui mentait).
+WORKLOG_TESTING = {"a_valider", "à_valider", "a_tester_demandeur", "a_tester_dev",
+                   "a_tester_preprod"}
 # Statuts actifs reconnus : ceux du flow NORMS qui ne sont ni terminés ni en
 # attente, plus les variantes libres qu'emploient les chantiers hors ticket.
 WORKLOG_TODO = {"nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
                 "etude_chiffrage_a_valider", "a_faire", "à_faire", "en_cours",
-                "a_mep", "en_mep", "a_corriger", "todo", "à faire", "en cours"}
+                "a_corriger", "todo", "à faire", "en cours"}
+# RM2860 : la MEP est un travail d'une AUTRE nature. Le développement est fini ;
+# ce qui reste est une mise en production — batchée (plusieurs tickets montent
+# ensemble), souvent portée par un autre acteur, et déclenchée par un geste qui
+# n'a rien à voir avec le ticket. Rangée dans « reste à faire », elle se noyait
+# entre des tickets encore à écrire ; elle a donc son propre bucket.
+WORKLOG_MEP = {"a_mep", "a_mep_prod", "en_mep"}
 
 
 # >>> worklog_buckets — pure (testée par test_karl_agent_pending.py)
 def worklog_buckets(items) -> dict:
     """RM2466 : range les items du worklog en « reste à faire » / « en attente »
-    / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
+    / « à mettre en prod » (RM2860) / « fait », et signale la DÉRIVE — un ticket dont le statut a bougé depuis
     son ouverture dans la session (souvent : une autre session l'a fait avancer).
     `status` fait foi ; `opened_status` ne sert qu'à dire ce qui a changé.
 
@@ -4027,13 +4439,15 @@ def worklog_buckets(items) -> dict:
     chose qu'on ne sait pas ; le dire inconnu rend le cas visible (statut mal
     orthographié, nouveau statut NORMS pas encore connu ici) au lieu de le noyer.
     Il reste affiché dans tous les cas : jamais escamoté."""
-    out = {"todo": [], "waiting": [], "done": [], "unknown": []}
+    out = {"todo": [], "testing": [], "mep": [], "waiting": [], "done": [],
+           "unknown": []}
     for it in items or []:
         st = str(it.get("status") or "").lower()
         opened = str(it.get("opened_status") or "").lower()
         entry = {
             "ref": it.get("ref"), "label": it.get("label") or "",
             "status": it.get("status") or "?", "project": it.get("project"),
+            "client": it.get("client"),      # RM2798 : groupement par client/projet
             "note": it.get("note") or "", "next": it.get("next") or "",
             "drifted": bool(opened and opened != st),
             "opened_status": it.get("opened_status") or "",
@@ -4045,6 +4459,10 @@ def worklog_buckets(items) -> dict:
                 entry[k] = it[k]
         if st in WORKLOG_DONE:
             out["done"].append(entry)
+        elif st in WORKLOG_TESTING:  # RM2930 : une action, pas une attente
+            out["testing"].append(entry)
+        elif st in WORKLOG_MEP:      # RM2860 : avant TODO — a_mep n'y est plus
+            out["mep"].append(entry)
         elif st in WORKLOG_WAITING:
             out["waiting"].append(entry)
         elif st in WORKLOG_TODO:
@@ -4062,6 +4480,10 @@ def worklog_buckets(items) -> dict:
 # re-résout qu'au plus 1×/60 s par session).
 _WORKLOG_LIVE_TTL = 60
 _worklog_live_cache: dict = {}   # session_id → (ts, {ref: status})
+# RM2773 : réconciliation de l'état des MR. TTL bien plus long que le live map des
+# tickets — celui-ci lit des fichiers, celle-là interroge une forge par MR ouverte.
+_WORKLOG_MR_TTL = 600
+_worklog_mr_checked: dict = {}   # session_id → ts du dernier déclenchement
 
 
 # >>> worklog_apply_live — pure (testée par test_karl_agent_pending.py)
@@ -4087,7 +4509,7 @@ def _worklog_apply_live(items, live):
         merged = {**it}
         if lv.get("status"):
             merged["status"] = lv["status"]
-        for k in ("checklist", "sub_tasks"):
+        for k in ("checklist", "sub_tasks", "client", "project"):   # RM2798 : + client/projet
             if lv.get(k):
                 merged[k] = lv[k]
         out.append(merged)
@@ -4117,6 +4539,14 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
         # depuis le cockpit aurait coûté N appels tous les 10 s ; ici c'est une
         # lecture de plus dans une garde de fraîcheur qui existe déjà.
         entry = {"status": st} if st else {}
+        # RM2798 : le CLIENT, pour grouper le worklog par client/projet. Le
+        # fichier est déjà localisé pour le statut — la jonction ne coûte rien
+        # de plus, et le worklog ne portait que le projet, sans son client.
+        cl_, pr_ = _task_client_project(tf)
+        if cl_:
+            entry["client"] = cl_
+            if pr_:
+                entry["project"] = pr_
         try:
             text = tf.read_text(encoding="utf-8")
         except OSError:
@@ -4134,6 +4564,116 @@ def _worklog_live_map(session_id: str, items, force: bool = False) -> tuple:
     return live, now
 
 
+
+def _integration_branch() -> str:
+    """Branche d'intégration déclarée en configuration (défaut `dev`). Lue une
+    fois par processus : elle ne change pas sous les pieds du daemon."""
+    global _INTEGRATION_BRANCH
+    if _INTEGRATION_BRANCH is None:
+        b = "dev"
+        try:
+            sys.path.insert(0, str(REPO_ROOT / "scripts"))
+            from pm_paths import PMConfig
+            cfg = PMConfig.load()
+            git = getattr(cfg, "git", None) or {}
+            b = (git.get("integration_branch") if isinstance(git, dict) else None) or "dev"
+        except (Exception, SystemExit):  # noqa: BLE001
+            b = "dev"                    # config illisible : le défaut du système
+        _INTEGRATION_BRANCH = str(b)
+    return _INTEGRATION_BRANCH
+
+
+_INTEGRATION_BRANCH = None
+
+
+#: Une référence de ticket, et rien d'autre — cf. `mr_stage_by_ref`.
+_WL_REF_RE = re.compile(r"^RM\d+$", re.I)
+
+
+# >>> mr_stage_by_ref — pure (testée par test_karl_agent_mr_stage.py)
+def mr_stage_by_ref(mrs, integration: str = "dev") -> dict:
+    """RM2801 — par ticket, l'étape la plus avancée atteinte par ses MR.
+
+    Le cycle a deux marches, et savoir laquelle est franchie décide de la suite :
+    une MR mergée dans l'intégration attend une promotion ; une MR promue attend
+    un déploiement. Le worklog ne montrait que les MR OUVERTES (`mrs_pending`) :
+    une MR mergée en sortait sans sortir du store, si bien qu'on ne distinguait
+    pas « pas de MR » de « MR mergée ».
+
+    La cible d'intégration vient de la CONFIGURATION (`integration_branch`), pas
+    d'une liste de noms écrite ici : un projet peut appeler sa branche autrement,
+    et une liste en dur se serait trompée en silence sur celui-là.
+
+    Rend {ref: {stage, target, url, count, mrs:[…]}} où `stage` vaut
+    `prod` > `integration` > `open` — l'ordre dans lequel on les préfère quand un
+    ticket a plusieurs MR (dépôts distincts, reprise après un renvoi).
+    """
+    ordre = {"open": 1, "integration": 2, "prod": 3}
+    out: dict = {}
+    for m in (mrs or []):
+        ref = str((m or {}).get("ref") or "").strip()
+        # Une MR de PROMOTION (dev → main) est enregistrée `ref: "sans ticket"` :
+        # elle emporte tout l'intégration et n'appartient à aucun ticket. La
+        # ranger sous cette clé créerait une entrée fantôme que rien n'affiche.
+        if not _WL_REF_RE.match(ref):
+            continue
+        state = str(m.get("state") or "opened").lower()
+        target = str(m.get("target") or "").strip()
+        if state in ("closed", "declined"):
+            continue                      # fermée sans merge : rien n'est franchi
+        if state in ("opened", "open", "reopened"):
+            stage = "open"
+        elif target and target != integration:
+            stage = "prod"                # mergée vers autre chose que l'intégration
+        else:
+            stage = "integration"
+        cur = out.get(ref)
+        detail = {"iid": m.get("iid"), "url": m.get("url"), "target": target,
+                  "state": state, "repo": m.get("repo"), "stage": stage}
+        if cur is None:
+            out[ref] = {"stage": stage, "target": target, "url": m.get("url"),
+                        "count": 1, "mrs": [detail]}
+            continue
+        cur["count"] += 1
+        cur["mrs"].append(detail)
+        if ordre[stage] > ordre[cur["stage"]]:
+            cur.update({"stage": stage, "target": target, "url": m.get("url")})
+    return out
+# <<< mr_stage_by_ref
+
+
+def _worklog_reconcile_mrs(session_id: str, mrs, force: bool = False) -> None:
+    """Déclenche, EN ARRIÈRE-PLAN, la réconciliation des MR ouvertes (RM2773).
+
+    Le worklog fige `mrs[].state` à l'écriture : une MR mergée depuis l'interface de
+    la forge, fermée automatiquement par elle, ou traitée par une autre session, reste
+    affichée « à merger » indéfiniment. On délègue à `pm-session-status.py mr
+    --reconcile`, qui possède le store et écrit l'état réel.
+
+    **Sans attendre** : chaque MR ouverte coûte un aller-retour réseau, et le worklog
+    est rendu à chaque rafraîchissement du cockpit. Bloquer dessus rendrait l'onglet
+    lent au mieux, figé si la forge ne répond pas. Le résultat est donc servi au
+    rafraîchissement suivant — un état périmé de quelques secondes de plus, contre une
+    UI qui ne dépend jamais de la disponibilité d'une forge.
+    """
+    if not mrs or not session_id:
+        return
+    now = time.time()
+    if not force and now - _worklog_mr_checked.get(session_id, 0) < _WORKLOG_MR_TTL:
+        return
+    _worklog_mr_checked[session_id] = now
+    script = Path(__file__).resolve().parent / "pm-session-status.py"
+    if not script.is_file():
+        return
+    try:
+        subprocess.Popen(
+            [sys.executable, str(script), "--session", session_id, "mr", "--reconcile"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            start_new_session=True)
+    except OSError:
+        pass                      # jamais fatal : le worklog s'affiche sans ça
+
+
 def _subtasks_status(refs) -> list:
     """RM2695 : sous-tâches d'un ticket avec leur statut courant. Le frontmatter
     ne stocke que des ids : sans leur statut, une liste de numéros n'apprend rien
@@ -4148,6 +4688,76 @@ def _subtasks_status(refs) -> list:
         out.append({"rm_id": rid, "status": meta.get("status") or "",
                     "title": meta.get("title") or ""})
     return out
+
+
+def op_refresh(blocks_qs: str, auth_ctx: dict | None = None) -> dict:
+    """RM2763 : pile de refresh — endpoint composite des pollers continus du
+    cockpit (/sessions, /health, /worklog/<sid>).
+
+    `blocks` = specs séparées par des virgules : `sessions:<hash>`,
+    `health:<hash>`, `worklog:<sid>:<hash>` — `<hash>` est celui de la dernière
+    donnée reçue par le client (vide au premier appel). Un bloc dont la donnée
+    n'a pas changé est listé dans `skipped` sans payload ; sinon il revient dans
+    `blocks` avec `hash` + `data` prêtes à afficher. Un bloc en échec atterrit
+    dans `errors` sans priver les autres (retour partiel — pas de timeout dur
+    par bloc en V1 : le seul op lent, sessions/tmux, est aussi le payload
+    principal ; le ticker V2/SSE reprendra la question).
+
+    Le bloc `sessions` embarque `briefs` (op_tickets_brief des tickets des
+    sessions) : la liste n'a plus AUCUN GET /resolve à faire côté client."""
+    out_blocks: dict = {}
+    errors: dict = {}
+    skipped: list = []
+    for spec in [s for s in (blocks_qs or "").split(",") if s]:
+        name, *rest = spec.split(":")
+        try:
+            if name == "sessions":
+                sessions = _sessions_view({}, auth_ctx)
+                ids = sorted({str(s.get("rm_id")) for s in sessions
+                              if s.get("is_ticket") is not False
+                              and str(s.get("rm_id", "")).isdigit()})
+                data = {"sessions": sessions, "briefs": op_tickets_brief(ids)}
+                client_hash = rest[0] if rest else ""
+            elif name == "health":
+                data = {"status": "ok", "sessions": len(_list_sessions()),
+                        "tmux": _tmux("-V")[0] == 0}
+                client_hash = rest[0] if rest else ""
+            elif name == "pending":     # RM2598 : lourd — le client le demande à 45 s
+                data = op_pending({}, auth_ctx)
+                client_hash = rest[0] if rest else ""
+            elif name == "coreupdate":  # RM2571 : ls-remote sous garde de fraîcheur serveur
+                data = op_core_update_status({})
+                client_hash = rest[0] if rest else ""
+            elif name == "envcheck":    # RM2722 : sondes sous mémorisation serveur (5 min)
+                data = op_env_check({})
+                client_hash = rest[0] if rest else ""
+            elif name == "vault":       # RM2748 : verrous (coffre, agent SSH)
+                data = op_vault_status()
+                client_hash = rest[0] if rest else ""
+            elif name == "dashboard":   # RM2696/2698 : overview + alerts (même garde de fraîcheur)
+                data = {"overview": op_overview({}, auth_ctx),
+                        "alerts": op_alerts({}, auth_ctx)}
+                client_hash = rest[0] if rest else ""
+            elif name == "worklog":
+                # le sid peut porter des caractères hors [0-9] (ancrage slug) ;
+                # le hash est le DERNIER segment, le sid tout ce qui précède.
+                client_hash = rest[-1] if len(rest) >= 2 else ""
+                sid = ":".join(rest[:-1]) if len(rest) >= 2 else (rest[0] if rest else "")
+                if not sid:
+                    continue
+                data = op_worklog(sid)
+            else:
+                errors[name] = "bloc inconnu"
+                continue
+            h = hashlib.sha1(json.dumps(data, sort_keys=True,
+                                        default=str).encode()).hexdigest()[:12]
+            if h == client_hash:
+                skipped.append(name)
+            else:
+                out_blocks[name] = {"hash": h, "data": data}
+        except Exception as e:      # noqa: BLE001 — retour partiel voulu
+            errors[name] = str(e)[:200]
+    return {"blocks": out_blocks, "skipped": skipped, "errors": errors}
 
 
 def op_worklog(rm_id: str, force: bool = False) -> dict:
@@ -4174,6 +4784,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
     # RM2583 : les MR que la session a ouvertes et pas encore mergées.
     mrs = [m for m in (data.get("mrs") or [])
            if (m.get("state") or "opened") in ("opened", "open", "reopened")]
+    # RM2773 : ces états sont FIGÉS dans le store — on déclenche leur réalignement
+    # sur la forge (en tâche de fond, cf. docstring) avant de les servir.
+    _worklog_reconcile_mrs(session_id, mrs, force)
     # RM2581 : le worklog fige le statut à l'ouverture — on le résout en live.
     items = data.get("items")
     live, checked = _worklog_live_map(session_id, items, force)
@@ -4192,6 +4805,9 @@ def op_worklog(rm_id: str, force: bool = False) -> dict:
             "notifications_done": [n for n in (data.get("notifications") or [])
                                    if n.get("resolved_at")][-10:],
             "mrs_pending": mrs,
+            # RM2801 : l'étape atteinte par ticket — `mrs_pending` ne porte que
+            # les MR ouvertes, donc « mergée » et « pas de MR » s'y confondaient.
+            "mr_stage": mr_stage_by_ref(data.get("mrs"), _integration_branch()),
             # RM2635 : les demandes pas encore ticketées, là où le demandeur
             # regarde. Le registre de RM2621 n'existait que dans le worklog
             # Markdown : sûr, mais invisible depuis le cockpit — donc, de son
@@ -4450,6 +5066,10 @@ def ticket_sessions_view(rm_id, sessions, wl_refs, client=None, project=None):
             "sid": sid, "alive": not s.get("ghost"),
             "client": s.get("client"), "project": s.get("project"),
             "title": s.get("title"), "state": s.get("state"),
+            # RM2818 : « qui traite ce ticket » ne suffit pas pour alerter avant
+            # d'ouvrir une 2e session — une session idle MARQUÉE terminée (RM2515)
+            # ne doit rien déclencher. La disposition voyage donc avec la ligne.
+            "disposition": s.get("disposition") or "",
             "is_ticket": bool(s.get("is_ticket")),
             "same_project": bool(client and project
                                  and s.get("client") == client
@@ -4496,6 +5116,51 @@ def op_ticket_sessions(rm_id: str, auth_ctx: dict | None = None) -> dict:
     return ticket_sessions_view(rm, sessions, wl_refs, client, project)
 
 
+# ── RM2888 : les transitions de statut proposables sur un ticket ─────────────
+# La règle vit dans `pm-task-status-update.py` (`NORMS_TRANSITIONS`, source
+# unique) : le cockpit ne la recopie pas, il l'INTERROGE. Recopier la table ici
+# aurait fabriqué une seconde vérité, qui diverge au premier statut ajouté — et
+# c'est exactement ce que faisait `_PM_STATUSES` du catalogue, qui propose les 14
+# statuts quel que soit l'état du ticket.
+_TRANSITIONS_TTL = 20            # s — le temps d'ouvrir une fiche, pas davantage
+_transitions_cache: dict = {}
+
+
+def op_ticket_transitions(rm_id: str, force: bool = False) -> dict:
+    """GET /ticket-transitions/<rm> — statut courant + transitions valides.
+
+    `redmine_checked: false` dit que la vérification live n'a pas eu lieu : les
+    transitions restent celles des NORMS, sans le marquage « ce compte peut la
+    poser ». L'UI doit afficher la liste quand même — une panne Redmine ne doit
+    pas rendre le geste inatteignable.
+    """
+    rm = str(rm_id).strip()
+    if not _RM_ID_RE.match(rm):
+        raise ApiError(400, "id de ticket attendu (^\\d+$)")
+    now = time.time()
+    hit = _transitions_cache.get(rm)
+    if hit and not force and now - hit[0] < _TRANSITIONS_TTL:
+        return dict(hit[1], cached=True)
+    script = (REPO_ROOT / "scripts" / "pm-task-status-update.py").resolve()
+    if not script.is_file():
+        raise ApiError(500, "pm-task-status-update.py introuvable")
+    try:
+        proc = subprocess.run([sys.executable, str(script), rm, "--list-next", "--json"],
+                              cwd=str(REPO_ROOT), capture_output=True, text=True,
+                              timeout=30, env=os.environ)
+    except subprocess.TimeoutExpired:
+        raise ApiError(504, "pm-task-status-update --list-next : timeout")
+    if proc.returncode != 0:
+        msg = (proc.stderr or proc.stdout or "").strip()[:400]
+        raise ApiError(404 if "introuvable" in msg else 500, msg or "échec --list-next")
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except ValueError:
+        raise ApiError(500, "sortie --list-next --json illisible")
+    _transitions_cache[rm] = (now, data)
+    return data
+
+
 # ── RM2716 : traiter en série des tickets choisis dans le worklog ─────────────
 # Le geste : cocher des tickets, cliquer « traiter », et la SESSION ATTACHÉE
 # enchaîne — aucune session créée. La composition de la consigne vit ici, pas
@@ -4531,6 +5196,10 @@ def _batch_points(raw, limit=BATCH_POINTS_MAX):
 # Ce qu'on demande à l'agent, par statut de départ. Aligné sur le flux NORMS :
 # une étude se termine en validation, un dev se termine en test demandeur.
 BATCH_ACTIONS = {
+    # RM2786 : l'étude reste ici — un lot « traiter » sur un ticket pas encore
+    # chiffré doit continuer de faire ce qu'il faisait. Le bouton « analyser »
+    # (mode `etudier`) la propose SÉPARÉMENT, ce que l'UI ne pouvait pas faire
+    # tant que les deux vivaient dans la même table.
     "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
     "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
@@ -4577,12 +5246,74 @@ BATCH_ATESTER_SKIP = {
     "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
 }
 
+# RM2786 — troisième MODE : « analyser », c'est-à-dire l'ÉTUDE/CHIFFRAGE PM
+# (estimation, critères d'acceptation, ROI). L'action existait déjà dans la table
+# « traiter », mais noyée : impossible de la proposer seule, et impossible de
+# savoir depuis l'UI si elle avait un sens pour la sélection.
+BATCH_ETUDIER = {
+    "nouveau": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "a_etudier_chiffrer": ("etudier", "étudier et chiffrer, puis soumettre l'étude à validation"),
+    "etude_chiffrage_en_cours": ("etudier", "terminer l'étude et la soumettre à validation"),
+}
+BATCH_ETUDIER_SKIP = {
+    "etude_chiffrage_a_valider": "étude déjà rendue : attend TA validation",
+    "a_faire": "déjà chiffré et prêt à faire",
+    "en_cours": "déjà en cours de réalisation",
+    "a_corriger": "livré puis renvoyé : c'est une correction, pas une étude",
+    "a_tester_dev": "livré, en test agent",
+    "a_tester_demandeur": "livré, attend ton verdict",
+    "a_mep": "attend une mise en production",
+    "en_mep": "mise en production en cours",
+    "en_pause": "en pause — à relancer explicitement",
+    "ferme": "fermé",
+}
+
 # Un mode = une table d'actions + une table d'exclusions motivées. Le reste du
 # lot (plafond, portée, envoi, garde de session) ne change pas.
 BATCH_MODES = {
     "traiter": {"actions": BATCH_ACTIONS, "skip": BATCH_SKIP},
     "atester": {"actions": BATCH_ATESTER, "skip": BATCH_ATESTER_SKIP},
+    "etudier": {"actions": BATCH_ETUDIER, "skip": BATCH_ETUDIER_SKIP},
 }
+
+
+#: Statuts d'où « fermer / résolu » a un sens : le travail est livré et attend
+#: un verdict ou une MEP. Fermer ailleurs, c'est clore ce qui n'a pas été fait.
+CLOSABLE_STATUSES = {"a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep"}
+
+
+# >>> batch_modes_for — pure (testée par test_karl_agent_batch_actions.py)
+def batch_modes_for(statuses):
+    """RM2786 : pour une sélection de statuts, combien de tickets chaque mode
+    concerne — c'est ce qui décide des boutons à AFFICHER, et du compte à écrire
+    dessus.
+
+    Un lot est presque toujours mixte : le bouton s'affiche dès qu'un ticket le
+    justifie, et son compteur annonce les tickets CONCERNÉS, pas le total coché.
+    « traiter (3) » sur 5 sélectionnés dit la vérité ; « (5) » ment sur ce qui
+    va partir.
+
+    Un statut INCONNU compte pour tous les modes : mieux vaut un bouton de trop
+    qu'une action devenue inatteignable parce qu'un statut a changé de nom — le
+    plan de lot, lui, écartera le ticket avec sa raison.
+    """
+    connus = set()
+    for m in BATCH_MODES.values():
+        connus |= set(m["actions"]) | set(m["skip"])
+    out = {name: 0 for name in BATCH_MODES}
+    out["fermer"] = 0
+    for st in (statuses or []):
+        st = str(st or "").lower()
+        inconnu = st not in connus
+        for name, m in BATCH_MODES.items():
+            if inconnu or st in m["actions"]:
+                out[name] += 1
+        # « fermer / résolu » n'est pas une consigne à l'agent : c'est le verdict
+        # du demandeur sur un ticket LIVRÉ. Il n'a de sens que là.
+        if inconnu or st in CLOSABLE_STATUSES:
+            out["fermer"] += 1
+    return out
+# <<< batch_modes_for
 
 
 # >>> batch_plan — pure (testée par test_karl_agent_batch.py)
@@ -4662,12 +5393,22 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
     au demandeur, c'est le LIVRER. Elle exige donc la note de livraison et le
     protocole de test, et interdit de bouger le statut d'un ticket dont le
     travail n'est pas réellement livré. La fin (worklog, notification, bilan)
-    est commune aux deux modes."""
+    est commune aux deux modes.
+
+    RM2762 — **à UN seul ticket il n'y a pas de lot**, et le mot disparaît. Tout le
+    cadre de série (« EN SÉRIE, dans cet ordre », « un ticket à la fois », « passe au
+    suivant », « bilan ticket par ticket », notification de fin de lot) n'a alors pas
+    d'objet : le garder noie l'unique consigne utile sous des règles qui ne
+    s'appliquent à rien. Ce qui est substantiel est conservé — protocole NORMS,
+    statut de fin, interdiction de forcer, portée restreinte."""
+    n = len(todo or [])
+    solo = n == 1
     lignes = []
     scoped = False
     for i, t in enumerate(todo or [], 1):
         titre = (" — " + t["title"]) if t.get("title") else ""
-        lignes.append(f"{i}. RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
+        puce = "" if solo else f"{i}. "      # rien à ordonner : pas de numérotation
+        lignes.append(f"{puce}RM{t['rm_id']} [{t['status']}]{titre} → {t['instruction']}")
         pts = t.get("scope") or []
         if pts:
             scoped = True
@@ -4678,24 +5419,54 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
                 lignes.append(f"   ({cut} autre(s) point(s) retenu(s) mais non repris "
                               "ici : reprends-les depuis la checklist du ticket.)")
     corps = "\n".join(lignes)
-    regle_scope = (
+    regle_scope = ((
+        "- à PORTÉE RESTREINTE, le ticket ne se clôture PAS et ne repart PAS au "
+        "demandeur : traite uniquement les points listés, ne coche que ces "
+        "critères-là, laisse-le en `en_cours` et dis en note ce qui reste ;\n"
+    ) if solo else (
         "- un ticket à PORTÉE RESTREINTE ne se clôture PAS et ne repart PAS au "
         "demandeur : traite uniquement les points listés, ne coche que ces "
         "critères-là, laisse le ticket en `en_cours` et dis en note ce qui reste ;\n"
-    ) if scoped else ""
+    )) if scoped else ""
     # Fin commune : sans ces trois retours, un lot laisse le demandeur
     # surveiller des sessions pour savoir où ça en est.
+    # `--kind autre` et pas `--kind lot` : `lot` n'existe pas dans NOTIFY_KINDS
+    # (pm-session-status.py), la commande échouait donc telle qu'écrite (RM2762).
     fin = (
         "- consigne l'avancement du lot au worklog "
         "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n"
         "- si un ticket te bloque (question, dépendance, ambiguïté), NE FORCE PAS : "
         "consigne le blocage, passe au suivant, et rends-le dans le bilan ;\n"
         "- à la fin du lot, notifie : `pm-session-status.py notify --level info "
-        "--kind lot \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
+        "--kind autre \"lot terminé : <n> rendu(s), <n> bloqué(s)\"`, puis donne le "
         "bilan ticket par ticket."
     )
-    n = len(todo or [])
+    # Fin SOLO : pas de notification de fin de lot — le statut de fin réattribue déjà
+    # au demandeur, et un « lot terminé : 1 rendu » n'apprend rien à personne.
+    solo_worklog = ("- consigne l'avancement au worklog "
+                    "(`pm-session-status.py set <ref> <statut>`) au fil de l'eau ;\n")
+    solo_bloc = ("- s'il te bloque (question, dépendance, ambiguïté), NE FORCE PAS : consigne "
+                 "le blocage, laisse le ticket en l'état et dis-le dans ton compte rendu ;\n")
+    solo_cr = "- termine par un compte rendu : ce qui a été fait, ce qui reste."
+    fin_solo = solo_worklog + solo_bloc + solo_cr
+    # En mode « atester », la règle « travail non livré → ne force pas » couvre déjà
+    # le blocage : répéter NE FORCE PAS deux puces plus bas se lit comme du remplissage.
+    fin_solo_atester = solo_worklog + solo_cr
     if mode == "atester":
+        if solo:
+            return (
+                "Passe ce ticket « à tester » en appliquant le protocole worker "
+                "NORMS :\n"
+                f"{corps}\n\n"
+                "Règles :\n"
+                "- passer un ticket « à tester », c'est le LIVRER : il part avec sa "
+                "note de livraison ET son protocole de test (norme RM2229) — pas un "
+                "simple changement de statut ;\n"
+                "- si le travail n'est PAS réellement livré (branche non poussée, MR "
+                "absente, critères d'acceptation non cochés), NE FORCE PAS : laisse "
+                "le statut en l'état et dis pourquoi ;\n"
+                f"{fin_solo_atester}"
+            )
         return (
             f"Passe ces {n} ticket(s) « à tester », un par un, en appliquant le "
             "protocole worker NORMS :\n"
@@ -4709,6 +5480,17 @@ def batch_prompt(todo, mode: str = "traiter") -> str:
             "statut en l'état, dis pourquoi, passe au suivant ;\n"
             "- un ticket à la fois, jusqu'à son statut de fin ;\n"
             f"{fin}"
+        )
+    if solo:
+        return (
+            "Traite ce ticket en appliquant le protocole worker NORMS "
+            "(prise en charge, travail, livraison) :\n"
+            f"{corps}\n\n"
+            "Règles :\n"
+            "- il revient au demandeur par son statut de fin NORMS "
+            "(étude → etude_chiffrage_a_valider, dev → a_tester_demandeur) ;\n"
+            f"{regle_scope}"
+            f"{fin_solo}"
         )
     return (
         f"Traite ces {n} ticket(s) EN SÉRIE, dans cet ordre, en "
@@ -4969,6 +5751,23 @@ def _sessions_view(qs: dict, auth_ctx: dict | None = None) -> list:
             if c:
                 s["client"], s["project"] = c, p
         s["state"] = _session_state(s["rm_id"], s.get("engine"))
+        # RM2793 : dernier message RÉEL, quand le transcript le dit. `activity`
+        # (tmux) compte aussi ce que Claude Code écrit seul — son « ※ recap: … »
+        # remettait le compteur à zéro sur une session que personne n'a touchée.
+        # Absent (moteur tiers, transcript illisible) : `activity` reste la
+        # mesure affichée, plutôt qu'un vide là où il y avait une durée.
+        lm = _last_message_at(s.get("session_id"), s.get("engine"))
+        if lm:
+            s["last_msg"] = lm
+        # RM2894 : LIBELLÉ de la session — le panneau de droite l'affiche en
+        # en-tête, au-dessus de ses onglets. Une tuile « fantôme » l'avait déjà
+        # (nom mémorisé dans le jeu, RM2439) ; une session VIVANTE ne l'exposait
+        # pas, si bien que le seul nom affiché pour une session ancrée sur un
+        # slug était son nom tmux. Le cache 30 s de `_transcript_info` absorbe
+        # l'appel, déjà payé par `_session_state` sur la même session.
+        title = _transcript_title(s.get("session_id"))
+        if title:
+            s["title"] = title
         # RM2327 : auto-oui armé → l'UI affiche le badge + compte à rebours
         au = _AUTO_YES.get(s["rm_id"])
         if au and au > time.time():
@@ -5079,9 +5878,16 @@ def _scalar(line: str) -> str:
 
 def _read_task_meta(path: Path) -> dict:
     """Lecture minimale du frontmatter d'un fichier de tâche (sans dépendance YAML).
-    Retourne {title, status, priority, type, test_url, target_env, tags:[...]}."""
+    Retourne {title, status, priority, type, test_url, target_env, schema_version,
+    git_branch, tags:[...]}.
+
+    Volontairement ligne à ligne plutôt que `yaml.safe_load` : sur le parc entier,
+    70 fois plus rapide (0,06 s contre 4,2 s pour 1 140 fiches). Un contrôle qui
+    balaie tout le parc doit passer par ici (RM2783).
+    """
     meta = {"title": "", "status": "", "priority": "", "type": "",
-            "test_url": "", "target_env": "", "tags": []}
+            "test_url": "", "target_env": "", "schema_version": "",
+            "git_branch": "", "tags": []}
     try:
         text = path.read_text(encoding="utf-8")
     except OSError:
@@ -5091,6 +5897,7 @@ def _read_task_meta(path: Path) -> dict:
     end = text.find("\n---", 3)
     fm = text[3:end] if end != -1 else text
     in_tags = False
+    in_git = False
     for line in fm.splitlines():
         if in_tags:
             s = line.strip()
@@ -5098,7 +5905,17 @@ def _read_task_meta(path: Path) -> dict:
                 meta["tags"].append(s[2:].strip().strip("'\""))
                 continue
             in_tags = False
-        if line.startswith("title:"):
+        if in_git:
+            if line.startswith("  "):
+                if line.strip().startswith("branch:"):
+                    meta["git_branch"] = _scalar(line)
+                continue
+            in_git = False
+        if line.startswith("schema_version:"):
+            meta["schema_version"] = _scalar(line)
+        elif line.startswith("git:"):
+            in_git = True
+        elif line.startswith("title:"):
             meta["title"] = _scalar(line)
         elif line.startswith("status:"):
             meta["status"] = _scalar(line)
@@ -5182,6 +5999,34 @@ def _env_for_status(status: str, envs: list):
 def _task_client_project(tf: Path):
     """De .../clients/<C>/projects/<P>/tasks/RMx_*.md → (client, project)."""
     return tf.parent.parent.parent.parent.name, tf.parent.parent.name
+
+
+_closed_cache: dict = {"at": 0.0, "ids": frozenset()}
+_CLOSED_TTL = 60          # s — le statut d'un ticket ne bouge pas au rythme du poll
+
+
+def _closed_ticket_ids() -> frozenset:
+    """RM-id des tickets FERMÉS d'après les fiches locales (RM2949, TTL 60 s).
+
+    Sert à ne plus proposer la tuile grise d'un travail terminé. Le marqueur
+    `[DONE]` (RM2427) ne l'écartait que s'il avait été posé à la main — il l'est
+    rarement : une vue client affichait 24 sessions dont 9 sur des tickets clos,
+    d'où l'impression, justifiée, d'en voir « énormément ».
+
+    Le scan complet du parc coûte ~0,06 s (lecture ligne à ligne, cf.
+    `_read_task_meta`) : il tient largement dans un TTL d'une minute.
+    """
+    now = time.time()
+    if now - _closed_cache["at"] > _CLOSED_TTL:
+        ids = set()
+        for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+            if tf.name.endswith(".log.md"):
+                continue
+            m = re.match(r"RM(\d+)_", tf.name)
+            if m and _read_task_meta(tf).get("status") == "ferme":
+                ids.add(m.group(1))
+        _closed_cache.update({"at": now, "ids": frozenset(ids)})
+    return _closed_cache["ids"]
 
 
 def _find_task_file(rm_id: str):
@@ -5297,13 +6142,45 @@ def parse_checklist(body: str, max_items: int = 40) -> dict:
 # <<< parse_checklist
 
 
-def _log_tail(tf: Path, n: int = 18) -> str:
+#: Nombre d'ENTRÉES de journal servies, et taille maximale du tout. RM2797 :
+#: couper aux N dernières LIGNES tranchait au milieu d'une entrée — un corps
+#: sans son horodatage, qu'aucun affichage ne peut rattacher à quoi que ce soit.
+LOG_TAIL_ENTRIES = 8
+LOG_TAIL_MAX_BYTES = 12000
+
+
+def _log_tail(tf: Path, n: int = LOG_TAIL_ENTRIES) -> str:
+    """Fin du `.log.md` d'un ticket, par ENTRÉES complètes (`## <ts> — <titre>`).
+
+    Le journal est du markdown structuré ; le servir par lignes le décapitait.
+    On rend les `n` dernières entrées entières, plafonnées en octets — un
+    journal de ticket peut porter des centaines d'entrées, et la colonne qui
+    l'affiche n'en montre qu'une poignée.
+    """
     logf = tf.with_name(tf.stem + ".log.md")
     try:
-        lines = [l for l in logf.read_text(encoding="utf-8").splitlines() if l.strip()]
+        text = logf.read_text(encoding="utf-8")
     except OSError:
         return ""
-    return "\n".join(lines[-n:])
+    entries, cur = [], []
+    for line in text.splitlines():
+        if line.startswith("## "):
+            if cur:
+                entries.append("\n".join(cur).strip())
+            cur = [line]
+        elif cur:
+            cur.append(line)
+    if cur:
+        entries.append("\n".join(cur).strip())
+    if not entries:                     # journal sans en-tête : on rend la fin telle quelle
+        lignes = [l for l in text.splitlines() if l.strip()]
+        return "\n".join(lignes[-18:])
+    out = [e for e in entries[-max(1, n):] if e]
+    texte = "\n\n".join(out)
+    while len(texte.encode("utf-8")) > LOG_TAIL_MAX_BYTES and len(out) > 1:
+        out.pop(0)                      # on sacrifie les PLUS ANCIENNES, jamais la dernière
+        texte = "\n\n".join(out)
+    return texte
 
 
 _PROTO_HEAD_RE = re.compile(
@@ -5391,6 +6268,14 @@ def op_resolve(rm_id: str) -> dict:
         "found": True, "rm_id": rm_id, "client": client, "project": project,
         "title": pick("title"), "type": pick("type"), "status": status,
         "priority": pick("priority"), "completion_pct": fm.get("completion_pct"),
+        # RM2832 : le domaine du ticket, là où la fiche l'affiche — stocké sans
+        # être montré, il ne sert qu'aux filtres et personne ne sait ce qu'un
+        # ticket porte.
+        "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],
+        # RM2833 : rôle d'agent SUGGÉRÉ par ces étiquettes (table `tag_roles` du
+        # meta.yml, cascade client → projet). Une suggestion : le cockpit la
+        # montre, il n'assigne rien.
+        "role_hint": _role_hint(fm.get("tags"), client, project),
         "due": pick("due"), "assigned_to": fm.get("assigned_to"),
         # RM2630 : de quand date ce qu'on affiche. `updated` = frontmatter (bougé
         # par tout script pm-*) ; `mtime` = filet quand le frontmatter n'a pas été
@@ -5441,6 +6326,48 @@ def op_resolve(rm_id: str) -> dict:
     }
 
 
+def _tag_roles_table(client: str, project: str) -> dict:
+    """Table `tag_roles` effective d'un projet : celle du client, surchargée par
+    celle du projet (cascade NORMS). Lue à chaque appel — ces fichiers changent à
+    la main, un cache donnerait une réponse périmée sans moyen de s'en rendre
+    compte."""
+    import yaml as _y
+    out = {}
+    base = PROJECTS_BASE / client
+    for p in (base / ".mmi-pm-client" / "meta.yml",
+              base / "projects" / project / "meta.yml"):
+        try:
+            if not p.is_file():
+                continue
+            table = ((_y.safe_load(p.read_text(encoding="utf-8")) or {}).get("tag_roles")) or {}
+            if isinstance(table, dict):
+                for k, v in table.items():
+                    kk, vv = _tag_norm(k), str(v or "").strip().lower()
+                    if kk and vv:
+                        out[kk] = vv
+        except (OSError, Exception):    # noqa: BLE001 — une conf illisible ne casse pas /resolve
+            continue
+    return out
+
+
+def _role_hint(tags, client, project):
+    """{role, why} ou None. Départage STABLE (alphabétique) quand plusieurs
+    étiquettes routent — arbitraire, mais annoncé plutôt que silencieux."""
+    if not tags or not client or not project:
+        return None
+    table = _tag_roles_table(client, project)
+    if not table:
+        return None
+    matches = sorted({_tag_norm(t) for t in tags if _tag_norm(t)} & set(table))
+    if not matches:
+        return None
+    role = table[matches[0]]
+    why = f"étiquette « {matches[0]} » → rôle {role}"
+    if len(matches) > 1:
+        why += f" (aussi : {', '.join(matches[1:])})"
+    return {"role": role, "why": why, "file": f"agents/worker-{role}.md"}
+
+
 def _safe_ticket_model(rm_id: str):
     """_ticket_model sans lever : /resolve ne doit pas échouer pour un ai_model
     malformé (le spawn, lui, refuse). Renvoie la valeur ou None."""
@@ -5448,6 +6375,49 @@ def _safe_ticket_model(rm_id: str):
         return _ticket_model(rm_id)
     except ApiError:
         return None
+
+
+def _tag_norm(t) -> str:
+    """Même normalisation qu'à l'écriture (pm_tags) : slug minuscule sans accent.
+
+    Sans elle, « Front » et « front » feraient deux entrées de menu et deux
+    filtres disjoints — l'utilisateur en conclurait que le filtre est cassé.
+    Le module PM n'est pas importable ici (karl-agent ne dépend pas de scripts/) :
+    on refait la même règle, volontairement simple.
+    """
+    import unicodedata
+    x = unicodedata.normalize("NFKD", str(t or ""))
+    x = "".join(c for c in x if not unicodedata.combining(c)).lower().strip()
+    return re.sub(r"[^a-z0-9]+", "-", x).strip("-")[:40].rstrip("-")
+
+
+def tags_in_use(metas) -> list:
+    """[{tag, count}] — les étiquettes réellement portées par des tickets.
+
+    Trié par usage décroissant puis alphabétique : un menu dont l'ordre change à
+    chaque rafraîchissement ne se lit pas. Les étiquettes viennent des tickets,
+    jamais d'une liste écrite en dur qui dériverait au premier vocabulaire ajouté.
+    """
+    counts = {}
+    for m in metas or []:
+        vus = set()
+        for t in (m or {}).get("tags") or []:
+            n = _tag_norm(t)
+            if n and n not in vus:
+                vus.add(n)
+                counts[n] = counts.get(n, 0) + 1
+    return [{"tag": t, "count": c}
+            for t, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
+
+
+def op_tags() -> list:
+    """GET /tags — inventaire des étiquettes en usage (RM2830)."""
+    metas = []
+    for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+        if tf.name.endswith(".log.md"):
+            continue
+        metas.append(_read_task_meta(tf))
+    return tags_in_use(metas)
 
 
 def op_search(q="", status=None, client=None, project=None, tag=None, limit=60) -> list:
@@ -5695,6 +6665,7 @@ def op_triage(qs: dict) -> dict:
             "priority": fm.get("priority") or "normal",
             "type": fm.get("type") or "",
             "client": cl, "project": pr,
+            "tags": [t for t in (fm.get("tags") or []) if isinstance(t, str)],   # RM2830
             "score": round(_prio.task_score(fm, rate), 1),
             "time_minutes": est.get("time_minutes"),
             "tokens": est.get("tokens"),
@@ -6668,10 +7639,101 @@ def _task_completion(path) -> int | None:
     return None
 
 
-def op_tickets_brief(ids) -> dict:
+def _pm_project_for_redmine(project_id, identifier) -> tuple:
+    """(entity, project) du projet PM déclarant ce projet Redmine, sinon (None, None).
+
+    Sert à proposer l'adoption d'un ticket avec le BON `--project` : sans lui, on
+    afficherait un titre sans savoir où adopter. La comparaison porte sur les deux
+    formes qu'un `meta.yml` peut déclarer (identifiant textuel — le cas normal — ou
+    id numérique), jamais sur le nom humain du projet, qui est modifiable.
+
+    Aucun choix silencieux si deux projets PM déclarent le même projet Redmine :
+    on rend (None, None) plutôt que le premier venu (tripwire #14).
+    """
+    if not project_id and not identifier:
+        return (None, None)
+    voulu = {str(x) for x in (project_id, identifier) if x}
+    trouves = []
+    try:
+        from pm_paths import PMConfig
+        cfg = PMConfig.load()
+        for ent, proj, _path in cfg.iter_projects():
+            try:
+                meta = cfg.project_meta(ent, proj) or {}
+            except Exception:  # noqa: BLE001
+                continue
+            declares = []
+            for entry in ((meta.get("providers") or {}).get("task") or []):
+                if isinstance(entry, dict) and entry.get("role", "primary") == "primary":
+                    declares.append(entry.get("project_id"))
+            declares.append((meta.get("redmine") or {}).get("project_id"))
+            if voulu & {str(d) for d in declares if d}:
+                trouves.append((ent, proj))
+    except Exception:  # noqa: BLE001
+        return (None, None)
+    return trouves[0] if len(trouves) == 1 else (None, None)
+
+
+def _brief_from_redmine(rm_id: str) -> dict:
+    """Fiche minimale d'un ticket qui n'a pas (encore) de MD local — RM2782.
+
+    Un ticket existant côté Redmine mais jamais adopté était strictement invisible
+    du cockpit : ni titre, ni client, ni projet, et le panneau retombait sur
+    « divers ». Le glob filesystem ne peut pas le voir, par construction.
+
+    Rend `found: False` **et** `remote: True` : l'appelant sait qu'il s'agit d'un
+    ticket réel non adopté, et non d'un id inexistant — la distinction est tout
+    l'intérêt. Une panne Redmine ramène au comportement d'avant (found: False nu),
+    jamais une erreur : le brief est un confort d'affichage.
+    """
+    base = {"found": False, "rm_id": rm_id}
+    try:
+        sys.path.insert(0, str(REPO_ROOT / "scripts"))
+        from pm_task import get_task_provider
+        issue = get_task_provider().fetch_issue(rm_id) or {}
+    except (Exception, SystemExit):  # noqa: BLE001
+        # redmine_utils signale ses erreurs par sys.exit() donc SystemExit, qui ne
+        # dérive PAS d'Exception (même piège que RM2749/RM2770).
+        return base
+    if not issue:
+        return base
+    rp = issue.get("project") or {}
+    # `/issues/<id>.json` ne rend du projet que {id, name} — jamais son identifier,
+    # qui est pourtant la forme déclarée dans les meta.yml (RM2784). Sans lui, la
+    # correspondance échoue et on afficherait un titre sans savoir où adopter. On le
+    # résout si le provider sait le faire ; sinon on se contente de l'id numérique,
+    # qui suffit aux fiches le déclarant sous cette forme.
+    if not rp.get("identifier"):
+        try:
+            fetch_project = getattr(get_task_provider(), "fetch_project", None)
+            if callable(fetch_project) and rp.get("id"):
+                rp["identifier"] = (fetch_project(rp["id"]) or {}).get("identifier")
+        except (Exception, SystemExit):  # noqa: BLE001
+            pass
+    ent, proj = _pm_project_for_redmine(rp.get("id"), rp.get("identifier"))
+    base.update({
+        "remote": True,
+        "title": issue.get("subject") or "",
+        "status": (issue.get("status") or {}).get("name") or "",
+        "priority": (issue.get("priority") or {}).get("name") or "",
+        "redmine_project": rp.get("name") or "",
+        "client": ent or "", "project": proj or "",
+        "adopt_cmd": (f"pm-task-import.py {rm_id} --project {ent}/{proj}"
+                      if ent and proj else ""),
+    })
+    return base
+
+
+def op_tickets_brief(ids, remote=True) -> dict:
     """RM2619 : {rm_id: {title, status, type, priority, completion_pct, client,
     project}} pour une liste de tickets. Un id inconnu rend `found: false` —
-    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre."""
+    l'appelant doit pouvoir afficher « inconnu » plutôt que d'attendre.
+
+    RM2782 : un id sans MD local est retenté côté Redmine (`remote=True`, défaut),
+    ce qui rend `remote: True` + titre/projet réels + la commande d'adoption. Les
+    ids résolus localement ne coûtent aucun appel réseau ; seuls les inconnus en
+    déclenchent un, et le nombre d'ids est déjà borné par BRIEF_MAX_IDS.
+    """
     out = {}
     for rm_id in list(ids or [])[:BRIEF_MAX_IDS]:
         rm_id = str(rm_id).strip()
@@ -6679,7 +7741,7 @@ def op_tickets_brief(ids) -> dict:
             continue
         tf = _find_task_file(rm_id)
         if not tf:
-            out[rm_id] = {"found": False, "rm_id": rm_id}
+            out[rm_id] = _brief_from_redmine(rm_id) if remote else {"found": False, "rm_id": rm_id}
             continue
         meta = _read_task_meta(tf)
         client, project = _task_client_project(tf)
@@ -7009,8 +8071,11 @@ _PM_COMMANDS_DEFAULT = [
          {"name": "note", "label": "Note (compte-rendu)", "type": "text", "flag": "--note"},
          {"name": "close_reason", "label": "Motif de fermeture", "type": "enum",
           "flag": "--close-reason", "choices": _PM_CLOSE_REASONS},
-         {"name": "allow_unchecked", "label": "Forcer malgré checklist non cochée",
-          "type": "bool", "flag": "--allow-unchecked"},
+         # Champ TEXTE et non booléen (RM2884) : l'option exige désormais un motif,
+         # qui est tracé dans la note et le journal. Une case à cocher redonnerait
+         # le contournement muet qu'on vient de fermer.
+         {"name": "allow_unchecked", "label": "Laisser des critères décochés — motif obligatoire",
+          "type": "text", "flag": "--allow-unchecked"},
          {"name": "allow_unmerged", "label": "Forcer malgré branche non mergée (RM2319)",
           "type": "bool", "flag": "--allow-unmerged"},
      ]},
@@ -7428,14 +8493,22 @@ def path_local_bin_first(path_value, home):
 # <<< path_local_bin_first
 
 
-def _iter_task_files(limit=500):
+def _iter_task_files(limit=None):
+    """Fiches de tâches de tous les projets, triées par chemin.
+
+    `limit` borne le nombre de fichiers RENDUS. Elle vaut None par défaut : un
+    appelant qui agrège (compter, détecter des anomalies) doit tout voir, sinon il
+    conclut sur un échantillon en annonçant un total — la borne d'origine à 500
+    cachait un tiers du parc sans le dire (RM2783). Ne la passer que pour un
+    aperçu, jamais pour un décompte.
+    """
     out = []
     try:
         for p in sorted(PROJECTS_BASE.glob(_TASK_GLOB.format("*"))):
             if p.name.endswith(".log.md"):
                 continue
             out.append(p)
-            if len(out) >= limit:
+            if limit is not None and len(out) >= limit:
                 break
     except OSError:
         pass
@@ -7890,19 +8963,17 @@ def _envchk_pm():
         norms_v = ""
     schemas = {}
     orphans = []
-    for tf in _iter_task_files(limit=600):
-        try:
-            fm = _parse_frontmatter(tf.read_text(encoding="utf-8"))
-        except OSError:
-            continue
-        sv = str(fm.get("schema_version") or "")
-        if sv:
-            schemas[sv] = schemas.get(sv, 0) + 1
-        if str(fm.get("status") or "") == "en_cours":
-            git = fm.get("git") if isinstance(fm.get("git"), dict) else {}
-            if not git.get("branch"):
-                m = re.search(r"RM(\d+)_", tf.name)
-                orphans.append("RM" + (m.group(1) if m else "?"))
+    # Sans borne : ce bloc COMPTE (schema_version) et DÉTECTE (en_cours sans
+    # branche). Sur un échantillon, il affirmait « toutes ont une branche » en
+    # n'ayant regardé que les premiers clients par ordre alphabétique. La lecture
+    # passe par `_read_task_meta`, assez rapide pour balayer le parc entier.
+    for tf in _iter_task_files():
+        meta = _read_task_meta(tf)
+        if meta["schema_version"]:
+            schemas[meta["schema_version"]] = schemas.get(meta["schema_version"], 0) + 1
+        if meta["status"] == "en_cours" and not meta["git_branch"]:
+            m = re.search(r"RM(\d+)_", tf.name)
+            orphans.append("RM" + (m.group(1) if m else "?"))
     if norms_v and len(schemas) > 1:
         out.append(_chk("versions PM", "info",
                         f"norms/VERSION={norms_v} · schema_version des tâches : {schemas}"))
@@ -8238,6 +9309,12 @@ def op_vault_ssh_add(payload: dict, auth_ctx: dict) -> dict:
     env["SSH_ASKPASS"] = str(askpass)
     env["SSH_ASKPASS_REQUIRE"] = "force"
     env.setdefault("DISPLAY", ":0")        # OpenSSH < 8.4 : askpass exige un DISPLAY
+    # RM2822 : `pass_fds` CONSERVE le numéro du descripteur, il ne le remappe pas
+    # sur 3. Dans un processus nu `os.pipe()` rend 3 et le montage marchait par
+    # coïncidence ; dans karl-agent, dont les sockets tiennent les descripteurs
+    # bas, le tube atterrit sur 8 ou 9 et l'askpass lisait dans le vide. On lui
+    # dit donc lequel lire — un numéro de descripteur n'est pas un secret.
+    env["KARL_ASKPASS_FD"] = str(r)
     try:
         p = subprocess.run(["ssh-add", str(path)], env=env, pass_fds=(r,),
                            stdin=subprocess.DEVNULL, capture_output=True,
@@ -9460,6 +10537,14 @@ class Handler(BaseHTTPRequestHandler):
                 # RM2770 : statuts NORMS pour le filtre de recherche — lus depuis
                 # la référence partagée (redmine_utils), jamais redupliqués ici.
                 "statuses": _norms_statuses(),
+                # RM2786 : quels statuts chaque mode de lot accepte. Le cockpit
+                # DÉCIDE des boutons à afficher avec ces tables — il ne les
+                # redéclare pas : deux copies de la règle, c'est deux vérités,
+                # et l'écart se voit d'abord chez l'utilisateur.
+                "batch_modes": {name: {"statuses": sorted(m["actions"]),
+                                       "skip": m["skip"]}
+                                for name, m in BATCH_MODES.items()},
+                "closable_statuses": sorted(CLOSABLE_STATUSES),
                 "engines": list(ENGINES),
                 # RM2539 (correctif) : moteurs dont les conversations sont à la
                 # fois REPRENABLES et DÉCOUVRABLES — le panneau de reprise les
@@ -9493,6 +10578,9 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, {"sessions": _sessions_view(qs, self.auth_ctx)})
+            if path == "/refresh":       # RM2763 : pile de refresh (composite)
+                qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+                return self._send_json(200, op_refresh(qs.get("blocks", ""), self.auth_ctx))
             if path == "/voice/caps":
                 return self._send_json(200, op_voice_caps())
             if path == "/session-registry":
@@ -9531,6 +10619,10 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/ticket-sessions/"):   # RM2726 : qui traite ce ticket
                 return self._send_json(200, op_ticket_sessions(
                     path[len("/ticket-sessions/"):], self.auth_ctx))
+            if path.startswith("/ticket-transitions/"):   # RM2888 : statuts posables
+                force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
+                return self._send_json(200, op_ticket_transitions(
+                    path[len("/ticket-transitions/"):], force))
             if path.startswith("/worklog/"):   # RM2466/2581 : worklog (statut live)
                 force = parse_qs(parsed.query).get("force", ["0"])[0] == "1"
                 return self._send_json(200, op_worklog(path[len("/worklog/"):], force))
@@ -9557,7 +10649,10 @@ class Handler(BaseHTTPRequestHandler):
             if path == "/tickets/brief":     # RM2619 : résolution en lot, légère
                 qs = parse_qs(parsed.query)
                 ids = [x for v in qs.get("ids", []) for x in v.split(",") if x.strip()]
-                return self._send_json(200, {"tickets": op_tickets_brief(ids)})
+                # RM2782 : `remote=0` pour rester strictement local (le comportement
+                # d'avant), utile à un appelant qui ne veut aucun appel réseau.
+                remote = (qs.get("remote", ["1"])[0] or "1") not in ("0", "false", "no")
+                return self._send_json(200, {"tickets": op_tickets_brief(ids, remote=remote)})
             if path.startswith("/resolve/"):
                 return self._send_json(200, op_resolve(path[len("/resolve/"):]))
             if path == "/tickets/search":
@@ -9577,6 +10672,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {
                     "results": merge_search_results(locaux, dist["results"]),
                     "source": src, "redmine_error": dist["error"]})
+            if path == "/tags":                    # RM2830 : étiquettes en usage
+                return self._send_json(200, {"tags": op_tags()})
             if path == "/projects":
                 return self._send_json(200, {"projects": op_list_projects()})
             if path.startswith("/client/"):        # RM2768 : fiche client
@@ -9666,6 +10763,13 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_auth_required()
         try:
             payload = self._read_json()
+            if path == "/memdebug":
+                # RM2807 : sonde mémoire du cockpit (opt-in karl_memdebug=1) —
+                # échantillons JSONL à lire à froid pendant l'enquête OOM.
+                payload["at"] = datetime.datetime.now().isoformat(timespec="seconds")
+                with (STATE_DIR / "memdebug.jsonl").open("a", encoding="utf-8") as f:
+                    f.write(json.dumps(payload, ensure_ascii=False) + "\n")
+                return self._send_json(200, {"ok": True})
             if path == "/auth/users":
                 self._require_admin()
                 return self._send_json(201, op_auth_user_create(payload))

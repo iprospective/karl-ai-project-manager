@@ -828,7 +828,7 @@ if (window.matchMedia) {
   <button class="mini" id="yesall" style="display:none" onclick="approveAll(this)"
     title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
   <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
-  <button class="mini" id="voicebtn" onclick="toggleVoice()"
+  <button class="mini" id="voicebtn" onclick="karlCall('voice', 'toggle')"
     title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
   <!-- RM2776 : navigation dans les vues déjà visitées. `←`/`→` comme dans un
        navigateur ; « historique » ouvre la liste, la plus récente en tête. -->
@@ -1172,9 +1172,9 @@ if (window.matchMedia) {
           <option value="0">désactiver</option>
         </select>
         <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
-        <button class="mini" id="micbtn" onclick="dictate()"
+        <button class="mini" id="micbtn" onclick="karlCall('voice', 'dictate')"
           title="Dicter une consigne (langue : panneau 🔧 réglages, fr par défaut) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
-        <button class="mini" id="readbtn" onclick="readQuestion()"
+        <button class="mini" id="readbtn" onclick="karlCall('voice', 'readQuestion')"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
@@ -1278,41 +1278,8 @@ if (window.matchMedia) {
               </div>
             </div>
             <!-- RM2350 : préférences vocales (locales à CE navigateur — localStorage) -->
-            <div class="card" id="voicecard">
-              <h2>🔊 Voix <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
-              <label for="vx-lang">Langue (dictée + lecture)</label>
-              <select id="vx-lang" onchange="setVoiceLang(this.value)">
-                <option value="fr-FR">français</option>
-                <option value="en-US">anglais</option>
-              </select>
-              <label for="vx-voice">Voix de synthèse</label>
-              <select id="vx-voice" onchange="setVoiceName(this.value)"></select>
-              <!-- RM2532 : bascule TTS serveur (Piper) — n'apparaît que si le serveur sait faire -->
-              <div id="vx-server-row" style="display:none;margin-top:8px">
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-                  <input type="checkbox" id="vx-server" onchange="setVoiceServer(this.checked)">
-                  <span>Voix serveur haute qualité (Piper) <span id="vx-server-tag" style="color:var(--ok)">★</span></span>
-                </label>
-                <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
-                  Voix neurale locale, indépendante du navigateur. Décochez pour revenir aux voix du navigateur.
-                </div>
-              </div>
-              <!-- RM2533 : bascule STT serveur (Whisper) — n'apparaît que si le sidecar répond -->
-              <div id="vx-stt-row" style="display:none;margin-top:8px">
-                <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-                  <input type="checkbox" id="vx-stt" onchange="setSttServer(this.checked)">
-                  <span>Dictée serveur haute précision (Whisper) <span style="color:var(--ok)">★</span></span>
-                </label>
-                <div style="color:var(--muted);font-size:11.5px;margin-top:3px">
-                  Transcription locale, tout navigateur (pas de verrou Chrome). Décochez pour la reconnaissance du navigateur.
-                </div>
-              </div>
-              <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
-                Les voix « Google » (réseau) sonnent bien mieux que les voix locales (espeak).
-                La liste dépend du navigateur — Chrome recommandé.
-              </div>
-              <button class="mini" style="margin-top:8px" onclick="speak(voiceLang.startsWith('fr') ? 'Ceci est un test de la voix du cockpit.' : 'This is a cockpit voice test.')">🔊 Tester la voix</button>
-            </div>
+            <!-- RM2350 voix — domaine MIGRÉ (RM2889, L5) : rendu par src/views/voice/ -->
+            <div class="card" id="voicecard"></div>
             <!-- RM2386 : surcharge de thème locale à CE navigateur (localStorage) —
                  le défaut d'instance reste piloté par la rubrique « Design front ». -->
             <!-- RM2386 thème — domaine MIGRÉ (RM2889, L5) : rendu par src/views/settings/ -->
@@ -2176,7 +2143,7 @@ function renderSessions(sessions) {
       }
       list.appendChild(g);
     }
-    announceWaiting(sessions);   // RM2329 : mode voix (fire-and-forget)
+    karlCall("voice", "announce", sessions);   // RM2329 : mode voix (fire-and-forget) — migré
     // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
     document.getElementById("hcnt").innerHTML =
       '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
@@ -3182,295 +3149,8 @@ function approveShortcutVisible(attached, cache) {
 }
 // <<< approveShortcutVisible
 
-// ----- RM2329 : pilotage vocal (speechSynthesis + Web Speech API) -----
-let voiceMode = localStorage.getItem("karlVoice") === "1";
-const spokenCache = {};   // rm_id → dernière question annoncée (mode voix)
-
-// >>> voiceQueue — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2329 : sessions à annoncer vocalement = celles EN ATTENTE (⚠ oui/non ou
-// ❓ choix multiple) pas encore annoncées ; `spoken` est purgé quand une session
-// sort d'attente (une nouvelle question future sera ré-annoncée).
-function voiceQueue(sessions, spoken) {
-  const waiting = new Set(["attention", "choice"]);
-  const due = [];
-  for (const s of sessions) {
-    if (waiting.has(s.state)) { if (!spoken[s.rm_id]) due.push(s.rm_id); }
-    else delete spoken[s.rm_id];
-  }
-  return due;
-}
-// <<< voiceQueue
-
-// RM2350 : préférences vocales — langue (dictée + lecture, fr par défaut) et
-// voix de synthèse choisie parmi celles du navigateur pour cette langue.
-let voiceLang = localStorage.getItem("karlVoiceLang") || "fr-FR";
-let voiceName = localStorage.getItem("karlVoiceName") || "";
-
-// >>> pickVoice — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2350 : meilleure voix pour `lang` parmi `voices` [{name, lang, localService}].
-// 1) la voix explicitement choisie (`wanted`) si toujours présente ; sinon
-// 2) une voix RÉSEAU (non locale — les « Google … » sonnent bien mieux que les
-//    voix locales type espeak, cause de la « qualité pourrie » constatée) ;
-// 3) à défaut, la première voix de la langue ; null si aucune.
-function pickVoice(voices, lang, wanted) {
-  const l = String(lang || "").toLowerCase().slice(0, 2);
-  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
-  if (!cand.length) return null;
-  if (wanted) { const w = cand.find(v => v.name === wanted); if (w) return w; }
-  return cand.find(v => v.localService === false) || cand[0];
-}
-// <<< pickVoice
-
-// RM2532 (vocal V2 L1) : TTS serveur Piper si dispo + préféré, sinon navigateur.
-let voiceCaps = null;                                    // {tts, stt, tts_langs} ou null
-let voiceServer = localStorage.getItem("karlVoiceServer") !== "0";   // préférer le TTS serveur
-let sttServer = localStorage.getItem("karlSttServer") !== "0";       // préférer le STT serveur (RM2533)
-
-// >>> ttsMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2532 : « server » si le serveur sait faire du TTS ET que l'utilisateur le préfère ;
-// sinon « browser » (synthèse navigateur, repli sans régression).
-function ttsMode(caps, pref) {
-  return (pref && caps && caps.tts) ? "server" : "browser";
-}
-// <<< ttsMode
-
-// >>> sttMode — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2533 : « server » si le sidecar Whisper est joignable ET préféré ; sinon
-// « browser » (Web Speech API, repli — verrouillé Chrome+HTTPS mais sans régression).
-function sttMode(caps, pref) {
-  return (pref && caps && caps.stt) ? "server" : "browser";
-}
-// <<< sttMode
-
-function browserSpeak(text) {
-  try {
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = voiceLang;
-    const v = pickVoice(speechSynthesis.getVoices(), voiceLang, voiceName);
-    if (v) u.voice = v;
-    speechSynthesis.speak(u);
-  } catch (e) { /* synthèse indisponible : silencieux */ }
-}
-async function serverSpeak(text) {
-  try {
-    const r = await fetch("/tts", { method: "POST", headers: headers({ "Content-Type": "application/json" }),
-                                    body: JSON.stringify({ text, lang: voiceLang.slice(0, 2) }) });
-    if (!r.ok) throw new Error("tts " + r.status);
-    const blob = await r.blob();
-    let a = document.getElementById("tts-audio");
-    if (!a) { a = document.createElement("audio"); a.id = "tts-audio"; document.body.appendChild(a); }
-    if (a.src) URL.revokeObjectURL(a.src);
-    a.src = URL.createObjectURL(blob);
-    await a.play();
-  } catch (e) { browserSpeak(text); }        // repli navigateur sur toute erreur serveur
-}
-function speak(text) {
-  if (ttsMode(voiceCaps, voiceServer) === "server") serverSpeak(text);
-  else browserSpeak(text);
-}
-async function loadVoiceCaps() {
-  try { voiceCaps = await api("/voice/caps"); } catch (e) { voiceCaps = null; }
-  renderVoicePrefs();
-}
-function setVoiceLang(lang) {
-  voiceLang = lang;
-  try { localStorage.setItem("karlVoiceLang", lang); } catch (e) { /* mode privé */ }
-  voiceName = "";                          // la voix suit la langue → re-sélection auto
-  try { localStorage.removeItem("karlVoiceName"); } catch (e) { /* mode privé */ }
-  renderVoicePrefs();
-  toast("Langue voix : " + (lang.startsWith("fr") ? "français" : "anglais"));
-}
-function setVoiceName(name) {
-  voiceName = name;
-  try { localStorage.setItem("karlVoiceName", name); } catch (e) { /* mode privé */ }
-}
-function setVoiceServer(on) {          // RM2532 : préférer la voix serveur (Piper) ou le navigateur
-  voiceServer = !!on;
-  try { localStorage.setItem("karlVoiceServer", voiceServer ? "1" : "0"); } catch (e) { /* privé */ }
-  toast(voiceServer ? "Voix serveur (Piper) activée" : "Voix du navigateur");
-  speak("Test de la voix.");          // aperçu immédiat
-}
-function setSttServer(on) {            // RM2533 : préférer la dictée serveur (Whisper) ou le navigateur
-  sttServer = !!on;
-  try { localStorage.setItem("karlSttServer", sttServer ? "1" : "0"); } catch (e) { /* privé */ }
-  toast(sttServer ? "Dictée serveur (Whisper) activée" : "Dictée du navigateur");
-}
-function renderVoicePrefs() {
-  const langSel = document.getElementById("vx-lang");
-  if (!langSel) return;
-  // RM2532 : ligne « voix serveur (Piper) » — visible seulement si le serveur sait faire.
-  const srow = document.getElementById("vx-server-row");
-  if (srow) {
-    const has = !!(voiceCaps && voiceCaps.tts);
-    srow.style.display = has ? "" : "none";
-    const cb = document.getElementById("vx-server");
-    if (cb) cb.checked = has && voiceServer;
-  }
-  // RM2533 : ligne « dictée serveur (Whisper) » — visible si le sidecar répond.
-  const strow = document.getElementById("vx-stt-row");
-  if (strow) {
-    const hasStt = !!(voiceCaps && voiceCaps.stt);
-    strow.style.display = hasStt ? "" : "none";
-    const cbs = document.getElementById("vx-stt");
-    if (cbs) cbs.checked = hasStt && sttServer;
-  }
-  langSel.value = voiceLang;
-  const sel = document.getElementById("vx-voice");
-  const voices = speechSynthesis.getVoices();
-  const l = voiceLang.toLowerCase().slice(0, 2);
-  const cand = voices.filter(v => String(v.lang || "").toLowerCase().startsWith(l));
-  sel.innerHTML = "";
-  if (!cand.length) {
-    sel.innerHTML = '<option value="">(aucune voix ' + l + ' dans ce navigateur)</option>';
-    return;
-  }
-  const best = pickVoice(voices, voiceLang, voiceName);
-  for (const v of cand) {
-    const o = document.createElement("option");
-    o.value = v.name;
-    o.textContent = v.name + (v.localService === false ? " · réseau ★" : " · locale");
-    if (best && v.name === best.name) o.selected = true;
-    sel.appendChild(o);
-  }
-}
-function renderVoiceBtn() {
-  const b = document.getElementById("voicebtn");
-  b.style.color = voiceMode ? "var(--ok)" : "";
-  b.style.borderColor = voiceMode ? "var(--ok)" : "";
-}
-function toggleVoice() {
-  voiceMode = !voiceMode;
-  try { localStorage.setItem("karlVoice", voiceMode ? "1" : "0"); } catch (e) { /* mode privé */ }
-  renderVoiceBtn();
-  toast(voiceMode ? "🔊 Mode voix : les sessions en attente seront annoncées" : "Mode voix coupé");
-  if (voiceMode) speak("Mode voix activé");
-  else speechSynthesis.cancel();
-}
-// Annonce des sessions nouvellement en attente (appelé à chaque refresh)
-async function announceWaiting(sessions) {
-  if (!voiceMode) return;
-  for (const rm of voiceQueue(sessions, spokenCache)) {
-    spokenCache[rm] = "…";              // réserve l'annonce (polls rapprochés)
-    let q = null;
-    try { q = (await api("/question/" + encodeURIComponent(rm))).question; } catch (e) { /* partie */ }
-    spokenCache[rm] = q || "?";
-    const r = resolveCache[rm];
-    const label = /^\d+$/.test(String(rm)) ? "Session R M " + rm : "Session " + rm;
-    speak(label + (r && r.found && r.title ? ", " + r.title : "") + ". " +
-      (q ? "Question : " + q : "attend une réponse."));
-  }
-}
-// Dicter une consigne à la session attachée. Deux moteurs : STT serveur (Whisper,
-// RM2533 — quel que soit le navigateur, précision fr) ou Web Speech API (repli
-// V1, verrouillé Chrome+HTTPS). Confirmation avant envoi dans les deux cas.
-let rec = null;          // instance Web Speech (repli navigateur)
-let mediaRec = null;     // MediaRecorder (capture pour le STT serveur)
-let sttBusy = false;     // 1-à-la-fois : transcription serveur en cours
-
-function micBtn() { return document.getElementById("micbtn"); }
-function micIdle() { const b = micBtn(); if (b) { b.style.color = ""; b.textContent = "🎤 dicter"; } }
-function micRec() { const b = micBtn(); if (b) { b.style.color = "var(--danger)"; b.textContent = "🎤 écoute…"; } }
-function micWork() { const b = micBtn(); if (b) { b.style.color = "var(--warn)"; b.textContent = "⏳ transcription…"; } }
-
-// Envoi factorisé (confirmation → /send), partagé par les deux moteurs.
-async function sendDictated(txt) {
-  txt = (txt || "").trim();
-  if (!txt) { toast("Dictée : rien compris"); return; }
-  const dest = /^\d+$/.test(String(attached)) ? "RM" + attached : attached;
-  if (!window.confirm("Envoyer à " + dest + " :\n\n« " + txt + " »")) { toast("Dictée abandonnée"); return; }
-  try {
-    await api("/send", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, msg: txt, enter: true }),
-    });
-    toast("🎤 Envoyé : " + (txt.length > 60 ? txt.slice(0, 60) + "…" : txt));
-  } catch (err) { toast(err.message, true); }
-}
-
-function abToB64(buf) {                       // ArrayBuffer → base64 (par blocs : pas de débordement de pile)
-  const bytes = new Uint8Array(buf); let bin = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  return btoa(bin);
-}
-
-// Point d'entrée : re-clic = stop. Choisit le moteur selon les capacités serveur.
-function dictate() {
-  if (!attached) return;
-  if (mediaRec && mediaRec.state === "recording") { try { mediaRec.stop(); } catch (e) { } return; }
-  if (rec) { try { rec.stop(); } catch (e) { } return; }
-  if (sttBusy) { toast("Transcription en cours…"); return; }
-  if (sttMode(voiceCaps, sttServer) === "server") serverDictate();
-  else browserDictate();
-}
-
-// STT serveur : capture MediaRecorder → POST /stt → transcription Whisper.
-// Tout échec (micro refusé, MediaRecorder absent, erreur serveur) retombe sur le
-// moteur navigateur — sauf si le serveur a déjà rendu un texte (pas de double envoi).
-async function serverDictate() {
-  if (!navigator.mediaDevices || !window.MediaRecorder) { browserDictate(); return; }
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  } catch (e) { toast("Micro refusé — repli reconnaissance navigateur"); browserDictate(); return; }
-  const chunks = [];
-  try { mediaRec = new MediaRecorder(stream); }
-  catch (e) { stream.getTracks().forEach(t => t.stop()); browserDictate(); return; }
-  micRec();
-  mediaRec.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
-  mediaRec.onstop = async () => {
-    stream.getTracks().forEach(t => t.stop());
-    mediaRec = null;
-    const blob = new Blob(chunks, { type: (chunks[0] && chunks[0].type) || "audio/webm" });
-    if (!blob.size) { micIdle(); toast("Dictée vide"); return; }
-    sttBusy = true; micWork();
-    try {
-      const b64 = abToB64(await blob.arrayBuffer());
-      const r = await api("/stt", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio_b64: b64, lang: voiceLang.slice(0, 2) }),
-      });
-      sttBusy = false; micIdle();
-      await sendDictated(r.text);
-    } catch (err) {
-      sttBusy = false; micIdle();
-      toast("STT serveur indisponible — repli reconnaissance navigateur");
-      browserDictate();                       // dégradation gracieuse
-    }
-  };
-  try { mediaRec.start(); }
-  catch (e) { stream.getTracks().forEach(t => t.stop()); mediaRec = null; micIdle(); browserDictate(); }
-}
-
-// Repli navigateur : Web Speech API (RM2350). Verrouillé Chrome+HTTPS/localhost.
-function browserDictate() {
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { micIdle(); toast("Reconnaissance vocale indisponible — Chrome + HTTPS/localhost requis", true); return; }
-  rec = new SR();
-  rec.lang = voiceLang; rec.interimResults = false; rec.maxAlternatives = 1;   // RM2350
-  micRec();
-  const done = () => { rec = null; micIdle(); };
-  rec.onerror = (e) => {
-    done();
-    toast("Dictée : " + (e.error === "not-allowed" ? "micro refusé (HTTPS/localhost requis)" : e.error), true);
-  };
-  rec.onend = done;
-  rec.onresult = async (e) => { await sendDictated((e.results[0][0].transcript || "").trim()); };
-  try { rec.start(); } catch (e) { done(); toast("Dictée impossible : " + e.message, true); }
-}
-// Lire la question de la session attachée (repli : ses dernières lignes)
-async function readQuestion() {
-  if (!attached) return;
-  try {
-    const r = await api("/question/" + encodeURIComponent(attached));
-    if (r.question) { speak("Question : " + r.question); return; }
-    const cap = await fetch("/capture/" + encodeURIComponent(attached) + "?lines=8", { headers: headers() });
-    if (!cap.ok) throw new Error("capture : erreur " + cap.status);
-    const lastLines = (await cap.text()).split("\n").map(l => l.trim()).filter(Boolean).slice(-4);
-    toast("Pas de question en attente — lecture des dernières lignes");
-    speak(lastLines.length ? lastLines.join(". ") : "Le terminal est vide.");
-  } catch (e) { toast(e.message, true); }
-}
+// ----- RM2329/RM2350/RM2532/RM2533 : voix — domaine MIGRÉ (RM2889, L5) : src/controllers/voice.controller.js -----
+// Le monolithe passe par karlCall("voice", …) ; la carte #voicecard est montée par boot.js.
 
 // ----- RM2330 : outline de conversation + navigation dans l'historique -----
 let outline = { items: [], total: 0 };
@@ -10350,16 +10030,14 @@ async function kill(rmId) {
     if (card) card.open = openedPanelOpen(localStorage.getItem("karlOpenedCard"));
   } catch (e) { /* mode privé : replié, comme au premier lancement */ }
   renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
-  renderVoiceBtn();   // RM2329 : restaure l'état du mode voix (localStorage)
+  karlCall("voice", "boot");   // RM2329/RM2350/RM2532 : voix — migré
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
   const _rl = document.getElementById("runlist");
   _rl.addEventListener("mouseenter", () => { listHot = true; });
   _rl.addEventListener("mouseleave", () => { listHot = false; });
   _rl.addEventListener("mousemove", () => { lastListMove = Date.now(); });
-  renderVoicePrefs(); // RM2350 : langue + voix (la liste arrive en async → voiceschanged)
-  try { speechSynthesis.onvoiceschanged = renderVoicePrefs; } catch (e) { /* pas de synthèse */ }
-  loadVoiceCaps();    // RM2532 : détecte le TTS serveur (Piper) → bascule + toggle
+  try { speechSynthesis.onvoiceschanged = () => karlCall("voice", "paint"); } catch (e) { /* pas de synthèse */ }
   refreshHealth(); loadPending();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »

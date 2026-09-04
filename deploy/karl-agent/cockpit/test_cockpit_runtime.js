@@ -105,17 +105,7 @@ ctx.api = async () => ({
 });
 
 (async () => {
-  // — panneau « commandes pm » : c'est LUI qui était en erreur —
-  await ctx.loadPmCommands();
-  assert.deepStrictEqual(errors, [],
-    "loadPmCommands ne doit produire aucune erreur (RM2714 : « val is not defined »)");
-  console.log("✓ panneau « commandes pm » : catalogue chargé sans identifiant mort");
-
-  // — le formulaire d'une commande (tous les types d'argument) —
-  ctx.pmCommands = (await ctx.api()).commands;
-  ctx.renderPmForm("task-status");
-  ctx.renderPmForm("conso-report");
-  console.log("✓ formulaire d'une commande PM rendu (enum, texte, bool, rm_id)");
+  // — panneau « commandes pm » : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_settings.js —
 
   // — fil d'ariane des fichiers : même défaut, deux endroits —
   ctx.attached = "42";

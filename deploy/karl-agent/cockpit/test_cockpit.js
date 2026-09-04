@@ -1596,90 +1596,7 @@ const bUnk = mcBanner({ verdict: {} });
 assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
 console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
 
-// — RM2458 : rendu de la page de santé du poste —
-// RM2708 : envStatusHtml compose désormais avec quatre fonctions pures — on les
-// évalue dans UN sandbox partagé, sinon chacune serait aveugle aux autres.
-const envCtx = { esc: escO, jarg: jargFn };
-for (const n of ["envStatusTabs", "envStatusDefaultTab", "envStatusSections",
-                 "envStatusBadge", "envStatusGroupHtml", "envStatusHtml"]) {
-  envCtx[n] = grabO(n, envCtx);
-}
-const envStatusHtml = envCtx.envStatusHtml;
-assert(/état indisponible/.test(envStatusHtml(null)), "rapport absent → message, pas de crash");
-const rep = {
-  generated_at: "2026-08-12T20:00:00",
-  summary: { counts: { ok: 3, info: 0, warn: 1, error: 1 } },
-  groups: [
-    { name: "Outils & dépendances", checks: [
-      { label: "bw", level: "error", detail: "binaire introuvable", fix: "npm i -g @bitwarden/cli" },
-      { label: "git", level: "ok", detail: "git version 2.43.0" } ] },
-    { name: "Git / GitLab", checks: [
-      { label: "repo pisceen/infra-core [main]", level: "error", detail: "9 non poussés, 3 en retard",
-        fix: "cd /w && git pull --rebase --autostash" } ] },
-  ],
-};
-// RM2708 : une famille à la fois → on force l'onglet pour les assertions de rendu
-const esh = envStatusHtml(rep, "Outils & dépendances")
-  + envStatusHtml(rep, "Git / GitLab");
-assert(/es-row es-error/.test(esh) && /es-row es-ok/.test(esh), "les niveaux deviennent des classes colorées");
-assert(/binaire introuvable/.test(esh) && /es-fix">npm i -g @bitwarden\/cli/.test(esh),
-  "la ligne rouge montre le détail ET la commande de remédiation");
-assert(/onclick="esCopy\(this\)"/.test(esh), "chaque remédiation a son bouton copier (sans arg dans l'onclick)");
-assert(esh.indexOf('<code class="es-fix">') < esh.indexOf('esCopy'),
-  "la commande vit dans le <code> AVANT le bouton (esCopy lit le voisin) — pas dans l'attribut");
-assert(/es-when">2026-08-12T20:00:00/.test(esh), "l'horodatage du diagnostic est affiché");
-const xss = envStatusHtml({ groups: [{ name: "X", checks: [{ label: "a<b>", level: "warn", detail: "<script>", fix: "x&y" }] }] });
-assert(/a&lt;b&gt;/.test(xss) && !/<script>/.test(xss) && /x&amp;y/.test(xss), "label/détail/fix échappés (anti-XSS)");
-console.log("✓ envStatusHtml (RM2458) : niveaux colorés, remédiation copiable, échappement");
-
-// — RM2708 : familles en onglets, dépôts en sections par client —
-const G6 = [
-  { name: "Outils & dépendances", checks: [{ label: "git", level: "ok" }] },
-  { name: "Git / GitLab", checks: [{ label: "PAT", level: "warn" }, { label: "push", level: "ok" }] },
-  { name: "Repos", checks: [
-    { label: "repo calicote/presta [main]", level: "ok", section: "calicote" },
-    { label: "repo calicote/dolibarr [dev]", level: "ok", section: "calicote" },
-    { label: "repo pisceen/presta [main]", level: "error", detail: "9 non poussés", section: "pisceen" },
-    { label: "repo perso/maths [main]", level: "warn", section: "perso" },
-    { label: "repos PM", level: "info", detail: "liste tronquée à 120 repos" } ] },
-];
-const tabs2708 = envCtx.envStatusTabs(G6);
-assert.deepStrictEqual([...tabs2708.map(t => t.name)],
-  ["Outils & dépendances", "Git / GitLab", "Repos"], "un onglet par famille, dans l'ordre du serveur");
-assert.deepStrictEqual({ ...tabs2708[2] }, { name: "Repos", warn: 1, error: 1, n: 5 },
-  "chaque onglet porte ses compteurs de défauts (visibles sans cliquer)");
-assert.strictEqual(envCtx.envStatusDefaultTab(tabs2708), "Repos",
-  "on ouvre sur la première famille EN ERREUR, pas sur la première tout court");
-assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A", warn: 2, error: 0 }, { name: "B", warn: 0, error: 0 }]),
-  "A", "à défaut d'erreur, la première en avertissement");
-assert.strictEqual(envCtx.envStatusDefaultTab([{ name: "A" }, { name: "B" }]), "A",
-  "tout est vert → la première famille");
-assert.strictEqual(envCtx.envStatusDefaultTab([]), "", "aucune famille toléré");
-// sections : défauts en tête, sans-section d'abord (lignes de service)
-const secs2708 = envCtx.envStatusSections(G6[2].checks);
-assert.deepStrictEqual([...secs2708.map(s => s.name)], ["", "pisceen", "perso", "calicote"],
-  "lignes hors client en tête, puis les sections EN DÉFAUT, puis le reste par ordre alpha");
-assert.strictEqual(secs2708[3].checks.length, 2, "les dépôts d'un client sont regroupés");
-assert.strictEqual(envCtx.envStatusSections([]).length, 0, "aucune ligne → aucune section");
-// rendu : replié quand tout va bien, déplié quand ça coince
-const rep2 = { summary: { counts: {} }, groups: G6 };
-const hRepos = envStatusHtml(rep2, "Repos");
-assert(/<details class="es-sec" open><summary>pisceen/.test(hRepos),
-  "une section en erreur est DÉPLIÉE — c'est ce qu'on vient voir");
-assert(/<details class="es-sec"><summary>calicote/.test(hRepos),
-  "une section sans défaut est repliée (20 clients, presque tous sans rien à signaler)");
-assert(/liste tronquée à 120 repos/.test(hRepos) && !/<summary><\/summary>/.test(hRepos),
-  "les lignes sans client restent visibles, sans section fantôme");
-assert(!/repo calicote\/presta/.test(envStatusHtml(rep2, "Git / GitLab")),
-  "un onglet ne montre QUE sa famille");
-assert(/es-badge es-error">✗ 1/.test(hRepos) && /es-badge es-warn">! 1/.test(hRepos),
-  "les pastilles de défaut sont rendues sur les onglets");
-assert(/onclick="setEnvTab\('Repos'\)"/.test(hRepos),
-  "l'onglet se change par setEnvTab, argument passé en guillemets simples (jarg)");
-// une famille à plat (sans section) ne fabrique aucun <details>
-assert(!/es-sec/.test(envStatusHtml(rep2, "Outils & dépendances")),
-  "une famille sans section reste une liste à plat");
-console.log("✓ santé du poste (RM2708) : onglets par famille, dépôts sectionnés par client");
+// — RM2458 / RM2708 : santé du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
 // — RM2659 : les racines de la session, groupées par projet —
 // Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
@@ -2158,30 +2075,7 @@ assert.strictEqual(MODES2720.atester.points, false,
   "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
 console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");
 
-// — RM2722 : badge d'anomalies du poste (contrôle de démarrage) —
-const envWarnBadge = grabO("envWarnBadge");
-assert.strictEqual(envWarnBadge({ items: [], count: 0, worst: "ok" }, escO), "",
-  "poste sain : AUCUN badge (un indicateur permanent ne se lit plus)");
-assert.strictEqual(envWarnBadge(null, escO), "", "données absentes tolérées");
-const ewWarn = envWarnBadge({ worst: "warn", items: [
-  { family: "SSH", label: "agent SSH", level: "warn", detail: "agent joignable mais VIDE" }] }, escO);
-assert(/>🩺 1</.test(ewWarn), "le badge porte le NOMBRE d'anomalies");
-assert(/pill ew-warn/.test(ewWarn), "niveau warn : couleur d'avertissement");
-assert(/agent joignable mais VIDE/.test(ewWarn),
-  "le survol dit QUOI — sans ça il faut ouvrir le panneau pour savoir quoi réparer");
-const ewErr = envWarnBadge({ worst: "error", items: [
-  { family: "Secrets", label: "vault-agentd", level: "error", detail: "socket absent" },
-  { family: "SSH", label: "agent SSH", level: "warn", detail: "vide" }] }, escO);
-assert(/pill ew-error/.test(ewErr), "une erreur l'emporte sur un avertissement");
-assert(/>🩺 2</.test(ewErr), "…et les deux sont comptées");
-const ewMany = envWarnBadge({ worst: "warn", items: Array.from({ length: 12 }, (_, i) =>
-  ({ family: "Outils & dépendances", label: "outil" + i, level: "warn", detail: "absent" })) }, escO);
-assert(/>🩺 12</.test(ewMany), "le compte reste exact même si le survol est tronqué");
-assert(/et 4 autre\(s\)/.test(ewMany), "…et la troncature du survol est annoncée");
-const ewXss = envWarnBadge({ worst: "warn", items: [
-  { family: "SSH", label: '"><img src=x>', level: "warn", detail: "x" }] }, escO);
-assert(!/<img/.test(ewXss), "le détail d'un check est échappé dans l'attribut title");
-console.log("✓ badge d'anomalies du poste (RM2722) : silencieux si sain, compté, expliqué au survol");
+// — RM2722 : badge du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
 // — RM2720 (suite) : écran de confirmation d'un lot de merges —
 const mrBatchHtml = grabO("mrBatchHtml");
@@ -2484,59 +2378,7 @@ assert(/ph\.classList\.toggle\("dash-on", on\)/.test(bootSrc),
   "la classe doit être posée ET retirée par le rendu du tableau de bord");
 console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanent non fermable");
 
-// — RM2748 : verrous du poste (coffre + agent SSH) —
-const vaultBtnState = grabFn("vaultBtnState");
-const vaultFormHtml = vm.runInNewContext("(" + grab("vaultFormHtml") + ")",
-  { Object, esc: escFn });
-
-assert.equal(vaultBtnState(null).show, false, "sans état connu, pas de bouton");
-assert.equal(vaultBtnState({ daemon: true, locked: [], ssh: { keys: [{ comment: "k" }] } }).show,
-  false, "tout ouvert : le bouton ne doit PAS s'afficher");
-const oneLocked = vaultBtnState({ daemon: true, locked: ["vw-ipro"], ssh: { keys: [{ comment: "k" }] } });
-assert(oneLocked.show, "un coffre verrouillé → bouton visible");
-assert(/vw-ipro/.test(oneLocked.title), "l'infobulle nomme le coffre concerné");
-assert(!/agent SSH/.test(oneLocked.title), "elle ne parle pas d'un problème qui n'existe pas");
-const both = vaultBtnState({ daemon: false, locked: ["a", "b"], ssh: { keys: [] } });
-assert(/coffre fermé/.test(both.title) && /agent SSH vide/.test(both.title),
-  "les deux causes sont annoncées, pas seulement la première");
-assert(/2 coffres/.test(vaultBtnState({ daemon: true, locked: ["a", "b"], ssh: { keys: [{}] } }).title),
-  "plusieurs coffres : on compte au lieu de tout énumérer");
-
-// contexte non sécurisé : AUCUN champ de mot de passe n'est proposé
-const vltInsecure = vaultFormHtml({ daemon: true, locked: ["vw-ipro"], ssh: {} }, false);
-assert(!/type="password"/.test(vltInsecure), "jamais de saisie de secret hors contexte sécurisé");
-assert(/https/.test(vltInsecure), "et l'on dit quoi faire pour y remédier");
-
-const vltForm = vaultFormHtml({
-  daemon: true, default_instance: "vw-ipro", locked: ["vw-ipro"],
-  instances: [{ slug: "vw-ipro", unlocked: false }, { slug: "kp-client", unlocked: true, since: "2026-08-20T10:00" }],
-  ssh: { reachable: true, keys: [], candidates: ["id_rsa_root", "id_ed25519_gitlab"] },
-}, true);
-assert(/id="vlt-pass"/.test(vltForm) && /type="password"/.test(vltForm), "champ mot de passe attendu");
-assert(/vaultUnlock\(this\)/.test(vltForm), "bouton de déverrouillage câblé");
-assert(/id="vlt-inst"/.test(vltForm), "l'instance visée est transmise explicitement");
-assert(/kp-client/.test(vltForm) && /2026-08-20T10:00/.test(vltForm), "l'état de chaque coffre est montré");
-assert(/id="vlt-key"/.test(vltForm) && /id_rsa_root/.test(vltForm), "les clés chargeables sont proposées");
-assert(/vaultSshAdd\(this\)/.test(vltForm), "bouton de chargement de clé câblé");
-assert(!/value="[^"]*mot de passe/.test(vltForm), "aucun secret pré-rempli");
-
-// tout est ouvert : le formulaire ne redemande rien
-const vltOpen = vaultFormHtml({
-  daemon: true, locked: [], instances: [{ slug: "vw-ipro", unlocked: true }],
-  ssh: { reachable: true, keys: [{ comment: "root@web-12", type: "RSA", bits: "4096" }], candidates: [] },
-}, true);
-assert(!/type="password"/.test(vltOpen), "coffre ouvert et clé chargée : plus rien à saisir");
-assert(/root@web-12/.test(vltOpen), "les clés déjà chargées restent lisibles");
-
-// le bouton d'en-tête et son cycle de vie
-assert(/id="lockbtn"[^>]*style="display:none"/.test(html), "le bouton part caché");
-assert(/onclick="openVault\(\)"/.test(html), "et ouvre le formulaire des verrous");
-assert(/loadVaultStatus\(\);/.test(html), "l'état des verrous est lu au démarrage");
-assert(/vault: 60000/.test(html) && /if \(b\.vault\)/.test(html),
-  "et rafraîchi périodiquement via la pile /refresh (le coffre se verrouille tout seul, RM2763)");
-assert(/field\.value = "";/.test(html), "le champ est vidé après envoi — le secret ne traîne pas");
-assert(!/localStorage[^\n]*(pass|secret)/i.test(html), "aucun secret ne va en stockage local");
-console.log("✓ verrous du poste (RM2748) : bouton conditionnel, saisie sûre, rien de mémorisé");
+// — RM2748 : verrous du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
 // — RM2752 : un bugfix se crée avec ses étapes de reproduction, ou pas du tout —
 // Le formulaire pouvait créer un bugfix sans repro ; `validate-task` le refusait

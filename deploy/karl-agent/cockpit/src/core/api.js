@@ -53,6 +53,15 @@ export async function api(path, opts) {
   return body;
 }
 
+/** Réponse BRUTE (Response), en-têtes posés — pour un corps binaire (audio TTS). */
+export async function raw(path, opts) {
+  opts = opts || {};
+  opts.headers = headers(opts.headers);
+  const r = await cfg.fetch(path, opts);
+  if (!r.ok) throw new ApiError(r.status, r.status + " " + r.statusText);
+  return r;
+}
+
 /** Raccourcis lisibles dans les repositories. */
 export const get = (path) => api(path);
 export const post = (path, data) => api(path, {

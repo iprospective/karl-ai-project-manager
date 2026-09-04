@@ -21,6 +21,7 @@ import { AppError, ApiError, asAppError } from "./core/errors.js";
 import { Repository } from "./models/Repository.js";
 import { Factory } from "./models/Factory.js";
 import { EntityViewModel, withConso } from "./viewmodels/EntityViewModel.js";
+import { mountMailPanel } from "./controllers/mail.controller.js";
 
 // Le transport lit sa configuration dans les globaux du monolithe tant qu'il
 // existe (CFG, token) — à la demande, jamais au chargement : CFG est rempli
@@ -62,5 +63,16 @@ const karl = Object.freeze({
   },
 });
 
-window.karl = karl;
-window.dispatchEvent(new CustomEvent("karl:ready", { detail: karl }));
+// — domaines migrés : chacun monte son panneau, avec le contexte que le
+//   monolithe lui prête encore (toast, aide, ouverture au centre, badge de nav).
+//   Ces ponts vers des globaux disparaissent domaine par domaine, jusqu'à L6. —
+const legacy = (name) => (...a) => (typeof window[name] === "function" ? window[name](...a) : undefined);
+const mail = mountMailPanel(document.getElementById("lp-mail"), {
+  notify: legacy("toast"),
+  help: legacy("openHelp"),
+  openCenter: legacy("openCenterMail"),
+  badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
+});
+
+window.karl = Object.freeze({ ...karl, mail });
+window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

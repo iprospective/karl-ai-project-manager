@@ -60,3 +60,14 @@ des types servis. Un gabarit n'est donc pas un fichier `.html` à charger, mais
 un **module `.view.js`** qui exporte une fonction rendant un fragment — ce qui
 est de toute façon la forme voulue au § 7 (une vue est une fonction pure du
 ViewModel vers du HTML sûr).
+
+## État d'avancement
+
+| Domaine | Lot | Migré le | Où |
+|---|---|---|---|
+| mail (file de triage des emails) | L1 — pilote | 2026-09-04 | `models/mail/`, `services/mail.service.js`, `viewmodels/mail/`, `views/mail/`, `controllers/mail.controller.js` |
+
+Un domaine est « migré » quand plus une ligne de son JS ne reste dans
+`index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,
+et que ses tests historiques ont été portés sur les couches (mêmes garanties,
+au bon étage).

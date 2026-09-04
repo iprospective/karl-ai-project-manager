@@ -34,6 +34,25 @@ const CAS = ["", null, undefined, "simple", "<b>gras</b>", 'guillemet "double"',
   "apostrophe 'simple'", "antislash \\ et \\\\", "& esperluette", "a<b>&\"'c\\d",
   "accentué : é à ù ç", "émoji 🙂", 0, 42, "  espaces  ", "<script>alert(1)</script>"];
 
+// Document minimal — le cockpit ne dépend d'aucun paquet (C1) et ses tests
+// tournent sous node nu (C5) : on fournit juste ce que core/dom.js utilise.
+function fakeElement() {
+  const listeners = [];
+  return {
+    innerHTML: "",
+    contains: () => true,
+    addEventListener(type, fn) { listeners.push([type, fn]); },
+    removeEventListener(type, fn) {
+      const i = listeners.findIndex(([t, f]) => t === type && f === fn);
+      if (i >= 0) listeners.splice(i, 1);
+    },
+    get listenerCount() { return listeners.length; },
+    dispatch(type, target) {
+      for (const [t, fn] of [...listeners]) if (t === type) fn({ type, target });
+    },
+  };
+}
+
 (async () => {
   const H = await import(path.join(DIR, "src/core/html.js"));
   const E = await import(path.join(DIR, "src/core/endpoints.js"));
@@ -82,6 +101,66 @@ const CAS = ["", null, undefined, "simple", "<b>gras</b>", 'guillemet "double"',
   assert.strictEqual(E.targetRoute("auth.login"), "/api/auth/login");
   assert.throws(() => E.route("nexistepas"), /route inconnue/);
   console.log(`✓ endpoints : ${tsv.length} routes, nommage injectif`);
+
+  // — 6. store : LRU borné, péremption, abonnement rendu —
+  const S = await import(path.join(DIR, "src/core/store.js"));
+  const st = new S.Store("test", { ttl: 10000, max: 2 });
+  st.set("a", 1); st.set("b", 2); st.get("a"); st.set("c", 3);
+  assert.strictEqual(st.get("b"), undefined, "b aurait dû être évincé (LRU)");
+  assert.strictEqual(st.get("a"), 1, "a, relu récemment, devait survivre");
+  assert.strictEqual(st.stats().evictions, 1);
+  const perime = new S.Store("perime", { ttl: -1 });
+  perime.set("k", "v");
+  assert.strictEqual(perime.get("k"), undefined, "une entrée périmée doit être invisible");
+  assert.strictEqual(perime.stats().stale, 1);
+  let vus = 0;
+  const off = st.subscribe(() => vus++);
+  st.set("d", 4);
+  assert.strictEqual(vus, 1, "l'abonné doit être notifié");
+  off();
+  st.set("e", 5);
+  assert.strictEqual(vus, 1, "un abonné désabonné ne doit plus rien recevoir");
+  assert.strictEqual(st.stats().subscribers, 0);
+  assert.throws(() => new S.Store("x", { max: 0 }), /max doit être/);
+  console.log("✓ store : LRU borné, péremption, désabonnement effectif");
+
+  // — 7. LA garde du chantier : un unmount() libère tout ce que mount() a créé —
+  const D = await import(path.join(DIR, "src/core/dom.js"));
+  const el = fakeElement();
+  const store = new S.Store("monté", {});
+  let clics = 0;
+  const h = D.mount(el, "<button class=\"go\">ok</button>", {
+    events: [["click", ".go", () => clics++]],
+  });
+  h.track(store.subscribe(() => {}));
+  h.timer(() => {}, 1000);
+  assert.strictEqual(el.listenerCount, 1, "un seul écouteur délégué, pas un par élément");
+  el.dispatch("click", { closest: () => ({}) });
+  assert.strictEqual(clics, 1, "le geste délégué doit atteindre le handler");
+  assert.strictEqual(store.stats().subscribers, 1);
+  assert.strictEqual(D.domStats().mounted, 1);
+
+  h.unmount();
+  assert.strictEqual(el.listenerCount, 0, "unmount doit retirer les écouteurs");
+  assert.strictEqual(store.stats().subscribers, 0, "unmount doit rendre les abonnements");
+  assert.strictEqual(el.innerHTML, "", "unmount doit vider l'hôte");
+  assert.strictEqual(D.domStats().mounted, 0, "unmount doit sortir du registre");
+  assert.strictEqual(h.pending, 0, "aucune libération ne doit rester en attente");
+  el.dispatch("click", { closest: () => ({}) });
+  assert.strictEqual(clics, 1, "un composant démonté ne doit plus réagir");
+  console.log("✓ cycle de vie : unmount() libère écouteurs, abonnements et minuteries");
+
+  // — 8. la coquille de cohabitation est réellement branchée —
+  assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html),
+    "index.html ne charge plus le socle modulaire");
+  const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
+  for (const [, rel] of boot.matchAll(/from "(\.[^"]+)"/g)) {
+    assert(fs.existsSync(path.join(DIR, "src", rel.replace(/^\.\//, ""))),
+      `boot.js importe ${rel}, qui n'existe pas`);
+  }
+  // le pont est temporaire : il ne doit rien exposer qu'un module ne fournisse
+  assert(boot.includes("window.karl"), "le pont de cohabitation a disparu de boot.js");
+  console.log("✓ coquille : index.html charge le socle, imports de boot.js résolus");
 
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

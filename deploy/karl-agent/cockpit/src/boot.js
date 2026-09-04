@@ -24,6 +24,7 @@ import { EntityViewModel, withConso } from "./viewmodels/EntityViewModel.js";
 import { mountMailPanel } from "./controllers/mail.controller.js";
 import { mountGitPanel } from "./controllers/git.controller.js";
 import { mountDashboard } from "./controllers/dashboard.controller.js";
+import { mountProjectsPanel } from "./controllers/projects.controller.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -108,5 +109,14 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
   },
 });
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard });
+const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
+  notify: legacy("toast"), help: legacy("openHelp"),
+  sessions: () => Object.values(lexical(() => sessCache) || {}),
+  resolve: () => lexical(() => resolveCache) || {},
+  clientContext: () => lexical(() => clientContext) || "",
+  pin: (kind, key) => legacy("pinOf")(kind, key) || "",
+  openProject: legacy("openProjectView"), openClient: legacy("openCenterClient"), openConf: legacy("openCenterConf"),
+});
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

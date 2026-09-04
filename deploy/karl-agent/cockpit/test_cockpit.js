@@ -165,28 +165,7 @@ assert(tqMatch(entry, "ux"), "match sur un tag");
 assert(!tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"), "champs nuls → pas de crash, rejet");
 console.log("✓ tqMatch (RM2315) : mots-clés, casse/accents, ET multi-mots");
 
-// — 5. nextAttentionId (RM2302) —
-const fa = />>> nextAttentionId[\s\S]*?(function nextAttentionId[\s\S]*?)\n\/\/ <<< nextAttentionId/.exec(html);
-assert(fa, "marqueurs >>> nextAttentionId / <<< nextAttentionId introuvables");
-const nextAttentionId = vm.runInNewContext("(" + fa[1] + ")");
-
-const flat = [
-  { rm_id: "1", state: "working" },
-  { rm_id: "2", state: "attention" },
-  { rm_id: "3", state: "idle" },
-  { rm_id: "4", state: "attention" },
-];
-assert.strictEqual(nextAttentionId([], null), null, "liste vide → null");
-assert.strictEqual(nextAttentionId([{ rm_id: "1", state: "idle" }], null), null, "aucune attention → null");
-assert.strictEqual(nextAttentionId(flat, null), "2", "rien d'attaché → première attention");
-assert.strictEqual(nextAttentionId(flat, "1"), "2", "attaché hors attention → première attention");
-assert.strictEqual(nextAttentionId(flat, "2"), "4", "attaché sur la 1re attention → la suivante");
-assert.strictEqual(nextAttentionId(flat, "4"), "2", "dernière attention → cycle vers la première");
-// RM2327 : une session « choice » (choix multiple) fait partie du cycle d'attente
-assert.strictEqual(nextAttentionId([
-  { rm_id: "1", state: "working" }, { rm_id: "2", state: "choice" },
-], null), "2", "choice inclus dans le cycle");
-console.log("✓ nextAttentionId (RM2302/RM2327) : cycle sur les sessions en attente");
+// — 5. nextAttentionId (RM2302) : RETIRÉ avec le bouton « ⚠ suivante » de l'en-tête (RM2889) —
 
 // — 6. approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui —
 const fav = />>> approveShortcutVisible[\s\S]*?(function approveShortcutVisible[\s\S]*?)\n\/\/ <<< approveShortcutVisible/.exec(html);

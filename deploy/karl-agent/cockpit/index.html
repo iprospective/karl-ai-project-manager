@@ -816,11 +816,8 @@ if (window.matchMedia) {
     title="Contexte client : pré-filtre le cockpit (tickets ouverts, sessions, recherche, création). Reste modifiable partout.">
     <option value="">Tous les clients</option>
   </select>
-  <span class="sub" id="healthtxt">connexion…</span>
-  <span class="hcnt" id="hcnt" title="Sessions ouvertes · attention · repos — clic : panneau « en cours »" onclick="switchPanel('running')"></span>
+  <span class="sub" id="healthtxt"></span>
   <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
-  <button class="mini" id="nextatt" style="display:none" onclick="gotoNextAttention()"
-    title="Attacher la prochaine session en attente d'une réponse (⚠) — cycle si plusieurs">⚠ suivante ➜</button>
   <!-- RM2332 : Oui sur la session AFFICHÉE, à côté de « suivante » — enchaîner suivante → Oui → suivante -->
   <button class="mini" id="yesatt" style="display:none" onclick="approve(attached)"
     title="Répondre Oui à la question de la session affichée — s'enchaîne avec « ⚠ suivante »">✔ Oui</button>
@@ -887,6 +884,9 @@ if (window.matchMedia) {
     <div class="lbody">
 
     <div class="lpanel" id="lp-running">
+      <!-- RM2889 : les compteurs (ouvertes · enregistrées · ⚠ · ❓ · repos) quittent l'en-tête
+           pour vivre avec la liste qu'ils résument. -->
+      <div class="hcnt" id="hcnt" style="margin:0 0 8px" title="Sessions ouvertes · enregistrées · en attente · au repos"></div>
       <!-- RM2658 : le tri dynamique (RM2344) a migré dans 🔧 réglages › « Sessions
            (ce navigateur) » — il prenait une ligne pleine largeur ici pour une
            option désactivée par défaut et rarement touchée. -->
@@ -1703,7 +1703,8 @@ function ago(ts) {
 function renderHealth(h) {
   const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
   el.className = "dot ok";
-  tx.textContent = h.sessions + " session(s) · tmux " + (h.tmux ? "ok" : "absent");
+  el.title = "agent joignable · " + h.sessions + " session(s)";   // RM2889 : le « tmux ok » est dans 🩺 poste
+  tx.textContent = "";
 }
 function renderHealthKo(msg) {
   const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
@@ -1833,16 +1834,6 @@ function sessionInClient(s, r, ctx) {
 }
 // <<< sessionInClient
 
-// >>> nextAttentionId — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2302/RM2327 : prochaine session EN ATTENTE (⚠ oui/non OU ❓ choix multiple) à
-// attacher. `sessions` = liste plate DANS L'ORDRE D'AFFICHAGE (groupes triés) ;
-// cycle à partir de `attached` ; null si aucune.
-function nextAttentionId(sessions, attached) {
-  const att = sessions.filter(s => s.state === "attention" || s.state === "choice").map(s => s.rm_id);
-  if (!att.length) return null;
-  return att[(att.indexOf(attached) + 1) % att.length];
-}
-// <<< nextAttentionId
 
 // >>> effDisposition — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2515 : disposition EFFECTIVE d'une session. Elle ne vaut que sur `idle` (elle
@@ -2156,8 +2147,6 @@ function renderSessions(sessions) {
     const na = document.getElementById("ln-att");
     const waiting = counts.attention + counts.choice;   // RM2327 : ❓ compte aussi
     na.textContent = "⚠" + waiting; na.style.display = waiting ? "" : "none";
-    // RM2302 : bouton « ⚠ suivante » visible dès qu'une session attend une réponse
-    document.getElementById("nextatt").style.display = waiting ? "" : "none";
     // RM2327 : « ✔ tout » visible dès 2 sessions en attention (1 seule = ✔ unitaire)
     document.getElementById("yesall").style.display = counts.attention > 1 ? "" : "none";
     // titre navigateur : signale d'un coup d'œil les sessions qui attendent
@@ -5695,12 +5684,6 @@ function toggleDynSort(on) {
   refreshSessions();
 }
 
-// RM2302 : saut à la prochaine session en attention (bouton header « ⚠ suivante »)
-function gotoNextAttention() {
-  const id = nextAttentionId(orderedCache, attached);
-  if (!id) { toast("Aucune session n'attend de réponse"); return; }
-  attach(id);
-}
 // RM2302 : répondre Oui à la question en attente d'une session (POST /approve —
 // le serveur re-capture le pane et refuse si la question a disparu).
 async function approve(rmId) {

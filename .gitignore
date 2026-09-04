@@ -35,6 +35,8 @@ pm.config.local.yml
 
 # Projets — repo git séparé, cloné dans ce dossier
 projects/
+# RM2889 : les domaines du cockpit portent leur nom (models/projects/, views/projects/…) — pas des données PM
+!deploy/karl-agent/cockpit/src/**/projects/
 
 # Auto-référence du PM (symlink racine pointant vers lui-même via pm-ai-agents)
 .mmi-pm

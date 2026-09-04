@@ -68,6 +68,7 @@ ViewModel vers du HTML sûr).
 | mail (file de triage des emails) | L1 — pilote | 2026-09-04 | `models/mail/`, `services/mail.service.js`, `viewmodels/mail/`, `views/mail/`, `controllers/mail.controller.js` |
 | git (journal, commit, diff de la session) | L4 | 2026-09-04 | `models/git/`, `services/git.service.js`, `viewmodels/git/`, `views/git/`, `controllers/git.controller.js` |
 | dashboard (« ce qui requiert ton attention », dérives) | L4 | 2026-09-04 | `models/dashboard/`, `services/dashboard.service.js`, `viewmodels/dashboard/`, `views/dashboard/`, `controllers/dashboard.controller.js` |
+| projets (panneau de gauche « 📁 Projets ») | L4 | 2026-09-04 | `models/projects/`, `services/projects.service.js`, `viewmodels/projects/`, `views/projects/`, `controllers/projects.controller.js` — la fiche projet au centre reste à migrer |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

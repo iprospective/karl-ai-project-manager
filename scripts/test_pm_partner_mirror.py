@@ -127,6 +127,32 @@ def test_regime_inconnu_ignore_mais_rapporte():
     assert pm_partner.unknown_regimes(["none", "signal"]) == []
 
 
+def test_mirror_est_l_alias_des_deux_sens():
+    """Le CF 35 est mono-valeur : `Mirror` est le seul moyen d'y dire « les deux sens »."""
+    res = _res(mirror={"map": MAP})
+    assert pm_partner.effective_regimes(_fm(coched=["mirror"]), res) \
+        == ["signal", "outgoing", "incoming"]
+    assert pm_partner.effective_regimes(_fm(coched=["Mirror"]), res) \
+        == ["signal", "outgoing", "incoming"]
+
+
+def test_mirror_declarable_aussi_au_projet():
+    assert pm_partner.mirror_config(_res(mirror=["mirror"]))["regimes"] \
+        == ["signal", "outgoing", "incoming"]
+
+
+def test_mirror_n_est_pas_un_regime_inconnu():
+    assert pm_partner.unknown_regimes(["mirror"]) == []
+
+
+def test_cf_mono_valeur_une_chaine_suffit():
+    """`state_mirror` peut arriver en chaîne nue : le CF ne coche qu'une valeur."""
+    res = _res(mirror={"map": MAP})
+    assert pm_partner.effective_regimes(_fm(coched="mirror"), res) \
+        == ["signal", "outgoing", "incoming"]
+    assert pm_partner.effective_regimes(_fm(coched="signal"), res) == ["signal"]
+
+
 def test_saisie_tolerante_casse_et_espaces():
     assert pm_partner.effective_regimes(_fm(coched=[" Signal ", "OUTGOING"]),
                                         _res()) == ["signal", "outgoing"]

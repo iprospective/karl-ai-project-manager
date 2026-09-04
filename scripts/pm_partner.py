@@ -552,6 +552,13 @@ MIRROR_REGIMES = ("signal", "outgoing", "incoming")
 # qu'on veut pouvoir soustraire.
 MIRROR_NONE = "none"
 
+# `mirror` — valeur du CF Redmine « Sync ticket externe » : le miroir COMPLET, dans les
+# deux sens. Le CF est mono-valeur : on ne peut y cocher qu'un régime, donc il faut un
+# mot pour « les deux sens à la fois », que le cumul de `sync.mirror.regimes` exprimerait
+# autrement. Alias, pas quatrième régime : il s'étend, et tout le reste du code continue
+# de raisonner sur les trois régimes atomiques.
+MIRROR_ALIASES = {"mirror": ("signal", "outgoing", "incoming")}
+
 
 def _regimes(values):
     """Régimes valides tirés d'une valeur libre (chaîne ou liste), dans l'ordre déclaré.
@@ -568,8 +575,9 @@ def _regimes(values):
     out = []
     for v in values:
         v = str(v or "").strip().lower()
-        if v in MIRROR_REGIMES and v not in out:
-            out.append(v)
+        for r in MIRROR_ALIASES.get(v, (v,)):
+            if r in MIRROR_REGIMES and r not in out:
+                out.append(r)
     return out
 
 
@@ -581,7 +589,8 @@ def unknown_regimes(values):
         values = [values]
     return [str(v).strip() for v in values
             if str(v or "").strip()
-            and str(v).strip().lower() not in MIRROR_REGIMES + (MIRROR_NONE,)]
+            and str(v).strip().lower() not in
+            MIRROR_REGIMES + (MIRROR_NONE,) + tuple(MIRROR_ALIASES)]
 
 
 def mirror_config(resolution):

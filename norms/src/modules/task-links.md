@@ -82,7 +82,8 @@ revue du gabarit : une note poussée chez un tiers ne se rattrape pas.
 **Miroir d'états** (v2.16.0, RM2746) : les deux états peuvent enfin se répondre — sans
 que le partenaire ne prenne la main. Trois régimes, cumulables, déclarés par secondaire
 dans `sync.mirror` (meta.yml) et surchargeables **par ticket** en cochant le CF Redmine
-« Miroir d'états » (miroir local : `state_mirror`) :
+**35 « Sync ticket externe »** (miroir local : `state_mirror`, rapatrié par
+`pm-task-sync`) :
 
 | Régime | Ce qu'il fait | Écrit chez eux | Change notre statut |
 |---|---|---|---|
@@ -103,7 +104,11 @@ dans `sync.mirror` (meta.yml) et surchargeables **par ticket** en cochant le CF 
   `pm-task-status-update`) ou refuse (`--reject`, mémorisé : la même proposition ne
   revient pas). Une correspondance ambiguë — plusieurs de nos statuts visant le même
   libellé chez eux — ne propose **rien** et se tranche par `sync.mirror.map_in`.
-* Cocher `none` sur un ticket le soustrait au réglage de son projet.
+* Le CF est **mono-valeur** : un ticket porte un seul régime. D'où la valeur
+  **`Mirror`**, alias des **deux sens** (`outgoing` + `incoming`) — pas un quatrième
+  régime : elle s'étend, et le code continue de raisonner sur les trois. Un CF laissé
+  **vide** fait hériter du réglage projet ; `none` (accepté par le code, pas encore
+  dans l'énumération Redmine) soustrait au contraire le ticket à ce réglage.
 
 
 **Règles d'intégrité :**

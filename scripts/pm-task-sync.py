@@ -130,29 +130,43 @@ CF_MIRRORS = (
 )
 
 
-# CF « Miroir d'états » (RM2746) — énumération MULTI-VALEUR. Traité à part de
-# `CF_MIRRORS`, taillé pour des CF de texte long : ici la valeur arrive en LISTE
-# (d'ids d'énumération, ou de libellés selon le format retenu côté Redmine), et
-# `normalize_text` n'aurait rien à normaliser.
+# CF35 « Sync ticket externe » (RM2746) — énumération. Traité à part de `CF_MIRRORS`,
+# taillé pour des CF de texte long : ici la valeur arrive en **id d'énumération**
+# (chaîne), pas en texte, et `normalize_text` n'aurait rien à normaliser. Le CF est
+# mono-valeur aujourd'hui ; la liste est acceptée aussi, pour qu'un passage en
+# multi-valeur côté Redmine n'exige aucune reprise ici.
 def state_mirror_from_cf(issue, reference=None):
     """Régimes cochés dans le ticket Redmine → valeur de `state_mirror`, ou None.
 
-    `None` — et surtout pas `[]` — quand le CF n'est pas configuré ou pas renseigné :
-    `[]` voudrait dire « le demandeur a tout décoché », ce qui n'est pas « on ne sait
-    pas ». Écraser un réglage local avec une non-information est exactement le piège
-    que `diff_cf_mirrors` évite déjà pour les CF de texte.
+    Trois réponses distinctes, et la distinction compte :
+      * `None` — le CF n'est pas configuré, ou pas exposé sur ce projet : **aucune
+        information**, on ne touche à rien (le piège que `diff_cf_mirrors` évite pour
+        les CF de texte) ;
+      * `[]`   — le CF est là et **décoché** : c'est une intention, le frontmatter se
+        vide et le ticket réhérite de son projet. Un régime laissé actif après un
+        décochage ferait écrire chez un tiers contre la volonté de celui qui vient de
+        le retirer ;
+      * `[régime]` — la valeur cochée.
 
     Les valeurs d'énumération arrivent en ids ; `state_mirror_values` de
     `redmine.reference.yml` les retraduit. Un id absent de la table est rendu tel
     quel : `pm_partner` ignore ce qu'il ne reconnaît pas et `pm-doctor` le signale —
     mieux qu'une valeur silencieusement perdue.
     """
-    cid = pm_cf_mirror.resolve_cf_id("REDMINE_CF_STATE_MIRROR_ID", "Miroir d'états")
+    cid = pm_cf_mirror.resolve_cf_id("REDMINE_CF_STATE_MIRROR_ID", "Sync ticket externe")
     if cid is None:
         return None
-    raw = cf_value(issue, cid)
+    entry = next((c for c in (issue.get("custom_fields") or [])
+                  if c.get("id") == cid), None)
+    if entry is None:
+        return None          # CF pas exposé sur ce projet : aucune information
+    raw = entry.get("value")
     if raw in (None, "", []):
-        return None
+        # Présent mais DÉCOCHÉ — et là, contrairement aux CF de texte, `vide` est une
+        # intention : rendre [] pour que le frontmatter se vide. Laisser le régime actif
+        # après un décochage ferait écrire `outgoing` chez un tiers contre la volonté de
+        # celui qui vient justement de le retirer.
+        return []
     values = raw if isinstance(raw, (list, tuple)) else [raw]
     table = {str(v): k for k, v in
              ((reference or load_reference()).get("state_mirror_values") or {}).items()}

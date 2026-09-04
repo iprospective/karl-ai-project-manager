@@ -29,6 +29,10 @@ import { mountEnv } from "./controllers/env.controller.js";
 import { mountPmCommands } from "./controllers/pmcmd.controller.js";
 import { mountSettings } from "./controllers/settings.controller.js";
 import { mountVoice } from "./controllers/voice.controller.js";
+import { mountCenter } from "./controllers/center.controller.js";
+import { fsScope, scopeTag } from "./models/files/scope.js";
+import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
+import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -168,5 +172,45 @@ const voice = mountVoice(document.getElementById("voicecard"), {
   },
 });
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice });
+// ── le centre : routeur des onglets, de l'historique, du titre et des vues ─────
+// Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
+// sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
+const byId = (id) => document.getElementById(id);
+const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
+const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
+  storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: legacy("mdToHtml"),
+  resolve: () => lexical(() => resolveCache) || {},
+  scope: () => ({ filesData: lexical(() => filesData), attached: lexical(() => attached), projectKey: lexical(() => currentProjectView) }),
+  surfaces: {
+    session:   { sessions: () => lexical(() => sessCache) || {}, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
+                 open: legacy("attach"), relaunch: legacy("relaunchGhost"), close: () => { if (lexical(() => attached)) legacy("detach")(); } },
+    review:    { open: legacy("openReview"), close: () => { const r = lexical(() => currentReview); if (r) legacy("closeReview")(r); } },
+    project:   { open: legacy("openProjectView"), close: () => { if (lexical(() => currentProjectView)) legacy("closeProjectView")(); } },
+    newticket: { open: legacy("openNewTicket"), close: legacy("closeNewTicket") },
+  },
+  panels: {
+    pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
+    settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
+  },
+  panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
+  placeholder: (on) => show("placeholder", on, "flex"),
+  dashboard: () => dashboard.refresh(),
+  nothingElse: () => !lexical(() => attached) && !lexical(() => currentReview) && !lexical(() => currentProjectView),
+  histOpen: () => { const b = byId("histbox"); return !!b && b.style.display !== "none"; },
+  histShow: (on) => show("histbox", on),
+  navButtons: ({ back, fwd }) => { const b = byId("histback"), f = byId("histfwd"); if (b) b.disabled = !back; if (f) f.disabled = !fwd; },
+  legacyTitle: () => legacy("curTitleLegacyHtml")() || "",
+  afterTitle: legacy("curTitleSideEffects"),
+  // RM2795 : les listes portent la même marque d'épinglage — elles se redessinent au geste
+  onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); try { const w = lexical(() => worklog); if (w && w.found) legacy("renderWorklog")(); } catch (e) {} try { legacy("refreshSessions")(); } catch (e) {} },
+});
+const center = Object.assign(centerCore, {
+  scopeTagOf: (wt) => scopeTag(fsScope(wt, lexical(() => filesData), lexical(() => attached), lexical(() => currentProjectView))),
+  fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: legacy("mdToHtml") }))),
+  centerBtn: centerBtnHtml,
+});
+// la restauration des onglets épinglés — jamais une session — ici, après le script inline
+center.restore();
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

@@ -1872,61 +1872,13 @@ console.log("OK — tous les tests cockpit passent");
 // — renderMailList (RM2671) : domaine MIGRÉ (RM2889, L1) — voir test_cockpit_mail.js —
 
 // — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
-// `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.
+// onglets : domaine MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
-const upsertTab = grabFn("upsertTab"), closeTabAt = grabFn("closeTabAt");
-// RM2775 : le rendu délègue l'infobulle à `tabTooltip` — on l'injecte dans son
-// contexte isolé, sinon le rendu lève dès le premier onglet.
-const renderCenterTabs = vm.runInNewContext("(" + grab("renderCenterTabs") + ")",
-  { Object, tabTooltip: grabFn("tabTooltip") });
 // RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
 // qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
 const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
   { Object, clientProjectPickerHtml: vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
       { Object, Array, Set, projectRadiosHtml: grabFn("projectRadiosHtml") }) });
-
-let st = { tabs: [], active: null };
-st = upsertTab(st.tabs, "session", "2668", "RM2668");
-assert.equal(st.tabs.length, 1); assert.equal(st.active, "session:2668");
-assert.equal(st.tabs[0].pinned, false, "un onglet est temporaire par défaut");
-
-// règle du temporaire unique : la vue suivante REMPLACE le temporaire précédent
-st = upsertTab(st.tabs, "review", "2670", "RM2670");
-assert.deepEqual(st.tabs.map(t => t.kind), ["review"], "le temporaire précédent doit céder la place");
-
-// épinglé : il reste, et le temporaire vient à côté
-st = upsertTab(st.tabs, "review", "2670", "RM2670", { pin: true });
-st = upsertTab(st.tabs, "project", "calyclay/infra", "calyclay/infra");
-assert.deepEqual(st.tabs.map(t => t.kind), ["review", "project"], "un onglet épinglé survit");
-st = upsertTab(st.tabs, "newticket", "", "nouveau ticket");
-assert.deepEqual(st.tabs.map(t => t.kind), ["review", "newticket"], "un seul temporaire à la fois");
-
-// ré-ouvrir un onglet existant l'active sans le dupliquer
-const before = st.tabs.length;
-st = upsertTab(st.tabs, "review", "2670", "RM2670");
-assert.equal(st.tabs.length, before, "pas de doublon d'onglet");
-assert.equal(st.active, "review:2670");
-
-// fermeture : voisin de gauche, puis de droite, puis plus rien
-let c = closeTabAt(st.tabs, "review:2670", "review:2670");
-assert.equal(c.active, "newticket:", "à défaut de voisin gauche, on prend le droit");
-c = closeTabAt(c.tabs, "newticket:", "newticket:");
-assert.equal(c.tabs.length, 0); assert.equal(c.active, null, "plus d'onglet → aucune vue active");
-c = closeTabAt([{ kind: "review", key: "1" }], "review:404", "review:1");
-assert.equal(c.tabs.length, 1, "fermer un onglet inconnu ne casse rien");
-
-// rendu : actif, épinglé, échappement, et onclick en quotes simples (jarg)
-const tabsHtml = renderCenterTabs(
-  [{ kind: "review", key: "2670", label: "RM2670", pinned: true },
-   { kind: "project", key: "x/y", label: '<b>x</b>', pinned: false }],
-  "review:2670", escFn, jargFn);
-assert(/class="ctab active"/.test(tabsHtml), "onglet actif non marqué");
-assert(/📌/.test(tabsHtml) && /⇧/.test(tabsHtml), "état d'épinglage non rendu");
-assert(/ctab temp/.test(tabsHtml), "onglet temporaire non signalé");
-assert(!/<b>x<\/b>/.test(tabsHtml) && /&lt;b&gt;/.test(tabsHtml), "libellé non échappé");
-assert(/onclick="activateTab\('review:2670'\)"/.test(tabsHtml), "id non passé via jarg");
-assert(/event\.stopPropagation\(\);closeTab/.test(tabsHtml), "la croix doit stopper la propagation");
-
 // formulaire pleine page : les champs qui manquaient à la carte repliée
 const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
                                ["low", "normal", "high", "urgent"],
@@ -1938,7 +1890,7 @@ assert(/<option value="feature" selected>/.test(form), "type feature non présé
 assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
 assert(/value="calyclay\/infra" checked/.test(form), "la cible du ticket n'est pas proposée");
 assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
-console.log("✓ onglets centraux (RM2672) : temporaire unique, épinglage, fermeture, formulaire complet");
+console.log("✓ nouveau ticket (RM2672) : formulaire pleine page complet");
 
 // — RM2718 : pastille du statut de session ([WIP] / [A TESTER] / [DONE]) —
 const markPillHtml2718 = grabO("markPillHtml");
@@ -2276,49 +2228,7 @@ assert(!/id="rf-name"/.test(fEdit) && !/id="rf-seed"/.test(fEdit),
   "édition d'une règle existante : ni nom ni peuplement");
 console.log("✓ barre des jeux (RM2741) : relancer restreint et compté, création unifiée");
 
-// — RM2744 : tableau de bord — contenu atteignable, onglet permanent —
-const ensureDashTab = grabO("ensureDashTab");
-
-// l'onglet est toujours là, toujours en tête, jamais en double
-let dtabs = ensureDashTab([]);
-assert.equal(dtabs.length, 1, "l'onglet du tableau de bord doit exister même sans rien d'ouvert");
-assert.equal(dtabs[0].kind, "dash");
-assert(dtabs[0].pinned && dtabs[0].fixed, "il est épinglé et permanent");
-dtabs = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true },
-                       { kind: "dash", key: "", label: "vieux libellé", pinned: true, fixed: true }]);
-assert.equal(dtabs.length, 2, "pas de doublon après restauration du localStorage");
-assert.equal(dtabs[0].kind, "dash", "il revient en tête");
-assert.equal(dtabs[0].label, "tableau de bord", "son libellé est celui du code, pas celui du storage");
-assert.equal(dtabs[1].kind, "review", "les autres onglets sont conservés dans l'ordre");
-
-// il ne se ferme pas — et reste la destination de la fermeture des autres
-const closeTabAt2744 = grabFn("closeTabAt");
-const withDash = ensureDashTab([{ kind: "review", key: "2744", label: "RM2744", pinned: true }]);
-const kept = closeTabAt2744(withDash, "dash:", "dash:");
-assert.equal(kept.tabs.length, 2, "fermer l'onglet permanent ne doit rien fermer");
-assert.equal(kept.active, "dash:", "et ne change pas l'onglet actif");
-const after = closeTabAt2744(withDash, "review:2744", "review:2744");
-assert.deepEqual(after.tabs.map(t => t.kind), ["dash"], "le dernier autre onglet se ferme");
-assert.equal(after.active, "dash:", "on retombe sur le tableau de bord, jamais sur rien");
-
-// rendu : icône, ni croix ni épingle sur l'onglet permanent
-const dashHtml = renderCenterTabs(withDash, "dash:", escFn, jargFn);
-assert(/📊/.test(dashHtml), "icône du tableau de bord attendue");
-assert(!/closeTab\('dash:'\)/.test(dashHtml), "l'onglet permanent ne doit pas offrir de croix");
-assert(!/togglePin\('dash:'\)/.test(dashHtml), "ni d'épingle");
-assert(/closeTab\('review:2744'\)/.test(dashHtml), "les autres onglets gardent leur croix");
-assert(/activateTab\('dash:'\)/.test(dashHtml), "cliquer l'onglet doit rouvrir le tableau de bord");
-assert(/tableau de bord — toujours là/.test(dashHtml), "son infobulle doit dire qu'il est permanent");
-
-// le correctif d'affichage : la colonne doit pouvoir contraindre son enfant
-// scrollable (min-height:0), et le centrage ne doit pas manger le haut
-assert(/\.termarea \{[^}]*min-height: 0/.test(html),
-  "sans min-height:0 sur la colonne, l'enfant en overflow-y:auto ne défile pas : il déborde");
-const phCss = /\.placeholder \{[^}]*\}/.exec(html)[0];
-assert(/justify-content: safe center/.test(phCss),
-  "un conteneur qui défile ET centre coupe le haut de son contenu : centrage sûr attendu");
-assert(/\.placeholder\.dash-on \{[^}]*justify-content: flex-start/.test(html),
-  "ceinture : le tableau de bord rendu aligne en haut, même sans support de `safe`");
+// — RM2744 : tableau de bord — contenu atteignable (onglet permanent : MIGRÉ, test_cockpit_center.js) —
 // RM2889 : le rendu du tableau de bord vit dans src/ ; c'est boot.js qui pose ET
 // retire la classe (toggle), à chaque `shown` du contrôleur.
 const bootSrc = fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8");
@@ -2406,93 +2316,7 @@ assert(/event\.stopPropagation\(\)/.test(sumOpened[0]) && /event\.preventDefault
   "le bouton d'aide ne doit pas replier la carte");
 console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ, compte visible");
 
-// — RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email —
-const viewKey = grabO("viewKey");
-const parseViewKey = grabO("parseViewKey");
-const viewTabLabel = grabO("viewTabLabel");
-// RM2861 : le corps du fichier est rendu par fileBodyHtml, partagé avec les
-// panneaux — la vue centrale ne fait plus qu'y ajouter son en-tête.
-const fileBodyHtml = grabO("fileBodyHtml");
-const fileViewHtml = grabO("fileViewHtml", { fileBodyHtml });
-const dirViewHtml = grabO("dirViewHtml");
-const mailViewHtml = grabO("mailViewHtml");
-const viewErrorHtml = grabO("viewErrorHtml");
-
-// La clé doit survivre à un rechargement ET aux caractères d'un vrai chemin :
-// c'est elle, seule, qui rouvre la vue quand plus rien n'est attaché.
-assert.deepEqual(parseViewKey(viewKey(["wt", "/a/b", "src/x.py"])), ["wt", "/a/b", "src/x.py"]);
-assert.deepEqual(parseViewKey(viewKey(["doc", "", "projects/c/p/docs/cdc.md"])),
-  ["doc", "", "projects/c/p/docs/cdc.md"], "une partie vide reste une partie");
-assert.deepEqual(parseViewKey(viewKey(["wt", "/w", "un|pipe & espace.txt"])),
-  ["wt", "/w", "un|pipe & espace.txt"], "un « | » dans le chemin ne coupe pas la clé");
-assert.deepEqual(parseViewKey(""), [], "clé vide → aucune partie");
-assert.deepEqual(parseViewKey("%ZZ"), ["%ZZ"], "clé illisible : rendue telle quelle, pas d'exception");
-
-// Libellés : courts, mais reconnaissables entre dix onglets.
-assert.strictEqual(viewTabLabel("file", ["wt", "/w", "a/b/cdc.md"]), "cdc.md");
-assert.strictEqual(viewTabLabel("file", ["doc", "", "projects/c/p/docs/cdc.md"]), "cdc.md");
-assert.strictEqual(viewTabLabel("dir", ["wt", "/w", "src/api"]), "api/");
-assert.strictEqual(viewTabLabel("dir", ["wt", "/w", ""]), "racine/", "la racine se nomme");
-assert.strictEqual(viewTabLabel("commit", ["2759", "abcdef1234567890"]), "abcdef12");
-assert.strictEqual(viewTabLabel("mail", ["k1"], "Devis pour le site vitrine"), "Devis pour le site vitrine");
-assert.strictEqual(viewTabLabel("mail", ["k1"], "x".repeat(40)).length, 30,
-  "un sujet trop long est coupé, avec son ellipse");
-
-// Fichier : markdown rendu, le reste préformaté — et la taille visible.
-const fvMd = fileViewHtml({ path: "docs/cdc.md", markdown: true, size: 2048, content: "# Titre" },
-  escO, (x) => "<MD>" + x + "</MD>");
-assert(fvMd.includes("<MD># Titre</MD>"), "un .md passe par le rendu markdown");
-assert(fvMd.includes("2 Ko"), "la taille est affichée");
-const fvTxt = fileViewHtml({ path: "a.py", markdown: false, content: "<script>x</script>" },
-  escO, (x) => "<MD>" + x + "</MD>");
-assert(!fvTxt.includes("<script>"), "le contenu non-markdown est échappé");
-assert(fvTxt.includes("&lt;script&gt;"), "…et lisible tel quel");
-
-// Dossier : navigable, sinon ce n'est qu'une capture d'écran.
-const dv = dirViewHtml({ src: "wt", wt: "/w/repo", path: "src", rootName: "repo",
-  entries: [{ name: "api", dir: true }, { name: "main.py", dir: false, size: 512 }] }, escO, jargFn);
-assert(/openCenterDir\('wt','\/w\/repo','src\/api',''\)/.test(dv), "un sous-dossier s'ouvre au centre (avec sa portée — RM2761)");
-assert(/openCenterFile\('wt','\/w\/repo','src\/main.py',''\)/.test(dv), "un fichier aussi");
-assert(dv.includes("repo") && dv.includes("src"), "le fil d'Ariane situe où on est");
-assert(/openCenterDir\('wt','\/w\/repo','',''\)/.test(dv), "…et permet de remonter à la racine");
-assert(dirViewHtml({ entries: [] }, escO, jargFn).includes("dossier vide"),
-  "un dossier vide le dit");
-
-// Email : le corps entier, et ce qui manque se dit.
-const mv = mailViewHtml({ subject: "Devis", from: "a@b.fr", from_name: "Alice",
-  date: "2026-08-20", body: "Bonjour\nà tous", body_truncated: true, state: "à traiter" }, escO);
-assert(mv.includes("Bonjour"), "le corps est rendu");
-assert(mv.includes("tronqué à la relève"), "une troncature amont est signalée");
-assert(mv.includes("Alice") && mv.includes("a@b.fr"), "l'expéditeur est identifiable");
-assert(mailViewHtml({ subject: "x" }, escO).includes("corps non disponible"),
-  "sans corps, la vue le dit au lieu d'afficher un blanc");
-assert(mailViewHtml({}, escO).includes("(sans sujet)"), "un email sans sujet reste ouvrable");
-
-// Source disparue : un onglet épinglé survit à ce qu'il montrait.
-const ev = viewErrorHtml("Commit indisponible", "erreur 404", escO);
-assert(ev.includes("Commit indisponible") && ev.includes("erreur 404"), "l'erreur exacte est reprise");
-assert(ev.includes("session fermée"), "…avec l'explication la plus probable");
-
-// Le câblage : sans lui, les fonctions pures ci-dessus ne s'affichent nulle part.
-assert(/<div id="viewpane"/.test(html), "le panneau central doit avoir sa vue générique");
-["file", "dir", "commit", "mail"].forEach(k =>
-  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
-const iconLine = /const icon = \{[\s\S]*?\};/.exec(html);
-["file:", "dir:", "commit:", "mail:"].forEach(k =>
-  assert(iconLine && iconLine[0].includes(k), "icône d'onglet manquante : " + k));
-// Les vues existantes doivent céder la place — sans ça, deux panneaux se superposent
-["function attach(rmId) {", "function openReview(rm) {", "async function openProjectView(key) {",
- "function openNewTicket() {", "function openDashboard() {"].forEach(sig => {
-  const i = html.indexOf(sig);
-  assert(i > 0, "ouvreur introuvable : " + sig);
-  assert(html.slice(i, i + 700).includes("closeCenterView()"),
-    "cet ouvreur ne referme pas la vue centrale : " + sig);
-});
-// …et réciproquement : une fermeture ne doit pas rappeler le tableau de bord
-// par-dessus une vue centrale ouverte.
-assert(/!currentProjectView && !centerView/.test(html),
-  "closeNewTicket doit tenir compte de la vue centrale");
-console.log("✓ vues centrales (RM2759) : fichier, dossier, commit, email — clé rouvrable, sources absentes annoncées");
+// — RM2759 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
 // — RM2760 : panneau « projets » — domaine MIGRÉ (RM2889, L4), voir test_cockpit_projects.js —
 // Le câblage : un panneau que rien n'ouvre n'existe pas.
@@ -2540,113 +2364,11 @@ assert(/function vocabShow/.test(html) && /function vocabBodyHtml/.test(html),
   "…avec son chargeur et son corps");
 assert(/glossaire\.md/.test(html), "…et il doit chercher docs/glossaire.md");
 console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/définition/contexte/alias");
-// — RM2761 : la vue centrale porte SA portée (sinon « worktree hors du périmètre ») —
-const fsScope = grabFn("fsScope");
-const scopeSrc = grab("scopeTag");     // 4 fonctions dans le même bloc
-const scopeCtx = vm.runInNewContext(
-  scopeSrc + "; ({scopeTag, scopeFromTag, scopeQuery})",
-  { encodeURIComponent, String, Object });
-const { scopeTag, scopeFromTag, scopeQuery } = scopeCtx;
+// — RM2761 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
-const FD = { projects: [{ root: "/ws/ipro/pm", client: "ipro", project: "pm" }] };
-let sc = fsScope("/ws/ipro/pm/envs/pm-rm42", FD, "karl-RM42", null);
-assert.equal(sc.client, "ipro"); assert.equal(sc.project, "pm");
-assert.equal(sc.sid, "karl-RM42",
-  "les DEUX portées sont gardées : le serveur autorise l'union session ∪ projet");
-assert.deepEqual(fsScope("/ailleurs/scratch", FD, "karl-RM42", null), { sid: "karl-RM42" },
-  "un worktree hors projet ne doit garder QUE le sid — sinon on perdrait le seul droit qui l'autorise");
-assert.deepEqual(fsScope("/x", { client: "acme", project: "shop" }, null, null),
-  { client: "acme", project: "shop" }, "sans session, la portée projet du panneau suffit");
-assert.deepEqual(fsScope("/x", {}, null, "acme/shop"), { client: "acme", project: "shop" },
-  "à défaut, la fiche projet ouverte donne la portée");
-assert.deepEqual(fsScope("/x", {}, null, null), {}, "rien de connu → aucune portée inventée");
+// — RM2768 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
-assert.equal(scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" }), "c:ipro/pm;s:karl-RM42");
-assert.deepEqual(scopeFromTag("c:ipro/pm;s:karl-RM42"), { client: "ipro", project: "pm", sid: "karl-RM42" });
-assert.deepEqual(scopeFromTag("s:karl-RM42"), { sid: "karl-RM42" });
-assert.equal(scopeFromTag(""), null, "clé d'onglet d'avant RM2761 → repli sur le contexte courant");
-assert.equal(scopeFromTag("c:incomplet"), null, "portée projet tronquée : ignorée, pas devinée");
-assert.equal(scopeQuery({ client: "ipro", project: "pm", sid: "" }),
-  "client=ipro&project=pm&sid=", "la requête porte les deux moitiés (sid vide accepté)");
 
-// la portée survit à l'aller-retour par la clé d'onglet (localStorage)
-const vkey = grabFn("viewKey"), pkey = grabFn("parseViewKey");
-const tag2761 = scopeTag({ client: "ipro", project: "pm", sid: "karl-RM42" });
-const rt = pkey(vkey(["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761]));
-assert.deepEqual(rt, ["wt", "/ws/ipro/pm/envs/pm-rm42", "docs/a.md", tag2761],
-  "clé d'onglet : la portée doit revenir intacte (séparateurs : ; et /)");
-
-// un dossier ouvert au centre reste navigable : chaque lien emporte la portée
-const dirViewHtml2761 = grabFn("dirViewHtml");
-const dh2761 = dirViewHtml2761({ src: "wt", wt: "/ws/ipro/pm", path: "docs", rootName: "pm",
-  tag: tag2761, entries: [{ name: "sous", dir: true }, { name: "a.md", size: 10 }] },
-  escFn, jargFn);
-assert((dh2761.match(/c:ipro\/pm;s:karl-RM42/g) || []).length >= 3,
-  "fil d'ariane, sous-dossiers et fichiers doivent tous porter la portée");
-assert(/openCenterFile\('wt','\/ws\/ipro\/pm','docs\/a\.md','c:ipro/.test(dh2761),
-  "le fichier s'ouvre avec la portée en 4e argument");
-
-// les boutons « ⤢ au centre » capturent la portée AU RENDU (avant tout detach)
-assert(/openCenterFile\('wt'," \+ jarg\(fileNav\.wt\) \+ "," \+ jarg\(fpath\) \+ ","/.test(html),
-  "le bouton fichier doit passer une 4e valeur : la portée");
-assert(/scopeTag\(fsScope\(fileNav\.wt, filesData, attached, currentProjectView\)\)/.test(html),
-  "et la calculer depuis le contexte encore vivant");
-assert(/openCenterFile\(p\[0\], p\[1\], p\[2\], p\[3\]\)/.test(html),
-  "la réactivation d'onglet doit rejouer la portée mémorisée");
-assert(/const fixed = scopeFromTag\(tag\);/.test(html),
-  "_fsq doit préférer la portée explicite au contexte courant (vidé par centerViewPane)");
-console.log("✓ portée des vues centrales (RM2761) : capturée au clic, transportée, rejouée");
-
-// — RM2768 : fiche client et confs au centre —
-const clientViewHtml = grabO("clientViewHtml");
-const confViewHtml = grabO("confViewHtml");
-
-const CLI2768 = {
-  client: "calicote", name: "Calicote", status: "active", type: "client",
-  created: "2026-05-19", redmine_project_id: "calicote",
-  redmine_project_url: "https://r.test/projects/calicote",
-  contacts: [
-    { first_name: "Sandrine", last_name: "Roche", email: "s@calicote.test",
-      role: "owner", title: "Gérante" },
-    { name: "Mathieu", email: "m@ipro.test", role: "owner", internal: true },
-  ],
-  defaults: { priority: "normal", team: [{ username: "iprospective" }] },
-  projects: [{ project: "prestashop", value: "calicote/prestashop" }],
-  projects_used: ["iprospective/nc-clients"],
-  docs: [{ name: "overview.md", path: "projects/clients/calicote/client/overview.md" }],
-};
-const cv = clientViewHtml(CLI2768, escO, jargFn);
-assert(cv.includes("Calicote") && cv.includes("calicote"), "identité et slug");
-assert(cv.includes("Sandrine Roche") && cv.includes("Gérante"),
-  "un contact se lit par son nom ET sa fonction");
-assert(cv.includes("interne"), "un contact interne est signalé comme tel");
-assert(/openProjectView\('calicote\/prestashop'\)/.test(cv),
-  "les projets du client mènent à leur fiche");
-assert(cv.includes("Projets utilisés") && cv.includes("iprospective/nc-clients"),
-  "le partage cross-client est visible, il ne se devine pas dans le YAML");
-assert(/openCenterFile\('doc','','projects\/clients\/calicote\/client\/overview\.md'\)/.test(cv),
-  "les docs du client s'ouvrent au centre");
-assert(cv.includes('href="https://r.test/projects/calicote"'), "lien Redmine cliquable");
-// tolérance : une fiche squelettique reste servie
-const cvMin = clientViewHtml({ client: "x" }, escO, jargFn);
-assert(cvMin.includes("aucun projet"), "un client sans projet le dit");
-assert(!cvMin.includes("Contacts"), "…et n'invente pas de section vide");
-assert(clientViewHtml(null, escO, jargFn).includes("client"), "données absentes tolérées");
-
-// Conf : rendue telle quelle, et échappée.
-const cf = confViewHtml({ label: "calicote/prestashop", name: "meta.yml",
-  content: "slug: x\nrepos:\n  - <b>a</b>\n" }, escO);
-assert(cf.includes("calicote/prestashop") && cf.includes("meta.yml"), "on sait ce qu'on lit");
-assert(cf.includes("&lt;b&gt;a&lt;/b&gt;"), "le contenu est échappé, jamais interprété");
-assert(cf.includes("slug: x"), "…et rendu tel quel, sans reformatage");
-assert(cf.includes("mmi-pm"), "la lecture seule renvoie à l'outillage qui, lui, écrit");
-assert(confViewHtml({}, escO).includes("meta.yml"), "conf vide : un titre, pas une erreur");
-
-// Les icônes du panneau projets (RM2768) : domaine MIGRÉ (RM2889, L4), voir test_cockpit_projects.js.
-// et l'onglet doit savoir se rouvrir
-["client", "conf"].forEach(k =>
-  assert(new RegExp('t\\.kind === "' + k + '"').test(html), "activateTab ne rouvre pas les " + k));
-console.log("✓ fiche client et confs (RM2768) : contacts, partage, meta.yml — icônes sans effet de bord");
 
 // — RM2770 : recherche multi-source et filtres —
 const searchQuery = grabO("searchQuery");
@@ -2722,146 +2444,9 @@ assert(/<div class="tabactions" id="tabactions" style="display:none">/.test(html
   assert(b2774.includes('id="' + id + '"'), "action perdue au déplacement : " + id));
 console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et actions dessous");
 
-// — RM2775 : l'infobulle d'un onglet dit ce que son libellé ne peut pas dire —
-const tabTooltip = grabO("tabTooltip");
-const parse2775 = parseViewKey;
-const RC2775 = {
-  "2744": { found: true, title: "Tableau de bord : contenu coupé en haut" },
-  "2673": { found: true, title: "Améliorations ergonomiques PM" },
-  "9999": { found: false },
-};
+// — RM2775 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
-// Le cas de la demande : survoler « RM2744 » ne doit plus afficher « RM2744 ».
-const tipTicket = tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, RC2775, parse2775);
-assert(tipTicket.includes("Tableau de bord : contenu coupé"),
-  "l'infobulle d'un ticket doit porter son titre");
-assert(tipTicket.startsWith("RM2744 — "), "…sans perdre l'identifiant, qui situe");
-// Titre pas encore résolu : ne rien inventer, et surtout pas de tiret orphelin.
-const tipInconnu = tabTooltip({ kind: "review", key: "9999", label: "RM9999" }, RC2775, parse2775);
-assert.strictEqual(tipInconnu, "RM9999", "un titre inconnu ne laisse pas de tiret vide");
-assert(!/undefined|null/.test(tipInconnu), "…ni de « undefined »");
-assert.strictEqual(tabTooltip({ kind: "review", key: "2744", label: "RM2744" }, {}, parse2775),
-  "RM2744", "cache vide toléré");
-
-// Session : titre si connu, forme lisible sinon.
-assert(tabTooltip({ kind: "session", key: "2673" }, RC2775, parse2775)
-  .includes("Améliorations ergonomiques"), "une session ancrée sur un ticket porte son titre");
-assert.strictEqual(tabTooltip({ kind: "session", key: "calymix" }, RC2775, parse2775),
-  "session calymix", "une session à slug reste lisible");
-
-// Les vues centrales : c'est là que le libellé est le plus tronqué.
-assert(tabTooltip({ kind: "file", key: viewKey(["wt", "/w/repo", "src/api/handlers.py"]) },
-  RC2775, parse2775).includes("src/api/handlers.py"), "un fichier montre son chemin entier");
-assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", "src/api"]) }, RC2775, parse2775)
-  .includes("src/api"), "un dossier aussi");
-assert(tabTooltip({ kind: "dir", key: viewKey(["wt", "/w/repo", ""]) }, RC2775, parse2775)
-  .includes("racine"), "…y compris la racine, qui se nomme");
-const tipCommit = tabTooltip({ kind: "commit", key: viewKey(["2749", "abcdef1234567890"]) },
-  RC2775, parse2775);
-assert(tipCommit.includes("abcdef1234567890"), "un commit montre son sha ENTIER (le libellé le coupe à 8)");
-assert(tipCommit.includes("2749"), "…et la session qui le sert");
-assert(tabTooltip({ kind: "mail", key: "k1", label: "Devis pour le site vitrine et…" },
-  RC2775, parse2775).includes("Devis pour le site"), "un email montre son sujet");
-assert(tabTooltip({ kind: "conf", key: viewKey(["project", "calicote", "presta"]) },
-  RC2775, parse2775).includes("calicote/presta"), "une conf projet dit de quel projet");
-assert(tabTooltip({ kind: "client", key: viewKey(["calicote"]) }, RC2775, parse2775)
-  .includes("calicote"), "une fiche client dit lequel");
-assert.strictEqual(tabTooltip({ kind: "dash", key: "" }, RC2775, parse2775), "tableau de bord");
-assert.strictEqual(tabTooltip({}, RC2775, parse2775), "", "onglet vide : pas d'exception");
-assert.strictEqual(tabTooltip(null, null, null), "", "entrées molles tolérées");
-
-// Le rendu doit utiliser l'infobulle, et garder les mentions de fonctionnement.
-const htmlTabs = renderCenterTabs(
-  [{ kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true },
-   { kind: "review", key: "2744", label: "RM2744", pinned: true },
-   { kind: "review", key: "2673", label: "RM2673", pinned: false }],
-  "review:2744", escO, jargFn, RC2775, parse2775);
-assert(htmlTabs.includes("Tableau de bord : contenu coupé"),
-  "le titre du ticket arrive bien dans le title= de l'onglet");
-assert(htmlTabs.includes("toujours là"), "l'onglet permanent garde sa mention");
-assert(htmlTabs.includes("non épinglé"), "…et le temporaire la sienne");
-assert(htmlTabs.includes('<span class="lbl">RM2744</span>'),
-  "le LIBELLÉ affiché ne change pas — seule l'infobulle s'enrichit");
-console.log("✓ infobulle d'onglet (RM2775) : le titre, le chemin, le sha entier — jamais un tiret vide");
-
-// — RM2776 : historique de navigation —
-const histVisit = grabO("histVisit", { Array, Object });
-const histStep = grabO("histStep", { Array });
-const histCloseTarget = grabO("histCloseTarget", { Array });
-const histListHtml = grabO("histListHtml", { Array });
-
-// Visiter : modèle du navigateur.
-let h2776 = { items: [], idx: -1 };
-h2776 = histVisit(h2776, { id: "session:2673", kind: "session", label: "2673" }, 40);
-h2776 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744" }, 40);
-assert.deepEqual(h2776.items.map(e => e.id), ["session:2673", "review:2744"]);
-assert.strictEqual(h2776.idx, 1, "on est sur la dernière visitée");
-// Revisiter la vue courante ne doit pas empiler : deux clics sur le même onglet
-// bloqueraient sinon le retour arrière.
-const h2 = histVisit(h2776, { id: "review:2744", kind: "review", label: "RM2744 (bis)" }, 40);
-assert.strictEqual(h2.items.length, 2, "revisiter la vue courante n'empile pas");
-assert.strictEqual(h2.items[1].label, "RM2744 (bis)", "…mais rafraîchit son libellé");
-assert.strictEqual(histVisit(h2776, {}, 40).items.length, 2, "entrée sans id ignorée");
-assert.deepEqual(histVisit(null, { id: "a:1" }, 40).items.map(e => e.id), ["a:1"],
-  "état absent toléré");
-// Plafond : on garde les plus RÉCENTES.
-let plein2776 = { items: [], idx: -1 };
-for (let i = 0; i < 10; i++) plein2776 = histVisit(plein2776, { id: "review:" + i }, 4);
-assert.deepEqual(plein2776.items.map(e => e.id), ["review:6", "review:7", "review:8", "review:9"],
-  "le plafond coupe les plus anciennes");
-assert.strictEqual(plein2776.idx, 3, "l'index suit la troncature");
-
-// Le cas de la demande : fermer la fiche ouverte depuis une session y ramène.
-const ouvertes2776 = new Set(["session:2673", "review:2744", "dash:"]);
-const isOpen2776 = (id) => ouvertes2776.has(id);
-assert.strictEqual(histCloseTarget(h2776, "review:2744", isOpen2776), "session:2673",
-  "fermer la fiche ramène à la session d'où on venait, pas au voisin de barre");
-// Une vue fermée entre-temps ne doit pas être proposée.
-const ouvertes2 = new Set(["dash:"]);
-let h3 = histVisit(h2776, { id: "dash:", kind: "dash", label: "tableau de bord" }, 40);
-assert.strictEqual(histCloseTarget(h3, "dash:", (id) => ouvertes2.has(id)), null,
-  "aucune destination valide → null, l'appelant retombe sur le voisin (comportement d'avant)");
-assert.strictEqual(histCloseTarget({ items: [], idx: -1 }, "x:1", isOpen2776), null,
-  "historique vide → repli");
-assert.strictEqual(histCloseTarget(h2776, "review:2744", null), "session:2673",
-  "sans test d'ouverture, la dernière autre visitée fait l'affaire");
-
-// Retour arrière / avant, en sautant les vues fermées.
-const parcours2776 = { items: [{ id: "a:1" }, { id: "b:2" }, { id: "c:3" }], idx: 2 };
-assert.strictEqual(histStep(parcours2776, -1, () => true).entry.id, "b:2", "← recule d'un cran");
-assert.strictEqual(histStep(parcours2776, -1, (id) => id !== "b:2").entry.id, "a:1",
-  "une vue fermée est SAUTÉE, pas rouverte");
-assert.strictEqual(histStep(parcours2776, 1, () => true).entry, null, "→ en bout de liste : rien");
-assert.strictEqual(histStep({ items: [{ id: "a:1" }], idx: 0 }, -1, () => true).entry, null,
-  "au début, ← ne fait rien");
-assert.strictEqual(histStep(parcours2776, -1, () => false).entry, null,
-  "tout fermé → aucune destination");
-assert.strictEqual(histStep({ ...parcours2776, idx: 0 }, 1, () => true).entry.id, "b:2",
-  "→ ré-avance après un retour");
-
-// La liste du header.
-const listeHtml2776 = histListHtml(
-  { items: [{ id: "session:2673", kind: "session", label: "2673" },
-            { id: "review:2744", kind: "review", label: "RM2744" }], idx: 1 },
-  (id) => id !== "session:2673", escO, jargFn);
-assert(listeHtml2776.indexOf("RM2744") < listeHtml2776.indexOf("2673"),
-  "la plus récente est en tête");
-assert(/histGoTo\('review:2744'\)/.test(listeHtml2776), "une vue ouverte est cliquable");
-assert(!/histGoTo\('session:2673'\)/.test(listeHtml2776), "une vue fermée ne l'est pas");
-assert(listeHtml2776.includes("fermée"), "…et le dit, au lieu de disparaître de l'historique");
-assert(listeHtml2776.includes("ici"), "la vue courante est repérée");
-assert(histListHtml({ items: [], idx: -1 }, null, escO, jargFn).includes("aucune vue visitée"),
-  "historique vide : un message, pas un panneau blanc");
-
-// Câblage : boutons du header et point d'entrée unique.
-["histback", "histfwd", "histbtn", "histbox"].forEach(id =>
-  assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
-assert(/function noteTab[\s\S]{0,600}histVisit\(/.test(html),
-  "l'historique doit être alimenté par noteTab — le seul passage obligé des vues");
-assert(/navSuspend/.test(html), "un retour arrière ne doit pas s'empiler lui-même");
-assert(/const fermaitLaVueAffichee/.test(html),
-  "fermer un onglet NON affiché ne doit pas changer l'écran");
-console.log("✓ historique de navigation (RM2776) : retour d'où l'on vient, ←/→, liste du header");
+// — RM2776 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
 // — RM2786 : n'offrir que les actions qui ont du sens —
 const batchButtons = grabO("batchButtons", { Object, Set, String });
@@ -3008,31 +2593,7 @@ assert(!/s\.activity \? '<span class="tquiet"/.test(html),
 assert(/dernier message il y a/.test(html), "l'infobulle de tuile nomme la mesure");
 console.log("✓ silence réel (RM2793) : les recaps automatiques ne remettent plus le compteur à zéro");
 
-// — RM2795 : la marque d'épinglage, la même partout —
-const pinMark = grabO("pinMark");
-const TABS2795 = [
-  { kind: "dash", key: "", label: "tableau de bord", pinned: true, fixed: true },
-  { kind: "review", key: "2744", label: "RM2744", pinned: true },
-  { kind: "session", key: "2673", label: "2673", pinned: false },
-  { kind: "project", key: "calicote/infra", label: "calicote/infra", pinned: true },
-];
-assert(pinMark(TABS2795, "review", "2744").includes("📌"), "un ticket épinglé porte la marque");
-assert(pinMark(TABS2795, "project", "calicote/infra").includes("📌"), "un projet épinglé aussi");
-assert.strictEqual(pinMark(TABS2795, "session", "2673"), "",
-  "un onglet ouvert mais NON épinglé n'est pas marqué — c'est l'épingle qu'on signale");
-assert.strictEqual(pinMark(TABS2795, "review", "9999"), "", "un objet sans onglet n'est pas marqué");
-assert.strictEqual(pinMark(TABS2795, "session", "2744"), "",
-  "le type compte : une session et un ticket de même id sont deux objets");
-// L'onglet permanent est épinglé par construction : le marquer n'aurait aucun sens.
-assert.strictEqual(pinMark(TABS2795, "dash", ""), "",
-  "l'onglet permanent n'est pas une épingle qu'on choisit");
-assert.strictEqual(pinMark([], "review", "1"), "", "aucun onglet → aucune marque");
-assert.strictEqual(pinMark(null, "review", "1"), "", "liste absente tolérée");
-assert.strictEqual(pinMark(TABS2795, "review", 2744), "".length ? "" : pinMark(TABS2795, "review", "2744"),
-  "un id numérique vaut son équivalent texte");
-assert(/title="Épinglé dans les onglets/.test(pinMark(TABS2795, "review", "2744")),
-  "l'infobulle dit ce que la marque signifie");
-
+// — RM2795 : la marque d'épinglage (pinMark : MIGRÉ, test_cockpit_center.js) —
 // Les cinq surfaces doivent appeler la MÊME fonction — cinq variantes d'un même
 // signal, ce serait cinq signaux.
 const surfaces2795 = [
@@ -3048,9 +2609,11 @@ assert(/pin\("project", p\.value\)/.test(fs.readFileSync(path.join(__dirname, "s
   "marque absente : panneau projets (migré RM2889)");
 assert(/pinOf\("review", String\(it\.ref/.test(html), "marque absente : worklog");
 // …et l'état doit suivre le geste, sans attendre le prochain poll.
-assert(/function togglePin[\s\S]{0,400}renderPinMarks\(\)/.test(html),
+// RM2889 : l'épinglage vit dans le routeur du centre ; c'est lui qui prévient les listes
+const centerSrc = fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8");
+assert(/function togglePin[\s\S]{0,400}ctx\.onPinChange\(\)/.test(centerSrc),
   "détacher un onglet doit rafraîchir les listes tout de suite");
-assert(/opts && opts\.pin\) renderPinMarks/.test(html),
+assert(/opts && opts\.pin && ctx\.onPinChange\) ctx\.onPinChange\(\)/.test(centerSrc),
   "…et épingler à l'ouverture aussi");
 // Le panneau projets reçoit la marque en option : porté dans test_cockpit_projects.js (RM2889).
 console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes, à jour au clic");
@@ -3387,57 +2950,8 @@ const loaders2816 = /const PANEL_LOADERS = \{[^}]*\}/.exec(html)[0];
 assert(!/\bpm:/.test(loaders2816) && !/\bsettings:/.test(loaders2816),
   "les loaders de la colonne gauche ne doivent plus référencer pm/settings");
 
-// L'onglet central : icône propre à chaque panneau, infobulle qui dit la surface.
-assert.strictEqual(tabTooltip({ kind: "pm", key: "", label: "commandes pm" }, {}, parseViewKey),
-  "commandes PM", "infobulle de l'onglet commandes pm");
-assert.strictEqual(tabTooltip({ kind: "settings", key: "", label: "réglages" }, {}, parseViewKey),
-  "réglages du cockpit", "infobulle de l'onglet réglages");
-const tabs2816 = renderCenterTabs(
-  [{ kind: "pm", key: "", label: "commandes pm", pinned: true },
-   { kind: "settings", key: "", label: "réglages", pinned: false }],
-  "settings:", escFn, jargFn, {}, parseViewKey);
-assert(/<span>⚙<\/span><span class="lbl">commandes pm<\/span>/.test(tabs2816),
-  "l'onglet commandes pm garde son icône");
-assert(/<span>🔧<\/span><span class="lbl">réglages<\/span>/.test(tabs2816),
-  "l'onglet réglages garde son icône");
-assert(!/•<\/span><span class="lbl">réglages/.test(tabs2816), "pas d'icône générique");
-
-// Réactiver l'onglet (clic, restauration au boot) rouvre le panneau central.
-const act2816 = /(function activateTab\([\s\S]*?\n\})/.exec(html);
-assert(act2816, "activateTab introuvable");
-const ctx2816 = { centerTabs: [{ kind: "pm", key: "" }, { kind: "settings", key: "" }],
-                  calls: [], parseViewKey };
-["attach", "openReview", "openProjectView", "openNewTicket", "openDashboard",
- "openCenterFile", "openCenterDir", "openCenterCommit", "openCenterMail",
- "openCenterClient", "openCenterConf"].forEach(n => { ctx2816[n] = () => ctx2816.calls.push(n); });
-ctx2816.openCenterPanel = (n) => ctx2816.calls.push("panel:" + n);
-vm.runInNewContext(act2816[1] + "\nactivateTab('pm:');activateTab('settings:');", ctx2816);
-assert.deepStrictEqual(ctx2816.calls, ["panel:pm", "panel:settings"],
-  "réactiver l'onglet doit rouvrir le panneau central correspondant");
-
-// Le panneau central cède la place aux autres vues, et réciproquement.
-["function attach(", "function openReview(", "async function openProjectView(",
- "function openNewTicket(", "function centerViewPane(", "function openDashboard("].forEach(sig => {
-  const i = html.indexOf(sig);
-  assert(i > 0, "fonction introuvable : " + sig);
-  const corps = html.slice(i, i + 1400);
-  assert(corps.includes("closeCenterPanel()"), sig + " doit fermer le panneau central");
-});
-// …et son propre ouvreur ferme les autres.
-const ocp2816 = /function openCenterPanel\([\s\S]*?\n\}/.exec(html);
-assert(ocp2816, "openCenterPanel introuvable");
-["closeCenterView()", "closeNewTicket()", "closeProjectView()", "noteTab(", "renderCurTitle()"]
-  .forEach(s => assert(ocp2816[0].includes(s), "openCenterPanel doit appeler " + s));
-// Le retour au tableau de bord ne doit pas passer par-dessus un panneau ouvert.
-["function closeNewTicket(", "function closeProjectView("].forEach(sig => {
-  const i = html.indexOf(sig);
-  const corps = html.slice(i, i + 700);
-  assert(/!centerPanel/.test(corps), sig + " doit tenir compte du panneau central ouvert");
-});
-// Démarrage « auth requise sans jeton » : on atterrit toujours sur les réglages.
-assert(/CFG\.auth_required && !token\(\)[\s\S]{0,200}openCenterPanel\("settings"\)/.test(html),
-  "auth requise sans jeton doit ouvrir les réglages au centre");
-console.log("✓ commandes pm & réglages (RM2816) : menu du haut, contenu en onglet central");
+// (icônes et infobulles des onglets pm/settings : MIGRÉS — test_cockpit_center.js)
+// (réactivation, fermetures croisées, openCenterPanel : MIGRÉS — test_cockpit_center.js)
 
 // — RM2821 : « ⬆ MAJ dispo » en bout de rangée —
 // Bouton intermittent (il n'apparaît que quand une MAJ existe) : au milieu de la
@@ -3556,44 +3070,7 @@ assert(/ensureTicketSessions\(.*true\)/.test(css2818[0]),
   "l'état des sessions du ticket doit être RELU (un cache périmé dirait « libre » à tort)");
 assert(/attach\(/.test(css2818[0]), "…et proposer de REJOINDRE la session existante");
 console.log("✓ 2e session sur un ticket pris (RM2818) : alerte nommée, rejoindre plutôt que doubler");
-// — RM2819 : cliquer l'onglet d'une session éteinte doit la RELANCER —
-// Un onglet épinglé survit à ce qu'il montrait : la session peut être vivante,
-// seulement enregistrée (fantôme), ou avoir disparu. On attachait dans les trois
-// cas — terminal vide dans deux d'entre eux, sans rien dire.
-const sessionTabAction = grabO("sessionTabAction");
-const S2819 = [
-  { rm_id: "100", state: "working" },
-  { rm_id: "200", ghost: true, engine: "claude", session_id: "abc", resumable: true },
-  // même id, deux entrées (un fantôme du jeu + la session relancée) : la vivante prime
-  { rm_id: "300", ghost: true }, { rm_id: "300", state: "idle" },
-];
-assert.strictEqual(sessionTabAction("100", S2819).action, "attach", "session vivante → attach");
-const r2819 = sessionTabAction("200", S2819);
-assert.strictEqual(r2819.action, "relaunch", "session enregistrée non démarrée → relance");
-assert.strictEqual(r2819.session.session_id, "abc",
-  "…avec SON entrée : relaunchGhost a besoin de engine/session_id");
-assert.strictEqual(sessionTabAction("300", S2819).action, "attach",
-  "un fantôme homonyme ne doit pas masquer la session vivante");
-assert.strictEqual(sessionTabAction("999", S2819).action, "missing", "inconnue → on le dit");
-assert.strictEqual(sessionTabAction("100", {}).action, "missing", "cache vide → inconnue");
-// sessCache est un objet {rm_id: session}, la réponse /sessions un tableau : les deux passent
-const parCle = { "200": { rm_id: "200", ghost: true } };
-assert.strictEqual(sessionTabAction("200", parCle).action, "relaunch",
-  "la fonction accepte le cache indexé comme la liste");
-assert.strictEqual(sessionTabAction(200, parCle).action, "relaunch", "id numérique accepté");
-
-// Câblage : l'onglet passe par le routeur, plus par attach() en direct.
-const act2819 = /(function activateTab\([\s\S]*?\n\})/.exec(html)[1];
-assert(/t\.kind === "session"\) openSessionTab\(/.test(act2819),
-  "activateTab doit router la session vers openSessionTab");
-const ost2819 = /async function openSessionTab\([\s\S]*?\n\}/.exec(html);
-assert(ost2819, "openSessionTab introuvable");
-// Le cache ne voit que le jeu courant : ne pas conclure à la disparition sans redemander.
-assert(/\/sessions\?ghosts=1/.test(ost2819[0]),
-  "openSessionTab doit relire la liste COMPLÈTE avant de conclure à l'absence");
-assert(/relaunchGhost\(/.test(ost2819[0]), "…et déléguer la relance au chemin existant");
-assert(/toastAction\(/.test(ost2819[0]), "…et proposer de fermer l'onglet d'une session disparue");
-console.log("✓ onglet de session éteinte (RM2819) : relance au clic, jamais un terminal vide");
+// — RM2819 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
 // — RM2834 : filtre par client dans « Reprendre une session » —
 // La liste des projets était PLATE : tous les clients mêlés, des dizaines
@@ -3749,31 +3226,12 @@ assert(!/worker-/.test(tpt2833("reviewer", "42", "acme", "shop", { role: "db" })
   "une review n'est pas routée par étiquette : son rôle est la review");
 console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais imposé");
 
-// — RM2861 : un fichier ouvert s'affiche en pleine hauteur —
-// Le Markdown partait dans `.desc`, le bloc « description encadrée » plafonné à
-// 160 px : on lisait un fichier par une fenêtre, dans un panneau qui défile déjà.
-const mdStub = (t) => "<md>" + t + "</md>";
-const vMd = fileBodyHtml({ markdown: true, content: "# titre" }, escO, mdStub);
-assert(/facetfull/.test(vMd) && /descfull/.test(vMd) && /mdview/.test(vMd),
-  "le Markdown prend les classes pleine hauteur (RM2797/2806)");
-assert(!/class="[^"]*\bdesc\b/.test(vMd),
-  "…et PAS `.desc` : déclarée plus loin dans la feuille, elle regagnerait et le correctif serait inerte (RM2806)");
-assert(/<md># titre<\/md>/.test(vMd), "le rendu Markdown reste stylé, pas du texte brut");
-
-const vTxt = fileBodyHtml({ markdown: false, content: "a < b & c" }, escO, mdStub);
-assert(/max-height:none/.test(vTxt), "le fichier non-markdown reste sans plafond");
-assert(/a &lt; b &amp; c/.test(vTxt), "…et son contenu est échappé (ce n'est pas du HTML)");
-assert(!/<md>/.test(vTxt), "un fichier non-markdown ne passe pas par le rendu Markdown");
-assert(fileBodyHtml(null, escO, mdStub) !== "", "fichier absent toléré");
-assert(!/undefined/.test(fileBodyHtml({ markdown: false }, escO, mdStub)),
-  "contenu absent → vide, jamais « undefined » à l'écran");
-
+// — RM2861 : un fichier ouvert (fileBodyHtml : MIGRÉ, test_cockpit_center.js) —
 // Câblage : le rendu vivait en DOUBLE (panneau droit RM2586, vue projet RM2590).
 // Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
-assert.strictEqual((html.match(/fileBodyHtml\(f, esc, mdToHtml\)/g) || []).length, 2,
+assert.strictEqual((html.match(/h \+= fileBodyHtml\(f\)/g) || []).length, 2,
   "les deux panneaux de fichier passent par le rendu commun");
-assert(/fileBodyHtml\(d, esc, md\)/.test(html),
-  "…et la vue centrale aussi : un seul endroit décide comment un fichier s'affiche");
+
 assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
   "plus aucun contenu de fichier rendu dans le bloc encadré");
 console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");
@@ -3958,7 +3416,10 @@ assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé"
 // 5. l'en-tête est bien AU-DESSUS des onglets dans le document (la demande)
 assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'),
   "l'en-tête doit précéder la barre d'onglets .rnav");
-// 6. …et il suit la vue : renderCurTitle est le point d'entrée commun
-assert(/function renderCurTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(html),
-  "renderRTitle doit être appelé par renderCurTitle (tout changement de vue)");
+// 6. …et il suit la vue : le titre du centre (routeur, RM2889) rejoue les effets de bord
+//    prêtés par le monolithe à chaque changement de vue — renderRTitle en tête.
+assert(/function curTitleSideEffects\(\) \{\s*\n\s*renderRTitle\(\);/.test(html),
+  "renderRTitle doit être appelé à tout changement de vue (curTitleSideEffects)");
+assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8")),
+  "…et le routeur du centre les rejoue après chaque titre");
 console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement");

@@ -76,6 +76,7 @@ ViewModel vers du HTML sûr).
 | pmcmd (commandes PM, catalogue RM2209) | L5 | 2026-09-04 | `models/pmcmd/`, `services/pmcmd.service.js`, `viewmodels/pmcmd/`, `views/pmcmd/`, `controllers/pmcmd.controller.js` |
 | settings (réglages whitelist RM2213, thème RM2386) | L5 | 2026-09-04 | `models/settings/`, `services/settings.service.js`, `viewmodels/settings/`, `views/settings/`, `controllers/settings.controller.js` |
 | voice (mode voix, annonces, dictée, TTS/STT serveur ou navigateur) | L5 | 2026-09-04 | `models/voice/`, `services/voice.service.js`, `viewmodels/voice/`, `views/voice/`, `controllers/voice.controller.js` — moteurs du navigateur injectés par boot.js |
+| **centre** — onglets, historique, titre, vues génériques (fichier, dossier, commit, email, client, conf), panneaux centraux, tableau de bord | cluster | 2026-09-04 | `models/center/`, `models/files/scope.js`, `viewmodels/center/`, `views/center/`, `controllers/center.controller.js` — les surfaces session / revue / fiche projet / nouveau ticket sont des **ponts enregistrés** par `boot.js` |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,
@@ -90,7 +91,8 @@ session, ferment la fiche projet et le formulaire de ticket, écrivent dans les 
 et le titre — et le harnais `test_cockpit_runtime.js` pilote `openCenterFile` *dans*
 le script inline. La carte les rangeait en L4 par **position** dans le fichier ; leur
 **couplage** est celui des onglets, de la revue et de l'attache (L2/L3). Ils migrent
-avec eux, sous la forme d'un `center.controller` unique. Même sort pour la fiche
+avec eux, sous la forme d'un `center.controller` unique — **fait le 2026-09-04** : le
+routeur est migré, les surfaces historiques lui sont enregistrées comme des ponts. Même sort pour la fiche
 projet au centre et l'onglet fichiers, qui s'appuient dessus.
 
 Conséquence pratique : la chaleur mesurée ordonne bien les domaines *autonomes*

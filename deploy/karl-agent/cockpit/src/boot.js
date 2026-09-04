@@ -22,6 +22,9 @@ import { Repository } from "./models/Repository.js";
 import { Factory } from "./models/Factory.js";
 import { EntityViewModel, withConso } from "./viewmodels/EntityViewModel.js";
 import { mountMailPanel } from "./controllers/mail.controller.js";
+import { mountGitPanel } from "./controllers/git.controller.js";
+import { GitPatch } from "./views/git/GitPanel.view.js";
+import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
 // Le transport lit sa configuration dans les globaux du monolithe tant qu'il
 // existe (CFG, token) — à la demande, jamais au chargement : CFG est rempli
@@ -74,5 +77,17 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
   badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
 });
 
-window.karl = Object.freeze({ ...karl, mail });
+// les `let` de premier niveau du script inline (attached, sessCache) sont dans
+// la portée globale partagée, pas sur window : on les lit par leur nom, protégé.
+const lexical = (fn) => { try { return fn(); } catch (e) { return undefined; } };
+const git = mountGitPanel(document.getElementById("rp-git"), {
+  notify: legacy("toast"),
+  attached: () => lexical(() => attached),
+  branchesOf: (sid) => lexical(() => ((sessCache[sid] || {}).registry || {}).branches) || [],
+  openCenter: legacy("openCenterCommit"),
+});
+// openCenterCommit (domaine fichiers, prochain sous-lot) rend encore un patch : on lui prête la vue.
+window.gitPatchHtml = (payload) => String(GitPatch(new GitPatchViewModel(payload)));
+
+window.karl = Object.freeze({ ...karl, mail, git });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

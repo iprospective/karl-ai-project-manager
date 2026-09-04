@@ -23,6 +23,7 @@ import { Factory } from "./models/Factory.js";
 import { EntityViewModel, withConso } from "./viewmodels/EntityViewModel.js";
 import { mountMailPanel } from "./controllers/mail.controller.js";
 import { mountGitPanel } from "./controllers/git.controller.js";
+import { mountDashboard } from "./controllers/dashboard.controller.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -89,5 +90,23 @@ const git = mountGitPanel(document.getElementById("rp-git"), {
 // openCenterCommit (domaine fichiers, prochain sous-lot) rend encore un patch : on lui prête la vue.
 window.gitPatchHtml = (payload) => String(GitPatch(new GitPatchViewModel(payload)));
 
-window.karl = Object.freeze({ ...karl, mail, git });
+const dashboard = mountDashboard(document.getElementById("dashboard"), {
+  notify: legacy("toast"),
+  attach: legacy("attach"), openReview: legacy("openReview"),
+  pull: () => legacy("refreshFetch")(["dashboard"]),
+  sessions: () => lexical(() => sessCache) || {},
+  stale: () => lexical(() => [...pendStale]) || [],
+  nameOf: legacy("tmuxNameOf"),
+  // visible = le vide central est affiché et aucune session n'est attachée (RM2697)
+  visible: () => { const ph = document.getElementById("placeholder"); return !!ph && ph.style.display !== "none" && !lexical(() => attached); },
+  // RM2744 : dès qu'il y a du contenu, l'alignement passe en haut ; l'indice s'efface
+  shown: (on, hasContent) => {
+    const box = document.getElementById("dashboard"), hint = document.getElementById("ph-hint"), ph = document.getElementById("placeholder");
+    if (box) box.style.display = on ? "" : "none";
+    if (ph) ph.classList.toggle("dash-on", on);
+    if (hint) hint.style.display = on && hasContent ? "none" : "";
+  },
+});
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

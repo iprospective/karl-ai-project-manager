@@ -25,6 +25,7 @@ import { mountMailPanel } from "./controllers/mail.controller.js";
 import { mountGitPanel } from "./controllers/git.controller.js";
 import { mountDashboard } from "./controllers/dashboard.controller.js";
 import { mountProjectsPanel } from "./controllers/projects.controller.js";
+import { mountEnv } from "./controllers/env.controller.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -118,5 +119,17 @@ const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
   openProject: legacy("openProjectView"), openClient: legacy("openCenterClient"), openConf: legacy("openCenterConf"),
 });
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects });
+// santé du poste et verrous : la modale partagée (docmodal) lui est prêtée, comme
+// le badge et le bouton d'en-tête — trois surfaces, un contrôleur.
+const env = mountEnv(document.getElementById("doccontent"), {
+  notify: legacy("toast"), clip: legacy("writeClip"),
+  pull: (block) => legacy("refreshFetch")([block]),
+  secure: () => !!window.isSecureContext,
+  modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
+    if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
+  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { el.innerHTML = h; el.style.display = h ? "" : "none"; } },
+  lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
+});
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

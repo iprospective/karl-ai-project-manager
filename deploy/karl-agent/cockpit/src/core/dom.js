@@ -56,6 +56,9 @@ export function mount(el, frag, { events = [] } = {}) {
       disposers.push(() => clearInterval(id));
       return id;
     },
+    /** Repeint le fragment SANS démonter : la délégation étant posée sur
+     *  l'hôte, les écouteurs survivent et rien n'est à re-poser. */
+    update(next) { el.innerHTML = String(next); return handle; },
     /** Libère tout, dans l'ordre inverse, puis vide l'hôte. */
     unmount() {
       while (disposers.length) {

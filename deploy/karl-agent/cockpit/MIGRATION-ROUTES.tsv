@@ -27,7 +27,7 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /help	L5	glossary	/api/glossary/help	1	openHelp
 /kill	L2	sessions	/api/session/kill	1	kill
 /layout	L2	sessions	/api/session/layout	1	setLayout
-/mail/queue	L4,L5	files	/api/mail/queue	2	loadMail;openCenterMail
+/mail/queue	L1	files	/api/mail/queue	2	loadMail;openCenterMail
 /memdebug	L2	terminal	/api/terminal/memdebug	1	memProbeSample
 /mergecheck	L3	tickets	/api/ticket/mergecheck	1	ensureMergecheck
 /monitor	L2	sessions	/api/session/monitor	1	addMonitor
@@ -85,3 +85,9 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worklog/batch	L3,L4	worklog	/api/worklog/batch	3	openBatchPlan;sendBatch;spawnBatchSession
 /workspace-status	L3	tickets	/api/ticket/workspace-status	1	refreshWorkspace
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
+/mail/fetch	L1	mail	/api/mail/fetch	1	mailFetch
+/mail/route	L1	mail	/api/mail/route	1	mailRoute
+/mail/draft	L1	mail	/api/mail/draft	1	mailDraft
+/mail/create	L1	mail	/api/mail/create	2	mailCreate;mailNoteOn
+/mail/route-set	L1	mail	/api/mail/route-set	1	mailReroute
+/mail/dismiss	L1	mail	/api/mail/dismiss	1	mailDismiss

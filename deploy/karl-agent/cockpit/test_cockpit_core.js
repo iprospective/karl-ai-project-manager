@@ -29,6 +29,17 @@ function fromIndex(name) {
   }
   return vm.runInNewContext("(" + html.slice(start, end) + ")");
 }
+function fromIndexSource(name) {
+  const start = html.search(new RegExp(`^function ${name}\\(`, "m"));
+  assert(start >= 0, `${name} introuvable dans index.html`);
+  let depth = 0, seen = false, end = start;
+  for (let i = start; i < html.length; i++) {
+    const c = html[i];
+    if (c === "{") { depth++; seen = true; }
+    else if (c === "}") { depth--; if (seen && depth === 0) { end = i + 1; break; } }
+  }
+  return html.slice(start, end);
+}
 
 const CAS = ["", null, undefined, "simple", "<b>gras</b>", 'guillemet "double"',
   "apostrophe 'simple'", "antislash \\ et \\\\", "& esperluette", "a<b>&\"'c\\d",
@@ -161,6 +172,94 @@ function fakeElement() {
   // le pont est temporaire : il ne doit rien exposer qu'un module ne fournisse
   assert(boot.includes("window.karl"), "le pont de cohabitation a disparu de boot.js");
   console.log("✓ coquille : index.html charge le socle, imports de boot.js résolus");
+
+  // — 9. api : comportement identique à index.html, erreurs à quatre champs —
+  const A = await import(path.join(DIR, "src/core/api.js"));
+  const ER = await import(path.join(DIR, "src/core/errors.js"));
+  const legacyHeaders = vm.runInNewContext(
+    "(" + fromIndexSource("headers") + ")", { CFG: { auth_required: true }, token: () => "T" });
+  A.configureApi({ authRequired: true, token: () => "T" });
+  assert.deepStrictEqual(A.headers({ a: "1" }), { ...legacyHeaders({ a: "1" }) },  // autre realm vm
+    "headers() diverge entre index.html et core/api.js");
+  const fakeFetch = (status, body, ct = "application/json") => async () => ({
+    ok: status < 400, status, statusText: "ST",
+    headers: { get: () => ct }, json: async () => body, text: async () => String(body),
+  });
+  A.configureApi({ fetch: fakeFetch(200, { ok: 1 }) });
+  assert.deepStrictEqual(await A.api("/x"), { ok: 1 });
+  A.configureApi({ fetch: fakeFetch(200, "brut", "text/plain") });
+  assert.strictEqual(await A.api("/x"), "brut", "un corps texte doit rester texte");
+  let unauthorized = 0;
+  A.configureApi({ fetch: fakeFetch(401, { error: "jeton révoqué" }), onUnauthorized: () => unauthorized++ });
+  await assert.rejects(A.api("/x"), e => e instanceof ER.ApiError && e.status === 401
+    && e.message === "jeton révoqué" && e.code === "http.401");
+  assert.strictEqual(unauthorized, 1, "un 401 doit rappeler l'écran de login");
+  A.configureApi({ fetch: fakeFetch(500, "", "text/plain") });
+  await assert.rejects(A.api("/x"), /500 ST/);
+  A.configureApi({ fetch: fakeFetch(422, { code: "ticket.invalide", error: "titre vide", remedy: "renseigner un titre" }) });
+  await assert.rejects(A.api("/x"), e => e.code === "ticket.invalide" && e.remedy === "renseigner un titre");
+  const norm = ER.asAppError(new Error("boum"));
+  assert(norm instanceof ER.AppError && norm.code === "unknown" && norm.cause);
+  assert.deepStrictEqual(Object.keys(norm.toJSON()), ["code", "message", "detail", "remedy"]);
+  console.log("✓ api : headers identiques, corps json/texte, 401, erreurs à quatre champs");
+
+  // — 10. modèle : factory qui garantit l'invariant, repository qui cache —
+  const F = await import(path.join(DIR, "src/models/Factory.js"));
+  const RP = await import(path.join(DIR, "src/models/Repository.js"));
+  const f = new F.Factory({ type: "ticket", required: ["id"], defaults: { tags: [] }, coerce: { id: Number } });
+  const e1 = f.one({ id: "12", title: "t" });
+  assert.strictEqual(e1.id, 12); assert.deepStrictEqual(e1.tags, []); assert.strictEqual(e1.type, "ticket");
+  assert(Object.isFrozen(e1), "une entité est immuable");
+  assert.throws(() => f.one({ title: "sans id" }), /champs manquants id/);
+  assert.strictEqual(f.many({ items: [{ id: 1 }, { id: 2 }] }).length, 2);
+  let appels = 0;
+  A.configureApi({ fetch: async (p) => { appels++; return (await fakeFetch(200, { id: 7, title: p })()); } });
+  const repo = new RP.Repository({ name: "ticket-test", factory: f, routes: { one: "auth.login", list: "auth.users" } });
+  const t1 = await repo.one(7); const t2 = await repo.one(7);
+  assert.strictEqual(t1, t2, "la 2e lecture doit venir du cache");
+  assert.strictEqual(appels, 1);
+  assert.throws(() => repo.path("nexiste"), /non déclarée/);
+  console.log("✓ modèle : factory (invariants, défauts, coercition), repository (cache, routes nommées)");
+
+  // — 11. ViewModel : inerte, testable sans réseau, héritage plat —
+  const V = await import(path.join(DIR, "src/viewmodels/EntityViewModel.js"));
+  class TicketVM extends V.withConso(V.EntityViewModel) {
+    get badges() { return [...super.badges, this.e.priority]; }
+    sections() { return [{ id: "resume", title: "résumé", summary: true }, this.consoSection()]; }
+  }
+  const vm2 = new TicketVM(f.one({ id: 3, title: "T", state: "en_cours", priority: "high" }), { user: "m" });
+  assert.deepStrictEqual(vm2.badges, ["en_cours", "high"]);
+  assert.deepStrictEqual(vm2.summary().map(s => s.id), ["resume"]);
+  assert.strictEqual(vm2.user, "m"); assert.deepStrictEqual(vm2.actions(), []);
+  assert.strictEqual(vm2.conso.tokens, 0);
+  assert.throws(() => new V.EntityViewModel(null), /exige une entité/);
+  console.log("✓ ViewModel : présente sans réseau, mixin withConso, contexte injecté");
+
+  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir —
+  const FORBIDDEN = {
+    views:       [/core\/api\.js/, /services\//, /models\//],       // une vue rend, elle ne charge rien
+    viewmodels:  [/core\/api\.js/, /core\/dom\.js/, /services\//],   // inerte : ni réseau ni DOM
+    models:      [/core\/dom\.js/, /views\//, /controllers\//],      // jamais de DOM
+    services:    [/core\/dom\.js/, /views\//, /controllers\//],      // aucun balisage
+    components:  [/core\/api\.js/, /services\//, /models\//],
+    controllers: [/core\/api\.js/],                                  // aucun appel réseau direct
+  };
+  const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x =>
+    x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
+  let verifies = 0;
+  for (const [layer, bans] of Object.entries(FORBIDDEN)) {
+    const dir = path.join(DIR, "src", layer);
+    if (!fs.existsSync(dir)) continue;
+    for (const file of walk(dir)) {
+      const src = fs.readFileSync(file, "utf8");
+      for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
+        for (const ban of bans) assert(!ban.test(spec),
+          `${path.relative(DIR, file)} importe ${spec} — interdit à la couche ${layer}`);
+        verifies++;
+      }
+    }
+  }
+  console.log(`✓ gardes d'imports : ${verifies} import(s) vérifié(s) sur 6 couches`);
 
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

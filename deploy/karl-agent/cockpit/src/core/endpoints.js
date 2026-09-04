@@ -1,6 +1,7 @@
 // core/endpoints — table unique des routes du front. RM2889, lot L0.
 //
-// GÉNÉRÉ depuis MIGRATION-ROUTES.tsv : ne pas éditer à la main, régénérer.
+// GÉNÉRÉ par scripts/cockpit-gen-endpoints.py depuis MIGRATION-ROUTES.tsv :
+// ne pas éditer à la main, régénérer.
 //
 // Une route ne s'écrit plus en dur dans un service : elle se nomme. C'est ce
 // qui rend le lot L7 mécanique — basculer `current` sur `target` (grammaire
@@ -32,7 +33,13 @@ export const ROUTES = {
   "glossary.help": { current: "/help", target: "/api/glossary/help", lot: "L5", callers: 1 },
   "glossary.project": { current: "/project", target: "/api/glossary/project", lot: "L5", callers: 2 },
   "layout.outline": { current: "/outline", target: "/api/layout/outline", lot: "L5", callers: 1 },
-  "mail.queue": { current: "/mail/queue", target: "/api/mail/queue", lot: "L4,L5", callers: 2 },
+  "mail.create": { current: "/mail/create", target: "/api/mail/create", lot: "L1", callers: 2 },
+  "mail.dismiss": { current: "/mail/dismiss", target: "/api/mail/dismiss", lot: "L1", callers: 1 },
+  "mail.draft": { current: "/mail/draft", target: "/api/mail/draft", lot: "L1", callers: 1 },
+  "mail.fetch": { current: "/mail/fetch", target: "/api/mail/fetch", lot: "L1", callers: 1 },
+  "mail.queue": { current: "/mail/queue", target: "/api/mail/queue", lot: "L1", callers: 2 },
+  "mail.route": { current: "/mail/route", target: "/api/mail/route", lot: "L1", callers: 1 },
+  "mail.route_set": { current: "/mail/route-set", target: "/api/mail/route-set", lot: "L1", callers: 1 },
   "outline.approve": { current: "/approve", target: "/api/outline/approve", lot: "L5", callers: 1 },
   "outline.scroll": { current: "/scroll", target: "/api/outline/scroll", lot: "L5", callers: 2 },
   "pm.commands": { current: "/pm/commands", target: "/api/pm/commands", lot: "L5", callers: 1 },

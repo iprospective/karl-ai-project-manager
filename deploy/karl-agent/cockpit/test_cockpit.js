@@ -2137,60 +2137,7 @@ console.log("✓ alertes (RM2698) : datées, bornées, reportables, silencieuses
 
 console.log("OK — tous les tests cockpit passent");
 
-// — renderMailList (RM2671) : file de triage des emails —
-const fml = />>> renderMailList[\s\S]*?(function renderMailList[\s\S]*?)\n\/\/ <<< renderMailList/.exec(html);
-assert(fml, "marqueurs >>> renderMailList / <<< renderMailList introuvables");
-const renderMailList = vm.runInNewContext("(" + fml[1] + ")", {});
-// escFn / jargFn sont déjà définis plus haut dans ce fichier (RM2612/RM2623) :
-// on les réutilise tels quels, pour tester avec les MÊMES échappements que la page.
-
-assert(/file vide/.test(renderMailList([], null, escFn, jargFn)), "file vide non signalée");
-
-const mails = [
-  { key: "aaa1", subject: "Panne de caisse", from_name: "CalyClay", from: "a@b.fr",
-    date: "2026-08-17T09:00", folder: "INBOX.Clients", state: "à traiter", attachments: 2,
-    routing: { client: "calyclay", project: null, source: "contacts", confidence: 0.8 } },
-  { key: "bbb2", subject: "Re: suite", from: "c@d.fr", date: "2026-08-16T09:00",
-    state: "créé", created_rm: 2710, rm_id: 2661, routing: {} },
-  { key: "ccc3", subject: "Merci", from: "e@f.fr", date: "2026-08-15T09:00",
-    state: "écarté", dismissed: { reason: "accusé de réception" }, routing: {} },
-];
-let out = renderMailList(mails, null, escFn, jargFn);
-assert(/calyclay\/\?/.test(out), "client sans projet doit rester « /? » (pas de choix silencieux)");
-assert(/80%/.test(out) && /contacts/.test(out), "confiance et source absentes");
-assert(/📎2/.test(out), "pièces jointes non signalées");
-assert(/↩ RM2661/.test(out), "réponse à un fil non signalée");
-assert(/→ RM2710/.test(out), "ticket créé non signalé");
-assert(/accusé de réception/.test(out), "motif d'écartement absent");
-assert(!/Créer le ticket/.test(out), "les actions ne doivent apparaître que sur l'email déplié");
-
-// — email déplié : formulaire pré-rempli et éditable, actions présentes —
-const open = [Object.assign({}, mails[0], {
-  body: "Bonjour,\nça plante.", body_truncated: true,
-  draft: { title: "Caisse HS", project: "calyclay/dolibarr", priority: "high",
-           description: "Le TPE ne répond plus.", confidence: 0.75, actionable: true,
-           warnings: ["projet hors liste (x) → écarté"] },
-})];
-out = renderMailList(open, "aaa1", escFn, jargFn);
-assert(/id="ml-title" value="Caisse HS"/.test(out), "titre non pré-rempli");
-assert(/id="ml-project" value="calyclay\/dolibarr"/.test(out), "projet non pré-rempli");
-assert(/<option selected>high<\/option>|selected>high/.test(out), "priorité non pré-sélectionnée");
-assert(/projet hors liste/.test(out), "avertissement de la proposition non affiché");
-assert(/tronqué à la relève/.test(out), "troncature du corps non signalée");
-["Rédiger", "Créer le ticket", "Note sur…", "Reclasser", "Écarter"].forEach(a =>
-  assert(out.includes(a), "action manquante : " + a));
-
-// — RM2588/mémoire : un argument chaîne passé en onclick doit être en quotes SIMPLES
-//   (jarg), sinon l'attribut se referme et le handler meurt au clic —
-assert(/onclick="mailToggle\('aaa1'\)"/.test(out), "clé non passée via jarg dans onclick");
-assert(!/onclick="[^"]*\{&quot;/.test(out), "objet JSON injecté dans un onclick");
-
-// — échappement : un sujet hostile ne doit pas sortir tel quel —
-out = renderMailList([{ key: "ddd4", subject: '<img src=x onerror=alert(1)>',
-                        from: "x@y.fr", date: "2026-08-14", state: "à traiter", routing: {} }],
-                     null, escFn, jargFn);
-assert(!/<img/.test(out) && /&lt;img/.test(out), "sujet non échappé");
-console.log("✓ emails (RM2671) : file, routage affiché, formulaire pré-rempli, échappement");
+// — renderMailList (RM2671) : domaine MIGRÉ (RM2889, L1) — voir test_cockpit_mail.js —
 
 // — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
 // `grab` (défini plus haut) rend la SOURCE de la fonction : on l'évalue ici.

@@ -127,35 +127,7 @@ ctx.api = async () => ({
   });
   console.log("✓ fiche projet : docs et fil d'ariane rendus");
 
-  // — RM2761 : la vue centrale porte SA portée, pas celle du panneau de droite —
-  // Le défaut : `centerViewPane` détache la session et ferme la fiche projet AVANT
-  // que le chargeur ne construise sa requête ; `_fsq` lisait donc un contexte déjà
-  // vidé et envoyait `sid=` seul → 403 « worktree hors du périmètre ».
-  // Ici le contexte du script EST vide (ses `let` ne sont pas pilotables depuis le
-  // harnais) : c'est exactement la situation d'après-détachement. Si la requête
-  // porte quand même client/projet, cela ne peut venir que de la portée capturée.
-  const vues = [];
-  ctx.api = async (url) => {
-    vues.push(String(url));
-    return { name: "a.md", content: "# x", markdown: true, entries: [] };
-  };
-  const tag2761 = ctx.scopeTag(ctx.fsScope("/w/appli",
-    { projects: [{ root: "/w/appli", client: "acme", project: "appli" }] }, "42", null));
-  await ctx.openCenterFile("wt", "/w/appli", "docs/a.md", tag2761);
-  const req = vues.filter(u => u.indexOf("/fs/file") === 0).pop() || "";
-  assert(/client=acme&project=appli/.test(req),
-    "la requête doit porter la portée capturée au clic : " + req);
-  assert(/worktree=%2Fw%2Fappli/.test(req), "…et viser le bon worktree");
-
-  // Contrôle négatif : sans portée transmise, on retombe sur le contexte courant —
-  // vide — et l'on reproduit le défaut. C'est ce qui rend l'assertion ci-dessus
-  // significative plutôt que vraie par construction.
-  vues.length = 0;
-  await ctx.openCenterFile("wt", "/w/appli", "docs/a.md", "");
-  const bug = vues.filter(u => u.indexOf("/fs/file") === 0).pop() || "";
-  assert(!/client=/.test(bug),
-    "sans portée transmise, la requête part sans portée — c'est le bug d'origine");
-  console.log("✓ vue centrale (RM2761) : la portée voyage avec la vue, pas avec le panneau");
+  // — RM2761 : vue centrale MIGRÉE (RM2889, cluster centre) — voir test_cockpit_center.js —
 
   assert.deepStrictEqual(errors, [], "aucune erreur signalée pendant les rendus");
   console.log("OK — le cockpit s'exécute sans identifiant hors portée");

@@ -58,6 +58,7 @@ alimenté **automatiquement** par les scripts qui modifient l'état des tâches 
 | Session | **événement notable** (secret exposé, refus, garde-fou, outillage en défaut, décision bloquante) | `pm-session-status.py notify` |
 | Session | **demande du demandeur** (avant même de savoir si elle sera ticketée) | `pm-session-status.py request` |
 | Session → tâche | **consigner les décisions** (questions tranchées / restées sans réponse) dans le journal du ticket | `pm-decisions.py persist <id>` |
+| Instance | **faire tourner un travail PÉRIODIQUEMENT** — jamais une ligne de crontab (RM2792) | `jobs.reference.yml` + `pm-scheduler.py list|check|history` |
 | **Branches / repos / submodules** | créer branche par ticket, commit+push conventionné, base de version | **⚠ trou — aucun outil dédié** (cf. § « Branche de travail par ticket », § « Commit + push systématique ») |
 
 ## Notifications importantes de session (RM2466)

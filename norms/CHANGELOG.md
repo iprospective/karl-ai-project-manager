@@ -1,5 +1,28 @@
 # Changelog des normes
 
+## [2.17.0] - 2026-09-04
+
+> Saute 2.16.0, réservée à RM2772 (tickets récurrents), encore en MR !633 au moment
+> d'écrire ceci. Numéroter par-dessus aurait donné deux 2.16.0 divergentes.
+
+### Ajouté
+- **Module `scheduler` (hors précharge) + déclencheur au KERNEL** — un travail périodique
+  se déclare dans `jobs.reference.yml`, **on n'ajoute pas de ligne de crontab**. L'instance
+  n'a qu'un seul cron, qui appelle `pm-scheduler run` toutes les 5 minutes et décide de ce
+  qui est dû. Ce n'est pas une préférence de rangement : un cron nu ne garde **aucun état**
+  (« c'est passé quand, et comment ? » n'avait de réponse qu'en fouillant des journaux
+  séparés, quand ils existaient), ne **verrouille rien** (cron relance un job même si le
+  précédent tourne encore — deux orchestrateurs concurrents s'assignent les mêmes tâches),
+  et n'**inventorie rien** : la moitié des jobs PM n'étaient installés nulle part, seulement
+  décrits dans `cron.example.sh`, un fichier que personne ne relit. Trois comportements sont
+  écrits au module parce qu'ils surprennent sinon : un job jamais vu est **armé, pas
+  exécuté** (sans quoi ajouter un job quotidien à 15 h le lancerait aussitôt au titre de
+  l'occurrence de 6 h) ; **pas de rattrapage en cascade** (machine éteinte trois jours ⇒ un
+  job quotidien tourne une fois, pas trois) ; et **pas de recouvrement**, un job en cours
+  étant tracé « déjà en cours » plutôt que doublé. Le signal à surveiller est
+  `consecutive_failures`, pas le dernier code retour : un job qui échoue une fois est un
+  incident, un job qui échoue vingt fois est un job que plus personne ne regarde. (RM2792)
+
 ## [2.15.0] - 2026-09-02
 
 > Atterrissage groupé de deux tickets « à tester » restés en branche (RM2463, RM2563),

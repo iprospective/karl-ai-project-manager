@@ -1,78 +1,40 @@
 #!/bin/bash
-# Exemple de configuration cron pour l'orchestrateur et le summarizer.
+# Configuration cron d'une instance PM — UNE SEULE LIGNE (RM2792, lot 1).
 #
-# Adapter PM_DIR au chemin réel d'installation (doit correspondre à
-# pm.config.yml :: roots.pm_dir) et LOG_DIR à l'emplacement souhaité.
+# Jusqu'ici ce fichier listait un cron par travail : orchestrateur */15,
+# pm-task-report */30, wiki-sync */10, summarizer quotidien, veille tarifaire,
+# GC des verrous… Le problème n'était pas leur nombre, c'est ce que le crontab ne
+# sait pas faire :
 #
-# NB (RM2438 T1) : la config est scindée en pm.env (non-secret) + .env (secrets),
-# tous deux à la racine du PM. Les jobs shell sourcent DONC les DEUX
-# (`source pm.env && source .env`) — sinon les vars non-secrètes (ex. $PROJECTS_PATH)
-# manquent. Le code Python les charge déjà via pm_paths ; c'est le shell qui doit cumuler.
+#   · aucun état consultable — « c'est passé quand, et ça s'est bien passé ? »
+#     n'avait de réponse qu'en fouillant des journaux séparés, quand ils existaient ;
+#   · aucun verrou — cron relance un job même si le précédent tourne encore. Deux
+#     orchestrateurs concurrents s'assignent les mêmes tâches ;
+#   · aucun inventaire — la moitié de ces jobs n'étaient installés nulle part,
+#     seulement décrits ici, dans un fichier que personne ne relit.
+#
+# Le registre des travaux vit désormais dans `jobs.reference.yml`, et
+# `pm-scheduler.py` décide de ce qui est dû. AJOUTER UN CRON À CÔTÉ ANNULE
+# L'INTÉRÊT DE LA MANŒUVRE : un nouveau travail périodique se déclare au registre.
 #
 # Installation :
 #   crontab -e
-#   puis copier les lignes ci-dessous (sans le shebang)
+#   puis coller la ligne ci-dessous, PM_DIR/LOG_DIR adaptés à l'instance
+#   (`python3 scripts/pm-scheduler.py crontab` l'imprime déjà remplie).
 
 PM_DIR=/zfs/workspaces/ai/project-management
 LOG_DIR=/var/log/pm-ai-agents
 
-# ── Orchestrateur ────────────────────────────────────────────────
-# Toutes les 15 minutes : scan des tâches a_faire, assignation aux workers
-*/15 * * * * cd "$PM_DIR" && source pm.env && source .env && claude -p "Tu es orchestrateur. Scanne tous les clients et projets, assigne les tâches a_faire éligibles." >> "$LOG_DIR/orchestrateur.log" 2>&1
+# ── Ordonnanceur PM — LA ligne, et la seule ──────────────────────────────
+*/5 * * * * python3 "$PM_DIR/scripts/pm-scheduler.py" run >> "$LOG_DIR/scheduler.log" 2>&1
 
-# ── Summarizer ───────────────────────────────────────────────────
-# Tous les jours à 06:00 : agrégation Pistes/Remarques + Structure
-0 6 * * * cd "$PM_DIR" && source pm.env && source .env && claude -p "Tu es summarizer. Régénère les Changelog, Pistes, Remarques de tous les clients et projets actifs depuis la dernière exécution." >> "$LOG_DIR/summarizer.log" 2>&1
-
-# ── Rapport hebdomadaire ─────────────────────────────────────────
-# Tous les lundis à 08:00 : ranking ROI global
-0 8 * * 1 cd "$PM_DIR" && source pm.env && source .env && python3 scripts/priority.py "$PROJECTS_PATH" --top 30 >> "$LOG_DIR/priority-weekly.log" 2>&1
-
-# ── Reporting tokens/temps → Redmine (RM2160) ────────────────────
-# Toutes les 30 min : pousse la conso tickée localement par pm-task-tick
-# (frontmatter MD) vers Redmine (time_entries + CF17). Sans ce cron, le
-# reporting reste invisible côté Redmine tant qu'un humain ne lance pas
-# pm-task-report à la main. Idempotent (clés de dédup par time_entry).
-*/30 * * * * python3 "$PM_DIR/scripts/pm-task-report.py" --all --apply >> "$LOG_DIR/pm-task-report.log" 2>&1
-
-# ── Veille tarifaire Anthropic (RM2165) ──────────────────────────
-# 1x/jour : compare pm.pricing.yml à la doc officielle (extraction via
-# claude -p headless, modèle sonnet). En cas d'écart : ticket Redmine
-# tagué pricing-watch (dédup : pas de doublon tant qu'un ticket est ouvert).
-# Ne modifie JAMAIS le YAML lui-même.
-30 8 * * * python3 "$PM_DIR/scripts/pm-pricing-check.py" >> "$LOG_DIR/pm-pricing-check.log" 2>&1
-
-# ── Wiki-sync (fallback async) ───────────────────────────────────
-# Toutes les 10 min : capte les édits faits côté Wiki Redmine entre deux push git
-# (fold-back wiki→git + auto-commit [wiki-sync], puis git push). Le sens git→wiki
-# normal passe par `pm-sync-push` à la publication ; ce cron rattrape les retouches
-# wiki hors activité git. Lock-file par projet → pas de chevauchement avec un push manuel.
-*/10 * * * * cd "$PM_DIR" && set -a && source pm.env && source .env && set +a && python3 scripts/pm-wiki-sync.py --all --push >> "$LOG_DIR/wiki-sync.log" 2>&1
-
-# ── Pull des gestionnaires partenaires (RM2655, chantier RM2626) ──
-# Toutes les 30 min : importe dans le `.log.md` les notes et le statut des tickets
-# rattachés chez un provider SECONDAIRE (Pisceen, MatNat…). Lecture seule chez eux,
-# rien n'est répercuté sur l'état PM. Ne scanne que les tickets OUVERTS portant un
-# lien : sans projet configuré en partenaire, ce cron ne fait rien du tout.
-# À n'activer qu'une fois les accès API partenaires en place (RM2657).
-*/30 * * * * cd "$PM_DIR" && set -a && source .env && set +a && python3 scripts/pm-task-partner.py pull --all >> "$LOG_DIR/partner-pull.log" 2>&1
-
-# ── Promotion PM dev→main (RM2298) ───────────────────────────────
-# Toutes les heures : promeut par lot les auto-commits pm-* repliés sur `dev`
-# (branches protégées RM2030) vers `main` du repo de DONNÉES PM — MR auto-créée
-# et auto-mergée (PAT manager). Idempotent : sans lot en attente, no-op.
-# Adapter --repo au chemin du repo de données de l'instance.
-15 * * * * cd "$PM_DIR" && set -a && source pm.env && source .env && set +a && python3 scripts/pm-promote.py --repo "$PROJECTS_PATH" >> "$LOG_DIR/pm-promote.log" 2>&1
-
-# ── Bench surconsommation couche PM (RM2361/S0) ──────────────────
-# Mensuel : mesure la part PM vs baseline (audit RM2275) ; poste le résumé
-# en note sur le ticket de suivi et alerte (exit 1) si dérive > +2 pts.
-# Adapter BENCH_NOTIFY_RM au ticket de suivi de l'instance.
-# 0 7 1 * * $PM_DIR/scripts/pm-bench-overhead.py --compare $PM_DIR/var/bench/baseline-2026-07-rm2275.json --notify-rm ${BENCH_NOTIFY_RM:-2316} >> $LOG_DIR/bench-overhead.log 2>&1
-
-# ── GC des verrous par ressource (RM2551 / T7) ───────────────────
-# Toutes les heures : nettoie les .lock inertes ET vieux (flock libéré par le noyau
-# à la mort du process → un .lock acquérable = inert), et SIGNALE (exit 1, jamais ne
-# casse) un lock tenu anormalement longtemps = détenteur potentiellement pendu.
-# Filet post-crash + observabilité ; ne touche jamais un verrou vivant.
-0 * * * * python3 "$PM_DIR/scripts/pm-lock-gc.py" --apply >> "$LOG_DIR/pm-lock-gc.log" 2>&1
+# ── Au quotidien ─────────────────────────────────────────────────────────
+#   pm-scheduler.py list                 ce qui tourne, quand, et comment ça s'est passé
+#   pm-scheduler.py history --job <id>   les dernières exécutions d'un travail
+#   pm-scheduler.py check                valide le registre (schéma, expressions cron)
+#   pm-scheduler.py run --only <id> --force --dry-run   ce que ferait un travail
+#
+# NB (RM2438 T1) : la config est scindée en pm.env (non-secret) + .env (secrets).
+# Les jobs déclarés avec `shell:` les reçoivent tous les deux, sourcés par
+# l'ordonnanceur — c'est le piège que chaque ligne de cron devait traiter seule.
+# Les jobs `command:` sont du Python, qui charge sa config via pm_paths.

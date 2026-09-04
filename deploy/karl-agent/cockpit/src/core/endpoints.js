@@ -111,6 +111,14 @@ export function route(name) {
   return e.current;
 }
 
+/** Le nom d'une route d'après son chemin ACTUEL — pour les doublons hérités
+ *  dont la cible normalisée est la même (/file et /fs/file). */
+export function routeFor(current) {
+  const hit = Object.entries(ROUTES).find(([, r]) => r.current === current);
+  if (!hit) throw new Error(`route inconnue : ${current}`);
+  return hit[0];
+}
+
 /** Chemin cible (§ 10.4), pour les tests de dérive et la bascule L7. */
 export function targetRoute(name) {
   const e = ROUTES[name];

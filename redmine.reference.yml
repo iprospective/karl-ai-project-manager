@@ -57,6 +57,24 @@ agent_test_values:
   non:      40
   demander: 41
 
+# ── CF « Miroir d'états » — régime de synchro avec le ticket partenaire (RM2746) ──
+# **CF à créer côté Redmine** : liste (`enumeration`), **multi-valeur**, trackers
+# bugfix/feature/autre. L'API ne crée pas les définitions de CF — c'est un geste
+# d'administration, cf. les `deploy_actions` de RM2746.
+#
+# Coché sur un ticket, il REMPLACE le régime déclaré au projet (`sync.mirror` du
+# secondaire, meta.yml) ; laissé vide, le ticket hérite. Miroir local :
+# `state_mirror` du frontmatter, rapatrié par `pm-task-sync`.
+#
+# Renseigner `state_mirror_values` (label NORMS → value id d'énumération) APRÈS
+# création, et l'id du CF lui-même dans `REDMINE_CF_STATE_MIRROR_ID` (.env). Tant que
+# les deux manquent, le rapatriement est **inerte** : rien n'est lu, rien n'est écrit.
+state_mirror_values: {}
+#   signal:   <id>      # constate la divergence et la rapporte (socle)
+#   outgoing: <id>      # notre statut pilote le leur (écrit chez eux)
+#   incoming: <id>      # leur statut propose une transition, validée par un humain
+#   none:     <id>      # ce ticket n'hérite pas du régime de son projet
+
 # ── CF25 « LLM prévu » — paliers de capacité (énumération) ─────────────────────
 # Valeurs d'énumération Redmine (value id → label) et mapping depuis le nom de
 # modèle de `estimate.estimated_model`. `model_match` : sous-chaîne (casse

@@ -33,7 +33,7 @@ import pm_git
 import pm_tags
 import pm_hierarchy
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
-from redmine_utils import api_ts_local
+from redmine_utils import api_ts_local, load_reference
 
 try:
     import yaml
@@ -128,6 +128,35 @@ CF_MIRRORS = (
     ("test_protocol",  "REDMINE_CF_TEST_PROTOCOL_ID",  "Protocole de test",            False),
     ("deploy_actions", "REDMINE_CF_DEPLOY_ACTIONS_ID", "Actions au déploiement",       True),
 )
+
+
+# CF « Miroir d'états » (RM2746) — énumération MULTI-VALEUR. Traité à part de
+# `CF_MIRRORS`, taillé pour des CF de texte long : ici la valeur arrive en LISTE
+# (d'ids d'énumération, ou de libellés selon le format retenu côté Redmine), et
+# `normalize_text` n'aurait rien à normaliser.
+def state_mirror_from_cf(issue, reference=None):
+    """Régimes cochés dans le ticket Redmine → valeur de `state_mirror`, ou None.
+
+    `None` — et surtout pas `[]` — quand le CF n'est pas configuré ou pas renseigné :
+    `[]` voudrait dire « le demandeur a tout décoché », ce qui n'est pas « on ne sait
+    pas ». Écraser un réglage local avec une non-information est exactement le piège
+    que `diff_cf_mirrors` évite déjà pour les CF de texte.
+
+    Les valeurs d'énumération arrivent en ids ; `state_mirror_values` de
+    `redmine.reference.yml` les retraduit. Un id absent de la table est rendu tel
+    quel : `pm_partner` ignore ce qu'il ne reconnaît pas et `pm-doctor` le signale —
+    mieux qu'une valeur silencieusement perdue.
+    """
+    cid = pm_cf_mirror.resolve_cf_id("REDMINE_CF_STATE_MIRROR_ID", "Miroir d'états")
+    if cid is None:
+        return None
+    raw = cf_value(issue, cid)
+    if raw in (None, "", []):
+        return None
+    values = raw if isinstance(raw, (list, tuple)) else [raw]
+    table = {str(v): k for k, v in
+             ((reference or load_reference()).get("state_mirror_values") or {}).items()}
+    return [table.get(str(v), str(v)) for v in values if str(v).strip()]
 
 
 def diff_cf_mirrors(fm, issue):
@@ -226,6 +255,11 @@ def diff_fields(fm, issue):
 
     # Miroirs de CF (RM2563) : implementation / test_protocol / deploy_actions.
     diffs.update(diff_cf_mirrors(fm, issue))
+
+    # Régime de miroir d'états coché dans le ticket (RM2746).
+    coched = state_mirror_from_cf(issue)
+    if coched is not None and list(fm.get("state_mirror") or []) != coched:
+        diffs["state_mirror"] = (fm.get("state_mirror"), coched)
 
     # Updated timestamp (always refresh)
     new_updated = api_ts_local(issue.get("updated_on"))

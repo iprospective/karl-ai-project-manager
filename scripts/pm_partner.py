@@ -524,6 +524,343 @@ def create_remote_issue(resolution, subject, description="", provider=None):
     return (issue or {}).get("id") if isinstance(issue, dict) else issue
 
 
+# ── N3 : miroir d'états (RM2746) ──────────────────────────────────────────
+#
+# Trois régimes, cumulables, dont `signal` est le socle des deux autres :
+#   * `signal`   — on CONSTATE la divergence et on la rapporte. N'écrit nulle part.
+#   * `outgoing` — notre statut pilote le leur (écriture d'état chez le tiers).
+#   * `incoming` — leur statut PROPOSE une transition chez nous ; un humain tranche.
+#
+# **Inerte par défaut** : sans déclaration, `effective_regimes()` rend `[]` et tout
+# ce bloc reste sans effet — un projet qui ne dit rien ne change pas de comportement.
+#
+# Deux niveaux de déclaration, du général au précis :
+#   1. projet — `sync.mirror` du secondaire (meta.yml) ;
+#   2. ticket — `state_mirror` du frontmatter, alimenté par le CF Redmine « Miroir
+#      d'états » coché dans l'UI. Non vide, il REMPLACE le réglage projet : une case
+#      cochée à la main sur un ticket ne doit pas se faire recouvrir par un défaut
+#      de projet, sinon la cocher ne voudrait rien dire.
+#
+# Le mot « miroir » désigne déjà ici les miroirs CF↔frontmatter (`CF_MIRRORS`,
+# `pm-cf-mirror-backfill`) : celui-ci est le miroir d'ÉTATS, d'où `state_mirror`.
+
+MIRROR_REGIMES = ("signal", "outgoing", "incoming")
+
+# Coché seul sur un ticket : « aucun régime, et n'hérite pas du projet ». Sans cette
+# valeur, une case vide voulant dire « hérite », un ticket ne pourrait jamais être
+# exempté d'un projet qui active le miroir — or c'est précisément le ticket sensible
+# qu'on veut pouvoir soustraire.
+MIRROR_NONE = "none"
+
+
+def _regimes(values):
+    """Régimes valides tirés d'une valeur libre (chaîne ou liste), dans l'ordre déclaré.
+
+    Tolérant à la saisie (casse, espaces, doublons) parce que la source peut être une
+    case cochée dans l'UI Redmine ; ce qui n'est pas un régime connu est ignoré, et
+    `unknown_regimes()` le rapporte séparément — refuser tout le bloc pour une valeur
+    inconnue désactiverait le miroir sans le dire.
+    """
+    if not values:
+        return []
+    if isinstance(values, str):
+        values = [values]
+    out = []
+    for v in values:
+        v = str(v or "").strip().lower()
+        if v in MIRROR_REGIMES and v not in out:
+            out.append(v)
+    return out
+
+
+def unknown_regimes(values):
+    """Valeurs de régime non reconnues — pour le dire à l'utilisateur, pas pour agir."""
+    if not values:
+        return []
+    if isinstance(values, str):
+        values = [values]
+    return [str(v).strip() for v in values
+            if str(v or "").strip()
+            and str(v).strip().lower() not in MIRROR_REGIMES + (MIRROR_NONE,)]
+
+
+def mirror_config(resolution):
+    """Bloc `sync.mirror` du secondaire, normalisé en `{regimes, map, map_in}`.
+
+    Jamais None : les appelants n'ont pas à distinguer « pas déclaré » de « vide ».
+
+    Chaque entrée de `map` accepte la forme courte ou la forme riche, comme les
+    remotes de RM2838 :
+      `en_cours: "En cours"`                 — le libellé suffit à CONSTATER ;
+      `en_cours: {label: "En cours", id: 2}` — l'id est requis pour ÉCRIRE (outgoing),
+                                               l'API ne pose pas un statut par son nom.
+    """
+    mirror = (resolution.sync or {}).get("mirror")
+    if not mirror:                       # absent, None, False, {} → inerte
+        return {"regimes": [], "map": {}, "map_in": {}}
+    if mirror is True:
+        # `mirror: true` — tolérance de conf : le socle, et rien de plus. Activer
+        # l'écriture chez un tiers ne peut pas être l'effet de bord d'un booléen.
+        return {"regimes": ["signal"], "map": {}, "map_in": {}}
+    if isinstance(mirror, (list, tuple)):
+        return {"regimes": _regimes(mirror), "map": {}, "map_in": {}}
+    declared = mirror.get("regimes")
+    if declared is None:
+        declared = mirror.get("regime")
+    return {"regimes": _regimes(declared),
+            "map": dict(mirror.get("map") or {}),
+            "map_in": dict(mirror.get("map_in") or {})}
+
+
+def ticket_regimes(fm):
+    """Régimes cochés sur LE TICKET (`state_mirror`), [] si rien n'est coché.
+
+    `[MIRROR_NONE]` quand le ticket coche « aucun » : distinct de `[]`, qui veut dire
+    « rien de coché, donc hérite du projet ».
+    """
+    raw = (fm or {}).get("state_mirror")
+    values = [raw] if isinstance(raw, str) else list(raw or [])
+    if any(str(v or "").strip().lower() == MIRROR_NONE for v in values):
+        return [MIRROR_NONE]
+    return _regimes(values)
+
+
+def effective_regimes(fm, resolution):
+    """Régimes qui s'appliquent réellement : ticket s'il déclare, sinon projet.
+
+    `signal` est ajouté dès qu'un régime est actif : constater la divergence est le
+    socle des deux autres — piloter un état sans savoir le comparer n'aurait pas de
+    sens, et rend le régime observable dans `pm-doctor` quoi qu'il arrive.
+    """
+    coched = ticket_regimes(fm)
+    if coched == [MIRROR_NONE]:
+        return []
+    regimes = coched or mirror_config(resolution)["regimes"]
+    if regimes and "signal" not in regimes:
+        regimes = ["signal"] + regimes
+    return regimes
+
+
+def _entry(spec):
+    """(libellé, id) d'une entrée de table — accepte forme courte, riche, ou id nu."""
+    if spec is None:
+        return "", None
+    if isinstance(spec, dict):
+        return str(spec.get("label") or "").strip(), spec.get("id")
+    if isinstance(spec, bool):
+        return "", None
+    if isinstance(spec, int):
+        return "", spec
+    return str(spec).strip(), None
+
+
+def _same(a, b):
+    """Deux libellés de statut distants désignent-ils le même état ?
+
+    Comparaison souple (casse, espaces) : le libellé vient d'un tiers et sera recopié
+    à la main dans le meta.yml — une divergence signalée pour une capitale d'écart
+    serait un faux positif, et un faux positif répété fait ignorer le vrai.
+    """
+    return " ".join(str(a or "").split()).casefold() == \
+           " ".join(str(b or "").split()).casefold()
+
+
+def remote_status(cfg, status):
+    """(libellé, id) attendus chez le partenaire pour un statut NORMS.
+
+    ("", None) si le statut n'est pas mappé — on ne devine pas, une table incomplète
+    se dit (`mirror_gaps`) au lieu de produire une correspondance inventée.
+    """
+    return _entry((cfg.get("map") or {}).get(status))
+
+
+def norms_status(cfg, remote_label):
+    """Statut NORMS correspondant à un libellé distant — `map_in` d'abord, sinon
+    l'inversion de `map`.
+
+    L'inversion est souvent ambiguë : leurs workflows sont plus courts que le nôtre,
+    donc plusieurs statuts NORMS retombent sur le même libellé distant. Dans ce cas on
+    rend None — proposer au hasard une transition qu'un humain validerait de confiance
+    serait pire que ne rien proposer. `map_in` sert précisément à trancher.
+    """
+    for norms, spec in (cfg.get("map_in") or {}).items():
+        label, _ = _entry(spec)
+        if _same(label or norms, remote_label):
+            return norms
+    hits = [norms for norms, spec in (cfg.get("map") or {}).items()
+            if _same(_entry(spec)[0], remote_label)]
+    return hits[0] if len(hits) == 1 else None
+
+
+def mirror_gaps(cfg, statuses=()):
+    """Statuts NORMS attendus mais absents de la table — table incomplète, pas erreur."""
+    table = cfg.get("map") or {}
+    return [s for s in statuses if s not in table]
+
+
+def mirror_ambiguities(cfg):
+    """Libellés distants visés par plusieurs statuts NORMS sans `map_in` pour trancher.
+
+    Sans conséquence pour `signal` et `outgoing` (le sens NORMS→eux reste défini) ;
+    bloquant pour `incoming`, qui a besoin du sens inverse.
+    """
+    seen, dupes = {}, {}
+    for norms, spec in (cfg.get("map") or {}).items():
+        label, _ = _entry(spec)
+        if not label:
+            continue
+        key = " ".join(label.split()).casefold()
+        if key in seen:
+            dupes.setdefault(label, [seen[key]]).append(norms)
+        else:
+            seen[key] = norms
+    resolved = {" ".join((_entry(s)[0] or n).split()).casefold()
+                for n, s in (cfg.get("map_in") or {}).items()}
+    return {label: sorted(norms) for label, norms in dupes.items()
+            if " ".join(label.split()).casefold() not in resolved}
+
+
+def state_divergence(fm, ref, resolution):
+    """Divergence entre notre statut et le dernier statut distant CONNU, ou None.
+
+    Pure et hors ligne : elle relit `last_seen_status`, que le pull (N1) a déjà déposé
+    dans le lien. C'est ce qui rend la divergence « visible sans rien exécuter » —
+    `pm-doctor` la voit sans ouvrir une seule connexion.
+
+    None quand il n'y a rien à dire : régime inactif, statut distant jamais observé
+    (aucun pull encore), ou statut non mappé. Ce dernier cas est un trou de table, que
+    `mirror_gaps` rapporte à part : ce n'est pas une divergence d'états.
+    """
+    if "signal" not in effective_regimes(fm, resolution):
+        return None
+    seen = (ref.get("last_seen_status") or "").strip()
+    if not seen:
+        return None
+    expected, _ = remote_status(mirror_config(resolution), (fm or {}).get("status"))
+    if not expected or _same(expected, seen):
+        return None
+    return {"instance": ref.get("instance"), "issue_id": ref.get("issue_id"),
+            "url": ref.get("url") or "", "status": (fm or {}).get("status"),
+            "expected": expected, "seen": seen}
+
+
+def incoming_proposal(fm, ref, resolution):
+    """Transition que le partenaire PROPOSE — jamais appliquée. None s'il n'y a rien.
+
+    Le régime `incoming` ne touche pas notre statut : il produit une proposition qu'un
+    humain accepte ou rejette (`pm-task-partner mirror --accept`). C'est le critère
+    « aucune transition automatique sans validation humaine », et la raison pour
+    laquelle cette fonction ne sait pas écrire.
+
+    Rien n'est proposé quand leur libellé ne se traduit pas de façon univoque
+    (cf. `norms_status`) : une proposition douteuse serait validée de confiance.
+    """
+    if "incoming" not in effective_regimes(fm, resolution):
+        return None
+    seen = (ref.get("last_seen_status") or "").strip()
+    if not seen:
+        return None
+    if _same(ref.get("mirror_declined") or "", seen):
+        return None          # déjà refusée pour CET état distant (cf. decline_proposal)
+    target = norms_status(mirror_config(resolution), seen)
+    current = (fm or {}).get("status")
+    if not target or target == current:
+        return None
+    return {"instance": ref.get("instance"), "issue_id": ref.get("issue_id"),
+            "url": ref.get("url") or "", "remote_status": seen,
+            "from": current, "to": target}
+
+
+def decline_proposal(ref, remote_status):
+    """Mémorise le refus d'une proposition entrante. Rend True si le lien a changé.
+
+    Le refus porte sur CET état distant, pas sur le lien : si le partenaire bouge
+    encore, la question se repose. Sans cette trace, `pm-doctor` répéterait
+    indéfiniment un avertissement déjà arbitré — et un avertissement qu'on apprend à
+    ignorer ne protège plus de rien.
+    """
+    seen = (remote_status or "").strip()
+    if not seen or _same(ref.get("mirror_declined") or "", seen):
+        return False
+    ref["mirror_declined"] = seen
+    return True
+
+
+def outgoing_target(fm, ref, resolution):
+    """Statut à poser chez le partenaire pour le régime `outgoing`, ou None.
+
+    Rend `{id, label}`. Lève `PartnerError` quand la table donne un libellé mais pas
+    d'`id` : l'API pose un statut par son id, pas par son nom, et échouer ici — au
+    moment de la conf — vaut mieux qu'un appel silencieusement sans effet.
+    """
+    if "outgoing" not in effective_regimes(fm, resolution):
+        return None
+    status = (fm or {}).get("status")
+    label, sid = remote_status(mirror_config(resolution), status)
+    if not label and sid is None:
+        return None                      # statut non mappé : rien à pousser
+    if sid is None:
+        raise PartnerError(
+            f"miroir sortant vers {ref.get('instance')} : le statut {status!r} est "
+            f"mappé sur « {label} » sans `id:` — l'API pose un statut par son id. "
+            f"Déclarer `map: {{{status}: {{label: \"{label}\", id: <id chez eux>}}}}`")
+    if _same(label, ref.get("last_seen_status") or ""):
+        return None                      # déjà dans cet état chez eux : ne rien écrire
+    return {"id": sid, "label": label}
+
+
+def push_state(resolution, ref, fm, provider=None, dry_run=False):
+    """Pose notre statut chez le partenaire (régime `outgoing`). Rend le statut posé.
+
+    **Écriture d'état chez un tiers** — le seul endroit du chantier RM2626 qui en fait
+    une : N2 n'écrit qu'une note de texte. D'où les deux gardes : le régime doit être
+    déclaré, et le backend doit savoir écrire (`update_fields`), sinon on le dit au
+    lieu de tomber sur un AttributeError.
+    """
+    target = outgoing_target(fm, ref, resolution)
+    if not target:
+        return None
+    if dry_run:
+        return target
+    provider = provider or get_task_provider(instance=resolution.instance)
+    if not hasattr(provider, "update_fields"):
+        raise PartnerError(
+            f"miroir sortant impossible vers {resolution.instance.name} : le backend "
+            f"{type(provider).__name__} ne sait pas écrire de champ")
+    provider.update_fields(ref.get("issue_id"), status_id=target["id"])
+    return target
+
+
+def mirror_report(fm, project_meta, registry, axis="task"):
+    """Tout ce que le miroir d'états a à dire sur cette tâche — sans réseau.
+
+    Rend `{divergences, proposals, ambiguities, unknown}`, destiné à `pm-doctor` et au
+    cockpit. Un lien vers une instance non déclarée est ignoré ici plutôt que remonté :
+    `validate_refs` le signale déjà, et un même défaut rapporté deux fois sous deux
+    libellés se lit comme deux problèmes.
+    """
+    report = {"divergences": [], "proposals": [], "ambiguities": {}, "unknown": []}
+    for ref in partner_refs(fm):
+        try:
+            res = resolve_secondary(project_meta, registry, ref.get("instance"), axis)
+        except (PartnerError, RegistryError):
+            continue
+        regimes = effective_regimes(fm, res)
+        if not regimes:
+            continue
+        report["unknown"] += unknown_regimes((fm or {}).get("state_mirror"))
+        div = state_divergence(fm, ref, res)
+        if div:
+            report["divergences"].append(div)
+        prop = incoming_proposal(fm, ref, res)
+        if prop:
+            report["proposals"].append(prop)
+        if "incoming" in regimes:
+            report["ambiguities"].update(mirror_ambiguities(mirror_config(res)))
+    report["unknown"] = sorted(set(report["unknown"]))
+    return report
+
+
 # ── politique de rattachement (link.policy) ───────────────────────────────
 
 def required_secondaries(project_meta, registry, axis="task"):

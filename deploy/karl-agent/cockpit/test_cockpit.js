@@ -200,25 +200,7 @@ assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue
 assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
 console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
 
-// — 5. voiceQueue (RM2329) : file d'annonces vocales —
-const fv = />>> voiceQueue[\s\S]*?(function voiceQueue[\s\S]*?)\n\/\/ <<< voiceQueue/.exec(html);
-assert(fv, "marqueurs >>> voiceQueue / <<< voiceQueue introuvables");
-const voiceQueue = vm.runInNewContext("(" + fv[1] + ")");
-
-let spoken = {};
-const vs = [
-  { rm_id: "1", state: "attention" },
-  { rm_id: "2", state: "working" },
-  { rm_id: "3", state: "choice" },
-];
-assert.deepStrictEqual([...voiceQueue(vs, spoken)], ["1", "3"], "attention + choice à annoncer");
-spoken = { "1": "Question ?", "3": "Choix ?" };
-assert.deepStrictEqual([...voiceQueue(vs, spoken)], [], "déjà annoncées → rien");
-// la session 1 repart travailler → purgée du cache → ré-annonçable ensuite
-assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "working" }], spoken)], [], "plus en attente → rien");
-assert(!("1" in spoken), "sortie d'attente → purge du cache");
-assert.deepStrictEqual([...voiceQueue([{ rm_id: "1", state: "attention" }], spoken)], ["1"], "nouvelle question → ré-annonce");
-console.log("✓ voiceQueue (RM2329) : annonces sans doublon, ré-annonce après reprise");
+// — 5. voiceQueue (RM2329) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
 // — 6. outlineStep (RM2330) : sauts entre messages utilisateur —
 const fo = />>> outlineStep[\s\S]*?(function outlineStep[\s\S]*?)\n\/\/ <<< outlineStep/.exec(html);
@@ -240,23 +222,7 @@ assert.strictEqual(outlineStep(oi, null, 1), null, "au direct, ↓ = null");
 assert.strictEqual(outlineStep([{ line: 1, kind: "assistant", text: "x" }], null, -1), null, "aucun message user → null");
 console.log("✓ outlineStep (RM2330) : sauts entre messages utilisateur");
 
-// — 8. pickVoice (RM2350) : choix de la voix de synthèse —
-const fpv = />>> pickVoice[\s\S]*?(function pickVoice[\s\S]*?)\n\/\/ <<< pickVoice/.exec(html);
-assert(fpv, "marqueurs >>> pickVoice / <<< pickVoice introuvables");
-const pickVoice = vm.runInNewContext("(" + fpv[1] + ")");
-
-const voices = [
-  { name: "eSpeak French", lang: "fr-FR", localService: true },
-  { name: "Google français", lang: "fr-FR", localService: false },
-  { name: "Google US English", lang: "en-US", localService: false },
-];
-assert.strictEqual(pickVoice(voices, "fr-FR", "").name, "Google français", "défaut = voix réseau (qualité)");
-assert.strictEqual(pickVoice(voices, "fr-FR", "eSpeak French").name, "eSpeak French", "choix explicite respecté");
-assert.strictEqual(pickVoice(voices, "fr-FR", "disparue").name, "Google français", "voix choisie absente → repli réseau");
-assert.strictEqual(pickVoice(voices, "en-US", "").name, "Google US English", "langue anglaise");
-assert.strictEqual(pickVoice([{ name: "L", lang: "fr-FR", localService: true }], "fr-FR", "").name, "L", "seule locale → prise quand même (nom)");
-assert.strictEqual(pickVoice(voices, "de-DE", ""), null, "aucune voix de la langue → null");
-console.log("✓ pickVoice (RM2350) : réseau prioritaire, choix explicite, replis");
+// — 8. pickVoice (RM2350) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
 // — 9. resolveTheme (RM2386) : priorité surcharge locale > conf serveur > auto —
 const frt = />>> resolveTheme[\s\S]*?(function resolveTheme[\s\S]*?)\n\/\/ <<< resolveTheme/.exec(html);
@@ -580,25 +546,7 @@ assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement r�
 assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
 console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
 
-// — ttsMode (RM2532) : bascule TTS serveur (Piper) ↔ navigateur —
-const fmTts = />>> ttsMode[\s\S]*?(function ttsMode[\s\S]*?)\n\/\/ <<< ttsMode/.exec(html);
-assert(fmTts, "marqueurs >>> ttsMode / <<< ttsMode introuvables");
-const ttsMode = vm.runInNewContext("(" + fmTts[1] + ")");
-assert.strictEqual(ttsMode({ tts: true }, true), "server", "serveur dispo + préféré → server");
-assert.strictEqual(ttsMode({ tts: true }, false), "browser", "serveur dispo mais non préféré → browser");
-assert.strictEqual(ttsMode({ tts: false }, true), "browser", "serveur sans tts → browser");
-assert.strictEqual(ttsMode(null, true), "browser", "pas de caps (serveur muet) → browser");
-console.log("✓ ttsMode (RM2532) : serveur si dispo ET préféré, sinon repli navigateur");
-
-// — sttMode (RM2533) : bascule STT serveur (Whisper) ↔ navigateur —
-const fmStt = />>> sttMode[\s\S]*?(function sttMode[\s\S]*?)\n\/\/ <<< sttMode/.exec(html);
-assert(fmStt, "marqueurs >>> sttMode / <<< sttMode introuvables");
-const sttMode = vm.runInNewContext("(" + fmStt[1] + ")");
-assert.strictEqual(sttMode({ stt: true }, true), "server", "sidecar dispo + préféré → server");
-assert.strictEqual(sttMode({ stt: true }, false), "browser", "sidecar dispo mais non préféré → browser");
-assert.strictEqual(sttMode({ stt: false }, true), "browser", "serveur sans stt → browser");
-assert.strictEqual(sttMode(null, true), "browser", "pas de caps (sidecar muet) → browser");
-console.log("✓ sttMode (RM2533) : serveur si sidecar dispo ET préféré, sinon repli navigateur");
+// — ttsMode / sttMode (RM2532/RM2533) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
 // — 8. composer (RM2527) : collage encadré, garde d'état, historique —
 // Le collage encadré est le cœur du lot : un texte multi-ligne envoyé frappe par

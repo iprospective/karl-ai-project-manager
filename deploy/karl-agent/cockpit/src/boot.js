@@ -28,6 +28,7 @@ import { mountProjectsPanel } from "./controllers/projects.controller.js";
 import { mountEnv } from "./controllers/env.controller.js";
 import { mountPmCommands } from "./controllers/pmcmd.controller.js";
 import { mountSettings } from "./controllers/settings.controller.js";
+import { mountVoice } from "./controllers/voice.controller.js";
 import { GitPatch } from "./views/git/GitPanel.view.js";
 import { GitPatchViewModel } from "./viewmodels/git/GitPatchViewModel.js";
 
@@ -141,5 +142,31 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
 });
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings });
+// la voix : les moteurs du navigateur sont fournis ICI, au seul endroit qui les connaît
+const synth = () => (typeof speechSynthesis !== "undefined" ? speechSynthesis : null);
+const voice = mountVoice(document.getElementById("voicecard"), {
+  notify: legacy("toast"), storage: localStorage,
+  attached: () => lexical(() => attached), resolve: () => lexical(() => resolveCache) || {},
+  voiceBtn: (on) => { const b = document.getElementById("voicebtn"); if (b) { b.style.color = on ? "var(--ok)" : ""; b.style.borderColor = on ? "var(--ok)" : ""; } },
+  mic: (s) => { const b = document.getElementById("micbtn"); if (b) { b.style.color = s.color; b.textContent = s.text; } },
+  engines: {
+    voices: () => (synth() ? synth().getVoices() : []),
+    cancel: () => synth() && synth().cancel(),
+    speak: (text, lang, v) => { const u = new SpeechSynthesisUtterance(text); u.lang = lang; if (v) u.voice = v; synth().speak(u); },
+    audio: async (blob) => { let a = document.getElementById("tts-audio"); if (!a) { a = document.createElement("audio"); a.id = "tts-audio"; document.body.appendChild(a); }
+      if (a.src) URL.revokeObjectURL(a.src); a.src = URL.createObjectURL(blob); await a.play(); },
+    recognizer: (window.SpeechRecognition || window.webkitSpeechRecognition)
+      ? (lang) => { const r = new (window.SpeechRecognition || window.webkitSpeechRecognition)(); r.lang = lang; r.interimResults = false; r.maxAlternatives = 1; return r; } : null,
+    recorder: (navigator.mediaDevices && window.MediaRecorder) ? async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      let mr; try { mr = new MediaRecorder(stream); } catch (e) { stream.getTracks().forEach(t => t.stop()); return null; }
+      const chunks = []; const h = { onstop: null,
+        start: () => mr.start(), stop: () => mr.stop() };
+      mr.ondataavailable = (ev) => { if (ev.data && ev.data.size) chunks.push(ev.data); };
+      mr.onstop = () => { stream.getTracks().forEach(t => t.stop()); if (h.onstop) h.onstop(new Blob(chunks, { type: (chunks[0] && chunks[0].type) || "audio/webm" })); };
+      return h; } : null,
+  },
+});
+
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

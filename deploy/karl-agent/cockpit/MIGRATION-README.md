@@ -72,6 +72,7 @@ ViewModel vers du HTML sûr).
 | env (santé du poste, badge, verrous coffre/SSH) | L5 | 2026-09-04 | `models/env/`, `services/env.service.js`, `viewmodels/env/`, `views/env/`, `controllers/env.controller.js` |
 | pmcmd (commandes PM, catalogue RM2209) | L5 | 2026-09-04 | `models/pmcmd/`, `services/pmcmd.service.js`, `viewmodels/pmcmd/`, `views/pmcmd/`, `controllers/pmcmd.controller.js` |
 | settings (réglages whitelist RM2213, thème RM2386) | L5 | 2026-09-04 | `models/settings/`, `services/settings.service.js`, `viewmodels/settings/`, `views/settings/`, `controllers/settings.controller.js` |
+| voice (mode voix, annonces, dictée, TTS/STT serveur ou navigateur) | L5 | 2026-09-04 | `models/voice/`, `services/voice.service.js`, `viewmodels/voice/`, `views/voice/`, `controllers/voice.controller.js` — moteurs du navigateur injectés par boot.js |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

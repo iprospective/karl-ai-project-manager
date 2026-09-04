@@ -531,8 +531,21 @@ def next_transitions(rm_id, check_redmine=True):
         prev = redmine_utils.normalize_status(hist[-1]) if hist else None
         if prev:
             nexts.append((prev, "reprise à l'état précédent (déblocage)"))
+
+    # RM2772 — cycle d'un ticket RÉCURRENT. Il n'a pas de statut à lui (l'instance
+    # n'en a pas de dédié) : ce sont la périodicité et l'échéance qui le distinguent
+    # d'un ticket bloqué. La table ci-dessus resterait donc muette sur son cycle, et
+    # le cockpit proposerait « blocage tiers » là où il s'agit d'un rangement.
+    rec = fm.get("recurrence")
+    resting = redmine_utils.recurrence_resting_status()
+    if rec and cur == resting:
+        nexts.insert(0, ("a_faire", "réveil du récurrent : échéance atteinte "
+                                    "(pm-task-recurrence wake)"))
     if cur not in INACTIVE_STATUSES:
-        nexts.append(("en_pause", "blocage tiers"))
+        nexts.append(("en_pause",
+                      "rangement du passage récurrent : `due` = date du prochain "
+                      "(pm-task-recurrence park)" if rec and resting == "en_pause"
+                      else "blocage tiers"))
     if cur != "ferme":
         nexts.append(("ferme", "close_reason requis (--close-reason)"))
 

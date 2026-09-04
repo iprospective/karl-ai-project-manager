@@ -196,5 +196,28 @@ recurrence_cf:
     hebdomadaire: 7    # "Hebdomadaire"
     mensuelle:    8    # "Mensuelle"
     annuelle:     9    # "Annuelle"
-  # Pas de périodicité en jours ici : le calcul de la date de prochain run
-  # (lot 2) doit rester calendaire (« le 21 du mois suivant »), pas un delta fixe.
+  # Pas de périodicité en jours ici : le calcul de la date du prochain passage
+  # reste CALENDAIRE (« le 21 du mois suivant »), jamais un delta de 30 jours —
+  # cf. pm-task-recurrence.py::next_due.
+
+  # Statut NORMS d'un ticket récurrent AU REPOS, entre deux passages (RM2772, lot 2).
+  #
+  # ⚠ Ce n'est PAS un statut dédié. Le lot 2 avait été cadré autour d'un statut
+  # « Récurrent » (id 17) réputé exister côté instance : vérification faite le
+  # 2026-09-04 sur `GET /issue_statuses.json` (compte karl, admin), **il n'existe
+  # pas** — l'instance n'a que 15 statuts, de 1 à 23 sans 17. La REST API Redmine
+  # ne sait pas créer un statut (même piège que les définitions de CF), et un
+  # statut neuf demanderait en plus sa matrice de workflow tracker × rôle.
+  #
+  # Le repos est donc porté par `en_pause`, ce qui était la proposition initiale
+  # de Mathieu (« on pourrait juste passer le ticket en pause, avec une date
+  # d'échéance au prochain run »). Ce qui distingue un récurrent au repos d'un
+  # ticket bloqué par un tiers, c'est le TRIPLET : statut au repos + `recurrence`
+  # non nulle + `due` posée. Les files de relance excluent les tickets porteurs
+  # d'une `recurrence` — sans quoi la file devient bruyante, et une file bruyante
+  # finit ignorée.
+  #
+  # Si le statut dédié est créé un jour côté Redmine (action admin, hors API),
+  # il suffit de le déclarer dans `statuses:` et de le nommer ICI : toute la
+  # mécanique (park / wake / list) le suit sans autre changement.
+  resting_status: en_pause

@@ -12,6 +12,23 @@
   PÉRIODIQUE ») pointant sur l'outil canonique `pm-task-recurrence` — la pose à la main
   est un piège : le CF n'est activé que sur le tracker « Tâche », et ailleurs Redmine
   accepte la valeur puis la jette en silence. (RM2772)
+- **status-workflow-pratique** — § « **Ticket récurrent : rangement et réveil** » et deux
+  transitions à la table : `* (récurrent) → en_pause` (rangement) et `en_pause (échu) →
+  a_faire` (réveil). Un ticket récurrent **n'a pas de statut à lui** : le cadrage initial
+  visait un statut « Récurrent » (id 17) réputé exister côté instance — vérification faite
+  le 2026-09-04 sur `GET /issue_statuses.json` (compte admin), **il n'existe pas**, et la
+  REST API Redmine ne sait pas créer un statut, même piège que les définitions de CF. Le
+  repos est donc porté par le **triplet** statut de repos (`recurrence_cf.resting_status`,
+  aujourd'hui `en_pause`) + `recurrence` + échéance native `due`. Règle qui en découle et
+  qui ne s'invente pas : **une file de relance exclut les tickets porteurs d'une
+  `recurrence`** — un récurrent au repos n'appelle aucune relance, et une file bruyante
+  finit ignorée. Trois points de mise en œuvre y sont écrits : calcul d'échéance
+  **calendaire** (douze fois 30 jours font 360 — « le 21 » finirait au 16 en un an) et
+  basé sur le passage **réellement effectué** ; `wake` idempotent **par le statut**, pas
+  par la date, l'échéance échue étant conservée pour que le retard reste visible ; et
+  **remise à zéro de la checklist et du `done_ratio` au réveil**, les critères décrivant
+  le passage à faire et non l'historique — sans quoi le ticket afficherait 100 % sur un
+  contrôle qui n'a pas eu lieu. (RM2772, lot 2)
 
 ### Corrigé
 - **KERNEL (tripwire #10) et git-mep-pratique** — la commande de point de restauration

@@ -127,6 +127,18 @@ def recurrence_cf():
     return ref.get("id"), dict(ref.get("values") or {})
 
 
+def recurrence_resting_status():
+    """Statut NORMS d'un ticket récurrent AU REPOS, entre deux passages (RM2772).
+
+    Lu depuis `redmine.reference.yml :: recurrence_cf.resting_status`, et non
+    codé en dur : l'instance n'a pas de statut « Récurrent » dédié (vérifié le
+    2026-09-04), le repos est donc porté par `en_pause`. Si un statut dédié est
+    créé côté Redmine un jour, c'est le seul endroit à changer.
+    """
+    ref = load_reference().get("recurrence_cf") or {}
+    return ref.get("resting_status") or "en_pause"
+
+
 def recurrence_from_cf(value):
     """Label d'énumération Redmine (ou value id) → recurrence NORMS, ou None.
 
@@ -542,12 +554,15 @@ def move_issue_project(issue_id, project_id, *, notes=None, timeout=20, creds=No
 
 
 def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
-                        notes=None, timeout=20, creds=None):
-    """PUT générique sur une issue : custom_fields + estimated_hours + note.
+                        due_date=None, notes=None, timeout=20, creds=None):
+    """PUT générique sur une issue : custom_fields + estimated_hours + échéance + note.
 
     `custom_fields` : list[{id, value}]. `estimated_hours` : float (heures natives
-    Redmine). `notes` : str optionnel (journalise le changement). N'envoie que les
-    attributs fournis. Retourne (ok: bool, err: str).
+    Redmine). `due_date` : 'YYYY-MM-DD', ou `""` pour VIDER l'échéance — d'où le
+    `is not None` plutôt qu'un test de vérité, sinon effacer serait impossible
+    (RM2772 : l'échéance porte la date du prochain passage d'un ticket récurrent).
+    `notes` : str optionnel (journalise le changement). N'envoie que les attributs
+    fournis. Retourne (ok: bool, err: str).
 
     ⚠ Piège permissions (cf. knowledge/redmine/api.md) : sans « Edit issues »,
     Redmine renvoie 204 mais *drop* silencieusement les attributs ≠ notes. Ce
@@ -561,6 +576,8 @@ def update_issue_fields(issue_id, *, custom_fields=None, estimated_hours=None,
         issue["custom_fields"] = custom_fields
     if estimated_hours is not None:
         issue["estimated_hours"] = estimated_hours
+    if due_date is not None:
+        issue["due_date"] = due_date
     if notes:
         issue["notes"] = notes
     if not issue:

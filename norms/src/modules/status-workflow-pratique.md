@@ -37,6 +37,8 @@ la prise) sont restées dans `status-workflow.md`.
 | `en_mep` | `a_corriger` | régression **prod** (note dans journal) |
 | `a_corriger` | `en_cours` | — |
 | `* (tout état actif)` | `en_pause` | blocage tiers ; reprend à l'état précédent au déblocage |
+| `* (ticket RÉCURRENT)` | `en_pause` | *(RM2772)* **rangement** du passage terminé : `due` = date du prochain — `pm-task-recurrence park` |
+| `en_pause` *(récurrent échu)* | `a_faire` | *(RM2772)* **réveil** : échéance atteinte — `pm-task-recurrence wake` |
 | `* (tout état)` | `ferme` | `close_reason` requis |
 | `ferme` | `a_faire` | **réouverture** (RM2285) : note obligatoire motivant la réouverture ; `close_reason` purgé |
 
@@ -209,6 +211,52 @@ dispensés) n'est **pas** finie : le passage en `etude_chiffrage_a_valider` ne d
 transition quand elle manque — même forme que le garde-fou « protocole de test » (RM2229).
 La garde lit le frontmatter `implementation`, et **accepte aussi** une section
 `## Implémentation` dans le corps, pour ne pas crier sur les CDC d'avant.
+
+### Ticket récurrent : rangement et réveil — v2.16.0 (RM2772)
+
+Un ticket **récurrent** décrit une vérification rejouée à intervalle régulier (mise à
+jour mensuelle d'un serveur, contrôle de sauvegardes…). Il tient dans **un seul ticket,
+rouvert et retraité à chaque passage** — jamais un ticket par run, qui noierait le suivi
+sous des doublons sans mémoire du passage précédent.
+
+Il **n'a pas de statut à lui**. Le lot avait été cadré autour d'un statut « Récurrent »
+réputé exister côté instance : vérification faite (`GET /issue_statuses.json`, compte
+admin), **il n'existe pas**, et la REST API Redmine ne sait pas créer un statut — même
+piège que les définitions de CF. Ce qui distingue un récurrent au repos d'un ticket
+bloqué par un tiers, c'est donc un **triplet** :
+
+1. le **statut de repos** — `redmine.reference.yml :: recurrence_cf.resting_status`,
+   aujourd'hui `en_pause` ;
+2. la **périodicité** `recurrence` (CF Redmine 7) ;
+3. l'**échéance native `due_date`** ↔ frontmatter `due` = date du prochain passage.
+
+Conséquence pratique : **une file de relance doit exclure les tickets porteurs d'une
+`recurrence`.** Les confondre rendrait la file des `en_pause` bruyante — un récurrent au
+repos n'appelle aucune relance — et une file bruyante finit ignorée.
+
+```bash
+pm-task-recurrence.py park 2771            # passage fini → repos + échéance du prochain
+pm-task-recurrence.py park 2771 --from 2026-08-21   # base = date réelle du passage
+pm-task-recurrence.py wake                 # qui est dû ? (LECTURE SEULE par défaut)
+pm-task-recurrence.py wake --apply         # les réveiller
+pm-task-recurrence.py list                 # récurrents, dernier passage, échus
+```
+
+Trois points qui ne s'inventent pas :
+
+- **Le calcul de l'échéance est calendaire**, jamais un delta en jours : douze fois
+  30 jours font 360, et « le 21 » finirait au 16 en un an. La base est la date du passage
+  **réellement effectué** (`--from`, défaut aujourd'hui), pas un quantième théorique que
+  personne n'a tenu. Fin de mois rabotée : 31 janvier → 28 (ou 29) février.
+- **`wake` est idempotent par le statut, pas par la date.** Un ticket réveillé garde une
+  échéance dans le passé ; c'est son passage en `a_faire` qui le retire des candidats.
+  L'échéance échue est **conservée** volontairement — c'est elle qui le fait apparaître
+  en retard dans Redmine et dans les vues « échus ».
+- **Au réveil, la checklist et le `done_ratio` repartent de zéro**
+  (`pm-task-description-update --uncheck-all --done-ratio auto`). Les critères décrivent
+  **le passage à faire**, pas l'historique : les laisser cochés afficherait 100 % sur un
+  contrôle qui n'a pas eu lieu. L'historique des passages reste dans le `.log.md` et le
+  journal Redmine, tous deux append-only.
 
 ### Transitions « assignee-only » — v1.31.0
 

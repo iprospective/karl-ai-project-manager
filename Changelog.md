@@ -30,9 +30,32 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   id (une comparaison par id seul conclurait à tort que l'écriture a été ignorée), et il
   **accepte puis jette en silence** la valeur d'un CF non activé pour le tracker — d'où
   une relecture systématique après écriture, et le CF déclaré dans la référence sur le
-  seul tracker « Tâche », où il est réellement activé. Restent à faire : le CF « date de
-  prochain run » et son recalcul à la clôture (lot 2), l'entrée en tête de cockpit
-  (lot 3).
+  seul tracker « Tâche », où il est réellement activé.
+- **Un ticket récurrent se range et se réveille tout seul** (RM2772, lot 2) :
+  `pm-task-recurrence park` clôt un passage — statut de repos + **échéance native
+  `due_date`** calculée **calendairement** depuis la périodicité —, et
+  `pm-task-recurrence wake` rouvre ceux dont l'échéance est atteinte (lecture seule par
+  défaut, `--apply` pour agir). Trois choix méritent d'être connus. Le calcul est
+  calendaire et **jamais un delta en jours** : douze fois 30 jours font 360, et « le 21 »
+  finirait au 16 en un an ; la base est la date du passage **réellement effectué**, pas un
+  quantième théorique que personne n'a tenu. `wake` est **idempotent par le statut**, pas
+  par la date — un ticket réveillé garde une échéance dans le passé, et c'est volontaire :
+  c'est elle qui le montre en retard dans Redmine. Et au réveil la **checklist et le
+  `done_ratio` repartent de zéro** (nouveau `pm-task-description-update --uncheck-all`,
+  symétrique de `--check-all`) : les critères décrivent le passage à faire, pas
+  l'historique — les laisser cochés afficherait 100 % sur un contrôle qui n'a pas eu lieu,
+  l'historique restant dans le `.log.md` et le journal Redmine, tous deux append-only.
+  **Le statut « Récurrent » attendu n'existe pas** : le cadrage le croyait présent côté
+  instance (id 17), `GET /issue_statuses.json` avec un compte admin dit le contraire — 15
+  statuts, pas de 17 —, et la REST API Redmine ne sait pas créer un statut, exactement
+  comme elle ne crée pas une définition de CF. Le repos est donc porté par `en_pause`,
+  qui était la proposition initiale, et ce qui distingue un récurrent au repos d'un
+  blocage tiers est le **triplet** statut de repos + `recurrence` + `due` : une file de
+  relance doit exclure les porteurs d'une `recurrence`, sinon elle devient bruyante et
+  finit ignorée. Le statut de repos est lu depuis
+  `redmine.reference.yml :: recurrence_cf.resting_status` — un statut dédié créé un jour
+  côté admin se déclare là, sans toucher au reste. Reste à faire : l'entrée en tête de
+  cockpit (lot 3).
 ### Outillage PM
 - **Un env de dev ou de test PrestaShop ne se prend plus pour la production** (RM2932). Le
   back-office des envs de recette affichait en permanence « Action requise : confirmez l'URL de

@@ -105,10 +105,14 @@ def put_issue(rm_id, fields):
         sys.exit(f"ERREUR : PUT RM{rm_id} échoué : {e}{detail}")
 
 
-def apply_checks(text, check_idx, uncheck_idx, check_all):
+def apply_checks(text, check_idx, uncheck_idx, check_all, *, uncheck_all=False):
     """Applique coche/décoche aux lignes de checklist. Retourne (texte, total, checked, changed).
 
     check_idx / uncheck_idx : ensembles d'index 1-based parmi les lignes de checklist.
+    `uncheck_all` remet TOUTE la checklist à zéro — le symétrique de `check_all`,
+    ajouté pour le réveil d'un ticket récurrent (RM2772) : les critères décrivent
+    le passage à faire, pas l'historique, et les laisser cochés afficherait 100 %
+    sur un contrôle qui n'a pas encore eu lieu.
 
     Les cases situées dans un bloc de code sont ignorées (RM2540) : une
     description qui CITE du markdown en exemple ne doit pas voir sa citation
@@ -123,7 +127,7 @@ def apply_checks(text, check_idx, uncheck_idx, check_all):
         new = cur
         if check_all or item_no in check_idx:
             new = True
-        if item_no in uncheck_idx:
+        if uncheck_all or item_no in uncheck_idx:
             new = False
         if new != cur:
             lines[i] = m.group(1) + ("x" if new else " ") + m.group(3)
@@ -156,7 +160,8 @@ def strip_task_frontmatter(text):
     return m.group(4).lstrip("\n"), True
 
 
-def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
+def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all,
+                          *, uncheck_all=False):
     """Calcule la nouvelle description (pure, testable — RM2281).
 
     `file_text` non-None = mode --set-from-file : le fichier devient la
@@ -168,13 +173,13 @@ def build_new_description(desc, file_text, check_idx, uncheck_idx, check_all):
     note_bits = []
     if file_text is not None:
         new_desc, total, checked, changed = apply_checks(
-            file_text, check_idx, uncheck_idx, check_all)
+            file_text, check_idx, uncheck_idx, check_all, uncheck_all=uncheck_all)
         desc_changed = (new_desc != desc)
         if desc_changed:
             note_bits.append("description remplacée intégralement")
     else:
         new_desc, total, checked, changed = apply_checks(
-            desc, check_idx, uncheck_idx, check_all)
+            desc, check_idx, uncheck_idx, check_all, uncheck_all=uncheck_all)
         desc_changed = bool(changed)
     if changed:
         cocheds = [str(n) for n, v in changed if v]
@@ -202,6 +207,9 @@ def main():
     ap.add_argument("rm_id", type=int)
     ap.add_argument("--check", help="Index(s) 1-based d'items de checklist à cocher (ex: 1,2)")
     ap.add_argument("--uncheck", help="Index(s) 1-based d'items à décocher")
+    ap.add_argument("--uncheck-all", action="store_true",
+                    help="Décoche TOUS les items (symétrique de --check-all ; réveil "
+                         "d'un ticket récurrent, RM2772)")
     ap.add_argument("--check-all", action="store_true", help="Coche tous les items de la checklist")
     ap.add_argument("--done-ratio", help="'auto' (depuis la checklist) ou entier 0-100")
     ap.add_argument("--set-from-file", help="Remplace toute la description par le contenu du fichier")
@@ -256,11 +264,12 @@ def main():
 
     # note_bits ne décrit QUE les changements de description (Redmine ne les diff pas).
     new_desc, total, checked, changed, note_bits, desc_changed = build_new_description(
-        desc, file_text, check_idx, uncheck_idx, args.check_all)
+        desc, file_text, check_idx, uncheck_idx, args.check_all,
+        uncheck_all=args.uncheck_all)
     if n_drop:
         note_bits.append(f"retiré {n_drop} gabarit(s) de critère « à compléter »")
     if file_text is None and not changed and not args.done_ratio and not args.note \
-            and not args.drop_placeholders:
+            and not args.drop_placeholders and not args.uncheck_all:
         sys.exit("Rien à faire : aucun item modifié (vérifie les index --check/--uncheck) "
                  "et pas de --done-ratio/--note.")
 
@@ -342,7 +351,8 @@ def main():
             # une checklist périmée. Constaté deux fois (RM2573, RM2305).
             new_body = "\n" + new_desc.strip("\n") + "\n"
         else:
-            new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all)
+            new_body, _, _, _ = apply_checks(body, check_idx, uncheck_idx, args.check_all,
+                                             uncheck_all=args.uncheck_all)
         if done_ratio is not None:
             fm["completion_pct"] = done_ratio
         fm["updated"] = datetime.now().strftime("%Y-%m-%dT%H:%M")

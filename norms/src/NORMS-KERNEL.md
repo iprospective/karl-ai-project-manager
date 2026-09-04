@@ -50,7 +50,7 @@
 | début de session PM : péremption des PAT GitLab | `modules/git-mep.md` (rotation J-7) | `pm-token-check` |
 | je lie / fais dépendre / parente deux tickets | `modules/task-links.md` | `pm-task-link` |
 | une tâche est dans le mauvais projet PM (ou déplacée côté Redmine) | `modules/session-tooling.md` | `pm-task-move` |
-| un ticket décrit une vérification PÉRIODIQUE (on le rouvre à chaque passage) | **§ Champs conditionnels** (`recurrence`) — un seul ticket, jamais un par run | `pm-task-recurrence` |
+| un ticket décrit une vérification PÉRIODIQUE (on le rouvre à chaque passage) | `modules/status-workflow-pratique.md` § « Ticket récurrent » — un seul ticket, jamais un par run | `pm-task-recurrence park`/`wake` |
 | avant une session touchant Redmine / périodiquement | `modules/redmine-reference.md` | `redmine-config-check` |
 | micro-tâche (≤ 30 min, sans code) | `modules/status-workflow.md` § flux court | `pm-task-take --no-branch`, `pm-task-add --retro` |
 | j'estime / calcule le ROI / priorise | `modules/roi-pricing.md` | `pm-task-add`, `pm-task-tick`, `priority.py` |
@@ -191,9 +191,13 @@ Voir [templates/task.md](../templates/task.md) pour le template complet.
 - `recurrence` — `null` (défaut) | `quotidienne` | `hebdomadaire` | `mensuelle` |
   `annuelle` : périodicité d'un ticket **récurrent**, mappée sur le CF Redmine 7
   « Recurrence ». Un sujet récurrent tient dans **un seul ticket, rouvert et retraité à
-  chaque passage** — pas un ticket par run. Se pose **uniquement** via
-  `pm-task-recurrence` (le CF n'est activé que sur le tracker « Tâche » : ailleurs,
-  l'API accepte la valeur et la jette en silence).
+  chaque passage** — pas un ticket par run. Passage fini → `pm-task-recurrence park`
+  (statut de repos + `due` = prochain passage) ; échéance atteinte → `… wake`. Pas de
+  statut dédié : c'est le triplet statut de repos + `recurrence` + `due` qui le
+  distingue d'un blocage tiers, **donc une file de relance exclut les récurrents**.
+  Se pose **uniquement** via `pm-task-recurrence` (le CF n'est activé que sur le tracker
+  « Tâche » : ailleurs, l'API accepte la valeur et la jette en silence).
+  → `modules/status-workflow-pratique.md` § « Ticket récurrent »
 
 ## Valeurs énumérées
 

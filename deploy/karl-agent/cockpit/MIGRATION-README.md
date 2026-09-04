@@ -44,8 +44,11 @@ Deux routes qui tombent sur la même cible signalent un doublon hérité à tran
 2. pour chaque *hunk*, lire le symbole englobant, et chercher sa `cible` ici
 3. appliquer le diff dans le fichier cible
 
-C'est ce que fera `pm-cockpit-remap` (à livrer avec L4, § 17.1). Tant qu'il
-n'existe pas, la table se lit à la main — mais elle se lit.
+C'est ce que fait **`scripts/pm-cockpit-remap.py <branche>`** : il rattache chaque
+hunk à son symbole dans la pré-image de la branche, dit s'il est encore dans
+`index.html` sur `dev` (merge normal) ou, sinon, dans quel fichier de `src/` le
+reporter et si ce domaine est déjà migré. Sur les deux branches ouvertes au
+2026-09-04 (RM2229, RM2808) : quatre symboles, tous encore dans `index.html`.
 
 ## Comment les modules sont servis (constat L0)
 

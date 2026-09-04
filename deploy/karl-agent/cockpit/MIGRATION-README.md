@@ -66,6 +66,7 @@ ViewModel vers du HTML sûr).
 | Domaine | Lot | Migré le | Où |
 |---|---|---|---|
 | mail (file de triage des emails) | L1 — pilote | 2026-09-04 | `models/mail/`, `services/mail.service.js`, `viewmodels/mail/`, `views/mail/`, `controllers/mail.controller.js` |
+| git (journal, commit, diff de la session) | L4 | 2026-09-04 | `models/git/`, `services/git.service.js`, `viewmodels/git/`, `views/git/`, `controllers/git.controller.js` |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

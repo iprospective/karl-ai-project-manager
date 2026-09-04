@@ -1459,15 +1459,8 @@ if (window.matchMedia) {
             <div class="metabody" id="filesbody"><div class="empty">chargement…</div></div>
           </div>
           <!-- RM2330 : outline de la conversation -->
-          <div class="rp" id="rp-git">
-            <div class="outnav">
-              <button class="mini" onclick="gitLoad(true)" title="Rafraîchir">⟳</button>
-              <button class="mini" onclick="gitShowDiff('branch')" title="Ce que la branche apporte à sa cible d'intégration">Δ branche</button>
-              <button class="mini" onclick="gitShowDiff('worktree')" title="Modifications pas encore commitées">Δ non commité</button>
-              <span class="cnt" id="gitcnt"></span>
-            </div>
-            <div class="outbody" id="gitbody"><div class="empty">attache une session…</div></div>
-          </div>
+          <!-- RM2602 onglet git — domaine MIGRÉ (RM2889, L4) : rendu par src/views/git/GitPanel.view.js -->
+          <div class="rp" id="rp-git"></div>
           <div class="rp" id="rp-outline">
             <div class="outnav">
               <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
@@ -4634,7 +4627,7 @@ function applyRight() {
   // changement de session. RM2673 : le contexte peut aussi être un PROJET (sans
   // session attachée) — `filesEnsure` compare le contexte, pas le seul sid.
   if (rightVisible("files")) filesEnsure();
-  if (rightVisible("git") && attached) gitLoad();      // RM2602
+  if (rightVisible("git") && attached) karl.git.refresh();      // RM2602 → migré
 }
 function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
 function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
@@ -4643,49 +4636,9 @@ function toggleRight() { dispatchRight({ type: "toggle" }); }
 function collapseRight() { dispatchRight({ type: "collapse" }); }
 function rightVisible(tab) { return !rightState.collapsed && rightState.tab === tab; }
 
-// ----- RM2602 : commits et diffs du ticket, en lecture -----
-
-// >>> gitDiffLine — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Classe d'une ligne de patch. `+++`/`---` sont des EN-TÊTES de fichier, pas des
-// ajouts/retraits : les colorer en vert/rouge ferait lire un en-tête comme du
-// contenu modifié.
-function gitDiffLine(line) {
-  const l = String(line == null ? "" : line);
-  if (l.startsWith("+++") || l.startsWith("---")) return "fh";
-  if (l.startsWith("diff --git") || l.startsWith("index ")) return "fh";
-  if (l.startsWith("@@")) return "hunk";
-  if (l.startsWith("+")) return "add";
-  if (l.startsWith("-")) return "del";
-  return "";
-}
-// <<< gitDiffLine
-
-// >>> gitStatLabel — pur (testé par test_cockpit.js)
-// Un fichier binaire ne rend pas de compte de lignes : afficher « +0 −0 »
-// laisserait croire qu'il n'a pas changé.
-function gitStatLabel(stats) {
-  const s = stats || {};
-  const n = s.count || 0;
-  const bin = (s.files || []).filter(f => f.binary).length;
-  return n + " fichier" + (n > 1 ? "s" : "")
-    + " · +" + (s.added || 0) + " −" + (s.removed || 0)
-    + (bin ? " · " + bin + " binaire" + (bin > 1 ? "s" : "") : "");
-}
-// <<< gitStatLabel
-
-let gitLog = { commits: [], branch: null };
-let gitSel = null;
-let gitLoading = false;
-async function gitLoad(force) {
-  if (!attached || gitLoading) return;
-  gitLoading = true;
-  try {
-    gitLog = await api("/git/log/" + encodeURIComponent(attached) + "?limit=40");
-    gitRender();
-  } catch (e) {
-    document.getElementById("gitbody").innerHTML = '<div class="empty">' + esc(e.message) + "</div>";
-  } finally { gitLoading = false; }
-}
+// ----- RM2602 : commits et diffs — domaine MIGRÉ (RM2889, L4) : src/controllers/git.controller.js -----
+// L'onglet #rp-git est monté par boot.js ; ses gestes passent par karl.git.
+// worklogRefHtml reste ici : il sert au worklog (L3), pas au git.
 // >>> worklogRefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2605 : un ticket cité doit SE VOIR comme un lien. La ligne entière était
 // déjà cliquable, mais un `RM2467` en gras ne dit pas qu'on peut l'ouvrir.
@@ -4702,114 +4655,6 @@ function worklogRefHtml(ref, esc, tipAttr) {
     + ' onclick="event.stopPropagation();showTicket(' + m[1] + ')">' + esc(s) + "</span>";
 }
 // <<< worklogRefHtml
-
-// >>> gitBranchesHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2605 : branches de la session, à côté du dépôt qu'elles concernent. La
-// branche COURANTE est distinguée — sans ça, une liste de branches ne dit pas
-// laquelle on regarde.
-function gitBranchesHtml(branches, courante, esc) {
-  const list = (branches || []).filter(Boolean);
-  if (!list.length) return "";
-  return '<div class="kv"><span class="k">branches</span><span class="v rels">'
-    + list.map(b => '<span class="pill' + (b === courante ? " ok" : "") + '" title="'
-        + esc(b) + (b === courante ? " (branche courante)" : "") + '">' + esc(b) + "</span>").join(" ")
-    + "</span></div>";
-}
-// <<< gitBranchesHtml
-
-function gitRender() {
-  const body = document.getElementById("gitbody");
-  if (!gitLog.is_git) {
-    body.innerHTML = '<div class="empty">pas un dépôt git</div>';
-    document.getElementById("gitcnt").textContent = "";
-    return;
-  }
-  // RM2602 : la racine d'un workspace ne track que `.mmi-pm/` et reçoit les
-  // auto-commits de l'outillage. Y dérouler un journal donnerait à lire des
-  // `pm(tick)` comme s'il s'agissait de travail — on le dit, on ne l'affiche pas.
-  if (gitLog.pm_data_repo) {
-    document.getElementById("gitcnt").textContent = "aucun code";
-    body.innerHTML = '<div class="empty">Ce ticket n\'a pas de worktree de code.'
-      + "<br><br>Le dépôt trouvé ne porte que les données PM (<code>.mmi-pm/</code>) "
-      + "et ses commits automatiques — sans intérêt ici.<br><br>"
-      + "Prends le ticket (<code>pm-task-take</code>) pour créer son worktree, "
-      + "ou attache une session qui en a un.</div>";
-    return;
-  }
-  const locaux = gitLog.commits.filter(c => !c.pushed).length;
-  const cnt = document.getElementById("gitcnt");
-  cnt.title = "Dépôt : " + (gitLog.cwd || "?") + "\n(" + (gitLog.origin || "?") + ")";
-  cnt.textContent =
-    (gitLog.branch || "?") + (locaux ? " · " + locaux + " non poussé" + (locaux > 1 ? "s" : "") : "")
-    + (gitLog.dirty ? " · " + gitLog.dirty + " modifié" + (gitLog.dirty > 1 ? "s" : "") : "");
-  const reg = (sessCache[attached] || {}).registry || {};
-  const entete = gitBranchesHtml(reg.branches, gitLog.branch, esc);
-  if (!gitLog.commits.length) {
-    body.innerHTML = entete + '<div class="empty">aucun commit</div>';
-    return;
-  }
-  body.innerHTML = entete;
-  for (const c of gitLog.commits) {
-    const d = document.createElement("div");
-    d.className = "gcommit" + (c.pushed ? "" : " local") + (gitSel === c.sha ? " cur" : "");
-    d.innerHTML = (c.pushed ? "○" : "●") + ' <span class="gsha">' + esc(c.short) + "</span> "
-      + esc(c.subject) + (c.merge ? ' <span class="pill">merge</span>' : "")
-      + '<div class="gmeta">' + esc((c.date || "").slice(0, 16).replace("T", " "))
-      + " · " + esc(c.author) + (c.pushed ? "" : " · pas encore poussé") + "</div>";
-    d.title = (c.pushed ? "Poussé" : "LOCAL — n'existe sur aucun remote") + " — clic : voir le diff";
-    d.onclick = () => gitShowCommit(c.sha);
-    // RM2759 : le patch au centre, où il a la largeur d'un diff. Le clic sur la
-    // ligne garde son comportement — le bouton s'ajoute, il ne le remplace pas.
-    const b = document.createElement("button");
-    b.className = "mini"; b.textContent = "⤢";
-    b.title = "Afficher ce commit dans un onglet du panneau central";
-    b.style.marginLeft = "6px";
-    b.onclick = (ev) => { ev.stopPropagation(); openCenterCommit(attached, c.sha); };
-    d.appendChild(b);
-    body.appendChild(d);
-  }
-}
-function gitPatchHtml(payload) {
-  const s = payload.stats || {};
-  let h = '<div class="ms"><h4>' + esc(gitStatLabel(s)) + "</h4>";
-  for (const f of (s.files || [])) {
-    h += '<div class="gmeta">' + esc(f.path) + " +" + f.added + " −" + f.removed
-      + (f.binary ? " (binaire)" : "") + "</div>";
-  }
-  if (payload.truncated) {
-    h += '<div class="gtrunc">⚠ diff tronqué à ' + Math.round((payload.max_bytes || 0) / 1024)
-      + " Ko — la suite n'est pas affichée. Ouvre le dépôt pour le diff complet.</div>";
-  }
-  h += '<div class="gdiff">';
-  for (const line of String(payload.patch || "").split("\n")) {
-    const cls = gitDiffLine(line);
-    h += cls ? '<span class="' + cls + '">' + esc(line) + "</span>\n" : esc(line) + "\n";
-  }
-  return h + "</div></div>";
-}
-async function gitShowCommit(sha) {
-  if (!attached) return;
-  gitSel = sha; gitRender();
-  try {
-    const r = await api("/git/show/" + encodeURIComponent(attached) + "/" + encodeURIComponent(sha));
-    document.getElementById("gitbody").insertAdjacentHTML("afterbegin",
-      '<div class="ms"><h4>' + esc((r.commit || {}).short || sha) + " — "
-      + esc(((r.message || "").split("\n")[0]).slice(0, 90))
-      + ' <button class="mini" onclick="gitLoad()">✕</button></h4></div>' + gitPatchHtml(r));
-    document.getElementById("gitbody").scrollTop = 0;
-  } catch (e) { toast(e.message, true); }
-}
-async function gitShowDiff(mode) {
-  if (!attached) { toast("Aucune session attachée"); return; }
-  try {
-    const r = await api("/git/diff/" + encodeURIComponent(attached) + "?mode=" + encodeURIComponent(mode));
-    const titre = mode === "worktree" ? "Travail non commité"
-                                      : "Ce que la branche apporte à " + esc(r.base || "?");
-    document.getElementById("gitbody").innerHTML =
-      '<div class="ms"><h4>' + titre + ' <button class="mini" onclick="gitLoad()">✕</button></h4></div>'
-      + (r.stats && r.stats.count ? gitPatchHtml(r) : '<div class="empty">aucune différence</div>');
-  } catch (e) { toast(e.message, true); }
-}
 
 
 // ===== RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email =====
@@ -9314,8 +9159,8 @@ function attach(rmId) {
   outline = { items: [], total: 0 }; outPos = null;
   if (rightVisible("outline")) loadOutline();
   if (rightVisible("state")) loadWorklog();   // RM2466 : le travail suit la session attachée
-  gitLog = { commits: [], branch: null }; gitSel = null;   // RM2602
-  if (rightVisible("git")) gitLoad();
+  karl.git.reset();   // RM2602 → migré
+  if (rightVisible("git")) karl.git.refresh();
   else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   if (rightVisible("files")) filesEnsure();  // RM2673 : les fichiers suivent la session
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée

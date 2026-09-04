@@ -30,6 +30,7 @@ export const ROUTES = {
   "file.worktrees": { current: "/worktrees", target: "/api/file/worktrees", lot: "L4", callers: 1 },
   "git.diff": { current: "/git/diff", target: "/api/git/diff", lot: "L4", callers: 1 },
   "git.log": { current: "/git/log", target: "/api/git/log", lot: "L4", callers: 1 },
+  "git.show": { current: "/git/show", target: "/api/git/show", lot: "L4", callers: 1 },
   "glossary.help": { current: "/help", target: "/api/glossary/help", lot: "L5", callers: 1 },
   "glossary.project": { current: "/project", target: "/api/glossary/project", lot: "L5", callers: 2 },
   "layout.outline": { current: "/outline", target: "/api/layout/outline", lot: "L5", callers: 1 },

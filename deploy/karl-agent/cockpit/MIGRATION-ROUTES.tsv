@@ -91,3 +91,4 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /mail/create	L1	mail	/api/mail/create	2	mailCreate;mailNoteOn
 /mail/route-set	L1	mail	/api/mail/route-set	1	mailReroute
 /mail/dismiss	L1	mail	/api/mail/dismiss	1	mailDismiss
+/git/show	L4	git	/api/git/show	1	gitShowCommit

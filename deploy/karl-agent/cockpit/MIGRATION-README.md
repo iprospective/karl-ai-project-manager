@@ -70,6 +70,8 @@ ViewModel vers du HTML sûr).
 | dashboard (« ce qui requiert ton attention », dérives) | L4 | 2026-09-04 | `models/dashboard/`, `services/dashboard.service.js`, `viewmodels/dashboard/`, `views/dashboard/`, `controllers/dashboard.controller.js` |
 | projets (panneau de gauche « 📁 Projets ») | L4 | 2026-09-04 | `models/projects/`, `services/projects.service.js`, `viewmodels/projects/`, `views/projects/`, `controllers/projects.controller.js` — la fiche projet au centre reste à migrer |
 | env (santé du poste, badge, verrous coffre/SSH) | L5 | 2026-09-04 | `models/env/`, `services/env.service.js`, `viewmodels/env/`, `views/env/`, `controllers/env.controller.js` |
+| pmcmd (commandes PM, catalogue RM2209) | L5 | 2026-09-04 | `models/pmcmd/`, `services/pmcmd.service.js`, `viewmodels/pmcmd/`, `views/pmcmd/`, `controllers/pmcmd.controller.js` |
+| settings (réglages whitelist RM2213, thème RM2386) | L5 | 2026-09-04 | `models/settings/`, `services/settings.service.js`, `viewmodels/settings/`, `views/settings/`, `controllers/settings.controller.js` |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

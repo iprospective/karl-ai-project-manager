@@ -2000,97 +2000,7 @@ assert(/batchPlanCache/.test(mSend[0]),
 console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
 
 
-// — RM2697 : tableau de bord « ce qui requiert mon attention » —
-const attentionRows = grabO("attentionRows", { tmuxNameOf: sid => String(sid) });
-const attentionHtml = grabO("attentionHtml");
-const OV = { projects: [
-  { client: "acme", project: "shop", counts: {},
-    tickets: [{ rm_id: "10", status: "a_tester_demandeur", title: "livré", bucket: "waiting" },
-              { rm_id: "11", status: "en_cours", title: "en cours", bucket: "active" },
-              { rm_id: "12", status: "a_mep", title: "à déployer", bucket: "waiting" }],
-    mrs: [{ iid: "9", ref: "RM11", url: "https://x/9", alive: false }],
-    requests: [{ text: "une demande" }],
-    sessions: [{ sid: "70", alive: true, title: "S70" }] },
-] };
-const SESS = { "70": { state: "idle", client: "acme", project: "shop", title: "S70" },
-               "71": { state: "attention", client: "acme", project: "shop", title: "S71" } };
-const rows = attentionRows(OV, SESS, { stale: [] });
-assert.deepStrictEqual([...rows.map(r => r.kind)],
-  ["question", "test", "mr", "mep", "idle", "request"],
-  "l'ordre suit le COÛT de l'attente, pas le projet");
-assert.strictEqual(rows[0].verb, "réponds", "une session qui attend une réponse passe avant tout");
-assert.strictEqual(rows[1].rm_id, "10", "puis ce qui attend TON verdict");
-assert(rows[2].text.includes("session éteinte"), "une MR d'une session éteinte le dit");
-assert.strictEqual(rows[4].kind, "idle", "une session au repos avec du travail actif remonte");
-assert(/1 ticket\(s\) en cours/.test(rows[4].text), "…en disant combien de travail reste");
-// une question restée sans réponse (RM2598) compte comme attente, même sans état ⚠
-const stale = attentionRows({ projects: [] }, { "80": { client: "a", project: "b", title: "S" } }, { stale: ["80"] });
-assert.strictEqual(stale.length === 1 && stale[0].icon, "🕓", "question laissée sans réponse : signalée");
-// filtres
-assert.strictEqual(attentionRows(OV, SESS, { client: "autre" }).length, 0, "filtre client");
-assert.strictEqual(attentionRows(OV, SESS, { project: "shop" }).length, rows.length, "filtre projet");
-assert.deepStrictEqual([...attentionRows(null, null, {})], [], "données absentes tolérées");
-// une session au repos SANS travail actif n'encombre pas
-const calme = attentionRows({ projects: [{ client: "a", project: "b", tickets: [], mrs: [],
-  requests: [], sessions: [{ sid: "9", alive: true }] }] }, {}, {});
-assert.strictEqual(calme.length, 0, "pas de ligne pour une session au repos sans rien à faire");
-// rendu
-const dh = attentionHtml(rows, escO, jargFn);
-assert(/dash-sec/.test(dh) && /une session attend ta réponse/.test(dh), "les lignes sont groupées par nature d'attente");
-assert(/onclick="attach\('71'\)"/.test(dh), "une session s'attache en un clic");
-assert(/onclick="openReview\('10'\)"/.test(dh), "un ticket ouvre sa fiche");
-assert(/window\.open\('https:\/\/x\/9'/.test(dh), "une MR s'ouvre sur la forge");
-assert(/rien n’attend de toi/.test(attentionHtml([], escO, jargFn)),
-  "rien à faire est une bonne nouvelle, pas un écran mort");
-// volume : sur ce poste la liste brute fait 175 lignes — un tableau de bord qui
-// les afficherait toutes rejouerait le problème qu'il corrige
-const many2697 = Array.from({ length: 40 }, (_, i) =>
-  ({ rank: 2, kind: "test", icon: "🧪", verb: "teste", client: "a", project: "b",
-     rm_id: String(1000 + i), text: "t", since: "2026-08-" + String(10 + (i % 20)).padStart(2, "0") }));
-const dhMany = attentionHtml(many2697, escO, jargFn);
-assert.strictEqual((dhMany.match(/dash-row/g) || []).length, 5, "au plus 5 lignes par nature d'attente");
-assert(/… et 35 autre/.test(dhMany), "…et le reste est ANNONCÉ, jamais coupé en silence");
-assert(/dash-chip[^>]*>🧪 40</.test(dhMany), "le compte RÉEL reste visible en tête (vue d'ensemble)");
-assert(/\(40\)/.test(dhMany), "chaque section porte son total, pas le nombre affiché");
-// ancienneté : ce qui attend depuis le plus longtemps passe devant
-const parAge = attentionRows({ projects: [{ client: "a", project: "b", mrs: [], requests: [], sessions: [],
-  tickets: [{ rm_id: "2", status: "a_tester_demandeur", title: "récent", updated: "2026-08-17" },
-            { rm_id: "1", status: "a_tester_demandeur", title: "vieux", updated: "2026-06-01" }] }] }, {}, {});
-assert.deepStrictEqual([...parAge.map(r => r.rm_id)], ["1", "2"],
-  "dans une nature, le plus ancien d'abord — trier par numéro trierait au hasard");
-assert(/2026-06-01/.test(attentionHtml(parAge, escO, jargFn)), "la date d'attente est affichée");
-const dhXss = attentionHtml([{ rank: 1, kind: "test", icon: "🧪", verb: "<b>v", client: "<img src=x>",
-  project: "p", rm_id: "1", text: "<script>" }], escO, jargFn);
-assert(!/<img|<script>|<b>v/.test(dhXss), "verbe, client et texte échappés (anti-XSS)");
-console.log("✓ dashboard (RM2697) : tri par nature d'attente, verbes d'action, écran vide parlant");
-
-// — RM2698 : alertes de dérive, en tête du tableau de bord —
-const alertsHtml = grabO("alertsHtml");
-assert.strictEqual(alertsHtml({ alerts: [] }, escO, jargFn), "",
-  "rien à signaler ⇒ RIEN d'affiché (une bannière permanente cesse d'être lue)");
-assert.strictEqual(alertsHtml(null, escO, jargFn), "", "données absentes tolérées");
-const AL = { total: 30, hidden: 18, alerts: [
-  { kind: "verdict", key: "t:4", age_days: 48.2, rm_id: "4", client: "acme", project: "shop",
-    label: "livré, attend ton verdict", title: "un titre" },
-  { kind: "mr", key: "m:r:9", age_days: 29, iid: "9", url: "https://x/9", client: "acme",
-    project: "shop", label: "MR ouverte, pas mergée" },
-] };
-const ah = alertsHtml(AL, escO, jargFn);
-assert(/⚠ dérives \(30\)/.test(ah), "l'en-tête porte le TOTAL, pas le nombre affiché");
-assert(/48 j/.test(ah) && /29 j/.test(ah), "chaque alerte porte son âge — sans lui, on ne priorise pas");
-assert(/… et 18 dérive/.test(ah), "ce qui est masqué est annoncé, avec le renvoi aux réglages");
-assert(/onclick="snoozeAlert\('t:4'\)"/.test(ah), "chaque alerte se REPORTE (jamais de suppression)");
-assert(/⏳ 7 j/.test(ah), "le report est daté et explicite");
-assert(/onclick="openReview\('4'\)"/.test(ah), "le ticket s'ouvre en un clic");
-assert(/href="https:\/\/x\/9"/.test(ah), "une MR renvoie à la forge");
-const ahXss = alertsHtml({ alerts: [{ kind: "mr", key: "<b>k", age_days: 1, client: "<img src=x>",
-  project: "p", label: "<script>", title: "<b>t" }] }, escO, jargFn);
-assert(!/<img|<script>|<b>t/.test(ahXss), "client, label et titre échappés (anti-XSS)");
-// les alertes passent AVANT l'état dans le rendu du tableau de bord
-const mRd = /function renderDashboard\(\)[\s\S]*?\n\}/.exec(html);
-assert(mRd && mRd[0].indexOf("alertsHtml") < mRd[0].indexOf("attentionHtml"),
-  "la dérive s'affiche avant l'état courant");
-console.log("✓ alertes (RM2698) : datées, bornées, reportables, silencieuses quand tout va bien");
+// — RM2697 / RM2698 : tableau de bord — domaine MIGRÉ (RM2889, L4), voir test_cockpit_dashboard.js —
 
 console.log("OK — tous les tests cockpit passent");
 
@@ -2567,7 +2477,10 @@ assert(/justify-content: safe center/.test(phCss),
   "un conteneur qui défile ET centre coupe le haut de son contenu : centrage sûr attendu");
 assert(/\.placeholder\.dash-on \{[^}]*justify-content: flex-start/.test(html),
   "ceinture : le tableau de bord rendu aligne en haut, même sans support de `safe`");
-assert(/ph\.classList\.add\("dash-on"\)/.test(html) && /ph\.classList\.remove\("dash-on"\)/.test(html),
+// RM2889 : le rendu du tableau de bord vit dans src/ ; c'est boot.js qui pose ET
+// retire la classe (toggle), à chaque `shown` du contrôleur.
+const bootSrc = fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8");
+assert(/ph\.classList\.toggle\("dash-on", on\)/.test(bootSrc),
   "la classe doit être posée ET retirée par le rendu du tableau de bord");
 console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanent non fermable");
 
@@ -3677,7 +3590,9 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
   const ctx = {
     Date, Object, Promise, JSON, encodeURIComponent,
     attached: null, worklog: null,
-    rightVisible: () => true, dashVisible: () => false,
+    rightVisible: () => true,
+    // RM2889 : le tableau de bord est un domaine migré ; la pile lui parle par le pont
+    karlCall: (dom, fn) => (dom === "dashboard" && fn === "visible" ? false : undefined),
     resolveCache: {}, resolveAt: {},
     pendStale: null, pendStaleSet: (e) => new Set((e || []).map(x => x.rm_id)),
     api: async (u) => { calls.api.push(u); return ctx._resp; },

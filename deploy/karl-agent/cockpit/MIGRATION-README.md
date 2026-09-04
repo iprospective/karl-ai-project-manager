@@ -69,8 +69,24 @@ ViewModel vers du HTML sûr).
 | git (journal, commit, diff de la session) | L4 | 2026-09-04 | `models/git/`, `services/git.service.js`, `viewmodels/git/`, `views/git/`, `controllers/git.controller.js` |
 | dashboard (« ce qui requiert ton attention », dérives) | L4 | 2026-09-04 | `models/dashboard/`, `services/dashboard.service.js`, `viewmodels/dashboard/`, `views/dashboard/`, `controllers/dashboard.controller.js` |
 | projets (panneau de gauche « 📁 Projets ») | L4 | 2026-09-04 | `models/projects/`, `services/projects.service.js`, `viewmodels/projects/`, `views/projects/`, `controllers/projects.controller.js` — la fiche projet au centre reste à migrer |
+| env (santé du poste, badge, verrous coffre/SSH) | L5 | 2026-09-04 | `models/env/`, `services/env.service.js`, `viewmodels/env/`, `views/env/`, `controllers/env.controller.js` |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,
 et que ses tests historiques ont été portés sur les couches (mêmes garanties,
 au bon étage).
+
+## Ce que la migration a appris sur la carte
+
+**Les vues centrales ne sont pas un domaine L4.** `centerViewPane` / `centerViewLoad`
+/ `openCenter*` sont le **routeur du centre** : ils ferment la revue, détachent la
+session, ferment la fiche projet et le formulaire de ticket, écrivent dans les onglets
+et le titre — et le harnais `test_cockpit_runtime.js` pilote `openCenterFile` *dans*
+le script inline. La carte les rangeait en L4 par **position** dans le fichier ; leur
+**couplage** est celui des onglets, de la revue et de l'attache (L2/L3). Ils migrent
+avec eux, sous la forme d'un `center.controller` unique. Même sort pour la fiche
+projet au centre et l'onglet fichiers, qui s'appuient dessus.
+
+Conséquence pratique : la chaleur mesurée ordonne bien les domaines *autonomes*
+(un panneau, un onglet, une modale) ; un symbole peu touché mais appelé de partout
+n'est pas « froid », il est **structurel**.

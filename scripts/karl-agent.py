@@ -8412,6 +8412,7 @@ def _probe_cockpit_test_env(host: str) -> tuple:
 # Aucun secret n'est jamais rendu : présence/absence de variables uniquement.
 
 ENV_TOOLS = [
+    ("tmux", "apt install tmux"),   # RM2889 : le « tmux ok » de l'en-tête vit ici désormais
     ("git", "sudo apt install git"),
     ("python3", "sudo apt install python3"),
     ("psql", "sudo apt install postgresql-client"),

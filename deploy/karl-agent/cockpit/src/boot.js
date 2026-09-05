@@ -52,6 +52,7 @@ import { mountTerminal } from "./controllers/terminal.controller.js";
 import { mountSessions } from "./controllers/sessions.controller.js";
 import { mountSets } from "./controllers/sets.controller.js";
 import { mountRefresh } from "./controllers/refresh.controller.js";
+import { mountAuth } from "./controllers/auth.controller.js";
 import { effDisposition } from "./models/sessions/sessions.js";
 import { MrLine } from "./views/worklog/Worklog.view.js";
 import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
@@ -227,7 +228,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null, auth = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
@@ -367,7 +368,7 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 // (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => lexical(() => CFG) || {}, notify: legacy("toast"),
-  attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, token: () => legacy("token")() || "",
+  attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
   copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
   capture: (t, txt) => doc.openPlain(t, txt), domCount: () => document.getElementsByTagName("*").length,
@@ -459,9 +460,16 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
   attached: () => lexical(() => attached), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
 });
+// l'authentification (RM2334) : écran de login plein-cadre, cadenas, carte de session et appareils, comptes (superadmin). L'init du monolithe
+// appelle `boot` une fois CFG connu ; une connexion relance la santé et les sessions et ramène au panneau « en cours »
+auth = mountAuth({ gate: byId("authgate"), card: byId("authcard"), users: byId("userscard"), lock: byId("lock") }, {
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), cfg: () => lexical(() => CFG) || {}, notify: legacy("toast"),
+  confirm: (m) => window.confirm(m), prompt: (m) => window.prompt(m), ua: (typeof navigator !== "undefined" ? navigator.userAgent : ""),
+  afterAuth: () => { refreshCtl.refreshHealth(); refreshCtl.refreshSessions(); }, switchPanel: (n) => layout.switchPanel(n),
+});
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

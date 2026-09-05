@@ -798,7 +798,7 @@ if (window.matchMedia) {
     <input id="auth-user" type="text" autocomplete="username" placeholder="utilisateur" autofocus>
     <label for="auth-pass">Mot de passe</label>
     <input id="auth-pass" type="password" autocomplete="current-password" placeholder="mot de passe">
-    <button class="mini" onclick="login()">Se connecter</button>
+    <button class="mini" data-action="login">Se connecter</button>
     <div class="gate-err" id="gate-err"></div>
     <div style="color:var(--muted);font-size:11px;margin-top:10px">
       Le mot de passe n'est pas mémorisé : un token propre à cet appareil est
@@ -808,7 +808,7 @@ if (window.matchMedia) {
       <summary style="cursor:pointer;color:var(--muted);font-size:12px">token partagé (mode historique)</summary>
       <label for="token">X-Karl-Token</label>
       <input id="token" type="password" placeholder="token partagé">
-      <button class="mini" onclick="saveToken()">Mémoriser</button>
+      <button class="mini" data-action="save-token">Mémoriser</button>
     </details>
   </div>
 </div>
@@ -1230,7 +1230,7 @@ if (window.matchMedia) {
                    la gestion de session (une fois connecté). -->
               <div id="auth-session">
                 <div id="auth-me" style="margin-bottom:8px"></div>
-                <button class="mini" onclick="logout()">Se déconnecter (révoque cet appareil)</button>
+                <button class="mini" data-action="logout">Se déconnecter (révoque cet appareil)</button>
                 <div id="auth-devices" style="margin-top:10px"></div>
               </div>
             </div>
@@ -1247,7 +1247,7 @@ if (window.matchMedia) {
                   <input id="nu-pass" type="password" autocomplete="new-password" placeholder="mot de passe">
                 </div>
               </div>
-              <button class="mini" style="margin-top:8px" onclick="createUser()">Créer le compte</button>
+              <button class="mini" style="margin-top:8px" data-action="create">Créer le compte</button>
               <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
                 Le superadmin (fichier de conf .env) n'apparaît pas ici et ne peut pas
                 être supprimé. Désactiver ou changer le mot de passe d'un compte révoque
@@ -1440,145 +1440,10 @@ function karlCall(domain, fn, ...args) {
 }
 let attached = null;
 
-function token() { return localStorage.getItem("karlToken") || ""; }
-function saveToken() {
-  localStorage.setItem("karlToken", document.getElementById("token").value.trim());
-  localStorage.removeItem("karlDeviceId"); localStorage.removeItem("karlUser");
-  localStorage.removeItem("karlAdmin");
-  toast("Token mémorisé"); renderAuth(); refreshHealth(); refreshSessions();
-}
+// — authentification (RM2334 : login → jeton d'appareil, appareils, comptes ; jeton partagé historique) — MIGRÉE (RM2889) : src/controllers/auth.controller.js —
+function token() { return localStorage.getItem("karlToken") || ""; }   // lu par le transport historique et l'init ; le contrôleur lit le même stockage
+function authBoot() { karlCall("auth", "boot"); }   // l'init l'appelle une fois CFG connu : carte, jeton mémorisé, écran de login, whoami
 
-// ── RM2334 : login identifiants → token d'appareil (jamais de mdp stocké) ───
-function authUser() { return localStorage.getItem("karlUser") || ""; }
-function authAdmin() { return localStorage.getItem("karlAdmin") === "1"; }
-async function login() {
-  const user = document.getElementById("auth-user").value.trim();
-  const pass = document.getElementById("auth-pass").value;
-  if (!user || !pass) { toast("utilisateur et mot de passe requis", true); return; }
-  try {
-    const r = await fetch("/auth/login", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: user, pass: pass, device_name: deviceName() })
-    });
-    const body = await r.json();
-    if (!r.ok) throw new Error(body.error || r.status);
-    localStorage.setItem("karlToken", body.token);
-    localStorage.setItem("karlDeviceId", body.device_id);
-    localStorage.setItem("karlUser", body.user);
-    localStorage.setItem("karlAdmin", body.admin ? "1" : "0");
-    document.getElementById("auth-pass").value = "";   // jamais conservé
-    document.getElementById("gate-err").textContent = "";
-    toast("Connecté : " + body.user);
-    renderAuth(); refreshHealth(); refreshSessions(); switchPanel("running");
-  } catch (e) {
-    document.getElementById("gate-err").textContent = e.message;
-    toast(e.message, true);
-  }
-}
-async function logout() {
-  const did = localStorage.getItem("karlDeviceId");
-  if (did) { try { await api("/auth/devices/" + did, { method: "DELETE" }); } catch (e) {} }
-  ["karlToken", "karlDeviceId", "karlUser", "karlAdmin"].forEach(k => localStorage.removeItem(k));
-  toast("Déconnecté — appareil révoqué");
-  renderAuth();
-}
-function deviceName() {
-  const ua = navigator.userAgent;
-  const os = /Android/.test(ua) ? "Android" : /iPhone|iPad/.test(ua) ? "iOS"
-    : /Windows/.test(ua) ? "Windows" : /Mac/.test(ua) ? "macOS" : "Linux";
-  const nav = /Firefox/.test(ua) ? "Firefox" : /Edg\//.test(ua) ? "Edge"
-    : /Chrome/.test(ua) ? "Chrome" : /Safari/.test(ua) ? "Safari" : "navigateur";
-  return nav + " / " + os;
-}
-function renderAuth() {
-  const gate = document.getElementById("authgate");
-  if (!CFG.auth_required) { gate.classList.remove("show"); return; }
-  const logged = !!(token() && authUser());
-  // écran de login plein-cadre tant qu'on n'est pas connecté (RM2334)
-  gate.classList.toggle("show", !logged);
-  if (!logged) { const u = document.getElementById("auth-user"); if (u) setTimeout(() => u.focus(), 0); }
-  document.getElementById("auth-session").style.display = logged ? "" : "none";
-  document.getElementById("lock").textContent =
-    logged ? "🔓 " + authUser() + (authAdmin() ? " (admin)" : "") : "🔒 auth requise";
-  document.getElementById("userscard").style.display =
-    (logged && authAdmin() && CFG.login_enabled) ? "" : "none";
-  if (logged) {
-    document.getElementById("auth-me").innerHTML =
-      'Connecté : <b>' + esc(authUser()) + '</b>' + (authAdmin() ? ' <span class="pill">superadmin</span>' : "");
-    loadDevices();
-    if (authAdmin() && CFG.login_enabled) loadUsers();
-  }
-}
-async function loadDevices() {
-  try {
-    const d = await api("/auth/devices");
-    const rows = (d.devices || []).map(x =>
-      '<div class="kv" style="align-items:center;gap:6px">' +
-      '<span class="v">' + esc(x.device_name || "appareil") + (x.current ? " ← celui-ci" : "") + '</span>' +
-      '<span class="k">' + esc(x.user || "") + ' · vu ' + esc((x.last_seen || "").slice(0, 16)) + '</span>' +
-      '<button class="mini" onclick="revokeDevice(\'' + x.device_id + '\',' + !!x.current + ')">révoquer</button>' +
-      '</div>').join("");
-    document.getElementById("auth-devices").innerHTML =
-      rows ? '<div style="color:var(--muted);font-size:12px;margin-bottom:4px">Appareils enregistrés</div>' + rows : "";
-  } catch (e) { /* silencieux : la carte reste utilisable */ }
-}
-async function revokeDevice(id, isCurrent) {
-  if (isCurrent) return logout();
-  try { await api("/auth/devices/" + id, { method: "DELETE" }); toast("Appareil révoqué"); loadDevices(); }
-  catch (e) { toast(e.message, true); }
-}
-async function loadUsers() {
-  try {
-    const d = await api("/auth/users");
-    const rows = (d.users || []).map(u =>
-      '<div class="kv" style="align-items:center;gap:6px">' +
-      '<span class="v">' + esc(u.user) + (u.disabled ? ' <span class="pill">désactivé</span>' : "") + '</span>' +
-      '<span class="k">' + (u.devices || 0) + ' appareil(s)</span>' +
-      '<button class="mini" onclick="toggleUser(\'' + esc(u.user) + '\',' + !u.disabled + ')">' +
-      (u.disabled ? "réactiver" : "désactiver") + '</button>' +
-      '<button class="mini" onclick="resetUserPw(\'' + esc(u.user) + '\')">mdp</button>' +
-      '<button class="mini" onclick="deleteUser(\'' + esc(u.user) + '\')">✕</button>' +
-      '</div>').join("");
-    document.getElementById("users-list").innerHTML =
-      rows || '<span style="color:var(--muted);font-size:12px">aucun compte normal — le superadmin vit dans le .env</span>';
-  } catch (e) { toast(e.message, true); }
-}
-async function createUser() {
-  const user = document.getElementById("nu-name").value.trim();
-  const pass = document.getElementById("nu-pass").value;
-  try {
-    await api("/auth/users", { method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ user: user, pass: pass }) });
-    document.getElementById("nu-name").value = ""; document.getElementById("nu-pass").value = "";
-    toast("Compte créé : " + user); loadUsers();
-  } catch (e) { toast(e.message, true); }
-}
-async function toggleUser(user, disabled) {
-  if (disabled && !confirm("Désactiver " + user + " ? Ses appareils seront révoqués.")) return;
-  try {
-    await api("/auth/users/" + encodeURIComponent(user), {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ disabled: disabled }) });
-    toast(user + (disabled ? " désactivé" : " réactivé")); loadUsers();
-  } catch (e) { toast(e.message, true); }
-}
-async function resetUserPw(user) {
-  const pass = prompt("Nouveau mot de passe pour " + user + " (≥ 8 car.) — ses appareils seront révoqués :");
-  if (!pass) return;
-  try {
-    await api("/auth/users/" + encodeURIComponent(user), {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ pass: pass }) });
-    toast("Mot de passe changé pour " + user); loadUsers();
-  } catch (e) { toast(e.message, true); }
-}
-async function deleteUser(user) {
-  if (!confirm("Supprimer le compte " + user + " ? (appareils révoqués)")) return;
-  try {
-    await api("/auth/users/" + encodeURIComponent(user), { method: "DELETE" });
-    toast("Compte supprimé : " + user); loadUsers();
-  } catch (e) { toast(e.message, true); }
-}
 function headers(extra) {
   const h = Object.assign({}, extra || {});
   if (CFG.auth_required && token()) h["X-Karl-Token"] = token();
@@ -2058,23 +1923,7 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
   // défaut d'instance qu'on vient d'apprendre. No-op si identique.
   karlCall("settings", "setServerTheme", CFG.ui_theme);
   populateResumeEngines();   // RM2539 : moteurs réellement reprenables
-  if (CFG.auth_required) {
-    document.getElementById("authcard").style.display = "";
-    if (token() && !authUser()) document.getElementById("token").value = token();
-    renderAuth();
-    // token présent mais session inconnue (legacy/localStorage restauré) :
-    // whoami re-synchronise user/admin sans re-login (token d'appareil)
-    if (token() && !authUser()) {
-      api("/auth/whoami").then(w => {
-        if (w && w.mode === "device") {
-          localStorage.setItem("karlUser", w.user || "");
-          localStorage.setItem("karlAdmin", w.admin ? "1" : "0");
-          if (w.device_id) localStorage.setItem("karlDeviceId", w.device_id);
-          renderAuth();
-        }
-      }).catch(() => {});
-    }
-  }
+  authBoot();   // RM2334 : carte « Authentification », jeton mémorisé, écran de login, whoami — contrôleur migré (auth)
   // peuple le sélecteur de moniteurs + les dispositions depuis la config serveur
   karlCall("actions", "fillPresets", CFG);   // moniteurs + dispositions des panes depuis la config (actions de session migrées)
   karlCall("launcher", "populateModels");   // RM1941 : catalogue des modèles du moteur courant (lanceur migré)
@@ -2083,8 +1932,7 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
   // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
   karlCall("launcher", "fillTicketForm");   // types + priorités depuis la config (source unique : pm-task-add) — lanceur migré
   // wiring
-  document.getElementById("auth-pass").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
-  document.getElementById("auth-user").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("auth-pass").focus(); });
+  // RM2334 : Entrée dans le login → posé par le contrôleur migré (auth)
   // RM2330 : navigation clavier dans l'historique de conversation. Ne prend que
   // quand le focus est sur la page cockpit (l'iframe ttyd est cross-origin :
   // impossible d'y intercepter les touches — cliquer hors du terminal d'abord).

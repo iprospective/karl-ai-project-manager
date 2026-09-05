@@ -1191,15 +1191,15 @@ if (window.matchMedia) {
             placeholder="Écris ton message — Entrée envoie, Maj+Entrée saute la ligne"
             aria-label="Message à envoyer à la session attachée"></textarea>
           <div class="cmpbar">
-            <button class="mini" id="cmphistbtn" onclick="composerHistoryToggle()"
+            <button class="mini" id="cmphistbtn" data-action="history"
               title="Messages déjà envoyés dans cette session (↑ / ↓ dans le champ vide)">historique ▾</button>
             <!-- RM2631 : copier/coller du terminal, à côté de la saisie (déplacés depuis la barre d'outils) -->
-            <button class="mini" id="cpbtn" onclick="copyCapture(event.altKey)"
+            <button class="mini" id="cpbtn" data-action="copy"
               title="📋 Copier les 300 dernières lignes du terminal dans le presse-papier système&#10;(Alt+clic : afficher dans une fenêtre pour sélection manuelle)">📋 Copier</button>
-            <button class="mini" id="bufbtn" onclick="pullBuffer()"
+            <button class="mini" id="bufbtn" data-action="pull"
               title="📥 Récupérer la dernière copie faite DANS le terminal (ex. sélection copiée dans Claude Code, copy-mode tmux) vers ton presse-papier">📥 Copie</button>
             <span class="cmphint" id="cmphint"></span>
-            <button class="mini primary" id="cmpsend" onclick="composerSend()"
+            <button class="mini primary" id="cmpsend" data-action="send"
               title="Envoyer à la session attachée (Entrée)">Envoyer ⏎</button>
           </div>
           <div class="cmphist" id="cmphist" style="display:none"></div>
@@ -1619,10 +1619,7 @@ function toast(msg, err) {
 // URL de l'UI ttyd native — utilisée par le SEUL repli iframe (bundle xterm.js
 // absent). Reste sur le port 7681 : l'UI ttyd fetch « /token » en absolu, elle ne
 // survit pas au préfixe /ttyd/ du proxy même-origine que prend termBase().
-function ttydUrl(rmId) {
-  const base = CFG.ttyd_base || (location.protocol + "//" + location.hostname + ":7681");
-  return base.replace(/\/+$/, "") + "/?arg=" + encodeURIComponent(rmId);
-}
+// ttydUrl : MIGRÉ (RM2889) — src/models/terminal/terminal.js
 // >>> quietSince — pur (RM2793, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Depuis quand la session ne fait RIEN. Deux sources, dans cet ordre :
 //   1. `last_msg` — dernier vrai message du transcript. Les récapitulatifs que
@@ -3432,274 +3429,12 @@ function openGlossary(term) { karlCall("doc", "openGlossary", term); }
 // ----- RM2722/RM2458/RM2708/RM2748 : santé du poste et verrous — domaine MIGRÉ (RM2889, L5) : src/controllers/env.controller.js -----
 // Badge #envwarn, bouton #lockbtn et modale sont pilotés depuis boot.js ; le monolithe passe par karlCall("env", …).
 
-// ----- RM2522 : montage du terminal (client maison, repli iframe) -----
-// Le client maison (karl-term.js + xterm vendoré, servis par /static) rend au
-// cockpit la MAIN sur la surface du terminal — condition des lots suivants de
-// RM2467 — et corrige la saisie des accents (RM2323). Si le bundle n'a pas
-// chargé, on retombe sur l'iframe ttyd historique : le cockpit reste utilisable.
-let termSession = null;                 // { term, fit, dispose } du client maison
-// RM2807 : le client xterm maison est OPT-IN le temps de l'enquête mémoire
-// (OOM Firefox à l'attach, non résolu par le contrôle de flux ni par la
-// rétrogradation 5.5.0) — l'iframe ttyd, stable, redevient le DÉFAUT.
-// Réactiver le client maison : `localStorage.setItem("karl_xterm","1")` + reload
-// (`removeItem` pour revenir à l'iframe). On perd temporairement le fix accents
-// RM2323 ; le composer retombe de lui-même sur POST /send (RM2527).
-function termAvailable() {
-  if (localStorage.getItem("karl_xterm") !== "1") return false;
-  return !!(window.KarlTerm && window.Terminal);
-}
-// Origine du WebSocket ttyd pour le client maison (RM2561). Servi par le vhost
-// Apache (port implicite 80/443), on passe par le proxy de MÊME ORIGINE
-// « /ttyd/ws » : sous HTTPS le cert auto-signé n'est accepté que pour le
-// host:port visité, et un wss:// vers un autre port échoue SANS interstitiel —
-// terminal noir et muet. En même origine, l'exception déjà accordée au cockpit
-// suffit. En accès direct au port du cockpit (dev sans Apache : :9876), aucun
-// proxy ne monte /ttyd → repli sur le port 7681 du même hôte.
-// >>> termBase
-function termBase() {
-  if (CFG.ttyd_base) return CFG.ttyd_base;
-  const proxied = location.port === "" || location.port === "80" || location.port === "443";
-  return proxied ? location.origin + "/ttyd"
-                 : location.protocol + "//" + location.hostname + ":7681";
-}
-// <<< termBase
-// RM2807 : sonde mémoire opt-in — `localStorage karl_memdebug=1` (avec le
-// client xterm actif). Toutes les 2 s : compte de nœuds DOM, lignes du buffer
-// xterm, file d'écriture interne, heap JS (Chrome) → POST /memdebug, lu à
-// froid côté serveur pendant l'enquête OOM. Best-effort : ne casse jamais.
-let memProbeTimer = null;
-function memProbeSample(rmId) {
-  try {
-    const t = termSession && termSession.term;
-    const core = (t && t._core) || {};
-    const wb = core._writeBuffer || {};
-    // RM2807 : compteurs cumulés du client (écritures, resize, saisie, fit,
-    // observers) — le taux entre deux échantillons dit si ça part en rafale.
-    const st = (termSession && termSession.stats) ? termSession.stats() : {};
-    api("/memdebug", { method: "POST", body: JSON.stringify({
-      rm: String(rmId),
-      dom_all: document.getElementsByTagName("*").length,
-      dom_term: document.getElementById("termhost").getElementsByTagName("*").length,
-      buf_len: (t && t.buffer && t.buffer.active) ? t.buffer.active.length : -1,
-      wq_len: Array.isArray(wb._writeBuffer) ? wb._writeBuffer.length : -1,
-      wq_bytes: typeof wb._pendingData === "number" ? wb._pendingData : -1,
-      heap: (performance.memory && performance.memory.usedJSHeapSize) || -1,
-      writes: st.writes, write_bytes: st.writeBytes, max_write: st.maxWrite,
-      data: st.data, resizes: st.resizes, fits: st.fits,
-      ro_fires: st.roFires, theme_fires: st.themeFires,
-      cols: st.cols, rows: st.rows,
-    }) }).catch(() => {});
-  } catch (e) { /* sonde best-effort */ }
-}
-function memProbeStart(rmId) {
-  if (localStorage.getItem("karl_memdebug") !== "1" || memProbeTimer) return;
-  memProbeTimer = setInterval(() => memProbeSample(rmId), 2000);
-}
-function memProbeStop() { if (memProbeTimer) { clearInterval(memProbeTimer); memProbeTimer = null; } }
-function mountTerm(rmId) {
-  const host = document.getElementById("termhost"), f = document.getElementById("term");
-  // RM2700 : le WebSocket du terminal (et l'iframe ttyd de repli) ne peuvent pas
-  // porter l'en-tête X-Karl-Token (limite de l'API WebSocket / cross-origin iframe),
-  // or le gate Apache de /ttyd valide un cookie de session même-origine. On le pose
-  // ici, depuis le token d'appareil (localStorage), avant d'ouvrir /ttyd — sinon un
-  // utilisateur authentifié par token (et non par login user/mdp, qui reçoit un
-  // cookie HttpOnly serveur) n'a aucun cookie et le terminal est refusé (403).
-  // Non-HttpOnly, mais la valeur == le token déjà présent en localStorage : aucune
-  // exposition nouvelle. Pour un login user/mdp, le cookie HttpOnly serveur existe
-  // déjà et JS ne peut pas l'écraser (write ignoré) : la version durcie l'emporte.
-  if (CFG.auth_required && token()) {
-    try {
-      const secure = location.protocol === "https:" ? "; Secure" : "";
-      document.cookie = "karl_session=" + encodeURIComponent(token())
-        + "; Path=/; SameSite=Strict" + secure;
-    } catch (e) { /* cookies bloqués : le gate refusera, l'UI le signalera */ }
-  }
-  if (!termAvailable()) {                                  // repli : iframe ttyd
-    host.style.display = "none";
-    f.style.display = "block"; f.src = ttydUrl(rmId);
-    composerShow(true);                                          // RM2527 : repli via POST /send
-    return;
-  }
-  unmountTerm();
-  host.style.display = "block";
-  termSession = window.KarlTerm.attach(host, String(rmId), { base: termBase() });
-  memProbeStart(rmId);                                           // RM2807
-  composerShow(true);                                            // RM2527
-  setTimeout(() => { if (termSession) termSession.fit(); }, 0);   // après le 1er rendu
-}
-function unmountTerm() {
-  const host = document.getElementById("termhost"), f = document.getElementById("term");
-  memProbeStop();                                                // RM2807
-  if (termSession) { try { termSession.dispose(); } catch (e) {} termSession = null; }
-  host.innerHTML = ""; host.style.display = "none";
-  f.src = "about:blank"; f.style.display = "none";
-  composerShow(false);                                           // RM2527
-}
-
-/* ── RM2527 : composer ─────────────────────────────────────────────────────
-   Écrire un message sans passer par le clavier du terminal. L'envoi emprunte
-   la socket ttyd du client maison (L0/RM2522), donc le même PTY : le TUI ne
-   fait aucune différence avec une frappe. */
-
-// >>> composerGuard
-// Un envoi texte pendant qu'un menu est ouvert ne s'écrit pas : chaque caractère
-// SÉLECTIONNE une option, et le retour valide ce qui se trouve sous le curseur.
-// On refuse donc l'envoi au clavier dans ces états et on exige un geste explicite.
-//   attention : question oui/non en attente
-//   choice    : menu à choix multiple ouvert
-function composerGuard(state) {
-  if (state === "choice") {
-    return { allow: false, warn: "Un menu de choix est ouvert dans la session : "
-      + "ton texte sélectionnerait des options au lieu de s'écrire." };
-  }
-  if (state === "attention") {
-    return { allow: false, warn: "La session attend une réponse à une question : "
-      + "ton texte pourrait valider une option au lieu de s'écrire." };
-  }
-  return { allow: true, warn: null };
-}
-// <<< composerGuard
-
-// >>> composerHistoryAdd
-// Historique des envois de la session : le plus récent en tête, sans doublon
-// consécutif ni répétition ailleurs dans la liste, plafonné.
-function composerHistoryAdd(list, text, max) {
-  const t = String(text == null ? "" : text).trim();
-  if (!t) return (list || []).slice();
-  const out = (list || []).filter(x => x !== t);
-  out.unshift(t);
-  return out.slice(0, max || 30);
-}
-// <<< composerHistoryAdd
-
-const CMP_HIST_MAX = 30;
-let cmpHistPos = -1;          // navigation ↑/↓ dans le champ vide
-let cmpDraft = "";            // brouillon mis de côté pendant la navigation
-
-const cmpHistKey = (rmId) => "karlComposerHist:" + rmId;
-function composerHistory(rmId) {
-  try { return JSON.parse(localStorage.getItem(cmpHistKey(rmId)) || "[]") || []; }
-  catch (e) { return []; }
-}
-function composerHistorySave(rmId, list) {
-  try { localStorage.setItem(cmpHistKey(rmId), JSON.stringify(list)); } catch (e) {}
-}
-
-function composerShow(on) {
-  document.getElementById("composer").style.display = on ? "flex" : "none";
-  if (!on) {
-    document.getElementById("cmphist").style.display = "none";
-    document.getElementById("cmptext").value = "";
-  }
-  cmpHistPos = -1; cmpDraft = "";
-  composerRefresh();
-  if (termSession) setTimeout(() => termSession.fit(), 0);   // le terminal cède la hauteur
-}
-
-// État courant de la session attachée → garde + libellés. Appelée à chaque
-// rafraîchissement de /sessions : l'avertissement suit l'état en direct.
-function composerRefresh() {
-  const box = document.getElementById("composer");
-  if (!box || box.style.display === "none") return;
-  const g = composerGuard((sessCache[attached] || {}).state);
-  const warn = document.getElementById("cmpwarn");
-  warn.style.display = g.warn ? "block" : "none";
-  if (g.warn) warn.innerHTML = "<b>Envoi retenu.</b> " + esc(g.warn);
-  const btn = document.getElementById("cmpsend");
-  btn.textContent = g.allow ? "Envoyer ⏎" : "Envoyer quand même";
-  btn.title = g.allow ? "Envoyer à la session attachée (Entrée)"
-    : "La touche Entrée est neutralisée tant qu'un menu est ouvert — ce bouton force l'envoi";
-  document.getElementById("cmphint").textContent = g.allow
-    ? "Entrée envoie · Maj+Entrée saute la ligne · ↑ historique · Échap rend la main au terminal"
-    : "Entrée neutralisée — réponds dans le terminal, ou force l'envoi";
-}
-
-async function composerSend(force) {
-  const ta = document.getElementById("cmptext");
-  const text = ta.value;
-  if (!text.trim()) return;
-  if (!attached) { toast("Aucune session attachée", true); return; }
-  const g = composerGuard((sessCache[attached] || {}).state);
-  if (!g.allow && !force) { composerRefresh(); toast(g.warn, true); return; }
-
-  let ok = false;
-  if (termSession && termSession.send) {
-    ok = termSession.send(text);                       // collage encadré + Entrée
-    if (!ok) toast("Terminal déconnecté — message conservé dans le champ", true);
-  } else {
-    // repli : pas de client maison (iframe ttyd) → passer par le serveur
-    try {
-      await api("/send", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rm_id: attached, msg: text, enter: true }),
-      });
-      ok = true;
-    } catch (e) { toast(e.message, true); }
-  }
-  if (!ok) return;
-  composerHistorySave(attached, composerHistoryAdd(composerHistory(attached), text, CMP_HIST_MAX));
-  ta.value = ""; cmpHistPos = -1; cmpDraft = "";
-  composerHistoryRender();
-  toast("Envoyé : " + (text.length > 60 ? text.slice(0, 60) + "…" : text));
-}
-
-function composerHistoryToggle() {
-  const box = document.getElementById("cmphist");
-  const on = box.style.display === "none";
-  box.style.display = on ? "block" : "none";
-  document.getElementById("cmphistbtn").textContent = on ? "historique ▴" : "historique ▾";
-  if (on) composerHistoryRender();
-}
-function composerHistoryRender() {
-  const box = document.getElementById("cmphist");
-  if (box.style.display === "none") return;
-  const list = composerHistory(attached);
-  if (!list.length) { box.innerHTML = '<div class="hempty">Aucun message envoyé dans cette session.</div>'; return; }
-  box.innerHTML = list.map((t, i) =>
-    '<div class="hitem" data-i="' + i + '" title="Cliquer pour reprendre ce message">'
-    + esc(t.length > 300 ? t.slice(0, 300) + "…" : t) + "</div>").join("");
-  box.querySelectorAll(".hitem").forEach(el => {
-    el.onclick = () => {
-      const ta = document.getElementById("cmptext");
-      ta.value = list[Number(el.dataset.i)];
-      ta.focus();
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-    };
-  });
-}
-
-// Navigation ↑/↓ : seulement dans un champ VIDE (ou déjà en cours de navigation),
-// pour ne pas piéger le déplacement du curseur pendant la composition.
-function composerHistoryStep(dir) {
-  const ta = document.getElementById("cmptext");
-  const list = composerHistory(attached);
-  if (!list.length) return false;
-  if (cmpHistPos === -1) {
-    if (ta.value.trim()) return false;
-    cmpDraft = ta.value;
-  }
-  const next = cmpHistPos + dir;
-  if (next < -1 || next >= list.length) return true;
-  cmpHistPos = next;
-  ta.value = next === -1 ? cmpDraft : list[next];
-  ta.setSelectionRange(ta.value.length, ta.value.length);
-  return true;
-}
-
-function composerKey(ev) {
-  if (ev.key === "Enter" && !ev.shiftKey && !ev.ctrlKey && !ev.altKey) {
-    ev.preventDefault();
-    composerSend();                       // la garde décide ; jamais forcé au clavier
-    return;
-  }
-  if (ev.key === "Escape") {              // rendre la main au terminal
-    ev.preventDefault();
-    if (termSession && termSession.term) termSession.term.focus();
-    return;
-  }
-  if (ev.key === "ArrowUp" && composerHistoryStep(1)) { ev.preventDefault(); return; }
-  if (ev.key === "ArrowDown" && composerHistoryStep(-1)) { ev.preventDefault(); return; }
-}
+// ----- RM2522 terminal (client maison / iframe ttyd), RM2527 composer, RM2807 sonde, RM2168/2631 copies — MIGRÉS (RM2889) : src/controllers/terminal.controller.js -----
+// Ponts pour l'attache, la pile /refresh et les captures de sorties de scripts :
+function mountTerm(rmId) { karlCall("terminal", "mountTerm", rmId); }
+function unmountTerm() { karlCall("terminal", "unmountTerm"); }
+function composerRefresh() { karlCall("terminal", "composerRefresh"); }
+function showCaptureModal(title, txt) { karlCall("doc", "openPlain", title, txt); }
 
 // ----- attach / detach (onglets + barre d'actions) -----
 function attach(rmId) {
@@ -3747,50 +3482,6 @@ function detach() {
   if (rightVisible("files")) filesEnsure();
   document.getElementById("chipsrow").style.display = "none";
   renderCurTitle();
-}
-
-// ----- RM2168 : copier depuis le terminal vers le presse-papier système -----
-// Trois niveaux de repli : navigator.clipboard (HTTPS/localhost) → textarea +
-// execCommand("copy") → modale texte (sélection manuelle, toujours possible).
-async function writeClip(txt) {
-  try { await navigator.clipboard.writeText(txt); return true; } catch (e) { /* repli */ }
-  const ta = document.createElement("textarea");
-  ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0";
-  document.body.appendChild(ta); ta.focus(); ta.select();
-  let ok = false;
-  try { ok = document.execCommand("copy"); } catch (e) { /* repli */ }
-  ta.remove();
-  return ok;
-}
-async function copyCapture(showModal) {
-  if (!attached) return;
-  try {
-    const r = await fetch("/capture/" + encodeURIComponent(attached) + "?lines=300", { headers: headers() });
-    if (!r.ok) throw new Error("capture : erreur " + r.status);
-    const txt = await r.text();
-    if (showModal) { showCaptureModal("Capture karl-" + attached, txt); return; }
-    if (await writeClip(txt)) toast("📋 Copié — 300 dernières lignes, collables partout (Ctrl+V)");
-    else showCaptureModal("Capture karl-" + attached, txt);
-  } catch (e) { toast(e.message, true); }
-}
-// Récupère la dernière copie faite DANS une session (OSC52 → buffer tmux) :
-// sélection copiée dans Claude Code, `y` en copy-mode, etc.
-async function pullBuffer() {
-  try {
-    const r = await fetch("/buffer", { headers: headers() });
-    if (r.status === 404) { toast("Aucune copie en attente côté tmux — copie d'abord dans le terminal", true); return; }
-    if (!r.ok) throw new Error("buffer : erreur " + r.status);
-    const txt = await r.text();
-    if (await writeClip(txt)) toast("📥 Copie du terminal récupérée — collable partout (Ctrl+V)");
-    else showCaptureModal("Copie tmux", txt);
-  } catch (e) { toast(e.message, true); }
-}
-function showCaptureModal(title, txt) {
-  const el = document.getElementById("doccontent");
-  document.getElementById("doctitle").textContent = title + " — sélectionne puis Ctrl+C";
-  el.className = "plain";   // RM2309 : captures/sorties = texte brut mono, jamais rendues
-  el.textContent = txt;
-  document.getElementById("docmodal").classList.add("show");
 }
 
 // ----- RM2285 : rouvrir un ticket fermé — MIGRÉ (RM2889) : src/controllers/launcher.controller.js (pont reopenTicket plus haut) -----
@@ -3906,8 +3597,7 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
       if (ta && ta.offsetParent) { e.preventDefault(); ta.focus(); }
     }
   });
-  // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap)
-  document.getElementById("cmptext").addEventListener("keydown", composerKey);
+  // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap) — contrôleur migré (terminal)
   karlCall("launcher", "loadProjects");   // projets connus → formulaires, reprise, recherche, contexte client (lanceur migré)
   // RM2283 : restaure le panneau gauche actif (RM2816 : les réglages n'y sont plus)
   switchPanel(localStorage.getItem("karlPanel") || "running");

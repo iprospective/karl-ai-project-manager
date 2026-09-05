@@ -28,7 +28,9 @@ faire à la main. En particulier, toute opération qui **amende l'état d'une t�
 branchée derrière `pm-task-status-update.py` (**source unique des transitions**), qui propage
 Redmine + MD + log + worklog de session. Le worklog de session (`pm-session-status.py`) est
 alimenté **automatiquement** par les scripts qui modifient l'état des tâches (via
-`pm_session_hook.py`) ; cf. RM1875.
+`pm_session_hook.py`) ; cf. RM1875. **Où il vit sur disque**, avec les deux autres
+stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
+`knowledge/karl-agent/sessions.md`.
 
 ### Couverture actuelle (à compléter au fil des trous identifiés)
 

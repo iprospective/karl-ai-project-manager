@@ -242,6 +242,10 @@
   .vlt-form input[type=password] { flex: 1 1 180px; min-width: 140px; }
   .vlt-note { color: var(--muted); font-size: 11px; margin-top: 6px; }
   .searchrow { display: flex; gap: 6px; }
+  /* RM2991 : note des sessions archivées — lisible, jamais cliquable */
+  .rs-archived { margin-top: 8px; padding: 6px 8px; border-left: 2px solid var(--muted);
+                 color: var(--muted); font-size: 11px; line-height: 1.5; }
+  .rs-archived code { font-size: 10px; }
   /* RM2798/RM2799 : un groupe client/projet est une SECTION. Un en-tête sans
      délimitation se lisait comme une ligne de plus, pas comme un titre : rien ne
      disait où un groupe finissait et où le suivant commençait. */
@@ -1036,6 +1040,20 @@ if (window.matchMedia) {
 
     <div class="card" id="rescard">
       <h2>Reprendre une session <span style="color:var(--muted);font-weight:normal">(RM1939)</span></h2>
+      <!-- RM2991 : la carte ne se pilotait qu'avec des filtres fermés. La question
+           qu'on se pose devant elle est « où ai-je traité ça ? » — un mot du titre,
+           un numéro de ticket, un bout de sujet. La recherche porte sur les
+           métadonnées enregistrées par le PM (worklog compris), pas sur le
+           transcript, qui reste une option explicite. -->
+      <div class="searchrow" style="margin-top:8px">
+        <input id="rs-q" type="text" placeholder="mots-clés : titre, RM2703, sujet du ticket…"
+               oninput="rsQueryChanged()">
+        <button class="mini" onclick="clearRsSearch()" title="Vider la recherche">✕</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:6px;margin:6px 0 0;color:var(--fg);font-size:12px"
+             title="Balaie aussi le contenu des conversations. Beaucoup plus lourd : ~400 Mo de transcripts.">
+        <input type="checkbox" id="rs-deep" onchange="loadResumable()"> chercher aussi dans le transcript (plus lent)
+      </label>
       <!-- RM2834 : le client d'abord — la liste des projets était plate, tous
            clients mêlés, des dizaines d'entrées où retrouver le sien supposait
            de le connaître par cœur. -->
@@ -5867,6 +5885,70 @@ function rsProjectOptions(projects, client, current) {
 }
 // <<< rsProjectOptions
 
+// >>> rsQuery — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2991 — la requête envoyée à /resumable. Pure pour que deux règles restent
+// vérifiables sans navigateur : un projet choisi vaut client+projet (le client
+// seul ramènerait tous ses projets), et le transcript ne se balaie JAMAIS sans
+// mots-clés — cocher la case sur un champ vide ferait scanner 400 Mo pour rien.
+function rsQuery(f) {
+  f = f || {};
+  const q = [];
+  if (f.engine) q.push("engine=" + encodeURIComponent(f.engine));
+  if (f.project) {
+    const parts = String(f.project).split("/");
+    q.push("client=" + encodeURIComponent(parts[0]),
+           "project=" + encodeURIComponent(parts[1] || ""));
+  } else if (f.client) {
+    // RM2834 : client seul — /resumable filtre client et projet séparément, on
+    // obtient donc TOUS les projets de ce client, ce qui est le sens du geste.
+    q.push("client=" + encodeURIComponent(f.client));
+  }
+  if (f.status) q.push("status=" + f.status);
+  const needle = String(f.q || "").trim();
+  if (needle) {
+    q.push("q=" + encodeURIComponent(needle));
+    if (f.deep) q.push("deep=1");
+  }
+  return q.length ? "?" + q.join("&") : "";
+}
+// <<< rsQuery
+
+// >>> rsTicketsLabel — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2991 — « RM2703 » ne dit pas de quoi il s'agissait ; le sujet du ticket est
+// précisément ce à quoi on reconnaît sa session. Tronqué court : la ligne du
+// panneau est étroite, et l'essentiel d'un titre tient dans son début.
+function rsTicketsLabel(tickets, max) {
+  const lim = max || 42;
+  return (tickets || []).map(function (t) {
+    const id = "RM" + t.rm_id, ti = String(t.title || "").trim();
+    if (!ti) return id;
+    return id + " " + (ti.length > lim ? ti.slice(0, lim - 1) + "…" : ti);
+  }).join(" · ");
+}
+// <<< rsTicketsLabel
+
+// >>> rsArchivedHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
+// RM2991 — le worklog d'une session survit à son transcript : la trace du
+// travail reste alors que la conversation a été purgée. La recherche doit le
+// dire (sinon elle ment sur ce qui existe) sans l'offrir au clic (sinon le
+// bouton « reprendre » échouerait). D'où une note, pas une ligne cliquable.
+function rsArchivedHtml(archived, esc) {
+  const a = archived || [];
+  if (!a.length) return "";
+  const lignes = a.map(function (s) {
+    const refs = (s.tickets || []).map(function (t) {
+      return t.title ? t.ref + " " + t.title : t.ref;
+    }).join(" · ");
+    return "<div>· <code>" + esc(String(s.session_id).slice(0, 8)) + "</code>"
+      + (s.updated ? " " + esc(s.updated) : "")
+      + (refs ? " — " + esc(refs) : "") + "</div>";
+  }).join("");
+  return '<div class="rs-archived">' + a.length
+    + " session(s) archivée(s) correspondent aussi — worklog conservé, "
+    + "transcript disparu : <b>non reprenables</b>." + lignes + "</div>";
+}
+// <<< rsArchivedHtml
+
 // Applique le filtre client au sélecteur de projets (et rend la valeur retenue).
 function rsFillProjects() {
   const cs = document.getElementById("rs-client"), ps = document.getElementById("rs-project");
@@ -5883,45 +5965,65 @@ function rsClientChanged() {
   loadResumable();
 }
 
+// RM2991 — frappe amortie : sans cela, chaque touche déclenche une requête qui
+// relit 107 worklogs (et, case cochée, ouvre des transcripts). La dernière
+// frappe gagne.
+let rsQTimer = null;
+function rsQueryChanged() {
+  clearTimeout(rsQTimer);
+  rsQTimer = setTimeout(loadResumable, 250);
+}
+function clearRsSearch() {
+  const i = document.getElementById("rs-q");
+  if (!i) return;
+  i.value = ""; loadResumable(); i.focus();
+}
+
 async function loadResumable() {
   const ul = document.getElementById("rs-list");
   ul.innerHTML = '<div class="empty">chargement…</div>';
-  const q = [];
-  const eng = document.getElementById("rs-engine").value;
-  const proj = document.getElementById("rs-project").value;
-  const cli = (document.getElementById("rs-client") || {}).value || "";
-  const st = document.getElementById("rs-status").value;
-  if (eng) q.push("engine=" + encodeURIComponent(eng));
-  if (proj) {
-    const [c, p] = proj.split("/");
-    q.push("client=" + encodeURIComponent(c), "project=" + encodeURIComponent(p));
-  } else if (cli) {
-    // RM2834 : client seul — /resumable filtre client et projet séparément, on
-    // obtient donc TOUS les projets de ce client, ce qui est le sens du geste.
-    q.push("client=" + encodeURIComponent(cli));
-  }
-  if (st) q.push("status=" + st);
+  const needle = ((document.getElementById("rs-q") || {}).value || "").trim();
+  const qs = rsQuery({
+    engine: document.getElementById("rs-engine").value,
+    project: document.getElementById("rs-project").value,
+    client: (document.getElementById("rs-client") || {}).value || "",
+    status: document.getElementById("rs-status").value,
+    q: needle,
+    deep: !!(document.getElementById("rs-deep") || {}).checked,
+  });
   try {
-    const { resumable } = await api("/resumable" + (q.length ? "?" + q.join("&") : ""));
-    if (!resumable.length) { ul.innerHTML = '<div class="empty">aucune session</div>'; return; }
+    const { resumable, archived } = await api("/resumable" + qs);
+    const arch = rsArchivedHtml(archived, esc);
+    if (!resumable.length) {
+      ul.innerHTML = '<div class="empty">' + (needle
+        ? "aucune session reprenable pour « " + esc(needle) + " »"
+        : "aucune session") + "</div>" + arch;
+      return;
+    }
     ul.innerHTML = "";
     for (const s of resumable) {
       const li = document.createElement("li");
       const markPill = markPillHtml(s.mark);
-      const tk = (s.tickets || []).map(t => "RM" + t.rm_id).join(" ");
+      const tk = rsTicketsLabel(s.tickets);
+      // RM2991 : dire POURQUOI la ligne est là. Sans ce repère, un résultat
+      // trouvé dans le transcript ressemble à un faux positif.
+      const why = s.match === "transcript"
+        ? ' <span class="pill" title="Trouvé dans le transcript de la conversation">transcript</span>' : "";
       li.innerHTML =
         '<div class="r-top">' + markPill +
-        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span>' +
+        '<span class="r-title">' + esc(s.title || s.session_id.slice(0, 8) + "…") + '</span>' + why +
         '<button class="r-move" title="Déplacer cette session vers un autre projet">⇄</button>' +
         '</div>' +
         '<div class="r-meta">' + (s.client ? esc(s.client + "/" + s.project) : esc(s.cwd || "?")) +
-        (tk ? " · " + tk : "") + " · " + ago(s.mtime) +
+        (tk ? " · " + esc(tk) : "") + " · " + ago(s.mtime) +
         (s.live ? ' · <span class="pill ok">tmux vivant</span>' : "") + '</div>';
-      li.title = (s.title || "") + "\n" + (s.cwd || "") + "\nsession " + s.session_id;
+      li.title = (s.title || "") + "\n" + (tk ? tk + "\n" : "") + (s.cwd || "")
+        + "\nsession " + s.session_id;
       li.onclick = () => resumeSession(s);
       li.querySelector(".r-move").onclick = (ev) => { ev.stopPropagation(); moveSession(s); };
       ul.appendChild(li);
     }
+    if (arch) ul.insertAdjacentHTML("beforeend", arch);
   } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + esc(e.message) + '</div>'; }
 }
 async function resumeSession(s) {

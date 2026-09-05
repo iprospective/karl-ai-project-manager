@@ -489,56 +489,11 @@ assert.deepStrictEqual(Array.from(composerFrames("")), [], "texte vide : rien n'
 assert.deepStrictEqual(Array.from(composerFrames(null)), [], "null : rien n'est émis");
 console.log("✓ composer (RM2527) : collage encadré en un bloc, validation émise à part");
 
-// — garde d'état : taper du texte dans un menu SÉLECTIONNE des options —
-const fmCg = />>> composerGuard[\s\S]*?(function composerGuard[\s\S]*?)\n\/\/ <<< composerGuard/.exec(html);
-assert(fmCg, "marqueurs >>> composerGuard / <<< composerGuard introuvables");
-const composerGuard = vm.runInNewContext("(" + fmCg[1] + ")");
-assert.strictEqual(composerGuard("idle").allow, true, "idle → envoi permis");
-assert.strictEqual(composerGuard("working").allow, true, "working → envoi permis");
-assert.strictEqual(composerGuard(undefined).allow, true, "état inconnu → on ne bloque pas");
-assert.strictEqual(composerGuard("choice").allow, false, "menu ouvert → envoi retenu");
-assert.strictEqual(composerGuard("attention").allow, false, "question en attente → envoi retenu");
-assert(/menu/i.test(composerGuard("choice").warn), "le refus explique le menu");
-assert(/question/i.test(composerGuard("attention").warn), "le refus explique la question");
-assert.strictEqual(composerGuard("idle").warn, null, "aucun avertissement quand c'est permis");
-console.log("✓ composer (RM2527) : garde d'état sur les menus (attention / choice)");
-
-// — historique des envois —
-const fmCh = />>> composerHistoryAdd[\s\S]*?(function composerHistoryAdd[\s\S]*?)\n\/\/ <<< composerHistoryAdd/.exec(html);
-assert(fmCh, "marqueurs >>> composerHistoryAdd / <<< composerHistoryAdd introuvables");
-const composerHistoryAdd = vm.runInNewContext("(" + fmCh[1] + ")");
-assert.deepStrictEqual(Array.from(composerHistoryAdd([], "a")), ["a"], "premier message");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "b")), ["b", "a"], "le plus récent en tête");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(["b", "a"], "a")), ["a", "b"], "un renvoi remonte, sans doublon");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "  a  ")), ["a"], "espaces de bord ignorés");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(["a"], "   ")), ["a"], "message vide non retenu");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(null, "a")), ["a"], "liste absente tolérée");
-assert.strictEqual(composerHistoryAdd(["a", "b", "c"], "d", 3).length, 3, "plafond respecté");
-assert.deepStrictEqual(Array.from(composerHistoryAdd(["a", "b", "c"], "d", 3)), ["d", "a", "b"], "le plus ancien tombe");
-console.log("✓ composer (RM2527) : historique sans doublon, récent en tête, plafonné");
+// — composerGuard / composerHistoryAdd (RM2527) : MIGRÉS (RM2889, terminal) — voir test_cockpit_terminal.js —
 
 // — 9. outline enrichi (RM2549/2596) : MIGRÉ (RM2889, outline) — voir test_cockpit_outline.js —
 
-// — origine du WebSocket du terminal (RM2561) —
-// Le cert auto-signé ne vaut que pour le host:port visité et un wss:// vers un
-// autre port meurt SANS interstitiel : derrière le vhost, le terminal doit rester
-// en même origine. Régression déjà vécue (terminal noir, cockpit intact).
-const fTB = />>> termBase[\s\S]*?(function termBase[\s\S]*?)\n\/\/ <<< termBase/.exec(html);
-assert(fTB, "marqueurs >>> termBase / <<< termBase introuvables");
-const mkTermBase = (cfg, loc) => vm.runInNewContext("(" + fTB[1] + ")", { CFG: cfg, location: loc });
-
-const https443 = { port: "", protocol: "https:", hostname: "karl.lxc", origin: "https://karl.lxc" };
-assert.strictEqual(mkTermBase({ ttyd_base: "" }, https443)(), "https://karl.lxc/ttyd",
-  "derrière le vhost : même origine (une seule exception de cert)");
-assert.strictEqual(mkTermBase({ ttyd_base: "" }, { ...https443, port: "443" })(), "https://karl.lxc/ttyd",
-  "port 443 explicite : même origine aussi");
-assert.strictEqual(
-  mkTermBase({ ttyd_base: "" },
-    { port: "9876", protocol: "http:", hostname: "dev.local", origin: "http://dev.local:9876" })(),
-  "http://dev.local:7681", "accès direct au port du cockpit (sans Apache) : repli sur :7681");
-assert.strictEqual(mkTermBase({ ttyd_base: "https://ailleurs:1234" }, https443)(), "https://ailleurs:1234",
-  "KARL_AGENT_TTYD_URL reste prioritaire");
-console.log("✓ termBase (RM2561) : WebSocket en même origine derrière le vhost, repli :7681 sinon");
+// — termBase (RM2561) : MIGRÉ (RM2889, terminal) — voir test_cockpit_terminal.js —
 
 // — 10. réducteur de la colonne de droite (RM2466/2579/2952) : MIGRÉ (RM2889, layout) — voir test_cockpit_layout.js —
 

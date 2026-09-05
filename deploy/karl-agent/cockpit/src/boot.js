@@ -48,6 +48,7 @@ import { mountWorklog } from "./controllers/worklog.controller.js";
 import { mountLayout } from "./controllers/layout.controller.js";
 import { mountLauncher } from "./controllers/launcher.controller.js";
 import { mountSessionActions } from "./controllers/actions.controller.js";
+import { mountTerminal } from "./controllers/terminal.controller.js";
 import { MrLine } from "./views/worklog/Worklog.view.js";
 import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
@@ -120,7 +121,7 @@ const layout = mountLayout({ main: document.querySelector("main"), rpanel: byId(
     if (visible("files") && files) files.ensure();                          // RM2586/2673 : compare le contexte, pas le seul sid
     if (visible("git") && att) git.refresh();                               // RM2602
   },
-  onResized: () => { const ts = lexical(() => termSession); if (ts) setTimeout(() => { try { ts.fit(); } catch (e) { /* terminal démonté */ } }, 0); },
+  onResized: () => terminal.fit(),   // le terminal (migré) se réajuste après un redimensionnement
 });
 const doc = Object.assign(mountDocModal(byId("docmodal"), { root: document, openCenterFile: (src, wt, p) => center.openFile(src, wt, p) }), { glossaireRows, glossaireFiltre });
 const mail = mountMailPanel(document.getElementById("lp-mail"), {
@@ -172,7 +173,7 @@ const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
 // santé du poste et verrous : la modale partagée (docmodal) lui est prêtée, comme
 // le badge et le bouton d'en-tête — trois surfaces, un contrôleur.
 const env = mountEnv(document.getElementById("doccontent"), {
-  notify: legacy("toast"), clip: legacy("writeClip"),
+  notify: legacy("toast"), clip: (txt) => terminal.writeClip(txt),   // presse-papier avec replis (terminal migré)
   pull: (block) => legacy("refreshFetch")([block]),
   secure: () => !!window.isSecureContext,
   modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
@@ -220,7 +221,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
@@ -336,7 +337,7 @@ const search = mountSearch(byId("searchcard"), {
 // l'onglet 🗒 worklog et ses lots (RM2466/2581/2716/2720/2723/2786/2823/2831) : la session attachée, le registre, CFG, le runner PM,
 // la capture, la modale doc (écrans de lot), l'infobulle, la marque, linkify, la revue, la fiche ℹ, le lanceur et l'attache sont prêtés
 worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), nav: document.querySelector("#rp-state .outnav") }, {
-  ticket, notify: legacy("toast"), ago: legacy("ago"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
+  ticket, notify: legacy("toast"), ago: legacy("ago"), run: legacy("pmRun"), capture: (t, txt) => doc.openPlain(t, txt),
   attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, cfg: () => lexical(() => CFG) || {}, resolve: () => lexical(() => resolveCache) || {},
   tipAttr: (id) => tickets.tipAttr(id), pinOf: (k, key) => center.pinOf(k, key), linkify: (s) => legacy("linkify")(s) || "",
   openReview: (rm) => review.open(rm), openStatusMenu: (ref, n, e) => review.openStatusMenu(ref, n, e), showTicket: (rm) => meta && meta.showTicket(rm),
@@ -356,10 +357,19 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
   onOutsideClick: (fn) => setTimeout(() => document.addEventListener("click", fn, { once: true }), 0),
 });
+// le terminal de la session attachée (RM2522 client maison opt-in / iframe ttyd, RM2700 cookie de gate, RM2807 sonde) et le composer
+// (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
+terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => lexical(() => CFG) || {}, notify: legacy("toast"),
+  attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, token: () => legacy("token")() || "",
+  setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
+  copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
+  capture: (t, txt) => doc.openPlain(t, txt), domCount: () => document.getElementsByTagName("*").length,
+});
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
-  center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: legacy("showCaptureModal"), md: mdToHtml,
+  center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", eff: (s, d) => legacy("effDisposition")(s, d),
   resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
   show: (on) => show("reviewpane", on),
@@ -383,7 +393,7 @@ center.register("review", { open: review.open, close: () => { if (review.current
 // le lanceur (§1 résolution, RM1941 modèles, RM2873 consigne, RM2818 garde, spawn), la saisie éclair d'un ticket (§8) et le contexte
 // client (RM2639) : CFG, la consigne et la garde (revue), le runner PM, l'attache et les suites sont prêtés ; le contexte prévient le reste
 launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), clientctx: byId("clientctx") }, {
-  storage: (typeof localStorage !== "undefined" ? localStorage : null), cfg: () => lexical(() => CFG) || {}, notify: legacy("toast"), capture: legacy("showCaptureModal"), run: legacy("pmRun"),
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), cfg: () => lexical(() => CFG) || {}, notify: legacy("toast"), capture: (t, txt) => doc.openPlain(t, txt), run: legacy("pmRun"),
   promptText: taskPromptText, promptFill: promptFillOnChange, confirmSecondSession: (rm) => review.confirmSecondSession(rm), warnSpawn: legacy("warnSpawn"),
   afterSpawn: async () => { await legacy("refreshSessions")(); legacy("refreshHealth")(); }, attach: legacy("attach"), switchPanel: legacy("switchPanel"),
   afterStatus: async (rm) => { await ticket.ensureResolved(rm, true); if (meta && meta.ticketIs(rm)) meta.render(); if (review.current() === rm) review.render(); },   // RM2229 : re-résout partout
@@ -406,7 +416,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
 });
 // la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
 const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
-  notify: legacy("toast"), help: (t) => doc.openHelp(t), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
+  notify: legacy("toast"), help: (t) => doc.openHelp(t), run: legacy("pmRun"), capture: (t, txt) => doc.openPlain(t, txt),
   resolveRefresh: (rm) => legacy("ensureResolved")(String(rm), true),
   openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),
   afterLoad: () => { if (review.current()) review.render(); },
@@ -415,5 +425,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

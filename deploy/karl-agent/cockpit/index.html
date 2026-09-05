@@ -829,34 +829,34 @@ if (window.matchMedia) {
   <button class="mini" id="yesall" style="display:none"
     title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
   <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
-  <button class="mini" id="voicebtn" onclick="karlCall('voice', 'toggle')"
+  <button class="mini" id="voicebtn" data-cmd="voice-toggle"
     title="Mode voix : annonce à voix haute chaque session qui passe en attente d'une réponse, avec lecture de sa question (synthèse vocale du navigateur)">🔊 voix</button>
   <!-- RM2776 : navigation dans les vues déjà visitées. `←`/`→` comme dans un
        navigateur ; « historique » ouvre la liste, la plus récente en tête. -->
-  <button class="mini" id="histback" onclick="navGo(-1)"
+  <button class="mini" id="histback" data-cmd="nav" data-arg="-1"
     title="Revenir à la vue précédente (les vues fermées entre-temps sont sautées)">←</button>
-  <button class="mini" id="histfwd" onclick="navGo(1)"
+  <button class="mini" id="histfwd" data-cmd="nav" data-arg="1"
     title="Revenir en avant — tant qu'aucune nouvelle vue n'a été ouverte">→</button>
-  <button class="mini" id="histbtn" onclick="histToggle()"
+  <button class="mini" id="histbtn" data-cmd="hist"
     title="Historique des vues visitées dans cette page">🕘 historique</button>
   <!-- RM2816 : les deux surfaces d'action du cockpit, au menu du haut. Leur
        contenu s'ouvre au CENTRE, dans le modèle d'onglets (épinglable). -->
-  <button class="mini" id="pmbtn" onclick="openCenterPanel('pm')"
+  <button class="mini" id="pmbtn" data-cmd="panel" data-arg="pm"
     title="Commandes PM : le catalogue des actions du PM en un clic (ouvre un onglet central)">⚙ commandes pm</button>
-  <button class="mini" id="setbtn" onclick="openCenterPanel('settings')"
+  <button class="mini" id="setbtn" data-cmd="panel" data-arg="settings"
     title="Réglages : thème, voix, appareils, conf PM (ouvre un onglet central)">🔧 réglages</button>
   <!-- RM2593 : aide intégrée du cockpit -->
-  <button class="mini" id="helpbtn" onclick="openHelp()" title="Aide du cockpit">❓ aide</button>
+  <button class="mini" id="helpbtn" data-cmd="help" title="Aide du cockpit">❓ aide</button>
   <!-- RM2623 : glossaire cliquable du jargon technique -->
-  <button class="mini" id="glossbtn" onclick="openGlossary()" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
+  <button class="mini" id="glossbtn" data-cmd="glossary" title="Glossaire du jargon technique (les termes soulignés en pointillés sont cliquables)">📖 glossaire</button>
   <!-- RM2458 : santé du poste (outils, secrets, git, ssh, PM) — chaque défaut donne sa commande de réparation -->
-  <button class="mini" id="envbtn" onclick="karlCall('env', 'openStatus')" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
+  <button class="mini" id="envbtn" data-cmd="env-status" title="Santé du poste : outils, secrets, git, SSH, PM — avec la commande exacte pour réparer">🩺 poste</button>
   <!-- RM2722 : anomalies du poste détectées au démarrage (ssh-add, vault, outils,
        git/GitLab). Rien ne s'affiche quand tout va bien. -->
-  <span id="envwarn" style="display:none" onclick="karlCall('env', 'openStatus')"></span>
+  <span id="envwarn" style="display:none" data-cmd="env-status"></span>
   <!-- RM2748 : verrous du poste. N'apparaît QUE s'il y a un geste à faire
        (coffre verrouillé, agent SSH vide) et disparaît une fois ouvert. -->
-  <button class="mini" id="lockbtn" style="display:none" onclick="karlCall('env', 'openVault')"></button>
+  <button class="mini" id="lockbtn" style="display:none" data-cmd="env-vault"></button>
   <!-- RM2571 : une MAJ du core est disponible. Purement INFORMATIF — l'application
        reste un geste humain au terminal (mot de passe sudo), et ce qui atteint
        `main` est lui-même une décision humaine.
@@ -945,13 +945,13 @@ if (window.matchMedia) {
          repoussait la recherche et la création hors de l'écran. -->
     <details class="card" id="openedcard">
       <summary>Tickets ouverts <span id="opened-count" style="font-weight:normal;text-transform:none;letter-spacing:0"></span>
-        <button class="helpq" onclick="event.preventDefault();event.stopPropagation();openHelp('tickets')"
+        <button class="helpq" data-cmd="help" data-arg="tickets" data-stop
                 title="Aide sur ce panneau">?</button></summary>
       <div id="openedbox"></div>
     </details>
 
     <div class="card" id="searchcard">
-      <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
+      <h2>Rechercher un ticket <button class="helpq" data-cmd="help" data-arg="tickets" title="Aide sur ce panneau">?</button></h2>
       <div class="searchrow">
         <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
         <button class="mini" id="searchclear" data-action="clear" title="Vider la recherche">✕</button>
@@ -986,7 +986,7 @@ if (window.matchMedia) {
 
     <!-- RM2672 : la création s'ouvre en PLEINE PAGE dans le panneau central ;
          la carte ci-dessous reste pour une saisie éclair. -->
-    <button class="mini" style="width:100%;margin-bottom:6px" onclick="openNewTicket()"
+    <button class="mini" style="width:100%;margin-bottom:6px" data-cmd="new-ticket"
       title="Ouvre la création de ticket en pleine page, dans un onglet du panneau central">
       ＋ créer un ticket</button>
     <details class="card" id="ntcard">
@@ -1015,7 +1015,7 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-sessions">
     <div class="card" id="launchcard">
-      <h2>Lancer une session <button class="helpq" onclick="openHelp('sessions')" title="Aide sur ce panneau">?</button></h2>
+      <h2>Lancer une session <button class="helpq" data-cmd="help" data-arg="sessions" title="Aide sur ce panneau">?</button></h2>
       <label for="rm">Ticket (RM id)</label>
       <input id="rm" type="number" inputmode="numeric" placeholder="ex : 1669" min="1">
       <div class="resolved" id="resolved"></div>
@@ -1149,9 +1149,9 @@ if (window.matchMedia) {
           <option value="0">désactiver</option>
         </select>
         <!-- RM2329 : dicter une consigne / écouter la question de la session attachée -->
-        <button class="mini" id="micbtn" onclick="karlCall('voice', 'dictate')"
+        <button class="mini" id="micbtn" data-cmd="voice-dictate"
           title="Dicter une consigne (langue : panneau 🔧 réglages, fr par défaut) — transcription à confirmer avant envoi à la session.&#10;Nécessite Chrome + contexte sécurisé (HTTPS ou localhost) pour le micro.">🎤 dicter</button>
-        <button class="mini" id="readbtn" onclick="karlCall('voice', 'readQuestion')"
+        <button class="mini" id="readbtn" data-cmd="voice-read"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
         <button class="mini" id="monbtn" data-action="monitor-add">➕ Moniteur</button>
@@ -1160,7 +1160,7 @@ if (window.matchMedia) {
           <option value="">Disposition…</option>
         </select>
         <!-- RM2631 : « 📋 Copier » / « 📥 Copie » déplacés dans la barre du composer -->
-        <button class="mini" id="reattach" onclick="reattach()" title="Recharger le terminal">↻</button>
+        <button class="mini" id="reattach" data-cmd="reattach" title="Recharger le terminal">↻</button>
       </div>
       </div><!-- /.tabbar2 -->
     </div>
@@ -1419,574 +1419,5 @@ if (window.matchMedia) {
 <div id="histbox" style="display:none"></div>
 <div class="toast" id="toast"></div>
 
-<script>
-let CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
-// RM2889 — pont vers les domaines MIGRÉS (src/, montés par boot.js). Un module est
-// différé : au chargement de ce script, `window.karl` n'existe pas encore. Un appel
-// arrivé trop tôt est REJOUÉ à `karl:ready` — jamais perdu, jamais une ReferenceError.
-// Disparaît en L6 avec ce script.
-// Variante pour un pont qui rend une PROMESSE : elle attend `karl:ready` s'il le faut —
-// un `.then` posé avant que le module ait fini de charger ne casse jamais.
-function karlWhen(domain) {
-  const k = window.karl;
-  if (k && k[domain]) return Promise.resolve(k[domain]);
-  return new Promise(res => window.addEventListener("karl:ready", () => res(window.karl[domain]), { once: true }));
-}
-function karlCall(domain, fn, ...args) {
-  const k = window.karl;
-  if (k && k[domain]) return k[domain][fn](...args);
-  if (window.addEventListener) window.addEventListener("karl:ready", () => window.karl[domain][fn](...args), { once: true });
-  return undefined;
-}
-let attached = null;
-
-// — authentification (RM2334 : login → jeton d'appareil, appareils, comptes ; jeton partagé historique) — MIGRÉE (RM2889) : src/controllers/auth.controller.js —
-function token() { return localStorage.getItem("karlToken") || ""; }   // lu par le transport historique et l'init ; le contrôleur lit le même stockage
-function authBoot() { karlCall("auth", "boot"); }   // l'init l'appelle une fois CFG connu : carte, jeton mémorisé, écran de login, whoami
-
-function headers(extra) {
-  const h = Object.assign({}, extra || {});
-  if (CFG.auth_required && token()) h["X-Karl-Token"] = token();
-  return h;
-}
-async function api(path, opts) {
-  opts = opts || {};
-  opts.headers = headers(opts.headers);
-  const r = await fetch(path, opts);
-  const ct = r.headers.get("content-type") || "";
-  const body = ct.includes("json") ? await r.json() : await r.text();
-  if (!r.ok) {
-    // token invalide/révoqué/expiré → re-présenter l'écran de login (RM2334)
-    if (r.status === 401 && CFG.auth_required) document.getElementById("authgate").classList.add("show");
-    throw new Error((body && body.error) || r.status + " " + r.statusText);
-  }
-  return body;
-}
-// RM2451 : toast porteur d'une ACTION — « annuler » vaut mieux qu'une
-// confirmation préalable sur un geste courant : zéro friction quand tout va bien,
-// vrai filet quand on s'est trompé.
-function toastAction(msg, label, fn, ms) {
-  const t = document.getElementById("toast");
-  t.textContent = msg + "  ";
-  const a = document.createElement("span");
-  a.textContent = label;
-  a.style.cssText = "text-decoration:underline;cursor:pointer;font-weight:600";
-  a.onclick = () => { t.className = "toast"; fn(); };
-  t.appendChild(a);
-  t.className = "toast show";
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", ms || 8000);
-}
-function toast(msg, err) {
-  const t = document.getElementById("toast");
-  t.textContent = msg; t.className = "toast show" + (err ? " err" : "");
-  clearTimeout(toast._t); toast._t = setTimeout(() => t.className = "toast", 3200);
-}
-// URL de l'UI ttyd native — utilisée par le SEUL repli iframe (bundle xterm.js
-// absent). Reste sur le port 7681 : l'UI ttyd fetch « /token » en absolu, elle ne
-// survit pas au préfixe /ttyd/ du proxy même-origine que prend termBase().
-// ttydUrl : MIGRÉ (RM2889) — src/models/terminal/terminal.js
-// quietSince / quietHtml / agoHM (RM2787/RM2793) : MIGRÉS (RM2889) — src/models/sessions/sessions.js, src/viewmodels/sessions/SessionsViewModel.js
-
-function ago(ts) {
-  if (!ts) return "";
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-  if (s < 60) return s + "s";
-  if (s < 3600) return Math.floor(s / 60) + "min";
-  if (s < 86400) return Math.floor(s / 3600) + "h";
-  return Math.floor(s / 86400) + "j";
-}
-
-// santé de l'agent, MAJ du core (RM2571), panneaux gauche (RM2283/2816) : MIGRÉS (RM2889) — src/controllers/refresh.controller.js, src/controllers/layout.controller.js
-// L'attache, le filtre par étiquette et l'init parlent aux panneaux par ce pont :
-function switchPanel(name) { karlCall("layout", "switchPanel", name); }
-
-// computeGroups / sessionInClient / effDisposition / sortFrozen / renderAttnBand : MIGRÉS (RM2889) — src/models/sessions/sessions.js, src/views/sessions/Sessions.view.js
-// (clientCtxList / clientCtxProject (RM2639) : MIGRÉS — src/models/launcher/launcher.js)
-
-// — pile /refresh (RM2763 composite, RM2613 cadence adaptative et pause en arrière-plan, RM2598 questions sans réponse) — MIGRÉE (RM2889) : src/controllers/refresh.controller.js —
-// Un seul tick, chaque bloc à sa période ; les blocs reçus sont livrés aux domaines par boot.js. L'attache et l'init lui parlent par ces ponts :
-function refreshSessions() { return karlWhen("refresh").then(r => r.refreshSessions()); }   // rafraîchissement événementiel (spawn, kill, move…)
-function refreshHealth() { return karlWhen("refresh").then(r => r.refreshHealth()); }   // après le login / un jeton mémorisé
-function tickSessions() { karlCall("refresh", "start"); }   // premier tick, une fois la configuration (jeton) connue
-// — liste des sessions « en cours » — MIGRÉE (RM2889) : src/controllers/sessions.controller.js — tuiles, bandeau « à traiter », groupes et plis, compteurs,
-// « ✔ Oui / ✔ tout / auto-oui », titre de la session attachée et en-tête droit (RM2894) ; la pile /refresh (migrée) lui livre le bloc sessions par boot.js.
-// — jeux de sessions (RM2395/2427/2439/2442/2443/2445/2446/2447/2448/2449/2450/2451/2452/2536/2537/2673/2741/2951/2955) — MIGRÉS (RM2889) : src/controllers/sets.controller.js —
-// Barre du panneau « en cours » (sélecteur vues/jeux, ＋ jeu, 🗑, sélection, déplacement, 💾, ▶ relancer), carte « Sessions enregistrées » (règle,
-// entrées ⟳/⏸/⊖, rétention, préférence de relance, versions, effacement), gestes prêtés à la liste (⊖ d'une vivante, relance/retrait/politique
-// d'une tuile grise) et avertissements de lancement. L'init et PANEL_LOADERS lui parlent par ces ponts :
-function refreshSessionSets() { return karlWhen("sets").then(s => s.refreshSets()); }
-function refreshSessionSet() { return karlWhen("sets").then(s => s.refreshSet()); }
-function loadSessionSet() { return karlWhen("sets").then(s => s.load()); }
-// setAutoYes / approveShortcutVisible (RM2327/RM2332) : MIGRÉS (RM2889) — src/controllers/sessions.controller.js
-
-// ----- RM2329/RM2350/RM2532/RM2533 : voix — domaine MIGRÉ (RM2889, L5) : src/controllers/voice.controller.js -----
-// Le monolithe passe par karlCall("voice", …) ; la carte #voicecard est montée par boot.js.
-
-// ----- RM2330/RM2549/RM2596/RM2601 : outline de conversation — MIGRÉ (RM2889) : src/controllers/outline.controller.js -----
-// Position, recherche, filtre et lecture inline vivent dans le contrôleur ; le monolithe (attache, colonne, raccourcis clavier) lui parle par ces ponts :
-function loadOutline(force) { karlCall("outline", "load", force); }
-function renderOutline() { karlCall("outline", "render"); }
-function closeOutlineRead() { karlCall("outline", "closeRead"); }
-function outlineReset() { karlCall("outline", "reset"); }
-function jumpUser(dir) { karlCall("outline", "jumpUser", dir); }
-function scrollLive() { karlCall("outline", "scrollLive"); }
-
-// >>> markPillHtml — pur (testé) : pastille du statut de session (/session-mark)
-function markPillHtml(mark) {
-  // Le marqueur est lu dans un TITRE, qui peut valoir n'importe quoi (renommage
-  // à la main) : un statut inconnu ne rend RIEN plutôt qu'une pastille inventée.
-  // `hasOwn` et pas `PILL[mark]` : « constructor » rendrait sinon une pastille
-  // vide au lieu de rien.
-  const PILL = { wip: ["warn", "WIP"], test: ["test", "À TESTER"], done: ["ok", "DONE"] };
-  const p = Object.hasOwn(PILL, mark) ? PILL[mark] : null;
-  return p ? '<span class="pill ' + p[0] + '">' + p[1] + "</span> " : "";
-}
-// <<< markPillHtml
-
-// >>> linkify — pur (testé) : échappe puis rend cliquables refs RM, chemins, URLs
-// Tokenisation en une passe (jamais de linkify SUR du HTML déjà injecté → sûr).
-function linkify(text) {
-  const s = String(text == null ? "" : text);
-  const re = /(https?:\/\/[^\s<)]+)|(\bRM\d+\b)|([\w.-]+\/[\w./-]+\.\w{1,6})/g;
-  let out = "", last = 0, m;
-  while ((m = re.exec(s))) {
-    out += glossify(esc(s.slice(last, m.index)));   // RM2623 : jargon cliquable
-    if (m[1]) out += '<a href="' + esc(m[1]) + '" target="_blank" rel="noopener">' + esc(m[1]) + "</a>";
-    else if (m[2]) out += '<span class="olink" title="Ouvrir la fiche ' + esc(m[2])
-      + '" onclick="showTicket(' + m[2].slice(2) + ')">' + esc(m[2]) + "</span>";
-    else if (m[3]) out += '<span class="olink omono" title="Ouvrir dans l\'onglet Fichiers" onclick="openFileRef('
-      + jarg(m[3]) + ')">' + esc(m[3]) + "</span>";
-    last = m.index + m[0].length;
-  }
-  return out + glossify(esc(s.slice(last)));         // RM2623
-}
-// <<< linkify
-
-// Argument chaîne pour un onclick="..." (attribut à guillemets DOUBLES) : littéral
-// JS entre guillemets SIMPLES échappés. JSON.stringify (guillemets doubles) casserait
-// l'attribut. `"` remplacé par son entité pour ne jamais fermer l'attribut.
-function jarg(s) {
-  return "'" + String(s == null ? "" : s).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
-}
-
-
-
-// ===== RM2672 : onglets du centre — domaine MIGRÉ (RM2889, cluster centre) : src/controllers/center.controller.js =====
-
-
-// ===== RM2776 : historique de navigation — MIGRÉ (cluster centre) =====
-
-// groupWorklogItems / worklogGroupedHtml / mrStageHtml / statusPill (RM2798/2801/2796) : MIGRÉS (RM2889) — src/models/worklog/worklog.js, src/views/worklog/Worklog.view.js
-
-// >>> pinMark — pur (RM2795, testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// La MÊME icône que sur l'onglet, partout où l'objet est listé. L'épinglage ne
-// vivait que dans la barre centrale : les listes latérales parlaient des mêmes
-// sessions, tickets et projets sans dire lesquels étaient déjà sous la main —
-// d'où des ré-ouvertures qui remplaçaient l'onglet temporaire en cours.
-//
-// L'onglet permanent (📊) est exclu : il n'apparaît dans aucune liste, et son
-// épinglage n'est pas un choix qu'on puisse défaire.
-// ----- Onglets, panneaux centraux, tableau de bord : MIGRÉS (cluster centre) -----
-// PONTS vers le routeur du centre, le temps de la cohabitation (disparaissent en L6).
-// Tout passe par karlCall : avant `karl:ready`, un appel est rejoué, une lecture
-// rend undefined — et les lectures ci-dessous le tolèrent.
-function noteTab(kind, key, label, opts) { karlCall("center", "note", kind, key, label, opts); }
-function renderTabs() { karlCall("center", "renderTabs"); }
-function renderCurTitle() { karlCall("center", "title"); }
-function closeCenterView() { karlCall("center", "closeView"); }
-function closeCenterPanel() { karlCall("center", "closePanel"); }
-function closeTab(id) { karlCall("center", "closeTab", id); }
-function activateTab(id) { karlCall("center", "activate", id); }
-function togglePin(id) { karlCall("center", "togglePin", id); }
-function navGo(d) { karlCall("center", "navGo", d); }
-function histToggle(f) { karlCall("center", "histToggle", f); }
-function histGoTo(id) { karlCall("center", "histGoTo", id); }
-function openDashboard() { karlCall("center", "openDashboard"); }
-function openCenterPanel(name) { karlCall("center", "openPanel", name); }
-function pinOf(kind, key) { return karlCall("center", "pinOf", kind, key) || ""; }
-function centerBusy() { return !!karlCall("center", "isBusy"); }
-function openCenterFile(src, wt, path, tag) { karlCall("center", "openFile", src, wt, path, tag); }
-function openCenterDir(src, wt, path, tag) { karlCall("center", "openDir", src, wt, path, tag); }
-function openCenterCommit(sid, sha) { karlCall("center", "openCommit", sid, sha); }
-function openCenterMail(k, sujet) { karlCall("center", "openMail", k, sujet); }
-function openCenterClient(c) { karlCall("center", "openClient", c); }
-function openCenterConf(scope, c, p) { karlCall("center", "openConf", scope, c, p); }
-function fileBodyHtml(f) { return karlCall("center", "fileBodyHtml", f) || ""; }
-function centerBtn(call, quoi) { return karlCall("center", "centerBtn", call, quoi) || ""; }
-/** La portée d'un worktree, capturée AU RENDU (RM2761) — avant tout detach. */
-function scopeTagOf(wt) { return karlCall("center", "scopeTagOf", wt) || ""; }
-
-// ----- Nouveau ticket (RM2672/RM2726/RM2752) : surface MIGRÉE (RM2889) — src/controllers/newticket.controller.js -----
-// Enregistrée auprès du routeur du centre par boot.js. Ponts pour les appelants historiques :
-function openNewTicket() { karlCall("newticket", "open"); }
-function closeNewTicket() { karlCall("newticket", "close"); }
-
-// ===== RM2671 (chantier RM2666) : panneau « emails » =====
-// La file vient de /mail/queue ; chaque action délègue au script correspondant
-// côté serveur. Le corps d'un email n'est chargé qu'au dépliage (il n'a rien à
-// faire dans un rafraîchissement de liste).
-// ===== Emails (RM2671) : domaine MIGRÉ — src/controllers/mail.controller.js (RM2889, L1) =====
-// Modèle, service, ViewModel, vues et contrôleur vivent dans src/ ; le panneau
-// #lp-mail est monté par boot.js. Rien à appeler d'ici : PANEL_LOADERS passe par karl.mail.
-
-// ----- RM2623/RM2634 : glossaire du jargon (entrées, index, soulignage) — MIGRÉ (RM2889) : src/models/glossary/glossary.js -----
-// `linkify` (ci-dessus) souligne encore le jargon par ce pont ; avant que le module soit prêt, le texte passe tel quel (déjà échappé).
-function glossify(escaped) { const r = karlCall("doc", "glossify", escaped); return r === undefined ? String(escaped == null ? "" : escaped) : r; }
-
-// ----- RM2466 volet 3 / RM2579 / RM2599 / RM2952 : disposition des colonnes — MIGRÉE (RM2889) : src/controllers/layout.controller.js -----
-// L'état de la colonne de droite (onglet, repli voulu), le repli gauche et la largeur vivent dans le contrôleur. Ponts :
-function showRight(tab) { karlCall("layout", "showRight", tab); }
-function collapseRight() { karlCall("layout", "collapseRight"); }
-function rightVisible(tab) { return !!karlCall("layout", "rightVisible", tab); }
-
-// ----- RM2602 : commits et diffs — domaine MIGRÉ (RM2889, L4) : src/controllers/git.controller.js -----
-// L'onglet #rp-git est monté par boot.js ; ses gestes passent par karl.git.
-// worklogRefHtml reste ici : il sert au worklog (L3), pas au git.
-// worklogRefHtml (RM2605/2799) : MIGRÉ (RM2889) — src/views/worklog/Worklog.view.js
-
-
-// ===== RM2759 : ouvrir au centre un fichier, un dossier, un commit, un email =====
-// Ces quatre contenus étaient déjà lisibles, mais chacun dans un espace contraint
-// (modale par-dessus tout, colonne de droite de trois pouces de large) et sans
-// onglet : impossible d'y revenir, impossible de les comparer. Le panneau central
-// a la place et le modèle d'onglets de RM2672. Rien n'est retiré aux vues
-// existantes — le bouton « ⤢ » s'ajoute à côté, il ne détourne aucun clic.
-
-// ----- RM2759/RM2761/RM2768 : vues centrales (fichier, dossier, commit, email, client, conf) — MIGRÉES (cluster centre) -----
-
-// ----- RM2606/RM2757/RM2883 tickets ouverts + RM2619 infobulles + RM1952 triage : panneau 🎫 MIGRÉ (RM2889) — src/controllers/tickets.controller.js -----
-// La liste des tickets ouverts (persistée), le classement ROI et le cache des briefs vivent dans le contrôleur. Ponts :
-function noteOpenedTicket(id) { karlCall("tickets", "noteOpened", id); }
-function openedForget(id) { karlCall("tickets", "forget", id); }
-function openedFilter(c) { karlCall("tickets", "filterClient", c); }
-function renderOpened() { karlCall("tickets", "renderOpened"); }
-function tipAttr(id) { return karlCall("tickets", "tipAttr", id) || ""; }
-function loadTriage(force) { karlCall("tickets", "loadTriage", force); }
-function renderTriage() { karlCall("tickets", "renderTriage"); }
-function triageVisibleRows() { return karlCall("tickets", "triageRows") || []; }
-
-// ----- RM2466 volet 2 : « en attente de toi », toutes sessions confondues -----
-
-// pendingDecor (RM2466) : MIGRÉ (RM2889) — src/models/worklog/worklog.js
-
-// RM2581 : l'affichage « en attente, toutes sessions » a été retiré du panneau
-// droit (recentré sur la session). RM2598 : /pending alimente désormais un badge
-// « sans réponse » (🕓) par tuile de session dans la liste de GAUCHE.
-
-// pendStaleSet / pendStale / loadPending (RM2598/RM2763) : MIGRÉS (RM2889) — src/models/refresh/refresh.js, src/controllers/refresh.controller.js (stale())
-
-// — RM2466/2581/2610/2716/2719/2720/2723/2786/2798/2801/2823/2831/2935 : worklog de la session et lots — MIGRÉS (RM2889) : src/controllers/worklog.controller.js —
-// Le worklog, la sélection et les plans vivent dans le contrôleur ; l'attache, la colonne et la pile /refresh lui parlent par ces ponts :
-function loadWorklog(force) { karlCall("worklog", "load", force); }
-function renderWorklog() { karlCall("worklog", "render"); }
-
-// ── RM2586/2622/2659/2673/2675/2759/2861 : explorateur de fichiers — MIGRÉ (RM2889) : src/controllers/files.controller.js ──
-// Données du contexte et navigation vivent dans le contrôleur ; l'attache, la colonne et linkify lui parlent par ces ponts :
-function filesEnsure() { karlCall("files", "ensure"); }
-function loadFiles(force) { karlCall("files", "load", force); }
-function filesReset() { karlCall("files", "reset"); }
-function openFileRef(path) { karlCall("files", "openRef", path); }
-
-// dynSort / listHot / toggleDynSort (RM2344/RM2346) : MIGRÉS (RM2889) — src/services/sessions.service.js
-
-// approve (RM2302) : MIGRÉ (RM2889) — src/controllers/sessions.controller.js
-
-// ----- §1 lanceur (résolution, modèles RM1941, consigne RM2873, spawn RM2818), §8 saisie éclair, contexte client RM2639, réouverture RM2285 — MIGRÉS (RM2889) : src/controllers/launcher.controller.js -----
-// Le ticket résolu, les projets connus et le contexte client vivent dans le contrôleur. Ponts pour les appelants historiques :
-function resolveRm() { karlCall("launcher", "resolve"); }
-function gotoTicket(id) { karlCall("launcher", "goto", id); }
-function reopenTicket(rm) { karlCall("launcher", "reopen", rm); }
-function setClientContext(c) { karlCall("launcher", "setClientContext", c); }
-// la liste des sessions (legacy) lit `clientContext` en direct : le contrôleur le tient à jour par ce setter
-let clientContext = "";
-function setClientCtxLocal(c) { clientContext = c || ""; }
-function populateResumeEngines() { karlCall("resume", "setEngines", CFG.resume_engines || ["claude"]); }   // RM2539 → migré
-
-// La carte #searchcard est l'hôte ; le lanceur (projets, contexte client, création) lui parle par karlCall. Pont pour les appelants historiques :
-function search() { karlCall("search", "search"); }
-
-// ----- §8 : création de ticket -----
-// renderClientCtxBanner (RM2639) : MIGRÉ (RM2889) — src/views/sessions/Sessions.view.js
-
-// ----- RM1939/RM2834/RM2991/RM2418 : « Reprendre une session » — MIGRÉ (RM2889) : src/controllers/resume.controller.js -----
-// La carte #rescard est l'hôte ; le lanceur (chargement des projets, contexte client, panneau) lui parle par ces ponts :
-function loadResumable() { karlCall("resume", "load"); }
-
-
-// ----- panneau de pilotage (méta de la session) -----
-const resolveCache = {};
-const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
-// RM2173 : le ticket affiché dans l'encart ℹ (≠ session attachée) vit dans le contrôleur migré (meta) — ponts plus bas
-// groupsCache / orderedCache (RM2173/RM2302) : MIGRÉS (RM2889) — le contrôleur sessions les expose (groups / ordered)
-function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
-// >>> titleLink — pur (testé par test_cockpit.js ; esc + CFG fournis au contexte)
-// Titre de ticket cliquable → fiche infos (showTicket), suivi d'un petit lien ↗ vers
-// Redmine (construit depuis CFG.redmine_url). rmId absent/non numérique (chantier,
-// session slug) → texte simple, non cliquable. event.stopPropagation : un titre dans
-// une tuile ouvre la fiche SANS déclencher l'action de la tuile (attacher).
-function titleLink(rmId, title) {
-  const t = esc(title == null ? "" : title);
-  if (rmId == null || !/^\d+$/.test(String(rmId))) return t;
-  const id = String(rmId);
-  const lbl = '<span class="tlink" title="Voir la fiche du ticket RM' + id + '" '
-    + 'onclick="showTicket(' + id + ');event.stopPropagation()">' + t + '</span>';
-  const base = (typeof CFG !== "undefined" && CFG && CFG.redmine_url) || "";
-  const ext = base
-    ? ' <a class="rmext" href="' + esc(base) + '/issues/' + id + '" target="_blank" rel="noopener"'
-      + ' title="Ouvrir RM' + id + ' dans Redmine" onclick="event.stopPropagation()">↗</a>'
-    : '';
-  return lbl + ext;
-}
-// <<< titleLink
-// RM2630 : `resolveCache` n'avait NI péremption NI invalidation — un ticket
-// n'était résolu qu'une fois par chargement de page, et la douzaine de vues qui
-// lisent ce cache (liste, encart ℹ, lanceur, fiche de revue, tickets ouverts)
-// servaient toutes la même donnée figée. Toute écriture faite hors cockpit
-// (statut, description, chiffrage) restait invisible jusqu'au F5, sans que rien
-// ne le signale — on cherche alors l'anomalie côté synchro Redmine/MD, où il n'y
-// a rien à trouver. D'où : horodatage des entrées + révalidation au retour sur
-// un ticket + rechargement manuel (⟳) + date de la version affichée.
-const resolveAt = {};             // rm_id → Date.now() de la dernière résolution (partagé avec le dépôt ticket)
-const mcCache = {};        // rmId → {t, mc}   (idem)
-const usageCache = {};     // rmId → {t, usage} (idem)
-// ----- Modèle ticket (RM2630/2763/2384/2373/2611) : MIGRÉ (RM2889) — src/models/tickets/TicketRepository.js -----
-// Les caches ci-dessus restent ici, partagés PAR RÉFÉRENCE avec le dépôt (boot.js) : les
-// vues historiques les lisent encore en direct. La logique, elle, est dans le module. Ponts :
-function resolveStale(rm) { const r = karlCall("ticket", "stale", rm); return r === undefined ? true : r; }
-// RM2807 : la garde anti fan-out lit l'état « en vol » du dépôt (sa table `resolveInflight` a migré avec lui)
-function resolveInFlight(rm) { return !!karlCall("ticket", "inFlight", rm); }
-function ensureResolved(rm, force) { return karlWhen("ticket").then(t => t.ensureResolved(rm, force)); }
-function revalidateTicket(rm, after) { return karlWhen("ticket").then(t => t.revalidate(rm, after)); }
-function reloadTicket(rm) { return karlWhen("ticket").then(t => t.reload(rm)); }
-function sinceLabel(iso, now) { return karlCall("ticket", "sinceLabel", iso, now) || ""; }
-function mcFresh(rm) { return !!karlCall("ticket", "mcFresh", rm); }
-function ensureMergecheck(rm, force) { return karlWhen("ticket").then(t => t.ensureMergecheck(rm, force)); }
-function mcBanner(mc) { return karlCall("ticket", "mcBanner", mc) || ""; }
-function usageFresh(rm) { return !!karlCall("ticket", "usageFresh", rm); }
-function usageBusy(rm) { return !!karlCall("ticket", "usageInFlight", rm); }
-function ensureUsage(rm, force) { return karlWhen("ticket").then(t => t.ensureUsage(rm, force)); }
-function refreshUsage(rmId) { ensureUsage(rmId, true).then(() => renderMeta()); }
-function fmtUsd(x) { return karlCall("ticket", "fmtUsd", x) || ""; }
-function fmtRate(r) { return karlCall("ticket", "fmtRate", r) || "?"; }
-function modelWindow(m, r, c) { return karlCall("ticket", "modelWindow", m, r, c) ?? null; }
-function ctxPct(c, w) { return karlCall("ticket", "ctxPct", c, w) ?? null; }
-function fmtWin(w) { return karlCall("ticket", "fmtWin", w) || ""; }
-function throughput(a, b, c, d) { return karlCall("ticket", "throughput", a, b, c, d) ?? null; }
-// usageHtml / copyInfos (RM2373/2609/2611) : MIGRÉS (RM2889, revue 3/3) — src/views/tickets/Meta.view.js
-function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
-// tabTip : MIGRÉ (RM2889) — src/models/sessions/sessions.js
-// ----- Encart ℹ (RM2173/2579/2605/2614/2630/2673/2797/2807) : MIGRÉ (RM2889, revue 3/3) — src/controllers/meta.controller.js -----
-// Le ticket affiché et sa facette vivent dans le contrôleur ; le monolithe lui parle par ces ponts :
-function renderMeta() { karlCall("meta", "render"); }
-function renderInfos() { karlCall("meta", "renderInfos"); }
-function renderTickets() { karlCall("meta", "renderTickets"); }
-function showTicket(id) { karlCall("meta", "showTicket", id); }
-function setMetaTicket(rm) { karlCall("meta", "setTicket", rm); }
-function metaTicketIs(rm) { return !!karlCall("meta", "ticketIs", rm); }
-function refreshWorkspace(rm) { karlCall("meta", "refreshWorkspace", rm); }
-
-// ----- Markdown (RM2309), glossaire de projet (RM2675), modale doc / aide / glossaire (RM2593/2623/2759) : MIGRÉS (RM2889) — src/core/markdown.js, src/controllers/doc.controller.js -----
-// La modale #docmodal reste l'hôte ; les plans de lot du worklog y écrivent encore directement et la referment par closeDoc.
-function glossaireRows(md) { return karlCall("doc", "glossaireRows", md) || []; }
-function glossaireFiltre(rows, q) { const r = karlCall("doc", "glossaireFiltre", rows, q); return r === undefined ? (rows || []) : r; }
-function openDoc(path, name) { karlCall("doc", "openDoc", path, name); }
-function closeDoc() { karlCall("doc", "closeDoc"); }
-function docToCenter() { karlCall("doc", "docToCenter"); }
-function openHelp(topic) { karlCall("doc", "openHelp", topic); }
-function openGlossary(term) { karlCall("doc", "openGlossary", term); }
-
-// ----- RM2722/RM2458/RM2708/RM2748 : santé du poste et verrous — domaine MIGRÉ (RM2889, L5) : src/controllers/env.controller.js -----
-// Badge #envwarn, bouton #lockbtn et modale sont pilotés depuis boot.js ; le monolithe passe par karlCall("env", …).
-
-// ----- RM2522 terminal (client maison / iframe ttyd), RM2527 composer, RM2807 sonde, RM2168/2631 copies — MIGRÉS (RM2889) : src/controllers/terminal.controller.js -----
-// Ponts pour l'attache, la pile /refresh et les captures de sorties de scripts :
-function mountTerm(rmId) { karlCall("terminal", "mountTerm", rmId); }
-function unmountTerm() { karlCall("terminal", "unmountTerm"); }
-function composerRefresh() { karlCall("terminal", "composerRefresh"); }
-function showCaptureModal(title, txt) { karlCall("doc", "openPlain", title, txt); }
-
-// ----- attach / detach (onglets + barre d'actions) -----
-function attach(rmId) {
-  attached = String(rmId);
-  closeCenterView();                          // RM2759 : la vue centrale cède la place
-  closeCenterPanel();                         // RM2816 : le panneau central aussi
-  karlCall("review", "yieldTo");              // la vue revue cède la place (migrée)
-  closeProjectView();                         // RM2353 : la fiche projet aussi (migrée)
-  closeNewTicket();                           // RM2672 : la création cède la place
-  document.getElementById("placeholder").style.display = "none";
-  mountTerm(rmId);
-  document.getElementById("tabactions").style.display = "";
-  showRight();                      // RM2466 : déplie, sans changer d'onglet actif
-  karlCall("meta", "onAttach", rmId);   // RM2173 : le ticket affiché = l'ancrage de la session (encart migré)
-  // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
-  outlineReset();                                     // RM2330 : outline remis à zéro (migré), rechargé si ouvert
-  if (rightVisible("outline")) loadOutline();
-  if (rightVisible("state")) loadWorklog();   // RM2466 : le travail suit la session attachée
-  karlCall("git", "reset");   // RM2602 → migré
-  if (rightVisible("git")) karlCall("git", "refresh");
-  if (rightVisible("files")) filesEnsure();  // RM2673 : les fichiers suivent la session
-  renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
-  switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
-  renderCurTitle();
-  // RM2672 : la vue devient un onglet (non épinglé par défaut : un aperçu)
-  noteTab("session", String(rmId), (/^\d+$/.test(String(rmId)) ? "RM" : "") + rmId);
-  refreshSessions();   // re-rend la liste pour marquer l'actif
-}
-function reattach() { if (attached) attach(attached); }
-function detach() {
-  attached = null;
-  setMetaTicket(null);
-  document.getElementById("reviewpane").style.display = "none";
-  unmountTerm();
-  document.getElementById("placeholder").style.display = "flex";
-  karlCall("dashboard", "refresh");   // RM2697 : le centre redevient le tableau de bord
-  document.getElementById("tabactions").style.display = "none";
-  collapseRight();                  // RM2466 : plus de session → la colonne se replie
-  renderMeta();                     // RM2579 : vide infos + tickets (plus de #metabody)
-  outlineReset();                   // RM2330/RM2579 : outline vidé, lecture inline refermée (migré)
-  // RM2586 : oublie les worktrees de la session. RM2673 : le panneau se rabat
-  // alors sur le projet courant (fiche ouverte, jeu) au lieu de rester muet —
-  // `filesEnsure` recharge s'il est visible, sinon le prochain dépliage le fera.
-  filesReset();                                 // explorateur migré : oublie les worktrees, dit qu'il attend
-  if (rightVisible("files")) filesEnsure();
-  document.getElementById("chipsrow").style.display = "none";
-  renderCurTitle();
-}
-
-// ----- RM2285 : rouvrir un ticket fermé — MIGRÉ (RM2889) : src/controllers/launcher.controller.js (pont reopenTicket plus haut) -----
-
-// ----- RM2386/RM2213/RM2211 : thème, réglages, commandes PM — domaines MIGRÉS (RM2889, L5) : src/controllers/{settings,pmcmd}.controller.js -----
-
-// ----- RM2353/RM2590/RM2531/RM2696 : fiche projet — surface MIGRÉE (RM2889) : src/controllers/project.controller.js -----
-// Enregistrée auprès du routeur du centre par boot.js. Ponts pour les appelants historiques :
-function openProjectView(key) { karlCall("project", "open", key); }
-function closeProjectView() { karlCall("project", "close"); }
-function currentProjectKey() { return karlCall("project", "current") || null; }
-
-// le nom tmux d'une session, sans dépendre du DOM (utilisé par attentionRows)
-function tmuxNameOf(sid) { return (/^\d+$/.test(String(sid)) ? "RM" : "") + String(sid); }
-
-// ----- Revue (RM2210/2229/2384/2726/2786/2818/2832/2873/2888) : surface MIGRÉE (RM2889) — src/controllers/review.controller.js -----
-// Enregistrée auprès du routeur par boot.js. Ponts pour les appelants historiques (fiche ℹ, worklog, listes, lanceur) :
-function openReview(rm) { karlCall("review", "open", rm); }
-function closeReview(rm) { karlCall("review", "close", rm); }
-function renderReviewPane() { karlCall("review", "render"); }
-function reviewCurrent() { return karlCall("review", "current") || null; }
-function reviewTabsList() { return karlCall("review", "tabs") || []; }
-function tqVerdict(rm, kind, btn) { karlCall("review", "verdict", rm, kind, btn); }
-function openStatusMenu(ref, anchor, ev) { if (ev && ev.stopPropagation) ev.stopPropagation(); karlCall("review", "openStatusMenu", ref, anchor, ev); }
-function closeStatusMenu() { karlCall("review", "closeStatusMenu"); }
-function confirmSecondSession(rm) { return karlWhen("review").then(r => r.confirmSecondSession(rm)); }
-function taskPromptText(tpl, rm, client, project, hint) { return karlCall("review", "taskPromptText", tpl, rm, client, project, hint) || ""; }
-function promptTemplateOptions(sel) { return karlCall("review", "promptTemplateOptions", sel) || ""; }
-function promptFillOnChange(tpl, cur, computed) { const r = karlCall("review", "promptFillOnChange", tpl, cur, computed); return r === undefined ? String(cur || "") : r; }
-
-async function pmRun(name, args, opts) {
-  const body = { name, args };
-  if (opts && opts.confirm) body.confirm = true;
-  const res = await api("/pm/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-  // RM2630 : une commande PM vient d'écrire sur le ticket — l'entrée de cache
-  // est périmée par construction. On la marque telle quelle plutôt que de
-  // compter sur un `ensureResolved(rm, true)` posé au cas par cas à chaque
-  // appelant (c'est ce qui manquait : 5 appelants sur N y pensaient).
-  const rm = args && (args.rm_id || args.rmId);
-  if (rm !== undefined && rm !== null) delete resolveAt[String(rm)];
-  return res;
-}
-
-// ----- File « à tester » (RM2210/RM2315/RM2588) : domaine MIGRÉ (RM2889) — src/controllers/testqueue.controller.js -----
-// #tqcard est monté par boot.js. Ponts pour la revue, qui lit encore la file et rend ses gestes d'env :
-function loadTestQueue() { karlCall("testqueue", "load"); }
-function tqEntry(rm) { return karlCall("testqueue", "entry", rm); }
-function tqLoaded() { return !!karlCall("testqueue", "loaded"); }
-function tqSize() { return karlCall("testqueue", "size") || 0; }
-function tqDeploy(rm, btn) { karlCall("testqueue", "deploy", rm, btn); }
-function tqTeardown(rm, btn) { karlCall("testqueue", "teardown", rm, btn); }
-function tqDeployShared(rm, btn) { karlCall("testqueue", "deployShared", rm, btn); }
-
-const tsCache = {};   // rm → payload /ticket-sessions (partagé par référence avec le dépôt ticket)
-function ensureTicketSessions(rm, force) { return karlWhen("ticket").then(t => t.ensureTicketSessions(rm, force)); }
-function ticketBusySessions(payload) { return karlCall("ticket", "busySessions", payload) || { alive: [], stopped: [] }; }
-
-// RM2832 — clic sur une étiquette : la recherche de tickets s'y règle (recherche migrée).
-function filterByTag(tag) { switchPanel("tickets"); karlCall("search", "setTag", tag); }
-
-// ----- §2 chips (RM1893), actions PM d'un ticket (RM2720), §3 moniteurs, disposition (RM2515), fermeture — MIGRÉS (RM2889) : src/controllers/actions.controller.js -----
-// Ponts pour l'attache et les tuiles de la liste des sessions :
-function renderChips() { karlCall("actions", "renderChips"); }
-function kill(rmId) { karlCall("actions", "kill", rmId); }
-function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMenu", s, anchor); }
-
-(async function init() {
-  try { CFG = await (await fetch("/cockpit-config")).json(); } catch (e) {}
-  // RM2386 : réconcilie le thème du premier paint (cache localStorage) avec le
-  // défaut d'instance qu'on vient d'apprendre. No-op si identique.
-  karlCall("settings", "setServerTheme", CFG.ui_theme);
-  populateResumeEngines();   // RM2539 : moteurs réellement reprenables
-  authBoot();   // RM2334 : carte « Authentification », jeton mémorisé, écran de login, whoami — contrôleur migré (auth)
-  // peuple le sélecteur de moniteurs + les dispositions depuis la config serveur
-  karlCall("actions", "fillPresets", CFG);   // moniteurs + dispositions des panes depuis la config (actions de session migrées)
-  karlCall("launcher", "populateModels");   // RM1941 : catalogue des modèles du moteur courant (lanceur migré)
-  // RM2873 : modèles de consigne — même source que la fiche du ticket
-  // → migré (RM2889) : boot.js peuple #ptpl depuis la source unique des modèles de consigne
-  // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
-  karlCall("launcher", "fillTicketForm");   // types + priorités depuis la config (source unique : pm-task-add) — lanceur migré
-  // wiring
-  // RM2334 : Entrée dans le login → posé par le contrôleur migré (auth)
-  // RM2330 : navigation clavier dans l'historique de conversation. Ne prend que
-  // quand le focus est sur la page cockpit (l'iframe ttyd est cross-origin :
-  // impossible d'y intercepter les touches — cliquer hors du terminal d'abord).
-  document.addEventListener("keydown", e => {
-    if (!attached || !e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.key === "ArrowUp") { e.preventDefault(); jumpUser(-1); }
-    else if (e.key === "ArrowDown") { e.preventDefault(); jumpUser(1); }
-    else if (e.key === "End") { e.preventDefault(); scrollLive(); }
-    // RM2527 : Alt+C donne le focus au composer. Le terminal capte tout le
-    // clavier une fois qu'il l'a — il faut un raccourci pour en sortir, et
-    // Échap dans le composer le rend.
-    else if (e.key === "c" || e.key === "C") {
-      const ta = document.getElementById("cmptext");
-      if (ta && ta.offsetParent) { e.preventDefault(); ta.focus(); }
-    }
-  });
-  // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap) — contrôleur migré (terminal)
-  karlCall("launcher", "loadProjects");   // projets connus → formulaires, reprise, recherche, contexte client (lanceur migré)
-  // RM2283 : restaure le panneau gauche actif (RM2816 : les réglages n'y sont plus)
-  switchPanel(localStorage.getItem("karlPanel") || "running");
-  // RM2466/RM2579 : la disposition (repli des colonnes, onglet de droite, largeur) est restaurée par le contrôleur migré (layout) au montage
-  // RM2672 : les onglets ÉPINGLÉS survivent au rechargement. On les réaffiche, et on
-  // rouvre celui qui était actif — mais jamais une session : la rattacher au boot
-  // monterait un terminal que l'utilisateur n'a pas demandé.
-  // → migré (cluster centre) : boot.js restaure les onglets épinglés APRÈS ce
-  //   script, sans jamais rattacher une session (RM2672/RM2744).
-  // RM2334/RM2816 : auth requise et pas encore de jeton → les réglages (carte
-  // « Authentification », appareils) sont ce qu'on vient chercher. Après la
-  // restauration des onglets : cette intention-là prime sur le dernier onglet.
-  if (CFG.auth_required && !token()) karlCall("center", "openPanel", "settings");
-  // RM2757 : état replié/déplié de la carte, avant le premier rendu — sinon
-  // elle s'ouvre puis se referme sous les yeux.
-  try {
-    // RM2757 : l'état replié/déplié de la carte « tickets ouverts » est posé par le contrôleur migré (tickets)
-  } catch (e) { /* mode privé : replié, comme au premier lancement */ }
-  karlCall("voice", "boot");   // RM2329/RM2350/RM2532 : voix — migré
-  // RM2344/RM2346 : préférence de tri et gel du réordonnancement — posés par le contrôleur migré (sessions) au montage
-  try { speechSynthesis.onvoiceschanged = () => karlCall("voice", "paint"); } catch (e) { /* pas de synthèse */ }
-  refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
-  refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
-  // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
-  // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
-  karlCall("dashboard", "refresh");       // RM2697 : l'écran d'ouverture dit ce qui attend
-  karlCall("env", "boot");   // RM2722/RM2748 : badge du poste et verrous au démarrage — migré
-  // RM2763 : health (15 s) et worklog (10 s) n'ont plus de timer propre — ils
-  // voyagent dans le composite /refresh du tick ci-dessous, chacun à sa période.
-  // RM2763 : PLUS AUCUN setInterval — tous les pollers voyagent dans le
-  // composite /refresh du tick unique, chacun à sa période (REFRESH_PERIOD_MS) :
-  // dashboard 30 s (gated dashVisible), vault 60 s, env-check et MAJ core 5 min
-  // (alignés sur la mémorisation serveur), pending 45 s, health 15 s,
-  // worklog 10 s. Les cadences lentes gardent leur raison d'être d'origine
-  // (RM2697, RM2722, RM2571, RM2598) — seule la mécanique de transport change.
-  tickSessions();        // pile /refresh (migrée) : premier tick — tous les blocs sont dus —, cadence adaptative, rattrapage au retour au premier plan
-})();
-</script>
 </body>
 </html>

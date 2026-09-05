@@ -68,15 +68,13 @@ function fakeElement() {
   const H = await import(path.join(DIR, "src/core/html.js"));
   const E = await import(path.join(DIR, "src/core/endpoints.js"));
 
-  // — 1. le déplacement n'a rien changé —
-  for (const name of ["esc", "jarg"]) {
-    const legacy = fromIndex(name);
-    for (const v of CAS) {
-      assert.strictEqual(H[name](v), legacy(v),
-        `${name}(${JSON.stringify(v)}) diverge entre index.html et core/html.js`);
-    }
+  // — 1. le déplacement n'a rien changé — (RM2889 L6 : le script inline a disparu ; la référence est l'implémentation historique, recopiée ici)
+  const escRef = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const jargRef = (v) => "'" + String(v == null ? "" : v).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
+  for (const [name, ref] of [["esc", escRef], ["jarg", jargRef]]) {
+    for (const v of CAS) assert.strictEqual(H[name](v), ref(v), `${name}(${JSON.stringify(v)}) diverge de l'implémentation historique`);
   }
-  console.log(`✓ esc et jarg identiques à index.html sur ${CAS.length} cas`);
+  console.log(`✓ esc et jarg identiques à l'implémentation historique sur ${CAS.length} cas`);
 
   // — 2. jarg protège bien un handler inline en guillemets doubles —
   //      (le piège documenté : JSON.stringify refermerait l'attribut)
@@ -176,11 +174,9 @@ function fakeElement() {
   // — 9. api : comportement identique à index.html, erreurs à quatre champs —
   const A = await import(path.join(DIR, "src/core/api.js"));
   const ER = await import(path.join(DIR, "src/core/errors.js"));
-  const legacyHeaders = vm.runInNewContext(
-    "(" + fromIndexSource("headers") + ")", { CFG: { auth_required: true }, token: () => "T" });
   A.configureApi({ authRequired: true, token: () => "T" });
-  assert.deepStrictEqual(A.headers({ a: "1" }), { ...legacyHeaders({ a: "1" }) },  // autre realm vm
-    "headers() diverge entre index.html et core/api.js");
+  assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1", "X-Karl-Token": "T" }, "headers() : les en-têtes fournis + le jeton quand l'auth est active (comportement historique)");
+  A.configureApi({ authRequired: false }); assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1" }, "auth inactive : pas de jeton"); A.configureApi({ authRequired: true, token: () => "T" });
   const fakeFetch = (status, body, ct = "application/json") => async () => ({
     ok: status < 400, status, statusText: "ST",
     headers: { get: () => ct }, json: async () => body, text: async () => String(body),

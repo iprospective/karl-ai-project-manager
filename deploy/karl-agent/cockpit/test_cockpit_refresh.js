@@ -77,7 +77,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — hôtes et ponts dans index.html —
   ["health", "healthtxt", "updbtn"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   assert(!/id="updbtn"[^>]*\son\w+=/.test(html), "#updbtn ne porte plus de on*"); const nav = /<nav class="lnav">[\s\S]*?<\/nav>/.exec(html)[0]; assert(!/\son\w+=/.test(nav) && (nav.match(/data-panel="/g) || []).length === 6, "les onglets gauche : data-panel seul, plus de on*");
-  assert(/function refreshSessions\(\) \{ return karlWhen\("refresh"\)\.then\(r => r\.refreshSessions\(\)\); \}/.test(html) && /function tickSessions\(\) \{ karlCall\("refresh", "start"\); \}/.test(html) && /function switchPanel\(name\) \{ karlCall\("layout", "switchPanel", name\); \}/.test(html), "ponts refreshSessions / tickSessions / switchPanel");
+  { const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"); assert(/refreshCtl\.start\(\);/.test(boot) && /layout\.restorePanel\(\);/.test(boot) && /refresh: refreshCtl,/.test(boot), "boot.js : premier tick depuis l'init, panneau restauré, l'attache rafraîchit par le contrôleur"); }
   assert(!/setInterval|refreshFetch\(|PANEL_LOADERS|renderHealth\(|renderCoreUpdate\(/.test(html.replace(/\/\/[^\n]*/g, "")), "plus aucun poller ni renderer de santé/MAJ dans le monolithe");
   const ctrl = fs.readFileSync(path.join(DIR, "src/controllers/refresh.controller.js"), "utf8"); assert(/visibilitychange/.test(ctrl) && /hidden/.test(ctrl), "pollers gatés sur la visibilité (RM2613)");
   console.log("✓ hôtes sans on*, ponts en place, plus de poller dans le monolithe");

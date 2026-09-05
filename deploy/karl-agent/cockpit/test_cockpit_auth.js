@@ -86,7 +86,7 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   ["authgate", "auth-user", "auth-pass", "gate-err", "token", "authcard", "auth-session", "auth-me", "auth-devices", "userscard", "users-list", "nu-name", "nu-pass", "lock"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   const gateHtml = html.slice(html.indexOf('<div id="authgate">'), html.indexOf("<header>")); assert(!/\son\w+=/.test(gateHtml) && /data-action="login"/.test(gateHtml) && /data-action="save-token"/.test(gateHtml), "l'écran de login : plus de on*, gestes en data-action");
   const cardsHtml = html.slice(html.indexOf('id="authcard"'), html.indexOf('id="voicecard"')); assert(!/\son\w+=/.test(cardsHtml) && /data-action="logout"/.test(cardsHtml) && /data-action="create"/.test(cardsHtml), "les cartes : idem");
-  assert(/function authBoot\(\) \{ karlCall\("auth", "boot"\); \}/.test(html) && /^\s+authBoot\(\);/m.test(html), "pont authBoot appelé par l'init"); assert(!/function (login|logout|renderAuth|loadDevices|loadUsers|createUser|saveToken|deviceName)\(/.test(html), "plus de logique d'auth dans le monolithe");
+  assert(/\n  auth\.boot\(\);/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")), "l'init de boot.js appelle auth.boot une fois CFG connu"); assert(!/function (login|logout|renderAuth|loadDevices|loadUsers|createUser|saveToken|deviceName)\(/.test(html), "plus de logique d'auth dans la page");
   assert(/token: \(\) => auth\.token\(\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")), "le terminal lit le jeton sur le contrôleur");
   console.log("✓ hôtes sans on*, pont authBoot, monolithe vidé de l'auth");
   console.log("\nTous les tests de l'authentification passent.");

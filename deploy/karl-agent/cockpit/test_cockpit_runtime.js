@@ -1,121 +1,48 @@
 #!/usr/bin/env node
-// Tests RM2714 — le cockpit s'EXÉCUTE (pas seulement : il compile).
+// Tests RM2714 (repris pour la refonte RM2889, L6) — le cockpit s'EXÉCUTE, pas seulement : il compile.
 //
-// test_cockpit.js vérifie la syntaxe et les fonctions pures, une par une, dans
-// des sandboxes isolés. Aucun de ces filets n'attrape le défaut qui a cassé la
-// production : un identifiant appelé HORS de la portée où il est déclaré
-// (`const val = …` local à une fonction, appelé depuis quatre autres). C'est une
-// `ReferenceError` à l'exécution — donc il faut exécuter.
-//
-// Ce harnais monte un DOM minimal, évalue le script complet, puis exerce les
-// fonctions qui touchent au DOM et que les tests purs ne peuvent pas couvrir.
-// Il ne remplace pas un navigateur : il attrape les identifiants morts.
-//
+// Avant la refonte, ce harnais évaluait le <script> inline entier dans un DOM minimal pour attraper les identifiants hors portée
+// (ReferenceError à l'exécution, invisible aux tests purs). Le script inline a disparu : la page ne porte plus que le boot de thème
+// (avant le premier paint) et charge `src/boot.js` en module. Ce que ce harnais vérifie désormais :
+//   1. index.html n'a plus qu'UN bloc inline (theme-boot), qui s'évalue et pose data-theme ;
+//   2. aucun handler inline (on*) ne subsiste dans la page — tout geste passe par une délégation posée par un contrôleur ;
+//   3. TOUS les modules de src/ (sauf boot.js, qui touche le document) s'importent sous node nu : un import cassé, un export
+//      manquant ou un accès au DOM à l'import = page morte au chargement ;
+//   4. chaque import statique de boot.js pointe un fichier existant et un export existant.
 // Lancer : node deploy/karl-agent/cockpit/test_cockpit_runtime.js
 "use strict";
-const fs = require("fs");
-const path = require("path");
-const assert = require("assert");
-const vm = require("vm");
+const fs = require("fs"); const path = require("path"); const assert = require("assert"); const vm = require("vm"); const DIR = __dirname;
+const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
 
-const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
-let js = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].map(m => m[1]).join("\n");
-// L'IIFE d'init démarre les boucles de poll de la page. On la NEUTRALISE : ce
-// harnais teste des rendus, pas une page vivante — et un poll qui se replanifie
-// ne rendrait jamais la main. Le reste du script s'évalue normalement, ce qui
-// est précisément ce qu'on veut vérifier (déclarations et portées).
-js = js.replace("(async function init() {", "(async function init() { if (globalThis.__NO_INIT) return;");
+// 1. un seul inline : le boot de thème
+const blocks = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(b => b[1].trim());   // les <script src> externes n'ont pas de corps
+assert.strictEqual(blocks.length, 1, "un seul <script> inline attendu (theme-boot)"); assert(/id="theme-boot"/.test(blocks[0][0]), "…et c'est le boot de thème");
+const docEl = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } };
+const sb = { window: {}, document: { documentElement: docEl }, localStorage: { getItem: () => null }, matchMedia: () => ({ matches: false, addEventListener() {} }) }; sb.window = sb;
+vm.runInNewContext(blocks[0][1], sb); assert.strictEqual(docEl.attrs["data-theme"], "dark", "le thème est posé avant le premier paint (défaut historique : sombre)");
+assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html), "la page charge src/boot.js en module");
+console.log("✓ index.html : un seul inline (theme-boot), qui s'évalue ; boot.js en module");
 
-// — DOM factice : assez complet pour que le script s'évalue en entier —
-function el(tag) {
-  const e = {
-    tagName: tag || "div", innerHTML: "", textContent: "", value: "", checked: false,
-    // `options` porte une entrée factice : du code réel écrit `sel.options[0]`
-    // (libellé d'un <select>, cf. auto-oui). Un tableau vide faisait échouer le
-    // harnais AVANT d'atteindre ce qu'il teste — RM2761.
-    style: {}, dataset: {}, options: [{ textContent: "", value: "" }], children: [],
-    classList: { add() {}, remove() {}, toggle() {}, contains: () => false },
-    appendChild(c) { this.children.push(c); return c; },
-    insertBefore(c) { this.children.push(c); return c; },
-    removeChild() {}, remove() {}, focus() {}, blur() {}, click() {},
-    setAttribute() {}, getAttribute: () => null, removeAttribute() {},
-    addEventListener() {}, removeEventListener() {}, scrollIntoView() {},
-    closest: () => null, querySelector: () => el(), querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ top: 0, left: 0, width: 0, height: 0 }),
-  };
-  return e;
-}
-const store = { getItem: () => null, setItem() {}, removeItem() {} };
-const sandbox = {
-  console: { log() {}, warn() {}, error() {}, debug() {} },
-  setTimeout, clearTimeout, setInterval: () => 0, clearInterval,
-  JSON, Math, Date, Number, String, Boolean, Array, Object, RegExp, Promise, Set, Map,
-  encodeURIComponent, decodeURIComponent, parseInt, parseFloat, isNaN, isFinite, Error,
-  URL, URLSearchParams,
-  document: {
-    getElementById: () => el(), querySelector: () => el(), querySelectorAll: () => [],
-    createElement: t => el(t), addEventListener() {}, body: el("body"),
-    documentElement: el("html"), hidden: false, title: "",
-  },
-  navigator: { userAgent: "node", clipboard: { writeText: async () => {} } },
-  localStorage: store, sessionStorage: store,
-  location: { origin: "http://x", port: "", protocol: "http:", hostname: "x", search: "", href: "http://x/" },
-  fetch: async () => ({ ok: true, status: 200, json: async () => ({}), text: async () => "" }),
-  alert() {}, confirm: () => true, prompt: () => null,
-  requestAnimationFrame: fn => fn(),
-  matchMedia: () => ({ matches: false, addEventListener() {}, addListener() {} }),
-  // API navigateur touchées par l'init différé (voix, flux, audio) : stubées pour
-  // que le chargement complet de la page aille au bout — sinon le test ne dirait
-  // rien de ce qui se passe APRÈS la première ligne en erreur.
-  speechSynthesis: { getVoices: () => [], addEventListener() {}, speak() {}, cancel() {} },
-  SpeechSynthesisUtterance: function () { return {}; },
-  WebSocket: function () { return { addEventListener() {}, close() {}, send() {} }; },
-  EventSource: function () { return { addEventListener() {}, close() {} }; },
-  AbortController: function () { return { signal: {}, abort() {} }; },
-  Audio: function () { return { play: async () => {}, pause() {} }; },
-  MediaRecorder: function () { return { start() {}, stop() {} }; },
-  IntersectionObserver: function () { return { observe() {}, disconnect() {} }; },
-  ResizeObserver: function () { return { observe() {}, disconnect() {} }; },
-  btoa: s => Buffer.from(String(s)).toString("base64"),
-  atob: s => Buffer.from(String(s), "base64").toString(),
-};
-sandbox.window = sandbox;
-sandbox.globalThis = sandbox;
-sandbox.__NO_INIT = true;
-const ctx = vm.createContext(sandbox);
+// 2. plus aucun handler inline
+assert(!/\son(click|change|input|keydown|keyup|submit|toggle|load)="/.test(html), "plus aucun on* dans la page (RM2889 : délégation par data-action / data-cmd / data-link)");
+console.log("✓ aucun handler inline dans la page");
 
-// 1. le script s'évalue en ENTIER (une exception ici = page morte au chargement)
-vm.runInContext(js, ctx, { filename: "index.html<script>" });
-console.log("✓ le script du cockpit s'évalue en entier dans un DOM minimal");
-
-// 2. les fonctions qui ont cassé la prod (RM2614 → RM2714) s'exécutent
-//    sans identifiant mort. Le réseau et les notifications sont stubés : ce
-//    qu'on teste, c'est la portée des identifiants, pas le rendu.
-const errors = [];
-ctx.toast = (msg, isErr) => { if (isErr) errors.push(String(msg)); };
-ctx.api = async () => ({
-  commands: [
-    { name: "task-status", label: "Statut", category: "tickets", mutate: true,
-      args: [{ name: "rm_id", type: "rm_id", required: true, label: "Ticket" },
-             { name: "note", type: "text", max_len: 400, label: "Note" },
-             { name: "statut", type: "enum", choices: ["a_faire", "en_cours"], label: "Statut" },
-             { name: "force", type: "bool", label: "Forcer" }] },
-    { name: "conso-report", label: "Conso", category: "métriques", args: [] },
-  ],
-});
-
+// 3. + 4. les modules s'importent ; boot.js référence des fichiers et des exports existants
+const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x => x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
 (async () => {
-  // — panneau « commandes pm » : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_settings.js —
-
-  // — onglet fichiers : surface MIGRÉE (RM2889) — voir test_cockpit_files.js —
-
-  // — fiche projet : surface MIGRÉE (RM2889) — voir test_cockpit_project.js —
-
-  // — RM2761 : vue centrale MIGRÉE (RM2889, cluster centre) — voir test_cockpit_center.js —
-
-  assert.deepStrictEqual(errors, [], "aucune erreur signalée pendant les rendus");
+  const files = walk(path.join(DIR, "src")).filter(f => path.basename(f) !== "boot.js");
+  const mods = {};
+  for (const f of files) { try { mods[f] = await import(f); } catch (e) { throw new Error(path.relative(DIR, f) + " ne s'importe pas : " + e.message); } }
+  console.log("✓ " + files.length + " modules s'importent sous node nu (aucun accès au DOM à l'import, aucun import cassé)");
+  const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
+  let checked = 0;
+  for (const m of boot.matchAll(/^import (?:\{([^}]*)\}|\* as (\w+)) from "\.\/([^"]+)";/gm)) {
+    const file = path.join(DIR, "src", m[3]); assert(fs.existsSync(file), "boot.js importe un fichier absent : " + m[3]);
+    if (m[1]) for (const name of m[1].split(",").map(s => s.trim().split(/\s+as\s+/)[0]).filter(Boolean)) { assert(name in mods[file], "boot.js importe « " + name + " » que " + m[3] + " n'exporte pas"); checked++; }
+  }
+  assert(checked > 60, "boot.js : imports nommés vérifiés (" + checked + ")");
+  assert(!/\blegacy\(|\blexical\(/.test(boot), "boot.js ne lit plus rien du script inline (legacy / lexical ont disparu)");
+  assert(/\(async function init\(\)/.test(boot) && /refreshCtl\.start\(\)/.test(boot) && /auth\.boot\(\)/.test(boot), "l'init vit dans boot.js : config, auth, premier tick");
+  console.log("✓ boot.js : " + checked + " imports nommés résolus, aucun pont vers le script inline, init en place");
   console.log("OK — le cockpit s'exécute sans identifiant hors portée");
-})().catch(e => {
-  console.error("ÉCHEC :", e && e.stack ? e.stack : e);
-  process.exit(1);
-});
+})().catch(e => { console.error("ÉCHEC :", e && e.stack ? e.stack : e); process.exit(1); });

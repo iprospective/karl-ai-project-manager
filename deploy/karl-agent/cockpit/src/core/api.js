@@ -20,7 +20,9 @@ const cfg = {
 
 /** Configure le transport. Appelé une fois par boot.js, réappelable en test. */
 export function configureApi(opts = {}) {
-  Object.assign(cfg, opts);
+  // Les accesseurs (`get authRequired()`) sont conservés tels quels : Object.assign les aurait ÉVALUÉS une fois au boot —
+  // avant que la configuration d'instance ne soit connue — et le jeton n'aurait jamais été envoyé (incident RM2889, 2026-09-05).
+  for (const [k, d] of Object.entries(Object.getOwnPropertyDescriptors(opts))) Object.defineProperty(cfg, k, Object.assign(d, { configurable: true, enumerable: true }));
   return cfg;
 }
 

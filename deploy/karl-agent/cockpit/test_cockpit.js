@@ -764,33 +764,7 @@ for (const [nom, hex] of [["light", lightHex], ["dark", darkHex]]) {
   assert(r >= 4.5, `${nom} : libellé du bouton d'envoi ${mpFg[1]} sur ${mpBg[1]} = ${r.toFixed(2)}:1 < 4.5 (illisible)`);
 }
 console.log("✓ composer (RM2527) : bouton d'envoi compact et lisible sur son fond");
-// — configArgs (RM2531) : args /pm/run pour l'édition de conf projet/client —
-const fCA = />>> configArgs[\s\S]*?(function configArgs[\s\S]*?)\n\/\/ <<< configArgs/.exec(html);
-assert(fCA, "marqueurs >>> configArgs / <<< configArgs introuvables");
-const configArgs = vm.runInNewContext("(" + fCA[1] + ")", {});
-
-// (spread { ...res } : normalise le realm du vm.runInNewContext pour deepStrictEqual)
-// projet : client+project + champs non vides ; les vides sont omis
-assert.deepStrictEqual(
-  { ...configArgs("project", "iprospective/pm-ai-agents",
-    { name: "Nouveau", redmine: "pm-ai-agents", repo: "", branch: "  " }) },
-  { client: "iprospective", project: "pm-ai-agents", name: "Nouveau", redmine_project_id: "pm-ai-agents" },
-  "projet : champs vides/espaces omis, non vides trim");
-// projet : repo + branche pris en compte
-assert.deepStrictEqual(
-  { ...configArgs("project", "c/p", { name: "", redmine: "", repo: "g/r", branch: "dev" }) },
-  { client: "c", project: "p", gitlab_repo: "g/r", default_branch: "dev" },
-  "projet : gitlab_repo + default_branch");
-// client : pas de project, pas de gitlab même si fournis
-assert.deepStrictEqual(
-  { ...configArgs("client", "acme/shop", { name: "Acme", redmine: "acme-parent", repo: "x/y", branch: "main" }) },
-  { client: "acme", name: "Acme", redmine_project_id: "acme-parent" },
-  "client : ni project ni gitlab, seulement name + redmine");
-// aucun champ conf → null (rien à faire)
-assert.strictEqual(configArgs("project", "c/p", { name: "", redmine: "", repo: "", branch: "" }), null,
-  "aucun champ → null");
-assert.strictEqual(configArgs("client", "c/p", {}), null, "client sans champ → null");
-console.log("✓ configArgs (RM2531) : args /pm/run, champs vides omis, gitlab réservé au projet");
+// — configArgs (RM2531) : MIGRÉ (RM2889, fiche projet) — voir test_cockpit_project.js —
 
 // — 12. panneau « en attente de toi » (RM2466 volet 2) —
 const fPd = />>> pendingDecor[\s\S]*?(function pendingDecor[\s\S]*?)\n\/\/ <<< pendingDecor/.exec(html);
@@ -1754,53 +1728,9 @@ assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
   "chaque ligne du worklog rend l'avancement de son ticket");
 console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
 
-// — RM2696 : worklog PROJET (toutes sessions confondues) —
-// RM2723 : la ligne de MR est désormais une fonction partagée (session + projet).
+// — RM2696 : worklog PROJET — MIGRÉ (RM2889, fiche projet) — voir test_cockpit_project.js —
+// RM2723 : la ligne de MR reste une fonction partagée du monolithe (session + projet migré la reçoit en prêt).
 const mrLineHtml = grabO("mrLineHtml");
-const projWorklogHtml = grabO("projWorklogHtml", { mrLineHtml });
-assert(/rien en cours sur ce projet/.test(projWorklogHtml(null, escO, jargFn)),
-  "projet sans activité → message, pas de crash");
-const GRP = {
-  key: "acme/shop",
-  counts: { sessions_live: 1, sessions: 2, active: 2, waiting: 1, orphans: 1, mrs: 1, requests: 1 },
-  tickets: [
-    { rm_id: "11", status: "en_cours", title: "orphelin", bucket: "active",
-      sessions: [], has_live_session: false },
-    { rm_id: "10", status: "en_cours", title: "suivi", bucket: "active",
-      sessions: ["70"], has_live_session: true, checklist: { done: 1, total: 2, items: ["b"] } },
-    { rm_id: "12", status: "a_tester_demandeur", title: "en attente", bucket: "waiting",
-      sessions: ["71"], has_live_session: false },
-  ],
-  mrs: [{ iid: "9", ref: "RM12", target: "dev", url: "https://x/9", alive: false }],
-  requests: [{ text: "une demande", n: 1 }],
-  sessions: [{ sid: "70", alive: true, title: "T" }, { sid: "71", alive: false, title: "U" }],
-};
-const pw = projWorklogHtml(GRP, escO, jargFn);
-assert(/1 session\(s\) ouverte\(s\)/.test(pw) && /15|2 en cours/.test(pw), "bandeau de compteurs");
-assert(/💤 à reprendre/.test(pw), "un ticket actif sans session vivante est SIGNALÉ (le cas qu'on perd de vue)");
-assert(pw.indexOf("RM11") < pw.indexOf("RM10"), "…et il passe avant les tickets suivis");
-assert(/>1\/2 ✓</.test(pw), "l'avancement (RM2695) est repris dans la vue projet");
-assert(/🔀 MR à merger \(1\)/.test(pw) && /!9/.test(pw), "les MR non mergées sont listées");
-assert(/session éteinte/.test(pw), "une MR laissée par une session éteinte le dit");
-assert(/📥 demandes non ticketées \(1\)/.test(pw), "les demandes non ticketées remontent");
-assert(/a_tester_demandeur : 1/.test(pw), "les attentes sont comptées par statut (le geste diffère)");
-assert(/onclick="attach\('70'\)"/.test(pw), "les sessions sont attachables (arg en guillemets simples, jarg)");
-assert(/onclick="showTicket\(11\)"/.test(pw), "un ticket ouvre sa fiche (id numérique, pas d'injection)");
-// plafond d'affichage : borné ET annoncé
-const many = { counts: {}, tickets: Array.from({ length: 33 }, (_, i) =>
-  ({ rm_id: String(200 + i), status: "a_tester_demandeur", title: "t", bucket: "waiting",
-     sessions: [], has_live_session: false })), mrs: [], requests: [], sessions: [] };
-const pwMany = projWorklogHtml(many, escO, jargFn);
-assert((pwMany.match(/class="r-id"/g) || []).length === 20, "la liste est bornée à 20 lignes");
-assert(/… et 13 autre\(s\)/.test(pwMany), "…et la troncature est ANNONCÉE (jamais muette)");
-// échappement : titres et textes viennent des tickets et des demandes
-const pwXss = projWorklogHtml({ counts: {}, tickets: [{ rm_id: "1", status: "<b>s", title: "<img src=x>",
-  bucket: "active", sessions: ["<b>"], has_live_session: false }],
-  mrs: [], requests: [{ text: "<script>" }], sessions: [] }, escO, jargFn);
-assert(!/<img/.test(pwXss) && !/<script>/.test(pwXss) && /&lt;img/.test(pwXss),
-  "titre, statut, session et demande échappés (anti-XSS)");
-console.log("✓ worklog projet (RM2696) : orphelins en tête, MR pendantes, attentes comptées");
-
 
 // — RM2716 : sélection de tickets du worklog → traitement en série —
 const batchPlanHtml = grabO("batchPlanHtml");
@@ -3132,8 +3062,12 @@ console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais impos
 // — RM2861 : un fichier ouvert (fileBodyHtml : MIGRÉ, test_cockpit_center.js) —
 // Câblage : le rendu vivait en DOUBLE (panneau droit RM2586, vue projet RM2590).
 // Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
-assert.strictEqual((html.match(/h \+= fileBodyHtml\(f\)/g) || []).length, 2,
-  "les deux panneaux de fichier passent par le rendu commun");
+// RM2889 : la fiche projet est migrée — elle reçoit le rendu commun en prêt (fileBody) ;
+// seul l'onglet fichiers de droite l'appelle encore depuis le monolithe.
+assert.strictEqual((html.match(/h \+= fileBodyHtml\(f\)/g) || []).length, 1,
+  "l'onglet fichiers passe par le rendu commun");
+assert(/raw\(fileBody\(f\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/projects/ProjectPane.view.js"), "utf8")),
+  "…et la fiche projet aussi, par le rendu qu'on lui prête");
 
 assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
   "plus aucun contenu de fichier rendu dans le bloc encadré");

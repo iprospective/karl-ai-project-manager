@@ -21,115 +21,14 @@ assert(blocks.length >= 2, "attendu au moins 2 blocs <script> (theme-boot + prin
 blocks.forEach((b, i) => new vm.Script(b[1], { filename: `index.html<script#${i}>` }));
 console.log(`✓ syntaxe des ${blocks.length} blocs <script> inline`);
 
-// — 2. computeGroups —
-const fm = />>> computeGroups[\s\S]*?(function computeGroups[\s\S]*?)\n\/\/ <<< computeGroups/.exec(html);
-assert(fm, "marqueurs >>> computeGroups / <<< computeGroups introuvables");
-// computeGroups référence la constante module OTHER_SETS_GROUP (RM2445) : la fournir
-// au contexte isolé (sinon ReferenceError). Extraite du source pour éviter la dérive.
-const otherGrp = /const OTHER_SETS_GROUP = "([^"]*)"/.exec(html)[1];
-const computeGroups = vm.runInNewContext("(" + fm[1] + ")", { OTHER_SETS_GROUP: otherGrp });
-
-// groupement : jonction directe, fallback /resolve, divers
-const sessions = [
-  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100 },
-  { rm_id: "2", client: "acme", project: "shop", state: "idle", created: 200 },
-  { rm_id: "3", state: "attention", created: 50 },              // via resolveCache
-  { rm_id: "4", is_ticket: false, state: "working", created: 300 }, // non PM-tracké
-];
-const rcache = { "3": { found: true, client: "beta", project: "api" } };
-const { keys, groups, counts } = computeGroups(sessions, rcache, true);   // tri dynamique opt-in (RM2344)
-
-assert.deepStrictEqual(new Set(keys), new Set(["acme/shop", "beta/api", "divers"]), "clés de groupes");
-assert.strictEqual(groups.get("acme/shop").length, 2, "2 sessions acme/shop");
-assert.strictEqual(groups.get("beta/api")[0].rm_id, "3", "fallback resolveCache");
-assert.strictEqual(groups.get("divers")[0].rm_id, "4", "non résolu → divers");
-console.log("✓ groupement par client/projet (+ fallback, + divers)");
-
-// compteurs d'états
-assert.deepStrictEqual({ ...counts }, { total: 4, attention: 1, choice: 0, idle: 1, working: 2, ghost: 0 }, "compteurs");
-// RM2427 : les sessions ENREGISTRÉES non démarrées s'affichent (groupées comme les
-// autres) mais ne comptent ni dans `total` ni dans les états d'activité.
-const gh = computeGroups([
-  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100 },
-  { rm_id: "2", client: "acme", project: "shop", state: "ghost", ghost: true, created: null },
-  { rm_id: "3", ghost: true, state: "ghost" },
-], {}, true);
-assert.deepStrictEqual({ ...gh.counts }, { total: 1, attention: 0, choice: 0, idle: 0, working: 1, ghost: 2 }, "compteurs fantômes");
-assert.strictEqual(gh.groups.get("acme/shop").length, 2, "le fantôme est groupé avec sa session vivante");
-assert.strictEqual(gh.groups.get("divers")[0].rm_id, "3", "fantôme non résolu → divers");
-console.log("✓ RM2427 : fantômes affichés, comptés à part, hors compteurs d'activité");
-// RM2327 : l'état choice est compté à part et fait remonter son groupe
-const cg = computeGroups([
-  { rm_id: "9", client: "c", project: "p", state: "choice", created: 1 },
-  { rm_id: "8", client: "d", project: "q", state: "working", created: 999 },
-], {}, true);
-assert.strictEqual(cg.counts.choice, 1, "compteur choice");
-assert.strictEqual(cg.keys[0], "c/p", "groupe avec choice priorisé");
-console.log("✓ compteurs total/attention/choice/idle/working (+ tri choice)");
-
-
-// RM2537 : « hors du jeu courant » garde le chantier. Une vivante hors jeu était
-// versée dans un groupe unique, perdant son en-tête client/projet — « hors du
-// jeu » ne veut pas dire « sans projet ». Elle reste rangée en fin de liste.
-const oc = computeGroups([
-  { rm_id: "1", client: "acme", project: "shop", state: "working", created: 100, in_current: true },
-  { rm_id: "2", client: "beta", project: "api", state: "idle", created: 200, in_current: false },
-  { rm_id: "3", client: "gamma", project: "web", state: "idle", created: 300, in_current: false },
-  { rm_id: "4", ghost: true, state: "ghost", client: "beta", project: "api", in_current: false },
-], {}, true);
-assert(oc.keys.includes(otherGrp + " · beta/api"), "hors jeu : un groupe par chantier");
-assert(oc.keys.includes(otherGrp + " · gamma/web"), "hors jeu : chantiers distincts non fusionnés");
-assert.strictEqual(oc.keys[0], "acme/shop", "le jeu courant reste en tête");
-assert(oc.keys.indexOf(otherGrp + " · beta/api") > 0 &&
-       oc.keys.indexOf(otherGrp + " · gamma/web") > 0, "les hors-jeu restent en fin de liste");
-assert.strictEqual(oc.groups.get("beta/api").length, 1,
-  "un FANTÔME n'est jamais relégué hors du jeu (il est déjà éteint)");
-assert.strictEqual(oc.groups.get(otherGrp + " · beta/api")[0].rm_id, "2", "la vivante hors jeu, elle, l'est");
-console.log("✓ RM2537 : hors du jeu courant, mais toujours rangé par chantier");
-
-// tri : le groupe avec attention passe devant, même plus ancien
-assert.strictEqual(keys[0], "beta/api", "groupe en attention en tête");
-// puis activité récente : divers (created 300) avant acme/shop (200)
-assert.strictEqual(keys[1], "divers", "activité récente ensuite");
-assert.strictEqual(keys[2], "acme/shop", "le moins récent en dernier");
-console.log("✓ tri attention > activité récente > alpha");
-
-// tri alpha à égalité (pas d'attention, même created)
-const eq = computeGroups([
-  { rm_id: "10", client: "zeta", project: "z", state: "working", created: 10 },
-  { rm_id: "11", client: "alpha", project: "a", state: "working", created: 10 },
-], {}, true);
-assert.deepStrictEqual([...eq.keys], ["alpha/a", "zeta/z"], "alpha à égalité");
-console.log("✓ tri alphabétique à égalité");
-
-// RM2344 : SANS l'option (défaut), ordre STABLE — alphabétique pur, l'attention
-// et l'activité récente ne réordonnent plus rien.
-const stable = computeGroups(sessions, rcache);
-assert.deepStrictEqual([...stable.keys], ["acme/shop", "beta/api", "divers"], "défaut = alphabétique stable");
-console.log("✓ RM2344 : ordre stable par défaut (tri dynamique = opt-in)");
-
-// aucune session
-const empty = computeGroups([], {});
-assert.deepStrictEqual([...empty.keys], [], "aucun groupe");
-assert.strictEqual(empty.counts.total, 0, "total 0");
-console.log("✓ liste vide");
+// — 2. computeGroups (RM2140/2283/2427/2327/2537/2344) : MIGRÉ (RM2889, liste des sessions) — voir test_cockpit_sessions.js —
 
 // — 3. mdToHtml (RM2309) : MIGRÉ (RM2889, src/core/markdown.js) — voir test_cockpit_doc.js —
 // — 4. tqMatch (RM2315) : MIGRÉ (RM2889, file à tester) — voir test_cockpit_testqueue.js —
 
 // — 5. nextAttentionId (RM2302) : RETIRÉ avec le bouton « ⚠ suivante » de l'en-tête (RM2889) —
 
-// — 6. approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui —
-const fav = />>> approveShortcutVisible[\s\S]*?(function approveShortcutVisible[\s\S]*?)\n\/\/ <<< approveShortcutVisible/.exec(html);
-assert(fav, "marqueurs >>> approveShortcutVisible / <<< approveShortcutVisible introuvables");
-const approveShortcutVisible = vm.runInNewContext("(" + fav[1] + ")");
-
-const cache = { "10": { state: "attention" }, "11": { state: "working" } };
-assert.strictEqual(approveShortcutVisible("10", cache), true, "attachée en attention → visible");
-assert.strictEqual(approveShortcutVisible("11", cache), false, "attachée au travail → masqué");
-assert.strictEqual(approveShortcutVisible("99", cache), false, "session inconnue du cache → masqué");
-assert.strictEqual(approveShortcutVisible(null, cache), false, "rien d'attaché → masqué");
-console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis ✔ Oui");
+// — 6. approveShortcutVisible (RM2332) : MIGRÉ (RM2889) — voir test_cockpit_sessions.js —
 
 // — 5. voiceQueue (RM2329) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
@@ -260,18 +159,7 @@ for (const [fg, bg] of PAIRS) {
 }
 console.log(`✓ contrastes : thème clair AA sur ${PAIRS.length} paires, thème sombre sans régression`);
 
-// — effDisposition (RM2515) : disposition effective, ne vaut que sur idle, cède au live —
-const fmDisp = />>> effDisposition[\s\S]*?(function effDisposition[\s\S]*?)\n\/\/ <<< effDisposition/.exec(html);
-assert(fmDisp, "marqueurs >>> effDisposition / <<< effDisposition introuvables");
-const effDisposition = vm.runInNewContext("(" + fmDisp[1] + ")");
-assert.strictEqual(effDisposition("idle", "parke"), "parke", "idle+parké → parké");
-assert.strictEqual(effDisposition("idle", "termine"), "termine", "idle+terminé → terminé");
-assert.strictEqual(effDisposition("idle", null), "a_traiter", "idle sans marque → à traiter (défaut)");
-assert.strictEqual(effDisposition("idle", ""), "a_traiter", "idle vide → à traiter");
-assert.strictEqual(effDisposition("working", "termine"), null, "working → null (cède au live)");
-assert.strictEqual(effDisposition("attention", "parke"), null, "attention → null (cède au live)");
-assert.strictEqual(effDisposition("choice", "parke"), null, "choice → null (cède au live)");
-console.log("✓ effDisposition (RM2515) : ne vaut que sur idle, cède aux évènements live");
+// — effDisposition (RM2515) : MIGRÉ (RM2889) — voir test_cockpit_sessions.js —
 // — 5. protocole ttyd du client terminal maison (RM2522) —
 // karl-term.js est un fichier séparé (première dépendance front du cockpit) :
 // on vérifie sa syntaxe, puis ses fonctions pures de framing, extraites par les
@@ -449,15 +337,7 @@ box.fire("keydown", {}); box.fire("input", key("é"));
 assert.deepStrictEqual(sent, ["é"], "la session vivante reçoit l'accent");
 assert.deepStrictEqual(zombieSent, [], "la session démontée ne capte plus rien");
 console.log("✓ hook de saisie : accents repris, pas de doublon, écouteurs libérés au démontage");
-// — sortFrozen (RM2346) : gel du réordonnancement dynamique pendant l'interaction —
-const fmFrz = />>> sortFrozen[\s\S]*?(function sortFrozen[\s\S]*?)\n\/\/ <<< sortFrozen/.exec(html);
-assert(fmFrz, "marqueurs >>> sortFrozen / <<< sortFrozen introuvables");
-const sortFrozen = vm.runInNewContext("(" + fmFrz[1] + ")");
-assert.strictEqual(sortFrozen(false, true, 0), false, "ordre stable → jamais gelé");
-assert.strictEqual(sortFrozen(true, true, 99999), true, "dynamique + survol → gelé");
-assert.strictEqual(sortFrozen(true, false, 500), true, "dynamique + mouvement récent (<2s) → gelé");
-assert.strictEqual(sortFrozen(true, false, 3000), false, "dynamique + inactif (>2s) → dégelé");
-console.log("✓ sortFrozen (RM2346) : gèle le tri dynamique pendant l'interaction, stable jamais gelé");
+// — sortFrozen (RM2346) : MIGRÉ (RM2889) — voir test_cockpit_sessions.js —
 
 // — ttsMode / sttMode (RM2532/RM2533) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
@@ -636,20 +516,7 @@ console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables,
 // — RM2623/RM2634 : glossaire du jargon : MIGRÉ (RM2889) — voir test_cockpit_doc.js —
 
 // — RM2639 : contexte client (pré-filtre global du cockpit) —
-// clientCtxList / clientCtxProject : MIGRÉS (RM2889, lanceur) — voir test_cockpit_launcher.js ; sessionInClient reste (liste des sessions)
-const sessionInClient = grabO("sessionInClient");
-const PJ = [
-  { client: "iprospective", project: "pm-ai-agents", value: "iprospective/pm-ai-agents" },
-  { client: "acme", project: "site", value: "acme/site" },
-  { client: "iprospective", project: "infra", value: "iprospective/infra" },
-];
-assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, ""), true, "ctx vide → visible");
-assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, "acme"), true, "même client → visible");
-assert.strictEqual(sessionInClient({ client: "bob", state: "working" }, null, "acme"), false, "autre client, non en attente → masqué");
-assert.strictEqual(sessionInClient({ client: "bob", state: "attention" }, null, "acme"), true, "autre client mais en attente → jamais masqué (RM2445)");
-assert.strictEqual(sessionInClient({ client: "bob", state: "choice" }, null, "acme"), true, "autre client mais choix → jamais masqué");
-assert.strictEqual(sessionInClient({ state: "working" }, { found: true, client: "acme" }, "acme"), true, "client résolu via resolveCache");
-console.log("✓ contexte client (RM2639) : liste, projet par défaut, filtre (attente jamais masquée)");
+// clientCtxList / clientCtxProject : MIGRÉS (RM2889, lanceur) — voir test_cockpit_launcher.js ; sessionInClient : MIGRÉ (RM2889, liste des sessions) — voir test_cockpit_sessions.js
 
 // — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
 const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
@@ -777,15 +644,15 @@ assert.strictEqual(setWritable(null, "pm", null), true, "cache vide toléré");
 const mRss2673 = /async function refreshSessionSets\(\)[\s\S]*?\n\}/.exec(html);
 assert(/setWritable\(setsCache, currentSet, currentView\)/.test(mRss2673[0]),
   "le bouton d'enregistrement s'appuie sur setWritable");
-const mGhost2673 = /const inSet = ([^;]+);/.exec(html);
-assert(/setWritable\(/.test(mGhost2673[1]), "⊖ et ⟳ des tuiles grises aussi");
+// RM2889 : ⊖ et ⟳ des tuiles grises, ⊖ des vivantes — décidés par `writable` (setWritable prêté) dans le ViewModel migré, voir test_cockpit_sessions.js
+const svm2673 = fs.readFileSync(path.join(__dirname, "src/viewmodels/sessions/SessionsViewModel.js"), "utf8");
+assert(/get inSet\(\) \{[^\n]*this\.ctx\.writable/.test(svm2673), "⊖ et ⟳ des tuiles grises aussi");
 const mSetList2673 = /async function loadSessionSet\(\)[\s\S]*?\n\}/.exec(html);
 assert(/r\.derived \? "" :/.test(mSetList2673[0]),
   "la liste des entrées n'offre ni ⊖ ni ⟳ sur un jeu dérivé");
 // une session VIVANTE appartient aussi aux jeux dérivés (RM2537) : son ⊖ doit
 // tomber sous la même règle que celui des tuiles grises
-const mLive2673 = /\(s\.sets \|\| \[\]\)\.includes\(currentSet\)([^?]*)\?/.exec(html);
-assert(mLive2673 && /setWritable\(/.test(mLive2673[1]),
+assert(/get canDrop\(\) \{[^\n]*\(this\.s\.sets \|\| \[\]\)\.includes\(st\.current\) && !!\(this\.ctx\.writable/.test(svm2673),
   "⊖ d'une session vivante : masqué quand le jeu courant est dérivé");
 // déplacer / scinder touchent eux aussi les entrées d'un jeu
 const mMove2673 = /const canMove = ([^;]+);/.exec(html);
@@ -1028,77 +895,15 @@ console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et acti
   assert(html.includes('id="' + id + '"'), "bouton manquant : " + id));
 console.log("✓ actions pertinentes (RM2786) : boutons hôtes en place, règle migrée");
 
-// — RM2787 : depuis combien de temps une session s'est-elle tue —
-const agoHM = grabO("agoHM", { Date, Math, String });
-const maintenant2787 = Math.floor(Date.now() / 1000);
-assert.strictEqual(agoHM(maintenant2787 - 42), "42s", "sous la minute : les secondes");
-assert.strictEqual(agoHM(maintenant2787 - 12 * 60), "12min", "sous l'heure : les minutes");
-// Le cœur de la demande : « 2h » couvrait cinquante-neuf minutes d'incertitude.
-assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 14 * 60)), "2h14",
-  "au-delà de l'heure : heures ET minutes");
-assert.strictEqual(agoHM(maintenant2787 - (2 * 3600 + 4 * 60)), "2h04",
-  "les minutes sont sur deux chiffres — « 2h4 » se lit mal");
-assert.strictEqual(agoHM(maintenant2787 - 3 * 3600), "3h",
-  "une heure pile ne s'encombre pas d'un « 00 »");
-assert.strictEqual(agoHM(maintenant2787 - 3 * 86400), "3j", "au-delà du jour, les jours");
-assert.strictEqual(agoHM(maintenant2787 + 500), "0s", "une date future ne rend pas un négatif");
-assert.strictEqual(agoHM(0), "", "absence d'horodatage → rien, pas « il y a 56 ans »");
-assert.strictEqual(agoHM(null), "", "…y compris null");
-// Le câblage : la donnée doit venir du serveur et être posée sur la tuile.
-assert(/#\{session_name\}/.test(fs.readFileSync(
-  path.join(__dirname, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")),
-  "le format tmux doit rester lisible côté serveur");
-// RM2793 : la tuile délègue à `quietHtml`, qui préfère le dernier message réel
-// à l'activité tmux (laquelle comptait les récapitulatifs automatiques).
-assert(/quietHtml\(s, esc\)/.test(html),
-  "la tuile doit afficher le silence de la session");
-assert(/dernière sortie il y a/.test(html),
-  "l'infobulle doit NOMMER la durée — « dernier message » promettrait autre chose");
-assert(/ago\(s\.created\)/.test(html),
-  "l'âge d'ouverture reste : les deux durées ne disent pas la même chose");
-console.log("✓ silence d'une session (RM2787) : heures et minutes, distinct de l'âge d'ouverture");
-
-// — RM2793 : le silence ne se remet pas à zéro sur un recap automatique —
-const quietSince = grabO("quietSince");
-const quietHtml = grabO("quietHtml", { quietSince: grabO("quietSince"), agoHM });
-
-// Le dernier MESSAGE prime : c'est lui qui exclut les récapitulatifs auto.
-assert.deepEqual(quietSince({ last_msg: 100, activity: 900 }), { ts: 100, exact: true },
-  "le dernier message prime sur l'activité tmux, même plus récente");
-assert.deepEqual(quietSince({ activity: 900 }), { ts: 900, exact: false },
-  "sans transcript exploitable, l'activité tmux reste la mesure");
-assert.deepEqual(quietSince({}), { ts: null, exact: false }, "aucune source → rien à afficher");
-assert.deepEqual(quietSince(null), { ts: null, exact: false }, "session absente tolérée");
-
-// Le rendu doit DIRE laquelle des deux mesures il montre : « dernier message »
-// et « dernière sortie » ne recouvrent pas la même chose.
-const qExact = quietHtml({ last_msg: Math.floor(Date.now() / 1000) - 3600 }, escO);
-assert(/Dernier message il y a/.test(qExact), "mesure exacte : l'infobulle le dit");
-assert(/récapitulatifs automatiques ne comptent pas/.test(qExact),
-  "…et rappelle ce qui en est exclu");
-assert(/⏳1h/.test(qExact), "la durée est affichée");
-assert(!/~/.test(qExact), "aucune marque d'approximation sur une mesure exacte");
-const qApprox = quietHtml({ activity: Math.floor(Date.now() / 1000) - 3600 }, escO);
-assert(/Dernière sortie du terminal/.test(qApprox), "repli : l'infobulle le dit aussi");
-assert(/⏳1h~/.test(qApprox), "…et la durée porte un « ~ », l'approximation se voit");
-assert.strictEqual(quietHtml({}, escO), "", "rien à mesurer → rien d'affiché");
-assert.strictEqual(quietHtml(null, escO), "", "session absente tolérée");
-// Le câblage : la tuile passe par le helper, plus par s.activity en direct.
-assert(/quietHtml\(s, esc\)/.test(html), "la tuile doit utiliser le helper");
-assert(!/s\.activity \? '<span class="tquiet"/.test(html),
-  "l'ancien affichage direct de l'activité tmux ne doit plus exister");
-assert(/dernier message il y a/.test(html), "l'infobulle de tuile nomme la mesure");
-console.log("✓ silence réel (RM2793) : les recaps automatiques ne remettent plus le compteur à zéro");
+// — RM2787/RM2793 : silence d'une session (agoHM, quietSince, quietHtml, infobulle) : MIGRÉS (RM2889) — voir test_cockpit_sessions.js —
 
 // — RM2795 : la marque d'épinglage (pinMark : MIGRÉ, test_cockpit_center.js) —
 // Les cinq surfaces doivent appeler la MÊME fonction — cinq variantes d'un même
 // signal, ce serait cinq signaux.
-const surfaces2795 = [
-  ['pinOf("session", s.rm_id)', "tuiles de session"],
-  ['pinOf("review", rm)', "revues ouvertes"],
-];
-surfaces2795.forEach(([frag, quoi]) =>
-  assert(html.includes(frag), "marque absente : " + quoi));
+// RM2889 : la liste des sessions est migrée — tuiles et revues ouvertes reçoivent la marque du routeur par le contrôleur
+const sessionsView2795 = fs.readFileSync(path.join(__dirname, "src/views/sessions/Sessions.view.js"), "utf8");
+assert(/raw\(pin\("session", s\.rm_id\)\)/.test(sessionsView2795), "marque absente : tuiles de session (migrées)");
+assert(/raw\(pin\("review", v\.rm\)\)/.test(sessionsView2795), "marque absente : revues ouvertes (migrées)");
 // RM2889 : la recherche est migrée — sa vue reçoit la marque du routeur par le contrôleur
 assert(/raw\(pin\("review", r\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/Search.view.js"), "utf8")),
   "marque absente : résultats de recherche (migrés)");
@@ -1373,45 +1178,7 @@ assert(/data-action="status" data-ref=/.test(fs.readFileSync(path.join(__dirname
   "le worklog aussi : c'est le second point d'entrée demandé (vue migrée)");
 console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut migré");
 
-// — RM2894 : libellé de la session en en-tête du panneau de droite —
-const mRt2894 = />>> rTitleHtml[\s\S]*?(function rTitleHtml[\s\S]*?)\n\/\/ <<< rTitleHtml/.exec(html);
-assert(mRt2894, "marqueurs >>> rTitleHtml / <<< rTitleHtml introuvables");
-const rTitleHtml2894 = vm.runInNewContext("(" + mRt2894[1] + ")", {});
-const escT2894 = s => String(s).replace(/[&<>"]/g, c =>
-  ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-
-// 1. session de ticket : le sujet Redmine prime sur le titre du transcript
-let h2894 = rTitleHtml2894("2894", { title: "titre transcript" },
-                   { found: true, title: "Sujet Redmine" }, escT2894);
-assert(/RM2894/.test(h2894), "l'identifiant d'un ticket est préfixé RM");
-assert(/Sujet Redmine/.test(h2894) && !/titre transcript/.test(h2894),
-  "le sujet Redmine prime quand le ticket est résolu");
-
-// 2. session ancrée sur un slug : pas de RM, et le titre du transcript sert de libellé
-h2894 = rTitleHtml2894("calicote-presta", { is_ticket: false, title: "MEP productcheck" }, null, escT2894);
-assert(!/RM/.test(h2894), "une session slug ne s'invente pas un RM-id");
-assert(/calicote-presta/.test(h2894) && /MEP productcheck/.test(h2894),
-  "le titre du transcript nomme la session à défaut de ticket");
-
-// 3. rien à afficher : on le DIT — retomber sur le nom tmux répéterait l'id
-h2894 = rTitleHtml2894("2894", {}, { found: false }, escT2894);
-assert(/sans libellé/.test(h2894), "l'absence de libellé est affichée telle quelle");
-assert(!/karl-/.test(h2894), "…et surtout pas remplacée par le nom tmux");
-
-// 4. le libellé vient de l'extérieur : il est échappé
-h2894 = rTitleHtml2894("2894", { title: '<img src=x onerror="alert(1)">' }, null, escT2894);
-assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé");
-
-// 5. l'en-tête est bien AU-DESSUS des onglets dans le document (la demande)
-assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'),
-  "l'en-tête doit précéder la barre d'onglets .rnav");
-// 6. …et il suit la vue : le titre du centre (routeur, RM2889) rejoue les effets de bord
-//    prêtés par le monolithe à chaque changement de vue — renderRTitle en tête.
-assert(/function curTitleSideEffects\(\) \{\s*\n\s*renderRTitle\(\);/.test(html),
-  "renderRTitle doit être appelé à tout changement de vue (curTitleSideEffects)");
-assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8")),
-  "…et le routeur du centre les rejoue après chaque titre");
-console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement");
+// — RM2894 : libellé de la session en en-tête du panneau de droite : MIGRÉ (RM2889) — voir test_cockpit_sessions.js —
 
 // ── RM2807 : fan-out exponentiel de renderTickets / renderOpened ─────────────
 // Deux sites bouclent sur une LISTE de tickets et se RE-RENDENT à chaque

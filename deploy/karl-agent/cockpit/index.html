@@ -823,10 +823,10 @@ if (window.matchMedia) {
   <span class="sub" id="healthtxt"></span>
   <!-- RM2302 : saut direct à la prochaine session qui attend une réponse -->
   <!-- RM2332 : Oui sur la session AFFICHÉE, à côté de « suivante » — enchaîner suivante → Oui → suivante -->
-  <button class="mini" id="yesatt" style="display:none" onclick="approve(attached)"
+  <button class="mini" id="yesatt" style="display:none"
     title="Répondre Oui à la question de la session affichée — s'enchaîne avec « ⚠ suivante »">✔ Oui</button>
   <!-- RM2327 : répondre Oui d'un coup à toutes les sessions qui posent une question -->
-  <button class="mini" id="yesall" style="display:none" onclick="approveAll(this)"
+  <button class="mini" id="yesall" style="display:none"
     title="Répondre Oui à TOUTES les sessions en attente d'une question (menu numéroté ou y/n)">✔ tout</button>
   <!-- RM2329 : mode voix — annonce les sessions qui passent en attente + lit leur question -->
   <button class="mini" id="voicebtn" onclick="karlCall('voice', 'toggle')"
@@ -1137,10 +1137,10 @@ if (window.matchMedia) {
       <div class="tabbar2">
       <div class="curtitle" id="curtitle"><span class="notabs">aucune vue — choisis une session dans « en cours »</span></div>
       <div class="tabactions" id="tabactions" style="display:none">
-        <button class="mini" id="yesbtn" style="display:none" onclick="approve(attached)"
+        <button class="mini" id="yesbtn" style="display:none"
           title="Répondre Oui à la question en attente de cette session (menu numéroté ou y/n)">✔ Oui</button>
         <!-- RM2327 : auto-oui de la session (timeout obligatoire, boucle serveur) -->
-        <select class="mini" id="autoyes" onchange="setAutoYes(this.value)"
+        <select class="mini" id="autoyes"
           title="Auto-oui : la session répond Oui seule à ses questions pendant la durée choisie (puis se désarme)">
           <option value="">⏱ auto-oui…</option>
           <option value="15">15 min</option>
@@ -1284,7 +1284,7 @@ if (window.matchMedia) {
             <div class="card" id="sessprefcard">
               <h2>🗂 Sessions <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
               <label style="display:flex;align-items:center;gap:7px;cursor:pointer">
-                <input type="checkbox" id="dynsort" onchange="toggleDynSort(this.checked)">
+                <input type="checkbox" id="dynsort">
                 <span>Tri dynamique de la colonne « en cours »</span>
               </label>
               <div style="color:var(--muted);font-size:11.5px;margin-top:6px">
@@ -1620,54 +1620,7 @@ function toast(msg, err) {
 // absent). Reste sur le port 7681 : l'UI ttyd fetch « /token » en absolu, elle ne
 // survit pas au préfixe /ttyd/ du proxy même-origine que prend termBase().
 // ttydUrl : MIGRÉ (RM2889) — src/models/terminal/terminal.js
-// >>> quietSince — pur (RM2793, testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Depuis quand la session ne fait RIEN. Deux sources, dans cet ordre :
-//   1. `last_msg` — dernier vrai message du transcript. Les récapitulatifs que
-//      Claude Code affiche seul (`※ recap: …`) n'en sont pas : ils écrivaient au
-//      terminal sans qu'on agisse, et remettaient le compteur à zéro sur une
-//      session que personne n'avait touchée ;
-//   2. `activity` — dernière sortie du terminal (tmux). Repli pour les moteurs
-//      sans transcript exploitable : une durée approchée vaut mieux qu'un vide.
-function quietSince(s) {
-  const sess = s || {};
-  if (sess.last_msg) return { ts: sess.last_msg, exact: true };
-  if (sess.activity) return { ts: sess.activity, exact: false };
-  return { ts: null, exact: false };
-}
-// <<< quietSince
-
-// >>> quietHtml — pur (RM2793, testé par test_cockpit.js)
-// L'infobulle DIT laquelle des deux mesures est affichée : « dernier message »
-// et « dernière sortie » ne recouvrent pas la même chose, et l'écart entre les
-// deux est précisément le sujet de ce ticket.
-function quietHtml(s, esc) {
-  const q = quietSince(s);
-  if (!q.ts) return "";
-  const d = agoHM(q.ts);
-  return '<span class="tquiet" title="'
-    + (q.exact ? "Dernier message il y a " + d + " (les récapitulatifs automatiques ne comptent pas)"
-               : "Dernière sortie du terminal il y a " + d + " — transcript indisponible pour cette session")
-    + '">⏳' + esc(d) + (q.exact ? "" : "~") + "</span>";
-}
-// <<< quietHtml
-
-// >>> agoHM — pur (RM2787, testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Délai en heures ET minutes : `ago()` tronque à l'heure, et « 2h » couvre
-// cinquante-neuf minutes d'incertitude — de quoi hésiter à relancer une session
-// ou non. Sous l'heure, les minutes suffisent ; au-delà du jour, l'heure exacte
-// n'apporte plus rien.
-function agoHM(ts) {
-  if (!ts) return "";
-  const s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
-  if (s < 60) return s + "s";
-  if (s < 3600) return Math.floor(s / 60) + "min";
-  if (s < 86400) {
-    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
-    return m ? h + "h" + String(m).padStart(2, "0") : h + "h";
-  }
-  return Math.floor(s / 86400) + "j";
-}
-// <<< agoHM
+// quietSince / quietHtml / agoHM (RM2787/RM2793) : MIGRÉS (RM2889) — src/models/sessions/sessions.js, src/viewmodels/sessions/SessionsViewModel.js
 
 function ago(ts) {
   if (!ts) return "";
@@ -1739,110 +1692,8 @@ function switchPanel(name) {
   if (PANEL_LOADERS[name] && !_panelLoaded[name]) { _panelLoaded[name] = 1; PANEL_LOADERS[name](); }
 }
 
-// >>> computeGroups — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2140/RM2283 : groupe les sessions par client/projet (source : /sessions
-// enrichi RM1939 ; fallback /resolve ; « divers » pour les non PM-trackés),
-// compte les états, et trie les groupes : attention d'abord, puis activité
-// récente, puis alphabétique.
-function computeGroups(sessions, rcache, dynamic) {
-  const groups = new Map();
-  const counts = { total: 0, attention: 0, choice: 0, idle: 0, working: 0, ghost: 0 };
-  for (const s of sessions) {
-    // RM2445 : une session VIVANTE d'un autre jeu n'est jamais masquée — elle est
-    // rangée à part (et badgée de son jeu) pour qu'un agent qui attend une réponse
-    // reste visible, sans polluer la vue du chantier courant.
-    // RM2537 : « hors du jeu » ≠ « sans projet ». On garde le client/projet dans
-    // la clé pour que ces sessions restent rangées par chantier au lieu d'être
-    // aplaties en un tas indistinct (elles restent en fin de liste, cf. `last`).
-    const r = rcache[s.rm_id];
-    let key = (s.client && s.project) ? s.client + "/" + s.project
-            : (r && r.found) ? r.client + "/" + r.project : "divers";
-    if (!s.ghost && s.in_current === false) key = OTHER_SETS_GROUP + " · " + key;
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(s);
-    // RM2427 : une session ENREGISTRÉE non démarrée s'affiche mais ne tourne pas —
-    // elle est comptée à part et ne pèse dans aucun compteur d'activité.
-    if (s.ghost) { counts.ghost++; continue; }
-    counts.total++;
-    if (s.state === "attention") counts.attention++;
-    else if (s.state === "choice") counts.choice++;   // RM2327 : choix multiple
-    else if (s.state === "idle") counts.idle++;
-    else counts.working++;
-  }
-  // RM2344 : ordre STABLE par défaut (alphabétique pur — rien ne bouge sous la
-  // souris entre deux refreshs). Le tri dynamique historique (⚠/❓ en tête puis
-  // activité récente — RM2140/RM2283) ne s'applique QUE si `dynamic` est vrai.
-  const att = g => g.some(s => s.state === "attention" || s.state === "choice") ? 1 : 0;
-  const rec = g => Math.max(0, ...g.map(s => s.created || 0));
-  const last = k => k.startsWith(OTHER_SETS_GROUP) ? 1 : 0;   // RM2537 : un groupe par chantier
-  const keys = [...groups.keys()].sort((a, b) => (last(a) - last(b)) || (dynamic
-    ? (att(groups.get(b)) - att(groups.get(a)) ||
-       rec(groups.get(b)) - rec(groups.get(a)) ||
-       a.localeCompare(b))
-    : a.localeCompare(b)));
-  return { keys, groups, counts };
-}
-// <<< computeGroups
-
-// clientCtxList / clientCtxProject (RM2639) : MIGRÉS (RM2889) — src/models/launcher/launcher.js
-
-// >>> sessionInClient — pur (RM2639, testé) : la session appartient-elle au
-// contexte client ? ctx vide → toujours oui. Sinon client de la session == ctx,
-// OU session en attente d'une réponse (attention/choice) — jamais masquée, même
-// d'un autre client (invariant RM2445). `r` = entrée resolveCache éventuelle.
-function sessionInClient(s, r, ctx) {
-  if (!ctx) return true;
-  const c = (s && s.client) || (r && r.found && r.client) || null;
-  if (c === ctx) return true;
-  return !!(s && (s.state === "attention" || s.state === "choice"));
-}
-// <<< sessionInClient
-
-
-// >>> effDisposition — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2515 : disposition EFFECTIVE d'une session. Elle ne vaut que sur `idle` (elle
-// CÈDE aux évènements live : working/attention/choice → null) ; « a_traiter » est
-// le défaut (idle sans marque). Utilisée pour le badge, la teinte et le tri.
-function effDisposition(state, disposition) {
-  if (state !== "idle") return null;
-  return disposition || "a_traiter";
-}
-// <<< effDisposition
-
-// >>> sortFrozen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2346 : en tri dynamique, gèle le réordonnancement tant que l'utilisateur interagit
-// avec la liste (survol) ou vient de bouger la souris (< 2 s) → elle ne saute pas sous
-// le curseur. En ordre stable (défaut), rien n'est jamais réordonné → jamais gelé.
-function sortFrozen(dynSort, hot, msSinceMove) {
-  return !!dynSort && (hot || msSinceMove < 2000);
-}
-// <<< sortFrozen
-
-// RM2346 : bandeau « à traiter » — les sessions qui ATTENDENT une action (attention
-// oui/non, choix multiple) sont listées à place fixe en tête de la liste, pour qu'on
-// les voie sans que la liste principale ait à se réordonner. Elles restent AUSSI dans
-// leur groupe projet en dessous (le bandeau est un raccourci, pas un déplacement).
-function renderAttnBand(list, sessions) {
-  const waiting = sessions.filter(s => !s.ghost && (s.state === "attention" || s.state === "choice"));
-  if (!waiting.length) return;
-  const band = document.createElement("div");
-  band.className = "attnband";
-  band.innerHTML = '<div class="attnband-h">à traiter (' + waiting.length + ')</div>';
-  for (const s of waiting) {
-    const r = resolveCache[s.rm_id];
-    const chip = document.createElement("div");
-    chip.className = "attnchip";
-    chip.innerHTML = '<span class="tdot st-' + esc(s.state) + '"></span>' +
-      '<span class="tid">' + (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
-      '<span class="rmeta">' + ((r && r.found && r.title) ? titleLink(s.rm_id, r.title) : esc(tmuxName(s.rm_id))) + '</span>' +
-      (s.state === "attention" ? '<span class="tyes" title="Répondre Oui (sans attacher)">✔</span>' : '');
-    chip.onclick = () => attach(s.rm_id);
-    const y = chip.querySelector(".tyes");
-    if (y) y.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
-    band.appendChild(chip);
-  }
-  list.prepend(band);
-}
+// computeGroups / sessionInClient / effDisposition / sortFrozen / renderAttnBand : MIGRÉS (RM2889) — src/models/sessions/sessions.js, src/views/sessions/Sessions.view.js
+// (clientCtxList / clientCtxProject (RM2639) : MIGRÉS — src/models/launcher/launcher.js)
 
 // >>> pollDelay — pur (RM2613) : cadence du poll /sessions quand l'onglet est visible.
 // 3 s si une session attend une réponse (réactivité) ; 7 s au calme.
@@ -1944,264 +1795,13 @@ function tickSessions() {
 // bloc sessions dans le prochain composite — signature inchangée pour la
 // vingtaine d'appelants existants (RM2763).
 function refreshSessions() { return refreshFetch(["sessions"]); }
-function renderSessions(sessions) {
-  const list = document.getElementById("runlist");
-  try {
-    // RM2515 : « terminé » (idle marqué à fermer) coule en bas ; sinon ordre stable par id.
-    const done = s => effDisposition(s.state, s.disposition) === "termine" ? 1 : 0;
-    sessions.sort((a, b) => (done(a) - done(b)) || (Number(a.rm_id) - Number(b.rm_id)));
-    // RM2166 : mémorise la vue session (registre pm_session) pour l'encart
-    sessions.forEach(s => { sessCache[s.rm_id] = s; });
-    composerRefresh();                     // RM2527 : la garde suit l'état live
-    // si la session affichée a disparu (kill externe) → on détache la vue
-    // (RM2427 : un fantôme du même id ne compte pas — il ne tourne pas)
-    if (attached && !sessions.some(s => s.rm_id === attached && !s.ghost)) detach();
-    // /resolve n'a de sens que pour un ancrage ticket (RM2144 : slug possible)
-    for (const s of sessions)
-      if (s.is_ticket !== false && resolveCache[s.rm_id] === undefined) ensureResolved(s.rm_id);
-    // RM2346 : GEL du réordonnancement dynamique pendant l'interaction (survol de la
-    // liste, ou < 2 s après un mouvement de souris dessus) → la liste ne saute pas
-    // sous le curseur. Sans effet en ordre stable (défaut) ; ne concerne que dynSort.
-    const frozen = sortFrozen(dynSort, listHot, Date.now() - lastListMove);
-    const { keys, groups, counts } = computeGroups(sessions, resolveCache, dynSort && !frozen);
-    hotSessions = counts.attention + counts.choice;   // RM2613 : cadence adaptative du poll
-    // RM2760 : les compteurs « ▶ » du panneau projets suivent le même poll —
-    // recalculés seulement quand ce panneau est affiché (47 lignes à chaque tick
-    // pour un panneau caché ne servirait personne).
-    if (document.getElementById("lp-projects").classList.contains("active")) karlCall("projects", "render");
-    orderedCache = keys.flatMap(k => groups.get(k));  // RM2302 : ordre d'affichage à plat
-    groupsCache = {};                       // RM2173 : panneau Projet au clic groupe
-    list.innerHTML = "";
-    if (!sessions.length && !reviewTabsList().length)
-      list.innerHTML = '<div class="empty">Aucune session — lances-en une depuis le panneau « 🚀 sessions »</div>';
-    // RM2346 : bandeau « à traiter » — attention/choix à place fixe, en tête.
-    renderAttnBand(list, sessions);
-    // RM2639 : contexte client — ne montrer que les groupes du client ; une session
-    // en attente d'un autre client reste visible (sessionInClient la conserve).
-    const visKeys = clientContext
-      ? keys.filter(k => groups.get(k).some(s => sessionInClient(s, resolveCache, clientContext)))
-      : keys;
-    if (clientContext) renderClientCtxBanner(list, keys.length - visKeys.length);
-    for (const key of visKeys) {
-      const sess = groups.get(key);
-      groupsCache[key] = sess;
-      const g = document.createElement("div");
-      g.className = "rgroup";
-      const head = document.createElement("div");
-      head.className = "rghead";
-      const gAtt = sess.filter(s => s.state === "attention").length;
-      const gCho = sess.filter(s => s.state === "choice").length;
-      // RM2448 : le chevron replie le groupe ; l'en-tête garde son clic « fiche
-      // projet » (RM2353), d'où un `stopPropagation` sur le chevron seul.
-      const folded = isCollapsed(key);
-      head.innerHTML = '<span class="gfold" style="cursor:pointer;opacity:.6;margin-right:4px" ' +
-          'title="' + (folded ? "Déplier" : "Replier") + ' ce groupe">' + (folded ? "▸" : "▾") + '</span>' +
-        '<span>' + esc(key) + '</span><span class="gcnt">' + sess.length +
-        (gAtt ? ' <span style="color:var(--danger)">⚠' + gAtt + '</span>' : '') +
-        (gCho ? ' <span style="color:var(--warn)">❓' + gCho + '</span>' : '') + '</span>';
-      head.title = key + "\n(clic : fiche projet dans le panneau principal)";
-      head.onclick = () => openProjectView(key);   // RM2353
-      head.querySelector(".gfold").onclick = (e) => { e.stopPropagation(); toggleGroup(key); };
-      g.appendChild(head);
-      if (folded) { list.appendChild(g); continue; }
-      for (const s of sess) {
-        const r = resolveCache[s.rm_id];
-        const it = document.createElement("div");
-        // RM2427 : session enregistrée non démarrée — tuile grise, clic = relancer
-        if (s.ghost) { g.appendChild(renderGhostItem(s, r, it)); continue; }
-        it.className = "runitem" + (attached === s.rm_id ? " active" : "");
-        it.title = tabTip(s);
-        // RM2515 : la disposition raffine `idle` (et CÈDE au live : nulle hors idle).
-        const disp = effDisposition(s.state, s.disposition);
-        const badge = s.state === "attention" ? '<span class="tbadge">⚠</span>'
-          : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
-          : s.state === "idle"
-            ? (disp === "parke" ? '<span class="tbadge" title="parké — j\'y reviens">🔖</span>'
-               : disp === "termine" ? '<span class="tbadge" style="color:var(--ok)" title="terminé — rien à faire, à fermer">✅</span>'
-               : '<span class="tbadge" style="opacity:.55" title="à traiter">💤</span>')
-          : "";
-        const auto = s.auto_yes_until
-          ? '<span class="tbadge" style="color:var(--ok)" title="auto-oui armé — ' + autoYesLeft(s.auto_yes_until) + ' restantes">⏱✔</span>' : "";
-        // RM2598 : question laissée sans réponse (la session a continué). On ne l'affiche
-        // pas si elle est DÉJÀ en attention/choix (⚠/❓ live) — même urgence, un seul signal.
-        const stale = (pendStale.has(String(s.rm_id)) && s.state !== "attention" && s.state !== "choice")
-          ? '<span class="tbadge" title="Question posée puis laissée sans réponse — la session a continué (RM2598)">🕓</span>' : "";
-        const title = r && r.found ? (r.title || "") : "";
-        // RM2445 : vivante d'un autre jeu — on dit LEQUEL, sinon la tuile paraît égarée
-        // RM2446 : dire à quel jeu elle appartient — ou qu'elle n'est dans AUCUN
-        const stag = s.in_current !== false ? ""
-          : (s.set_labels || []).length
-            ? '<span class="tbadge" style="opacity:.65" title="appartient au jeu « ' +
-              esc(s.set_labels.join(" », « ")) + ' »">' + esc(s.set_labels[0].slice(0, 10)) + '</span>'
-            : '<span class="tbadge" style="opacity:.5" title="cette session ne figure dans aucun jeu enregistré">hors jeu</span>';
-        it.innerHTML = '<span class="tdot tdisp st-' + esc(s.state || "idle") +
-          (disp && disp !== "a_traiter" ? " disp-" + disp : "") +
-          '" title="Disposition (clic) : à traiter / parké / terminé"></span><span class="tid">' +
-          (s.is_ticket === false ? esc(s.rm_id) : 'RM' + s.rm_id) + '</span>' +
-          pinOf("session", s.rm_id) + stag +      // RM2795
-          '<span class="rmeta">' + titleLink(s.rm_id, title) + (s.created ? (title ? " · " : "") + ago(s.created) : "") + '</span>' +
-          // RM2787 : depuis combien de temps la session n'a rien produit — c'est
-          // ce qui décide d'un geste, là où l'âge d'ouverture ne dit que
-          // l'ancienneté. Le sablier le distingue du second nombre voisin.
-          // RM2793 : le dernier MESSAGE prime sur l'activité tmux, qui comptait
-          // aussi les récapitulatifs que Claude Code écrit tout seul.
-          quietHtml(s, esc) +
-          badge + auto + stale +
-          (s.state === "attention" ? '<span class="tyes" title="Répondre Oui à la question en attente (sans attacher)">✔</span>' : "") +
-          // RM2446 : deux gestes de gravité très différente, deux boutons. ⊖ sort
-          // la session du jeu SANS la fermer ; ✕ ferme le tmux (l'entrée reste
-          // dans le jeu, en tuile grise — invariant RM2439).
-          // RM2673 : une session VIVANTE appartient aussi aux jeux dérivés
-          // (RM2537 : l'appartenance se calcule par la règle) — mais on ne
-          // retire pas à la main d'un ensemble calculé, le serveur refuse (400).
-          // `setWritable` tranche ici comme pour les tuiles grises et le 💾.
-          ((s.sets || []).includes(currentSet) && setWritable(setsCache, currentSet, currentView)
-            ? '<span class="tkill tdrop" title="Retirer du jeu « ' + esc(setLabel(currentSet)) +
-              ' » — la session continue de tourner">⊖</span>' : "") +
-          '<span class="tkill" title="Fermer la session (le tmux est tué ; l\'entrée reste dans le jeu, en tuile grise)">✕</span>';
-        // RM2448 : en mode sélection, le clic choisit la session au lieu de l'attacher
-        if (selMode) {
-          if (selected.has(s.rm_id)) it.style.outline = "1px solid var(--accent)";
-          it.onclick = () => { selected.has(s.rm_id) ? selected.delete(s.rm_id) : selected.add(s.rm_id);
-                               refreshSessions(); };
-        } else {
-          it.onclick = () => attach(s.rm_id);
-        }
-        const drop = it.querySelector(".tdrop");
-        if (drop) drop.onclick = (e) => { e.stopPropagation(); dropFromSet(s); };
-        it.querySelector(".tkill:not(.tdrop)").onclick = (e) => { e.stopPropagation(); kill(s.rm_id); };
-        const ty = it.querySelector(".tyes");     // RM2302 : « Oui » direct depuis la liste
-        if (ty) ty.onclick = (e) => { e.stopPropagation(); approve(s.rm_id); };
-        const dd = it.querySelector(".tdisp");    // RM2515 : clic pastille → menu disposition (n'attache pas)
-        if (dd) dd.onclick = (e) => { e.stopPropagation(); openDispositionMenu(s, dd); };
-        g.appendChild(it);
-      }
-      list.appendChild(g);
-    }
-    // RM2210 : revues « à tester » ouvertes (pas des sessions tmux)
-    if (reviewTabsList().length) {
-      const g = document.createElement("div");
-      g.className = "rgroup";
-      g.innerHTML = '<div class="rghead"><span>🧪 revues ouvertes</span><span class="gcnt">' + reviewTabsList().length + '</span></div>';
-      for (const rm of reviewTabsList()) {
-        const r = resolveCache[rm];
-        const it = document.createElement("div");
-        it.className = "runitem" + (reviewCurrent() === rm && !attached ? " active" : "");
-        it.title = "Revue RM" + rm + (r && r.found ? " — " + (r.title || "") : "");
-        it.innerHTML = '<span class="tdot" style="background:var(--warn)"></span>' +
-          '<span class="tid">RM' + esc(rm) + '</span>' + pinOf("review", rm) +   // RM2795
-          '<span class="rmeta">' + titleLink(rm, r && r.found ? r.title : "") + '</span>' +
-          '<span class="tkill" title="Fermer la revue">✕</span>';
-        it.onclick = () => openReview(rm);
-        it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); closeReview(rm); };
-        g.appendChild(it);
-      }
-      list.appendChild(g);
-    }
-    karlCall("voice", "announce", sessions);   // RM2329 : mode voix (fire-and-forget) — migré
-    // RM2283 : compteurs globaux — header + badges de l'onglet « en cours »
-    document.getElementById("hcnt").innerHTML =
-      '<span class="pill" title="sessions ouvertes">● ' + counts.total + '</span>' +
-      (counts.ghost ? '<span class="pill" style="opacity:.6" title="sessions enregistrées, non démarrées — clic sur la tuile pour relancer">⏸ ' + counts.ghost + '</span>' : '') +
-      '<span class="pill' + (counts.attention ? ' att' : '') + '" title="questions OUI/NON en attente">⚠ ' + counts.attention + '</span>' +
-      (counts.choice ? '<span class="pill" style="color:var(--warn);border-color:var(--warn)" title="questions à choix multiple en attente (réponse dans le terminal)">❓ ' + counts.choice + '</span>' : '') +
-      '<span class="pill" title="au repos">💤 ' + counts.idle + '</span>';
-    const nc = document.getElementById("ln-count");
-    nc.textContent = counts.total; nc.style.display = counts.total ? "" : "none";
-    const na = document.getElementById("ln-att");
-    const waiting = counts.attention + counts.choice;   // RM2327 : ❓ compte aussi
-    na.textContent = "⚠" + waiting; na.style.display = waiting ? "" : "none";
-    // RM2327 : « ✔ tout » visible dès 2 sessions en attention (1 seule = ✔ unitaire)
-    document.getElementById("yesall").style.display = counts.attention > 1 ? "" : "none";
-    // titre navigateur : signale d'un coup d'œil les sessions qui attendent
-    document.title = (waiting ? "⚠" + waiting + " " : "") + "Cockpit karl-agent";
-    renderCurTitle();
-  } catch (e) { /* health affiche déjà l'erreur de connexion */ }
-}
-
-// >>> rTitleHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2894 — en-tête du panneau de droite : identifiant de la session et son
-// LIBELLÉ. Trois sources, dans cet ordre : le sujet Redmine du ticket quand la
-// session est ancrée sur un RM-id, sinon le titre du transcript (`s.title`,
-// servi par karl-agent), sinon rien — et on le dit, plutôt que de retomber sur
-// le nom tmux qui ne nomme pas la session, il la répète.
-function rTitleHtml(sid, sess, resolved, esc) {
-  const s = sess || {}, r = resolved;
-  const id = (s.is_ticket === false) ? String(sid) : "RM" + String(sid);
-  const label = (r && r.found && r.title) ? String(r.title) : String(s.title || "");
-  return '<span class="rt-id">' + esc(id) + '</span>'
-    + (label ? '<span class="rt-label">' + esc(label) + '</span>'
-             : '<span class="rt-label none">sans libellé</span>');
-}
-// <<< rTitleHtml
-
-function renderRTitle() {
-  const el = document.getElementById("rtitle");
-  if (!el) return;
-  if (!attached) { el.style.display = "none"; el.innerHTML = ""; return; }
-  el.style.display = "";
-  el.innerHTML = rTitleHtml(attached, sessCache[attached], resolveCache[attached], esc);
-  el.title = "Session attachée — " + tmuxName(attached);
-}
-
-// RM2283 : la vue courante (session attachée ou revue) s'affiche dans la barre
-// du terminal — les onglets horizontaux ont migré dans le panneau « en cours ».
-// Le titre du centre appartient au routeur (cluster centre). Le monolithe lui
-// prête les trois cas qu'il possède encore — session attachée, revue, fiche
-// projet — et ses effets de bord (bouton « ✔ Oui », auto-oui, en-tête droit).
-function curTitleLegacyHtml() {
-  if (attached) {
-    const s = sessCache[attached] || {}, r = resolveCache[attached];
-    return '<span class="tdot st-' + esc(s.state || "idle") + '"></span><span class="tid">' +
-      (s.is_ticket === false ? esc(attached) : 'RM' + esc(attached)) + '</span>' +
-      '<span class="ttitle">' + ((r && r.found && r.title) ? titleLink(attached, r.title) : esc(tmuxName(attached))) + '</span>' +
-      (s.state === "attention"
-        ? '<span class="tbadge">⚠</span><button class="mini" style="margin-left:8px" ' +
-          'onclick="approve(attached)" title="Répondre Oui à la question en attente de cette session">✔ Oui</button>'
-        : s.state === "choice" ? '<span class="tbadge" style="color:var(--warn)">❓</span>'
-        : "");   // RM2332 : Oui au titre · RM2327 : ❓ choix multiple
-  }
-  if (currentProjectKey()) {
-    return '📁 <span class="tid">' + esc(currentProjectKey()) + '</span><span class="ttitle">fiche projet</span>';
-  }
-  return "";
-}
-function curTitleSideEffects() {
-  renderRTitle();                     // RM2894 : l'en-tête du panneau droit suit la même vue
-  // RM2302/RM2332 : « ✔ Oui » (barre du terminal + header) quand la session
-  // affichée attend — la même décision pilote les deux emplacements.
-  const show = approveShortcutVisible(attached, sessCache) ? "" : "none";
-  document.getElementById("yesbtn").style.display = show;
-  document.getElementById("yesatt").style.display = show;
-  // RM2327 : état du sélecteur auto-oui (armé → durée restante en libellé)
-  const ay = document.getElementById("autoyes");
-  const until = attached ? (sessCache[attached] || {}).auto_yes_until : null;
-  ay.options[0].textContent = until ? "⏱✔ " + autoYesLeft(until) : "⏱ auto-oui…";
-  ay.style.color = until ? "var(--ok)" : "";
-  ay.value = "";
-}
-// RM2327 : durée restante lisible d'un auto-oui (epoch secondes → « 12 min »)
-function autoYesLeft(until) {
-  // RM2699 : les minutes se TRONQUENT elles aussi. Arrondies, elles pouvaient
-  // rendre « 1 h 60 min » (7199 s) — les heures sont déjà prises à part, une
-  // minute arrondie au-dessus déborde sur l'heure suivante.
-  const s = Math.max(0, Math.round(until - Date.now() / 1000));
-  return s >= 3600 ? Math.floor(s / 3600) + " h " + Math.floor((s % 3600) / 60) + " min"
-    : Math.max(1, Math.round(s / 60)) + " min";
-}
-// RM2327 : répondre Oui à toutes les sessions en attente d'une question
-async function approveAll(btn) {
-  btn.disabled = true;
-  try {
-    const r = await api("/approve-all", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-    const n = (r.approved || []).length;
-    toast(n ? "✔ Oui envoyé à " + n + " session(s) : " +
-      r.approved.map(a => (/^\d+$/.test(a.rm_id) ? "RM" : "") + a.rm_id).join(", ")
-      : "Aucune session ne posait de question");
-    setTimeout(refreshSessions, 900);
-  } catch (e) { toast(e.message, true); }
-  finally { btn.disabled = false; }
-}
+// — liste des sessions « en cours » — MIGRÉE (RM2889) : src/controllers/sessions.controller.js —
+// Tuiles, bandeau « à traiter », groupes et plis, compteurs, « ✔ Oui / ✔ tout / auto-oui », titre de la session attachée et en-tête
+// droit (RM2894) vivent dans le contrôleur ; la pile /refresh lui livre le bloc sessions par ce pont, et lit les compteurs rendus
+// pour régler sa cadence (RM2613). Les jeux (barre, ⊖ ⟳ relance, sélection) restent ici et lui sont prêtés.
+function renderSessions(sessions) { const c = karlCall("sessions", "render", sessions); if (c) hotSessions = c.attention + c.choice; }
+function orderedSessions() { return karlCall("sessions", "ordered") || []; }   // RM2302/RM2439 : sessions à plat, dans l'ordre d'affichage
+function restartTip(policy) { return karlCall("sessions", "restartTip", policy) || ""; }   // RM2427 : politique de reprise, en clair (liste des entrées)
 // RM2395 : jeux de sessions enregistrés (enregistrer / relancer / autostart / effacer)
 // Le fallback spawn « recréer une session neuve si la conversation est perdue »
 // est une préférence client (opt-in) : cochée → la relance envoie spawn:true.
@@ -2213,26 +1813,10 @@ try { sessionSetSpawn = localStorage.getItem("karlSetSpawn") === "1"; } catch (e
 // persisté pour retrouver son chantier d'une session de navigateur à l'autre.
 let currentSet = "default";
 try { currentSet = localStorage.getItem("karlSet") || "default"; } catch (e) { /* pas de storage */ }
-// RM2446 : le groupe recueille les vivantes hors du jeu courant — y compris
-// celles qui n'appartiennent à AUCUN jeu, d'où un libellé qui ne présume rien.
-const OTHER_SETS_GROUP = "⋯ hors du jeu courant";
+// OTHER_SETS_GROUP / collapsedGroups (RM2445/2448/2452/2537) : MIGRÉS (RM2889) — src/services/sessions.service.js
 let currentView = "set";                        // RM2446 : set | live | all | client:<slug>
 let setFacets = { clients: [], marks: [], tags: [] };   // RM2452 : clients/projets connus ; RM2830 : étiquettes
 let ruleFormFor = null;                         // jeu dont on édite la règle ("__new__" = création)
-// RM2448 : groupes repliés (persistés) et mode sélection
-// RM2452 : « hors du jeu courant » est REPLIÉ par défaut — c'est un rappel de
-// sécurité (ne jamais escamoter un processus qui tourne), pas le sujet du
-// moment. On ne le force qu'à la PREMIÈRE visite : dès que l'opérateur a plié ou
-// déplié quoi que ce soit, sa liste fait foi et le groupe reste comme il l'a
-// laissé.
-// RM2537 : le groupe « hors du jeu » est désormais éclaté par chantier — le pli
-// par défaut porte donc sur le PRÉFIXE, et chaque sous-groupe reste repliable
-// individuellement (un pli explicite, dans un sens ou dans l'autre, fait foi).
-let collapsedGroups = new Set([OTHER_SETS_GROUP]);
-try {
-  const raw = localStorage.getItem("karlCollapsed");
-  if (raw !== null) collapsedGroups = new Set(JSON.parse(raw));
-} catch (e) { /* pas de storage */ }
 let selMode = false;
 const selected = new Set();
 let setsCache = [];        // GET /session-sets — [{name,label,count,alive,autostart}]
@@ -2295,7 +1879,7 @@ function slugifySet(label) {
 async function saveSessionSet(btn) {
   btn.disabled = true;
   try {
-    const sids = (orderedCache || []).map(s => s.rm_id);
+    const sids = orderedSessions().map(s => s.rm_id);
     const r = await api("/session-set", { method: "POST", headers: { "Content-Type": "application/json" },
                                           body: setBody({ sids }) });
     const n = (r.added || []).length;
@@ -2475,22 +2059,7 @@ async function switchView(view) {
   } catch (e) { currentView = prev; toast(e.message, true); return; }
   refreshSessions(); refreshSessionSets(); refreshSessionSet(); loadSessionSet();
 }
-// RM2537 : un groupe est replié s'il l'est explicitement, ou par héritage du
-// pli de « ⋯ hors du jeu courant » — sauf dépli explicite (marqueur « ! »).
-function isCollapsed(key) {
-  if (collapsedGroups.has("!" + key)) return false;
-  return collapsedGroups.has(key) ||
-    (key.startsWith(OTHER_SETS_GROUP) && collapsedGroups.has(OTHER_SETS_GROUP));
-}
-// RM2448 : repli d'un groupe, mémorisé d'une session de navigateur à l'autre
-function toggleGroup(key) {
-  // RM2537 : déplier un sous-groupe « hors du jeu » doit vaincre le pli par
-  // défaut du préfixe — on mémorise l'état explicite du sous-groupe.
-  isCollapsed(key) ? (collapsedGroups.delete(key), collapsedGroups.add("!" + key))
-                   : (collapsedGroups.delete("!" + key), collapsedGroups.add(key));
-  try { localStorage.setItem("karlCollapsed", JSON.stringify([...collapsedGroups])); } catch (e) { /* pas de storage */ }
-  refreshSessions();
-}
+// isCollapsed / toggleGroup (RM2448/RM2537) : MIGRÉS (RM2889) — src/controllers/sessions.controller.js
 // RM2448 : mode sélection — choisir précisément des sessions, pour en faire un
 // jeu ou pour SCINDER le jeu courant.
 function toggleSelMode() {
@@ -2628,7 +2197,7 @@ async function applyRuleForm(isNew) {
       const label = ((document.getElementById("rf-name") || {}).value || "").trim();
       const seed = ((document.getElementById("rf-seed") || {}).checked) === true;
       const plan = newSetPlan(slugifySet(label), label, rule,
-                              (orderedCache || []).map(s => s.rm_id), seed,
+                              orderedSessions().map(s => s.rm_id), seed,
                               setsCache.map(s => s.name));
       if (!plan.ok) { toast(plan.error, true); return; }
       const r = await api("/session-set/create", { method: "POST",
@@ -2772,71 +2341,7 @@ async function relaunchSessionSet(btn, fromCard) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
-// RM2427 : tuile d'une session ENREGISTRÉE non démarrée (« fantôme »). Rien ne
-// tourne derrière — pastille grise, tuile en pointillés ; le clic propose de la
-// relancer pour de bon (aucun agent ne démarre sans ce geste).
-function renderGhostItem(s, r, it) {
-  it.className = "runitem ghost";
-  // RM2439 : sujet Redmine du ticket si connu, sinon le NOM de session mémorisé
-  // dans le jeu (seul libellé disponible pour une session ancrée sur un slug)
-  const title = (r && r.found ? (r.title || "") : "") || s.title || "";
-  it.title = "Session enregistrée — non démarrée\n" +
-    (s.engine ? "moteur : " + s.engine + "\n" : "") +
-    (s.cwd ? "dossier : " + s.cwd + "\n" : "") +
-    // RM2949 : dire l'état RÉEL de la conversation, et ce que le clic fera d'elle
-    (s.resumable ? "conversation mémorisée\n(clic : reprendre cette session)"
-                 : "conversation perdue (purgée)\n(clic : ouvrir une session neuve dans ce dossier)");
-  // RM2442 : plusieurs jeux repris à la fois ⇒ la tuile dit duquel elle vient
-  const gtag = (currentView === "all" && s.group_label)
-    ? '<span class="tbadge" style="opacity:.65" title="jeu « ' + esc(s.group_label) + ' »">' +
-      esc(s.group_label.slice(0, 10)) + '</span>' : "";
-  // RM2451 : l'âge de la SESSION prime sur la date d'enregistrement du jeu —
-  // c'est lui qui dit si le contexte vaut encore la peine d'être réveillé.
-  const age = s.last_active ? "inactive depuis " + ago(s.last_active)
-                            : (s.saved_at ? "enregistrée " + ago(s.saved_at) : "");
-  // RM2536 : dans une vue par CLIENT, la tuile ne vient d'aucun jeu enregistré
-  // (le contenu est calculé par le client, comme un jeu dérivé). Or ⊖ « retirer
-  // du jeu » et ⟳ « politique de reprise » agissent tous deux SUR un jeu : sans
-  // jeu, ils ne peuvent qu'échouer. On ne les propose donc pas — même parti-pris
-  // que « 💾 ajouter l'affichage », masqué sur un jeu dérivé. La relance, elle,
-  // ne dépend plus d'aucun jeu et reste offerte.
-  // RM2673 : un jeu courant DÉRIVÉ ferme exactement les mêmes gestes (400 sur le
-  // retrait, 404 sur la politique) — c'est la même question, posée une seule
-  // fois par `setWritable`.
-  const inSet = setWritable(setsCache, currentSet, currentView);
-  it.innerHTML = '<span class="tdot st-ghost"></span><span class="tid">' +
-    (s.is_ticket === false ? esc(s.rm_id) : 'RM' + esc(s.rm_id)) + '</span>' + gtag +
-    '<span class="rmeta"' + (s.last_active && (Date.now() / 1000 - s.last_active) > 7 * 86400
-      ? ' style="opacity:.55"' : '') + '>' + esc(title) +
-      (age ? (title ? " · " : "") + age : "") + '</span>' +
-    (inSet ? '<span class="tbadge trestart" style="cursor:pointer" title="' + esc(restartTip(s.restart)) + '">' +
-      (s.restart === "auto" ? "⟳" : "⏸") + '</span>' +
-    '<span class="tkill" title="Retirer du jeu de sessions enregistrées">⊖</span>' : "");
-  // RM2448 (correctif) : en mode sélection, le clic RETIENT la tuile grise au
-  // lieu de relancer la session. Sans cela, déplacer ou scinder une session
-  // éteinte imposait de la rouvrir d'abord — l'inverse du but recherché.
-  if (selMode) {
-    if (selected.has(s.rm_id)) it.style.outline = "1px solid var(--accent)";
-    it.onclick = () => { selected.has(s.rm_id) ? selected.delete(s.rm_id) : selected.add(s.rm_id);
-                         refreshSessions(); };
-  } else {
-    it.onclick = () => relaunchGhost(s);
-  }
-  if (inSet) {
-    it.querySelector(".tkill").onclick = (e) => { e.stopPropagation(); forgetGhost(s); };
-    it.querySelector(".trestart").onclick = (e) => { e.stopPropagation(); toggleRestart(s); };
-  }
-  it.title = (selMode ? "Clic : retenir cette session pour un déplacement ou un nouveau jeu\n"
-                      : "") + it.title;
-  return it;
-}
-// RM2427 : politique de reprise par session — `auto` (redémarre seule au
-// lancement de karl-agent, défaut des sessions [WIP]) ou `idle` (tuile grise).
-function restartTip(policy) {
-  return policy === "auto"
-    ? "Redémarre toute seule au lancement de karl-agent (clic : la mettre en attente)"
-    : "Attend un clic pour démarrer (clic : la faire redémarrer toute seule)";
-}
+// renderGhostItem / restartTip (RM2427/2439/2442/2451/2536/2673/2949) : MIGRÉS (RM2889) — src/views/sessions/Sessions.view.js (pont restartTip plus haut)
 async function toggleRestart(s) {
   const next = s.restart === "auto" ? "idle" : "auto";
   try {
@@ -2932,7 +2437,7 @@ async function loadSessionSet() {
     renderSetEditPicker();                 // RM2955 : de quel jeu parle cette carte
     const r = await api("/session-set" + editQ());
     if (!r.exists || !r.count) {
-      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
+      el.innerHTML = (ruleFormFor === "__new__" ? ruleFormHtml({}, true, orderedSessions().length) : "") +
         '<div class="empty">Jeu « ' + esc(setLabel(editedSet())) +
         ' » vide — ' + (editedSet() === currentSet
           ? 'bouton « 💾 → ' + esc(setLabel(currentSet)) + ' » dans « ▶ en cours » pour y verser l\'affichage'
@@ -2964,7 +2469,7 @@ async function loadSessionSet() {
         esc(e.cwd || "") + '</span></li>';
     }).join("");
     el.innerHTML =
-      (ruleFormFor === "__new__" ? ruleFormHtml({}, true, (orderedCache || []).length) : "") +
+      (ruleFormFor === "__new__" ? ruleFormHtml({}, true, orderedSessions().length) : "") +
       (r.derived && ruleFormFor === editedSet() ? ruleFormHtml(r.rule, false) : "") +
       (r.derived && ruleFormFor !== editedSet() ?
         '<div style="font-size:11.5px;margin-bottom:6px">⚙ <b>jeu dérivé</b> — ' +
@@ -3068,28 +2573,7 @@ async function deleteSessionSet(btn) {
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; }
 }
-// RM2327 : armer/désarmer l'auto-oui de la session attachée (timeout serveur)
-async function setAutoYes(minutes) {
-  if (!attached || minutes === "") return;
-  try {
-    const r = await api("/auto-yes", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, minutes: Number(minutes) }),
-    });
-    toast(r.auto_yes_until
-      ? "⏱✔ auto-oui armé pour " + autoYesLeft(r.auto_yes_until) + " — la session répondra Oui seule"
-      : "auto-oui désarmé");
-    refreshSessions();
-  } catch (e) { toast(e.message, true); }
-}
-
-// >>> approveShortcutVisible — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2332 : les raccourcis « ✔ Oui » (header, à côté de « ⚠ suivante », et barre du
-// terminal) ne s'affichent que si la session ATTACHÉE attend un Oui/Non.
-function approveShortcutVisible(attached, cache) {
-  return !!attached && ((cache[attached] || {}).state === "attention");
-}
-// <<< approveShortcutVisible
+// setAutoYes / approveShortcutVisible (RM2327/RM2332) : MIGRÉS (RM2889) — src/controllers/sessions.controller.js
 
 // ----- RM2329/RM2350/RM2532/RM2533 : voix — domaine MIGRÉ (RM2889, L5) : src/controllers/voice.controller.js -----
 // Le monolithe passe par karlCall("voice", …) ; la carte #voicecard est montée par boot.js.
@@ -3273,30 +2757,9 @@ function loadFiles(force) { karlCall("files", "load", force); }
 function filesReset() { karlCall("files", "reset"); }
 function openFileRef(path) { karlCall("files", "openRef", path); }
 
-// RM2344 : préférence de tri de la liste « en cours » — stable par défaut
-let dynSort = localStorage.getItem("karlDynSort") === "1";
-let listHot = false, lastListMove = 0;   // RM2346 : gel du réordonnancement pendant l'interaction
-function toggleDynSort(on) {
-  dynSort = !!on;
-  try { localStorage.setItem("karlDynSort", dynSort ? "1" : "0"); } catch (e) { /* mode privé */ }
-  toast(dynSort ? "Tri dynamique activé (⚠ et activité en tête)" : "Ordre stable (alphabétique) — rien ne bouge");
-  refreshSessions();
-}
+// dynSort / listHot / toggleDynSort (RM2344/RM2346) : MIGRÉS (RM2889) — src/services/sessions.service.js
 
-// RM2302 : répondre Oui à la question en attente d'une session (POST /approve —
-// le serveur re-capture le pane et refuse si la question a disparu).
-async function approve(rmId) {
-  if (!rmId) return;
-  try {
-    const r = await api("/approve", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: rmId }),
-    });
-    toast("✔ Oui envoyé à " + (/^\d+$/.test(String(rmId)) ? "RM" + rmId : rmId) +
-      (r.sent === "y" ? " (y + Entrée)" : " (option 1)"));
-    setTimeout(refreshSessions, 900);   // laisse le TUI avancer avant de re-peindre
-  } catch (e) { toast(e.message, true); }
-}
+// approve (RM2302) : MIGRÉ (RM2889) — src/controllers/sessions.controller.js
 
 // ----- §1 lanceur (résolution, modèles RM1941, consigne RM2873, spawn RM2818), §8 saisie éclair, contexte client RM2639, réouverture RM2285 — MIGRÉS (RM2889) : src/controllers/launcher.controller.js -----
 // Le ticket résolu, les projets connus et le contexte client vivent dans le contrôleur. Ponts pour les appelants historiques :
@@ -3313,14 +2776,7 @@ function populateResumeEngines() { karlCall("resume", "setEngines", CFG.resume_e
 function search() { karlCall("search", "search"); }
 
 // ----- §8 : création de ticket -----
-function renderClientCtxBanner(list, hidden) {
-  const d = document.createElement("div");
-  d.className = "ctxbanner";
-  d.innerHTML = 'Contexte client : <b>' + esc(clientContext) + "</b>"
-    + (hidden > 0 ? ' <span style="opacity:.7">· ' + hidden + " groupe(s) hors client masqué(s)</span>" : "")
-    + ' <button class="mini" onclick="setClientContext(\'\')" title="Revenir à tous les clients">tous ✕</button>';
-  list.appendChild(d);
-}
+// renderClientCtxBanner (RM2639) : MIGRÉ (RM2889) — src/views/sessions/Sessions.view.js
 
 // ----- RM1939/RM2834/RM2991/RM2418 : « Reprendre une session » — MIGRÉ (RM2889) : src/controllers/resume.controller.js -----
 // La carte #rescard est l'hôte ; le lanceur (chargement des projets, contexte client, panneau) lui parle par ces ponts :
@@ -3331,8 +2787,7 @@ function loadResumable() { karlCall("resume", "load"); }
 const resolveCache = {};
 const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
 // RM2173 : le ticket affiché dans l'encart ℹ (≠ session attachée) vit dans le contrôleur migré (meta) — ponts plus bas
-let groupsCache = {};   // RM2173 : clé client/projet → sessions du groupe
-let orderedCache = [];  // RM2302 : sessions à plat, dans l'ordre d'affichage
+// groupsCache / orderedCache (RM2173/RM2302) : MIGRÉS (RM2889) — le contrôleur sessions les expose (groups / ordered)
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
 // >>> titleLink — pur (testé par test_cockpit.js ; esc + CFG fournis au contexte)
 // Titre de ticket cliquable → fiche infos (showTicket), suivi d'un petit lien ↗ vers
@@ -3389,23 +2844,7 @@ function fmtWin(w) { return karlCall("ticket", "fmtWin", w) || ""; }
 function throughput(a, b, c, d) { return karlCall("ticket", "throughput", a, b, c, d) ?? null; }
 // usageHtml / copyInfos (RM2373/2609/2611) : MIGRÉS (RM2889, revue 3/3) — src/views/tickets/Meta.view.js
 function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
-function tabTip(s) {
-  const r = resolveCache[s.rm_id];
-  let t = s.tmux || tmuxName(s.rm_id);
-  if (r && r.found) t = "RM" + s.rm_id + " — " + (r.title || "") + "\n" + r.client + "/" + r.project +
-    (r.type ? " · " + r.type : "") + (r.status ? " · " + r.status : "");
-  if (s.created) t += "\nouvert il y a " + ago(s.created);
-  if (s.last_msg) t += "\ndernier message il y a " + agoHM(s.last_msg);    // RM2793
-  else if (s.activity) t += "\ndernière sortie il y a " + agoHM(s.activity);   // RM2787
-  if (s.attached) t += " · attaché";
-  if (s.state === "attention") t += "\n⚠ demande une réponse OUI/NON (permission/question)";
-  else if (s.state === "choice") t += "\n❓ question à choix multiple — réponds dans le terminal";
-  else if (s.state === "idle") t += "\n💤 au repos (tour fini ou en attente de consigne)";
-  (s.registry_conflicts || []).forEach(c => {
-    t += "\n⚠ RM" + c.rm_id + " aussi ouvert en session " + c.seqs.map(x => "#" + x).join(", ");
-  });
-  return t;
-}
+// tabTip : MIGRÉ (RM2889) — src/models/sessions/sessions.js
 // ----- Encart ℹ (RM2173/2579/2605/2614/2630/2673/2797/2807) : MIGRÉ (RM2889, revue 3/3) — src/controllers/meta.controller.js -----
 // Le ticket affiché et sa facette vivent dans le contrôleur ; le monolithe lui parle par ces ponts :
 function renderMeta() { karlCall("meta", "render"); }
@@ -3617,12 +3056,7 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
     // RM2757 : l'état replié/déplié de la carte « tickets ouverts » est posé par le contrôleur migré (tickets)
   } catch (e) { /* mode privé : replié, comme au premier lancement */ }
   karlCall("voice", "boot");   // RM2329/RM2350/RM2532 : voix — migré
-  document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
-  // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
-  const _rl = document.getElementById("runlist");
-  _rl.addEventListener("mouseenter", () => { listHot = true; });
-  _rl.addEventListener("mouseleave", () => { listHot = false; });
-  _rl.addEventListener("mousemove", () => { lastListMove = Date.now(); });
+  // RM2344/RM2346 : préférence de tri et gel du réordonnancement — posés par le contrôleur migré (sessions) au montage
   try { speechSynthesis.onvoiceschanged = () => karlCall("voice", "paint"); } catch (e) { /* pas de synthèse */ }
   refreshHealth(); loadPending();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)

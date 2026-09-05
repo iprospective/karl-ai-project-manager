@@ -39,6 +39,9 @@ import { MergeBanner } from "./views/tickets/MergeBanner.view.js";
 import { mountReview } from "./controllers/review.controller.js";
 import { mountMeta } from "./controllers/meta.controller.js";
 import { mountTicketsPanel } from "./controllers/tickets.controller.js";
+import { mountDocModal } from "./controllers/doc.controller.js";
+import { mdToHtml } from "./core/markdown.js";
+import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
@@ -90,9 +93,13 @@ const karl = Object.freeze({
 //   monolithe lui prête encore (toast, aide, ouverture au centre, badge de nav).
 //   Ces ponts vers des globaux disparaissent domaine par domaine, jusqu'à L6. —
 const legacy = (name) => (...a) => (typeof window[name] === "function" ? window[name](...a) : undefined);
+// la modale doc : documents rendus (RM2309), aide intégrée (RM2593), glossaire du jargon (RM2623) — et les termes
+// soulignés partout dans la page. Montée d'abord : tous les panneaux lui empruntent l'aide. Le routeur (center)
+// est lu à l'appel, quand un document part au centre.
+const doc = Object.assign(mountDocModal(byId("docmodal"), { root: document, openCenterFile: (src, wt, p) => center.openFile(src, wt, p) }), { glossaireRows, glossaireFiltre });
 const mail = mountMailPanel(document.getElementById("lp-mail"), {
   notify: legacy("toast"),
-  help: legacy("openHelp"),
+  help: (t) => doc.openHelp(t),
   openCenter: legacy("openCenterMail"),
   badge: (n) => { const b = document.getElementById("ln-mail"); if (b) { b.textContent = n || ""; b.style.display = n ? "" : "none"; } },
 });
@@ -128,7 +135,7 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
 });
 
 const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
-  notify: legacy("toast"), help: legacy("openHelp"),
+  notify: legacy("toast"), help: (t) => doc.openHelp(t),
   sessions: () => Object.values(lexical(() => sessCache) || {}),
   resolve: () => lexical(() => resolveCache) || {},
   clientContext: () => lexical(() => clientContext) || "",
@@ -149,10 +156,10 @@ const env = mountEnv(document.getElementById("doccontent"), {
 });
 
 const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
-  notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"),
+  notify: legacy("toast"), help: (t) => doc.openHelp(t), run: legacy("pmRun"),
 });
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
-  notify: legacy("toast"), help: legacy("openHelp"), applyTheme: legacy("applyTheme"),
+  notify: legacy("toast"), help: (t) => doc.openHelp(t), applyTheme: legacy("applyTheme"),
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
 });
 
@@ -189,7 +196,7 @@ const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
 let project = null, review = null, testqueueRef = null, meta = null, tickets = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
-  storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: legacy("mdToHtml"),
+  storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
   scope: () => ({ filesData: lexical(() => filesData), attached: lexical(() => attached), projectKey: project ? project.current() : null }),
   surfaces: {
@@ -214,7 +221,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
 });
 const center = Object.assign(centerCore, {
   scopeTagOf: (wt) => scopeTag(fsScope(wt, lexical(() => filesData), lexical(() => attached), project ? project.current() : null)),
-  fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: legacy("mdToHtml") }))),
+  fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))),
   centerBtn: centerBtnHtml,
 });
 // première surface migrée : elle remplace son pont. RM2726 : la cible par défaut
@@ -275,7 +282,7 @@ tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedca
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
-  center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: legacy("showCaptureModal"), md: legacy("mdToHtml"),
+  center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: legacy("showCaptureModal"), md: mdToHtml,
   titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", eff: (s, d) => legacy("effDisposition")(s, d),
   resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
   show: (on) => show("reviewpane", on),
@@ -301,7 +308,7 @@ center.register("review", { open: review.open, close: () => { if (review.current
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
 // lui prête la session attachée, le registre, les caches ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
-  ticket, notify: legacy("toast"), md: legacy("mdToHtml"), ago: legacy("ago"), tipAttr: (id) => tickets.tipAttr(id),
+  ticket, notify: legacy("toast"), md: mdToHtml, ago: legacy("ago"), tipAttr: (id) => tickets.tipAttr(id),
   resolve: () => lexical(() => resolveCache) || {}, sess: () => lexical(() => sessCache) || {}, usage: () => lexical(() => usageCache) || {},
   attached: () => lexical(() => attached), worklog: () => lexical(() => worklog), worklogPending: () => lexical(() => worklogPending), loadWorklog: legacy("loadWorklog"),
   showRight: legacy("showRight"), noteOpened: (id) => tickets.noteOpened(id), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
@@ -310,7 +317,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
 });
 // la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
 const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
-  notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
+  notify: legacy("toast"), help: (t) => doc.openHelp(t), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
   resolveRefresh: (rm) => legacy("ensureResolved")(String(rm), true),
   openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),
   afterLoad: () => { if (review.current()) review.render(); },
@@ -318,5 +325,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

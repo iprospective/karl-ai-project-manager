@@ -244,6 +244,7 @@ const ticketRepo = new TicketRepository({ caches: { resolve: lexical(() => resol
 const onResolved = (rm) => { if (center.hasTab(rm, ["review", "session"])) center.renderTabs(); };
 const ticket = {
   stale: (rm) => ticketRepo.stale(rm),
+  inFlight: (rm) => !!ticketRepo.inflight.resolve[String(rm)],   // RM2807 : garde anti fan-out des listes du monolithe
   ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force, onResolved),
   revalidate: (rm, after) => ticketRepo.revalidate(rm, after, onResolved),
   /** Rechargement explicite (⟳) : recharge, puis re-rend ce que le monolithe affiche encore. */

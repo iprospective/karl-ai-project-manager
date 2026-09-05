@@ -871,7 +871,7 @@ if (window.matchMedia) {
 <main>
   <section class="left">
     <!-- RM2466 volet 3 : repli de la colonne, vers SON bord (la gauche) -->
-    <button class="ltoggle" id="ltoggle" onclick="toggleLeft()"
+    <button class="ltoggle" id="ltoggle"
       title="Replier / déplier la colonne de gauche (vers la gauche)">◨</button>
     <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
     <nav class="lnav">
@@ -1265,11 +1265,11 @@ if (window.matchMedia) {
             <div class="card" id="rightcard">
               <h2>🧩 Colonne de droite <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>
               <label style="display:flex;align-items:center;gap:7px;cursor:pointer;margin-bottom:8px">
-                <input type="checkbox" id="rp-startopen" onchange="setRightStartOpen(this.checked)">
+                <input type="checkbox" id="rp-startopen">
                 <span>Démarrer dépliée</span>
               </label>
               <label for="rp-deftab">Onglet affiché par défaut</label>
-              <select id="rp-deftab" onchange="setRightDefaultTab(this.value)">
+              <select id="rp-deftab">
                 <option value="infos">ℹ infos</option>
                 <option value="tickets">🎫 tickets</option>
                 <option value="outline">🗺 conversation</option>
@@ -1301,9 +1301,9 @@ if (window.matchMedia) {
       <!-- RM2466 volet 3 : colonne de droite à onglets — un seul panneau actif -->
       <aside class="rpanel collapsed" id="rpanel">
         <!-- RM2599 : glisser pour régler la largeur · double-clic pour réinitialiser -->
-        <div class="rhandle" id="rhandle" onmousedown="rStartResize(event)" ondblclick="rResetWidth()"
+        <div class="rhandle" id="rhandle"
              title="Glisser pour régler la largeur · double-clic : réinitialiser"></div>
-        <button class="rtoggle" id="rtoggle" onclick="toggleRight()"
+        <button class="rtoggle" id="rtoggle"
           title="Replier / déplier la colonne de droite (vers la droite)">◧</button>
         <!-- RM2894 : le libellé de la session attachée. Il n'était affiché nulle
              part dans ce panneau — « infos » ne montrait que le nom tmux, et une
@@ -1314,17 +1314,17 @@ if (window.matchMedia) {
                RM2581 : le panneau droit est FOCALISÉ sur la session attachée — le
                « en attente, toutes sessions » a été retiré d'ici ; ce signal vit
                à gauche (badge ⚠/❓ par tuile de session). id « state » conservé. -->
-          <button data-rpanel="state" onclick="switchRight('state')"
+          <button data-rpanel="state"
             title="Worklog : les tickets ouverts dans CETTE session et leur statut (résolu en direct)">🗒 worklog</button>
-          <button data-rpanel="infos" onclick="switchRight('infos')"
+          <button data-rpanel="infos"
             title="Infos de la session : tmux, branches, worktrees, conso live">ℹ infos</button>
-          <button data-rpanel="tickets" onclick="switchRight('tickets')"
+          <button data-rpanel="tickets"
             title="Tickets de la session — un sous-onglet par ticket, puis détail / conso / workspace">🎫 tickets</button>
-          <button data-rpanel="files" onclick="switchRight('files')"
+          <button data-rpanel="files"
             title="Fichiers : parcourir les worktrees de la session, git status/commits, ouvrir un fichier (RM2586)">📁 fichiers</button>
-          <button data-rpanel="git" onclick="switchRight('git')"
+          <button data-rpanel="git"
             title="Commits et diffs du ticket — y compris ce qui n'est pas encore poussé (RM2602)">🔀 git</button>
-          <button data-rpanel="outline" onclick="switchRight('outline')"
+          <button data-rpanel="outline"
             title="Conversation de la session — clic sur une entrée : lecture inline du message.&#10;Raccourcis (focus sur la page, pas dans le terminal) : Alt+↑ / Alt+↓ = message utilisateur précédent / suivant · Alt+Fin = retour au direct">🗺 conversation</button>
         </nav>
         <div class="rbody">
@@ -3225,80 +3225,11 @@ function closeNewTicket() { karlCall("newticket", "close"); }
 // `linkify` (ci-dessus) souligne encore le jargon par ce pont ; avant que le module soit prêt, le texte passe tel quel (déjà échappé).
 function glossify(escaped) { const r = karlCall("doc", "glossify", escaped); return r === undefined ? String(escaped == null ? "" : escaped) : r; }
 
-// ----- RM2466 volet 3 : colonne de droite à onglets (un seul actif) -----
-
-// >>> rightPanelReduce — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// État de la colonne de droite. « select » sur l'onglet DÉJÀ actif replie : le
-// même geste ouvre et ferme, comme une barre d'onglets d'éditeur. « show » sans
-// onglet déplie sans changer d'onglet — attacher une session ne doit pas
-// arracher la vue de qui travaille dans la conversation.
-function rightPanelReduce(state, action) {
-  // RM2579 : trois onglets. « meta » (ancien nom, localStorage d'avant) → « infos » ;
-  // tout onglet inconnu retombe sur « infos » (défaut applicatif).
-  // « state » = onglet 🗒 état (RM2466 volet 2), ajouté en parallèle de RM2579.
-  const TABS = ["state", "infos", "tickets", "files", "git", "outline"];
-  const norm = t => (t === "meta" ? "infos" : (TABS.indexOf(t) >= 0 ? t : "infos"));
-  // RM2952 : `manual` distingue le repli VOULU du repli par défaut. Sans lui, les
-  // deux se ressemblaient — et « déplier au besoin » écrasait le geste de
-  // l'opérateur. Absent d'un état déjà persisté = non voulu : comportement d'avant
-  // jusqu'au premier repli explicite.
-  const cur = {
-    tab: norm((state && state.tab) || "infos"),
-    collapsed: !state || state.collapsed !== false,
-    manual: !!(state && state.manual),
-  };
-  const a = action || {};
-  if (a.type === "show") {
-    // Un `show` CIBLÉ (ce ticket, ce fichier) est une demande explicite : il déplie.
-    // Un `show` sans onglet est contextuel — attacher une session, et cela arrive
-    // tout seul (après un spawn, une relance, au rechargement) : il respecte un
-    // repli voulu, sinon le panneau se rouvrait sans cesse et le bouton de repli
-    // paraissait inopérant (RM2952).
-    if (!a.tab && cur.collapsed && cur.manual) return cur;
-    return { tab: norm(a.tab || cur.tab), collapsed: false, manual: false };
-  }
-  // `collapse` est automatique (plus de session attachée) : il replie sans rien
-  // décider à la place de l'opérateur — d'où `manual` conservé tel quel.
-  if (a.type === "collapse") return { tab: cur.tab, collapsed: true, manual: cur.manual };
-  if (a.type === "toggle") return { tab: cur.tab, collapsed: !cur.collapsed, manual: cur.collapsed ? false : true };
-  if (a.type === "select") {
-    const tab = norm(a.tab || cur.tab);
-    const collapsed = cur.collapsed ? false : tab === cur.tab;
-    return { tab, collapsed, manual: collapsed };
-  }
-  return cur;
-}
-// <<< rightPanelReduce
-
-let rightState = { tab: "infos", collapsed: true, manual: false };
-function applyRight() {
-  const panel = document.getElementById("rpanel");
-  panel.classList.toggle("collapsed", rightState.collapsed);
-  // RM2579 : l'onglet conversation est plus large pour rendre les échanges lisibles
-  panel.classList.toggle("wide", !rightState.collapsed && rightState.tab === "outline");
-  document.querySelectorAll(".rnav button").forEach(b =>
-    b.classList.toggle("active", b.dataset.rpanel === rightState.tab));
-  document.querySelectorAll(".rp").forEach(el =>
-    el.classList.toggle("active", el.id === "rp-" + rightState.tab));
-  try { localStorage.setItem("karlRight", JSON.stringify(rightState)); } catch (e) { /* mode privé */ }
-  // RM2330 : l'outline ne se charge qu'une fois réellement visible
-  if (rightVisible("outline") && attached) loadOutline();   // ne recharge pas ce qui est déjà là
-  // RM2579 : (re)peuple l'onglet visible quand on y bascule
-  if (rightVisible("infos")) renderInfos();
-  if (rightVisible("tickets")) renderTickets();
-  if (rightVisible("state")) loadWorklog();     // RM2581 : worklog de la session
-  // RM2586 : (re)charge les worktrees quand on ouvre l'onglet, ou après un
-  // changement de session. RM2673 : le contexte peut aussi être un PROJET (sans
-  // session attachée) — `filesEnsure` compare le contexte, pas le seul sid.
-  if (rightVisible("files")) filesEnsure();
-  if (rightVisible("git") && attached) karlCall("git", "refresh");      // RM2602 → migré
-}
-function dispatchRight(action) { rightState = rightPanelReduce(rightState, action); applyRight(); }
-function switchRight(tab) { dispatchRight({ type: "select", tab: tab }); }
-function showRight(tab) { dispatchRight({ type: "show", tab: tab }); }
-function toggleRight() { dispatchRight({ type: "toggle" }); }
-function collapseRight() { dispatchRight({ type: "collapse" }); }
-function rightVisible(tab) { return !rightState.collapsed && rightState.tab === tab; }
+// ----- RM2466 volet 3 / RM2579 / RM2599 / RM2952 : disposition des colonnes — MIGRÉE (RM2889) : src/controllers/layout.controller.js -----
+// L'état de la colonne de droite (onglet, repli voulu), le repli gauche et la largeur vivent dans le contrôleur. Ponts :
+function showRight(tab) { karlCall("layout", "showRight", tab); }
+function collapseRight() { karlCall("layout", "collapseRight"); }
+function rightVisible(tab) { return !!karlCall("layout", "rightVisible", tab); }
 
 // ----- RM2602 : commits et diffs — domaine MIGRÉ (RM2889, L4) : src/controllers/git.controller.js -----
 // L'onglet #rp-git est monté par boot.js ; ses gestes passent par karl.git.
@@ -3361,85 +3292,6 @@ function filesEnsure() { karlCall("files", "ensure"); }
 function loadFiles(force) { karlCall("files", "load", force); }
 function filesReset() { karlCall("files", "reset"); }
 function openFileRef(path) { karlCall("files", "openRef", path); }
-
-// RM2466 volet 3 : la colonne de gauche se replie vers la gauche, symétriquement
-let leftCollapsed = false;
-function applyLeft() {
-  document.querySelector("main").classList.toggle("lcollapsed", leftCollapsed);
-  try { localStorage.setItem("karlLeftCollapsed", leftCollapsed ? "1" : "0"); } catch (e) { /* mode privé */ }
-}
-function toggleLeft() { leftCollapsed = !leftCollapsed; applyLeft(); }
-
-// RM2579 : état de DÉMARRAGE de la colonne de droite, paramétrable (ce navigateur).
-// Défauts : repliée, onglet « infos ».
-function rightStartOpen() { return localStorage.getItem("karlRightStartOpen") === "1"; }
-function rightDefaultTab() {
-  const t = localStorage.getItem("karlRightDefaultTab");
-  return (t === "infos" || t === "tickets" || t === "outline" || t === "state") ? t : "infos";
-}
-function setRightStartOpen(on) {
-  try { localStorage.setItem("karlRightStartOpen", on ? "1" : "0"); } catch (e) { /* privé */ }
-}
-function setRightDefaultTab(tab) {
-  try { localStorage.setItem("karlRightDefaultTab", tab); } catch (e) { /* privé */ }
-}
-// restauration des préférences de disposition (repli gauche + démarrage colonne droite)
-function restorePanels() {
-  try {
-    // Démarrage piloté par les préférences (onglet par défaut + déplié ou non),
-    // pas par le dernier état ad hoc de la session précédente (RM2579).
-    rightState = rightPanelReduce({ tab: rightDefaultTab(), collapsed: !rightStartOpen() }, {});
-    leftCollapsed = localStorage.getItem("karlLeftCollapsed") === "1";
-    const cbo = document.getElementById("rp-startopen"); if (cbo) cbo.checked = rightStartOpen();
-    const sel = document.getElementById("rp-deftab"); if (sel) sel.value = rightDefaultTab();
-    restoreRightWidth();   // RM2599 : largeur réglée du panneau de droite
-  } catch (e) { /* mode privé ou valeur corrompue : on garde les défauts */ }
-  applyRight(); applyLeft();
-}
-
-// ── RM2599 : largeur réglable du panneau de droite (poignée + persistance) ──
-const R_WIDTH_DEFAULT = 330;
-// >>> clampWidth — pur (testé par test_cockpit.js) : largeur bornée [240, 900]
-function clampWidth(px) {
-  const n = Math.round(Number(px));
-  if (!isFinite(n)) return R_WIDTH_DEFAULT;
-  return Math.max(240, Math.min(900, n));
-}
-// <<< clampWidth
-function setRightWidth(px) { document.documentElement.style.setProperty("--rpanel-w", clampWidth(px) + "px"); }
-function restoreRightWidth() {
-  const v = parseInt(localStorage.getItem("karlRightWidth") || "", 10);
-  if (v) setRightWidth(v);
-}
-let rResizing = false, rRight = 0;
-function rStartResize(e) {
-  const panel = document.getElementById("rpanel");
-  if (panel.classList.contains("collapsed")) return;   // rien à redimensionner
-  rResizing = true; rRight = panel.getBoundingClientRect().right;
-  panel.classList.add("resizing");
-  e.preventDefault();
-}
-function rDoResize(e) {
-  if (!rResizing) return;
-  setRightWidth(rRight - e.clientX);   // le panneau grandit vers la gauche
-}
-function rEndResize() {
-  if (!rResizing) return;
-  rResizing = false;
-  document.getElementById("rpanel").classList.remove("resizing");
-  const w = getComputedStyle(document.documentElement).getPropertyValue("--rpanel-w").trim();
-  try { if (w) localStorage.setItem("karlRightWidth", parseInt(w, 10)); } catch (e) { /* privé */ }
-  if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
-}
-function rResetWidth() {
-  // RM2952 : on RETIRE la variable au lieu d'y écrire 330 px — sinon « réinitialiser »
-  // figeait aussi l'onglet conversation à 330, au lieu de lui rendre ses 460.
-  document.documentElement.style.removeProperty("--rpanel-w");
-  try { localStorage.removeItem("karlRightWidth"); } catch (e) { /* privé */ }
-  if (typeof termSession !== "undefined" && termSession) setTimeout(() => { try { termSession.fit(); } catch (e) {} }, 0);
-}
-document.addEventListener("mousemove", rDoResize);
-document.addEventListener("mouseup", rEndResize);
 
 // RM2344 : préférence de tri de la liste « en cours » — stable par défaut
 let dynSort = localStorage.getItem("karlDynSort") === "1";
@@ -4421,7 +4273,7 @@ async function kill(rmId) {
   loadProjects();
   // RM2283 : restaure le panneau gauche actif (RM2816 : les réglages n'y sont plus)
   switchPanel(localStorage.getItem("karlPanel") || "running");
-  restorePanels();    // RM2466 : repli des deux colonnes + onglet de droite actif
+  // RM2466/RM2579 : la disposition (repli des colonnes, onglet de droite, largeur) est restaurée par le contrôleur migré (layout) au montage
   // RM2672 : les onglets ÉPINGLÉS survivent au rechargement. On les réaffiche, et on
   // rouvre celui qui était actif — mais jamais une session : la rattacher au boot
   // monterait un terminal que l'utilisateur n'a pas demandé.

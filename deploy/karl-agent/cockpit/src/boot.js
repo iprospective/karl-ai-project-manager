@@ -47,6 +47,7 @@ import { mountFiles } from "./controllers/files.controller.js";
 import { mountWorklog } from "./controllers/worklog.controller.js";
 import { mountLayout } from "./controllers/layout.controller.js";
 import { mountLauncher } from "./controllers/launcher.controller.js";
+import { mountSessionActions } from "./controllers/actions.controller.js";
 import { MrLine } from "./views/worklog/Worklog.view.js";
 import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
@@ -346,6 +347,15 @@ worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), na
   openExternal: (u) => window.open(u, "_blank", "noopener"), projectWorklog: () => project && project.refreshWorklog(),
   afterLoad: () => { if (layout.rightVisible("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
 });
+// les actions d'une session (RM1893 §2 chips, RM2720 actions PM d'un ticket, §3 moniteurs, RM2515 disposition, fermeture) :
+// la session attachée, le registre, CFG, le détachement et les rafraîchissements sont prêtés
+const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabactions") }, {
+  notify: legacy("toast"), attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, cfg: () => lexical(() => CFG) || {},
+  detach: legacy("detach"), refreshSessions: legacy("refreshSessions"), refreshHealth: legacy("refreshHealth"),
+  popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "dispmenu"; document.body.appendChild(m); return m; },
+  place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
+  onOutsideClick: (fn) => setTimeout(() => document.addEventListener("click", fn, { once: true }), 0),
+});
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
@@ -358,8 +368,8 @@ review = mountReview(byId("reviewpane"), {
   filesEnsure: () => { if (layout.rightVisible("files")) legacy("filesEnsure")(); },
   afterStatus: (rm) => { if (launcher && launcher.rm() === String(rm)) launcher.resolve(); if (lexical(() => attached) && layout.rightVisible("state")) worklogCtl.load(true); },
   attach: legacy("attach"), warnSpawn: legacy("warnSpawn"), filterByTag: legacy("filterByTag"),
-  pmTarget: (rm) => legacy("pmActionTarget")(rm, lexical(() => sessCache) || {}, lexical(() => attached)),
-  sendPmAction: legacy("sendPmAction"),
+  pmTarget: (rm) => actions.pmTarget(rm),
+  sendPmAction: (idx, rm, btn) => actions.sendPmAction(idx, rm, btn),
   launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
   tq: { entry: (rm) => testqueueRef && testqueueRef.entry(rm), loaded: () => !!(testqueueRef && testqueueRef.loaded()), size: () => (testqueueRef ? testqueueRef.size() : 0), load: () => testqueueRef && testqueueRef.load(),
         deploy: (rm, b) => testqueueRef && testqueueRef.deploy(rm, b), teardown: (rm, b) => testqueueRef && testqueueRef.teardown(rm, b), deployShared: (rm, b) => testqueueRef && testqueueRef.deployShared(rm, b) },
@@ -405,5 +415,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

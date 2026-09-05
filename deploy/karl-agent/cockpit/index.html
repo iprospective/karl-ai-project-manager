@@ -1154,9 +1154,9 @@ if (window.matchMedia) {
         <button class="mini" id="readbtn" onclick="karlCall('voice', 'readQuestion')"
           title="Lire à voix haute la question posée par cette session (sinon : ses dernières lignes)">🔊 lire</button>
         <select class="mini" id="monpreset" title="Moniteur à ajouter"></select>
-        <button class="mini" id="monbtn" onclick="addMonitor()">➕ Moniteur</button>
-        <button class="mini" id="unmonbtn" onclick="removeMonitor()" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
-        <select class="mini" id="layoutsel" onchange="setLayout()" title="Disposition des panes">
+        <button class="mini" id="monbtn" data-action="monitor-add">➕ Moniteur</button>
+        <button class="mini" id="unmonbtn" data-action="monitor-remove" title="Fermer le moniteur actif (clique d'abord son pane) ou le dernier ajouté">✕ Moniteur</button>
+        <select class="mini" id="layoutsel" title="Disposition des panes">
           <option value="">Disposition…</option>
         </select>
         <!-- RM2631 : « 📋 Copier » / « 📥 Copie » déplacés dans la barre du composer -->
@@ -3851,157 +3851,11 @@ function ticketBusySessions(payload) { return karlCall("ticket", "busySessions",
 // RM2832 — clic sur une étiquette : la recherche de tickets s'y règle (recherche migrée).
 function filterByTag(tag) { switchPanel("tickets"); karlCall("search", "setTag", tag); }
 
-// >>> pmActionTarget — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2720 — À QUI envoyer une action PM déclenchée depuis la fiche d'un ticket.
-// La session du ticket d'abord : c'est elle qui a le contexte. À défaut la
-// session attachée — mais on le DIT, parce qu'envoyer « passe RM123 en cours »
-// dans une session qui travaille sur autre chose n'est pas neutre. Sans session
-// vivante, rien : le bouton se désactive avec sa raison, plutôt que d'échouer
-// après le clic.
-function pmActionTarget(rm, sessions, attached) {
-  const alive = (sid) => {
-    const s = (sessions || {})[String(sid)];
-    return !!(s && !s.ghost);
-  };
-  if (alive(rm)) return { sid: String(rm), own: true, why: "→ session du ticket RM" + rm };
-  if (attached && alive(attached))
-    return { sid: String(attached), own: false,
-             why: "→ session attachée (" + attached + ") — ce n’est pas la session du ticket" };
-  return { sid: null, own: false, why: "aucune session vivante où envoyer cette action" };
-}
-// <<< pmActionTarget
-
-// ----- §2 : chips d'actions en un clic (catalogue serveur CFG.actions) -----
-function renderChips() {
-  const row = document.getElementById("chipsrow");
-  const acts = CFG.actions || [];
-  if (!attached || !acts.length) { row.style.display = "none"; return; }
-  row.innerHTML = "";
-  let lastGroup = null;
-  for (const a of acts) {
-    // RM2720 : une action `ticket_only` porte sur UN ticket — elle est rendue sur
-    // la fiche du ticket concerné (`renderReviewPane`), pas ici. Au niveau
-    // session, `{id}` valait l'id de la SESSION : sans objet pour un ancrage
-    // slug, et faux dès qu'une session porte plusieurs tickets.
-    if (a.ticket_only) continue;
-    if (a.group && a.group !== lastGroup) {
-      const g = document.createElement("span");
-      g.className = "cgroup"; g.textContent = a.group;
-      row.appendChild(g); lastGroup = a.group;
-    }
-    const b = document.createElement("button");
-    b.className = "chip"; b.textContent = a.label;
-    b.title = String(a.text || "").replaceAll("{id}", attached) +
-      (a.enter === false ? "\n(texte injecté sans Enter — complète dans le terminal)" : "");
-    b.onclick = () => sendAction(a, b);
-    row.appendChild(b);
-  }
-  row.style.display = row.childElementCount ? "flex" : "none";
-}
-// RM2720 : `id` = ce que remplace {id} dans la consigne (un TICKET pour les
-// actions PM) ; `sid` = la session à qui on l'envoie. Les deux coïncidaient tant
-// que les actions de ticket vivaient dans la barre de session — plus maintenant.
-async function sendAction(a, btn, id, sid) {
-  const target = sid || attached;
-  const rid = id == null ? attached : String(id);
-  if (!target) return;
-  btn.disabled = true;
-  try {
-    await api("/send", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        rm_id: target,
-        msg: String(a.text || "").replaceAll("{id}", rid),
-        enter: a.enter !== false,
-      }),
-    });
-    toast(a.enter === false ? "Texte injecté — complète dans le terminal" : "Envoyé : " + a.label);
-  } catch (e) { toast(e.message, true); }
-  finally { btn.disabled = false; }
-}
-
-// RM2720 : action PM d'un ticket. La confirmation n'apparaît que si la cible
-// n'est PAS la session du ticket — c'est le seul cas où le clic fait quelque
-// chose d'inattendu (injecter une consigne dans une session qui travaille
-// ailleurs).
-async function sendPmAction(idx, rm, btn) {
-  const a = (CFG.actions || []).filter(x => x.ticket_only)[idx];
-  if (!a) return;
-  const tgt = pmActionTarget(rm, sessCache, attached);
-  if (!tgt.sid) { toast(tgt.why, true); return; }
-  if (!tgt.own && !window.confirm("« " + a.label + " » de RM" + rm + "\n"
-      + tgt.why + "\n\nEnvoyer quand même ?")) return;
-  sendAction(a, btn, rm, tgt.sid);
-}
-
-// ----- §3 : moniteurs multi-panes -----
-async function addMonitor() {
-  if (!attached) return;
-  const preset = document.getElementById("monpreset").value;
-  if (!preset) return;
-  try {
-    await api("/monitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, preset }) });
-    toast("Moniteur « " + preset + " » ajouté");
-    // pas de reattach : le client ttyd attaché voit le nouveau pane en direct (tmux redessine)
-  } catch (e) { toast(e.message, true); }
-}
-async function removeMonitor() {
-  if (!attached) return;
-  try {
-    await api("/unmonitor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached }) });
-    toast("Moniteur fermé");
-  } catch (e) { toast(e.message, true); }
-}
-async function setLayout() {
-  const layout = document.getElementById("layoutsel").value;
-  if (!attached || !layout) return;
-  try {
-    await api("/layout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: attached, layout }) });
-    // redessin live côté ttyd, pas de reattach
-  } catch (e) { toast(e.message, true); }
-  document.getElementById("layoutsel").value = "";
-}
-
-// spawn (lanceur) : MIGRÉ (RM2889) — src/controllers/launcher.controller.js
-// RM2515 : menu de disposition d'une session (à traiter / parké / terminé) + raccourci
-// fermer. Popover ancré sur la pastille ; clic ailleurs (ou choix) le referme.
-function closeDispMenu() { const m = document.getElementById("dispmenu"); if (m) m.remove(); }
-function openDispositionMenu(s, anchor) {
-  closeDispMenu();
-  const cur = s.disposition || "a_traiter";
-  const opts = [["a_traiter", "🟠 à traiter"], ["parke", "🔖 parké"], ["termine", "✅ terminé"]];
-  const m = document.createElement("div");
-  m.className = "dispmenu"; m.id = "dispmenu";
-  m.innerHTML = opts.map(([v, l]) => '<button data-v="' + v + '"' + (v === cur ? ' class="on"' : '') +
-    '>' + l + '</button>').join("") +
-    '<div class="sep"></div><button data-kill="1">✕ fermer la session</button>';
-  document.body.appendChild(m);
-  const r = anchor.getBoundingClientRect();
-  m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px";
-  m.style.top = Math.round(r.bottom + 4) + "px";
-  m.querySelectorAll("button").forEach(b => b.onclick = (e) => {
-    e.stopPropagation();
-    if (b.dataset.kill) { closeDispMenu(); kill(s.rm_id); return; }
-    setDisposition(s.rm_id, b.dataset.v); closeDispMenu();
-  });
-  setTimeout(() => document.addEventListener("click", closeDispMenu, { once: true }), 0);
-}
-async function setDisposition(rmId, disposition) {
-  try {
-    await api("/disposition", { method: "POST", headers: { "Content-Type": "application/json" },
-                                body: JSON.stringify({ rm_id: String(rmId), disposition }) });
-  } catch (e) { toast(e.message, true); }
-  refreshSessions();
-}
-async function kill(rmId) {
-  if (!confirm("Fermer la session " + tmuxName(rmId) + " ? (le travail non sauvé est perdu)")) return;
-  try {
-    await api("/kill", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rm_id: String(rmId) }) });
-    toast("Session karl-RM" + rmId + " fermée");
-    if (attached === String(rmId)) detach();
-    refreshSessions(); refreshHealth();
-  } catch (e) { toast(e.message, true); }
-}
+// ----- §2 chips (RM1893), actions PM d'un ticket (RM2720), §3 moniteurs, disposition (RM2515), fermeture — MIGRÉS (RM2889) : src/controllers/actions.controller.js -----
+// Ponts pour l'attache et les tuiles de la liste des sessions :
+function renderChips() { karlCall("actions", "renderChips"); }
+function kill(rmId) { karlCall("actions", "kill", rmId); }
+function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMenu", s, anchor); }
 
 (async function init() {
   try { CFG = await (await fetch("/cockpit-config")).json(); } catch (e) {}
@@ -4027,10 +3881,7 @@ async function kill(rmId) {
     }
   }
   // peuple le sélecteur de moniteurs + les dispositions depuis la config serveur
-  const mp = document.getElementById("monpreset");
-  (CFG.monitors || []).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = "📺 " + m; mp.appendChild(o); });
-  const ls = document.getElementById("layoutsel");
-  (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
+  karlCall("actions", "fillPresets", CFG);   // moniteurs + dispositions des panes depuis la config (actions de session migrées)
   karlCall("launcher", "populateModels");   // RM1941 : catalogue des modèles du moteur courant (lanceur migré)
   // RM2873 : modèles de consigne — même source que la fiche du ticket
   // → migré (RM2889) : boot.js peuple #ptpl depuis la source unique des modèles de consigne

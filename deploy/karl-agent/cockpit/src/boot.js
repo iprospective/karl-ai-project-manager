@@ -44,6 +44,9 @@ import { mountOutline } from "./controllers/outline.controller.js";
 import { mountResume } from "./controllers/resume.controller.js";
 import { mountSearch } from "./controllers/search.controller.js";
 import { mountFiles } from "./controllers/files.controller.js";
+import { mountWorklog } from "./controllers/worklog.controller.js";
+import { MrLine } from "./views/worklog/Worklog.view.js";
+import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
 import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
@@ -198,7 +201,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
@@ -221,7 +224,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   legacyTitle: () => legacy("curTitleLegacyHtml")() || (review && review.current() ? review.titleHtml((rm, tt) => legacy("titleLink")(rm, tt) || "") : "") || (project ? project.titleHtml() : ""),
   afterTitle: legacy("curTitleSideEffects"),
   // RM2795 : les listes portent la même marque d'épinglage — elles se redessinent au geste
-  onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); try { const w = lexical(() => worklog); if (w && w.found) legacy("renderWorklog")(); } catch (e) {} try { legacy("refreshSessions")(); } catch (e) {} },
+  onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); if (worklogCtl && worklogCtl.data().found) worklogCtl.render(); try { legacy("refreshSessions")(); } catch (e) {} },
 });
 const center = Object.assign(centerCore, {
   scopeTagOf: (wt) => scopeTag(fsScope(wt, files.data(), lexical(() => attached), project ? project.current() : null)),
@@ -245,7 +248,7 @@ project = mountProject(byId("projpane"), {
   sessions: (key) => (lexical(() => groupsCache) || {})[key] || [],
   attach: legacy("attach"), showTicket: legacy("showTicket"), openDoc: legacy("openDoc"),
   titleLink: (rm, t) => legacy("titleLink")(rm, t) || "", ago: legacy("ago"),
-  mrLine: (m) => legacy("mrLineHtml")(m, esc, jarg) || "",
+  mrLine: (m) => String(MrLine(mrLine(m))), mergeMr: (url, iid, target, btn) => worklogCtl && worklogCtl.mergeOne(url, iid, target, btn),   // RM2723 : rendu et geste partagés avec le worklog de session
   fileBody: (f) => center.fileBodyHtml(f),
   filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
 });
@@ -300,7 +303,7 @@ files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: docu
 tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
   ticket, notify: legacy("toast"), storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
   resolve: () => lexical(() => resolveCache) || {}, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
-  clientContext: () => lexical(() => clientContext) || "", spawnBatch: (items, btn, opts) => legacy("spawnBatchSession")(items, btn, opts),
+  clientContext: () => lexical(() => clientContext) || "", spawnBatch: (items, btn, opts) => worklogCtl.spawnBatch(items, btn, opts),
 });
 // la recherche de tickets (RM2770/2639/2830) : projets connus, contexte client, statuts NORMS, lien de titre, épinglage prêtés ;
 // un résultat cliqué prépare le lanceur, une étiquette chargée alimente aussi le menu du triage
@@ -310,6 +313,20 @@ const search = mountSearch(byId("searchcard"), {
   titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", pinOf: (k, key) => center.pinOf(k, key),
   pick: (rm) => { const box = byId("rm"); if (box) box.value = rm; legacy("resolveRm")(); legacy("switchPanel")("sessions"); if (box && box.scrollIntoView) box.scrollIntoView({ block: "nearest", behavior: "smooth" }); },   // RM2283 : le lanceur vit dans « sessions »
   openExternal: (url) => window.open(url, "_blank", "noopener"), onTags: (tags) => tickets.setTags(tags),
+});
+// l'onglet 🗒 worklog et ses lots (RM2466/2581/2716/2720/2723/2786/2823/2831) : la session attachée, le registre, CFG, le runner PM,
+// la capture, la modale doc (écrans de lot), l'infobulle, la marque, linkify, la revue, la fiche ℹ, le lanceur et l'attache sont prêtés
+worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), nav: document.querySelector("#rp-state .outnav") }, {
+  ticket, notify: legacy("toast"), ago: legacy("ago"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
+  attached: () => lexical(() => attached), sess: () => lexical(() => sessCache) || {}, cfg: () => lexical(() => CFG) || {}, resolve: () => lexical(() => resolveCache) || {},
+  tipAttr: (id) => tickets.tipAttr(id), pinOf: (k, key) => center.pinOf(k, key), linkify: (s) => legacy("linkify")(s) || "",
+  openReview: (rm) => review.open(rm), openStatusMenu: (ref, n, e) => review.openStatusMenu(ref, n, e), showTicket: (rm) => meta && meta.showTicket(rm),
+  modal: { open: (t, f, on) => doc.openCustom(t, f, on), close: () => doc.closeDoc(), content: () => doc.contentEl() },
+  launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
+  warnSpawn: legacy("warnSpawn"), refreshSessions: legacy("refreshSessions"), attach: legacy("attach"), forgetOpened: (rm) => tickets.forget(rm),
+  forgetTicketSessions: (rm) => { const c = lexical(() => tsCache); if (c) c[rm] = undefined; },
+  openExternal: (u) => window.open(u, "_blank", "noopener"), projectWorklog: () => project && project.refreshWorklog(),
+  afterLoad: () => { if (legacy("rightVisible")("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
 });
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
@@ -321,7 +338,7 @@ review = mountReview(byId("reviewpane"), {
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
   noteOpened: (rm) => tickets.noteOpened(rm), showRight: legacy("showRight"), refreshSessions: legacy("refreshSessions"),
   filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
-  afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && legacy("rightVisible")("state")) legacy("loadWorklog")(true); },
+  afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && legacy("rightVisible")("state")) worklogCtl.load(true); },
   attach: legacy("attach"), warnSpawn: legacy("warnSpawn"), filterByTag: legacy("filterByTag"),
   pmTarget: (rm) => legacy("pmActionTarget")(rm, lexical(() => sessCache) || {}, lexical(() => attached)),
   sendPmAction: legacy("sendPmAction"),
@@ -342,7 +359,7 @@ center.register("review", { open: review.open, close: () => { if (review.current
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   ticket, notify: legacy("toast"), md: mdToHtml, ago: legacy("ago"), tipAttr: (id) => tickets.tipAttr(id),
   resolve: () => lexical(() => resolveCache) || {}, sess: () => lexical(() => sessCache) || {}, usage: () => lexical(() => usageCache) || {},
-  attached: () => lexical(() => attached), worklog: () => lexical(() => worklog), worklogPending: () => lexical(() => worklogPending), loadWorklog: legacy("loadWorklog"),
+  attached: () => lexical(() => attached), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
   showRight: legacy("showRight"), noteOpened: (id) => tickets.noteOpened(id), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
@@ -357,5 +374,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

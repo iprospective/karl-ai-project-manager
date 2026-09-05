@@ -4033,7 +4033,13 @@ function noteOpenedTicket(id) {
   const avant = openedTickets.length;
   openedTickets = openedAdd(openedTickets, id, 40);
   if (openedTickets.length !== avant || String(openedTickets[0]) !== String(id)) openedSave();
-  openedTickets.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(renderOpened); });
+  // RM2807 : la garde `!resolveInflight[t]` est VITALE. Sans elle, chaque rendu
+  // ré-abonne un NOUVEAU .then(render) à chaque ticket encore en vol → le nombre
+  // de rendus double par ticket résolu (2^N), chacun reconstruisant tout l'innerHTML
+  // (+ handlers onclick tracés par le ramasse-cycles). Une liste de 20 tickets =
+  // 1 048 576 rendus : CPU à fond, RAM native qui explose (fuite Firefox RM2807).
+  // Avec la garde : un seul .then par ticket → N+1 rendus, linéaire.
+  openedTickets.forEach(t => { if (resolveCache[t] === undefined && !resolveInflight[t]) ensureResolved(t).then(renderOpened); });
   renderOpened();
 }
 function openedForget(id) {
@@ -6659,7 +6665,8 @@ function renderTickets() {
     return;
   }
   const sel = (metaTicket && list.indexOf(metaTicket) >= 0) ? metaTicket : list[0];
-  list.forEach(t => { if (resolveCache[t] === undefined) ensureResolved(t).then(() => renderTickets()); });
+  // RM2807 : `!resolveInflight[t]` casse le fan-out exponentiel — cf. noteOpenedTicket.
+  list.forEach(t => { if (resolveCache[t] === undefined && !resolveInflight[t]) ensureResolved(t).then(() => renderTickets()); });
   const facet = ["detail", "desc", "log", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
   if (facet === "workspace" && wsCache[sel] === undefined) refreshWorkspace(sel);
   // niveau 1 : un sous-onglet par ticket

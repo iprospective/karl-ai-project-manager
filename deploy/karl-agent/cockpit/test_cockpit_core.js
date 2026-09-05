@@ -182,6 +182,8 @@ function fakeElement() {
   // — 9. api : comportement identique à index.html, erreurs à quatre champs —
   const A = await import(path.join(DIR, "src/core/api.js"));
   const ER = await import(path.join(DIR, "src/core/errors.js"));
+  // un accesseur reste un accesseur : la configuration d'instance arrive APRÈS le boot (incident du 2026-09-05 : jeton jamais envoyé)
+  { const live = { on: false }; A.configureApi({ get authRequired() { return live.on; }, token: () => "T" }); assert.deepStrictEqual(A.headers({}), {}, "avant la config : pas de jeton"); live.on = true; assert.deepStrictEqual(A.headers({}), { "X-Karl-Token": "T" }, "la config connue plus tard est lue à chaque requête"); }
   A.configureApi({ authRequired: true, token: () => "T" });
   assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1", "X-Karl-Token": "T" }, "headers() : les en-têtes fournis + le jeton quand l'auth est active (comportement historique)");
   A.configureApi({ authRequired: false }); assert.deepStrictEqual(A.headers({ a: "1" }), { a: "1" }, "auth inactive : pas de jeton"); A.configureApi({ authRequired: true, token: () => "T" });

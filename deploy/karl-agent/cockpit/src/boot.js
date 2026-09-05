@@ -481,8 +481,11 @@ const commands = mountCommands(document, {
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
-layout.restore();
-center.restore();
+// Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
+// une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
+const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); return undefined; } };
+safe("disposition", () => layout.restore());
+safe("onglets épinglés", () => center.restore());
 
 window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
@@ -490,15 +493,15 @@ window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──
 (async function init() {
   try { Object.assign(CFG, await get(route("session.cockpit_config"))); } catch (e) { /* défauts : le cockpit reste utilisable */ }
-  settings.setServerTheme(CFG.ui_theme);                                  // RM2386 : réconcilie le thème du premier paint avec le défaut d'instance
-  resume.setEngines(CFG.resume_engines || ["claude"]);                     // RM2539 : moteurs réellement reprenables
-  auth.boot();                                                             // RM2334 : carte, jeton mémorisé, écran de login, whoami
-  actions.fillPresets(CFG); launcher.populateModels(); launcher.fillTicketForm();   // moniteurs/dispositions, modèles (RM1941), types/priorités
-  launcher.loadProjects();                                                 // projets connus → formulaires, reprise, recherche, contexte client
-  layout.restorePanel();                                                   // RM2283 : dernier panneau gauche actif
-  if (CFG.auth_required && !auth.token()) center.openPanel("settings");    // RM2334/RM2816 : sans jeton, les réglages sont ce qu'on vient chercher
-  voice.boot(); try { speechSynthesis.onvoiceschanged = () => voice.paint(); } catch (e) { /* pas de synthèse */ }   // RM2329/2350/2532
-  setsCtl.refreshSets(); setsCtl.refreshSet();                             // RM2442 / RM2395
-  dashboard.refresh(); env.boot();                                         // RM2697 / RM2722-2748
-  refreshCtl.start();                                                      // pile /refresh : premier tick (tous les blocs dus), cadence adaptative
+  safe("thème", () => settings.setServerTheme(CFG.ui_theme));                              // RM2386 : réconcilie le thème du premier paint avec le défaut d'instance
+  safe("moteurs", () => resume.setEngines(CFG.resume_engines || ["claude"]));               // RM2539 : moteurs réellement reprenables
+  safe("auth", () => auth.boot());                                                           // RM2334 : carte, jeton mémorisé, écran de login, whoami
+  safe("config", () => { actions.fillPresets(CFG); launcher.populateModels(); launcher.fillTicketForm(); });   // moniteurs/dispositions, modèles (RM1941), types/priorités
+  safe("projets", () => launcher.loadProjects());                                            // projets connus → formulaires, reprise, recherche, contexte client
+  safe("panneau", () => layout.restorePanel());                                              // RM2283 : dernier panneau gauche actif
+  if (CFG.auth_required && !auth.token()) safe("réglages", () => center.openPanel("settings"));   // RM2334/RM2816 : sans jeton, les réglages sont ce qu'on vient chercher
+  safe("voix", () => { voice.boot(); try { speechSynthesis.onvoiceschanged = () => voice.paint(); } catch (e) { /* pas de synthèse */ } });   // RM2329/2350/2532
+  safe("jeux", () => { setsCtl.refreshSets(); setsCtl.refreshSet(); });                      // RM2442 / RM2395
+  safe("tableau de bord", () => dashboard.refresh()); safe("poste", () => env.boot());       // RM2697 / RM2722-2748
+  refreshCtl.start();                                                                        // pile /refresh : premier tick (tous les blocs dus), cadence adaptative
 })();

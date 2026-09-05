@@ -6,16 +6,18 @@
 // vol (RM2763), verrous in-flight (RM2384, RM2373) — le stockage suit en L6.
 import { Repository } from "../Repository.js";
 import { Factory } from "../Factory.js";
-import { get } from "../../core/api.js";
+import { get, post } from "../../core/api.js";
 import { routeFor } from "../../core/endpoints.js";
 const enc = encodeURIComponent;
 
-export const RESOLVE_TTL_MS = 30000, MC_TTL_MS = 30000, USAGE_TTL_MS = 20000;
+export const RESOLVE_TTL_MS = 30000, MC_TTL_MS = 30000, USAGE_TTL_MS = 20000, TRANS_TTL_MS = 20000;
 
 export class TicketRepository extends Repository {
   constructor({ caches = {}, now = () => Date.now() } = {}) {
     super({ name: "ticket", ttl: RESOLVE_TTL_MS, max: 500, factory: new Factory({ type: "ticket" }),
-            routes: { resolve: "ticket.resolve", mergecheck: "ticket.mergecheck", usage: "ticket.usage", sessions: routeFor("/ticket-sessions") } });
+            routes: { resolve: "ticket.resolve", mergecheck: "ticket.mergecheck", usage: "ticket.usage", sessions: routeFor("/ticket-sessions"),
+                      transitions: routeFor("/ticket-transitions"), deliver: routeFor("/mr/deliver"), spawn: "session.spawn", send: "session.send" } });
+    this.trans = new Map();
     this.c = { resolve: caches.resolve || {}, resolveAt: caches.resolveAt || {}, mc: caches.mc || {}, usage: caches.usage || {}, ts: caches.ts || {} };
     this.inflight = { resolve: {}, mc: {}, usage: {} };
     this.now = now;
@@ -68,6 +70,20 @@ export class TicketRepository extends Repository {
     finally { this.inflight.usage[rm] = false; }
     return this.c.usage[rm].usage;
   }
+  // ── transitions de statut (RM2888) : la liste vient des NORMS, jamais d'ici ─
+  async transitions(rm, force) {
+    rm = String(rm);
+    const hit = this.trans.get(rm);
+    if (hit && !force && this.now() - hit.ts < TRANS_TTL_MS) return hit.data;
+    const data = await get(this.path("transitions") + "/" + enc(rm));
+    this.trans.set(rm, { ts: this.now(), data });
+    return data;
+  }
+  invalidateTransitions(rm) { this.trans.delete(String(rm)); }
+  /** RM2355 : livre la branche (MR + merge → dev) pour franchir la merge gate. */
+  deliver(rm) { return post(this.path("deliver"), { rm_id: String(rm), confirm: true }); }
+  spawn(body) { return post(this.path("spawn"), body); }
+  send(sid, msg) { return post(this.path("send"), { rm_id: sid, msg, enter: true }); }
   // ── sessions du ticket (RM2726) ───────────────────────────────────────────
   async ensureTicketSessions(rm, force) {
     rm = String(rm);

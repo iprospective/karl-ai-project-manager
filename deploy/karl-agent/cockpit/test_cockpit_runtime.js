@@ -107,14 +107,7 @@ ctx.api = async () => ({
 (async () => {
   // — panneau « commandes pm » : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_settings.js —
 
-  // — fil d'ariane des fichiers : même défaut, deux endroits —
-  ctx.attached = "42";
-  ctx.filesData = { ctxKey: "s:42", worktrees: [], projects: [
-    { root: "/w/appli", name: "appli", client: "acme", project: "appli", docs: [] }] };
-  ctx.fileNav = { wt: "/w/appli", path: "src/lib", entries: [{ name: "a.js", dir: false, size: 10 }],
-                  commits: null, file: null, showCommits: false };
-  ctx.renderFiles();
-  console.log("✓ onglet fichiers : fil d'ariane rendu (session)");
+  // — onglet fichiers : surface MIGRÉE (RM2889) — voir test_cockpit_files.js —
 
   // — fiche projet : surface MIGRÉE (RM2889) — voir test_cockpit_project.js —
 

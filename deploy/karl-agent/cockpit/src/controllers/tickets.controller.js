@@ -81,6 +81,8 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
     catch (e) { triageH.update(html`<div class="tr-err">échec du classement : ${e.message}</div>`); }
   }
   const triageRows = () => state.triageRows.slice();
+  /** RM2830 : le menu d'étiquettes du triage vient de l'inventaire chargé par la recherche ; le filtre courant survit. */
+  function setTags(tags) { const sel = q(triage, "#tr-tag"); if (!sel) return; const cur = sel.value; sel.innerHTML = String(FilterOptions((tags || []).map(t => String(t.tag)), cur, "toutes les étiquettes")); sel.value = cur; }
   /** RM2831 : la liste AFFICHÉE part dans une session à elle, par le chemin partagé de RM2823. */
   async function spawnFromTriage(btn) {
     const rows = triageRows();
@@ -106,6 +108,6 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
   listen(opened, "toggle", () => svc.rememberCard(!!opened.open));
   if (opened && "open" in opened) opened.open = openedPanelOpen(svc.cardOpen());        // RM2757 : replié sauf choix explicite
   renderOpened();                                                                      // RM2606 : restaurée du localStorage
-  return Object.assign(handle, { loadTriage, renderTriage, triageRows, spawnFromTriage, noteOpened, forget, clear, filterClient, filterFamily, renderOpened,
+  return Object.assign(handle, { loadTriage, renderTriage, triageRows, spawnFromTriage, setTags, noteOpened, forget, clear, filterClient, filterFamily, renderOpened,
     opened: () => svc.opened.slice(), tipAttr, refreshTips, brief: (id) => svc.brief(id), state });
 }

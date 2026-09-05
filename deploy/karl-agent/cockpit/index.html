@@ -950,33 +950,33 @@ if (window.matchMedia) {
       <div id="openedbox"></div>
     </details>
 
-    <div class="card">
+    <div class="card" id="searchcard">
       <h2>Rechercher un ticket <button class="helpq" onclick="openHelp('tickets')" title="Aide sur ce panneau">?</button></h2>
       <div class="searchrow">
         <input id="search" type="text" placeholder="id, titre, tag…  (Entrée)">
-        <button class="mini" id="searchclear" onclick="clearSearch()" title="Vider la recherche">✕</button>
+        <button class="mini" id="searchclear" data-action="clear" title="Vider la recherche">✕</button>
       </div>
       <!-- RM2770 : source + filtres. La source par défaut reste « local » —
            le comportement d'avant, pour qui ne touche à rien. -->
       <div class="srcfilters">
-        <select id="sf-source" onchange="search()"
+        <select id="sf-source"
                 title="Où chercher. « Redmine » trouve les tickets qui n'ont pas encore de fichier local (jamais fetchés)">
           <option value="local">📁 local</option>
           <option value="redmine">🌐 Redmine</option>
           <option value="both">📁+🌐 les deux</option>
         </select>
-        <select id="sf-client" onchange="sfClientChanged()" title="Filtrer par client">
+        <select id="sf-client" title="Filtrer par client">
           <option value="">tous les clients</option>
         </select>
-        <select id="sf-project" onchange="search()" title="Filtrer par projet (du client choisi)">
+        <select id="sf-project" title="Filtrer par projet (du client choisi)">
           <option value="">tous les projets</option>
         </select>
-        <select id="sf-status" onchange="search()" title="Filtrer par statut NORMS">
+        <select id="sf-status" title="Filtrer par statut NORMS">
           <option value="">tous les statuts</option>
         </select>
         <!-- RM2830 : le domaine du ticket (front, bo, bdd, refacto…). Le menu
              vient des étiquettes RÉELLEMENT en usage — jamais d'une liste en dur. -->
-        <select id="sf-tag" onchange="search()" title="Filtrer par étiquette (domaine du ticket)">
+        <select id="sf-tag" title="Filtrer par étiquette (domaine du ticket)">
           <option value="">toutes les étiquettes</option>
         </select>
       </div>
@@ -4838,151 +4838,9 @@ function applyTemplate() {
   ta.value = promptFillOnChange(tpl, ta.value, txt);
 }
 
-// ----- §7 : recherche de tickets (MD locaux) -----
-function clearSearch() {
-  document.getElementById("search").value = "";
-  document.getElementById("results").innerHTML = "";
-  document.getElementById("search").focus();
-}
-// >>> searchQuery — pur (RM2770, testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Construit la requête. Le filtre explicite PRIME sur le contexte client global
-// (RM2639) : quand on choisit un client dans la barre, c'est ce choix-là qui
-// vaut — sinon le contexte contredirait en silence ce qu'on vient de demander.
-function searchQuery(q, f, ctxClient) {
-  const o = f || {};
-  const p = ["q=" + encodeURIComponent(q || "")];
-  const client = o.client || ctxClient || "";
-  if (client) p.push("client=" + encodeURIComponent(client));
-  if (o.project) p.push("project=" + encodeURIComponent(o.project));
-  if (o.status) p.push("status=" + encodeURIComponent(o.status));
-  if (o.tag) p.push("tag=" + encodeURIComponent(o.tag));      // RM2830
-  const src = o.source || "local";
-  if (src !== "local") p.push("source=" + encodeURIComponent(src));
-  return "/tickets/search?" + p.join("&");
-}
-// <<< searchQuery
-
-// >>> searchRowMeta — pur (RM2770, testé par test_cockpit.js)
-// Ligne de contexte d'un résultat. Un ticket vu côté Redmine et absent en local
-// DOIT le dire : c'est ce qu'on est venu chercher, et ça décide du geste suivant
-// (le fetcher). Un ticket local n'affiche rien de tel — pas de bruit.
-function searchRowMeta(t) {
-  const r = t || {};
-  const où = (r.client && r.project) ? r.client + " / " + r.project
-           : (r.redmine_project || "—");
-  const bits = [où, r.status || "?"];
-  if (r.origin === "redmine" && !r.synced) bits.push("⚠ pas en local");
-  else if (r.origin === "redmine" || r.origin === "both") bits.push("🌐 Redmine");
-  if (r.assigned_to) bits.push("→ " + r.assigned_to);
-  // RM2830 : filtrer par étiquette sans les VOIR, c'est filtrer à l'aveugle.
-  const tags = (r.tags || []).filter(Boolean);
-  if (tags.length) bits.push("🏷 " + tags.join(", "));
-  return bits.join(" · ");
-}
-// <<< searchRowMeta
-
-// Le sélecteur de projet ne montre QUE les projets du client choisi : proposer
-// les 47 projets de tous les clients ferait chercher dans une liste où presque
-// rien ne peut correspondre.
-function sfFillProjects() {
-  const sel = document.getElementById("sf-project");
-  if (!sel) return;
-  const cl = (document.getElementById("sf-client") || {}).value || clientContext || "";
-  const garde = sel.value;
-  const items = (allProjects || []).filter(p => !cl || p.client === cl);
-  sel.innerHTML = '<option value="">tous les projets</option>'
-    + items.map(p => '<option value="' + esc(p.project) + '">' + esc(p.project) + "</option>").join("");
-  if (items.some(p => p.project === garde)) sel.value = garde;
-}
-
-function sfClientChanged() { sfFillProjects(); search(); }
-
-function sfInit() {
-  const cs = document.getElementById("sf-client");
-  if (cs) {
-    cs.innerHTML = '<option value="">tous les clients</option>'
-      + clientCtxList(allProjects).map(c =>
-          '<option value="' + esc(c) + '">' + esc(c) + "</option>").join("");
-  }
-  const st = document.getElementById("sf-status");
-  if (st && st.options.length <= 1) {
-    st.innerHTML = '<option value="">tous les statuts</option>'
-      + (CFG.statuses || []).map(v =>
-          '<option value="' + esc(v) + '">' + esc(v) + "</option>").join("");
-  }
-  sfFillProjects();
-}
-
-// RM2830 — les étiquettes proposées sont celles qui EXISTENT (GET /tags), avec
-// leur nombre d'usages. Une liste écrite en dur dériverait dès le premier
-// vocabulaire ajouté, et proposerait des filtres qui ne rendent rien.
-let tagsCache = [];
-async function loadTags() {
-  try {
-    const r = await api("/tags");
-    tagsCache = r.tags || [];
-  } catch (e) { tagsCache = []; }
-  const opts = tagsCache.map(t =>
-    '<option value="' + esc(t.tag) + '">' + esc(t.tag) + " (" + t.count + ")</option>").join("");
-  for (const [id, vide] of [["sf-tag", "toutes les étiquettes"], ["tr-tag", "toutes les étiquettes"]]) {
-    const el = document.getElementById(id);
-    if (!el) continue;
-    const cur = el.value;
-    el.innerHTML = '<option value="">' + vide + "</option>" + opts;
-    el.value = cur;                     // un rafraîchissement ne doit pas défaire le filtre
-  }
-}
-
-async function search() {
-  const q = document.getElementById("search").value.trim();
-  const ul = document.getElementById("results");
-  const warn = document.getElementById("sf-warn");
-  const val = id => (document.getElementById(id) || {}).value || "";
-  const filtres = { source: val("sf-source"), client: val("sf-client"),
-                    project: val("sf-project"), status: val("sf-status"),
-                    tag: val("sf-tag") };                       // RM2830
-  try {
-    if (warn) warn.style.display = "none";
-    const r = await api(searchQuery(q, filtres, clientContext));   // RM2770
-    const results = r.results || [];
-    // RM2770 : une panne Redmine s'affiche À CÔTÉ des résultats locaux, jamais
-    // à leur place — sinon une API en rade fait croire à un ticket disparu.
-    if (r.redmine_error && warn) {
-      warn.textContent = "⚠ " + r.redmine_error;
-      warn.style.display = "";
-    }
-    if (!results.length) { ul.innerHTML = '<div class="empty">aucun résultat</div>'; return; }
-    ul.innerHTML = "";
-    for (const t of results) {
-      const li = document.createElement("li");
-      li.innerHTML =
-        '<div class="r-top"><span class="r-id">RM' + t.rm_id + '</span>' + pinOf("review", t.rm_id) +   // RM2795
-        '<span class="r-title">' + titleLink(t.rm_id, t.title || "(sans titre)") + '</span></div>' +
-        '<div class="r-meta">' + esc(searchRowMeta(t)) + '</div>';
-      // RM2770 : un ticket que Redmine connaît mais que le local ignore n'a rien
-      // à faire dans le lanceur de session — il n'y a pas de fichier, pas de
-      // branche, rien à reprendre. Le clic l'ouvre chez Redmine, là où il vit.
-      const absent = t.origin === "redmine" && !t.synced;
-      const base = (CFG && CFG.redmine_url) || "";
-      li.title = absent
-        ? "Pas encore de fichier local — clic : ouvrir RM" + t.rm_id + " dans Redmine"
-          + (base ? "" : " (URL Redmine non configurée)")
-        : "Clic : préparer une session sur RM" + t.rm_id;
-      li.onclick = () => {
-        if (absent) {
-          if (base) window.open(base + "/issues/" + t.rm_id, "_blank", "noopener");
-          else toast("URL Redmine non configurée sur cette instance", true);
-          return;
-        }
-        document.getElementById("rm").value = t.rm_id;
-        resolveRm();
-        switchPanel("sessions");   // RM2283 : le lanceur vit dans le panneau « sessions »
-        document.getElementById("rm").scrollIntoView({ block: "nearest", behavior: "smooth" });
-      };
-      ul.appendChild(li);
-    }
-  } catch (e) { ul.innerHTML = '<div class="empty">erreur : ' + e.message + '</div>'; }
-}
+// ----- §7 : recherche de tickets (RM2770/2639/2830/2795) — MIGRÉ (RM2889) : src/controllers/search.controller.js -----
+// La carte #searchcard est l'hôte ; le lanceur (projets, contexte client, création) lui parle par karlCall. Pont pour les appelants historiques :
+function search() { karlCall("search", "search"); }
 
 // ----- §8 : création de ticket -----
 let allProjects = [];   // cache client/projet (RM2418 : cible de déplacement)
@@ -4999,9 +4857,9 @@ async function loadProjects() {
       sel.appendChild(o);
     }
     karlCall("resume", "setProjects");                 // RM2834 : la carte de reprise se peuple des mêmes projets (migrée)
-    loadTags();                                        // RM2830 : étiquettes en usage
+    karlCall("search", "loadTags");                    // RM2830 : étiquettes en usage (recherche + triage)
     fillClientCtx();                                   // RM2639 : peuple le menu client
-    sfInit();                                          // RM2770 : filtres de recherche
+    karlCall("search", "init");                        // RM2770 : filtres de recherche (migrés)
     if (clientContext) {                               // pré-filtre appliqué au chargement
       openedFilter(clientContext);
       // RM2834 : le contexte client pré-sélectionne le client, donc les projets
@@ -5039,9 +4897,9 @@ function setClientContext(c) {
     const nt = document.getElementById("nt-project"); if (nt) nt.value = proj;
   }
   karlCall("resume", "applyClientContext", clientContext, proj);   // RM2834 : la carte de reprise suit le contexte (migrée)
-  const sb = document.getElementById("search"); if (sb && sb.value.trim()) search();  // recherche
+  karlCall("search", "refreshIfQuery");                        // recherche (migrée)
   karlCall("projects", "render");                              // RM2760 : le client du contexte se déplie
-  sfFillProjects();                                            // RM2770 : projets du filtre de recherche
+  karlCall("search", "fillProjects");                          // RM2770 : projets du filtre de recherche (migré)
   refreshSessions();                                           // sessions : re-render filtré
 }
 
@@ -5080,7 +4938,7 @@ async function createTicket() {
     document.getElementById("nt-tags").value = "";
     document.getElementById("nt-desc").value = "";
     document.getElementById("ntcard").open = false;
-    if (document.getElementById("search").value.trim()) search();
+    karlCall("search", "refreshIfQuery");                // la recherche en cours voit le nouveau ticket
   } catch (e) { toast(e.message, true); }
   finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
 }
@@ -5626,23 +5484,8 @@ const tsCache = {};   // rm → payload /ticket-sessions (partagé par référen
 function ensureTicketSessions(rm, force) { return karlWhen("ticket").then(t => t.ensureTicketSessions(rm, force)); }
 function ticketBusySessions(payload) { return karlCall("ticket", "busySessions", payload) || { alive: [], stopped: [] }; }
 
-// RM2832 — clic sur une étiquette : la recherche de tickets s'y règle (domaine recherche, pas encore migré).
-function filterByTag(tag) {
-  switchPanel("tickets");
-  const sel = document.getElementById("sf-tag");
-  if (sel) {
-    if (![...sel.options].some(o => o.value === tag)) {
-      // l'inventaire n'a pas encore été rechargé : on ajoute l'entrée plutôt que
-      // d'ignorer le clic en silence.
-      const o = document.createElement("option");
-      o.value = tag; o.textContent = tag;
-      sel.appendChild(o);
-    }
-    sel.value = tag;
-  }
-  const q = document.getElementById("search"); if (q) q.value = "";
-  search();
-}
+// RM2832 — clic sur une étiquette : la recherche de tickets s'y règle (recherche migrée).
+function filterByTag(tag) { switchPanel("tickets"); karlCall("search", "setTag", tag); }
 
 // >>> pmActionTarget — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // RM2720 — À QUI envoyer une action PM déclenchée depuis la fiche d'un ticket.
@@ -5869,7 +5712,6 @@ async function kill(rmId) {
   const rmIn = document.getElementById("rm");
   rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
   rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
-  document.getElementById("search").addEventListener("keydown", e => { if (e.key === "Enter") search(); });
   // RM2330 : navigation clavier dans l'historique de conversation. Ne prend que
   // quand le focus est sur la page cockpit (l'iframe ttyd est cross-origin :
   // impossible d'y intercepter les touches — cliquer hors du terminal d'abord).

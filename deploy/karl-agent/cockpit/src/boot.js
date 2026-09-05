@@ -42,6 +42,7 @@ import { mountTicketsPanel } from "./controllers/tickets.controller.js";
 import { mountDocModal } from "./controllers/doc.controller.js";
 import { mountOutline } from "./controllers/outline.controller.js";
 import { mountResume } from "./controllers/resume.controller.js";
+import { mountSearch } from "./controllers/search.controller.js";
 import { mdToHtml } from "./core/markdown.js";
 import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
@@ -291,6 +292,15 @@ tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedca
   resolve: () => lexical(() => resolveCache) || {}, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
   clientContext: () => lexical(() => clientContext) || "", spawnBatch: (items, btn, opts) => legacy("spawnBatchSession")(items, btn, opts),
 });
+// la recherche de tickets (RM2770/2639/2830) : projets connus, contexte client, statuts NORMS, lien de titre, épinglage prêtés ;
+// un résultat cliqué prépare le lanceur, une étiquette chargée alimente aussi le menu du triage
+const search = mountSearch(byId("searchcard"), {
+  notify: legacy("toast"), projects: () => lexical(() => allProjects) || [], clientContext: () => lexical(() => clientContext) || "",
+  statuses: () => ((lexical(() => CFG) || {}).statuses) || [], redmineBase: () => ((lexical(() => CFG) || {}).redmine_url) || "",
+  titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", pinOf: (k, key) => center.pinOf(k, key),
+  pick: (rm) => { const box = byId("rm"); if (box) box.value = rm; legacy("resolveRm")(); legacy("switchPanel")("sessions"); if (box && box.scrollIntoView) box.scrollIntoView({ block: "nearest", behavior: "smooth" }); },   // RM2283 : le lanceur vit dans « sessions »
+  openExternal: (url) => window.open(url, "_blank", "noopener"), onTags: (tags) => tickets.setTags(tags),
+});
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
@@ -337,5 +347,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

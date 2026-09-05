@@ -1590,43 +1590,7 @@ console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/dé
 
 
 
-// — RM2770 : recherche multi-source et filtres —
-const searchQuery = grabO("searchQuery");
-const searchRowMeta = grabO("searchRowMeta");
-
-// La source par défaut ne doit RIEN changer à la requête d'avant.
-assert.strictEqual(searchQuery("abc", { source: "local" }, ""), "/tickets/search?q=abc",
-  "source locale = requête historique, sans paramètre superflu");
-assert(searchQuery("x", { source: "redmine" }, "").includes("source=redmine"));
-assert(searchQuery("x", { source: "both" }, "").includes("source=both"));
-// Le filtre explicite prime sur le contexte global : sinon le cockpit
-// contredirait en silence le client qu'on vient de choisir.
-assert(searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"),
-  "le filtre explicite prime sur le contexte client");
-assert(searchQuery("x", {}, "calicote").includes("client=calicote"),
-  "…mais sans filtre, le contexte s'applique toujours (RM2639)");
-assert(!searchQuery("x", {}, "").includes("client="), "aucun client → aucun filtre client");
-const qFull = searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, "");
-["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(frag =>
-  assert(qFull.includes(frag), "paramètre manquant : " + frag));
-assert(searchQuery("a b&c", {}, "").includes("q=a%20b%26c"), "la requête est encodée");
-assert.strictEqual(searchQuery(null, null, null), "/tickets/search?q=", "entrées molles tolérées");
-
-// La ligne de contexte : ce qui décide du geste suivant doit être écrit.
-assert.strictEqual(searchRowMeta({ client: "c", project: "p", status: "a_faire" }),
-  "c / p · a_faire", "un résultat local reste sobre — pas de bruit");
-const meta2770 = searchRowMeta({ rm_id: "9", origin: "redmine", synced: false,
-  status: "Nouveau", redmine_project: "Projet X", assigned_to: "Karl" });
-assert(meta2770.includes("⚠ pas en local"),
-  "un ticket que le local ignore DOIT le dire — c'est ce qu'on est venu chercher");
-assert(meta2770.includes("Projet X"), "…et à défaut de client/projet PM, son projet Redmine");
-assert(meta2770.includes("→ Karl"), "…et son assignation, qui vient de Redmine seul");
-assert(searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
-  .includes("🌐 Redmine"), "un ticket vu des deux côtés le signale sans alarmer");
-assert(!searchRowMeta({ client: "c", project: "p", origin: "both", synced: true })
-  .includes("pas en local"), "…et surtout pas comme absent");
-assert.strictEqual(searchRowMeta(null), "— · ?", "résultat vide : pas d'exception");
-
+// — RM2770 : recherche multi-source et filtres : MIGRÉ (RM2889) — voir test_cockpit_search.js. Reste l'hôte HTML :
 // Câblage : les trois sources et les filtres doivent exister dans la page.
 ["sf-source", "sf-client", "sf-project", "sf-status", "sf-warn"].forEach(id =>
   assert(html.includes('id="' + id + '"'), "élément manquant : " + id));
@@ -1634,8 +1598,8 @@ assert.strictEqual(searchRowMeta(null), "— · ?", "résultat vide : pas d'exce
   assert(new RegExp('<option value="' + v + '"').test(html), "source manquante : " + v));
 assert(/<select id="sf-source"[\s\S]*?<option value="local"/.test(html),
   "« local » doit être la première option, donc le défaut");
-assert(/r\.redmine_error/.test(html),
-  "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place");
+assert(/redmine_error/.test(fs.readFileSync(path.join(__dirname, "src/controllers/search.controller.js"), "utf8")),
+  "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place (contrôleur migré)");
 console.log("✓ recherche multi-source (RM2770) : local par défaut, filtres, absents signalés");
 
 // — RM2774 : la barre centrale tient sur deux lignes —
@@ -1809,10 +1773,12 @@ console.log("✓ silence réel (RM2793) : les recaps automatiques ne remettent p
 const surfaces2795 = [
   ['pinOf("session", s.rm_id)', "tuiles de session"],
   ['pinOf("review", rm)', "revues ouvertes"],
-  ['pinOf("review", t.rm_id)', "résultats de recherche"],
 ];
 surfaces2795.forEach(([frag, quoi]) =>
   assert(html.includes(frag), "marque absente : " + quoi));
+// RM2889 : la recherche est migrée — sa vue reçoit la marque du routeur par le contrôleur
+assert(/raw\(pin\("review", r\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/Search.view.js"), "utf8")),
+  "marque absente : résultats de recherche (migrés)");
 // RM2889 : les tickets ouverts sont migrés — la vue reçoit la marque du routeur (pinOf) par le contrôleur
 assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/TicketsPanel.view.js"), "utf8")),
   "marque absente : tickets ouverts (migrés)");
@@ -2194,25 +2160,16 @@ console.log("✓ reprise de session (RM2834) : hôte HTML en place, logique migr
 
 // — RM2830 : filtrer par étiquette (recherche, triage, jeux dérivés) —
 // L'étiquette ne sert à rien si elle ne sert pas à CHOISIR quoi faire.
-const searchQuery2830 = grabO("searchQuery");
-assert(/tag=refacto/.test(searchQuery2830("x", { tag: "refacto" }, "")),
-  "la recherche doit transmettre l'étiquette au serveur");
-assert(!/tag=/.test(searchQuery2830("x", {}, "")), "…et ne rien ajouter quand aucune n'est choisie");
+// searchQuery : MIGRÉ (RM2889) — voir test_cockpit_search.js
 
 // Le triage filtre sur la même notion : MIGRÉ (RM2889) — voir test_cockpit_tickets.js
 
-// Les étiquettes se VOIENT sur la ligne de résultat, sinon on filtre à l'aveugle
-const rowMeta2830 = grabO("searchRowMeta");
-assert(/refacto/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire", tags: ["refacto"] })),
-  "les étiquettes d'un ticket apparaissent dans sa ligne");
-assert(!/·\s*·/.test(rowMeta2830({ client: "a", project: "p", status: "a_faire" })),
-  "aucune étiquette : pas de séparateur orphelin");
+// searchRowMeta (étiquettes visibles) : MIGRÉ (RM2889) — voir test_cockpit_search.js
 
 // Câblage : menu d'étiquettes alimenté par le serveur, jamais écrit en dur
 assert(/<select id="sf-tag"/.test(html), "filtre étiquette dans la recherche");
 assert(/<select id="tr-tag"/.test(html), "filtre étiquette dans le triage ROI");
-const lt2830 = /async function loadTags\([\s\S]*?\n\}/.exec(html);
-assert(lt2830 && /\/tags/.test(lt2830[0]), "les étiquettes proposées viennent de GET /tags");
+assert(/"search\.tags"/.test(fs.readFileSync(path.join(__dirname, "src/models/tickets/SearchRepository.js"), "utf8")), "les étiquettes proposées viennent de GET /tags (dépôt migré)");
 assert(/rf-tag/.test(html), "le formulaire de jeu dérivé propose le critère étiquette");
 console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");
 

@@ -54,6 +54,7 @@ export const ROUTES = {
   "review.mr.deliver": { current: "/mr/deliver", target: "/api/review/mr/deliver", lot: "L3", callers: 1 },
   "search.resumable": { current: "/resumable", target: "/api/search/resumable", lot: "L3", callers: 1 },
   "search.tags": { current: "/tags", target: "/api/search/tags", lot: "L3", callers: 1 },
+  "search.tickets": { current: "/tickets/search", target: "/api/search/tickets", lot: "L3", callers: 1 },
   "session.approve_all": { current: "/approve-all", target: "/api/session/approve-all", lot: "L2", callers: 1 },
   "session.cockpit_config": { current: "/cockpit-config", target: "/api/session/cockpit-config", lot: "L2", callers: 1 },
   "session.disposition": { current: "/disposition", target: "/api/session/disposition", lot: "L2", callers: 1 },

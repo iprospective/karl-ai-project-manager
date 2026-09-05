@@ -924,17 +924,17 @@ if (window.matchMedia) {
 
     <div class="lpanel" id="lp-tickets">
     <!-- RM1952 : triage ROI — quel ticket travailler maintenant (score, débloquants) -->
-    <details class="card" id="triagecard" ontoggle="if(this.open) loadTriage()">
+    <details class="card" id="triagecard">
       <summary>🎯 Triage ROI <span style="color:var(--muted);font-weight:normal">— prochaines actions à plus fort levier</span></summary>
       <div class="triagefilters">
-        <select id="tr-client" onchange="renderTriage()" title="Filtrer par client"><option value="">tous les clients</option></select>
-        <select id="tr-project" onchange="renderTriage()" title="Filtrer par projet"><option value="">tous les projets</option></select>
-        <select id="tr-tag" onchange="renderTriage()" title="Filtrer par étiquette (domaine du ticket)"><option value="">toutes les étiquettes</option></select>
-        <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid" onchange="renderTriage()"> masquer la validation</label>
-        <button class="mini" onclick="loadTriage(true)" title="Recalculer le classement">↻</button>
+        <select id="tr-client" title="Filtrer par client"><option value="">tous les clients</option></select>
+        <select id="tr-project" title="Filtrer par projet"><option value="">tous les projets</option></select>
+        <select id="tr-tag" title="Filtrer par étiquette (domaine du ticket)"><option value="">toutes les étiquettes</option></select>
+        <label class="tr-vf" title="Masquer les tickets en attente de validation (a_tester_*, a_mep)"><input type="checkbox" id="tr-hidevalid"> masquer la validation</label>
+        <button class="mini" data-action="reload" title="Recalculer le classement">↻</button>
         <!-- RM2831 : ce que la liste montre (filtrée par étiquette, client,
              projet) devient une session — rien à cocher. -->
-        <button class="mini" id="tr-spawn" style="display:none" onclick="triageSpawnSession(this)"
+        <button class="mini" id="tr-spawn" style="display:none" data-action="spawn"
                 title="Ouvrir une session qui prend en charge les tickets affichés (10 premiers, même projet)">⇱ session sur ce lot</button>
       </div>
       <div class="triagelegend">🔓 débloque · ⏳ en validation · ⛔ bloqué · score = gain ROI € × priorité / coût</div>
@@ -943,7 +943,7 @@ if (window.matchMedia) {
     <!-- RM2606 : ce qu'on a consulté reste sous la main, comme « en cours ».
          RM2757 : repliée par défaut — la liste monte jusqu'à 40 tickets et
          repoussait la recherche et la création hors de l'écran. -->
-    <details class="card" id="openedcard" ontoggle="openedToggled(this)">
+    <details class="card" id="openedcard">
       <summary>Tickets ouverts <span id="opened-count" style="font-weight:normal;text-transform:none;letter-spacing:0"></span>
         <button class="helpq" onclick="event.preventDefault();event.stopPropagation();openHelp('tickets')"
                 title="Aide sur ce panneau">?</button></summary>
@@ -3689,330 +3689,16 @@ function worklogRefHtml(ref, esc, tipAttr) {
 
 // ----- RM2759/RM2761/RM2768 : vues centrales (fichier, dossier, commit, email, client, conf) — MIGRÉES (cluster centre) -----
 
-// ----- RM2606 : tickets ouverts dans la session cockpit -----
-
-// >>> openedPanelOpen — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2757 : la carte s'ouvre-t-elle au chargement ? Repliée tant que
-// l'utilisateur n'a rien dit — elle peut contenir 40 lignes et repoussait la
-// recherche et la création hors de l'écran. Mais un choix explicite prime :
-// une carte qu'on rouvre à chaque F5 se referme contre celui qui l'a ouverte.
-function openedPanelOpen(saved) {
-  return String(saved) === "1";
-}
-// <<< openedPanelOpen
-
-// >>> openedCountLabel — pur (testé par test_cockpit.js)
-// Ce que l'en-tête dit quand la carte est REPLIÉE : sans compte, il faut
-// l'ouvrir pour savoir s'il y avait quelque chose à voir. « vide » est dit
-// explicitement — un blanc laisse croire que le compte n'a pas été calculé.
-// RM2883 : `total` (optionnel) — quand un filtre est actif, l'en-tête dit ce
-// qu'on voit ET ce que la liste contient. Sans les deux, « (3) » sur une pile de
-// quarante tickets se lit comme une liste vidée.
-function openedCountLabel(n, total) {
-  const k = Number(n);
-  const t = Number(total);
-  if (!Number.isFinite(k) || k <= 0) return "(vide)";
-  if (Number.isFinite(t) && t > k) return "(" + k + " / " + t + ")";
-  return "(" + k + ")";
-}
-// <<< openedCountLabel
-
-// Mémorise le geste de l'utilisateur, par navigateur.
-function openedToggled(el) {
-  try { localStorage.setItem("karlOpenedCard", el && el.open ? "1" : "0"); }
-  catch (e) { /* mode privé : le défaut replié s'applique */ }
-}
-
-// >>> openedAdd — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Ouvrir un ticket le remonte en tête, sans doublon — comme l'historique du
-// composer (RM2527). Plafonné : une liste sans fin cesse d'être consultable, et
-// c'est exactement ce qu'on cherche à éviter.
-function openedAdd(list, id, max) {
-  const s = String(id == null ? "" : id).trim();
-  if (!/^\d+$/.test(s)) return (list || []).slice();
-  const out = (list || []).map(String).filter(x => x !== s);
-  out.unshift(s);
-  return out.slice(0, max || 40);
-}
-// <<< openedAdd
-
-// >>> ticketStatusRank — pur (testé par test_cockpit.js)
-// Ordre de LECTURE, pas alphabétique : ce qui réclame une action d'abord, ce
-// qui est clos en dernier. Un statut inconnu se range avant « fermé » plutôt
-// que d'être noyé — on préfère le voir que le perdre.
-function ticketStatusRank(status) {
-  const ordre = ["a_corriger", "en_cours", "a_tester_demandeur", "a_tester_dev",
-                 "a_mep", "a_tester_preprod", "a_mep_prod", "en_mep", "a_faire", "etude_chiffrage_a_valider",
-                 "etude_chiffrage_en_cours", "a_etudier_chiffrer", "nouveau",
-                 "en_pause"];
-  const s = String(status || "").toLowerCase();
-  if (s === "ferme" || s === "fermé") return 99;   // clos : toujours en dernier
-  const i = ordre.indexOf(s);
-  return i < 0 ? 98 : i;   // inconnu : avant les fermés, pour qu'il se voie
-}
-// <<< ticketStatusRank
-
-// >>> ticketStatusFamily — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2883 — la FAMILLE d'un statut, pour filtrer la carte des tickets ouverts.
-// Quatre familles demandées ; deux de plus que les statuts NORMS imposent de ne
-// pas noyer : « à MEP » (le dev est fini — même distinction qu'au worklog,
-// RM2860) et « en pause » (ni à faire, ni en cours). Un statut inconnu tombe
-// dans « autre » plutôt que dans « à faire » : le ranger d'office parmi ce qui
-// reste à faire affirmerait quelque chose qu'on ne sait pas.
-function ticketStatusFamily(status) {
-  const s = String(status || "").toLowerCase();
-  if (s === "ferme" || s === "fermé") return "ferme";
-  if (s === "en_pause") return "pause";
-  if (s === "a_mep" || s === "a_tester_preprod" || s === "a_mep_prod" || s === "en_mep") return "mep";
-  if (s === "a_tester_dev" || s === "a_tester_demandeur") return "test";
-  if (s === "en_cours" || s === "etude_chiffrage_en_cours") return "encours";
-  if (["nouveau", "a_faire", "a_etudier_chiffrer", "etude_chiffrage_a_valider",
-       "a_corriger"].indexOf(s) >= 0) return "todo";
-  return "autre";
-}
-// <<< ticketStatusFamily
-
-// >>> statusFamilyTabs — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Les filtres à PROPOSER, avec leur compte. Comme la barre de clients et les
-// sous-onglets du worklog : une famille absente n'a pas de bouton — la colonne
-// est étroite, un filtre qui ne filtre rien y coûte une place et une lecture.
-// L'ordre est celui de la lecture (ce qui réclame une action d'abord), pas
-// l'ordre alphabétique.
-function statusFamilyTabs(items) {
-  const LABELS = [["todo", "à faire"], ["encours", "en cours"], ["test", "à tester"],
-                  ["mep", "à MEP"], ["pause", "en pause"], ["ferme", "fermé"],
-                  ["autre", "autre"]];
-  const n = {};
-  for (const it of items || []) {
-    const f = ticketStatusFamily(it && it.status);
-    n[f] = (n[f] || 0) + 1;
-  }
-  return LABELS.filter(([k]) => n[k]).map(([k, label]) => ({ key: k, label, n: n[k] }));
-}
-// <<< statusFamilyTabs
-
-// >>> groupOpenedTickets — pur (testé par test_cockpit.js)
-// Groupe les tickets ouverts par projet, chaque groupe trié par urgence de
-// statut. `client` filtre ; un ticket non encore résolu reste affiché (sous
-// « … ») plutôt que de disparaître le temps d'un aller-retour réseau.
-function groupOpenedTickets(ids, cache, client, family) {
-  const groups = new Map();
-  const clients = new Set();
-  const all = [];                     // RM2883 : avant filtre statut — c'est
-  for (const id of (ids || [])) {     // lui qui donne les familles à proposer
-    const r = (cache || {})[id] || null;
-    if (r && r.found && r.client) clients.add(r.client);
-    if (client && (!r || !r.found || r.client !== client)) continue;
-    all.push({ status: (r && r.status) || "?" });
-    if (family && ticketStatusFamily((r && r.status) || "?") !== family) continue;
-    const key = (r && r.found && r.client)
-      ? r.client + "/" + (r.project || "?") : "…";
-    if (!groups.has(key)) groups.set(key, []);
-    groups.get(key).push({
-      rm_id: String(id),
-      title: (r && r.title) || "",
-      status: (r && r.status) || "?",
-      client: (r && r.client) || null,
-      project: (r && r.project) || null,
-      resolved: !!(r && r.found),
-    });
-  }
-  for (const items of groups.values()) {
-    items.sort((a, b) => ticketStatusRank(a.status) - ticketStatusRank(b.status)
-      || Number(b.rm_id) - Number(a.rm_id));
-  }
-  const keys = [...groups.keys()].sort((a, b) =>
-    (a === "…") - (b === "…") || a.localeCompare(b));
-  // `families` se calcule sur la liste filtrée par CLIENT mais pas par statut :
-  // sinon choisir « à tester » ferait disparaître tous les autres boutons, et on
-  // ne pourrait plus en changer sans repasser par « tous ».
-  return { keys, groups, clients: [...clients].sort(), families: statusFamilyTabs(all) };
-}
-// <<< groupOpenedTickets
-
-let openedTickets = [];
-try { openedTickets = JSON.parse(localStorage.getItem("karlOpenedTickets") || "[]"); }
-catch (e) { openedTickets = []; }   // valeur corrompue : on repart d'une liste vide
-let openedClient = null;
-let openedFamily = null;      // RM2883 : famille de statut retenue (null = toutes)
-
-function openedSave() {
-  try { localStorage.setItem("karlOpenedTickets", JSON.stringify(openedTickets)); }
-  catch (e) { /* mode privé */ }
-}
-function noteOpenedTicket(id) {
-  const avant = openedTickets.length;
-  openedTickets = openedAdd(openedTickets, id, 40);
-  if (openedTickets.length !== avant || String(openedTickets[0]) !== String(id)) openedSave();
-  // RM2807 : la garde `!resolveInFlight(t)` est VITALE. Sans elle, chaque rendu
-  // ré-abonne un NOUVEAU .then(render) à chaque ticket encore en vol → le nombre
-  // de rendus double par ticket résolu (2^N), chacun reconstruisant tout l'innerHTML
-  // (+ handlers onclick tracés par le ramasse-cycles). Une liste de 20 tickets =
-  // 1 048 576 rendus : CPU à fond, RAM native qui explose (fuite Firefox RM2807).
-  // Avec la garde : un seul .then par ticket → N+1 rendus, linéaire.
-  openedTickets.forEach(t => { if (resolveCache[t] === undefined && !resolveInFlight(t)) ensureResolved(t).then(renderOpened); });
-  renderOpened();
-}
-function openedForget(id) {
-  openedTickets = openedTickets.filter(x => String(x) !== String(id));
-  openedSave(); renderOpened();
-}
-function openedClear() {
-  openedTickets = []; openedClient = null; openedFamily = null; openedSave(); renderOpened();
-}
-function openedFilter(c) { openedClient = c || null; renderOpened(); }
-// RM2883 : filtre par famille de statut, cumulable avec le filtre client.
-function openedFilterStatus(f) { openedFamily = f || null; renderOpened(); }
-
-function renderOpened() {
-  const badge = document.getElementById("ln-tickets");
-  if (badge) {
-    badge.textContent = openedTickets.length;
-    badge.style.display = openedTickets.length ? "" : "none";
-  }
-  const box = document.getElementById("openedbox");
-  if (!box) return;
-  const { keys, groups, clients, families } =
-    groupOpenedTickets(openedTickets, resolveCache, openedClient, openedFamily);   // RM2883
-  const shown = keys.reduce((n, k) => n + groups.get(k).length, 0);
-  const cnt = document.getElementById("opened-count");
-  if (cnt) cnt.textContent = openedCountLabel(shown, openedTickets.length);
-  if (!openedTickets.length) {
-    box.innerHTML = '<div style="color:var(--muted);font-size:11.5px">'
-      + "Aucun ticket ouvert pour l'instant. Ceux que tu consultes s'empilent ici.</div>";
-    return;
-  }
-  let h = "";
-  if (clients.length > 1) {
-    h += '<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">'
-      + '<button class="mini' + (openedClient ? "" : " primary") + '" onclick="openedFilter(null)">tous</button>'
-      + clients.map(c => '<button class="mini' + (openedClient === c ? " primary" : "")
-          + '" onclick="openedFilter(' + jarg(c) + ')">' + esc(c) + "</button>").join("")
-      + '<span style="flex:1"></span>'
-      + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
-  } else {
-    h += '<div class="cmpbar" style="margin-bottom:6px"><span style="flex:1"></span>'
-      + '<button class="mini" onclick="openedClear()" title="Vider la liste">✕ vider</button></div>';
-  }
-  // RM2883 : filtres par statut — seules les familles présentes ont un bouton.
-  if (families.length > 1) {
-    h += '<div class="cmpbar" style="flex-wrap:wrap;margin-bottom:6px">'
-      + '<button class="mini' + (openedFamily ? "" : " primary") + '" onclick="openedFilterStatus(null)">tous</button>'
-      + families.map(f => '<button class="mini' + (openedFamily === f.key ? " primary" : "")
-          + '" onclick="openedFilterStatus(' + jarg(f.key) + ')">' + esc(f.label)
-          + " (" + f.n + ")</button>").join("") + "</div>";
-  }
-  for (const k of keys) {
-    h += '<div style="margin:6px 0 2px;color:var(--muted);font-size:10.5px">'
-      + esc(k === "…" ? "en cours de résolution" : k)
-      + " (" + groups.get(k).length + ")</div>";
-    for (const it of groups.get(k)) {
-      // RM2637 : deux lignes — [RM+statut+✕] puis le titre en PLEINE LARGEUR
-      // (la colonne est étroite ; en flex:1 le titre s'écrasait sur ~10 lignes).
-      h += '<div class="oline otix"'
-        + ' onclick="showTicket(' + it.rm_id + ')" title="Ouvrir la fiche">'
-        + '<div class="otix-head">'
-        + '<span class="pill"' + tipAttr(it.rm_id) + ">RM" + esc(it.rm_id) + "</span>"
-        + pinOf("review", it.rm_id)      // RM2795
-        + '<span class="pill" style="opacity:.85">' + esc(it.status) + "</span>"
-        + '<span style="flex:1"></span>'
-        + '<button class="mini" title="Retirer de la liste"'
-        + ' onclick="event.stopPropagation();openedForget(' + jarg(it.rm_id) + ')">✕</button>'
-        + "</div>"
-        + '<div class="otix-title">' + esc(it.title || (it.resolved ? "" : "chargement…")) + "</div>"
-        + "</div>";
-    }
-  }
-  if (!keys.length) h += '<div style="color:var(--muted);font-size:11.5px">'
-    + "aucun ticket dans ce filtre — « tous » les ramène.</div>";   // RM2883
-  box.innerHTML = h;
-}
-
-// ----- RM2619 : cache des tickets + infobulle au survol d'un RM-id -----
-
-// >>> ticketTipText — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Texte d'infobulle d'un ticket. Tant que le cache n'a pas répondu, on le DIT
-// (« chargement… ») plutôt que de rendre une bulle vide, qui se lit comme une
-// absence d'information alors que c'est une attente.
-function ticketTipText(id, brief) {
-  const b = brief || null;
-  if (!b) return "RM" + id + " — chargement…";
-  if (!b.found) return "RM" + id + " — inconnu en local";
-  const bits = [];
-  if (b.status) bits.push(b.status);
-  if (b.completion_pct !== null && b.completion_pct !== undefined) bits.push(b.completion_pct + " %");
-  if (b.type) bits.push(b.type);
-  if (b.priority && b.priority !== "normal") bits.push("priorité " + b.priority);
-  const ou = (b.client && b.project) ? b.client + "/" + b.project : (b.client || "");
-  return "RM" + id + " — " + (b.title || "(sans titre)")
-    + (bits.length ? "\n" + bits.join(" · ") : "")
-    + (ou ? "\n" + ou : "");
-}
-// <<< ticketTipText
-
-// >>> pendingBriefIds — pur (testé par test_cockpit.js)
-// Ids à demander : ceux qu'on ne connaît pas encore ET qui ne sont pas déjà en
-// vol. Sans ce filtre, chaque rendu redemandait tout ce qui était à l'écran.
-function pendingBriefIds(ids, cache, inflight) {
-  const vus = new Set();
-  const out = [];
-  for (const raw of (ids || [])) {
-    const id = String(raw == null ? "" : raw).trim();
-    if (!/^\d+$/.test(id) || vus.has(id)) continue;
-    vus.add(id);
-    if ((cache || {})[id] !== undefined) continue;
-    if ((inflight || new Set()).has(id)) continue;
-    out.push(id);
-  }
-  return out;
-}
-// <<< pendingBriefIds
-
-const briefCache = {};            // rm_id → brief (ou {found:false})
-const briefInflight = new Set();
-let briefTimer = null;
-const briefQueue = new Set();
-
-// Les demandes sont regroupées : vingt RM-id affichés au même rendu ne doivent
-// pas produire vingt requêtes. Un court délai suffit à tout rassembler.
-function requestBriefs(ids, onLoad) {
-  for (const id of pendingBriefIds(ids, briefCache, briefInflight)) briefQueue.add(id);
-  if (!briefQueue.size || briefTimer) return;
-  briefTimer = setTimeout(async () => {
-    briefTimer = null;
-    const lot = [...briefQueue].slice(0, 100);
-    briefQueue.clear();
-    lot.forEach(id => briefInflight.add(id));
-    try {
-      const r = await api("/tickets/brief?ids=" + encodeURIComponent(lot.join(",")));
-      Object.assign(briefCache, r.tickets || {});
-      // un id absent de la réponse ne doit pas être redemandé en boucle
-      lot.forEach(id => { if (briefCache[id] === undefined) briefCache[id] = { found: false, rm_id: id }; });
-      if (onLoad) onLoad();
-    } catch (e) {
-      lot.forEach(id => briefCache[id] = { found: false, rm_id: id, error: true });
-    } finally {
-      lot.forEach(id => briefInflight.delete(id));
-    }
-  }, 120);
-}
-
-// Attribut title prêt à coller sur un élément portant un RM-id.
-function tipAttr(id) {
-  const s = String(id == null ? "" : id).replace(/^RM/i, "");
-  if (!/^\d+$/.test(s)) return "";
-  requestBriefs([s], () => refreshTips());
-  return ' data-tip-rm="' + s + '" title="' + esc(ticketTipText(s, briefCache[s])) + '"';
-}
-
-// Quand le cache se remplit, les infobulles déjà posées doivent suivre : on
-// réécrit l'attribut en place plutôt que de re-rendre des panneaux entiers.
-function refreshTips() {
-  document.querySelectorAll("[data-tip-rm]").forEach(el => {
-    const id = el.getAttribute("data-tip-rm");
-    el.setAttribute("title", ticketTipText(id, briefCache[id]));
-  });
-}
+// ----- RM2606/RM2757/RM2883 tickets ouverts + RM2619 infobulles + RM1952 triage : panneau 🎫 MIGRÉ (RM2889) — src/controllers/tickets.controller.js -----
+// La liste des tickets ouverts (persistée), le classement ROI et le cache des briefs vivent dans le contrôleur. Ponts :
+function noteOpenedTicket(id) { karlCall("tickets", "noteOpened", id); }
+function openedForget(id) { karlCall("tickets", "forget", id); }
+function openedFilter(c) { karlCall("tickets", "filterClient", c); }
+function renderOpened() { karlCall("tickets", "renderOpened"); }
+function tipAttr(id) { return karlCall("tickets", "tipAttr", id) || ""; }
+function loadTriage(force) { karlCall("tickets", "loadTriage", force); }
+function renderTriage() { karlCall("tickets", "renderTriage"); }
+function triageVisibleRows() { return karlCall("tickets", "triageRows") || []; }
 
 // ----- RM2466 volet 2 : « en attente de toi », toutes sessions confondues -----
 
@@ -4776,19 +4462,7 @@ function offloadPlan(items, rcache) {
 // session est créée par `/spawn`, l'endpoint existant.
 // La garde « 2e session » (RM2818) ne s'applique PAS ici : la session qui traite
 // déjà ces tickets est justement celle qu'on veut soulager.
-// >>> triageBatchItems — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2831 — la liste de triage AFFICHÉE (donc déjà filtrée : client, projet,
-// étiquette) devient le lot. Le statut voyage avec chaque ticket : c'est lui qui
-// décide de l'action côté serveur (`batch_plan`), et le titre sert à l'écran de
-// confirmation. Plafonné à ce qu'on annonce — une file trop longue déborde le
-// contexte de l'agent, et le serveur la refuserait de toute façon.
-function triageBatchItems(rows, max) {
-  const n = Number(max) > 0 ? Number(max) : 10;
-  return (rows || []).slice(0, n).map(t => ({
-    rm_id: String(t.rm_id), status: t.status || "", title: t.title || "", points: [],
-  }));
-}
-// <<< triageBatchItems
+// triageBatchItems / triageSpawnSession (RM2831) : MIGRÉS (RM2889) — le lot part par spawnBatchSession, chemin partagé avec RM2823
 
 // RM2831 (avec RM2823) — CHEMIN PARTAGÉ de lancement d'un lot dans une session
 // neuve. Deux entrées l'empruntent : les tickets cochés du worklog (sortir les
@@ -4869,23 +4543,6 @@ async function offloadToNewSession(btn) {
     },
   });
 }
-
-// RM2831 — la liste de triage AFFICHÉE (filtrée par étiquette, client, projet)
-// part dans une session à elle. Rien n'est coché : ce qu'on voit EST le lot.
-async function triageSpawnSession(btn) {
-  const rows = triageVisibleRows();
-  if (!rows.length) { toast("aucun ticket dans cette liste", true); return; }
-  const max = 10;
-  const items = triageBatchItems(rows, max);
-  await spawnBatchSession(items, btn, {
-    titre: "Ouvrir une session sur ce lot",
-    reste: rows.length > max
-      ? "⊘ " + (rows.length - max) + " ticket(s) au-delà des " + max +
-        " premiers ne partent pas (une file trop longue déborde le contexte de l'agent)."
-      : "",
-  });
-}
-
 
 async function sendBatch(btn) {
   if (!batchPlanCache || !attached) return;
@@ -5757,7 +5414,7 @@ async function loadProjects() {
     fillClientCtx();                                   // RM2639 : peuple le menu client
     sfInit();                                          // RM2770 : filtres de recherche
     if (clientContext) {                               // pré-filtre appliqué au chargement
-      openedClient = clientContext; renderOpened();
+      openedFilter(clientContext);
       // RM2834 : le contexte client pré-sélectionne le client, donc les projets
       // proposés — sans figer le choix (les deux restent modifiables).
       if (rsc) { rsc.value = clientContext; rsFillProjects(); }
@@ -5787,7 +5444,7 @@ function setClientContext(c) {
   clientContext = c || "";
   try { localStorage.setItem("karlClientCtx", clientContext); } catch (e) {}
   const sel = document.getElementById("clientctx"); if (sel) sel.value = clientContext;
-  openedClient = clientContext || null; renderOpened();        // tickets ouverts (override possible)
+  openedFilter(clientContext || null);                          // tickets ouverts (override possible)
   const proj = clientCtxProject(allProjects, clientContext);    // formulaires (modifiables)
   if (proj) {
     const nt = document.getElementById("nt-project"); if (nt) nt.value = proj;
@@ -6161,100 +5818,6 @@ function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm();
 // RM2427 : `ghosts=0` — une session seulement ENREGISTRÉE ne tourne pas, il n'y a rien à attacher.
 function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
 
-// ----- RM1952 : triage ROI des tickets ouverts -----
-let triageData = null;
-async function loadTriage(force) {
-  const box = document.getElementById("triage-list");
-  if (!box) return;
-  if (triageData && !force) { renderTriage(); return; }
-  box.innerHTML = '<div style="color:var(--muted)">calcul du classement ROI…</div>';
-  try {
-    triageData = await api("/triage");
-    fillTriageFilters();
-    renderTriage();
-  } catch (e) {
-    box.innerHTML = '<div class="tr-err">échec du classement : ' + esc(e.message) + '</div>';
-  }
-}
-function fillTriageFilters() {
-  const tickets = (triageData && triageData.tickets) || [];
-  const cs = document.getElementById("tr-client");
-  if (!cs) return;
-  const clients = [...new Set(tickets.map(t => t.client).filter(Boolean))].sort();
-  // défaut : le contexte client courant (RM2639) s'il est posé
-  const prevC = cs.value || (typeof clientContext !== "undefined" ? clientContext : "") || "";
-  cs.innerHTML = '<option value="">tous les clients</option>' +
-    clients.map(c => '<option value="' + esc(c) + '">' + esc(c) + '</option>').join("");
-  if (clients.includes(prevC)) cs.value = prevC;
-  fillTriageProjects();
-}
-function fillTriageProjects() {
-  const tickets = (triageData && triageData.tickets) || [];
-  const cs = document.getElementById("tr-client"), ps = document.getElementById("tr-project");
-  if (!cs || !ps) return;
-  const cur = cs.value, prev = ps.value;
-  const projs = [...new Set(tickets.filter(t => !cur || t.client === cur).map(t => t.project).filter(Boolean))].sort();
-  ps.innerHTML = '<option value="">tous les projets</option>' +
-    projs.map(p => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join("");
-  if (projs.includes(prev)) ps.value = prev;
-}
-function renderTriage() {
-  const box = document.getElementById("triage-list");
-  if (!box || !triageData) return;
-  fillTriageProjects();
-  const c = document.getElementById("tr-client").value;
-  const p = document.getElementById("tr-project").value;
-  const hideValid = document.getElementById("tr-hidevalid").checked;
-  const tg = (document.getElementById("tr-tag") || {}).value || "";
-  const rows = triageFilter(triageData.tickets, c, p, hideValid, tg);
-  triageRows = rows;                     // RM2831 : ce qui est affiché EST le lot
-  const sp = document.getElementById("tr-spawn");
-  if (sp) sp.style.display = rows.length ? "" : "none";
-  if (!rows.length) { box.innerHTML = '<div style="color:var(--muted)">aucun ticket ouvert avec ces filtres</div>'; return; }
-  box.innerHTML = '<div class="tr-count">' + rows.length + ' ticket(s) · triés par levier ROI</div>' +
-    rows.slice(0, 60).map((e, i) => triageRowHtml(e, i + 1)).join("") +
-    (rows.length > 60 ? '<div class="tr-more">… ' + (rows.length - 60) + ' de plus (affine les filtres)</div>' : "");
-}
-// RM2831 : dernières lignes rendues par le triage (déjà filtrées) — le lot que
-// « ⇱ session » enverra. Mémorisées au rendu plutôt que recalculées : le bouton
-// doit envoyer exactement ce que l'utilisateur a sous les yeux.
-let triageRows = [];
-function triageVisibleRows() { return triageRows.slice(); }
-
-// >>> triageFilter — pur (testé par test_cockpit.js)
-function triageFilter(tickets, client, project, hideValid, tag) {
-  // RM2830 : l'étiquette se compare NORMALISÉE (même vocabulaire qu'à
-  // l'écriture) ; vide = aucun filtre, et surtout pas « les tickets sans
-  // étiquette » — ce serait l'inverse de ce que le menu « toutes » annonce.
-  const t0 = String(tag || "").toLowerCase();
-  return (tickets || []).filter(function (t) {
-    if (client && t.client !== client) return false;
-    if (project && t.project !== project) return false;
-    if (hideValid && t.awaiting_validation) return false;
-    if (t0 && !((t.tags || []).some(x => String(x).toLowerCase() === t0))) return false;
-    return true;
-  });
-}
-// <<< triageFilter
-// >>> triageRowHtml — pur (testé par test_cockpit.js) : une ligne de triage.
-function triageRowHtml(e, rank) {
-  if (!e) return "";
-  const badges = [];
-  if (e.unblocks) badges.push('<span class="tr-badge tr-unblock" title="débloque ' + e.unblocks + ' ticket(s) ouvert(s)">🔓 ' + e.unblocks + '</span>');
-  if (e.awaiting_validation) badges.push('<span class="tr-badge tr-valid" title="en attente de validation">⏳</span>');
-  if (e.blocked) badges.push('<span class="tr-badge tr-blocked" title="bloqué par : ' + esc((e.blocked_by || []).join(", ")) + '">⛔</span>');
-  const t = e.time_minutes ? Math.round(e.time_minutes) + ' min' : '';
-  return '<div class="tr-row" onclick="showTicket(' + Number(e.rm_id) + ')" title="Ouvrir la fiche du ticket">' +
-    '<span class="tr-rank">' + rank + '</span>' +
-    '<span class="tr-score" title="score ROI = gain € × priorité / coût">' + esc(String(e.score)) + '</span>' +
-    '<span class="tr-rm">RM' + esc(String(e.rm_id)) + '</span>' +
-    '<span class="tr-title">' + esc(e.title || '') + '</span>' +
-    '<span class="tr-meta"><span class="pill">' + esc(e.status || '') + '</span>' +
-    ' <span class="tr-prio tr-prio-' + esc(e.priority) + '">' + esc(e.priority) + '</span>' +
-    (t ? ' <span class="tr-time">' + esc(t) + '</span>' : '') +
-    (badges.length ? ' ' + badges.join(' ') : '') + '</span></div>';
-}
-// <<< triageRowHtml
 // >>> glossaireRows — pur (RM2675, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le glossaire d'un projet est un TABLEAU markdown à 4 colonnes (docs/glossaire.md, écrit par
 // pm-glossaire.py). On le relit ici pour pouvoir FILTRER : c'est la seule chose que le rendu
@@ -7192,10 +6755,8 @@ async function kill(rmId) {
   // RM2757 : état replié/déplié de la carte, avant le premier rendu — sinon
   // elle s'ouvre puis se referme sous les yeux.
   try {
-    const card = document.getElementById("openedcard");
-    if (card) card.open = openedPanelOpen(localStorage.getItem("karlOpenedCard"));
+    // RM2757 : l'état replié/déplié de la carte « tickets ouverts » est posé par le contrôleur migré (tickets)
   } catch (e) { /* mode privé : replié, comme au premier lancement */ }
-  renderOpened();     // RM2606 : liste des tickets ouverts, restaurée du localStorage
   karlCall("voice", "boot");   // RM2329/RM2350/RM2532 : voix — migré
   document.getElementById("dynsort").checked = dynSort;   // RM2344 : préférence de tri
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer

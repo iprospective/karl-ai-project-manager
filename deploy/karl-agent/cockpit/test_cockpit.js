@@ -114,32 +114,7 @@ assert.deepStrictEqual([...empty.keys], [], "aucun groupe");
 assert.strictEqual(empty.counts.total, 0, "total 0");
 console.log("✓ liste vide");
 
-// — 3. mdToHtml (RM2309) —
-const fmd = />>> mdToHtml[\s\S]*?(function mdToHtml[\s\S]*?)\n\/\/ <<< mdToHtml/.exec(html);
-assert(fmd, "marqueurs >>> mdToHtml / <<< mdToHtml introuvables");
-const mdToHtml = vm.runInNewContext("(" + fmd[1] + ")");
-
-// sécurité : tout HTML source est échappé, aucun lien javascript:
-let h = mdToHtml('<script>alert(1)</script> et <img src=x onerror=y>');
-assert(!/<script|<img/.test(h) && h.includes("&lt;script&gt;"), "XSS échappé");
-h = mdToHtml("[clic](javascript:alert(1)) et [ok](https://ex.te/p)");
-assert(!h.includes('href="javascript:'), "javascript: refusé");
-assert(h.includes('href="https://ex.te/p"') && h.includes('rel="noopener"'), "https autorisé");
-console.log("✓ mdToHtml : sûreté (échappement + whitelist de liens)");
-
-// structure : titres, listes + cases, code, gras, tableau, citation, hr, frontmatter
-h = mdToHtml("---\ntitle: X\n---\n# Titre\n\n## Sous *titre*\n\ntexte **fort** et `code`\n\n- [x] fait\n- [ ] à faire\n1. un\n\n> note\n\n---\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```\nlet x = '<b>'\n```");
-for (const frag of ['<pre class="mdfm">title: X</pre>', "<h1>Titre</h1>", "<h2>Sous <i>titre</i></h2>",
-  "<b>fort</b>", "<code>code</code>", "<li>☑ fait</li>", "<li>☐ à faire</li>", "<ol><li>un</li></ol>",
-  "<blockquote>note</blockquote>", "<hr>", "<th>a</th>", "<td>2</td>", "<pre>let x = '&lt;b&gt;'</pre>"])
-  assert(h.includes(frag), "fragment attendu : " + frag);
-assert(h.startsWith('<div class="mdview">'), "wrapper mdview");
-console.log("✓ mdToHtml : titres, listes/cases, code, tableau, citation, hr, frontmatter");
-
-// paragraphes multilignes joints, texte simple sans balisage parasite
-h = mdToHtml("ligne un\nligne deux\n\nautre para");
-assert(h.includes("<p>ligne un ligne deux</p>") && h.includes("<p>autre para</p>"), "paragraphes");
-console.log("✓ mdToHtml : paragraphes");
+// — 3. mdToHtml (RM2309) : MIGRÉ (RM2889, src/core/markdown.js) — voir test_cockpit_doc.js —
 // — 4. tqMatch (RM2315) : MIGRÉ (RM2889, file à tester) — voir test_cockpit_testqueue.js —
 
 // — 5. nextAttentionId (RM2302) : RETIRÉ avec le bouton « ⚠ suivante » de l'en-tête (RM2889) —
@@ -924,16 +899,8 @@ function grabO(name, ctx) {
 }
 const outMatch = grabO("outMatch");
 const hlq = grabO("hlq", { esc: escO });
-// RM2623 : glossaire — extraction + build partagé (linkify dépend de glossify)
-const mGloss = /const GLOSSARY = (\[[\s\S]*?\n\]);/.exec(html);
-assert(mGloss, "GLOSSARY introuvable");
-const GLOSSARY = vm.runInNewContext("(" + mGloss[1] + ")");
-const glossNorm = grabO("glossNorm");
-const buildGloss = grabO("buildGloss", { glossNorm });
-const glossMatch = grabO("glossMatch");
-const GLOSS = buildGloss(GLOSSARY);
-const glossify = grabO("glossify", { esc: escO, glossNorm, GLOSS });
-const linkify = grabO("linkify", { esc: escO, jarg: jargFn, glossify });
+// RM2623 : le glossaire a MIGRÉ (RM2889, test_cockpit_doc.js) ; linkify le souligne par un pont — identité ici
+const linkify = grabO("linkify", { esc: escO, jarg: jargFn, glossify: (s) => s });
 
 // jarg : argument onclick sûr (guillemets simples, jamais de " qui casse l'attribut)
 assert.strictEqual(jargFn("a/b.py"), "'a/b.py'", "chemin simple entre quotes simples");
@@ -993,43 +960,7 @@ assert.strictEqual(worklogDocsHtml([], escO, linkify), "", "liste vide → chaî
 assert.strictEqual(worklogDocsHtml(null, escO, linkify), "", "liste absente tolérée");
 console.log("✓ worklogDocsHtml (RM2935) : documents du worklog cliquables et sûrs");
 
-// — RM2623 : glossaire cliquable du jargon —
-assert.strictEqual(glossNorm("  Worktree, "), "worktree", "glossNorm: minuscule + ponctuation de bord retirée");
-assert.strictEqual(glossNorm("serve-check"), "serve-check", "glossNorm garde le trait d'union interne");
-assert(GLOSS.map["worktrees"] && GLOSS.map["worktrees"].t === "worktree", "alias/pluriel → terme canonique dans map");
-assert.strictEqual(GLOSS.surfaces.indexOf("scope"), -1, "terme inline:false absent des surfaces (pas de soulignage auto)");
-assert(GLOSS.surfaces[0].length >= GLOSS.surfaces[GLOSS.surfaces.length - 1].length, "surfaces triées du plus long au plus court");
-// glossMatch : recherche terme / alias / définition, tri alpha, requête vide → tout
-assert(glossMatch("worktree", GLOSSARY).some(e => e.t === "worktree"), "glossMatch trouve par terme");
-assert(glossMatch("bac à sable", GLOSSARY).some(e => e.t === "sandbox"), "glossMatch trouve par définition");
-assert.strictEqual(glossMatch("zzznope", GLOSSARY).length, 0, "glossMatch : aucun match → []");
-assert.strictEqual(glossMatch("", GLOSSARY).length, GLOSSARY.length, "glossMatch : requête vide → tout");
-// glossify : enveloppe le terme (frontière de mot), data-term canonique, def en title, sûr
-const gy = glossify(escO("un worktree ici"));
-assert(/<span class="gloss" data-term="worktree"/.test(gy), "glossify enveloppe le terme connu");
-assert(/title="Copie de travail Git/.test(gy), "glossify met la définition en title");
-assert.strictEqual(glossify(escO("reworktreeX")), "reworktreeX", "pas de match en milieu de mot (frontières)");
-assert(!/gloss/.test(glossify(escO("un scope large"))), "terme inline:false non souligné dans le texte");
-assert(/data-term="worktree"/.test(glossify(escO("des worktrees"))), "pluriel reconnu → data-term canonique");
-assert(!/<b>/.test(glossify(escO("<b>worktree</b>"))) && /&lt;b&gt;/.test(glossify(escO("<b>worktree</b>"))), "opère sur du texte déjà échappé (anti-XSS)");
-console.log("✓ glossaire (RM2623) : normalisation, index, recherche, soulignage inline sûr");
-
-// — RM2634 : glossaire enrichi — regroupement par catégories —
-const glossGroups = grabO("glossGroups");
-const gg = glossGroups(GLOSSARY);
-assert(gg.length >= 5, "plusieurs catégories rendues");
-assert(gg.every(g => g.items.length > 0), "aucun groupe vide");
-assert(gg.reduce((n, g) => n + g.items.length, 0) === GLOSSARY.length, "toutes les entrées reparties, aucune perdue");
-const cats = gg.map(g => g.cat);
-assert(cats.indexOf("git") >= 0 && cats.indexOf("git") < cats.indexOf("gen"), "ordre fixe : git avant Général");
-const gitg = gg.find(g => g.cat === "git");
-const names = gitg.items.map(i => i.t);
-assert(JSON.stringify(names) === JSON.stringify(names.slice().sort((a, b) => a.localeCompare(b))), "groupe trié alpha");
-const filtered = glossGroups(glossMatch("git", GLOSSARY));
-assert(filtered.length >= 1 && filtered.every(g => g.items.length > 0), "sur recherche : groupes filtrés, jamais vides");
-assert.strictEqual(glossGroups([{ t: "x", d: "y" }])[0].cat, "gen", "entrée sans catégorie → Général");
-assert.strictEqual(glossGroups([{ t: "z", d: "w", c: "zzz" }])[0].cat, "zzz", "catégorie inconnue conservée (rejetée en fin), jamais perdue");
-console.log("✓ glossaire enrichi (RM2634) : catégories ordonnées, tri alpha, filtrage, rien de perdu");
+// — RM2623/RM2634 : glossaire du jargon : MIGRÉ (RM2889) — voir test_cockpit_doc.js —
 
 // — RM2639 : contexte client (pré-filtre global du cockpit) —
 const clientCtxList = grabO("clientCtxList");
@@ -1737,40 +1668,7 @@ assert(/data-panel="projects"/.test(html), "l'onglet gauche doit exister");
 assert(/<div class="lpanel" id="lp-projects"><\/div>/.test(html), "…avec son panneau (hôte monté par boot.js)");
 assert(/projects: \(\) => karlCall\("projects", "refresh"\)/.test(html), "…et son chargeur");
 
-// ── RM2675 : glossaire de projet — lecture du tableau et filtre ───────────────
-// Ce qu'on protège : le sous-onglet « vocabulaire » n'ajoute qu'UNE chose au rendu markdown
-// déjà existant — la recherche. Si le filtre ne trouve pas un terme par son ALIAS, la colonne
-// alias ne sert à rien et le sous-onglet non plus.
-const gr = />>> glossaireRows[\s\S]*?(function glossaireRows[\s\S]*?)\n\/\/ <<< glossaireRows/.exec(html);
-assert(gr, "marqueurs >>> glossaireRows introuvables");
-const glossaireRows = vm.runInNewContext("(" + gr[1] + ")");
-const gf = />>> glossaireFiltre[\s\S]*?(function glossaireFiltre[\s\S]*?)\n\/\/ <<< glossaireFiltre/.exec(html);
-assert(gf, "marqueurs >>> glossaireFiltre introuvables");
-const glossaireFiltre = vm.runInNewContext("(" + gf[1] + ")");
-
-const MD2675 = [
-  "---", "wiki_sync: true", "---", "", "# Glossaire — calyclay/calymix", "",
-  "| Terme | Définition | Contexte d'usage | Alias |",
-  "|---|---|---|---|",
-  "| HFOV | Champ horizontal d'une optique. | 24 mm ⇒ 74°. | horizontal field of view |",
-  "| rampe | Barre portant la rangée de guillotines. | 75 vannes × 40 mm. | — |",
-].join("\n");
-const rows2675 = glossaireRows(MD2675);
-assert(rows2675.length === 2, "le frontmatter, le titre et le séparateur ne sont PAS des termes");
-assert(rows2675[0].terme === "HFOV" && rows2675[0].alias.includes("field of view"),
-  "les 4 colonnes sont lues");
-assert(glossaireRows("").length === 0 && glossaireRows(null).length === 0,
-  "glossaire vide ou absent toléré");
-assert(glossaireRows("| a | b |")[0].contexte === "" , "une ligne courte est complétée, pas rejetée");
-
-assert(glossaireFiltre(rows2675, "").length === 2, "filtre vide = tout");
-assert(glossaireFiltre(rows2675, "RAMP").length === 1, "le filtre est insensible à la casse");
-assert(glossaireFiltre(rows2675, "field of view")[0].terme === "HFOV",
-  "on trouve un terme par son ALIAS — sinon la colonne alias est inutile");
-assert(glossaireFiltre(rows2675, "guillotines")[0].terme === "rampe",
-  "…et par le CONTEXTE, pas seulement par le terme");
-assert(glossaireFiltre(rows2675, "zzz").length === 0, "un filtre sans résultat rend une liste vide");
-
+// ── RM2675 : glossaire de projet (lecture, filtre) : MIGRÉ (RM2889) — voir test_cockpit_doc.js. Reste le câblage :
 // Le câblage : un sous-onglet que rien n'affiche n'existe pas.
 assert(/onclick="vocabShow\(true\)"/.test(html), "le sous-onglet vocabulaire doit être cliquable");
 assert(/function vocabShow/.test(html) && /function vocabBodyHtml/.test(html),

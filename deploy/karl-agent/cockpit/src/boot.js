@@ -30,6 +30,7 @@ import { mountPmCommands } from "./controllers/pmcmd.controller.js";
 import { mountSettings } from "./controllers/settings.controller.js";
 import { mountVoice } from "./controllers/voice.controller.js";
 import { mountCenter } from "./controllers/center.controller.js";
+import { mountNewTicket } from "./controllers/newticket.controller.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
@@ -186,7 +187,6 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
                  open: legacy("attach"), relaunch: legacy("relaunchGhost"), close: () => { if (lexical(() => attached)) legacy("detach")(); } },
     review:    { open: legacy("openReview"), close: () => { const r = lexical(() => currentReview); if (r) legacy("closeReview")(r); } },
     project:   { open: legacy("openProjectView"), close: () => { if (lexical(() => currentProjectView)) legacy("closeProjectView")(); } },
-    newticket: { open: legacy("openNewTicket"), close: legacy("closeNewTicket") },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
@@ -209,8 +209,18 @@ const center = Object.assign(centerCore, {
   fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: legacy("mdToHtml") }))),
   centerBtn: centerBtnHtml,
 });
+// première surface migrée : elle remplace son pont. RM2726 : la cible par défaut
+// est celle du lanceur éclair (#nt-project), elle-même posée par le contexte client.
+const newticket = mountNewTicket(byId("ntpane"), {
+  center, notify: legacy("toast"), openReview: legacy("openReview"),
+  show: (on) => show("ntpane", on),
+  config: () => ({ types: (lexical(() => CFG) || {}).task_types || [], priorities: (lexical(() => CFG) || {}).priorities || [] }),
+  projects: () => lexical(() => allProjects) || [],
+  defaultTarget: () => { const cur = ((byId("nt-project") || {}).value || "").split("/"); return { client: cur[0] || lexical(() => clientContext) || "", project: cur[1] || "" }; },
+});
+center.register("newticket", { open: newticket.open, close: newticket.close });
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

@@ -77,6 +77,7 @@ ViewModel vers du HTML sûr).
 | settings (réglages whitelist RM2213, thème RM2386) | L5 | 2026-09-04 | `models/settings/`, `services/settings.service.js`, `viewmodels/settings/`, `views/settings/`, `controllers/settings.controller.js` |
 | voice (mode voix, annonces, dictée, TTS/STT serveur ou navigateur) | L5 | 2026-09-04 | `models/voice/`, `services/voice.service.js`, `viewmodels/voice/`, `views/voice/`, `controllers/voice.controller.js` — moteurs du navigateur injectés par boot.js |
 | **centre** — onglets, historique, titre, vues génériques (fichier, dossier, commit, email, client, conf), panneaux centraux, tableau de bord | cluster | 2026-09-04 | `models/center/`, `models/files/scope.js`, `viewmodels/center/`, `views/center/`, `controllers/center.controller.js` — les surfaces session / revue / fiche projet / nouveau ticket sont des **ponts enregistrés** par `boot.js` |
+| nouveau ticket (formulaire pleine page RM2672/2726/2752) | surface du centre | 2026-09-05 | `models/tickets/newTicket.js`, `models/tickets/TicketsRepository.js`, `services/newticket.service.js`, `viewmodels/tickets/`, `views/tickets/NewTicket.view.js`, `controllers/newticket.controller.js` — **première surface enregistrée** auprès du routeur, remplaçant son pont |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

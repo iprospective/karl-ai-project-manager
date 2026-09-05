@@ -49,6 +49,8 @@ import { mountLayout } from "./controllers/layout.controller.js";
 import { mountLauncher } from "./controllers/launcher.controller.js";
 import { mountSessionActions } from "./controllers/actions.controller.js";
 import { mountTerminal } from "./controllers/terminal.controller.js";
+import { mountSessions } from "./controllers/sessions.controller.js";
+import { effDisposition } from "./models/sessions/sessions.js";
 import { MrLine } from "./views/worklog/Worklog.view.js";
 import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
@@ -221,7 +223,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
@@ -241,8 +243,8 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   histOpen: () => { const b = byId("histbox"); return !!b && b.style.display !== "none"; },
   histShow: (on) => show("histbox", on),
   navButtons: ({ back, fwd }) => { const b = byId("histback"), f = byId("histfwd"); if (b) b.disabled = !back; if (f) f.disabled = !fwd; },
-  legacyTitle: () => legacy("curTitleLegacyHtml")() || (review && review.current() ? review.titleHtml((rm, tt) => legacy("titleLink")(rm, tt) || "") : "") || (project ? project.titleHtml() : ""),
-  afterTitle: legacy("curTitleSideEffects"),
+  legacyTitle: () => (sessionsCtl ? sessionsCtl.titleHtml() : "") || (review && review.current() ? review.titleHtml((rm, tt) => legacy("titleLink")(rm, tt) || "") : "") || (project ? project.titleHtml() : ""),
+  afterTitle: () => { if (sessionsCtl) sessionsCtl.afterTitle(); },   // RM2894/2302/2327 : en-tête droit, « ✔ Oui », auto-oui suivent la vue
   // RM2795 : les listes portent la même marque d'épinglage — elles se redessinent au geste
   onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); if (worklogCtl && worklogCtl.data().found) worklogCtl.render(); try { legacy("refreshSessions")(); } catch (e) {} },
 });
@@ -265,7 +267,7 @@ center.register("newticket", { open: newticket.open, close: newticket.close });
 project = mountProject(byId("projpane"), {
   center, notify: legacy("toast"), run: legacy("pmRun"),
   show: (on) => show("projpane", on),
-  sessions: (key) => (lexical(() => groupsCache) || {})[key] || [],
+  sessions: (key) => (sessionsCtl ? sessionsCtl.groups() : {})[key] || [],
   attach: legacy("attach"), showTicket: legacy("showTicket"), openDoc: legacy("openDoc"),
   titleLink: (rm, t) => legacy("titleLink")(rm, t) || "", ago: legacy("ago"),
   mrLine: (m) => String(MrLine(mrLine(m))), mergeMr: (url, iid, target, btn) => worklogCtl && worklogCtl.mergeOne(url, iid, target, btn),   // RM2723 : rendu et geste partagés avec le worklog de session
@@ -294,7 +296,7 @@ const ticket = {
   mcFresh: (rm) => ticketRepo.mcFresh(rm), ensureMergecheck: (rm, f) => ticketRepo.ensureMergecheck(rm, f),
   usageFresh: (rm) => ticketRepo.usageFresh(rm), usageInFlight: (rm) => ticketRepo.usageInFlight(rm), ensureUsage: (rm, f) => ticketRepo.ensureUsage(rm, f),
   ensureTicketSessions: (rm, f) => ticketRepo.ensureTicketSessions(rm, f),
-  busySessions: (p) => TF.ticketBusySessions(p, (s, d) => legacy("effDisposition")(s, d)),
+  busySessions: (p) => TF.ticketBusySessions(p, effDisposition),
   mcBanner: (mc) => String(MergeBanner(mc)),
   sinceLabel: TF.sinceLabel, modelWindow: TF.modelWindow, ctxPct: TF.ctxPct, throughput: TF.throughput, fmtUsd: TF.fmtUsd, fmtRate: TF.fmtRate, fmtWin: TF.fmtWin,
   repo: ticketRepo,
@@ -370,7 +372,7 @@ terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
   center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
-  titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", eff: (s, d) => legacy("effDisposition")(s, d),
+  titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", eff: effDisposition,
   resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
   show: (on) => show("reviewpane", on),
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
@@ -421,9 +423,27 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
   openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),
   afterLoad: () => { if (review.current()) review.render(); },
 });
+// la liste « en cours » (RM2283/2346/2427/2445/2448/2515/2598/2639/2787/2793/2210) et les raccourcis Oui / auto-oui (RM2302/2327/2332),
+// le titre de la session attachée et l'en-tête droit (RM2894) : le registre live est PARTAGÉ par référence (sessCache) ; le monolithe prête
+// l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
+sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: legacy("toast"), ticket,
+  caches: { sess: lexical(() => sessCache) }, resolve: () => lexical(() => resolveCache) || {}, attached: () => lexical(() => attached), stale: () => lexical(() => pendStale) || new Set(),
+  selection: () => ({ on: !!lexical(() => selMode), set: lexical(() => selected) || new Set() }),
+  sets: () => ({ sets: lexical(() => setsCache) || [], current: lexical(() => currentSet) || "default", view: lexical(() => currentView) || "set" }),
+  writable: (sets, name, view) => legacy("setWritable")(sets, name, view), setLabel: (name) => lexical(() => setLabel(name)) || name,
+  clientContext: () => launcher.clientContext(), setClientContext: (c) => launcher.setClientContext(c),
+  pin: (k, key) => center.pinOf(k, key), titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "",
+  composerRefresh: () => terminal.composerRefresh(), attach: legacy("attach"), detach: legacy("detach"), refresh: legacy("refreshSessions"),
+  kill: (rm) => actions.kill(rm), openDispositionMenu: (s, anchor) => actions.openDispositionMenu(s, anchor),
+  drop: legacy("dropFromSet"), relaunch: legacy("relaunchGhost"), forget: legacy("forgetGhost"), toggleRestart: legacy("toggleRestart"),
+  openProject: (key) => project.open(key), review: { tabs: () => review.tabs(), current: () => review.current(), open: (rm) => review.open(rm), close: (rm) => review.close(rm) },
+  projectsVisible: () => { const p = byId("lp-projects"); return !!p && p.classList.contains("active"); }, renderProjects: () => projects.render(),
+  announce: (sessions) => voice.announce(sessions), renderTitle: () => center.title(), docTitle: (t) => { document.title = t; },
+});
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

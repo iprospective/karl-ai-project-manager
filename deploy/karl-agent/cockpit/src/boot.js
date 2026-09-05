@@ -38,6 +38,7 @@ import * as TF from "./models/tickets/ticketFormat.js";
 import { MergeBanner } from "./views/tickets/MergeBanner.view.js";
 import { mountReview } from "./controllers/review.controller.js";
 import { mountMeta } from "./controllers/meta.controller.js";
+import { mountTicketsPanel } from "./controllers/tickets.controller.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
@@ -186,7 +187,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: legacy("mdToHtml"),
   resolve: () => lexical(() => resolveCache) || {},
@@ -264,6 +265,13 @@ const ticket = {
   sinceLabel: TF.sinceLabel, modelWindow: TF.modelWindow, ctxPct: TF.ctxPct, throughput: TF.throughput, fmtUsd: TF.fmtUsd, fmtRate: TF.fmtRate, fmtWin: TF.fmtWin,
   repo: ticketRepo,
 };
+// le panneau 🎫 tickets (RM1952 triage, RM2606 tickets ouverts, RM2619 infobulles) : le monolithe prête les résolutions,
+// la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
+tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
+  ticket, notify: legacy("toast"), storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  resolve: () => lexical(() => resolveCache) || {}, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
+  clientContext: () => lexical(() => clientContext) || "", spawnBatch: (items, btn, opts) => legacy("spawnBatchSession")(items, btn, opts),
+});
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
 review = mountReview(byId("reviewpane"), {
@@ -272,7 +280,7 @@ review = mountReview(byId("reviewpane"), {
   resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
   show: (on) => show("reviewpane", on),
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
-  noteOpened: legacy("noteOpenedTicket"), showRight: legacy("showRight"), refreshSessions: legacy("refreshSessions"),
+  noteOpened: (rm) => tickets.noteOpened(rm), showRight: legacy("showRight"), refreshSessions: legacy("refreshSessions"),
   filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
   afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && legacy("rightVisible")("state")) legacy("loadWorklog")(true); },
   attach: legacy("attach"), warnSpawn: legacy("warnSpawn"), filterByTag: legacy("filterByTag"),
@@ -293,10 +301,10 @@ center.register("review", { open: review.open, close: () => { if (review.current
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
 // lui prête la session attachée, le registre, les caches ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
-  ticket, notify: legacy("toast"), md: legacy("mdToHtml"), ago: legacy("ago"), tipAttr: (id) => legacy("tipAttr")(id) || "",
+  ticket, notify: legacy("toast"), md: legacy("mdToHtml"), ago: legacy("ago"), tipAttr: (id) => tickets.tipAttr(id),
   resolve: () => lexical(() => resolveCache) || {}, sess: () => lexical(() => sessCache) || {}, usage: () => lexical(() => usageCache) || {},
   attached: () => lexical(() => attached), worklog: () => lexical(() => worklog), worklogPending: () => lexical(() => worklogPending), loadWorklog: legacy("loadWorklog"),
-  showRight: legacy("showRight"), noteOpened: legacy("noteOpenedTicket"), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
+  showRight: legacy("showRight"), noteOpened: (id) => tickets.noteOpened(id), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
 });
@@ -310,5 +318,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

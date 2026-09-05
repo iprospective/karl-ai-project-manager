@@ -1153,100 +1153,7 @@ console.log("✓ worklog (RM2605) : tickets cliquables, chantiers libres non");
 
 // — RM2605 : « infos » allégé : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
-// — RM2606 : tickets ouverts dans l'onglet de gauche —
-const grab = (name) => {
-  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
-  assert(m, "marqueurs >>> " + name + " introuvables");
-  return m[1];
-};
-const openedAdd = vm.runInNewContext("(" + grab("openedAdd") + ")");
-assert.deepStrictEqual(Array.from(openedAdd([], "2606")), ["2606"], "premier ticket");
-assert.deepStrictEqual(Array.from(openedAdd(["2605"], "2606")), ["2606", "2605"], "le dernier ouvert en tête");
-assert.deepStrictEqual(Array.from(openedAdd(["2605", "2606"], "2605")), ["2605", "2606"],
-  "rouvrir remonte sans dupliquer");
-assert.deepStrictEqual(Array.from(openedAdd([], "abc")), [], "une réf non numérique n'entre pas");
-assert.deepStrictEqual(Array.from(openedAdd(null, "1")), ["1"], "liste absente tolérée");
-assert.strictEqual(openedAdd(["1", "2", "3"], "4", 3).length, 3, "plafond respecté");
-assert.deepStrictEqual(Array.from(openedAdd(["1", "2", "3"], "4", 3)), ["4", "1", "2"],
-  "le plus ancien tombe");
-console.log("✓ tickets ouverts (RM2606) : sans doublon, récent en tête, plafonné");
-
-const ticketStatusRank = vm.runInNewContext("(" + grab("ticketStatusRank") + ")");
-assert(ticketStatusRank("a_corriger") < ticketStatusRank("en_cours"),
-  "ce qui revient corrigé passe avant ce qui est en cours");
-assert(ticketStatusRank("en_cours") < ticketStatusRank("a_faire"), "en cours avant à faire");
-assert(ticketStatusRank("a_faire") < ticketStatusRank("ferme"), "fermé en dernier");
-assert(ticketStatusRank("statut_exotique") < ticketStatusRank("ferme"),
-  "un statut inconnu se voit, il n'est pas rangé avec les fermés");
-console.log("✓ tickets ouverts (RM2606) : ordre de lecture, pas alphabétique");
-
-// RM2883 : familles de statut — le filtre de la carte les propose
-const ticketStatusFamily = vm.runInNewContext("(" + grab("ticketStatusFamily") + ")");
-const statusFamilyTabs = vm.runInNewContext("(" + grab("statusFamilyTabs") + ")",
-  { ticketStatusFamily });
-// groupOpenedTickets appelle ticketStatusRank : le contexte isolé doit l'avoir
-const groupOpenedTickets = vm.runInNewContext("(" + grab("groupOpenedTickets") + ")",
-  { ticketStatusRank, ticketStatusFamily, statusFamilyTabs });
-const tkCache = {
-  "1": { found: true, client: "acme", project: "shop", title: "A", status: "ferme" },
-  "2": { found: true, client: "acme", project: "shop", title: "B", status: "en_cours" },
-  "3": { found: true, client: "beta", project: "api", title: "C", status: "a_faire" },
-};
-const g = groupOpenedTickets(["1", "2", "3", "9"], tkCache, null);
-assert.deepStrictEqual(Array.from(g.keys), ["acme/shop", "beta/api", "…"],
-  "groupé par client/projet, le non résolu en dernier");
-assert.deepStrictEqual(Array.from(g.groups.get("acme/shop").map(x => x.rm_id)), ["2", "1"],
-  "dans un groupe, l'urgence de statut ordonne");
-assert.deepStrictEqual(Array.from(g.clients), ["acme", "beta"], "clients proposés au filtre");
-assert(g.groups.get("…")[0].resolved === false,
-  "un ticket pas encore résolu reste visible plutôt que de disparaître");
-const f = groupOpenedTickets(["1", "2", "3"], tkCache, "beta");
-assert.deepStrictEqual(Array.from(f.keys), ["beta/api"], "le filtre client réduit la liste");
-assert.deepStrictEqual(Array.from(groupOpenedTickets([], {}, null).keys), [], "liste vide tolérée");
-assert.deepStrictEqual(Array.from(groupOpenedTickets(null, null, null).keys), [], "entrées absentes tolérées");
-console.log("✓ tickets ouverts (RM2606) : groupés par projet, filtrés par client");
-
-// — RM2883 : filtre par statut dans la carte des tickets ouverts —
-// Aucun statut connu ne doit tomber dans « autre » : un statut ajouté un jour au
-// classement d'affichage sans famille disparaîtrait du filtre en silence.
-const statutsConnus = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev",
-  "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
-for (const st of statutsConnus)
-  assert.notStrictEqual(ticketStatusFamily(st), "autre",
-    "statut NORMS sans famille : « " + st + " » (il disparaîtrait du filtre)");
-assert.strictEqual(ticketStatusFamily("statut_exotique"), "autre",
-  "un statut inconnu a sa propre famille — jamais rangé d'office dans « à faire »");
-assert.strictEqual(ticketStatusFamily("a_mep"), "mep",
-  "à MEP n'est pas « à faire » : le dev y est fini (même distinction qu'au worklog, RM2860)");
-assert.strictEqual(ticketStatusFamily("a_corriger"), "todo",
-  "ce qui revient corrigé est du travail à faire");
-
-// Seules les familles présentes ont un bouton — la colonne est étroite.
-const tabs2883 = statusFamilyTabs([{ status: "en_cours" }, { status: "en_cours" },
-                                   { status: "ferme" }]);
-assert.strictEqual(JSON.stringify(tabs2883.map(t => [t.key, t.n])),
-  JSON.stringify([["encours", 2], ["ferme", 1]]),
-  "un bouton par famille présente, avec son compte");
-assert.strictEqual(statusFamilyTabs([]).length, 0, "liste vide → aucun filtre proposé");
-assert.strictEqual(tabs2883[0].key, "encours",
-  "ordre de lecture : ce qui réclame une action avant ce qui est clos");
-
-// Le filtre statut se cumule avec le filtre client…
-const fs2883 = groupOpenedTickets(["1", "2", "3"], tkCache, null, "encours");
-assert.deepStrictEqual(Array.from(fs2883.keys), ["acme/shop"], "le filtre statut réduit la liste");
-assert.deepStrictEqual(Array.from(fs2883.groups.get("acme/shop").map(x => x.rm_id)), ["2"],
-  "…et ne garde que les tickets de la famille");
-// …mais les autres familles restent proposées, sinon on ne pourrait plus changer
-// de filtre sans repasser par « tous ».
-assert(fs2883.families.length > 1,
-  "les familles proposées se calculent AVANT le filtre statut");
-assert.deepStrictEqual(Array.from(groupOpenedTickets(["1"], tkCache, null, "encours").keys), [],
-  "un filtre qui ne laisse rien rend une liste vide (le rendu le dit)");
-assert(/aucun ticket dans ce filtre/.test(html),
-  "…et l'interface l'annonce plutôt que de paraître vidée");
-
-console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, familles présentes seules");
+// — RM2606/RM2883 : tickets ouverts (liste, ordre, familles, groupes) : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
@@ -1254,7 +1161,7 @@ const metaCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/meta.cont
 assert(/ctx\.noteOpened\(id\)/.test(metaCtrl), "ouvrir une fiche alimente la liste (contrôleur migré, RM2889)");
 const revCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/review.controller.js"), "utf8");
 assert(/ctx\.noteOpened\(rm\)/.test(revCtrl), "ouvrir une revue aussi (contrôleur migré, RM2889)");
-assert(/karlOpenedTickets/.test(html), "la liste survit au rechargement (localStorage)");
+assert(/karlOpenedTickets/.test(fs.readFileSync(path.join(__dirname, "src/services/tickets.service.js"), "utf8")), "la liste survit au rechargement (localStorage, service migré)");
 console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
 
 // — worklogTabList (RM2610) : sous-onglets par statut du worklog —
@@ -1291,55 +1198,7 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 
 // — RM2614 : client/projet du ticket : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
-// — RM2619 : cache des tickets + infobulle au survol —
-const grabT = (name) => {
-  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
-  assert(m, "marqueurs >>> " + name + " introuvables");
-  return vm.runInNewContext("(" + m[1] + ")");
-};
-const ticketTipText = grabT("ticketTipText");
-
-const tip = ticketTipText("2619", {
-  found: true, title: "Cache des tickets", status: "en_cours", completion_pct: 40,
-  type: "feature", priority: "high", client: "iprospective", project: "pm-ai-agents" });
-assert(/RM2619 — Cache des tickets/.test(tip), "libellé en tête");
-assert(/en_cours/.test(tip) && /40 %/.test(tip), "statut et avancement");
-assert(/iprospective\/pm-ai-agents/.test(tip), "projet indiqué");
-assert(/priorité high/.test(tip), "une priorité non ordinaire est signalée");
-assert(!/priorité normal/.test(ticketTipText("1", { found: true, priority: "normal" })),
-  "une priorité normale n'encombre pas l'infobulle");
-
-// une attente ne doit pas se lire comme une absence d'information
-assert(/chargement/.test(ticketTipText("42", null)), "cache pas encore rempli : on le dit");
-assert(/inconnu/.test(ticketTipText("42", { found: false })), "ticket inconnu : on le dit aussi");
-assert(/sans titre/.test(ticketTipText("42", { found: true, title: "" })), "titre vide toléré");
-assert(/0 %/.test(ticketTipText("42", { found: true, completion_pct: 0 })),
-  "0 % s'affiche — c'est une information, pas une absence");
-console.log("✓ infobulle (RM2619) : libellé, statut, %, projet ; attente distinguée de l'inconnu");
-
-const pendingBriefIds = grabT("pendingBriefIds");
-assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], {}, new Set())), ["1", "2"],
-  "tout ce qui manque est demandé");
-assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], { "1": {} }, new Set())), ["2"],
-  "ce qui est déjà en cache n'est pas redemandé");
-assert.deepStrictEqual(Array.from(pendingBriefIds(["1", "2"], {}, new Set(["1"]))), ["2"],
-  "ce qui est déjà en vol non plus");
-assert.deepStrictEqual(Array.from(pendingBriefIds(["3", "3", "3"], {}, new Set())), ["3"],
-  "un même id affiché dix fois ne fait pas dix demandes");
-assert.deepStrictEqual(Array.from(pendingBriefIds(["abc", "", null, "12"], {}, new Set())), ["12"],
-  "les réfs non numériques sont écartées");
-assert.deepStrictEqual(Array.from(pendingBriefIds(null, null, null)), [], "entrées absentes tolérées");
-// un ticket introuvable est mis en cache comme tel : sans ça, on le redemande sans fin
-assert.deepStrictEqual(Array.from(pendingBriefIds(["9"], { "9": { found: false } }, new Set())), [],
-  "un ticket connu comme introuvable n'est pas redemandé en boucle");
-console.log("✓ infobulle (RM2619) : demandes regroupées, jamais en boucle");
-
-assert(/\/tickets\/brief\?ids=/.test(html), "le cockpit interroge l'endpoint de lot");
-assert(/data-tip-rm/.test(html), "les éléments porteurs d'un RM-id sont repérables pour la mise à jour");
-const mRt = /function refreshTips\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(mRt && /setAttribute\("title"/.test(mRt[0]),
-  "quand le cache se remplit, les infobulles déjà posées suivent");
-console.log("✓ infobulle (RM2619) : endpoint de lot, mise à jour en place");
+// — RM2619 : infobulles : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
 // — RM2622 : la doc du projet dans l'onglet fichiers —
 const mFr = />>> fileRootLabel[\s\S]*?(function fileRootLabel[\s\S]*?)\n\/\/ <<< fileRootLabel/.exec(html);
@@ -1433,32 +1292,7 @@ assert(/filesGroups\(/.test(mLf[0]),
   "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
 console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
 
-// — RM1952 : triage ROI des tickets ouverts —
-const triageFilter = grabO("triageFilter");
-const triageRowHtml = grabO("triageRowHtml", { esc: escO });
-const TT = [
-  { rm_id: 1, client: "iprospective", project: "atlas", awaiting_validation: false },
-  { rm_id: 2, client: "iprospective", project: "infra", awaiting_validation: true },
-  { rm_id: 3, client: "calicote", project: "prestashop", awaiting_validation: false },
-];
-assert.strictEqual(triageFilter(TT, "", "", false).length, 3, "sans filtre → tout");
-assert.strictEqual(triageFilter(TT, "iprospective", "", false).length, 2, "filtre client");
-assert.strictEqual(triageFilter(TT, "iprospective", "infra", false).length, 1, "filtre client+projet");
-assert.strictEqual(triageFilter(TT, "", "", true).length, 2, "masquer la validation retire les a_tester_*");
-assert.strictEqual([...triageFilter(null, "", "", false)].length, 0, "liste absente tolérée");
-// rendu d'une ligne : score, RM cliquable (numérique), badges, échappement
-assert.strictEqual(triageRowHtml(null, 1), "", "entrée absente → vide");
-const row = triageRowHtml({ rm_id: 42, title: "Fix <b>x</b>", status: "nouveau", priority: "high",
-  score: 200, time_minutes: 90, unblocks: 3, blocked: true, blocked_by: [7, 8], awaiting_validation: false }, 1);
-assert(/onclick="showTicket\(42\)"/.test(row), "clic → showTicket avec id numérique (pas d'injection)");
-assert(/tr-score[^>]*>200</.test(row) && />RM42</.test(row), "score et RM affichés");
-assert(/🔓 3/.test(row) && /tr-blocked/.test(row), "badges débloque + bloqué");
-assert(/bloqué par : 7, 8/.test(row), "l'infobulle liste les bloqueurs");
-assert(/Fix &lt;b&gt;x&lt;\/b&gt;/.test(row) && !/<b>/.test(row), "titre échappé (anti-XSS)");
-assert(/90 min/.test(row), "estimation de temps affichée");
-const rv = triageRowHtml({ rm_id: 9, title: "v", status: "a_mep", priority: "normal", score: 5, awaiting_validation: true }, 2);
-assert(/⏳/.test(rv) && !/🔓/.test(rv), "en validation → ⏳ ; pas de badge débloque sans unblocks");
-console.log("✓ triage (RM1952) : filtres, score, débloquants/bloqués, échappement");
+// — RM1952 : triage ROI : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
 // — RM2673 : écriture dans un jeu, tickets du worklog, fichiers sans session —
 const setWritable = grabO("setWritable");
@@ -1880,35 +1714,10 @@ console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanen
 
 // — RM2752 : bugfix avec étapes de reproduction — MIGRÉ (RM2889), voir test_cockpit_newticket.js —
 
-// — RM2757 : « Tickets ouverts » repliable, replié au démarrage —
-const openedPanelOpen = grabO("openedPanelOpen");
-const openedCountLabel = grabO("openedCountLabel");
-
-// L'état par défaut est le cœur de la demande : la carte peut faire 40 lignes
-// et repoussait la recherche et la création hors de l'écran.
-assert.strictEqual(openedPanelOpen(null), false, "jamais visité → replié");
-assert.strictEqual(openedPanelOpen(undefined), false, "storage indisponible → replié");
-assert.strictEqual(openedPanelOpen(""), false, "valeur vide → replié");
-assert.strictEqual(openedPanelOpen("0"), false, "replié par l'utilisateur → replié");
-assert.strictEqual(openedPanelOpen("1"), true,
-  "déplié par l'utilisateur → rouvert (sinon la carte se referme contre lui)");
-
-// Repliée, l'en-tête doit dire s'il y a matière à ouvrir.
-assert.strictEqual(openedCountLabel(12), "(12)", "le compte est visible sans ouvrir");
-assert.strictEqual(openedCountLabel(1), "(1)");
-assert.strictEqual(openedCountLabel(0), "(vide)", "zéro se dit, il ne se tait pas");
-assert.strictEqual(openedCountLabel(null), "(vide)", "compte absent → « vide », pas un blanc");
-assert.strictEqual(openedCountLabel("7"), "(7)", "compte en chaîne toléré");
-// RM2883 : avec un filtre actif, l'en-tête dit ce qu'on voit ET le total — sans
-// les deux, « (3) » sur une pile de quarante se lit comme une liste vidée.
-assert.strictEqual(openedCountLabel(3, 40), "(3 / 40)", "filtre actif : vu / total");
-assert.strictEqual(openedCountLabel(40, 40), "(40)", "sans filtre : le total seul");
-assert.strictEqual(openedCountLabel(0, 40), "(vide)",
-  "un filtre qui ne laisse rien se dit « vide », pas « 0 / 40 »");
-
+// — RM2757 : carte repliable : logique MIGRÉE (RM2889, test_cockpit_tickets.js) ; reste ici le câblage HTML —
 // Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
-assert(/<details class="card" id="openedcard" ontoggle="openedToggled\(this\)">/.test(html),
-  "la carte doit être un <details> qui mémorise le geste");
+assert(/<details class="card" id="openedcard">/.test(html), "la carte doit être un <details> (le contrôleur migré mémorise le geste au toggle)");
+assert(/listen\(opened, "toggle"/.test(fs.readFileSync(path.join(__dirname, "src/controllers/tickets.controller.js"), "utf8")), "…et il l'écoute");
 assert(/id="opened-count"/.test(html), "l'en-tête doit porter le compteur");
 assert(!/<details class="card" id="openedcard"[^>]*\bopen\b/.test(html),
   "pas d'attribut open en dur : l'état initial vient du localStorage");
@@ -2194,10 +2003,12 @@ const surfaces2795 = [
   ['pinOf("session", s.rm_id)', "tuiles de session"],
   ['pinOf("review", rm)', "revues ouvertes"],
   ['pinOf("review", t.rm_id)', "résultats de recherche"],
-  ['pinOf("review", it.rm_id)', "tickets ouverts"],
 ];
 surfaces2795.forEach(([frag, quoi]) =>
   assert(html.includes(frag), "marque absente : " + quoi));
+// RM2889 : les tickets ouverts sont migrés — la vue reçoit la marque du routeur (pinOf) par le contrôleur
+assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/TicketsPanel.view.js"), "utf8")),
+  "marque absente : tickets ouverts (migrés)");
 // RM2889 : la file à tester est migrée — sa marque vient du routeur, prêtée au ViewModel
 assert(/this\.ctx\.pin\("review", e\.rm_id\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/testqueue/TestQueueViewModel.js"), "utf8")),
   "marque absente : file à tester (migrée)");
@@ -2623,21 +2434,7 @@ assert(/tag=refacto/.test(searchQuery2830("x", { tag: "refacto" }, "")),
   "la recherche doit transmettre l'étiquette au serveur");
 assert(!/tag=/.test(searchQuery2830("x", {}, "")), "…et ne rien ajouter quand aucune n'est choisie");
 
-// Le triage filtre sur la même notion, sans confondre « aucune étiquette » et « toutes »
-const triageFilter2830 = grabO("triageFilter");
-const T2830 = [
-  { rm_id: "1", client: "a", project: "p", tags: ["front", "refacto"] },
-  { rm_id: "2", client: "a", project: "p", tags: ["bdd"] },
-  { rm_id: "3", client: "a", project: "p" },
-];
-assert.strictEqual(triageFilter2830(T2830, "", "", false, "front").map(t => t.rm_id).join(","), "1",
-  "filtre par étiquette");
-assert.strictEqual(triageFilter2830(T2830, "", "", false, "").length, 3,
-  "aucune étiquette choisie → tout, y compris les tickets sans étiquette");
-assert.strictEqual(triageFilter2830(T2830, "", "", false, "Front").map(t => t.rm_id).join(","), "1",
-  "la casse ne change rien (même vocabulaire qu'à l'écriture)");
-assert.strictEqual(triageFilter2830(T2830, "a", "p", false, "bdd").map(t => t.rm_id).join(","), "2",
-  "cumulable avec client/projet");
+// Le triage filtre sur la même notion : MIGRÉ (RM2889) — voir test_cockpit_tickets.js
 
 // Les étiquettes se VOIENT sur la ligne de résultat, sinon on filtre à l'aveugle
 const rowMeta2830 = grabO("searchRowMeta");
@@ -2657,22 +2454,7 @@ console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux 
 // — RM2831 : constituer un lot par domaine et ouvrir une session dessus —
 // RM2823 sortait des tickets d'une session polluée, un par un. Ici on les
 // rassemble par ÉTIQUETTE : la liste filtrée est déjà le lot.
-const triageBatchItems = grabO("triageBatchItems");
-const TB = [
-  { rm_id: "10", status: "a_faire", title: "un", client: "a", project: "p" },
-  { rm_id: "11", status: "en_cours", title: "deux", client: "a", project: "p" },
-  { rm_id: "12", status: "ferme", title: "trois", client: "a", project: "p" },
-];
-const items2831 = triageBatchItems(TB, 10);
-assert.strictEqual(items2831.map(i => i.rm_id).join(","), "10,11,12",
-  "les lignes affichées deviennent les items du lot, dans l'ordre du triage");
-assert.strictEqual(items2831[0].status, "a_faire",
-  "le statut voyage : c'est lui qui décide de l'action côté serveur");
-assert.strictEqual(items2831[0].title, "un", "…et le titre, pour l'écran de confirmation");
-assert.strictEqual(triageBatchItems(TB, 2).length, 2,
-  "plafonné à ce qu'on annonce — une file trop longue déborde le contexte de l'agent");
-assert.strictEqual(triageBatchItems([], 10).length, 0, "liste vide");
-assert.strictEqual(triageBatchItems(null, 10).length, 0, "liste absente");
+// triageBatchItems : MIGRÉ (RM2889) — voir test_cockpit_tickets.js
 
 // Le chemin de lancement est CELUI de RM2823 : une seule fonction, pas deux
 const sbs = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
@@ -2682,9 +2464,8 @@ assert(/offloadPlan\(/.test(sbs[0]) && /\/worklog\/batch/.test(sbs[0]) && /\/spa
 const off2831 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
 assert(/spawnBatchSession\(/.test(off2831[0]),
   "le geste du worklog (RM2823) passe par le chemin partagé");
-const tri2831 = /async function triageSpawnSession\([\s\S]*?\n\}/.exec(html);
-assert(tri2831 && /spawnBatchSession\(/.test(tri2831[0]),
-  "le geste du triage aussi — sinon deux comportements divergeraient");
+assert(/spawnBatch: \(items, btn, opts\) => legacy\("spawnBatchSession"\)/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")),
+  "le geste du triage (migré) passe aussi par spawnBatchSession — sinon deux comportements divergeraient");
 assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
 console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");
 
@@ -2777,8 +2558,8 @@ console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 
   assert(nonGarde.length === 0,
     "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInFlight(t)`");
   const garde = html.match(/resolveCache\[t\] === undefined && !resolveInFlight\(t\)\)\s*ensureResolved\(t\)\.then/g) || [];
-  assert(garde.length >= 1,
-    "RM2807 : attendu 1 site gardé dans le monolithe (renderOpened), vus " + garde.length);
+  // renderOpened a MIGRÉ à son tour (RM2889, panneau 🎫) : sa garde lit l'état en vol par la façade ticket
+  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then\(renderOpened\)/.test(fs.readFileSync(path.join(__dirname, "src/controllers/tickets.controller.js"), "utf8")), "RM2807 : garde absente du contrôleur du panneau tickets");
   // renderTickets a MIGRÉ (RM2889) : sa garde lit l'état en vol par la façade ticket
   assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807 : garde absente du contrôleur de l'encart");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe

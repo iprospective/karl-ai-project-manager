@@ -1151,14 +1151,7 @@ assert(!/showTicket/.test(libre) && /<b>/.test(libre),
 assert(worklogRefHtml(null, escId, () => "").length >= 0, "réf absente tolérée");
 console.log("✓ worklog (RM2605) : tickets cliquables, chantiers libres non");
 
-// ce qui quitte « infos » ne doit pas disparaître : les conflits restent
-const mReg = /function registryHtml\([\s\S]*?\n\}/.exec(html);
-assert(mReg, "registryHtml introuvable");
-assert(!/reg\.branches/.test(mReg[0]), "les branches ont quitté « infos »");
-assert(!/reg\.worktrees/.test(mReg[0]), "les worktrees ont quitté « infos » (l'onglet fichiers les sert)");
-assert(/registry_conflicts|conf\.forEach/.test(mReg[0]),
-  "les conflits de session RESTENT visibles — ils ne partent nulle part ailleurs");
-console.log("✓ infos (RM2605) : allégé, sans rien perdre");
+// — RM2605 : « infos » allégé : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
 // — RM2606 : tickets ouverts dans l'onglet de gauche —
 const grab = (name) => {
@@ -1257,8 +1250,8 @@ console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, famill
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
-const mShow = /function showTicket\(id\) \{[\s\S]*?\n\}/.exec(html);
-assert(mShow && /noteOpenedTicket/.test(mShow[0]), "ouvrir une fiche alimente la liste");
+const metaCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/meta.controller.js"), "utf8");
+assert(/ctx\.noteOpened\(id\)/.test(metaCtrl), "ouvrir une fiche alimente la liste (contrôleur migré, RM2889)");
 const revCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/review.controller.js"), "utf8");
 assert(/ctx\.noteOpened\(rm\)/.test(revCtrl), "ouvrir une revue aussi (contrôleur migré, RM2889)");
 assert(/karlOpenedTickets/.test(html), "la liste survit au rechargement (localStorage)");
@@ -1296,63 +1289,7 @@ assert(/visibilitychange/.test(html) && /document\.hidden/.test(html), "pollers 
 assert(/setInterval\([^)]*document\.hidden/.test(html) || /if \(!document\.hidden\)/.test(html), "au moins un poller saute quand cache");
 console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-plan");
 
-// — RM2614 : situer un ticket dans son client / projet —
-const fPb = />>> projectBriefHtml[\s\S]*?(function projectBriefHtml[\s\S]*?)\n\/\/ <<< projectBriefHtml/.exec(html);
-assert(fPb, "marqueurs >>> projectBriefHtml introuvables");
-// RM2714 : `cval` (nettoyeur des valeurs YAML « null ») est désormais une
-// fonction GLOBALE — elle doit être fournie au sandbox, sinon on rejouerait le
-// bug qu'on vient de corriger : un identifiant hors de portée.
-const mCval = />>> cval[\s\S]*?(function cval[\s\S]*?)\n\/\/ <<< cval/.exec(html);
-assert(mCval, "marqueurs >>> cval introuvables");
-const cval = vm.runInNewContext("(" + mCval[1] + ")");
-const projectBriefHtml = vm.runInNewContext("(" + fPb[1] + ")", { cval });
-assert.strictEqual(cval("null"), "", "cval : la CHAÎNE « null » vaut vide (piège YAML)");
-assert.strictEqual(cval("~"), "", "cval : « ~ » aussi");
-assert.strictEqual(cval("None"), "", "cval : « None » aussi");
-assert.strictEqual(cval(null), "", "cval : null réel");
-assert.strictEqual(cval("  x  "), "x", "cval : trim");
-const e = s => String(s);
-const j = s => '"' + String(s) + '"';
-
-// tant que la fiche projet n'est pas chargée, on affiche ce qu'on SAIT déjà
-const nu = projectBriefHtml("acme", "shop", null, e, j);
-assert(/acme/.test(nu) && /shop/.test(nu), "client et projet viennent du ticket, sans attendre le réseau");
-assert(/showProject\("acme\/shop"\)/.test(nu), "le lien vers la fiche projet est là d'emblée");
-assert(!/tickets/.test(nu), "pas de compteur inventé tant que la fiche n'est pas chargée");
-
-const carte = {
-  client_name: "Acme SA", client_redmine_project_id: "acme",
-  name: "Boutique", redmine_project_url: "https://r/projects/shop",
-  gitlab_repo: "grp/shop", default_branch: "dev",
-  open_by_status: { en_cours: 2, a_faire: 3 }, total: 12,
-};
-const plein = projectBriefHtml("acme", "shop", carte, e, j);
-assert(/Acme SA/.test(plein) && /Boutique/.test(plein), "les noms lisibles priment sur les slugs");
-assert(/5 ouverts \/ 12/.test(plein), "le compte d'ouverts situe le projet d'un coup d'œil");
-assert(/grp\/shop/.test(plein) && /dev/.test(plein), "dépôt et branche par défaut affichés");
-assert(/https:\/\/r\/projects\/shop/.test(plein) && /rel="noopener"/.test(plein),
-  "lien Redmine du projet, ouvert sans fuite d'opener");
-
-const un = projectBriefHtml("acme", "shop", { open_by_status: { en_cours: 1 } }, e, j);
-assert(/1 ouvert</.test(un), "singulier respecté");
-
-// un ticket non résolu ne doit pas produire un cadre vide
-assert.strictEqual(projectBriefHtml(null, "shop", carte, e, j), "", "sans client : rien");
-assert.strictEqual(projectBriefHtml("acme", null, carte, e, j), "", "sans projet : rien");
-assert.strictEqual(projectBriefHtml("", "", null, e, j), "", "les deux vides : rien");
-// vu sur un projet RÉEL : un champ YAML vide remonte en chaîne "null"
-const nul = projectBriefHtml("calicote", "prestashop",
-  { gitlab_repo: "null", default_branch: "main", client_name: "Calicote" }, e, j);
-assert(!/null/.test(nul), "un dépôt non déclaré ne s'affiche pas comme « null »");
-assert(/Calicote/.test(nul), "le reste de la fiche s'affiche normalement");
-console.log("✓ ticket (RM2614) : client/projet situés, liens vers le détail");
-
-// la fiche projet ne doit être demandée qu'une fois par projet
-const mEns = /function ensureProjectCard\([\s\S]*?\n\}/.exec(html);
-assert(mEns, "ensureProjectCard introuvable");
-assert(/projCardCache\[cle\] !== undefined/.test(mEns[0]),
-  "un projet déjà demandé n'est pas rechargé à chaque rendu de fiche");
-console.log("✓ ticket (RM2614) : une requête par projet, pas une par rendu");
+// — RM2614 : client/projet du ticket : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
 // — RM2619 : cache des tickets + infobulle au survol —
 const grabT = (name) => {
@@ -1564,30 +1501,7 @@ assert(mSplit2673 && /setWritable\(/.test(mSplit2673[1]),
   "la scission n'est pas proposée depuis un jeu dérivé");
 console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu dérivé, quelle que soit la vue");
 
-const ticketsOfSession = grabO("ticketsOfSession");
-const REG = { branches: ["2673-ergonomie-pm", "sans-ticket"], worktrees: ["/w/appli/envs/appli-rm2605"] };
-const WL = { todo: [{ ref: "RM2661" }], waiting: [{ ref: "RM2663" }], done: [{ ref: "RM2673" }],
-             unknown: [{ ref: "chantier-libre" }] };
-assert.deepStrictEqual([...ticketsOfSession("2673", REG, null)], ["2673", "2605"],
-  "ancrage puis registre (branche déjà connue, non dupliquée)");
-assert.deepStrictEqual([...ticketsOfSession("calymix", null, WL)], ["2661", "2663", "2673"],
-  "session slug : ses tickets viennent du worklog, reste-à-faire d'abord");
-assert.deepStrictEqual([...ticketsOfSession("2673", REG, WL)], ["2673", "2605", "2661", "2663"],
-  "toutes sources fusionnées, sans doublon, dans l'ordre de proximité");
-assert.deepStrictEqual([...ticketsOfSession("calymix", null, null)], [],
-  "rien de connu → aucune invention");
-assert.deepStrictEqual([...ticketsOfSession("calymix", null, { todo: [{ ref: "libre" }] })], [],
-  "un chantier hors ticket n'est pas un RM-id");
-// RM2860 : le bucket MEP est une NOUVELLE clé — oubliée ici, elle ferait
-// disparaître de l'onglet « tickets » les tickets dont le dev est fini.
-assert.deepStrictEqual([...ticketsOfSession("calymix", null, { mep: [{ ref: "RM2860" }] })], ["2860"],
-  "un ticket à mettre en prod reste un ticket de la session");
-const mRt2673 = /function renderTickets\(\)[\s\S]*?\n\}/.exec(html);
-assert(/loadWorklog\(\)/.test(mRt2673[0]),
-  "l'onglet tickets charge le worklog lui-même (il ne dépend pas de l'onglet état)");
-assert(/aucun ticket dans son worklog/.test(mRt2673[0]),
-  "le message vide ne parle du worklog qu'une fois celui-ci lu");
-console.log("✓ tickets (RM2673) : le worklog de session compte comme source, sans doublon");
+// — RM2673 : tickets de la session (toutes sources) : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
 const filesContext = grabO("filesContext");
 const filesCtxKey = grabO("filesCtxKey");
@@ -2327,62 +2241,11 @@ assert(/statusPill\(it, esc\)/.test(html), "le worklog doit passer par la foncti
 assert(!/const drift = it\.drifted/.test(html), "l'ancienne seconde pastille doit avoir disparu");
 console.log("✓ statut du worklog (RM2796) : une pastille, la dérive en couleur et au survol");
 
-// — RM2797 : description et historique en facettes, l'historique structuré —
-const logEntries = grabO("logEntries");
-const logHtml = grabO("logHtml");
-
-const JOURNAL = [
-  "## 2026-08-22T20:04 — report → Redmine",
-  "note (commit 55ca4bda)",
-  "",
-  "## 2026-08-22T20:08 — Protocole de test remplacé",
-  "Tokens : 0 | Durée : 0 min",
-  "détail sur deux lignes",
-].join("\n");
-
-const ent2797 = logEntries(JOURNAL);
-assert.strictEqual(ent2797.length, 2, "une entrée par en-tête ##");
-assert.strictEqual(ent2797[0].ts, "2026-08-22T20:04", "l'horodatage est isolé");
-assert.strictEqual(ent2797[0].title, "report → Redmine", "…et le titre aussi");
-assert(ent2797[1].body.includes("détail sur deux lignes"), "le corps garde ses lignes");
-assert(!ent2797[0].body.includes("##"), "l'en-tête ne se retrouve pas dans le corps");
-// Robustesse : un journal n'est pas toujours bien formé.
-assert.deepEqual(logEntries(""), [], "journal vide → aucune entrée");
-assert.deepEqual(logEntries(null), [], "journal absent toléré");
-const sansEntete = logEntries("juste du texte\nsans en-tête");
-assert.strictEqual(sansEntete.length, 1, "un journal sans en-tête n'est pas perdu");
-assert(sansEntete[0].body.includes("juste du texte"), "…son contenu est conservé");
-assert.strictEqual(logEntries("## titre sans horodatage")[0].title, "titre sans horodatage",
-  "un en-tête sans horodatage garde son titre");
-assert.strictEqual(logEntries("## titre sans horodatage")[0].ts, "",
-  "…et n'invente pas de date");
-
-// Rendu : la plus récente en tête — on ouvre l'historique pour voir ce qui vient
-// de se passer, pas pour relire le début.
-const lh = logHtml(ent2797, escO, (x) => "<MD>" + x + "</MD>");
-assert(lh.indexOf("20:08") < lh.indexOf("20:04"), "la plus récente est en tête");
-assert(/<MD>/.test(lh), "le corps passe par le rendu markdown, plus par un bloc préformaté");
-assert(/class="logent-ts"/.test(lh), "l'horodatage est distingué du titre");
-assert(logHtml([], escO, String).includes("aucune activité"),
-  "sans activité, un message — pas un cadre vide");
-assert(logHtml(null, escO, String).includes("aucune activité"), "liste absente tolérée");
-assert(!/<script>/.test(logHtml(logEntries("## <script>x</script> — t"), escO, String)),
-  "les en-têtes sont échappés");
-
-// Câblage : les deux facettes existent, et « détail » ne répète plus les blocs.
-assert(/\["desc", "description"\]/.test(html), "facette description absente");
-assert(/\["log", "historique"\]/.test(html), "facette historique absente");
-assert(/facet === "desc"/.test(html) && /facet === "log"/.test(html),
-  "les facettes doivent être routées");
-assert(!/<h4>Dernières activités<\/h4><div class="logtail">/.test(html),
-  "le bloc bridé de 130 px ne doit plus exister dans « détail »");
-assert(/setTicketFacet\(\\?'desc\\?'\)/.test(html) && /setTicketFacet\(\\?'log\\?'\)/.test(html),
-  "« détail » doit renvoyer vers les deux facettes");
+// — RM2797 : description et historique en facettes : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js.
+// Reste au monolithe la feuille de style : une facette doit pouvoir occuper toute la hauteur.
 assert(/\.facetfull \{[^}]*max-height: none/.test(html),
   "une facette doit pouvoir occuper toute la hauteur");
-// RM2806 : …et l'annoncer ne suffit pas — cf. le bloc RM2806 plus bas, qui
-// vérifie que la facette n'emprunte plus la classe qui écrasait cette règle.
-console.log("✓ fiche ticket (RM2797) : description et historique en facettes, journal structuré");
+console.log("✓ fiche ticket (RM2797) : style des facettes pleine hauteur conservé");
 
 // — RM2798 : le worklog groupé par client / projet —
 const groupWorklogItems = grabO("groupWorklogItems", { Map });
@@ -2509,12 +2372,7 @@ console.log("✓ étape de MR (RM2801) : ouverte, intégration, production — s
 // Un test qui se contenterait de chercher `max-height: none` dans la page serait
 // passé au vert sur du code inerte : on vérifie donc que la facette n'utilise
 // plus la classe en conflit.
-const mDescFacet = /function _ticketDescHtml\([\s\S]*?\n\}/.exec(html);
-assert(mDescFacet, "_ticketDescHtml introuvable");
-assert(!/class="facetfull desc"/.test(mDescFacet[0]),
-  "la facette ne doit plus reprendre `.desc` — c'est elle qui bridait à 160 px");
-assert(/descfull/.test(mDescFacet[0]), "…mais une classe qui lui est propre");
-assert(/mdview/.test(mDescFacet[0]), "…et le rendu markdown standard");
+// La facette elle-même a MIGRÉ (RM2889, test_cockpit_meta.js vérifie ses classes) ; la cascade CSS reste ici.
 const cssDescFull = /\.descfull \{[^}]*\}/.exec(html);
 assert(cssDescFull, ".descfull introuvable");
 assert(/background: none/.test(cssDescFull[0]) && /border: 0/.test(cssDescFull[0]),
@@ -2853,9 +2711,9 @@ console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour le
 // ── RM2888 : changer le statut depuis la fiche et le worklog ────────────────
 // Menu, invites, gardes : MIGRÉS (RM2889) — voir test_cockpit_review.js. Restent au monolithe
 // les deux points d'entrée (fiche ℹ et worklog), qui appellent le pont openStatusMenu.
-const mDetail2888 = /function _ticketDetailHtml[\s\S]*?\n\}/.exec(html);
-assert(/openStatusMenu\(/.test(mDetail2888[0]),
-  "la fiche du ticket ouvre le menu depuis sa pastille de phase");
+const metaView2888 = fs.readFileSync(path.join(__dirname, "src/views/tickets/Meta.view.js"), "utf8");
+assert(/data-action="status" data-rm=/.test(metaView2888),
+  "la fiche du ticket ouvre le menu depuis sa pastille de phase (vue migrée, RM2889)");
 const mRw2888 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
 assert(/openStatusMenu\(/.test(mRw2888[0]),
   "le worklog aussi : c'est le second point d'entrée demandé");
@@ -2919,8 +2777,10 @@ console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 
   assert(nonGarde.length === 0,
     "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInFlight(t)`");
   const garde = html.match(/resolveCache\[t\] === undefined && !resolveInFlight\(t\)\)\s*ensureResolved\(t\)\.then/g) || [];
-  assert(garde.length >= 2,
-    "RM2807 : attendu 2 sites gardés (renderTickets + renderOpened), vus " + garde.length);
+  assert(garde.length >= 1,
+    "RM2807 : attendu 1 site gardé dans le monolithe (renderOpened), vus " + garde.length);
+  // renderTickets a MIGRÉ (RM2889) : sa garde lit l'état en vol par la façade ticket
+  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807 : garde absente du contrôleur de l'encart");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe
   // la lit par un pont — une référence orpheline lèverait une ReferenceError au premier ticket non résolu.
   assert(/function resolveInFlight\(rm\)/.test(html), "RM2807 : le pont resolveInFlight manque");

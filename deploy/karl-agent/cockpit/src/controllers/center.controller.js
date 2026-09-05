@@ -253,7 +253,7 @@ export function mountCenter(hosts, ctx = {}) {
   };
   const hasTab = (key, kinds) => state.tabs.some(t => t && String(t.key) === String(key) && (!kinds || kinds.includes(t.kind)));
   return { note, activate, closeTab, togglePin, pinOf, hasTab, renderTabs, title, navGo, histGoTo, histToggle,
-           openDashboard, openPanel, closePanel, closeView, isBusy, fallback, restore,
+           openDashboard, openPanel, closePanel, closeView, isBusy, fallback, restore, yield: yieldTo,
            openFile, openDir, openCommit, openMail, openClient, openConf, current: () => state.view, state,
            register: (kind, surface) => { surfaces[kind] = surface; },
            unmount: () => Object.values(h).forEach(x => x && x.unmount()) };

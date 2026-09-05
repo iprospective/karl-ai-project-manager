@@ -180,7 +180,7 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   ["setbar", "set-picker", "btn-set-save", "btn-set-del", "btn-sel", "sel-target", "btn-sel-move", "btn-relaunch", "sessions-set-card", "set-edit-picker", "sessions-set-body"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   const barHtml = html.slice(html.indexOf('id="setbar"'), html.indexOf('id="runlist"')); assert(!/\son\w+=/.test(barHtml), "la barre des jeux ne porte plus de on*"); assert((barHtml.match(/data-action="/g) || []).length >= 6, "…ses gestes sont en data-action");
   const cardHtml = html.slice(html.indexOf('id="sessions-set-card"'), html.indexOf('id="sessions-set-body"')); assert(!/\son\w+=/.test(cardHtml) && /data-action="new-set"/.test(cardHtml), "la carte non plus");
-  ["refreshSessionSets", "refreshSessionSet", "loadSessionSet"].forEach(fn => assert(new RegExp("function " + fn + "\\(\\) \\{ return karlWhen\\(\"sets\"\\)").test(html), "pont manquant : " + fn));
+  { const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"); assert(/setsCtl\.refreshSets\(\); setsCtl\.refreshSet\(\);/.test(boot) && /sessions: \(\) => \{ resume\.load\(\); setsCtl\.load\(\); \}/.test(boot), "boot.js : jeux relus à l'init, carte chargée à la première activation du panneau"); }
   for (const f of ["src/views/sessions/Sets.view.js", "src/controllers/sets.controller.js"]) assert(!/\son(click|change|input)=/.test(fs.readFileSync(path.join(DIR, f), "utf8")), "aucun handler inline dans " + f);
   console.log("✓ hôtes sans on*, ponts refreshSessionSets / refreshSessionSet / loadSessionSet en place");
   console.log("\nTous les tests des jeux de sessions passent.");

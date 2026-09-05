@@ -16,8 +16,8 @@ const html = fs.readFileSync(path.join(__dirname, "index.html"), "utf8");
 // — 1. syntaxe de TOUS les blocs <script> inline (RM2386 : le boot de thème
 //      vit dans un <script id="theme-boot"> du <head> ; une erreur de syntaxe
 //      dedans casserait la page sans que rien ne l'attrape) —
-const blocks = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)];
-assert(blocks.length >= 2, "attendu au moins 2 blocs <script> (theme-boot + principal)");
+const blocks = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(b => b[1].trim());   // inline seulement
+assert.strictEqual(blocks.length, 1, "un seul bloc <script> inline : le boot de thème — tout le reste est en modules (RM2889, L6)");
 blocks.forEach((b, i) => new vm.Script(b[1], { filename: `index.html<script#${i}>` }));
 console.log(`✓ syntaxe des ${blocks.length} blocs <script> inline`);
 
@@ -460,56 +460,14 @@ console.log(`✓ colonne droite : les ${navTabs.length} onglets de la barre sont
 // l'onglet fichiers a bien son bouton ET son panneau (équilibre onglets/panneaux déjà vérifié)
 assert(/data-rpanel="files"/.test(html) && /id="rp-files"/.test(html), "onglet fichiers câblé (RM2586)");
 
-// — titleLink (RM2585) : titre de ticket cliquable + lien externe Redmine —
-const fTl = />>> titleLink[\s\S]*?(function titleLink[\s\S]*?)\n\/\/ <<< titleLink/.exec(html);
-assert(fTl, "marqueurs >>> titleLink / <<< titleLink introuvables");
-const escFn = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const mkTl = cfg => vm.runInNewContext("(" + fTl[1] + ")", { esc: escFn, CFG: cfg });
-const tl = mkTl({ redmine_url: "https://r.x" });
-let tlo = tl("2585", "Mon <b>ticket</b>");
-assert(/showTicket\(2585\)/.test(tlo) && /event\.stopPropagation/.test(tlo),
-  "titre numérique : clic → showTicket, sans déclencher la tuile");
-assert(/href="https:\/\/r\.x\/issues\/2585"/.test(tlo) && /class="rmext"/.test(tlo),
-  "lien externe ↗ construit depuis CFG.redmine_url");
-assert(tlo.includes("Mon &lt;b&gt;ticket&lt;/b&gt;") && !/<b>/.test(tlo), "titre échappé (anti-XSS)");
-assert.strictEqual(mkTl({})("chantier-x", "Truc"), "Truc", "ref non ticket (slug) → texte simple");
-assert.strictEqual(tl(null, "x"), "x", "ref absente → texte simple");
-tlo = mkTl({})("42", "T");
-assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
-console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
+// — titleLink (RM2585) : MIGRÉ (RM2889, liens) — voir test_cockpit_shell.js —
 
 // — sinceLabel (RM2630) : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
 // — worklogDocs (RM2584) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 
-// — RM2596 : recherche / surlignage / linkify de la conversation —
-const escO = s => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-const mJarg = /function jarg\(s\) \{[\s\S]*?\n\}/.exec(html);
-assert(mJarg, "jarg introuvable");
-const jargFn = vm.runInNewContext("(" + mJarg[0] + ")", {});
-function grabO(name, ctx) {
-  const m = new RegExp(">>> " + name + "[\\s\\S]*?(function " + name + "[\\s\\S]*?)\\n// <<< " + name).exec(html);
-  assert(m, "marqueurs " + name + " introuvables");
-  return vm.runInNewContext("(" + m[1] + ")", ctx || {});
-}
-// RM2623 : le glossaire a MIGRÉ (RM2889, test_cockpit_doc.js) ; linkify le souligne par un pont — identité ici
-const linkify = grabO("linkify", { esc: escO, jarg: jargFn, glossify: (s) => s });
-
-// jarg : argument onclick sûr (guillemets simples, jamais de " qui casse l'attribut)
-assert.strictEqual(jargFn("a/b.py"), "'a/b.py'", "chemin simple entre quotes simples");
-assert(!/"/.test(jargFn('x"y')), "un \" dans la valeur ne ferme pas l'attribut");
-assert.strictEqual(jargFn("l'a"), "'l\\'a'", "apostrophe échappée");
-
-// outMatch / hlq : MIGRÉS (RM2889, outline) — voir test_cockpit_outline.js
-
-// linkify : RM → showTicket, chemin → openFileRef ('...'), URL → <a>, reste échappé
-const lk = linkify("fix RM42 dans scripts/karl-agent.py cf https://x.io/p et <b>");
-assert(/onclick="showTicket\(42\)"/.test(lk) && />RM42</.test(lk), "RM42 cliquable → showTicket");
-assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(lk), "chemin cliquable → openFileRef (quotes simples)");
-assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
-assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
-console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
+// — RM2596 : linkify / jarg : MIGRÉS (RM2889, liens + core/html) — voir test_cockpit_shell.js et test_cockpit_core.js —
 
 // — worklogDocsHtml (RM2935) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
@@ -601,18 +559,7 @@ console.log("OK — tous les tests cockpit passent");
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
 // formulaire « nouveau ticket » (RM2672/RM2726/RM2752) : surface MIGRÉE — voir test_cockpit_newticket.js
 
-// — RM2718 : pastille du statut de session ([WIP] / [A TESTER] / [DONE]) —
-const markPillHtml2718 = grabO("markPillHtml");
-assert(/pill warn">WIP</.test(markPillHtml2718("wip")), "WIP : pastille d'attention");
-assert(/pill test">À TESTER</.test(markPillHtml2718("test")), "test : pastille « À TESTER »");
-assert(/pill ok">DONE</.test(markPillHtml2718("done")), "DONE : pastille ok");
-assert.strictEqual(markPillHtml2718(null), "", "pas de marqueur → pas de pastille");
-assert.strictEqual(markPillHtml2718("zzz"), "", "statut inconnu → rien d'inventé");
-assert.strictEqual(markPillHtml2718("constructor"), "",
-  "une clé héritée d'Object ne doit pas produire de pastille");
-assert(markPillHtml2718("test").endsWith("</span> "),
-  "la pastille garde son espace de séparation avec le titre");
-console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'inventé");
+// — RM2718 : pastille du statut de session : MIGRÉE (RM2889, liens) — voir test_cockpit_shell.js —
 
 // — RM2719 : portée restreinte : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
@@ -681,7 +628,7 @@ assert(!/<details class="card" id="openedcard"[^>]*\bopen\b/.test(html),
 // replierait la carte — un clic qui fait deux choses dont une non voulue.
 const sumOpened = /<summary>Tickets ouverts[\s\S]*?<\/summary>/.exec(html);
 assert(sumOpened, "summary de la carte introuvable");
-assert(/event\.stopPropagation\(\)/.test(sumOpened[0]) && /event\.preventDefault\(\)/.test(sumOpened[0]),
+assert(/data-cmd="help" data-arg="tickets" data-stop/.test(sumOpened[0]),
   "le bouton d'aide ne doit pas replier la carte");
 console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ, compte visible");
 
@@ -854,7 +801,7 @@ assert(nav2816, "barre d'onglets de la colonne gauche introuvable");
 assert(!/data-panel="pm"/.test(nav2816[0]) && !/data-panel="settings"/.test(nav2816[0]),
   "les deux onglets ne doivent plus être dans la colonne de gauche");
 const head2816 = /<header>[\s\S]*?<\/header>/.exec(html)[0];
-assert(/openCenterPanel\('pm'\)/.test(head2816) && /openCenterPanel\('settings'\)/.test(head2816),
+assert(/data-cmd="panel" data-arg="pm"/.test(head2816) && /data-cmd="panel" data-arg="settings"/.test(head2816),
   "les deux entrées doivent vivre dans le menu principal du haut");
 // Le contenu déménage tel quel : une carte oubliée derrière serait invisible.
 const pane2816 = /<div id="panelpane"[\s\S]*?<!-- \/#panelpane -->/.exec(html);
@@ -989,7 +936,7 @@ console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut
   assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807 : garde absente du contrôleur de l'encart");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe
   // la lit par un pont — une référence orpheline lèverait une ReferenceError au premier ticket non résolu.
-  assert(/function resolveInFlight\(rm\)/.test(html), "RM2807 : le pont resolveInFlight manque");
+  // RM2889 L6 : plus de script inline — les deux sites lisent la garde sur la façade ticket (boot.js)
   assert(/inFlight: \(rm\) =>/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")), "RM2807 : la façade ticket n'expose pas inFlight");
   console.log("✓ fan-out tickets borné (RM2807) : garde !resolveInflight aux 2 sites");
 }

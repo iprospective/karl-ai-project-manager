@@ -32,6 +32,7 @@ import { mountVoice } from "./controllers/voice.controller.js";
 import { mountCenter } from "./controllers/center.controller.js";
 import { mountNewTicket } from "./controllers/newticket.controller.js";
 import { mountProject } from "./controllers/project.controller.js";
+import { mountTestQueue } from "./controllers/testqueue.controller.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
@@ -232,8 +233,15 @@ project = mountProject(byId("projpane"), {
   filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
 });
 center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
+// la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
+const testqueue = mountTestQueue(byId("tqcard"), {
+  notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
+  resolveRefresh: (rm) => legacy("ensureResolved")(String(rm), true),
+  openReview: legacy("openReview"), verdict: legacy("tqVerdict"), pin: (k, key) => center.pinOf(k, key),
+  afterLoad: () => { if (lexical(() => currentReview)) legacy("renderReviewPane")(); },
+});
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

@@ -140,30 +140,7 @@ console.log("✓ mdToHtml : titres, listes/cases, code, tableau, citation, hr, f
 h = mdToHtml("ligne un\nligne deux\n\nautre para");
 assert(h.includes("<p>ligne un ligne deux</p>") && h.includes("<p>autre para</p>"), "paragraphes");
 console.log("✓ mdToHtml : paragraphes");
-// — 4. tqMatch (RM2315) : recherche mots-clés dans la file « à tester » —
-const fq = />>> tqMatch[\s\S]*?(function tqMatch[\s\S]*?)\n\/\/ <<< tqMatch/.exec(html);
-assert(fq, "marqueurs >>> tqMatch / <<< tqMatch introuvables");
-const tqMatch = vm.runInNewContext("(" + fq[1] + ")");
-
-const entry = {
-  rm_id: "2302", title: "Améliorations ergonomiques design cockpit",
-  client: "iprospective", project: "pm-ai-agents", status: "a_tester_demandeur",
-  branch: "2302-ameliorations-ergonomiques-desogn-cockpit",
-  env: "ai-project-management-rm2302", tags: ["cockpit", "ux"],
-};
-assert(tqMatch(entry, ""), "requête vide → tout passe");
-assert(tqMatch(entry, "   "), "requête blanche → tout passe");
-assert(tqMatch(entry, "2302"), "match sur l'id nu");
-assert(tqMatch(entry, "RM2302"), "match sur l'id préfixé RM");
-assert(tqMatch(entry, "COCKPIT"), "insensible à la casse");
-assert(tqMatch(entry, "ameliorations"), "insensible aux accents (améliorations)");
-assert(tqMatch(entry, "cockpit ergonomiques"), "multi-mots = ET (les deux présents)");
-assert(!tqMatch(entry, "cockpit prestashop"), "multi-mots = ET (un mot absent → rejet)");
-assert(tqMatch(entry, "pm-ai-agents"), "match sur client/projet");
-assert(tqMatch(entry, "desogn"), "match sur la branche");
-assert(tqMatch(entry, "ux"), "match sur un tag");
-assert(!tqMatch({ rm_id: "7", title: null, tags: null }, "cockpit"), "champs nuls → pas de crash, rejet");
-console.log("✓ tqMatch (RM2315) : mots-clés, casse/accents, ET multi-mots");
+// — 4. tqMatch (RM2315) : MIGRÉ (RM2889, file à tester) — voir test_cockpit_testqueue.js —
 
 // — 5. nextAttentionId (RM2302) : RETIRÉ avec le bouton « ⚠ suivante » de l'en-tête (RM2889) —
 
@@ -2427,11 +2404,13 @@ const surfaces2795 = [
   ['pinOf("session", s.rm_id)', "tuiles de session"],
   ['pinOf("review", rm)', "revues ouvertes"],
   ['pinOf("review", t.rm_id)', "résultats de recherche"],
-  ['pinOf("review", e.rm_id)', "file à tester"],
   ['pinOf("review", it.rm_id)', "tickets ouverts"],
 ];
 surfaces2795.forEach(([frag, quoi]) =>
   assert(html.includes(frag), "marque absente : " + quoi));
+// RM2889 : la file à tester est migrée — sa marque vient du routeur, prêtée au ViewModel
+assert(/this\.ctx\.pin\("review", e\.rm_id\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/testqueue/TestQueueViewModel.js"), "utf8")),
+  "marque absente : file à tester (migrée)");
 assert(/pin\("project", p\.value\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/projects/ProjectsPanelViewModel.js"), "utf8")),
   "marque absente : panneau projets (migré RM2889)");
 assert(/pinOf\("review", String\(it\.ref/.test(html), "marque absente : worklog");

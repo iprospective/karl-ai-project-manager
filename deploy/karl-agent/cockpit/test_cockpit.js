@@ -879,39 +879,7 @@ console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'
 
 // — RM2719 : portée restreinte : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
-// — RM2720 : les actions PM portent sur un TICKET, plus sur la session —
-const pmActionTarget = grabO("pmActionTarget");
-const SESS2720 = { "123": { rm_id: "123" }, "77": { rm_id: "77" }, "88": { rm_id: "88", ghost: true } };
-const tOwn = pmActionTarget("123", SESS2720, "77");
-assert.strictEqual(tOwn.sid, "123", "la session DU ticket est la cible naturelle");
-assert.strictEqual(tOwn.own, true, "…et elle est signalée comme telle (pas de confirmation à demander)");
-const tFallback = pmActionTarget("999", SESS2720, "77");
-assert.strictEqual(tFallback.sid, "77", "sans session du ticket, repli sur la session attachée");
-assert.strictEqual(tFallback.own, false, "…mais le repli n'est pas la session du ticket");
-assert(/pas la session du ticket/.test(tFallback.why),
-  "le repli doit être DIT : injecter une consigne ailleurs n'est pas neutre");
-assert.strictEqual(pmActionTarget("999", SESS2720, null).sid, null,
-  "sans session vivante : aucune cible (le bouton se désactive)");
-assert(/aucune session/.test(pmActionTarget("999", SESS2720, null).why), "…avec sa raison");
-assert.strictEqual(pmActionTarget("88", SESS2720, null).sid, null,
-  "un fantôme (tuile grise, aucun processus) n'est pas une cible");
-assert.strictEqual(pmActionTarget("999", {}, "77").sid, null,
-  "une session attachée absente du cache n'est pas une cible");
-
-// la barre de session ne rend plus les actions de ticket
-const mChips = /function renderChips\(\)[\s\S]*?\n\}/.exec(html);
-assert(mChips, "renderChips introuvable");
-assert(/if \(a\.ticket_only\) continue;/.test(mChips[0]),
-  "les actions ticket_only ne doivent plus être rendues au niveau session");
-assert(!/isTicket/.test(mChips[0]),
-  "plus de distinction session-ticket / session-slug dans la barre (elle n'a plus lieu d'être)");
-// sendAction sait viser un ticket ET une session distincts
-const mSend2720 = /async function sendAction\([\s\S]*?\n\}/.exec(html);
-assert(mSend2720, "sendAction introuvable");
-assert(/async function sendAction\(a, btn, id, sid\)/.test(mSend2720[0]),
-  "sendAction doit distinguer le ticket visé de la session destinataire");
-assert(/replaceAll\("\{id\}", rid\)/.test(mSend2720[0]), "{id} vaut le TICKET, plus la session");
-console.log("✓ actions PM sur le ticket (RM2720) : cible résolue, repli annoncé, barre session nettoyée");
+// — RM2720 : actions PM d'un ticket, chips de session : MIGRÉS (RM2889, actions) — voir test_cockpit_actions.js —
 
 // — RM2720/RM2723 : modes de lot, lot de merges, ligne de MR : MIGRÉS (RM2889) — voir test_cockpit_worklog.js —
 

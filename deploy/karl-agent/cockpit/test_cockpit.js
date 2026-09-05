@@ -518,15 +518,7 @@ console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables,
 // — RM2639 : contexte client (pré-filtre global du cockpit) —
 // clientCtxList / clientCtxProject : MIGRÉS (RM2889, lanceur) — voir test_cockpit_launcher.js ; sessionInClient : MIGRÉ (RM2889, liste des sessions) — voir test_cockpit_sessions.js
 
-// — pendStaleSet (RM2598) : sessions avec question sans réponse (badge gauche) —
-const fPs = />>> pendStaleSet[\s\S]*?(function pendStaleSet[\s\S]*?)\n\/\/ <<< pendStaleSet/.exec(html);
-assert(fPs, "marqueurs pendStaleSet introuvables");
-const pendStaleSet = vm.runInNewContext("(" + fPs[1] + ")", { Set });
-const ps = pendStaleSet([{ rm_id: "1", kind: "live" }, { rm_id: "2", kind: "stale" }, { rm_id: "3", kind: "stale" }]);
-assert(!ps.has("1") && ps.has("2") && ps.has("3"), "ne garde que les stale (live déjà signalés ⚠/❓)");
-assert.strictEqual(pendStaleSet([]).size, 0, "vide → Set vide");
-assert.strictEqual(pendStaleSet(null).size, 0, "null toléré");
-console.log("\u2713 pendStaleSet (RM2598) : questions sans réponse, live exclues");
+// — pendStaleSet (RM2598) : MIGRÉ (RM2889, pile /refresh) — voir test_cockpit_refresh.js —
 
 // — clampWidth (RM2599) : MIGRÉ (RM2889, layout) — voir test_cockpit_layout.js —
 
@@ -569,15 +561,7 @@ console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, per
 
 // — RM2611 : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
-// — pollDelay (RM2613) : cadence adaptative + pause en arriere-plan —
-const fPd613 = />>> pollDelay[\s\S]*?(function pollDelay[\s\S]*?)\n\/\/ <<< pollDelay/.exec(html);
-assert(fPd613, "marqueurs pollDelay introuvables");
-const pollDelay = vm.runInNewContext("(" + fPd613[1] + ")");
-assert.strictEqual(pollDelay(true), 3000, "attention -> 3s");
-assert.strictEqual(pollDelay(false), 7000, "calme -> 7s");
-assert(/visibilitychange/.test(html) && /document\.hidden/.test(html), "pollers gates sur la visibilite (RM2613)");
-assert(/setInterval\([^)]*document\.hidden/.test(html) || /if \(!document\.hidden\)/.test(html), "au moins un poller saute quand cache");
-console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-plan");
+// — pollDelay (RM2613) : MIGRÉ (RM2889, pile /refresh) — voir test_cockpit_refresh.js —
 
 // — RM2614 : client/projet du ticket : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
@@ -707,7 +691,7 @@ console.log("✓ tickets ouverts (RM2757) : carte repliable, repliée au départ
 // Le câblage : un panneau que rien n'ouvre n'existe pas.
 assert(/data-panel="projects"/.test(html), "l'onglet gauche doit exister");
 assert(/<div class="lpanel" id="lp-projects"><\/div>/.test(html), "…avec son panneau (hôte monté par boot.js)");
-assert(/projects: \(\) => karlCall\("projects", "refresh"\)/.test(html), "…et son chargeur");
+assert(/projects: \(\) => projects\.refresh\(\)/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")), "…et son chargeur (panneaux gauche migrés : boot.js)");
 
 // ── RM2675 : glossaire de projet (lecture, filtre) : MIGRÉ (RM2889) — voir test_cockpit_doc.js. Reste le câblage :
 // Le câblage : un sous-onglet que rien n'affiche n'existe pas.
@@ -859,77 +843,7 @@ assert(cssDesc2806 && /max-height: 160px/.test(cssDesc2806[0]),
 assert(!/font-size/.test(cssDescFull[0]) && !/line-height/.test(cssDescFull[0]),
   "`.descfull` ne redéclare pas ce que `.mdview` porte déjà");
 console.log("✓ facette description (RM2806) : plus de cadre ni de bride, la colonne défile");
-// — pile de refresh (RM2763) : specs par période, dispatch par bloc, briefs —
-const mRefresh = />>> refresh[\s\S]*?(const REFRESH_PERIOD_MS[\s\S]*?)\n\/\/ <<< refresh/.exec(html);
-assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
-(async () => {
-  const calls = { api: [], health: [], ko: [], sessions: [], worklog: 0 };
-  const ctx = {
-    Date, Object, Promise, JSON, encodeURIComponent,
-    attached: null, worklog: null,
-    rightVisible: () => true,
-    // RM2889 : le tableau de bord est un domaine migré ; la pile lui parle par le pont
-    karlCall: (dom, fn) => { if (dom === "worklog" && fn === "setFromRefresh") calls.worklog++; return dom === "dashboard" && fn === "visible" ? false : undefined; },   // RM2889 : le bloc worklog part au contrôleur migré
-    resolveCache: {}, resolveAt: {},
-    pendStale: null, pendStaleSet: (e) => new Set((e || []).map(x => x.rm_id)),
-    api: async (u) => { calls.api.push(u); return ctx._resp; },
-    renderHealth: (h) => calls.health.push(h),
-    renderHealthKo: (m) => calls.ko.push(m),
-    renderSessions: (s) => calls.sessions.push(s),
-    renderWorklog: () => { calls.worklog++; },
-  };
-  vm.createContext(ctx);
-  vm.runInContext(mRefresh[1], ctx, { filename: "refresh-block" });
-
-  // specs : sessions à chaque tick (période 0), worklog seulement si attaché
-  let specs = vm.runInContext("refreshSpecs([])", ctx);
-  assert.deepStrictEqual([...specs], ["sessions:", "health:", "pending:", "vault:", "envcheck:", "coreupdate:"],
-    "1er tick : tous les blocs dus, sauf worklog (détaché) et dashboard (non visible)");
-  ctx.attached = "2763";
-  specs = vm.runInContext("refreshSpecs([])", ctx);
-  assert.strictEqual([...specs].pop(), "worklog:2763:", "attaché : le worklog embarque");
-
-  // fetch : dispatch des blocs reçus + mémorisation des hashs
-  ctx._resp = { blocks: {
-    sessions: { hash: "s1", data: { sessions: [{ rm_id: "2763" }], briefs: { 2763: { found: true, title: "T" } } } },
-    health: { hash: "h1", data: { sessions: 1, tmux: true } },
-    worklog: { hash: "w1", data: { rm_id: "2763", found: true } },
-    pending: { hash: "p1", data: { entries: [{ rm_id: "2763", kind: "stale" }] } },
-  }, skipped: [], errors: {} };
-  await vm.runInContext("refreshFetch([])", ctx);
-  assert.strictEqual(calls.api.length, 1, "UNE requête composite");
-  assert.strictEqual(calls.sessions.length, 1, "bloc sessions dispatché");
-  assert.strictEqual(calls.health.length, 1, "bloc health dispatché");
-  assert.strictEqual(calls.worklog, 1, "bloc worklog dispatché");
-  assert(ctx.resolveCache["2763"] && ctx.resolveCache["2763"].partial, "brief semé en partial");
-  assert(ctx.pendStale && ctx.pendStale.has("2763"), "bloc pending dispatché (pendStale recalculé)");
-
-  // tick suivant AVANT les périodes health/worklog : seul sessions repart, avec son hash
-  specs = vm.runInContext("refreshSpecs([])", ctx);
-  assert.deepStrictEqual([...specs], ["sessions:s1"], "périodes respectées + hash mémorisé");
-  // une action force un bloc hors période
-  specs = vm.runInContext('refreshSpecs(["health"])', ctx);
-  assert(specs.includes("health:h1"), "include force le bloc avec son hash");
-
-  // blocs inchangés (skipped) : aucun re-rendu
-  ctx._resp = { blocks: {}, skipped: ["sessions"], errors: {} };
-  await vm.runInContext("refreshFetch([])", ctx);
-  assert.strictEqual(calls.sessions.length, 1, "inchangé → pas de re-rendu");
-
-  // worklog d'une session quittée entre-temps : jeté ; échec réseau → dot ko
-  ctx._resp = { blocks: { worklog: { hash: "w2", data: { rm_id: "999", found: true } } }, skipped: [], errors: {} };
-  await vm.runInContext('refreshFetch(["worklog"])', ctx);
-  assert.strictEqual(calls.worklog, 1, "worklog d'une autre session jeté");
-  ctx.api = async () => { throw new Error("down"); };
-  await vm.runInContext("refreshFetch([])", ctx);
-  assert.strictEqual(calls.ko.length, 1, "échec réseau → renderHealthKo");
-
-  // seedBriefs ne dégrade jamais une résolution riche
-  ctx.resolveCache["42"] = { found: true, title: "riche", cwd: "/x" };
-  vm.runInContext('seedBriefs({ 42: { found: true, title: "brief" } })', ctx);
-  assert.strictEqual(ctx.resolveCache["42"].title, "riche", "une entrée riche n'est pas écrasée");
-  console.log("✓ pile de refresh (RM2763) : specs par période, dispatch par bloc, briefs partial");
-})().catch((e) => { console.error("✗ pile de refresh (RM2763) :", e.message); process.exit(1); });
+// — pile de refresh (RM2763) : MIGRÉE (RM2889) — voir test_cockpit_refresh.js —
 
 // — RM2816 : « commandes pm » et « réglages » quittent la colonne de gauche —
 // Deux surfaces d'action (pas de consultation) qui prenaient deux onglets sur
@@ -957,7 +871,7 @@ assert(!left2816.includes('id="panelpane"') && !left2816.includes('id="pmcard"')
 // …et il est bien dans la zone centrale, avec les autres vues.
 const termarea2816 = /<div class="termarea">[\s\S]*?<div id="panelpane"/.exec(html);
 assert(termarea2816, "#panelpane doit vivre dans la zone centrale (.termarea)");
-const loaders2816 = /const PANEL_LOADERS = \{[^}]*\}/.exec(html)[0];
+const loaders2816 = /panelLoaders: \{[^}]*\}/.exec(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8"))[0];   // RM2889 : chargeurs des panneaux gauche dans boot.js
 assert(!/\bpm:/.test(loaders2816) && !/\bsettings:/.test(loaders2816),
   "les loaders de la colonne gauche ne doivent plus référencer pm/settings");
 
@@ -974,8 +888,8 @@ assert(btns2821.includes("updbtn"), "le bouton MAJ doit rester dans le header");
 assert.strictEqual(btns2821[btns2821.length - 1], "updbtn",
   "« MAJ dispo » doit être le DERNIER bouton du header (ordre : " + btns2821.join(", ") + ")");
 // Rien d'autre ne bouge : même déclencheur, même clic, même infobulle.
-assert(/<button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate\(\)"/.test(html),
-  "le bouton MAJ garde son comportement (masqué par défaut, showCoreUpdate au clic)");
+assert(/<button class="mini" id="updbtn" style="display:none"/.test(html) && !/id="updbtn"[^>]*\son\w+=/.test(html),
+  "le bouton MAJ garde son comportement (masqué par défaut ; le clic est posé par le contrôleur migré — RM2889)");
 assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test(html),
   "…et son infobulle");
 console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");

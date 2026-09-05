@@ -23,6 +23,8 @@ export function mountDocModal(el, ctx = {}) {
   /** Un écran prêté (récapitulatif de lot du worklog…) : titre, contenu, et ses gestes routés à `onAction(action, node, ev)`. */
   function openCustom(title_, frag, onAction) { state.current = null; toCenterBtn(false); title(title_); paint(frag, "custom"); state.custom = onAction || null; show(true); }
   const contentEl = () => content();
+  /** RM2309 : captures et sorties de scripts = texte brut mono, jamais rendues — « sélectionne puis Ctrl+C ». */
+  function openPlain(title_, txt) { state.current = null; state.custom = null; toCenterBtn(false); title(title_ + " — sélectionne puis Ctrl+C"); const c = content(); if (c) { c.className = "plain"; c.textContent = String(txt == null ? "" : txt); } state.mode = "plain"; show(true); }
 
   function closeDoc() { show(false); }
   function docToCenter() { if (!state.current) return; const d = state.current; closeDoc(); if (ctx.openCenterFile) ctx.openCenterFile("doc", "", d.path); }
@@ -68,6 +70,6 @@ export function mountDocModal(el, ctx = {}) {
   // RM2623 : un terme souligné (.gloss), où qu'il soit dans la page → le glossaire ouvert dessus
   listen(ctx.root, "click", (e) => { const t = e.target; const g = t && t.closest ? t.closest(".gloss") : null; if (g) { e.preventDefault(); e.stopPropagation(); openGlossary(g.getAttribute("data-term")); } });
 
-  return { openDoc, closeDoc, openHelp, openGlossary, docToCenter, renderGlossary, openCustom, contentEl, md: mdToHtml, glossify: (s) => glossify(s), current: () => state.current, mode: () => state.mode, state,
+  return { openDoc, closeDoc, openHelp, openGlossary, docToCenter, renderGlossary, openCustom, openPlain, contentEl, md: mdToHtml, glossify: (s) => glossify(s), current: () => state.current, mode: () => state.mode, state,
     unmount() { disposers.forEach(d => d()); disposers.length = 0; } };
 }

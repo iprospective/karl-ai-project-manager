@@ -1259,8 +1259,8 @@ console.log("✓ tickets ouverts (RM2883) : filtre par statut, cumulable, famill
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
 const mShow = /function showTicket\(id\) \{[\s\S]*?\n\}/.exec(html);
 assert(mShow && /noteOpenedTicket/.test(mShow[0]), "ouvrir une fiche alimente la liste");
-const mRev = /function openReview\(rm\) \{[\s\S]*?\n\}/.exec(html);
-assert(mRev && /noteOpenedTicket/.test(mRev[0]), "ouvrir une revue aussi");
+const revCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/review.controller.js"), "utf8");
+assert(/ctx\.noteOpened\(rm\)/.test(revCtrl), "ouvrir une revue aussi (contrôleur migré, RM2889)");
 assert(/karlOpenedTickets/.test(html), "la liste survit au rechargement (localStorage)");
 console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
 
@@ -1890,74 +1890,7 @@ for (const t of ["--warn-soft", "--warn-soft-hover"]) {
 assert(!/button\.mini \{[^}]*animation/.test(css), "aucune animation ne doit toucher tous les .mini");
 console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mouvement réduit respecté");
 
-// — RM2726 : la fiche du ticket dit où il est traité, et sait l'y lancer —
-// RM2873 : le bloc de lancement rend aussi le choix de consigne — la fonction
-// pure qui liste les modèles lui est injectée (elle est partagée avec le
-// lanceur de gauche).
-const promptTemplates = grabO("promptTemplates");
-const promptTemplateOptions = grabO("promptTemplateOptions", { promptTemplates });
-const ticketPromptFor = grabO("ticketPromptFor");
-const promptFillOnChange = grabO("promptFillOnChange");
-const ticketSessionsHtml = grabO("ticketSessionsHtml", { promptTemplateOptions });
-const taskPromptText = grabO("taskPromptText");
-
-// formulation des prompts : une seule source pour le lanceur ET la fiche
-assert.strictEqual(taskPromptText("traiter", "2726", "iprospective", "pm-ai-agents"),
-  "traite la tâche RM2726 du client iprospective projet pm-ai-agents");
-assert.strictEqual(taskPromptText("traiter", "2726", "", ""), "traite la tâche RM2726",
-  "sans client/projet résolus, l'ancrage se réduit au RM-id");
-assert.strictEqual(taskPromptText("traiter", "abc"), "", "un sid non numérique n'est pas un ticket");
-assert.strictEqual(taskPromptText("zzz", "2726"), "", "template inconnu → aucune consigne inventée");
-assert(/relis le \.log\.md/.test(taskPromptText("continuer", "2726")), "template continuer perdu");
-assert(/SANS rien modifier/.test(taskPromptText("etat", "2726")),
-  "l'état du ticket doit rester en lecture seule");
-
-// aucune session : on le dit, et il reste le lancement
-const tsNone = ticketSessionsHtml({ rm_id: "2726", handled: [], candidates: [],
-                                    live: false, own_alive: false }, escFn, jargFn);
-assert(/aucune session ne traite ce ticket/.test(tsNone), "l'absence de session doit être dite");
-assert(/spawnTicketSession\('2726'/.test(tsNone), "le lancement d'une nouvelle session doit rester offert");
-assert(!/disabled/.test(tsNone), "sans session d'ancrage vivante, le lancement n'est pas désactivé");
-assert(/aucune autre session vivante/.test(tsNone), "sans destination, il faut le dire");
-
-// sessions qui le traitent : source affichée, ouverture pour les vivantes seulement
-const tsData = {
-  rm_id: "2726", client: "iprospective", project: "pm-ai-agents", live: true, own_alive: true,
-  handled: [
-    { sid: "2726", alive: true, reasons: ["ancrage"], title: "[WIP] fiche", same_project: true },
-    { sid: "vieille", alive: false, reasons: ["registre"], title: "hier", same_project: true },
-  ],
-  candidates: [
-    { sid: "cockpit", alive: true, title: "cockpit", same_project: true,
-      client: "iprospective", project: "pm-ai-agents" },
-    { sid: "presta", alive: true, title: "presta", same_project: false,
-      client: "acme", project: "boutique" },
-  ],
-};
-const tsOut = ticketSessionsHtml(tsData, escFn, jargFn);
-assert(/karl-RM2726/.test(tsOut) && /karl-vieille/.test(tsOut), "les sessions doivent être nommées");
-assert(/ancrage/.test(tsOut) && /registre/.test(tsOut), "la source doit être affichée");
-assert(/attach\('2726'\)/.test(tsOut), "une session vivante doit pouvoir s'ouvrir");
-assert(!/attach\('vieille'\)/.test(tsOut), "une session éteinte n'a rien à ouvrir");
-assert(/éteinte/.test(tsOut), "une session éteinte doit être dite telle");
-assert(/disabled/.test(tsOut), "session d'ancrage vivante → pas de second /spawn (409)");
-assert(/<optgroup label="iprospective\/pm-ai-agents">[\s\S]*cockpit/.test(tsOut),
-  "les sessions du projet du ticket doivent être groupées en tête");
-assert(tsOut.indexOf('label="iprospective/pm-ai-agents"') < tsOut.indexOf('label="autres projets"'),
-  "le bon projet passe avant les autres");
-assert(/acme\/boutique/.test(tsOut), "une session d'un autre projet doit annoncer lequel");
-assert(/sendTicketToSession\('2726'/.test(tsOut), "l'envoi dans une session existante doit être offert");
-
-// chargement : pas de liste vide trompeuse tant que la réponse n'est pas là
-assert(/recherche des sessions/.test(ticketSessionsHtml(null, escFn, jargFn)),
-  "avant réponse, on annonce la recherche — pas « aucune session »");
-
-// échappement : le titre d'une session est libre (il vient d'un transcript)
-const tsEsc = ticketSessionsHtml({ rm_id: "2726", handled: [
-  { sid: "x", alive: true, reasons: ["worklog"], title: '<img src=x onerror=alert(1)>' }],
-  candidates: [], live: true, own_alive: false }, escFn, jargFn);
-assert(!/<img/.test(tsEsc) && /&lt;img/.test(tsEsc), "titre de session non échappé");
-console.log("✓ sessions du ticket (RM2726) : source affichée, ouverture, envoi ciblé, lancement");
+// — RM2726 : sessions du ticket / consignes : MIGRÉ (RM2889) — voir test_cockpit_review.js —
 
 // — RM2726 : création de ticket — MIGRÉ (RM2889), voir test_cockpit_newticket.js —
 
@@ -2208,7 +2141,6 @@ console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et acti
 // — RM2786 : n'offrir que les actions qui ont du sens —
 const batchButtons = grabO("batchButtons", { Object, Set, String });
 const closeBatchPlan = grabO("closeBatchPlan", { Object, Set, String });
-const ticketVerdicts = grabO("ticketVerdicts", { Set, String });
 
 // La règle vient du serveur : le front la LIT, il ne la redéclare pas.
 const CFG2786 = {
@@ -2267,16 +2199,7 @@ assert(planClose.skipped.find(t => t.rm_id === "2").why.includes("livré"),
 assert.strictEqual(closeBatchPlan([{ rm_id: "7", status: "zzz" }], CFG2786).skipped[0].why
   .includes("zzz"), true, "un statut inconnu est écarté en le NOMMANT");
 
-// Verdicts de la fiche : un verdict porte sur du travail livré.
-assert.deepEqual(ticketVerdicts("en_cours", CFG2786), [],
-  "aucun verdict sur un ticket en cours — fermer ce qui n'est pas fait n'a pas de sens");
-assert.strictEqual(ticketVerdicts("a_tester_demandeur", CFG2786).length, 3,
-  "les trois verdicts sur un ticket livré");
-assert.deepEqual(ticketVerdicts("a_mep", CFG2786).map(v => v.kind), ["valider", "renvoyer"],
-  "une MEP déjà demandée ne se re-demande pas");
-assert.strictEqual(ticketVerdicts("statut_inconnu_2786", CFG2786).length, 3,
-  "statut inconnu : on n'ampute rien");
-assert.strictEqual(ticketVerdicts("", CFG2786).length, 3, "statut absent : idem");
+// Verdicts de la fiche : MIGRÉS (RM2889) — voir test_cockpit_review.js.
 
 // Câblage : les deux nouveaux boutons et la source unique de la règle.
 ["batch-etudier-btn", "batch-close-btn"].forEach(id =>
@@ -2779,32 +2702,14 @@ assert(/openedForget\(/.test(off2823[0]),
   "les tickets embarqués quittent la liste des tickets ouverts de la session d'origine");
 console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne du serveur, session neuve");
 // — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
-// Deux agents sur le même ticket, c'est un worktree, une branche et un statut
-// Redmine disputés — et on ne s'en aperçoit qu'après. Le serveur refuse déjà
-// (409) une seconde session ANCRÉE ; ce qui passait sans bruit, c'est le ticket
-// traité par une session ancrée AILLEURS (registre, worklog) — le cas courant.
-// ticketBusySessions : MIGRÉ (test_cockpit_ticket.js) ; duplicateSessionText reste ici, testé sur un résultat équivalent
-const _effDisp2818 = grabO("effDisposition");
-const b2818 = { alive: [{ sid: "2700", state: "working", title: "en cours" }, { sid: "parke", state: "idle", disposition: "parke", title: "parké" }], stopped: [{ sid: "vieille", state: "ghost", title: "hier" }] };
-const dupText = grabO("duplicateSessionText", { effDisposition: _effDisp2818 });
-const txt2818 = dupText("2816", b2818);
-assert(txt2818.includes("2700") && txt2818.includes("parke"), "les sessions vivantes sont nommées");
-assert(txt2818.includes("RM2816"), "le ticket est nommé");
-assert(/éteinte/i.test(txt2818), "les sessions éteintes sont mentionnées, pas tues");
-
-// Câblage : les DEUX points de lancement passent par la garde
-["async function spawnTicketSession(", "async function spawn("].forEach(sig => {
-  const i = html.indexOf(sig);
-  assert(i > 0, "fonction introuvable : " + sig);
-  const corps = html.slice(i, i + 2200);
-  assert(/confirmSecondSession\(/.test(corps), sig + " doit passer par confirmSecondSession");
-});
-const css2818 = /async function confirmSecondSession\([\s\S]*?\n\}/.exec(html);
-assert(css2818, "confirmSecondSession introuvable");
-assert(/ensureTicketSessions\(.*true\)/.test(css2818[0]),
-  "l'état des sessions du ticket doit être RELU (un cache périmé dirait « libre » à tort)");
-assert(/attach\(/.test(css2818[0]), "…et proposer de REJOINDRE la session existante");
-console.log("✓ 2e session sur un ticket pris (RM2818) : alerte nommée, rejoindre plutôt que doubler");
+// Texte d'alerte, garde et spawn depuis la fiche : MIGRÉS (RM2889, test_cockpit_review.js).
+// Le lanceur de gauche (spawn) reste au monolithe et doit passer par la garde (pont).
+{
+  const i = html.indexOf("async function spawn(");
+  assert(i > 0, "fonction introuvable : spawn");
+  assert(/confirmSecondSession\(/.test(html.slice(i, i + 2200)), "spawn doit passer par confirmSecondSession");
+}
+console.log("✓ 2e session sur un ticket pris (RM2818) : le lanceur de gauche passe aussi par la garde");
 // — RM2819 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
 // — RM2834 : filtre par client dans « Reprendre une session » —
@@ -2925,47 +2830,9 @@ assert(tri2831 && /spawnBatchSession\(/.test(tri2831[0]),
 assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
 console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");
 
-// — RM2832 : les étiquettes se VOIENT (fiche) et se comptent (conso) —
-const tagPills = grabO("tagPillsHtml");
-const h2832 = tagPills(["front", "refacto"], escFn, jargFn);
-assert(/front/.test(h2832) && /refacto/.test(h2832), "chaque étiquette est rendue");
-assert(/🏷/.test(h2832), "…avec la marque qui les identifie d'un coup d'œil");
-assert(/filterByTag\(/.test(h2832),
-  "cliquer une étiquette doit mener aux tickets qui la portent — sinon elle est décorative");
-assert.strictEqual(tagPills([], escFn, jargFn), "", "aucune étiquette : rien, pas un cadre vide");
-assert.strictEqual(tagPills(null, escFn, jargFn), "", "liste absente : idem");
-// Le risque réel dans un attribut : en SORTIR. Un guillemet double doit être
-// neutralisé (helper `jarg`, RM2579), et le texte affiché échappé comme ailleurs.
-const piege2832 = tagPills(['a" onclick="alert(1)'], escFn, jargFn);
-assert(!/onclick="alert/.test(piege2832), "une étiquette ne peut pas sortir de l'attribut");
-assert(/&quot;/.test(piege2832), "…le guillemet est neutralisé, pas laissé tel quel");
-assert(/&lt;b&gt;/.test(tagPills(["<b>"], escFn, jargFn)), "le texte affiché est échappé");
-// la fiche l'utilise
-const rrp2832 = html.indexOf("function renderReviewPane(");
-assert(rrp2832 > 0 && /tagPillsHtml\(/.test(html.slice(rrp2832, rrp2832 + 3000)),
-  "la fiche du ticket doit afficher les étiquettes");
-console.log("✓ étiquettes visibles (RM2832) : sur la fiche, cliquables, et ventilées en conso");
+// — RM2832 : étiquettes sur la fiche : MIGRÉ (RM2889) — voir test_cockpit_review.js —
 
-// — RM2833 : l'étiquette propose un rôle d'agent (elle ne l'impose pas) —
-const roleHintLine = grabO("roleHintLine");
-assert.strictEqual(
-  roleHintLine({ role: "db", why: "étiquette « bdd » → rôle db", file: "agents/worker-db.md" }),
-  " (rôle suggéré : db — agents/worker-db.md)",
-  "la suggestion se lit dans l'écran de lancement");
-assert.strictEqual(roleHintLine(null), "", "aucune suggestion : rien à afficher");
-assert.strictEqual(roleHintLine({}), "", "suggestion vide : rien non plus");
-
-// La consigne envoyée à l'agent nomme le rôle — c'est elle qui lui fait charger
-// le bon fichier d'instructions.
-const tpt2833 = grabO("taskPromptText");
-const p2833 = tpt2833("traiter", "42", "acme", "shop", { role: "db", file: "agents/worker-db.md" });
-assert(/RM42/.test(p2833) && /acme/.test(p2833), "l'ancrage ticket/projet est préservé");
-assert(/worker-db\.md/.test(p2833), "…et le rôle suggéré est cité à l'agent");
-assert(!/worker-/.test(tpt2833("traiter", "42", "acme", "shop")),
-  "sans suggestion, la consigne est celle d'avant — aucune régression");
-assert(!/worker-/.test(tpt2833("reviewer", "42", "acme", "shop", { role: "db" })),
-  "une review n'est pas routée par étiquette : son rôle est la review");
-console.log("✓ routage par étiquette (RM2833) : rôle suggéré, jamais imposé");
+// — RM2833 : rôle suggéré par étiquette : MIGRÉ (RM2889) — voir test_cockpit_review.js —
 
 // — RM2861 : un fichier ouvert (fileBodyHtml : MIGRÉ, test_cockpit_center.js) —
 // Câblage : le rendu vivait en DOUBLE (panneau droit RM2586, vue projet RM2590).
@@ -2981,123 +2848,11 @@ assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
   "plus aucun contenu de fichier rendu dans le bloc encadré");
 console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour les trois vues");
 
-// — RM2873 : consigne choisie et éditable depuis la fiche du ticket —
-// Le lanceur de gauche offrait un modèle de consigne et un champ ; la fiche
-// lançait avec une consigne imposée, visible seulement dans la confirmation.
-
-// La liste des modèles n'existe qu'à UN endroit : une liste en dur dans le HTML
-// de gauche aurait divergé de celle de la fiche au premier ajout.
-const tpls2873 = promptTemplates();
-assert(tpls2873.length >= 5 && tpls2873.every(t => t.value && t.label),
-  "chaque modèle a une valeur ET un libellé");
-assert.strictEqual(tpls2873[tpls2873.length - 1].value, "libre",
-  "« libre » ferme la marche : c'est le mode de saisie manuelle");
-assert(tpls2873.every(t => t.value === "libre" || taskPromptText(t.value, "42")),
-  "tout modèle proposé produit une consigne (sauf « libre »)");
-const optsHtml = promptTemplateOptions("chiffrer", escFn);
-assert(/<option value="chiffrer" selected>/.test(optsHtml), "le modèle retenu est marqué");
-assert.strictEqual((optsHtml.match(/selected/g) || []).length, 1, "un seul modèle retenu");
-assert(!/<option value="traiter"[^>]*>Traiter la tâche<\/option>[\s\S]*<option value="traiter"/.test(html),
-  "le <select> de gauche ne re-déclare pas la liste en dur");
-assert(/getElementById\("ptpl"\)\.innerHTML = promptTemplateOptions\(/.test(html),
-  "…il est peuplé depuis la source unique");
-
-// La règle de remplissage est la même des deux côtés.
-assert.strictEqual(promptFillOnChange("libre", "ma consigne à moi", "traite la tâche RM42"),
-  "ma consigne à moi", "« libre » n'écrase jamais la saisie");
-assert.strictEqual(promptFillOnChange("traiter", "vieux texte", "traite la tâche RM42"),
-  "traite la tâche RM42", "changer de modèle remplace le texte");
-assert.strictEqual(promptFillOnChange("traiter", "déjà tapé", ""), "déjà tapé",
-  "un modèle qu'on ne sait pas calculer ne VIDE pas le champ");
-
-// L'état du champ suit le ticket affiché — et survit à un re-rendu de la fiche.
-const st1 = ticketPromptFor(null, "42", "traite la tâche RM42");
-assert.strictEqual(st1.text, "traite la tâche RM42", "consigne par défaut au premier rendu");
-const st2 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "42", "traite la tâche RM42");
-assert.strictEqual(st2.text, "fais autre chose",
-  "un re-rendu de la fiche ne perd pas la saisie en cours (renderReviewPane est appelé sur événement)");
-assert.strictEqual(st2.tpl, "libre", "…ni le modèle choisi");
-const st3 = ticketPromptFor({ rm: "42", tpl: "libre", text: "fais autre chose" }, "43", "traite la tâche RM43");
-assert.strictEqual(st3.text, "traite la tâche RM43",
-  "changer de ticket repart d'une consigne propre — sinon on lance RM43 avec la consigne de RM42");
-
-// Le bloc de la fiche rend bien le sélecteur et le champ, pré-remplis.
-const tsPr = ticketSessionsHtml({ rm_id: "42", handled: [], candidates: [], own_alive: false },
-  escFn, jargFn, { tpl: "chiffrer", text: "étudie et chiffre la tâche RM42" });
-assert(/id="ts-tpl"/.test(tsPr) && /id="ts-prompt"/.test(tsPr),
-  "la fiche offre le modèle de consigne ET le champ");
-assert(/<option value="chiffrer" selected>/.test(tsPr), "le modèle en cours est celui affiché");
-assert(/étudie et chiffre la tâche RM42<\/textarea>/.test(tsPr), "le champ est pré-rempli");
-assert(/oninput="tsPromptEdited\(/.test(tsPr), "la saisie est mémorisée hors du DOM");
-
-// Câblage : les deux gestes du bloc utilisent la consigne affichée.
-const mSpawn2873 = /async function spawnTicketSession[\s\S]*?\n\}/.exec(html);
-assert(/tsPrompt\.text/.test(mSpawn2873[0]),
-  "le lancement utilise la consigne éditée, plus une consigne imposée");
-const mSend2873 = /async function sendTicketToSession[\s\S]*?\n\}/.exec(html);
-assert(/tsPrompt\.text/.test(mSend2873[0]),
-  "l'envoi dans une session existante aussi : un champ au-dessus d'un bouton qui l'ignore serait un piège");
-console.log("✓ consigne depuis la fiche (RM2873) : modèle + champ éditable, partagés avec le lanceur");
+// — RM2873 : consigne depuis la fiche : MIGRÉ (RM2889) — voir test_cockpit_review.js —
 
 // ── RM2888 : changer le statut depuis la fiche et le worklog ────────────────
-// Le menu ne doit RIEN savoir du workflow : il rend ce que le serveur envoie.
-// Un test qui vérifierait « en_cours propose a_tester_dev » recopierait la règle
-// NORMS dans le harnais — exactement ce que le ticket interdit.
-const statusMenuHtml = grabO("statusMenuHtml");
-const stData = {
-  status: "en_cours", redmine_checked: true,
-  transitions: [
-    { status: "a_tester_dev", condition: "dev terminé", redmine_ok: true, needs_close_reason: false },
-    { status: "a_mep", condition: "validé", redmine_ok: false, needs_close_reason: false },
-    { status: "ferme", condition: "close_reason requis", redmine_ok: true, needs_close_reason: true },
-  ],
-};
-const stHtml = statusMenuHtml(stData, escO);
-assert(/data-st="a_tester_dev"/.test(stHtml), "chaque transition servie devient un bouton");
-assert(/data-st="a_mep"[^>]*disabled/.test(stHtml),
-  "une transition que CE compte ne peut pas poser reste visible, mais désactivée");
-assert(/Redmine refusera/.test(stHtml),
-  "…et dit pourquoi : sinon le bouton grisé passe pour un bug");
-assert(/data-st="ferme"[^>]*data-reason="1"/.test(stHtml),
-  "la fermeture est marquée comme exigeant un motif, AVANT de soumettre");
-assert(!/⚠ transitions NORMS seules/.test(stHtml),
-  "pas d'avertissement quand le workflow Redmine a bien été interrogé");
-
-// Redmine injoignable : on n'ampute rien, on prévient. Une panne de l'API ne doit
-// pas rendre le geste inatteignable — c'est le mode dégradé de --list-next.
-const stDeg = statusMenuHtml(
-  { status: "a_faire", redmine_checked: false,
-    transitions: [{ status: "en_cours", condition: "prise en charge", redmine_ok: null,
-                    needs_close_reason: false }] }, escO);
-assert(/data-st="en_cours"/.test(stDeg) && !/disabled/.test(/data-st="en_cours"[^>]*>/.exec(stDeg)[0]),
-  "sans vérification live, la transition reste proposable");
-assert(/⚠ transitions NORMS seules/.test(stDeg), "…et l'UI dit que le contrôle des droits manque");
-
-// Statut terminal / liste vide : dire « rien à faire ici », pas un menu muet.
-assert(/aucune transition/.test(statusMenuHtml({ status: "ferme", transitions: [] }, escO)),
-  "une liste vide s'explique au lieu de s'afficher creuse");
-assert(/aucune transition/.test(statusMenuHtml(null, escO)), "données absentes tolérées");
-console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus et mode dégradé compris");
-
-// Ce qu'il faut demander avant de soumettre. La règle vient du serveur
-// (needs_close_reason / needs_note), jamais d'un test sur le nom du statut.
-const statusPromptSpec = grabO("statusPromptSpec");
-const spFerme = statusPromptSpec("ferme", true, ["abandonne", "resolu", "doublon"], false);
-assert.strictEqual(spFerme.needs_reason, true, "fermeture : motif réclamé");
-assert.strictEqual(spFerme.default_reason, "resolu",
-  "« resolu » est proposé par défaut — le cas courant, mais modifiable");
-assert(/facultatif/.test(spFerme.note_label), "la note reste facultative si rien ne l'exige");
-const spReopen = statusPromptSpec("a_faire", false, [], true);
-assert.strictEqual(spReopen.needs_note, true, "réouverture : la note est exigée par le workflow");
-assert(/requise/.test(spReopen.note_label), "…et l'invite le dit, au lieu de refuser après coup");
-const spPlain = statusPromptSpec("en_cours", false, [], false);
-assert.strictEqual(spPlain.needs_reason, false, "une transition ordinaire ne réclame rien");
-assert.strictEqual(statusPromptSpec("ferme", true, [], false).default_reason, "",
-  "aucun motif servi : pas de valeur inventée");
-console.log("✓ invites de statut (RM2888) : motif et note exigés par le serveur, pas devinés");
-
-// Câblage : les deux points d'entrée demandés (fiche + worklog) appellent le menu,
-// et la mécanique de gardes n'est plus dupliquée dans la console de test.
+// Menu, invites, gardes : MIGRÉS (RM2889) — voir test_cockpit_review.js. Restent au monolithe
+// les deux points d'entrée (fiche ℹ et worklog), qui appellent le pont openStatusMenu.
 const mDetail2888 = /function _ticketDetailHtml[\s\S]*?\n\}/.exec(html);
 assert(/openStatusMenu\(/.test(mDetail2888[0]),
   "la fiche du ticket ouvre le menu depuis sa pastille de phase");
@@ -3106,28 +2861,7 @@ assert(/openStatusMenu\(/.test(mRw2888[0]),
   "le worklog aussi : c'est le second point d'entrée demandé");
 assert(/event\.stopPropagation\(\);openStatusMenu/.test(mRw2888[0]),
   "…sans ouvrir la fiche par-dessus le menu");
-const mTq2888 = /async function tqVerdict[\s\S]*?\n\}/.exec(html);
-assert(/runTaskStatusGated\(/.test(mTq2888[0]) && !/allow_unchecked = true/.test(mTq2888[0]),
-  "la console de test partage la mécanique de gardes au lieu de la recopier");
-const mGate2888 = /async function runTaskStatusGated[\s\S]*?\n\}/.exec(html);
-assert(/checklist non coché/.test(mGate2888[0]) && /non mergée|RM2319/.test(mGate2888[0]),
-  "les deux gardes NORMS restent franchissables explicitement, jamais d'office");
-// La garde qui compte : le menu se construit UNIQUEMENT à partir des données du
-// serveur. Un nom de statut écrit en dur dedans serait le début de la seconde
-// table que le ticket interdit. (Ailleurs dans le front, citer un statut reste
-// légitime — `ticketVerdicts` ou `_TQ_VERDICTS` visent un statut précis.)
-const mMenu2888 = />>> statusMenuHtml[\s\S]*?<<< statusMenuHtml/.exec(html)[0];
-const mOpen2888 = /async function openStatusMenu[\s\S]*?\n\}/.exec(html)[0];
-const STATUTS_NORMS = ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-  "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_tester_dev", "a_tester_demandeur",
-  "a_mep", "en_mep", "en_pause", "a_corriger", "ferme"];
-for (const st of STATUTS_NORMS) {
-  assert(!mMenu2888.includes('"' + st + '"') && !mMenu2888.includes("'" + st + "'"),
-    "statusMenuHtml ne doit citer aucun statut en dur (trouvé : " + st + ")");
-  assert(!mOpen2888.includes('"' + st + '"') && !mOpen2888.includes("'" + st + "'"),
-    "openStatusMenu ne doit citer aucun statut en dur (trouvé : " + st + ")");
-}
-console.log("✓ câblage (RM2888) : fiche + worklog, gardes partagées, zéro règle recopiée");
+console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut migré");
 
 // — RM2894 : libellé de la session en en-tête du panneau de droite —
 const mRt2894 = />>> rTitleHtml[\s\S]*?(function rTitleHtml[\s\S]*?)\n\/\/ <<< rTitleHtml/.exec(html);

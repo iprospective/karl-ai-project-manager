@@ -6,7 +6,7 @@ import { get } from "../../core/api.js";
 import { pendingBriefIds } from "./briefs.js";
 
 export class TicketsPanelRepository extends Repository {
-  constructor({ delay = 120, timers = { set: setTimeout } } = {}) {
+  constructor({ delay = 120, timers = { set: (fn, ms) => setTimeout(fn, ms) } } = {}) {   // jamais `setTimeout` nu : appelé comme méthode, un navigateur refuse (« Illegal invocation »)
     super({ name: "tickets-panel", ttl: 30000, max: 50, factory: new Factory({ type: "ticket-brief" }), routes: { triage: "ticket.triage", brief: "ticket.brief" } });
     this.briefs = {};                 // rm_id → brief (ou {found:false})
     this.inflight = new Set(); this.queue = new Set(); this.timer = null; this.delay = delay; this.timers = timers;

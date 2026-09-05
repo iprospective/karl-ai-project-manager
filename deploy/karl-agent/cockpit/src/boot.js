@@ -43,6 +43,7 @@ import { mountDocModal } from "./controllers/doc.controller.js";
 import { mountOutline } from "./controllers/outline.controller.js";
 import { mountResume } from "./controllers/resume.controller.js";
 import { mountSearch } from "./controllers/search.controller.js";
+import { mountFiles } from "./controllers/files.controller.js";
 import { mdToHtml } from "./core/markdown.js";
 import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
@@ -197,11 +198,11 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null;
+let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: mdToHtml,
   resolve: () => lexical(() => resolveCache) || {},
-  scope: () => ({ filesData: lexical(() => filesData), attached: lexical(() => attached), projectKey: project ? project.current() : null }),
+  scope: () => ({ filesData: files.data(), attached: lexical(() => attached), projectKey: project ? project.current() : null }),
   surfaces: {
     session:   { sessions: () => lexical(() => sessCache) || {}, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
                  open: legacy("attach"), relaunch: legacy("relaunchGhost"), close: () => { if (lexical(() => attached)) legacy("detach")(); } },
@@ -223,7 +224,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); try { const w = lexical(() => worklog); if (w && w.found) legacy("renderWorklog")(); } catch (e) {} try { legacy("refreshSessions")(); } catch (e) {} },
 });
 const center = Object.assign(centerCore, {
-  scopeTagOf: (wt) => scopeTag(fsScope(wt, lexical(() => filesData), lexical(() => attached), project ? project.current() : null)),
+  scopeTagOf: (wt) => scopeTag(fsScope(wt, files.data(), lexical(() => attached), project ? project.current() : null)),
   fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))),
   centerBtn: centerBtnHtml,
 });
@@ -284,6 +285,15 @@ const resume = mountResume(byId("rescard"), {
   notify: legacy("toast"), ago: legacy("ago"), markPill: (m) => legacy("markPillHtml")(m) || "", projects: () => lexical(() => allProjects) || [],
   launcherRm: () => (byId("rm") || {}).value || "", attach: legacy("attach"),
   afterResume: async (r) => { legacy("warnSpawn")(r); await legacy("refreshSessions")(); legacy("refreshHealth")(); },
+});
+// l'onglet 📂 fichiers (RM2586/2622/2659/2673/2675/2759/2861) : le contexte de lecture (session, fiche de ticket, fiche projet,
+// jeu courant), le rendu commun d'un fichier, la portée d'un worktree et l'ouverture au centre sont prêtés
+files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: document.querySelector("#rp-files .outnav") }, {
+  notify: legacy("toast"), attached: () => lexical(() => attached), resolve: () => lexical(() => resolveCache) || {},
+  reviewCurrent: () => (review ? review.current() : null), projectKey: () => (project ? project.current() : null),
+  sets: () => lexical(() => setsCache) || [], currentSet: () => lexical(() => currentSet),
+  fileBody: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))), scopeTagOf: (wt) => center.scopeTagOf(wt), showRight: legacy("showRight"),
+  center: { openFile: (src, wt, p, tag) => center.openFile(src, wt, p, tag), openDir: (src, wt, p, tag) => center.openDir(src, wt, p, tag), openCommit: (sid, hash) => center.openCommit(sid, hash) },
 });
 // le panneau 🎫 tickets (RM1952 triage, RM2606 tickets ouverts, RM2619 infobulles) : le monolithe prête les résolutions,
 // la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
@@ -347,5 +357,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

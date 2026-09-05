@@ -768,18 +768,7 @@ assert.strictEqual(prefixes.length, 2,
   "les incidents doivent préfixer le worklog, dans les deux branches du rendu");
 console.log("✓ état (RM2466) : notifications de session rendues avant le travail");
 
-// — filesCrumbs (RM2586) : fil d'ariane de l'explorateur de fichiers —
-const fFc = />>> filesCrumbs[\s\S]*?(function filesCrumbs[\s\S]*?)\n\/\/ <<< filesCrumbs/.exec(html);
-assert(fFc, "marqueurs >>> filesCrumbs / <<< filesCrumbs introuvables");
-const filesCrumbs = vm.runInNewContext("(" + fFc[1] + ")");
-assert.strictEqual(JSON.stringify(filesCrumbs("")), JSON.stringify([{ name: "/", path: "" }]),
-  "racine : un seul élément « / »");
-assert.strictEqual(JSON.stringify(filesCrumbs("src/app")),
-  JSON.stringify([{ name: "/", path: "" }, { name: "src", path: "src" }, { name: "app", path: "src/app" }]),
-  "fil d'ariane cumulatif (chemins cumulés)");
-assert.strictEqual(JSON.stringify(filesCrumbs("a//b/").map(c => c.path)), JSON.stringify(["", "a", "a/b"]),
-  "slashes superflus tolérés");
-console.log("✓ fichiers (RM2586) : fil d'ariane cumulatif");
+// — RM2586 : fil d'ariane : MIGRÉ (RM2889, explorateur) — voir test_cockpit_files.js —
 // l'onglet fichiers a bien son bouton ET son panneau (équilibre onglets/panneaux déjà vérifié)
 assert(/data-rpanel="files"/.test(html) && /id="rp-files"/.test(html), "onglet fichiers câblé (RM2586)");
 
@@ -1040,97 +1029,13 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 
 // — RM2619 : infobulles : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
-// — RM2622 : la doc du projet dans l'onglet fichiers —
-const mFr = />>> fileRootLabel[\s\S]*?(function fileRootLabel[\s\S]*?)\n\/\/ <<< fileRootLabel/.exec(html);
-assert(mFr, "marqueurs >>> fileRootLabel introuvables");
-const fileRootLabel = vm.runInNewContext("(" + mFr[1] + ")");
-const doc = fileRootLabel({ kind: "doc", name: "docs", docs: 15, label: "documents du projet", path: "/p/docs" });
-assert(doc.icon === "📄", "la doc porte une icône propre");
-assert(/15 fichiers/.test(doc.tip), "le nombre de documents situe le dossier");
-assert(/documents du projet/.test(doc.tip), "le libellé dit ce que c'est");
-const code = fileRootLabel({ kind: "code", name: "presta-rm2401", path: "/w/x" });
-assert(!code.icon && code.name === "presta-rm2401", "un worktree de code reste présenté comme avant");
-assert.strictEqual(fileRootLabel(null).name, "?", "entrée absente tolérée");
-console.log("✓ fichiers (RM2622) : doc et code distingués");
-
-// un dossier de doc n'a ni branche ni commits : pas de cadre git trompeur
-const mRf = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(mRf, "renderFiles introuvable");
-assert(/cur\.kind === "doc"/.test(mRf[0]), "le rendu traite la doc à part");
-assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
-  "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
-console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
+// — RM2622 : doc du projet dans l'onglet fichiers : MIGRÉ (RM2889) — voir test_cockpit_files.js —
 
 // — RM2384 : mcBanner MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
 // — RM2458 / RM2708 : santé du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
-// — RM2659 : les racines de la session, groupées par projet —
-// Une session touche parfois plusieurs projets (7 sur 62 au registre) : le
-// panneau doit les distinguer au lieu de supposer qu'il n'y en a qu'un.
-const mFg = />>> filesGroups[\s\S]*?(function filesGroups[\s\S]*?)\n\/\/ <<< filesGroups/.exec(html);
-assert(mFg, "marqueurs >>> filesGroups introuvables");
-const filesGroups = vm.runInNewContext("(" + mFg[1] + ")");
-const P1 = { root: "/w/appli", name: "appli", client: "ca", project: "appli",
-             docs: [{ path: "/pm/ca/appli/docs", name: "docs", label: "documents du projet", docs: 4 }] };
-const P2 = { root: "/w/infra", name: "infra", client: "cb", project: "infra", docs: [] };
-const W = [{ path: "/w/appli/envs/appli-rm42", name: "appli-rm42", exists: true },
-           { path: "/w/infra/envs/infra-rm7", name: "infra-rm7", exists: true }];
-let gs = filesGroups([P1, P2], W);
-assert.strictEqual(gs.length, 2, "deux projets → deux groupes");
-assert.deepStrictEqual(Array.from(gs.map(g => g.label)), ["appli", "infra"],
-  "l'ordre du serveur est conservé");
-assert.strictEqual(gs[0].roots[0].kind, "root", "la racine du workspace vient en premier");
-assert.strictEqual(gs[0].roots[0].path, "/w/appli", "…et c'est bien la racine, pas un worktree");
-assert(gs[0].roots.some(r => r.kind === "doc" && r.name === "docs"), "la doc du projet suit");
-assert(gs[0].roots.some(r => r.path === "/w/appli/envs/appli-rm42"),
-  "le worktree de la session est rattaché à SON projet");
-assert(!gs[0].roots.some(r => r.path === "/w/infra/envs/infra-rm7"),
-  "et pas à l'autre projet");
-// un seul projet : c'est le cas courant (84 % des sessions)
-gs = filesGroups([P1], [W[0]]);
-assert.strictEqual(gs.length, 1, "un seul projet → un seul groupe");
-// un worktree hors de toute racine connue ne doit pas disparaître
-gs = filesGroups([P1], [{ path: "/ailleurs/vieux-layout", name: "vieux", exists: true }]);
-assert.strictEqual(gs.length, 2, "un worktree orphelin forme son propre groupe");
-assert.strictEqual(gs[1].label, "hors projet", "…nommé pour ce qu'il est");
-assert.strictEqual(gs[1].roots[0].name, "vieux", "…et il est bien dedans");
-// un worktree disparu du disque n'est pas proposé
-gs = filesGroups([P1], [{ path: "/w/appli/envs/x", name: "x", exists: false }]);
-assert(!gs[0].roots.some(r => r.name === "x"), "un worktree absent du disque n'est pas listé");
-// pas de préfixe accidentel : /w/appli ne doit pas capturer /w/appli-autre
-gs = filesGroups([P1], [{ path: "/w/appli-autre/envs/y", name: "y", exists: true }]);
-assert.strictEqual(gs.length, 2, "un chemin voisin n'est pas avalé par la racine");
-// entrées vides / absentes : le panneau ne doit pas tomber
-assert.strictEqual(filesGroups(null, null).length, 0, "aucune donnée → aucun groupe");
-assert.strictEqual(filesGroups([{ name: "sans racine" }], []).length, 0,
-  "un projet sans racine est ignoré plutôt que rendu à moitié");
-console.log("✓ fichiers (RM2659) : racines groupées par projet, multi-projets couvert");
-const mGo = />>> filesGroupOf[\s\S]*?(function filesGroupOf[\s\S]*?)\n\/\/ <<< filesGroupOf/.exec(html);
-assert(mGo, "marqueurs >>> filesGroupOf introuvables");
-const filesGroupOf = vm.runInNewContext("(" + mGo[1] + ")");
-const G = filesGroups([P1, P2], W);
-assert.strictEqual(filesGroupOf(G, "/w/infra").label, "infra",
-  "le groupe actif suit la racine ouverte");
-assert.strictEqual(filesGroupOf(G, "/w/appli/envs/appli-rm42").label, "appli",
-  "…y compris depuis un worktree");
-assert.strictEqual(filesGroupOf(G, "/inconnu").label, "appli",
-  "un chemin inconnu retombe sur le premier groupe, pas sur rien");
-assert.strictEqual(filesGroupOf([], "/x"), null, "sans groupe, pas de groupe actif");
-console.log("✓ fichiers (RM2659) : le projet actif suit ce qu'on lit");
-// la racine du projet a son icône et se distingue d'un worktree
-const rootLbl = fileRootLabel({ kind: "root", name: "ai-project-management",
-                                label: "racine du workspace", path: "/w/x" });
-assert.strictEqual(rootLbl.icon, "🏠", "la racine du projet porte sa propre icône");
-assert(/racine du workspace/.test(rootLbl.tip), "l'infobulle dit ce que c'est");
-// le rendu : barre des projets seulement s'il y en a plusieurs
-const mRf2 = /function renderFiles\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(/groups\.length > 1/.test(mRf2[0]),
-  "la barre des projets n'apparaît qu'à partir de deux projets");
-const mLf = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
-assert(/filesGroups\(/.test(mLf[0]),
-  "le panneau s'appuie sur les racines, pas sur les seuls worktrees");
-console.log("✓ fichiers (RM2659) : barre projet conditionnelle, panneau non vide sans worktree");
+// — RM2659 : racines groupées par projet : MIGRÉ (RM2889) — voir test_cockpit_files.js —
 
 // — RM1952 : triage ROI : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
@@ -1177,40 +1082,7 @@ console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu déri
 
 // — RM2673 : tickets de la session (toutes sources) : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
-const filesContext = grabO("filesContext");
-const filesCtxKey = grabO("filesCtxKey");
-assert.deepStrictEqual(Object.assign({}, filesContext({ attached: "2673", currentReview: "10" })),
-  { kind: "session", sid: "2673" }, "session attachée : elle prime sur tout");
-const fcTicket = filesContext({ currentReview: "2605",
-  resolveCache: { 2605: { found: true, client: "acme", project: "shop" } } });
-assert.strictEqual(fcTicket.kind + " " + fcTicket.client + "/" + fcTicket.project, "project acme/shop",
-  "fiche de ticket ouverte → son projet");
-assert(/RM2605/.test(fcTicket.from), "…et le panneau peut dire d'où ça vient");
-assert.strictEqual(filesContext({ currentProjectView: "beta/api" }).project, "api",
-  "fiche projet ouverte → ce projet");
-assert.strictEqual(filesContext({ currentSet: "pm", sets: SETS }).project, "pm-ai-agents",
-  "à défaut, la règle du jeu courant désigne un projet");
-assert.strictEqual(filesContext({ currentSet: "default", sets: SETS }).kind, "none",
-  "un jeu manuel ne désigne aucun projet : on ne devine pas");
-assert.strictEqual(filesContext({ currentReview: "9", resolveCache: { 9: { found: false } } }).kind, "none",
-  "ticket non résolu → pas de projet inventé");
-assert.strictEqual(filesContext(null).kind, "none", "contexte absent toléré");
-assert.strictEqual(filesCtxKey({ kind: "session", sid: "7" }), "s:7", "clé de session");
-assert.strictEqual(filesCtxKey({ kind: "project", client: "a", project: "b" }), "p:a/b", "clé de projet");
-assert.strictEqual(filesCtxKey({ kind: "none" }), "none", "clé du vide");
-const mLf3 = /async function loadFiles\([\s\S]*?\n\}/.exec(html);
-assert(/project-roots\//.test(mLf3[0]),
-  "sans session, le panneau lit la racine + la doc du projet (endpoint léger)");
-assert(!/attache une session pour parcourir/.test(html),
-  "plus de cul-de-sac « attache une session » quand un projet est identifié");
-// la doc d'un projet sans workspace résolu ne disparaît pas avec la racine
-const gsDoc = filesGroups([{ client: "a", project: "b", docs: [{ path: "/pm/b/docs", name: "docs" }] }], []);
-assert.strictEqual(gsDoc.length, 1, "projet sans racine mais avec doc → groupe conservé");
-assert.strictEqual(gsDoc[0].roots[0].kind, "doc", "…et c'est bien sa doc qu'on lit");
-assert.strictEqual(filesGroups([{ client: "a", project: "b", docs: [] }],
-  [{ path: "/ailleurs/x", name: "x", exists: true }])[0].label, "hors projet",
-  "une racine vide n'aspire pas les worktrees des autres");
-console.log("✓ fichiers (RM2673) : repli sur le projet courant, provenance affichée");
+// — RM2673 : repli du panneau fichiers sur le projet courant : MIGRÉ (RM2889) — voir test_cockpit_files.js —
 
 // — RM2695 : avancement d'un ticket dans le worklog —
 const worklogProgressHtml = grabO("worklogProgressHtml");
@@ -1579,10 +1451,8 @@ assert(/projects: \(\) => karlCall\("projects", "refresh"\)/.test(html), "…et 
 
 // ── RM2675 : glossaire de projet (lecture, filtre) : MIGRÉ (RM2889) — voir test_cockpit_doc.js. Reste le câblage :
 // Le câblage : un sous-onglet que rien n'affiche n'existe pas.
-assert(/onclick="vocabShow\(true\)"/.test(html), "le sous-onglet vocabulaire doit être cliquable");
-assert(/function vocabShow/.test(html) && /function vocabBodyHtml/.test(html),
-  "…avec son chargeur et son corps");
-assert(/glossaire\.md/.test(html), "…et il doit chercher docs/glossaire.md");
+assert(/data-action="vocab" data-on="1"/.test(fs.readFileSync(path.join(__dirname, "src/views/files/Files.view.js"), "utf8")), "le sous-onglet vocabulaire doit être cliquable (vue migrée)");
+assert(/glossaire\.md/.test(fs.readFileSync(path.join(__dirname, "src/services/files.service.js"), "utf8")), "…et il doit chercher docs/glossaire.md (service migré)");
 console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/définition/contexte/alias");
 // — RM2761 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
@@ -2200,8 +2070,8 @@ console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une sessio
 // Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
 // RM2889 : la fiche projet est migrée — elle reçoit le rendu commun en prêt (fileBody) ;
 // seul l'onglet fichiers de droite l'appelle encore depuis le monolithe.
-assert.strictEqual((html.match(/h \+= fileBodyHtml\(f\)/g) || []).length, 1,
-  "l'onglet fichiers passe par le rendu commun");
+assert(/raw\(fileBody\(f\.raw\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/files/Files.view.js"), "utf8")),
+  "l'onglet fichiers (migré) passe par le rendu commun qu'on lui prête");
 assert(/raw\(fileBody\(f\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/projects/ProjectPane.view.js"), "utf8")),
   "…et la fiche projet aussi, par le rendu qu'on lui prête");
 

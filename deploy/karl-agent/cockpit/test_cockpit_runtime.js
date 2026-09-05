@@ -116,16 +116,7 @@ ctx.api = async () => ({
   ctx.renderFiles();
   console.log("✓ onglet fichiers : fil d'ariane rendu (session)");
 
-  // — fiche projet : docs (`doval` n'a jamais existé) + fil d'ariane projet —
-  ctx.currentProjectView = "acme/appli";
-  ctx.projWts = { key: "acme/appli", worktrees: [{ path: "/w/appli", name: "appli", exists: true, kind: "code" }] };
-  ctx.projFiles = { wt: "/w/appli", path: "docs", entries: [{ name: "x.md", dir: false, size: 3 }], file: null };
-  ctx.renderProjFiles();
-  ctx.renderProjectPane("acme/appli", {
-    name: "Appli", total: 3, docs: [{ path: "/pm/x.md", name: "x.md" }],
-    open_by_status: { en_cours: 1 }, open_recent: [], closed_recent: [], environments: [],
-  });
-  console.log("✓ fiche projet : docs et fil d'ariane rendus");
+  // — fiche projet : surface MIGRÉE (RM2889) — voir test_cockpit_project.js —
 
   // — RM2761 : vue centrale MIGRÉE (RM2889, cluster centre) — voir test_cockpit_center.js —
 

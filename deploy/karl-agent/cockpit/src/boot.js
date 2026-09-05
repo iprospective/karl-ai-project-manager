@@ -31,6 +31,7 @@ import { mountSettings } from "./controllers/settings.controller.js";
 import { mountVoice } from "./controllers/voice.controller.js";
 import { mountCenter } from "./controllers/center.controller.js";
 import { mountNewTicket } from "./controllers/newticket.controller.js";
+import { mountProject } from "./controllers/project.controller.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
@@ -178,15 +179,15 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
+let project = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: legacy("mdToHtml"),
   resolve: () => lexical(() => resolveCache) || {},
-  scope: () => ({ filesData: lexical(() => filesData), attached: lexical(() => attached), projectKey: lexical(() => currentProjectView) }),
+  scope: () => ({ filesData: lexical(() => filesData), attached: lexical(() => attached), projectKey: project ? project.current() : null }),
   surfaces: {
     session:   { sessions: () => lexical(() => sessCache) || {}, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
                  open: legacy("attach"), relaunch: legacy("relaunchGhost"), close: () => { if (lexical(() => attached)) legacy("detach")(); } },
     review:    { open: legacy("openReview"), close: () => { const r = lexical(() => currentReview); if (r) legacy("closeReview")(r); } },
-    project:   { open: legacy("openProjectView"), close: () => { if (lexical(() => currentProjectView)) legacy("closeProjectView")(); } },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
@@ -195,11 +196,11 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   placeholder: (on) => show("placeholder", on, "flex"),
   dashboard: () => dashboard.refresh(),
-  nothingElse: () => !lexical(() => attached) && !lexical(() => currentReview) && !lexical(() => currentProjectView),
+  nothingElse: () => !lexical(() => attached) && !lexical(() => currentReview) && !(project && project.current()),
   histOpen: () => { const b = byId("histbox"); return !!b && b.style.display !== "none"; },
   histShow: (on) => show("histbox", on),
   navButtons: ({ back, fwd }) => { const b = byId("histback"), f = byId("histfwd"); if (b) b.disabled = !back; if (f) f.disabled = !fwd; },
-  legacyTitle: () => legacy("curTitleLegacyHtml")() || "",
+  legacyTitle: () => legacy("curTitleLegacyHtml")() || (project ? project.titleHtml() : ""),
   afterTitle: legacy("curTitleSideEffects"),
   // RM2795 : les listes portent la même marque d'épinglage — elles se redessinent au geste
   onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); try { const w = lexical(() => worklog); if (w && w.found) legacy("renderWorklog")(); } catch (e) {} try { legacy("refreshSessions")(); } catch (e) {} },
@@ -219,8 +220,20 @@ const newticket = mountNewTicket(byId("ntpane"), {
   defaultTarget: () => { const cur = ((byId("nt-project") || {}).value || "").split("/"); return { client: cur[0] || lexical(() => clientContext) || "", project: cur[1] || "" }; },
 });
 center.register("newticket", { open: newticket.open, close: newticket.close });
+// la fiche projet : deuxième surface enregistrée
+project = mountProject(byId("projpane"), {
+  center, notify: legacy("toast"), run: legacy("pmRun"),
+  show: (on) => show("projpane", on),
+  sessions: (key) => (lexical(() => groupsCache) || {})[key] || [],
+  attach: legacy("attach"), showTicket: legacy("showTicket"), openDoc: legacy("openDoc"),
+  titleLink: (rm, t) => legacy("titleLink")(rm, t) || "", ago: legacy("ago"),
+  mrLine: (m) => legacy("mrLineHtml")(m, esc, jarg) || "",
+  fileBody: (f) => center.fileBodyHtml(f),
+  filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
+});
+center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

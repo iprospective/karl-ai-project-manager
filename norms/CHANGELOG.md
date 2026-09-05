@@ -1,6 +1,9 @@
 # Changelog des normes
 
-## [2.16.0] - 2026-09-05
+## [2.17.0] - 2026-09-05
+
+> Renumérotation : écrit 2.16.0 sur sa branche, ce lot atterrit après le 2.16.0
+> de RM2746 (miroir d'états, arrivé par `dev`) et devient donc 2.17.0.
 
 ### Ajouté
 - **`session-tooling` — où vit le worklog de session sur disque (RM2991)** : un

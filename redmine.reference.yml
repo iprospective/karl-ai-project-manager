@@ -44,6 +44,8 @@ custom_fields:
   9:  {name: "Réf ticket outil externe", format: string, type: issue,
       max_length: 16,
       used_by: "REDMINE_CF_PARTNER_ISSUE_ID (.env) ; référence compacte du ticket partenaire rattaché — `<instance courte>#<id>`, ex. matnat#5576 (RM2657). Champ préexistant, inutilisé jusque-là ; l'URL complète vit dans refs[] du frontmatter, elle ne tient pas en 16 caractères."}
+  35: {name: "Sync ticket externe", format: enumeration, type: issue,
+      used_by: "REDMINE_CF_STATE_MIRROR_ID (.env, override) ; régime de miroir d'états avec le ticket partenaire — miroir frontmatter `state_mirror`, rapatrié par pm-task-sync (RM2746). MONO-VALEUR : un seul régime par ticket, d'où la valeur `Mirror` qui vaut pour les deux sens. Vide = le ticket hérite du régime de son projet (sync.mirror du secondaire)."}
   30: {name: "Protocole de test",    format: text,        type: issue,      used_by: "REDMINE_CF_TEST_PROTOCOL_ID (.env) ; pm-task-protocol → miroir frontmatter test_protocol, fiche de revue cockpit (RM2229). Rédigé AU FIL DE L'EAU pendant le dev."}
   8:  {name: "Actions au déploiement", format: text,      type: issue,      trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_DEPLOY_ACTIONS_ID (.env) ; pm-task-deploy → miroir frontmatter deploy_actions (liste ordonnée, 1 étape par ligne) = la PROCÉDURE DE MEP du ticket. Rapatrié par pm-task-sync ; reprise de l'existant par pm-cf-mirror-backfill. Câblé par RM2563 — jusque-là le CF et le champ existaient tous les deux SANS lien. string→text (texte long) 2026-07-11 via UPDATE custom_fields en base (l'API ne modifie pas les définitions de CF)"}
   31: {name: "Proposition d'implémentation", format: text, type: issue,     trackers: [bugfix, feature, autre], used_by: "REDMINE_CF_IMPLEMENTATION_ID (.env) ; pm-task-implementation → miroir frontmatter implementation (RM2563). Esquisse technique de la phase d'étude — le COMMENT, là où la description porte le quoi. Rédigée AVANT le passage en etude_chiffrage_a_valider."}
@@ -56,6 +58,23 @@ agent_test_values:
   oui:      39
   non:      40
   demander: 41
+
+# ── CF35 « Sync ticket externe » — régime de miroir d'états (RM2746) ──────────
+# Énumération **mono-valeur** : un ticket porte UN régime. Coché, il REMPLACE le
+# régime déclaré au projet (`sync.mirror` du secondaire, meta.yml) ; laissé vide, le
+# ticket hérite. Miroir local : `state_mirror` du frontmatter (pm-task-sync).
+#
+# `mirror` est un ALIAS des deux sens (outgoing + incoming), pas un quatrième régime :
+# le CF étant mono-valeur, il faut un mot pour « les deux à la fois ».
+# `signal` est le socle — il est ajouté d'office dès qu'un régime est actif.
+state_mirror_values:
+  signal:   77      # constate la divergence et la rapporte (pm-doctor)
+  outgoing: 78      # notre statut pilote le leur (écrit chez eux)
+  incoming: 79      # leur statut propose une transition, validée par un humain
+  mirror:   80      # les deux sens
+# Pas de valeur « none » côté Redmine : un ticket ne peut donc pas être SOUSTRAIT au
+# régime de son projet en le décochant (décoché = hérite). Le code accepte `none` —
+# ajouter la valeur à l'énumération si le besoin se présente.
 
 # ── CF25 « LLM prévu » — paliers de capacité (énumération) ─────────────────────
 # Valeurs d'énumération Redmine (value id → label) et mapping depuis le nom de

@@ -1853,23 +1853,7 @@ console.log("OK — tous les tests cockpit passent");
 // — onglets du panneau central (RM2672) : temporaire unique, épinglage, fermeture —
 // onglets : domaine MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js
 const grabFn = (name) => vm.runInNewContext("(" + grab(name) + ")", { Object });
-// RM2726 : le formulaire délègue le choix de la cible à clientProjectPickerHtml,
-// qui délègue lui-même les radios — on monte la chaîne dans le contexte isolé.
-const newTicketFormHtml = vm.runInNewContext("(" + grab("newTicketFormHtml") + ")",
-  { Object, clientProjectPickerHtml: vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
-      { Object, Array, Set, projectRadiosHtml: grabFn("projectRadiosHtml") }) });
-// formulaire pleine page : les champs qui manquaient à la carte repliée
-const form = newTicketFormHtml([{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
-                               ["low", "normal", "high", "urgent"],
-                               [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
-["ntf-title", "ntf-client", "ntf-projects", "ntf-type", "ntf-prio", "ntf-tags", "ntf-desc",
- "ntf-agent-test", "ntf-env", "ntf-human", "ntf-ai", "ntf-diff"].forEach(id =>
-  assert(form.includes('id="' + id + '"'), "champ manquant : " + id));
-assert(/<option value="feature" selected>/.test(form), "type feature non présélectionné");
-assert(/<option value="normal" selected>/.test(form), "priorité normal non présélectionnée");
-assert(/value="calyclay\/infra" checked/.test(form), "la cible du ticket n'est pas proposée");
-assert(/rows="12"/.test(form), "la description doit être confortable (pleine page)");
-console.log("✓ nouveau ticket (RM2672) : formulaire pleine page complet");
+// formulaire « nouveau ticket » (RM2672/RM2726/RM2752) : surface MIGRÉE — voir test_cockpit_newticket.js
 
 // — RM2718 : pastille du statut de session ([WIP] / [A TESTER] / [DONE]) —
 const markPillHtml2718 = grabO("markPillHtml");
@@ -2115,37 +2099,7 @@ const tsEsc = ticketSessionsHtml({ rm_id: "2726", handled: [
 assert(!/<img/.test(tsEsc) && /&lt;img/.test(tsEsc), "titre de session non échappé");
 console.log("✓ sessions du ticket (RM2726) : source affichée, ouverture, envoi ciblé, lancement");
 
-// — RM2726 : création de ticket — filtre client, puis radios des projets —
-const projectRadiosHtml = grabFn("projectRadiosHtml");
-const clientProjectPickerHtml = vm.runInNewContext("(" + grab("clientProjectPickerHtml") + ")",
-  { Object, Array, Set, projectRadiosHtml });
-const PROJ = [
-  { client: "acme", project: "boutique" }, { client: "acme", project: "infra" },
-  { client: "iprospective", project: "pm-ai-agents" }, { client: "vide", project: "" },
-];
-const pick2726 = clientProjectPickerHtml(PROJ, "acme", "infra", escFn);
-assert(/id="ntf-client"/.test(pick2726) && /id="ntf-projects"/.test(pick2726), "filtre client + zone projets");
-assert(/<option value="acme" selected>/.test(pick2726), "le client courant doit être sélectionné");
-assert(/value="acme\/infra" checked/.test(pick2726), "le projet courant doit être coché");
-assert(!/pm-ai-agents/.test(pick2726), "seuls les projets DU client filtré sont proposés");
-assert(/onchange="ntfClientChanged\(\)"/.test(pick2726), "changer de client doit re-rendre les projets");
-
-const pickDefault = clientProjectPickerHtml(PROJ, "inconnu", "", escFn);
-assert(/<option value="acme" selected>/.test(pickDefault),
-  "client inconnu → premier client, pas de sélection vide");
-assert(/value="acme\/boutique" checked/.test(pickDefault),
-  "aucun projet demandé → le premier du client est coché");
-assert.strictEqual((pickDefault.match(/checked/g) || []).length, 1,
-  "un seul projet coché à la fois");
-
-assert(/aucun projet pour ce client/.test(projectRadiosHtml(PROJ, "vide", "", escFn)),
-  "un client sans projet doit le dire (le formulaire refusera l'envoi)");
-assert(/aucun projet connu/.test(clientProjectPickerHtml([], "", "", escFn)),
-  "catalogue vide : on le dit plutôt que de rendre un choix fantôme");
-
-const pickEsc = projectRadiosHtml([{ client: 'a"b', project: 'p"q' }], 'a"b', "", escFn);
-assert(!/value="a"b/.test(pickEsc), "client/projet non échappés dans l'attribut value");
-console.log("✓ création de ticket (RM2726) : filtre client, radios projet, défauts sûrs");
+// — RM2726 : création de ticket — MIGRÉ (RM2889), voir test_cockpit_newticket.js —
 
 // — RM2741 : barre du panneau « en cours » — relancer pertinent, création unifiée —
 const relaunchBtnState = grabO("relaunchBtnState");
@@ -2217,43 +2171,7 @@ console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanen
 
 // — RM2748 : verrous du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
-// — RM2752 : un bugfix se crée avec ses étapes de reproduction, ou pas du tout —
-// Le formulaire pouvait créer un bugfix sans repro ; `validate-task` le refusait
-// juste après, et le ticket naissait invalide. Les étapes sont désormais un champ
-// à part entière — visible SEULEMENT pour ce type, sinon c'est du bruit sur une
-// feature.
-const form2752 = newTicketFormHtml(
-  [{ value: "feature", label: "feature" }, { value: "bugfix", label: "bugfix" }],
-  ["low", "normal", "high", "urgent"],
-  [{ client: "calyclay", project: "infra" }], "calyclay", "infra", escFn);
-["ntf-bugbox", "ntf-bug-steps", "ntf-bug-repro"].forEach(id =>
-  assert(form2752.includes('id="' + id + '"'), "champ bug manquant : " + id));
-assert(/id="ntf-bugbox" style="display:none"/.test(form2752),
-  "le bloc bug doit être masqué tant que le type n'est pas bugfix");
-assert(/<option value="always" selected>/.test(form2752),
-  "reproductibilité par défaut = always (le cas courant, pas un vide à remplir)");
-assert(/onchange="ntfTypeChanged\(\)"/.test(form2752),
-  "le select de type doit prévenir du changement, sinon le bloc ne s'ouvre jamais");
-// les cinq valeurs de validate-task, ni plus ni moins
-["always", "often", "sometimes", "rarely", "never"].forEach(v =>
-  assert(form2752.includes('value="' + v + '"'), "reproductibilité manquante : " + v));
-
-// le toggle lui-même, sur un DOM doublé
-const ntfTypeChanged = grabO("ntfTypeChanged");
-const mkDom = (type) => {
-  const box = { style: { display: "none" } };
-  const els = { "ntf-type": { value: type }, "ntf-bugbox": box };
-  return { doc: { getElementById: (id) => els[id] || null }, box };
-};
-let d = mkDom("bugfix");
-vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
-assert.strictEqual(d.box.style.display, "", "type bugfix → le bloc s'ouvre");
-d = mkDom("feature");
-vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: d.doc });
-assert.strictEqual(d.box.style.display, "none", "retour sur feature → le bloc se referme");
-// robustesse : appelé avant le rendu du formulaire, il ne doit pas lever
-vm.runInNewContext("(" + grab("ntfTypeChanged") + ")()", { document: { getElementById: () => null } });
-console.log("✓ ticket bugfix (RM2752) : étapes de reproduction exigées, bloc réservé à ce type");
+// — RM2752 : bugfix avec étapes de reproduction — MIGRÉ (RM2889), voir test_cockpit_newticket.js —
 
 // — RM2757 : « Tickets ouverts » repliable, replié au démarrage —
 const openedPanelOpen = grabO("openedPanelOpen");

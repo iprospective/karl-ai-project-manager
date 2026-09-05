@@ -648,23 +648,7 @@ for (const [nom, hex] of [["light", lightHex], ["dark", darkHex]]) {
 console.log("✓ composer (RM2527) : bouton d'envoi compact et lisible sur son fond");
 // — configArgs (RM2531) : MIGRÉ (RM2889, fiche projet) — voir test_cockpit_project.js —
 
-// — 12. panneau « en attente de toi » (RM2466 volet 2) —
-const fPd = />>> pendingDecor[\s\S]*?(function pendingDecor[\s\S]*?)\n\/\/ <<< pendingDecor/.exec(html);
-assert(fPd, "marqueurs >>> pendingDecor / <<< pendingDecor introuvables");
-const pendingDecor = vm.runInNewContext("(" + fPd[1] + ")");
-
-const dLive = pendingDecor({ kind: "live", state: "attention" });
-const dChoice = pendingDecor({ kind: "live", state: "choice" });
-const dStale = pendingDecor({ kind: "stale" });
-assert(dLive.cls.includes("ounres") && !dStale.cls.includes("ounres"),
-  "une session BLOQUÉE est signalée plus fort qu'une question qui traîne");
-assert(dLive.icon !== dStale.icon && dLive.tag !== dStale.tag,
-  "les deux natures diffèrent par l'icône ET le libellé, pas seulement la couleur");
-assert(dChoice.icon !== dLive.icon, "menu de choix et question oui/non ont leur icône");
-assert(/bloqu/i.test(dLive.tag) && /sans réponse/i.test(dStale.tag),
-  "les libellés disent en toutes lettres de quoi il s'agit");
-assert(pendingDecor(null).tag && pendingDecor(undefined).icon, "entrée absente tolérée");
-console.log("✓ état (RM2466) : bloquée vs sans réponse, distinguées sur trois canaux");
+// — 12. pendingDecor (RM2466 volet 2) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // RM2581 : le panneau droit est recentré sur la SESSION — la section « en attente,
 // toutes sessions » a été retirée ; l'onglet devient le worklog (renommé).
@@ -678,59 +662,10 @@ const corps2 = (html.match(/class="rp" id="rp-/g) || []).length;
 assert.strictEqual(onglets2, corps2, "chaque onglet de droite a toujours son panneau");
 console.log("✓ worklog (RM2581) : panneau droit recentré sur la session, onglet renommé");
 
-// — 13. worklog de session dans le panneau état (RM2466 volet 2, étape 2) —
-const fWs = />>> worklogSections[\s\S]*?(function worklogSections[\s\S]*?)\n\/\/ <<< worklogSections/.exec(html);
-assert(fWs, "marqueurs >>> worklogSections / <<< worklogSections introuvables");
-const worklogSections = vm.runInNewContext("(" + fWs[1] + ")");
-
-const secs = worklogSections({ todo: [{ ref: "RM1" }], waiting: [{ ref: "RM2" }], done: [{ ref: "RM3" }] });
-assert.deepStrictEqual(Array.from(secs.map(s => s.key)), ["todo", "waiting", "done"],
-  "ce qui reste d'abord, ce qui est fait en dernier");
-// RM2860 : la MEP est un travail d'une autre nature (dev fini, reste la mise en
-// prod) — son propre onglet, entre ce qui reste à écrire et ce qui est fait.
-const secsMep = worklogSections({ todo: [{ ref: "RM1" }], mep: [{ ref: "RM2" }, { ref: "RM3" }], done: [{ ref: "RM4" }] });
-assert.deepStrictEqual(Array.from(secsMep.map(s => s.key)), ["todo", "mep", "done"],
-  "l'onglet MEP se place après « reste à faire » et avant « fait »");
-assert.strictEqual(secsMep.filter(s => s.key === "mep")[0].items.length, 2,
-  "les tickets a_mep/en_mep sont dans la section MEP");
-assert.strictEqual(worklogSections({ mep: [] }).length, 0,
-  "pas de MEP en cours → pas d'onglet MEP (règle des sections vides)");
-// RM2930 : « à tester / valider » n'est pas une attente mais une action, et elle
-// PRÉCÈDE la MEP dans le flow — d'où sa place entre « reste à faire » et la MEP.
-const secsTest = worklogSections({
-  todo: [{ ref: "RM1" }], testing: [{ ref: "RM2" }, { ref: "RM3" }],
-  mep: [{ ref: "RM4" }], waiting: [{ ref: "RM5" }], done: [{ ref: "RM6" }] });
-assert.deepStrictEqual(Array.from(secsTest.map(s => s.key)),
-  ["todo", "testing", "mep", "waiting", "done"],
-  "« à tester / valider » se place après « reste à faire » et avant la MEP");
-assert.strictEqual(secsTest.filter(s => s.key === "testing")[0].items.length, 2,
-  "les tickets à tester/valider sont dans leur propre section");
-assert.strictEqual(worklogSections({ testing: [] }).length, 0,
-  "rien à tester → pas de section (règle des sections vides)");
-assert(secs.every(s => s.icon && s.label), "chaque section porte une icône ET un libellé");
-assert.strictEqual(worklogSections({ todo: [], waiting: [{ ref: "RM2" }], done: [] }).length, 1,
-  "les sections vides disparaissent (pas de titre sans contenu)");
-assert.strictEqual(worklogSections({}).length, 0, "worklog vide → aucune section");
-assert.strictEqual(worklogSections(null).length, 0, "worklog absent toléré");
-assert.strictEqual(worklogSections(undefined).length, 0, "buckets absents tolérés");
-console.log("✓ état (RM2466) : worklog en sections, vides masquées");
-
-// la dérive doit rester visible : sans elle on croirait que le statut affiché
-// est le fait de la session courante, alors qu'une autre l'a fait avancer
-// RM2796 : le signal a changé de FORME (une pastille jaune + infobulle, au lieu
-// d'une seconde pastille), pas de nature — il doit toujours exister.
-const mRw = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(mRw, "renderWorklog introuvable");
-assert(/statusPill\(it, esc\)/.test(mRw[0]),
-  "un statut modifié hors de la session doit être signalé comme tel");
-assert(/item\.drifted/.test(html) && /opened_status/.test(html),
-  "…et la dérive doit rester lue depuis les données du worklog");
-assert(/id="workbody"/.test(html) && !/id="pendbody"/.test(html),
-  "le panneau droit ne contient plus que le worklog (RM2581)");
-// RM2581 : signal de fraîcheur de la résolution live
-assert(/id="workfresh"/.test(html) && /checked_ts/.test(mRw[0]),
-  "le worklog affiche quand son statut a été résolu en direct (workfresh/checked_ts)");
-console.log("✓ worklog (RM2581) : dérive signalée, statut live, fraîcheur affichée");
+// — 13. worklog de session (RM2466/2581/2796) : MIGRÉ (RM2889) — voir test_cockpit_worklog.js. Reste l'hôte :
+assert(/id="workbody"/.test(html) && !/id="pendbody"/.test(html), "le panneau droit ne contient plus que le worklog (RM2581)");
+assert(/id="workfresh"/.test(html), "le worklog affiche quand son statut a été résolu en direct (workfresh)");
+console.log("✓ worklog (RM2581) : hôte du panneau en place, logique migrée");
 
 // tout onglet présent dans la barre DOIT être accepté par la normalisation.
 // Incident vécu : une whitelist ajoutée par un ticket ignorait l'onglet ajouté
@@ -748,25 +683,7 @@ for (const tab of navTabs) {
 }
 console.log(`✓ colonne droite : les ${navTabs.length} onglets de la barre sont tous activables`);
 
-// — notifications de session dans le panneau (RM2466 volet 1 × volet 2) —
-const fNd = />>> notifyDecor[\s\S]*?(function notifyDecor[\s\S]*?)\n\/\/ <<< notifyDecor/.exec(html);
-assert(fNd, "marqueurs >>> notifyDecor / <<< notifyDecor introuvables");
-const notifyDecor = vm.runInNewContext("(" + fNd[1] + ")");
-const nc = notifyDecor("critical"), nw = notifyDecor("warn"), ni = notifyDecor("info");
-assert(nc.icon !== nw.icon && nw.icon !== ni.icon, "chaque gravité a son icône");
-assert(nc.label === "critical" && nw.label === "warn" && ni.label === "info",
-  "le niveau reste écrit en toutes lettres, pas seulement en couleur");
-assert(nc.cls.includes("ounres") && !ni.cls.includes("ounres"),
-  "seul le critique est mis en avant visuellement");
-assert.strictEqual(notifyDecor(undefined).label, "warn", "niveau absent → warn, jamais silencieux");
-const mRw2 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(/notifications/.test(mRw2[0]), "le panneau affiche les notifications de session");
-// robuste au libellé de la section (renommée par RM2581) : ce qui compte est
-// que les notifications PRÉFIXENT le rendu, dans les deux sorties de la fonction
-const prefixes = mRw2[0].match(/(?:body\.innerHTML|let h) = notes \+/g) || [];
-assert.strictEqual(prefixes.length, 2,
-  "les incidents doivent préfixer le worklog, dans les deux branches du rendu");
-console.log("✓ état (RM2466) : notifications de session rendues avant le travail");
+// — notifications de session (RM2466) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2586 : fil d'ariane : MIGRÉ (RM2889, explorateur) — voir test_cockpit_files.js —
 // l'onglet fichiers a bien son bouton ET son panneau (équilibre onglets/panneaux déjà vérifié)
@@ -792,18 +709,7 @@ console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé,
 
 // — sinceLabel (RM2630) : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
-// — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
-const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
-assert(fWd, "marqueurs >>> worklogDocs / <<< worklogDocs introuvables");
-const worklogDocs = vm.runInNewContext("(" + fWd[1] + ")");
-const wd = worklogDocs({ RM1: [["a.py", "output"], ["b.md", "output"]], RM2: [["c", ""]] });
-assert.strictEqual(wd.length, 3, "aplatit tous les documents de tous les tickets");
-assert.strictEqual(JSON.stringify(wd[0]), JSON.stringify({ ref: "RM1", name: "a.py", kind: "output" }),
-  "chaque entrée porte ref + name + kind");
-assert.strictEqual(worklogDocs({ RM3: ["str-seul"] })[0].name, "str-seul", "entrée chaîne tolérée (name seul)");
-assert.strictEqual([...worklogDocs({})].length, 0, "map vide → liste vide");
-assert.strictEqual([...worklogDocs(null)].length, 0, "map absente tolérée");
-console.log("✓ worklogDocs (RM2584) : documents aplatis par ticket");
+// — worklogDocs (RM2584) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 
 // — RM2596 : recherche / surlignage / linkify de la conversation —
@@ -834,38 +740,7 @@ assert(/<a href="https:\/\/x.io\/p"/.test(lk), "URL cliquable");
 assert(!/<b>/.test(lk) && /&lt;b&gt;/.test(lk), "reste du texte échappé (anti-XSS)");
 console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables, onclick sûr");
 
-// — worklogDocsHtml (RM2935) : documents du worklog cliquables —
-// Les 5 formes réellement rencontrées dans `refs:`/`outputs:` des fiches (RM2352).
-const worklogDocsHtml = grabO("worklogDocsHtml");
-const wdh = worklogDocsHtml([
-  { ref: "RM2890", name: "docs/cdc-rm2890-timesheet-heures-humaines.md", kind: "output" },
-  { ref: "RM2890", name: "scripts/karl-agent.py (/approve-all, boucle)", kind: "output" },
-  { ref: "RM2890", name: "https://gitlab.iprospective.fr/x/-/merge_requests/757", kind: "output" },
-  { ref: "RM2890", name: "'memory: feedback_mmi_pm_skill_naming.md'", kind: "ref" },
-  { ref: "hors-ticket", name: "commit sur la branche 2353-x", kind: "" },
-], escO, linkify);
-assert(/onclick="openFileRef\('docs\/cdc-rm2890-timesheet-heures-humaines.md'\)"/.test(wdh),
-  "chemin de document → onglet Fichiers");
-assert(/onclick="openFileRef\('scripts\/karl-agent.py'\)"/.test(wdh),
-  "chemin suivi d'un commentaire : seul le chemin est cliquable");
-assert(/<a href="https:\/\/gitlab.iprospective.fr\/x\/-\/merge_requests\/757"/.test(wdh),
-  "URL de MR → lien externe");
-assert(/onclick="showTicket\(2890\)"/.test(wdh), "l'en-tête de groupe ouvre la fiche du ticket");
-assert(!/cursor:default/.test(wdh), "plus de cursor:default sur la ligne de document");
-assert(/memory: feedback_mmi_pm_skill_naming.md/.test(wdh) && !/'memory:/.test(wdh),
-  "quotes YAML retirées à l'affichage");
-assert(/>hors-ticket</.test(wdh) && !/showTicket\(hors/.test(wdh),
-  "une référence non-RM reste du texte, sans onclick bancal");
-assert(/<span class="pill">output<\/span>/.test(wdh), "le kind reste affiché en pastille");
-// anti-XSS : linkify échappe, on ne doit pas ré-échapper ni laisser passer de balise
-const wdhX = worklogDocsHtml([{ ref: "<b>x</b>", name: '<img src=x onerror="alert(1)">', kind: "<i>" }],
-  escO, linkify);
-assert(!/<img/.test(wdhX) && !/<b>x<\/b>/.test(wdhX) && !/<i>/.test(wdhX),
-  "nom, ref et kind hostiles restent inertes");
-assert(!/&amp;lt;/.test(wdhX), "pas de double échappement (linkify échappe déjà)");
-assert.strictEqual(worklogDocsHtml([], escO, linkify), "", "liste vide → chaîne vide (le rendu bascule sur son message)");
-assert.strictEqual(worklogDocsHtml(null, escO, linkify), "", "liste absente tolérée");
-console.log("✓ worklogDocsHtml (RM2935) : documents du worklog cliquables et sûrs");
+// — worklogDocsHtml (RM2935) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2623/RM2634 : glossaire du jargon : MIGRÉ (RM2889) — voir test_cockpit_doc.js —
 
@@ -962,23 +837,7 @@ console.log("\u2713 largeur du panneau (RM2952) : le réglage prime, le défaut 
 
 // — vue git (RM2602) : domaine MIGRÉ (RM2889, L4) — voir test_cockpit_git.js —
 
-// — RM2605 : chaque information dans le bon onglet, tickets cliquables —
-const fWr = />>> worklogRefHtml[\s\S]*?(function worklogRefHtml[\s\S]*?)\n\/\/ <<< worklogRefHtml/.exec(html);
-assert(fWr, "marqueurs >>> worklogRefHtml introuvables");
-const worklogRefHtml = vm.runInNewContext("(" + fWr[1] + ")");
-const escId = s => String(s);
-const lien = worklogRefHtml("RM2467", escId, () => "");
-assert(/showTicket\(2467\)/.test(lien), "un ticket ouvre sa fiche");
-// RM2799 : classe propre au numéro (le curseur vient du CSS `.rmref`) — il ne
-// partage plus `.pill` avec le statut, qui l'écrasait dès qu'il virait au jaune.
-assert(/class="rmref"/.test(lien), "et SE VOIT comme cliquable");
-assert(/event\.stopPropagation/.test(lien),
-  "le clic sur le lien ne doit pas aussi déclencher celui de la ligne");
-const libre = worklogRefHtml("pisceen-facettes", escId, () => "");
-assert(!/showTicket/.test(libre) && /<b>/.test(libre),
-  "un chantier hors ticket n'est pas un lien : il n'a pas de fiche");
-assert(worklogRefHtml(null, escId, () => "").length >= 0, "réf absente tolérée");
-console.log("✓ worklog (RM2605) : tickets cliquables, chantiers libres non");
+// — RM2605 : tickets cliquables du worklog : MIGRÉ (RM2889) — voir test_cockpit_worklog.js —
 
 // — RM2605 : « infos » allégé : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
@@ -993,25 +852,7 @@ assert(/ctx\.noteOpened\(rm\)/.test(revCtrl), "ouvrir une revue aussi (contrôle
 assert(/karlOpenedTickets/.test(fs.readFileSync(path.join(__dirname, "src/services/tickets.service.js"), "utf8")), "la liste survit au rechargement (localStorage, service migré)");
 console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
 
-// — worklogTabList (RM2610) : sous-onglets par statut du worklog —
-const fWt = />>> worklogTabList[\s\S]*?(function worklogTabList[\s\S]*?)\n\/\/ <<< worklogTabList/.exec(html);
-assert(fWt, "marqueurs worklogTabList introuvables");
-const worklogTabList = vm.runInNewContext("(" + fWt[1] + ")");
-const secs2 = [{ key: "todo", icon: "\u23f3", label: "reste a faire", items: [1, 2] }, { key: "done", icon: "\u2705", label: "fait", items: [1] }];
-let tabs2 = worklogTabList(secs2, 3, 0).map(t => [t.key, t.n]);
-assert.strictEqual(JSON.stringify(tabs2), JSON.stringify([["todo", 2], ["done", 1], ["documents", 3]]), "un onglet par bucket non vide + documents");
-assert.strictEqual(worklogTabList([], 0, 0).length, 0, "rien -> aucun onglet");
-assert.strictEqual(worklogTabList([], 2, 0)[0].key, "documents", "documents seuls");
-// branches orphelines sans bucket todo -> cree un onglet a faire en tete
-const tabs3 = worklogTabList([{ key: "done", icon: "x", label: "fait", items: [1] }], 0, 2);
-assert.strictEqual(tabs3[0].key, "todo", "orphelines -> onglet a faire cree");
-// RM2860 : l'onglet MEP se fabrique comme les autres — un bucket non vide en
-// donne un, avec son compte.
-const tabsMep = worklogTabList([{ key: "todo", icon: "\u23f3", label: "reste a faire", items: [1] },
-                                { key: "mep", icon: "\ud83d\ude80", label: "a mettre en prod", items: [1, 2] }], 0, 0);
-assert.strictEqual(JSON.stringify(tabsMep.map(t => [t.key, t.n])),
-  JSON.stringify([["todo", 1], ["mep", 2]]), "onglet MEP avec son compte");
-console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
+// — worklogTabList (RM2610) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2611 : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
@@ -1084,84 +925,10 @@ console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu déri
 
 // — RM2673 : repli du panneau fichiers sur le projet courant : MIGRÉ (RM2889) — voir test_cockpit_files.js —
 
-// — RM2695 : avancement d'un ticket dans le worklog —
-const worklogProgressHtml = grabO("worklogProgressHtml");
-const wpNone = worklogProgressHtml({ ref: "RM1", status: "en_cours" }, escO);
-assert.strictEqual(wpNone, "",
-  "un ticket sans checklist ne rend RIEN — « 0/0 » se lirait comme un ticket vide");
-assert.strictEqual(worklogProgressHtml(null, escO), "", "item absent toléré");
-assert.strictEqual(worklogProgressHtml({ checklist: { done: 0, total: 0, items: [] } }, escO), "",
-  "checklist vide = pas de checklist");
-const wp = worklogProgressHtml({ checklist: { done: 3, total: 6, items: ["reste A", "reste B"] } }, escO);
-assert(/>3\/6 ✓</.test(wp), "le compteur x/y est affiché");
-assert(/☐ reste A/.test(wp) && /☐ reste B/.test(wp), "les critères RESTANTS sont listés");
-assert(!/pill ok/.test(wp), "tant que ce n'est pas fini, pas de pastille verte");
-const wpDone = worklogProgressHtml({ checklist: { done: 6, total: 6, items: [] } }, escO);
-assert(/pill ok/.test(wpDone) && />6\/6 ✓</.test(wpDone),
-  "tout coché → pastille verte, et rien à lister (ce qui est fait se compte)");
-const wpZero = worklogProgressHtml({ checklist: { done: 0, total: 4, items: ["a"] } }, escO);
-assert(/pill warn/.test(wpZero), "aucun critère coché → pastille d'alerte");
-const wpTrunc = worklogProgressHtml({ checklist: { done: 0, total: 60, items: ["a"], truncated: true } }, escO);
-assert(/…/.test(wpTrunc), "une liste tronquée le DIT (pas de silence sur ce qui manque)");
-// sous-tâches : leur statut, pas juste leur numéro
-const wpSub = worklogProgressHtml({ sub_tasks: [{ rm_id: "2696", status: "a_faire", title: "T2" }] }, escO);
-assert(/RM2696 · a_faire/.test(wpSub), "une sous-tâche porte son statut");
-assert(/title="sous-tâche — T2"/.test(wpSub), "…et son titre en infobulle");
-// échappement (le texte d'un critère vient de la description du ticket)
-const wpXss = worklogProgressHtml({ checklist: { done: 0, total: 1, items: ["<img src=x onerror=1>"] },
-  sub_tasks: [{ rm_id: "1<b>", status: "a<b>", title: "t<b>" }] }, escO);
-assert(!/<img/.test(wpXss) && /&lt;img/.test(wpXss), "le texte d'un critère est échappé");
-assert(!/<b>/.test(wpXss), "id, statut et titre de sous-tâche échappés aussi");
-// le rendu du worklog appelle bien l'avancement
-const mItem = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
-assert(mItem && /worklogProgressHtml\(it, esc\)/.test(mItem[0]),
-  "chaque ligne du worklog rend l'avancement de son ticket");
-console.log("✓ worklog (RM2695) : avancement par ticket, critères restants, sous-tâches");
+// — RM2695 : avancement d'un ticket : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2696 : worklog PROJET — MIGRÉ (RM2889, fiche projet) — voir test_cockpit_project.js —
-// RM2723 : la ligne de MR reste une fonction partagée du monolithe (session + projet migré la reçoit en prêt).
-const mrLineHtml = grabO("mrLineHtml");
-
-// — RM2716 : sélection de tickets du worklog → traitement en série —
-const batchPlanHtml = grabO("batchPlanHtml");
-const PLAN = {
-  count: 2,
-  todo: [{ rm_id: "10", status: "a_faire", title: "dev", instruction: "traiter puis livrer" },
-         { rm_id: "11", status: "a_etudier_chiffrer", title: "étude", instruction: "étudier et chiffrer" }],
-  skipped: [{ rm_id: "12", status: "a_tester_demandeur", title: "chez toi",
-              reason: "attend TON verdict, pas celui de l'agent" }],
-};
-const bp = batchPlanHtml(PLAN, escO);
-assert(/▶ à traiter \(2\)/.test(bp), "le récapitulatif compte ce qui va partir");
-assert(/1\.<\/b> <span class="r-id">RM10/.test(bp), "les tickets sont numérotés dans l'ordre d'exécution");
-assert(/traiter puis livrer/.test(bp) && /étudier et chiffrer/.test(bp),
-  "chaque ticket affiche l'action qui sera demandée");
-assert(/⊘ écartés \(1\)/.test(bp) && /attend TON verdict/.test(bp),
-  "les écartés sont listés AVEC leur raison — rien n'est retiré en silence");
-assert(!/au-delà de 10/.test(bp), "pas d'avertissement de volume sur un petit lot");
-const bpBig = batchPlanHtml({ todo: Array.from({ length: 12 }, (_, i) =>
-  ({ rm_id: String(i), status: "a_faire", instruction: "traiter" })), skipped: [] }, escO);
-assert(/au-delà de 10/.test(bpBig), "au-delà de 10 tickets, l'avertissement de volume s'affiche");
-const bpEmpty = batchPlanHtml({ todo: [], skipped: [] }, escO);
-assert(/aucun ticket actionnable/.test(bpEmpty), "sélection sans actionnable : dit clairement qu'il n'y a rien");
-assert(/à traiter \(0\)/.test(batchPlanHtml(null, escO)), "plan absent toléré");
-const bpXss = batchPlanHtml({ todo: [{ rm_id: "1<b>", status: "<img src=x>", title: "<script>",
-  instruction: "<b>i" }], skipped: [{ rm_id: "2", reason: "<script>" }] }, escO);
-assert(!/<img|<script>/.test(bpXss), "titre, statut, instruction et raison échappés (anti-XSS)");
-// la case à cocher ne détourne pas le clic de la ligne, et n'existe que sur un ticket
-const mItem2716 = /const itemHtml = \(it\) => \{[\s\S]*?\n  \};/.exec(html);
-assert(/event\.stopPropagation\(\);batchToggle\(/.test(mItem2716[0]),
-  "cocher ne doit pas ouvrir la fiche du ticket");
-assert(/\/\^RM\\d\+\$\/i\.test/.test(mItem2716[0]),
-  "seul un TICKET est sélectionnable (un chantier libre n'a pas de protocole)");
-// l'envoi passe par le récapitulatif : jamais d'appel direct sans dry_run d'abord
-const mOpen = /async function openBatchPlan\([\s\S]*?\n\}/.exec(html);
-assert(mOpen, "openBatchPlan introuvable");
-assert(/dry_run: true/.test(mOpen[0]), "le récapitulatif s'obtient en dry_run (aucun envoi)");
-const mSend = /async function sendBatch\([\s\S]*?\n\}/.exec(html);
-assert(/batchPlanCache/.test(mSend[0]),
-  "l'envoi n'est possible qu'après avoir chargé — donc affiché — le récapitulatif");
-console.log("✓ lot worklog (RM2716) : récapitulatif avant envoi, écartés motivés, garde de volume");
+// — RM2716/RM2723 : lot du worklog, ligne de MR : MIGRÉS (RM2889) — voir test_cockpit_worklog.js —
 
 
 // — RM2697 / RM2698 : tableau de bord — domaine MIGRÉ (RM2889, L4), voir test_cockpit_dashboard.js —
@@ -1188,30 +955,7 @@ assert(markPillHtml2718("test").endsWith("</span> "),
   "la pastille garde son espace de séparation avec le titre");
 console.log("✓ pastille de statut de session (RM2718) : trois statuts, rien d'inventé");
 
-// — RM2719 : portée restreinte — les points d'un ticket, cochables avant envoi —
-const bpPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", title: "dev",
-  instruction: "traiter puis livrer", points: ["critère A", "critère B"] }], skipped: [] }, escO);
-assert(/class="bp-point"/.test(bpPts), "les points du ticket sont rendus");
-assert((bpPts.match(/type="checkbox" checked/g) || []).length === 2,
-  "chaque point est coché par défaut : l'état de départ = ticket entier");
-assert(/data-ref="10"/.test(bpPts), "chaque case porte le ticket auquel elle appartient");
-assert(/value="critère A"/.test(bpPts), "la case porte le libellé exact du point (c'est lui qui part)");
-assert(/aucun coché = ticket écarté/.test(bpPts),
-  "la conséquence de tout décocher doit être écrite, pas devinée");
-const bpNoPts = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter" }],
-                                skipped: [] }, escO);
-assert(!/bp-point/.test(bpNoPts), "un ticket sans critère ne rend aucune case (pas de bloc vide)");
-const bpPtsXss = batchPlanHtml({ todo: [{ rm_id: "1", status: "a_faire",
-  instruction: "x", points: ['<img src=x onerror=1> "guillemet"'] }], skipped: [] }, escO);
-assert(!/<img/.test(bpPtsXss), "un libellé de critère est échappé dans le texte");
-assert(!/value="[^"]*"guillemet/.test(bpPtsXss), "…et dans l'attribut value (sinon l'attribut se ferme)");
-console.log("✓ portée restreinte d'un ticket (RM2719) : points cochables, échappés, conséquence écrite");
-const bpTrunc = batchPlanHtml({ todo: [{ rm_id: "10", status: "a_faire", instruction: "traiter",
-  points: ["critère A"], points_truncated: true }], skipped: [] }, escO);
-assert(/liste de critères incomplète/.test(bpTrunc),
-  "une liste de critères tronquée doit se dire : sinon elle se lit comme complète");
-assert(!/liste de critères incomplète/.test(bpPts), "…et ne s'affiche pas quand elle est complète");
-console.log("✓ portée restreinte (RM2719) : une liste de critères incomplète est annoncée");
+// — RM2719 : portée restreinte : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2720 : les actions PM portent sur un TICKET, plus sur la session —
 const pmActionTarget = grabO("pmActionTarget");
@@ -1247,76 +991,7 @@ assert(/async function sendAction\(a, btn, id, sid\)/.test(mSend2720[0]),
 assert(/replaceAll\("\{id\}", rid\)/.test(mSend2720[0]), "{id} vaut le TICKET, plus la session");
 console.log("✓ actions PM sur le ticket (RM2720) : cible résolue, repli annoncé, barre session nettoyée");
 
-// — RM2720 : le second mode de lot se lit dans l'écran de confirmation —
-const mModes = /const BATCH_MODES = (\{[\s\S]*?\n\});/.exec(html);
-assert(mModes, "BATCH_MODES (cockpit) introuvable");
-const MODES2720 = vm.runInNewContext("(" + mModes[1] + ")");
-assert(MODES2720.atester && MODES2720.traiter, "deux modes de lot");
-assert.notStrictEqual(MODES2720.atester.envoi, MODES2720.traiter.envoi,
-  "le bouton d'envoi doit dire lequel des deux part");
-assert.strictEqual(MODES2720.atester.points, false,
-  "pas de portée par points en mode « à tester » : on ne livre pas la moitié d'un ticket");
-console.log("✓ lot « à tester » (RM2720) : mode distinct, énoncé dans l'écran de confirmation");
-
-// — RM2722 : badge du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
-
-// — RM2720 (suite) : écran de confirmation d'un lot de merges —
-const mrBatchHtml = grabO("mrBatchHtml");
-const PLAN_DEV = { mode: "dev", live: [], skipped: [], runs: [
-  { rm_ids: ["10"], source: "10-x", target: "dev" },
-  { rm_ids: ["11"], source: "11-y", target: "dev" }] };
-const mbDev = mrBatchHtml(PLAN_DEV, escO);
-assert(/10-x → dev/.test(mbDev), "chaque MR dit d'OÙ vers OÙ elle merge");
-assert(!/promotion emporte/.test(mbDev), "pas d'avertissement de promotion sur un merge d'intégration");
-const mbProd = mrBatchHtml({ mode: "prod", live: [], skipped: [],
-  runs: [{ rm_ids: ["10", "11"], source: "dev", target: "main" }] }, escO);
-assert(/emporte TOUT/.test(mbProd),
-  "une promotion emporte plus que les tickets cochés : ça doit être écrit avant le clic");
-assert(/dev → main/.test(mbProd), "…et la promotion dit sa source et sa cible");
-const mbLive = mrBatchHtml({ mode: "dev", live: ["11"], skipped: [],
-  runs: [{ rm_ids: ["11"], source: "11-y", target: "dev" }] }, escO);
-assert(/session encore vivante/.test(mbLive) && /RM11/.test(mbLive),
-  "merger sous les pieds d'un agent au travail doit se voir AVANT");
-const mbSkip = mrBatchHtml({ mode: "dev", live: [], runs: [],
-  skipped: [{ rm_id: "13", reason: "aucune branche au frontmatter" }] }, escO);
-assert(/⊘ écartés \(1\)/.test(mbSkip) && /aucune branche/.test(mbSkip),
-  "un ticket écarté porte sa raison");
-assert(/rien à merger/.test(mbSkip), "un plan vide le dit");
-assert(/à merger/.test(mrBatchHtml(null, escO)), "plan absent toléré");
-const mbXss = mrBatchHtml({ mode: "dev", live: [], skipped: [],
-  runs: [{ rm_ids: ["1"], source: "<img src=x>", target: "dev" }] }, escO);
-assert(!/<img/.test(mbXss), "un nom de branche est échappé");
-console.log("✓ lot de merges (RM2720) : cible dite, promotion avertie, session vivante signalée");
-
-// — RM2723 : bouton « merger » sur chaque MR du worklog —
-const mrOk = mrLineHtml({ iid: 571, ref: "RM2720", target: "dev",
-  url: "https://gl.x/g/p/-/merge_requests/571" }, escO, jargFn);
-assert(/!571/.test(mrOk) && /RM2720/.test(mrOk), "la ligne garde ce qu'elle disait");
-assert(/⇥ merger<\/button>/.test(mrOk), "…et porte le bouton de merge");
-assert(/onclick="mergeOneMr\('https:\/\/gl\.x\/g\/p\/-\/merge_requests\/571'/.test(mrOk),
-  "la MR est désignée par son URL (un iid nu exigerait un dépôt — RM2541)");
-assert(!/onclick="[^"]*"[^"]*"/.test(mrOk.replace(/title="[^"]*"/g, "")),
-  "l'attribut onclick ne doit contenir aucun guillemet double non échappé");
-assert(/ouvrir ↗/.test(mrOk), "le lien d'ouverture reste");
-const mrNoUrl = mrLineHtml({ iid: 12, target: "dev" }, escO, jargFn);
-assert(!/mergeOneMr/.test(mrNoUrl),
-  "sans URL, pas de bouton : rien à quoi rattacher le merge");
-assert(/!12/.test(mrNoUrl), "…mais la ligne s'affiche quand même");
-const mrDead = mrLineHtml({ iid: 3, url: "https://gl.x/g/p/-/merge_requests/3", alive: false },
-  escO, jargFn);
-assert(/session éteinte/.test(mrDead), "l'état de la session qui l'a ouverte est conservé");
-const mrXss = mrLineHtml({ iid: '<img src=x>', ref: '"><b>', target: "<i>",
-  url: "https://gl.x/g/p/-/merge_requests/9" }, escO, jargFn);
-// (la ligne contient un <b> légitime — on cherche les charges injectées)
-assert(!/<img|<i>/.test(mrXss),
-  "iid, ref et cible sont échappés — y compris dans l'argument onclick, où jarg "
-  + "ne protège que du guillemet SIMPLE (l'attribut, lui, est en double)");
-const mrQuote = mrLineHtml({ iid: 'a"b', url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn);
-assert(!/onclick="mergeOneMr\([^"]*"[^"]*"/.test(mrQuote),
-  "un guillemet double dans un libellé ne doit pas fermer l'attribut onclick");
-assert(/⇥ merger/.test(mrLineHtml({ iid: 1, url: "https://gl.x/a/b/-/merge_requests/1" }, escO, jargFn)),
-  "une MR sans cible connue reste mergeable");
-console.log("✓ ligne de MR (RM2723) : rendu unique session+projet, merge à l'URL, pas de bouton sans URL");
+// — RM2720/RM2723 : modes de lot, lot de merges, ligne de MR : MIGRÉS (RM2889) — voir test_cockpit_worklog.js —
 
 // — RM2721 : « ⬆ MAJ dispo » doit se remarquer, et rester lisible sans animation —
 // Le bouton vivait avec le style `.mini` de ses six voisins du header : rien ne le
@@ -1503,77 +1178,10 @@ console.log("✓ barre centrale (RM2774) : onglets pleine largeur, titre et acti
 // — RM2776 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
 // — RM2786 : n'offrir que les actions qui ont du sens —
-const batchButtons = grabO("batchButtons", { Object, Set, String });
-const closeBatchPlan = grabO("closeBatchPlan", { Object, Set, String });
-
-// La règle vient du serveur : le front la LIT, il ne la redéclare pas.
-const CFG2786 = {
-  batch_modes: {
-    traiter: { statuses: ["a_corriger", "a_etudier_chiffrer", "a_faire", "a_tester_dev",
-                          "en_cours", "etude_chiffrage_en_cours", "nouveau"], skip: { ferme: "fermé" } },
-    atester: { statuses: ["a_corriger", "a_faire", "a_tester_dev", "en_cours"],
-               skip: { a_tester_demandeur: "déjà en test chez toi" } },
-    etudier: { statuses: ["a_etudier_chiffrer", "etude_chiffrage_en_cours", "nouveau"],
-               skip: { a_faire: "déjà chiffré" } },
-  },
-  closable_statuses: ["a_mep", "a_tester_demandeur", "a_tester_dev", "en_mep"],
-  statuses: ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours",
-             "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger",
-             "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "ferme"],
-};
-const SEL2786 = [
-  { rm_id: "1", status: "nouveau" },
-  { rm_id: "2", status: "en_cours" },
-  { rm_id: "3", status: "a_tester_demandeur" },
-];
-
-// Les compteurs disent ce qui va PARTIR, pas le total coché.
-const nb = batchButtons(SEL2786, ["RM2"], CFG2786);
-assert.strictEqual(nb.etudier, 1, "« analyser » ne compte que le ticket à étudier");
-assert.strictEqual(nb.traiter, 2, "« traiter » ne compte pas le ticket déjà livré");
-assert.strictEqual(nb.atester, 1, "« à tester » ne compte pas ce qui n'est pas en cours");
-assert.strictEqual(nb.fermer, 1, "« fermer » ne compte que le livré");
-assert.strictEqual(nb.mr, 1, "« merger » ne compte que les tickets qui ONT une MR ouverte");
-// Le cas signalé : merger sans MR ne doit pas s'afficher.
-assert.strictEqual(batchButtons(SEL2786, [], CFG2786).mr, 0,
-  "aucune MR ouverte → aucun bouton merger");
-assert.strictEqual(batchButtons(SEL2786, ["2"], CFG2786).mr, 1,
-  "une ref sans préfixe RM est reconnue aussi");
-// Lot homogène déjà livré : plus rien à faire faire à l'agent.
-const livre = batchButtons([{ rm_id: "9", status: "a_tester_demandeur" }], [], CFG2786);
-assert.strictEqual(livre.traiter + livre.atester + livre.etudier, 0,
-  "sur un ticket déjà chez le demandeur, ni traiter ni à tester ni analyser");
-assert.strictEqual(livre.fermer, 1, "…seule la fermeture reste");
-// Statut inconnu : on n'ampute rien.
-const inconnu2786 = batchButtons([{ rm_id: "1", status: "zzz_2786" }], [], CFG2786);
-assert(inconnu2786.traiter === 1 && inconnu2786.fermer === 1,
-  "un statut inconnu laisse les actions proposées (le plan écartera avec sa raison)");
-assert.deepEqual(batchButtons([], [], CFG2786),
-  { traiter: 0, atester: 0, etudier: 0, fermer: 0, mr: 0 }, "sélection vide → rien");
-assert.doesNotThrow(() => batchButtons(null, null, null), "entrées molles tolérées");
-
-// Fermeture en lot : chaque écarté porte sa raison.
-const planClose = closeBatchPlan(SEL2786, CFG2786);
-assert.strictEqual(planClose.count, 1, "un seul fermable");
-assert.deepEqual(planClose.todo.map(t => t.rm_id), ["3"]);
-assert.strictEqual(planClose.skipped.length, 2, "les deux autres sont écartés");
-assert(planClose.skipped.every(t => t.why), "…chacun AVEC sa raison, jamais en silence");
-assert(planClose.skipped.find(t => t.rm_id === "2").why.includes("livré"),
-  "la raison dit pourquoi ce ticket-là ne se ferme pas");
-assert.strictEqual(closeBatchPlan([{ rm_id: "7", status: "zzz" }], CFG2786).skipped[0].why
-  .includes("zzz"), true, "un statut inconnu est écarté en le NOMMANT");
-
-// Verdicts de la fiche : MIGRÉS (RM2889) — voir test_cockpit_review.js.
-
-// Câblage : les deux nouveaux boutons et la source unique de la règle.
+// batchButtons / closeBatchPlan : MIGRÉS (RM2889, worklog) — voir test_cockpit_worklog.js. Reste l'hôte :
 ["batch-etudier-btn", "batch-close-btn"].forEach(id =>
   assert(html.includes('id="' + id + '"'), "bouton manquant : " + id));
-assert(/BATCH_MODES = \{[\s\S]*?etudier:/.test(html), "le mode `etudier` doit être connu du front");
-assert(/batchButtons\(items, refs, CFG\)/.test(html),
-  "l'affichage doit passer par la règle, pas par batchSel.size");
-assert(!/b\.textContent = "▶ traiter \(" \+ batchSel\.size/.test(html),
-  "l'ancien compteur (total coché) ne doit plus exister");
-console.log("✓ actions pertinentes (RM2786) : analyser, fermer, et rien qui ne puisse agir");
+console.log("✓ actions pertinentes (RM2786) : boutons hôtes en place, règle migrée");
 
 // — RM2787 : depuis combien de temps une session s'est-elle tue —
 const agoHM = grabO("agoHM", { Date, Math, String });
@@ -1657,7 +1265,7 @@ assert(/this\.ctx\.pin\("review", e\.rm_id\)/.test(fs.readFileSync(path.join(__d
   "marque absente : file à tester (migrée)");
 assert(/pin\("project", p\.value\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/projects/ProjectsPanelViewModel.js"), "utf8")),
   "marque absente : panneau projets (migré RM2889)");
-assert(/pinOf\("review", String\(it\.ref/.test(html), "marque absente : worklog");
+assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/worklog/Worklog.view.js"), "utf8")), "marque absente : worklog (migré)");
 // …et l'état doit suivre le geste, sans attendre le prochain poll.
 // RM2889 : l'épinglage vit dans le routeur du centre ; c'est lui qui prévient les listes
 const centerSrc = fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8");
@@ -1668,32 +1276,7 @@ assert(/opts && opts\.pin && ctx\.onPinChange\) ctx\.onPinChange\(\)/.test(cente
 // Le panneau projets reçoit la marque en option : porté dans test_cockpit_projects.js (RM2889).
 console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes, à jour au clic");
 
-// — RM2796 : une seule pastille de statut, la dérive dans la couleur —
-const statusPill = grabO("statusPill");
-const neutre2796 = statusPill({ status: "en_cours" }, escO);
-assert.strictEqual(neutre2796, '<span class="pill">en_cours</span>',
-  "sans dérive : une pastille nue, aucune infobulle à lire pour rien");
-const derive2796 = statusPill(
-  { status: "a_tester_demandeur", opened_status: "en_cours", drifted: true }, escO);
-assert(/class="pill warn"/.test(derive2796), "dérive : la couleur porte le signal");
-assert(/>a_tester_demandeur</.test(derive2796), "le statut COURANT est ce qui s'affiche");
-assert(!/en_cours →/.test(derive2796.replace(/title="[^"]*"/, "")),
-  "l'ancien statut ne s'affiche plus dans la pastille — il ne s'y lisait pas");
-assert(/title="[^"]*en_cours → a_tester_demandeur/.test(derive2796),
-  "…il passe dans l'infobulle, avec le nouveau");
-// Cas limites : rien ne doit produire de pastille bavarde ou fausse.
-assert(!/warn/.test(statusPill({ status: "en_cours", opened_status: "en_cours", drifted: true }, escO)),
-  "un « changement » vers le même statut n'est pas une dérive");
-assert(!/warn/.test(statusPill({ status: "a_faire", drifted: true }, escO)),
-  "dérive annoncée sans ancien statut : pas de promesse qu'on ne peut pas tenir");
-assert.strictEqual(statusPill({}, escO), '<span class="pill">?</span>',
-  "item vide : un statut inconnu se dit, il ne disparaît pas");
-assert.strictEqual(statusPill(null, escO), '<span class="pill">?</span>', "item absent toléré");
-assert(!/<b>/.test(statusPill({ status: "<b>x</b>" }, escO)), "le statut est échappé");
-// Câblage : l'ancienne double pastille ne doit plus exister.
-assert(/statusPill\(it, esc\)/.test(html), "le worklog doit passer par la fonction");
-assert(!/const drift = it\.drifted/.test(html), "l'ancienne seconde pastille doit avoir disparu");
-console.log("✓ statut du worklog (RM2796) : une pastille, la dérive en couleur et au survol");
+// — RM2796 : pastille de statut : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2797 : description et historique en facettes : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js.
 // Reste au monolithe la feuille de style : une facette doit pouvoir occuper toute la hauteur.
@@ -1701,51 +1284,7 @@ assert(/\.facetfull \{[^}]*max-height: none/.test(html),
   "une facette doit pouvoir occuper toute la hauteur");
 console.log("✓ fiche ticket (RM2797) : style des facettes pleine hauteur conservé");
 
-// — RM2798 : le worklog groupé par client / projet —
-const groupWorklogItems = grabO("groupWorklogItems", { Map });
-const worklogGroupedHtml = grabO("worklogGroupedHtml", { Map, groupWorklogItems: grabO("groupWorklogItems", { Map }) });
-
-const WL2798 = [
-  { ref: "RM1", client: "calicote", project: "presta" },
-  { ref: "RM2", client: "abatik", project: "infra" },
-  { ref: "RM3", client: "calicote", project: "presta" },
-  { ref: "RM4" },                                    // chantier libre
-];
-const g2798 = groupWorklogItems(WL2798);
-// L'ordre des GROUPES est celui de leur première apparition — pas alphabétique :
-// c'est un rendu, pas un tri, et la session a son propre ordre de travail.
-assert.deepEqual(g2798.map(x => x.key), ["calicote / presta", "abatik / infra", "hors projet"],
-  "groupes dans l'ordre d'apparition, « hors projet » en dernier");
-assert.deepEqual(g2798[0].items.map(i => i.ref), ["RM1", "RM3"],
-  "l'ordre DANS un groupe reste celui de la session");
-assert.strictEqual(g2798[2].items[0].ref, "RM4", "un ticket sans projet n'est pas perdu");
-// Cas partiels : ne jamais fabriquer un « client / » ou un « / projet ».
-assert.strictEqual(groupWorklogItems([{ ref: "A", project: "infra" }])[0].key, "infra",
-  "projet seul : pas de séparateur orphelin");
-assert.strictEqual(groupWorklogItems([{ ref: "A", client: "abatik" }])[0].key, "abatik",
-  "client seul : idem");
-assert.deepEqual(groupWorklogItems([]), [], "aucun item → aucun groupe");
-assert.deepEqual(groupWorklogItems(null), [], "liste absente tolérée");
-
-// Rendu : un seul groupe ne s'annonce pas.
-const rendu = (it) => "<i>" + it.ref + "</i>";
-const mono = worklogGroupedHtml(
-  [{ ref: "RM1", client: "c", project: "p" }, { ref: "RM2", client: "c", project: "p" }],
-  rendu, escO);
-assert.strictEqual(mono, "<i>RM1</i><i>RM2</i>",
-  "un worklog mono-projet n'affiche aucun en-tête — il coûterait une ligne pour rien");
-const multi = worklogGroupedHtml(WL2798, rendu, escO);
-assert(/class="wlghead">calicote \/ presta/.test(multi), "en-tête du groupe");
-assert(/<span class="gcnt">2<\/span>/.test(multi), "…avec son compte");
-assert(multi.indexOf("calicote") < multi.indexOf("abatik"), "ordre d'apparition conservé");
-assert(multi.indexOf("hors projet") > multi.indexOf("abatik"), "« hors projet » ferme la marche");
-assert.strictEqual(worklogGroupedHtml([], rendu, escO), "", "aucun item → rien");
-// Câblage : le rendu des buckets doit passer par le groupement.
-assert(/worklogGroupedHtml\(s\.items, itemHtml, esc\)/.test(html),
-  "chaque bucket doit être groupé");
-assert(!/bucketHtml\[s\.key\] = s\.items\.map\(itemHtml\)\.join/.test(html),
-  "l'ancien rendu à plat ne doit plus exister");
-console.log("✓ worklog groupé (RM2798) : par client/projet, ordre de session préservé");
+// — RM2798 : worklog groupé : MIGRÉ (RM2889) — voir test_cockpit_worklog.js —
 
 // — RM2799 : hiérarchie de lecture — la section, puis le numéro, puis le statut —
 // Le groupe doit être une SECTION : sans délimitation, son en-tête se lisait
@@ -1769,55 +1308,10 @@ assert(/font-weight: 600/.test(cssRef2799[0]), "…et plus gras");
 assert(/color: var\(--accent\)/.test(cssRef2799[0]), "…et en couleur d'accent");
 assert(/font-family: var\(--mono\)/.test(cssRef2799[0]),
   "…en chasse fixe : un identifiant se lit comme un identifiant");
-// Le signal de dérive ne doit pas disparaître pour autant.
-assert(/class="pill warn"/.test(statusPill(
-  { status: "a_mep", opened_status: "en_cours", drifted: true }, escO)),
-  "le statut jaune reste le signal de dérive — il cesse d'écraser, il ne s'efface pas");
-// Le numéro reste un point d'entrée vers la fiche.
-const ref2799 = worklogRefHtml("RM2799", escId, () => ' title="x"');
-assert(/showTicket\(2799\)/.test(ref2799), "le numéro reste cliquable");
-assert(/title="x"/.test(ref2799), "…et garde son infobulle");
-assert(!/class="pill"/.test(ref2799), "…sans reprendre le style de la pastille");
+// La dérive et le numéro cliquable : MIGRÉS (RM2889) — voir test_cockpit_worklog.js
 console.log("✓ lisibilité du worklog (RM2799) : sections délimitées, numéro qui prime sur le statut");
 
-// — RM2801 : l'état de la MR sur la ligne du ticket —
-const mrStageHtml = grabO("mrStageHtml");
-// Un ticket sans MR ne rend RIEN : l'absence n'est pas un état à afficher sur
-// chaque ligne d'une colonne étroite.
-assert.strictEqual(mrStageHtml(null, escO, jargFn), "", "pas de MR → rien");
-assert.strictEqual(mrStageHtml({}, escO, jargFn), "", "étape absente → rien");
-assert.strictEqual(mrStageHtml({ stage: "inconnue" }, escO, jargFn), "",
-  "étape inconnue → rien plutôt qu'un badge muet");
-// Les trois étapes se distinguent, et disent ce qu'elles attendent.
-const ouv = mrStageHtml({ stage: "open", url: "https://g/mr/1", count: 1,
-  mrs: [{ iid: "1", state: "opened", target: "dev" }] }, escO, jargFn);
-assert(/⇥ MR/.test(ouv) && /pill warn/.test(ouv), "MR ouverte : signalée comme un reste à faire");
-assert(/à merger/.test(ouv), "…et l'infobulle dit quoi en faire");
-const integ = mrStageHtml({ stage: "integration", url: "u", count: 1, mrs: [] }, escO, jargFn);
-assert(/✓ dev/.test(integ) && /pill ok/.test(integ), "mergée dans l'intégration");
-// La promotion est une MR de LOT, hors ticket : l'infobulle le dit, sinon
-// « ✓ dev » se lirait comme une promotion oubliée.
-assert(/par lot \(dev → main\)/.test(integ), "…et ce qui reste à faire est dit");
-const prod = mrStageHtml({ stage: "prod", url: "u", count: 1, mrs: [] }, escO, jargFn);
-assert(/✓ prod/.test(prod), "promue en production");
-// Plusieurs MR : le détail au survol, pas sur la ligne.
-const multi2801 = mrStageHtml({ stage: "prod", url: "u", count: 2,
-  mrs: [{ iid: "1", state: "merged", target: "dev", repo: "a/b" },
-        { iid: "2", state: "merged", target: "main" }] }, escO, jargFn);
-assert(/!1 merged → dev/.test(multi2801) && /!2 merged → main/.test(multi2801),
-  "chaque MR est détaillée dans l'infobulle");
-assert(/2 MR/.test(multi2801), "…et le nombre est annoncé");
-assert(!/!1/.test(multi2801.replace(/title="[^"]*"/, "")),
-  "le détail reste DANS l'infobulle — la ligne n'a pas la place");
-// Le badge mène à la MR, sans déclencher le clic de la ligne.
-assert(/window\.open\('https:\/\/g\/mr\/1'/.test(ouv), "le badge ouvre la MR");
-assert(/event\.stopPropagation/.test(ouv), "…sans ouvrir aussi la fiche du ticket");
-assert(!/window\.open/.test(mrStageHtml({ stage: "prod", count: 1, mrs: [] }, escO, jargFn)),
-  "sans URL connue, pas de lien mort");
-// Câblage : la ligne du worklog doit porter le badge.
-assert(/mrStageHtml\(\(worklog\.mr_stage \|\| \{\}\)\[it\.ref\], esc, jarg\)/.test(html),
-  "chaque ligne de ticket doit afficher l'étape de sa MR");
-console.log("✓ étape de MR (RM2801) : ouverte, intégration, production — sur la ligne du ticket");
+// — RM2801 : étape de MR : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
 
 // — RM2806 : la facette description n'emprunte plus le style du bloc encadré —
 // Le piège corrigé ici est un piège de CASCADE : `.facetfull { max-height: none }`
@@ -1852,7 +1346,7 @@ assert(mRefresh, "marqueurs >>> refresh / <<< refresh introuvables");
     attached: null, worklog: null,
     rightVisible: () => true,
     // RM2889 : le tableau de bord est un domaine migré ; la pile lui parle par le pont
-    karlCall: (dom, fn) => (dom === "dashboard" && fn === "visible" ? false : undefined),
+    karlCall: (dom, fn) => { if (dom === "worklog" && fn === "setFromRefresh") calls.worklog++; return dom === "dashboard" && fn === "visible" ? false : undefined; },   // RM2889 : le bloc worklog part au contrôleur migré
     resolveCache: {}, resolveAt: {},
     pendStale: null, pendStaleSet: (e) => new Set((e || []).map(x => x.rm_id)),
     api: async (u) => { calls.api.push(u); return ctx._resp; },
@@ -1963,56 +1457,9 @@ assert(/id="updbtn"[\s\S]{0,200}Une mise à jour du code PM est disponible/.test
   "…et son infobulle");
 console.log("✓ MAJ dispo (RM2821) : dernier bouton du header, son apparition ne décale plus rien");
 
-// — RM2823 : sortir des tickets d'une session vers une session dédiée —
-// Une session est ancrée sur UN projet ; le fil, lui, ramasse des tickets
-// d'ailleurs. Le lot part alors dans une session neuve, ancrée sur LEUR projet.
-const offloadPlan = grabO("offloadPlan");
-const RC2823 = {
-  "10": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
-  "11": { found: true, client: "acme", project: "boutique", cwd: "/w/acme/boutique" },
-  "20": { found: true, client: "beta", project: "api", cwd: "/w/beta/api" },
-  "30": { found: false },
-};
-const homogene = offloadPlan([{ rm_id: "10" }, { rm_id: "11" }], RC2823);
-assert.strictEqual(homogene.mixed, false, "même projet → pas de mélange");
-assert.strictEqual(homogene.targets.map(t => t.rm_id).join(","), "10,11", "les deux partent");
-assert.strictEqual(homogene.client, "acme", "client du lot");
-assert.strictEqual(homogene.project, "boutique", "projet du lot");
-assert.strictEqual(homogene.cwd, "/w/acme/boutique", "cwd repris du ticket, pas deviné");
-assert.strictEqual(homogene.anchor, "10", "l'ancrage est le premier ticket du lot");
-
-const melange = offloadPlan([{ rm_id: "10" }, { rm_id: "20" }], RC2823);
-assert.strictEqual(melange.mixed, true, "deux projets → refus : la session n'aurait pas d'ancrage");
-assert.strictEqual(melange.projects.slice().sort().join(" "), "acme/boutique beta/api",
-  "…et le refus doit NOMMER les projets en présence");
-
-const inconnu = offloadPlan([{ rm_id: "10" }, { rm_id: "30" }], RC2823);
-assert.strictEqual(inconnu.blocked.map(t => t.rm_id).join(","), "30",
-  "ticket sans projet résolu : il reste sur place");
-assert.strictEqual(inconnu.targets.map(t => t.rm_id).join(","), "10", "…et n'empêche pas les autres de partir");
-assert.strictEqual(inconnu.mixed, false, "un ticket non résolu n'est pas un second projet");
-assert.strictEqual(offloadPlan([], RC2823).targets.length, 0, "sélection vide");
-assert.strictEqual(offloadPlan([{ rm_id: "30" }], RC2823).anchor, null,
-  "aucun ticket embarquable → pas d'ancrage, donc rien à lancer");
-// un ticket coché sous la forme « RM10 » (référence de worklog) doit être compris
-assert.strictEqual(offloadPlan([{ rm_id: "RM10" }], RC2823).anchor, "10",
-  "la référence RM<id> est normalisée");
-
-// Câblage
+// — RM2823 : embarquer un lot ailleurs : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js. Reste l'hôte :
 assert(/id="batch-offload-btn"/.test(html), "le bouton d'embarquement doit exister");
-const off2823 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
-assert(off2823, "offloadToNewSession introuvable");
-// RM2831 a factorisé le lancement : la garantie porte désormais sur le chemin
-// partagé, que ce geste emprunte.
-const shared2823 = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
-assert(shared2823, "chemin partagé de lancement introuvable");
-assert(/\/worklog\/batch/.test(shared2823[0]) && /dry_run/.test(shared2823[0]),
-  "la consigne doit venir du serveur (dry_run), pas d'un second générateur dans le front");
-assert(/\/spawn/.test(shared2823[0]), "…et la session être créée par l'endpoint existant");
-assert(/spawnBatchSession\(/.test(off2823[0]), "le geste du worklog emprunte ce chemin");
-assert(/openedForget\(/.test(off2823[0]),
-  "les tickets embarqués quittent la liste des tickets ouverts de la session d'origine");
-console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne du serveur, session neuve");
+console.log("✓ embarquer un lot ailleurs (RM2823) : bouton hôte en place, logique migrée");
 // — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
 // Texte d'alerte, garde et spawn depuis la fiche : MIGRÉS (RM2889, test_cockpit_review.js).
 // Le lanceur de gauche (spawn) reste au monolithe et doit passer par la garde (pont).
@@ -2048,16 +1495,9 @@ console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux 
 // rassemble par ÉTIQUETTE : la liste filtrée est déjà le lot.
 // triageBatchItems : MIGRÉ (RM2889) — voir test_cockpit_tickets.js
 
-// Le chemin de lancement est CELUI de RM2823 : une seule fonction, pas deux
-const sbs = /async function spawnBatchSession\([\s\S]*?\n\}/.exec(html);
-assert(sbs, "spawnBatchSession introuvable (chemin partagé RM2823/RM2831)");
-assert(/offloadPlan\(/.test(sbs[0]) && /\/worklog\/batch/.test(sbs[0]) && /\/spawn/.test(sbs[0]),
-  "le chemin partagé garde le plan, la consigne du serveur et /spawn");
-const off2831 = /async function offloadToNewSession\([\s\S]*?\n\}/.exec(html);
-assert(/spawnBatchSession\(/.test(off2831[0]),
-  "le geste du worklog (RM2823) passe par le chemin partagé");
-assert(/spawnBatch: \(items, btn, opts\) => legacy\("spawnBatchSession"\)/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")),
-  "le geste du triage (migré) passe aussi par spawnBatchSession — sinon deux comportements divergeraient");
+// Le chemin de lancement est CELUI de RM2823 : une seule fonction (worklog.spawnBatch), empruntée par le triage
+assert(/spawnBatch: \(items, btn, opts\) => worklogCtl\.spawnBatch/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")),
+  "le geste du triage passe par le chemin partagé du worklog — sinon deux comportements divergeraient");
 assert(/id="tr-spawn"/.test(html), "le bouton du triage doit exister");
 console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une session, par le chemin de RM2823");
 
@@ -2087,11 +1527,8 @@ console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour le
 const metaView2888 = fs.readFileSync(path.join(__dirname, "src/views/tickets/Meta.view.js"), "utf8");
 assert(/data-action="status" data-rm=/.test(metaView2888),
   "la fiche du ticket ouvre le menu depuis sa pastille de phase (vue migrée, RM2889)");
-const mRw2888 = /function renderWorklog\(\) \{[\s\S]*?\n\}/.exec(html);
-assert(/openStatusMenu\(/.test(mRw2888[0]),
-  "le worklog aussi : c'est le second point d'entrée demandé");
-assert(/event\.stopPropagation\(\);openStatusMenu/.test(mRw2888[0]),
-  "…sans ouvrir la fiche par-dessus le menu");
+assert(/data-action="status" data-ref=/.test(fs.readFileSync(path.join(__dirname, "src/views/worklog/Worklog.view.js"), "utf8")),
+  "le worklog aussi : c'est le second point d'entrée demandé (vue migrée)");
 console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut migré");
 
 // — RM2894 : libellé de la session en en-tête du panneau de droite —

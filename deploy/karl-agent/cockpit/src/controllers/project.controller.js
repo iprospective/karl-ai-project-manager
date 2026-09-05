@@ -56,7 +56,7 @@ export function mountProject(el, ctx = {}) {
     notify(r.message, !r.ok);
     if (r.ok) open(state.key); else btn.disabled = false;
   }
-  const gestures = {
+  const gestures = { "merge-one": (n) => ctx.mergeMr && ctx.mergeMr(n.dataset.url, n.dataset.iid, n.dataset.target, n),
     close: () => close(), tab: (n) => { state.tab = n.dataset.tab === "worklog" ? "worklog" : "fiche"; paint(); if (state.tab === "worklog") refreshWorklog(); else loadWorktrees(state.key); },
     conf: (n) => openConfig(n.dataset.scope), attach: (n) => ctx.attach && ctx.attach(n.dataset.sid), ticket: (n) => ctx.showTicket && ctx.showTicket(n.dataset.rm),
     doc: (n) => ctx.openDoc && ctx.openDoc(n.dataset.path, n.dataset.name),

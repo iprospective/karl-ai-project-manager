@@ -530,38 +530,7 @@ console.log("\u2713 pendStaleSet (RM2598) : questions sans réponse, live exclue
 
 // — clampWidth (RM2599) : MIGRÉ (RM2889, layout) — voir test_cockpit_layout.js —
 
-// — setEditOptions (RM2955) : la carte « Sessions enregistrées » règle N'IMPORTE
-//   quel jeu, sans déplacer le jeu courant. Le sélecteur doit donc dire lequel
-//   gouverne encore l'affichage et reçoit les écritures automatiques.
-const fSeo = />>> setEditOptions[\s\S]*?(function setEditOptions[\s\S]*?)\n\/\/ <<< setEditOptions/.exec(html);
-assert(fSeo, "marqueurs setEditOptions introuvables");
-const setEditOptions = vm.runInNewContext("(" + fSeo[1] + ")");
-const SETS_2955 = [
-  { name: "default", label: "sessions actives", count: 12, alive: 5 },
-  { name: "pm", label: "PM", count: 3, alive: 1, derived: true },
-  { name: "nuit", count: 0, alive: 0 },
-];
-let opts = setEditOptions(SETS_2955, null, "pm");
-assert.deepStrictEqual(opts.map(o => o.value), ["default", "pm", "nuit"],
-  "tous les jeux sont proposés, dans leur ordre");
-assert.strictEqual(opts.find(o => o.value === "pm").selected, true,
-  "sans choix explicite, la carte suit le jeu courant");
-assert(opts.find(o => o.value === "pm").label.includes("● courant"),
-  "le jeu courant est marqué comme tel");
-assert(opts.find(o => o.value === "pm").label.startsWith("⚙ "),
-  "un jeu dérivé se signale : on y règle une règle, pas un contenu");
-assert(!opts.find(o => o.value === "default").label.includes("● courant"),
-  "les autres jeux ne portent pas la marque");
-assert.strictEqual(opts.find(o => o.value === "default").label, "sessions actives (5/12)",
-  "libellé + ouvertes/enregistrées");
-assert.strictEqual(setEditOptions(SETS_2955, "nuit", "pm").find(o => o.selected).value, "nuit",
-  "un choix explicite l'emporte sur le jeu courant");
-assert(setEditOptions(SETS_2955, "nuit", "pm").find(o => o.value === "pm").label.includes("● courant"),
-  "…et le jeu courant reste signalé, il n'a pas bougé");
-assert.strictEqual(setEditOptions(null, null, "pm").length, 0, "aucun jeu : aucune option");
-assert.strictEqual(setEditOptions([{ name: "x" }], null, "pm")[0].label, "x (0/0)",
-  "jeu sans libellé ni compteurs : le slug et des zéros, jamais « undefined »");
-console.log("\u2713 setEditOptions (RM2955) : la carte règle tout jeu, le courant reste signalé");
+// — setEditOptions (RM2955) : MIGRÉ (RM2889, jeux de sessions) — voir test_cockpit_sets.js —
 
 // — RM2952 : la largeur RÉGLÉE prime sur le confort par défaut —
 // `max(--rpanel-w, 460px)` imposait un plancher de 460 px sur l'onglet
@@ -625,45 +594,7 @@ console.log("\u2713 pollDelay (RM2613) : cadence adaptative, pause en arriere-pl
 // — RM1952 : triage ROI : MIGRÉ (RM2889, panneau 🎫) — voir test_cockpit_tickets.js —
 
 // — RM2673 : écriture dans un jeu, tickets du worklog, fichiers sans session —
-const setWritable = grabO("setWritable");
-const SETS = [
-  { name: "default", label: "default" },
-  { name: "pm", label: "PM", derived: true, rule: { client: "iprospective", project: "pm-ai-agents" } },
-];
-assert.strictEqual(setWritable(SETS, "default", "set"), true, "jeu manuel → écriture possible");
-assert.strictEqual(setWritable(SETS, "pm", "set"), false, "jeu dérivé → aucune écriture");
-assert.strictEqual(setWritable(SETS, "pm", "live"), false,
-  "le jeu dérivé reste la cible en vue « sessions ouvertes » — le bouton ne doit pas revenir");
-assert.strictEqual(setWritable(SETS, "pm", "all"), false, "…ni en vue « tous les jeux »");
-assert.strictEqual(setWritable(SETS, "default", "client:acme"), false,
-  "une vue par client ne désigne aucun jeu (RM2536)");
-assert.strictEqual(setWritable(SETS, "inconnu", "set"), true,
-  "jeu pas encore chargé : on n'interdit pas à l'aveugle");
-assert.strictEqual(setWritable(null, "pm", null), true, "cache vide toléré");
-// les trois gestes partagent la même question
-const mRss2673 = /async function refreshSessionSets\(\)[\s\S]*?\n\}/.exec(html);
-assert(/setWritable\(setsCache, currentSet, currentView\)/.test(mRss2673[0]),
-  "le bouton d'enregistrement s'appuie sur setWritable");
-// RM2889 : ⊖ et ⟳ des tuiles grises, ⊖ des vivantes — décidés par `writable` (setWritable prêté) dans le ViewModel migré, voir test_cockpit_sessions.js
-const svm2673 = fs.readFileSync(path.join(__dirname, "src/viewmodels/sessions/SessionsViewModel.js"), "utf8");
-assert(/get inSet\(\) \{[^\n]*this\.ctx\.writable/.test(svm2673), "⊖ et ⟳ des tuiles grises aussi");
-const mSetList2673 = /async function loadSessionSet\(\)[\s\S]*?\n\}/.exec(html);
-assert(/r\.derived \? "" :/.test(mSetList2673[0]),
-  "la liste des entrées n'offre ni ⊖ ni ⟳ sur un jeu dérivé");
-// une session VIVANTE appartient aussi aux jeux dérivés (RM2537) : son ⊖ doit
-// tomber sous la même règle que celui des tuiles grises
-assert(/get canDrop\(\) \{[^\n]*\(this\.s\.sets \|\| \[\]\)\.includes\(st\.current\) && !!\(this\.ctx\.writable/.test(svm2673),
-  "⊖ d'une session vivante : masqué quand le jeu courant est dérivé");
-// déplacer / scinder touchent eux aussi les entrées d'un jeu
-const mMove2673 = /const canMove = ([^;]+);/.exec(html);
-assert(mMove2673 && /setWritable\(/.test(mMove2673[1]),
-  "« → déplacer » exige un jeu source inscriptible");
-assert(/s\.name !== currentSet && !s\.derived/.test(html),
-  "…et les destinations dérivées ne sont pas proposées");
-const mSplit2673 = /const split = ([^;]+);/.exec(html);
-assert(mSplit2673 && /setWritable\(/.test(mSplit2673[1]),
-  "la scission n'est pas proposée depuis un jeu dérivé");
-console.log("✓ jeux (RM2673) : aucun geste d'écriture offert sur un jeu dérivé, quelle que soit la vue");
+// setWritable, 💾 / ⊖ / ⟳ / → déplacer / scinder selon le jeu (RM2673) : MIGRÉS (RM2889, jeux de sessions) — voir test_cockpit_sets.js et test_cockpit_sessions.js
 
 // — RM2673 : tickets de la session (toutes sources) : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js —
 
@@ -741,65 +672,7 @@ console.log("✓ MAJ dispo (RM2721) : pulsation + habillage --warn permanent, mo
 
 // — RM2726 : création de ticket — MIGRÉ (RM2889), voir test_cockpit_newticket.js —
 
-// — RM2741 : barre du panneau « en cours » — relancer pertinent, création unifiée —
-const relaunchBtnState = grabO("relaunchBtnState");
-const newSetPlan = grabO("newSetPlan", { Object });
-const ruleFormHtml2741 = grabO("ruleFormHtml", { esc: escFn, setFacets: { clients: [] }, Set });
-
-const SET = { exists: true, count: 4, entries: [
-  { sid: "1", alive: true }, { sid: "2", alive: false },
-  { sid: "3", alive: false }, { sid: "4", alive: true }] };
-
-assert.deepEqual(relaunchBtnState(SET, "set"), { show: true, count: 2 },
-  "le compteur doit être celui des sessions ÉTEINTES, pas du jeu entier");
-assert.strictEqual(relaunchBtnState(SET, "live").show, false,
-  "vue « sessions ouvertes » : rien à relancer, le bouton n'a pas à s'y trouver");
-assert.strictEqual(relaunchBtnState(SET, "all").show, false,
-  "vue « tous les jeux » : l'affichage n'est pas le jeu, le geste écrirait ailleurs");
-assert.strictEqual(relaunchBtnState(SET, "client:acme").show, false,
-  "vue par client : idem, l'affichage n'est pas le jeu");
-assert.strictEqual(relaunchBtnState(
-  { exists: true, count: 2, entries: [{ alive: true }, { alive: true }] }, "set").show, false,
-  "tout tourne déjà → rien à relancer");
-assert.strictEqual(relaunchBtnState({ exists: false }, "set").show, false, "pas de jeu → pas de bouton");
-assert.deepEqual(relaunchBtnState({ exists: true, count: 3 }, "set"), { show: true, count: 3 },
-  "payload sans entries : on retombe sur le total plutôt que de masquer un geste utile");
-
-// création unifiée : la nature se déduit des critères
-const EXIST = ["default", "pm"];
-const manual = newSetPlan("chantier", "Chantier", {}, ["1", "2"], true, EXIST);
-assert.strictEqual(manual.kind, "manual", "aucun critère → jeu manuel");
-assert.deepEqual(manual.body, { group: "chantier", label: "Chantier", sids: ["1", "2"] });
-assert.strictEqual(manual.note, "", "rien d'ignoré ici, rien à signaler");
-
-const emptySet2741 = newSetPlan("chantier", "Chantier", {}, ["1"], false, EXIST);
-assert.deepEqual(emptySet2741.body, { group: "chantier", label: "Chantier" },
-  "case décochée → jeu vide, aucune session versée");
-
-const derived = newSetPlan("acme", "Acme", { client: "acme" }, ["1", "2"], true, EXIST);
-assert.strictEqual(derived.kind, "derived", "un critère → jeu dérivé");
-assert.deepEqual(derived.body, { group: "acme", label: "Acme", rule: { client: "acme" } },
-  "un jeu dérivé ne reçoit PAS de sids : son contenu se calcule");
-assert(/pas versées/.test(derived.note),
-  "la case cochée mais sans effet doit être signalée, pas ignorée en silence");
-
-assert.strictEqual(newSetPlan("pm", "PM", {}, [], false, EXIST).ok, false, "nom déjà pris");
-assert(/existe déjà/.test(newSetPlan("pm", "PM", {}, [], false, EXIST).error));
-assert.strictEqual(newSetPlan("x", "", {}, [], false, EXIST).ok, false, "nom vide refusé");
-assert.strictEqual(newSetPlan("", "###", {}, [], false, EXIST).ok, false, "nom inexploitable refusé");
-
-// le formulaire de création porte le nom, la case de peuplement et les critères
-const fNew = ruleFormHtml2741({}, true, 5);
-assert(/id="rf-name"/.test(fNew) && /id="rf-seed"/.test(fNew), "nom + peuplement attendus");
-assert(/5 session\(s\) affichée\(s\)/.test(fNew), "le nombre de sessions affichées doit être dit");
-assert(/checked/.test(fNew), "la case de peuplement est cochée par défaut");
-assert(/manuel/.test(fNew) && /dérivé/.test(fNew), "les deux natures doivent être expliquées");
-assert(!/id="rf-seed"/.test(ruleFormHtml2741({}, true, 0)),
-  "sans session affichée, pas de case à cocher sans objet");
-const fEdit = ruleFormHtml2741({ client: "acme" }, false, 5);
-assert(!/id="rf-name"/.test(fEdit) && !/id="rf-seed"/.test(fEdit),
-  "édition d'une règle existante : ni nom ni peuplement");
-console.log("✓ barre des jeux (RM2741) : relancer restreint et compté, création unifiée");
+// — RM2741 : barre du panneau « en cours » (relaunchBtnState, newSetPlan, ruleFormHtml) : MIGRÉ (RM2889) — voir test_cockpit_sets.js —
 
 // — RM2744 : tableau de bord — contenu atteignable (onglet permanent : MIGRÉ, test_cockpit_center.js) —
 // RM2889 : le rendu du tableau de bord vit dans src/ ; c'est boot.js qui pose ET
@@ -1134,7 +1007,7 @@ console.log("✓ reprise de session (RM2834) : hôte HTML en place, logique migr
 assert(/<select id="sf-tag"/.test(html), "filtre étiquette dans la recherche");
 assert(/<select id="tr-tag"/.test(html), "filtre étiquette dans le triage ROI");
 assert(/"search\.tags"/.test(fs.readFileSync(path.join(__dirname, "src/models/tickets/SearchRepository.js"), "utf8")), "les étiquettes proposées viennent de GET /tags (dépôt migré)");
-assert(/rf-tag/.test(html), "le formulaire de jeu dérivé propose le critère étiquette");
+assert(/"rf-tag"/.test(fs.readFileSync(path.join(__dirname, "src/views/sessions/Sets.view.js"), "utf8")), "le formulaire de jeu dérivé propose le critère étiquette (vue migrée RM2889)");
 console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");
 
 // — RM2831 : constituer un lot par domaine et ouvrir une session dessus —

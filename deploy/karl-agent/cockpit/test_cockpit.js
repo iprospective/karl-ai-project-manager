@@ -540,71 +540,7 @@ assert.strictEqual(mkTermBase({ ttyd_base: "https://ailleurs:1234" }, https443)(
   "KARL_AGENT_TTYD_URL reste prioritaire");
 console.log("✓ termBase (RM2561) : WebSocket en même origine derrière le vhost, repli :7681 sinon");
 
-// — 10. colonnes repliables + onglets de droite (RM2466 volet 3) —
-const fRp = />>> rightPanelReduce[\s\S]*?(function rightPanelReduce[\s\S]*?)\n\/\/ <<< rightPanelReduce/.exec(html);
-assert(fRp, "marqueurs >>> rightPanelReduce / <<< rightPanelReduce introuvables");
-const _rpr = vm.runInNewContext("(" + fRp[1] + ")");
-// l'objet rendu vient d'un autre realm : on le recopie ici pour comparer
-const rightPanelReduce = (s, a) => ({ ..._rpr(s, a) });
-
-// RM2952 : l'état porte désormais `manual` — le repli VOULU, distinct du repli
-// par défaut. Les états attendus le disent tous explicitement.
-const replie = { tab: "outline", collapsed: true, manual: false };
-const ouvert = { tab: "outline", collapsed: false, manual: false };
-assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "tickets" }),
-  { tab: "tickets", collapsed: false, manual: false }, "replié : sélectionner un onglet déplie dessus");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "tickets" }),
-  { tab: "tickets", collapsed: false, manual: false }, "ouvert : changer d'onglet ne replie pas");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "select", tab: "outline" }),
-  { tab: "outline", collapsed: true, manual: true }, "ouvert : re-sélectionner l'onglet actif replie");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show" }),
-  ouvert, "show sans onglet : déplie sans arracher l'onglet courant");
-assert.deepStrictEqual(rightPanelReduce({ tab: "outline", collapsed: true }, { type: "show" }),
-  ouvert, "show sans onglet depuis replié : déplie sur l'onglet mémorisé");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "show", tab: "tickets" }),
-  { tab: "tickets", collapsed: false, manual: false }, "show ciblé : l'onglet demandé passe devant");
-assert.deepStrictEqual(rightPanelReduce({ tab: "tickets", collapsed: false }, { type: "collapse" }),
-  { tab: "tickets", collapsed: true, manual: false }, "collapse garde l'onglet en mémoire");
-assert.deepStrictEqual(rightPanelReduce(replie, { type: "toggle" }), ouvert, "toggle déplie");
-assert.deepStrictEqual(rightPanelReduce(ouvert, { type: "toggle" }),
-  { tab: "outline", collapsed: true, manual: true }, "toggle replie");
-
-// RM2952 — le repli VOULU tient tête aux ouvertures automatiques. Attacher une
-// session déplie la colonne (`show` sans onglet), et cela arrive tout seul :
-// après un spawn, une relance, au rechargement. Un panneau replié à la main se
-// rouvrait donc sans cesse — le bouton de repli paraissait inopérant.
-const repliVoulu = { tab: "outline", collapsed: true, manual: true };
-assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "show" }), repliVoulu,
-  "repli voulu : une ouverture automatique (attache) ne le défait pas");
-assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "show", tab: "tickets" }),
-  { tab: "tickets", collapsed: false, manual: false },
-  "repli voulu : mais une demande CIBLÉE (ce ticket, ce fichier) déplie");
-assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "toggle" }),
-  { tab: "outline", collapsed: false, manual: false },
-  "repli voulu : le rouvrir à la main lève la consigne");
-assert.deepStrictEqual(rightPanelReduce(repliVoulu, { type: "collapse" }), repliVoulu,
-  "un repli automatique (plus de session) ne décide rien à la place de l'opérateur");
-assert.deepStrictEqual(rightPanelReduce(replie, { type: "show" }), ouvert,
-  "replié par DÉFAUT (jamais touché) : l'attache déplie comme avant");
-
-// RM2579 : trois onglets, défaut « infos », migration de l'ancien « meta »
-assert.deepStrictEqual(rightPanelReduce(null, {}), { tab: "infos", collapsed: true, manual: false },
-  "état absent → replié sur infos (défaut RM2579)");
-assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: false }, {}),
-  { tab: "infos", collapsed: false, manual: false }, "legacy « meta » (ancien localStorage) → infos");
-assert.deepStrictEqual(rightPanelReduce({ tab: "meta", collapsed: true }, { type: "show" }),
-  { tab: "infos", collapsed: false, manual: false }, "legacy « meta » migré aussi via show");
-assert.deepStrictEqual(rightPanelReduce({ tab: "zzz" }, {}), { tab: "infos", collapsed: true, manual: false },
-  "onglet inconnu → infos");
-// « state » (🗒 état, RM2466 volet 2 mergé en parallèle) est un onglet VALIDE :
-// il ne doit PAS être normalisé vers infos (régression corrigée).
-assert.deepStrictEqual(rightPanelReduce({ tab: "state", collapsed: false }, {}),
-  { tab: "state", collapsed: false, manual: false }, "onglet state préservé (pas de normalisation)");
-assert.deepStrictEqual(rightPanelReduce({ tab: "files", collapsed: false }, {}),
-  { tab: "files", collapsed: false, manual: false }, "onglet files (RM2586) est un onglet valide");
-assert.deepStrictEqual(rightPanelReduce(replie, { type: "select", tab: "state" }),
-  { tab: "state", collapsed: false, manual: false }, "select state : déplie sur état");
-console.log("✓ colonnes (RM2466/2579/2952) : 4 onglets, défaut infos, legacy meta→infos, repli voulu respecté");
+// — 10. réducteur de la colonne de droite (RM2466/2579/2952) : MIGRÉ (RM2889, layout) — voir test_cockpit_layout.js —
 
 // structure : les deux asides empilés ont bien fusionné en une colonne à onglets
 assert(!/class="metapanel|class="outpanel|id="metapanel"|id="outpanel"/.test(html),
@@ -673,8 +609,8 @@ console.log("✓ worklog (RM2581) : hôte du panneau en place, logique migrée")
 // était normalisé vers un autre et devenait inactivable EN PROD. Chaque branche
 // passait ses propres tests ; seule l'union était cassée.
 const navTabs = [...html.matchAll(/data-rpanel="([a-z]+)"/g)].map(m => m[1]);
-const mTabs = /const TABS = \[([^\]]*)\]/.exec(html);
-assert(mTabs, "whitelist TABS de la colonne de droite introuvable");
+const mTabs = /export const TABS = \[([^\]]*)\]/.exec(fs.readFileSync(path.join(__dirname, "src/models/layout/panels.js"), "utf8"));
+assert(mTabs, "whitelist TABS de la colonne de droite introuvable (modèle migré)");
 const whitelist = (mTabs[1].match(/"([a-z]+)"/g) || []).map(s => s.replace(/"/g, ""));
 assert(navTabs.length, "aucun onglet trouvé dans la barre de droite");
 for (const tab of navTabs) {
@@ -776,15 +712,7 @@ assert.strictEqual(pendStaleSet([]).size, 0, "vide → Set vide");
 assert.strictEqual(pendStaleSet(null).size, 0, "null toléré");
 console.log("\u2713 pendStaleSet (RM2598) : questions sans réponse, live exclues");
 
-// — clampWidth (RM2599) : largeur du panneau de droite bornée —
-const fCw = />>> clampWidth[\s\S]*?(function clampWidth[\s\S]*?)\n\/\/ <<< clampWidth/.exec(html);
-assert(fCw, "marqueurs clampWidth introuvables");
-const clampWidth = vm.runInNewContext("(" + fCw[1] + ")", { R_WIDTH_DEFAULT: 330, Math, Number, isFinite });
-assert.strictEqual(clampWidth(500), 500, "valeur dans les bornes conservee");
-assert.strictEqual(clampWidth(100), 240, "sous le min -> 240");
-assert.strictEqual(clampWidth(2000), 900, "au-dessus du max -> 900");
-assert.strictEqual(clampWidth("abc"), 330, "non numerique -> defaut");
-console.log("\u2713 clampWidth (RM2599) : largeur bornee [240,900], defaut si invalide");
+// — clampWidth (RM2599) : MIGRÉ (RM2889, layout) — voir test_cockpit_layout.js —
 
 // — setEditOptions (RM2955) : la carte « Sessions enregistrées » règle N'IMPORTE
 //   quel jeu, sans déplacer le jeu courant. Le sélecteur doit donc dire lequel
@@ -827,10 +755,10 @@ assert(/\.rpanel\.wide \{ width: var\(--rpanel-w, 460px\); \}/.test(html),
   "onglet conversation : 460px en DÉFAUT de --rpanel-w, jamais en plancher");
 assert(!/\.rpanel\.wide \{ width: max\(/.test(html),
   "plus de max() : il rendait la poignée inopérante sous 460px");
-assert(/function rResetWidth\(\)[\s\S]*?removeProperty\("--rpanel-w"\)/.test(html),
-  "réinitialiser RETIRE la largeur (sinon 330px figerait aussi l'onglet conversation)");
-assert(!/function rResetWidth\(\)[\s\S]*?setRightWidth\(R_WIDTH_DEFAULT\)/.test(html),
-  "réinitialiser n'écrit plus 330px en dur");
+const layoutCtl = fs.readFileSync(path.join(__dirname, "src/controllers/layout.controller.js"), "utf8");
+assert(/function resetWidth\(\)[^\n]*removeProperty\("--rpanel-w"\)/.test(layoutCtl),
+  "réinitialiser RETIRE la largeur (sinon 330px figerait aussi l'onglet conversation) — contrôleur migré");
+assert(!/function resetWidth\(\)[^\n]*R_WIDTH_DEFAULT/.test(layoutCtl), "réinitialiser n'écrit plus 330px en dur");
 console.log("\u2713 largeur du panneau (RM2952) : le réglage prime, le défaut reste un défaut");
 
 // — outByKind (RM2601) : MIGRÉ (RM2889, outline) — voir test_cockpit_outline.js —

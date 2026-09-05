@@ -45,6 +45,7 @@ import { mountResume } from "./controllers/resume.controller.js";
 import { mountSearch } from "./controllers/search.controller.js";
 import { mountFiles } from "./controllers/files.controller.js";
 import { mountWorklog } from "./controllers/worklog.controller.js";
+import { mountLayout } from "./controllers/layout.controller.js";
 import { MrLine } from "./views/worklog/Worklog.view.js";
 import { mrLine } from "./viewmodels/worklog/WorklogViewModel.js";
 import { mdToHtml } from "./core/markdown.js";
@@ -103,6 +104,22 @@ const legacy = (name) => (...a) => (typeof window[name] === "function" ? window[
 // la modale doc : documents rendus (RM2309), aide intégrée (RM2593), glossaire du jargon (RM2623) — et les termes
 // soulignés partout dans la page. Montée d'abord : tous les panneaux lui empruntent l'aide. Le routeur (center)
 // est lu à l'appel, quand un document part au centre.
+// la disposition (RM2466/2579/2599/2952) : colonnes repliables, onglets de droite, largeur, préférences. Montée d'abord : les
+// domaines la lisent (rightVisible) ; ce qu'un onglet visible déclenche est décidé ici, après que tous sont montés (onApply lit
+// les contrôleurs à l'appel, jamais au montage).
+const layout = mountLayout({ main: document.querySelector("main"), rpanel: byId("rpanel"), rnav: document.querySelector("#rpanel .rnav"), rtoggle: byId("rtoggle"), ltoggle: byId("ltoggle"), rhandle: byId("rhandle"), startOpen: byId("rp-startopen"), defTab: byId("rp-deftab") }, {
+  storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
+  onApply: (r, visible) => {
+    const att = lexical(() => attached);
+    if (visible("outline") && att) outlineCtl.load();                       // RM2330 : ne charge qu'une fois réellement visible
+    if (visible("infos") && meta) meta.renderInfos();                       // RM2579 : (re)peuple l'onglet visible
+    if (visible("tickets") && meta) meta.renderTickets();
+    if (visible("state") && worklogCtl) worklogCtl.load();                  // RM2581
+    if (visible("files") && files) files.ensure();                          // RM2586/2673 : compare le contexte, pas le seul sid
+    if (visible("git") && att) git.refresh();                               // RM2602
+  },
+  onResized: () => { const ts = lexical(() => termSession); if (ts) setTimeout(() => { try { ts.fit(); } catch (e) { /* terminal démonté */ } }, 0); },
+});
 const doc = Object.assign(mountDocModal(byId("docmodal"), { root: document, openCenterFile: (src, wt, p) => center.openFile(src, wt, p) }), { glossaireRows, glossaireFiltre });
 const mail = mountMailPanel(document.getElementById("lp-mail"), {
   notify: legacy("toast"),
@@ -250,7 +267,7 @@ project = mountProject(byId("projpane"), {
   titleLink: (rm, t) => legacy("titleLink")(rm, t) || "", ago: legacy("ago"),
   mrLine: (m) => String(MrLine(mrLine(m))), mergeMr: (url, iid, target, btn) => worklogCtl && worklogCtl.mergeOne(url, iid, target, btn),   // RM2723 : rendu et geste partagés avec le worklog de session
   fileBody: (f) => center.fileBodyHtml(f),
-  filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
+  filesEnsure: () => { if (layout.rightVisible("files")) legacy("filesEnsure")(); },
 });
 center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
 // le modèle ticket : la logique dans le module, les caches partagés PAR RÉFÉRENCE avec le
@@ -295,7 +312,7 @@ files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: docu
   notify: legacy("toast"), attached: () => lexical(() => attached), resolve: () => lexical(() => resolveCache) || {},
   reviewCurrent: () => (review ? review.current() : null), projectKey: () => (project ? project.current() : null),
   sets: () => lexical(() => setsCache) || [], currentSet: () => lexical(() => currentSet),
-  fileBody: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))), scopeTagOf: (wt) => center.scopeTagOf(wt), showRight: legacy("showRight"),
+  fileBody: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))), scopeTagOf: (wt) => center.scopeTagOf(wt), showRight: layout.showRight,
   center: { openFile: (src, wt, p, tag) => center.openFile(src, wt, p, tag), openDir: (src, wt, p, tag) => center.openDir(src, wt, p, tag), openCommit: (sid, hash) => center.openCommit(sid, hash) },
 });
 // le panneau 🎫 tickets (RM1952 triage, RM2606 tickets ouverts, RM2619 infobulles) : le monolithe prête les résolutions,
@@ -326,7 +343,7 @@ worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), na
   warnSpawn: legacy("warnSpawn"), refreshSessions: legacy("refreshSessions"), attach: legacy("attach"), forgetOpened: (rm) => tickets.forget(rm),
   forgetTicketSessions: (rm) => { const c = lexical(() => tsCache); if (c) c[rm] = undefined; },
   openExternal: (u) => window.open(u, "_blank", "noopener"), projectWorklog: () => project && project.refreshWorklog(),
-  afterLoad: () => { if (legacy("rightVisible")("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
+  afterLoad: () => { if (layout.rightVisible("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
 });
 // la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
 // l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
@@ -336,9 +353,9 @@ review = mountReview(byId("reviewpane"), {
   resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
   show: (on) => show("reviewpane", on),
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
-  noteOpened: (rm) => tickets.noteOpened(rm), showRight: legacy("showRight"), refreshSessions: legacy("refreshSessions"),
-  filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
-  afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && legacy("rightVisible")("state")) worklogCtl.load(true); },
+  noteOpened: (rm) => tickets.noteOpened(rm), showRight: layout.showRight, refreshSessions: legacy("refreshSessions"),
+  filesEnsure: () => { if (layout.rightVisible("files")) legacy("filesEnsure")(); },
+  afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && layout.rightVisible("state")) worklogCtl.load(true); },
   attach: legacy("attach"), warnSpawn: legacy("warnSpawn"), filterByTag: legacy("filterByTag"),
   pmTarget: (rm) => legacy("pmActionTarget")(rm, lexical(() => sessCache) || {}, lexical(() => attached)),
   sendPmAction: legacy("sendPmAction"),
@@ -360,7 +377,7 @@ meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   ticket, notify: legacy("toast"), md: mdToHtml, ago: legacy("ago"), tipAttr: (id) => tickets.tipAttr(id),
   resolve: () => lexical(() => resolveCache) || {}, sess: () => lexical(() => sessCache) || {}, usage: () => lexical(() => usageCache) || {},
   attached: () => lexical(() => attached), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
-  showRight: legacy("showRight"), noteOpened: (id) => tickets.noteOpened(id), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
+  showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: legacy("gotoTicket"), reopen: legacy("reopenTicket"),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
   clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
 });
@@ -371,8 +388,9 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
   openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),
   afterLoad: () => { if (review.current()) review.render(); },
 });
-// la restauration des onglets épinglés — jamais une session — ici, après le script inline
+// la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
+layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

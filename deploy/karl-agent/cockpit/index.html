@@ -1384,17 +1384,17 @@ if (window.matchMedia) {
           <div class="rp" id="rp-git"></div>
           <div class="rp" id="rp-outline">
             <div class="outnav">
-              <button class="mini" onclick="jumpUser(-1)" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
-              <button class="mini" onclick="jumpUser(1)" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
-              <button class="mini" onclick="jumpUnresolved()" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
-              <button class="mini" onclick="scrollLive()" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
-              <button class="mini" onclick="loadOutline(true)" title="Rafraîchir l'outline">⟳</button>
+              <button class="mini" data-action="prev" title="Message utilisateur précédent (Alt+↑)">▲ moi</button>
+              <button class="mini" data-action="next" title="Message utilisateur suivant (Alt+↓)">▼ moi</button>
+              <button class="mini" data-action="unresolved" title="Prochaine question restée sans réponse (RM2549)">⚠ question</button>
+              <button class="mini" data-action="live" title="Revenir au direct, en bas (Alt+Fin)">⤓ direct</button>
+              <button class="mini" data-action="reload" title="Rafraîchir l'outline">⟳</button>
               <input class="outq" id="outq" type="search" placeholder="rechercher…" autocomplete="off"
-                     oninput="setOutQuery(this.value)" title="Filtrer les messages de la conversation (RM2596)">
+                     title="Filtrer les messages de la conversation (RM2596)">
               <!-- RM2601 : filtres de vue -->
-              <button class="mini active" data-of="all" onclick="setOutFilter('all')" title="Tout afficher">tout</button>
-              <button class="mini" data-of="user" onclick="setOutFilter('user')" title="Tes messages seulement">🗣 moi</button>
-              <button class="mini" data-of="question" onclick="setOutFilter('question')" title="Questions seulement">❓</button>
+              <button class="mini active" data-of="all" title="Tout afficher">tout</button>
+              <button class="mini" data-of="user" title="Tes messages seulement">🗣 moi</button>
+              <button class="mini" data-of="question" title="Questions seulement">❓</button>
               <span class="cnt" id="outcnt"></span>
             </div>
             <div class="outbody" id="outbody"><div class="empty">attache une session…</div></div>
@@ -3115,36 +3115,14 @@ function approveShortcutVisible(attached, cache) {
 // ----- RM2329/RM2350/RM2532/RM2533 : voix — domaine MIGRÉ (RM2889, L5) : src/controllers/voice.controller.js -----
 // Le monolithe passe par karlCall("voice", …) ; la carte #voicecard est montée par boot.js.
 
-// ----- RM2330 : outline de conversation + navigation dans l'historique -----
-let outline = { items: [], total: 0 };
-let outPos = null;      // dernière ligne atteinte (null = direct, en bas)
-let outQuery = "";      // RM2596 : recherche dans la conversation
-let outOpen = null;     // RM2596 : ligne de l'entrée dépliée (accordéon, lecture à l'endroit du clic)
-function setOutQuery(v) { outQuery = v; renderOutline(); }
-
-// >>> outMatch — pur (testé par test_cockpit.js) : filtre les entrées sur une requête
-function outMatch(items, q) {
-  q = String(q || "").trim().toLowerCase();
-  if (!q) return items || [];
-  return (items || []).filter(it =>
-    String(it.text || "").toLowerCase().includes(q) || String(it.full || "").toLowerCase().includes(q));
-}
-// <<< outMatch
-
-// >>> outByKind — pur (testé) : filtre de VUE (RM2601) — tout / moi (user) / questions
-function outByKind(items, filter) {
-  if (filter === "user") return (items || []).filter(it => it && it.kind === "user");
-  if (filter === "question") return (items || []).filter(it => it && it.kind === "question");
-  return items || [];
-}
-// <<< outByKind
-
-let outFilter = "all";   // RM2601 : filtre de vue de la conversation
-function setOutFilter(f) {
-  outFilter = f;
-  document.querySelectorAll(".outnav [data-of]").forEach(b => b.classList.toggle("active", b.dataset.of === f));
-  renderOutline();
-}
+// ----- RM2330/RM2549/RM2596/RM2601 : outline de conversation — MIGRÉ (RM2889) : src/controllers/outline.controller.js -----
+// Position, recherche, filtre et lecture inline vivent dans le contrôleur ; le monolithe (attache, colonne, raccourcis clavier) lui parle par ces ponts :
+function loadOutline(force) { karlCall("outline", "load", force); }
+function renderOutline() { karlCall("outline", "render"); }
+function closeOutlineRead() { karlCall("outline", "closeRead"); }
+function outlineReset() { karlCall("outline", "reset"); }
+function jumpUser(dir) { karlCall("outline", "jumpUser", dir); }
+function scrollLive() { karlCall("outline", "scrollLive"); }
 
 // >>> markPillHtml — pur (testé) : pastille du statut de session (/session-mark)
 function markPillHtml(mark) {
@@ -3157,22 +3135,6 @@ function markPillHtml(mark) {
   return p ? '<span class="pill ' + p[0] + '">' + p[1] + "</span> " : "";
 }
 // <<< markPillHtml
-
-// >>> hlq — pur (testé) : échappe un texte et surligne les occurrences de q (<mark>)
-function hlq(text, q) {
-  const s = String(text == null ? "" : text);
-  q = String(q || "").trim();
-  if (!q) return esc(s);
-  const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-  let out = "", last = 0, m;
-  while ((m = re.exec(s))) {
-    if (m.index === re.lastIndex) { re.lastIndex++; continue; }
-    out += esc(s.slice(last, m.index)) + "<mark>" + esc(m[0]) + "</mark>";
-    last = m.index + m[0].length;
-  }
-  return out + esc(s.slice(last));
-}
-// <<< hlq
 
 // >>> linkify — pur (testé) : échappe puis rend cliquables refs RM, chemins, URLs
 // Tokenisation en une passe (jamais de linkify SUR du HTML déjà injecté → sûr).
@@ -3353,56 +3315,6 @@ function closeNewTicket() { karlCall("newticket", "close"); }
 // `linkify` (ci-dessus) souligne encore le jargon par ce pont ; avant que le module soit prêt, le texte passe tel quel (déjà échappé).
 function glossify(escaped) { const r = karlCall("doc", "glossify", escaped); return r === undefined ? String(escaped == null ? "" : escaped) : r; }
 
-// >>> outlineStep — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2330 : cible de saut parmi les messages UTILISATEUR de l'outline.
-// dir=-1 : dernier message user strictement AVANT pos (pos null = depuis la fin) ;
-// dir=+1 : premier strictement APRÈS pos (null si pos null — déjà au direct).
-function outlineStep(items, pos, dir) {
-  const users = items.filter(it => it.kind === "user");
-  if (!users.length) return null;
-  if (dir < 0) {
-    const before = users.filter(it => it.line < (pos == null ? Infinity : pos));
-    return before.length ? before[before.length - 1] : null;
-  }
-  if (pos == null) return null;
-  return users.find(it => it.line > pos) || null;
-}
-// <<< outlineStep
-
-// >>> outlineDecor — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2549 : décor d'une entrée d'outline. Un état n'est jamais porté par la
-// SEULE couleur : icône + libellé en toutes lettres l'accompagnent toujours.
-function outlineDecor(it) {
-  const kind = it && it.kind;
-  if (kind === "question") {
-    return (it && it.resolved)
-      ? { icon: "❓", tag: "question", cls: "oq",
-          label: "Question posée", title: "Question posée — réponse retenue : " + (it.answer || "?") }
-      : { icon: "⚠", tag: "sans réponse", cls: "oq ounres",
-          label: "Question sans réponse", title: "Question restée SANS RÉPONSE" };
-  }
-  if (kind === "answer") {
-    return { icon: "↩", tag: "réponse", cls: "oans",
-             label: "Réponse retenue", title: "La réponse que tu as retenue" };
-  }
-  if (kind === "user") {
-    return { icon: "🗣", tag: "", cls: "ouser", label: "Ton message", title: "Ton message" };
-  }
-  return { icon: "⏺", tag: "", cls: "", label: "Assistant", title: "Assistant" };
-}
-// <<< outlineDecor
-
-// >>> outlineNextUnresolved — pur (testé par test_cockpit.js)
-// RM2549 : question suivante restée sans réponse. Reboucle au début une fois la
-// dernière dépassée — le geste doit toujours aboutir tant qu'il en reste une.
-function outlineNextUnresolved(items, pos) {
-  const pending = (items || []).filter(it => it.kind === "question" && !it.resolved);
-  if (!pending.length) return null;
-  if (pos == null) return pending[0];
-  return pending.find(it => it.line > pos) || pending[0];
-}
-// <<< outlineNextUnresolved
-
 // ----- RM2466 volet 3 : colonne de droite à onglets (un seul actif) -----
 
 // >>> rightPanelReduce — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
@@ -3460,7 +3372,7 @@ function applyRight() {
     el.classList.toggle("active", el.id === "rp-" + rightState.tab));
   try { localStorage.setItem("karlRight", JSON.stringify(rightState)); } catch (e) { /* mode privé */ }
   // RM2330 : l'outline ne se charge qu'une fois réellement visible
-  if (rightVisible("outline") && attached && !outline.items.length) loadOutline();
+  if (rightVisible("outline") && attached) loadOutline();   // ne recharge pas ce qui est déjà là
   // RM2579 : (re)peuple l'onglet visible quand on y bascule
   if (rightVisible("infos")) renderInfos();
   if (rightVisible("tickets")) renderTickets();
@@ -4829,78 +4741,6 @@ function rResetWidth() {
 }
 document.addEventListener("mousemove", rDoResize);
 document.addEventListener("mouseup", rEndResize);
-// RM2466 : garde de réentrance — déplier la colonne ET attacher une session
-// déclenchent tous deux un chargement ; sans ça, deux requêtes concurrentes
-// partent pour le même outline (et le ⟳ cliqué en rafale en lance autant).
-let outlineLoading = false;
-async function loadOutline() {
-  if (!attached || outlineLoading) return;
-  outlineLoading = true;
-  try {
-    const r = await api("/outline/" + encodeURIComponent(attached));
-    // normalise la clé de position : `line` (scrollback tmux) ou `n` (transcript)
-    (r.items || []).forEach(it => { if (it.line == null) it.line = it.n; });
-    outline = { items: r.items || [], total: r.total_lines || 0, source: r.source || "tmux" };
-    renderOutline();
-  } catch (e) {
-    document.getElementById("outbody").innerHTML = '<div class="empty">' + esc(e.message) + '</div>';
-  } finally {
-    outlineLoading = false;
-  }
-}
-function renderOutline() {
-  const body = document.getElementById("outbody");
-  const q = outQuery;
-  const shown = outByKind(outMatch(outline.items, q), outFilter);   // RM2596 recherche + RM2601 filtre
-  const filtered = q || outFilter !== "all";
-  const unres = outline.items.filter(i => i.kind === "question" && !i.resolved).length;
-  document.getElementById("outcnt").textContent =
-    (filtered ? shown.length + " affiché" + (shown.length > 1 ? "s" : "")
-              : outline.items.filter(i => i.kind === "user").length + " msg")
-    + (!filtered && unres ? " · ⚠ " + unres + " sans réponse" : "");
-  if (!outline.items.length) {
-    body.innerHTML = '<div class="empty">conversation vide (ou moteur sans marqueurs « > » / « ⏺ »)</div>';
-    return;
-  }
-  if (filtered && !shown.length) {
-    body.innerHTML = '<div class="empty">aucun message' + (q ? ' ne contient « ' + esc(q) + ' »' : ' pour ce filtre') + "</div>";
-    return;
-  }
-  body.innerHTML = "";
-  for (const it of shown) {
-    const dec = outlineDecor(it);
-    const d = document.createElement("div");
-    d.className = "oline" + (dec.cls ? " " + dec.cls : "") + (outPos === it.line ? " ocur" : "");
-    d.innerHTML = esc(dec.icon) + " "
-      + (dec.tag ? '<span class="otag">' + esc(dec.tag) + "</span>" : "")
-      + hlq(it.text, q);
-    d.title = dec.title +
-      (outline.source === "transcript" ? " — clic : lire ce message" : " — clic : lire + faire défiler le terminal");
-    d.onclick = () => jumpTo(it);
-    body.appendChild(d);
-    // RM2596 : accordéon — la lecture se déplie SOUS l'entrée cliquée (à l'endroit
-    // du clic), un seul message ouvert à la fois. Refs cliquables via linkify().
-    if (outOpen === it.line) {
-      const exp = document.createElement("div");
-      exp.className = "oexp";
-      exp.innerHTML = '<div class="oexpbar"><span class="sp"></span>'
-        + '<button class="mini" onclick="copyOutline(' + jarg(String(it.line)) + ');event.stopPropagation()" title="Copier le message">⧉ copier</button>'
-        + '<button class="mini" onclick="closeOutlineRead();event.stopPropagation()" title="Replier">✕</button></div>'
-        + '<div class="oexptxt">' + linkify(outlineFull(it)) + "</div>";
-      body.appendChild(exp);
-    }
-  }
-}
-function outlineFull(it) {
-  return (it.full || it.text)
-    + (it.kind === "question" && it.resolved ? "\n\n→ Réponse retenue : " + it.answer : "")
-    + (it.kind === "question" && !it.resolved ? "\n\n⚠ Cette question est restée SANS RÉPONSE." : "");
-}
-function copyOutline(line) {
-  const it = (outline.items || []).find(x => String(x.line) === String(line));
-  if (it && navigator.clipboard) navigator.clipboard.writeText(outlineFull(it)).then(() => toast("Message copié"), () => {});
-}
-function closeOutlineRead() { outOpen = null; renderOutline(); }
 // RM2596 : depuis une référence de fichier dans un message → onglet Fichiers
 // (best-effort : ouvre le worktree courant de la session au bon dossier).
 async function openFileRef(path) {
@@ -4911,60 +4751,6 @@ async function openFileRef(path) {
   await filesLoadDir(fileNav.wt, dir);
   if (fileNav.entries.some(e => !e.dir && e.name === file)) filesOpen(file);
   else toast("« " + path + " » introuvable dans " + (fileNav.wt || "").split("/").pop() + " — navigue à la main", true);
-}
-
-async function jumpTo(it) {
-  if (!attached) return;
-  outPos = it.line;
-  outOpen = (outOpen === it.line) ? null : it.line;   // RM2596 : accordéon (toggle à l'endroit du clic)
-  renderOutline();
-  const cur = document.querySelector(".oline.ocur");
-  if (cur) cur.scrollIntoView({ block: "center" });
-  // tmux (scrollback) : on fait AUSSI défiler le terminal jusqu'ici. Les sessions
-  // « transcript » (claude, écran alterné) n'ont pas de scrollback à piloter — on
-  // ne touche pas à tmux, la vue des autres clients ne bouge pas (RM2549).
-  if (outline.source !== "transcript") {
-    try {
-      await api("/scroll", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rm_id: attached, line: Math.max(0, it.line - 2) }),
-      });
-    } catch (e) { toast(e.message, true); }
-  }
-}
-
-function jumpUser(dir) {
-  const go = () => {
-    const it = outlineStep(outline.items, outPos, dir);
-    if (it) { jumpTo(it); return; }
-    if (dir > 0) scrollLive();            // plus rien après → retour au direct
-    else toast("Pas de message utilisateur plus haut");
-  };
-  if (!outline.items.length) loadOutline().then(go); else go();
-}
-// RM2549 : aller à la prochaine question restée sans réponse.
-function jumpUnresolved() {
-  const go = () => {
-    const it = outlineNextUnresolved(outline.items, outPos);
-    if (it) jumpTo(it);
-    else toast("Aucune question sans réponse dans cette conversation");
-  };
-  if (!outline.items.length) loadOutline().then(go); else go();
-}
-async function scrollLive() {
-  if (!attached) return;
-  outPos = null;
-  if (outline.source === "transcript") {  // pas de scrollback à replacer : on
-    closeOutlineRead(); renderOutline(); return;  // referme juste la lecture inline
-  }
-  try {
-    await api("/scroll", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ rm_id: attached, bottom: true }),
-    });
-    renderOutline();
-    toast("⤓ retour au direct");
-  } catch (e) { toast(e.message, true); }
 }
 
 // RM2344 : préférence de tri de la liste « en cours » — stable par défaut
@@ -5933,12 +5719,11 @@ function attach(rmId) {
   showRight();                      // RM2466 : déplie, sans changer d'onglet actif
   karlCall("meta", "onAttach", rmId);   // RM2173 : le ticket affiché = l'ancrage de la session (encart migré)
   // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
-  outline = { items: [], total: 0 }; outPos = null;
+  outlineReset();                                     // RM2330 : outline remis à zéro (migré), rechargé si ouvert
   if (rightVisible("outline")) loadOutline();
   if (rightVisible("state")) loadWorklog();   // RM2466 : le travail suit la session attachée
   karlCall("git", "reset");   // RM2602 → migré
   if (rightVisible("git")) karlCall("git", "refresh");
-  else document.getElementById("outbody").innerHTML = '<div class="empty">chargement au dépliage…</div>';
   if (rightVisible("files")) filesEnsure();  // RM2673 : les fichiers suivent la session
   renderChips();       // RM1893 §2 : raccourcis d'actions de la session attachée
   switchPanel("running");  // RM2283 : l'attach bascule sur le panneau « en cours »
@@ -5958,9 +5743,7 @@ function detach() {
   document.getElementById("tabactions").style.display = "none";
   collapseRight();                  // RM2466 : plus de session → la colonne se replie
   renderMeta();                     // RM2579 : vide infos + tickets (plus de #metabody)
-  outline = { items: [], total: 0 }; outPos = null;   // RM2330
-  document.getElementById("outbody").innerHTML = '<div class="empty">attache une session…</div>';
-  closeOutlineRead();               // RM2579 : referme la lecture inline
+  outlineReset();                   // RM2330/RM2579 : outline vidé, lecture inline refermée (migré)
   // RM2586 : oublie les worktrees de la session. RM2673 : le panneau se rabat
   // alors sur le projet courant (fiche ouverte, jeu) au lieu de rester muet —
   // `filesEnsure` recharge s'il est visible, sinon le prochain dépliage le fera.

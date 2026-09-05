@@ -133,25 +133,7 @@ console.log("✓ approveShortcutVisible (RM2332) : visibilité des raccourcis �
 
 // — 5. voiceQueue (RM2329) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
-// — 6. outlineStep (RM2330) : sauts entre messages utilisateur —
-const fo = />>> outlineStep[\s\S]*?(function outlineStep[\s\S]*?)\n\/\/ <<< outlineStep/.exec(html);
-assert(fo, "marqueurs >>> outlineStep / <<< outlineStep introuvables");
-const outlineStep = vm.runInNewContext("(" + fo[1] + ")");
-
-const oi = [
-  { line: 2, kind: "user", text: "premier" },
-  { line: 5, kind: "assistant", text: "réponse" },
-  { line: 9, kind: "user", text: "deuxième" },
-  { line: 14, kind: "user", text: "troisième" },
-];
-assert.strictEqual(outlineStep(oi, null, -1).line, 14, "depuis le direct, ↑ = dernier message user");
-assert.strictEqual(outlineStep(oi, 14, -1).line, 9, "↑ = user précédent (l'assistant est sauté)");
-assert.strictEqual(outlineStep(oi, 2, -1), null, "au premier, ↑ = null");
-assert.strictEqual(outlineStep(oi, 9, 1).line, 14, "↓ = user suivant");
-assert.strictEqual(outlineStep(oi, 14, 1), null, "au dernier, ↓ = null (retour direct géré par l'appelant)");
-assert.strictEqual(outlineStep(oi, null, 1), null, "au direct, ↓ = null");
-assert.strictEqual(outlineStep([{ line: 1, kind: "assistant", text: "x" }], null, -1), null, "aucun message user → null");
-console.log("✓ outlineStep (RM2330) : sauts entre messages utilisateur");
+// — 6. outlineStep (RM2330) : MIGRÉ (RM2889, outline) — voir test_cockpit_outline.js —
 
 // — 8. pickVoice (RM2350) : domaine MIGRÉ (RM2889, L5) — voir test_cockpit_voice.js —
 
@@ -535,59 +517,7 @@ assert.strictEqual(composerHistoryAdd(["a", "b", "c"], "d", 3).length, 3, "plafo
 assert.deepStrictEqual(Array.from(composerHistoryAdd(["a", "b", "c"], "d", 3)), ["d", "a", "b"], "le plus ancien tombe");
 console.log("✓ composer (RM2527) : historique sans doublon, récent en tête, plafonné");
 
-// — 9. outline enrichi (RM2549) : décor des entrées + saut aux non résolues —
-const foD = />>> outlineDecor[\s\S]*?(function outlineDecor[\s\S]*?)\n\/\/ <<< outlineDecor/.exec(html);
-assert(foD, "marqueurs >>> outlineDecor / <<< outlineDecor introuvables");
-const outlineDecor = vm.runInNewContext("(" + foD[1] + ")");
-
-const dUnres = outlineDecor({ kind: "question", resolved: false });
-const dRes = outlineDecor({ kind: "question", resolved: true, answer: "Option A" });
-const dAns = outlineDecor({ kind: "answer" });
-// le critère du ticket : couleur ET icône ET libellé — jamais l'un des trois seul
-assert(dUnres.cls.includes("ounres"), "non résolue : classe de couleur dédiée");
-assert.strictEqual(dUnres.icon, "⚠", "non résolue : icône distincte");
-assert(/sans réponse/i.test(dUnres.tag), "non résolue : libellé en toutes lettres");
-assert(dRes.cls !== dUnres.cls && dRes.icon !== dUnres.icon && dRes.tag !== dUnres.tag,
-  "résolue et non résolue diffèrent sur les TROIS canaux, pas seulement la couleur");
-assert(/Option A/.test(dRes.title), "une question répondue expose la réponse retenue");
-assert(dAns.cls.includes("oans") && dAns.icon && /réponse/i.test(dAns.tag),
-  "la réponse a son propre décor");
-assert.strictEqual(outlineDecor({ kind: "user" }).cls, "ouser", "message utilisateur inchangé");
-assert.strictEqual(outlineDecor({ kind: "assistant" }).icon, "⏺", "message assistant inchangé");
-assert.strictEqual(outlineDecor(null).icon, "⏺", "entrée absente tolérée");
-assert.strictEqual(outlineDecor({ kind: "question" }).cls, dUnres.cls,
-  "resolved manquant = non résolu (on ne suppose pas une réponse)");
-console.log("✓ outline (RM2549) : couleur ET icône ET libellé sur chaque état");
-
-const foU = />>> outlineNextUnresolved[\s\S]*?(function outlineNextUnresolved[\s\S]*?)\n\/\/ <<< outlineNextUnresolved/.exec(html);
-assert(foU, "marqueurs >>> outlineNextUnresolved / <<< outlineNextUnresolved introuvables");
-const outlineNextUnresolved = vm.runInNewContext("(" + foU[1] + ")");
-const qi = [
-  { line: 0, kind: "user" },
-  { line: 1, kind: "question", resolved: true },
-  { line: 2, kind: "question", resolved: false },
-  { line: 3, kind: "assistant" },
-  { line: 4, kind: "question", resolved: false },
-];
-assert.strictEqual(outlineNextUnresolved(qi, null).line, 2, "depuis le direct : la première sans réponse");
-assert.strictEqual(outlineNextUnresolved(qi, 2).line, 4, "puis la suivante");
-assert.strictEqual(outlineNextUnresolved(qi, 4).line, 2, "après la dernière, on reboucle");
-assert.strictEqual(outlineNextUnresolved(qi.filter(i => i.resolved !== false), null), null,
-  "tout est répondu → rien à signaler");
-assert.strictEqual(outlineNextUnresolved([], null), null, "outline vide toléré");
-assert.strictEqual(outlineNextUnresolved(null, null), null, "outline absent toléré");
-console.log("✓ outline (RM2549) : saut à la prochaine question sans réponse");
-
-// la navigation en source transcript ne doit RIEN envoyer à tmux : la vue des
-// autres clients attachés ne bouge pas (RM2549). Depuis RM2596, l'appel /scroll
-// est GARDÉ par « source !== transcript » (l'accordéon gère la lecture inline).
-const mJump = /async function jumpTo\(it\) \{[\s\S]*?\n\}/.exec(html);
-assert(mJump, "jumpTo introuvable");
-const gi = mJump[0].indexOf('outline.source !== "transcript"');
-const si = mJump[0].indexOf("/scroll");
-assert(gi >= 0 && si > gi,
-  "l'appel /scroll est gardé par « source !== transcript » — transcript ne pilote pas tmux");
-console.log("✓ outline (RM2549/2596) : /scroll gardé, transcript ne pilote pas tmux");
+// — 9. outline enrichi (RM2549/2596) : MIGRÉ (RM2889, outline) — voir test_cockpit_outline.js —
 
 // — origine du WebSocket du terminal (RM2561) —
 // Le cert auto-signé ne vaut que pour le host:port visité et un wss:// vers un
@@ -897,8 +827,6 @@ function grabO(name, ctx) {
   assert(m, "marqueurs " + name + " introuvables");
   return vm.runInNewContext("(" + m[1] + ")", ctx || {});
 }
-const outMatch = grabO("outMatch");
-const hlq = grabO("hlq", { esc: escO });
 // RM2623 : le glossaire a MIGRÉ (RM2889, test_cockpit_doc.js) ; linkify le souligne par un pont — identité ici
 const linkify = grabO("linkify", { esc: escO, jarg: jargFn, glossify: (s) => s });
 
@@ -907,17 +835,7 @@ assert.strictEqual(jargFn("a/b.py"), "'a/b.py'", "chemin simple entre quotes sim
 assert(!/"/.test(jargFn('x"y')), "un \" dans la valeur ne ferme pas l'attribut");
 assert.strictEqual(jargFn("l'a"), "'l\\'a'", "apostrophe échappée");
 
-// outMatch : filtre insensible à la casse sur text OU full ; vide → tout
-const oitems = [{ line: 1, text: "corrige RM123", full: "le bug RM123" }, { line: 2, text: "autre", full: "rien" }];
-assert.strictEqual(outMatch(oitems, "rm123").length, 1, "insensible à la casse");
-assert.strictEqual(outMatch(oitems, "bug")[0].line, 1, "cherche aussi dans full");
-assert.strictEqual(outMatch(oitems, "").length, 2, "requête vide → tout");
-assert.strictEqual(outMatch(oitems, "zzz").length, 0, "aucun match → []");
-
-// hlq : échappe + surligne, sûr
-assert.strictEqual(hlq("a <b> RM1", ""), "a &lt;b&gt; RM1", "sans requête : simple échappement");
-assert(/<mark>RM1<\/mark>/.test(hlq("voir RM1", "rm1")), "surligne (insensible casse)");
-assert(!/<b>/.test(hlq("<b>x</b>", "x")), "HTML source échappé");
+// outMatch / hlq : MIGRÉS (RM2889, outline) — voir test_cockpit_outline.js
 
 // linkify : RM → showTicket, chemin → openFileRef ('...'), URL → <a>, reste échappé
 const lk = linkify("fix RM42 dans scripts/karl-agent.py cf https://x.io/p et <b>");
@@ -1051,16 +969,7 @@ assert(!/function rResetWidth\(\)[\s\S]*?setRightWidth\(R_WIDTH_DEFAULT\)/.test(
   "réinitialiser n'écrit plus 330px en dur");
 console.log("\u2713 largeur du panneau (RM2952) : le réglage prime, le défaut reste un défaut");
 
-// — outByKind (RM2601) : filtre de vue de la conversation —
-const fBk = />>> outByKind[\s\S]*?(function outByKind[\s\S]*?)\n\/\/ <<< outByKind/.exec(html);
-assert(fBk, "marqueurs outByKind introuvables");
-const outByKind = vm.runInNewContext("(" + fBk[1] + ")");
-const its2 = [{ kind: "user" }, { kind: "question" }, { kind: "answer" }, {}];
-assert.strictEqual(outByKind(its2, "all").length, 4, "all -> tout");
-assert.strictEqual(outByKind(its2, "user").length, 1, "moi -> user seulement");
-assert.strictEqual(outByKind(its2, "question").length, 1, "questions seulement");
-assert.strictEqual(outByKind([], "user").length, 0, "vide tolere");
-console.log("\u2713 outByKind (RM2601) : filtres tout / moi / questions");
+// — outByKind (RM2601) : MIGRÉ (RM2889, outline) — voir test_cockpit_outline.js —
 
 // — vue git (RM2602) : domaine MIGRÉ (RM2889, L4) — voir test_cockpit_git.js —
 

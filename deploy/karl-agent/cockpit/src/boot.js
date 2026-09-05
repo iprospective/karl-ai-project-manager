@@ -36,6 +36,8 @@ import { mountTestQueue } from "./controllers/testqueue.controller.js";
 import { TicketRepository } from "./models/tickets/TicketRepository.js";
 import * as TF from "./models/tickets/ticketFormat.js";
 import { MergeBanner } from "./views/tickets/MergeBanner.view.js";
+import { mountReview } from "./controllers/review.controller.js";
+import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
@@ -183,7 +185,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const byId = (id) => document.getElementById(id);
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null;
+let project = null, review = null, testqueueRef = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: legacy("toast"), notifyAction: legacy("toastAction"), md: legacy("mdToHtml"),
   resolve: () => lexical(() => resolveCache) || {},
@@ -191,7 +193,6 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   surfaces: {
     session:   { sessions: () => lexical(() => sessCache) || {}, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
                  open: legacy("attach"), relaunch: legacy("relaunchGhost"), close: () => { if (lexical(() => attached)) legacy("detach")(); } },
-    review:    { open: legacy("openReview"), close: () => { const r = lexical(() => currentReview); if (r) legacy("closeReview")(r); } },
   },
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
@@ -200,17 +201,17 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   placeholder: (on) => show("placeholder", on, "flex"),
   dashboard: () => dashboard.refresh(),
-  nothingElse: () => !lexical(() => attached) && !lexical(() => currentReview) && !(project && project.current()),
+  nothingElse: () => !lexical(() => attached) && !(review && review.current()) && !(project && project.current()),
   histOpen: () => { const b = byId("histbox"); return !!b && b.style.display !== "none"; },
   histShow: (on) => show("histbox", on),
   navButtons: ({ back, fwd }) => { const b = byId("histback"), f = byId("histfwd"); if (b) b.disabled = !back; if (f) f.disabled = !fwd; },
-  legacyTitle: () => legacy("curTitleLegacyHtml")() || (project ? project.titleHtml() : ""),
+  legacyTitle: () => legacy("curTitleLegacyHtml")() || (review && review.current() ? review.titleHtml((rm, tt) => legacy("titleLink")(rm, tt) || "") : "") || (project ? project.titleHtml() : ""),
   afterTitle: legacy("curTitleSideEffects"),
   // RM2795 : les listes portent la même marque d'épinglage — elles se redessinent au geste
   onPinChange: () => { try { legacy("renderOpened")(); } catch (e) {} projects.render(); try { const w = lexical(() => worklog); if (w && w.found) legacy("renderWorklog")(); } catch (e) {} try { legacy("refreshSessions")(); } catch (e) {} },
 });
 const center = Object.assign(centerCore, {
-  scopeTagOf: (wt) => scopeTag(fsScope(wt, lexical(() => filesData), lexical(() => attached), lexical(() => currentProjectView))),
+  scopeTagOf: (wt) => scopeTag(fsScope(wt, lexical(() => filesData), lexical(() => attached), project ? project.current() : null)),
   fileBodyHtml: (f) => String(FileBody(new FileViewModel(f, { md: legacy("mdToHtml") }))),
   centerBtn: centerBtnHtml,
 });
@@ -249,7 +250,7 @@ const ticket = {
   reload: (rm) => ticketRepo.ensureResolved(String(rm), true, onResolved).then(() => {
     rm = String(rm);
     if (lexical(() => metaTicket) === rm) legacy("renderMeta")();
-    if (lexical(() => currentReview) === rm) legacy("renderReviewPane")();
+    if (review && review.current() === rm) review.render();
     const box = byId("rm"); if (box && box.value.trim() === rm) legacy("resolveRm")();
     legacy("toast")("RM" + rm + " rechargé");
   }),
@@ -261,15 +262,41 @@ const ticket = {
   sinceLabel: TF.sinceLabel, modelWindow: TF.modelWindow, ctxPct: TF.ctxPct, throughput: TF.throughput, fmtUsd: TF.fmtUsd, fmtRate: TF.fmtRate, fmtWin: TF.fmtWin,
   repo: ticketRepo,
 };
+// la revue : troisième surface enregistrée. Le monolithe lui prête l'encart ℹ, les sessions,
+// l'attache, le lanceur (moteur/modèle), la recherche par étiquette, les actions PM.
+review = mountReview(byId("reviewpane"), {
+  center, ticket, run: legacy("pmRun"), notify: legacy("toast"), capture: legacy("showCaptureModal"), md: legacy("mdToHtml"),
+  titleLink: (rm, tt) => legacy("titleLink")(rm, tt) || "", eff: (s, d) => legacy("effDisposition")(s, d),
+  resolve: () => lexical(() => resolveCache) || {}, cfg: () => lexical(() => CFG) || {},
+  show: (on) => show("reviewpane", on),
+  setMeta: legacy("setMetaTicket"), metaIs: legacy("metaTicketIs"), renderMeta: legacy("renderMeta"),
+  noteOpened: legacy("noteOpenedTicket"), showRight: legacy("showRight"), refreshSessions: legacy("refreshSessions"),
+  filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
+  afterStatus: (rm) => { const box = byId("rm"); if (box && box.value.trim() === String(rm)) legacy("resolveRm")(); if (lexical(() => attached) && legacy("rightVisible")("state")) legacy("loadWorklog")(true); },
+  attach: legacy("attach"), warnSpawn: legacy("warnSpawn"), filterByTag: legacy("filterByTag"),
+  pmTarget: (rm) => legacy("pmActionTarget")(rm, lexical(() => sessCache) || {}, lexical(() => attached)),
+  sendPmAction: legacy("sendPmAction"),
+  launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
+  tq: { entry: (rm) => testqueueRef && testqueueRef.entry(rm), loaded: () => !!(testqueueRef && testqueueRef.loaded()), size: () => (testqueueRef ? testqueueRef.size() : 0), load: () => testqueueRef && testqueueRef.load(),
+        deploy: (rm, b) => testqueueRef && testqueueRef.deploy(rm, b), teardown: (rm, b) => testqueueRef && testqueueRef.teardown(rm, b), deployShared: (rm, b) => testqueueRef && testqueueRef.deployShared(rm, b) },
+  // le menu de statut : un popover posé sur le body, ancré sous la pastille
+  popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "stmenu"; document.body.appendChild(m); return m; },
+  place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
+  onOutsideClick: (fn) => document.addEventListener("click", fn, { once: true }),
+});
+Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => promptTemplates().map(t => `<option value="${esc(t.value)}"${t.value === String(sel == null ? "" : sel) ? " selected" : ""}>${esc(t.label)}</option>`).join("") });
+center.register("review", { open: review.open, close: () => { if (review.current()) review.close(); } });
+// RM2873 : le lanceur de gauche propose les mêmes modèles de consigne que la fiche
+{ const sel = byId("ptpl"); if (sel) sel.innerHTML = review.promptTemplateOptions("traiter"); }
 // la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
-const testqueue = mountTestQueue(byId("tqcard"), {
+const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
   notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
   resolveRefresh: (rm) => legacy("ensureResolved")(String(rm), true),
-  openReview: legacy("openReview"), verdict: legacy("tqVerdict"), pin: (k, key) => center.pinOf(k, key),
-  afterLoad: () => { if (lexical(() => currentReview)) legacy("renderReviewPane")(); },
+  openReview: (rm) => review.open(rm), verdict: (rm, k, b) => review.verdict(rm, k, b), pin: (k, key) => center.pinOf(k, key),
+  afterLoad: () => { if (review.current()) review.render(); },
 });
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

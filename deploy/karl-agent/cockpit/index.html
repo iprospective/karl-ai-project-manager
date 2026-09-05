@@ -862,7 +862,7 @@ if (window.matchMedia) {
        `main` est lui-même une décision humaine.
        RM2821 : DERNIER de la rangée. Il n'apparaît qu'à l'occasion ; au milieu de
        la barre, son arrivée décalait tous les boutons suivants sous la souris. -->
-  <button class="mini" id="updbtn" style="display:none" onclick="showCoreUpdate()"
+  <button class="mini" id="updbtn" style="display:none"
     title="Une mise à jour du code PM est disponible — clic pour la commande à lancer">⬆ MAJ dispo</button>
   <span style="flex:1"></span>
   <span class="lock" id="lock"></span>
@@ -875,12 +875,12 @@ if (window.matchMedia) {
       title="Replier / déplier la colonne de gauche (vers la gauche)">◨</button>
     <!-- RM2283 : barre d'onglets de la colonne gauche — un panneau visible à la fois -->
     <nav class="lnav">
-      <button data-panel="running" onclick="switchPanel('running')">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
-      <button data-panel="tickets" onclick="switchPanel('tickets')">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
-      <button data-panel="projects" onclick="switchPanel('projects')">📁 projets</button>
-      <button data-panel="sessions" onclick="switchPanel('sessions')">🚀 sessions</button>
-      <button data-panel="test" onclick="switchPanel('test')">🧪 à tester</button>
-      <button data-panel="mail" onclick="switchPanel('mail')">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
+      <button data-panel="running">▶ en cours<span class="nbadge" id="ln-count" style="display:none"></span><span class="nbadge att" id="ln-att" style="display:none"></span></button>
+      <button data-panel="tickets">🎫 tickets<span class="nbadge" id="ln-tickets" style="display:none"></span></button>
+      <button data-panel="projects">📁 projets</button>
+      <button data-panel="sessions">🚀 sessions</button>
+      <button data-panel="test">🧪 à tester</button>
+      <button data-panel="mail">📧 emails<span class="nbadge" id="ln-mail" style="display:none"></span></button>
       <!-- RM2816 : « ⚙ commandes pm » et « 🔧 réglages » sont passés au menu du
            haut — ce sont des surfaces d'ACTION (on y va, on fait, on sort), pas
            des listes qu'on garde sous l'œil pendant qu'une session tourne. -->
@@ -1631,177 +1631,20 @@ function ago(ts) {
   return Math.floor(s / 86400) + "j";
 }
 
-// RM2763 : le fetch passe par la pile /refresh ; ici il ne reste que le rendu.
-function renderHealth(h) {
-  const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
-  el.className = "dot ok";
-  el.title = "agent joignable · " + h.sessions + " session(s)";   // RM2889 : le « tmux ok » est dans 🩺 poste
-  tx.textContent = "";
-}
-function renderHealthKo(msg) {
-  const el = document.getElementById("health"), tx = document.getElementById("healthtxt");
-  el.className = "dot ko"; tx.textContent = "injoignable — " + msg;
-}
-function refreshHealth() { return refreshFetch(["health"]); }
-// ── MAJ du core (RM2571) ────────────────────────────────────────────────────
-// Détection SEULE : le serveur sonde le remote en lecture (`git ls-remote`, sans
-// privilège) et met son résultat en cache. Appliquer la MAJ reste un geste
-// humain — décision assumée : la barrière humaine est au merge vers `main`, et
-// `mmi-pm core update` mute du code root-owned.
-let _coreUpd = null;
-// RM2763 : le poll périodique passe par la pile /refresh (bloc coreupdate) ;
-// le chemin direct ne sert plus qu'au rafraîchissement manuel forcé.
-async function refreshCoreUpdate(force) {
-  if (!force) return refreshFetch(["coreupdate"]);
-  try { renderCoreUpdate(await api("/core/update-status?force=1")); } catch (e) { /* silencieux */ }
-}
-function renderCoreUpdate(d) {
-  const b = document.getElementById("updbtn");
-  _coreUpd = d;
-  const on = !!_coreUpd.available;
-  b.style.display = on ? "" : "none";
-  if (!on) return;
-  const l = (_coreUpd.local || "").slice(0, 7), r = (_coreUpd.remote || "").slice(0, 7);
-  b.textContent = "⬆ MAJ dispo";
-  b.title = "Mise à jour du code PM disponible sur « " + _coreUpd.branch + " » : "
-    + l + " → " + r + (_coreUpd.stale ? " (état périmé : " + _coreUpd.error + ")" : "")
-    + " — clic pour la commande à lancer";
-}
-function showCoreUpdate() {
-  if (!_coreUpd) return;
-  const l = (_coreUpd.local || "?").slice(0, 7), r = (_coreUpd.remote || "?").slice(0, 7);
-  alert("Mise à jour du code PM disponible\n\n"
-    + "branche : " + _coreUpd.branch + "\n"
-    + "installé : " + l + "\ndisponible : " + r + "\n"
-    + (_coreUpd.checked_at ? "vérifié : " + _coreUpd.checked_at + "\n" : "")
-    + "\nÀ lancer dans un terminal (mot de passe sudo demandé) :\n\n"
-    + "  sudo /zfs/workspaces/.mmi-pm-core/bin/mmi-pm core update\n\n"
-    + "Note : karl-agent redémarre si son propre code a changé — le cockpit se "
-    + "reconnecte tout seul.");
-}
-// RM2283 : panneaux commutables de la colonne gauche. Le panneau actif est
-// persisté (localStorage) ; les panneaux à contenu serveur chargent à la
-// première activation (remplace les <details ontoggle> d'avant).
-const PANEL_LOADERS = { sessions: () => { loadResumable(); loadSessionSet(); }, test: () => karlCall("testqueue", "load"), mail: () => karlCall("mail", "refresh"), projects: () => karlCall("projects", "refresh") };   // RM2760, RM2816
-const _panelLoaded = {};
-function switchPanel(name) {
-  if (!document.getElementById("lp-" + name)) name = "running";
-  document.querySelectorAll(".lnav button").forEach(b => b.classList.toggle("active", b.dataset.panel === name));
-  document.querySelectorAll(".lpanel").forEach(p => p.classList.toggle("active", p.id === "lp-" + name));
-  try { localStorage.setItem("karlPanel", name); } catch (e) { /* mode privé */ }
-  if (PANEL_LOADERS[name] && !_panelLoaded[name]) { _panelLoaded[name] = 1; PANEL_LOADERS[name](); }
-}
+// santé de l'agent, MAJ du core (RM2571), panneaux gauche (RM2283/2816) : MIGRÉS (RM2889) — src/controllers/refresh.controller.js, src/controllers/layout.controller.js
+// L'attache, le filtre par étiquette et l'init parlent aux panneaux par ce pont :
+function switchPanel(name) { karlCall("layout", "switchPanel", name); }
 
 // computeGroups / sessionInClient / effDisposition / sortFrozen / renderAttnBand : MIGRÉS (RM2889) — src/models/sessions/sessions.js, src/views/sessions/Sessions.view.js
 // (clientCtxList / clientCtxProject (RM2639) : MIGRÉS — src/models/launcher/launcher.js)
 
-// >>> pollDelay — pur (RM2613) : cadence du poll /sessions quand l'onglet est visible.
-// 3 s si une session attend une réponse (réactivité) ; 7 s au calme.
-function pollDelay(hot) { return hot ? 3000 : 7000; }
-// <<< pollDelay
-let hotSessions = 0;      // nb de sessions en attention/choix (règle la cadence)
-let sessTimer = null;     // timer auto-replanifié du tick de refresh (RM2613)
-// >>> refresh — RM2763 : pile de refresh. Les 3 pollers continus (/sessions
-// 3–7 s, /health 15 s, /worklog/<sid> 10 s) fusionnent en UN
-// GET /refresh?blocks=… : le client joint le hash de la dernière donnée reçue
-// par bloc, le serveur ne renvoie QUE les blocs changés (données prêtes à
-// afficher), chacun dispatché à son renderer. Un seul tick au rythme sessions
-// (pollDelay) ; chaque bloc garde sa période propre — inclus quand son âge la
-// dépasse, ou d'office après une action (spawn, kill…). ~19 → ~8 req/min.
-const REFRESH_PERIOD_MS = { sessions: 0, health: 15000, worklog: 10000, pending: 45000,
-                            dashboard: 30000, vault: 60000, envcheck: 300000, coreupdate: 300000 };
-const refreshHash = {};        // bloc → hash de la dernière donnée reçue
-const refreshAt = {};          // bloc → Date.now() de la dernière inclusion
-let refreshWorklogSid = null;  // sid du hash worklog courant (reset au ré-attach)
-let refreshInFlight = null;    // promesse du composite en vol (un seul à la fois)
-let refreshQueued = null;      // includes arrivés pendant le vol → rejoués après
-function refreshDue(name, includes) {
-  if (includes.includes(name)) return true;
-  const t = refreshAt[name];
-  return t === undefined || (Date.now() - t) >= REFRESH_PERIOD_MS[name];
-}
-function refreshSpecs(includes) {
-  const specs = [];
-  if (refreshDue("sessions", includes)) specs.push("sessions:" + (refreshHash.sessions || ""));
-  if (refreshDue("health", includes)) specs.push("health:" + (refreshHash.health || ""));
-  if (refreshDue("pending", includes)) specs.push("pending:" + (refreshHash.pending || ""));
-  if (karlCall("dashboard", "visible") && refreshDue("dashboard", includes)) specs.push("dashboard:" + (refreshHash.dashboard || ""));
-  if (refreshDue("vault", includes)) specs.push("vault:" + (refreshHash.vault || ""));
-  if (refreshDue("envcheck", includes)) specs.push("envcheck:" + (refreshHash.envcheck || ""));
-  if (refreshDue("coreupdate", includes)) specs.push("coreupdate:" + (refreshHash.coreupdate || ""));
-  if (attached && rightVisible("state") && refreshDue("worklog", includes)) {
-    if (refreshWorklogSid !== String(attached)) { delete refreshHash.worklog; refreshWorklogSid = String(attached); }
-    specs.push("worklog:" + String(attached) + ":" + (refreshHash.worklog || ""));
-  }
-  return specs;
-}
-function refreshFetch(includes) {
-  includes = includes || [];
-  if (refreshInFlight) {         // un seul composite en vol ; on rejoue après
-    refreshQueued = (refreshQueued || []).concat(includes);
-    return refreshInFlight;
-  }
-  const specs = refreshSpecs(includes);
-  if (!specs.length) return Promise.resolve();
-  refreshInFlight = (async () => {
-    const r = await api("/refresh?blocks=" + encodeURIComponent(specs.join(",")));
-    const now = Date.now();
-    specs.forEach(sp => { refreshAt[sp.split(":")[0]] = now; });
-    const b = r.blocks || {};
-    if (b.health) { refreshHash.health = b.health.hash; renderHealth(b.health.data); }
-    if (b.pending) { refreshHash.pending = b.pending.hash; pendStale = pendStaleSet((b.pending.data || {}).entries || []); }
-    if (b.dashboard) { refreshHash.dashboard = b.dashboard.hash; karlCall("dashboard", "setBlock", b.dashboard.data); }
-    if (b.vault) { refreshHash.vault = b.vault.hash; karlCall("env", "setBlock", "vault", b.vault.data); }
-    if (b.envcheck) { refreshHash.envcheck = b.envcheck.hash; karlCall("env", "setBlock", "envcheck", b.envcheck.data); }
-    if (b.coreupdate) { refreshHash.coreupdate = b.coreupdate.hash; renderCoreUpdate(b.coreupdate.data); }
-    if (b.sessions) {
-      refreshHash.sessions = b.sessions.hash;
-      seedBriefs(b.sessions.data.briefs);
-      renderSessions(b.sessions.data.sessions);
-    }
-    // garde : une réponse worklog d'une session qu'on a quittée entre-temps est jetée
-    if (b.worklog && b.worklog.data && String(b.worklog.data.rm_id) === String(attached)) {
-      refreshHash.worklog = b.worklog.hash;
-      karlCall("worklog", "setFromRefresh", b.worklog.data);   // worklog migré
-    }
-  })().catch(e => { renderHealthKo(e.message); })
-     .finally(() => {
-       refreshInFlight = null;
-       if (refreshQueued) { const q = refreshQueued; refreshQueued = null; refreshFetch(q); }
-     });
-  return refreshInFlight;
-}
-// Le bloc sessions embarque la résolution brève (op_tickets_brief) : plus aucun
-// GET /resolve pour la LISTE. Une entrée `partial` est surclassée en résolution
-// riche par ensureResolved dès qu'une vue de détail la demande.
-function seedBriefs(briefs) {
-  Object.entries(briefs || {}).forEach(([rm, br]) => {
-    const cur = resolveCache[rm];
-    if (cur === undefined || (cur && cur.partial)) {
-      resolveCache[rm] = Object.assign({}, br, { partial: true });
-      resolveAt[rm] = Date.now();
-    }
-  });
-}
-// <<< refresh
-function tickSessions() {
-  sessTimer = null;
-  if (document.hidden) return;   // pause en arrière-plan ; relancé par visibilitychange
-  Promise.resolve(refreshFetch()).finally(() => {
-    if (!document.hidden) sessTimer = setTimeout(tickSessions, pollDelay(hotSessions > 0));
-  });
-}
-// Entrée des rafraîchissements événementiels (spawn, kill, move…) : force le
-// bloc sessions dans le prochain composite — signature inchangée pour la
-// vingtaine d'appelants existants (RM2763).
-function refreshSessions() { return refreshFetch(["sessions"]); }
-// — liste des sessions « en cours » — MIGRÉE (RM2889) : src/controllers/sessions.controller.js —
-// Tuiles, bandeau « à traiter », groupes et plis, compteurs, « ✔ Oui / ✔ tout / auto-oui », titre de la session attachée et en-tête
-// droit (RM2894) vivent dans le contrôleur ; la pile /refresh lui livre le bloc sessions par ce pont, et lit les compteurs rendus
-// pour régler sa cadence (RM2613). Les jeux (barre, ⊖ ⟳ relance, sélection) restent ici et lui sont prêtés.
-function renderSessions(sessions) { const c = karlCall("sessions", "render", sessions); if (c) hotSessions = c.attention + c.choice; }
-function orderedSessions() { return karlCall("sessions", "ordered") || []; }   // RM2302/RM2439 : sessions à plat, dans l'ordre d'affichage
-function restartTip(policy) { return karlCall("sessions", "restartTip", policy) || ""; }   // RM2427 : politique de reprise, en clair (liste des entrées)
+// — pile /refresh (RM2763 composite, RM2613 cadence adaptative et pause en arrière-plan, RM2598 questions sans réponse) — MIGRÉE (RM2889) : src/controllers/refresh.controller.js —
+// Un seul tick, chaque bloc à sa période ; les blocs reçus sont livrés aux domaines par boot.js. L'attache et l'init lui parlent par ces ponts :
+function refreshSessions() { return karlWhen("refresh").then(r => r.refreshSessions()); }   // rafraîchissement événementiel (spawn, kill, move…)
+function refreshHealth() { return karlWhen("refresh").then(r => r.refreshHealth()); }   // après le login / un jeton mémorisé
+function tickSessions() { karlCall("refresh", "start"); }   // premier tick, une fois la configuration (jeton) connue
+// — liste des sessions « en cours » — MIGRÉE (RM2889) : src/controllers/sessions.controller.js — tuiles, bandeau « à traiter », groupes et plis, compteurs,
+// « ✔ Oui / ✔ tout / auto-oui », titre de la session attachée et en-tête droit (RM2894) ; la pile /refresh (migrée) lui livre le bloc sessions par boot.js.
 // — jeux de sessions (RM2395/2427/2439/2442/2443/2445/2446/2447/2448/2449/2450/2451/2452/2536/2537/2673/2741/2951/2955) — MIGRÉS (RM2889) : src/controllers/sets.controller.js —
 // Barre du panneau « en cours » (sélecteur vues/jeux, ＋ jeu, 🗑, sélection, déplacement, 💾, ▶ relancer), carte « Sessions enregistrées » (règle,
 // entrées ⟳/⏸/⊖, rétention, préférence de relance, versions, effacement), gestes prêtés à la liste (⊖ d'une vivante, relance/retrait/politique
@@ -1965,21 +1808,7 @@ function triageVisibleRows() { return karlCall("tickets", "triageRows") || []; }
 // droit (recentré sur la session). RM2598 : /pending alimente désormais un badge
 // « sans réponse » (🕓) par tuile de session dans la liste de GAUCHE.
 
-// >>> pendStaleSet — pur (testé par test_cockpit.js) : rm_ids des sessions avec une
-// question posée puis laissée SANS RÉPONSE (kind « stale »). Les bloquées live
-// (kind « live ») sont déjà signalées ⚠/❓ par l'état tmux — on ne double pas.
-function pendStaleSet(entries) {
-  const s = new Set();
-  for (const e of entries || []) if (e && e.kind === "stale") s.add(String(e.rm_id));
-  return s;
-}
-// <<< pendStaleSet
-
-let pendStale = new Set();   // rm_ids ayant une question sans réponse
-// RM2763 (suite) : /pending rejoint la pile de refresh — période 45 s (RM2598 :
-// l'op est lourd, tmux + transcripts) ; le hash évite de re-livrer l'agrégat
-// inchangé, et le composite évite deux calculs concurrents.
-function loadPending() { return refreshFetch(["pending"]); }
+// pendStaleSet / pendStale / loadPending (RM2598/RM2763) : MIGRÉS (RM2889) — src/models/refresh/refresh.js, src/controllers/refresh.controller.js (stale())
 
 // — RM2466/2581/2610/2716/2719/2720/2723/2786/2798/2801/2823/2831/2935 : worklog de la session et lots — MIGRÉS (RM2889) : src/controllers/worklog.controller.js —
 // Le worklog, la sélection et les plans vivent dans le contrôleur ; l'attache, la colonne et la pile /refresh lui parlent par ces ponts :
@@ -2294,10 +2123,8 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
   karlCall("voice", "boot");   // RM2329/RM2350/RM2532 : voix — migré
   // RM2344/RM2346 : préférence de tri et gel du réordonnancement — posés par le contrôleur migré (sessions) au montage
   try { speechSynthesis.onvoiceschanged = () => karlCall("voice", "paint"); } catch (e) { /* pas de synthèse */ }
-  refreshHealth(); loadPending();
   refreshSessionSets();  // RM2442 : liste des jeux nommés (sélecteur)
   refreshSessionSet();   // RM2395 : état du bouton « Relancer les sessions enregistrées »
-  refreshCoreUpdate();   // RM2571 : MAJ du core dispo ?
   // RM2613 : tous les pollers sont GATED sur la visibilité de l'onglet — plus aucune
   // requête quand le cockpit est en arrière-plan ; au retour, rafraîchissement immédiat.
   karlCall("dashboard", "refresh");       // RM2697 : l'écran d'ouverture dit ce qui attend
@@ -2310,11 +2137,7 @@ function openDispositionMenu(s, anchor) { karlCall("actions", "openDispositionMe
   // (alignés sur la mémorisation serveur), pending 45 s, health 15 s,
   // worklog 10 s. Les cadences lentes gardent leur raison d'être d'origine
   // (RM2697, RM2722, RM2571, RM2598) — seule la mécanique de transport change.
-  tickSessions();        // pile /refresh : timer auto-replanifié, cadence adaptative (3 s si attention, 7 s au calme)
-  document.addEventListener("visibilitychange", () => {
-    if (document.hidden) return;          // repassé au premier plan → on rattrape
-    if (!sessTimer) tickSessions();       // le tick rattrape tous les blocs dus
-  });
+  tickSessions();        // pile /refresh (migrée) : premier tick — tous les blocs sont dus —, cadence adaptative, rattrapage au retour au premier plan
 })();
 </script>
 </body>

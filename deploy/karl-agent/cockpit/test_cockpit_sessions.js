@@ -191,8 +191,8 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — hôtes et ponts dans index.html —
   ["runlist", "hcnt", "ln-count", "ln-att", "yesall", "yesatt", "yesbtn", "autoyes", "curtitle", "rtitle", "dynsort"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   for (const id of ["yesall", "yesatt", "yesbtn", "autoyes", "dynsort"]) { const m = new RegExp('<(?:button|select|input)[^>]*id="' + id + '"[^>]*>').exec(html); assert(m && !/\son\w+=/.test(m[0]), "l'hôte #" + id + " ne porte plus de on*"); }
-  assert(/function renderSessions\(sessions\) \{ const c = karlCall\("sessions", "render", sessions\); if \(c\) hotSessions = c\.attention \+ c\.choice; \}/.test(html), "la pile /refresh livre le bloc sessions et lit la cadence (RM2613)");
-  assert(/function orderedSessions\(\) \{ return karlCall\("sessions", "ordered"\)/.test(html) && !/orderedCache/.test(html.replace(/\/\/[^\n]*/g, "")), "RM2439 : les jeux lisent les sessions AFFICHÉES par le pont");
+  assert(/onSessions: \(list\) => sessionsCtl\.render\(list\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && /this\.hot = \(c\.attention \|\| 0\) \+ \(c\.choice \|\| 0\)/.test(fs.readFileSync(path.join(DIR, "src/services/refresh.service.js"), "utf8")), "la pile /refresh (migrée) livre le bloc sessions au contrôleur et lit les compteurs rendus pour sa cadence (RM2613)");
+  assert(/ordered: \(\) => sessionsCtl\.ordered\(\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && !/orderedCache/.test(html.replace(/\/\/[^\n]*/g, "")), "RM2439 : les jeux (migrés) lisent les sessions AFFICHÉES sur le contrôleur");
   for (const src of [fs.readFileSync(path.join(DIR, "src/views/sessions/Sessions.view.js"), "utf8"), fs.readFileSync(path.join(DIR, "src/controllers/sessions.controller.js"), "utf8")]) assert(!/\son(click|change|input)=/.test(src), "aucun handler inline dans le code migré");
   console.log("✓ hôtes sans on*, ponts renderSessions / orderedSessions / restartTip en place");
   console.log("\nTous les tests de la liste des sessions passent.");

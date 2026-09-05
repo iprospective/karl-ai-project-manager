@@ -39,5 +39,18 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
   await startOpen.fire("change", { target: { checked: false } }); await defTab.fire("change", { target: { value: "state" } }); assert(st2.d.karlRightStartOpen === "0" && st2.d.karlRightDefaultTab === "state", "réglages écrits au changement");
   ctl.unmount(); assert.strictEqual(rnav.listenerCount + rtoggle.listenerCount + ltoggle.listenerCount + rhandle.listenerCount + root.listenerCount + startOpen.listenerCount + defTab.listenerCount, 0);
   console.log("✓ contrôleur : restauration depuis les préférences, onglets, repli voulu, colonne gauche, poignée bornée + persistée, réinitialisation, réglages");
+  // — RM2283/2760/2816 : panneaux commutables de la colonne gauche (migrés du monolithe, RM2889) —
+  { const mk = (id, ds) => ({ id, dataset: ds || {}, cl: new Set(), classList: { toggle(c, v) { v ? this.owner.cl.add(c) : this.owner.cl.delete(c); } } }); const own = (o) => { o.classList.owner = o; return o; };
+    const btns = ["running", "tickets", "projects"].map(n => own(mk("b-" + n, { panel: n }))), panels = ["running", "tickets", "projects"].map(n => own(mk("lp-" + n)));
+    const L2 = []; const lnav = { querySelectorAll: () => btns, addEventListener(t, f) { L2.push([t, f]); }, removeEventListener(t, f) { const i = L2.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L2.splice(i, 1); } };
+    const lbody = { querySelector: (sel) => panels.find(p => "#" + p.id === sel) || null, querySelectorAll: () => panels };
+    const st2 = { d: {}, getItem(k) { return this.d[k] === undefined ? null : this.d[k]; }, setItem(k, v) { this.d[k] = String(v); }, removeItem(k) { delete this.d[k]; } };
+    const loads = []; const lay = mountLayout({ lnav, lbody }, { storage: st2, root: null, panelLoaders: { projects: () => loads.push("projects"), tickets: () => loads.push("tickets") } });
+    assert.strictEqual(lay.switchPanel("projects"), "projects"); assert(btns[2].cl.has("active") && !btns[0].cl.has("active") && panels[2].cl.has("active") && st2.d.karlPanel === "projects" && loads.join() === "projects", "actif + persisté + chargé à la première activation");
+    lay.switchPanel("running"); lay.switchPanel("projects"); assert.strictEqual(loads.join(), "projects", "le chargeur ne rejoue pas"); assert.strictEqual(lay.switchPanel("inconnu"), "running", "panneau inconnu → « en cours »"); assert.strictEqual(lay.panel(), "running");
+    st2.d.karlPanel = "tickets"; assert.strictEqual(lay.restorePanel(), "tickets"); assert.deepStrictEqual(loads, ["projects", "tickets"]);
+    for (const [t, f] of L2) if (t === "click") f({ target: { closest: () => btns[0] } }); assert(btns[0].cl.has("active") && lay.panel() === "running", "clic sur l'onglet : délégation par data-panel");
+    lay.unmount(); assert.strictEqual(L2.length, 0);
+    console.log("✓ panneaux gauche (RM2283/2760/2816) : actif persisté, chargeurs à la première activation, inconnu → en cours, clic délégué"); }
   console.log("\nTous les tests de la disposition passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

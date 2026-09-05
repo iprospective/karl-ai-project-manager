@@ -17,4 +17,7 @@ export class LayoutService {
   width() { const v = parseInt(this._get("karlRightWidth") || "", 10); return v ? clampWidth(v) : null; }
   saveWidth(px) { this._set("karlRightWidth", String(clampWidth(px))); }
   resetWidth() { this._del("karlRightWidth"); }
+  /** RM2283 : panneau gauche actif, persisté. */
+  panel() { return this._get("karlPanel"); }
+  savePanel(name) { this._set("karlPanel", name); }
 }

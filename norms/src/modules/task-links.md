@@ -46,7 +46,8 @@ la main : l'outil valide que l'instance est un secondaire déclaré, refuse un d
 journalise, et poste la note de rattachement chez le partenaire.
 
 **Le partenaire ne décide de rien chez nous** : un `partner_issue` ne modifie **aucun**
-champ du frontmatter (statut, priorité, assignation). Le provider **primaire** reste la
+champ du frontmatter (statut, priorité, assignation) — au mieux, sous le régime
+`incoming` du miroir d'états (ci-dessous), il en **propose** un que nous validons. Le provider **primaire** reste la
 seule source de vérité ; ce qui vient d'un secondaire s'écrit dans le `.log.md`.
 
 Quand le secondaire porte `link.policy: required` (« tout ce que je fais pour eux doit
@@ -77,6 +78,38 @@ revue du gabarit : une note poussée chez un tiers ne se rattrape pas.
 * `pm-task-partner link --create-remote` crée le ticket manquant chez eux puis le
   rattache ; il exige un `create.tracker_id` déclaré (les ids de tracker ne sont pas
   portables — on ne devine pas).
+
+**Miroir d'états** (v2.16.0, RM2746) : les deux états peuvent enfin se répondre — sans
+que le partenaire ne prenne la main. Trois régimes, cumulables, déclarés par secondaire
+dans `sync.mirror` (meta.yml) et surchargeables **par ticket** en cochant le CF Redmine
+**35 « Sync ticket externe »** (miroir local : `state_mirror`, rapatrié par
+`pm-task-sync`) :
+
+| Régime | Ce qu'il fait | Écrit chez eux | Change notre statut |
+|---|---|---|---|
+| `signal` | constate la divergence et la rapporte (`pm-doctor`) | non | non |
+| `outgoing` | pose **notre** statut chez eux | oui | non |
+| `incoming` | **propose** une transition chez nous | non | seulement après validation |
+
+* **Défaut : inerte.** Sans déclaration, rien ne change — ni projet, ni ticket.
+* `signal` est le socle : il est ajouté d'office dès qu'un autre régime est actif.
+* La **table de correspondance** est déclarative (`sync.mirror.map`), jamais en dur :
+  `en_cours: "En cours"` suffit à comparer, `{label: "En cours", id: 2}` est requis pour
+  écrire — l'API pose un statut par son id. Un statut absent de la table n'est pas mappé,
+  et ne produit ni divergence ni écriture.
+* Le constat est **hors ligne** : il relit le `last_seen_status` déposé par le pull, donc
+  `pm-doctor` voit la divergence sans ouvrir une connexion.
+* **Aucune transition automatique.** Le régime `incoming` produit une proposition, qu'un
+  humain accepte (`pm-task-partner mirror <id> --accept`, qui délègue la transition à
+  `pm-task-status-update`) ou refuse (`--reject`, mémorisé : la même proposition ne
+  revient pas). Une correspondance ambiguë — plusieurs de nos statuts visant le même
+  libellé chez eux — ne propose **rien** et se tranche par `sync.mirror.map_in`.
+* Le CF est **mono-valeur** : un ticket porte un seul régime. D'où la valeur
+  **`Mirror`**, alias des **deux sens** (`outgoing` + `incoming`) — pas un quatrième
+  régime : elle s'étend, et le code continue de raisonner sur les trois. Un CF laissé
+  **vide** fait hériter du réglage projet ; `none` (accepté par le code, pas encore
+  dans l'énumération Redmine) soustrait au contraire le ticket à ce réglage.
+
 
 **Règles d'intégrité :**
 - Tout lien `relates` / `depends_on` / `blocks` doit avoir son miroir côté cible.

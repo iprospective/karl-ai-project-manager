@@ -816,7 +816,7 @@ if (window.matchMedia) {
   <span class="dot" id="health"></span>
   <h1>Cockpit karl-agent</h1>
   <!-- RM2639 : contexte client — pré-filtre global du cockpit (modifiable partout) -->
-  <select class="mini" id="clientctx" onchange="setClientContext(this.value)"
+  <select class="mini" id="clientctx"
     title="Contexte client : pré-filtre le cockpit (tickets ouverts, sessions, recherche, création). Reste modifiable partout.">
     <option value="">Tous les clients</option>
   </select>
@@ -1009,18 +1009,18 @@ if (window.matchMedia) {
       <input id="nt-tags" type="text" placeholder="ci, infra">
       <label for="nt-desc">Description <span style="color:var(--muted)">(optionnel)</span></label>
       <textarea id="nt-desc" placeholder="Détails…"></textarea>
-      <button class="primary" id="nt-btn" onclick="createTicket()">Créer le ticket</button>
+      <button class="primary" id="nt-btn" data-action="create">Créer le ticket</button>
     </details>
     </div>
 
     <div class="lpanel" id="lp-sessions">
-    <div class="card">
+    <div class="card" id="launchcard">
       <h2>Lancer une session <button class="helpq" onclick="openHelp('sessions')" title="Aide sur ce panneau">?</button></h2>
       <label for="rm">Ticket (RM id)</label>
       <input id="rm" type="number" inputmode="numeric" placeholder="ex : 1669" min="1">
       <div class="resolved" id="resolved"></div>
       <label for="engine">Moteur</label>
-      <select id="engine" onchange="populateModels()">
+      <select id="engine">
         <option value="claude">claude</option>
         <option value="opencode">opencode</option>
         <option value="vibe">Mistral Vibe</option>
@@ -1033,9 +1033,9 @@ if (window.matchMedia) {
       <label for="ptpl">Prompt initial</label>
       <!-- RM2873 : peuplé depuis promptTemplates() — la fiche du ticket propose
            la même liste, et une liste en dur ici aurait divergé au 1er ajout. -->
-      <select id="ptpl" onchange="applyTemplate()"></select>
+      <select id="ptpl"></select>
       <textarea id="prompt" placeholder="traite la tâche RM…"></textarea>
-      <button class="primary" id="spawnbtn" onclick="spawn()">▶ Lancer &amp; attacher</button>
+      <button class="primary" id="spawnbtn" data-action="spawn">▶ Lancer &amp; attacher</button>
     </div>
 
     <div class="card" id="rescard">
@@ -1439,8 +1439,6 @@ function karlCall(domain, fn, ...args) {
   return undefined;
 }
 let attached = null;
-let resolved = null;
-let resolveTimer = null;
 
 function token() { return localStorage.getItem("karlToken") || ""; }
 function saveToken() {
@@ -1789,22 +1787,7 @@ function computeGroups(sessions, rcache, dynamic) {
 }
 // <<< computeGroups
 
-// >>> clientCtxList — pur (RM2639, testé) : clients uniques triés depuis /projects.
-function clientCtxList(projects) {
-  const seen = {};
-  for (const p of (projects || [])) { if (p && p.client) seen[p.client] = 1; }
-  return Object.keys(seen).sort(function (a, b) { return a.localeCompare(b); });
-}
-// <<< clientCtxList
-
-// >>> clientCtxProject — pur (RM2639, testé) : `value` (client/projet) du premier
-// projet d'un client donné, "" si client vide ou introuvable.
-function clientCtxProject(projects, client) {
-  if (!client) return "";
-  for (const p of (projects || [])) { if (p && p.client === client) return p.value; }
-  return "";
-}
-// <<< clientCtxProject
+// clientCtxList / clientCtxProject (RM2639) : MIGRÉS (RM2889) — src/models/launcher/launcher.js
 
 // >>> sessionInClient — pur (RM2639, testé) : la session appartient-elle au
 // contexte client ? ctx vide → toujours oui. Sinon client de la session == ctx,
@@ -3318,132 +3301,21 @@ async function approve(rmId) {
   } catch (e) { toast(e.message, true); }
 }
 
-// ----- §1 : résolution rm_id → client/projet/cwd/prompt -----
-async function resolveRm() {
-  const rm = document.getElementById("rm").value.trim();
-  const el = document.getElementById("resolved");
-  if (!/^\d+$/.test(rm)) { resolved = null; el.textContent = ""; el.className = "resolved"; return; }
-  try {
-    const r = await api("/resolve/" + rm);
-    resolved = r;
-    if (r.found) {
-      el.className = "resolved";
-      el.innerHTML = esc("✓ " + r.client + " / " + r.project + (r.title ? " — " + r.title : "") + (r.status ? "  [" + r.status + "]" : "")) +
-        // RM2285 : un ticket fermé se rouvre (ferme→a_faire, note motivée obligatoire)
-        (r.status === "ferme" ? ' <button class="mini" onclick="reopenTicket(' + esc(rm) + ')" title="Rouvrir le ticket (ferme → a_faire, motif requis)">↻ Rouvrir</button>' : "");
-      document.getElementById("cwd").value = r.cwd;
-    } else {
-      el.className = "resolved nf";
-      el.textContent = "⚠ ticket non trouvé en local — prompt générique";
-    }
-    applyTemplate();
-    populateModels();   // rafraîchit le libellé « défini dans le ticket (…) »
-  } catch (e) { resolved = null; el.textContent = ""; el.className = "resolved"; }
-}
-// RM2539 : le panneau de reprise ne propose que les moteurs dont le serveur sait
-// ET reprendre ET découvrir les conversations (`resume_engines`) — inutile
-// d'offrir un moteur qui ne rendrait jamais rien. « tous » reste le défaut.
+// ----- §1 lanceur (résolution, modèles RM1941, consigne RM2873, spawn RM2818), §8 saisie éclair, contexte client RM2639, réouverture RM2285 — MIGRÉS (RM2889) : src/controllers/launcher.controller.js -----
+// Le ticket résolu, les projets connus et le contexte client vivent dans le contrôleur. Ponts pour les appelants historiques :
+function resolveRm() { karlCall("launcher", "resolve"); }
+function gotoTicket(id) { karlCall("launcher", "goto", id); }
+function reopenTicket(rm) { karlCall("launcher", "reopen", rm); }
+function setClientContext(c) { karlCall("launcher", "setClientContext", c); }
+// la liste des sessions (legacy) lit `clientContext` en direct : le contrôleur le tient à jour par ce setter
+let clientContext = "";
+function setClientCtxLocal(c) { clientContext = c || ""; }
 function populateResumeEngines() { karlCall("resume", "setEngines", CFG.resume_engines || ["claude"]); }   // RM2539 → migré
-// ----- RM1941 : sélecteur de modèle dépendant du moteur -----
-function populateModels() {
-  const engine = document.getElementById("engine").value;
-  const sel = document.getElementById("model");
-  const prev = sel.value;
-  sel.innerHTML = "";
-  const keys = (CFG.models || {})[engine] || [];
-  // « défini dans le ticket » d'abord (défaut quand un RM-id est résolu), puis défaut moteur.
-  const tkt = document.createElement("option");
-  tkt.value = "ticket";
-  const presc = resolved && resolved.found && resolved.ai_model ? " (" + resolved.ai_model + ")" : "";
-  tkt.textContent = "défini dans le ticket" + presc;
-  sel.appendChild(tkt);
-  const def = document.createElement("option");
-  def.value = ""; def.textContent = "défaut moteur";
-  sel.appendChild(def);
-  keys.forEach(k => { const o = document.createElement("option"); o.value = k; o.textContent = k; sel.appendChild(o); });
-  // conserve le choix si encore valide, sinon : ticket par défaut (sentinelle sans
-  // ai_model = défaut moteur côté serveur, donc toujours un choix sûr).
-  sel.value = [...sel.options].some(o => o.value === prev) ? prev : "ticket";
-}
 
-function applyTemplate() {
-  const tpl = document.getElementById("ptpl").value;
-  const rm = document.getElementById("rm").value.trim();
-  const ta = document.getElementById("prompt");
-  const r = resolved && resolved.found ? resolved : null;
-  // RM2726 : la formulation vit dans taskPromptText — la fiche du ticket lance
-  // avec exactement le même texte. RM2873 : et la RÈGLE de remplissage
-  // (« libre » intouché, calcul impossible → on ne vide pas) vit dans
-  // promptFillOnChange, partagée elle aussi avec la fiche.
-  const txt = taskPromptText(tpl, rm, r && r.client, r && r.project, r && r.role_hint);  // RM2833
-  ta.value = promptFillOnChange(tpl, ta.value, txt);
-}
-
-// ----- §7 : recherche de tickets (RM2770/2639/2830/2795) — MIGRÉ (RM2889) : src/controllers/search.controller.js -----
 // La carte #searchcard est l'hôte ; le lanceur (projets, contexte client, création) lui parle par karlCall. Pont pour les appelants historiques :
 function search() { karlCall("search", "search"); }
 
 // ----- §8 : création de ticket -----
-let allProjects = [];   // cache client/projet (RM2418 : cible de déplacement)
-async function loadProjects() {
-  const sel = document.getElementById("nt-project");
-  try {
-    const { projects } = await api("/projects");
-    allProjects = projects;
-    sel.innerHTML = "";
-    for (const p of projects) {
-      const o = document.createElement("option");
-      o.value = p.value; o.textContent = p.value;
-      if (p.value === "iprospective/pm-ai-agents") o.selected = true;
-      sel.appendChild(o);
-    }
-    karlCall("resume", "setProjects");                 // RM2834 : la carte de reprise se peuple des mêmes projets (migrée)
-    karlCall("search", "loadTags");                    // RM2830 : étiquettes en usage (recherche + triage)
-    fillClientCtx();                                   // RM2639 : peuple le menu client
-    karlCall("search", "init");                        // RM2770 : filtres de recherche (migrés)
-    if (clientContext) {                               // pré-filtre appliqué au chargement
-      openedFilter(clientContext);
-      // RM2834 : le contexte client pré-sélectionne le client, donc les projets
-      // proposés — sans figer le choix (les deux restent modifiables).
-      const proj = clientCtxProject(allProjects, clientContext);
-      karlCall("resume", "applyClientContext", clientContext, proj);
-      if (proj) sel.value = proj;
-    }
-  } catch (e) { /* silencieux */ }
-}
-
-// ----- RM2639 : contexte client — pré-filtre global du cockpit (modifiable) -----
-let clientContext = "";
-try { clientContext = localStorage.getItem("karlClientCtx") || ""; } catch (e) { clientContext = ""; }
-
-function fillClientCtx() {
-  const sel = document.getElementById("clientctx");
-  if (!sel) return;
-  const clients = clientCtxList(allProjects);
-  if (clientContext && clients.indexOf(clientContext) < 0) clientContext = "";   // client disparu → tous
-  sel.innerHTML = '<option value="">Tous les clients</option>'
-    + clients.map(function (c) {
-        return '<option value="' + esc(c) + '"' + (c === clientContext ? " selected" : "") + ">" + esc(c) + "</option>";
-      }).join("");
-  sel.value = clientContext;
-}
-
-function setClientContext(c) {
-  clientContext = c || "";
-  try { localStorage.setItem("karlClientCtx", clientContext); } catch (e) {}
-  const sel = document.getElementById("clientctx"); if (sel) sel.value = clientContext;
-  openedFilter(clientContext || null);                          // tickets ouverts (override possible)
-  const proj = clientCtxProject(allProjects, clientContext);    // formulaires (modifiables)
-  if (proj) {
-    const nt = document.getElementById("nt-project"); if (nt) nt.value = proj;
-  }
-  karlCall("resume", "applyClientContext", clientContext, proj);   // RM2834 : la carte de reprise suit le contexte (migrée)
-  karlCall("search", "refreshIfQuery");                        // recherche (migrée)
-  karlCall("projects", "render");                              // RM2760 : le client du contexte se déplie
-  karlCall("search", "fillProjects");                          // RM2770 : projets du filtre de recherche (migré)
-  refreshSessions();                                           // sessions : re-render filtré
-}
-
 function renderClientCtxBanner(list, hidden) {
   const d = document.createElement("div");
   d.className = "ctxbanner";
@@ -3457,32 +3329,6 @@ function renderClientCtxBanner(list, hidden) {
 // La carte #rescard est l'hôte ; le lanceur (chargement des projets, contexte client, panneau) lui parle par ces ponts :
 function loadResumable() { karlCall("resume", "load"); }
 
-async function createTicket() {
-  const title = document.getElementById("nt-title").value.trim();
-  if (!title) { toast("Titre requis", true); return; }
-  const body = {
-    title,
-    project: document.getElementById("nt-project").value,
-    type: document.getElementById("nt-type").value,
-    priority: document.getElementById("nt-prio").value,
-    tags: document.getElementById("nt-tags").value.trim(),
-    description: document.getElementById("nt-desc").value.trim(),
-  };
-  const btn = document.getElementById("nt-btn");
-  btn.disabled = true; btn.textContent = "Création…";
-  try {
-    const r = await api("/tickets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    toast("Ticket RM" + r.rm_id + " créé");
-    document.getElementById("rm").value = r.rm_id;   // pré-remplit le lanceur
-    resolveRm();
-    document.getElementById("nt-title").value = "";
-    document.getElementById("nt-tags").value = "";
-    document.getElementById("nt-desc").value = "";
-    document.getElementById("ntcard").open = false;
-    karlCall("search", "refreshIfQuery");                // la recherche en cours voit le nouveau ticket
-  } catch (e) { toast(e.message, true); }
-  finally { btn.disabled = false; btn.textContent = "Créer le ticket"; }
-}
 
 // ----- panneau de pilotage (méta de la session) -----
 const resolveCache = {};
@@ -3572,9 +3418,6 @@ function showTicket(id) { karlCall("meta", "showTicket", id); }
 function setMetaTicket(rm) { karlCall("meta", "setTicket", rm); }
 function metaTicketIs(rm) { return !!karlCall("meta", "ticketIs", rm); }
 function refreshWorkspace(rm) { karlCall("meta", "refreshWorkspace", rm); }
-function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); switchPanel("sessions"); attachIfRunning(id); }
-// RM2427 : `ghosts=0` — une session seulement ENREGISTRÉE ne tourne pas, il n'y a rien à attacher.
-function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
 
 // ----- Markdown (RM2309), glossaire de projet (RM2675), modale doc / aide / glossaire (RM2593/2623/2759) : MIGRÉS (RM2889) — src/core/markdown.js, src/controllers/doc.controller.js -----
 // La modale #docmodal reste l'hôte ; les plans de lot du worklog y écrivent encore directement et la referment par closeDoc.
@@ -3950,26 +3793,7 @@ function showCaptureModal(title, txt) {
   document.getElementById("docmodal").classList.add("show");
 }
 
-// ----- RM2285 : rouvrir un ticket fermé (ferme → a_faire, NORMS v1.57.0) -----
-async function reopenTicket(rm) {
-  rm = String(rm);
-  const note = window.prompt("RM" + rm + " → a_faire (réouverture)\nMotif de la réouverture (requis) :", "");
-  if (note === null) return;
-  if (!note.trim()) { toast("Motif requis", true); return; }
-  try {
-    const r = await pmRun("task-status", { rm_id: rm, status: "a_faire", note: note.trim() }, { confirm: true });
-    toast(r.ok ? "RM" + rm + " rouvert → a_faire" : "Échec réouverture (rc=" + r.rc + ")", !r.ok);
-    if (!r.ok) showCaptureModal("Réouverture RM" + rm + " — ÉCHEC", (r.stdout || "") + "\n" + (r.stderr || ""));
-  } catch (e) { toast(e.message, true); }
-  finally {
-    // re-résout partout : lanceur, encart ℹ, fiche revue (resolveCache périmé, cf. RM2229)
-    ensureResolved(rm, true).then(() => {
-      if (document.getElementById("rm").value.trim() === rm) resolveRm();
-      if (metaTicketIs(rm)) renderMeta();
-      if (reviewCurrent() === rm) renderReviewPane();
-    });
-  }
-}
+// ----- RM2285 : rouvrir un ticket fermé — MIGRÉ (RM2889) : src/controllers/launcher.controller.js (pont reopenTicket plus haut) -----
 
 // ----- RM2386/RM2213/RM2211 : thème, réglages, commandes PM — domaines MIGRÉS (RM2889, L5) : src/controllers/{settings,pmcmd}.controller.js -----
 
@@ -4138,32 +3962,7 @@ async function setLayout() {
   document.getElementById("layoutsel").value = "";
 }
 
-async function spawn() {
-  const rm = document.getElementById("rm").value.trim();
-  if (!/^\d+$/.test(rm)) { toast("RM id requis (entier)", true); return; }
-  if (!await confirmSecondSession(rm)) return;      // RM2818
-  const body = { rm_id: rm, engine: document.getElementById("engine").value };
-  const model = document.getElementById("model").value;
-  if (model) body.model = model;
-  const cwd = document.getElementById("cwd").value.trim();
-  const prompt = document.getElementById("prompt").value.trim();
-  if (cwd) body.cwd = cwd;
-  if (prompt) body.prompt = prompt;
-  const btn = document.getElementById("spawnbtn");
-  btn.disabled = true; btn.textContent = "Lancement…";
-  try {
-    const sp = await api("/spawn", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    toast("Session karl-RM" + rm + " lancée");
-    warnSpawn(sp);     // RM2450 jeu plein · RM2951 moteur bloqué
-    document.getElementById("prompt").value = "";
-    await refreshSessions(); refreshHealth();
-    setTimeout(() => attach(rm), 400);
-  } catch (e) {
-    toast(e.message, true);
-  } finally {
-    btn.disabled = false; btn.textContent = "▶ Lancer & attacher";
-  }
-}
+// spawn (lanceur) : MIGRÉ (RM2889) — src/controllers/launcher.controller.js
 // RM2515 : menu de disposition d'une session (à traiter / parké / terminé) + raccourci
 // fermer. Popover ancré sur la pastille ; clic ailleurs (ou choix) le referme.
 function closeDispMenu() { const m = document.getElementById("dispmenu"); if (m) m.remove(); }
@@ -4232,26 +4031,14 @@ async function kill(rmId) {
   (CFG.monitors || []).forEach(m => { const o = document.createElement("option"); o.value = m; o.textContent = "📺 " + m; mp.appendChild(o); });
   const ls = document.getElementById("layoutsel");
   (CFG.layouts || []).forEach(l => { const o = document.createElement("option"); o.value = l; o.textContent = l; ls.appendChild(o); });
-  populateModels();   // RM1941 : catalogue des modèles du moteur courant
+  karlCall("launcher", "populateModels");   // RM1941 : catalogue des modèles du moteur courant (lanceur migré)
   // RM2873 : modèles de consigne — même source que la fiche du ticket
   // → migré (RM2889) : boot.js peuple #ptpl depuis la source unique des modèles de consigne
   // peuple types + priorités du formulaire « Nouveau ticket » (source unique : pm-task-add)
-  const ntType = document.getElementById("nt-type");
-  (CFG.task_types || []).forEach(t => {
-    const o = document.createElement("option"); o.value = t.value; o.textContent = t.label || t.value;
-    if (t.value === "feature") o.selected = true; ntType.appendChild(o);
-  });
-  const ntPrio = document.getElementById("nt-prio");
-  (CFG.priorities || ["low", "normal", "high", "urgent"]).forEach(pr => {
-    const o = document.createElement("option"); o.value = pr; o.textContent = pr;
-    if (pr === "normal") o.selected = true; ntPrio.appendChild(o);
-  });
+  karlCall("launcher", "fillTicketForm");   // types + priorités depuis la config (source unique : pm-task-add) — lanceur migré
   // wiring
   document.getElementById("auth-pass").addEventListener("keydown", e => { if (e.key === "Enter") login(); });
   document.getElementById("auth-user").addEventListener("keydown", e => { if (e.key === "Enter") document.getElementById("auth-pass").focus(); });
-  const rmIn = document.getElementById("rm");
-  rmIn.addEventListener("keydown", e => { if (e.key === "Enter") spawn(); });
-  rmIn.addEventListener("input", () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolveRm, 300); });
   // RM2330 : navigation clavier dans l'historique de conversation. Ne prend que
   // quand le focus est sur la page cockpit (l'iframe ttyd est cross-origin :
   // impossible d'y intercepter les touches — cliquer hors du terminal d'abord).
@@ -4270,7 +4057,7 @@ async function kill(rmId) {
   });
   // RM2527 : le composer gère ses propres touches (Entrée, Maj+Entrée, ↑/↓, Échap)
   document.getElementById("cmptext").addEventListener("keydown", composerKey);
-  loadProjects();
+  karlCall("launcher", "loadProjects");   // projets connus → formulaires, reprise, recherche, contexte client (lanceur migré)
   // RM2283 : restaure le panneau gauche actif (RM2816 : les réglages n'y sont plus)
   switchPanel(localStorage.getItem("karlPanel") || "running");
   // RM2466/RM2579 : la disposition (repli des colonnes, onglet de droite, largeur) est restaurée par le contrôleur migré (layout) au montage

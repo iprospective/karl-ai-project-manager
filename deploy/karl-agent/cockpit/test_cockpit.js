@@ -681,19 +681,13 @@ console.log("✓ conversation (RM2596) : recherche, surlignage, refs cliquables,
 // — RM2623/RM2634 : glossaire du jargon : MIGRÉ (RM2889) — voir test_cockpit_doc.js —
 
 // — RM2639 : contexte client (pré-filtre global du cockpit) —
-const clientCtxList = grabO("clientCtxList");
-const clientCtxProject = grabO("clientCtxProject");
+// clientCtxList / clientCtxProject : MIGRÉS (RM2889, lanceur) — voir test_cockpit_launcher.js ; sessionInClient reste (liste des sessions)
 const sessionInClient = grabO("sessionInClient");
 const PJ = [
   { client: "iprospective", project: "pm-ai-agents", value: "iprospective/pm-ai-agents" },
   { client: "acme", project: "site", value: "acme/site" },
   { client: "iprospective", project: "infra", value: "iprospective/infra" },
 ];
-assert.deepStrictEqual([...clientCtxList(PJ)], ["acme", "iprospective"], "clients uniques, triés alpha");
-assert.deepStrictEqual([...clientCtxList([])], [], "aucun projet → []");
-assert.strictEqual(clientCtxProject(PJ, "iprospective"), "iprospective/pm-ai-agents", "1er projet du client");
-assert.strictEqual(clientCtxProject(PJ, "inconnu"), "", "client introuvable → ''");
-assert.strictEqual(clientCtxProject(PJ, ""), "", "client vide → ''");
 assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, ""), true, "ctx vide → visible");
 assert.strictEqual(sessionInClient({ client: "acme", state: "working" }, null, "acme"), true, "même client → visible");
 assert.strictEqual(sessionInClient({ client: "bob", state: "working" }, null, "acme"), false, "autre client, non en attente → masqué");
@@ -1391,11 +1385,8 @@ console.log("✓ embarquer un lot ailleurs (RM2823) : bouton hôte en place, log
 // — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
 // Texte d'alerte, garde et spawn depuis la fiche : MIGRÉS (RM2889, test_cockpit_review.js).
 // Le lanceur de gauche (spawn) reste au monolithe et doit passer par la garde (pont).
-{
-  const i = html.indexOf("async function spawn(");
-  assert(i > 0, "fonction introuvable : spawn");
-  assert(/confirmSecondSession\(/.test(html.slice(i, i + 2200)), "spawn doit passer par confirmSecondSession");
-}
+assert(/ctx\.confirmSecondSession && !\(await ctx\.confirmSecondSession\(sb\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/controllers/launcher.controller.js"), "utf8")),
+  "spawn (lanceur migré) doit passer par la garde confirmSecondSession");
 console.log("✓ 2e session sur un ticket pris (RM2818) : le lanceur de gauche passe aussi par la garde");
 // — RM2819 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 

@@ -16,9 +16,9 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   const V = await import(path.join(DIR, "src/views/tickets/Search.view.js"));
   const { mountSearch } = await import(path.join(DIR, "src/controllers/search.controller.js"));
   // — RM2770 / RM2639 / RM2830 : la requête —
-  assert.strictEqual(M.searchQuery("abc", { source: "local" }, ""), "/tickets/search?q=abc", "source locale = requête historique"); assert(M.searchQuery("x", { source: "redmine" }, "").includes("source=redmine") && M.searchQuery("x", { source: "both" }, "").includes("source=both"));
+  assert.strictEqual(M.searchQuery("abc", { source: "local" }, ""), "/api/search/tickets?q=abc", "source locale = requête historique"); assert(M.searchQuery("x", { source: "redmine" }, "").includes("source=redmine") && M.searchQuery("x", { source: "both" }, "").includes("source=both"));
   assert(M.searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"), "le filtre explicite prime sur le contexte"); assert(M.searchQuery("x", {}, "calicote").includes("client=calicote")); assert(!M.searchQuery("x", {}, "").includes("client="));
-  const qFull = M.searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, ""); ["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(f => assert(qFull.includes(f), f)); assert(M.searchQuery("a b&c", {}, "").includes("q=a%20b%26c")); assert.strictEqual(M.searchQuery(null, null, null), "/tickets/search?q=");
+  const qFull = M.searchQuery("mep", { source: "both", client: "c", project: "p", status: "a_faire" }, ""); ["q=mep", "client=c", "project=p", "status=a_faire", "source=both"].forEach(f => assert(qFull.includes(f), f)); assert(M.searchQuery("a b&c", {}, "").includes("q=a%20b%26c")); assert.strictEqual(M.searchQuery(null, null, null), "/api/search/tickets?q=");
   assert(/tag=refacto/.test(M.searchQuery("x", { tag: "refacto" }, ""))); assert(!/tag=/.test(M.searchQuery("x", {}, "")));
   // — la ligne de contexte —
   assert.strictEqual(M.searchRowMeta({ client: "c", project: "p", status: "a_faire" }), "c / p · a_faire"); const m = M.searchRowMeta({ rm_id: "9", origin: "redmine", synced: false, status: "Nouveau", redmine_project: "Projet X", assigned_to: "Karl" }); assert(m.includes("⚠ pas en local") && m.includes("Projet X") && m.includes("→ Karl"));

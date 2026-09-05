@@ -277,6 +277,32 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Retrouver une session par mots-clés** (RM2991). Le panneau « Reprendre une session » ne
+  se pilotait qu'avec des filtres fermés — client, projet, marqueur, moteur — alors que la
+  question qu'on se pose devant lui est « où ai-je traité ça ? ». Le serveur savait déjà
+  filtrer sur un `q`, mais il ne comparait qu'au **titre** de la session et **aucun champ
+  du cockpit ne l'envoyait** : la capacité existait, inatteignable. La recherche porte
+  désormais sur ce que le PM a lui-même enregistré sur la session — son **worklog**
+  (libellés de tickets, notes, prochaine étape, **le texte des demandes** telles que
+  formulées, notifications), les **tickets traités** par numéro (`2703` comme `RM2703`)
+  **et par sujet**, le client/projet et le répertoire. Taper « annuaire » ramène la session
+  de RM2703 ; taper un numéro répond à « dans quelle session ce ticket a-t-il été traité,
+  pour la reprendre ». Plusieurs mots se cumulent en conjonction, sans ordre ni contiguïté
+  (`sieve karl@` trouvait 0 résultat en sous-chaîne stricte, 1 en conjonction). Le contenu
+  des **transcripts** reste une case à cocher : 0,5 Mo de métadonnées contre 400 Mo de
+  conversations, soit une réponse en 0,02 s contre 1,4 s — et le transcript **complète**
+  les mots que les métadonnées n'ont pas, il ne recommence pas la recherche. Le balayage
+  profond est borné (budget de temps, plafond d'octets, sessions les plus récentes
+  d'abord), une seule passe multi-motifs par fichier, et la ligne trouvée par cette voie
+  porte la pastille « transcript » pour ne pas ressembler à un faux positif. Chaque ligne
+  affiche enfin le **sujet** des tickets, pas seulement leur numéro. Deux
+  finitions dictées par l'essai sur les données réelles : l'identifiant de
+  session se cherche par **préfixe** et non en sous-chaîne (« 2392 » tombait au
+  milieu de `ca239234-…` et rendait une session au hasard) ; et le worklog
+  **survit** au transcript, si bien qu'un ticket peut avoir été traité dans une
+  session qu'on ne peut plus reprendre — celles-là sont nommées en note grise,
+  avec leurs tickets, sans être cliquables : la recherche dit ce qui existe, le
+  bouton ne promet que ce qui marche.
 - **La carte « Sessions enregistrées » règle tous les jeux** (RM2955). Elle interrogeait
   `/session-set` avec le jeu **courant** codé en dur : pour renommer un jeu, changer sa
   règle, sa rétention ou l'effacer, il fallait d'abord **le rendre courant** — donc

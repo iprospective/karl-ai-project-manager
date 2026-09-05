@@ -2,7 +2,7 @@
 type: procedure
 product: karl-agent
 created: 2026-07-28
-refs: [RM2418, RM2391, RM2144, RM1939]
+refs: [RM2418, RM2391, RM2144, RM1939, RM2068, RM2991]
 ---
 
 # karl-agent — sessions Claude Code : stockage, host↔conteneur, déplacement
@@ -22,6 +22,27 @@ donc viser le système de fichiers **du conteneur**.
 |---|---|---|
 | `~/.claude/projects/<slug>/<sid>.jsonl` | **transcript** de la conversation (source de `--resume`) | **OUI** (même inode) |
 | `~/.local/state/karl-agent/sessions/<engine>/<sid>.json` | **store per-session** karl (dont le `cwd` de relance) | **NON** (stores distincts) |
+| `~/.claude/session-worklogs/<sid>.json` (+ `.md`) | **worklog PM** de la session (RM2068) | **OUI** |
+| `~/.local/state/karl-agent/tasks/<client>/<projet>/RM<id>-<n>.json` | **jonction ticket ↔ session** | **NON** |
+
+## Le worklog : les métadonnées PM d'une session (RM2068, RM2991)
+
+`~/.claude/session-worklogs/<sid>.json` est **le** fichier de métadonnées d'une
+session — keyé par le même `session_id` que le transcript, alimenté
+automatiquement par les scripts PM (via `pm_session_hook.py`) :
+
+| Clé | Contenu |
+|---|---|
+| `items[]` | un par ticket touché : `ref` (`RM2703`), `label` (**le titre du ticket**), `project`, `status`, `opened_status`, `note`, `next`, `commit`, `ts` |
+| `requests[]` | **le texte des demandes** telles que formulées, + `status` (ticketée ou non) et `ticket` |
+| `notifications[]` | événements notables consignés en séance (`level`, `kind`, `ref`, `message`) |
+
+Le `.md` du même nom en est le rendu lisible (celui que sert `mmi-pm
+session-status`). Le tout pèse ~0,5 Mo pour une centaine de sessions, contre
+~400 Mo de transcripts : **c'est ici qu'on cherche**, pas dans les `.jsonl`.
+`op_resumable` (recherche du panneau de reprise, RM2991) s'appuie exactement sur
+ces trois listes, plus les jonctions et l'index des titres de tickets ; le
+transcript n'est balayé que sur demande explicite (`deep=1`).
 
 ⇒ Éditer le store per-session **depuis l'hôte** touche le mauvais fichier : le store que
 lit `op_resume` est celui **du conteneur**. Symptôme classique (RM2391) : on « corrige »

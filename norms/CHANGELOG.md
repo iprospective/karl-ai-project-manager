@@ -1,5 +1,21 @@
 # Changelog des normes
 
+## [2.17.0] - 2026-09-05
+
+> Renumérotation : écrit 2.16.0 sur sa branche, ce lot atterrit après le 2.16.0
+> de RM2746 (miroir d'états, arrivé par `dev`) et devient donc 2.17.0.
+
+### Ajouté
+- **`session-tooling` — où vit le worklog de session sur disque (RM2991)** : un
+  renvoi vers `knowledge/karl-agent/sessions.md`, complété des trois stores keyés
+  par `session_id` (worklog PM, store de spawn, jonction ticket ↔ session) et du
+  détail de ce que porte le worklog. La question « où sont enregistrées les infos
+  de session ? » n'avait de réponse que dans le code. Ces métadonnées sont ce sur
+  quoi travaillent la reprise et la recherche de session ; le transcript reste la
+  source de dernier recours, trois ordres de grandeur plus lourde.
+  Le détail va dans `knowledge/` et non dans le module : `session-tooling` est
+  préchargé par **tous** les rôles, et son budget contexte est déjà dépassé.
+
 ## [2.15.0] - 2026-09-02
 
 > Atterrissage groupé de deux tickets « à tester » restés en branche (RM2463, RM2563),

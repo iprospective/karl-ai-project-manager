@@ -267,5 +267,13 @@ function fakeElement() {
   }
   console.log(`✓ gardes d'imports : ${verifies} import(s) vérifié(s) sur 6 couches`);
 
+  // — 13. aucune référence DÉTACHÉE à une fonction native du navigateur (setTimeout, fetch…) : appelée comme méthode d'un objet,
+  //   elle lève « Illegal invocation » dans un navigateur mais pas sous node — d'où un test statique (incident du 2026-09-06)
+  { let bare = [];
+    for (const file of walk(path.join(DIR, "src"))) for (const [i, line] of fs.readFileSync(file, "utf8").split("\n").entries())
+      if (/[:=]\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\s*[,)}\];]/.test(line.replace(/\/\/.*$/, "").replace(/^\s*\*.*$|^\s*\/\*.*$/, "")) && !/=>\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\b|globalThis\.|window\./.test(line)) bare.push(path.relative(DIR, file) + ":" + (i + 1));
+    assert.deepStrictEqual(bare, [], "référence détachée à une fonction native : " + bare.join(", "));
+    console.log("✓ aucune référence détachée à setTimeout/fetch… dans src/"); }
+
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

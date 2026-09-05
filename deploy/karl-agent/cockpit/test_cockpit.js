@@ -3402,3 +3402,24 @@ assert(/function curTitleSideEffects\(\) \{\s*\n\s*renderRTitle\(\);/.test(html)
 assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8")),
   "…et le routeur du centre les rejoue après chaque titre");
 console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement");
+
+// ── RM2807 : fan-out exponentiel de renderTickets / renderOpened ─────────────
+// Deux sites bouclent sur une LISTE de tickets et se RE-RENDENT à chaque
+// résolution : `list.forEach(t => { if (resolveCache[t] === undefined)
+// ensureResolved(t).then(render) })`. Sans garde, chaque rendu ré-abonne un
+// NOUVEAU .then(render) à chaque ticket encore en vol → le nombre de rendus
+// DOUBLE par ticket résolu (2^N ; 20 tickets = 1 048 576 rendus). Chaque rendu
+// reconstruit tout l'innerHTML (+ handlers onclick tracés par le ramasse-cycles) :
+// CPU à fond, event-loop saturé, RAM native qui explose — la fuite Firefox RM2807
+// (prouvée au profil : PromiseReactionJob → renderTickets → set innerHTML).
+// La garde `!resolveInflight[t]` limite à UN .then(render) par ticket → N+1 rendus.
+// On vérifie qu'elle n'est retirée d'AUCUN des deux sites.
+{
+  const nonGarde = html.match(/resolveCache\[t\] === undefined\)\s*ensureResolved\(t\)\.then/g) || [];
+  assert(nonGarde.length === 0,
+    "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInflight[t]`");
+  const garde = html.match(/resolveCache\[t\] === undefined && !resolveInflight\[t\]\)\s*ensureResolved\(t\)\.then/g) || [];
+  assert(garde.length >= 2,
+    "RM2807 : attendu 2 sites gardés (renderTickets + renderOpened), vus " + garde.length);
+  console.log("✓ fan-out tickets borné (RM2807) : garde !resolveInflight aux 2 sites");
+}

@@ -22,6 +22,7 @@ const sb = { window: {}, document: { documentElement: docEl }, localStorage: { g
 vm.runInNewContext(blocks[0][1], sb); assert.strictEqual(docEl.attrs["data-theme"], "dark", "le thème est posé avant le premier paint (défaut historique : sombre)");
 assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html), "la page charge src/boot.js en module");
 console.log("✓ index.html : un seul inline (theme-boot), qui s'évalue ; boot.js en module");
+const metaV = /<meta name="karl-cockpit-version" content="([^"]+)">/.exec(html); assert(metaV, "la page porte sa version");
 
 // 2. plus aucun handler inline
 assert(!/\son(click|change|input|keydown|keyup|submit|toggle|load)="/.test(html), "plus aucun on* dans la page (RM2889 : délégation par data-action / data-cmd / data-link)");
@@ -44,5 +45,6 @@ const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x => x.is
   assert(!/\blegacy\(|\blexical\(/.test(boot), "boot.js ne lit plus rien du script inline (legacy / lexical ont disparu)");
   assert(/\(async function init\(\)/.test(boot) && /refreshCtl\.start\(\)/.test(boot) && /auth\.boot\(\)/.test(boot), "l'init vit dans boot.js : config, auth, premier tick");
   console.log("✓ boot.js : " + checked + " imports nommés résolus, aucun pont vers le script inline, init en place");
+  const { VERSION } = await import(path.join(DIR, "src/core/version.js")); assert.strictEqual(metaV[1], VERSION, "la version de la page et celle du front coïncident"); assert(/version: VERSION/.test(boot), "karl.version exposé"); console.log("✓ version " + VERSION + " (L8)");
   console.log("OK — le cockpit s'exécute sans identifiant hors portée");
 })().catch(e => { console.error("ÉCHEC :", e && e.stack ? e.stack : e); process.exit(1); });

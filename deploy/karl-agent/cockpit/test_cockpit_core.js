@@ -106,8 +106,16 @@ function fakeElement() {
   }
   assert.strictEqual(Object.keys(E.ROUTES).length, tsv.length,
     "endpoints.js et MIGRATION-ROUTES.tsv ont divergé — régénérer");
-  assert.strictEqual(E.route("auth.login"), "/auth/login");
+  assert.strictEqual(E.route("auth.login"), "/api/auth/login", "L7 : route() rend la cible /api/<type>/<action>");
   assert.strictEqual(E.targetRoute("auth.login"), "/api/auth/login");
+  // L7 : chaque cible que le front appelle est servie par alias côté serveur (scripts/karl_api_routes.py, généré du même TSV)
+  const pyAlias = fs.readFileSync(path.join(DIR, "..", "..", "..", "scripts", "karl_api_routes.py"), "utf8");
+  const alias = Object.fromEntries([...pyAlias.matchAll(/^    "([^"]+)": "([^"]+)",$/gm)].map(m => [m[1], m[2]]));
+  for (const [name, r] of Object.entries(E.ROUTES)) {
+    assert(alias[r.target], `cible sans alias serveur : ${r.target} (${name}) — régénérer scripts/cockpit-gen-endpoints.py`);
+    assert(Object.values(E.ROUTES).some(x => x.target === r.target && x.current === alias[r.target]), `alias serveur incohérent pour ${r.target}`);
+  }
+  assert(/self\.path = api_alias\(self\.path\)/.test(fs.readFileSync(path.join(DIR, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")), "karl-agent.py pose l'alias à l'entrée des verbes HTTP");
   assert.throws(() => E.route("nexistepas"), /route inconnue/);
   console.log(`✓ endpoints : ${tsv.length} routes, nommage injectif`);
 

@@ -221,6 +221,7 @@ SESSION_COOKIE_MAX_AGE = 31536000  # 1 an ; la révocation serveur invalide le t
 # a-t-elle été tranchée ». Le sys.path est explicite : le service démarre avec un
 # cwd quelconque, et l'import échouerait silencieusement au boot sans lui.
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+from karl_api_routes import api_alias   # RM2889 L7 : /api/<type>/<action> → chemin historique
 from pm_proclive import live_session_pids as _live_session_pids   # noqa: E402
 from pm_transcript import (transcript_outline as _transcript_outline,   # noqa: E402
                            content_text as _content_text,
@@ -10777,6 +10778,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # -- routage --
     def do_GET(self):
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         parsed = urlparse(self.path)
         path = parsed.path
         # Routes publiques du cockpit (RM1873/RM2334) : la page et sa config se
@@ -11033,6 +11035,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_POST(self):
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         path = urlparse(self.path).path
         # /auth/login est LA porte d'entrée : pas d'auth préalable (throttle
         # progressif par IP dans op_auth_login).
@@ -11158,6 +11161,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_PUT(self):
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
         path = urlparse(self.path).path
@@ -11173,6 +11177,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send_json(500, {"error": f"{type(e).__name__}: {e}"})
 
     def do_DELETE(self):
+        self.path = api_alias(self.path)   # RM2889 L7 : les cibles /api/… sont servies par alias
         if not self._check_auth():
             return self._send_auth_required()
         path = urlparse(self.path).path

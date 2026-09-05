@@ -54,6 +54,7 @@ import { mountSets } from "./controllers/sets.controller.js";
 import { mountRefresh } from "./controllers/refresh.controller.js";
 import { mountAuth } from "./controllers/auth.controller.js";
 import { mountNotify } from "./controllers/notify.controller.js";
+import { VERSION } from "./core/version.js";
 import { mountLinks } from "./controllers/links.controller.js";
 import { mountAttach } from "./controllers/attach.controller.js";
 import { mountCommands } from "./controllers/commands.controller.js";
@@ -483,7 +484,7 @@ const commands = mountCommands(document, {
 layout.restore();
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

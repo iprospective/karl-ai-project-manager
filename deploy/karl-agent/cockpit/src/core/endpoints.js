@@ -6,7 +6,8 @@
 // Une route ne s'écrit plus en dur dans un service : elle se nomme. C'est ce
 // qui rend le lot L7 mécanique — basculer `current` sur `target` (grammaire
 // /api/<type>/<action>, § 10.4) se fait ici, une fois, pour tous les appelants.
-// Les routes actuelles restent servies en alias jusqu'à L7.
+// L7 (2026-09-05) : `route()` rend la CIBLE ; le serveur sert /api/<type>/<action> par alias
+// (scripts/karl_api_routes.py, généré ici aussi) et garde les chemins historiques pour les autres clients.
 
 export const ROUTES = {
   "auth.devices": { current: "/auth/devices", target: "/api/auth/devices", lot: "L0", callers: 3 },
@@ -105,11 +106,11 @@ export const ROUTES = {
   "worklog.worklog": { current: "/worklog", target: "/api/worklog/worklog", lot: "L3", callers: 1 },
 };
 
-/** Chemin à appeler aujourd'hui pour une route nommée. Lève si le nom est inconnu. */
+/** Chemin à appeler pour une route nommée — la cible /api/<type>/<action> depuis L7. Lève si le nom est inconnu. */
 export function route(name) {
   const e = ROUTES[name];
   if (!e) throw new Error(`route inconnue : ${name}`);
-  return e.current;
+  return e.target;
 }
 
 /** Le nom d'une route d'après son chemin ACTUEL — pour les doublons hérités

@@ -38,6 +38,14 @@ servies en **alias** pendant toute la migration ; leur retrait est le lot L7.
 Deux routes qui tombent sur la même cible signalent un doublon hérité à trancher
 (`/file` et `/fs/file`, par exemple).
 
+## Deux ponts, pas un
+
+`karlCall(domaine, fn, …)` rejoue un appel arrivé avant `karl:ready` et rend `undefined`
+à une lecture trop tôt. Un pont qui doit rendre une **promesse** (`ensureResolved(rm).then(…)`)
+ne peut pas se contenter de ça : `.then` sur `undefined` casse. D'où **`karlWhen(domaine)`**,
+qui rend une promesse du domaine lui-même, résolue à `karl:ready` — le `.then` attend au lieu
+de mourir. Règle : geste ou lecture tolérante → `karlCall` ; valeur asynchrone → `karlWhen`.
+
 ## Réintégrer un développement parti de l'ancienne base
 
 1. `git diff origin/dev...<branche> -- deploy/karl-agent/cockpit/index.html`
@@ -80,6 +88,7 @@ ViewModel vers du HTML sûr).
 | nouveau ticket (formulaire pleine page RM2672/2726/2752) | surface du centre | 2026-09-05 | `models/tickets/newTicket.js`, `models/tickets/TicketsRepository.js`, `services/newticket.service.js`, `viewmodels/tickets/`, `views/tickets/NewTicket.view.js`, `controllers/newticket.controller.js` — **première surface enregistrée** auprès du routeur, remplaçant son pont |
 | fiche projet (fiche, worklog projet, worktrees/fichiers, conf meta.yml — RM2353/2590/2531/2696) | surface du centre | 2026-09-05 | `models/projects/projectConfig.js`, `models/projects/ProjectRepository.js`, `services/project.service.js`, `viewmodels/projects/ProjectViewModels.js`, `views/projects/ProjectPane.view.js`, `controllers/project.controller.js` |
 | file « à tester » (RM2210/2315/2588) | L3 | 2026-09-05 | `models/testqueue/`, `services/testqueue.service.js`, `viewmodels/testqueue/`, `views/testqueue/`, `controllers/testqueue.controller.js` — la revue lui emprunte ses gestes d'env par ponts |
+| **modèle ticket** — résolution (TTL, dédup en vol), mergecheck, conso, sessions du ticket ; formats ; bannière git (RM2630/2763/2384/2373/2611/2818) | L3 (1/3 revue) | 2026-09-05 | `models/tickets/TicketRepository.js`, `models/tickets/ticketFormat.js`, `views/tickets/MergeBanner.view.js` — caches **partagés par référence** avec le monolithe jusqu'à L6 ; ponts `karlWhen` pour les promesses |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

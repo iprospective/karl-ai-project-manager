@@ -33,6 +33,9 @@ import { mountCenter } from "./controllers/center.controller.js";
 import { mountNewTicket } from "./controllers/newticket.controller.js";
 import { mountProject } from "./controllers/project.controller.js";
 import { mountTestQueue } from "./controllers/testqueue.controller.js";
+import { TicketRepository } from "./models/tickets/TicketRepository.js";
+import * as TF from "./models/tickets/ticketFormat.js";
+import { MergeBanner } from "./views/tickets/MergeBanner.view.js";
 import { fsScope, scopeTag } from "./models/files/scope.js";
 import { FileViewModel } from "./viewmodels/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./views/center/Center.view.js";
@@ -233,6 +236,31 @@ project = mountProject(byId("projpane"), {
   filesEnsure: () => { if (legacy("rightVisible")("files")) legacy("filesEnsure")(); },
 });
 center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
+// le modèle ticket : la logique dans le module, les caches partagés PAR RÉFÉRENCE avec le
+// monolithe (une soixantaine de vues les lisent encore en direct — L6 les rapatriera)
+const ticketRepo = new TicketRepository({ caches: { resolve: lexical(() => resolveCache), resolveAt: lexical(() => resolveAt), mc: lexical(() => mcCache), usage: lexical(() => usageCache), ts: lexical(() => tsCache) } });
+// RM2775 : un titre arrivé après coup atteint l'infobulle de son onglet — seulement si un onglet le porte
+const onResolved = (rm) => { if (center.hasTab(rm, ["review", "session"])) center.renderTabs(); };
+const ticket = {
+  stale: (rm) => ticketRepo.stale(rm),
+  ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force, onResolved),
+  revalidate: (rm, after) => ticketRepo.revalidate(rm, after, onResolved),
+  /** Rechargement explicite (⟳) : recharge, puis re-rend ce que le monolithe affiche encore. */
+  reload: (rm) => ticketRepo.ensureResolved(String(rm), true, onResolved).then(() => {
+    rm = String(rm);
+    if (lexical(() => metaTicket) === rm) legacy("renderMeta")();
+    if (lexical(() => currentReview) === rm) legacy("renderReviewPane")();
+    const box = byId("rm"); if (box && box.value.trim() === rm) legacy("resolveRm")();
+    legacy("toast")("RM" + rm + " rechargé");
+  }),
+  mcFresh: (rm) => ticketRepo.mcFresh(rm), ensureMergecheck: (rm, f) => ticketRepo.ensureMergecheck(rm, f),
+  usageFresh: (rm) => ticketRepo.usageFresh(rm), usageInFlight: (rm) => ticketRepo.usageInFlight(rm), ensureUsage: (rm, f) => ticketRepo.ensureUsage(rm, f),
+  ensureTicketSessions: (rm, f) => ticketRepo.ensureTicketSessions(rm, f),
+  busySessions: (p) => TF.ticketBusySessions(p, (s, d) => legacy("effDisposition")(s, d)),
+  mcBanner: (mc) => String(MergeBanner(mc)),
+  sinceLabel: TF.sinceLabel, modelWindow: TF.modelWindow, ctxPct: TF.ctxPct, throughput: TF.throughput, fmtUsd: TF.fmtUsd, fmtRate: TF.fmtRate, fmtWin: TF.fmtWin,
+  repo: ticketRepo,
+};
 // la file « à tester » : panneau de gauche autonome ; la revue lit ses entrées et lui emprunte ses gestes d'env
 const testqueue = mountTestQueue(byId("tqcard"), {
   notify: legacy("toast"), help: legacy("openHelp"), run: legacy("pmRun"), capture: legacy("showCaptureModal"),
@@ -243,5 +271,5 @@ const testqueue = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

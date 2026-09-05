@@ -896,19 +896,7 @@ tlo = mkTl({})("42", "T");
 assert(/showTicket\(42\)/.test(tlo) && !/rmext/.test(tlo), "sans base Redmine : cliquable, mais pas de ↗");
 console.log("✓ titleLink (RM2585) : titre → fiche + lien Redmine, échappé, dégrade proprement");
 
-// — sinceLabel (RM2630) : dater la version de ticket affichée —
-const fSl = />>> sinceLabel[\s\S]*?(function sinceLabel[\s\S]*?)\n\/\/ <<< sinceLabel/.exec(html);
-assert(fSl, "marqueurs >>> sinceLabel / <<< sinceLabel introuvables");
-const sinceLabel = vm.runInNewContext("(" + fSl[1] + ")", {});
-const t0 = Date.parse("2026-08-11T12:00");
-assert.strictEqual(sinceLabel("2026-08-11T12:00", t0), "à l'instant", "même minute");
-assert.strictEqual(sinceLabel("2026-08-11T11:43", t0), "il y a 17 min", "minutes");
-assert.strictEqual(sinceLabel("2026-08-11T09:00", t0), "il y a 3 h", "heures");
-assert.strictEqual(sinceLabel("2026-08-09T12:00", t0), "il y a 2 j", "jours");
-assert.strictEqual(sinceLabel("2026-08-11 11:00", t0), "il y a 1 h", "espace accepté à la place du T");
-assert.strictEqual(sinceLabel("", t0), "", "horodatage absent → pas de mention");
-assert.strictEqual(sinceLabel("pas une date", t0), "", "horodatage illisible → pas de mention");
-console.log("✓ sinceLabel (RM2630) : âge de la version affichée, dégrade en silence");
+// — sinceLabel (RM2630) : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
 // — worklogDocs (RM2584) : aplatissement des documents/outputs des tickets —
 const fWd = />>> worklogDocs[\s\S]*?(function worklogDocs[\s\S]*?)\n\/\/ <<< worklogDocs/.exec(html);
@@ -1296,22 +1284,7 @@ assert.strictEqual(JSON.stringify(tabsMep.map(t => [t.key, t.n])),
   JSON.stringify([["todo", 1], ["mep", 2]]), "onglet MEP avec son compte");
 console.log("\u2713 worklogTabList (RM2610) : onglets par statut, documents, orphelines");
 
-// — RM2611 : fenêtre de contexte par modèle + % + débit —
-const grab611 = (n) => { const mm = new RegExp(">>> "+n+"[\\s\\S]*?(function "+n+"[\\s\\S]*?)\\n\\/\\/ <<< "+n).exec(html); assert(mm, n+" introuvable"); return vm.runInNewContext("("+mm[1]+")", { Number, Math, isFinite }); };
-const modelWindow = grab611("modelWindow");
-const ctxPct611 = grab611("ctxPct");
-const throughput = grab611("throughput");
-assert.strictEqual(modelWindow("claude-x", { context_window: 1000000 }, 50000), 1000000, "override pricing.yml prioritaire");
-assert.strictEqual(modelWindow("claude-x", null, 868000), 1000000, "contexte >200k -> fenetre 1M deduite");
-assert.strictEqual(modelWindow("claude-opus-4-8", null, 5000), 200000, "defaut claude 200k");
-assert.strictEqual(modelWindow("gpt-x", null, 5000), null, "non-claude inconnu -> null");
-assert.strictEqual(ctxPct611(100000, 200000), 50, "50%");
-assert.strictEqual(ctxPct611(868000, 1000000), 87, "arrondi");
-assert.strictEqual(ctxPct611(1000, null), null, "sans fenetre -> null");
-const tp611 = throughput(600000, 3.0, 0, 3600000);
-assert(tp611 && tp611.tpm === 10000 && Math.abs(tp611.uph - 3.0) < 1e-9, "debit moyen (10000 tok/min, $3/h)");
-assert.strictEqual(throughput(100, 1, 0, 10000), null, "duree < 30s -> null");
-console.log("\u2713 infos (RM2611) : fenetre par modele (1M deduit), % contexte, debit");
+// — RM2611 : MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
 // — pollDelay (RM2613) : cadence adaptative + pause en arriere-plan —
 const fPd613 = />>> pollDelay[\s\S]*?(function pollDelay[\s\S]*?)\n\/\/ <<< pollDelay/.exec(html);
@@ -1452,27 +1425,7 @@ assert(mRf[0].indexOf('cur.kind === "doc"') < mRf[0].indexOf("cur.is_git"),
   "la branche doc est testée AVANT le cadre git, qui ne s'applique pas");
 console.log("✓ fichiers (RM2622) : pas de cadre git sur un dossier sans dépôt");
 
-// — RM2384 : bannière de cohérence git (mergeabilité) dans la fiche de revue —
-const mcBanner = grabO("mcBanner", { esc: escO });
-assert.strictEqual(mcBanner(null), "", "mc absent → pas de bannière");
-assert.strictEqual(mcBanner({}), "", "mc sans verdict → pas de bannière");
-const bOk = mcBanner({ verdict: { level: "ok", headline: "Branche à jour, merge propre" } });
-assert(/class="mcbanner mc-ok"/.test(bOk) && /✅/.test(bOk), "niveau ok → classe + icône vertes");
-assert(/Branche à jour/.test(bOk) && !/mc-advice/.test(bOk), "titre rendu, pas de conseil sans advice");
-const bBlock = mcBanner({
-  mr_url: "https://gitlab.x/mr/1",
-  verdict: { level: "block", headline: "Conflit de merge avec dev (2 fichier(s))",
-             detail: "CHANGELOG.md, src/app.py",
-             advice: "merge dev dans la branche, résous, pousse" } });
-assert(/class="mcbanner mc-block"/.test(bBlock) && /⛔/.test(bBlock), "conflit → bannière rouge");
-assert(/mc-advice[^>]*>→ /.test(bBlock), "la remédiation est mise en avant (→)");
-assert(/CHANGELOG.md/.test(bBlock), "les fichiers en conflit apparaissent");
-assert(/href="https:\/\/gitlab\.x\/mr\/1"/.test(bBlock), "le lien MR est proposé quand il existe");
-const bXss = mcBanner({ verdict: { level: "warn", headline: "en retard <b>x</b>" } });
-assert(/&lt;b&gt;/.test(bXss) && !/<b>/.test(bXss), "le titre est échappé (anti-XSS)");
-const bUnk = mcBanner({ verdict: {} });
-assert(/mc-unknown/.test(bUnk) && /❔/.test(bUnk), "verdict sans niveau → unknown, jamais une classe cassée");
-console.log("✓ mcBanner (RM2384) : niveaux, remédiation, lien MR, échappement");
+// — RM2384 : mcBanner MIGRÉ (RM2889, modèle ticket) — voir test_cockpit_ticket.js —
 
 // — RM2458 / RM2708 : santé du poste — domaine MIGRÉ (RM2889, L5), voir test_cockpit_env.js —
 
@@ -2830,33 +2783,9 @@ console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne d
 // Redmine disputés — et on ne s'en aperçoit qu'après. Le serveur refuse déjà
 // (409) une seconde session ANCRÉE ; ce qui passait sans bruit, c'est le ticket
 // traité par une session ancrée AILLEURS (registre, worklog) — le cas courant.
+// ticketBusySessions : MIGRÉ (test_cockpit_ticket.js) ; duplicateSessionText reste ici, testé sur un résultat équivalent
 const _effDisp2818 = grabO("effDisposition");
-const ticketBusySessions = grabO("ticketBusySessions", { effDisposition: _effDisp2818 });
-const P2818 = { handled: [
-  { sid: "2700", alive: true,  state: "working", disposition: "",        title: "en cours" },
-  { sid: "cockpit", alive: true, state: "idle",  disposition: "termine", title: "fini" },
-  { sid: "vieille", alive: false, state: "ghost", disposition: "",       title: "hier" },
-  { sid: "parke", alive: true,  state: "idle",   disposition: "parke",   title: "parké" },
-] };
-const b2818 = ticketBusySessions(P2818);
-assert.deepStrictEqual(b2818.alive.map(s => s.sid), ["2700", "parke"],
-  "vivantes non terminées : celle qui travaille et celle qui est parkée (parké ≠ terminé)");
-assert.deepStrictEqual(b2818.stopped.map(s => s.sid), ["vieille"],
-  "éteinte non terminée : signalée, mais elle n'occupe rien");
-assert(!b2818.alive.some(s => s.sid === "cockpit"),
-  "une session MARQUÉE terminée ne doit rien déclencher — c'est tout l'intérêt du marquage");
-const vide2818 = (p) => { const r = ticketBusySessions(p); return !r.alive.length && !r.stopped.length; };
-assert(vide2818(null), "payload absent → rien");
-assert(vide2818({}), "payload sans handled → rien");
-assert(vide2818({ handled: [] }),
-  "aucune session : aucune alerte, le cas nominal reste sans friction");
-// `state` prime sur la marque : une session qui travaille n'est jamais « terminée »
-assert.deepStrictEqual(
-  ticketBusySessions({ handled: [{ sid: "x", alive: true, state: "attention", disposition: "termine" }] })
-    .alive.map(s => s.sid), ["x"],
-  "une session qui attend une réponse compte, quelle que soit sa marque");
-
-// Le texte d'alerte doit NOMMER ce qu'il a trouvé (sinon on confirme à l'aveugle)
+const b2818 = { alive: [{ sid: "2700", state: "working", title: "en cours" }, { sid: "parke", state: "idle", disposition: "parke", title: "parké" }], stopped: [{ sid: "vieille", state: "ghost", title: "hier" }] };
 const dupText = grabO("duplicateSessionText", { effDisposition: _effDisp2818 });
 const txt2818 = dupText("2816", b2818);
 assert(txt2818.includes("2700") && txt2818.includes("parke"), "les sessions vivantes sont nommées");

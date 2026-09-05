@@ -75,7 +75,8 @@ API (JSON, localhost:9876)
                                   jusqu'au verdict du demandeur  (RM2718)
   GET  /session-registry        → {records, rm_map} — registre pm_session brut
                                   (var/sessions/index.json, RM2034/RM2166)
-  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&limit=]
+  GET  /resumable[?engine=&client=&project=&status=wip|done|test&q=&deep=1&limit=]
+                                → {resumable:[…], archived:[…]}  (worklog sans transcript)
                                 → sessions REPRENABLES découvertes dans les
                                   stores claude (titre [WIP]/[DONE]/[A TESTER] de
                                   /session-mark, cwd→projet via .mmi-pm,
@@ -3635,17 +3636,270 @@ def resume_engines() -> list:
             if _resume_support(n) and (n == "claude" or n in _ENGINE_LIST)]
 
 
+# ── RM2991 : chercher une session par mots-clés ──────────────────────────────
+# Le panneau de reprise ne se pilotait qu'avec des filtres fermés (client,
+# projet, marqueur, moteur) ; `q` existait ici mais ne comparait qu'au TITRE de
+# la session, et aucun champ du cockpit ne l'envoyait — capacité inatteignable.
+#
+# La matière cherchable, c'est d'abord ce que le PM a lui-même enregistré sur la
+# session : son worklog (RM2068) porte les tickets traités avec leur LIBELLÉ, les
+# notes, la prochaine étape, et le texte des demandes telles qu'elles ont été
+# formulées. 107 worklogs = 568 Ko : on peut tout lire à chaque requête. Le
+# transcript, lui, pèse ~400 Mo pour le même service — d'où l'opt-in `deep`.
+
+_TITLES_TTL = 60          # s — même raisonnement que _closed_ticket_ids
+_titles_cache: dict = {"at": 0.0, "by_id": {}}
+
+
+def _task_titles() -> dict:
+    """rm_id → titre du ticket, d'après les fiches locales (TTL 60 s).
+
+    Permet de retrouver une session par le SUJET du ticket qu'on y a traité et
+    pas seulement par son numéro. Le worklog porte déjà un libellé, mais il peut
+    être absent (session sans worklog) ou périmé (ticket renommé depuis) : la
+    fiche fait foi. Scan complet ~0,06 s (cf. `_read_task_meta`)."""
+    now = time.time()
+    if now - _titles_cache["at"] > _TITLES_TTL:
+        by_id = {}
+        for tf in PROJECTS_BASE.glob("*/projects/*/tasks/RM*_*.md"):
+            if tf.name.endswith(".log.md"):
+                continue
+            m = re.match(r"RM(\d+)_", tf.name)
+            if m:
+                by_id[m.group(1)] = _read_task_meta(tf).get("title") or ""
+        _titles_cache.update({"at": now, "by_id": by_id})
+    return _titles_cache["by_id"]
+
+
+def _worklog_haystack(session_id: str) -> str:
+    """Ce que le worklog PM d'une session rend cherchable, en minuscules.
+
+    On y prend tout ce qui a été ÉCRIT sur le travail — libellés de tickets,
+    notes, prochaine étape, demandes, notifications — parce que c'est
+    exactement ce dont on se souvient en cherchant « où ai-je fait ça ? »."""
+    wl = _overview_worklog(session_id) or {}
+    bits = [str(wl.get("title") or "")]
+    for it in wl.get("items") or []:
+        bits += [str(it.get(k) or "") for k in
+                 ("ref", "label", "project", "status", "note", "next", "commit")]
+    for rq in wl.get("requests") or []:
+        bits += [str(rq.get("text") or ""), str(rq.get("ticket") or "")]
+    for nf in wl.get("notifications") or []:
+        bits.append(str(nf.get("message") or ""))
+    return " ".join(b for b in bits if b).lower()
+
+
+# >>> resumable_haystack — pur (testé par test_karl_agent_resumable_search.py)
+def resumable_haystack(entry: dict, worklog: str = "") -> str:
+    """Matière cherchable d'une ligne du panneau, en minuscules.
+
+    Délibérément plus large que le titre : le geste réel est « la session où
+    j'ai traité ça », et la réponse tient le plus souvent dans le ticket (numéro
+    OU sujet) ou dans le chemin, rarement dans le titre seul. Un ticket est
+    inscrit sous ses deux formes — « rm2703 » et « 2703 » — parce que les deux
+    se tapent, et qu'une recherche par sous-chaîne ne les relie pas d'elle-même."""
+    e = entry or {}
+    # Pas le session_id : « 2392 » tombe au milieu de « ca239234-0fd9-… » et
+    # ramène une session au hasard. Il se cherche par PRÉFIXE, à part (sid_match).
+    bits = [e.get("title") or "", e.get("cwd") or "", e.get("engine") or ""]
+    if e.get("client") and e.get("project"):
+        bits.append(f"{e['client']}/{e['project']}")
+    else:
+        bits += [e.get("client") or "", e.get("project") or ""]
+    for t in e.get("tickets") or []:
+        rid = str(t.get("rm_id") or "")
+        if rid:
+            bits += [rid, "rm" + rid]
+        bits.append(t.get("title") or "")
+    bits.append(worklog or "")
+    return " ".join(b for b in bits if b).lower()
+# <<< resumable_haystack
+
+
+# >>> sid_match — pur (testé par test_karl_agent_resumable_search.py)
+def sid_match(session_id: str, mot: str) -> bool:
+    """Un mot-clé désigne-t-il CETTE session par son identifiant ?
+
+    Par préfixe, et à partir de six caractères : c'est ainsi qu'on colle un id
+    (on en copie le début, comme le cockpit l'affiche). Une sous-chaîne libre
+    ferait de tout nombre à quatre chiffres un tirage au sort parmi les UUID."""
+    sid = str(session_id or "").lower()
+    m = str(mot or "").lower()
+    return bool(sid) and len(m) >= 6 and sid.startswith(m)
+# <<< sid_match
+
+
+def _archived_worklogs(mots: list, connus: set) -> list:
+    """Sessions dont le worklog PM correspond mais dont le TRANSCRIPT a disparu.
+
+    Le worklog survit au transcript : `~/.claude/session-worklogs/` garde la
+    trace d'un travail dont la conversation a été purgée. La question « dans
+    quelle session ce ticket a-t-il été traité ? » a donc une réponse là où
+    « reprendre » n'en a plus. Les taire ferait mentir la recherche ; les
+    mélanger aux reprenables ferait mentir le bouton."""
+    out = []
+    if not mots or not WORKLOG_DIR.is_dir():
+        return out
+    for f in WORKLOG_DIR.glob("*.json"):
+        sid = f.stem
+        if sid in connus:
+            continue
+        hay = _worklog_haystack(sid)
+        if not hay or not all(m in hay or sid_match(sid, m) for m in mots):
+            continue
+        wl = _overview_worklog(sid) or {}
+        refs, labels = [], {}
+        for it in wl.get("items") or []:
+            r = str(it.get("ref") or "")
+            if r and r not in refs:
+                refs.append(r)
+                labels[r] = it.get("label") or None
+        try:
+            mtime = int(f.stat().st_mtime)
+        except OSError:
+            mtime = None
+        out.append({"session_id": sid, "mtime": mtime,
+                    "updated": wl.get("updated"),
+                    "tickets": [{"ref": r, "title": labels.get(r)} for r in refs[:8]]})
+    out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+    return out[:20]
+
+
+DEEP_BUDGET_S = 6.0            # budget TOTAL de la recherche transcript
+DEEP_FILE_MAX = 128 << 20      # octets lus par transcript, au plus
+
+
+def _file_contains(path: Path, pats: list, deadline: float) -> bool:
+    """TOUS les motifs présents dans un fichier, lu par blocs avec recouvrement.
+
+    Par blocs parce qu'un transcript de session longue pèse plusieurs centaines
+    de Mo : un `read()` entier ferait tomber le serveur avant de répondre. Le
+    recouvrement (les derniers octets du bloc précédent) évite de rater un motif
+    qui tombe à cheval sur deux lectures.
+
+    Tous les motifs sont suivis dans la MÊME passe, chacun rayé dès qu'il est
+    vu : une passe par mot-clé multiplierait le coût du scan par le nombre de
+    mots tapés, sur le plus gros volume du système."""
+    if not pats:
+        return False
+    try:
+        with path.open("rb") as fh:
+            reste, prev, read = list(pats), b"", 0
+            while read < DEEP_FILE_MAX:
+                if time.monotonic() > deadline:
+                    return False
+                blk = fh.read(1 << 20)
+                if not blk:
+                    return False
+                read += len(blk)
+                fenetre = prev + blk
+                reste = [p for p in reste if not p.search(fenetre)]
+                if not reste:
+                    return True
+                prev = blk[-512:]
+    except OSError:
+        return False
+    return False
+
+
+def _vibe_session_dir(session_id: str):
+    """Dossier de session vibe, ou None. Même prudence que
+    `_vibe_session_meta` : le suffixe du dossier filtre, meta.json prouve."""
+    if not VIBE_SESSIONS.is_dir() or "-" not in session_id:
+        return None
+    prefix = session_id.split("-")[0]
+    for d in sorted(VIBE_SESSIONS.glob(f"session_*_{prefix}"), reverse=True):
+        try:
+            meta = json.loads((d / "meta.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if meta.get("session_id") == session_id:
+            return d
+    return None
+
+
+def _opencode_deep_hits(mot: str) -> set:
+    """Sessions opencode dont un message porte `mot`.
+
+    Une seule requête pour toutes les sessions : le contenu vit dans la table
+    `part` d'une base partagée — la grepper fichier par fichier n'aurait aucun
+    sens. Un mot à la fois, l'appelant croise (deux mots peuvent tomber dans
+    deux messages différents de la même conversation, et c'est bien ce qu'on
+    veut)."""
+    if not OPENCODE_DB.is_file() or not mot:
+        return set()
+    like = "%" + mot.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+    try:
+        import sqlite3
+        con = sqlite3.connect(f"file:{OPENCODE_DB}?mode=ro", uri=True, timeout=2)
+        try:
+            rows = con.execute("SELECT DISTINCT session_id FROM part "
+                               "WHERE data LIKE ? ESCAPE '\\'", (like,)).fetchall()
+        finally:
+            con.close()
+    except Exception:            # noqa: BLE001 — base absente, verrouillée, schéma changé
+        return set()
+    return {r[0] for r in rows}
+
+
+def _deep_hits(entries: list, manquants: dict, paths: dict) -> set:
+    """session_id dont le TRANSCRIPT complète les mots-clés qui manquaient aux
+    métadonnées (`manquants` : sid → mots restant à trouver).
+
+    Ce n'est pas « tous les mots dans le transcript » : chercher « vault sieve »
+    doit marcher quand « vault » vient du worklog et « sieve » de la
+    conversation. Le transcript comble, il ne recommence pas.
+
+    Borné volontairement : un panneau qui répond « pas tout vu » reste
+    utilisable, un panneau qui ne répond pas ne l'est plus. Les entrées sont
+    parcourues de la plus récente à la plus ancienne — si le budget saute, ce
+    qui est perdu est ce dont on se souvient le moins."""
+    hits, oc_memo = set(), {}
+    deadline = time.monotonic() + DEEP_BUDGET_S
+    for e in entries:
+        if time.monotonic() > deadline:
+            break
+        sid, eng = e.get("session_id"), e.get("engine")
+        mots = manquants.get(sid) or []
+        if not mots:
+            continue
+        if eng == "opencode":
+            for m in mots:
+                if m not in oc_memo:
+                    oc_memo[m] = _opencode_deep_hits(m)
+            if all(sid in oc_memo[m] for m in mots):
+                hits.add(sid)
+            continue
+        path = paths.get(sid)
+        if path is None and eng == "vibe":
+            d = _vibe_session_dir(sid)
+            path = (d / "messages.jsonl") if d else None
+        pats = [re.compile(re.escape(m).encode("utf-8", "replace"), re.I) for m in mots]
+        if path and _file_contains(path, pats, deadline):
+            hits.add(sid)
+    return hits
+
+
 def op_resumable(qs: dict) -> list:
     """Sessions REPRENABLES découvertes dans les stores claude (+ index local
     pour les tickets liés). Filtres : engine, client, project,
     status (wip|done|test — marqueurs [WIP]/[DONE]/[A TESTER] posés par
     /session-mark ; `not-done` = tout sauf les terminées, défaut du panneau : les
-    « à tester » y restent donc visibles), q."""
+    « à tester » y restent donc visibles), q.
+
+    RM2991 — `q` cherche dans les métadonnées que le PM a enregistrées sur la
+    session : titre, client/projet, cwd, tickets traités (numéro ET libellé) et
+    worklog (notes, prochaine étape, demandes, notifications). `deep=1` ajoute
+    le transcript, qui est mille fois plus lourd — d'où l'opt-in."""
     f_engine = qs.get("engine") or None
     f_client = qs.get("client") or None
     f_project = qs.get("project") or None
     f_status = (qs.get("status") or "").lower() or None
-    f_q = (qs.get("q") or "").lower() or None
+    # RM2991 : « mots-clés », au pluriel — chaque mot doit être présent, mais
+    # pas dans cet ordre ni collés. « sieve karl@ » ne trouvait rien alors que
+    # les deux mots vivaient dans la même session, à deux lignes d'écart.
+    f_mots = [m for m in (qs.get("q") or "").lower().split() if m]
+    f_deep = str(qs.get("deep") or "").lower() in ("1", "true", "yes", "on")
     limit = max(1, min(int(qs.get("limit") or 100), 500))
 
     if f_engine and f_engine not in resume_engines():
@@ -3661,6 +3915,11 @@ def op_resumable(qs: dict) -> list:
     # autre session_id).
     live_sids = {ki["session_id"] for s in sessions
                  if (ki := _key_info(s["rm_id"])) and ki.get("session_id")}
+    # RM2991 : le libellé du ticket voyage avec la ligne. « RM2703 » seul ne dit
+    # pas de quoi il s'agissait — or c'est le sujet qu'on reconnaît, et c'est
+    # aussi par lui qu'on cherche.
+    titles = _task_titles()
+    paths: dict = {}          # sid → transcript, pour la recherche `deep`
     def _entry(engine, sid, title_raw, cwd, mtime):
         """Ligne du panneau de reprise, commune à tous les moteurs."""
         m = _MARK_RE.match(title_raw or "")
@@ -3674,7 +3933,8 @@ def op_resumable(qs: dict) -> list:
             "mark": _mark_key(m),
             "cwd": cwd, "mtime": mtime,
             "client": client, "project": project,
-            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n")} for r in runs],
+            "tickets": [{"rm_id": r["rm_id"], "n": r.get("n"),
+                         "title": titles.get(str(r["rm_id"])) or None} for r in runs],
             "live": sid in live_sids or any(r["rm_id"] in live_rm for r in runs),
         }
 
@@ -3704,6 +3964,7 @@ def op_resumable(qs: dict) -> list:
                 meta = _jsonl_tail_meta(jf)
             except OSError:
                 continue
+            paths[sid] = jf
             out.append(_entry("claude", sid, meta["title"], meta["cwd"], meta["mtime"]))
 
     def keep(e):
@@ -3717,12 +3978,32 @@ def op_resumable(qs: dict) -> list:
             return False
         if f_project and e["project"] != f_project:
             return False
-        if f_q and f_q not in (e["title"] or "").lower():
-            return False
         return True
 
     out = [e for e in out if keep(e)]
+    # Tri AVANT la recherche : `_deep_hits` a un budget, et ce qu'il abandonnera
+    # en le dépassant doit être le plus ancien, pas le premier venu.
     out.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+    if f_mots:
+        found, rest, manquants = [], [], {}
+        for e in out:
+            sid = e["session_id"]
+            hay = resumable_haystack(e, _worklog_haystack(sid))
+            absents = [m for m in f_mots if m not in hay and not sid_match(sid, m)]
+            if not absents:
+                e["match"] = "meta"
+                found.append(e)
+            else:
+                rest.append(e)
+                manquants[e["session_id"]] = absents
+        if f_deep and rest:
+            hits = _deep_hits(rest, manquants, paths)
+            for e in rest:
+                if e["session_id"] in hits:
+                    e["match"] = "transcript"
+                    found.append(e)
+            found.sort(key=lambda e: e["mtime"] or 0, reverse=True)
+        out = found
     return out[:limit]
 
 
@@ -10613,7 +10894,14 @@ class Handler(BaseHTTPRequestHandler):
                 return self._send_json(200, {"queue": op_test_queue(qs)})
             if path == "/resumable":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
-                return self._send_json(200, {"resumable": op_resumable(qs)})
+                res = op_resumable(qs)
+                # RM2991 : ce que la recherche trouve mais qu'on ne peut PAS
+                # reprendre — worklog conservé, transcript disparu. À part, pour
+                # que le panneau ne propose jamais un bouton qui échouerait.
+                mots = [m for m in (qs.get("q") or "").lower().split() if m]
+                archives = _archived_worklogs(
+                    mots, {e["session_id"] for e in res}) if mots else []
+                return self._send_json(200, {"resumable": res, "archived": archives})
             if path == "/pending":       # RM2466 : ce qui attend une réponse
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}
                 return self._send_json(200, op_pending(qs, self.auth_ctx))

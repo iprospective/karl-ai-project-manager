@@ -1,9 +1,9 @@
 ---
-schema_version: "2.15.0"
+schema_version: "2.16.0"
 updated: 2026-09-01
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.15.0
+# Normes de gestion des tâches — v2.16.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -605,7 +605,9 @@ faire à la main. En particulier, toute opération qui **amende l'état d'une t�
 branchée derrière `pm-task-status-update.py` (**source unique des transitions**), qui propage
 Redmine + MD + log + worklog de session. Le worklog de session (`pm-session-status.py`) est
 alimenté **automatiquement** par les scripts qui modifient l'état des tâches (via
-`pm_session_hook.py`) ; cf. RM1875.
+`pm_session_hook.py`) ; cf. RM1875. **Où il vit sur disque**, avec les deux autres
+stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
+`knowledge/karl-agent/sessions.md`.
 
 ### Couverture actuelle (à compléter au fil des trous identifiés)
 

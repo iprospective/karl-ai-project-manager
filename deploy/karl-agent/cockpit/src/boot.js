@@ -40,6 +40,7 @@ import { mountReview } from "./controllers/review.controller.js";
 import { mountMeta } from "./controllers/meta.controller.js";
 import { mountTicketsPanel } from "./controllers/tickets.controller.js";
 import { mountDocModal } from "./controllers/doc.controller.js";
+import { mountOutline } from "./controllers/outline.controller.js";
 import { mdToHtml } from "./core/markdown.js";
 import { glossaireRows, glossaireFiltre } from "./models/glossary/glossary.js";
 import { promptTemplates, taskPromptText, promptFillOnChange } from "./models/tickets/prompts.js";
@@ -272,6 +273,10 @@ const ticket = {
   sinceLabel: TF.sinceLabel, modelWindow: TF.modelWindow, ctxPct: TF.ctxPct, throughput: TF.throughput, fmtUsd: TF.fmtUsd, fmtRate: TF.fmtRate, fmtWin: TF.fmtWin,
   repo: ticketRepo,
 };
+// l'onglet 🗺 conversation (RM2330/2549/2596/2601) : la session attachée, les toasts, les refs cliquables (linkify) sont prêtés
+const outlineCtl = mountOutline({ body: byId("outbody"), count: byId("outcnt"), nav: document.querySelector("#rp-outline .outnav") }, {
+  attached: () => lexical(() => attached), notify: legacy("toast"), linkify: (s) => legacy("linkify")(s) || "", clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
+});
 // le panneau 🎫 tickets (RM1952 triage, RM2606 tickets ouverts, RM2619 infobulles) : le monolithe prête les résolutions,
 // la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
 tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
@@ -325,5 +330,5 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // la restauration des onglets épinglés — jamais une session — ici, après le script inline
 center.restore();
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));

@@ -2917,10 +2917,14 @@ console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 
 {
   const nonGarde = html.match(/resolveCache\[t\] === undefined\)\s*ensureResolved\(t\)\.then/g) || [];
   assert(nonGarde.length === 0,
-    "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInflight[t]`");
-  const garde = html.match(/resolveCache\[t\] === undefined && !resolveInflight\[t\]\)\s*ensureResolved\(t\)\.then/g) || [];
+    "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInFlight(t)`");
+  const garde = html.match(/resolveCache\[t\] === undefined && !resolveInFlight\(t\)\)\s*ensureResolved\(t\)\.then/g) || [];
   assert(garde.length >= 2,
     "RM2807 : attendu 2 sites gardés (renderTickets + renderOpened), vus " + garde.length);
+  // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe
+  // la lit par un pont — une référence orpheline lèverait une ReferenceError au premier ticket non résolu.
+  assert(/function resolveInFlight\(rm\)/.test(html), "RM2807 : le pont resolveInFlight manque");
+  assert(/inFlight: \(rm\) =>/.test(fs.readFileSync(path.join(__dirname, "src/boot.js"), "utf8")), "RM2807 : la façade ticket n'expose pas inFlight");
   console.log("✓ fan-out tickets borné (RM2807) : garde !resolveInflight aux 2 sites");
 }
 

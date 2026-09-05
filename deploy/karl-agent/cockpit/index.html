@@ -3844,13 +3844,13 @@ function noteOpenedTicket(id) {
   const avant = openedTickets.length;
   openedTickets = openedAdd(openedTickets, id, 40);
   if (openedTickets.length !== avant || String(openedTickets[0]) !== String(id)) openedSave();
-  // RM2807 : la garde `!resolveInflight[t]` est VITALE. Sans elle, chaque rendu
+  // RM2807 : la garde `!resolveInFlight(t)` est VITALE. Sans elle, chaque rendu
   // ré-abonne un NOUVEAU .then(render) à chaque ticket encore en vol → le nombre
   // de rendus double par ticket résolu (2^N), chacun reconstruisant tout l'innerHTML
   // (+ handlers onclick tracés par le ramasse-cycles). Une liste de 20 tickets =
   // 1 048 576 rendus : CPU à fond, RAM native qui explose (fuite Firefox RM2807).
   // Avec la garde : un seul .then par ticket → N+1 rendus, linéaire.
-  openedTickets.forEach(t => { if (resolveCache[t] === undefined && !resolveInflight[t]) ensureResolved(t).then(renderOpened); });
+  openedTickets.forEach(t => { if (resolveCache[t] === undefined && !resolveInFlight(t)) ensureResolved(t).then(renderOpened); });
   renderOpened();
 }
 function openedForget(id) {
@@ -6111,6 +6111,8 @@ const usageCache = {};     // rmId → {t, usage} (idem)
 // Les caches ci-dessus restent ici, partagés PAR RÉFÉRENCE avec le dépôt (boot.js) : les
 // vues historiques les lisent encore en direct. La logique, elle, est dans le module. Ponts :
 function resolveStale(rm) { const r = karlCall("ticket", "stale", rm); return r === undefined ? true : r; }
+// RM2807 : la garde anti fan-out lit l'état « en vol » du dépôt (sa table `resolveInflight` a migré avec lui)
+function resolveInFlight(rm) { return !!karlCall("ticket", "inFlight", rm); }
 function ensureResolved(rm, force) { return karlWhen("ticket").then(t => t.ensureResolved(rm, force)); }
 function revalidateTicket(rm, after) { return karlWhen("ticket").then(t => t.revalidate(rm, after)); }
 function reloadTicket(rm) { return karlWhen("ticket").then(t => t.reload(rm)); }
@@ -6441,8 +6443,8 @@ function renderTickets() {
     return;
   }
   const sel = (metaTicket && list.indexOf(metaTicket) >= 0) ? metaTicket : list[0];
-  // RM2807 : `!resolveInflight[t]` casse le fan-out exponentiel — cf. noteOpenedTicket.
-  list.forEach(t => { if (resolveCache[t] === undefined && !resolveInflight[t]) ensureResolved(t).then(() => renderTickets()); });
+  // RM2807 : `!resolveInFlight(t)` casse le fan-out exponentiel — cf. noteOpenedTicket.
+  list.forEach(t => { if (resolveCache[t] === undefined && !resolveInFlight(t)) ensureResolved(t).then(() => renderTickets()); });
   const facet = ["detail", "desc", "log", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
   if (facet === "workspace" && wsCache[sel] === undefined) refreshWorkspace(sel);
   // niveau 1 : un sous-onglet par ticket

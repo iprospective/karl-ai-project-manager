@@ -6071,9 +6071,8 @@ async function createTicket() {
 
 // ----- panneau de pilotage (méta de la session) -----
 const resolveCache = {};
-const wsCache = {};
 const sessCache = {};   // rm_id → entrée /sessions (registre pm_session, RM2166)
-let metaTicket = null;  // RM2173 : ticket affiché dans l'encart (≠ session attachée)
+// RM2173 : le ticket affiché dans l'encart ℹ (≠ session attachée) vit dans le contrôleur migré (meta) — ponts plus bas
 let groupsCache = {};   // RM2173 : clé client/projet → sessions du groupe
 let orderedCache = [];  // RM2302 : sessions à plat, dans l'ordre d'affichage
 function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
@@ -6124,75 +6123,13 @@ function usageFresh(rm) { return !!karlCall("ticket", "usageFresh", rm); }
 function usageBusy(rm) { return !!karlCall("ticket", "usageInFlight", rm); }
 function ensureUsage(rm, force) { return karlWhen("ticket").then(t => t.ensureUsage(rm, force)); }
 function refreshUsage(rmId) { ensureUsage(rmId, true).then(() => renderMeta()); }
-const ENGINE_LABEL = { claude: "Claude Code", opencode: "opencode", vibe: "vibe" };
 function fmtUsd(x) { return karlCall("ticket", "fmtUsd", x) || ""; }
 function fmtRate(r) { return karlCall("ticket", "fmtRate", r) || "?"; }
 function modelWindow(m, r, c) { return karlCall("ticket", "modelWindow", m, r, c) ?? null; }
 function ctxPct(c, w) { return karlCall("ticket", "ctxPct", c, w) ?? null; }
 function fmtWin(w) { return karlCall("ticket", "fmtWin", w) || ""; }
 function throughput(a, b, c, d) { return karlCall("ticket", "throughput", a, b, c, d) ?? null; }
-function usageHtml(rmId) {
-  if (!usageFresh(rmId) && !usageBusy(rmId)) ensureUsage(rmId).then(() => renderMeta());
-  const c = usageCache[rmId], u = c ? c.usage : undefined, m = c ? c.meta : null;
-  const reg = (sessCache[rmId] || {}).registry || {};
-  // RM2609 : en-tête d'exécution — outil, modèle, coût actuel (+ tarifs)
-  let head = "";
-  if (m) {
-    head += '<div class="kv"><span class="k">outil</span><span class="v">' + esc(ENGINE_LABEL[m.engine] || m.engine || "—") + '</span></div>';
-    if (m.model) head += '<div class="kv"><span class="k">modèle</span><span class="v">' + esc(m.model) + '</span></div>';
-    if (m.cost_usd != null && (u && u.turns)) head += '<div class="kv"><span class="k">coût actuel</span><span class="v"' +
-      (m.rates ? ' title="tarifs /Mtok — entrée ' + fmtRate(m.rates.input_per_mtok_usd) + ' · sortie ' + fmtRate(m.rates.output_per_mtok_usd) + ' · cache lu ' + fmtRate(m.rates.cache_read_per_mtok_usd) + '"' : '') +
-      '>' + fmtUsd(m.cost_usd) + (m.rates ? '' : ' <span style="color:var(--muted)">(tarif inconnu)</span>') + '</span></div>';
-  }
-  let inner;
-  if (u === undefined) inner = '<span style="color:var(--muted)">…</span>';
-  else if (u === null) inner = '<span style="color:var(--muted)">indisponible</span>';
-  else if (!u.turns) inner = '<span style="color:var(--muted)">transcript claude indisponible' +
-    (u.engine && u.engine !== "claude" ? " (moteur " + esc(u.engine) + ")" : "") + '</span>';
-  else {
-    // RM2611 : % de remplissage du contexte (fenêtre par modèle) + débit moyen
-    const w = modelWindow(m && m.model, m && m.rates, u.context_last);
-    const cp = ctxPct(u.context_last, w);
-    const tp = reg.created ? throughput(u.total, m && m.cost_usd, Date.parse(reg.created), Date.now()) : null;
-    inner =
-      '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (le cache n\'est pas compté dans le total — RM2519)">' + fmtTokens(u.total) + '</span></div>' +
-      '<div class="kv"><span class="k">↳ entrée<span style="color:var(--muted)"> (hors cache)</span></span><span class="v" title="entrée NON cachée seulement. Tout ce qui est relu à chaque tour (NORMS, historique, résultats d\'outils) est compté sur la ligne « cache lu / écrit » — RM2628">' + fmtTokens(u.input) + '</span></div>' +
-      '<div class="kv"><span class="k">↳ sortie</span><span class="v" title="tokens générés par l\'agent, raisonnement compris — une réponse est comptée une fois, pas une fois par bloc de contenu (RM2628)">' + fmtTokens(u.output) + '</span></div>' +
-      '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total (facturé à d\'autres taux)">' + fmtTokens(u.cache_read) + ' / ' + fmtTokens(u.cache_creation) + '</span></div>' +
-      '<div class="kv"><span class="k">contexte courant</span><span class="v" title="occupation de la fenêtre de contexte au dernier tour (entrée + cache)">' + fmtTokens(u.context_last) + (cp != null ? ' <span style="color:var(--muted)">(' + cp + '% de ' + fmtWin(w) + ')</span>' : '') + '</span></div>' +
-      '<div class="kv"><span class="k">tours IA</span><span class="v">' + u.turns + '</span></div>' +
-      (tp ? '<div class="kv"><span class="k">débit</span><span class="v" title="moyenne depuis la création">' + fmtTokens(tp.tpm) + '/min' + (tp.uph ? ' · ' + fmtUsd(tp.uph) + '/h' : '') + '</span></div>' : '');
-  }
-  // RM2609 : dates (créée = registre pm_session ; dernière activité = mtime transcript)
-  let dates = "";
-  if (reg.created) dates += '<div class="kv"><span class="k">créée</span><span class="v" title="' + esc(reg.created) + '">' + esc(reg.created) + '</span></div>';
-  if (m && m.updated) dates += '<div class="kv"><span class="k">dernière activité</span><span class="v">il y a ' + ago(m.updated) + '</span></div>';
-  return '<div class="ms"><h4>Session en direct ' +
-    '<span class="pill" style="cursor:pointer" title="Rafraîchir la conso de la session" onclick="refreshUsage(\'' + esc(rmId) + '\')">↻</span> ' +
-    '<span class="pill" style="cursor:pointer" title="Copier le récap dans le presse-papier" onclick="copyInfos(\'' + esc(rmId) + '\')">⧉ copier</span></h4>' + head + inner + dates + '</div>';
-}
-// RM2611 : récap texte des infos de session → presse-papier
-function copyInfos(rmId) {
-  const c = usageCache[rmId], u = c ? c.usage : null, m = c ? c.meta : null;
-  const reg = (sessCache[rmId] || {}).registry || {};
-  if (!m) { toast("Infos pas encore chargées", true); return; }
-  const L = ["Session RM" + rmId, "outil: " + (ENGINE_LABEL[m.engine] || m.engine || "?")];
-  if (m.model) L.push("modèle: " + m.model);
-  if (m.cost_usd != null && u && u.turns) L.push("coût: " + fmtUsd(m.cost_usd));
-  if (u && u.turns) {
-    L.push("tokens: " + u.total + " (entrée " + u.input + " / sortie " + u.output + " ; cache " + u.cache_read + "/" + u.cache_creation + ")");
-    const w = modelWindow(m.model, m.rates, u.context_last);
-    const cp = ctxPct(u.context_last, w);
-    L.push("contexte: " + u.context_last + (cp != null ? " (" + cp + "% de " + fmtWin(w) + ")" : ""));
-    L.push("tours: " + u.turns);
-    const tp = reg.created ? throughput(u.total, m.cost_usd, Date.parse(reg.created), Date.now()) : null;
-    if (tp) L.push("débit: " + tp.tpm + " tok/min" + (tp.uph ? " · " + fmtUsd(tp.uph) + "/h" : ""));
-  }
-  if (reg.created) L.push("créée: " + reg.created);
-  if (m.updated) L.push("dernière activité: il y a " + ago(m.updated));
-  if (navigator.clipboard) navigator.clipboard.writeText(L.join("\n")).then(() => toast("Récap copié"), () => toast("Copie refusée", true));
-  else toast("Presse-papier indisponible", true);
-}
+// usageHtml / copyInfos (RM2373/2609/2611) : MIGRÉS (RM2889, revue 3/3) — src/views/tickets/Meta.view.js
 function tmuxName(id) { return (/^\d+$/.test(id) ? "karl-RM" : "karl-") + id; }
 function tabTip(s) {
   const r = resolveCache[s.rm_id];
@@ -6211,97 +6148,18 @@ function tabTip(s) {
   });
   return t;
 }
-// RM2166 : branches/worktrees de la session (registre pm_session) + conflits
-function wtName(p) { const seg = String(p).split("/").filter(Boolean); return seg[seg.length - 1] || p; }
-function registryHtml(rmId) {
-  const s = sessCache[rmId] || {}, reg = s.registry, conf = s.registry_conflicts || [];
-  let h = "";
-  if (reg) {
-    h += '<div class="kv"><span class="k">session PM</span><span class="v">#' + esc(reg.seq) +
-      (reg.machine ? ' · m' + esc(reg.machine) : '') + (reg.created ? ' · ' + esc(reg.created) : '') + '</span></div>';
-    // RM2605 : les branches vivent dans l'onglet git (c'est la vue du dépôt) et
-    // les worktrees dans l'onglet fichiers (qui les sert déjà via /worktrees).
-    // « infos » garde ce qui n'appartient qu'à la session.
-  }
-  conf.forEach(c => {
-    h += '<div style="margin-top:4px"><span class="pill dang">⚠ RM' + esc(c.rm_id) +
-      ' aussi ouvert en session ' + c.seqs.map(x => '#' + esc(x)).join(', ') + '</span></div>';
-  });
-  return h;
-}
-async function refreshWorkspace(rmId) {
-  if (!/^\d+$/.test(String(rmId))) { wsCache[rmId] = null; return; }  // slug : pas de ticket
-  try { wsCache[rmId] = await api("/workspace-status/" + rmId); } catch (e) { wsCache[rmId] = null; }
-  if (metaTicket === String(rmId)) renderMeta();
-}
-// RM2173 : clic sur un RM-id → détail de CE ticket dans l'encart (sans toucher
-// au lanceur ni changer de session). gotoTicket (lanceur) reste dispo en action.
-function rmLink(id) {
-  return '<span class="pill" style="cursor:pointer"' + tipAttr(id)
-    + ' onclick="showTicket(' + id + ')">RM' + id + "</span>";
-}
-function showTicket(id) {
-  noteOpenedTicket(id);             // RM2606 : ce qu'on ouvre reste sous la main
-  metaTicket = String(id);
-  metaFacet = "detail";             // RM2579 : on ouvre sur le détail du ticket
-  showRight("tickets");             // RM2579/2466 : le ticket demandé passe au premier plan
-  renderMeta();
-  ensureResolved(id).then(() => { if (metaTicket === String(id)) renderMeta(); });
-  // RM2630 : revenir sur un ticket déjà vu doit montrer son état actuel, pas
-  // celui du premier affichage — révalidation au-delà du TTL.
-  revalidateTicket(id, () => { if (metaTicket === String(id)) renderMeta(); });
-  if (wsCache[metaTicket] === undefined) refreshWorkspace(id);
-}
+// ----- Encart ℹ (RM2173/2579/2605/2614/2630/2673/2797/2807) : MIGRÉ (RM2889, revue 3/3) — src/controllers/meta.controller.js -----
+// Le ticket affiché et sa facette vivent dans le contrôleur ; le monolithe lui parle par ces ponts :
+function renderMeta() { karlCall("meta", "render"); }
+function renderInfos() { karlCall("meta", "renderInfos"); }
+function renderTickets() { karlCall("meta", "renderTickets"); }
+function showTicket(id) { karlCall("meta", "showTicket", id); }
+function setMetaTicket(rm) { karlCall("meta", "setTicket", rm); }
+function metaTicketIs(rm) { return !!karlCall("meta", "ticketIs", rm); }
+function refreshWorkspace(rm) { karlCall("meta", "refreshWorkspace", rm); }
 function gotoTicket(id) { document.getElementById("rm").value = id; resolveRm(); switchPanel("sessions"); attachIfRunning(id); }
-// >>> ticketsOfSession — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2673 : les tickets qu'une session traite, TOUTES sources confondues —
-// l'ancrage (sid numérique), le registre pm_session (branches `<id>-slug`,
-// worktrees `…-rm<id>`) et le WORKLOG de la session (RM2068).
-// Le worklog manquait, et c'est justement la seule source d'une session lancée
-// sur un SLUG : ni ancrage, ni — le plus souvent — branche à son nom. L'onglet
-// annonçait alors « session slug (sans ticket d'ancrage) » à des sessions qui
-// avaient traité cinq tickets. L'ordre reste celui de la proximité au travail
-// en cours : ancrage, registre, puis worklog (reste à faire avant fait).
-function ticketsOfSession(sid, registry, buckets) {
-  const out = [];
-  const add = id => { if (id && out.indexOf(id) < 0) out.push(id); };
-  if (/^\d+$/.test(String(sid == null ? "" : sid))) add(String(sid));
-  const reg = registry || {};
-  (reg.branches || []).forEach(b => { const m = /^(\d+)-/.exec(String(b)); if (m) add(m[1]); });
-  (reg.worktrees || []).forEach(w => { const m = /-rm(\d+)$/.exec(String(w)); if (m) add(m[1]); });
-  for (const k of ["todo", "mep", "waiting", "unknown", "done"])   // RM2860 : « mep » compris
-    for (const it of ((buckets || {})[k] || [])) {
-      const m = /^RM(\d+)$/i.exec(String((it && it.ref) || ""));
-      if (m) add(m[1]);
-    }
-  return out;
-}
-// <<< ticketsOfSession
-// Tickets traités par la session attachée : ancrage + registre + worklog (RM2673).
-function sessionTickets() {
-  if (!attached) return [];
-  // le worklog n'est lu que s'il est bien celui de la session attachée — il est
-  // chargé par l'onglet 🗒 état, qui peut porter une session précédente
-  const wl = (worklog && String(worklog.rm_id) === String(attached)) ? worklog.buckets : null;
-  return ticketsOfSession(attached, (sessCache[attached] || {}).registry, wl);
-}
-function fmtTokens(n) {
-  if (n == null) return "—";
-  n = Number(n);
-  return n >= 1e6 ? (n / 1e6).toFixed(1) + " M" : n >= 1e3 ? Math.round(n / 1e3) + " k" : String(n);
-}
-function fmtMin(m) {
-  if (m == null) return "—";
-  m = Math.round(Number(m));
-  return m >= 60 ? Math.floor(m / 60) + " h " + String(m % 60).padStart(2, "0") : m + " min";
-}
 // RM2427 : `ghosts=0` — une session seulement ENREGISTRÉE ne tourne pas, il n'y a rien à attacher.
 function attachIfRunning(id) { api("/sessions?ghosts=0").then(d => { if ((d.sessions || []).some(s => s.rm_id === String(id))) attach(id); }).catch(() => {}); }
-// RM2579 : la colonne de droite sépare « infos » (session) et « tickets » (un
-// sous-onglet par ticket de la session, puis facette détail/conso/workspace).
-// renderMeta() reste l'orchestrateur appelé par le reste du code (attach, resolve,
-// usage…) : il rafraîchit les deux panneaux.
-let metaFacet = "detail";  // facette active de l'onglet tickets (detail|conso|workspace)
 
 // ----- RM1952 : triage ROI des tickets ouverts -----
 let triageData = null;
@@ -6397,327 +6255,6 @@ function triageRowHtml(e, rank) {
     (badges.length ? ' ' + badges.join(' ') : '') + '</span></div>';
 }
 // <<< triageRowHtml
-function renderMeta() { renderInfos(); renderTickets(); }
-
-// ── Onglet « infos » : niveau session uniquement ──
-function renderInfos() {
-  const b = document.getElementById("infosbody");
-  if (!b) return;
-  if (!attached) { b.innerHTML = '<div class="empty">attache une session pour voir ses infos.</div>'; return; }
-  // Session (tmux + registre pm_session RM2166) + conso live (RM2373)
-  // RM2894 : le LIBELLÉ manquait — l'encart ne donnait que le nom tmux, qui
-  // répète l'identifiant sans nommer la session. Sujet Redmine si la session est
-  // ancrée sur un ticket, sinon titre du transcript (`s.title`).
-  const s = sessCache[attached] || {}, r = resolveCache[attached];
-  const label = (r && r.found && r.title) ? String(r.title) : String(s.title || "");
-  b.innerHTML = '<div class="ms"><h4>Session</h4>' +
-    '<div class="kv"><span class="k">libellé</span><span class="v">' +
-    (label ? esc(label) : '<span style="color:var(--muted)">—</span>') + '</span></div>' +
-    '<div class="kv"><span class="k">tmux</span><span class="v">' +
-    esc(tmuxName(attached)) + '</span></div>' + registryHtml(attached) + '</div>' + usageHtml(attached);
-}
-
-// ── Onglet « tickets » : sous-onglets 2 niveaux (ticket, puis facette) ──
-function renderTickets() {
-  const b = document.getElementById("ticketsbody");
-  if (!b) return;
-  // RM2673 : le worklog est une des sources de tickets de la session — on ne
-  // peut pas attendre que l'onglet 🗒 état soit ouvert pour le connaître.
-  if (attached && String(worklog.rm_id || "") !== String(attached)
-      && worklogPending !== String(attached)) loadWorklog();
-  const tks = sessionTickets();
-  const list = tks.slice();
-  // un ticket ouvert hors session (fiche revue / file à tester) reste visible
-  if (metaTicket && list.indexOf(metaTicket) < 0) list.unshift(metaTicket);
-  if (!list.length) {
-    // RM2673 : dire ce qui a VRAIMENT été regardé — le worklog compris. « sans
-    // ticket d'ancrage » laissait croire à une limite de l'ancrage alors que le
-    // worklog de la session n'avait jamais été consulté.
-    const wlSeen = String(worklog.rm_id || "") === String(attached);
-    b.innerHTML = attached
-      ? '<div class="ms" style="color:var(--muted)">' +
-        (/^\d+$/.test(attached) ? "ticket non PM-tracké"
-          : (wlSeen ? "session slug — aucun ticket dans son worklog"
-                    : "session slug (sans ticket d’ancrage) — lecture du worklog…")) + '</div>'
-      : '<div class="empty">aucun ticket — attache une session ou ouvre une fiche.</div>';
-    return;
-  }
-  const sel = (metaTicket && list.indexOf(metaTicket) >= 0) ? metaTicket : list[0];
-  // RM2807 : `!resolveInFlight(t)` casse le fan-out exponentiel — cf. noteOpenedTicket.
-  list.forEach(t => { if (resolveCache[t] === undefined && !resolveInFlight(t)) ensureResolved(t).then(() => renderTickets()); });
-  const facet = ["detail", "desc", "log", "conso", "workspace"].indexOf(metaFacet) >= 0 ? metaFacet : "detail";
-  if (facet === "workspace" && wsCache[sel] === undefined) refreshWorkspace(sel);
-  // niveau 1 : un sous-onglet par ticket
-  let h = '<div class="rsub">' + list.map(t =>
-    '<button class="' + (t === sel ? 'active' : '') + '" onclick="setTicketTab(\'' + esc(t) + '\')">RM' + esc(t) + '</button>'
-  ).join('') + '</div>';
-  // niveau 2 : facettes du ticket sélectionné
-  h += '<div class="rsub facets">' + [["detail", "détail"], ["desc", "description"], ["log", "historique"],
-                                     ["conso", "conso"], ["workspace", "workspace"]].map(f =>
-    '<button class="' + (f[0] === facet ? 'active' : '') + '" onclick="setTicketFacet(\'' + f[0] + '\')">' + esc(f[1]) + '</button>'
-  ).join('') + '</div>';
-  const r = resolveCache[sel];
-  if (r === undefined) h += '<div class="ms">chargement…</div>';
-  else if (!r || !r.found) h += '<div class="ms"><h4>Ticket</h4>RM' + esc(sel) + ' <span style="color:var(--muted)">non trouvé en local</span></div>';
-  else if (facet === "desc") h += _ticketDescHtml(sel, r);          // RM2797
-  else if (facet === "log") h += _ticketLogHtml(sel, r);            // RM2797
-  else if (facet === "conso") h += _ticketConsoHtml(r);
-  else if (facet === "workspace") h += _ticketWorkspaceHtml(sel, wsCache[sel]);
-  else h += _ticketDetailHtml(sel, r);
-  b.innerHTML = h;
-}
-function setTicketTab(rm) {
-  metaTicket = String(rm);
-  if (wsCache[metaTicket] === undefined) refreshWorkspace(metaTicket);
-  ensureResolved(metaTicket).then(() => renderTickets());
-  renderTickets();
-}
-function setTicketFacet(f) { metaFacet = f; renderTickets(); }
-
-
-// ── RM2797 : description et historique, en facettes pleine hauteur ───────────
-
-// >>> logEntries — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// Découpe le journal d'un ticket en entrées `## <horodatage> — <titre>`. Il est
-// servi en markdown structuré ; l'afficher en préformaté monospace jetait cette
-// structure — on ne distinguait plus une entrée de la suivante, ni sa date de
-// son contenu.
-function logEntries(text) {
-  const lignes = String(text || "").split("\n");
-  const out = [];
-  let cur = null;
-  for (const l of lignes) {
-    if (l.startsWith("## ")) {
-      if (cur) out.push(cur);
-      const titre = l.slice(3).trim();
-      const m = /^(\S+)\s+—\s+(.*)$/.exec(titre);
-      cur = { ts: m ? m[1] : "", title: m ? m[2] : titre, body: [] };
-    } else if (cur) {
-      cur.body.push(l);
-    } else if (l.trim()) {
-      cur = { ts: "", title: "", body: [l] };     // journal sans en-tête : rien n'est perdu
-    }
-  }
-  if (cur) out.push(cur);
-  return out.map(e => ({ ts: e.ts, title: e.title, body: e.body.join("\n").trim() }))
-            .filter(e => e.ts || e.title || e.body);
-}
-// <<< logEntries
-
-// >>> logHtml — pur (testé par test_cockpit.js)
-// La plus RÉCENTE en tête : on ouvre l'historique pour savoir ce qui vient de se
-// passer, pas pour relire le début. `md` rend le corps (injecté).
-function logHtml(entries, esc, md) {
-  const list = entries || [];
-  if (!list.length) {
-    return '<div class="empty">aucune activité enregistrée pour ce ticket</div>';
-  }
-  return '<div class="logfeed">' + list.slice().reverse().map(e => {
-    const quand = String(e.ts || "").replace("T", " ");
-    return '<div class="logent">'
-      + (quand || e.title
-          ? '<div class="logent-h">' + (quand ? '<span class="logent-ts">' + esc(quand) + "</span>" : "")
-            + (e.title ? "<span>" + esc(e.title) + "</span>" : "") + "</div>"
-          : "")
-      + (e.body ? '<div class="logent-b">' + md(e.body) + "</div>" : "")
-      + "</div>";
-  }).join("") + "</div>";
-}
-// <<< logHtml
-
-function _ticketDescHtml(rmId, r) {
-  if (!r || !r.description) {
-    return '<div class="empty">ce ticket n\'a pas de description</div>';
-  }
-  // La colonne défile déjà : un second défilement à l'intérieur enfermerait la
-  // description dans une fenêtre de dix lignes au milieu d'un panneau vide.
-  return '<div class="facetfull descfull mdview">' + mdToHtml(r.description) + "</div>";
-}
-
-function _ticketLogHtml(rmId, r) {
-  return '<div class="facetfull">' + logHtml(logEntries(r && r.log_tail), esc, mdToHtml) + "</div>";
-}
-
-// ── Facette « détail » : identité + environnement + git + relations ──
-// >>> projectBriefHtml — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2614 : situer le ticket dans son client et son projet, en trois lignes.
-// >>> cval — pur (testé par test_cockpit.js, ne pas ajouter de DOM ici)
-// RM2614/RM2714 : un champ YAML vide remonte en CHAÎNE "null" / "~" / "None" —
-// sans ce filtre, la fiche affichait « dépôt : null ».
-// Le nom compte : RM2614 l'appelait `val` et le déclarait DANS une fonction,
-// alors que les appels étaient posés dans quatre autres — `ReferenceError` à
-// l'exécution (panneau « commandes pm », fil d'ariane des fichiers, docs
-// projet). Trois `val` locaux distincts vivent encore dans ce fichier : ce
-// nettoyeur global en porte donc un autre.
-function cval(v) {
-  const s = String(v == null ? "" : v).trim();
-  return (s && s !== "null" && s !== "~" && s !== "None") ? s : "";
-}
-// <<< cval
-
-// `card` est la fiche projet déjà chargée (/project/<c>/<p>) ou null tant qu'elle
-// ne l'est pas — on affiche alors ce qu'on sait déjà plutôt que rien : le client
-// et le projet viennent du ticket, ils n'ont pas besoin d'un aller-retour.
-function projectBriefHtml(client, project, card, esc, jarg) {
-  if (!client || !project) return "";      // ticket non résolu : pas de bloc vide
-  const c = card || {};
-  const cle = client + "/" + project;
-  const ouverts = c.open_by_status
-    ? Object.values(c.open_by_status).reduce((a, b) => a + b, 0) : null;
-  let h = '<div class="ms"><h4>Client / projet</h4>';
-  h += '<div class="kv"><span class="k">client</span><span class="v">'
-    + esc(cval(c.client_name) || client)
-    + (cval(c.client_redmine_project_id)
-        ? ' <span class="pill" style="opacity:.7">' + esc(cval(c.client_redmine_project_id)) + "</span>" : "")
-    + "</span></div>";
-  h += '<div class="kv"><span class="k">projet</span><span class="v">'
-    + esc(cval(c.name) || project)
-    + ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche du projet"'
-    + ' onclick="showProject(' + jarg(cle) + ')">🗂 fiche</span>'
-    + (cval(c.redmine_project_url)
-        ? ' <a href="' + esc(cval(c.redmine_project_url)) + '" target="_blank" rel="noopener">Redmine ↗</a>' : "")
-    + "</span></div>";
-  if (ouverts !== null) {
-    h += '<div class="kv"><span class="k">tickets</span><span class="v">'
-      + ouverts + " ouvert" + (ouverts > 1 ? "s" : "")
-      + (c.total ? " / " + c.total : "") + "</span></div>";
-  }
-  if (cval(c.gitlab_repo)) {
-    h += '<div class="kv"><span class="k">dépôt</span><span class="v">' + esc(cval(c.gitlab_repo))
-      + (cval(c.default_branch) ? ' <span class="pill">' + esc(cval(c.default_branch)) + "</span>" : "")
-      + "</span></div>";
-  }
-  return h + "</div>";
-}
-// <<< projectBriefHtml
-
-// Fiches projet déjà chargées — un appel par projet, pas un par rendu de fiche.
-const projCardCache = {};
-function ensureProjectCard(client, project, onLoad) {
-  const cle = client + "/" + project;
-  if (projCardCache[cle] !== undefined) return projCardCache[cle];
-  projCardCache[cle] = null;                       // marque « en cours »
-  api("/project/" + encodeURIComponent(client) + "/" + encodeURIComponent(project))
-    .then(d => { projCardCache[cle] = d; if (onLoad) onLoad(); })
-    .catch(() => { projCardCache[cle] = { error: true }; });
-  return null;
-}
-
-// RM2630 : dater la version affichée. Sans ça, une donnée périmée est
-// indiscernable d'une donnée fraîche — c'est ce qui fait chercher l'anomalie
-// ailleurs (synchro Redmine/MD) alors qu'elle est sous les yeux.
-function ticketFreshnessHtml(r) {
-  const stamp = (r && (r.updated || r.mtime)) || "";
-  if (!stamp) return "";
-  const since = sinceLabel(stamp);
-  return '<div class="kv"><span class="k" style="color:var(--muted)">version</span>' +
-    '<span class="v" style="color:var(--muted)" title="dernière écriture du ticket : ' + esc(stamp) + '">' +
-    esc(stamp) + (since ? ' <span style="opacity:.75">(' + esc(since) + ')</span>' : '') + '</span></div>';
-}
-
-function _ticketDetailHtml(rmId, r) {
-  const pct = (r.completion_pct != null ? r.completion_pct + " %" : "—");
-  let h = '<div class="ms"><h4>Ticket</h4>' +
-    '<div class="kv"><span class="k">id</span><span class="v">' +
-    (r.redmine_url ? '<a href="' + esc(r.redmine_url) + '" target="_blank">RM' + rmId + ' ↗</a>' : "RM" + rmId) +
-    ' <span class="pill" style="cursor:pointer" title="Pré-remplir le lanceur avec ce ticket" onclick="gotoTicket(' + rmId + ')">→ lanceur</span>' +
-    ' <span class="pill" style="cursor:pointer" title="Ouvrir la fiche complète du ticket (protocole de test, description, env, verdict)" onclick="openReview(String(' + rmId + '))">🗂 fiche</span>' +
-    // RM2630 : le ticket était le seul objet du cockpit sans son ⟳ (worklog,
-    // fichiers, git, outline, conso, workspace en ont un). Recours explicite
-    // quand on doute de ce qu'on lit.
-    ' <span class="pill" style="cursor:pointer" title="Recharger ce ticket depuis le disque (description, statut, chiffrage)" onclick="reloadTicket(String(' + rmId + '))">↻</span></span></div>' +
-    ticketFreshnessHtml(r) +
-    '<div style="margin:4px 0">' + esc(r.title) + '</div>' +
-    '<div class="kv"><span class="k">type</span><span class="v">' + esc(r.type || "—") + '</span></div>' +
-    // RM2888 : la pastille de phase ouvre les transitions posables depuis CE statut.
-    '<div class="kv"><span class="k">phase</span><span class="v">' +
-    '<span class="pill" style="cursor:pointer" title="Changer le statut — transitions du workflow depuis « ' + esc(r.status || "?") + ' »" onclick="openStatusMenu(' + jarg(String(rmId)) + ',this,event)">' + esc(r.status || "—") + ' ⇄</span>' +
-    (r.status === "ferme" ? ' <span class="pill" style="cursor:pointer" title="Rouvrir le ticket (ferme → a_faire, motif requis)" onclick="reopenTicket(' + esc(rmId) + ')">↻ rouvrir</span>' : '') + '</span></div>' +
-    '<div class="kv"><span class="k">priorité</span><span class="v">' + esc(r.priority || "—") + '</span></div>' +
-    '<div class="kv"><span class="k">avancement</span><span class="v">' + pct + '</span></div></div>';
-  // RM2614 : situer le ticket — client, projet, et le lien vers leur détail
-  if (r.client && r.project) {
-    h += projectBriefHtml(r.client, r.project,
-      ensureProjectCard(r.client, r.project, () => renderMeta()), esc, jarg);
-  }
-  if (r.active_env || (r.environments && r.environments.length) || r.test_url) {
-    h += '<div class="ms"><h4>Environnement (selon phase)</h4>';
-    if (r.active_env) h += '<div class="kv"><span class="k"><span class="pill ok">' + esc(r.active_env.name) + '</span></span><span class="v">' + (r.active_env.url ? '<a href="' + esc(r.active_env.url) + '" target="_blank">ouvrir ↗</a>' : "—") + '</span></div>';
-    if (r.test_url) h += '<div class="kv"><span class="k">test_url</span><span class="v"><a href="' + esc(r.test_url) + '" target="_blank">↗</a></span></div>';
-    (r.environments || []).filter(e => e.url && (!r.active_env || e.name !== r.active_env.name)).forEach(e => {
-      h += '<div class="kv"><span class="k" style="color:var(--muted)">' + esc(e.name) + '</span><span class="v"><a href="' + esc(e.url) + '" target="_blank">↗</a></span></div>';
-    });
-    h += '</div>';
-  }
-  if (r.git && (r.git.branch || r.git.mr_url)) {
-    h += '<div class="ms"><h4>Git ticket</h4>';
-    if (r.git.branch) h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(r.git.branch) + '</span></div>';
-    if (r.git.mr_url) h += '<div class="kv"><span class="k">MR</span><span class="v"><a href="' + esc(r.git.mr_url) + '" target="_blank">↗</a></span></div>';
-    h += '</div>';
-  }
-  const rels = [];
-  if (r.parent_task) rels.push(["parent", [r.parent_task]]);
-  if (r.depends_on && r.depends_on.length) rels.push(["dépend de", r.depends_on]);
-  if (r.blocks && r.blocks.length) rels.push(["bloque", r.blocks]);
-  if (r.relates && r.relates.length) rels.push(["lié", r.relates]);
-  if (r.sub_tasks && r.sub_tasks.length) rels.push(["sous-tâches", r.sub_tasks]);
-  if (rels.length) {
-    h += '<div class="ms"><h4>Relations</h4>';
-    rels.forEach(p => { h += '<div style="margin-bottom:4px"><span style="color:var(--muted)">' + p[0] + ' :</span> <span class="rels">' + p[1].map(rmLink).join(" ") + '</span></div>'; });
-    h += '</div>';
-  }
-  // RM2797 : la description et l'historique ont leur propre facette, pleine
-  // hauteur — les répéter ici les remettrait dans une fenêtre de dix lignes, au
-  // bas d'une colonne où il faut déjà défiler pour les atteindre.
-  h += '<div class="ms"><h4>Contenu</h4><div class="rels">'
-    + '<button class="chip" onclick="setTicketFacet(\'desc\')">'
-    + (r.description ? "📄 description" : "📄 description (vide)") + "</button>"
-    + '<button class="chip" onclick="setTicketFacet(\'log\')">'
-    + (r.log_tail ? "🕘 historique" : "🕘 historique (vide)") + "</button>"
-    + "</div></div>";
-  return h;
-}
-
-// ── Facette « conso » : consommation enregistrée par le PM (RM2173/2373/2519) ──
-function _ticketConsoHtml(r) {
-  const m = r.metrics || {};
-  if (m.tokens_total == null && m.cost_total_usd == null)
-    return '<div class="ms" style="color:var(--muted)">Aucune consommation enregistrée pour ce ticket.</div>';
-  const bd = m.tokens_breakdown || {};
-  const hasBd = (bd.input || bd.output || bd.cache_read || bd.cache_creation);
-  // RM2519 : total = entrée + sortie (le cache est complémentaire, hors total).
-  const tokTot = hasBd ? ((bd.input || 0) + (bd.output || 0)) : m.tokens_total;
-  return '<div class="ms"><h4>Consommation <span style="text-transform:none;color:var(--muted)">(enregistrée)</span></h4>' +
-    '<div class="kv"><span class="k">tokens</span><span class="v" title="entrée + sortie (cache hors total — RM2519)">' + fmtTokens(tokTot) + '</span></div>' +
-    (hasBd ?
-      '<div class="kv"><span class="k">↳ entrée</span><span class="v">' + fmtTokens(bd.input) + '</span></div>' +
-      '<div class="kv"><span class="k">↳ sortie</span><span class="v">' + fmtTokens(bd.output) + '</span></div>' +
-      '<div class="kv"><span class="k" style="color:var(--muted)">cache lu / écrit</span><span class="v" style="color:var(--muted)" title="information complémentaire, hors total">' + fmtTokens(bd.cache_read) + ' / ' + fmtTokens(bd.cache_creation) + '</span></div>'
-      : '') +
-    '<div class="kv"><span class="k">coût</span><span class="v">' + (m.cost_total_usd != null ? "$" + Number(m.cost_total_usd).toFixed(2) : "—") + '</span></div>' +
-    '<div class="kv"><span class="k">temps IA</span><span class="v">' + fmtMin(m.ai_time_total_minutes) + '</span></div>' +
-    '<div class="kv"><span class="k">temps humain</span><span class="v">' + fmtMin(m.human_time_total_minutes) + '</span></div>' +
-    '<div class="kv"><span class="k">dernière activité</span><span class="v">' + esc(m.updated || "—") + '</span></div></div>';
-}
-
-// ── Facette « workspace » : état git du worktree (intérim RM1883) ──
-function _ticketWorkspaceHtml(rmId, ws) {
-  let h = '<div class="ms"><h4>Workspace <span style="text-transform:none;color:var(--muted)">(git · intérim RM1883)</span></h4>';
-  if (ws === undefined) h += '<span style="color:var(--muted)">…</span> <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span>';
-  else if (!ws || !ws.is_git) h += '<span style="color:var(--muted)">pas un dépôt git</span>';
-  else {
-    h += '<div class="kv"><span class="k">branche</span><span class="v">' + esc(ws.branch) + '</span></div>';
-    h += '<div class="rels" style="margin-top:4px">';
-    h += '<span class="pill ' + (ws.clean ? "ok" : "warn") + '">' + (ws.clean ? "clean" : (ws.dirty + " modifs")) + '</span>';
-    if (ws.untracked) h += '<span class="pill warn">' + ws.untracked + ' untracked</span>';
-    if (ws.ahead) h += '<span class="pill">↑' + ws.ahead + '</span>';
-    if (ws.behind) h += '<span class="pill dang">↓' + ws.behind + '</span>';
-    h += ' <span class="pill" onclick="refreshWorkspace(\'' + rmId + '\')">↻</span></div>';
-  }
-  h += '</div>';
-  return h;
-}
-
 // >>> glossaireRows — pur (RM2675, testé par test_cockpit.js, ne pas ajouter de DOM ici)
 // Le glossaire d'un projet est un TABLEAU markdown à 4 colonnes (docs/glossaire.md, écrit par
 // pm-glossaire.py). On le relit ici pour pouvoir FILTRER : c'est la seule chose que le rendu
@@ -7219,13 +6756,7 @@ function attach(rmId) {
   mountTerm(rmId);
   document.getElementById("tabactions").style.display = "";
   showRight();                      // RM2466 : déplie, sans changer d'onglet actif
-  // RM2173 : le ticket affiché = l'ancrage de la session (changeable via les chips Tickets)
-  metaTicket = /^\d+$/.test(String(rmId)) ? String(rmId) : null;
-  renderMeta();                                      // affiche le cache (ou « chargement »)
-  if (metaTicket) {
-    ensureResolved(metaTicket).then(() => { if (attached === String(rmId)) renderMeta(); });
-    refreshWorkspace(metaTicket);
-  }
+  karlCall("meta", "onAttach", rmId);   // RM2173 : le ticket affiché = l'ancrage de la session (encart migré)
   // RM2330 : nouvelle session attachée → outline remis à zéro (rechargé si ouvert)
   outline = { items: [], total: 0 }; outPos = null;
   if (rightVisible("outline")) loadOutline();
@@ -7244,7 +6775,7 @@ function attach(rmId) {
 function reattach() { if (attached) attach(attached); }
 function detach() {
   attached = null;
-  metaTicket = null;
+  setMetaTicket(null);
   document.getElementById("reviewpane").style.display = "none";
   unmountTerm();
   document.getElementById("placeholder").style.display = "flex";
@@ -7324,7 +6855,7 @@ async function reopenTicket(rm) {
     // re-résout partout : lanceur, encart ℹ, fiche revue (resolveCache périmé, cf. RM2229)
     ensureResolved(rm, true).then(() => {
       if (document.getElementById("rm").value.trim() === rm) resolveRm();
-      if (metaTicket === rm) renderMeta();
+      if (metaTicketIs(rm)) renderMeta();
       if (reviewCurrent() === rm) renderReviewPane();
     });
   }
@@ -7355,9 +6886,6 @@ function confirmSecondSession(rm) { return karlWhen("review").then(r => r.confir
 function taskPromptText(tpl, rm, client, project, hint) { return karlCall("review", "taskPromptText", tpl, rm, client, project, hint) || ""; }
 function promptTemplateOptions(sel) { return karlCall("review", "promptTemplateOptions", sel) || ""; }
 function promptFillOnChange(tpl, cur, computed) { const r = karlCall("review", "promptFillOnChange", tpl, cur, computed); return r === undefined ? String(cur || "") : r; }
-// l'encart ℹ appartient encore au monolithe : la revue lui dit quel ticket montrer
-function setMetaTicket(rm) { metaTicket = rm; if (rm) metaFacet = "detail"; }
-function metaTicketIs(rm) { return metaTicket === String(rm); }
 
 async function pmRun(name, args, opts) {
   const body = { name, args };

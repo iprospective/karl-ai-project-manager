@@ -2188,51 +2188,9 @@ console.log("✓ embarquer un lot ailleurs (RM2823) : un seul projet, consigne d
 console.log("✓ 2e session sur un ticket pris (RM2818) : le lanceur de gauche passe aussi par la garde");
 // — RM2819 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
-// — RM2834 : filtre par client dans « Reprendre une session » —
-// La liste des projets était PLATE : tous les clients mêlés, des dizaines
-// d'entrées. Le client filtre désormais les projets — et changer de client ne
-// doit jamais laisser sélectionné le projet d'un autre.
-const rsProjectOptions = grabO("rsProjectOptions");
-const PR2834 = [
-  { client: "acme", project: "shop", value: "acme/shop" },
-  { client: "acme", project: "bo", value: "acme/bo" },
-  { client: "beta", project: "api", value: "beta/api" },
-  { client: "", project: "", value: "" },            // entrée incomplète : ignorée
-];
-const r1 = rsProjectOptions(PR2834, "acme", "acme/shop");
-assert.strictEqual(r1.options.map(o => o.value).join(","), "acme/bo,acme/shop",
-  "seuls les projets du client, triés");
-assert.strictEqual(r1.value, "acme/shop", "un projet du client reste sélectionné");
-const r2 = rsProjectOptions(PR2834, "acme", "beta/api");
-assert.strictEqual(r2.value, "", "changer de client abandonne le projet d'un autre client");
-const r3 = rsProjectOptions(PR2834, "", "beta/api");
-assert.strictEqual(r3.options.map(o => o.value).join(","), "acme/bo,acme/shop,beta/api",
-  "sans client : tous les projets");
-assert.strictEqual(r3.value, "beta/api", "…et la sélection courante est conservée");
-assert.strictEqual(rsProjectOptions(PR2834, "inconnu", "acme/shop").options.length, 0,
-  "client sans projet connu → aucune option (et pas une liste complète trompeuse)");
-assert.strictEqual(rsProjectOptions(null, "acme", "").options.length, 0, "liste absente");
-
-// Les clients proposés viennent des projets connus, dédoublonnés et triés
-const rsClients = grabO("rsClientOptions");
-assert.strictEqual(rsClients(PR2834).join(","), "acme,beta", "clients distincts, triés");
-assert.strictEqual(rsClients([]).length, 0, "aucun projet → aucun client");
-
-// Câblage
-assert(/<select id="rs-client"/.test(html), "le sélecteur client doit exister dans la carte");
-assert(/id="rs-client"[^>]*onchange="rsClientChanged\(\)"/.test(html),
-  "changer de client doit refiltrer les projets, pas seulement recharger");
-const lr2834 = /async function loadResumable\([\s\S]*?\n\}/.exec(html)[0];
-assert(/rs-client/.test(lr2834),
-  "loadResumable doit envoyer le client — un client seul liste TOUS ses projets");
-// RM2991 : la query n'est plus bricolée dans loadResumable, elle est construite
-// par `rsQuery` (pure, testée plus bas). L'exigence RM2834 est la même — un
-// client seul doit sortir en `client=` — elle se vérifie juste au bon endroit.
-assert(/rsQuery\(\{/.test(lr2834),
-  "loadResumable doit construire sa query via rsQuery");
-assert.strictEqual(grabO("rsQuery")({ client: "acme" }), "?client=acme",
-  "…sous forme de filtre client=");
-console.log("✓ reprise de session (RM2834) : filtre client, qui filtre les projets");
+// — RM2834 : filtre client de « Reprendre une session » : MIGRÉ (RM2889) — voir test_cockpit_resume.js. Reste l'hôte :
+assert(/<select id="rs-client"/.test(html) && /<select id="rs-project"/.test(html), "les sélecteurs client / projet doivent exister dans la carte");
+console.log("✓ reprise de session (RM2834) : hôte HTML en place, logique migrée");
 
 // — RM2830 : filtrer par étiquette (recherche, triage, jeux dérivés) —
 // L'étiquette ne sert à rien si elle ne sert pas à CHOISIR quoi faire.
@@ -2376,83 +2334,4 @@ console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 
   console.log("✓ fan-out tickets borné (RM2807) : garde !resolveInflight aux 2 sites");
 }
 
-// ── RM2991 : recherche de session dans le panneau de reprise ─────────────────
-// La carte « Reprendre une session » ne se pilotait qu'avec des filtres fermés.
-// Deux fonctions pures portent le geste : la requête envoyée au serveur, et le
-// libellé des tickets (qui est ce à quoi on RECONNAÎT une session).
-{
-  const rsQuery = grabO("rsQuery");
-  const rsTicketsLabel = grabO("rsTicketsLabel");
-
-  assert.strictEqual(rsQuery({}), "", "aucun filtre ⇒ aucune query string");
-  assert.strictEqual(rsQuery({ q: "  annuaire  " }), "?q=annuaire",
-    "les mots-clés sont trimés avant envoi");
-  // Le cœur de l'opt-in : cocher « transcript » sans mots-clés ferait scanner
-  // ~400 Mo pour rien. deep ne part JAMAIS seul.
-  assert.strictEqual(rsQuery({ deep: true }), "",
-    "RM2991 : deep sans mots-clés n'est pas envoyé");
-  assert.strictEqual(rsQuery({ q: "annuaire", deep: true }), "?q=annuaire&deep=1",
-    "deep accompagne des mots-clés");
-  assert.strictEqual(rsQuery({ q: "annuaire", deep: false }), "?q=annuaire",
-    "case décochée ⇒ pas de deep");
-  // RM2834 conservé : un projet vaut client+projet, un client seul reste large.
-  assert.strictEqual(rsQuery({ project: "acme/appli" }), "?client=acme&project=appli",
-    "un projet choisi se scinde en client + projet");
-  assert.strictEqual(rsQuery({ client: "acme" }), "?client=acme",
-    "client seul ⇒ tous ses projets");
-  assert.strictEqual(rsQuery({ project: "acme/appli", client: "beta" }),
-    "?client=acme&project=appli", "le projet l'emporte sur le client");
-  assert.strictEqual(rsQuery({ engine: "vibe", status: "wip", q: "x" }),
-    "?engine=vibe&status=wip&q=x", "les filtres se cumulent aux mots-clés");
-  assert(/q=a%26b/.test(rsQuery({ q: "a&b" })),
-    "les mots-clés sont encodés (un & ne doit pas ouvrir un paramètre)");
-  console.log("✓ rsQuery (RM2991) : mots-clés, opt-in deep, cumul avec les filtres");
-
-  assert.strictEqual(rsTicketsLabel([]), "", "aucun ticket ⇒ chaîne vide");
-  assert.strictEqual(rsTicketsLabel(null), "", "tickets absents ⇒ chaîne vide");
-  assert.strictEqual(rsTicketsLabel([{ rm_id: "2703" }]), "RM2703",
-    "sans libellé connu, le numéro seul");
-  assert.strictEqual(rsTicketsLabel([{ rm_id: "2703", title: "Annuaire" }]),
-    "RM2703 Annuaire", "le sujet accompagne le numéro");
-  assert.strictEqual(
-    rsTicketsLabel([{ rm_id: "1", title: "A" }, { rm_id: "2", title: "B" }]),
-    "RM1 A · RM2 B", "plusieurs tickets sont séparés lisiblement");
-  const long = rsTicketsLabel([{ rm_id: "9", title: "x".repeat(80) }], 10);
-  assert(long.length < 25 && long.endsWith("…"),
-    "un titre long est tronqué : la ligne du panneau est étroite");
-  console.log("✓ rsTicketsLabel (RM2991) : numéro + sujet, troncature");
-
-  // Câblage : le champ existe, il est amorti, et son contenu est ÉCHAPPÉ à
-  // l'affichage — depuis RM2991 la ligne porte des titres de tickets, plus
-  // seulement des « RM2703 » inoffensifs.
-  assert(/id="rs-q"[\s\S]*?oninput="rsQueryChanged\(\)"/.test(html),
-    "RM2991 : le champ de recherche doit être câblé sur rsQueryChanged()");
-  assert(/id="rs-deep"[\s\S]*?onchange="loadResumable\(\)"/.test(html),
-    "RM2991 : la case transcript doit relancer la recherche");
-  assert(/function rsQueryChanged\(\)[\s\S]*?setTimeout\(loadResumable, \d+\)/.test(html),
-    "RM2991 : la frappe doit être amortie (une requête par touche relirait 107 worklogs)");
-  assert(/const tk = rsTicketsLabel\(s\.tickets\);/.test(html),
-    "RM2991 : la ligne du panneau doit afficher les libellés de tickets");
-  assert(/\(tk \? " · " \+ esc\(tk\) : ""\)/.test(html),
-    "RM2991 : les libellés de tickets doivent être échappés");
-  assert(/const \{ resumable, archived \} = await api\("\/resumable" \+ qs\);/.test(html),
-    "RM2991 : loadResumable doit passer par rsQuery (pas de query bricolée sur place)");
-  console.log("✓ panneau de reprise (RM2991) : champ câblé, amorti, libellés échappés");
-
-  // Sessions archivées : le worklog survit au transcript. La recherche doit les
-  // nommer sans les rendre cliquables — « reprendre » y échouerait.
-  const rsArchivedHtml = grabO("rsArchivedHtml");
-  assert.strictEqual(rsArchivedHtml([], escO), "", "aucune archive ⇒ rien du tout");
-  assert.strictEqual(rsArchivedHtml(null, escO), "", "liste absente ⇒ rien du tout");
-  const arc = rsArchivedHtml([{ session_id: "dcf266aa-460c-46c2", updated: "2026-07-21",
-                                tickets: [{ ref: "RM2392", title: "Onduleur APC" }] }], escO);
-  assert(/non reprenables/.test(arc), "la note doit dire qu'on ne peut pas les reprendre");
-  assert(/dcf266aa/.test(arc) && !/460c/.test(arc), "l'id est abrégé à 8 caractères");
-  assert(/RM2392 Onduleur APC/.test(arc), "le ticket et son sujet sont nommés");
-  assert(!/onclick|<li|<button/.test(arc), "rien de cliquable dans la note");
-  const xss = rsArchivedHtml([{ session_id: "a", tickets: [{ ref: "<img src=x>" }] }], escO);
-  assert(!/<img/.test(xss), "le contenu du worklog est échappé");
-  assert(/insertAdjacentHTML\("beforeend", arch\)/.test(html),
-    "RM2991 : la note doit être ajoutée sous la liste");
-  console.log("✓ sessions archivées (RM2991) : nommées, non cliquables, échappées");
-}
+// ── RM2991 : recherche de session dans le panneau de reprise : MIGRÉ (RM2889) — voir test_cockpit_resume.js ──

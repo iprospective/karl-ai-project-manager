@@ -1,19 +1,20 @@
 // views/outline/Outline — la minimap de conversation : lignes décorées, recherche surlignée, lecture inline en accordéon. RM2889.
-import { html, raw, esc } from "../../core/html.js";
+import { html, raw } from "../../core/html.js";
 
 /** Échappe un texte et surligne les occurrences de q (<mark>) — sûr sur du HTML source. */
 export function hlq(text, q) {
   const s = String(text == null ? "" : text);
   q = String(q || "").trim();
-  if (!q) return esc(s);
+  if (!q) return String(html`${s}`);
   const re = new RegExp(q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi");
-  let out = "", last = 0, m;
+  const parts = []; let last = 0, m;
   while ((m = re.exec(s))) {
     if (m.index === re.lastIndex) { re.lastIndex++; continue; }
-    out += esc(s.slice(last, m.index)) + "<mark>" + esc(m[0]) + "</mark>";
+    parts.push(html`${s.slice(last, m.index)}<mark>${m[0]}</mark>`);
     last = m.index + m[0].length;
   }
-  return out + esc(s.slice(last));
+  parts.push(s.slice(last));
+  return String(html`${parts}`);
 }
 
 export function OutlineList(vm, { linkify }) {

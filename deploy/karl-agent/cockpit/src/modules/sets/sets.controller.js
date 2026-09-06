@@ -10,6 +10,7 @@ import { SetsService } from "./sets.service.js";
 import { SetCardViewModel, HistoryViewModel } from "./SetsViewModel.js";
 import { PickerOptions, TargetOptions, EditPickerOptions, SetCard, History, Loading, ErrorBox } from "./Sets.view.js";
 import { setEditOptions, pickerGroups, barState, selButtonState, setWritable, ruleFromValues, moveConfirmText, relaunchConfirmText, ghostRelaunchText, materializeConfirmText, splitConfirmText, restoreConfirmText, deleteConfirmText } from "./sets.js";
+import { paint } from "../../core/dom.js";
 
 export function mountSets({ bar, card } = {}, ctx = {}) {
   const svc = ctx.service || new SetsService({ storage: ctx.storage });
@@ -39,7 +40,7 @@ export function mountSets({ bar, card } = {}, ctx = {}) {
     try {
       const { r, fallback } = await svc.loadSets();
       if (fallback) switchSet(fallback, true);                                   // le jeu courant a pu être effacé ailleurs
-      if (sel) { sel.innerHTML = String(PickerOptions(pickerGroups(r, svc.sets, svc.current, svc.view))); show(sel, true); }
+      if (sel) { paint(sel, PickerOptions(pickerGroups(r, svc.sets, svc.current, svc.view))); show(sel, true); }
       paintBar();
       refreshSet();                                                              // RM2741 : la VUE vient d'être relue
     } catch (e) { svc.sets = []; show(sel, false); }
@@ -48,7 +49,7 @@ export function mountSets({ bar, card } = {}, ctx = {}) {
     const st = barState({ sets: svc.sets, current: svc.current, view: svc.view, selMode: svc.selMode, selectedCount: svc.selected.size });
     const save = el.save(); if (save) { show(save, st.saveShown); save.textContent = st.saveLabel; save.title = st.saveTitle; }
     const del = el.del(); if (del) del.title = st.delTitle;
-    const tgt = el.target(); if (tgt) { tgt.innerHTML = String(TargetOptions(st.targets)); show(tgt, st.canMove); }
+    const tgt = el.target(); if (tgt) { paint(tgt, TargetOptions(st.targets)); show(tgt, st.canMove); }
     show(el.move(), st.canMove);
     paintSelBtn();
   }
@@ -72,14 +73,14 @@ export function mountSets({ bar, card } = {}, ctx = {}) {
     try { notify(await svc.move(to, move)); refreshSessions(); await refreshSets(); refreshSet(); load(); } catch (e) { fail(e); }
   }
   // ── carte « Sessions enregistrées » ──
-  function paintEditPicker() { const sel = el.editPicker(); if (!sel) return; const opts = setEditOptions(svc.sets, svc.editing, svc.current); sel.innerHTML = String(EditPickerOptions(opts)); show(sel, opts.length); }
+  function paintEditPicker() { const sel = el.editPicker(); if (!sel) return; const opts = setEditOptions(svc.sets, svc.editing, svc.current); paint(sel, EditPickerOptions(opts)); show(sel, opts.length); }
   async function load() {
     const body = el.body(); if (!body) return;
     try {
       paintEditPicker();                                                         // RM2955 : de quel jeu parle cette carte
       const r = await svc.loadSet();
-      body.innerHTML = String(SetCard(new SetCardViewModel({ r, edited: svc.editedSet(), current: svc.current, sets: svc.sets, ruleFormFor: svc.ruleFormFor, facets: svc.facets, shownCount: ordered().length, spawnPref: svc.spawnPref })));
-    } catch (e) { body.innerHTML = String(ErrorBox(e.message)); }
+      paint(body, SetCard(new SetCardViewModel({ r, edited: svc.editedSet(), current: svc.current, sets: svc.sets, ruleFormFor: svc.ruleFormFor, facets: svc.facets, shownCount: ordered().length, spawnPref: svc.spawnPref })));
+    } catch (e) { paint(body, ErrorBox(e.message)); }
   }
   function setEditPick(name) { svc.editing = name || null; svc.ruleFormFor = null; load(); }   // ne bascule PAS le jeu courant (RM2446)
   function openRuleForm(group) { svc.ruleFormFor = group; load(); }
@@ -148,14 +149,14 @@ export function mountSets({ bar, card } = {}, ctx = {}) {
   }
   async function toggleHistory() {
     const h = el.history(); if (!h) return;
-    if (h.innerHTML) { h.innerHTML = ""; return; }                              // second clic : on replie
-    h.innerHTML = String(Loading());
-    try { const r = await svc.history(); h.innerHTML = String(History(new HistoryViewModel({ versions: r.versions, keep: r.keep, label: svc.label(svc.editedSet()) }))); }
-    catch (e) { h.innerHTML = String(ErrorBox(e.message)); }
+    if (h.innerHTML) { paint(h, ""); return; }                              // second clic : on replie
+    paint(h, Loading());
+    try { const r = await svc.history(); paint(h, History(new HistoryViewModel({ versions: r.versions, keep: r.keep, label: svc.label(svc.editedSet()) }))); }
+    catch (e) { paint(h, ErrorBox(e.message)); }
   }
   async function restore(id) {
     if (!confirm(restoreConfirmText(svc.label(svc.editedSet())))) return;
-    try { notify(await svc.restore(id)); const h = el.history(); if (h) h.innerHTML = ""; refreshSessions(); await refreshSets(); refreshSet(); load(); } catch (e) { fail(e); }
+    try { notify(await svc.restore(id)); const h = el.history(); if (h) paint(h, ""); refreshSessions(); await refreshSets(); refreshSet(); load(); } catch (e) { fail(e); }
   }
   function setSpawnPref(on) { svc.setSpawnPref(on); }
   /** 🗑 : la barre efface le jeu COURANT, la carte le jeu RÉGLÉ (RM2955 : deux notions). */

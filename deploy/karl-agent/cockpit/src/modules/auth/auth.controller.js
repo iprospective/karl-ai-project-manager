@@ -7,6 +7,7 @@
 import { AuthService } from "./auth.service.js";
 import { Me, Devices, Users } from "./Auth.view.js";
 import { authState, deviceName, deviceRows, userRows } from "./auth.js";
+import { paint } from "../../core/dom.js";
 
 export function mountAuth({ gate, card, users, lock } = {}, ctx = {}) {
   const svc = ctx.service || new AuthService({ storage: ctx.storage });
@@ -31,7 +32,7 @@ export function mountAuth({ gate, card, users, lock } = {}, ctx = {}) {
     show(el.session(), st.sessionShown);
     if (lock) lock.textContent = st.lockText;
     show(users, st.usersShown);
-    if (st.logged) { const me = el.me(); if (me) me.innerHTML = String(Me(svc.user(), svc.admin())); loadDevices(); if (st.usersShown) loadUsers(); }
+    if (st.logged) { const me = el.me(); if (me) paint(me, Me(svc.user(), svc.admin())); loadDevices(); if (st.usersShown) loadUsers(); }
     return st;
   }
   /** 401 : jeton invalide/révoqué/expiré → l'écran de login revient, quel que soit l'état mémorisé. */
@@ -58,9 +59,9 @@ export function mountAuth({ gate, card, users, lock } = {}, ctx = {}) {
   }
   function saveToken() { svc.saveToken((el.token() || {}).value || ""); notify("Token mémorisé"); render(); afterAuth(); }
   async function logout() { await svc.logout(); notify("Déconnecté — appareil révoqué"); render(); }
-  async function loadDevices() { const d = el.devices(); if (!d) return; try { d.innerHTML = String(Devices(deviceRows(await svc.devices()))); } catch (e) { /* silencieux : la carte reste utilisable */ } }
+  async function loadDevices() { const d = el.devices(); if (!d) return; try { paint(d, Devices(deviceRows(await svc.devices()))); } catch (e) { /* silencieux : la carte reste utilisable */ } }
   async function revoke(id, isCurrent) { if (isCurrent) return logout(); try { await svc.revoke(id); notify("Appareil révoqué"); loadDevices(); } catch (e) { fail(e); } }
-  async function loadUsers() { const l = el.list(); if (!l) return; try { l.innerHTML = String(Users(userRows(await svc.users()))); } catch (e) { fail(e); } }
+  async function loadUsers() { const l = el.list(); if (!l) return; try { paint(l, Users(userRows(await svc.users()))); } catch (e) { fail(e); } }
   async function createUser() {
     const user = ((el.nuName() || {}).value || "").trim(), pass = (el.nuPass() || {}).value || "";
     try { await svc.create(user, pass); if (el.nuName()) el.nuName().value = ""; if (el.nuPass()) el.nuPass().value = ""; notify("Compte créé : " + user); loadUsers(); } catch (e) { fail(e); }

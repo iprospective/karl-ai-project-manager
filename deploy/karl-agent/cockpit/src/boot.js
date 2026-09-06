@@ -12,11 +12,11 @@
 //
 // Ce pont disparaît au lot L6, quand plus rien d'inline ne subsiste.
 
-import { esc, jarg, html, raw, isSafe, attrs } from "./core/html.js";
+import { html, raw, isSafe, attrs } from "./core/html.js";
 import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
 import { createProbe } from "./core/probe.js";
 import { mountMemory } from "./modules/memory/memory.controller.js";
-import { mount, on, domStats, domStatsByModule } from "./core/dom.js";
+import { mount, on, domStats, domStatsByModule, paint } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
 import { AppError, ApiError, asAppError } from "./core/errors.js";
@@ -96,7 +96,7 @@ const probe = createProbe({ sample: () => ({ dom: domStatsByModule(), stores: st
 
 const karl = Object.freeze({
   // rendu
-  esc, jarg, html, raw, isSafe, attrs,
+  html, raw, isSafe, attrs,
   // cache
   Store, defineStore, resetStores,
   // montage et cycle de vie
@@ -201,7 +201,7 @@ const env = mountEnv(document.getElementById("doccontent"), {
   secure: () => !!window.isSecureContext,
   modal: (title, cls) => { const t = document.getElementById("doctitle"), c = document.getElementById("doccontent"), m = document.getElementById("docmodal");
     if (t) t.textContent = title; if (c) c.className = cls; if (m) m.classList.add("show"); },
-  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { el.innerHTML = h; el.style.display = h ? "" : "none"; } },
+  badge: (h) => { const el = document.getElementById("envwarn"); if (el) { paint(el, h); el.style.display = String(h || "") ? "" : "none"; } },
   lock: (s) => { const el = document.getElementById("lockbtn"); if (el) { el.style.display = s.show ? "" : "none"; el.textContent = s.label; el.title = s.title; } },
 });
 
@@ -413,7 +413,7 @@ review = mountReview(byId("reviewpane"), {
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.max(6, Math.min(r.left, window.innerWidth - m.offsetWidth - 6))) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
   onOutsideClick: (fn) => document.addEventListener("click", fn, { once: true }),
 });
-Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => promptTemplates().map(t => `<option value="${esc(t.value)}"${t.value === String(sel == null ? "" : sel) ? " selected" : ""}>${esc(t.label)}</option>`).join("") });
+Object.assign(review, { taskPromptText, promptFillOnChange, promptTemplateOptions: (sel) => html`${promptTemplates().map(t => html`<option ${attrs({ value: t.value, selected: t.value === String(sel == null ? "" : sel) })}>${t.label}</option>`)}` });
 center.register("review", { open: review.open, close: () => { if (review.current()) review.close(); } });
 // le lanceur (§1 résolution, RM1941 modèles, RM2873 consigne, RM2818 garde, spawn), la saisie éclair d'un ticket (§8) et le contexte
 // client (RM2639) : CFG, la consigne et la garde (revue), le runner PM, l'attache et les suites sont prêtés ; le contexte prévient le reste
@@ -428,7 +428,7 @@ launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), cli
     if (!initial) { search.refreshIfQuery(); projects.render(); search.fillProjects(); refreshCtl.refreshSessions(); } },
 });
 // RM2873 : le lanceur de gauche propose les mêmes modèles de consigne que la fiche
-{ const sel = byId("ptpl"); if (sel) sel.innerHTML = review.promptTemplateOptions("traiter"); }
+{ const sel = byId("ptpl"); if (sel) paint(sel, review.promptTemplateOptions("traiter")); }
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
 // lui prête la session attachée, le registre, les stores ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {

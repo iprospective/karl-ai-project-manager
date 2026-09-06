@@ -3,7 +3,7 @@
 //
 // Hôtes : `chips` (#chipsrow), `bar` (#tabactions : monpreset, monbtn, unmonbtn, layoutsel). Le monolithe prête la session
 // attachée, le registre des sessions, CFG, les toasts, le détachement, le rafraîchissement des sessions et de la santé.
-import { mount } from "../../core/dom.js";
+import { mount, paint, append } from "../../core/dom.js";
 import { html } from "../../core/html.js";
 import { ActionsService } from "./actions.service.js";
 import { ChipsViewModel, DispositionMenuViewModel } from "./ActionsViewModel.js";
@@ -43,7 +43,7 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
     await sendAction(a, btn, rm, tgt.sid);
   }
   // ── §3 : moniteurs et disposition des panes (redessin live côté ttyd, pas de reattach) ──
-  function fillPresets(c) { const conf = c || cfg(); const mp = q("#monpreset"); if (mp) mp.insertAdjacentHTML("beforeend", String(PresetOptions(conf.monitors || [], "📺 "))); const ls = q("#layoutsel"); if (ls) ls.insertAdjacentHTML("beforeend", String(PresetOptions(conf.layouts || []))); }
+  function fillPresets(c) { const conf = c || cfg(); const mp = q("#monpreset"); if (mp) append(mp, PresetOptions(conf.monitors || [], "📺 ")); const ls = q("#layoutsel"); if (ls) append(ls, PresetOptions(conf.layouts || [])); }
   async function addMonitor() { const a = attached(), mp = q("#monpreset"); const preset = mp ? String(mp.value || "") : ""; if (!a || !preset) return; try { await svc.monitor(a, preset); notify("Moniteur « " + preset + " » ajouté"); } catch (e) { notify(e.message, true); } }
   async function removeMonitor() { const a = attached(); if (!a) return; try { await svc.unmonitor(a); notify("Moniteur fermé"); } catch (e) { notify(e.message, true); } }
   async function setLayout() { const a = attached(), ls = q("#layoutsel"); const layout = ls ? String(ls.value || "") : ""; if (!a || !layout) return; try { await svc.layout(a, layout); } catch (e) { notify(e.message, true); } if (ls) ls.value = ""; }
@@ -52,7 +52,7 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
   function openDispositionMenu(s, anchor) {
     closeDispMenu(); if (!ctx.popover) return;
     const vm = new DispositionMenuViewModel({ session: s });
-    menu = ctx.popover(); menu.innerHTML = String(DispositionMenu(vm));
+    menu = ctx.popover(); paint(menu, DispositionMenu(vm));
     if (ctx.place && anchor) ctx.place(menu, anchor);
     const onClick = (e) => { const b = e.target && e.target.closest ? e.target.closest("button") : null; if (!b) return; e.stopPropagation(); if (b.dataset.kill) { closeDispMenu(); kill(vm.sid); return; } setDisposition(vm.sid, b.dataset.v); closeDispMenu(); };
     if (menu.addEventListener) menu.addEventListener("click", onClick);

@@ -4,8 +4,8 @@
 // Hôtes : `triage` = la <details> du triage (filtres + liste), `opened` = la <details> des tickets ouverts,
 // `badge` = le compteur de l'onglet. Le monolithe prête : les résolutions (cache partagé), l'ouverture d'une
 // fiche, l'épinglage, le contexte client, le lancement d'un lot (chemin partagé RM2823/2831), le presse-papier.
-import { mount } from "../../core/dom.js";
-import { html, esc } from "../../core/html.js";
+import { mount, paint } from "../../core/dom.js";
+import { html, attrs } from "../../core/html.js";
 import { TicketsPanelService } from "./tickets.service.js";
 import { OpenedViewModel, TriageViewModel } from "./TicketsPanelViewModel.js";
 import { OpenedList, TriageList, FilterOptions } from "./TicketsPanel.view.js";
@@ -26,7 +26,7 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
     const s = String(id == null ? "" : id).replace(/^RM/i, "");
     if (!/^\d+$/.test(s)) return "";
     svc.requestBriefs([s], refreshTips);
-    return ' data-tip-rm="' + s + '" title="' + esc(ticketTipText(s, svc.brief(s))) + '"';
+    return " " + String(attrs({ "data-tip-rm": s, title: ticketTipText(s, svc.brief(s)) }));
   }
   function refreshTips() {
     if (!ctx.root || !ctx.root.querySelectorAll) return;
@@ -60,14 +60,14 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
     if (cs) {
       const prev = cs.value || (ctx.clientContext ? ctx.clientContext() : "") || "";    // défaut : le contexte client (RM2639)
       const vm = new TriageViewModel({ tickets });
-      cs.innerHTML = String(FilterOptions(vm.clients, prev, "tous les clients"));
+      paint(cs, FilterOptions(vm.clients, prev, "tous les clients"));
     }
-    if (ps) { const prev = ps.value; ps.innerHTML = String(FilterOptions(new TriageViewModel({ tickets, client: val("#tr-client") }).projects, prev, "tous les projets")); }
+    if (ps) { const prev = ps.value; paint(ps, FilterOptions(new TriageViewModel({ tickets, client: val("#tr-client") }).projects, prev, "tous les projets")); }
   }
   function renderTriage() {
     if (!triageH || !svc.triageData) return;
     const ps = q(triage, "#tr-project");
-    if (ps) { const prev = ps.value; ps.innerHTML = String(FilterOptions(new TriageViewModel({ tickets: svc.triageTickets, client: val("#tr-client") }).projects, prev, "tous les projets")); }
+    if (ps) { const prev = ps.value; paint(ps, FilterOptions(new TriageViewModel({ tickets: svc.triageTickets, client: val("#tr-client") }).projects, prev, "tous les projets")); }
     const vm = new TriageViewModel({ tickets: svc.triageTickets, client: val("#tr-client"), project: val("#tr-project"), hideValid: val("#tr-hidevalid"), tag: val("#tr-tag") });
     state.triageRows = vm.rows;                                  // RM2831 : ce qui est affiché EST le lot
     const sp = q(triage, "#tr-spawn"); if (sp) sp.style.display = vm.count ? "" : "none";
@@ -82,7 +82,7 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
   }
   const triageRows = () => state.triageRows.slice();
   /** RM2830 : le menu d'étiquettes du triage vient de l'inventaire chargé par la recherche ; le filtre courant survit. */
-  function setTags(tags) { const sel = q(triage, "#tr-tag"); if (!sel) return; const cur = sel.value; sel.innerHTML = String(FilterOptions((tags || []).map(t => String(t.tag)), cur, "toutes les étiquettes")); sel.value = cur; }
+  function setTags(tags) { const sel = q(triage, "#tr-tag"); if (!sel) return; const cur = sel.value; paint(sel, FilterOptions((tags || []).map(t => String(t.tag)), cur, "toutes les étiquettes")); sel.value = cur; }
   /** RM2831 : la liste AFFICHÉE part dans une session à elle, par le chemin partagé de RM2823. */
   async function spawnFromTriage(btn) {
     const rows = triageRows();

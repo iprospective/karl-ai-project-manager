@@ -70,18 +70,12 @@ function fakeElement() {
 
   // — 1. le déplacement n'a rien changé — (RM2889 L6 : le script inline a disparu ; la référence est l'implémentation historique, recopiée ici)
   const escRef = (v) => String(v == null ? "" : v).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-  const jargRef = (v) => "'" + String(v == null ? "" : v).replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
-  for (const [name, ref] of [["esc", escRef], ["jarg", jargRef]]) {
-    for (const v of CAS) assert.strictEqual(H[name](v), ref(v), `${name}(${JSON.stringify(v)}) diverge de l'implémentation historique`);
-  }
-  console.log(`✓ esc et jarg identiques à l'implémentation historique sur ${CAS.length} cas`);
+  for (const v of CAS) assert.strictEqual(H.esc(v), escRef(v), `esc(${JSON.stringify(v)}) diverge de l'implémentation historique`);
+  console.log(`✓ esc identique à l'implémentation historique sur ${CAS.length} cas`);
 
-  // — 2. jarg protège bien un handler inline en guillemets doubles —
-  //      (le piège documenté : JSON.stringify refermerait l'attribut)
-  const arg = H.jarg('il a dit "bonjour" et c\'est tout');
-  assert(!arg.slice(1, -1).includes('"'), "jarg laisse passer un guillemet double");
-  assert(arg.startsWith("'") && arg.endsWith("'"), "jarg doit rendre des simples");
-  console.log("✓ jarg ne peut pas refermer un attribut HTML");
+  // — 2. RM3001 : jarg a disparu avec le dernier handler inline ; esc n'est plus qu'un détail du gabarit (exporté pour les tests) —
+  assert.strictEqual(H.jarg, undefined, "jarg ne doit plus exister : plus aucun on* à protéger");
+  console.log("✓ jarg retiré");
 
   // — 3. html : échappe par défaut, raw() seul fait exception —
   assert.strictEqual(String(H.html`<p>${"<b>"}</p>`), "<p>&lt;b&gt;</p>");
@@ -177,6 +171,16 @@ function fakeElement() {
   el.dispatch("click", { closest: () => ({}) });
   assert.strictEqual(clics, 1, "un composant démonté ne doit plus réagir");
   console.log("✓ cycle de vie : unmount() libère écouteurs, abonnements et minuteries");
+
+  // — 7b. RM3001 : paint()/append() = le seul point d'écriture HTML hors mount/update, et il n'accepte que du SÛR —
+  { const sub = fakeElement();
+    assert.strictEqual(D.paint(sub, H.html`<b>${"<x>"}</b>`), sub); assert.strictEqual(sub.innerHTML, "<b>&lt;x&gt;</b>", "un fragment html est peint tel quel");
+    D.paint(sub, ""); assert.strictEqual(sub.innerHTML, "", "le vide efface"); D.paint(sub, null); assert.strictEqual(sub.innerHTML, "");
+    assert.throws(() => D.paint(sub, "<b>nu</b>"), /fragment non sûr/, "une chaîne nue est refusée"); assert.throws(() => D.paint(sub, String(H.html`x`)), /fragment non sûr/, "même stringifiée");
+    assert.strictEqual(D.paint(null, H.html`x`), null, "hôte absent : rien, sans erreur");
+    const acc = fakeElement(); acc.insertAdjacentHTML = (where, h2) => { acc.innerHTML += h2; }; D.paint(acc, H.html`<i>a</i>`); D.append(acc, H.html`<i>${"b"}</i>`); D.append(acc, ""); assert.strictEqual(acc.innerHTML, "<i>a</i><i>b</i>", "append ajoute sans repeindre");
+    assert.throws(() => D.append(acc, "<i>c</i>"), /fragment non sûr/);
+    console.log("✓ paint/append : fragments sûrs seulement, vide accepté, hôte absent toléré"); }
 
   // — 8. la coquille de cohabitation est réellement branchée —
   assert(/<script type="module" src="\/static\/src\/boot\.js"><\/script>/.test(html),
@@ -286,6 +290,17 @@ function fakeElement() {
       if (/[:=]\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\s*[,)}\];]/.test(line.replace(/\/\/.*$/, "").replace(/^\s*\*.*$|^\s*\/\*.*$/, "")) && !/=>\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\b|globalThis\.|window\./.test(line)) bare.push(path.relative(DIR, file) + ":" + (i + 1));
     assert.deepStrictEqual(bare, [], "référence détachée à une fonction native : " + bare.join(", "));
     console.log("✓ aucune référence détachée à setTimeout/fetch… dans src/"); }
+
+  // — 15. RM3001 : toute écriture HTML passe par core/dom.js (mount/update/paint/append) ; plus de jarg ; esc réservé au gabarit
+  { const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); const code = fs.readFileSync(file, "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+      if (rel !== path.join("src", "core", "dom.js") && /\.(innerHTML|outerHTML)\s*=[^=]|insertAdjacentHTML\(/.test(code)) offenders.push(rel + " : écrit du HTML sans passer par core/dom.js");
+      if (/\bjarg\b/.test(code)) offenders.push(rel + " : jarg");
+      if (rel !== path.join("src", "core", "html.js") && /\besc\s*\(/.test(code)) offenders.push(rel + " : esc() hors du gabarit");
+    }
+    assert.deepStrictEqual(offenders, [], offenders.join(" ; "));
+    console.log("✓ aucune écriture HTML hors core/dom.js, plus de jarg, esc réservé au gabarit (RM3001)"); }
 
   // — 14. RM3005 : zéro cache hors core/store.js — un store se définit LÀ (appStores/STORE_BOUNDS), jamais dans un module ; aucun objet
   //   de cache partagé (`caches`, `resolveAt`, `resolveCache = {}`) ; boot.js prête les stores nommés et le dépôt ticket les reçoit

@@ -4,12 +4,13 @@
 //
 // Le monolithe (plans de lot du worklog) écrit encore lui-même dans #doctitle/#doccontent et pose la classe
 // `show` : la modale reste son hôte, il la referme par le pont closeDoc.
-import { html, raw, esc } from "../../core/html.js";
+import { html, raw } from "../../core/html.js";
 import { mdToHtml } from "../../core/markdown.js";
 import { HelpService } from "./help.service.js";
 import { GlossaryViewModel, HelpViewModel } from "./GlossaryViewModel.js";
 import { GlossaryPanel, GlossaryList, HelpPage } from "./Doc.view.js";
 import { glossify, glossNorm } from "./glossary.js";
+import { paint as paintInto } from "../../core/dom.js";
 
 export function mountDocModal(el, ctx = {}) {
   const svc = ctx.service || new HelpService();
@@ -19,7 +20,7 @@ export function mountDocModal(el, ctx = {}) {
   const content = () => q("#doccontent");
   const toCenterBtn = (on) => { const b = q("#doc2center"); if (b) b.style.display = on ? "" : "none"; };
   const show = (on) => { if (el && el.classList) el.classList.toggle("show", !!on); };
-  const paint = (frag, mode) => { const c = content(); if (!c) return; c.className = ""; c.innerHTML = String(frag); state.mode = mode; };
+  const paint = (frag, mode) => { const c = content(); if (!c) return; c.className = ""; paintInto(c, frag); state.mode = mode; };
   /** Un écran prêté (récapitulatif de lot du worklog…) : titre, contenu, et ses gestes routés à `onAction(action, node, ev)`. */
   function openCustom(title_, frag, onAction) { state.current = null; toCenterBtn(false); title(title_); paint(frag, "custom"); state.custom = onAction || null; show(true); }
   const contentEl = () => content();
@@ -43,7 +44,7 @@ export function mountDocModal(el, ctx = {}) {
   function renderGlossary(query, focus) {
     const vm = new GlossaryViewModel({ query, focus });
     const list = q("#glosslist"), cnt = q("#glosscount");
-    if (list) list.innerHTML = String(GlossaryList(vm)); if (cnt) cnt.textContent = vm.count;
+    if (list) paintInto(list, GlossaryList(vm)); if (cnt) cnt.textContent = vm.count;
     if (focus && list && list.querySelector) { const row = list.querySelector(".glossrow.glosshi"); if (row && row.scrollIntoView) row.scrollIntoView({ block: "center" }); }
     return vm;
   }

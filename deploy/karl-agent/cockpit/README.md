@@ -43,6 +43,11 @@ La garde d'imports (`test_cockpit_core.js` § 12) vérifie ces interdits sur cha
 
 ## Règles qui ne se discutent pas
 
+- **Toute écriture HTML passe par `core/dom.js`** : `mount()` / `handle.update()` pour un hôte,
+  `paint(el, frag)` / `append(el, frag)` pour un sous-élément (options d'un select, badge). Ils
+  n'acceptent qu'un fragment sûr (`html\`…\``, `raw()`) ou le vide — une chaîne nue lève. `esc()` est
+  un détail du gabarit, jamais appelé par une vue ; les attributs conditionnels passent par
+  `attrs({...})`. Garde § 15.
 - **Zéro `on*`** dans le balisage : un geste est un `data-action` (dans un domaine),
   `data-cmd` (menu/en-tête) ou `data-link` (références cliquables), attrapé par délégation
   sur l'hôte du contrôleur (`mount(el, frag, { events })`).

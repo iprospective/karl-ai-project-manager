@@ -24,6 +24,7 @@ centre, en [onglet](onglets) :
 |---|---|---|
 | ⚙ **commandes pm** | catalogue des actions PM en un clic | [Commandes & actions](commandes) |
 | 🔧 **réglages** | thème, appareils, dictée, plafond mémoire, conf PM | [Réglages](reglages) |
+| 📜 **journal** | ce que le serveur et le navigateur ont consigné (sévérité, catégorie) | [Journal](journal) |
 
 Le panneau **central** garde tes vues en [onglets](onglets) : une vue ouverte est un
 onglet temporaire, épingle-la pour la conserver.
@@ -44,7 +45,30 @@ La colonne de droite affiche la session attachée : terminal, worklog, état.
 - **🔓 déverrouiller** (en-tête) n'apparaît que si le coffre de secrets ou l'agent
   SSH est fermé — voir [Verrous](verrous).
 - **❓ aide** (en-tête) ouvre cette documentation.
+- **📜 journal** (en-tête) ouvre le [journal](journal) ; son badge compte les
+  avertissements et erreurs survenus depuis la dernière ouverture.
 - Un **`?`** près d'un panneau ouvre directement la page qui le concerne.
+
+## L'en-tête, de gauche à droite
+
+La pastille de **santé** (agent joignable, nombre de sessions), les compteurs des
+sessions (attention / choix / au travail), **←** **→** **🕘** pour naviguer entre les
+[onglets](onglets), puis les boutons de menu (⚙ commandes pm, 🔧 réglages, 📜 journal,
+❓ aide, 🔓 déverrouiller si besoin) et le **cadenas** de connexion.
+
+Le **pied de page** affiche la version du cockpit (`cockpit v3.x.y`). Si le serveur
+et la page ne sont pas à la même version — déploiement en cours, ou cache du
+navigateur — un avertissement l'indique à côté : recharger avec **Ctrl+F5** (ou finir
+le déploiement) le fait disparaître.
+
+## Références cliquables
+
+Partout où un texte du cockpit cite un ticket (`RM2889`), un chemin de fichier ou un
+terme du glossaire, la référence est **cliquable** : le ticket ouvre sa fiche ℹ, le
+fichier s'ouvre dans l'onglet 📂 fichiers de la session, le terme souligné en pointillé
+ouvre sa définition. Le **titre** d'un ticket ouvre sa fiche, sa **pastille de statut**
+ouvre le menu des transitions. Les liens externes (Redmine, GitLab) s'ouvrent dans un
+nouvel onglet du navigateur.
 
 Les pages d'aide sont des fichiers markdown versionnés dans le repo
 (`deploy/karl-agent/cockpit/help/`), servis par karl-agent. Elles sont

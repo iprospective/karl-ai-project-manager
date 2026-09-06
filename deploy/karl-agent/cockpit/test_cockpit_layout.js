@@ -8,9 +8,9 @@ function fakeEl(id, extra) { const L = []; const c = new Set(extra && extra.clas
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async fire(type, ev) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ preventDefault() {}, target: self }, ev || {})); } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/layout/panels.js"));
-  const { LayoutService } = await import(path.join(DIR, "src/services/layout.service.js"));
-  const { mountLayout } = await import(path.join(DIR, "src/controllers/layout.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/layout/panels.js"));
+  const { LayoutService } = await import(path.join(DIR, "src/modules/layout/layout.service.js"));
+  const { mountLayout } = await import(path.join(DIR, "src/modules/layout/layout.controller.js"));
   const R = M.rightPanelReduce, replie = { tab: "outline", collapsed: true, manual: false }, ouvert = { tab: "outline", collapsed: false, manual: false };
   assert.deepStrictEqual(R(replie, { type: "select", tab: "tickets" }), { tab: "tickets", collapsed: false, manual: false }); assert.deepStrictEqual(R(ouvert, { type: "select", tab: "tickets" }), { tab: "tickets", collapsed: false, manual: false }); assert.deepStrictEqual(R(ouvert, { type: "select", tab: "outline" }), { tab: "outline", collapsed: true, manual: true }, "re-sélectionner l'onglet actif replie");
   assert.deepStrictEqual(R(ouvert, { type: "show" }), ouvert); assert.deepStrictEqual(R({ tab: "outline", collapsed: true }, { type: "show" }), ouvert); assert.deepStrictEqual(R(ouvert, { type: "show", tab: "tickets" }), { tab: "tickets", collapsed: false, manual: false }); assert.deepStrictEqual(R({ tab: "tickets", collapsed: false }, { type: "collapse" }), { tab: "tickets", collapsed: true, manual: false }); assert.deepStrictEqual(R(replie, { type: "toggle" }), ouvert); assert.deepStrictEqual(R(ouvert, { type: "toggle" }), { tab: "outline", collapsed: true, manual: true });

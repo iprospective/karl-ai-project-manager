@@ -1,0 +1,7 @@
+// modules/projects/projects.scss — style du module « projects » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2768 : icônes d'une ligne du panneau projets — présentes, mais elles ne
+   doivent pas concurrencer le nom qu'on vient lire. */
+.pjicons { float: right; opacity: .45; }
+.oline:hover .pjicons { opacity: 1; }
+.pjicons button { padding: 0 5px; margin-left: 2px; line-height: 1.5; }

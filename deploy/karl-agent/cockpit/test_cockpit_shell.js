@@ -8,12 +8,12 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
 function fakeEl(id) { const L = []; return { id, style: {}, className: "", textContent: "", offsetParent: {}, focused: 0, focus() { this.focused++; }, kids: [], appendChild(c) { this.kids.push(c); }, addEventListener(t, f, cap) { L.push([t, f, !!cap]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; }, get L() { return L; },
   async fire(type, ev) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ preventDefault() { ev.prevented = true; }, stopPropagation() { ev.stopped = true; } }, ev || {})); } }; }
 (async () => {
-  const V = await import(path.join(DIR, "src/views/common/Links.view.js"));
-  const { mountLinks } = await import(path.join(DIR, "src/controllers/links.controller.js"));
-  const { mountNotify } = await import(path.join(DIR, "src/controllers/notify.controller.js"));
-  const { PmService } = await import(path.join(DIR, "src/services/pm.service.js"));
-  const { mountAttach } = await import(path.join(DIR, "src/controllers/attach.controller.js"));
-  const { mountCommands } = await import(path.join(DIR, "src/controllers/commands.controller.js"));
+  const V = await import(path.join(DIR, "src/modules/shell/Links.view.js"));
+  const { mountLinks } = await import(path.join(DIR, "src/modules/shell/links.controller.js"));
+  const { mountNotify } = await import(path.join(DIR, "src/modules/shell/notify.controller.js"));
+  const { PmService } = await import(path.join(DIR, "src/modules/pm/pm.service.js"));
+  const { mountAttach } = await import(path.join(DIR, "src/modules/shell/attach.controller.js"));
+  const { mountCommands } = await import(path.join(DIR, "src/modules/shell/commands.controller.js"));
 
   // — liens (vue) —
   let tl = V.titleLink("2585", "Mon <b>ticket</b>", "https://r.x");

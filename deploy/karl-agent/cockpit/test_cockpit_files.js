@@ -9,11 +9,11 @@ function fakeElement(id) { const L = []; let inner = ""; return { id, textConten
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; },
   async input(sel, value) { const n = { value, selectionStart: 2, closest: (s) => (s === sel ? n : null) }; for (const [t, f] of [...L]) if (t === "input") await f({ target: n, preventDefault() {}, stopPropagation() {} }); } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/files/explorer.js"));
-  const { FilesService } = await import(path.join(DIR, "src/services/files.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/files/FilesViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/files/Files.view.js"));
-  const { mountFiles } = await import(path.join(DIR, "src/controllers/files.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/files/explorer.js"));
+  const { FilesService } = await import(path.join(DIR, "src/modules/files/files.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/files/FilesViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/files/Files.view.js"));
+  const { mountFiles } = await import(path.join(DIR, "src/modules/files/files.controller.js"));
   // — RM2586 —
   assert.deepStrictEqual(M.filesCrumbs(""), [{ name: "/", path: "" }]); assert.deepStrictEqual(M.filesCrumbs("src/app"), [{ name: "/", path: "" }, { name: "src", path: "src" }, { name: "app", path: "src/app" }]); assert.deepStrictEqual(M.filesCrumbs("a//b/").map(c => c.path), ["", "a", "a/b"]);
   // — RM2622 —

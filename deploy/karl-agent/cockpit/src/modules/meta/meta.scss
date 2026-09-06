@@ -1,0 +1,48 @@
+// modules/meta/meta.scss — style du module « meta » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2797 : une facette qui occupe toute la hauteur restante de la colonne.
+   La description et l'historique étaient bridés à 160 et 130 px, au bas
+   d'une colonne qu'il fallait déjà faire défiler pour les atteindre. */
+/* RM2806 : une facette pleine hauteur n'emprunte PAS le style du bloc encadré.
+   `.desc` (cadre, fond, `max-height: 160px`) est déclarée plus loin dans cette
+   feuille : à spécificité égale, c'est elle qui gagnait, et la bride annoncée
+   levée par RM2797 ne l'a jamais été. Le correctif existait, il était inerte. */
+.facetfull { max-height: none; height: auto; overflow: visible; }
+/* Rien ici que `.mdview` porte déjà (taille, interligne, retour à la ligne) :
+   elle est déclarée plus loin et gagnerait, ce qui reproduirait exactement le
+   défaut qu'on corrige. `.descfull` ne dit que ce qui lui est propre. */
+.descfull { padding: 2px 2px 10px; color: var(--fg);
+  background: none; border: 0; max-height: none; overflow: visible; }
+
+.metabody { flex: 1; min-height: 0; overflow-y: auto; padding: 12px; font-size: 12.5px;
+  overscroll-behavior: contain; }
+/* chips longues (branches/worktrees RM2166) : ellipse au lieu de déborder */
+.metabody .rels .pill { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.ms { margin-bottom: 14px; }
+.ms h4 { margin: 0 0 6px; font-size: 10px; text-transform: uppercase; letter-spacing: .7px; color: var(--muted); font-weight: 600; }
+
+.metabody a { color: var(--accent); text-decoration: none; } .metabody a:hover { text-decoration: underline; }
+
+/* RM2579 : sous-onglets de l'onglet « tickets » (niveau 1 = ticket, niveau 2 = facette) */
+/* RM2612 : hiérarchie visuelle des sous-onglets du panneau droit —
+   niveau 1 = onglets SOULIGNÉS (barre sous la ligne) ; niveau 2 (facettes) =
+   pastilles arrondies indentées. Distincts des onglets principaux (.rnav, encadrés). */
+.rsub { display: flex; flex-wrap: wrap; gap: 2px; margin: 0 0 8px; border-bottom: 1px solid var(--line); }
+.rsub button { font-size: 11px; padding: 3px 9px 4px; border: none; border-bottom: 2px solid transparent;
+  border-radius: 4px 4px 0 0; background: transparent; color: var(--muted); cursor: pointer; }
+.rsub button:hover { color: var(--fg); background: var(--panel2); }
+.rsub button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+/* niveau 2 : facettes — pastilles pleines quand actives, légèrement en retrait */
+.rsub.facets { border-bottom: none; gap: 3px; margin: -4px 0 8px 12px; }
+.rsub.facets button { font-size: 10.5px; padding: 1px 9px; border: 1px solid var(--line); border-radius: 999px; }
+.rsub.facets button:hover { background: transparent; color: var(--fg); border-color: var(--muted); }
+.rsub.facets button.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); font-weight: 600; }
+
+.doclist { list-style: none; margin: 0; padding: 0; }
+.doclist li { padding: 4px 6px; border-radius: 5px; cursor: pointer; font-family: var(--mono); font-size: 11.5px; color: var(--accent); }
+.doclist li:hover { background: var(--panel2); }
+.desc { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 160px; overflow-y: auto; white-space: pre-wrap; color: var(--fg); font-size: 11.5px; }
+.logtail { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px; max-height: 130px; overflow: auto; white-space: pre; font-family: var(--mono); font-size: 10.5px; color: var(--muted); }
+.rels { display: flex; flex-wrap: wrap; gap: 4px; }
+.rels .pill { cursor: pointer; }

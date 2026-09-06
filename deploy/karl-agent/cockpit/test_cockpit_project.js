@@ -9,10 +9,10 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data) { const n = { dataset: { action, ...(data || {}) }, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => s === "[data-action]" ? n : null }, preventDefault() {} }); return n; } }; }
 (async () => {
-  const { configArgs, configPrefill, crumbs } = await import(path.join(DIR, "src/models/projects/projectConfig.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/projects/ProjectViewModels.js"));
-  const V = await import(path.join(DIR, "src/views/projects/ProjectPane.view.js"));
-  const { mountProject } = await import(path.join(DIR, "src/controllers/project.controller.js"));
+  const { configArgs, configPrefill, crumbs } = await import(path.join(DIR, "src/modules/projects/projectConfig.js"));
+  const VM = await import(path.join(DIR, "src/modules/projects/ProjectViewModels.js"));
+  const V = await import(path.join(DIR, "src/modules/projects/ProjectPane.view.js"));
+  const { mountProject } = await import(path.join(DIR, "src/modules/projects/project.controller.js"));
   // — RM2531 —
   assert.deepStrictEqual(configArgs("project", "iprospective/pm-ai-agents", { name: "Nouveau", redmine: "pm-ai-agents", repo: "", branch: "  " }), { client: "iprospective", project: "pm-ai-agents", name: "Nouveau", redmine_project_id: "pm-ai-agents" });
   assert.deepStrictEqual(configArgs("project", "c/p", { name: "", redmine: "", repo: "g/r", branch: "dev" }), { client: "c", project: "p", gitlab_repo: "g/r", default_branch: "dev" });

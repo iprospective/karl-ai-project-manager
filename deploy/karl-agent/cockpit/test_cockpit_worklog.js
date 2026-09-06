@@ -10,11 +10,11 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data, extra) { const n = Object.assign({ dataset: Object.assign({ action }, data || {}), closest: () => n }, extra || {}); for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/worklog/worklog.js"));
-  const { WorklogService } = await import(path.join(DIR, "src/services/worklog.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/worklog/WorklogViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/worklog/Worklog.view.js"));
-  const { mountWorklog } = await import(path.join(DIR, "src/controllers/worklog.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/worklog/worklog.js"));
+  const { WorklogService } = await import(path.join(DIR, "src/modules/worklog/worklog.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/worklog/WorklogViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/worklog/Worklog.view.js"));
+  const { mountWorklog } = await import(path.join(DIR, "src/modules/worklog/worklog.controller.js"));
   // — RM2466 : décors —
   const dLive = M.pendingDecor({ kind: "live", state: "attention" }), dChoice = M.pendingDecor({ kind: "live", state: "choice" }), dStale = M.pendingDecor({ kind: "stale" });
   assert(dLive.cls.includes("ounres") && !dStale.cls.includes("ounres") && dLive.icon !== dStale.icon && dLive.tag !== dStale.tag && dChoice.icon !== dLive.icon && /bloqu/i.test(dLive.tag) && /sans réponse/i.test(dStale.tag) && M.pendingDecor(null).tag && M.pendingDecor(undefined).icon);

@@ -8,11 +8,11 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {}, stopPropagation() {} }, extra2 || {})); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/sessions/actions.js"));
-  const { ActionsService } = await import(path.join(DIR, "src/services/actions.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/sessions/ActionsViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/sessions/Actions.view.js"));
-  const { mountSessionActions } = await import(path.join(DIR, "src/controllers/actions.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/actions/actions.js"));
+  const { ActionsService } = await import(path.join(DIR, "src/modules/actions/actions.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/actions/ActionsViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/actions/Actions.view.js"));
+  const { mountSessionActions } = await import(path.join(DIR, "src/modules/actions/actions.controller.js"));
   const SESS = { "123": { rm_id: "123" }, "77": { rm_id: "77" }, "88": { rm_id: "88", ghost: true } };
   const tOwn = M.pmActionTarget("123", SESS, "77"); assert(tOwn.sid === "123" && tOwn.own === true); const tF = M.pmActionTarget("999", SESS, "77"); assert(tF.sid === "77" && tF.own === false && /pas la session du ticket/.test(tF.why)); assert(M.pmActionTarget("999", SESS, null).sid === null && /aucune session/.test(M.pmActionTarget("999", SESS, null).why)); assert.strictEqual(M.pmActionTarget("88", SESS, null).sid, null, "un fantôme n'est pas une cible"); assert.strictEqual(M.pmActionTarget("999", {}, "77").sid, null);
   assert.strictEqual(M.actionMessage({ text: "passe RM{id} en cours pour {id}" }, "42"), "passe RM42 en cours pour 42", "RM2720 : {id} vaut le TICKET"); assert.strictEqual(M.actionMessage(null, "1"), "");

@@ -11,11 +11,11 @@ function fakeElement() {
     async fire(type, matchSel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === matchSel ? n : null } }); } };
 }
 (async () => {
-  const { collectArgs } = await import(path.join(DIR, "src/models/pmcmd/PmCommandsRepository.js"));
-  const { PmMenuViewModel, PmFormViewModel } = await import(path.join(DIR, "src/viewmodels/pmcmd/PmCommandsViewModel.js"));
-  const { PmMenu, PmForm } = await import(path.join(DIR, "src/views/pmcmd/PmCommands.view.js"));
-  const { mountPmCommands } = await import(path.join(DIR, "src/controllers/pmcmd.controller.js"));
-  const { PmCommandsService } = await import(path.join(DIR, "src/services/pmcmd.service.js"));
+  const { collectArgs } = await import(path.join(DIR, "src/modules/pmcmd/PmCommandsRepository.js"));
+  const { PmMenuViewModel, PmFormViewModel } = await import(path.join(DIR, "src/modules/pmcmd/PmCommandsViewModel.js"));
+  const { PmMenu, PmForm } = await import(path.join(DIR, "src/modules/pmcmd/PmCommands.view.js"));
+  const { mountPmCommands } = await import(path.join(DIR, "src/modules/pmcmd/pmcmd.controller.js"));
+  const { PmCommandsService } = await import(path.join(DIR, "src/modules/pmcmd/pmcmd.service.js"));
   const CMDS = [
     { name: "task-status", label: "Statut", category: "tickets", mutate: true, confirm: true, args: [
       { name: "rm_id", type: "rm_id", required: true, label: "Ticket" }, { name: "note", type: "text", max_len: 400, label: "Note" },
@@ -53,10 +53,10 @@ function fakeElement() {
   h.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur commandes PM : catalogue, formulaire, exécution confirmée, sortie");
 
-  const { theme } = await import(path.join(DIR, "src/models/settings/SettingsRepository.js"));
-  const { SettingsViewModel } = await import(path.join(DIR, "src/viewmodels/settings/SettingsViewModel.js"));
-  const { SettingsBody, ThemeCard } = await import(path.join(DIR, "src/views/settings/Settings.view.js"));
-  const { mountSettings } = await import(path.join(DIR, "src/controllers/settings.controller.js"));
+  const { theme } = await import(path.join(DIR, "src/modules/settings/SettingsRepository.js"));
+  const { SettingsViewModel } = await import(path.join(DIR, "src/modules/settings/SettingsViewModel.js"));
+  const { SettingsBody, ThemeCard } = await import(path.join(DIR, "src/modules/settings/Settings.view.js"));
+  const { mountSettings } = await import(path.join(DIR, "src/modules/settings/settings.controller.js"));
   const mem = {}; const store = { getItem: k => (k in mem ? mem[k] : null), setItem: (k, v) => { mem[k] = v; }, removeItem: k => { delete mem[k]; } };
   assert.deepStrictEqual(theme.read(store), { local: "", server: "auto" });
   theme.setServer(store, "dark"); theme.setLocal(store, "light"); assert.deepStrictEqual(theme.read(store), { local: "light", server: "dark" });

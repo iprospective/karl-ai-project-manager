@@ -11,11 +11,11 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = []; return
   async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/outline/outline.js"));
-  const { OutlineService } = await import(path.join(DIR, "src/services/outline.service.js"));
-  const { OutlineViewModel } = await import(path.join(DIR, "src/viewmodels/outline/OutlineViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/outline/Outline.view.js"));
-  const { mountOutline } = await import(path.join(DIR, "src/controllers/outline.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/outline/outline.js"));
+  const { OutlineService } = await import(path.join(DIR, "src/modules/outline/outline.service.js"));
+  const { OutlineViewModel } = await import(path.join(DIR, "src/modules/outline/OutlineViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/outline/Outline.view.js"));
+  const { mountOutline } = await import(path.join(DIR, "src/modules/outline/outline.controller.js"));
   // — RM2330 : sauts —
   const oi = [{ line: 2, kind: "user", text: "premier" }, { line: 5, kind: "assistant", text: "réponse" }, { line: 9, kind: "user", text: "deuxième" }, { line: 14, kind: "user", text: "troisième" }];
   assert.strictEqual(M.outlineStep(oi, null, -1).line, 14); assert.strictEqual(M.outlineStep(oi, 14, -1).line, 9); assert.strictEqual(M.outlineStep(oi, 2, -1), null); assert.strictEqual(M.outlineStep(oi, 9, 1).line, 14); assert.strictEqual(M.outlineStep(oi, 14, 1), null); assert.strictEqual(M.outlineStep(oi, null, 1), null); assert.strictEqual(M.outlineStep([{ line: 1, kind: "assistant" }], null, -1), null);

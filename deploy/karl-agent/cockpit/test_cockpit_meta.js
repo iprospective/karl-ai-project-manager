@@ -9,12 +9,12 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data) { const n = { dataset: { action, ...(data || {}) } }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => (s === "[data-action]" ? n : null) }, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/tickets/ticketMeta.js"));
-  const { TicketMetaRepository } = await import(path.join(DIR, "src/models/tickets/TicketMetaRepository.js"));
-  const { MetaService } = await import(path.join(DIR, "src/services/meta.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/tickets/MetaViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/tickets/Meta.view.js"));
-  const { mountMeta } = await import(path.join(DIR, "src/controllers/meta.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/meta/ticketMeta.js"));
+  const { TicketMetaRepository } = await import(path.join(DIR, "src/modules/meta/TicketMetaRepository.js"));
+  const { MetaService } = await import(path.join(DIR, "src/modules/meta/meta.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/meta/MetaViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/meta/Meta.view.js"));
+  const { mountMeta } = await import(path.join(DIR, "src/modules/meta/meta.controller.js"));
   // — RM2673 : les tickets d'une session, toutes sources —
   const REG = { branches: ["2673-ergonomie-pm", "sans-ticket"], worktrees: ["/w/appli/envs/appli-rm2605"] };
   const WL = { todo: [{ ref: "RM2661" }], waiting: [{ ref: "RM2663" }], done: [{ ref: "RM2673" }], unknown: [{ ref: "chantier-libre" }] };

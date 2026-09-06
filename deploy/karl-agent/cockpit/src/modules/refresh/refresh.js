@@ -53,6 +53,11 @@ export function seedBriefs(briefs, resolveCache, resolveAt, now) {
 
 /** RM2889 : la pastille de santé — le « tmux ok » vit dans 🩺 poste, l'en-tête ne garde que la joignabilité. */
 export function healthState(h) { return { cls: "dot ok", title: "agent joignable · " + (h || {}).sessions + " session(s)", text: "" }; }
+/** RM3000 : la version servie par /health face à celle du front — un écart = cache navigateur périmé ou déploiement partiel. */
+export function versionMismatch(serverVersion, frontVersion) {
+  if (!serverVersion || serverVersion === "?" || !frontVersion || serverVersion === frontVersion) return "";
+  return "serveur v" + serverVersion + " ≠ front v" + frontVersion + " — recharger (Ctrl+F5) ou finir le déploiement";
+}
 export function healthKo(msg) { return { cls: "dot ko", title: "", text: "injoignable — " + msg }; }
 
 /** RM2571 : le bouton « ⬆ MAJ dispo » — visible seulement si une MAJ existe ; l'infobulle dit d'où à où. */

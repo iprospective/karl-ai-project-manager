@@ -55,6 +55,7 @@ const walk = (d) => walkExt(d, ".js");
   assert(!/\blegacy\(|\blexical\(/.test(boot), "boot.js ne lit plus rien du script inline (legacy / lexical ont disparu)");
   assert(/\(async function init\(\)/.test(boot) && /refreshCtl\.start\(\)/.test(boot) && /auth\.boot\(\)/.test(boot), "l'init vit dans boot.js : config, auth, premier tick");
   console.log("✓ boot.js : " + checked + " imports nommés résolus, aucun pont vers le script inline, init en place");
-  const { VERSION } = await import(path.join(DIR, "src/core/version.js")); assert.strictEqual(metaV[1], VERSION, "la version de la page et celle du front coïncident"); assert(/version: VERSION/.test(boot), "karl.version exposé"); console.log("✓ version " + VERSION + " (L8)");
+  const { VERSION } = await import(path.join(DIR, "src/core/version.js")); assert.strictEqual(metaV[1], VERSION, "la version de la page et celle du front coïncident");
+  assert(/<footer class="foot"><span id="ver"><\/span>/.test(html) && /_cockpit_version\(\)/.test(fs.readFileSync(path.join(DIR, "..", "..", "..", "scripts", "karl-agent.py"), "utf8")), "RM3000 : pied de page et /health portent la version"); assert(/version: VERSION/.test(boot), "karl.version exposé"); console.log("✓ version " + VERSION + " (L8)");
   console.log("OK — le cockpit s'exécute sans identifiant hors portée");
 })().catch(e => { console.error("ÉCHEC :", e && e.stack ? e.stack : e); process.exit(1); });

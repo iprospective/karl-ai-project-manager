@@ -5,7 +5,7 @@
 // Hôtes : `health` (la pastille), `healthtxt`, `updbtn`. Les blocs reçus sont livrés aux domaines par `ctx.on*` (sessions → compteurs,
 // worklog, tableau de bord, poste) ; les caches de résolution sont partagés par référence (briefs semés en `partial`).
 import { RefreshService } from "./refresh.service.js";
-import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText } from "./refresh.js";
+import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText, versionMismatch } from "./refresh.js";
 
 export function mountRefresh(hosts = {}, ctx = {}) {
   const svc = ctx.service || new RefreshService({ caches: ctx.caches || {} });
@@ -14,7 +14,7 @@ export function mountRefresh(hosts = {}, ctx = {}) {
   const env = () => ({ attached: ctx.attached ? ctx.attached() : null, dashboardVisible: ctx.dashboardVisible ? !!ctx.dashboardVisible() : false, worklogVisible: ctx.worklogVisible ? !!ctx.worklogVisible() : false });
   let core = null, timer = null;
   const paint = (s) => { if (hosts.health) { hosts.health.className = s.cls; hosts.health.title = s.title; } if (hosts.healthtxt) hosts.healthtxt.textContent = s.text; };
-  function renderHealth(h) { paint(healthState(h)); }
+  function renderHealth(h) { paint(healthState(h)); if (hosts.verwarn) { const m = versionMismatch(h && h.version, ctx.version); hosts.verwarn.textContent = m; hosts.verwarn.style.display = m ? "" : "none"; } }   // RM3000
   function renderHealthKo(msg) { paint(healthKo(msg)); }
   function renderCoreUpdate(d) {
     core = d; const st = coreUpdateState(d); const b = hosts.updbtn; if (!b) return;

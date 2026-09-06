@@ -168,6 +168,18 @@ Redmine » veut dire « pas d'information », pas « efface ». Le vidage volont
 > inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
 > déboguer), cf. `worker-common` § Restitution.
 
+> **Rattrapage de ce qui traîne (RM3013).** Sur un **core**, chaque auto-commit
+> d'un script referme aussi le filet : ce qui est resté non commité **depuis plus
+> d'1 h** (dernière modification ; `git.sweep_after_min`, défaut 60) — édits libres
+> de fiches, `.log.md`, CDC, `reporting.yml` — part dans un commit
+> `pm(rattrapage): N fichier(s) laissés non commités > 60 min (déclenché par <outil>)`
+> **séparé**, poussé avec le nôtre. Un fichier touché il y a moins d'1 h est laissé
+> à la session qui est dessus. **Pas de timer ni de process dédié** : le prochain
+> script qui écrit s'en charge. Ne dispense **pas** de la règle manuelle ci-dessous :
+> un édit libre attend au pire le prochain auto-commit, alors qu'un commit immédiat
+> le met à l'abri tout de suite. Débrayage `git.sweep: false` ; journalisé
+> (`logs/karl-agent.jsonl`, catégorie `pm`, RM3010).
+
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo
 git approprié. La règle s'applique à **deux périmètres** :

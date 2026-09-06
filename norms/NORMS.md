@@ -1,9 +1,9 @@
 ---
-schema_version: "2.17.0"
-updated: 2026-09-05
+schema_version: "2.18.0"
+updated: 2026-09-06
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.17.0
+# Normes de gestion des tâches — v2.18.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -623,6 +623,7 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
+| Donnée PM | **rattrapage** de ce qui traîne (édits libres : fiches, `.log.md`, CDC…) | *(automatique — chaque `pm_git.autocommit` d'un script embarque, dans un commit `pm(rattrapage): …` séparé, les fichiers non commités depuis **plus d'1 h** ; ni timer ni process dédié, RM3013 ; `git.sweep: false` / `git.sweep_after_min` ; journalisé catégorie `pm`)* |
 | Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
 | Instance | pont d'onboarding des workspaces (`AGENTS.md` + `CLAUDE.md`) | `pm-workspace-bridge.py` (nu = contrôle · `--install` · `--update`, RM1892) |
 | Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |
@@ -2283,6 +2284,18 @@ Redmine » veut dire « pas d'information », pas « efface ». Le vidage volont
 > de l'invariant « pas de rebase dans l'arbre partagé » — cores seulement ; **code**
 > inchangé. Auto-commit réussi = **silencieux** (`git.verbose: true` pour
 > déboguer), cf. `worker-common` § Restitution.
+
+> **Rattrapage de ce qui traîne (RM3013).** Sur un **core**, chaque auto-commit
+> d'un script referme aussi le filet : ce qui est resté non commité **depuis plus
+> d'1 h** (dernière modification ; `git.sweep_after_min`, défaut 60) — édits libres
+> de fiches, `.log.md`, CDC, `reporting.yml` — part dans un commit
+> `pm(rattrapage): N fichier(s) laissés non commités > 60 min (déclenché par <outil>)`
+> **séparé**, poussé avec le nôtre. Un fichier touché il y a moins d'1 h est laissé
+> à la session qui est dessus. **Pas de timer ni de process dédié** : le prochain
+> script qui écrit s'en charge. Ne dispense **pas** de la règle manuelle ci-dessous :
+> un édit libre attend au pire le prochain auto-commit, alors qu'un commit immédiat
+> le met à l'abri tout de suite. Débrayage `git.sweep: false` ; journalisé
+> (`logs/karl-agent.jsonl`, catégorie `pm`, RM3010).
 
 Toute modification d'un fichier rattaché à un projet PM **doit être suivie
 d'un `git add <fichiers> && git commit && git push` immédiat**, dans le repo

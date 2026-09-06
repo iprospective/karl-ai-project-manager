@@ -93,8 +93,9 @@ def _rotate_if_needed(path: Path) -> None:
         _STATE["errors"] += 1
 
 
-def log(category: str, level: str, message: str, **fields) -> dict | None:
+def log(category: str, level: str, message: str, *, echo: bool | None = None, **fields) -> dict | None:
     """Écrit un enregistrement. Rend le dict écrit, ou None s'il est sous le seuil ou refusé.
+    `echo=False` retient l'écho stderr d'un warn/error quand l'appelant a déjà parlé sur la console (pm_git, RM3013).
     Catégorie inconnue → rangée en `system` avec le champ `bad_category` (rien n'est perdu, et ça se voit)."""
     _ensure()
     lvl = str(level).lower()
@@ -129,7 +130,7 @@ def log(category: str, level: str, message: str, **fields) -> dict | None:
             _STATE["written"] += 1
         except OSError:
             _STATE["errors"] += 1
-        if _STATE["stderr"] and LEVELS[lvl] >= LEVELS["warn"]:
+        if (_STATE["stderr"] if echo is None else echo) and LEVELS[lvl] >= LEVELS["warn"]:
             try:
                 extra = " ".join(f"{k}={v}" for k, v in rec.items() if k not in ("ts", "level", "cat", "msg"))
                 sys.stderr.write(f"[{lvl}] {cat}: {rec['msg']}{(' · ' + extra) if extra else ''}\n")

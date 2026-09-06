@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory() as d:
     with redirect_stdout(io.StringIO()):
         prn.push_from(d, "iprospective/atombox", "main", False, "github", ["dev", "main"], "github")
 check("remote github: posé sous le nom « github », origin intact", appels[0][-2:] == ["remove", "github"] and appels[1][-2:] == ["github", "github:iprospective/atombox.git"])
-check("push de main et dev seulement, plus les tags", appels[2][-4:] == ["main", "dev", "--tags"] and appels[2][-5] == "github")
+check("push de main et dev seulement, plus les tags", sorted(appels[2][-3:-1]) == ["dev", "main"] and appels[2][-1] == "--tags" and appels[2][-4] == "github")
 
 # 5. protection : refusée par le plan → avertissement, jamais une exception
 f = FakeForge({("PUT", "/repos/iprospective/atombox/branches/main/protection"): (403, {"message": "Upgrade to GitHub Pro"}, "{}")})

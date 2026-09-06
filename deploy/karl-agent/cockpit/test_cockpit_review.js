@@ -11,13 +11,13 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   async click(action, data) { const n = { dataset: { action, ...(data || {}) }, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => (s === "[data-action]" ? n : s === "button[data-st]" && data && data.st ? { dataset: { st: data.st, reason: data.reason, note: data.note } } : null) }, stopPropagation() {} }); return n; },
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
-  const ST = await import(path.join(DIR, "src/models/tickets/ticketStatus.js"));
-  const P = await import(path.join(DIR, "src/models/tickets/prompts.js"));
-  const { effDisposition } = await import(path.join(DIR, "src/models/tickets/ticketFormat.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/tickets/ReviewViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/tickets/Review.view.js"));
-  const { ReviewService } = await import(path.join(DIR, "src/services/review.service.js"));
-  const { mountReview } = await import(path.join(DIR, "src/controllers/review.controller.js"));
+  const ST = await import(path.join(DIR, "src/modules/ticket/ticketStatus.js"));
+  const P = await import(path.join(DIR, "src/modules/ticket/prompts.js"));
+  const { effDisposition } = await import(path.join(DIR, "src/modules/ticket/ticketFormat.js"));
+  const VM = await import(path.join(DIR, "src/modules/review/ReviewViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/review/Review.view.js"));
+  const { ReviewService } = await import(path.join(DIR, "src/modules/review/review.service.js"));
+  const { mountReview } = await import(path.join(DIR, "src/modules/review/review.controller.js"));
   // — RM2786 : verdicts par statut —
   const CFG = { closable_statuses: ["a_mep", "a_tester_demandeur", "a_tester_dev", "en_mep"], statuses: ["nouveau", "a_etudier_chiffrer", "etude_chiffrage_en_cours", "etude_chiffrage_a_valider", "a_faire", "en_cours", "a_corriger", "a_tester_dev", "a_tester_demandeur", "a_mep", "en_mep", "en_pause", "ferme"] };
   assert.deepEqual(ST.ticketVerdicts("en_cours", CFG), []); assert.strictEqual(ST.ticketVerdicts("a_tester_demandeur", CFG).length, 3); assert.deepEqual(ST.ticketVerdicts("a_mep", CFG).map(v => v.kind), ["valider", "renvoyer"]);
@@ -34,7 +34,7 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   assert(/data-st="a_tester_dev"/.test(st) && /data-st="a_mep"[^>]*disabled/.test(st) && /Redmine refusera/.test(st) && /data-st="ferme"[^>]*data-reason="1"/.test(st) && !/⚠ transitions NORMS seules/.test(st));
   const deg = menu({ status: "a_faire", redmine_checked: false, transitions: [{ status: "en_cours", condition: "prise en charge", redmine_ok: null }] }); assert(/data-st="en_cours"/.test(deg) && !/disabled/.test(/data-st="en_cours"[^>]*>/.exec(deg)[0]) && /⚠ transitions NORMS seules/.test(deg));
   assert(/aucune transition/.test(menu({ status: "ferme", transitions: [] })) && /aucune transition/.test(menu(null)));
-  const viewSrc = require("fs").readFileSync(path.join(DIR, "src/views/tickets/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/controllers/review.controller.js"), "utf8");
+  const viewSrc = require("fs").readFileSync(path.join(DIR, "src/modules/review/Review.view.js"), "utf8") + require("fs").readFileSync(path.join(DIR, "src/modules/review/review.controller.js"), "utf8");
   for (const s of CFG.statuses) assert(!viewSrc.includes('"' + s + '"'), "aucun statut en dur dans la vue ni le contrôleur : " + s);
   console.log("✓ menu de statut (RM2888) : le serveur décide, l'UI rend — refus, mode dégradé, zéro règle recopiée");
   // — RM2726 / RM2873 / RM2833 : consignes —

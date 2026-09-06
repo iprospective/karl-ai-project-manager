@@ -13,6 +13,7 @@
 "use strict";
 const fs = require("fs"); const path = require("path"); const assert = require("assert"); const vm = require("vm"); const DIR = __dirname;
 const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
+const walkExt = (d, ext) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x => x.isDirectory() ? walkExt(path.join(d, x.name), ext) : (x.name.endsWith(ext) ? [path.join(d, x.name)] : []));
 
 // 1. un seul inline : le boot de thème
 const blocks = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)].filter(b => b[1].trim());   // les <script src> externes n'ont pas de corps
@@ -27,9 +28,18 @@ const metaV = /<meta name="karl-cockpit-version" content="([^"]+)">/.exec(html);
 // 2. plus aucun handler inline
 assert(!/\son(click|change|input|keydown|keyup|submit|toggle|load)="/.test(html), "plus aucun on* dans la page (RM2889 : délégation par data-action / data-cmd / data-link)");
 console.log("✓ aucun handler inline dans la page");
+// 2b. RM3012 : le style est compilé (src/styles/main.scss → cockpit.css) ; un build périmé est refusé sans exiger sass
+{ const crypto = require("crypto"); const scss = walkExt(path.join(DIR, "src"), ".scss").sort(); const h = crypto.createHash("sha256");
+  for (const f of scss) { h.update(path.relative(DIR, f)); h.update("\0"); h.update(fs.readFileSync(f)); h.update("\0"); }
+  const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8"); const m = /empreinte des sources scss : ([0-9a-f]{16}) \((\d+) fichiers\)/.exec(css);
+  assert(m, "cockpit.css doit porter l'empreinte de ses sources (npm run build:css)");
+  assert.strictEqual(m[1], h.digest("hex").slice(0, 16), "cockpit.css est PÉRIMÉ par rapport à src/**/*.scss — relance `npm run build:css` (deploy/karl-agent/cockpit)");
+  assert(!/<style>/.test(html) && /<link rel="stylesheet" href="\/static\/cockpit\.css">/.test(html), "la page charge cockpit.css, sans <style> inline");
+  assert(scss.length >= 20 && fs.existsSync(path.join(DIR, "src/styles/main.scss")), "un fichier scss par module + tokens + base + main");
+  console.log("✓ cockpit.css à jour (" + scss.length + " sources scss, empreinte " + m[1] + ")"); }
 
 // 3. + 4. les modules s'importent ; boot.js référence des fichiers et des exports existants
-const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x => x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
+const walk = (d) => walkExt(d, ".js");
 (async () => {
   const files = walk(path.join(DIR, "src")).filter(f => path.basename(f) !== "boot.js");
   const mods = {};

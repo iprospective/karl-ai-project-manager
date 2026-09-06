@@ -72,6 +72,38 @@ un **module `.view.js`** qui exporte une fonction rendant un fragment — ce qui
 est de toute façon la forme voulue au § 7 (une vue est une fonction pure du
 ViewModel vers du HTML sûr).
 
+## Arborescence par module (RM3012, 2026-09-06)
+
+Depuis RM3012, `src/` est organisé **par domaine**, plus par couche :
+
+```
+src/
+  boot.js                      câblage : configuration, caches partagés, montage des modules, init
+  core/                        socle : html (gabarit sûr), dom (mount/unmount), store, api, endpoints (routes nommées),
+                               errors, markdown, version, Repository, Factory, EntityViewModel
+  styles/                      _tokens.scss (palette/thème), _base.scss (socle), main.scss (ordre d'assemblage)
+  modules/<domaine>/           un dossier par domaine, six pièces au plus, classées par SUFFIXE :
+    <domaine>.js               modèle pur (fonctions sans DOM ni réseau)
+    <Domaine>Repository.js     accès aux entités : routes nommées + store — le seul endroit qui voit core/api
+    <domaine>.service.js       état et gestes du domaine, sans DOM
+    <Domaine>ViewModel.js      ce que la vue présente (inerte)
+    <Domaine>.view.js          gabarits `html` → fragments sûrs, gestes en data-action, aucun on*
+    <domaine>.controller.js    montage sur les hôtes, délégation des gestes, API rendue à boot.js
+    <domaine>.scss             le style du module, compilé dans cockpit.css
+```
+
+Les gardes d'imports (test core § 12) lisent la couche sur le suffixe : une vue n'importe ni service, ni dépôt, ni `core/api`, ni
+ViewModel ; un ViewModel ni DOM ni service ; un modèle ou un dépôt ni vue ni contrôleur ni service ; un service ni DOM ni vue ;
+un contrôleur jamais `core/api`. Modules transverses : `shell` (toast, liens cliquables, attache, commandes de la page), `ticket`
+(modèle ticket partagé : résolution, formats, statuts, consignes, bannière git), `pm` (runner PM).
+
+**Style.** `index.html` ne porte plus de `<style>` : il charge `/static/cockpit.css`, **généré** depuis `src/styles/main.scss` par
+`npm run build:css` (dans `deploy/karl-agent/cockpit` ; `sass` est une dépendance de DÉVELOPPEMENT seulement — la page ne charge
+rien de npm et ne demande aucune construction, `cockpit.css` est versionné). `main.scss` assemble `_tokens`, `_base` puis les modules
+dans l'ordre de la feuille historique (la cascade compte). `cockpit.css` porte en tête l'empreinte de ses sources :
+`test_cockpit_runtime.js` la recalcule et refuse un build périmé — **on ne modifie jamais `cockpit.css` à la main**.
+`npm run watch:css` recompile en continu pendant le développement.
+
 ## État d'avancement
 
 | Domaine | Lot | Migré le | Où |
@@ -110,6 +142,7 @@ ViewModel vers du HTML sûr).
 | **L7 — bascule des routes** — `route()` rend désormais la CIBLE `/api/<type>/<action>` pour les 94 routes ; le générateur `scripts/cockpit-gen-endpoints.py` produit aussi `scripts/karl_api_routes.py` (alias cible → chemin historique, suffixe d'identifiant reporté, query string conservée) et `karl-agent.py` pose `api_alias` à l'entrée de GET/POST/PUT/DELETE ; les chemins historiques restent servis tels quels pour les autres clients (scripts, app mobile RM2331) — leur retrait est une décision à part | L7 | 2026-09-05 | `src/core/endpoints.js` (régénéré), `scripts/karl_api_routes.py` (généré), `scripts/karl-agent.py` (4 lignes + import) — **restart de karl-agent requis** ; test core : chaque cible a son alias, aligné sur le TSV |
 | **L8 — version 3.0.0** — refonte CSMV achevée : plus de script inline, routes `/api/…`, 33 suites | L8 | 2026-09-05 | `src/core/version.js` (`VERSION`), `karl.version`, `<meta name="karl-cockpit-version">` dans la page — `test_cockpit_runtime.js` vérifie que les deux coïncident |
 | **hotfix 2026-09-06** — page figée à « chargement… » pour un utilisateur revenu : `TicketsPanelRepository` gardait `setTimeout` DÉTACHÉ (`timers = { set: setTimeout }`) et l'appelait comme méthode → « Illegal invocation » dans tout navigateur (pas sous node) au restaurer d'un onglet épinglé (revue) → `center.restore()` levait, l'init de boot.js n'était jamais atteinte. Correctifs : timer enveloppé ; chaque étape de restauration et d'init isolée (`safe`) ; garde statique dans le test core (aucune référence détachée à setTimeout/fetch…) ; **`test_cockpit_browser.js`** (Playwright optionnel, `KARL_PLAYWRIGHT_DIR`) charge la page dans Chromium/Firefox avec un stockage semé et exige zéro erreur de page + init jusqu'au premier tick — à lancer avant toute MEP du front | hotfix | 2026-09-06 | `src/models/tickets/TicketsPanelRepository.js`, `src/boot.js`, `test_cockpit_core.js`, `test_cockpit_browser.js` |
+| **RM3012 — structure par module + SCSS** — `src/modules/<domaine>/` (31 modules, 185 fichiers déplacés, imports réécrits automatiquement), gardes d'imports par suffixe, `src/styles/` + un `.scss` par module (25 fichiers) compilés en `cockpit.css` versionné (empreinte vérifiée), `index.html` sans `<style>` (698 lignes) ; rendu identique (438 règles, même multiensemble ; cascade contrôlée à spécificité égale ; test navigateur Chromium + Firefox) | RM3012 | 2026-09-06 | `src/modules/**`, `src/styles/**`, `cockpit.css`, `package.json` (sass dev), `scripts/css-stamp.js`, `test_cockpit_core.js` § 12, `test_cockpit_runtime.js` § 2b |
 
 Un domaine est « migré » quand plus une ligne de son JS ne reste dans
 `index.html`, que son bloc HTML n'est plus qu'un hôte vide monté par `boot.js`,

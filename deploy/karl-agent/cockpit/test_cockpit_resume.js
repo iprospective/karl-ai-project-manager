@@ -10,11 +10,11 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/sessions/resume.js"));
-  const { ResumeService } = await import(path.join(DIR, "src/services/resume.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/sessions/ResumeViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/sessions/Resume.view.js"));
-  const { mountResume } = await import(path.join(DIR, "src/controllers/resume.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/resume/resume.js"));
+  const { ResumeService } = await import(path.join(DIR, "src/modules/resume/resume.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/resume/ResumeViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/resume/Resume.view.js"));
+  const { mountResume } = await import(path.join(DIR, "src/modules/resume/resume.controller.js"));
   // — RM2834 —
   const PR = [{ client: "acme", project: "shop", value: "acme/shop" }, { client: "acme", project: "bo", value: "acme/bo" }, { client: "beta", project: "api", value: "beta/api" }, { client: "", project: "", value: "" }];
   const r1 = M.rsProjectOptions(PR, "acme", "acme/shop"); assert.strictEqual(r1.options.map(o => o.value).join(","), "acme/bo,acme/shop"); assert.strictEqual(r1.value, "acme/shop"); assert.strictEqual(M.rsProjectOptions(PR, "acme", "beta/api").value, "", "changer de client abandonne le projet d'un autre client");

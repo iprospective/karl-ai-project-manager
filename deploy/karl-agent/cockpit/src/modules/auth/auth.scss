@@ -1,0 +1,17 @@
+// modules/auth/auth.scss — style du module « auth » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2334 : écran de login plein-cadre tant qu'on n'est pas authentifié */
+#authgate { position: fixed; inset: 0; z-index: 1000; background: var(--bg);
+  display: none; align-items: center; justify-content: center; padding: 20px; }
+#authgate.show { display: flex; }
+#authgate .gatecard { background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 26px 24px; width: 340px; max-width: 100%;
+  box-shadow: 0 12px 44px var(--shadow); }
+#authgate h2 { margin: 0 0 2px; font-size: 18px; }
+#authgate .gsub { color: var(--muted); font-size: 12.5px; margin-bottom: 14px; }
+#authgate label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+#authgate input { width: 100%; box-sizing: border-box; }
+#authgate button { width: 100%; margin-top: 14px; }
+#authgate .gate-err { color: var(--danger); font-size: 12.5px; margin-top: 10px; min-height: 1em; }
+
+.lock { font-size: 11px; color: var(--warn); }

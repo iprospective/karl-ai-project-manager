@@ -1,0 +1,12 @@
+// modules/search/search.scss — style du module « search » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+.searchrow { display: flex; gap: 6px; }
+
+/* RM2770 : source + filtres de la recherche — quatre sélecteurs qui doivent
+   tenir dans la colonne sans la faire déborder. */
+.srcfilters { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.srcfilters select { flex: 1 1 46%; min-width: 0; font-size: 11px; padding: 2px 4px; }
+.sfwarn { margin-top: 6px; font-size: 11px; color: var(--warn);
+  border-left: 2px solid var(--warn); padding-left: 6px; }
+
+.searchrow input { flex: 1; }

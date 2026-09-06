@@ -12,10 +12,10 @@ function fakeElement() {
     async enter(which, btn) { const n = { dataset: { enter: which }, nextElementSibling: btn }; for (const [t, f] of [...L]) if (t === "keydown") await f({ key: "Enter", target: { closest: s => s === "input[data-enter]" ? n : null } }); } };
 }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/env/envStatus.js"));
-  const { EnvBadgeViewModel, EnvStatusViewModel, VaultViewModel } = await import(path.join(DIR, "src/viewmodels/env/EnvViewModels.js"));
-  const { EnvBadge, EnvStatus, VaultForm } = await import(path.join(DIR, "src/views/env/Env.view.js"));
-  const { mountEnv } = await import(path.join(DIR, "src/controllers/env.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/env/envStatus.js"));
+  const { EnvBadgeViewModel, EnvStatusViewModel, VaultViewModel } = await import(path.join(DIR, "src/modules/env/EnvViewModels.js"));
+  const { EnvBadge, EnvStatus, VaultForm } = await import(path.join(DIR, "src/modules/env/Env.view.js"));
+  const { mountEnv } = await import(path.join(DIR, "src/modules/env/env.controller.js"));
   const status = (rep, active) => String(EnvStatus(new EnvStatusViewModel(rep, { active })));
   const badge = (d) => String(EnvBadge(new EnvBadgeViewModel(d || {})));
   const vault = (st, secure) => String(VaultForm(new VaultViewModel(st, { secure })));

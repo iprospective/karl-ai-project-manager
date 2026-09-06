@@ -6,11 +6,11 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/voice/voice.js"));
-  const { VoiceService } = await import(path.join(DIR, "src/services/voice.service.js"));
-  const { VoicePrefsViewModel } = await import(path.join(DIR, "src/viewmodels/voice/VoicePrefsViewModel.js"));
-  const { VoicePrefs } = await import(path.join(DIR, "src/views/voice/VoicePrefs.view.js"));
-  const { mountVoice } = await import(path.join(DIR, "src/controllers/voice.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/voice/voice.js"));
+  const { VoiceService } = await import(path.join(DIR, "src/modules/voice/voice.service.js"));
+  const { VoicePrefsViewModel } = await import(path.join(DIR, "src/modules/voice/VoicePrefsViewModel.js"));
+  const { VoicePrefs } = await import(path.join(DIR, "src/modules/voice/VoicePrefs.view.js"));
+  const { mountVoice } = await import(path.join(DIR, "src/modules/voice/voice.controller.js"));
   let spoken = {}; const vs = [{ rm_id: "1", state: "attention" }, { rm_id: "2", state: "working" }, { rm_id: "3", state: "choice" }];
   assert.deepStrictEqual(M.voiceQueue(vs, spoken), ["1", "3"]); spoken = { "1": "Q", "3": "C" }; assert.deepStrictEqual(M.voiceQueue(vs, spoken), []);
   assert.deepStrictEqual(M.voiceQueue([{ rm_id: "1", state: "working" }], spoken), []); assert(!("1" in spoken), "sortie d'attente → purge");

@@ -28,7 +28,8 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   assert.deepStrictEqual(M.healthState({ sessions: 3, tmux: true }), { cls: "dot ok", title: "agent joignable · 3 session(s)", text: "" }, "RM2889 : plus de « tmux ok » dans l'en-tête"); assert.deepStrictEqual(M.healthKo("down"), { cls: "dot ko", title: "", text: "injoignable — down" });
   assert.deepStrictEqual(M.coreUpdateState({ available: false }), { on: false, text: "", title: "" }); const cu = M.coreUpdateState({ available: true, branch: "main", local: "abcdef0123", remote: "1234567890", stale: true, error: "offline" }); assert(cu.on && cu.text === "⬆ MAJ dispo" && /« main » : abcdef0 → 1234567 \(état périmé : offline\)/.test(cu.title), "RM2571 : de → vers, état périmé dit");
   assert(/branche : main\ninstallé : abcdef0\ndisponible : 1234567\nvérifié : hier\n/.test(M.coreUpdateText({ branch: "main", local: "abcdef0123", remote: "1234567890", checked_at: "hier" })) && /sudo \/zfs\/workspaces\/\.mmi-pm-core\/bin\/mmi-pm core update/.test(M.coreUpdateText({})), "appliquer reste un geste humain : la commande est dite");
-  console.log("✓ modèle : périodes et specs (RM2763), cadence (RM2613), questions sans réponse (RM2598), briefs, santé (RM2889), MAJ core (RM2571)");
+  assert.strictEqual(M.versionMismatch("3.0.0", "3.0.0"), ""); assert.strictEqual(M.versionMismatch("?", "3.0.0"), ""); assert.strictEqual(M.versionMismatch(undefined, "3.0.0"), ""); assert(/serveur v3\.1\.0 ≠ front v3\.0\.0/.test(M.versionMismatch("3.1.0", "3.0.0")), "RM3000 : écart de version signalé");
+  console.log("✓ modèle : périodes et specs (RM2763), cadence (RM2613), questions sans réponse (RM2598), briefs, santé (RM2889), MAJ core (RM2571), version (RM3000)");
 
   // — service —
   const calls = []; let resp = { blocks: {}, skipped: [], errors: {} }; let now = 100000;
@@ -56,10 +57,10 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   console.log("✓ service : composite unique, hashs et périodes, dispatch, briefs, stale, cadence, rejoués, worklog étranger jeté, panne");
 
   // — contrôleur —
-  const health = fakeEl("health"), healthtxt = fakeEl("healthtxt"), updbtn = fakeEl("updbtn"); updbtn.style.display = "none";
+  const health = fakeEl("health"), healthtxt = fakeEl("healthtxt"), updbtn = fakeEl("updbtn"), verwarn = fakeEl("verwarn"); updbtn.style.display = "none";
   const timers = []; let hid = false; const alerts = []; const ev = []; const root = fakeEl("document");
   const svc2 = new RefreshService({ repo: { async pull(specs) { ev.push(["pull", specs]); return { blocks: { health: { hash: "h", data: { sessions: 2 } }, sessions: { hash: "s", data: { sessions: [{ rm_id: "1" }], briefs: {} } }, coreupdate: { hash: "c", data: { available: true, branch: "main", local: "aaaaaaa1", remote: "bbbbbbb2" } }, worklog: { hash: "w", data: { rm_id: "1" } }, dashboard: { hash: "d", data: { n: 1 } }, envcheck: { hash: "e", data: { ok: 1 } } } }; }, async coreUpdate() { ev.push("core"); return { available: false }; } }, now: () => 5000 });
-  const ctr = mountRefresh({ health, healthtxt, updbtn }, { service: svc2, later: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, hidden: () => hid, root, alert: (t) => alerts.push(t),
+  const ctr = mountRefresh({ health, healthtxt, updbtn, verwarn }, { version: "3.0.0", service: svc2, later: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, hidden: () => hid, root, alert: (t) => alerts.push(t),
     attached: () => "1", worklogVisible: () => true, dashboardVisible: () => true, onSessions: (l) => { ev.push(["sessions", l.length]); return { attention: 1, choice: 0 }; }, onWorklog: (d) => ev.push(["worklog", d.rm_id]), onDashboard: (d) => ev.push(["dash", d.n]), onEnv: (k) => ev.push(["env", k]) });
   ctr.start(); await settle(); await settle();
   assert(ev.some(x => x[0] === "pull" && x[1].join() === "sessions:,health:,pending:,dashboard:,vault:,envcheck:,coreupdate:,worklog:1:") && ev.some(x => x[0] === "sessions" && x[1] === 1) && ev.some(x => x[0] === "worklog" && x[1] === "1") && ev.some(x => x[0] === "dash") && ev.some(x => x[0] === "env" && x[1] === "envcheck"), "premier tick : tous les blocs, chacun livré à son domaine");
@@ -70,6 +71,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   await updbtn.fire("click"); assert(alerts.length === 1 && /branche : main/.test(alerts[0]), "RM2571 : le clic dit la commande");
   ev.length = 0; await ctr.refreshCoreUpdate(true); assert(ev.includes("core") && updbtn.style.display === "none", "rafraîchissement forcé : sonde directe, bouton masqué si plus rien");
   ctr.renderHealthKo("hs"); assert(health.className === "dot ko" && healthtxt.textContent === "injoignable — hs");
+  ctr.renderHealth({ sessions: 1, version: "3.0.0" }); assert(verwarn.style.display === "none"); ctr.renderHealth({ sessions: 1, version: "2.9.0" }); assert(verwarn.style.display === "" && /serveur v2\.9\.0 ≠ front v3\.0\.0/.test(verwarn.textContent), "RM3000 : l'écart de version s'affiche au pied de page");
   ev.length = 0; await ctr.refreshSessions(); assert(ev.some(x => x[0] === "pull" && x[1].some(s => s.startsWith("sessions:s"))), "rafraîchissement événementiel : le bloc sessions repart avec son hash");
   ctr.unmount(); assert.strictEqual(root.listenerCount + updbtn.listenerCount, 0, "unmount libère tout");
   console.log("✓ contrôleur : premier tick, dispatch, santé, MAJ core, cadence, pause/rattrapage, clic MAJ, sonde forcée");

@@ -933,9 +933,10 @@ console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut
     "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInFlight(t)`");
   const garde = html.match(/resolveCache\[t\] === undefined && !resolveInFlight\(t\)\)\s*ensureResolved\(t\)\.then/g) || [];
   // renderOpened a MIGRÉ à son tour (RM2889, panneau 🎫) : sa garde lit l'état en vol par la façade ticket
-  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then\(renderOpened\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.controller.js"), "utf8")), "RM2807 : garde absente du contrôleur du panneau tickets");
+  // RM3005 : plus de `.then(render)` du tout — la garde in-flight reste, le re-rendu vient d'UN abonnement au store de résolution
+  { const tk = fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.controller.js"), "utf8"); assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\);/.test(tk) && /resolve\(\)\.subscribe\(/.test(tk) && !/ensureResolved\([^)]*\)\.then/.test(tk), "RM2807/RM3005 : garde in-flight + abonnement au store attendus dans le panneau tickets"); }
   // renderTickets a MIGRÉ (RM2889) : sa garde lit l'état en vol par la façade ticket
-  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807 : garde absente du contrôleur de l'encart");
+  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\);/.test(metaCtrl) && /resolve\(\)\.subscribe\(/.test(metaCtrl) && !/ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807/RM3005 : garde in-flight + abonnement au store attendus dans l'encart");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe
   // la lit par un pont — une référence orpheline lèverait une ReferenceError au premier ticket non résolu.
   // RM2889 L6 : plus de script inline — les deux sites lisent la garde sur la façade ticket (boot.js)

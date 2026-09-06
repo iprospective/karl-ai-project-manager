@@ -16,7 +16,7 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
   const ask = ctx.confirm || ((m) => window.confirm(m));
   const attached = () => { const a = ctx.attached ? ctx.attached() : null; return a == null ? null : String(a); };
   const cfg = () => (ctx.cfg ? ctx.cfg() : null) || {};
-  const sess = () => (ctx.sess ? ctx.sess() : null) || {};
+  const sess = () => ctx.sess();   // store session.registry (RM3005)
   const q = (sel) => (bar && bar.querySelector ? bar.querySelector(sel) : null);
   let menu = null;
 
@@ -33,7 +33,7 @@ export function mountSessionActions({ chips, bar } = {}, ctx = {}) {
     if (btn) btn.disabled = true;
     try { notify(await svc.send(a, target, rid)); } catch (e) { notify(e.message, true); } finally { if (btn) btn.disabled = false; }
   }
-  const pmTarget = (rm) => pmActionTarget(rm, sess(), attached());
+  const pmTarget = (rm) => pmActionTarget(rm, sess().view, attached());
   /** RM2720 : action PM d'un ticket — confirmation seulement si la cible n'est PAS la session du ticket. */
   async function sendPmAction(idx, rm, btn) {
     const a = pmActions(cfg().actions)[idx]; if (!a) return;

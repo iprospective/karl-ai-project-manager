@@ -42,8 +42,8 @@ export function mountCenter(hosts, ctx = {}) {
 
   // ── rendu ────────────────────────────────────────────────────────────────
   const isOpen = (id) => state.tabs.some(t => t && tabId(t.kind, t.key) === id);
-  const resolve = () => (ctx.resolve ? ctx.resolve() : {});
-  function renderTabs() { if (h.tabs) h.tabs.update(Tabs(new TabsViewModel({ tabs: state.tabs, active: state.active }, { resolve: resolve() }))); }
+  const resolve = () => ctx.resolve();   // store ticket.resolve (RM3005)
+  function renderTabs() { if (h.tabs) h.tabs.update(Tabs(new TabsViewModel({ tabs: state.tabs, active: state.active }, { resolve: resolve().view }))); }
   function renderNav() {
     if (ctx.navButtons) ctx.navButtons({ back: !!histStep(state.hist, -1, isOpen).entry, fwd: !!histStep(state.hist, 1, isOpen).entry });
     if (h.hist && ctx.histOpen && ctx.histOpen()) h.hist.update(History(new HistoryViewModel(state.hist, { isOpen })));
@@ -252,6 +252,8 @@ export function mountCenter(hosts, ctx = {}) {
     title: hosts.title ? mount(hosts.title, "") : null,
   };
   const hasTab = (key, kinds) => state.tabs.some(t => t && String(t.key) === String(key) && (!kinds || kinds.includes(t.kind)));
+  // RM2775 → RM3005 : un titre arrivé après coup atteint l'infobulle de son onglet — par abonnement au store, plus par rappel du dépôt
+  if (h.tabs) h.tabs.track(resolve().subscribe((k) => { if (k != null && hasTab(k, ["review", "session"])) renderTabs(); }));
   return { note, activate, closeTab, togglePin, pinOf, hasTab, renderTabs, title, navGo, histGoTo, histToggle,
            openDashboard, openPanel, closePanel, closeView, isBusy, fallback, restore, yield: yieldTo,
            openFile, openDir, openCommit, openMail, openClient, openConf, current: () => state.view, state,

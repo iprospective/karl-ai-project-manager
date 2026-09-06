@@ -4,7 +4,7 @@
 //
 // Hôtes : `list` (#runlist), `counters` (#hcnt), `navCount`/`navAtt` (badges de l'onglet), `yesAll`/`yesAtt` (header), `yesBtn`/`autoYes`
 // (barre du terminal), `title` (#curtitle : le bouton « ✔ Oui » du titre), `rtitle` (#rtitle), `dynsort` (réglages). Le monolithe prête le
-// registre live (`caches.sess`, partagé PAR RÉFÉRENCE), les résolutions, la session attachée, les questions sans réponse, la sélection et
+// registre live (store `session.registry`, RM3005), les résolutions, la session attachée, les questions sans réponse, la sélection et
 // les jeux (état + `setWritable`/`setLabel` + gestes ⊖ ⟳ relance), l'attache/le détachement, `titleLink` et les rafraîchissements.
 import { SessionsService } from "./sessions.service.js";
 import { SessionTileViewModel, GhostTileViewModel, GroupViewModel, AttnChipViewModel, CountersViewModel, ReviewTileViewModel, SessionTitleViewModel } from "./SessionsViewModel.js";
@@ -17,8 +17,8 @@ export function mountSessions(hosts = {}, ctx = {}) {
   const svc = ctx.service || new SessionsService({ storage: ctx.storage });
   const notify = ctx.notify || (() => {});
   const later = ctx.later || ((fn, ms) => setTimeout(fn, ms));
-  const sess = (ctx.caches && ctx.caches.sess) || {};                     // rm_id → entrée /sessions (registre pm_session, RM2166)
-  const resolve = () => (ctx.resolve ? ctx.resolve() : {}) || {};
+  const sess = ctx.sess();                                               // store session.registry : rm_id → entrée /sessions (RM2166 ; RM3005)
+  const resolve = () => ctx.resolve();                                   // store ticket.resolve
   const attached = () => (ctx.attached ? ctx.attached() : null);
   const selection = () => (ctx.selection ? ctx.selection() : { on: false, set: new Set() });
   const sets = () => (ctx.sets ? ctx.sets() : { sets: [], current: "default", view: "set" });
@@ -30,16 +30,16 @@ export function mountSessions(hosts = {}, ctx = {}) {
   // RM2346 : suit l'interaction sur la liste pour geler le tri dynamique le temps de cliquer
   listen(hosts.list, "mouseenter", () => svc.enter()); listen(hosts.list, "mouseleave", () => svc.leave()); listen(hosts.list, "mousemove", () => svc.moved());
 
-  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve()[s.rm_id], attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel }; };
+  const tileCtx = (s) => { const sel = selection(); return { resolved: resolve().get(s.rm_id), attached: attached(), stale: ctx.stale ? ctx.stale() : null, selMode: sel.on, selected: sel.set, set: sets(), writable: ctx.writable, setLabel: ctx.setLabel }; };
   const toggleSel = (s) => { const set = selection().set; set.has(s.rm_id) ? set.delete(s.rm_id) : set.add(s.rm_id); if (ctx.refresh) ctx.refresh(); };
 
   /** Peint la liste depuis le bloc /sessions ; rend les compteurs (la pile /refresh y lit sa cadence — RM2613). */
   function render(sessions) {
     if (!h) return null;
     try {
-      const rcache = resolve();
+      const rcache = resolve().view;   // lecture indexée pour les fonctions pures (computeGroups, sessionInClient)
       const d = svc.compute(sessions, rcache, ctx.clientContext ? ctx.clientContext() : "");   // RM2515 ordre, groupes, RM2639 visibilité
-      sessions.forEach(s => { sess[s.rm_id] = s; });                                         // RM2166 : registre pour l'encart
+      sessions.forEach(s => sess.set(s.rm_id, s));                                         // RM2166 : registre pour l'encart
       if (ctx.composerRefresh) ctx.composerRefresh();                                          // RM2527 : la garde suit l'état live
       const att = attached();
       if (att && !sessions.some(s => s.rm_id === att && !s.ghost) && ctx.detach) ctx.detach();   // kill externe (RM2427 : un fantôme ne compte pas)
@@ -110,7 +110,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
   function toggleDynSort(on) { notify(svc.setDynSort(on)); if (ctx.refresh) ctx.refresh(); }    // RM2344
   function toggleGroup(key) { svc.toggleGroup(key); if (ctx.refresh) ctx.refresh(); }
   // ── titre de la vue courante (prêté au routeur du centre) et en-tête du panneau droit ──
-  const titleVm = () => { const att = attached(); return new SessionTitleViewModel({ attached: att, sess: att ? sess[att] : null, resolved: att ? resolve()[att] : null }); };
+  const titleVm = () => { const att = attached(); return new SessionTitleViewModel({ attached: att, sess: att ? sess.get(att) : null, resolved: att ? resolve().get(att) : null }); };
   function titleHtml() { return String(SessionTitle(titleVm(), lend)); }
   function renderRTitle() {
     const el = hosts.rtitle; if (!el) return;
@@ -121,7 +121,7 @@ export function mountSessions(hosts = {}, ctx = {}) {
   /** Effets de bord d'un changement de vue : en-tête droit (RM2894), « ✔ Oui » aux deux emplacements (RM2302/2332), état de l'auto-oui (RM2327). */
   function afterTitle() {
     renderRTitle();
-    const att = attached(), on = approveShortcutVisible(att, sess);
+    const att = attached(), on = approveShortcutVisible(att, sess.view);
     show(hosts.yesBtn, on); show(hosts.yesAtt, on);
     const ay = hosts.autoYes;
     if (ay) { const vm = titleVm(); if (ay.options && ay.options[0]) ay.options[0].textContent = vm.autoYesLabel; ay.style.color = vm.autoYesArmed ? "var(--ok)" : ""; ay.value = ""; }

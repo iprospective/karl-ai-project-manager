@@ -13,7 +13,7 @@
 // Ce pont disparaît au lot L6, quand plus rien d'inline ne subsiste.
 
 import { esc, jarg, html, raw, isSafe, attrs } from "./core/html.js";
-import { Store, defineStore, storeStats, resetStores } from "./core/store.js";
+import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
 import { mount, on, domStats } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
@@ -73,10 +73,10 @@ import { fsScope, scopeTag } from "./modules/files/scope.js";
 import { FileViewModel } from "./modules/center/CenterViewModels.js";
 import { FileBody, centerBtnHtml } from "./modules/center/Center.view.js";
 
-// La configuration d'instance (/cockpit-config, chargée par init) et les caches partagés entre domaines vivent ici — le script inline
+// La configuration d'instance (/cockpit-config, chargée par init) et les stores partagés entre domaines vivent ici — le script inline
 // a disparu (L6). CFG est rempli après le login ; le transport le lit à la demande, jamais au chargement.
 const CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
-const caches = { resolve: {}, resolveAt: {}, sess: {}, mc: {}, usage: {}, ts: {} };
+const stores = appStores();   // RM3005 : les caches partagés sont des stores nommés et bornés (core/store.js), visibles dans karl.stats()
 let auth = null, attachCtl = null;
 // RM3011 : le journal du front — mêmes sévérités et catégories que le serveur ; warn/error remontés par POST /api/log/write ; les exceptions
 // non rattrapées et les promesses rejetées y tombent. Créé AVANT tout montage : le premier domaine qui trébuche est déjà consigné.
@@ -120,7 +120,7 @@ const byId = (id) => document.getElementById(id);
 // le toast (simple / erreur / avec action RM2451), les références cliquables (RM2585/2596/2718 — un écouteur en capture sur le document)
 // et le runner PM partagé : montés d'abord, tous les domaines les empruntent. La fiche ℹ, les fichiers et le glossaire sont lus à l'appel.
 const notify = mountNotify(byId("toast"));
-const pm = new PmService({ caches });
+const pm = new PmService({ stores });
 const links = mountLinks(document, { showTicket: (id) => meta && meta.showTicket(id), openFileRef: (p) => files && files.openRef(p), glossify: (s) => doc.glossify(s), redmineBase: () => CFG.redmine_url || "" });
 // la modale doc : documents rendus (RM2309), aide intégrée (RM2593), glossaire du jargon (RM2623) — et les termes
 // soulignés partout dans la page. Montée d'abord : tous les panneaux lui empruntent l'aide. Le routeur (center)
@@ -154,7 +154,7 @@ const mail = mountMailPanel(document.getElementById("lp-mail"), {
 const git = mountGitPanel(document.getElementById("rp-git"), {
   notify: notify.toast,
   attached: () => attachCtl.current(),
-  branchesOf: (sid) => ((caches.sess[sid] || {}).registry || {}).branches || [],
+  branchesOf: (sid) => ((stores.sess.get(sid) || {}).registry || {}).branches || [],
   openCenter: (sid, sha) => center.openCommit(sid, sha),
 });
 
@@ -162,7 +162,7 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
   notify: notify.toast,
   attach: (rm) => attachCtl.attach(rm), openReview: (rm) => review.open(rm),
   pull: () => refreshCtl.fetch(["dashboard"]),
-  sessions: () => caches.sess,
+  sessions: () => stores.sess.view,
   stale: () => [...refreshCtl.stale()],
   nameOf: entryLabel,
   // visible = le vide central est affiché et aucune session n'est attachée (RM2697)
@@ -178,8 +178,8 @@ const dashboard = mountDashboard(document.getElementById("dashboard"), {
 
 const projects = mountProjectsPanel(document.getElementById("lp-projects"), {
   notify: notify.toast, help: (t) => doc.openHelp(t),
-  sessions: () => Object.values(caches.sess),
-  resolve: () => caches.resolve,
+  sessions: () => stores.sess.values(),
+  resolve: () => stores.resolve,
   clientContext: () => launcher.clientContext(),
   pin: (kind, key) => center.pinOf(kind, key),
   openProject: (key) => project.open(key), openClient: (c) => center.openClient(c), openConf: (scope, c, p) => center.openConf(scope, c, p),
@@ -209,7 +209,7 @@ const settings = mountSettings(document.getElementById("reglages-card"), documen
 const synth = () => (typeof speechSynthesis !== "undefined" ? speechSynthesis : null);
 const voice = mountVoice(document.getElementById("voicecard"), {
   notify: notify.toast, storage: localStorage,
-  attached: () => attachCtl.current(), resolve: () => caches.resolve,
+  attached: () => attachCtl.current(), resolve: () => stores.resolve,
   voiceBtn: (on) => { const b = document.getElementById("voicebtn"); if (b) { b.style.color = on ? "var(--ok)" : ""; b.style.borderColor = on ? "var(--ok)" : ""; } },
   mic: (s) => { const b = document.getElementById("micbtn"); if (b) { b.style.color = s.color; b.textContent = s.text; } },
   engines: {
@@ -238,10 +238,10 @@ const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style
 let journal = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
-  resolve: () => caches.resolve,
+  resolve: () => stores.resolve,
   scope: () => ({ filesData: files.data(), attached: attachCtl.current(), projectKey: project ? project.current() : null }),
   surfaces: {
-    session:   { sessions: () => caches.sess, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
+    session:   { sessions: () => stores.sess.view, list: async () => (await get(route("session.sessions")) || {}).sessions || [],
                  open: (rm) => attachCtl.attach(rm), relaunch: (s) => setsCtl.relaunchGhost(s), close: () => { if (attachCtl.current()) () => attachCtl.detach()(); } },
   },
   panels: {
@@ -288,18 +288,15 @@ project = mountProject(byId("projpane"), {
   filesEnsure: () => { if (layout.rightVisible("files")) files.ensure(); },
 });
 center.register("project", { open: project.open, close: () => { if (project.current()) project.close(); } });
-// le modèle ticket : la logique dans le module, les caches partagés PAR RÉFÉRENCE avec le
-// monolithe (une soixantaine de vues les lisent encore en direct — L6 les rapatriera)
-const ticketRepo = new TicketRepository({ caches: { resolve: caches.resolve, resolveAt: caches.resolveAt, mc: caches.mc, usage: caches.usage, ts: caches.ts } });
-// RM2775 : un titre arrivé après coup atteint l'infobulle de son onglet — seulement si un onglet le porte
-const onResolved = (rm) => { if (center.hasTab(rm, ["review", "session"])) center.renderTabs(); };
+// le modèle ticket : la logique dans le module, le stockage dans les stores nommés (RM3005) — les vues lisent `get`, ou s'abonnent
+const ticketRepo = new TicketRepository({ stores });
 const ticket = {
   stale: (rm) => ticketRepo.stale(rm),
   inFlight: (rm) => !!ticketRepo.inflight.resolve[String(rm)],   // RM2807 : garde anti fan-out des listes du monolithe
-  ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force, onResolved),
-  revalidate: (rm, after) => ticketRepo.revalidate(rm, after, onResolved),
+  ensureResolved: (rm, force) => ticketRepo.ensureResolved(rm, force),
+  revalidate: (rm, after) => ticketRepo.revalidate(rm, after),
   /** Rechargement explicite (⟳) : recharge, puis re-rend ce que le monolithe affiche encore. */
-  reload: (rm) => ticketRepo.ensureResolved(String(rm), true, onResolved).then(() => {
+  reload: (rm) => ticketRepo.ensureResolved(String(rm), true).then(() => {
     rm = String(rm);
     if (meta && meta.ticketIs(rm)) meta.render();
     if (review && review.current() === rm) review.render();
@@ -327,7 +324,7 @@ const resume = mountResume(byId("rescard"), {
 // l'onglet 📂 fichiers (RM2586/2622/2659/2673/2675/2759/2861) : le contexte de lecture (session, fiche de ticket, fiche projet,
 // jeu courant), le rendu commun d'un fichier, la portée d'un worktree et l'ouverture au centre sont prêtés
 files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: document.querySelector("#rp-files .outnav") }, {
-  notify: notify.toast, attached: () => attachCtl.current(), resolve: () => caches.resolve,
+  notify: notify.toast, attached: () => attachCtl.current(), resolve: () => stores.resolve,
   reviewCurrent: () => (review ? review.current() : null), projectKey: () => (project ? project.current() : null),
   sets: () => setsCtl.sets(), currentSet: () => setsCtl.current(),
   fileBody: (f) => String(FileBody(new FileViewModel(f, { md: mdToHtml }))), scopeTagOf: (wt) => center.scopeTagOf(wt), showRight: layout.showRight,
@@ -337,7 +334,7 @@ files = mountFiles({ body: byId("filesbody"), count: byId("filescnt"), nav: docu
 // la fiche ℹ (meta), l'épinglage, le contexte client et le chemin partagé de lancement d'un lot (RM2823/2831)
 tickets = mountTicketsPanel({ triage: byId("triagecard"), opened: byId("openedcard"), badge: byId("ln-tickets") }, {
   ticket, notify: notify.toast, storage: (typeof localStorage !== "undefined" ? localStorage : null), root: document,
-  resolve: () => caches.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
+  resolve: () => stores.resolve, showTicket: (id) => meta && meta.showTicket(id), pinOf: (k, key) => center.pinOf(k, key),
   clientContext: () => launcher.clientContext(), spawnBatch: (items, btn, opts) => worklogCtl.spawnBatch(items, btn, opts),
 });
 // la recherche de tickets (RM2770/2639/2830) : projets connus, contexte client, statuts NORMS, lien de titre, épinglage prêtés ;
@@ -353,20 +350,20 @@ const search = mountSearch(byId("searchcard"), {
 // la capture, la modale doc (écrans de lot), l'infobulle, la marque, linkify, la revue, la fiche ℹ, le lanceur et l'attache sont prêtés
 worklogCtl = mountWorklog({ body: byId("workbody"), fresh: byId("workfresh"), nav: document.querySelector("#rp-state .outnav") }, {
   ticket, notify: notify.toast, ago: ago, run: (n, a, o) => pm.run(n, a, o), capture: (t, txt) => doc.openPlain(t, txt),
-  attached: () => attachCtl.current(), sess: () => caches.sess, cfg: () => CFG, resolve: () => caches.resolve,
+  attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG, resolve: () => stores.resolve,
   tipAttr: (id) => tickets.tipAttr(id), pinOf: (k, key) => center.pinOf(k, key), linkify: (s) => links.linkify(s),
   openReview: (rm) => review.open(rm), openStatusMenu: (ref, n, e) => review.openStatusMenu(ref, n, e), showTicket: (rm) => meta && meta.showTicket(rm),
   modal: { open: (t, f, on) => doc.openCustom(t, f, on), close: () => doc.closeDoc(), content: () => doc.contentEl() },
   launcher: () => ({ engine: (byId("engine") || {}).value || "claude", model: (byId("model") || {}).value || "" }),
   warnSpawn: (r) => setsCtl.warnSpawn(r), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm), forgetOpened: (rm) => tickets.forget(rm),
-  forgetTicketSessions: (rm) => { caches.ts[rm] = undefined; },
+  forgetTicketSessions: (rm) => ticketRepo.forgetTicketSessions(rm),
   openExternal: (u) => window.open(u, "_blank", "noopener"), projectWorklog: () => project && project.refreshWorklog(),
   afterLoad: () => { if (layout.rightVisible("tickets") && meta) meta.renderTickets(); },   // RM2673 : le worklog alimente la liste des tickets
 });
 // les actions d'une session (RM1893 §2 chips, RM2720 actions PM d'un ticket, §3 moniteurs, RM2515 disposition, fermeture) :
 // la session attachée, le registre, CFG, le détachement et les rafraîchissements sont prêtés
 const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabactions") }, {
-  notify: notify.toast, attached: () => attachCtl.current(), sess: () => caches.sess, cfg: () => CFG,
+  notify: notify.toast, attached: () => attachCtl.current(), sess: () => stores.sess, cfg: () => CFG,
   detach: () => attachCtl.detach(), refreshSessions: (() => refreshCtl.refreshSessions()), refreshHealth: (() => refreshCtl.refreshHealth()),
   popover: () => { const m = document.createElement("div"); m.className = "dispmenu"; m.id = "dispmenu"; document.body.appendChild(m); return m; },
   place: (m, anchor) => { const r = anchor.getBoundingClientRect(); m.style.left = Math.round(Math.min(r.left, window.innerWidth - m.offsetWidth - 6)) + "px"; m.style.top = Math.round(r.bottom + 4) + "px"; },
@@ -376,7 +373,7 @@ const actions = mountSessionActions({ chips: byId("chipsrow"), bar: byId("tabact
 // (RM2527 garde d'état, historique de ce navigateur), copies RM2168/2631 : CFG, le token, l'état live des sessions et la modale texte sont prêtés
 terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer: byId("composer") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), win: window, cfg: () => CFG, notify: notify.toast,
-  attached: () => attachCtl.current(), sess: () => caches.sess, token: () => auth.token(),
+  attached: () => attachCtl.current(), sess: () => stores.sess, token: () => auth.token(),
   setCookie: (c) => { document.cookie = c; }, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null,
   copyFallback: (txt) => { const ta = document.createElement("textarea"); ta.value = txt; ta.style.position = "fixed"; ta.style.opacity = "0"; document.body.appendChild(ta); ta.focus(); ta.select(); let ok = false; try { ok = document.execCommand("copy"); } catch (e) { ok = false; } ta.remove(); return ok; },
   capture: (t, txt) => doc.openPlain(t, txt), domCount: () => document.getElementsByTagName("*").length,
@@ -386,7 +383,7 @@ terminal = mountTerminal({ host: byId("termhost"), frame: byId("term"), composer
 review = mountReview(byId("reviewpane"), {
   center, ticket, run: (n, a, o) => pm.run(n, a, o), notify: notify.toast, capture: (t, txt) => doc.openPlain(t, txt), md: mdToHtml,
   titleLink: (rm, tt) => links.titleLink(rm, tt), eff: effDisposition,
-  resolve: () => caches.resolve, cfg: () => CFG,
+  resolve: () => stores.resolve, cfg: () => CFG,
   show: (on) => show("reviewpane", on),
   setMeta: (rm) => meta && meta.setTicket(rm), metaIs: (rm) => !!(meta && meta.ticketIs(rm)), renderMeta: () => meta && meta.render(),
   noteOpened: (rm) => tickets.noteOpened(rm), showRight: layout.showRight, refreshSessions: (() => refreshCtl.refreshSessions()),
@@ -420,10 +417,10 @@ launcher = mountLauncher({ card: byId("launchcard"), ntcard: byId("ntcard"), cli
 // RM2873 : le lanceur de gauche propose les mêmes modèles de consigne que la fiche
 { const sel = byId("ptpl"); if (sel) sel.innerHTML = review.promptTemplateOptions("traiter"); }
 // l'encart ℹ (RM2173/2579/2605/2614/2673/2797) : colonne de droite « infos » + « tickets ». Le monolithe
-// lui prête la session attachée, le registre, les caches ticket, le worklog, la colonne et les gestes voisins.
+// lui prête la session attachée, le registre, les stores ticket, le worklog, la colonne et les gestes voisins.
 meta = mountMeta({ infos: byId("infosbody"), tickets: byId("ticketsbody") }, {
   ticket, notify: notify.toast, md: mdToHtml, ago: ago, tipAttr: (id) => tickets.tipAttr(id),
-  resolve: () => caches.resolve, sess: () => caches.sess, usage: () => caches.usage,
+  resolve: () => stores.resolve, sess: () => stores.sess, usage: () => stores.usage,
   attached: () => attachCtl.current(), worklog: () => worklogCtl.data(), worklogPending: () => worklogCtl.pending(), loadWorklog: () => worklogCtl.load(),
   showRight: layout.showRight, noteOpened: (id) => tickets.noteOpened(id), gotoTicket: (rm) => launcher.goto(rm), reopen: (rm) => launcher.reopen(rm),
   openReview: (rm) => review.open(rm), reload: (rm) => ticket.reload(rm), openStatusMenu: (rm, anchor, ev) => review.openStatusMenu(rm, anchor, ev), openProject: (key) => project.open(key),
@@ -441,7 +438,7 @@ const testqueue = testqueueRef = mountTestQueue(byId("tqcard"), {
 // l'attache, les questions sans réponse, la sélection et les jeux (état, setWritable/setLabel, ⊖ ⟳ relance), titleLink et la pile /refresh
 sessionsCtl = mountSessions({ list: byId("runlist"), counters: byId("hcnt"), navCount: byId("ln-count"), navAtt: byId("ln-att"), yesAll: byId("yesall"), yesAtt: byId("yesatt"), yesBtn: byId("yesbtn"), autoYes: byId("autoyes"), title: byId("curtitle"), rtitle: byId("rtitle"), dynsort: byId("dynsort") }, {
   storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, ticket,
-  caches: { sess: caches.sess }, resolve: () => caches.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
+  sess: () => stores.sess, resolve: () => stores.resolve, attached: () => attachCtl.current(), stale: () => refreshCtl.stale(),
   selection: () => setsCtl.selection(), sets: () => ({ sets: setsCtl.sets(), current: setsCtl.current(), view: setsCtl.view() }),
   writable: (sets, name, view) => setsCtl.writable(sets, name, view), setLabel: (name) => setsCtl.label(name),
   clientContext: () => launcher.clientContext(), setClientContext: (c) => launcher.setClientContext(c),
@@ -461,11 +458,11 @@ setsCtl = mountSets({ bar: byId("setbar"), card: byId("sessions-set-card") }, {
   ordered: () => sessionsCtl.ordered(), refreshSessions: (() => refreshCtl.refreshSessions()), attach: (rm) => attachCtl.attach(rm),
 });
 // la pile /refresh (RM2763 composite unique, RM2613 cadence adaptative), la pastille de santé, « ⬆ MAJ dispo » (RM2571) et les questions
-// sans réponse (RM2598) : les blocs reçus vont aux domaines migrés ; les caches de résolution sont partagés par référence ; le premier tick
+// sans réponse (RM2598) : les blocs reçus vont aux domaines migrés ; les briefs sèment le store de résolution (RM3005) ; le premier tick
 // est déclenché par l'init du monolithe (tickSessions) une fois la configuration connue
 refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt"), updbtn: byId("updbtn"), verwarn: byId("verwarn") }, {
   version: VERSION,   // RM3000 : la version servie par /health est comparée à celle du front
-  caches: { resolve: caches.resolve, resolveAt: caches.resolveAt }, root: document, alert: (t) => window.alert(t),
+  stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
 });
@@ -498,7 +495,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

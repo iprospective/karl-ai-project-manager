@@ -9,6 +9,7 @@ function fakeEl(id) { const L = []; return { id, style: {}, className: "", title
 const settle = () => new Promise(r => setTimeout(r, 0));
 (async () => {
   const M = await import(path.join(DIR, "src/modules/refresh/refresh.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { RefreshService } = await import(path.join(DIR, "src/modules/refresh/refresh.service.js"));
   const { mountRefresh } = await import(path.join(DIR, "src/modules/refresh/refresh.controller.js"));
 
@@ -23,8 +24,8 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   assert(b.specs.includes("dashboard:") && b.specs[b.specs.length - 1] === "worklog:2763:" && b.worklogSid === "2763" && b.resetWorklogHash, "attaché + onglet visible : le worklog embarque ; autre session → hash oublié");
   b = M.buildSpecs({ hashes: { worklog: "w1" }, at: {}, includes: [], now: 0, attached: "2763", worklogVisible: true, worklogSid: "2763" }); assert(b.specs.includes("worklog:2763:w1") && !b.resetWorklogHash, "même session : le hash voyage");
   b = M.buildSpecs({ hashes: {}, at: {}, includes: [], now: 0, attached: "2763", worklogVisible: false, worklogSid: "2763" }); assert(!b.specs.some(s => s.startsWith("worklog")), "onglet replié : pas de worklog");
-  const rc = { "42": { found: true, title: "riche", cwd: "/x" } }, ra = {}; M.seedBriefs({ 42: { found: true, title: "brief" }, 7: { found: true, title: "T7" } }, rc, ra, 123);
-  assert(rc["42"].title === "riche" && rc["7"].partial && rc["7"].title === "T7" && ra["7"] === 123 && ra["42"] === undefined, "briefs semés en partial, jamais par-dessus une résolution riche"); M.seedBriefs({ 7: { found: true, title: "T7b" } }, rc, ra, 124); assert(rc["7"].title === "T7b", "un partial est remplacé par un partial plus frais");
+  const rs = mkStore("r", { "42": { found: true, title: "riche", cwd: "/x" } }), rc = rs.view; M.seedBriefs({ 42: { found: true, title: "brief" }, 7: { found: true, title: "T7" } }, rs);
+  assert(rc["42"].title === "riche" && rc["7"].partial && rc["7"].title === "T7" && rs.has("7"), "briefs semés en partial, jamais par-dessus une résolution riche"); M.seedBriefs({ 7: { found: true, title: "T7b" } }, rs); assert(rc["7"].title === "T7b", "un partial est remplacé par un partial plus frais");
   assert.deepStrictEqual(M.healthState({ sessions: 3, tmux: true }), { cls: "dot ok", title: "agent joignable · 3 session(s)", text: "" }, "RM2889 : plus de « tmux ok » dans l'en-tête"); assert.deepStrictEqual(M.healthKo("down"), { cls: "dot ko", title: "", text: "injoignable — down" });
   assert.deepStrictEqual(M.coreUpdateState({ available: false }), { on: false, text: "", title: "" }); const cu = M.coreUpdateState({ available: true, branch: "main", local: "abcdef0123", remote: "1234567890", stale: true, error: "offline" }); assert(cu.on && cu.text === "⬆ MAJ dispo" && /« main » : abcdef0 → 1234567 \(état périmé : offline\)/.test(cu.title), "RM2571 : de → vers, état périmé dit");
   assert(/branche : main\ninstallé : abcdef0\ndisponible : 1234567\nvérifié : hier\n/.test(M.coreUpdateText({ branch: "main", local: "abcdef0123", remote: "1234567890", checked_at: "hier" })) && /sudo \/zfs\/workspaces\/\.mmi-pm-core\/bin\/mmi-pm core update/.test(M.coreUpdateText({})), "appliquer reste un geste humain : la commande est dite");
@@ -34,7 +35,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — service —
   const calls = []; let resp = { blocks: {}, skipped: [], errors: {} }; let now = 100000;
   const repo = { async pull(specs) { calls.push(specs); if (resp instanceof Error) throw resp; return resp; }, async coreUpdate() { calls.push("core"); return { available: true, branch: "dev" }; } };
-  const rcache = {}, rat = {}; const svc = new RefreshService({ repo, now: () => now, caches: { resolve: rcache, resolveAt: rat } });
+  const rstore = mkStore("r"); const svc = new RefreshService({ repo, now: () => now, stores: { resolve: rstore } });
   const got = { health: [], ko: [], sessions: [], worklog: [], dash: [], env: [], core: [] }; let att = null, wl = true, dv = false;
   const env = () => ({ attached: att, dashboardVisible: dv, worklogVisible: wl });
   const on = { health: (d) => got.health.push(d), healthKo: (m) => got.ko.push(m), sessions: (l) => { got.sessions.push(l); return { attention: 2, choice: 1 }; }, worklog: (d) => got.worklog.push(d), dashboard: (d) => got.dash.push(d), env: (k, d) => got.env.push([k, d]), coreupdate: (d) => got.core.push(d) };
@@ -43,7 +44,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   resp = { blocks: { sessions: { hash: "s1", data: { sessions: [{ rm_id: "2763" }], briefs: { 2763: { found: true, title: "T" } } } }, health: { hash: "h1", data: { sessions: 1 } }, worklog: { hash: "w1", data: { rm_id: "2763", found: true } }, pending: { hash: "p1", data: { entries: [{ rm_id: "2763", kind: "stale" }] } }, vault: { hash: "v1", data: { locked: 1 } }, coreupdate: { hash: "c1", data: { available: false } } }, skipped: [], errors: {} };
   await svc.fetch([], env, on);
   assert.strictEqual(calls.length, 1, "UNE requête composite"); assert(got.sessions.length === 1 && got.health.length === 1 && got.worklog.length === 1 && got.env.length === 1 && got.env[0][0] === "vault" && got.core.length === 1, "chaque bloc reçu dispatché");
-  assert(rcache["2763"] && rcache["2763"].partial && rat["2763"] === now, "brief semé en partial"); assert(svc.stale.has("2763"), "pending → questions sans réponse recalculées"); assert.strictEqual(svc.hot, 3, "RM2613 : la cadence lit les compteurs rendus");
+  assert(rstore.get("2763") && rstore.get("2763").partial && rstore.has("2763"), "brief semé en partial dans le store"); assert(svc.stale.has("2763"), "pending → questions sans réponse recalculées"); assert.strictEqual(svc.hot, 3, "RM2613 : la cadence lit les compteurs rendus");
   assert.deepStrictEqual(svc.specs([], env()), ["sessions:s1"], "tick suivant avant les périodes : seul sessions repart, avec son hash"); assert(svc.specs(["health"], env()).includes("health:h1"), "un include force le bloc, avec son hash");
   now += 20000; assert(svc.specs([], env()).includes("health:h1") && svc.specs([], env()).includes("worklog:2763:w1") && !svc.specs([], env()).includes("pending:p1"), "15 s : health et worklog redus, pending (45 s) pas encore");
   resp = { blocks: {}, skipped: ["sessions"], errors: {} }; await svc.fetch([], env, on); assert.strictEqual(got.sessions.length, 1, "inchangé → pas de re-rendu");

@@ -139,7 +139,18 @@ function fakeElement() {
   assert.strictEqual(vus, 1, "un abonné désabonné ne doit plus rien recevoir");
   assert.strictEqual(st.stats().subscribers, 0);
   assert.throws(() => new S.Store("x", { max: 0 }), /max doit être/);
-  console.log("✓ store : LRU borné, péremption, désabonnement effectif");
+  // RM3005 : fraîcheur douce (age/expire), lecture indexée en lecture seule (view), stores nommés et bornés (appStores)
+  { let t = 0; const s2 = new S.Store("doux", { ttl: 1000, max: 5, now: () => t });
+    s2.set(7, { titre: "sept" }); assert.strictEqual(s2.get("7").titre, "sept", "clé numérique ≡ chaîne"); assert(s2.has(7) && s2.age("7") === 0);
+    t = 300; assert.strictEqual(s2.age(7), 300); s2.expire(7); assert.strictEqual(s2.age(7), Infinity, "expire : à revalider…"); assert.strictEqual(s2.get(7).titre, "sept", "…mais toujours servie (la vue ne clignote pas)");
+    s2.set("8", "huit"); assert.deepStrictEqual(s2.keys(), ["7", "8"]); assert.deepStrictEqual(s2.values(), [{ titre: "sept" }, "huit"]); assert.strictEqual(s2.size, 2);
+    const v = s2.view; assert.strictEqual(v[8], "huit"); assert("8" in v && !("9" in v)); assert.deepStrictEqual(Object.keys(v), ["7", "8"]); assert.deepStrictEqual(Object.values(v), [{ titre: "sept" }, "huit"]);
+    assert.throws(() => { v.x = 1; }, /lecture seule/); assert.throws(() => { delete v[8]; }, /lecture seule/);
+    t = 5000; assert.strictEqual(v[8], undefined, "la vue voit la péremption dure"); assert.deepStrictEqual(s2.keys(), []);
+    S.resetStores(); const app = S.appStores({ now: () => t }); assert.deepStrictEqual(Object.keys(app), ["resolve", "sess", "mc", "usage", "ts", "trans"]);
+    for (const [k, b] of Object.entries(S.STORE_BOUNDS)) assert(app[k].name === b.name && app[k].max === b.max && app[k].ttl === b.ttl && app[k].max > 0 && app[k].ttl > 0, "borné : " + k);
+    assert.strictEqual(S.appStores().resolve, app.resolve, "un seul store par nom"); assert.strictEqual(S.storeStats().length, 6, "karl.stats() les voit tous"); S.resetStores(); }
+  console.log("✓ store : LRU borné, péremption, désabonnement effectif, fraîcheur douce, vue indexée en lecture seule, stores nommés (RM3005)");
 
   // — 7. LA garde du chantier : un unmount() libère tout ce que mount() a créé —
   const D = await import(path.join(DIR, "src/core/dom.js"));
@@ -275,6 +286,23 @@ function fakeElement() {
       if (/[:=]\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\s*[,)}\];]/.test(line.replace(/\/\/.*$/, "").replace(/^\s*\*.*$|^\s*\/\*.*$/, "")) && !/=>\s*(setTimeout|clearTimeout|setInterval|clearInterval|fetch|requestAnimationFrame|alert|confirm|prompt)\b|globalThis\.|window\./.test(line)) bare.push(path.relative(DIR, file) + ":" + (i + 1));
     assert.deepStrictEqual(bare, [], "référence détachée à une fonction native : " + bare.join(", "));
     console.log("✓ aucune référence détachée à setTimeout/fetch… dans src/"); }
+
+  // — 14. RM3005 : zéro cache hors core/store.js — un store se définit LÀ (appStores/STORE_BOUNDS), jamais dans un module ; aucun objet
+  //   de cache partagé (`caches`, `resolveAt`, `resolveCache = {}`) ; boot.js prête les stores nommés et le dépôt ticket les reçoit
+  { const strip = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map(l => l.replace(/\/\/.*$/, "")).join("\n");
+    const offenders = [];
+    for (const file of walk(path.join(DIR, "src"))) {
+      const rel = path.relative(DIR, file); if (rel === path.join("src", "core", "store.js")) continue;
+      const code = strip(fs.readFileSync(file, "utf8"));
+      if (/\bnew Store\s*\(/.test(code) || (/\bdefineStore\s*\(/.test(code) && rel !== path.join("src", "core", "Repository.js"))) offenders.push(rel + " : définit un store");   // la classe de base Repository nomme le sien par defineStore
+      if (/\b(caches|resolveAt)\b/.test(code)) offenders.push(rel + " : objet de cache partagé");
+      if (/\b\w*[cC]ache\w*\s*=\s*(\{\}|new Map\(\))/.test(code)) offenders.push(rel + " : cache local hors store");
+    }
+    assert.deepStrictEqual(offenders, [], "caches hors core/store.js : " + offenders.join(" ; "));
+    const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"), repo = fs.readFileSync(path.join(DIR, "src/modules/ticket/TicketRepository.js"), "utf8");
+    assert(/const stores = appStores\(\);/.test(boot) && /new TicketRepository\(\{ stores \}\)/.test(boot) && /resolve: \(\) => stores\.resolve/.test(boot) && /sess: \(\) => stores\.sess/.test(boot), "boot.js prête les stores nommés");
+    assert(/this\.s = stores \|\| appStores\(/.test(repo) && !/this\.c\b/.test(repo), "le dépôt ticket range tout dans les stores");
+    console.log("✓ zéro cache hors core/store.js : stores définis dans core/store.js seulement, prêtés par boot.js, reçus par le dépôt ticket (RM3005)"); }
 
   console.log("\nTous les tests core/ passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

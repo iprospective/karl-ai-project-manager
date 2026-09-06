@@ -5,6 +5,7 @@
 const path = require("path"); const assert = require("assert"); const DIR = __dirname;
 (async () => {
   const F = await import(path.join(DIR, "src/modules/ticket/ticketFormat.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { MergeBanner } = await import(path.join(DIR, "src/modules/ticket/MergeBanner.view.js"));
   const { TicketRepository, RESOLVE_TTL_MS } = await import(path.join(DIR, "src/modules/ticket/TicketRepository.js"));
   const A = await import(path.join(DIR, "src/core/api.js"));
@@ -29,24 +30,25 @@ const path = require("path"); const assert = require("assert"); const DIR = __di
   assert.deepStrictEqual(F.ticketBusySessions({ handled: [{ sid: "x", alive: true, state: "attention", disposition: "termine" }] }).alive.map(s => s.sid), ["x"], "state prime sur la marque");
   assert.strictEqual(F.effDisposition("idle", ""), "a_traiter"); assert.strictEqual(F.effDisposition("working", "termine"), null);
   console.log("✓ sessions occupées (RM2818) : terminé ne compte pas, parké si, éteintes à part");
-  // — le dépôt : caches partagés, péremption, dédup en vol, verrous —
-  let now = 1000; const caches = { resolve: {}, resolveAt: {}, mc: {}, usage: {}, ts: {} }; const calls = [];
+  // — le dépôt : stores nommés (RM3005), fraîcheur douce, dédup en vol, verrous —
+  let now = 1000; KS.resetStores(); const S = KS.appStores({ now: () => now }); const calls = [];
   A.configureApi({ fetch: async (p) => { calls.push(p); await new Promise(r => setTimeout(r, 2)); const body = p.startsWith("/api/ticket/resolve") ? { found: true, title: "T" + p.slice(-1) } : p.startsWith("/api/ticket/mergecheck") ? { verdict: { level: "ok" } } : p.startsWith("/api/ticket/usage") ? { usage: { turns: 1 }, engine: "claude" } : { handled: [] };
     return { ok: true, status: 200, statusText: "", headers: { get: () => "application/json" }, json: async () => body, text: async () => "" }; } });
-  const repo = new TicketRepository({ caches, now: () => now });
+  const repo = new TicketRepository({ stores: S, now: () => now });
   assert(repo.stale("1"), "jamais résolu → périmé");
   const titles = []; const [r1, r2] = await Promise.all([repo.ensureResolved("1", false, (rm, r) => titles.push(r.title)), repo.ensureResolved("1")]);
-  assert.strictEqual(calls.filter(p => p === "/api/ticket/resolve/1").length, 1, "deux appelants en vol → UNE requête (RM2763)"); assert.strictEqual(r1, r2); assert.deepStrictEqual(titles, ["T1"]); assert.strictEqual(caches.resolve["1"].title, "T1", "le cache partagé est rempli");
+  assert.strictEqual(calls.filter(p => p === "/api/ticket/resolve/1").length, 1, "deux appelants en vol → UNE requête (RM2763)"); assert.strictEqual(r1, r2); assert.deepStrictEqual(titles, ["T1"]); assert.strictEqual(S.resolve.get("1").title, "T1", "le cache partagé est rempli");
   assert(!repo.stale("1")); await repo.ensureResolved("1"); assert.strictEqual(calls.filter(p => p === "/api/ticket/resolve/1").length, 1, "cache entier servi sans requête");
-  caches.resolve["2"] = { partial: true, title: "brief" }; await repo.ensureResolved("2"); assert.strictEqual(calls.filter(p => p === "/api/ticket/resolve/2").length, 1, "une entrée partielle (brief) déclenche la résolution riche");
+  S.resolve.set("2", { partial: true, title: "brief" }); await repo.ensureResolved("2"); assert.strictEqual(calls.filter(p => p === "/api/ticket/resolve/2").length, 1, "une entrée partielle (brief) déclenche la résolution riche");
   now += RESOLVE_TTL_MS + 1; assert(repo.stale("1"), "au-delà du TTL → périmé");
   let after = 0; const changed = await repo.revalidate("1", () => after++); assert.strictEqual(changed, false, "même contenu → after() n'est pas appelé"); assert.strictEqual(after, 0);
-  caches.resolve["1"] = { found: true, title: "ancien" }; now += RESOLVE_TTL_MS + 1; await repo.revalidate("1", () => after++); assert.strictEqual(after, 1, "contenu changé → after()");
+  S.resolve.set("1", { found: true, title: "ancien" }); now += RESOLVE_TTL_MS + 1; await repo.revalidate("1", () => after++); assert.strictEqual(after, 1, "contenu changé → after()");
   assert.strictEqual(await repo.revalidate("1", () => after++), undefined, "frais → aucune révalidation");
-  const [m1, m2] = await Promise.all([repo.ensureMergecheck("1"), repo.ensureMergecheck("1")]); assert.deepStrictEqual(m1, { verdict: { level: "ok" } }); assert.strictEqual(m2, undefined, "verrou in-flight : le second appel rend undefined, comme avant"); assert(repo.mcFresh("1")); assert.strictEqual(caches.mc["1"].mc.verdict.level, "ok");
-  await repo.ensureUsage("1"); assert(repo.usageFresh("1") && !repo.usageInFlight("1")); assert.strictEqual(caches.usage["1"].meta.engine, "claude");
-  await repo.ensureTicketSessions("1"); assert.deepStrictEqual(caches.ts["1"], { handled: [] }); await repo.ensureTicketSessions("1"); assert.strictEqual(calls.filter(p => p.startsWith("/api/test-queue/ticket-sessions")).length, 1, "servi du cache sans force");
-  A.configureApi({ fetch: async () => { throw new Error("réseau"); } }); await repo.ensureResolved("9", true); assert.strictEqual(caches.resolve["9"], null, "échec → null en cache, pas d'exception");
-  console.log("✓ dépôt ticket : caches partagés, TTL, dédup en vol, révalidation, verrous, échec toléré");
+  const [m1, m2] = await Promise.all([repo.ensureMergecheck("1"), repo.ensureMergecheck("1")]); assert.deepStrictEqual(m1, { verdict: { level: "ok" } }); assert.strictEqual(m2, undefined, "verrou in-flight : le second appel rend undefined, comme avant"); assert(repo.mcFresh("1")); assert.strictEqual(S.mc.get("1").mc.verdict.level, "ok");
+  await repo.ensureUsage("1"); assert(repo.usageFresh("1") && !repo.usageInFlight("1")); assert.strictEqual(S.usage.get("1").meta.engine, "claude");
+  await repo.ensureTicketSessions("1"); assert.deepStrictEqual(S.ts.get("1"), { handled: [] }); await repo.ensureTicketSessions("1"); assert.strictEqual(calls.filter(p => p.startsWith("/api/test-queue/ticket-sessions")).length, 1, "servi du cache sans force");
+  A.configureApi({ fetch: async () => { throw new Error("réseau"); } }); await repo.ensureResolved("9", true); assert.strictEqual(S.resolve.get("9"), null, "échec → null en cache, pas d'exception");
+  assert(S.resolve.stats().entries >= 2 && S.resolve.max === 500 && S.resolve.name === "ticket.resolve", "RM3005 : le dépôt range tout dans les stores nommés, bornés");
+  console.log("✓ dépôt ticket : stores nommés (RM3005), fraîcheur douce, dédup en vol, révalidation, verrous, échec toléré");
   console.log("\nTous les tests du modèle ticket passent.");
 })().catch(e => { console.error("✗", e.message); process.exit(1); });

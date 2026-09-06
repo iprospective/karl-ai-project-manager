@@ -20,7 +20,7 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   const alertBox = ctx.alert || ((m) => window.alert(m));
   const attached = () => { const a = ctx.attached ? ctx.attached() : null; return a == null ? null : String(a); };
   const cfg = () => (ctx.cfg ? ctx.cfg() : null) || {};
-  const branches = () => { const a = attached(); const s = a && ctx.sess ? (ctx.sess() || {})[a] : null; return ((s && s.registry) || {}).branches || []; };
+  const branches = () => { const a = attached(); const s = a && ctx.sess ? ctx.sess().get(a) : null; return ((s && s.registry) || {}).branches || []; };
   const deps = { tip: ctx.tipAttr || (() => ""), pin: ctx.pinOf || (() => ""), linkify: ctx.linkify || ((s) => String(s == null ? "" : s)) };
   const modal = ctx.modal || { open() {}, close() {}, content: () => null };
 
@@ -109,8 +109,8 @@ export function mountWorklog({ body, fresh, nav } = {}, ctx = {}) {
   async function spawnBatch(items, btn, opts) {
     const o = opts || {}; if (!items || !items.length) return;
     const T = ctx.ticket;
-    if (T) await Promise.all(items.map(it => { const rm = refId(it.rm_id); return (ctx.resolve ? ctx.resolve() : {})[rm] === undefined ? T.ensureResolved(rm) : Promise.resolve(); }));
-    const plan = svc.offload(items, ctx.resolve ? ctx.resolve() : {});
+    if (T) await Promise.all(items.map(it => { const rm = refId(it.rm_id); return (ctx.resolve ? ctx.resolve().get(rm) : undefined) === undefined ? T.ensureResolved(rm) : Promise.resolve(); }));
+    const plan = svc.offload(items, ctx.resolve ? ctx.resolve().view : {});
     if (plan.mixed) { alertBox("Ces tickets appartiennent à plusieurs projets :\n\n  " + plan.projects.join("\n  ") + "\n\nUne session s'ancre sur UN projet — restreins la sélection à un seul."); return; }
     if (!plan.anchor) { alertBox("Aucun de ces tickets n'a de projet résolu : impossible de savoir où ancrer la session."); return; }
     const retenus = new Set(plan.targets.map(t => t.rm_id)), envoyes = items.filter(it => retenus.has(refId(it.rm_id)));

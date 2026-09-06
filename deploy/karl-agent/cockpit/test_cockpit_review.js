@@ -12,6 +12,7 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
   const ST = await import(path.join(DIR, "src/modules/ticket/ticketStatus.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const P = await import(path.join(DIR, "src/modules/ticket/prompts.js"));
   const { effDisposition } = await import(path.join(DIR, "src/modules/ticket/ticketFormat.js"));
   const VM = await import(path.join(DIR, "src/modules/review/ReviewViewModel.js"));
@@ -88,8 +89,8 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   const b2 = await svc.busyFor("42"); assert.deepStrictEqual(b2.alive.map(s => s.sid), ["9"]);
   console.log("✓ service : gardes NORMS franchies explicitement (checklist, merge gate), jamais avalées ni forcées d'office");
   // — le contrôleur —
-  const el = fakeElement(); const ev = []; const resolve = { "42": Object.assign({}, R, { status: "a_tester_demandeur" }) };
-  const T = { repo: { c: { mc: {}, ts: {} } }, ensureResolved: async (rm) => { ev.push(["resolve", rm]); return resolve[rm]; }, revalidate: async () => {}, ensureMergecheck: async () => {}, ensureTicketSessions: async () => {}, mcBanner: () => "", reload: async (rm) => ev.push(["reload", rm]) };
+  const el = fakeElement(); const ev = []; const resolve = mkStore("r", { "42": Object.assign({}, R, { status: "a_tester_demandeur" }) });
+  const T = { repo: { s: { mc: mkStore("mc"), ts: mkStore("ts") } }, ensureResolved: async (rm) => { ev.push(["resolve", rm]); return resolve.get(rm); }, revalidate: async () => {}, ensureMergecheck: async () => {}, ensureTicketSessions: async () => {}, mcBanner: () => "", reload: async (rm) => ev.push(["reload", rm]) };
   const center = { yield: (k) => ev.push(["yield", k]), note: (...a) => ev.push(["note", ...a]), title: () => {}, fallback: () => ev.push("fallback") };
   const ctr = mountReview(el, { ticket: T, service: svc, center, notify: (m, e) => ev.push(["toast", m, !!e]), confirm: () => true, prompt: () => "ma note", resolve: () => resolve, cfg: () => CFG, show: (on) => ev.push(["show", on]), setMeta: (rm) => ev.push(["meta", rm]), renderMeta: () => ev.push("renderMeta"), noteOpened: (rm) => ev.push(["opened", rm]), showRight: (t) => ev.push(["right", t]), refreshSessions: () => ev.push("sessions"), attach: (s) => ev.push(["attach", s]), tq: { entry: () => ({ branch: "b" }), loaded: () => true, size: () => 1, load: () => ev.push("tqload") }, launcher: () => ({ engine: "claude", model: "" }), popover: () => { const m = fakeElement(); el.sub.menu = m; return m; }, place: () => {}, onOutsideClick: () => {} });
   ctr.open("42"); assert.deepStrictEqual(ev.slice(0, 5), [["opened", "42"], ["yield", "review"], ["meta", "42"], ["show", true], ["note", "review", "42", "RM42"]]); assert.strictEqual(ctr.current(), "42"); assert.deepStrictEqual(ctr.tabs(), ["42"]); assert(/🧪 RM42/.test(el.innerHTML));

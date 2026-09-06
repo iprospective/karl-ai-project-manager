@@ -463,7 +463,8 @@ setsCtl = mountSets({ bar: byId("setbar"), card: byId("sessions-set-card") }, {
 // la pile /refresh (RM2763 composite unique, RM2613 cadence adaptative), la pastille de santé, « ⬆ MAJ dispo » (RM2571) et les questions
 // sans réponse (RM2598) : les blocs reçus vont aux domaines migrés ; les caches de résolution sont partagés par référence ; le premier tick
 // est déclenché par l'init du monolithe (tickSessions) une fois la configuration connue
-refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt"), updbtn: byId("updbtn") }, {
+refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt"), updbtn: byId("updbtn"), verwarn: byId("verwarn") }, {
+  version: VERSION,   // RM3000 : la version servie par /health est comparée à celle du front
   caches: { resolve: caches.resolve, resolveAt: caches.resolveAt }, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
@@ -493,6 +494,7 @@ journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") },
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
 // une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
 const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); log.error("front", label + " en erreur", { trace: errorBrief(e) }); return undefined; } };
+{ const v = byId("ver"); if (v) v.textContent = "cockpit v" + VERSION; }   // RM3000 : pied de page
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 

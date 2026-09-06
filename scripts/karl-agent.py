@@ -720,6 +720,16 @@ def op_auth_devices_list(ctx: dict) -> dict:
 
 # Cockpit web v0 (RM1873) — UI servie en MÊME ORIGINE que l'API (pas de CORS).
 COCKPIT_DIR = REPO_ROOT / "deploy" / "karl-agent" / "cockpit"
+
+
+def _cockpit_version() -> str:
+    """RM3000 : la version du cockpit, lue dans src/core/version.js (source unique, côté front) — exposée par /health et
+    comparée par la page à sa propre constante (un cache navigateur périmé se voit)."""
+    try:
+        m = re.search(r'export const VERSION = "([^"]+)"', (COCKPIT_DIR / "src" / "core" / "version.js").read_text(encoding="utf-8"))
+        return m.group(1) if m else "?"
+    except OSError:
+        return "?"
 # Aide intégrée (RM2593) : pages markdown versionnées, servies via /help.
 HELP_DIR = COCKPIT_DIR / "help"
 # Base URL du terminal web ttyd. Vide → le client la calcule (location.hostname:7681).
@@ -10920,6 +10930,7 @@ class Handler(BaseHTTPRequestHandler):
                     "status": "ok",
                     "sessions": len(_list_sessions()),
                     "tmux": _tmux("-V")[0] == 0,
+                    "version": _cockpit_version(),   # RM3000
                 })
             if path == "/sessions":
                 qs = {k: v[0] for k, v in parse_qs(parsed.query).items()}

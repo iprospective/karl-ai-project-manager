@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : d08e1f4238efd587 (27 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0d99cb97a6f3a92c (27 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -68,6 +68,24 @@
 
 * {
   box-sizing: border-box;
+}
+
+/* RM3000 : pied de page — une ligne, la version du front ; l'écart avec le serveur s'y signale */
+.foot {
+  flex: none;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 2px 16px;
+  font-size: 10.5px;
+  color: var(--muted);
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+}
+
+.foot .verwarn {
+  color: var(--warn);
+  font-weight: 600;
 }
 
 /* RM1893 (retour test) : layout verrouillé à la hauteur du viewport — la page

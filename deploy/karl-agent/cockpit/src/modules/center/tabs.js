@@ -66,6 +66,7 @@ export function tabTooltip(t, rcache, parse) {
     case "dash":     return "tableau de bord";
     case "pm":       return "commandes PM";
     case "settings": return "réglages du cockpit";
+    case "journal":  return "journal (serveur + navigateur)";
     default:         return lbl || key;
   }
 }
@@ -89,4 +90,4 @@ export function sessionTabAction(sid, sessions) {
 }
 
 export const ICONS = { session: "▶", review: "🧪", project: "📁", newticket: "＋", dash: "📊",
-  file: "📄", dir: "🗂", commit: "⎇", mail: "📧", client: "🏢", conf: "⚙", pm: "⚙", settings: "🔧" };
+  file: "📄", dir: "🗂", commit: "⎇", mail: "📧", client: "🏢", conf: "⚙", pm: "⚙", settings: "🔧", journal: "📜" };

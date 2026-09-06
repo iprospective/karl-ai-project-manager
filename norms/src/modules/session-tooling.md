@@ -46,6 +46,7 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Tâche | mesure temps/tokens (hook) | `pm-task-tick.py` |
 | Tâche | report conso → Redmine (time_entries + CF17) | `pm-task-report.py` |
 | Donnée PM | commit+push des écritures de scripts | *(automatique — `pm_git.autocommit`, RM1834 ; **silencieux si ça passe**, RM2440 ; `--no-commit` pour débrayer)* |
+| Donnée PM | **rattrapage** de ce qui traîne (édits libres : fiches, `.log.md`, CDC…) | *(automatique — chaque `pm_git.autocommit` d'un script embarque, dans un commit `pm(rattrapage): …` séparé, les fichiers non commités depuis **plus d'1 h** ; ni timer ni process dédié, RM3013 ; `git.sweep: false` / `git.sweep_after_min` ; journalisé catégorie `pm`)* |
 | Repo | protection de branches (code **ou** core) | `pm-protect.py` (`--repo` · `--all-cores`) |
 | Instance | pont d'onboarding des workspaces (`AGENTS.md` + `CLAUDE.md`) | `pm-workspace-bridge.py` (nu = contrôle · `--install` · `--update`, RM1892) |
 | Repo | promouvoir intégration → prod | `pm-promote.py` — ⚠ **transition** (RM2440), hors flux nominal |

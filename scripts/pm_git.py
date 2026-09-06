@@ -43,6 +43,8 @@ Config (pm.config.yml :: git, overridable via pm.config.local.yml) :
     autocommit: true   # false = désactive tout (les scripts n'auto-committent plus)
     autopush:   true   # false = commit local seulement
     verbose:    false  # true = réaffiche la ligne « ✓ commit <sha> » du succès
+    sweep:      true   # RM3013 : rattrapage de ce qui traîne (dépôts de données)
+    sweep_after_min: 60  # âge minimal (dernière modification) d'un fichier rattrapé
 
 Usage côté script :
     import pm_git
@@ -55,6 +57,10 @@ import time
 from pathlib import Path
 
 LOCK_TIMEOUT_S = 30
+# RM3013 — rattrapage de ce qui traîne : seuil d'âge (minutes) et fichiers de travail ignorés.
+SWEEP_AFTER_MIN = 60
+SWEEP_SKIP_SUFFIXES = (".tmp", ".lock", ".swp", ".part", "~")
+SWEEP_SKIP_PREFIXES = (".#",)
 
 # Marqueurs d'un dépôt de données PM, à la RACINE du dépôt (invariant posé par
 # norms/src/modules/structure-reference.md). Source unique : pm-protect importe
@@ -66,12 +72,20 @@ def _run(args, cwd=None):
     return subprocess.run(args, cwd=cwd, capture_output=True, text=True)
 
 
+def _num(v, default):
+    try:
+        return float(v) if v is not None else float(default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def _warn(msg):
     try:
         from pm_output import out
         out.warn(f"auto-commit : {msg}")
     except Exception:
         print(f"  ⚠ auto-commit : {msg}", file=sys.stderr)
+    _journal("warn", f"auto-commit : {msg}")
 
 
 def _push_error_kind(stderr):
@@ -92,7 +106,8 @@ def load_git_config():
     try:
         import yaml
     except ImportError:
-        return {"autocommit": True, "autopush": True, "integration_branch": "dev"}
+        return {"autocommit": True, "autopush": True, "integration_branch": "dev",
+                "sweep": True, "sweep_after_min": SWEEP_AFTER_MIN}
     base = Path(__file__).resolve().parent.parent
     merged = {}
     for name in ("pm.config.yml", "pm.config.local.yml"):
@@ -105,7 +120,9 @@ def load_git_config():
     return {"autocommit": bool(merged.get("autocommit", True)),
             "autopush": bool(merged.get("autopush", True)),
             "verbose": bool(merged.get("verbose", False)),
-            "integration_branch": str(merged.get("integration_branch", "dev") or "dev")}
+            "integration_branch": str(merged.get("integration_branch", "dev") or "dev"),
+            "sweep": bool(merged.get("sweep", True)),
+            "sweep_after_min": _num(merged.get("sweep_after_min"), SWEEP_AFTER_MIN)}
 
 
 def repo_root(path):
@@ -208,6 +225,157 @@ def _rebase_onto_remote(root, branch):
     return False, (last[-1] if last else "conflit")
 
 
+def _journal(level, msg, **fields):
+    """Trace dans logs/karl-agent.jsonl (catégorie `pm`, RM3010) — best-effort, jamais bloquant.
+    `echo=False` : la ligne console est déjà portée par `_warn`, pas de doublon sur stderr."""
+    try:
+        import pm_log
+        pm_log.log("pm", level, msg, echo=False, **fields)
+    except Exception:
+        pass
+
+
+def _trigger_name(message):
+    """`pm(tick): RM2889 …` → `tick` ; sinon un extrait court du message."""
+    import re
+    m = re.match(r"^\s*pm\(([^)]+)\)", message or "")
+    return m.group(1) if m else (message or "?").strip()[:40]
+
+
+def _stale_paths(root, cfg, exclude=()):
+    """RM3013 — chemins du repo laissés non commités depuis plus de `sweep_after_min`.
+
+    Lit `git status --porcelain -z --untracked-files=all`, écarte les chemins commités
+    par l'appel courant et les fichiers de travail (`*.tmp`, `*.lock`, `*.swp`, `*~`,
+    `.#*`), puis ne garde que ce dont la dernière modification (mtime ; pour une
+    suppression : mtime du dossier parent) est antérieure au seuil. Un fichier
+    touché il y a moins d'une heure est laissé tranquille : une session peut être
+    dessus, et c'est son propre auto-commit qui doit l'emporter.
+    """
+    import os
+    st = _run(["git", "-C", str(root), "status", "--porcelain", "-z", "--untracked-files=all"])
+    if st.returncode != 0:
+        return []
+    cutoff = time.time() - float(cfg.get("sweep_after_min", SWEEP_AFTER_MIN)) * 60
+    entries = st.stdout.split("\0")
+    picked, i = [], 0
+    while i < len(entries):
+        e = entries[i]
+        i += 1
+        if len(e) < 4:
+            continue
+        xy, p = e[:2], e[3:]
+        if xy[0] in "RC":
+            i += 1  # renommage/copie stagé : l'entrée suivante est l'ancien chemin
+        if p in exclude or p.endswith("/"):
+            continue
+        name = p.rsplit("/", 1)[-1]
+        if name.endswith(SWEEP_SKIP_SUFFIXES) or name.startswith(SWEEP_SKIP_PREFIXES):
+            continue
+        fp = root / p
+        try:
+            mtime = os.lstat(fp).st_mtime
+        except FileNotFoundError:  # suppression : datée par le dossier parent
+            try:
+                mtime = os.lstat(fp.parent).st_mtime
+            except OSError:
+                continue
+        except OSError:
+            continue
+        if mtime <= cutoff:
+            picked.append(p)
+    return picked
+
+
+def _sweep_stale(root, cfg, trigger, exclude=()):
+    """RM3013 — commit de rattrapage de ce qui traîne, sous le verrou de l'appelant.
+
+    Pas de timer ni de process dédié (décision Mathieu 2026-09-06) : c'est chaque
+    auto-commit d'un script qui referme le filet. Dépôts de DONNÉES seulement
+    (`is_core_repo`) ; `git.sweep: false` débraye. Retourne le sha du commit de
+    rattrapage ou None. Silencieux si succès (RM2440) ; journalisé (catégorie `pm`).
+    """
+    if not cfg.get("sweep", True) or not is_core_repo(root):
+        return None
+    picked = _stale_paths(root, cfg, exclude)
+    if not picked:
+        return None
+    mins = int(float(cfg.get("sweep_after_min", SWEEP_AFTER_MIN)))
+    tool = _trigger_name(trigger)
+    add = _run(["git", "-C", str(root), "add", "-A", "--"] + picked)
+    if add.returncode != 0:
+        _warn(f"rattrapage : git add a échoué : {add.stderr.strip()}")
+        return None
+    msg = (f"pm(rattrapage): {len(picked)} fichier(s) laissés non commités > {mins} min "
+           f"(déclenché par {tool})")
+    c = _run(["git", "-C", str(root), "commit", "-m", msg, "--"] + picked)
+    if c.returncode != 0:
+        _warn(f"rattrapage : git commit a échoué : {(c.stderr or c.stdout).strip()}")
+        return None
+    sha = _run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"]).stdout.strip()
+    _journal("info", f"rattrapage git : {len(picked)} fichier(s) commités", repo=str(root), sha=sha,
+             after_min=mins, trigger=tool, files=picked[:20], more=max(0, len(picked) - 20) or None)
+    return sha
+
+
+def _push(root, cfg, sha):
+    """Pousse HEAD selon le régime du dépôt (core : push direct + rebase de rattrapage,
+    RM2440 ; code : repli sur la branche d'intégration si protégée, RM2298).
+    Retourne le suffixe descriptif du succès ('' si rien n'est parti ; l'échec a déjà parlé)."""
+    pushed = ""
+    core = is_core_repo(root)
+    cur = _run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
+    p = _run(["git", "-C", str(root), "push"])
+    if p.returncode == 0:
+        return " + push"
+    kind = _push_error_kind(p.stderr)
+    last = p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "raison inconnue"
+    if kind == "non_ff" and core and cur:
+        # RM2440 — sur un core, on rattrape au lieu de différer : sous
+        # le verrou, fetch + rebase de nos commits, puis re-push. C'est
+        # ce qui empêche l'arriéré de se reformer sous une autre forme
+        # une fois le push direct autorisé.
+        ok, why = _rebase_onto_remote(root, cur)
+        if ok:
+            p3 = _run(["git", "-C", str(root), "push"])
+            if p3.returncode == 0:
+                pushed = " + push (après rebase sur origin)"
+            else:
+                l3 = (p3.stderr or "").strip().splitlines()
+                _warn(f"push refusé après rebase ({l3[-1] if l3 else '?'}) — "
+                      f"commit local {sha} conservé")
+        else:
+            _warn(f"remote a avancé et le rebase a échoué ({why}) — commit "
+                  f"local {sha} conservé, arbre laissé intact")
+    elif kind == "protected":
+        # RM2298 : branche courante protégée — un push direct ne passera
+        # JAMAIS ici. Repli sur la branche d'intégration ; la promotion se
+        # fait ensuite par MR. Depuis RM2440 ce chemin ne concerne plus que
+        # les dépôts de CODE : sur un core, `main` accepte le push direct.
+        integ = cfg["integration_branch"]
+        if core:
+            _warn(f"branche {cur or '?'} protégée sur un dépôt de données PM — "
+                  f"politique core non appliquée ? (pm-protect --repo {root}) ; "
+                  f"commit local {sha} conservé")
+        elif cur and cur != integ:
+            p2 = _run(["git", "-C", str(root), "push", "origin", f"HEAD:{integ}"])
+            if p2.returncode == 0:
+                pushed = f" + push → {integ} ({cur} protégée ; livraison par MR)"
+            else:
+                last2 = (p2.stderr or "").strip().splitlines()[-1] if (p2.stderr or "").strip() else "?"
+                _warn(f"branche {cur} protégée ET repli {integ} refusé ({last2}) "
+                      f"— commit local {sha} conservé")
+        else:
+            _warn(f"branche {cur or '?'} protégée ({last}) — commit local {sha} "
+                  f"conservé ; livraison par MR")
+    elif kind == "non_ff":
+        _warn(f"push différé (remote a avancé : non-fast-forward) — commit local {sha} "
+              f"conservé, le prochain auto-push l'emportera")
+    else:
+        _warn(f"push refusé ({last}) — commit local {sha} conservé")
+    return pushed
+
+
 def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
     """Committe (et pousse) atomiquement les chemins listés. Retourne le sha court ou None.
 
@@ -219,6 +387,12 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
               **suppression** (RM2866, `pm-task-move` : la fiche a quitté le repo
               source). Hors ce cas, un chemin manquant est une erreur d'appelant —
               d'où le filtre par défaut, conservé tel quel.
+
+    RM3013 : sur un dépôt de DONNÉES, chaque appel referme aussi le filet — ce qui
+    traîne non commité depuis plus de `git.sweep_after_min` part dans un commit
+    `pm(rattrapage): …` séparé (voir `_sweep_stale`), poussé avec le nôtre. Le sha
+    rendu reste celui des chemins nommés (None s'ils n'avaient rien à committer,
+    même si un rattrapage est parti).
     """
     cfg = load_git_config()
     if not (cfg["autocommit"] if enabled is None else enabled):
@@ -260,86 +434,41 @@ def autocommit(paths, message, push=None, enabled=None, allow_missing=False):
                     return None
                 time.sleep(0.4)
 
-        if not _run(["git", "-C", str(root), "status", "--porcelain", "--"] + rel).stdout.strip():
-            return None  # rien à committer (contenu identique)
+        sha = None
+        if _run(["git", "-C", str(root), "status", "--porcelain", "--"] + rel).stdout.strip():
+            add = _run(["git", "-C", str(root), "add", "--"] + rel)
+            if add.returncode != 0:
+                _warn(f"git add a échoué : {add.stderr.strip()}")
+                return None
+            # `commit -- <chemins>` : n'embarque QUE ces chemins, même si d'autres
+            # fichiers sont stagés par une session concurrente.
+            c = _run(["git", "-C", str(root), "commit", "-m", message, "--"] + rel)
+            if c.returncode != 0:
+                _warn(f"git commit a échoué : {(c.stderr or c.stdout).strip()}")
+                return None
+            sha = _run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"]).stdout.strip()
 
-        add = _run(["git", "-C", str(root), "add", "--"] + rel)
-        if add.returncode != 0:
-            _warn(f"git add a échoué : {add.stderr.strip()}")
-            return None
-        # `commit -- <chemins>` : n'embarque QUE ces chemins, même si d'autres
-        # fichiers sont stagés par une session concurrente.
-        c = _run(["git", "-C", str(root), "commit", "-m", message, "--"] + rel)
-        if c.returncode != 0:
-            _warn(f"git commit a échoué : {(c.stderr or c.stdout).strip()}")
-            return None
-        sha = _run(["git", "-C", str(root), "rev-parse", "--short", "HEAD"]).stdout.strip()
+        # RM3013 — le rattrapage tourne même quand nos chemins étaient déjà à jour :
+        # un process qui passe par ici est l'occasion de commiter ce qui traîne.
+        swept = _sweep_stale(root, cfg, message, exclude=set(rel))
+        if sha is None and swept is None:
+            return None  # rien à committer (contenu identique) et rien qui traîne
 
         pushed = ""
         if cfg["autopush"] if push is None else push:
-            core = is_core_repo(root)
-            cur = _run(["git", "-C", str(root), "rev-parse", "--abbrev-ref", "HEAD"]).stdout.strip()
-            p = _run(["git", "-C", str(root), "push"])
-            if p.returncode == 0:
-                pushed = " + push"
-            else:
-                kind = _push_error_kind(p.stderr)
-                last = p.stderr.strip().splitlines()[-1] if p.stderr.strip() else "raison inconnue"
-                if kind == "non_ff" and core and cur:
-                    # RM2440 — sur un core, on rattrape au lieu de différer : sous
-                    # le verrou, fetch + rebase de nos commits, puis re-push. C'est
-                    # ce qui empêche l'arriéré de se reformer sous une autre forme
-                    # une fois le push direct autorisé.
-                    ok, why = _rebase_onto_remote(root, cur)
-                    if ok:
-                        p3 = _run(["git", "-C", str(root), "push"])
-                        if p3.returncode == 0:
-                            sha = _run(["git", "-C", str(root), "rev-parse",
-                                        "--short", "HEAD"]).stdout.strip()
-                            pushed = " + push (après rebase sur origin)"
-                        else:
-                            l3 = (p3.stderr or "").strip().splitlines()
-                            _warn(f"push refusé après rebase ({l3[-1] if l3 else '?'}) — "
-                                  f"commit local {sha} conservé")
-                    else:
-                        _warn(f"remote a avancé et le rebase a échoué ({why}) — commit "
-                              f"local {sha} conservé, arbre laissé intact")
-                elif kind == "protected":
-                    # RM2298 : branche courante protégée — un push direct ne passera
-                    # JAMAIS ici. Repli sur la branche d'intégration ; la promotion se
-                    # fait ensuite par MR. Depuis RM2440 ce chemin ne concerne plus que
-                    # les dépôts de CODE : sur un core, `main` accepte le push direct.
-                    integ = cfg["integration_branch"]
-                    if core:
-                        _warn(f"branche {cur or '?'} protégée sur un dépôt de données PM — "
-                              f"politique core non appliquée ? (pm-protect --repo {root}) ; "
-                              f"commit local {sha} conservé")
-                    elif cur and cur != integ:
-                        p2 = _run(["git", "-C", str(root), "push", "origin", f"HEAD:{integ}"])
-                        if p2.returncode == 0:
-                            pushed = f" + push → {integ} ({cur} protégée ; livraison par MR)"
-                        else:
-                            last2 = (p2.stderr or "").strip().splitlines()[-1] if (p2.stderr or "").strip() else "?"
-                            _warn(f"branche {cur} protégée ET repli {integ} refusé ({last2}) "
-                                  f"— commit local {sha} conservé")
-                    else:
-                        _warn(f"branche {cur or '?'} protégée ({last}) — commit local {sha} "
-                              f"conservé ; livraison par MR")
-                elif kind == "non_ff":
-                    _warn(f"push différé (remote a avancé : non-fast-forward) — commit local {sha} "
-                          f"conservé, le prochain auto-push l'emportera")
-                else:
-                    _warn(f"push refusé ({last}) — commit local {sha} conservé")
+            pushed = _push(root, cfg, sha or swept)
 
         # RM2440 — le succès est silencieux : la plomberie git des données PM ne
         # fait pas partie de ce que l'utilisateur a demandé. `git.verbose: true`
         # dans pm.config.yml rétablit la ligne pour du débogage.
         if cfg.get("verbose"):
+            extra = (f"{sha} ({len(rel)} fichier(s))" if sha else "rien pour nos chemins") \
+                + (f" ; rattrapage {swept}" if swept else "") + pushed
             try:
                 from pm_output import out
-                out.op("commit", extra=f"{sha} ({len(rel)} fichier(s)){pushed}")
+                out.op("commit", extra=extra)
             except Exception:
-                print(f"✓ auto-commit {sha} ({len(rel)} fichier(s)){pushed}")
+                print(f"✓ auto-commit {extra}")
         return sha
 
 

@@ -30,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_output import out as pmout          # noqa: E402
 from pm_paths import PMConfig               # noqa: E402
+import pm_git                               # noqa: E402  (RM3013)
 from pm_transcript import transcript_outline  # noqa: E402
 
 CLAUDE_STORES = [
@@ -135,6 +136,7 @@ def cmd_persist(args):
         return
     with open(log, "a", encoding="utf-8") as fh:
         fh.write(entry)
+    pm_git.autocommit([log], f"pm(decisions): RM{args.rm_id} {len(decisions)} question(s)")  # RM3013
     pmout.op("decisions", extra=f"RM{args.rm_id} ← {len(decisions)} question(s) "
                                 f"({sum(1 for _, a in decisions if a)} tranchée(s))")
     pmout.info(f"  · {log}")

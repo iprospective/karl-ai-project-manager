@@ -33,6 +33,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from pm_paths import PMConfig
+import pm_git  # RM3013 : le glossaire part avec les autres données PM
 
 FICHIER = "glossaire.md"
 ENTETE = "| Terme | Définition | Contexte d'usage | Alias |"
@@ -86,6 +87,7 @@ def ecrire(f: Path, projet: str, entrees: list[dict]) -> None:
         f"| {e['terme']} | {e['definition']} | {e['contexte'] or '—'} | {e['alias'] or '—'} |\n"
         for e in entrees)
     f.write_text(entete_fichier(projet) + corps, encoding="utf-8")
+    pm_git.autocommit([f], f"pm(glossaire): {projet} {len(entrees)} entrée(s)")
 
 
 def _cle(terme: str) -> str:

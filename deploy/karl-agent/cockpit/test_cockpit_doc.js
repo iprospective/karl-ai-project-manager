@@ -67,4 +67,4 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   ctr.unmount(); assert.strictEqual(el.listenerCount + root.listenerCount, 0);
   console.log("✓ modale doc : document → markdown → centre, aide naviguée (sommaire, liens internes), glossaire cherchable et ouvert sur un terme, voile");
   console.log("\nTous les tests markdown / glossaire / aide / modale passent.");
-})().catch(e => { console.error("✗", e.message); process.exit(1); });
+})().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

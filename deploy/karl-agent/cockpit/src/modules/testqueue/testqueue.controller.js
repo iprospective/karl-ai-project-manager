@@ -1,10 +1,11 @@
 // controllers/testqueue.controller — le panneau « à tester » : trois gestes. RM2889.
 // Prêts du monolithe : le runner PM, la modale de capture, la résolution d'un ticket,
 // la revue (ouverture, verdict), la marque d'épinglage, l'aide.
-import { mount } from "../../core/dom.js";
+import { mount, paint as paintInto } from "../../core/dom.js";
 import { TestQueueService } from "./testqueue.service.js";
 import { TestQueueViewModel } from "./TestQueueViewModel.js";
 import { TestQueuePanel } from "./TestQueue.view.js";
+import { html } from "../../core/html.js";
 
 export function mountTestQueue(el, ctx = {}) {
   const svc = ctx.service || new TestQueueService(undefined, ctx.run);
@@ -36,7 +37,7 @@ export function mountTestQueue(el, ctx = {}) {
   };
   const handle = mount(el, "", { events: [
     ["click", "[data-action]", (ev, n) => { const g = gestures[n.dataset.action]; if (g) return g(n); }],
-    ["input", "[data-filter]", (ev, n) => { if (n.dataset.filter === "q") { filters.q = n.value || ""; const ul = handle.el.querySelector && handle.el.querySelector("#tq-list"); const cnt = handle.el.querySelector && handle.el.querySelector("#tq-count"); if (ul) { const v = vm(); ul.innerHTML = v.items().length ? v.items().map(i => String(TestQueuePanel.item(i))).join("") : '<li style="color:var(--muted)">' + v.emptyText + "</li>"; if (cnt) cnt.textContent = v.count; } } }],
+    ["input", "[data-filter]", (ev, n) => { if (n.dataset.filter === "q") { filters.q = n.value || ""; const ul = handle.el.querySelector && handle.el.querySelector("#tq-list"); const cnt = handle.el.querySelector && handle.el.querySelector("#tq-count"); if (ul) { const v = vm(); paintInto(ul, v.items().length ? html`${v.items().map(i => TestQueuePanel.item(i))}` : html`<li style="color:var(--muted)">${v.emptyText}</li>`); if (cnt) cnt.textContent = v.count; } } }],
     ["change", "[data-filter]", (ev, n) => { const k = n.dataset.filter; filters[k] = n.type === "checkbox" ? !!n.checked : (n.value || ""); if (k !== "q") paint(); }],
   ] });
   paint();

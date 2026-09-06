@@ -1,6 +1,6 @@
 // models/glossary/glossary — le glossaire du jargon (RM2623/2634 : entrées, index, recherche, soulignage inline
 // sûr) et le glossaire d'un PROJET (RM2675 : tableau markdown à 4 colonnes, filtrable). RM2889 : sorti du monolithe.
-import { esc } from "../../core/html.js";
+import { html, raw } from "../../core/html.js";
 
 // Termes du jargon du cockpit. `c` = catégorie (glossGroups) · `a` = alias/pluriels · `inline:false` = panneau
 // seulement, jamais souligné dans les textes (mot trop courant/ambigu). Factuel, lisible par un non-développeur.
@@ -170,8 +170,7 @@ export function glossify(escaped, built) {
   return s.replace(re, function (m) {
     const hit = built.map[glossNorm(m)];
     if (!hit) return m;
-    return '<span class="gloss" data-term="' + esc(glossNorm(hit.t))
-      + '" title="' + esc(hit.d) + '">' + m + "</span>";
+    return String(html`<span class="gloss" data-term="${glossNorm(hit.t)}" title="${hit.d}">${raw(m)}</span>`);
   });
 }
 

@@ -89,6 +89,20 @@ export function mount(el, frag, { events = [], module = null } = {}) {
   return handle;
 }
 
+/**
+ * RM3001 : écrire un fragment dans un sous-élément (options d'un select, badge, carte secondaire) — le SEUL point d'écriture HTML
+ * hors `mount()`/`update()`. N'accepte qu'un fragment SÛR (`html\`…\``, `raw()`) ou le vide : une chaîne nue lève, c'est la garde
+ * contre un attribut construit à la main. Rend l'élément (ou null s'il est absent : les hôtes optionnels restent optionnels).
+ */
+function safeHtml(frag, what) {
+  if (frag == null || frag === "") return "";
+  if (typeof frag === "object" && typeof frag.toString === "function" && frag.constructor && frag.constructor.name === "Safe") return String(frag);
+  throw new Error(what + " : fragment non sûr — passer par html`…` ou raw()");
+}
+export function paint(el, frag) { if (!el) return null; el.innerHTML = safeHtml(frag, "paint"); return el; }
+/** Ajoute un fragment sûr à la fin d'un élément (une option de plus dans un select) sans repeindre le reste. */
+export function append(el, frag) { if (!el) return null; const h = safeHtml(frag, "append"); if (h) el.insertAdjacentHTML("beforeend", h); return el; }
+
 /** Ce qui est monté et ce que ça retient — pour la sonde mémoire (L1b). */
 export function domStats() {
   let pending = 0;

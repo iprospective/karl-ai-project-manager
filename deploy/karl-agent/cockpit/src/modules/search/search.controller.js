@@ -3,7 +3,7 @@
 // Hôte : la carte #searchcard (champ, ✕, source, client, projet, statut, étiquette, avertissement, résultats).
 // Le monolithe prête les projets connus, le contexte client, les statuts NORMS (CFG), le lien de titre (fiche ℹ),
 // la marque d'épinglage (routeur), et ce qu'un clic déclenche : préparer le lanceur sur le ticket.
-import { mount } from "../../core/dom.js";
+import { mount, paint, append } from "../../core/dom.js";
 import { html } from "../../core/html.js";
 import { SearchService } from "./search.service.js";
 import { SearchResultsViewModel, SearchFiltersViewModel } from "./SearchViewModel.js";
@@ -37,26 +37,26 @@ export function mountSearch(card, ctx = {}) {
   function fillProjects() {
     const ps = q("#sf-project"); if (!ps) return;
     const r = new SearchFiltersViewModel({ projects: projects(), client: val("#sf-client"), ctxClient: ctxClient(), project: ps.value }).projects;
-    ps.innerHTML = String(Options(r.options, r.value, "tous les projets")); ps.value = r.value;
+    paint(ps, Options(r.options, r.value, "tous les projets")); ps.value = r.value;
   }
   /** Les projets sont connus : clients, statuts (une fois), projets. */
   function init() {
     const vm = new SearchFiltersViewModel({ projects: projects(), statuses: ctx.statuses ? ctx.statuses() : [] });
-    const cs = q("#sf-client"); if (cs) { const cur = cs.value; cs.innerHTML = String(Options(vm.clients, cur, "tous les clients")); cs.value = vm.clients.includes(cur) ? cur : ""; }
-    const st = q("#sf-status"); if (st && (!st.options || st.options.length <= 1)) st.innerHTML = String(Options(vm.statuses, "", "tous les statuts"));
+    const cs = q("#sf-client"); if (cs) { const cur = cs.value; paint(cs, Options(vm.clients, cur, "tous les clients")); cs.value = vm.clients.includes(cur) ? cur : ""; }
+    const st = q("#sf-status"); if (st && (!st.options || st.options.length <= 1)) paint(st, Options(vm.statuses, "", "tous les statuts"));
     fillProjects();
   }
   /** RM2830 : le menu d'étiquettes vient de GET /tags ; un rafraîchissement ne défait pas le filtre. Les autres menus (triage) sont prévenus. */
   async function loadTags() {
     const tags = await svc.loadTags();
-    const sel = q("#sf-tag"); if (sel) { const cur = sel.value; sel.innerHTML = String(Options(new SearchFiltersViewModel({ tags }).tags, cur, "toutes les étiquettes")); sel.value = cur; }
+    const sel = q("#sf-tag"); if (sel) { const cur = sel.value; paint(sel, Options(new SearchFiltersViewModel({ tags }).tags, cur, "toutes les étiquettes")); sel.value = cur; }
     if (ctx.onTags) ctx.onTags(tags);
     return tags;
   }
   /** RM2832 : clic sur une étiquette ailleurs → la recherche s'y règle (une étiquette inconnue du menu y est ajoutée). */
   function setTag(tag) {
     const sel = q("#sf-tag"); tag = String(tag || "");
-    if (sel) { if (tag && !(sel.options && [...sel.options].some(o => o.value === tag))) sel.insertAdjacentHTML("beforeend", String(html`<option value="${tag}">${tag}</option>`)); sel.value = tag; }
+    if (sel) { if (tag && !(sel.options && [...sel.options].some(o => o.value === tag))) append(sel, html`<option value="${tag}">${tag}</option>`); sel.value = tag; }
     const i = q("#search"); if (i) i.value = "";
     return search();
   }

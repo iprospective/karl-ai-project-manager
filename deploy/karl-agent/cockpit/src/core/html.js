@@ -4,26 +4,13 @@
 // rend importable sous node nu (contrainte C5 — les tests tournent sans
 // navigateur). Le montage dans le document est l'affaire de core/dom.js.
 //
-// `esc` et `jarg` sont repris à l'IDENTIQUE d'index.html : un lot déplace, il
-// ne réécrit pas (§ 15.7). Leur comportement est verrouillé par des tests avant
-// que le moindre appelant ne bouge.
+// RM3001 : `esc` est un DÉTAIL du gabarit `html` — aucune vue ne l'appelle (garde core § 15) ; il reste exporté pour les tests, qui
+// s'en servent comme escFn prêtée. `jarg` (argument d'un handler inline) a disparu avec le dernier `on*` : plus rien à protéger.
 
-/** Échappe le texte destiné à un nœud ou à un attribut entre guillemets doubles. */
+/** Échappe le texte destiné à un nœud ou à un attribut entre guillemets doubles. Exporté pour les tests seulement. */
 export function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"]/g, c =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
-/**
- * Argument CHAÎNE d'un handler inline : rend `'...'` — guillemets SIMPLES.
- *
- * L'attribut HTML est écrit en guillemets doubles ; un `JSON.stringify` y
- * refermerait l'attribut au premier `"` et tuerait le handler au clic, sans
- * que tests ni serve-check ne le voient. D'où les simples, et le `&quot;`.
- */
-export function jarg(s) {
-  return "'" + String(s == null ? "" : s)
-    .replace(/\\/g, "\\\\").replace(/'/g, "\\'").replace(/"/g, "&quot;") + "'";
 }
 
 /** Fragment déjà sûr : ne sera pas ré-échappé par `html`. */

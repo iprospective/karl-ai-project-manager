@@ -4,7 +4,7 @@
 //
 // Hôtes : `host` (#termhost), `frame` (#term), `composer` (#composer : cmpwarn, cmptext, cmphistbtn, cpbtn, bufbtn, cmphint, cmpsend, cmphist).
 // Le monolithe prête CFG, le token, la session attachée et son état live, les toasts, la modale texte (capture).
-import { mount } from "../../core/dom.js";
+import { mount, paint } from "../../core/dom.js";
 import { TerminalService } from "./terminal.service.js";
 import { ComposerViewModel } from "./ComposerViewModel.js";
 import { ComposerWarn, ComposerHistory } from "./Composer.view.js";
@@ -40,7 +40,7 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   function unmountTerm() {
     memProbeStop();
     if (state.session) { try { state.session.dispose(); } catch (e) { /* déjà fermé */ } state.session = null; }
-    if (host) { host.innerHTML = ""; host.style.display = "none"; }
+    if (host) { paint(host, ""); host.style.display = "none"; }
     if (frame) { frame.src = "about:blank"; frame.style.display = "none"; }
     composerShow(false);
   }
@@ -67,7 +67,7 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   function composerRefresh() {
     if (!composer || composer.style.display === "none") return;
     const v = vm(), warn = q("#cmpwarn"), btn = q("#cmpsend"), hint = q("#cmphint");
-    if (warn) { warn.style.display = v.warn ? "block" : "none"; warn.innerHTML = String(ComposerWarn(v)); }
+    if (warn) { warn.style.display = v.warn ? "block" : "none"; paint(warn, ComposerWarn(v)); }
     if (btn) { btn.textContent = v.labels.btn; btn.title = v.labels.title; }
     if (hint) hint.textContent = v.labels.hint;
   }

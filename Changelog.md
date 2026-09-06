@@ -288,6 +288,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Le cockpit n'écrit plus de HTML qu'en un seul endroit** (RM3001). Quarante-cinq `innerHTML =`
+  subsistaient dans les contrôleurs (options de listes déroulantes, badges, cartes secondaires),
+  chacun avec son `String(vue)` — autant de portes par lesquelles une chaîne construite à la main
+  aurait pu passer. `core/dom.js` gagne `paint(el, frag)` et `append(el, frag)`, qui n'acceptent
+  qu'un fragment sûr (`html\`…\``, `raw()`) ou le vide et lèvent sur une chaîne nue ; tous les
+  sites y passent, `jarg()` (argument d'un handler inline, plus aucun `on*`) est retiré, et
+  `esc()` n'est plus appelé par aucune vue (linkify, titres, surlignage, glossaire réécrits sur
+  le gabarit). Garde de test : aucune écriture HTML hors `core/dom.js`.
 - **Sonde mémoire par module** (RM3007). Le cockpit savait dire, depuis la console, combien de
   montages et d'entrées de store il retenait (`karl.stats()`), mais rien n'était activable
   depuis l'interface ni ventilé par module — l'enquête RM2807 (onglets à 20 Go) en restait à

@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit) — ne pas éditer à la main ; empreinte des sources scss : ebad13eb4a29b920 (26 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : ebad13eb4a29b920 (26 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */

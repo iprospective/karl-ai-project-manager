@@ -120,6 +120,54 @@ leur remplaçant. Un `node_modules` contenant Playwright suffit (celui d'un proj
 Diagnostic en production : `karl.stats()` (stores, DOM, abonnés), `karl.log.entries()`,
 le panneau 📜 journal, le pied de page (version).
 
+## Coût de lecture par domaine (RM3008)
+
+Objectif de la refonte : modifier une vue ne doit demander de lire que son domaine, sous
+**15 000 tokens** (≈ 4 caractères par token), contre ~120 k avec le monolithe. La mesure vit
+dans `scripts/cockpit-view-cost.py` (`--md` pour ce tableau, `--domain <d>` fichier par fichier,
+`--check 15000` comme garde ; `core` figure dans le tableau mais pas dans la garde : c'est le
+socle, pas un domaine). Instantané du 2026-09-06, à régénérer plutôt qu'à corriger à la main :
+
+| domaine | total | vue | model | repository | service | viewmodel | view | controller | style | test |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| sets ⚠ | 23746 | 18158 | 2843 | 692 | 2054 | 1084 | 1755 | 3939 | 0 | 11381 |
+| sessions ⚠ | 21584 | 16885 | 2443 | 227 | 768 | 2252 | 2050 | 2881 | 1262 | 9704 |
+| worklog ⚠ | 20569 | 15735 | 2799 | 258 | 1035 | 1460 | 2679 | 3162 | 743 | 8436 |
+| center ⚠ | 17020 | 13918 | 1910 | 525 | 0 | 1351 | 1808 | 4006 | 668 | 6754 |
+| core ⚠ | 16570 | 6112 | 9941 | 518 | 0 | 537 | 0 | 0 | 0 | 5575 |
+| meta ⚠ | 16161 | 13634 | 860 | 465 | 256 | 2656 | 2906 | 2052 | 948 | 6022 |
+| tickets | 12478 | 9007 | 1779 | 545 | 596 | 651 | 866 | 2250 | 553 | 5240 |
+| review | 12391 | 11708 | 0 | 0 | 683 | 1154 | 2268 | 3367 | 0 | 4920 |
+| doc | 11518 | 5498 | 4451 | 245 | 224 | 402 | 312 | 1528 | 1101 | 3257 |
+| files | 11497 | 8646 | 1735 | 288 | 761 | 973 | 1333 | 1558 | 68 | 4784 |
+| projects | 10863 | 8931 | 717 | 680 | 423 | 1641 | 2833 | 2275 | 115 | 2183 |
+| terminal | 8708 | 6481 | 768 | 269 | 360 | 173 | 141 | 2662 | 832 | 3505 |
+| launcher | 8524 | 6957 | 811 | 281 | 381 | 228 | 191 | 2631 | 95 | 3909 |
+| auth | 8326 | 6531 | 468 | 345 | 708 | 0 | 383 | 1891 | 277 | 4257 |
+| outline | 8297 | 5910 | 836 | 238 | 377 | 477 | 447 | 1411 | 938 | 3576 |
+| env | 8213 | 6293 | 560 | 223 | 350 | 774 | 1283 | 1068 | 790 | 3168 |
+| journal | 7904 | 5850 | 540 | 229 | 745 | 434 | 626 | 1015 | 541 | 3776 |
+| refresh | 7623 | 4933 | 1241 | 226 | 872 | 0 | 0 | 1082 | 353 | 3852 |
+| resume | 7456 | 6011 | 709 | 221 | 407 | 465 | 413 | 1679 | 109 | 3454 |
+| layout | 6828 | 4842 | 494 | 0 | 403 | 0 | 0 | 1617 | 1091 | 3226 |
+| dashboard | 6773 | 4556 | 956 | 237 | 305 | 735 | 794 | 586 | 721 | 2442 |
+| voice | 6709 | 4640 | 615 | 315 | 1140 | 313 | 625 | 1219 | 0 | 2484 |
+| shell | 6513 | 6242 | 0 | 0 | 0 | 0 | 643 | 2017 | 271 | 3582 |
+| mail | 6316 | 5182 | 366 | 331 | 437 | 605 | 1237 | 955 | 0 | 2386 |
+| search | 6176 | 5013 | 656 | 193 | 152 | 389 | 270 | 1449 | 164 | 2907 |
+| actions | 6106 | 4708 | 574 | 288 | 241 | 211 | 202 | 1571 | 296 | 2725 |
+| testqueue | 5949 | 4582 | 787 | 139 | 442 | 309 | 965 | 1079 | 0 | 2231 |
+| ticket | 5877 | 2245 | 1932 | 1458 | 0 | 0 | 178 | 0 | 243 | 2067 |
+| git | 5240 | 4196 | 270 | 328 | 110 | 657 | 851 | 795 | 338 | 1895 |
+| newticket | 4962 | 3903 | 576 | 154 | 165 | 276 | 897 | 681 | 165 | 2051 |
+| settings | 4303 | 3757 | 0 | 404 | 142 | 167 | 606 | 716 | 0 | 2269 |
+| pmcmd | 2067 | 1432 | 0 | 335 | 300 | 377 | 554 | 502 | 0 | 0 |
+| pm | 329 | 0 | 0 | 120 | 209 | 0 | 0 | 0 | 0 | 0 |
+
+Les domaines marqués ⚠ ont chacun leur ticket de découpage (RM3017 sets, RM3018 sessions,
+RM3019 worklog, RM3020 center, RM3021 meta) : le poste principal est le fichier de test, à
+scinder par couche. `scripts/test_cockpit_view_cost.py` teste la mesure elle-même.
+
 ## Livrer
 
 MR ticket → `dev` → `main` (`mmi-pm mr create` / `mr merge`), puis `sudo mmi-pm core update`

@@ -187,10 +187,16 @@ tmux attach -t karl-RM1669
 Première UI web du système PM — **seed de RM1679**. Donne *lancer + superviser +
 reprise de main* dans le navigateur, sur l'API karl-agent existante.
 
-- **UI servie en même origine** par le daemon (`GET /`), HTML/JS auto-contenu
-  (`deploy/karl-agent/cockpit/index.html`) : pas de CORS, pas de build, pas de
-  dépendance. Liste les sessions (poll `/sessions`), formulaire de lancement
-  (`/spawn`), boutons Attach / Kill.
+- **UI servie en même origine** par le daemon (`GET /`) : pas de CORS, aucune
+  dépendance au chargement. Depuis la **3.0.0 (RM2889)** ce n'est plus un HTML
+  auto-contenu : `index.html` (coquille) + `src/boot.js` + modules ES par domaine
+  (`src/modules/<domaine>/`), servis tels quels sous `/static/` ; seul le CSS est
+  compilé (`cockpit.css` depuis les `.scss`, `npm run build:css` dans `tooling/`).
+  Routes `/api/<type>/<action>` (les chemins historiques ci-dessous restent servis
+  par alias). Version du front dans `src/core/version.js`, portée par `/health` et
+  le pied de page. Architecture, règles, tests et MEP : `deploy/karl-agent/cockpit/README.md`.
+  Liste les sessions (composite `/refresh`), formulaire de lancement (`/spawn`),
+  boutons Attach / Kill, et bien plus — voir l'aide intégrée (`❓`, `help/*.md`).
 - **Terminal web = ttyd** (`ttyd.service`), un seul process, lancé writable (`-W`)
   avec `-a` : le cockpit passe le `rm_id` en argument d'URL (`?arg=<id>`) ; le
   wrapper `cockpit/attach-karl.sh` **valide** `rm_id` (`^[0-9]+$`) puis fait

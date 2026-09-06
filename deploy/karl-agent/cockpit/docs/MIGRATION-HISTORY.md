@@ -1,4 +1,12 @@
-# Carte de migration du cockpit — mode d'emploi
+# Carte de migration du cockpit — historique (archivé le 2026-09-06, RM3009)
+
+> **Document d'archive.** Il raconte comment le cockpit est passé du monolithe `index.html` à
+> l'architecture 3.x (RM2889, lots L0→L8, puis RM3012/RM3010/RM3011/RM3000/RM3005). L'état
+> **vivant** de l'architecture est dans [`../README.md`](../README.md) ; les fichiers
+> `MIGRATION-MAP.tsv` et `MIGRATION-ROUTES.tsv` restent à la racine du cockpit parce que des
+> outils les lisent encore (`scripts/cockpit-gen-endpoints.py`, `scripts/pm-cockpit-remap.py`,
+> `test_cockpit_core.js`). Rien ici n'est à tenir à jour.
+
 
 Deux fichiers, générés puis relus à la main, qui pilotent la refonte RM2889
 (cf. l'aspect `docs/cockpit-architecture.md`, § 15 et § 17.1).

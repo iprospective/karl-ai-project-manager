@@ -100,7 +100,10 @@ project-management/                    # = pm.config.yml :: roots.pm_dir
   bin/
     mmi-pm                             # CLI d'instance (core update, index, doctor…)
   deploy/
-    karl-agent/                        # cockpit web : karl-agent.py (service), cockpit/ (UI),
+    karl-agent/                        # cockpit web : karl-agent.py (service), cockpit/ (UI 3.x :
+                                       # index.html + src/{boot.js,core,modules/<domaine>,styles},
+                                       # cockpit.css compilé, help/ aide intégrée, tooling/ build
+                                       # SCSS, test_cockpit*.js — voir cockpit/README.md),
                                        # units systemd (service USER dans le conteneur dev),
                                        # karl-askpass.sh (passphrase SSH par descripteur, RM2748)
   skills/                              # skills mmi-pm-* distribués (pm-skills-sync)

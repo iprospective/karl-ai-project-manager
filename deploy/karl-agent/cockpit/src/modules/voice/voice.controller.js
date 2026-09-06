@@ -24,7 +24,7 @@ export function mountVoice(el, ctx = {}) {
     notify(on ? "🔊 Mode voix : les sessions en attente seront annoncées" : "Mode voix coupé");
     if (on) svc.speak("Mode voix activé");
   }
-  const announce = (sessions) => svc.announce(sessions, ctx.resolve ? ctx.resolve() : {});
+  const announce = (sessions) => svc.announce(sessions, ctx.resolve ? ctx.resolve().view : {});
   async function readQuestion() {
     const rm = attached(); if (!rm) return;
     try { const r = await svc.readQuestion(rm); if (r.lines) notify("Pas de question en attente — lecture des dernières lignes"); }

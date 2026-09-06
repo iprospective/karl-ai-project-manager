@@ -14,7 +14,7 @@ export function mountProjectsPanel(el, ctx = {}) {
     if (!state.projects) return handle.update(ProjectsPanel(null));
     const vm = new ProjectsPanelViewModel({ projects: state.projects }, {
       filtre: state.filtre, open: state.open, client: ctx.clientContext ? ctx.clientContext() : "",
-      sessions: ctx.sessions ? ctx.sessions() : [], resolve: ctx.resolve ? ctx.resolve() : {}, pin: ctx.pin });
+      sessions: ctx.sessions ? ctx.sessions() : [], resolve: ctx.resolve ? ctx.resolve().view : {}, pin: ctx.pin });
     // repeindre remplace l'input : on garde le curseur au bout du filtre en cours de frappe
     handle.update(ProjectsPanel(vm));
     const f = handle.el.querySelector && handle.el.querySelector("#pj-filter");

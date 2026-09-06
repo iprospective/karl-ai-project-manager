@@ -11,6 +11,7 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   async click(action, data) { const n = { dataset: { action, ...(data || {}) }, closest: (s) => (s === "[data-action]" || s === '[data-action="open"]' && action === "open") ? n : null }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
   const O = await import(path.join(DIR, "src/modules/tickets/openedTickets.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const TR = await import(path.join(DIR, "src/modules/tickets/triage.js"));
   const B = await import(path.join(DIR, "src/modules/tickets/briefs.js"));
   const { TicketsPanelRepository } = await import(path.join(DIR, "src/modules/tickets/TicketsPanelRepository.js"));
@@ -76,8 +77,8 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   const sel = (id) => Object.assign(fakeElement(id), { value: "" }); const cs = sel("tr-client"), ps = sel("tr-project"), tg = sel("tr-tag"), hv = Object.assign(fakeElement("tr-hidevalid"), { type: "checkbox", checked: false });
   Object.assign(triage.kids, { "#triage-list": list, "#tr-client": cs, "#tr-project": ps, "#tr-tag": tg, "#tr-hidevalid": hv, "#tr-spawn": spawnBtn }); Object.assign(opened.kids, { "#openedbox": box, "#opened-count": cnt });
   const store = { data: { karlOpenedTickets: JSON.stringify(["2", "3"]), karlOpenedCard: "1" }, getItem(k) { return this.data[k] === undefined ? null : this.data[k]; }, setItem(k, v) { this.data[k] = String(v); } };
-  const ev = []; const resolve = Object.assign({}, tkCache); const inflight = {};
-  const T = { inFlight: (t) => !!inflight[t], ensureResolved: async (rm) => { ev.push(["resolve", rm]); inflight[rm] = true; await settle(5); delete inflight[rm]; resolve[rm] = { found: true, client: "acme", project: "shop", title: "T" + rm, status: "en_cours" }; return resolve[rm]; } };
+  const ev = []; const resolve = mkStore("r", tkCache); const inflight = {};
+  const T = { inFlight: (t) => !!inflight[t], ensureResolved: async (rm) => { ev.push(["resolve", rm]); inflight[rm] = true; await settle(5); delete inflight[rm]; resolve.set(rm, { found: true, client: "acme", project: "shop", title: "T" + rm, status: "en_cours" }); return resolve.get(rm); } };
   const svc = new TicketsPanelService({ repo, storage: store });
   const ctr = mountTicketsPanel({ triage, opened, badge }, { ticket: T, service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), root: { querySelectorAll: () => [] }, resolve: () => resolve, showTicket: (id) => ev.push(["show", id]), pinOf: () => "", clientContext: () => "iprospective", spawnBatch: async (items, btn, opts) => ev.push(["spawn", items.map(i => i.rm_id), opts]) });
   assert.strictEqual(opened.open, true, "RM2757 : l'utilisateur l'avait dépliée → rouverte"); assert.deepStrictEqual(ctr.opened(), ["2", "3"], "liste restaurée du stockage"); assert.strictEqual(badge.textContent, "2"); assert.strictEqual(cnt.textContent, "(2)"); assert(/data-rm="2"/.test(box.innerHTML) && /data-rm="3"/.test(box.innerHTML));

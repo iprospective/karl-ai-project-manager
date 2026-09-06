@@ -4,8 +4,8 @@ import { RefreshRepository } from "./RefreshRepository.js";
 import { buildSpecs, pendStaleSet, seedBriefs } from "./refresh.js";
 
 export class RefreshService {
-  constructor({ repo = new RefreshRepository(), now = () => Date.now(), caches = {} } = {}) {
-    this.repo = repo; this.now = now; this.caches = caches;
+  constructor({ repo = new RefreshRepository(), now = () => Date.now(), stores = {} } = {}) {
+    this.repo = repo; this.now = now; this.stores = stores;   // RM3005 : `stores.resolve` reçoit les briefs partiels
     this.hashes = {}; this.at = {}; this.worklogSid = null; this.inFlight = null; this.queued = null;
     this.stale = new Set();                                            // RM2598 : rm_ids ayant une question sans réponse
     this.hot = 0;                                                      // RM2613 : sessions en attention/choix (règle la cadence)
@@ -38,7 +38,7 @@ export class RefreshService {
       if (b.coreupdate) { this.hashes.coreupdate = b.coreupdate.hash; on.coreupdate(b.coreupdate.data); }
       if (b.sessions) {
         this.hashes.sessions = b.sessions.hash;
-        seedBriefs(b.sessions.data.briefs, this.caches.resolve || {}, this.caches.resolveAt, now);
+        seedBriefs(b.sessions.data.briefs, this.stores.resolve);
         const c = on.sessions(b.sessions.data.sessions);
         if (c) this.hot = (c.attention || 0) + (c.choice || 0);
       }

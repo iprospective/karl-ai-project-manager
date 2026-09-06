@@ -3,12 +3,12 @@
 // (RM2571) et les questions sans réponse (RM2598). RM2889.
 //
 // Hôtes : `health` (la pastille), `healthtxt`, `updbtn`. Les blocs reçus sont livrés aux domaines par `ctx.on*` (sessions → compteurs,
-// worklog, tableau de bord, poste) ; les caches de résolution sont partagés par référence (briefs semés en `partial`).
+// worklog, tableau de bord, poste) ; les briefs sont semés en `partial` dans le store de résolution (RM3005).
 import { RefreshService } from "./refresh.service.js";
 import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText, versionMismatch } from "./refresh.js";
 
 export function mountRefresh(hosts = {}, ctx = {}) {
-  const svc = ctx.service || new RefreshService({ caches: ctx.caches || {} });
+  const svc = ctx.service || new RefreshService({ stores: ctx.stores || {} });
   const later = ctx.later || ((fn, ms) => setTimeout(fn, ms));
   const hidden = () => (ctx.hidden ? !!ctx.hidden() : (typeof document !== "undefined" && document.hidden));
   const env = () => ({ attached: ctx.attached ? ctx.attached() : null, dashboardVisible: ctx.dashboardVisible ? !!ctx.dashboardVisible() : false, worklogVisible: ctx.worklogVisible ? !!ctx.worklogVisible() : false });

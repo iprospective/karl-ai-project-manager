@@ -14,7 +14,7 @@ export function mountFiles({ body, count, nav } = {}, ctx = {}) {
   const svc = ctx.service || new FilesService();
   const notify = ctx.notify || (() => {});
   const attached = () => { const a = ctx.attached ? ctx.attached() : null; return a == null ? null : String(a); };
-  const context = () => filesContext({ attached: attached(), currentReview: ctx.reviewCurrent ? ctx.reviewCurrent() : null, resolveCache: ctx.resolve ? ctx.resolve() : {}, currentProjectView: ctx.projectKey ? ctx.projectKey() : null, sets: ctx.sets ? ctx.sets() : [], currentSet: ctx.currentSet ? ctx.currentSet() : null });
+  const context = () => filesContext({ attached: attached(), currentReview: ctx.reviewCurrent ? ctx.reviewCurrent() : null, resolveCache: ctx.resolve ? ctx.resolve().view : {}, currentProjectView: ctx.projectKey ? ctx.projectKey() : null, sets: ctx.sets ? ctx.sets() : [], currentSet: ctx.currentSet ? ctx.currentSet() : null });
   const deps = { fileBody: ctx.fileBody || (() => ""), vocab: () => new VocabViewModel({ md: svc.nav.vocabMd, q: svc.nav.vocabQ }) };
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
   const paint = (frag) => { if (bodyH) bodyH.update(frag); };

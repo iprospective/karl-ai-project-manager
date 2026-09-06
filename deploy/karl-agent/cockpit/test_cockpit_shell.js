@@ -9,6 +9,7 @@ function fakeEl(id) { const L = []; return { id, style: {}, className: "", textC
   async fire(type, ev) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ preventDefault() { ev.prevented = true; }, stopPropagation() { ev.stopped = true; } }, ev || {})); } }; }
 (async () => {
   const V = await import(path.join(DIR, "src/modules/shell/Links.view.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { mountLinks } = await import(path.join(DIR, "src/modules/shell/links.controller.js"));
   const { mountNotify } = await import(path.join(DIR, "src/modules/shell/notify.controller.js"));
   const { PmService } = await import(path.join(DIR, "src/modules/pm/pm.service.js"));
@@ -41,9 +42,9 @@ function fakeEl(id) { const L = []; return { id, style: {}, className: "", textC
   console.log("✓ toast : simple, erreur, remplacé, avec action (RM2451)");
 
   // — runner PM —
-  const calls = []; const caches = { resolveAt: { "42": 1, "7": 2 } }; const pm = new PmService({ repo: { async run(b) { calls.push(b); return { ok: 1 }; } }, caches });
-  assert.deepStrictEqual(await pm.run("task-status", { rm_id: "42", statut: "en_cours" }, { confirm: true }), { ok: 1 }); assert.deepStrictEqual(calls[0], { name: "task-status", args: { rm_id: "42", statut: "en_cours" }, confirm: true }); assert(!("42" in caches.resolveAt) && "7" in caches.resolveAt, "le ticket touché est à re-résoudre, pas les autres");
-  await pm.run("conso-report", {}); assert(!("confirm" in calls[1]) && "7" in caches.resolveAt); await pm.run("x", { rmId: "7" }); assert(!("7" in caches.resolveAt), "rmId aussi");
+  const calls = []; const rs = mkStore("r", { "42": 1, "7": 2 }); const fresh = (k) => rs.age(k) !== Infinity; const pm = new PmService({ repo: { async run(b) { calls.push(b); return { ok: 1 }; } }, stores: { resolve: rs } });
+  assert.deepStrictEqual(await pm.run("task-status", { rm_id: "42", statut: "en_cours" }, { confirm: true }), { ok: 1 }); assert.deepStrictEqual(calls[0], { name: "task-status", args: { rm_id: "42", statut: "en_cours" }, confirm: true }); assert(!fresh("42") && fresh("7") && rs.get("42") === 1, "le ticket touché est à re-résoudre (expire : la fiche reste affichée), pas les autres");
+  await pm.run("conso-report", {}); assert(!("confirm" in calls[1]) && fresh("7")); await pm.run("x", { rmId: "7" }); assert(!fresh("7"), "rmId aussi");
   console.log("✓ runner PM : commande, confirmation explicite, résolution invalidée");
 
   // — attache / détache —
@@ -82,7 +83,7 @@ function fakeEl(id) { const L = []; return { id, style: {}, className: "", textC
   const known = new Set([...mapSrc[1].matchAll(/"([\w-]+)":/g)].map(m => m[1])); const used = [...new Set([...html.matchAll(/data-cmd="([\w-]+)"/g)].map(m => m[1]))];
   assert(used.length >= 12, "la page porte ses commandes en data-cmd (" + used.length + ")"); used.forEach(c => assert(known.has(c), "data-cmd sans geste dans boot.js : " + c));
   ["placeholder", "tabactions", "reviewpane", "chipsrow", "cmptext", "toast", "reattach"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
-  assert(/mountAttach\(\{ placeholder: byId\("placeholder"\)/.test(boot) && /mountLinks\(document,/.test(boot) && /mountNotify\(byId\("toast"\)\)/.test(boot) && /new PmService\(\{ caches \}\)/.test(boot), "boot.js monte la coquille");
+  assert(/mountAttach\(\{ placeholder: byId\("placeholder"\)/.test(boot) && /mountLinks\(document,/.test(boot) && /mountNotify\(byId\("toast"\)\)/.test(boot) && /new PmService\(\{ stores \}\)/.test(boot), "boot.js monte la coquille");
   console.log("✓ page : " + used.length + " commandes data-cmd toutes câblées, hôtes de l'attache en place");
   console.log("\nTous les tests de la coquille passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

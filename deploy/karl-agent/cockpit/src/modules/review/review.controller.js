@@ -21,8 +21,8 @@ export function mountReview(el, ctx = {}) {
   const ask = ctx.confirm || ((m) => window.confirm(m));
   const prompt = ctx.prompt || ((m, d) => window.prompt(m, d));
   const state = { tabs: [], current: null, prompt: { rm: null, tpl: "traiter", text: "" } };
-  const resolved = (rm) => (ctx.resolve ? ctx.resolve()[String(rm)] : null) || null;
-  const caches = () => (T.repo ? T.repo.c : { mc: {}, ts: {} });
+  const resolved = (rm) => (ctx.resolve ? ctx.resolve().get(rm) : null) || null;
+  const stores = () => T.repo.s;   // RM3005 : stores ticket.mergecheck / ticket.sessions du dépôt
 
   // ── la consigne de la fiche (RM2873) ──────────────────────────────────────
   const promptDefault = (rm, tpl) => { const r = resolved(rm) || {}; return taskPromptText(tpl || "traiter", rm, r.client, r.project, r.role_hint); };
@@ -32,9 +32,9 @@ export function mountReview(el, ctx = {}) {
   // ── rendu ────────────────────────────────────────────────────────────────
   function render() {
     const rm = state.current; if (!rm) return;
-    const c = caches();
+    const c = stores(); const mcE = c.mc.get(rm);
     const vm = new ReviewViewModel({ r: resolved(rm), q: ctx.tq ? ctx.tq.entry(rm) : undefined, tqLoaded: ctx.tq ? ctx.tq.loaded() : false, tqSize: ctx.tq ? ctx.tq.size() : 0,
-      mc: c.mc[rm] && c.mc[rm].mc, ts: c.ts[rm], cfg: ctx.cfg ? ctx.cfg() : {}, pmTarget: ctx.pmTarget ? ctx.pmTarget(rm) : null }, { rm, prompt: promptSync(rm) });
+      mc: mcE && mcE.mc, ts: c.ts.get(rm), cfg: ctx.cfg ? ctx.cfg() : {}, pmTarget: ctx.pmTarget ? ctx.pmTarget(rm) : null }, { rm, prompt: promptSync(rm) });
     handle.update(ReviewPane(vm, { md: ctx.md || (s => s), titleLink: ctx.titleLink || ((r, t) => String(t || "")), mcBanner: T.mcBanner }));
   }
   const refreshAll = () => { render(); if (ctx.renderMeta) ctx.renderMeta(); if (ctx.center) ctx.center.title(); };
@@ -141,7 +141,7 @@ export function mountReview(el, ctx = {}) {
       const body = { rm_id: rm, engine, prompt: text }; if (model) body.model = model; if (cwd) body.cwd = cwd;
       const sp = await svc.spawnTicket(body);
       notify("Session karl-RM" + rm + " lancée"); if (ctx.warnSpawn) ctx.warnSpawn(sp);
-      caches().ts[rm] = undefined;
+      stores().ts.invalidate(rm);
       if (ctx.refreshSessions) await ctx.refreshSessions();
       setTimeout(() => ctx.attach && ctx.attach(rm), 400);
     } catch (e) { notify(e.message, true); }
@@ -151,12 +151,12 @@ export function mountReview(el, ctx = {}) {
     rm = String(rm);
     const sel = handle.el.querySelector ? handle.el.querySelector("#ts-target") : null, sid = sel ? sel.value : "";
     if (!sid) { notify("aucune session choisie", true); return; }
-    const c = ((caches().ts[rm] || {}).candidates || []).find(x => String(x.sid) === sid) || {};
+    const c = ((stores().ts.get(rm) || {}).candidates || []).find(x => String(x.sid) === sid) || {};
     const msg = promptText(rm);
     const warn = c.same_project ? "" : "\n\n⚠ cette session travaille sur " + (c.client || "?") + "/" + (c.project || "?") + ", pas sur le projet du ticket.";
     if (!ask("Envoyer dans la session " + sid + (c.title ? " (" + c.title + ")" : "") + " :\n\n" + msg + warn)) return;
     if (btn) btn.disabled = true;
-    try { await svc.sendToSession(sid, msg); notify("RM" + rm + " envoyé à " + sid); caches().ts[rm] = undefined; if (ctx.attach) ctx.attach(sid); }
+    try { await svc.sendToSession(sid, msg); notify("RM" + rm + " envoyé à " + sid); stores().ts.invalidate(rm); if (ctx.attach) ctx.attach(sid); }
     catch (e) { notify(e.message, true); } finally { if (btn) btn.disabled = false; }
   }
 

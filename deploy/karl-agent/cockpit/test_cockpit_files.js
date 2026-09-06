@@ -10,6 +10,7 @@ function fakeElement(id) { const L = []; let inner = ""; return { id, textConten
   async input(sel, value) { const n = { value, selectionStart: 2, closest: (s) => (s === sel ? n : null) }; for (const [t, f] of [...L]) if (t === "input") await f({ target: n, preventDefault() {}, stopPropagation() {} }); } }; }
 (async () => {
   const M = await import(path.join(DIR, "src/modules/files/explorer.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { FilesService } = await import(path.join(DIR, "src/modules/files/files.service.js"));
   const VM = await import(path.join(DIR, "src/modules/files/FilesViewModel.js"));
   const V = await import(path.join(DIR, "src/modules/files/Files.view.js"));
@@ -60,7 +61,7 @@ function fakeElement(id) { const L = []; let inner = ""; return { id, textConten
   const svc = new FilesService({ repo });
   let att = null, review = null, projKey = null, curSet = "default"; const ev = [];
   const body = fakeElement("filesbody"), count = fakeElement("filescnt"), navEl = fakeElement("outnav");
-  const ctr = mountFiles({ body, count, nav: navEl }, { service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), attached: () => att, resolve: () => ({ "2605": { found: true, client: "acme", project: "shop" } }), reviewCurrent: () => review, projectKey: () => projKey, sets: () => SETS, currentSet: () => curSet,
+  const ctr = mountFiles({ body, count, nav: navEl }, { service: svc, notify: (m, e) => ev.push(["toast", m, !!e]), attached: () => att, resolve: () => mkStore("r", { "2605": { found: true, client: "acme", project: "shop" } }), reviewCurrent: () => review, projectKey: () => projKey, sets: () => SETS, currentSet: () => curSet,
     fileBody: (f) => "<fb>" + f.content + "</fb>", scopeTagOf: (wt) => "tag:" + wt, showRight: (t) => ev.push(["right", t]), center: { openFile: (...a) => ev.push(["cfile", ...a]), openDir: (...a) => ev.push(["cdir", ...a]), openCommit: (...a) => ev.push(["ccommit", ...a]) } });
   await ctr.load(); assert(/attache une session, ou ouvre une fiche de ticket ou de projet/.test(body.innerHTML) && !calls.length, "RM2673 : aucun contexte → on ne devine pas");
   review = "2605"; ctr.ensure(); await settle(); assert.deepStrictEqual(calls[0], ["roots", "acme", "shop"], "fiche de ticket ouverte → racines du projet (endpoint léger)"); assert(calls[1][0] === "ls" && /client=acme&project=shop/.test(calls[1][1]) && /worktree=%2Fw%2Fappli/.test(calls[1][1]), "sans session : portée projet + worktree"); assert(/📁 acme\/shop[\s\S]*ticket RM2605/.test(body.innerHTML) && count.textContent === "appli");

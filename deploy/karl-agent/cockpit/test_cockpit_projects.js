@@ -12,6 +12,7 @@ function fakeElement() {
 }
 (async () => {
   const { groupProjectsByClient, liveByProject } = await import(path.join(DIR, "src/modules/projects/projectGroups.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { ProjectsPanelViewModel } = await import(path.join(DIR, "src/modules/projects/ProjectsPanelViewModel.js"));
   const { ProjectsList, ProjectsPanel } = await import(path.join(DIR, "src/modules/projects/ProjectsPanel.view.js"));
   const { mountProjectsPanel } = await import(path.join(DIR, "src/modules/projects/projects.controller.js"));
@@ -60,7 +61,7 @@ function fakeElement() {
   console.log("✓ vues (RM2760/2768/2795) : replié/déplié, sessions, icônes, épinglage, échappement");
 
   const el = fakeElement(); const ev = [];
-  const h = mountProjectsPanel(el, { service: { async all() { ev.push("all"); return PJ; } }, sessions: () => sess, resolve: () => ({}), clientContext: () => "abatik",
+  const h = mountProjectsPanel(el, { service: { async all() { ev.push("all"); return PJ; } }, sessions: () => sess, resolve: () => mkStore("r"), clientContext: () => "abatik",
     openProject: v => ev.push(["project", v]), openClient: c => ev.push(["client", c]), openConf: (s, c, p) => ev.push(["conf", s, c, p]), help: k => ev.push(["help", k]) });
   assert(/chargement…/.test(el.innerHTML)); await h.refresh(); assert.strictEqual(ev.pop(), "all"); assert(/▾ abatik/.test(el.innerHTML));
   await el.click("toggle", { client: "calicote" }); assert(/▾ calicote/.test(el.innerHTML)); await el.click("toggle", { client: "calicote" }); assert(/▸ calicote/.test(el.innerHTML));

@@ -17,7 +17,7 @@ export function mountTerminal({ host, frame, composer } = {}, ctx = {}) {
   const loc = () => ctx.location || win.location || { port: "", protocol: "http:", hostname: "localhost", origin: "http://localhost" };
   const cfg = () => (ctx.cfg ? ctx.cfg() : null) || {};
   const attached = () => { const a = ctx.attached ? ctx.attached() : null; return a == null ? null : String(a); };
-  const sessState = () => { const a = attached(); const s = a && ctx.sess ? (ctx.sess() || {})[a] : null; return s ? s.state : undefined; };
+  const sessState = () => { const a = attached(); const s = a && ctx.sess ? ctx.sess().get(a) : null; return s ? s.state : undefined; };
   const q = (sel) => (composer && composer.querySelector ? composer.querySelector(sel) : null);
   const state = { session: null, histPos: -1, draft: "", probe: null };
   const fit = () => { if (state.session && state.session.fit) setTimeout(() => { try { state.session.fit(); } catch (e) { /* démonté */ } }, 0); };

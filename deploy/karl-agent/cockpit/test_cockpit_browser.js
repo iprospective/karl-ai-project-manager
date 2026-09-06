@@ -54,6 +54,9 @@ const seed = () => {
       assert(apiCalls.includes("/api/session/cockpit-config") && apiCalls.some(p => p.startsWith("/api/session/refresh")), kind + " / " + label + " : l'init n'est pas allée jusqu'au premier tick (" + apiCalls.join(", ") + ")");
       assert.strictEqual(st.gate, "show", kind + " / " + label + " : 401 → l'écran de login doit être affiché");
       if (seeded) assert.strictEqual(st.lock, "🔓 mathieu (admin)", "l'état mémorisé est rendu (cadenas)");
+      // RM3005 : les six stores nommés existent dès le boot et karl.stats() les compte
+      const stores = await page.evaluate(() => window.karl.stats().stores.map(s => s.name + ":" + s.max));
+      for (const want of ["session.registry:300", "ticket.mergecheck:200", "ticket.resolve:500", "ticket.sessions:200", "ticket.transitions:100", "ticket.usage:200"]) assert(stores.includes(want), kind + " / " + label + " : store " + want + " attendu dans karl.stats() (" + stores.join(", ") + ")");
       // RM3011 : une exception non rattrapée tombe dans le journal du front, et le badge de l'en-tête la compte
       const jl = await page.evaluate(() => { setTimeout(() => { throw new Error("boum de test"); }, 0); return new Promise(r => setTimeout(() => r({ n: window.karl.log.entries().filter(e => e.level === "error" && /boum de test/.test(e.msg)).length, badge: document.getElementById("ln-journal").textContent }), 300)); });
       assert(jl.n === 1 && jl.badge === "1", kind + " / " + label + " : l'erreur injectée doit être dans karl.log et comptée par le badge (" + JSON.stringify(jl) + ")");

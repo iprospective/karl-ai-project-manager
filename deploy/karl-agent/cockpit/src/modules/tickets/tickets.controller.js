@@ -18,7 +18,7 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
   const svc = ctx.service || new TicketsPanelService({ storage: ctx.storage });
   const notify = ctx.notify || (() => {});
   const q = (root, sel) => (root && root.querySelector ? root.querySelector(sel) : null);
-  const resolve = () => (ctx.resolve ? ctx.resolve() : null) || {};
+  const resolve = () => ctx.resolve();   // store ticket.resolve (RM3005)
   const state = { client: null, family: null, triageRows: [] };
 
   // ── infobulles (RM2619) : attribut prêt à coller, briefs demandés en lot, mis à jour en place ──
@@ -38,14 +38,14 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
     const n = svc.opened.length;
     if (badge) { badge.textContent = String(n); badge.style.display = n ? "" : "none"; }
     if (!openedH) return;
-    const vm = new OpenedViewModel({ ids: svc.opened, cache: resolve(), client: state.client, family: state.family });
+    const vm = new OpenedViewModel({ ids: svc.opened, cache: resolve().view, client: state.client, family: state.family });
     const cnt = q(opened, "#opened-count"); if (cnt) cnt.textContent = vm.countLabel;
     openedH.update(OpenedList(vm, { tip: tipAttr, pin: ctx.pinOf || (() => "") }));
   }
   /** Ce qu'on consulte s'empile ici. RM2807 : UN .then(render) par ticket en vol — jamais un par rendu. */
   function noteOpened(id) {
     svc.note(id);
-    svc.opened.forEach(t => { if (resolve()[t] === undefined && !T.inFlight(t)) T.ensureResolved(t).then(renderOpened); });
+    svc.opened.forEach(t => { if (resolve().get(t) === undefined && !T.inFlight(t)) T.ensureResolved(t); });   // RM3005 : l'abonnement re-rend
     renderOpened();
   }
   function forget(id) { svc.forget(id); renderOpened(); }
@@ -98,6 +98,7 @@ export function mountTicketsPanel({ triage, opened, badge } = {}, ctx = {}) {
   const openedH = openedBox ? mount(openedBox, "", { events: [["click", "[data-action]", (e, n) => { const f = openedActs[n.dataset.action]; if (f) { e.stopPropagation(); f(n); } }]] }) : null;
   const triageBox = q(triage, "#triage-list");
   const triageH = triageBox ? mount(triageBox, "", { events: [["click", "[data-action=\"open\"]", (e, n) => { e.stopPropagation(); if (ctx.showTicket) ctx.showTicket(n.dataset.rm); }]] }) : null;
+  if (openedH) openedH.track(resolve().subscribe((k) => { if (k == null || svc.opened.includes(String(k))) renderOpened(); }));   // RM3005
   const handle = { unmount() { if (openedH) openedH.unmount(); if (triageH) triageH.unmount(); disposers.forEach(d => d()); } };
   const disposers = [];
   const listen = (el, type, fn) => { if (el && el.addEventListener) { el.addEventListener(type, fn); disposers.push(() => el.removeEventListener(type, fn)); } };

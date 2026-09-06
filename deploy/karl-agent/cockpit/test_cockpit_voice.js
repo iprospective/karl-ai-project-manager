@@ -7,6 +7,7 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   async fire(type, sel, n) { for (const [t, f] of [...L]) if (t === type) await f({ target: { closest: s => s === sel ? n : null } }); } }; }
 (async () => {
   const M = await import(path.join(DIR, "src/modules/voice/voice.js"));
+  const KS = await import(path.join(DIR, "src/core/store.js")); const mkStore = (name, obj) => { const s = new KS.Store(name, { ttl: 1e9, max: 1000 }); Object.entries(obj || {}).forEach(([k, v]) => s.set(k, v)); return s; };   // RM3005
   const { VoiceService } = await import(path.join(DIR, "src/modules/voice/voice.service.js"));
   const { VoicePrefsViewModel } = await import(path.join(DIR, "src/modules/voice/VoicePrefsViewModel.js"));
   const { VoicePrefs } = await import(path.join(DIR, "src/modules/voice/VoicePrefs.view.js"));
@@ -63,7 +64,7 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
 
   const el = fakeElement(); const ev = []; let recog = null;
   const svc2 = new VoiceService({ repo, store, engines: { ...engines, recognizer: (lang) => (recog = { lang, started: false, start() { this.started = true; }, stop() { this.onend && this.onend(); } }), recorder: null } });
-  const c = mountVoice(el, { service: svc2, notify: (m, e) => ev.push([m, !!e]), confirm: () => true, attached: () => "42", resolve: () => ({}),
+  const c = mountVoice(el, { service: svc2, notify: (m, e) => ev.push([m, !!e]), confirm: () => true, attached: () => "42", resolve: () => mkStore("r"),
     voiceBtn: (on) => ev.push(["btn", on]), mic: (s) => ev.push(["mic", s.text]), engines: svc2.engines });
   await c.boot(); assert(/id="vx-lang"/.test(el.innerHTML)); assert.deepStrictEqual(ev[0], ["btn", false]);
   c.toggle(); assert(ev.some(x => x[0] === "btn" && x[1] === true) && ev.some(x => /Mode voix/.test(x[0])));

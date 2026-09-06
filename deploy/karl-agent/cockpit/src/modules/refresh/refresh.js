@@ -44,10 +44,11 @@ export function buildSpecs({ hashes, at, includes, now, dashboardVisible, attach
 }
 
 /** Le bloc sessions embarque la résolution brève : semée en `partial`, jamais par-dessus une résolution riche. */
-export function seedBriefs(briefs, resolveCache, resolveAt, now) {
+export function seedBriefs(briefs, resolveStore) {
+  if (!resolveStore) return;
   Object.entries(briefs || {}).forEach(([rm, br]) => {
-    const cur = resolveCache[rm];
-    if (cur === undefined || (cur && cur.partial)) { resolveCache[rm] = Object.assign({}, br, { partial: true }); if (resolveAt) resolveAt[rm] = now == null ? Date.now() : now; }
+    const cur = resolveStore.get(rm);
+    if (cur === undefined || (cur && cur.partial)) resolveStore.set(rm, Object.assign({}, br, { partial: true }));
   });
 }
 

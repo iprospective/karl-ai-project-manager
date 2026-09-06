@@ -31,6 +31,8 @@ TARGET_TO_CURRENT = {
     "/api/glossary/help": "/help",
     "/api/glossary/project": "/project",
     "/api/layout/outline": "/outline",
+    "/api/log/tail": "/log/tail",
+    "/api/log/write": "/log",
     "/api/mail/create": "/mail/create",
     "/api/mail/dismiss": "/mail/dismiss",
     "/api/mail/draft": "/mail/draft",

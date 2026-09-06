@@ -98,7 +98,7 @@ un contrôleur jamais `core/api`. Modules transverses : `shell` (toast, liens cl
 (modèle ticket partagé : résolution, formats, statuts, consignes, bannière git), `pm` (runner PM).
 
 **Style.** `index.html` ne porte plus de `<style>` : il charge `/static/cockpit.css`, **généré** depuis `src/styles/main.scss` par
-`npm run build:css` (dans `deploy/karl-agent/cockpit` ; `sass` est une dépendance de DÉVELOPPEMENT seulement — la page ne charge
+`npm run build:css` (dans `deploy/karl-agent/cockpit/tooling` ; `sass` est une dépendance de DÉVELOPPEMENT seulement — la page ne charge
 rien de npm et ne demande aucune construction, `cockpit.css` est versionné). `main.scss` assemble `_tokens`, `_base` puis les modules
 dans l'ordre de la feuille historique (la cascade compte). `cockpit.css` porte en tête l'empreinte de ses sources :
 `test_cockpit_runtime.js` la recalcule et refuse un build périmé — **on ne modifie jamais `cockpit.css` à la main**.

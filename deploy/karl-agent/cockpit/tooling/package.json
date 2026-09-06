@@ -1,0 +1,11 @@
+{
+  "name": "karl-cockpit",
+  "private": true,
+  "description": "Cockpit karl-agent — outillage de DÉVELOPPEMENT seulement, isolé dans tooling/ (un package.json à côté des modules ES ferait ré-analyser chaque fichier par node) (compilation SCSS → cockpit.css versionné). La page ne charge rien de npm et ne demande aucune construction (RM2889 § C1 ; RM3012).",
+  "scripts": {
+    "build:css": "sass --no-source-map --style=expanded ../src/styles/main.scss ../cockpit.css && node ../scripts/css-stamp.js",
+    "watch:css": "sass --watch --no-source-map --style=expanded ../src/styles/main.scss ../cockpit.css",
+    "test": "cd .. && for t in test_cockpit*.js; do node $t || exit 1; done"
+  },
+  "devDependencies": { "sass": "^1.104.0" }
+}

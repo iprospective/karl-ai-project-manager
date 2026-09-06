@@ -91,7 +91,7 @@ export function mountCenter(hosts, ctx = {}) {
       case "mail":     return openMail(p[0], t.label);
       case "client":   return openClient(p[0]);
       case "conf":     return openConf(p[0], p[1], p[2]);
-      case "pm": case "settings": case "journal": return openPanel(t.kind);
+      case "pm": case "settings": case "journal": case "memory": return openPanel(t.kind);
     }
   }
   function togglePin(id) {

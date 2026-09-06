@@ -14,7 +14,9 @@
 
 import { esc, jarg, html, raw, isSafe, attrs } from "./core/html.js";
 import { Store, defineStore, storeStats, resetStores, appStores } from "./core/store.js";
-import { mount, on, domStats } from "./core/dom.js";
+import { createProbe } from "./core/probe.js";
+import { mountMemory } from "./modules/memory/memory.controller.js";
+import { mount, on, domStats, domStatsByModule } from "./core/dom.js";
 import { ROUTES, route, targetRoute } from "./core/endpoints.js";
 import { api, get, post, configureApi } from "./core/api.js";
 import { AppError, ApiError, asAppError } from "./core/errors.js";
@@ -88,6 +90,10 @@ configureApi({
   onUnauthorized: () => { if (auth) auth.showGate(); },   // 401 : l'écran de login revient (RM2334)
 });
 
+// RM3007 : la sonde mémoire — un échantillon = DOM par module + stores + tas JS (Chromium seulement) ; rien ne tourne tant que
+// la préférence « sonde » de ce navigateur n'est pas posée (réglages). Le panneau 🧠 mémoire la pilote.
+const probe = createProbe({ sample: () => ({ dom: domStatsByModule(), stores: storeStats(), heap: (typeof performance !== "undefined" && performance.memory) ? performance.memory.usedJSHeapSize : null }) });
+
 const karl = Object.freeze({
   // rendu
   esc, jarg, html, raw, isSafe, attrs,
@@ -109,6 +115,8 @@ const karl = Object.freeze({
     const stores = storeStats();
     return {
       dom: domStats(),
+      modules: domStatsByModule(),                 // RM3007 : ventilé par module
+      probe: probe.latest,                         // dernier échantillon de la sonde (null si désactivée)
       stores,
       entries: stores.reduce((n, s) => n + s.entries, 0),
       subscribers: stores.reduce((n, s) => n + s.subscribers, 0),
@@ -200,6 +208,10 @@ const env = mountEnv(document.getElementById("doccontent"), {
 const pmcmd = mountPmCommands(document.getElementById("pmcard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), run: (n, a, o) => pm.run(n, a, o),
 });
+const memory = mountMemory({ card: byId("memorycard"), settings: byId("probecard") }, {
+  probe, storage: localStorage, notify: notify.toast, help: (t) => doc.openHelp(t),
+  download: (name, text) => { const a = document.createElement("a"); const url = URL.createObjectURL(new Blob([text], { type: "application/json" })); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000); },
+});
 const settings = mountSettings(document.getElementById("reglages-card"), document.getElementById("themecard"), {
   notify: notify.toast, help: (t) => doc.openHelp(t), applyTheme: () => { if (typeof window.applyTheme === "function") window.applyTheme(); },
   effectiveTheme: () => document.documentElement.getAttribute("data-theme"),
@@ -248,6 +260,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
     settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
     journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
+    memory:   { label: "mémoire",      load: () => memory.render(),   show: (on) => { show("cp-memory", on); memory.setVisible(on); } },     // RM3007
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   placeholder: (on) => show("placeholder", on, "flex"),
@@ -495,7 +508,7 @@ const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("co
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, version: VERSION, log, journal });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, stores, probe, memory, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

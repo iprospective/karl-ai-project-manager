@@ -67,6 +67,7 @@ export function tabTooltip(t, rcache, parse) {
     case "pm":       return "commandes PM";
     case "settings": return "réglages du cockpit";
     case "journal":  return "journal (serveur + navigateur)";
+    case "memory":   return "mémoire par module (sonde)";
     default:         return lbl || key;
   }
 }

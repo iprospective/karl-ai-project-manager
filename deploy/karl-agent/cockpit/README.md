@@ -15,9 +15,9 @@ cockpit/
   cockpit.css           GÉNÉRÉ depuis les .scss (versionné ; empreinte des sources vérifiée par les tests)
   src/
     boot.js             câblage : CFG, stores, montage des domaines, window.karl, init
-    core/               socle sans DOM métier : html (gabarits sûrs), dom (mount/on), store (LRU+TTL+abonnés),
-                        api (transport, 401), endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv), errors,
-                        markdown, log (journal du front), version, Repository / Factory / EntityViewModel
+    core/               socle sans DOM métier : html (gabarits sûrs), dom (mount/on, stats par module), store (LRU+TTL+abonnés),
+                        probe (sonde mémoire), api (transport, 401), endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv),
+                        errors, markdown, log (journal du front), version, Repository / Factory / EntityViewModel
     modules/<domaine>/  un dossier par domaine, une couche par SUFFIXE (voir ci-dessous)
     styles/             _tokens.scss (couleurs, thèmes), _base.scss, main.scss (@use de chaque module)
   help/                 aide intégrée (markdown, servie par /help, bouton ❓)
@@ -117,8 +117,10 @@ stores nommés dans `karl.stats()`, une exception injectée qui tombe dans le jo
 Playwright résolu, il se déclare ignoré et passe : c'est le complément des suites node, pas
 leur remplaçant. Un `node_modules` contenant Playwright suffit (celui d'un projet voisin).
 
-Diagnostic en production : `karl.stats()` (stores, DOM, abonnés), `karl.log.entries()`,
-le panneau 📜 journal, le pied de page (version).
+Diagnostic en production : `karl.stats()` (stores, DOM par module, dernier échantillon de la
+sonde), la **sonde mémoire** (🔧 réglages → panneau 🧠 mémoire : `core/probe.js`, alertes « grimpe
+sans redescendre », export JSON), `karl.log.entries()`, le panneau 📜 journal, le pied de page
+(version).
 
 ## Coût de lecture par domaine (RM3008)
 

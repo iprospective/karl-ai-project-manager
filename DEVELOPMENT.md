@@ -31,9 +31,15 @@ onboarding agent), voir d'abord [README.md](README.md).
   `docs/cdc/*mmi-pm-cli*`.
 - **Cockpit / karl-agent.** Le service HTTP (loopback) est `scripts/karl-agent.py` ;
   `deploy/karl-agent/` porte l'UI `cockpit/` (servie **en même origine**), le vhost
-  Apache HTTPS et les units systemd. Aide utilisateur intégrée :
-  `deploy/karl-agent/cockpit/help/` (servie via `/help`). Tests UI sans navigateur :
-  `deploy/karl-agent/cockpit/test_cockpit.js`.
+  Apache HTTPS et les units systemd. Depuis la 3.0.0 (RM2889) le front est en
+  **modules ES sans build runtime** — `cockpit/src/boot.js` + `src/core/` (socle) +
+  `src/modules/<domaine>/` (une couche par suffixe : modèle, `Repository`, `service`,
+  `ViewModel`, `.view`, `controller`, `.scss`) ; CSS compilé en un `cockpit.css`
+  (`npm run build:css` dans `cockpit/tooling/`) ; routes `/api/<type>/<action>` ;
+  caches = stores nommés (`core/store.js`) ; journal structuré (`core/log.js` ↔
+  `scripts/pm_log.py`). **Architecture, règles, ajout d'un domaine, tests et MEP :
+  `deploy/karl-agent/cockpit/README.md`.** Aide utilisateur intégrée :
+  `deploy/karl-agent/cockpit/help/` (servie via `/help`).
 - **Sessions tmux et cgroups (RM2690).** tmux crée une scope systemd par pane
   (`tmux-spawn-<uuid>.scope`, UUID aléatoire ⇒ pas de drop-in déclaratif) : le
   plafond mémoire se pose au spawn (`_apply_memory_limits`), jamais bloquant.
@@ -89,8 +95,9 @@ pm-branch-start.py <RM> --take --worktree --from origin/dev
 # 2. coder dans le worktree envs/<repo>-rm<RM> ; tester
 mmi-pm test                                        # TOUTE la suite (~10 s)
 mmi-pm test vault session                          # ou seulement ce qu'on touche
-node deploy/karl-agent/cockpit/test_cockpit.js     # si cockpit touché
-node deploy/karl-agent/cockpit/test_cockpit_core.js # modules src/core/ (RM2889)
+for t in deploy/karl-agent/cockpit/test_cockpit*.js; do node "$t" || break; done   # si cockpit touché (35 suites node)
+KARL_PLAYWRIGHT_DIR=<node_modules avec playwright> KARL_BROWSERS=chromium,firefox \
+  node deploy/karl-agent/cockpit/test_cockpit_browser.js   # AVANT une MEP du front (cf. cockpit/README.md)
 
 # 3. livrer : MR vers dev, puis livraison outillée (statut + note + report)
 pm-mr.py create <RM>

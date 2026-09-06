@@ -2,7 +2,7 @@
 // Première surface migrée du routeur : elle s'enregistre auprès de lui (open/close)
 // et remplace le pont historique. Le changement de client ne re-rend QUE les radios
 // (le reste est de la saisie en cours — la re-rendre l'effacerait).
-import { mount } from "../../core/dom.js";
+import { mount, paint } from "../../core/dom.js";
 import { NewTicketService } from "./newticket.service.js";
 import { NewTicketViewModel } from "./NewTicketViewModel.js";
 import { NewTicketForm, ProjectRadios } from "./NewTicket.view.js";
@@ -34,7 +34,7 @@ export function mountNewTicket(el, ctx = {}) {
   const handle = mount(el, "", { events: [
     ["click", "[data-action]", (ev, n) => n.dataset.action === "submit" && submit(n)],
     ["change", "[data-field]", (ev, n) => {
-      if (n.dataset.field === "client" && vm) { const box = q("#ntf-projects"); if (box) box.innerHTML = String(ProjectRadios(vm.radios(n.value, ""))); }
+      if (n.dataset.field === "client" && vm) { const box = q("#ntf-projects"); if (box) paint(box, ProjectRadios(vm.radios(n.value, ""))); }
       if (n.dataset.field === "type") { const box = q("#ntf-bugbox"); if (box) box.style.display = n.value === "bugfix" ? "" : "none"; }   // RM2752
     }],
   ] });

@@ -62,7 +62,7 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   const center = { yield: (k) => ev.push(["yield", k]), note: (...a) => ev.push(["note", ...a]), title: () => {}, fallback: () => ev.push("fallback") };
   const pr = mountProject(el, { service: svc, center, notify: (m, e) => ev.push(["toast", m, !!e]), confirm: () => true, show: (on) => ev.push(["show", on]), sessions: () => [{ rm_id: "42" }], attach: (s) => ev.push(["attach", s]), showTicket: (rm) => ev.push(["ticket", rm]), openDoc: (p, n) => ev.push(["doc", p, n]), titleLink: (rm, t) => t, ago: () => "", mrLine: mrLine, fileBody: (f) => f.content, filesEnsure: () => ev.push("filesEnsure") });
   await pr.open("acme/appli"); assert.deepStrictEqual(ev.slice(0, 4), [["yield", "project"], ["show", true], ["note", "project", "acme/appli", "acme/appli"], "filesEnsure"]); assert.strictEqual(pr.current(), "acme/appli"); assert(/📁 acme\/appli/.test(el.innerHTML));
-  await new Promise(r => setTimeout(r, 0)); assert(/data-action="wt" data-path="\/w\/appli"/.test(el.sub.files.innerHTML), "les worktrees arrivent dans #projfiles");
+  await new Promise(r => setTimeout(r, 0)); assert(/data-action="wt" data-path="\/w\/appli"/.test(el.sub.files.innerHTML), "les worktrees arrivent dans #projfiles : " + el.sub.files.innerHTML);
   await el.click("wt", { path: "/w/appli" }); assert.deepStrictEqual(ev.pop(), ["browse", "/w/appli", ""]); assert(/a\.md/.test(el.sub.files.innerHTML));
   await el.click("open", { name: "a.md" }); assert(/‹ retour/.test(el.sub.files.innerHTML) && /c$/.test(el.sub.files.innerHTML.replace(/<[^>]+>/g, "").trim()));
   await el.click("tab", { tab: "worklog" }); assert(/💤 à reprendre|chargement du worklog/.test(el.innerHTML)); await new Promise(r => setTimeout(r, 0)); assert(/🔀 MR à merger/.test(el.innerHTML), "le worklog projet est rendu sous l'en-tête");
@@ -75,4 +75,4 @@ function fakeElement() { const L = []; let inner = ""; const sub = {}; return { 
   pr.unmount(); assert.strictEqual(el.listenerCount, 0);
   console.log("✓ contrôleur fiche projet : ouverture, worktrees, navigation, worklog, conf, divers, démontage");
   console.log("\nTous les tests de la fiche projet passent.");
-})().catch(e => { console.error("✗", e.message); process.exit(1); });
+})().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

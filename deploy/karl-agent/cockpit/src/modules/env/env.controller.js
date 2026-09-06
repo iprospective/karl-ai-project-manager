@@ -14,7 +14,7 @@ export function mountEnv(el, ctx = {}) {
   const notify = ctx.notify || ((m, err) => (err ? console.error : console.log)(m));
   const state = { tab: null, mode: null };   // mode : "status" | "vault" | null
 
-  const paintBadge = () => ctx.badge && ctx.badge(svc.check ? String(EnvBadge(new EnvBadgeViewModel(svc.check))) : "");
+  const paintBadge = () => ctx.badge && ctx.badge(svc.check ? EnvBadge(new EnvBadgeViewModel(svc.check)) : "");
   const paintLock  = () => ctx.lock && ctx.lock(new VaultViewModel(svc.vault || null).button);
   const statusBody = () => EnvStatus(new EnvStatusViewModel(svc.status, { active: state.tab }));
   const paintVault = () => handle.update(VaultForm(new VaultViewModel(svc.vault, { secure: ctx.secure ? ctx.secure() : false })));

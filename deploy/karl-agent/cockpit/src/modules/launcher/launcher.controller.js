@@ -8,6 +8,7 @@ import { LauncherService } from "./launcher.service.js";
 import { LauncherViewModel } from "./LauncherViewModel.js";
 import { ResolvedLine, Options } from "./Launcher.view.js";
 import { spawnBody, ticketBody, clientCtxProject, DEFAULT_PROJECT } from "./launcher.js";
+import { paint } from "../../core/dom.js";
 
 export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
   const svc = ctx.service || new LauncherService({ storage: ctx.storage });
@@ -26,7 +27,7 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
     const e = el.resolved(); if (!e) return;
     const line = vm().line;
     e.className = line && !line.found ? "resolved nf" : "resolved";
-    e.innerHTML = String(ResolvedLine(line));
+    paint(e, ResolvedLine(line));
     if (line && line.found && line.cwd && el.cwd()) el.cwd().value = line.cwd;
   }
   async function resolve() {
@@ -36,7 +37,7 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
     return svc.resolved;
   }
   const resolveSoon = () => { clearTimeout(resolveTimer); resolveTimer = setTimeout(resolve, 300); };
-  function populateModels() { const sel = el.model(); if (!sel) return; const m = vm().models; sel.innerHTML = String(Options(m.options, m.value)); sel.value = m.value; }
+  function populateModels() { const sel = el.model(); if (!sel) return; const m = vm().models; paint(sel, Options(m.options, m.value)); sel.value = m.value; }
   /** RM2726/2873 : la consigne vit dans le modèle des consignes (prêté par la revue) — même texte que la fiche. */
   function applyTemplate() {
     const ta = el.prompt(); if (!ta || !ctx.promptText) return;
@@ -78,8 +79,8 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
   // ── §8 : saisie éclair d'un ticket ──
   function fillTicketForm() {
     const v = vm();
-    if (el.ntType() && !(el.ntType().options && el.ntType().options.length)) el.ntType().innerHTML = String(Options(v.types));
-    if (el.ntPrio() && !(el.ntPrio().options && el.ntPrio().options.length)) el.ntPrio().innerHTML = String(Options(v.priorities));
+    if (el.ntType() && !(el.ntType().options && el.ntType().options.length)) paint(el.ntType(), Options(v.types));
+    if (el.ntPrio() && !(el.ntPrio().options && el.ntPrio().options.length)) paint(el.ntPrio(), Options(v.priorities));
   }
   async function createTicket() {
     const tb = ticketBody({ title: val(el.ntTitle()), project: val(el.ntProject()), type: val(el.ntType()), priority: val(el.ntPrio()), tags: val(el.ntTags()), description: val(el.ntDesc()) });
@@ -97,8 +98,8 @@ export function mountLauncher({ card, ntcard, clientctx } = {}, ctx = {}) {
   }
   // ── projets connus et contexte client (RM2639) ──
   function paintProjects() {
-    const sel = el.ntProject(); if (sel) { const prev = sel.value; sel.innerHTML = String(Options(svc.projects.map(p => ({ value: p.value, label: p.value })), null)); const proj = clientCtxProject(svc.projects, svc.clientContext); sel.value = svc.projects.some(p => p.value === prev) ? prev : (proj || (svc.projects.some(p => p.value === DEFAULT_PROJECT) ? DEFAULT_PROJECT : (svc.projects[0] || {}).value || "")); }
-    if (clientctx) { clientctx.innerHTML = String(Options(vm().clients.map(c => ({ value: c, label: c })), svc.clientContext, "Tous les clients")); clientctx.value = svc.clientContext; }
+    const sel = el.ntProject(); if (sel) { const prev = sel.value; paint(sel, Options(svc.projects.map(p => ({ value: p.value, label: p.value })), null)); const proj = clientCtxProject(svc.projects, svc.clientContext); sel.value = svc.projects.some(p => p.value === prev) ? prev : (proj || (svc.projects.some(p => p.value === DEFAULT_PROJECT) ? DEFAULT_PROJECT : (svc.projects[0] || {}).value || "")); }
+    if (clientctx) { paint(clientctx, Options(vm().clients.map(c => ({ value: c, label: c })), svc.clientContext, "Tous les clients")); clientctx.value = svc.clientContext; }
   }
   async function loadProjects() {
     try { await svc.loadProjects(); } catch (e) { return; }                        // silencieux : le lanceur reste utilisable sans liste

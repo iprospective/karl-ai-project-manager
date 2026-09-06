@@ -6,7 +6,7 @@
 import { JournalService } from "./journal.service.js";
 import { JournalViewModel } from "./JournalViewModel.js";
 import { Panel, Rows } from "./Journal.view.js";
-import { mount } from "../../core/dom.js";
+import { mount, paint } from "../../core/dom.js";
 
 export function mountJournal({ card, badge } = {}, ctx = {}) {
   const svc = ctx.service || new JournalService({ storage: ctx.storage, log: ctx.log });
@@ -18,7 +18,7 @@ export function mountJournal({ card, badge } = {}, ctx = {}) {
   const h = card ? mount(card, "", { events: [["click", "[data-action]", (ev, el) => onAction(ev, el)], ["change", "[data-action]", (ev, el) => onChange(ev, el)], ["input", "[data-action=\"q\"]", (ev, el) => onQuery(el.value)]] }) : null;
   function paintBadge() { if (!badge) return; const n = svc.badge(); badge.textContent = n ? String(n) : ""; badge.style.display = n && !visible ? "" : "none"; }
   function render() { if (!h) return; const v = vm(); h.update(Panel(v)); const list = card.querySelector ? card.querySelector('[data-role="list"]') : null; if (list && !svc.paused && list.scrollTop !== undefined) list.scrollTop = list.scrollHeight; }
-  function renderRows() { const list = card && card.querySelector ? card.querySelector('[data-role="list"]') : null; if (!list) return render(); list.innerHTML = String(Rows(vm())); if (!svc.paused) list.scrollTop = list.scrollHeight; }
+  function renderRows() { const list = card && card.querySelector ? card.querySelector('[data-role="list"]') : null; if (!list) return render(); paint(list, Rows(vm())); if (!svc.paused) list.scrollTop = list.scrollHeight; }
   async function load(reset) { await svc.load(reset); loaded = true; render(); }
   async function tick() { timer = null; if (!visible) return; if (!svc.paused) { await svc.load(false); renderRows(); } timer = later(tick, 5000); }
   /** Le centre montre ou masque le panneau : suivi actif seulement quand il est visible ; l'ouvrir remet le badge à zéro. */

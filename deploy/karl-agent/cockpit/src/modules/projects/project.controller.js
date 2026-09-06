@@ -2,7 +2,7 @@
 // Deuxième surface enregistrée auprès du routeur. Le contexte prête : les sessions
 // du groupe, l'attache, la fiche ticket, l'ouverture d'un doc, le lien de titre,
 // la ligne de MR, le rendu de fichier, le runner PM, le panneau fichiers de droite.
-import { mount } from "../../core/dom.js";
+import { mount, paint as paintInto } from "../../core/dom.js";
 import { html } from "../../core/html.js";
 import { ProjectService } from "./project.service.js";
 import { ProjectSheetViewModel, ProjectWorklogViewModel, ProjectFilesViewModel, ProjectConfigViewModel } from "./ProjectViewModels.js";
@@ -42,8 +42,8 @@ export function mountProject(el, ctx = {}) {
   function close() { state.key = null; state.data = null; if (ctx.show) ctx.show(false); if (ctx.center) { ctx.center.fallback(); ctx.center.title(); } }
   const current = () => state.key;
   async function refreshWorklog() { const key = state.key; if (!key) return; try { const g = await svc.worklog(key); if (state.key === key) { state.group = g; if (state.tab === "worklog") paint(); } } catch (e) { if (state.key === key && state.tab === "worklog") handle.update(html`${ProjectHeader(sheetVM())}<div class="empty">worklog projet indisponible : ${e.message}</div>`); } }
-  async function loadWorktrees(key) { try { const w = await svc.worktrees(key); if (state.key === key) { state.wts = w.worktrees || []; paintFiles(); } } catch (e) { const b = q("#projfiles"); if (b) b.innerHTML = String(html`<div class="empty">${e.message}</div>`); } }
-  const paintFiles = () => { const b = q("#projfiles"); if (b) b.innerHTML = String(filesFrag()); };
+  async function loadWorktrees(key) { try { const w = await svc.worktrees(key); if (state.key === key) { state.wts = w.worktrees || []; paintFiles(); } } catch (e) { const b = q("#projfiles"); if (b) paintInto(b, html`<div class="empty">${e.message}</div>`); } }
+  const paintFiles = () => { const b = q("#projfiles"); if (b) paintInto(b, filesFrag()); };
   async function browse(wt, path) { state.files = { ...state.files, wt, path, file: null }; const r = await svc.browse(state.key, wt, path); state.files.entries = r.entries; if (r.error) notify(r.error, true); paintFiles(); }
   async function openFile(name) { const sp = state.files.path ? state.files.path + "/" + name : name; const r = await svc.open(state.key, state.files.wt, sp); if (r.error) { notify(r.error, true); return; } state.files.file = r.file; paintFiles(); }
   function openConfig(scope) { if (!state.data || !state.key) return; handle.update(ConfigForm(new ProjectConfigViewModel(state.data, { scope, key: state.key }))); }

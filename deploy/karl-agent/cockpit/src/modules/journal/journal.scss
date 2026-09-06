@@ -1,0 +1,25 @@
+// modules/journal/journal.scss — le panneau « journal » (RM3011). Compilé dans cockpit.css par `npm run build:css` (tooling/).
+
+.jl-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.jl-lvl { display: flex; align-items: center; gap: 5px; margin: 0; font-size: 11.5px; color: var(--muted); }
+.jl-lvl select { width: auto; font-size: 11.5px; padding: 2px 6px; }
+.jl-cats { display: flex; flex-wrap: wrap; gap: 4px; }
+.jl-cats .chip.on { color: var(--accent); border-color: var(--accent); font-weight: 600; }
+.jl-q { flex: 1 1 160px; min-width: 120px; font-size: 12px; padding: 4px 8px; }
+.jl-count { color: var(--muted); font-weight: normal; text-transform: none; letter-spacing: 0; margin-left: 8px; }
+.jl-err { color: var(--danger); }
+.jl-list { max-height: 62vh; overflow-y: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); font-family: var(--mono); font-size: 11.5px; line-height: 1.45; }
+.jl-day { position: sticky; top: 0; background: var(--panel2); color: var(--muted); font-size: 10px; padding: 2px 8px; border-bottom: 1px solid var(--line); }
+.jl-row { display: flex; flex-wrap: wrap; gap: 0 8px; padding: 2px 8px; border-bottom: 1px solid var(--line); border-left: 3px solid transparent; }
+.jl-row:hover { background: var(--panel2); }
+.jl-time { color: var(--muted); flex: none; }
+.jl-level { flex: none; width: 3.6em; text-transform: uppercase; font-size: 10px; font-weight: 700; }
+.jl-cat { flex: none; color: var(--accent); width: 6em; }
+.jl-src { flex: none; color: var(--muted); font-size: 10px; width: 2.6em; }
+.jl-msg { flex: 1 1 40%; color: var(--fg); overflow-wrap: anywhere; }
+.jl-fields { flex-basis: 100%; color: var(--muted); font-size: 10.5px; padding-left: 8.4em; overflow-wrap: anywhere; }
+.jl-debug .jl-level { color: var(--muted); }
+.jl-info .jl-level { color: var(--fg); }
+.jl-warn { border-left-color: var(--warn); } .jl-warn .jl-level { color: var(--warn); }
+.jl-error { border-left-color: var(--danger); background: var(--danger-soft); } .jl-error .jl-level { color: var(--danger); }
+.jl-stats { color: var(--muted); font-size: 10.5px; margin-top: 6px; }

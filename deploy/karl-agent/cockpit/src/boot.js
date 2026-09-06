@@ -55,6 +55,8 @@ import { mountRefresh } from "./modules/refresh/refresh.controller.js";
 import { mountAuth } from "./modules/auth/auth.controller.js";
 import { mountNotify } from "./modules/shell/notify.controller.js";
 import { VERSION } from "./core/version.js";
+import { createLog, installGlobalCapture, errorBrief } from "./core/log.js";
+import { mountJournal } from "./modules/journal/journal.controller.js";
 import { mountLinks } from "./modules/shell/links.controller.js";
 import { mountAttach } from "./modules/shell/attach.controller.js";
 import { mountCommands } from "./modules/shell/commands.controller.js";
@@ -76,6 +78,10 @@ import { FileBody, centerBtnHtml } from "./modules/center/Center.view.js";
 const CFG = { ttyd_base: "", auth_required: false, monitors: [], layouts: [], actions: [] };
 const caches = { resolve: {}, resolveAt: {}, sess: {}, mc: {}, usage: {}, ts: {} };
 let auth = null, attachCtl = null;
+// RM3011 : le journal du front — mêmes sévérités et catégories que le serveur ; warn/error remontés par POST /api/log/write ; les exceptions
+// non rattrapées et les promesses rejetées y tombent. Créé AVANT tout montage : le premier domaine qui trébuche est déjà consigné.
+const log = createLog({ remote: (rec) => post(route("log.write"), rec), version: VERSION, ua: (typeof navigator !== "undefined" ? navigator.userAgent : "") });
+installGlobalCapture(log, window);
 configureApi({
   get authRequired() { return !!CFG.auth_required; },
   token: () => (auth ? auth.token() : (localStorage.getItem("karlToken") || "")),
@@ -229,7 +235,7 @@ const voice = mountVoice(document.getElementById("voicecard"), {
 // Les surfaces encore historiques (session, revue, fiche projet, nouveau ticket)
 // sont ENREGISTRÉES ici comme des ponts. Migrer l'une d'elles remplacera son pont.
 const show = (id, on, mode = "block") => { const el = byId(id); if (el) el.style.display = on ? mode : "none"; };
-let project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
+let journal = null, project = null, review = null, testqueueRef = null, meta = null, tickets = null, files = null, worklogCtl = null, launcher = null, terminal = null, sessionsCtl = null, setsCtl = null, refreshCtl = null;
 const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), view: byId("viewpane"), title: byId("curtitle") }, {
   storage: localStorage, notify: notify.toast, notifyAction: notify.toastAction, md: mdToHtml,
   resolve: () => caches.resolve,
@@ -241,6 +247,7 @@ const centerCore = mountCenter({ tabs: byId("ctabs"), hist: byId("histbox"), vie
   panels: {
     pm:       { label: "commandes pm", load: () => pmcmd.load(),    show: (on) => show("cp-pm", on) },
     settings: { label: "réglages",     load: () => settings.load(), show: (on) => show("cp-settings", on) },
+    journal:  { label: "journal",      load: () => journal.load(true), show: (on) => { show("cp-journal", on); journal.setVisible(on); } },   // RM3011
   },
   panelShow: (on) => show("panelpane", on), viewShow: (on) => show("viewpane", on),
   placeholder: (on) => show("placeholder", on, "flex"),
@@ -480,14 +487,16 @@ const commands = mountCommands(document, {
   "help": (arg) => doc.openHelp(arg || undefined), "glossary": () => doc.openGlossary(), "env-status": () => env.openStatus(), "env-vault": () => env.openVault(),
   "new-ticket": () => newticket.open(), "reattach": () => attachCtl.reattach(),
 });
+// le panneau « journal » (RM3011) : journal du serveur (GET /api/log/tail, relu par since) + journal du front, filtres persistés, badge d'en-tête
+journal = mountJournal({ card: byId("journalcard"), badge: byId("ln-journal") }, { log, storage: (typeof localStorage !== "undefined" ? localStorage : null), notify: notify.toast, clipboard: (typeof navigator !== "undefined" && navigator.clipboard) || null });
 // la disposition d'abord (repli des colonnes, onglet de droite, largeur — RM2466/2579/2599), puis les onglets épinglés — jamais une session
 // Un domaine qui trébuche à la restauration ou à l'init ne doit pas emporter les autres : chaque étape est isolée (incident du 2026-09-06 :
 // une exception au restaurer des onglets épinglés laissait la page à « chargement… », sans init ni gestes).
-const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); return undefined; } };
+const safe = (label, fn) => { try { return fn(); } catch (e) { console.error("cockpit : " + label + " en erreur", e); log.error("front", label + " en erreur", { trace: errorBrief(e) }); return undefined; } };
 safe("disposition", () => layout.restore());
 safe("onglets épinglés", () => center.restore());
 
-window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION });
+window.karl = Object.freeze({ ...karl, mail, git, dashboard, projects, env, pmcmd, settings, voice, center, newticket, project, testqueue, ticket, review, meta, tickets, doc, outline: outlineCtl, resume, search, files, worklog: worklogCtl, layout, launcher, actions, terminal, sessions: sessionsCtl, sets: setsCtl, refresh: refreshCtl, auth, notify, links, pm, attach: attachCtl, commands, config: CFG, caches, version: VERSION, log, journal });
 window.dispatchEvent(new CustomEvent("karl:ready", { detail: window.karl }));
 
 // ── init : ce que le script inline faisait au chargement, dans le même ordre (L6) ──

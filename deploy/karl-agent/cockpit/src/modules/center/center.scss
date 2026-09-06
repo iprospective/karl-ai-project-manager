@@ -1,0 +1,40 @@
+// modules/center/center.scss — style du module « center » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2795 : marque d'épinglage dans les listes — discrète, jamais cliquable
+   (l'épingle se retire depuis l'onglet, seul endroit où le geste existe) */
+.pinmark { font-size: 9px; opacity: .8; margin-left: 3px; cursor: default; }
+
+/* RM2776 : panneau d'historique — flottant sous le header, au-dessus du reste */
+#histbox { position: fixed; top: 42px; right: 12px; z-index: 60; width: 320px;
+  max-height: 60vh; overflow-y: auto; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 6px; padding: 6px;
+  box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+.histrow { padding: 4px 6px; border-radius: 4px; font-size: 11.5px; cursor: pointer;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.histrow:hover { background: var(--bg2); }
+.histrow.cur { color: var(--accent); }
+.histrow.gone { opacity: .45; cursor: default; }
+#histback[disabled], #histfwd[disabled] { opacity: .35; cursor: default; }
+
+/* RM2774 : deux lignes — les onglets, puis le titre et les actions. */
+.tabbar { display: flex; flex-direction: column; align-items: stretch; gap: 2px;
+  background: var(--panel); border-bottom: 1px solid var(--line); padding: 3px 10px 4px; }
+.tabbar2 { display: flex; align-items: center; gap: 8px; min-height: 26px; }
+/* RM2283 : plus d'onglets horizontaux — titre de la vue courante à la place */
+.ctabs { display: flex; gap: 2px; align-items: center; flex-wrap: nowrap; overflow-x: auto;
+  scrollbar-width: thin; }
+.ctab { display: inline-flex; align-items: center; gap: 4px; padding: 3px 6px;
+  border: 1px solid var(--line); border-bottom: none; border-radius: 5px 5px 0 0;
+  background: var(--bg2); color: var(--muted); font-size: 11px; white-space: nowrap;
+  cursor: pointer; max-width: 220px; }
+.ctab.active { background: var(--term-bg, var(--bg)); color: var(--fg); border-color: var(--accent); }
+.ctab.temp { font-style: italic; }        /* non épinglé : remplacé à la vue suivante */
+.ctab .lbl { overflow: hidden; text-overflow: ellipsis; }
+.ctab .x, .ctab .pin { opacity: .55; }
+.ctab .x:hover, .ctab .pin:hover { opacity: 1; }
+.curtitle { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px;
+  font-size: 13px; white-space: nowrap; overflow: hidden; }
+.curtitle .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); }
+.curtitle .ttitle { color: var(--muted); overflow: hidden; text-overflow: ellipsis; }
+
+.notabs { color: var(--muted); font-size: 13px; display: flex; align-items: center; font-style: italic; }

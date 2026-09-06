@@ -4,9 +4,9 @@
 "use strict";
 const path = require("path"); const assert = require("assert"); const DIR = __dirname;
 (async () => {
-  const F = await import(path.join(DIR, "src/models/tickets/ticketFormat.js"));
-  const { MergeBanner } = await import(path.join(DIR, "src/views/tickets/MergeBanner.view.js"));
-  const { TicketRepository, RESOLVE_TTL_MS } = await import(path.join(DIR, "src/models/tickets/TicketRepository.js"));
+  const F = await import(path.join(DIR, "src/modules/ticket/ticketFormat.js"));
+  const { MergeBanner } = await import(path.join(DIR, "src/modules/ticket/MergeBanner.view.js"));
+  const { TicketRepository, RESOLVE_TTL_MS } = await import(path.join(DIR, "src/modules/ticket/TicketRepository.js"));
   const A = await import(path.join(DIR, "src/core/api.js"));
   const t0 = Date.parse("2026-08-11T12:00");
   assert.strictEqual(F.sinceLabel("2026-08-11T12:00", t0), "à l'instant"); assert.strictEqual(F.sinceLabel("2026-08-11T11:43", t0), "il y a 17 min"); assert.strictEqual(F.sinceLabel("2026-08-11T09:00", t0), "il y a 3 h");

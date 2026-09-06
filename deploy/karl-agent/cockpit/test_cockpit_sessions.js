@@ -12,12 +12,12 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: (sel) => (sel === "[data-action]" || sel === '[data-action="' + action + '"]') ? n : null, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, currentTarget: self, preventDefault() {}, stopPropagation() {} }); return n; } }, extra || {}); return self; }
 const settle = () => new Promise(r => setTimeout(r, 0));
 (async () => {
-  const M = await import(path.join(DIR, "src/models/sessions/sessions.js"));
-  const { SessionsService } = await import(path.join(DIR, "src/services/sessions.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/sessions/SessionsViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/sessions/Sessions.view.js"));
+  const M = await import(path.join(DIR, "src/modules/sessions/sessions.js"));
+  const { SessionsService } = await import(path.join(DIR, "src/modules/sessions/sessions.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/sessions/SessionsViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/sessions/Sessions.view.js"));
   const { esc } = await import(path.join(DIR, "src/core/html.js"));
-  const { mountSessions } = await import(path.join(DIR, "src/controllers/sessions.controller.js"));
+  const { mountSessions } = await import(path.join(DIR, "src/modules/sessions/sessions.controller.js"));
   const otherGrp = M.OTHER_SETS_GROUP;
 
   // — computeGroups : groupement (jonction directe, repli /resolve, divers), compteurs, tri —
@@ -81,8 +81,8 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   h2894 = V.rTitleHtml("2894", {}, { found: false }, esc); assert(/sans libellé/.test(h2894) && !/karl-/.test(h2894), "absence dite, jamais le nom tmux");
   h2894 = V.rTitleHtml("2894", { title: '<img src=x onerror="alert(1)">' }, null, esc); assert(!/<img/.test(h2894) && /&lt;img/.test(h2894), "le libellé est échappé");
   assert(html.indexOf('id="rtitle"') > 0 && html.indexOf('id="rtitle"') < html.indexOf('<nav class="rnav">'), "l'en-tête doit précéder la barre d'onglets .rnav");
-  assert(/function afterTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/controllers/sessions.controller.js"), "utf8")), "renderRTitle doit être rejoué à tout changement de vue (afterTitle)");
-  assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/controllers/center.controller.js"), "utf8")), "…et le routeur du centre les rejoue après chaque titre");
+  assert(/function afterTitle\(\) \{\s*\n\s*renderRTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/modules/sessions/sessions.controller.js"), "utf8")), "renderRTitle doit être rejoué à tout changement de vue (afterTitle)");
+  assert(/if \(ctx\.afterTitle\) ctx\.afterTitle\(\);/.test(fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8")), "…et le routeur du centre les rejoue après chaque titre");
   console.log("✓ libellé de session (RM2894) : en-tête au-dessus des onglets, 3 sources, échappement, rejoué à chaque vue");
 
   // — ViewModels et vues —
@@ -191,9 +191,9 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   // — hôtes et ponts dans index.html —
   ["runlist", "hcnt", "ln-count", "ln-att", "yesall", "yesatt", "yesbtn", "autoyes", "curtitle", "rtitle", "dynsort"].forEach(id => assert(html.includes('id="' + id + '"'), "hôte manquant : " + id));
   for (const id of ["yesall", "yesatt", "yesbtn", "autoyes", "dynsort"]) { const m = new RegExp('<(?:button|select|input)[^>]*id="' + id + '"[^>]*>').exec(html); assert(m && !/\son\w+=/.test(m[0]), "l'hôte #" + id + " ne porte plus de on*"); }
-  assert(/onSessions: \(list\) => sessionsCtl\.render\(list\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && /this\.hot = \(c\.attention \|\| 0\) \+ \(c\.choice \|\| 0\)/.test(fs.readFileSync(path.join(DIR, "src/services/refresh.service.js"), "utf8")), "la pile /refresh (migrée) livre le bloc sessions au contrôleur et lit les compteurs rendus pour sa cadence (RM2613)");
+  assert(/onSessions: \(list\) => sessionsCtl\.render\(list\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && /this\.hot = \(c\.attention \|\| 0\) \+ \(c\.choice \|\| 0\)/.test(fs.readFileSync(path.join(DIR, "src/modules/refresh/refresh.service.js"), "utf8")), "la pile /refresh (migrée) livre le bloc sessions au contrôleur et lit les compteurs rendus pour sa cadence (RM2613)");
   assert(/ordered: \(\) => sessionsCtl\.ordered\(\)/.test(fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8")) && !/orderedCache/.test(html.replace(/\/\/[^\n]*/g, "")), "RM2439 : les jeux (migrés) lisent les sessions AFFICHÉES sur le contrôleur");
-  for (const src of [fs.readFileSync(path.join(DIR, "src/views/sessions/Sessions.view.js"), "utf8"), fs.readFileSync(path.join(DIR, "src/controllers/sessions.controller.js"), "utf8")]) assert(!/\son(click|change|input)=/.test(src), "aucun handler inline dans le code migré");
+  for (const src of [fs.readFileSync(path.join(DIR, "src/modules/sessions/Sessions.view.js"), "utf8"), fs.readFileSync(path.join(DIR, "src/modules/sessions/sessions.controller.js"), "utf8")]) assert(!/\son(click|change|input)=/.test(src), "aucun handler inline dans le code migré");
   console.log("✓ hôtes sans on*, ponts renderSessions / orderedSessions / restartTip en place");
   console.log("\nTous les tests de la liste des sessions passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

@@ -210,8 +210,8 @@ function fakeElement() {
   console.log("✓ api : headers identiques, corps json/texte, 401, erreurs à quatre champs");
 
   // — 10. modèle : factory qui garantit l'invariant, repository qui cache —
-  const F = await import(path.join(DIR, "src/models/Factory.js"));
-  const RP = await import(path.join(DIR, "src/models/Repository.js"));
+  const F = await import(path.join(DIR, "src/core/Factory.js"));
+  const RP = await import(path.join(DIR, "src/core/Repository.js"));
   const f = new F.Factory({ type: "ticket", required: ["id"], defaults: { tags: [] }, coerce: { id: Number } });
   const e1 = f.one({ id: "12", title: "t" });
   assert.strictEqual(e1.id, 12); assert.deepStrictEqual(e1.tags, []); assert.strictEqual(e1.type, "ticket");
@@ -228,7 +228,7 @@ function fakeElement() {
   console.log("✓ modèle : factory (invariants, défauts, coercition), repository (cache, routes nommées)");
 
   // — 11. ViewModel : inerte, testable sans réseau, héritage plat —
-  const V = await import(path.join(DIR, "src/viewmodels/EntityViewModel.js"));
+  const V = await import(path.join(DIR, "src/core/EntityViewModel.js"));
   class TicketVM extends V.withConso(V.EntityViewModel) {
     get badges() { return [...super.badges, this.e.priority]; }
     sections() { return [{ id: "resume", title: "résumé", summary: true }, this.consoSection()]; }
@@ -241,31 +241,32 @@ function fakeElement() {
   assert.throws(() => new V.EntityViewModel(null), /exige une entité/);
   console.log("✓ ViewModel : présente sans réseau, mixin withConso, contexte injecté");
 
-  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir —
+  // — 12. garde d'imports entre couches (§ 7.3) : ce qu'une couche n'a PAS le droit de voir. RM3012 : les modules vivent par domaine
+  //   (src/modules/<domaine>/), la couche se lit sur le SUFFIXE du fichier — même contrat qu'avec les dossiers par couche.
+  const layerOf = (f) => /\.view\.js$/.test(f) ? "view" : /ViewModel/.test(f) ? "viewmodel" : /\.service\.js$/.test(f) ? "service" : /\.controller\.js$/.test(f) ? "controller" : /Repository\.js$/.test(f) ? "repository" : "model";
   const FORBIDDEN = {
-    views:       [/core\/api\.js/, /services\//, /models\//],       // une vue rend, elle ne charge rien
-    viewmodels:  [/core\/api\.js/, /core\/dom\.js/, /services\//],   // inerte : ni réseau ni DOM
-    models:      [/core\/dom\.js/, /views\//, /controllers\//],      // jamais de DOM
-    services:    [/core\/dom\.js/, /views\//, /controllers\//],      // aucun balisage
-    components:  [/core\/api\.js/, /services\//, /models\//],
-    controllers: [/core\/api\.js/],                                  // aucun appel réseau direct
+    view:       [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /Repository\.js$/, /\.controller\.js$/, /ViewModel/],   // une vue rend, elle ne charge rien
+    viewmodel:  [/core\/api\.js/, /core\/dom\.js/, /\.service\.js$/, /\.controller\.js$/, /\.view\.js$/],                  // inerte : ni réseau ni DOM
+    model:      [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],                       // jamais de DOM
+    repository: [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/, /\.service\.js$/, /ViewModel/],
+    service:    [/core\/dom\.js/, /\.view\.js$/, /\.controller\.js$/],                                                    // aucun balisage
+    controller: [/core\/api\.js/],                                                                                        // aucun appel réseau direct
   };
   const walk = (d) => fs.readdirSync(d, { withFileTypes: true }).flatMap(x =>
     x.isDirectory() ? walk(path.join(d, x.name)) : (x.name.endsWith(".js") ? [path.join(d, x.name)] : []));
-  let verifies = 0;
-  for (const [layer, bans] of Object.entries(FORBIDDEN)) {
-    const dir = path.join(DIR, "src", layer);
-    if (!fs.existsSync(dir)) continue;
-    for (const file of walk(dir)) {
-      const src = fs.readFileSync(file, "utf8");
-      for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
-        for (const ban of bans) assert(!ban.test(spec),
-          `${path.relative(DIR, file)} importe ${spec} — interdit à la couche ${layer}`);
-        verifies++;
-      }
+  let verifies = 0; const seen = {};
+  for (const file of walk(path.join(DIR, "src", "modules"))) {
+    const layer = layerOf(file); seen[layer] = (seen[layer] || 0) + 1;
+    const src = fs.readFileSync(file, "utf8");
+    for (const [, spec] of src.matchAll(/^import .* from "([^"]+)"/gm)) {
+      for (const ban of FORBIDDEN[layer]) assert(!ban.test(spec), `${path.relative(DIR, file)} (${layer}) importe ${spec} — interdit à cette couche`);
+      verifies++;
     }
   }
-  console.log(`✓ gardes d'imports : ${verifies} import(s) vérifié(s) sur 6 couches`);
+  assert(Object.keys(seen).length === 6 && verifies > 300, "gardes : les six couches sont représentées (" + JSON.stringify(seen) + ", " + verifies + " imports)");
+  // un module = un dossier de src/modules ; chaque fichier y est classé par son suffixe ; aucun dossier par couche ne subsiste
+  for (const d of ["models", "services", "viewmodels", "views", "controllers", "components"]) assert(!fs.existsSync(path.join(DIR, "src", d)), "dossier par couche résiduel : src/" + d);
+  console.log(`✓ gardes d'imports par suffixe : ${verifies} import(s) vérifié(s), ${Object.keys(seen).length} couches, ${fs.readdirSync(path.join(DIR, "src", "modules")).length} modules`);
 
   // — 13. aucune référence DÉTACHÉE à une fonction native du navigateur (setTimeout, fetch…) : appelée comme méthode d'un objet,
   //   elle lève « Illegal invocation » dans un navigateur mais pas sous node — d'où un test statique (incident du 2026-09-06)

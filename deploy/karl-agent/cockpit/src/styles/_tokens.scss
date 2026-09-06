@@ -1,0 +1,49 @@
+// styles/_tokens — palette tokenisée (RM2386) : le thème se joue ENTIÈREMENT ici. Toute nouvelle couleur passe par un token.
+
+/* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
+   Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
+:root, :root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b0e14; --panel: #11161f; --panel2: #161c28; --line: #233044;
+  --fg: #c8d3e0; --muted: #6b7a90; --accent: #4ea1ff; --ok: #3ad29f;
+  --warn: #f5a742; --danger: #ff5d6c;
+  /* RM2522 : fond/texte du terminal. Ils suivent le thème depuis que le
+     cockpit possède la surface (avant : iframe cross-origin, --term-bg ne
+     décrivait que le CADRE et valait #000 — repris tel quel pour le vrai
+     fond, il rendait les gris du TUI illisibles). La palette ANSI vit dans
+     karl-term.js (termPalette), ses contrastes sont testés. */
+  --term-bg: #0b0e14; --term-fg: #c8d3e0;
+  --fg-strong: #eaf3ff;          /* texte survalorisé (messages utilisateur) */
+  --on-accent: #04101f;          /* texte posé SUR --accent */
+  --on-danger: #fff;             /* texte posé SUR --danger */
+  --shadow: rgba(0,0,0,.45);
+  --overlay: rgba(0,0,0,.6);
+  --accent-soft: rgba(78,161,255,.16);
+  --accent-soft-hover: rgba(78,161,255,.28);
+  --ok-soft: rgba(58,210,159,.16);
+  --warn-soft: rgba(245,167,66,.16);
+  --warn-soft-hover: rgba(245,167,66,.30);
+  --danger-soft: rgba(255,93,108,.14);
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #eceff4; --panel: #ffffff; --panel2: #f5f7fa; --line: #cfd8e3;
+  --fg: #1c2430; --muted: #5f6b7d; --accent: #1560b8; --ok: #0f7350;
+  --warn: #a35c06; --danger: #c62839;
+  --term-bg: #fbfcfe; --term-fg: #1c2430;      /* RM2522 — cf. bloc dark */
+  --fg-strong: #0a1018;
+  --on-accent: #ffffff;
+  --on-danger: #fff;
+  --shadow: rgba(15,23,42,.18);
+  --overlay: rgba(15,23,42,.45);
+  --accent-soft: rgba(21,96,184,.13);
+  --accent-soft-hover: rgba(21,96,184,.22);
+  --ok-soft: rgba(15,115,80,.14);
+  --warn-soft: rgba(163,92,6,.13);
+  --warn-soft-hover: rgba(163,92,6,.24);
+  --danger-soft: rgba(198,40,57,.12);
+}
+:root {
+  /* invariants (hors thème) */
+  --mono: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+}

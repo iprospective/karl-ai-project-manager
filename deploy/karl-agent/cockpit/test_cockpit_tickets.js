@@ -10,14 +10,14 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; return
   async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); },
   async click(action, data) { const n = { dataset: { action, ...(data || {}) }, closest: (s) => (s === "[data-action]" || s === '[data-action="open"]' && action === "open") ? n : null }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; }
 (async () => {
-  const O = await import(path.join(DIR, "src/models/tickets/openedTickets.js"));
-  const TR = await import(path.join(DIR, "src/models/tickets/triage.js"));
-  const B = await import(path.join(DIR, "src/models/tickets/briefs.js"));
-  const { TicketsPanelRepository } = await import(path.join(DIR, "src/models/tickets/TicketsPanelRepository.js"));
-  const { TicketsPanelService } = await import(path.join(DIR, "src/services/tickets.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/tickets/TicketsPanelViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/tickets/TicketsPanel.view.js"));
-  const { mountTicketsPanel } = await import(path.join(DIR, "src/controllers/tickets.controller.js"));
+  const O = await import(path.join(DIR, "src/modules/tickets/openedTickets.js"));
+  const TR = await import(path.join(DIR, "src/modules/tickets/triage.js"));
+  const B = await import(path.join(DIR, "src/modules/tickets/briefs.js"));
+  const { TicketsPanelRepository } = await import(path.join(DIR, "src/modules/tickets/TicketsPanelRepository.js"));
+  const { TicketsPanelService } = await import(path.join(DIR, "src/modules/tickets/tickets.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/tickets/TicketsPanelViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/tickets/TicketsPanel.view.js"));
+  const { mountTicketsPanel } = await import(path.join(DIR, "src/modules/tickets/tickets.controller.js"));
   // — RM2606 : liste, ordre —
   assert.deepStrictEqual(O.openedAdd([], "2606"), ["2606"]); assert.deepStrictEqual(O.openedAdd(["2605"], "2606"), ["2606", "2605"]); assert.deepStrictEqual(O.openedAdd(["2605", "2606"], "2605"), ["2605", "2606"]);
   assert.deepStrictEqual(O.openedAdd([], "abc"), []); assert.deepStrictEqual(O.openedAdd(null, "1"), ["1"]); assert.deepStrictEqual(O.openedAdd(["1", "2", "3"], "4", 3), ["4", "1", "2"]);

@@ -61,14 +61,16 @@ console.log("✓ resolveTheme (RM2386) : local > serveur > auto, valeurs inconnu
 // — 10. palette : les deux thèmes définissent EXACTEMENT les mêmes tokens —
 // (un token oublié dans :root[data-theme="light"] hériterait de la valeur dark
 //  et passerait inaperçu à l'œil sur une zone peu visitée)
-const css = /<style>([\s\S]*?)<\/style>/.exec(html)[1];
+// RM3012 : le CSS est compilé (src/styles/main.scss → cockpit.css, format développé) ; on le ramène au format historique
+// « une règle par ligne » pour que les assertions écrites contre <style> restent lisibles telles quelles.
+const css = fs.readFileSync(path.join(__dirname, "cockpit.css"), "utf8").replace(/\{\n\s*/g, "{ ").replace(/;\n\s*/g, "; ").replace(/\n\s*\}/g, " }");
 const tokensOf = (sel) => {
   const blk = new RegExp(sel.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\s*\\{([^}]*)\\}").exec(css);
   assert(blk, "bloc CSS introuvable : " + sel);
   return new Set([...blk[1].matchAll(/(--[a-z0-9-]+)\s*:/g)].map(m => m[1]));
 };
-const dark = tokensOf(':root, :root[data-theme="dark"]');
-const light = tokensOf(':root[data-theme="light"]');
+const dark = tokensOf(':root, :root[data-theme=dark]');     // sass écrit les valeurs d'attribut sans guillemets
+const light = tokensOf(':root[data-theme=light]');
 assert(dark.size >= 15, "palette dark trop maigre (" + dark.size + " tokens)");
 assert.deepStrictEqual([...dark].sort(), [...light].sort(), "tokens dark/light désynchronisés");
 console.log(`✓ palette : ${dark.size} tokens définis à l'identique en dark et en light`);
@@ -143,7 +145,7 @@ const PAIRS = [["--fg", "--bg"], ["--fg", "--panel"], ["--fg", "--panel2"],
   ["--ok", "--panel"], ["--warn", "--panel"], ["--danger", "--panel"],
   ["--fg-strong", "--bg"], ["--on-accent", "--accent"]];
 // Le thème clair est neuf : il doit être AA (4.5:1) partout, sans exception.
-const lightHex = hexOf(':root[data-theme="light"]');
+const lightHex = hexOf(':root[data-theme=light]');
 for (const [fg, bg] of PAIRS) {
   const r = contrast(lightHex[fg], lightHex[bg]);
   assert(r >= 4.5, `light : ${fg} sur ${bg} = ${r.toFixed(2)}:1 < 4.5 (WCAG AA)`);
@@ -151,7 +153,7 @@ for (const [fg, bg] of PAIRS) {
 // Le thème sombre est historique : --muted y est à ~3.9-4.4:1 (sous AA) depuis
 // toujours. On NE régresse pas au-delà de cet existant, sans le corriger ici
 // (changer la teinte du thème par défaut n'est pas le périmètre de RM2386).
-const darkHex = hexOf(':root, :root[data-theme="dark"]');
+const darkHex = hexOf(':root, :root[data-theme=dark]');
 for (const [fg, bg] of PAIRS) {
   const r = contrast(darkHex[fg], darkHex[bg]);
   const floor = fg === "--muted" ? 3.9 : 4.5;
@@ -229,10 +231,10 @@ console.log("✓ contrôle de flux ttyd (RM2807) : PAUSE au seuil, RESUME au dra
 // implicite, de xterm — les gris du TUI devenaient illisibles. On vérifie
 // désormais que CHAQUE couleur tient sur le fond de son thème.
 const termPalette = pick("termPalette");
-const termBg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-bg"],
-                 light: hexOf(':root[data-theme="light"]')["--term-bg"] };
-const termFg = { dark: hexOf(':root, :root[data-theme="dark"]')["--term-fg"],
-                 light: hexOf(':root[data-theme="light"]')["--term-fg"] };
+const termBg = { dark: hexOf(':root, :root[data-theme=dark]')["--term-bg"],
+                 light: hexOf(':root[data-theme=light]')["--term-bg"] };
+const termFg = { dark: hexOf(':root, :root[data-theme=dark]')["--term-fg"],
+                 light: hexOf(':root[data-theme=light]')["--term-fg"] };
 for (const mode of ["dark", "light"]) {
   assert(termBg[mode] && termFg[mode], `tokens --term-bg/--term-fg définis en ${mode}`);
   // le texte courant doit être confortable (AA)
@@ -387,9 +389,9 @@ const corps = (html.match(/class="rp" id="rp-/g) || []).length;
 assert.strictEqual(onglets, corps, "chaque onglet de droite a son panneau, et réciproquement");
 assert(/id="ltoggle"/.test(html) && /id="rtoggle"/.test(html),
   "chaque colonne a son bouton de repli");
-assert(/main\.lcollapsed \{ grid-template-columns: 34px 1fr; \}/.test(html),
+assert(/main\.lcollapsed \{\s*grid-template-columns: 34px 1fr;\s*\}/.test(css),
   "la colonne gauche se replie vers la gauche (largeur réduite, pas masquée)");
-assert(/\.rpanel\.collapsed \{ width: 34px; \}/.test(html),
+assert(/\.rpanel\.collapsed \{\s*width: 34px;\s*\}/.test(css),
   "la colonne droite se replie vers la droite");
 console.log("✓ colonnes (RM2466) : structure fusionnée, chaque colonne repliable vers son bord");
 
@@ -444,7 +446,7 @@ console.log("✓ worklog (RM2581) : hôte du panneau en place, logique migrée")
 // était normalisé vers un autre et devenait inactivable EN PROD. Chaque branche
 // passait ses propres tests ; seule l'union était cassée.
 const navTabs = [...html.matchAll(/data-rpanel="([a-z]+)"/g)].map(m => m[1]);
-const mTabs = /export const TABS = \[([^\]]*)\]/.exec(fs.readFileSync(path.join(__dirname, "src/models/layout/panels.js"), "utf8"));
+const mTabs = /export const TABS = \[([^\]]*)\]/.exec(fs.readFileSync(path.join(__dirname, "src/modules/layout/panels.js"), "utf8"));
 assert(mTabs, "whitelist TABS de la colonne de droite introuvable (modèle migré)");
 const whitelist = (mTabs[1].match(/"([a-z]+)"/g) || []).map(s => s.replace(/"/g, ""));
 assert(navTabs.length, "aucun onglet trouvé dans la barre de droite");
@@ -486,11 +488,11 @@ assert(/data-rpanel="files"/.test(html) && /id="rp-files"/.test(html), "onglet f
 // `max(--rpanel-w, 460px)` imposait un plancher de 460 px sur l'onglet
 // conversation : la poignée ne réduisait plus rien en dessous, et le réglage
 // passait pour cassé. Le défaut de 460 px vit désormais dans le `var()`.
-assert(/\.rpanel\.wide \{ width: var\(--rpanel-w, 460px\); \}/.test(html),
+assert(/\.rpanel\.wide \{\s*width: var\(--rpanel-w, 460px\);\s*\}/.test(css),
   "onglet conversation : 460px en DÉFAUT de --rpanel-w, jamais en plancher");
-assert(!/\.rpanel\.wide \{ width: max\(/.test(html),
+assert(!/\.rpanel\.wide \{\s*width: max\(/.test(css),
   "plus de max() : il rendait la poignée inopérante sous 460px");
-const layoutCtl = fs.readFileSync(path.join(__dirname, "src/controllers/layout.controller.js"), "utf8");
+const layoutCtl = fs.readFileSync(path.join(__dirname, "src/modules/layout/layout.controller.js"), "utf8");
 assert(/function resetWidth\(\)[^\n]*removeProperty\("--rpanel-w"\)/.test(layoutCtl),
   "réinitialiser RETIRE la largeur (sinon 330px figerait aussi l'onglet conversation) — contrôleur migré");
 assert(!/function resetWidth\(\)[^\n]*R_WIDTH_DEFAULT/.test(layoutCtl), "réinitialiser n'écrit plus 330px en dur");
@@ -508,11 +510,11 @@ console.log("\u2713 largeur du panneau (RM2952) : le réglage prime, le défaut 
 
 // le badge de l'onglet et l'alimentation depuis les deux portes d'entrée
 assert(/id="ln-tickets"/.test(html), "l'onglet tickets porte un compteur");
-const metaCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/meta.controller.js"), "utf8");
+const metaCtrl = fs.readFileSync(path.join(__dirname, "src/modules/meta/meta.controller.js"), "utf8");
 assert(/ctx\.noteOpened\(id\)/.test(metaCtrl), "ouvrir une fiche alimente la liste (contrôleur migré, RM2889)");
-const revCtrl = fs.readFileSync(path.join(__dirname, "src/controllers/review.controller.js"), "utf8");
+const revCtrl = fs.readFileSync(path.join(__dirname, "src/modules/review/review.controller.js"), "utf8");
 assert(/ctx\.noteOpened\(rm\)/.test(revCtrl), "ouvrir une revue aussi (contrôleur migré, RM2889)");
-assert(/karlOpenedTickets/.test(fs.readFileSync(path.join(__dirname, "src/services/tickets.service.js"), "utf8")), "la liste survit au rechargement (localStorage, service migré)");
+assert(/karlOpenedTickets/.test(fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.service.js"), "utf8")), "la liste survit au rechargement (localStorage, service migré)");
 console.log("✓ tickets ouverts (RM2606) : compteur, deux portes d'entrée, persistance");
 
 // — worklogTabList (RM2610) : MIGRÉ (RM2889, worklog) — voir test_cockpit_worklog.js —
@@ -578,12 +580,12 @@ for (const prop of ["color", "border-color", "background"]) {
   assert(new RegExp(prop + ":\\s*var\\(--warn").test(mUpd[1]),
     `#updbtn : ${prop} doit venir d'un token --warn* (jamais une couleur en dur)`);
 }
-assert(/@keyframes updpulse \{[\s\S]*?\}\s*\n\s*\}/.test(css), "@keyframes updpulse introuvable");
+assert(/@keyframes updpulse \{[\s\S]*?\} \}/.test(css), "@keyframes updpulse introuvable");
 // pas de kblink ici : il fond à opacity .25, ce qui rend un bouton TEXTUEL
 // illisible la moitié du temps — et celui-ci reste affiché tant que la MAJ n'est
 // pas appliquée.
 assert(!/animation:\s*kblink/.test(mUpd[1]), "#updbtn ne doit pas fondre en opacité (kblink)");
-assert(!/opacity/.test(/@keyframes updpulse \{([\s\S]*?)\n  \}/.exec(css)[1]),
+assert(!/opacity/.test(/@keyframes updpulse \{([\s\S]*?)\} \}/.exec(css)[1]),
   "updpulse ne doit pas jouer sur l'opacité (le texte doit rester lisible)");
 // mouvement réduit : l'animation tombe, l'habillage --warn reste (le bouton doit
 // encore se distinguer sur une capture d'écran ou pour qui coupe les animations).
@@ -620,7 +622,7 @@ console.log("✓ tableau de bord (RM2744) : contenu atteignable, onglet permanen
 // — RM2757 : carte repliable : logique MIGRÉE (RM2889, test_cockpit_tickets.js) ; reste ici le câblage HTML —
 // Le câblage HTML : sans lui, les fonctions pures ci-dessus ne servent à rien.
 assert(/<details class="card" id="openedcard">/.test(html), "la carte doit être un <details> (le contrôleur migré mémorise le geste au toggle)");
-assert(/listen\(opened, "toggle"/.test(fs.readFileSync(path.join(__dirname, "src/controllers/tickets.controller.js"), "utf8")), "…et il l'écoute");
+assert(/listen\(opened, "toggle"/.test(fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.controller.js"), "utf8")), "…et il l'écoute");
 assert(/id="opened-count"/.test(html), "l'en-tête doit porter le compteur");
 assert(!/<details class="card" id="openedcard"[^>]*\bopen\b/.test(html),
   "pas d'attribut open en dur : l'état initial vient du localStorage");
@@ -642,8 +644,8 @@ assert(/projects: \(\) => projects\.refresh\(\)/.test(fs.readFileSync(path.join(
 
 // ── RM2675 : glossaire de projet (lecture, filtre) : MIGRÉ (RM2889) — voir test_cockpit_doc.js. Reste le câblage :
 // Le câblage : un sous-onglet que rien n'affiche n'existe pas.
-assert(/data-action="vocab" data-on="1"/.test(fs.readFileSync(path.join(__dirname, "src/views/files/Files.view.js"), "utf8")), "le sous-onglet vocabulaire doit être cliquable (vue migrée)");
-assert(/glossaire\.md/.test(fs.readFileSync(path.join(__dirname, "src/services/files.service.js"), "utf8")), "…et il doit chercher docs/glossaire.md (service migré)");
+assert(/data-action="vocab" data-on="1"/.test(fs.readFileSync(path.join(__dirname, "src/modules/files/Files.view.js"), "utf8")), "le sous-onglet vocabulaire doit être cliquable (vue migrée)");
+assert(/glossaire\.md/.test(fs.readFileSync(path.join(__dirname, "src/modules/files/files.service.js"), "utf8")), "…et il doit chercher docs/glossaire.md (service migré)");
 console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/définition/contexte/alias");
 // — RM2761 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
 
@@ -659,7 +661,7 @@ console.log("✓ glossaire de projet (RM2675) : tableau lu, filtre sur terme/dé
   assert(new RegExp('<option value="' + v + '"').test(html), "source manquante : " + v));
 assert(/<select id="sf-source"[\s\S]*?<option value="local"/.test(html),
   "« local » doit être la première option, donc le défaut");
-assert(/redmine_error/.test(fs.readFileSync(path.join(__dirname, "src/controllers/search.controller.js"), "utf8")),
+assert(/redmine_error/.test(fs.readFileSync(path.join(__dirname, "src/modules/search/search.controller.js"), "utf8")),
   "l'erreur Redmine doit être affichée à côté des résultats, pas à leur place (contrôleur migré)");
 console.log("✓ recherche multi-source (RM2770) : local par défaut, filtres, absents signalés");
 
@@ -674,12 +676,12 @@ assert(b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="curtitle"')
   && b2774.indexOf('class="tabbar2"') < b2774.indexOf('id="tabactions"'),
   "titre et actions doivent être DANS la seconde ligne, pas à côté");
 // Sans direction column, les deux « lignes » se remettraient côte à côte.
-assert(/\.tabbar \{[^}]*flex-direction: column/.test(html),
+assert(/\.tabbar \{[^}]*flex-direction: column/.test(css),
   ".tabbar doit empiler ses deux lignes");
-assert(/\.tabbar2 \{[^}]*display: flex/.test(html),
+assert(/\.tabbar2 \{[^}]*display: flex/.test(css),
   ".tabbar2 doit aligner titre et actions sur une ligne");
 // Le bridage à 62 % n'a plus lieu d'être : les onglets ont la largeur entière.
-const ctabsCss = /\.ctabs \{[^}]*\}/.exec(html);
+const ctabsCss = /\.ctabs \{[^}]*\}/.exec(css);
 assert(ctabsCss && !/max-width/.test(ctabsCss[0]),
   "les onglets ne doivent plus être bridés en largeur");
 // …et rien ne doit avoir bougé du contenu : mêmes actions, même condition d'affichage.
@@ -705,24 +707,24 @@ console.log("✓ actions pertinentes (RM2786) : boutons hôtes en place, règle 
 // Les cinq surfaces doivent appeler la MÊME fonction — cinq variantes d'un même
 // signal, ce serait cinq signaux.
 // RM2889 : la liste des sessions est migrée — tuiles et revues ouvertes reçoivent la marque du routeur par le contrôleur
-const sessionsView2795 = fs.readFileSync(path.join(__dirname, "src/views/sessions/Sessions.view.js"), "utf8");
+const sessionsView2795 = fs.readFileSync(path.join(__dirname, "src/modules/sessions/Sessions.view.js"), "utf8");
 assert(/raw\(pin\("session", s\.rm_id\)\)/.test(sessionsView2795), "marque absente : tuiles de session (migrées)");
 assert(/raw\(pin\("review", v\.rm\)\)/.test(sessionsView2795), "marque absente : revues ouvertes (migrées)");
 // RM2889 : la recherche est migrée — sa vue reçoit la marque du routeur par le contrôleur
-assert(/raw\(pin\("review", r\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/Search.view.js"), "utf8")),
+assert(/raw\(pin\("review", r\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/search/Search.view.js"), "utf8")),
   "marque absente : résultats de recherche (migrés)");
 // RM2889 : les tickets ouverts sont migrés — la vue reçoit la marque du routeur (pinOf) par le contrôleur
-assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/tickets/TicketsPanel.view.js"), "utf8")),
+assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/tickets/TicketsPanel.view.js"), "utf8")),
   "marque absente : tickets ouverts (migrés)");
 // RM2889 : la file à tester est migrée — sa marque vient du routeur, prêtée au ViewModel
-assert(/this\.ctx\.pin\("review", e\.rm_id\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/testqueue/TestQueueViewModel.js"), "utf8")),
+assert(/this\.ctx\.pin\("review", e\.rm_id\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/testqueue/TestQueueViewModel.js"), "utf8")),
   "marque absente : file à tester (migrée)");
-assert(/pin\("project", p\.value\)/.test(fs.readFileSync(path.join(__dirname, "src/viewmodels/projects/ProjectsPanelViewModel.js"), "utf8")),
+assert(/pin\("project", p\.value\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/projects/ProjectsPanelViewModel.js"), "utf8")),
   "marque absente : panneau projets (migré RM2889)");
-assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/worklog/Worklog.view.js"), "utf8")), "marque absente : worklog (migré)");
+assert(/raw\(pin\("review", it\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/worklog/Worklog.view.js"), "utf8")), "marque absente : worklog (migré)");
 // …et l'état doit suivre le geste, sans attendre le prochain poll.
 // RM2889 : l'épinglage vit dans le routeur du centre ; c'est lui qui prévient les listes
-const centerSrc = fs.readFileSync(path.join(__dirname, "src/controllers/center.controller.js"), "utf8");
+const centerSrc = fs.readFileSync(path.join(__dirname, "src/modules/center/center.controller.js"), "utf8");
 assert(/function togglePin[\s\S]{0,400}ctx\.onPinChange\(\)/.test(centerSrc),
   "détacher un onglet doit rafraîchir les listes tout de suite");
 assert(/opts && opts\.pin && ctx\.onPinChange\) ctx\.onPinChange\(\)/.test(centerSrc),
@@ -734,7 +736,7 @@ console.log("✓ marque d'épinglage (RM2795) : la même icône dans les listes,
 
 // — RM2797 : description et historique en facettes : MIGRÉ (RM2889, encart ℹ) — voir test_cockpit_meta.js.
 // Reste au monolithe la feuille de style : une facette doit pouvoir occuper toute la hauteur.
-assert(/\.facetfull \{[^}]*max-height: none/.test(html),
+assert(/\.facetfull \{[^}]*max-height: none/.test(css),
   "une facette doit pouvoir occuper toute la hauteur");
 console.log("✓ fiche ticket (RM2797) : style des facettes pleine hauteur conservé");
 
@@ -743,18 +745,18 @@ console.log("✓ fiche ticket (RM2797) : style des facettes pleine hauteur conse
 // — RM2799 : hiérarchie de lecture — la section, puis le numéro, puis le statut —
 // Le groupe doit être une SECTION : sans délimitation, son en-tête se lisait
 // comme une ligne de plus.
-const cssGroup2799 = /\.wlgroup \{[^}]*\}/.exec(html);
+const cssGroup2799 = /\.wlgroup \{[^}]*\}/.exec(css);
 assert(cssGroup2799, ".wlgroup introuvable");
 assert(/border:/.test(cssGroup2799[0]) && /background:/.test(cssGroup2799[0]),
   "un groupe doit se distinguer par un fond ET une bordure");
-const cssHead2799 = /\.wlghead \{[^}]*\}/.exec(html);
+const cssHead2799 = /\.wlghead \{[^}]*\}/.exec(css);
 assert(/background:/.test(cssHead2799[0]) && /border-bottom:/.test(cssHead2799[0]),
   "l'en-tête doit appartenir à la section, pas flotter au-dessus");
 
 // Le numéro identifie la ligne : il doit primer sur le statut, y compris jaune.
-const cssRef2799 = /\.rmref \{[^}]*\}/.exec(html);
+const cssRef2799 = /\.rmref \{[^}]*\}/.exec(css);
 assert(cssRef2799, ".rmref introuvable — le numéro doit avoir son propre style");
-const cssPill2799 = /\n  \.pill \{[^}]*\}/.exec(html);
+const cssPill2799 = /\n\.pill \{[^}]*\}/.exec(css);
 const taille = (css) => parseFloat((/font-size: ([\d.]+)px/.exec(css) || [])[1]);
 assert(taille(cssRef2799[0]) > taille(cssPill2799[0]),
   "le numéro doit être PLUS GRAND que la pastille de statut");
@@ -775,14 +777,14 @@ console.log("✓ lisibilité du worklog (RM2799) : sections délimitées, numér
 // passé au vert sur du code inerte : on vérifie donc que la facette n'utilise
 // plus la classe en conflit.
 // La facette elle-même a MIGRÉ (RM2889, test_cockpit_meta.js vérifie ses classes) ; la cascade CSS reste ici.
-const cssDescFull = /\.descfull \{[^}]*\}/.exec(html);
+const cssDescFull = /\.descfull \{[^}]*\}/.exec(css);
 assert(cssDescFull, ".descfull introuvable");
 assert(/background: none/.test(cssDescFull[0]) && /border: 0/.test(cssDescFull[0]),
   "ni fond ni bordure : la description occupe la zone, elle n'est pas encadrée");
 assert(/max-height: none/.test(cssDescFull[0]) && /overflow: visible/.test(cssDescFull[0]),
   "aucune bride : c'est la colonne qui défile");
 // …et le bloc encadré d'origine doit rester intact là où il sert encore.
-const cssDesc2806 = /\n  \.desc \{[^}]*\}/.exec(html);
+const cssDesc2806 = /\n\.desc \{[^}]*\}/.exec(css);
 assert(cssDesc2806 && /max-height: 160px/.test(cssDesc2806[0]),
   "le bloc `.desc` d'origine n'a pas à changer : il sert ailleurs");
 // Le piège de cascade, une seconde fois : `.descfull` ne doit pas redéclarer ce
@@ -847,7 +849,7 @@ console.log("✓ embarquer un lot ailleurs (RM2823) : bouton hôte en place, log
 // — RM2818 : alerter avant d'ouvrir une 2e session sur un ticket déjà pris —
 // Texte d'alerte, garde et spawn depuis la fiche : MIGRÉS (RM2889, test_cockpit_review.js).
 // Le lanceur de gauche (spawn) reste au monolithe et doit passer par la garde (pont).
-assert(/ctx\.confirmSecondSession && !\(await ctx\.confirmSecondSession\(sb\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/controllers/launcher.controller.js"), "utf8")),
+assert(/ctx\.confirmSecondSession && !\(await ctx\.confirmSecondSession\(sb\.rm\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/launcher/launcher.controller.js"), "utf8")),
   "spawn (lanceur migré) doit passer par la garde confirmSecondSession");
 console.log("✓ 2e session sur un ticket pris (RM2818) : le lanceur de gauche passe aussi par la garde");
 // — RM2819 : MIGRÉ (RM2889, cluster centre) — voir test_cockpit_center.js —
@@ -867,8 +869,8 @@ console.log("✓ reprise de session (RM2834) : hôte HTML en place, logique migr
 // Câblage : menu d'étiquettes alimenté par le serveur, jamais écrit en dur
 assert(/<select id="sf-tag"/.test(html), "filtre étiquette dans la recherche");
 assert(/<select id="tr-tag"/.test(html), "filtre étiquette dans le triage ROI");
-assert(/"search\.tags"/.test(fs.readFileSync(path.join(__dirname, "src/models/tickets/SearchRepository.js"), "utf8")), "les étiquettes proposées viennent de GET /tags (dépôt migré)");
-assert(/"rf-tag"/.test(fs.readFileSync(path.join(__dirname, "src/views/sessions/Sets.view.js"), "utf8")), "le formulaire de jeu dérivé propose le critère étiquette (vue migrée RM2889)");
+assert(/"search\.tags"/.test(fs.readFileSync(path.join(__dirname, "src/modules/search/SearchRepository.js"), "utf8")), "les étiquettes proposées viennent de GET /tags (dépôt migré)");
+assert(/"rf-tag"/.test(fs.readFileSync(path.join(__dirname, "src/modules/sets/Sets.view.js"), "utf8")), "le formulaire de jeu dérivé propose le critère étiquette (vue migrée RM2889)");
 console.log("✓ étiquettes dans le cockpit (RM2830) : recherche, triage, jeux dérivés");
 
 // — RM2831 : constituer un lot par domaine et ouvrir une session dessus —
@@ -891,9 +893,9 @@ console.log("✓ lot par domaine (RM2831) : la liste filtrée devient une sessio
 // Les deux doivent passer par la fonction, sinon l'un des deux garde le défaut.
 // RM2889 : la fiche projet est migrée — elle reçoit le rendu commun en prêt (fileBody) ;
 // seul l'onglet fichiers de droite l'appelle encore depuis le monolithe.
-assert(/raw\(fileBody\(f\.raw\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/files/Files.view.js"), "utf8")),
+assert(/raw\(fileBody\(f\.raw\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/files/Files.view.js"), "utf8")),
   "l'onglet fichiers (migré) passe par le rendu commun qu'on lui prête");
-assert(/raw\(fileBody\(f\)\)/.test(fs.readFileSync(path.join(__dirname, "src/views/projects/ProjectPane.view.js"), "utf8")),
+assert(/raw\(fileBody\(f\)\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/projects/ProjectPane.view.js"), "utf8")),
   "…et la fiche projet aussi, par le rendu qu'on lui prête");
 
 assert(!/class="desc">' \+ mdToHtml\(f\.content\)/.test(html),
@@ -905,10 +907,10 @@ console.log("✓ fichier ouvert (RM2861) : pleine hauteur, un seul rendu pour le
 // ── RM2888 : changer le statut depuis la fiche et le worklog ────────────────
 // Menu, invites, gardes : MIGRÉS (RM2889) — voir test_cockpit_review.js. Restent au monolithe
 // les deux points d'entrée (fiche ℹ et worklog), qui appellent le pont openStatusMenu.
-const metaView2888 = fs.readFileSync(path.join(__dirname, "src/views/tickets/Meta.view.js"), "utf8");
+const metaView2888 = fs.readFileSync(path.join(__dirname, "src/modules/meta/Meta.view.js"), "utf8");
 assert(/data-action="status" data-rm=/.test(metaView2888),
   "la fiche du ticket ouvre le menu depuis sa pastille de phase (vue migrée, RM2889)");
-assert(/data-action="status" data-ref=/.test(fs.readFileSync(path.join(__dirname, "src/views/worklog/Worklog.view.js"), "utf8")),
+assert(/data-action="status" data-ref=/.test(fs.readFileSync(path.join(__dirname, "src/modules/worklog/Worklog.view.js"), "utf8")),
   "le worklog aussi : c'est le second point d'entrée demandé (vue migrée)");
 console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut migré");
 
@@ -931,7 +933,7 @@ console.log("✓ câblage (RM2888) : fiche + worklog appellent le menu de statut
     "RM2807 : fan-out NON gardé (" + nonGarde.length + " site[s]) — il manque `&& !resolveInFlight(t)`");
   const garde = html.match(/resolveCache\[t\] === undefined && !resolveInFlight\(t\)\)\s*ensureResolved\(t\)\.then/g) || [];
   // renderOpened a MIGRÉ à son tour (RM2889, panneau 🎫) : sa garde lit l'état en vol par la façade ticket
-  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then\(renderOpened\)/.test(fs.readFileSync(path.join(__dirname, "src/controllers/tickets.controller.js"), "utf8")), "RM2807 : garde absente du contrôleur du panneau tickets");
+  assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then\(renderOpened\)/.test(fs.readFileSync(path.join(__dirname, "src/modules/tickets/tickets.controller.js"), "utf8")), "RM2807 : garde absente du contrôleur du panneau tickets");
   // renderTickets a MIGRÉ (RM2889) : sa garde lit l'état en vol par la façade ticket
   assert(/!T\.inFlight\(t\)\)\s*T\.ensureResolved\(t\)\.then/.test(metaCtrl), "RM2807 : garde absente du contrôleur de l'encart");
   // …et la garde doit EXISTER : sa table a migré avec le dépôt ticket (RM2889), le monolithe

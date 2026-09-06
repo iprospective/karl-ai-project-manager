@@ -1,0 +1,75 @@
+// modules/sessions/sessions.scss — style du module « sessions » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+/* RM2283 : compteurs globaux du header (● ouvertes · ⚠ attention · 💤 idle) */
+.hcnt { display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: var(--mono); }
+.hcnt .pill.att { color: var(--danger); border-color: var(--danger); animation: kblink 1s ease-in-out infinite; }
+
+/* RM2787 : silence d'une session — lisible, mais après le titre */
+.tquiet { font-size: 10px; color: var(--muted); white-space: nowrap; flex: none; }
+
+/* état heuristique des sessions (RM2140, intérim RM1874) */
+.tdot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); flex: none; display: inline-block; }
+.tdot.st-working { background: var(--ok); }
+.tdot.st-idle { background: var(--warn); }
+.tdot.st-attention { background: var(--danger); animation: kblink 1s ease-in-out infinite; }
+/* RM2327 : question à choix multiple (≠ oui/non) — en attente aussi, réponse humaine */
+.tdot.st-choice { background: var(--warn); animation: kblink 1.4s ease-in-out infinite; }
+/* RM2427 : session ENREGISTRÉE non démarrée (« fantôme ») — pastille grise, tuile éteinte */
+.tdot.st-ghost { background: var(--muted); opacity: .5; }
+/* RM2515 : disposition manuelle (ne s'applique visuellement que sur `idle`) —
+   couleur + icône (badge), jamais la couleur seule. « à traiter » = défaut orange. */
+.tdot.disp-parke { background: var(--accent); }             /* parké : bleu */
+.tdot.disp-termine { background: var(--muted); box-shadow: none; }  /* terminé : éteint */
+.tdot.tdisp { cursor: pointer; }
+.tdot.tdisp:hover { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* RM2346 : bandeau « à traiter » — les sessions en attention/choix remontent ici,
+   à place FIXE, pour que la liste principale n'ait plus à se réordonner pour les montrer. */
+.attnband { border: 1px solid var(--danger); border-radius: 7px; margin: 0 0 8px;
+  background: var(--danger-soft); padding: 4px; }
+.attnband-h { font-size: 10px; text-transform: uppercase; letter-spacing: .5px;
+  color: var(--danger); padding: 2px 4px 4px; font-weight: 600; }
+.attnchip { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border-radius: 5px;
+  cursor: pointer; }
+.attnchip:hover { background: var(--accent-soft); }
+.attnchip .tid { font-family: var(--mono); font-size: 12px; }
+.attnchip .rmeta { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; flex: 1; }
+.runitem.ghost { opacity: .6; border-style: dashed; }
+.runitem.ghost:hover { opacity: 1; }
+
+/* RM2283 : panneau « en cours » — sessions groupées par projet */
+.rgroup { margin-bottom: 16px; }
+.rghead { display: flex; align-items: baseline; gap: 6px; cursor: pointer; margin-bottom: 6px;
+  font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; }
+.rghead:hover { color: var(--fg); }
+.rghead .gcnt { font-family: var(--mono); }
+.runitem { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--line);
+  border-radius: 7px; margin-bottom: 6px; background: var(--panel2); cursor: pointer; }
+.runitem:hover { border-color: var(--accent); }
+.runitem.active { border-color: var(--accent); background: var(--bg); }
+.runitem .tid { font-family: var(--mono); font-weight: 600; color: var(--accent); flex: none; }
+.runitem .rmeta { color: var(--muted); font-size: 11.5px; flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tbadge { font-size: 11px; line-height: 1; flex: none; }
+.tkill { font-size: 12px; line-height: 1; color: var(--muted); border-radius: 4px; padding: 2px 4px; flex: none; }
+.tkill:hover { color: var(--danger); background: var(--danger-soft); }
+/* RM2302 : bouton « répondre Oui » d'un item en attention */
+.tyes { font-size: 12px; line-height: 1; color: var(--ok); border-radius: 4px; padding: 2px 4px; flex: none; }
+.tyes:hover { background: var(--ok-soft); }
+
+/* RM2894 : libellé de la session attachée, en en-tête du panneau — au-dessus
+   des onglets, donc lisible quel que soit l'onglet actif. Replié : masqué. */
+.rpanel.collapsed .rtitle { display: none; }
+.rtitle { flex: none; padding: 6px 10px 5px; background: var(--panel);
+  border-bottom: 1px solid var(--line); font-size: 12px; line-height: 1.35;
+  display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.rtitle .rt-id { color: var(--accent); font-weight: 600; flex: none; }
+.rtitle .rt-label { color: var(--fg); overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; min-width: 0; }
+.rtitle .rt-label.none { color: var(--muted); font-style: italic; }
+
+.ctxbanner { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px; padding: 4px 9px;
+  font-size: 11px; background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 6px; color: var(--fg); }
+.ctxbanner button { margin-left: auto; }

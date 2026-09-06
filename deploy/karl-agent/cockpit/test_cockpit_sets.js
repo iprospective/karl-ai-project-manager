@@ -11,11 +11,11 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target) { for (const [t, f] of [...L]) if (t === type) await f({ target, preventDefault() {}, stopPropagation() {} }); await new Promise(r => setTimeout(r, 0)); },   // les gestes ne sont pas attendus par l'écouteur : on laisse la chaîne finir
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n, disabled: false }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); await new Promise(r => setTimeout(r, 0)); return n; } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/sessions/sets.js"));
-  const { SetsService } = await import(path.join(DIR, "src/services/sets.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/sessions/SetsViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/sessions/Sets.view.js"));
-  const { mountSets } = await import(path.join(DIR, "src/controllers/sets.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/sets/sets.js"));
+  const { SetsService } = await import(path.join(DIR, "src/modules/sets/sets.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/sets/SetsViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/sets/Sets.view.js"));
+  const { mountSets } = await import(path.join(DIR, "src/modules/sets/sets.controller.js"));
 
   // — RM2955 : setEditOptions —
   const SETS_2955 = [{ name: "default", label: "sessions actives", count: 12, alive: 5 }, { name: "pm", label: "PM", count: 3, alive: 1, derived: true }, { name: "nuit", count: 0, alive: 0 }];
@@ -181,7 +181,7 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   const barHtml = html.slice(html.indexOf('id="setbar"'), html.indexOf('id="runlist"')); assert(!/\son\w+=/.test(barHtml), "la barre des jeux ne porte plus de on*"); assert((barHtml.match(/data-action="/g) || []).length >= 6, "…ses gestes sont en data-action");
   const cardHtml = html.slice(html.indexOf('id="sessions-set-card"'), html.indexOf('id="sessions-set-body"')); assert(!/\son\w+=/.test(cardHtml) && /data-action="new-set"/.test(cardHtml), "la carte non plus");
   { const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"); assert(/setsCtl\.refreshSets\(\); setsCtl\.refreshSet\(\);/.test(boot) && /sessions: \(\) => \{ resume\.load\(\); setsCtl\.load\(\); \}/.test(boot), "boot.js : jeux relus à l'init, carte chargée à la première activation du panneau"); }
-  for (const f of ["src/views/sessions/Sets.view.js", "src/controllers/sets.controller.js"]) assert(!/\son(click|change|input)=/.test(fs.readFileSync(path.join(DIR, f), "utf8")), "aucun handler inline dans " + f);
+  for (const f of ["src/modules/sets/Sets.view.js", "src/modules/sets/sets.controller.js"]) assert(!/\son(click|change|input)=/.test(fs.readFileSync(path.join(DIR, f), "utf8")), "aucun handler inline dans " + f);
   console.log("✓ hôtes sans on*, ponts refreshSessionSets / refreshSessionSet / loadSessionSet en place");
   console.log("\nTous les tests des jeux de sessions passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

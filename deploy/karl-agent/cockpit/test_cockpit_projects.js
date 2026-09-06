@@ -11,10 +11,10 @@ function fakeElement() {
     async input(value) { const n = { value }; for (const [t, f] of [...L]) if (t === "input") await f({ target: { closest: s => s === "#pj-filter" ? n : null } }); } };
 }
 (async () => {
-  const { groupProjectsByClient, liveByProject } = await import(path.join(DIR, "src/models/projects/projectGroups.js"));
-  const { ProjectsPanelViewModel } = await import(path.join(DIR, "src/viewmodels/projects/ProjectsPanelViewModel.js"));
-  const { ProjectsList, ProjectsPanel } = await import(path.join(DIR, "src/views/projects/ProjectsPanel.view.js"));
-  const { mountProjectsPanel } = await import(path.join(DIR, "src/controllers/projects.controller.js"));
+  const { groupProjectsByClient, liveByProject } = await import(path.join(DIR, "src/modules/projects/projectGroups.js"));
+  const { ProjectsPanelViewModel } = await import(path.join(DIR, "src/modules/projects/ProjectsPanelViewModel.js"));
+  const { ProjectsList, ProjectsPanel } = await import(path.join(DIR, "src/modules/projects/ProjectsPanel.view.js"));
+  const { mountProjectsPanel } = await import(path.join(DIR, "src/modules/projects/projects.controller.js"));
   const PJ = [{ client: "calicote", project: "prestashop", value: "calicote/prestashop" }, { client: "abatik", project: "infra", value: "abatik/infra" },
               { client: "calicote", project: "infra", value: "calicote/infra" }, { client: "abatik", project: "site", value: "abatik/site" }];
   const g = groupProjectsByClient(PJ, "");

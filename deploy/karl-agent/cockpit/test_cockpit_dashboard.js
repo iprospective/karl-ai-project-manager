@@ -12,10 +12,10 @@ function fakeElement() {
     async change(filter, value) { const n = { dataset: { filter }, value }; for (const [t, f] of [...L]) if (t === "change") await f({ target: { closest: s => s === "[data-filter]" ? n : null } }); } };
 }
 (async () => {
-  const { attentionRows } = await import(path.join(DIR, "src/models/dashboard/attention.js"));
-  const { DashboardViewModel } = await import(path.join(DIR, "src/viewmodels/dashboard/DashboardViewModel.js"));
-  const { Dashboard, Attention, Alerts } = await import(path.join(DIR, "src/views/dashboard/Dashboard.view.js"));
-  const { mountDashboard } = await import(path.join(DIR, "src/controllers/dashboard.controller.js"));
+  const { attentionRows } = await import(path.join(DIR, "src/modules/dashboard/attention.js"));
+  const { DashboardViewModel } = await import(path.join(DIR, "src/modules/dashboard/DashboardViewModel.js"));
+  const { Dashboard, Attention, Alerts } = await import(path.join(DIR, "src/modules/dashboard/Dashboard.view.js"));
+  const { mountDashboard } = await import(path.join(DIR, "src/modules/dashboard/dashboard.controller.js"));
   const OV = { projects: [{ client: "acme", project: "shop", counts: {},
     tickets: [{ rm_id: "10", status: "a_tester_demandeur", title: "livré", bucket: "waiting" }, { rm_id: "11", status: "en_cours", title: "en cours", bucket: "active" }, { rm_id: "12", status: "a_mep", title: "à déployer", bucket: "waiting" }],
     mrs: [{ iid: "9", ref: "RM11", url: "https://x/9", alive: false }], requests: [{ text: "une demande" }], sessions: [{ sid: "70", alive: true, title: "S70" }] }] };

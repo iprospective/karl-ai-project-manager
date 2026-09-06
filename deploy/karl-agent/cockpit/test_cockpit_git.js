@@ -14,12 +14,12 @@ function fakeElement() {
       for (const [t, f] of [...listeners]) if (t === "click") await f({ type: "click", target, stopPropagation() {} }); } };
 }
 (async () => {
-  const { gitDiffLine, gitStatLabel } = await import(path.join(DIR, "src/models/git/gitDiff.js"));
-  const { GitLogViewModel } = await import(path.join(DIR, "src/viewmodels/git/GitLogViewModel.js"));
-  const { GitPatchViewModel } = await import(path.join(DIR, "src/viewmodels/git/GitPatchViewModel.js"));
-  const { GitBranches, GitPatch, GitBody, GitPanel } = await import(path.join(DIR, "src/views/git/GitPanel.view.js"));
+  const { gitDiffLine, gitStatLabel } = await import(path.join(DIR, "src/modules/git/gitDiff.js"));
+  const { GitLogViewModel } = await import(path.join(DIR, "src/modules/git/GitLogViewModel.js"));
+  const { GitPatchViewModel } = await import(path.join(DIR, "src/modules/git/GitPatchViewModel.js"));
+  const { GitBranches, GitPatch, GitBody, GitPanel } = await import(path.join(DIR, "src/modules/git/GitPanel.view.js"));
   const { ROUTES } = await import(path.join(DIR, "src/core/endpoints.js"));
-  const { mountGitPanel } = await import(path.join(DIR, "src/controllers/git.controller.js"));
+  const { mountGitPanel } = await import(path.join(DIR, "src/modules/git/git.controller.js"));
 
   assert.strictEqual(gitDiffLine("+ajout"), "add"); assert.strictEqual(gitDiffLine("-retrait"), "del");
   assert.strictEqual(gitDiffLine("@@ -1,4 +1,9 @@"), "hunk"); assert.strictEqual(gitDiffLine(" contexte"), "");

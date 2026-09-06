@@ -8,9 +8,9 @@ const html = fs.readFileSync(path.join(DIR, "index.html"), "utf8");
 function fakeEl(id) { const L = []; return { id, style: {}, className: "", title: "", textContent: "", addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; }, async fire(type) { for (const [t, f] of [...L]) if (t === type) await f({}); } }; }
 const settle = () => new Promise(r => setTimeout(r, 0));
 (async () => {
-  const M = await import(path.join(DIR, "src/models/refresh/refresh.js"));
-  const { RefreshService } = await import(path.join(DIR, "src/services/refresh.service.js"));
-  const { mountRefresh } = await import(path.join(DIR, "src/controllers/refresh.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/refresh/refresh.js"));
+  const { RefreshService } = await import(path.join(DIR, "src/modules/refresh/refresh.service.js"));
+  const { mountRefresh } = await import(path.join(DIR, "src/modules/refresh/refresh.controller.js"));
 
   // — modèle —
   assert.strictEqual(M.pollDelay(true), 3000, "attention → 3 s"); assert.strictEqual(M.pollDelay(false), 7000, "calme → 7 s");
@@ -79,7 +79,7 @@ const settle = () => new Promise(r => setTimeout(r, 0));
   assert(!/id="updbtn"[^>]*\son\w+=/.test(html), "#updbtn ne porte plus de on*"); const nav = /<nav class="lnav">[\s\S]*?<\/nav>/.exec(html)[0]; assert(!/\son\w+=/.test(nav) && (nav.match(/data-panel="/g) || []).length === 6, "les onglets gauche : data-panel seul, plus de on*");
   { const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8"); assert(/refreshCtl\.start\(\);/.test(boot) && /layout\.restorePanel\(\)/.test(boot) && /refresh: refreshCtl,/.test(boot), "boot.js : premier tick depuis l'init, panneau restauré, l'attache rafraîchit par le contrôleur"); }
   assert(!/setInterval|refreshFetch\(|PANEL_LOADERS|renderHealth\(|renderCoreUpdate\(/.test(html.replace(/\/\/[^\n]*/g, "")), "plus aucun poller ni renderer de santé/MAJ dans le monolithe");
-  const ctrl = fs.readFileSync(path.join(DIR, "src/controllers/refresh.controller.js"), "utf8"); assert(/visibilitychange/.test(ctrl) && /hidden/.test(ctrl), "pollers gatés sur la visibilité (RM2613)");
+  const ctrl = fs.readFileSync(path.join(DIR, "src/modules/refresh/refresh.controller.js"), "utf8"); assert(/visibilitychange/.test(ctrl) && /hidden/.test(ctrl), "pollers gatés sur la visibilité (RM2613)");
   console.log("✓ hôtes sans on*, ponts en place, plus de poller dans le monolithe");
   console.log("\nTous les tests de la pile /refresh passent.");
 })().catch(e => { console.error("✗", e.stack || e.message); process.exit(1); });

@@ -1,0 +1,17 @@
+// modules/actions/actions.scss — style du module « actions » (RM3012 : sorti d'index.html, rendu identique). Compilé dans cockpit.css par `npm run build:css`.
+
+.dispmenu { position: fixed; z-index: 60; background: var(--panel2); border: 1px solid var(--line);
+  border-radius: 7px; padding: 3px; display: flex; flex-direction: column; min-width: 150px;
+  box-shadow: 0 6px 18px var(--shadow); }
+.dispmenu button { text-align: left; background: none; border: 0; color: var(--fg);
+  font: inherit; padding: 6px 11px; border-radius: 5px; cursor: pointer; white-space: nowrap; }
+.dispmenu button:hover { background: var(--accent-soft); }
+.dispmenu button.on { color: var(--accent); font-weight: 600; }
+.dispmenu .sep { border-top: 1px solid var(--line); margin: 3px 2px; }
+
+/* RM1893 §2 — chips d'actions en un clic sous le terminal */
+.chipsrow { display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  padding: 6px 10px; border-top: 1px solid var(--line); background: var(--panel); }
+.chipsrow .cgroup { font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--muted); margin: 0 2px 0 8px; }
+.chipsrow .cgroup:first-child { margin-left: 0; }

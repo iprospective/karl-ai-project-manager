@@ -8,13 +8,13 @@ function fakeElement() { const L = []; let inner = ""; return { get innerHTML() 
   addEventListener(t, f) { L.push([t, f]); }, removeEventListener(t, f) { const i = L.findIndex(([a, b]) => a === t && b === f); if (i >= 0) L.splice(i, 1); }, get listenerCount() { return L.length; },
   async click(action, data) { const n = { dataset: { action, ...(data || {}) } }; for (const [t, f] of [...L]) if (t === "click") await f({ target: { closest: s => s === "[data-action]" ? n : null }, preventDefault() {}, stopPropagation() {} }); } }; }
 (async () => {
-  const T = await import(path.join(DIR, "src/models/center/tabs.js"));
-  const H = await import(path.join(DIR, "src/models/center/history.js"));
-  const K = await import(path.join(DIR, "src/models/center/viewKey.js"));
-  const SC = await import(path.join(DIR, "src/models/files/scope.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/center/CenterViewModels.js"));
-  const V = await import(path.join(DIR, "src/views/center/Center.view.js"));
-  const { mountCenter } = await import(path.join(DIR, "src/controllers/center.controller.js"));
+  const T = await import(path.join(DIR, "src/modules/center/tabs.js"));
+  const H = await import(path.join(DIR, "src/modules/center/history.js"));
+  const K = await import(path.join(DIR, "src/modules/center/viewKey.js"));
+  const SC = await import(path.join(DIR, "src/modules/files/scope.js"));
+  const VM = await import(path.join(DIR, "src/modules/center/CenterViewModels.js"));
+  const V = await import(path.join(DIR, "src/modules/center/Center.view.js"));
+  const { mountCenter } = await import(path.join(DIR, "src/modules/center/center.controller.js"));
 
   // — RM2672 : temporaire unique, épinglage, fermeture —
   let st = T.upsertTab([], "session", "2668", "RM2668");

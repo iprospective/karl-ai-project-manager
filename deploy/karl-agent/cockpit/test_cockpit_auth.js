@@ -9,10 +9,10 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {} }, extra2 || {})); await new Promise(r => setTimeout(r, 0)); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {} }); await new Promise(r => setTimeout(r, 0)); return n; } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/auth/auth.js"));
-  const { AuthService } = await import(path.join(DIR, "src/services/auth.service.js"));
-  const V = await import(path.join(DIR, "src/views/auth/Auth.view.js"));
-  const { mountAuth } = await import(path.join(DIR, "src/controllers/auth.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/auth/auth.js"));
+  const { AuthService } = await import(path.join(DIR, "src/modules/auth/auth.service.js"));
+  const V = await import(path.join(DIR, "src/modules/auth/Auth.view.js"));
+  const { mountAuth } = await import(path.join(DIR, "src/modules/auth/auth.controller.js"));
 
   // — modèle —
   assert.strictEqual(M.deviceName("Mozilla/5.0 (X11; Linux x86_64) Firefox/120"), "Firefox / Linux"); assert.strictEqual(M.deviceName("Mozilla/5.0 (iPhone) AppleWebKit Safari/604"), "Safari / iOS");

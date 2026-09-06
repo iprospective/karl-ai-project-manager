@@ -10,11 +10,11 @@ function fakeElement(id) { const L = []; let inner = ""; const kids = {}; const 
   async fire(type, target, extra) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {}, stopPropagation() {} }, extra || {})); },
   async click(action, data) { const n = { dataset: Object.assign({ action }, data || {}), closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f({ target: n, preventDefault() {}, stopPropagation() {} }); return n; } }; return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/tickets/search.js"));
-  const { SearchService } = await import(path.join(DIR, "src/services/search.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/tickets/SearchViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/tickets/Search.view.js"));
-  const { mountSearch } = await import(path.join(DIR, "src/controllers/search.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/search/search.js"));
+  const { SearchService } = await import(path.join(DIR, "src/modules/search/search.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/search/SearchViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/search/Search.view.js"));
+  const { mountSearch } = await import(path.join(DIR, "src/modules/search/search.controller.js"));
   // — RM2770 / RM2639 / RM2830 : la requête —
   assert.strictEqual(M.searchQuery("abc", { source: "local" }, ""), "/api/search/tickets?q=abc", "source locale = requête historique"); assert(M.searchQuery("x", { source: "redmine" }, "").includes("source=redmine") && M.searchQuery("x", { source: "both" }, "").includes("source=both"));
   assert(M.searchQuery("x", { client: "abatik" }, "calicote").includes("client=abatik"), "le filtre explicite prime sur le contexte"); assert(M.searchQuery("x", {}, "calicote").includes("client=calicote")); assert(!M.searchQuery("x", {}, "").includes("client="));

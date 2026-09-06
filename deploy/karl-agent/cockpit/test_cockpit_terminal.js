@@ -8,11 +8,11 @@ function fakeEl(id, extra) { const L = []; let inner = ""; const self = Object.a
   async fire(type, target, extra2) { for (const [t, f] of [...L]) if (t === type) await f(Object.assign({ target, preventDefault() {}, stopPropagation() {} }, extra2 || {})); },
   async click(action, extra2) { const n = { dataset: { action }, closest: () => n }; for (const [t, f] of [...L]) if (t === "click") await f(Object.assign({ target: n, preventDefault() {} }, extra2 || {})); } }, extra || {}); return self; }
 (async () => {
-  const M = await import(path.join(DIR, "src/models/terminal/terminal.js"));
-  const { TerminalService } = await import(path.join(DIR, "src/services/terminal.service.js"));
-  const VM = await import(path.join(DIR, "src/viewmodels/terminal/ComposerViewModel.js"));
-  const V = await import(path.join(DIR, "src/views/terminal/Composer.view.js"));
-  const { mountTerminal } = await import(path.join(DIR, "src/controllers/terminal.controller.js"));
+  const M = await import(path.join(DIR, "src/modules/terminal/terminal.js"));
+  const { TerminalService } = await import(path.join(DIR, "src/modules/terminal/terminal.service.js"));
+  const VM = await import(path.join(DIR, "src/modules/terminal/ComposerViewModel.js"));
+  const V = await import(path.join(DIR, "src/modules/terminal/Composer.view.js"));
+  const { mountTerminal } = await import(path.join(DIR, "src/modules/terminal/terminal.controller.js"));
   const https443 = { port: "", protocol: "https:", hostname: "karl.lxc", origin: "https://karl.lxc" };
   assert.strictEqual(M.termBase({ ttyd_base: "" }, https443), "https://karl.lxc/ttyd", "RM2561 : derrière le vhost, même origine"); assert.strictEqual(M.termBase({}, Object.assign({}, https443, { port: "443" })), "https://karl.lxc/ttyd"); assert.strictEqual(M.termBase({}, { port: "9876", protocol: "http:", hostname: "dev.local", origin: "http://dev.local:9876" }), "http://dev.local:7681", "accès direct : repli :7681"); assert.strictEqual(M.termBase({ ttyd_base: "https://ailleurs:1234" }, https443), "https://ailleurs:1234");
   assert.strictEqual(M.ttydUrl({}, { protocol: "http:", hostname: "h" }, "42"), "http://h:7681/?arg=42"); assert.strictEqual(M.ttydUrl({ ttyd_base: "https://t//" }, {}, "a b"), "https://t/?arg=a%20b");

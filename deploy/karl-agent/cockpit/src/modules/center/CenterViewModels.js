@@ -36,7 +36,7 @@ export class HistoryViewModel extends EntityViewModel {
 /** Le titre du centre pour ce que le contrôleur possède (vue, panneau, tableau de bord, rien). */
 export class CenterTitleViewModel extends EntityViewModel {
   /** e = { view: {kind,key}|null, panel: name|null, active, tabs, panels } */
-  get icon() { return this.e.view ? (ICONS[this.e.view.kind] || "•") : this.e.panel === "pm" ? "⚙" : "🔧"; }
+  get icon() { return this.e.view ? (ICONS[this.e.view.kind] || "•") : this.e.panel === "pm" ? "⚙" : this.e.panel === "journal" ? "📜" : "🔧"; }
   get viewLabel() {
     const v = this.e.view; if (!v) return "";
     const t = (this.e.tabs || []).find(x => x.kind === v.kind && x.key === v.key);

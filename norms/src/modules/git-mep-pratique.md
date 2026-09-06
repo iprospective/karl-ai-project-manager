@@ -319,7 +319,8 @@ sait y ouvrir des PR. Pour **créer** un dépôt et y pousser des branches chois
   push (GitHub prend sinon la première branche reçue) ; protection de `main` si le plan le permet,
   avertissement sinon (les dépôts privés d'un plan gratuit n'en ont pas) ;
 - `--remote github` pose le remote sous ce nom : `origin` (GitLab) reste intact ;
-- le jeton est `GITHUB_TOKEN` dans le **`.env` utilisateur** (`~/.config/mmi-pm/.env`), et
+- le jeton est **par organisation** : `GITHUB__<OWNER>__TOKEN` (ex. `GITHUB__IPROSPECTIVE__TOKEN`) dans le
+  **`.env` utilisateur** (`~/.config/mmi-pm/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
   `deploy/karl-agent/git-credential-pm-github` (installé dans `~/.local/bin`) le sert à `git` ; le
   repli HTTPS+jeton de l'alias canonique est `url.https://github.com/.insteadOf github:` en
   config globale — le remote stocké reste `github:owner/repo.git` (RM2328).

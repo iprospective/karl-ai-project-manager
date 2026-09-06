@@ -240,6 +240,25 @@ les routes d'action (`/sessions`, `/spawn`, …) restent protégées. L'enrichis
    gitignored du repo), toute requête doit porter l'en-tête `X-Karl-Token`.
    Défense en profondeur côté `mmi` où le port est sur le localhost partagé.
 
+## Journal structuré (RM3010)
+
+`logs/karl-agent.jsonl` à la racine du projet (ignoré par git ; `KARL_JOURNAL_DIR` pour le déplacer) : un enregistrement JSON par
+ligne — `ts`, `level` (`debug` < `info` < `warn` < `error`), `cat` (`auth`, `issue`, `provider`, `tmux`, `claude`, `worklog`, `files`,
+`api`, `mail`, `sets`, `refresh`, `pm`, `session`, `voice`, `env`, `front`, `system`), `msg`, puis les champs (rm_id, user, path,
+status, ms, trace…). Écrit par `scripts/pm_log.py` (thread-safe, ne lève jamais) :
+
+- toute réponse HTTP ≥ 400 (catégorie d'après le chemin, `auth` pour 401/403, traceback court sur 5xx) ;
+- les POST aboutis des domaines qui mutent (tmux, jeux, session, auth, mail, pm, voix, tickets, worklog, fichiers), en `info`,
+  avec un résumé de la charge utile (rm_id, group, sid, engine…) ;
+- sessions tmux lancées / fermées, échecs tmux, connexions ; les autres requêtes en `debug` (`KARL_JOURNAL_LEVEL=debug`) ;
+- ce que le cockpit dépose par `POST /log` (catégorie `front`, RM3011).
+
+Rotation par taille (`KARL_JOURNAL_MAX_MB`, 20) vers `karl-agent-<horodatage>.jsonl`, rétention `KARL_JOURNAL_KEEP_DAYS` (14).
+`warn`/`error` sont aussi reflétés sur stderr (journald), `KARL_JOURNAL_STDERR=0` pour l'éviter.
+
+Lecture : `mmi-pm log-tail [-c auth,api] [-l warn] [--since ISO] [-n 100] [-q texte] [-f] [--json] [--stats]`, ou
+`GET /api/log/tail?category=&level=&since=&limit=&q=` (auth requise) — c'est ce que le menu « journal » du cockpit consomme.
+
 ## Variables d'environnement
 
 Chargées depuis `<repo>/.env` (gitignored) ou l'environnement du service.

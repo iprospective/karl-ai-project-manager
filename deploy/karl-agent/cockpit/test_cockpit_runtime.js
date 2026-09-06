@@ -33,7 +33,7 @@ console.log("✓ aucun handler inline dans la page");
   for (const f of scss) { h.update(path.relative(DIR, f)); h.update("\0"); h.update(fs.readFileSync(f)); h.update("\0"); }
   const css = fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8"); const m = /empreinte des sources scss : ([0-9a-f]{16}) \((\d+) fichiers\)/.exec(css);
   assert(m, "cockpit.css doit porter l'empreinte de ses sources (npm run build:css)");
-  assert.strictEqual(m[1], h.digest("hex").slice(0, 16), "cockpit.css est PÉRIMÉ par rapport à src/**/*.scss — relance `npm run build:css` (deploy/karl-agent/cockpit)");
+  assert.strictEqual(m[1], h.digest("hex").slice(0, 16), "cockpit.css est PÉRIMÉ par rapport à src/**/*.scss — relance `npm run build:css` (deploy/karl-agent/cockpit/tooling)");
   assert(!/<style>/.test(html) && /<link rel="stylesheet" href="\/static\/cockpit\.css">/.test(html), "la page charge cockpit.css, sans <style> inline");
   assert(scss.length >= 20 && fs.existsSync(path.join(DIR, "src/styles/main.scss")), "un fichier scss par module + tokens + base + main");
   console.log("✓ cockpit.css à jour (" + scss.length + " sources scss, empreinte " + m[1] + ")"); }

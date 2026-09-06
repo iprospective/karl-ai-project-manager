@@ -35,6 +35,8 @@ export const ROUTES = {
   "glossary.help": { current: "/help", target: "/api/glossary/help", lot: "L5", callers: 1 },
   "glossary.project": { current: "/project", target: "/api/glossary/project", lot: "L5", callers: 2 },
   "layout.outline": { current: "/outline", target: "/api/layout/outline", lot: "L5", callers: 1 },
+  "log.tail": { current: "/log/tail", target: "/api/log/tail", lot: "RM3010", callers: 1 },
+  "log.write": { current: "/log", target: "/api/log/write", lot: "RM3010", callers: 1 },
   "mail.create": { current: "/mail/create", target: "/api/mail/create", lot: "L1", callers: 2 },
   "mail.dismiss": { current: "/mail/dismiss", target: "/api/mail/dismiss", lot: "L1", callers: 1 },
   "mail.draft": { current: "/mail/draft", target: "/api/mail/draft", lot: "L1", callers: 1 },

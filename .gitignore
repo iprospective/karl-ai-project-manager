@@ -56,3 +56,6 @@ deploy/karl-agent/cockpit/monitors.json
 # État runtime machine-local (compteur de session, registre branches/worktrees —
 # RM2034). Présent dans l'arbre mais jamais versionné (par machine).
 var/
+
+# Journal structuré karl-agent / PM (RM3010) — local à l'instance
+logs/

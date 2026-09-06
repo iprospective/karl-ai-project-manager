@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 0d99cb97a6f3a92c (27 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 50fabbe3fe29e3e8 (28 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -3279,4 +3279,125 @@ iframe {
   color: var(--muted);
   font-size: 10.5px;
   margin-top: 6px;
+}
+
+.mp-state {
+  color: var(--muted);
+  font-weight: normal;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 11.5px;
+  margin-left: 8px;
+}
+
+.mp-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mp-int {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.mp-int select {
+  width: auto;
+  font-size: 11.5px;
+  padding: 2px 6px;
+}
+
+.mp-alerts {
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: var(--warn);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+
+.mp-alert b {
+  color: var(--fg);
+}
+
+.mp-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  font-family: var(--mono);
+}
+
+.mp-table th, .mp-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--line);
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mp-table th {
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.mp-table td.mp-mod, .mp-table th:first-child {
+  text-align: left;
+}
+
+.mp-table tr.mp-leak td {
+  background: var(--danger-soft);
+}
+
+.mp-flag {
+  color: var(--warn);
+}
+
+.mp-trend {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.mp-spark {
+  display: block;
+}
+
+.mp-spark polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 1.5;
+}
+
+.mp-foot {
+  color: var(--muted);
+  font-size: 10.5px;
+  margin-top: 6px;
+}
+
+.mp-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  margin: 6px 0;
+}
+
+.mp-hint {
+  color: var(--muted);
+  font-size: 11.5px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }

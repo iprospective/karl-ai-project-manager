@@ -288,6 +288,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Sonde mémoire par module** (RM3007). Le cockpit savait dire, depuis la console, combien de
+  montages et d'entrées de store il retenait (`karl.stats()`), mais rien n'était activable
+  depuis l'interface ni ventilé par module — l'enquête RM2807 (onglets à 20 Go) en restait à
+  la sonde opt-in du terminal. `core/probe.js` échantillonne, à la cadence choisie, ce que
+  chaque module retient (montages, nœuds, écouteurs/minuteries/abonnements, entrées de store,
+  rendus par minute — le module d'un montage est lu dans la pile d'appel, sans rien demander
+  aux contrôleurs) et lit dans l'historique ce qui **grimpe sans redescendre**. Activation dans
+  🔧 réglages (préférence de ce navigateur, coût nul décochée), panneau 🧠 mémoire au centre
+  (tableau, courbe des nœuds par module, alertes, export JSON). Front v3.2.0.
 - **Cockpit 3.0.0 — refonte CSMV** (RM2889, puis RM3012, RM3010/RM3011, RM3000, RM3005). Le
   cockpit était un `index.html` de plusieurs milliers de lignes avec un script inline, des
   `onclick`, des caches partagés par référence et des routes historiques. Il est désormais un

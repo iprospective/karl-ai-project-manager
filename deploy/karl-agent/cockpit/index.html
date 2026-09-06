@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cockpit karl-agent</title>
-<meta name="karl-cockpit-version" content="3.1.0">
+<meta name="karl-cockpit-version" content="3.2.0">
 <!-- RM2522 : client terminal maison (xterm.js vendoré, servi par /static —
      cf. cockpit/vendor/PROVENANCE.md). Chargement bloquant et local : le
      terminal doit être prêt avant le premier attach. -->
@@ -504,6 +504,10 @@ if (window.matchMedia) {
             <!-- RM3011 journal — rendu par src/modules/journal/ -->
             <div class="card" id="journalcard"></div>
           </div>
+          <div class="cpanel" id="cp-memory" style="display:none">
+            <!-- RM3007 sonde mémoire par module — rendu par src/modules/memory/ -->
+            <div class="card" id="memorycard"></div>
+          </div>
           <div class="cpanel" id="cp-settings" style="display:none">
             <div class="card" id="authcard" style="display:none">
               <h2>Authentification</h2>
@@ -542,6 +546,8 @@ if (window.matchMedia) {
                  le défaut d'instance reste piloté par la rubrique « Design front ». -->
             <!-- RM2386 thème — domaine MIGRÉ (RM2889, L5) : rendu par src/views/settings/ -->
             <div class="card" id="themecard"></div>
+            <!-- RM3007 sonde mémoire (bloc des réglages) — rendu par src/modules/memory/ -->
+            <div class="card" id="probecard"></div>
             <!-- RM2579 : démarrage de la colonne de droite (local à CE navigateur) -->
             <div class="card" id="rightcard">
               <h2>🧩 Colonne de droite <span style="color:var(--muted);font-weight:normal">(ce navigateur)</span></h2>

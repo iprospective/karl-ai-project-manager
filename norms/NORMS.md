@@ -1,9 +1,9 @@
 ---
-schema_version: "2.20.0"
+schema_version: "2.21.0"
 updated: 2026-09-07
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.20.0
+# Normes de gestion des tâches — v2.21.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -495,6 +495,41 @@ la lib + le champ `client:` du frontmatter de `project/overview.md` :
 client_dir = cfg.path("entity", entity=client_slug)
 ```
 
+
+### L'annuaire de contacts (RM2703)
+
+Une personne = **une fiche**, `contacts/<ref>.yml`, dans le dépôt de **données**
+(`paths.contacts_dir`). Le rattachement à un client reste chez lui :
+
+```yaml
+contacts:
+  - ref: moulin-mathieu     # → l'annuaire
+    role: owner
+    title: Gérant
+```
+
+Deux objets, deux responsabilités : **l'identité** (nom, adresses, téléphones,
+`internal`, `redmine_user_id`) vit dans l'annuaire ; **la relation** (rôle,
+titre) reste chez le client, parce qu'elle n'existe que là et qu'un `meta.yml`
+doit rester lisible seul.
+
+Trois choses à ne pas confondre :
+
+- ce n'est **pas** un doublon des comptes Redmine — celui-ci dit qui a un compte
+  et des droits, l'annuaire dit qui l'on côtoie (lien facultatif par
+  `redmine_user_id`) ;
+- ce n'est **pas** `team[]`, qui dit qui *travaille* sur un projet ;
+- ce n'est **pas** le CRM du client : les contacts de nos clients vivent dans
+  leur Dolibarr.
+
+**Pas sous `conf_dir`** : le dépôt de code part sur un miroir GitHub public, et
+ce sont des données personnelles. **Pas à la racine de `projects_root`** :
+aucun dépôt ne la versionne. Écriture par `pm-contact.py` uniquement.
+
+**Ce qu'un dépôt git n'oublie pas** : effacer une fiche ne l'efface pas de
+l'historique. Un droit à l'effacement réellement honoré demande une réécriture
+d'historique — donc une procédure, pas un `git rm`.
+
 ## Structure des dossiers
 
 ## Configuration des chemins (`pm.config.yml`)
@@ -633,6 +668,8 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
 | Tâche | **reprendre sans sa session** (séances, prochaine étape notée, demandes retrouvées, état constaté du code) | `pm-task-brief.py <id> --reprise` (RM2998) |
+| Contact | **annuaire de personnes** (ajout, fusion, recherche par adresse, migration) | `pm-contact.py` (RM2703) |
+| Contact | rattacher à un client (rôle, titre) | `pm-client-contact.py` |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |

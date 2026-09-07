@@ -72,6 +72,14 @@ paths:
   # d'email ne s'en approche (la file de triage, elle, reste hors git — RM2668).
   mail_routing_file:   "{conf_dir}/mail-routing.yml"
 
+  # Annuaire de contacts (RM2703) — une fiche par personne, `contacts/<ref>.yml`.
+  # Ni sous `conf_dir` : le dépôt de CODE part sur un miroir GitHub PUBLIC, et
+  # ce sont des données personnelles (noms, adresses, téléphones). Ni à la racine
+  # de `projects_root`, que ne versionne aucun dépôt (cf. la note de
+  # `mail_routing_file`). Donc dans le dépôt de DONNÉES, sous le projet système
+  # — privé, versionné, et lisible depuis n'importe quel client.
+  contacts_dir:        "{entities_dir}/iprospective/projects/pm-ai-agents/contacts"
+
   # Symlinks de liaison code ↔ PM
   # workspace_link  : côté PM, pointe vers le workspace de code
   # reverse_link    : côté workspace de code, pointe vers le projet PM

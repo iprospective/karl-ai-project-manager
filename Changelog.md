@@ -303,6 +303,14 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Le cockpit sur un téléphone : un gabarit, pas un second cockpit** (RM3003). Sur un écran étroit
+  (ou `?layout=mobile`), la page montre une colonne à la fois — panneaux, centre, colonne de la
+  session — avec une barre de navigation en bas dont le badge compte les sessions qui attendent.
+  Attacher une session ou ouvrir une fiche bascule sur le centre, montrer un onglet de droite sur
+  la colonne de droite. Ce sont les mêmes contrôleurs, ViewModels et vues qu'au bureau : la
+  disposition est décidée par `modules/layout/mobile.js` et rendue par du CSS sur
+  `html[data-layout]` / `main[data-mpage]`. Le test navigateur joue un viewport de 390 px
+  (Chromium + Firefox). Front v3.4.0.
 - **Un registre des types d'entités, quatre niveaux d'affichage** (RM3002). Le centre, les
   onglets, l'historique, l'épinglage et les références cliquables dispatchaient chacun sur
   `kind === "…"` — une cinquantaine de sites, et un type de plus (le panneau 🧠 mémoire, la

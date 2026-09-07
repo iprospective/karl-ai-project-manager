@@ -14,6 +14,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Les sessions Claude sont archivées toutes les heures, et l'archivage est surveillé**
+  (RM2997). `~/.claude/projects` était déjà un dépôt git avec un remote GitLab, mais
+  l'archivage était un **geste manuel** : le 2026-06-23 à 03:17, un git interrompu y a laissé
+  un `.git/index.lock`, et pendant **75 jours** chaque tentative a échoué dessus — aucun cron,
+  aucun log, aucune alerte, donc aucun signal. Pendant ce temps la rétention par défaut de
+  Claude Code (`cleanupPeriodDays`, 30 jours, absente du `settings.json`) effaçait les
+  transcripts au fil de l'eau : **42 perdus**, dont dépendaient 70 tickets encore ouverts.
+  `pm-sessions-archive.py` commite et pousse toutes les heures (timer systemd `--user`), lève
+  un verrou **mort** — plus vieux que 15 min *et* aucun git vivant dans le dépôt, les deux
+  conditions étant nécessaires : lever celui d'un git en cours corromprait l'index — et le met
+  de côté plutôt que de le détruire. Il archive aussi `history.jsonl` et les worklogs, sous
+  `_meta/` à une profondeur qui ne les fasse pas passer pour des transcripts (le moteur
+  énumère `*/*.jsonl`, profondeur deux). Invariant central : **aucune suppression n'est jamais
+  consignée** — un transcript déjà effacé garde son blob atteignable, ce qui a permis d'en
+  récupérer 313. La surveillance manquante est le vrai livrable : `--check` distingue trois
+  pannes (pas de dépôt, plus de commit depuis trop longtemps, commits non poussés) et alimente
+  un contrôle d'environnement karl-agent en niveau `error` — ce qui est perdu ici ne se
+  rattrape pas.
 - **Reprendre un ticket sans sa session** (RM2998). Jusqu'ici, retrouver le fil d'un travail
   interrompu passait par la reprise de la conversation — et c'est précisément ce qui a manqué
   quand 42 transcripts ont été effacés (RM2997), laissant 70 tickets ouverts sans leur

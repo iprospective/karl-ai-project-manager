@@ -72,6 +72,17 @@ La garde d'imports (`test_cockpit_core.js` § 12) vérifie ces interdits sur cha
   s'ajoute dans `MIGRATION-ROUTES.tsv` puis `python3 scripts/cockpit-gen-endpoints.py`
   (régénère `src/core/endpoints.js` **et** `scripts/karl_api_routes.py` côté serveur).
 
+## Le canal de push (RM3006)
+
+`modules/refresh/push.service.js` ouvre un EventSource sur `/api/session/events` avec les mêmes
+specs `bloc:hash` que le tick (`RefreshService.pushSpecs`) ; les blocs poussés passent par
+`RefreshService.ingest` — la même livraison que le tick, dédoublonnée par hash. Le tick reste
+(`pollDelay(hot, pushAlive)` : 6 s / 30 s quand le canal est vivant) et réconcilie ; une coupure
+laisse EventSource se reconnecter et rend au tick sa cadence. Les sujets sans bloc (`mail`,
+`sets`) remontent par `ctx.onTopics`. Côté serveur : `_EventBus`, `_events_stream`,
+`op_events_publish` dans `karl-agent.py` ; côté scripts : `pm_events.publish()`.
+`karl.stats().push` dit s'il est vivant et ce qu'il porte.
+
 ## Le gabarit mobile (RM3003)
 
 Pas un second cockpit : la même page, **disposée autrement**. `modules/layout/mobile.js` décide

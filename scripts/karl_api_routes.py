@@ -72,6 +72,8 @@ TARGET_TO_CURRENT = {
     "/api/session/approve-all": "/approve-all",
     "/api/session/cockpit-config": "/cockpit-config",
     "/api/session/disposition": "/disposition",
+    "/api/session/events": "/events",
+    "/api/session/events/publish": "/events/publish",
     "/api/session/kill": "/kill",
     "/api/session/layout": "/layout",
     "/api/session/monitor": "/monitor",

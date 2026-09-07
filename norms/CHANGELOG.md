@@ -1,5 +1,18 @@
 # Changelog des normes
 
+## [2.23.0] - 2026-09-07
+
+### Ajouté
+- **Module `testing` + tripwire KERNEL #17 « Tests au fil de l'eau »** (RM3028) :
+  discipline de tests obligatoire à chaque dev — TDD par défaut sur la logique,
+  tests unitaires (extraire en fonctions pures ce qui est dur à tester), tests
+  fonctionnels/workflow/intégration anticipés dès la conception, couverture de
+  TOUS les cas (tests auto ET protocole de test, complémentaires). `mmi-pm test`
+  vert avant livraison ; front/cockpit ⇒ tests node même MR. Seul motif de « pas
+  de test auto » : comportement non automatisable (rendu navigateur, intégration
+  tierce) ⇒ recette humaine + justification tracée. Déclencheur dans le KERNEL
+  (ouvert à la demande, hors précharge). Détail : `norms/src/modules/testing.md`.
+
 ## [2.21.0] - 2026-09-07
 
 ### Ajouté

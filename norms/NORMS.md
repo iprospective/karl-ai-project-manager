@@ -29,6 +29,7 @@ updated: 2026-09-07
 | je push / crée une MR / projet versionné | `modules/git-mep.md` | `glab` |
 | le transport git résiste (SSH/token, submodules), l'API GitLab répond de travers, je prépare une MEP, ou je touche un ticket d'interface | `modules/git-mep-pratique.md` (mode d'emploi, hors précharge) | `pm-mr`, `pm-promote` |
 | je livre / teste / mets en preprod (MEP) | `modules/git-mep.md` + `modules/status-workflow.md` (actions au déploiement : `pm-task-deploy`) | `pm-task-status-update` |
+| je code ou modifie de la logique (fonction, règle, calcul, transition, flux), ou je livre un ticket : écrire les **tests AVEC le code** | **tripwire #17** + `modules/testing.md` | `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` |
 | je livre un changement de SURFACE (outil, flux, cockpit UI, archi/dev) : mettre à jour la doc vivante dans la MÊME MR (Changelog · README · aide cockpit · DEVELOPMENT) | `modules/governance.md` (§ Développement du PM) | — |
 | je m'apprête à ouvrir un ticket pour un changement TRIVIAL du repo PM (terme de glossaire, coquille) | `modules/governance.md` (§ Changements sans ticket) — la MR reste due, le ticket non | `pm-mr create --no-ticket` |
 | je change un statut de tâche | **tripwire #4** + `modules/status-workflow.md` | `pm-task-status-update` (`--list-next`) |
@@ -89,6 +90,8 @@ Règles dont l'oubli casse silencieusement quelque chose. Énoncé **auto-suffis
 15. **Plomberie PM : muette en restitution, et jamais le sujet d'une question.** La mécanique git des dépôts de **données PM** (`*-core`) — auto-commits `pm(...)`, push, branche, MR, « ✓ commité », hash — **ne figure JAMAIS** dans ta restitution à l'utilisateur : ce sont des **process automatiques**, les annoncer gaspille des tokens et noie le fond sous du bruit. Tu restitues le **fond du ticket** et le **code livré** — une MR de *code*, elle, se raconte : c'est une livraison. **Exception : l'échec.** Un auto-push qui échoue se signale en **une ligne**, sinon l'arriéré redevient silencieux. Même règle côté outillage : `pm_git` est muet sur le chemin nominal (`git.verbose: true` pour déboguer). **La règle vaut aussi en LECTURE — dans l'interprétation d'une question.** Une demande non qualifiée (« les tickets sont mergés en main ? », « c'est poussé ? », « où en est la branche ? ») porte sur les dépôts de **CODE** et sur le dépôt du **projet PM** — **jamais** sur un `*-core`. **Le support n'est pas le sujet** : les fiches de tickets sont bien stockées dans le `<Projet>-core`, mais un ticket **porte sur** le code de `repos/` — « le ticket est-il mergé ? » interroge la branche de **code**, pas le commit `pm(status)` qui a enregistré la fiche (RM2929). L'utilisateur n'en parle **jamais** sauf à le **nommer explicitement** : répondre sur un `*-core` qu'il n'a pas nommé, c'est la même violation vue de l'autre côté, et ça coûte un tour de conversation entier. **Pourquoi c'est un tripwire et pas une ligne-déclencheur** : la règle s'applique au moment où tu **rédiges ta réponse** — moment où tu n'ouvres plus aucun fichier. Elle doit donc être **sous tes yeux en permanence**, sinon elle se viole en silence, et se re-viole après chaque compactage de contexte (incidents répétés : 2026-08-13 en restitution, 2026-09-01 en interprétation — « je ne parle jamais des dépôts pm core, sauf explicitement »). → `agents/worker-common.md`
 
 16. **Métriques avant conclusion (incidents).** Le parc est supervisé par **Zabbix** (`https://zabbix.iprospective.fr`, API JSON-RPC, `ZABBIX_API_TOKEN` du `.env` PM) : historique CPU/charge/réseau, workers Apache, pools PHP-FPM, MySQL. **Ne jamais conclure sur la cause d'un incident à partir des seuls logs de la machine** — les logs disent ce qui a été journalisé, pas ce qui n'a **pas pu** l'être : un service engorgé cesse d'écrire (Apache journalise en **fin** de requête ; rsyslog affamé n'écrit plus), ce qui **imite une panne réseau**. Un agent local qui « mesure » quelque chose n'est pas une source fiable tant que Zabbix ne le corrobore pas. (incident RM2455, 2026-07-30 : deux diagnostics successifs — coupure amont OVH, puis saturation CPU sur la foi d'un agent local annonçant 97,51 % — **tous deux réfutés** par Zabbix, qui mesurait 14,2 % de CPU max ; la vraie cause — pool PHP 5.6 saturé → workers Apache épuisés → `MaxRequestWorkers` — a été obtenue en **trois requêtes** Zabbix.) → `knowledge/zabbix/api.md`
+
+17. **Tests au fil de l'eau.** Coder = **livrer les tests avec le code**, pas après : TDD par défaut sur la logique, tests **unitaires** + **fonctionnels/workflow** anticipés dès la conception, **tous les cas** couverts (tests auto ET protocole de test, complémentaires). `mmi-pm test` **vert avant livraison** (front/cockpit ⇒ tests node même MR). Non automatisable (rendu navigateur, intégration tierce) ⇒ recette humaine + **justification tracée** ; jamais « pas de test ». → `modules/testing.md`
 
 Les tripwires **structurels** (propriété exclusive du fichier, optimistic locking, journal append-only) sont énoncés juste en dessous, suivis de la colonne vertébrale (cascade, nommage, schéma frontmatter, énumérations).
 
@@ -2795,6 +2798,76 @@ sait y ouvrir des PR. Pour **créer** un dépôt et y pousser des branches chois
   `deploy/karl-agent/git-credential-pm-github` (installé dans `~/.local/bin`) le sert à `git` ; le
   repli HTTPS+jeton de l'alias canonique est `url.https://github.com/.insteadOf github:` en
   config globale — le remote stocké reste `github:owner/repo.git` (RM2328).
+> 📂 **Module `testing` — quand lire ceci :** je code ou modifie de la logique (fonction, règle, calcul, parsing, transition d'état, flux) · je livre un ticket · je rédige un protocole de test.
+> **Outils :** `mmi-pm test`, `pm-task-protocol`, `pm-task-deliver` · **Préchargé par :** *(personne — ouvert à la demande via le déclencheur KERNEL, tripwire #17)*.
+
+## Discipline de tests — coder, c'est livrer les tests avec le code
+
+Référence **canonique** de la discipline de tests. Le principe fondateur (décision
+Mathieu 2026-09-07) : **on n'écrit pas du code sans écrire ses tests, et on les écrit
+AU FIL DE L'EAU** — pendant le dev, pas comme une dette à solder à la livraison. Un
+changement livré **sans** les tests qui lui correspondent est incomplet.
+
+Ce module détaille le **tripwire #17**. Il complète, sans les remplacer, le
+protocole de test humain (`pm-task-protocol`, cf. `modules/redmine-hygiene.md`) et les
+tests du cockpit exigés côté front (cf. `modules/git-mep.md`).
+
+### 1. TDD par défaut (quand c'est applicable)
+
+Sur la **logique déterministe** — fonction pure, règle métier, calcul, parsing,
+mapping, **transition d'état**, condition de bord — écrire le test **avant ou pendant**
+le code, jamais seulement après. Le test EXPRIME l'intention ; l'implémentation la
+satisfait. C'est le mode par défaut, pas l'exception : dès qu'un comportement peut
+s'énoncer en « entrée → sortie attendue », il se code en test d'abord.
+
+### 2. Tests unitaires systématiques
+
+Toute logique métier porte des tests unitaires. **Extraire la logique en fonctions
+pures** pour la rendre testable sans I/O est la première réponse à « c'est dur à
+tester » (pattern déjà en place dans le repo PM : `scripts/test_pm_*.py`, `build_alerts`
+testée hors HTTP). Le code difficile à tester est d'abord un **code à refactorer**, pas
+un code à ne pas tester.
+
+### 3. Tests fonctionnels / workflow / intégration — anticipés dès la conception
+
+Au-delà de l'unité, couvrir les **parcours** et les **enchaînements** : une transition
+de statut et **ses effets** ; un hook et **son effet** ; un flux applicatif de bout en
+bout (ex. ajout au panier, MEP → notification) ; l'intégration entre deux composants.
+Ces cas se **listent dès la conception** (« quels parcours ce dev crée/modifie ? ») et
+leurs tests se codent **au fil de l'eau**, pas reconstitués après coup.
+
+### 4. Couvrir TOUS les cas de figure
+
+Un dev **énumère** ses cas et les **couvre** : nominal, **bornes/limites**, **erreurs**
+et entrées invalides, **non-régression** sur l'existant qu'il touche. « Couvrir tous les
+cas » vaut pour les **tests automatisés** ET pour le **protocole de test** (recette
+humaine) : les deux sont **complémentaires**, pas exclusifs — le protocole décrit ce
+qu'un humain vérifie, les tests auto verrouillent ce qu'une machine rejoue à chaque
+changement. Un cas énoncé au protocole qui **peut** être automatisé **doit** l'être.
+
+### 5. Outillage
+
+- `mmi-pm test` : suite de tests du repo — **verte avant toute livraison**.
+- **Front / cockpit touché** ⇒ tests cockpit (node) exigés dans la **même MR** (cf.
+  `modules/git-mep.md` et la doc vivante de `modules/governance.md`).
+- `pm-task-deliver` (`--check-all`) : gate de livraison — la livraison **atteste** que
+  les tests adaptés au type de changement existent et passent.
+- `pm-task-protocol` : le protocole de test humain, rédigé **au fil de l'eau** lui aussi
+  (miroir frontmatter `test_protocol` lu par la fiche cockpit).
+
+> **Trou d'outillage connu (à ticketer si absent) :** un contrôle **automatique** de
+> *présence* de tests adaptés au type de changement, à brancher sur `pm-task-deliver` /
+> `modules/status-workflow.md` (gate de MEP). Tant qu'il n'existe pas, l'attestation
+> reste **déclarative** — mais l'obligation, elle, tient (tripwire #17).
+
+### 6. Pragmatisme — le seul motif valable de « pas de test auto »
+
+Certains comportements ne sont **pas** automatisables raisonnablement : rendu visuel
+navigateur, interaction JS/DOM réelle, intégration tierce non simulable (ERP, passerelle
+mail/SMS). Dans ces cas **uniquement** : **protocole de recette humaine** + **justification
+tracée** (dans le ticket : quoi, pourquoi non automatisable). Jamais « pas de test » tout
+court. « C'est dur à tester » n'est pas une justification — c'est un signal de refactor
+(§2). La justification décrit une **impossibilité technique réelle**, pas une difficulté.
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 

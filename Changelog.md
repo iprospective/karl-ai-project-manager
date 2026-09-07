@@ -14,6 +14,21 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Reprendre un ticket sans sa session** (RM2998). Jusqu'ici, retrouver le fil d'un travail
+  interrompu passait par la reprise de la conversation — et c'est précisément ce qui a manqué
+  quand 42 transcripts ont été effacés (RM2997), laissant 70 tickets ouverts sans leur
+  réflexion. `pm-task-brief <id> --reprise` ne résume plus, il **rassemble** ce qui a été écrit
+  ailleurs et qui subsiste : les **séances** qui ont touché le ticket, avec **la prochaine étape
+  qui y était notée** — mise en tête, c'est ce qu'on cherche en premier ; les **demandes**
+  retrouvées dans `history.jsonl`, que le nettoyage de Claude Code n'atteint pas ; l'état
+  **constaté** du code — la branche existe-t-elle encore, porte-t-elle des commits non fusionnés,
+  le worktree est-il sale — plutôt que ce que raconte un frontmatter figé à la prise du ticket ;
+  et le journal débarrassé de sa plomberie (sur un ticket réel, 33 entrées de ticks et d'accusés
+  Redmine écartées sur 49 — les garder noyait les cinq lignes utiles). Une séance dont le
+  transcript survit propose sa commande de reprise ; une séance perdue renvoie vers sa
+  reconstitution. `--prompts-all` lève le filtre sur le numéro, parce qu'une demande parle du
+  sujet et rarement du ticket. Le brief d'onboarding, lui, reste strictement inchangé : 30 lignes,
+  mêmes clés JSON.
 - **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
   des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :
   en six jours, 337 fichiers modifiés et 16 non suivis (fiches, `.log.md`, `reporting.yml`, CDC

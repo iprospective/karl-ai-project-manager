@@ -1,9 +1,9 @@
 ---
-schema_version: "2.18.0"
-updated: 2026-09-06
+schema_version: "2.19.0"
+updated: 2026-09-07
 ---
 <!-- ⚠ FICHIER GÉNÉRÉ par scripts/pm-norms-assemble.py depuis norms/src/ — NE PAS ÉDITER À LA MAIN (voir norms/MAINTAINING.md) -->
-# Normes de gestion des tâches — v2.18.0
+# Normes de gestion des tâches — v2.19.0
 
 ## ⚙ KERNEL — lecture obligatoire à chaque session PM
 
@@ -632,6 +632,7 @@ stores keyés par `session_id` (store de spawn, jonction ticket ↔ session) :
 | Projet | cohérence des paires cross-projet (used_by/provided, implements) | `pm-doctor.py` |
 | Tâche | sync depuis Redmine | `pm-task-sync.py` · `mmi-pm-task-sync` |
 | Tâche | lister / afficher | `pm-task-list.py`, `pm-task-show.py` |
+| Tâche | **reprendre sans sa session** (séances, prochaine étape notée, demandes retrouvées, état constaté du code) | `pm-task-brief.py <id> --reprise` (RM2998) |
 | Projet / client | créer / bootstrap | `pm-project-new.py`, `pm-project-bootstrap.py`, `pm-client-new.py` |
 | Ticket Redmine (bas niveau) | note / fetch / tag IA / config | `redmine-post-note.py`, `redmine-fetch-*.py`, `redmine-tag-ia.py`, `redmine-config-check.py` |
 | Session | worklog d'avancement | `pm-session-status.py` · `mmi-pm-session-status` |
@@ -2722,6 +2723,26 @@ versioning:
   « branche d'intégration » au sens de la sous-section précédente.
 - En cas de doute sur la cible (prod actuelle vs prochaine version), **demander
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
+
+
+## GitHub — créer et pousser (RM3016)
+
+Le registre `providers` déclare GitHub (`github-public`, alias SSH `github:`) et `pm_forge`
+sait y ouvrir des PR. Pour **créer** un dépôt et y pousser des branches choisies :
+
+    pm-repo-new --forge github --path iprospective/atombox --description "…" \
+                --push-from repos/atombox-webmail.git --branches main,dev --remote github
+
+- l'owner (`iprospective`) est résolu par lecture — organisation ou utilisateur, jamais deviné ;
+- un dépôt existant est refusé ; création **privée** par défaut ; branche par défaut fixée après le
+  push (GitHub prend sinon la première branche reçue) ; protection de `main` si le plan le permet,
+  avertissement sinon (les dépôts privés d'un plan gratuit n'en ont pas) ;
+- `--remote github` pose le remote sous ce nom : `origin` (GitLab) reste intact ;
+- le jeton est **par organisation** : `GITHUB__<OWNER>__TOKEN` (ex. `GITHUB__IPROSPECTIVE__TOKEN`) dans le
+  **`.env` utilisateur** (`~/.config/mmi-pm/.env`), sinon `GITHUB__<INSTANCE>__TOKEN`, sinon `GITHUB_TOKEN` ; et
+  `deploy/karl-agent/git-credential-pm-github` (installé dans `~/.local/bin`) le sert à `git` ; le
+  repli HTTPS+jeton de l'alias canonique est `url.https://github.com/.insteadOf github:` en
+  config globale — le remote stocké reste `github:owner/repo.git` (RM2328).
 > 📂 **Module `roi-pricing` — quand lire ceci :** j'estime · je calcule le ROI · je priorise · journalisation temps/tokens par commit.
 > **Outils :** `pm-task-add`, `pm-task-tick`, `priority.py`, `pm-task-report` · **Préchargé par :** orchestrateur.
 

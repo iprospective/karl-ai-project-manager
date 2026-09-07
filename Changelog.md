@@ -339,6 +339,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   côté) et préserve blocs de code, listes, tableaux, titres, citations et sauts durs.
 
 ### Cockpit
+- **Ce qui change arrive au cockpit sans attendre son tick** (RM3006). Statuts de tickets,
+  notes, worklog de session et relève mail n'apparaissaient qu'au prochain composite `/refresh`
+  (3 à 7 s). Les scripts qui écrivent publient désormais un sujet à karl-agent
+  (`scripts/pm_events.py`, best-effort et silencieux si l'agent est absent) ; le service tient
+  un canal SSE `/api/session/events` par cockpit, authentifié et filtré par le même `auth_ctx`
+  que le tick, et y pousse les blocs de `/refresh` qui ont changé pour ce client. Le front les
+  livre par la même voie que le tick (dédoublonnage par hash) ; le tick reste, en réconciliation
+  ralentie (6 s / 30 s) tant que le canal vit, et reprend sa cadence à la coupure — EventSource
+  se reconnecte seul. Pas de veilleur de fichiers : c'est l'écriture qui parle. Front v3.5.0.
 - **Le cockpit sur un téléphone : un gabarit, pas un second cockpit** (RM3003). Sur un écran étroit
   (ou `?layout=mobile`), la page montre une colonne à la fois — panneaux, centre, colonne de la
   session — avec une barre de navigation en bas dont le badge compte les sessions qui attendent.

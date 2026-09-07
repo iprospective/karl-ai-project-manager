@@ -118,6 +118,7 @@ const karl = Object.freeze({
       dom: domStats(),
       modules: domStatsByModule(),                 // RM3007 : ventilé par module
       probe: probe.latest,                         // dernier échantillon de la sonde (null si désactivée)
+      push: refreshCtl ? refreshCtl.push.state() : null,   // RM3006 : le canal de push (vivant ? blocs ? compteurs)
       stores,
       entries: stores.reduce((n, s) => n + s.entries, 0),
       subscribers: stores.reduce((n, s) => n + s.subscribers, 0),
@@ -483,6 +484,9 @@ refreshCtl = mountRefresh({ health: byId("health"), healthtxt: byId("healthtxt")
   stores, root: document, alert: (t) => window.alert(t),
   attached: () => attachCtl.current(), worklogVisible: () => layout.rightVisible("state"), dashboardVisible: () => dashboard.visible(),
   onSessions: (list) => sessionsCtl.render(list), onWorklog: (d) => worklogCtl.setFromRefresh(d), onDashboard: (d) => dashboard.setBlock(d), onEnv: (k, d) => env.setBlock(k, d),
+  token: () => auth.token(),   // RM3006 : le canal de push (EventSource) porte le jeton en query
+  onTopics: (topics) => { if (topics.includes("mail")) mail.refresh(); if (topics.includes("sets") && setsCtl) setsCtl.refreshSets(); },   // sujets sans bloc /refresh
+  onPush: () => layout.refreshMobileNav(),
 });
 // l'authentification (RM2334) : écran de login plein-cadre, cadenas, carte de session et appareils, comptes (superadmin). L'init du monolithe
 // appelle `boot` une fois CFG connu ; une connexion relance la santé et les sessions et ramène au panneau « en cours »

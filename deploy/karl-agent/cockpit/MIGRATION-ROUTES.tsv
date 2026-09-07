@@ -95,3 +95,5 @@ route_actuelle	lot	domaine	route_cible	appelants	exemples
 /worktrees	L4	files	/api/file/worktrees	1	loadFiles
 /log/tail	RM3010	log	/api/log/tail	1	journal (cockpit RM3011)
 /log	RM3010	log	/api/log/write	1	journal : dépôt front (RM3011)
+/events	L8	refresh	/api/session/events	1	push.service
+/events/publish	L8	refresh	/api/session/events/publish	1	pm_events

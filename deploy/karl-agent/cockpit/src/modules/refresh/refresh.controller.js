@@ -5,6 +5,7 @@
 // Hôtes : `health` (la pastille), `healthtxt`, `updbtn`. Les blocs reçus sont livrés aux domaines par `ctx.on*` (sessions → compteurs,
 // worklog, tableau de bord, poste) ; les briefs sont semés en `partial` dans le store de résolution (RM3005).
 import { RefreshService } from "./refresh.service.js";
+import { PushService } from "./push.service.js";
 import { pollDelay, healthState, healthKo, coreUpdateState, coreUpdateText, versionMismatch } from "./refresh.js";
 
 export function mountRefresh(hosts = {}, ctx = {}) {
@@ -13,7 +14,12 @@ export function mountRefresh(hosts = {}, ctx = {}) {
   const hidden = () => (ctx.hidden ? !!ctx.hidden() : (typeof document !== "undefined" && document.hidden));
   const env = () => ({ attached: ctx.attached ? ctx.attached() : null, dashboardVisible: ctx.dashboardVisible ? !!ctx.dashboardVisible() : false, worklogVisible: ctx.worklogVisible ? !!ctx.worklogVisible() : false });
   let core = null, timer = null;
-  const paint = (s) => { if (hosts.health) { hosts.health.className = s.cls; hosts.health.title = s.title; } if (hosts.healthtxt) hosts.healthtxt.textContent = s.text; };
+  // RM3006 : le canal de push — les blocs poussés passent par la même livraison que le tick ; le tick reste, en réconciliation
+  const push = ctx.push || new PushService({ open: ctx.eventSource !== undefined ? ctx.eventSource : ((u) => (typeof EventSource !== "undefined" ? new EventSource(u) : null)), token: ctx.token || null });
+  push.onBlocks = (d) => svc.ingest(d, env, on, true);
+  push.onTopics = (topics, d) => { if (ctx.onTopics) ctx.onTopics(topics, d); };
+  push.onState = (alive) => { if (hosts.health) hosts.health.classList && hosts.health.classList.toggle("push", !!alive); if (ctx.onPush) ctx.onPush(alive); };
+  const paint = (s) => { if (hosts.health) { hosts.health.className = s.cls + (push.alive ? " push" : ""); hosts.health.title = s.title + (push.alive ? " · canal de push actif" : ""); } if (hosts.healthtxt) hosts.healthtxt.textContent = s.text; };
   function renderHealth(h) { paint(healthState(h)); if (hosts.verwarn) { const m = versionMismatch(h && h.version, ctx.version); hosts.verwarn.textContent = m; hosts.verwarn.style.display = m ? "" : "none"; } }   // RM3000
   function renderHealthKo(msg) { paint(healthKo(msg)); }
   function renderCoreUpdate(d) {
@@ -40,7 +46,7 @@ export function mountRefresh(hosts = {}, ctx = {}) {
   function tick() {
     timer = null;
     if (hidden()) return;
-    Promise.resolve(fetch()).finally(() => { if (!hidden()) timer = later(tick, pollDelay(svc.hot > 0)); });
+    Promise.resolve(fetch()).finally(() => { push.sync(svc.pushSpecs(env())); if (!hidden()) timer = later(tick, pollDelay(svc.hot > 0, push.alive)); });
   }
   const disposers = [];
   const listen = (node, type, fn) => { if (node && node.addEventListener) { node.addEventListener(type, fn); disposers.push(() => node.removeEventListener(type, fn)); } };
@@ -53,6 +59,6 @@ export function mountRefresh(hosts = {}, ctx = {}) {
   }
   listen(hosts.updbtn, "click", () => showCoreUpdate());
   return { fetch, refreshSessions, refreshHealth, loadPending, refreshCoreUpdate, showCoreUpdate, renderHealth, renderHealthKo, renderCoreUpdate, tick, start,
-    stale: () => svc.stale, hot: () => svc.hot, core: () => core, svc,
-    unmount() { if (timer) { clearTimeout(timer); timer = null; } disposers.forEach(d => d()); disposers.length = 0; } };
+    stale: () => svc.stale, hot: () => svc.hot, core: () => core, svc, push,
+    unmount() { if (timer) { clearTimeout(timer); timer = null; } push.disconnect(); disposers.forEach(d => d()); disposers.length = 0; } };
 }

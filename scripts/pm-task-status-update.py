@@ -46,6 +46,7 @@ from pm_output import out
 import pm_reporting
 import pm_git
 import pm_scope
+import pm_events   # RM3006 : prévenir le cockpit sans attendre son tick
 import redmine_utils
 from pm_lock import ticket_lock, atomic_write  # verrou par ticket + écriture atomique (T7/RM2551)
 
@@ -1089,6 +1090,8 @@ def main():
     if not args.dry_run and not args.no_commit:
         pm_git.autocommit([md_path, log_path, pm_reporting.ledger_path(md_path)],
                           f"pm(status): RM{args.rm_id} {old_status} -> {args.status}")
+    if not args.dry_run:   # RM3006 : le cockpit affiche le nouveau statut tout de suite (tickets, worklog, alertes)
+        pm_events.publish(["tickets", "sessions", "pending", "worklog", "dashboard"], source="pm-task-status-update", rm_id=str(args.rm_id), status=args.status)
 
 
 if __name__ == "__main__":

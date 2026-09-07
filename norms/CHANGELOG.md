@@ -1,5 +1,17 @@
 # Changelog des normes
 
+## [2.19.0] - 2026-09-07
+
+> La 2.18.0 est arrivée par `dev` (RM3016, jeton GitHub par organisation) sans
+> entrée ici ; ce lot s'empile dessus.
+
+### Ajouté
+- **`session-tooling` — ligne d'outillage « reprendre un ticket sans sa session »**
+  (RM2998) : `pm-task-brief.py <id> --reprise`. La règle anti-trou veut que toute
+  opération de cette nature ait son outil déclaré ; celle-ci n'en avait aucun, et
+  la reprise passait par la conversation — ce qui ne tient plus dès qu'un
+  transcript disparaît (RM2997 : 42 effacés, 70 tickets ouverts orphelins).
+
 ## [2.17.0] - 2026-09-05
 
 > Renumérotation : écrit 2.16.0 sur sa branche, ce lot atterrit après le 2.16.0

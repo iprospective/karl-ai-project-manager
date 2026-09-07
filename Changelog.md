@@ -70,6 +70,15 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
   reconstitution. `--prompts-all` lève le filtre sur le numéro, parce qu'une demande parle du
   sujet et rarement du ticket. Le brief d'onboarding, lui, reste strictement inchangé : 30 lignes,
   mêmes clés JSON.
+- **Un projet, un dépôt, naissent avec leur licence** (RM3030, suite de RM3029). Aucun outil ne
+  posait la question : un dépôt naissait sans `LICENSE` — donc sans droit d'usage pour personne —
+  et la décision n'était consignée nulle part. `pm-project-new` demande la licence du code
+  (`--license <SPDX>`, sinon un menu en terminal qui explique chaque choix — MPL-2.0 pour un cœur
+  ouvert à modules libres ou fermés, Apache-2.0, MIT, LGPL/GPL/AGPL-3.0, propriétaire — défaut
+  GPL-3.0 ; hors terminal : propriétaire, rien n'est publié) et l'écrit dans `.mmi-pm/meta.yml`.
+  `pm-repo-new --push-from` écrit et committe `LICENSE` (texte SPDX intégral, `templates/licenses/`,
+  `NOTICE` pour Apache) si le dépôt n'en a pas, en reprenant la licence du projet PM qui le
+  contient. Module `scripts/pm_license.py`.
 - **Ce qui traîne dans le repo de données est rattrapé au fil de l'eau** (RM3013). L'auto-commit
   des scripts (`pm_git.autocommit`, RM1834) ne couvrait que les chemins que chaque script nomme :
   en six jours, 337 fichiers modifiés et 16 non suivis (fiches, `.log.md`, `reporting.yml`, CDC

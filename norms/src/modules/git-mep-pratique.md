@@ -306,6 +306,20 @@ versioning:
   avant de brancher** : se tromper de base impose un rebase/cherry-pick ultérieur.
 
 
+## Licence — posée à la naissance (RM3030)
+
+Un dépôt sans `LICENSE` n'est pas open source : personne n'a le droit de l'utiliser ni de le
+modifier. La licence du code se décide **à la création du projet**, pas « plus tard » :
+
+- `pm-project-new --license <SPDX>` (sinon la question en terminal — MPL-2.0 pour un cœur
+  ouvert à modules libres ou fermés, Apache-2.0, MIT, LGPL-3.0, GPL-3.0, AGPL-3.0,
+  `proprietary` ; défaut **GPL-3.0**, décision iProspective RM3029 ; hors terminal :
+  `proprietary`, rien n'est publié) → consignée dans `.mmi-pm/meta.yml` (`license:`) ;
+- `pm-repo-new --push-from <dépôt>` écrit et committe `LICENSE` (texte SPDX intégral,
+  `templates/licenses/`, `NOTICE` pour Apache-2.0) si le dépôt n'en a pas, en reprenant la
+  licence du projet PM qui le contient (`--license` pour la forcer, `--copyright` pour le
+  titulaire — défaut `PM_LICENSE_HOLDER` ou iProspective).
+
 ## GitHub — créer et pousser (RM3016)
 
 Le registre `providers` déclare GitHub (`github-public`, alias SSH `github:`) et `pm_forge`

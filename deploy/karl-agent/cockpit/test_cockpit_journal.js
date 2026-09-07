@@ -86,7 +86,7 @@ function fakeEl(id) { const L = []; let inner = ""; const self = { id, style: {}
   assert(/id="journalbtn" data-cmd="panel" data-arg="journal"/.test(html) && /id="ln-journal"/.test(html) && /id="cp-journal"/.test(html) && /id="journalcard"/.test(html), "bouton d'en-tête avec badge, panneau central");
   const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
   assert(/const log = createLog\(\{ remote: \(rec\) => post\(route\("log\.write"\), rec\)/.test(boot) && /installGlobalCapture\(log, window\)/.test(boot) && /log\.error\("front", label \+ " en erreur"/.test(boot) && /journal:\s+\{ label: "journal"/.test(boot) && /mountJournal\(\{ card: byId\("journalcard"\), badge: byId\("ln-journal"\) \}/.test(boot) && /version: VERSION, log, journal \}/.test(boot), "boot.js : journal créé avant tout montage, capture globale, safe() y écrit, panneau enregistré, karl.log exposé");
-  assert(/case "journal":( case "[a-z]+":)* return openPanel/.test(fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8")), "le centre rouvre l'onglet journal");
+  { const E = await import(path.join(DIR, "src/core/entities.js")); assert(E.entity("journal").panel && E.iconOf("journal") === "📜" && /entity\(t\.kind\)/.test(fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8")), "le centre rouvre l'onglet journal par le registre des types (RM3002)"); }
   assert(/\.jl-row/.test(fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8")), "le style du module est compilé");
   console.log("✓ page : bouton, panneau, boot, centre, style");
   console.log("\nTous les tests du journal passent.");

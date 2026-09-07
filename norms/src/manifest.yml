@@ -20,6 +20,7 @@ sources:
   # --- git & release ---
   - modules/git-mep.md
   - modules/git-mep-pratique.md   # RM2582 : mode d'emploi + cas particuliers, hors précharge
+  - modules/testing.md            # RM3028 : discipline de tests (TDD, unitaires, fonctionnels/workflow au fil de l'eau)
   # --- métriques, liens, traçabilité ---
   - modules/roi-pricing.md
   - modules/task-links.md

@@ -147,6 +147,15 @@ Principe commun : **pas de rattrapage** (RM2250), pas de valeur qui rouille
 (pointer `norms/VERSION`, `scripts/`, le command-catalog), niveau **jalon** et non
 commit-par-commit (le détail vit dans les tickets).
 
+### Licence du code et contributions (RM3029)
+
+Le code du repo PM est publié sous **GPL-3.0-or-later** (`LICENSE` à la racine, décision
+iProspective du 2026-09-07). Toute contribution — humaine ou d'agent — est faite **sous cette
+même licence** ; une dépendance ajoutée doit lui être compatible (MIT, BSD, Apache-2.0, LGPL,
+MPL-2.0 le sont ; une licence non libre ou incompatible se refuse en revue). Les données de
+projets (dépôt privé `*-core`) ne sont pas couvertes. Un nouveau projet ou dépôt choisit sa
+licence à la naissance (RM3030, `pm-project-new` / `pm-repo-new`).
+
 ### Changements sans ticket (RM2644)
 
 Certains changements du repo PM **ne demandent pas de ticket Redmine** : le ticket y

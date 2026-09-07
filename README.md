@@ -161,6 +161,21 @@ qui relie README, normes, `knowledge/` et `docs/`.
 
 **Règle fondamentale :** Redmine est le mutex. L'assignation d'un ticket Redmine à un agent lui confère la propriété exclusive du fichier MD correspondant.
 
+## Licence
+
+Ce code est publié sous **GNU General Public License v3.0 or later** (`GPL-3.0-or-later`,
+décision iProspective du 2026-09-07, RM3029) — texte intégral dans [LICENSE](LICENSE), copyright
+iProspective. Concrètement : libre d'usage, d'étude, de modification et de redistribution, à
+condition de conserver la licence et de publier les sources de toute version modifiée que l'on
+distribue. Un **module** ou une extension distribuée avec le cœur (ou qui en dérive) doit être sous
+une licence compatible GPL ; l'usage interne, sans redistribution, n'impose rien. Les dépendances
+vendorées du cockpit (xterm.js, MIT) sont compatibles — voir
+[deploy/karl-agent/cockpit/vendor/PROVENANCE.md](deploy/karl-agent/cockpit/vendor/PROVENANCE.md).
+Toute contribution au repo est faite sous cette même licence (norme « Développement du PM »).
+
+Les **données** de projets (clients, tickets, journaux) vivent dans un dépôt séparé et privé :
+elles ne sont pas couvertes par cette licence.
+
 ## Références
 
 - Normes courantes : [norms/NORMS.md](norms/NORMS.md) (version : `norms/VERSION`)

@@ -247,6 +247,41 @@ la lib + le champ `client:` du frontmatter de `project/overview.md` :
 client_dir = cfg.path("entity", entity=client_slug)
 ```
 
+
+### L'annuaire de contacts (RM2703)
+
+Une personne = **une fiche**, `contacts/<ref>.yml`, dans le dépôt de **données**
+(`paths.contacts_dir`). Le rattachement à un client reste chez lui :
+
+```yaml
+contacts:
+  - ref: moulin-mathieu     # → l'annuaire
+    role: owner
+    title: Gérant
+```
+
+Deux objets, deux responsabilités : **l'identité** (nom, adresses, téléphones,
+`internal`, `redmine_user_id`) vit dans l'annuaire ; **la relation** (rôle,
+titre) reste chez le client, parce qu'elle n'existe que là et qu'un `meta.yml`
+doit rester lisible seul.
+
+Trois choses à ne pas confondre :
+
+- ce n'est **pas** un doublon des comptes Redmine — celui-ci dit qui a un compte
+  et des droits, l'annuaire dit qui l'on côtoie (lien facultatif par
+  `redmine_user_id`) ;
+- ce n'est **pas** `team[]`, qui dit qui *travaille* sur un projet ;
+- ce n'est **pas** le CRM du client : les contacts de nos clients vivent dans
+  leur Dolibarr.
+
+**Pas sous `conf_dir`** : le dépôt de code part sur un miroir GitHub public, et
+ce sont des données personnelles. **Pas à la racine de `projects_root`** :
+aucun dépôt ne la versionne. Écriture par `pm-contact.py` uniquement.
+
+**Ce qu'un dépôt git n'oublie pas** : effacer une fiche ne l'efface pas de
+l'historique. Un droit à l'effacement réellement honoré demande une réécriture
+d'historique — donc une procédure, pas un `git rm`.
+
 ## Structure des dossiers
 
 ## Configuration des chemins (`pm.config.yml`)

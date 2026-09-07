@@ -14,6 +14,24 @@ Format : [Keep a Changelog](https://keepachangelog.com/fr/)
 ## [Unreleased] — Cockpit & environnements de test
 
 ### Outillage PM
+- **Un annuaire de contacts, indépendant des clients** (RM2703). Un contact vivait dans le
+  `meta.yml` de SON client : une personne présente chez vingt clients s'écrivait vingt fois,
+  et divergeait vingt fois. Le relevé le montrait sans appel — **31 contacts sur 21 clients,
+  dont 19 lignes pour la même personne**, en deux orthographes, marquée « interne » sur 2 de
+  ces 19. Ce n'était pas de la négligence de saisie mais la forme qui l'imposait. Désormais
+  **l'identité** (nom, adresses, téléphones, `internal`, compte Redmine) vit dans une fiche
+  unique, `contacts/<ref>.yml` ; **la relation** (rôle, titre) reste chez le client, sous la
+  forme d'un `ref` — parce que le rôle n'existe que dans la relation et qu'un `meta.yml` doit
+  rester lisible seul. `pm-contact.py` ajoute, cherche, fusionne (en réaiguillant les clients
+  concernés, sinon la moitié du travail resterait à faire) et **migre** : sur le parc réel,
+  31 lignes → **12 personnes**, en dry-run avec rapport avant toute écriture. La clé est un
+  slug lisible (`moulin-mathieu`) qui se lit dans un diff, avec repli sur l'adresse pour une
+  boîte fonctionnelle. Les deux formes cohabitent le temps de la migration : `pm-client-contact`
+  et le routage mail (RM2669) lisent les `ref` **et** les contacts en ligne, et une `ref` dont
+  la fiche a disparu se signale au lieu de disparaître. Effet de bord acquis : le routage
+  retrouve maintenant une personne par **n'importe laquelle** de ses adresses. L'annuaire ne
+  vit ni dans le dépôt de code (miroir GitHub public, données personnelles) ni à la racine de
+  `projects_root` (qu'aucun dépôt ne versionne), mais dans le dépôt de données, privé.
 - **Les sessions Claude sont archivées toutes les heures, et l'archivage est surveillé**
   (RM2997). `~/.claude/projects` était déjà un dépôt git avec un remote GitLab, mais
   l'archivage était un **geste manuel** : le 2026-06-23 à 03:17, un git interrompu y a laissé

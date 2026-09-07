@@ -1,4 +1,4 @@
-/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 50fabbe3fe29e3e8 (28 fichiers) */
+/* cockpit.css — GÉNÉRÉ depuis src/styles/main.scss par `npm run build:css` (deploy/karl-agent/cockpit/tooling) — ne pas éditer à la main ; empreinte des sources scss : 50a5ba75580a0e8c (29 fichiers) */
 @charset "UTF-8";
 /* RM2386 — palette tokenisée : le thème se joue ENTIÈREMENT dans ces deux blocs.
    Toute nouvelle couleur passe par un token, jamais en dur dans une règle. */
@@ -496,6 +496,166 @@ details.card[open] > summary::before {
   color: var(--accent);
   border-color: var(--accent);
 } /* RM2718 : [A TESTER] */
+.e-entity {
+  color: var(--fg);
+}
+
+.e-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.e-icon {
+  flex: none;
+}
+
+.e-title {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.e-sub {
+  color: var(--muted);
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.e-badges {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: auto;
+  flex: none;
+}
+
+.e-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.e-badge.ok {
+  color: var(--ok);
+  border-color: var(--ok);
+}
+
+.e-badge.warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+
+.e-badge.danger {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
+.e-badge.accent {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.e-row {
+  padding: 3px 7px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.e-row:hover {
+  background: var(--panel2);
+}
+
+.e-row .e-sec {
+  display: none;
+}
+
+.e-card {
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.e-card .e-head {
+  margin-bottom: 4px;
+}
+
+.e-card .e-sec {
+  margin-top: 4px;
+}
+
+.e-card .e-sec-title {
+  display: none;
+}
+
+.e-panel, .e-full {
+  font-size: 12.5px;
+}
+
+.e-panel .e-head, .e-full .e-head {
+  font-size: 15px;
+  margin-bottom: 8px;
+}
+
+.e-panel .e-title, .e-full .e-title {
+  white-space: normal;
+}
+
+.e-sec {
+  border-top: 1px solid var(--line);
+  padding: 6px 0;
+}
+
+.e-sec:first-of-type {
+  border-top: 0;
+}
+
+.e-sec-title {
+  margin: 0 0 4px;
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+
+.e-kv {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.e-k {
+  color: var(--muted);
+}
+
+.e-v {
+  text-align: right;
+  word-break: break-word;
+}
+
+.e-line {
+  padding: 1px 0;
+  overflow-wrap: anywhere;
+}
+
+.e-empty {
+  color: var(--muted);
+  font-style: italic;
+}
+
+.e-full .e-sec-body pre {
+  white-space: pre-wrap;
+  margin: 0;
+}
+
 /* RM2283 : colonne gauche à panneaux commutables (barre d'onglets .lnav) */
 .lbody {
   flex: 1;

@@ -2,16 +2,15 @@
 // Un clic sur `[data-link]` ouvre la fiche ℹ ou l'onglet Fichiers et NE REMONTE PAS — la tuile qui porte le titre ne s'attache pas, comme
 // le `event.stopPropagation()` inline qu'il remplace. RM2889.
 import { linkify, titleLink, markPillHtml } from "./Links.view.js";
+import { linkAction } from "../../core/entities.js";
 
 export function mountLinks(root, ctx = {}) {
   const handler = (ev) => {
     const n = ev.target && ev.target.closest ? ev.target.closest("[data-link]") : null;
     if (!n) return;
     ev.stopPropagation();
-    const kind = n.dataset.link;
-    if (kind === "ticket" && ctx.showTicket) ctx.showTicket(n.dataset.rm);
-    else if (kind === "file" && ctx.openFileRef) ctx.openFileRef(n.dataset.path);
-    // "ext" : le navigateur suit le lien ; on a seulement empêché la tuile de s'attacher
+    const act = linkAction(n.dataset.link);   // RM3002 : ce que chaque sorte de référence déclenche vit dans le registre
+    if (act) act(ctx, n);
   };
   if (root && root.addEventListener) root.addEventListener("click", handler, true);
   return {

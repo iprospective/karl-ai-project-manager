@@ -11,21 +11,21 @@ export function filesCrumbs(path) {
  *  ou règle du jeu courant. `from` DIT d'où vient ce qu'on affiche. Une vue par client ne désigne aucun projet : on ne devine pas. */
 export function filesContext(ctx) {
   const c = ctx || {};
-  if (c.attached) return { kind: "session", sid: String(c.attached) };
+  if (c.attached) return { scope: "session", sid: String(c.attached) };
   const r = c.currentReview ? (c.resolveCache || {})[c.currentReview] : null;
-  if (r && r.found && r.client && r.project) return { kind: "project", client: r.client, project: r.project, from: "ticket RM" + c.currentReview };
+  if (r && r.found && r.client && r.project) return { scope: "project", client: r.client, project: r.project, from: "ticket RM" + c.currentReview };
   const parts = String(c.currentProjectView || "").split("/");
-  if (parts.length === 2 && parts[0] && parts[1]) return { kind: "project", client: parts[0], project: parts[1], from: "fiche projet" };
+  if (parts.length === 2 && parts[0] && parts[1]) return { scope: "project", client: parts[0], project: parts[1], from: "fiche projet" };
   const cur = (c.sets || []).find(s => s && s.name === c.currentSet);
   const rule = (cur && cur.rule) || null;
-  if (rule && rule.client && rule.project) return { kind: "project", client: rule.client, project: rule.project, from: "jeu « " + (cur.label || cur.name) + " »" };
-  return { kind: "none" };
+  if (rule && rule.client && rule.project) return { scope: "project", client: rule.client, project: rule.project, from: "jeu « " + (cur.label || cur.name) + " »" };
+  return { scope: "none" };
 }
 /** Identité du contexte affiché — pour ne recharger que lorsqu'il change VRAIMENT (le poll repasse toutes les quelques secondes). */
 export function filesCtxKey(ctx) {
   const c = ctx || {};
-  if (c.kind === "session") return "s:" + c.sid;
-  if (c.kind === "project") return "p:" + c.client + "/" + c.project;
+  if (c.scope === "session") return "s:" + c.sid;
+  if (c.scope === "project") return "p:" + c.client + "/" + c.project;
   return "none";
 }
 /** RM2622 : la doc du projet n'est PAS un worktree — icône, libellé et infobulle propres. */

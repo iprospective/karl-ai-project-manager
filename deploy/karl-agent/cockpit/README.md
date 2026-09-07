@@ -16,10 +16,11 @@ cockpit/
   src/
     boot.js             câblage : CFG, stores, montage des domaines, window.karl, init
     core/               socle sans DOM métier : html (gabarits sûrs), dom (mount/on, stats par module), store (LRU+TTL+abonnés),
-                        probe (sonde mémoire), api (transport, 401), endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv),
+                        probe (sonde mémoire), entities (registre des types, quatre niveaux), api (transport, 401),
+                        endpoints (GÉNÉRÉ depuis MIGRATION-ROUTES.tsv),
                         errors, markdown, log (journal du front), version, Repository / Factory / EntityViewModel
     modules/<domaine>/  un dossier par domaine, une couche par SUFFIXE (voir ci-dessous)
-    styles/             _tokens.scss (couleurs, thèmes), _base.scss, main.scss (@use de chaque module)
+    styles/             _tokens.scss (couleurs, thèmes), _base.scss, _entities.scss (niveaux .e-row/.e-card/.e-panel/.e-full), main.scss
   help/                 aide intégrée (markdown, servie par /help, bouton ❓)
   tooling/              outillage de DÉVELOPPEMENT seulement : package.json (sass), npm run build:css
   scripts/css-stamp.js  écrit l'empreinte des sources SCSS dans cockpit.css
@@ -71,6 +72,25 @@ La garde d'imports (`test_cockpit_core.js` § 12) vérifie ces interdits sur cha
   s'ajoute dans `MIGRATION-ROUTES.tsv` puis `python3 scripts/cockpit-gen-endpoints.py`
   (régénère `src/core/endpoints.js` **et** `scripts/karl_api_routes.py` côté serveur).
 
+## Le registre des types d'entités (RM3002)
+
+`core/entities.js` connaît chaque **type** que le centre et les listes manipulent (session, review,
+project, client, conf, file, dir, commit, mail, newticket, dash et les panneaux pm / settings /
+journal / memory) : icône, libellé d'onglet, infobulle, titre d'erreur, comment l'ouvrir (une
+recette qui parle à l'`api` que le centre prête), s'il est restaurable au démarrage, s'il est une
+surface à fermer. **Plus aucun `kind === "…"` hors de ce fichier** (garde dans
+`test_cockpit_entities.js`) : ajouter un type, c'est un `defineEntity()`.
+
+Chaque ViewModel de type se **lie** au registre (`bindEntity("review", ReviewViewModel)`) et
+décrit sa fiche par une seule `sections()` : `[{ id, title, body, summary, level, empty }]`. Les
+**quatre niveaux** en sont des compositions (`renderEntity(vm, level)` / `entityLevels(type, e, ctx)`) :
+`row` (icône, titre, sous-titre, pastilles), `card` (+ sections `summary`), `panel` (+ toutes les
+sections courantes), `full` (+ celles marquées `level: "full"`). La convention CSS est unique et
+préfixée par niveau (`styles/_entities.scss` : `.e-row`, `.e-card`, `.e-sec`, `.e-kv`…) — un type de
+plus ne coûte aucune ligne de CSS, et aucune classe `.e-<type>` n'est admise. Les vues
+spécialisées du bureau (tuile de session, fiche de revue, fiche projet) restent en place ; le
+gabarit mobile (RM3003) et les nouvelles surfaces composent les niveaux.
+
 ## Ajouter un domaine
 
 1. `src/modules/<domaine>/` avec au minimum `<domaine>.js`, `<Domaine>.view.js`,
@@ -86,6 +106,8 @@ La garde d'imports (`test_cockpit_core.js` § 12) vérifie ces interdits sur cha
    libère tout (`listenerCount === 0`).
 6. Aide utilisateur : `help/<NN>-<domaine>.md` si une surface utilisateur apparaît ; et le
    `Changelog.md` du repo (contrat « docs vivantes », `norms/src/modules/governance.md`).
+7. Si le domaine introduit un **type** ouvert au centre : `defineEntity()` dans `core/entities.js`,
+   `bindEntity(type, ViewModel)` dans son ViewModel, `sections()` pour ses quatre niveaux.
 
 ## Styles
 

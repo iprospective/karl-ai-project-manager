@@ -92,7 +92,7 @@ const mem = () => { const d = {}; return { getItem: (k) => (k in d ? d[k] : null
   assert(/<div class="cpanel" id="cp-memory" style="display:none">/.test(html) && /<div class="card" id="memorycard"><\/div>/.test(html) && /<div class="card" id="probecard"><\/div>/.test(html), "index.html : panneau central + bloc des réglages");
   const boot = fs.readFileSync(path.join(DIR, "src/boot.js"), "utf8");
   assert(/const probe = createProbe\(\{ sample: \(\) => \(\{ dom: domStatsByModule\(\), stores: storeStats\(\)/.test(boot) && /mountMemory\(\{ card: byId\("memorycard"\), settings: byId\("probecard"\) \}/.test(boot) && /memory:\s+\{ label: "mémoire"/.test(boot) && /probe: probe\.latest/.test(boot) && /modules: domStatsByModule\(\)/.test(boot), "boot : sonde, montage, panneau, karl.stats()");
-  const center = fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8"); assert(/case "memory": return openPanel\(t\.kind\)/.test(center), "le centre rouvre l'onglet mémoire");
+  const center = fs.readFileSync(path.join(DIR, "src/modules/center/center.controller.js"), "utf8"); const E = await import(path.join(DIR, "src/core/entities.js")); assert(E.entity("memory").panel && E.iconOf("memory") === "🧠" && /entity\(t\.kind\)/.test(center), "le centre rouvre l'onglet mémoire par le registre des types (RM3002)");
   assert(/\.mp-table\b/.test(fs.readFileSync(path.join(DIR, "cockpit.css"), "utf8")), "style compilé");
   console.log("✓ page : panneau, bloc des réglages, boot, centre, style");
   console.log("\nTous les tests de la sonde mémoire passent.");

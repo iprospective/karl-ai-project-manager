@@ -34,7 +34,7 @@ export function mountFiles({ body, count, nav } = {}, ctx = {}) {
     try { r = await svc.load(c, force); }
     catch (e) { paint(html`<div class="empty">${e.message}</div>`); return; }
     if (r.kind === "none") { paint(html`<div class="empty">attache une session, ou ouvre une fiche de ticket ou de projet — les fichiers du projet suivront.</div>`); return; }
-    if (r.kind === "empty") { paint(c.kind === "session" ? html`<div class="empty">aucun worktree ni projet pour cette session (rien de branché).</div>` : html`<div class="empty">aucune racine lisible pour ${c.client + "/" + c.project}.</div>`); return; }
+    if (r.kind === "empty") { paint(c.scope === "session" ? html`<div class="empty">aucun worktree ni projet pour cette session (rien de branché).</div>` : html`<div class="empty">aucune racine lisible pour ${c.client + "/" + c.project}.</div>`); return; }
     await loadDir(svc.nav.wt, svc.nav.path);
   }
   async function loadDir(wt, path) { const err = await svc.loadDir(attached(), wt, path || ""); if (err) notify(err.message, true); render(); }

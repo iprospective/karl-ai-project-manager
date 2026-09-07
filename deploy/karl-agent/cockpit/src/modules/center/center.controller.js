@@ -26,6 +26,7 @@ import { TabsViewModel, HistoryViewModel, CenterTitleViewModel, FileViewModel, D
 import { Tabs, History, CenterTitle, FileView, DirView, MailView, CommitView, ClientView, ConfView, ViewError } from "./Center.view.js";
 import { GitPatchViewModel } from "../git/GitPatchViewModel.js";
 import { GitPatch } from "../git/GitPanel.view.js";
+import { entity, surfaceTypes } from "../../core/entities.js";
 
 export function mountCenter(hosts, ctx = {}) {
   const repo = ctx.repo || new CenterRepository();
@@ -78,22 +79,15 @@ export function mountCenter(hosts, ctx = {}) {
   function activate(id) {
     const t = state.tabs.find(x => tabId(x.kind, x.key) === id);
     if (!t) return;
-    const p = parseViewKey(t.key);
-    switch (t.kind) {
-      case "session":  return openSessionTab(t.key);
-      case "review":   return surfaces.review && surfaces.review.open(t.key);
-      case "project":  return surfaces.project && surfaces.project.open(t.key);
-      case "newticket": return surfaces.newticket && surfaces.newticket.open();
-      case "dash":     return openDashboard();
-      case "file":     return openFile(p[0], p[1], p[2], p[3]);
-      case "dir":      return openDir(p[0], p[1], p[2], p[3]);
-      case "commit":   return openCommit(p[0], p[1]);
-      case "mail":     return openMail(p[0], t.label);
-      case "client":   return openClient(p[0]);
-      case "conf":     return openConf(p[0], p[1], p[2]);
-      case "pm": case "settings": case "journal": case "memory": return openPanel(t.kind);
-    }
+    const def = entity(t.kind);   // RM3002 : la recette d'ouverture est celle du type, le centre ne dispatche plus
+    if (def.open) return def.open(api, t, parseViewKey(t.key));
   }
+  /** Ce que le registre des types peut demander au centre (RM3002). */
+  const api = {
+    surface: (name, verb, ...args) => surfaces[name] && surfaces[name][verb] && surfaces[name][verb](...args),
+    openSessionTab, openDashboard: () => openDashboard(), openFile: (...a) => openFile(...a), openDir: (...a) => openDir(...a), openCommit: (...a) => openCommit(...a),
+    openMail: (...a) => openMail(...a), openClient: (...a) => openClient(...a), openConf: (...a) => openConf(...a), openPanel: (n) => openPanel(n),
+  };
   function togglePin(id) {
     const t = state.tabs.find(x => tabId(x.kind, x.key) === id);
     if (!t || t.fixed) return;
@@ -113,9 +107,9 @@ export function mountCenter(hosts, ctx = {}) {
   }
   /** Plus rien d'ouvert : chaque surface cède, le tableau de bord revient. */
   function closeAll() {
-    for (const k of ["session", "review", "project"]) if (surfaces[k] && surfaces[k].close) surfaces[k].close();
+    for (const k of surfaceTypes().filter(k => !entity(k).closeLast)) if (surfaces[k] && surfaces[k].close) surfaces[k].close();
     closeView(); closePanel();
-    if (surfaces.newticket && surfaces.newticket.close) surfaces.newticket.close();   // en dernier : c'est lui qui rallume le tableau de bord
+    for (const k of surfaceTypes().filter(k => entity(k).closeLast)) if (surfaces[k] && surfaces[k].close) surfaces[k].close();   // en dernier : c'est lui qui rallume le tableau de bord
   }
 
   // ── historique (RM2776) ───────────────────────────────────────────────────
@@ -143,7 +137,7 @@ export function mountCenter(hosts, ctx = {}) {
   // ── céder la place ───────────────────────────────────────────────────────
   /** Toutes les surfaces sauf `except` se ferment, le vide central se cache. */
   function yieldTo(except) {
-    for (const k of ["session", "review", "project", "newticket"]) if (k !== except && surfaces[k] && surfaces[k].close) surfaces[k].close();
+    for (const k of surfaceTypes()) if (k !== except && surfaces[k] && surfaces[k].close) surfaces[k].close();
     if (except !== "view") closeView();
     if (except !== "panel") closePanel();
     if (ctx.placeholder) ctx.placeholder(false);
@@ -162,7 +156,7 @@ export function mountCenter(hosts, ctx = {}) {
     return (async () => {
       try { const frag = await loader(); if (state.view && state.view.key === key && h.view) h.view.update(frag); }
       catch (e) {
-        if (state.view && state.view.key === key && h.view) h.view.update(ViewError(kind === "commit" ? "Commit indisponible" : kind === "mail" ? "Email indisponible" : "Contenu indisponible", e.message));
+        if (state.view && state.view.key === key && h.view) h.view.update(ViewError(entity(kind).errorTitle, e.message));
       }
     })();
   }
@@ -232,7 +226,7 @@ export function mountCenter(hosts, ctx = {}) {
     renderTabs();
     let last = ""; try { last = store.getItem("karlTabActive") || ""; } catch (e) {}
     const t0 = state.tabs.find(x => tabId(x.kind, x.key) === last);
-    if (t0 && t0.kind !== "session") activate(last);
+    if (t0 && entity(t0.kind).restorable) activate(last);
     else { state.active = "dash:"; renderTabs(); title(); }
   }
 
